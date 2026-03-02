@@ -19,6 +19,8 @@ docker run -d \
 
 Open [http://localhost:3000](http://localhost:3000). No account required by default.
 
+**Want to try it without self-hosting?** A public instance is running at [https://librecloset.lazz.tech](https://librecloset.lazz.tech) — register a free account to get started. No guest login exists, but registration is instant and requires no email verification.
+
 ---
 
 ## Screenshots
