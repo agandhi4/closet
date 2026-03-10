@@ -13,6 +13,8 @@
   "FEATURE_OUTFITS_DESC": "Combine garments into outfits and browse your complete looks in one place.",
   "FEATURE_DOCKER_TITLE": "One-command deploy",
   "FEATURE_DOCKER_DESC": "Self-host in seconds with Docker. Your data, your infrastructure.",
+  "FEATURE_I18N_TITLE": "Multilingual",
+  "FEATURE_I18N_DESC": "Available in English, Italian, French, German, and Spanish. Community translations welcome.",
   "SELF_HOST_TITLE": "Self-host in seconds",
   "SELF_HOST_DESC": "Run Libre Closet on your own server, NAS, or Raspberry Pi with a single Docker command.",
   "SELF_HOST_NOTE": "See the README for docker-compose and environment variable options.",
@@ -89,6 +91,9 @@
   "CLEAR_FILTERS": "Clear Filters",
   "APPLY_FILTERS": "Apply Filters",
   "SELECT_COLOR": "Select a color",
+  "OFFLINE_TITLE": "Offline.",
+  "OFFLINE_DESC": "Some pages may be cached for offline viewing.",
+  "SHARED_BY": "Shared by",
   "validation": {
     "IS_EMAIL": "Please provide a valid email address",
     "MIN_PASSWORD_LENGTH": "Password must be at least 8 characters long",
