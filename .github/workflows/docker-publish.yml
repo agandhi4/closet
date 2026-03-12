@@ -57,6 +57,13 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: lazztech
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: lazztech/libre-closet
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
