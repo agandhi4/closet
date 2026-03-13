@@ -29,6 +29,12 @@ export class ViewContextMiddleware implements NestMiddleware {
     res.locals.locale = lang;
     // Canonical URL for SEO (protocol + host + path, no query string)
     res.locals.canonicalUrl = `${req.protocol}://${req.get('host')}${req.path}`;
+    // Default Open Graph tags -- controllers can override these via their @Render return value
+    res.locals.ogUrl = res.locals.canonicalUrl;
+    res.locals.ogTitle = res.locals.appName;
+    res.locals.ogDescription =
+      I18nContext.current()?.t('lang.APP_DESCRIPTION') ?? '';
+    res.locals.ogImage = `${req.protocol}://${req.get('host')}/assets/lazztech_icon.webp`;
     // og:locale uses underscore format (e.g. en_US)
     const ogLocaleMap: Record<string, string> = {
       en: 'en_US',

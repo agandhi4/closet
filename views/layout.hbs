@@ -35,6 +35,7 @@ https://nestjs-i18n.com/quick-start --}}
     <meta name="twitter:title" content="{{ogTitle}}" />
     <meta name="twitter:description" content="{{ogDescription}}" />
     <meta name="twitter:image" content="{{ogImage}}" />
+    <meta property="og:site_name" content="{{appName}}" />
 
     {{!--
     https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/ConfiguringWebApplications/ConfiguringWebApplications.html
@@ -45,7 +46,7 @@ https://nestjs-i18n.com/quick-start --}}
     https://htmx.org/attributes/hx-swap/#modifiers --}}
     <meta name="htmx-config" content='{"globalViewTransitions": "true"}' />
 
-    <title>{{appName}}</title>
+    <title>{{#if pageTitle}}{{pageTitle}}{{else}}{{appName}}{{/if}}</title>
     {{! Used inconjunction with service worker sw.js to enable PWA (Progressive
     Web App) functionality. }}
     <link rel="manifest" href="/manifest.json" />

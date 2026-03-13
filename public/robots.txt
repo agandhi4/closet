@@ -1,1 +1,8 @@
 User-agent: *
+Allow: /
+Disallow: /wardrobe
+Disallow: /outfits
+Disallow: /auth
+Disallow: /files
+Disallow: /notification
+Disallow: /chat
