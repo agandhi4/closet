@@ -95,29 +95,31 @@ npm run start:prod
 
 `.env` contains committed defaults. Override any value via a `.env.local` file (gitignored) or by passing real environment variables to Docker.
 
-| Variable                           | Description                                    | Default        |
-| ---------------------------------- | ---------------------------------------------- | -------------- |
-| `APP_NAME`                         | Display name shown in the UI and navbar        | `Libre Closet` |
-| `DATA_PATH`                        | Directory for SQLite DB and uploaded files     | `./data`       |
-| `AUTH_ENABLED`                     | Enable JWT user accounts and login             | `false`        |
-| `PWA_ENABLED`                      | Enable service worker and PWA install prompt   | `false`        |
-| `ACCESS_TOKEN_SECRET`              | JWT signing secret — **change for production** | `ChangeMe!`    |
-| `DATABASE_TYPE`                    | `sqlite` or `postgres`                         | `sqlite`       |
-| `DATABASE_HOST`                    | Postgres host                                  | —              |
-| `DATABASE_PORT`                    | Postgres port                                  | `5432`         |
-| `DATABASE_USER`                    | Postgres user                                  | —              |
-| `DATABASE_PASS`                    | Postgres password                              | —              |
-| `DATABASE_SCHEMA`                  | Postgres schema                                | `postgres`     |
-| `DATABASE_SSL`                     | Use SSL for Postgres                           | `false`        |
-| `FILE_STORAGE_TYPE`                | `local` or `object` (S3)                       | `local`        |
-| `OBJECT_STORAGE_ACCESS_KEY_ID`     | S3 access key                                  | —              |
-| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | S3 secret key                                  | —              |
-| `OBJECT_STORAGE_ENDPOINT`          | S3-compatible endpoint URL                     | —              |
-| `EMAIL_FROM_ADDRESS`               | From address for password reset emails         | —              |
-| `EMAIL_TRANSPORT`                  | `gmail` or `mailgun`                           | `gmail`        |
-| `EMAIL_API_KEY`                    | Mailgun API key                                | —              |
-| `PUBLIC_VAPID_KEY`                 | Web push — generate for production             | —              |
-| `PRIVATE_VAPID_KEY`                | Web push — generate for production             | —              |
+| Variable                           | Description                                    | Default        | Example                                                                                   |
+| ---------------------------------- | ---------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------- |
+| `APP_NAME`                         | Display name shown in the UI and navbar        | `Libre Closet` | `My awesome Closet manager`                                                               |
+| `DATA_PATH`                        | Directory for SQLite DB and uploaded files     | `./data`       | `./libre-closet-data`                                                                     |
+| `AUTH_ENABLED`                     | Enable JWT user accounts and login             | `false`        | `true`                                                                                    |
+| `PWA_ENABLED`                      | Enable service worker and PWA install prompt   | `false`        | `true`                                                                                    |
+| `ACCESS_TOKEN_SECRET`              | JWT signing secret — **change for production** | `ChangeMe!`    | `u9n8c2y847rfctb23468tcb689f243`                                                          |
+| `DATABASE_TYPE`                    | `sqlite` or `postgres`                         | `sqlite`       | `postgres`                                                                                |
+| `DATABASE_HOST`                    | Postgres host                                  | —              | `192.168.10.5`                                                                            |
+| `DATABASE_PORT`                    | Postgres port                                  | `5432`         | `9867`                                                                                    |
+| `DATABASE_USER`                    | Postgres user                                  | —              | `postgres`                                                                                |
+| `DATABASE_PASS`                    | Postgres password                              | —              | `7yfhcn2349cr32f`                                                                         |
+| `DATABASE_SCHEMA`                  | Postgres schema                                | `postgres`     | `libre-closet-schema`                                                                     |
+| `DATABASE_SSL`                     | Use SSL for Postgres                           | `false`        | `true`                                                                                    |
+| `FILE_STORAGE_TYPE`                | `local` or `object` (S3)                       | `local`        | `object`                                                                                  |
+| `OBJECT_STORAGE_ACCESS_KEY_ID`     | S3 access key                                  | —              | `AKIAIOSFODNN7EXAMPLE`                                                                    |
+| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | S3 secret key                                  | —              | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`                                                |
+| `OBJECT_STORAGE_ENDPOINT`          | S3-compatible endpoint URL                     | —              | `https://s3.example.com:8443`                                                             |
+| `OBJECT_STORAGE_REGION`            | S3 region                                      | `us-east-1`    | `us-west-1`                                                                               |
+| `OBJECT_STORAGE_BUCKET_NAME`       | S3 bucket name                                 | `libre-closet` | `my-awesome-closet-manager-bucket`                                                        |
+| `EMAIL_FROM_ADDRESS`               | From address for password reset emails         | —              | `LibreCloset@example.com`                                                                 |
+| `EMAIL_TRANSPORT`                  | `gmail` or `mailgun`                           | `gmail`        | `mailgun`                                                                                 |
+| `EMAIL_API_KEY`                    | Mailgun API key                                | —              | `fyhn2437cryb248cbrdc32`                                                                  |
+| `PUBLIC_VAPID_KEY`                 | Web push — generate for production             | —              | `BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U` |
+| `PRIVATE_VAPID_KEY`                | Web push — generate for production             | —              | `UUxI4O8-FbRouAevSmBQ6o18hgE4nSG3qwvJTfKc-ls`                                             |
 
 Generate JWT secret:
 
