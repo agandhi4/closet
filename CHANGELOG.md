@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Rely on http cache layer for images from the file endpoint rather than the service worker
 
+#### Changed
+
+- Change garments query to order by descending order to show new items at the top
+
 ## [0.1.8]
 
 #### Fixed
