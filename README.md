@@ -203,6 +203,12 @@ PRs and issues are welcome. This project is licensed under AGPL-3.0 — contribu
 
 ---
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=Lazztech/Libre-Closet&type=date&legend=top-left)](https://www.star-history.com/?repos=Lazztech%2FLibre-Closet&type=date&legend=top-left)
+
+---
+
 ## Built by
 
 [Lazztech LLC](https://lazz.tech)
