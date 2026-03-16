@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Changed
 
 - Change garments query to order by descending order to show new items at the top
+- Adjusted garment list sizing on mobile
 
 ## [0.1.8]
 
