@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Fixed
 
 - Rely on http cache layer for images from the file endpoint rather than the service worker
+- Extended login validity and added token fingerprint for invalidation on password change
 
 #### Changed
 
