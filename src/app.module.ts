@@ -161,7 +161,7 @@ import { LoggerModule } from 'nestjs-pino';
         BACKGROUND_REMOVAL_CONCURRENCY: Joi.number()
           .integer()
           .min(1)
-          .default(2),
+          .default(1),
       }),
       validationOptions: {
         abortEarly: true,
