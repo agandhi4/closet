@@ -31,10 +31,7 @@ export abstract class FileService
 
   private bgQueue$ = new Subject<BgJob>();
   private bgPendingJobs = new Map<string, { reject: (err: unknown) => void }>();
-  private removeBackgroundFn: (
-    input: ArrayBuffer | Buffer | Blob,
-    config?: { output?: { format?: string; quality?: number } },
-  ) => Promise<Blob>;
+  private removeBackgroundFn: typeof import('@imgly/background-removal-node').removeBackground;
 
   constructor(readonly configService: ConfigService) {}
 
@@ -58,8 +55,15 @@ export abstract class FileService
               const inputBlob = new Blob([input.buffer as ArrayBuffer], {
                 type: mimeType,
               });
+              const model = this.configService.get<string>(
+                'BACKGROUND_REMOVAL_MODEL',
+                'small',
+              ) as 'small' | 'medium' | 'large';
               const blob = await this.removeBackgroundFn(inputBlob, {
-                output: { format: mimeType },
+                model,
+                output: {
+                  format: mimeType as 'image/png' | 'image/jpeg' | 'image/webp',
+                },
               });
               const webpStream = Readable.fromWeb(
                 blob.stream() as Parameters<typeof Readable.fromWeb>[0],
