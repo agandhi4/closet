@@ -17,13 +17,8 @@ A free, open-source, self-hosted wardrobe organizer. Catalog your clothes, uploa
 
 #### Unreleased (Upcoming for v0.2.0)
 
-WIP
-
 - Clueless inspired outfit builder
 - Outfit Scheduling
-
-Merged
-
 - Background removal
 - Customizable categories
 
