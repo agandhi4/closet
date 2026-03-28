@@ -44,6 +44,9 @@ async function bootstrap() {
   hbs.registerHelper('json', function (context) {
     return JSON.stringify(context);
   });
+  hbs.registerHelper('uri', (str: string) =>
+    encodeURIComponent(String(str ?? '')),
+  );
   hbs.registerHelper('ifEquals', function (arg1, arg2, options) {
     return arg1 == arg2 ? options.fn(this) : options.inverse(this);
   });
@@ -86,6 +89,9 @@ async function bootstrap() {
       prefix: '/modules/',
     },
   );
+  app.useStaticAssets(join(__dirname, '..', 'node_modules/sortablejs'), {
+    prefix: '/modules/',
+  });
 
   app.useGlobalFilters(new ErrorViewFilter());
   await app.listen(process.env.PORT ?? 3000);
