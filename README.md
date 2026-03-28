@@ -6,7 +6,7 @@ A free, open-source, self-hosted wardrobe organizer. Catalog your clothes, uploa
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Version](https://img.shields.io/badge/Version-0.1.9-green.svg)](https://github.com/lazztech/libre-closet/tags)
-[![GHCR Pulls](https://img.shields.io/badge/GHCR%20pulls-1.6k-grey?logo=github&logoColor=959da5&labelColor=333a41)](https://github.com/lazztech/libre-closet/pkgs/container/libre-closet)
+[![GHCR Pulls](https://img.shields.io/badge/GHCR%20pulls-1.9k-grey?logo=github&logoColor=959da5&labelColor=333a41)](https://github.com/lazztech/libre-closet/pkgs/container/libre-closet)
 [![Docker Pulls](https://img.shields.io/docker/pulls/lazztech/libre-closet?logo=docker&logoColor=959da5&labelColor=333a41&label=Docker%20Pulls)](https://hub.docker.com/r/lazztech/libre-closet)
 
 <!-- [![GHCR Pulls](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fipitio.github.io%2Fbackage%2Flazztech%2Flibre-closet%2Flibre-closet.json&query=%24.downloads&label=GHCR%20pulls&logo=github&logoColor=959da5&labelColor=333a41)](https://github.com/lazztech/libre-closet/pkgs/container/libre-closet) -->
@@ -240,4 +240,4 @@ PRs and issues are welcome. This project is licensed under AGPL-3.0 — contribu
 
 ## Built by
 
-[Lazztech LLC](https://lazz.tech)
+Crafted and engineered with care and intention by [Lazztech LLC](https://lazz.tech)
