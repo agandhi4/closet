@@ -3,7 +3,7 @@
 <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto">
   <div class="flex items-center gap-3 mb-6">
     <a
-      href="{{#if outfit}}/outfits/{{outfit.id}}{{else}}/outfits{{/if}}"
+      href="{{returnTo}}"
       class="btn btn-ghost btn-sm btn-circle"
     >
       <svg
@@ -97,6 +97,20 @@
       >
     </div>
 
+    <div class="form-control">
+      <label class="label">
+        <span class="label-text">
+          {{t 'lang.ADD_TO_CALENDAR'}}
+        </span>
+      </label>
+      <input
+        type="date"
+        name="scheduleDate"
+        class="input input-bordered w-full"
+        {{#if scheduleDate}}value="{{scheduleDate}}"{{/if}}
+      />
+    </div>
+
     <div class="flex gap-2 mt-2">
       <button type="submit" class="btn btn-primary flex-1">
         {{t 'lang.SAVE'}}
@@ -105,7 +119,7 @@
       <a href="/outfits/new" class="btn btn-ghost">{{t 'lang.START_OVER'}}</a>
       {{/unless}}
       <a
-        href="{{#if outfit}}/outfits/{{outfit.id}}{{else}}/outfits{{/if}}"
+        href="{{returnTo}}"
         class="btn btn-ghost"
         >{{t 'lang.CANCEL'}}</a
       >
