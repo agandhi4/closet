@@ -11,6 +11,7 @@ WORKDIR /app
 # Note when using COPY with more than one source file, 
 # the destination must be a directory and end with a /
 COPY package*.json ./
+COPY patches ./patches
 RUN npm ci
 
 COPY src ./src
@@ -20,7 +21,6 @@ COPY tsconfig*.json ./
 COPY nest-cli.json .
 COPY tailwind.config.js .
 COPY workbox-config.js .
-copy patches ./patches
 
 RUN npm run build
 
@@ -30,6 +30,7 @@ FROM node:22-slim
 WORKDIR /app
 
 COPY package*.json ./
+COPY patches ./patches
 RUN npm ci
 
 # Copy built application from builder stage
