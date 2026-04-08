@@ -20,6 +20,7 @@ COPY tsconfig*.json ./
 COPY nest-cli.json .
 COPY tailwind.config.js .
 COPY workbox-config.js .
+copy patches ./patches
 
 RUN npm run build
 
