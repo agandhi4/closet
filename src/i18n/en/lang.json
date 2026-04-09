@@ -139,9 +139,8 @@
   "CALENDAR_DAY_SAT": "Saturday",
   "CALENDAR": "Calendar",
   "CALENDAR_PAGE_TITLE": "Outfit Calendar",
-  "CALENDAR_PLAN_OUTFIT": "Build outfit",
   "CALENDAR_MARK_WORN": "Mark as worn",
-  "CALENDAR_MARK_WORN_PROMPT": "Mark worn?",
+  "CALENDAR_MARK_WORN_PROMPT": "Worn?",
   "CALENDAR_WORN": "Worn",
   "CALENDAR_UNMARK_WORN": "Unmark worn",
   "CALENDAR_NO_OUTFIT_PLANNED": "No outfit planned",
@@ -155,6 +154,7 @@
   "NO_GARMENTS_FOR_BUILDER": "Add some garments to your wardrobe to start building outfits.",
   "ADD_TO_CALENDAR": "Add to Calendar",
   "CALENDAR_ADD_OUTFIT_PROMPT": "Add outfit to Calendar?",
+  "CALENDAR_OUTFIT_ADDED": "Outfit added to calendar!",
   "validation": {
     "IS_EMAIL": "Please provide a valid email address",
     "MIN_PASSWORD_LENGTH": "Password must be at least 8 characters long",
