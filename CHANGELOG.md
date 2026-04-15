@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - ...
 
+## [0.2.1] - 2026-04-15
+
+#### Fixed
+
+- fix empty outfit click area
+
 ## [0.2.0] - 2026-04-10
 
 #### Added
