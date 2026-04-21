@@ -20,6 +20,7 @@ Crafted and engineered with care and intention by [Lazztech LLC](https://lazz.te
 
 #### Released
 
+- `v0.2.3 - April 20, 2026`: Added Russian language support.
 - `v0.2.2 - April 17, 2026:` Garment and Outfit names now optional
 - `v0.2.1 - April 15, 2026:` fix empty outfit click area
 - `v0.2.0 - April 10, 2026:` Clueless inspired outfit builder, Outfit Scheduling, Image Background Removal, & Customizable categories
@@ -70,7 +71,7 @@ Note, these screenshots are taken of the web application viewed as an installed 
 - **Optional auth** - run open for personal use or enable JWT accounts for multi-user
 - **S3 or local storage** - local disk by default, swap to any S3-compatible provider
 - **SQLite or PostgreSQL** - SQLite by default, PostgreSQL for scale
-- **Multi-language** - UI available in English, Italian, French, German, and Spanish
+- **Multi-language** - UI available in English, Italian, French, Russian, German, and Spanish
 
 ---
 
