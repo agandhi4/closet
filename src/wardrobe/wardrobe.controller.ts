@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Logger,
@@ -20,6 +21,8 @@ import { Payload } from '../auth/dto/payload.dto';
 import { GarmentCategory } from './garment-category.enum';
 import { GarmentColor } from './garment-color.enum';
 import { GarmentService } from './garment.service';
+import { WardrobeShareService } from '../wardrobe-share/wardrobe-share.service';
+import { SharePermission } from '../dal/entity/wardrobe-share.entity';
 import type { SearchGarmentDto } from './dto/search-garment.dto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
@@ -28,7 +31,10 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 export class WardrobeController {
   private readonly logger = new Logger(WardrobeController.name);
 
-  constructor(private readonly garmentService: GarmentService) {}
+  constructor(
+    private readonly garmentService: GarmentService,
+    private readonly shareService: WardrobeShareService,
+  ) {}
 
   private userId(req: any): number | undefined {
     return (req['user'] as Payload | undefined)?.userId;
@@ -39,11 +45,42 @@ export class WardrobeController {
   async index(
     @Req() req: FastifyRequest,
     @Query() query: SearchGarmentDto,
+    @Query('ownerId') ownerId: string | undefined,
     @I18n() i18n: I18nContext,
   ) {
+    const userId = this.userId(req);
+    let viewOwner: number | undefined;
+    let sharedWardrobes: any[] = [];
+    let canEdit = true;
+
+    if (userId != null) {
+      sharedWardrobes = await this.shareService.getInboundShares(userId);
+      sharedWardrobes = sharedWardrobes.map((s) => ({
+        id: s.id,
+        grantorId: s.grantor.unwrap().id,
+        grantorName: s.grantor.unwrap().firstName || s.grantor.unwrap().email,
+        permission: s.permission,
+      }));
+    }
+
+    if (ownerId && userId != null) {
+      viewOwner = parseInt(ownerId, 10);
+      if (viewOwner === userId) {
+        viewOwner = undefined;
+      } else {
+        const canView = await this.shareService.canView(userId, viewOwner);
+        if (!canView) throw new ForbiddenException();
+        const perm = await this.shareService.getSharePermission(
+          userId,
+          viewOwner,
+        );
+        canEdit = perm === SharePermission.MANAGE;
+      }
+    }
+
     const [garments, filters] = await Promise.all([
-      this.garmentService.findAll(this.userId(req), query),
-      this.garmentService.findAvailableFilters(this.userId(req)),
+      this.garmentService.findAll(userId, query, viewOwner),
+      this.garmentService.findAvailableFilters(viewOwner ?? userId),
     ]);
     const availableCategories = filters.categories.map((value) => ({
       value,
@@ -55,14 +92,27 @@ export class WardrobeController {
       colors: Object.values(GarmentColor),
       availableSizes: filters.sizes,
       search: query,
+      sharedWardrobes,
+      viewOwner: viewOwner ?? null,
+      canEdit,
     };
   }
 
   @Get('new')
   @Render('wardrobe/form')
-  async newForm(@Req() req: FastifyRequest, @I18n() i18n: I18nContext) {
+  async newForm(
+    @Req() req: FastifyRequest,
+    @I18n() i18n: I18nContext,
+    @Query('ownerId') ownerId: string | undefined,
+  ) {
+    const userId = this.userId(req);
+    const viewOwner = ownerId ? parseInt(ownerId, 10) : undefined;
+    if (userId != null && viewOwner != null && viewOwner !== userId) {
+      const canManage = await this.shareService.canManage(userId, viewOwner);
+      if (!canManage) throw new ForbiddenException();
+    }
     const filters = await this.garmentService.findAvailableFilters(
-      this.userId(req),
+      viewOwner ?? userId,
     );
     const enumValues = Object.values(GarmentCategory) as string[];
     const customCategories = filters.categories.filter(
@@ -76,6 +126,7 @@ export class WardrobeController {
       categories,
       colors: Object.values(GarmentColor),
       garment: null,
+      viewOwner,
     };
   }
 
@@ -92,7 +143,16 @@ export class WardrobeController {
     },
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
+    @Query('ownerId') ownerId: string | undefined,
   ) {
+    const userId = this.userId(req);
+    const viewOwner = ownerId ? parseInt(ownerId, 10) : undefined;
+
+    if (userId != null && viewOwner != null && viewOwner !== userId) {
+      const canManage = await this.shareService.canManage(userId, viewOwner);
+      if (!canManage) throw new ForbiddenException();
+    }
+
     const garment = await this.garmentService.create(
       {
         name: body.name,
@@ -102,9 +162,10 @@ export class WardrobeController {
         size: body.size,
         notes: body.notes,
       },
-      this.userId(req),
+      viewOwner ?? userId,
     );
-    return reply.redirect(`/wardrobe/${garment.id}`, 302);
+    const redirectSuffix = viewOwner ? `?ownerId=${viewOwner}` : '';
+    return reply.redirect(`/wardrobe/${garment.id}${redirectSuffix}`, 302);
   }
 
   @Get(':id')
@@ -113,14 +174,35 @@ export class WardrobeController {
     @Param('id', ParseIntPipe) id: number,
     @Req() req: FastifyRequest,
     @I18n() i18n: I18nContext,
+    @Query('ownerId') ownerId: string | undefined,
   ) {
-    const garment = await this.garmentService.findOne(id, this.userId(req));
+    const userId = this.userId(req);
+    const viewOwner = ownerId ? parseInt(ownerId, 10) : undefined;
+    const garment = await this.garmentService.findOne(id, userId, viewOwner);
+
+    let canEdit = true;
+    let canDelete = true;
+    if (userId != null && viewOwner != null && viewOwner !== userId) {
+      const perm = await this.shareService.getSharePermission(
+        userId,
+        viewOwner,
+      );
+      canEdit = perm === SharePermission.MANAGE;
+      canDelete = false;
+    } else if (userId != null && garment.owner?.id !== userId) {
+      canEdit = false;
+      canDelete = false;
+    }
+
     return {
       garment,
       categoryLabel: this.garmentService.resolveCategoryLabel(
         garment.category,
         i18n,
       ),
+      canEdit,
+      canDelete,
+      viewOwner: viewOwner ?? null,
     };
   }
 
@@ -130,10 +212,19 @@ export class WardrobeController {
     @Param('id', ParseIntPipe) id: number,
     @Req() req: FastifyRequest,
     @I18n() i18n: I18nContext,
+    @Query('ownerId') ownerId: string | undefined,
   ) {
+    const userId = this.userId(req);
+    const viewOwner = ownerId ? parseInt(ownerId, 10) : undefined;
+
+    if (userId != null && viewOwner != null && viewOwner !== userId) {
+      const canManage = await this.shareService.canManage(userId, viewOwner);
+      if (!canManage) throw new ForbiddenException();
+    }
+
     const [garment, filters] = await Promise.all([
-      this.garmentService.findOne(id, this.userId(req)),
-      this.garmentService.findAvailableFilters(this.userId(req)),
+      this.garmentService.findOne(id, userId, viewOwner),
+      this.garmentService.findAvailableFilters(viewOwner ?? userId),
     ]);
     const enumValues = Object.values(GarmentCategory) as string[];
     const customCategories = filters.categories.filter(
@@ -147,6 +238,7 @@ export class WardrobeController {
       garment,
       categories,
       colors: Object.values(GarmentColor),
+      viewOwner: viewOwner ?? null,
     };
   }
 
@@ -164,7 +256,16 @@ export class WardrobeController {
     },
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
+    @Query('ownerId') ownerId: string | undefined,
   ) {
+    const userId = this.userId(req);
+    const viewOwner = ownerId ? parseInt(ownerId, 10) : undefined;
+
+    if (userId != null && viewOwner != null && viewOwner !== userId) {
+      const canManage = await this.shareService.canManage(userId, viewOwner);
+      if (!canManage) throw new ForbiddenException();
+    }
+
     await this.garmentService.update(
       id,
       {
@@ -175,9 +276,11 @@ export class WardrobeController {
         size: body.size,
         notes: body.notes,
       },
-      this.userId(req),
+      viewOwner ?? userId,
+      userId,
     );
-    return reply.redirect(`/wardrobe/${id}`, 302);
+    const redirectSuffix = viewOwner ? `?ownerId=${viewOwner}` : '';
+    return reply.redirect(`/wardrobe/${id}${redirectSuffix}`, 302);
   }
 
   @Post(':id/photo')
@@ -185,13 +288,24 @@ export class WardrobeController {
     @Param('id', ParseIntPipe) id: number,
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
+    @Query('ownerId') ownerId: string | undefined,
   ) {
+    const userId = this.userId(req);
+    const viewOwner = ownerId ? parseInt(ownerId, 10) : undefined;
+
+    if (userId != null && viewOwner != null && viewOwner !== userId) {
+      const canManage = await this.shareService.canManage(userId, viewOwner);
+      if (!canManage) throw new ForbiddenException();
+    }
+
     await this.garmentService.update(
       id,
       { files: req.files({ limits: { files: 2 } }) },
-      this.userId(req),
+      viewOwner ?? userId,
+      userId,
     );
-    reply.header('HX-Redirect', `/wardrobe/${id}`);
+    const redirectSuffix = viewOwner ? `?ownerId=${viewOwner}` : '';
+    reply.header('HX-Redirect', `/wardrobe/${id}${redirectSuffix}`);
     return reply.send();
   }
 
@@ -200,10 +314,25 @@ export class WardrobeController {
     @Param('id', ParseIntPipe) id: number,
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
+    @Query('ownerId') ownerId: string | undefined,
   ) {
+    const userId = this.userId(req);
+    const viewOwner = ownerId ? parseInt(ownerId, 10) : undefined;
+
+    if (userId != null && viewOwner != null && viewOwner !== userId) {
+      const canManage = await this.shareService.canManage(userId, viewOwner);
+      if (!canManage) throw new ForbiddenException();
+    }
+
     const nobgPhoto = await req.file();
-    await this.garmentService.updateNobg(id, nobgPhoto, this.userId(req));
-    reply.header('HX-Redirect', `/wardrobe/${id}`);
+    await this.garmentService.updateNobg(
+      id,
+      nobgPhoto,
+      viewOwner ?? userId,
+      userId,
+    );
+    const redirectSuffix = viewOwner ? `?ownerId=${viewOwner}` : '';
+    reply.header('HX-Redirect', `/wardrobe/${id}${redirectSuffix}`);
     return reply.send();
   }
 
@@ -213,8 +342,17 @@ export class WardrobeController {
     @Param('id', ParseIntPipe) id: number,
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
+    @Query('ownerId') ownerId: string | undefined,
   ) {
-    await this.garmentService.remove(id, this.userId(req));
+    const userId = this.userId(req);
+    const viewOwner = ownerId ? parseInt(ownerId, 10) : undefined;
+
+    // Delete is only allowed for the owner
+    if (viewOwner != null && viewOwner !== userId) {
+      throw new ForbiddenException();
+    }
+
+    await this.garmentService.remove(id, userId);
     reply.header('HX-Redirect', '/wardrobe');
     return reply.send();
   }
