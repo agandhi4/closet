@@ -16,6 +16,14 @@ Crafted and engineered with care and intention by [Lazztech LLC](https://lazz.te
 
 ## News
 
+**`v0.4.0` Wardrobe Sharing - June 13, 2026**
+
+You can now share your Libre Closet wardrobe with your friends, or for the stylist out there, you may now use this tool manage your clients wardrobes!
+
+To share your wardrobe, navigate to your profile (either through the hamburger menu on mobile, or the navbar on desktop), click on "Wardrobe Sharing", then click "Create Invite Link", copy the link and send it to your friend. Have them do the same if you would like to share both ways.
+
+Or from the same wardrobe sharing page, if you would like grant someone else permissions to manage your wardrobe then select the permission drop down and choose "Can edit", copy the invite link, and send it to your stylist friends.
+
 **`v0.3.1` Significant Performance Improvements - May 26, 2026**
 
 Libre Closet is now more performant, making more efficient use of your existing hardware!
@@ -32,11 +40,11 @@ We've [refactored the server](https://github.com/Lazztech/Libre-Closet/pull/79) 
 
 #### Released
 
+- `v0.4.0`: Added wardrobe sharing from one user to another with either view only or edit permissions
 - `v0.3.2 - June 09, 2026`: Added background removal toggle for garment image uploads.
 - `v0.3.1 - May 26, 2026`: Refactored server resulting in nearly a 2x throughput increase and almost half the latency.
 - `v0.3.0 - May 21, 2026`: Garment image background touch up tool
 - `v0.2.5 - May 1, 2026`: Added option to disable register functionality
-- `v0.2.4 - April 28, 2026`: Fix garment photo upload cropping
 
 For full details refer to the [CHANGELOG](CHANGELOG.md).
 
