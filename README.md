@@ -18,7 +18,7 @@ Crafted and engineered with care and intention by [Lazztech LLC](https://lazz.te
 
 **`v0.4.0` Wardrobe Sharing - June 13, 2026**
 
-You can now share your Libre Closet wardrobe with your friends, or for the stylist out there, you may now use this tool manage your clients wardrobes!
+You can now share your Libre Closet wardrobe with your friends, or for the stylists out there, you may now use this tool to manage your client's wardrobes!
 
 To share your wardrobe, navigate to your profile (either through the hamburger menu on mobile, or the navbar on desktop), click on "Wardrobe Sharing", then click "Create Invite Link", copy the link and send it to your friend. Have them do the same if you would like to share both ways.
 
