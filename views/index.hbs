@@ -1,28 +1,49 @@
 <script type="application/ld+json">
   {
     "@context": "https://schema.org",
+    "@id": "{{canonicalUrl}}#organization",
     "@type": "Organization",
     "name": "Lazztech",
     "url": "https://lazztech.com",
-    "sameAs": ["https://github.com/lazztech"]
+    "logo": "https://librecloset.lazz.tech/assets/lazztech_icon.webp",
+    "description": "Creator of Libre Closet — free, open-source, self-hosted wardrobe organizer.",
+    "sameAs": [
+      "https://github.com/lazztech",
+      "https://github.com/lazztech/libre-closet"
+    ]
   }
 </script>
 <script type="application/ld+json">
   {
     "@context": "https://schema.org",
+    "@id": "{{canonicalUrl}}#website",
     "@type": "WebSite",
     "name": "{{appName}}",
     "url": "{{canonicalUrl}}",
-    "description": "{{t 'lang.APP_DESCRIPTION'}}"
+    "description": "{{t 'lang.APP_DESCRIPTION'}}",
+    "inLanguage": "{{ogLocale}}",
+    "publisher": {
+      "@id": "{{canonicalUrl}}#organization"
+    },
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "{{canonicalUrl}}/wardrobe?q={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
   }
 </script>
 <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
+    "@id": "{{canonicalUrl}}#software",
+    "@type": "WebApplication",
     "name": "{{appName}}",
     "applicationCategory": "LifestyleApplication",
-    "operatingSystem": "Web",
+    "operatingSystem": "Linux, Web",
+    "browserRequirements": "Requires a modern browser with Service Worker support",
+    "author": {
+      "@id": "{{canonicalUrl}}#organization"
+    },
     "offers": {
       "@type": "Offer",
       "price": "0",
@@ -30,7 +51,8 @@
     },
     "url": "{{canonicalUrl}}",
     "description": "{{t 'lang.APP_DESCRIPTION'}}",
-    "license": "https://www.gnu.org/licenses/agpl-3.0.html"
+    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+    "featureList": "{{canonicalUrl}}#features"
   }
 </script>
 
@@ -188,7 +210,7 @@
   </section>
 
   {{!-- Features --}}
-  <section class="py-20 px-4 bg-base-100">
+  <section id="features" class="py-20 px-4 bg-base-100">
     <div class="max-w-5xl mx-auto">
       <h2 class="text-3xl font-bold text-center mb-12">
         {{t 'lang.FEATURES_TITLE'}}
@@ -494,6 +516,13 @@
           class="link link-hover"
           >GitHub</a
         >
+      </p>
+      <p>
+        <a href="/privacy" class="link link-hover text-xs">Privacy</a>
+        &nbsp;&middot;&nbsp;
+        <a href="/terms" class="link link-hover text-xs">Terms</a>
+        &nbsp;&middot;&nbsp;
+        <a href="/about" class="link link-hover text-xs">About</a>
       </p>
       <p>
         Made with ♥ by

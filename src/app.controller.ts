@@ -24,8 +24,41 @@ export class AppController {
 
   @Get()
   @Render('index')
-  index(@I18n() i18n: I18nContext) {
-    return { pageTitle: i18n.t('lang.PAGE_TITLE_HOME') };
+  index(@I18n() i18n: I18nContext): any {
+    return {
+      pageTitle: i18n.t('lang.PAGE_TITLE_HOME'),
+      ogTitle: i18n.t('lang.PAGE_TITLE_HOME'),
+    };
+  }
+
+  @Get('privacy')
+  @Render('privacy')
+  privacy(@I18n() i18n: I18nContext): any {
+    return {
+      pageTitle: i18n.t('lang.PRIVACY_TITLE'),
+      ogTitle: i18n.t('lang.PRIVACY_OG_TITLE'),
+      ogDescription: i18n.t('lang.PRIVACY_OG_DESC'),
+    };
+  }
+
+  @Get('about')
+  @Render('about')
+  about(@I18n() i18n: I18nContext): any {
+    return {
+      pageTitle: i18n.t('lang.ABOUT_TITLE'),
+      ogTitle: i18n.t('lang.ABOUT_OG_TITLE'),
+      ogDescription: i18n.t('lang.ABOUT_OG_DESC'),
+    };
+  }
+
+  @Get('terms')
+  @Render('terms')
+  terms(@I18n() i18n: I18nContext): any {
+    return {
+      pageTitle: i18n.t('lang.TERMS_TITLE'),
+      ogTitle: i18n.t('lang.TERMS_OG_TITLE'),
+      ogDescription: i18n.t('lang.TERMS_OG_DESC'),
+    };
   }
 
   @Get('chat')
@@ -112,18 +145,39 @@ export class AppController {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>${baseUrl}/</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>${baseUrl}/auth/register</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>${baseUrl}/auth/login</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>${baseUrl}/privacy</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>${baseUrl}/about</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>${baseUrl}/terms</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
   </url>
 </urlset>`,
     );
