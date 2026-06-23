@@ -6,6 +6,7 @@ import {
 import fastifyCompress from '@fastify/compress';
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
+import fastifyView from '@fastify/view';
 import hbs from 'hbs';
 import type { HelperOptions } from 'handlebars';
 import { join } from 'path';
@@ -30,10 +31,11 @@ async function bootstrap() {
   const fastify = app.getHttpAdapter().getInstance();
   fastify.decorateReply('locals', null);
   fastify.addHook('preHandler', async (req, reply) => {
-    (reply as any).locals = await viewContextService.buildContext(req);
+    reply.locals = await viewContextService.buildContext(req);
   });
 
   // Security headers on all responses
+  // eslint-disable-next-line @typescript-eslint/require-await -- Fastify onSend hook must return a Promise if not using the callback (next) pattern
   fastify.addHook('onSend', async (_request, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');
@@ -44,7 +46,7 @@ async function bootstrap() {
     );
     reply.header(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://static.cloudflareinsights.com; frame-ancestors 'none';",
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://static.cloudflareinsights.com; frame-ancestors 'none';",
     );
     return payload;
   });
@@ -116,6 +118,19 @@ async function bootstrap() {
 
   // Register partials from views/partials
   hbs.registerPartials(join(__dirname, '..', 'views', 'partials'));
+
+  // Second view instance without a global layout for htmx partial responses.
+  // @fastify/view's documented pattern for rendering templates both with and
+  // without a layout: register multiple instances with different propertyName.
+  // https://github.com/fastify/point-of-view#registering-multiple-engines-with-different-configurations
+  await fastify.register(fastifyView, {
+    engine: { handlebars: hbs },
+    templates: join(__dirname, '..', 'views'),
+    propertyName: 'viewPartial',
+    viewExt: 'hbs',
+    includeViewExtension: true,
+    production: process.env.NODE_ENV === 'production',
+  });
 
   // Register handlebars helpers after engine setup
   hbs.registerHelper(
