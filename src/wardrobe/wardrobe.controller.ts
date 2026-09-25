@@ -25,6 +25,7 @@ import {
   WardrobeShareService,
 } from '../wardrobe-share/wardrobe-share.service';
 import type { SearchGarmentDto } from './dto/search-garment.dto';
+import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 interface RequestAccess {
@@ -80,10 +81,14 @@ export class WardrobeController {
     return resolved;
   }
 
+  // Full page for navigations; only partials/wardrobe_main for htmx fragment
+  // requests (filter pills and the search form target #wardrobe-main), so a
+  // search never re-renders navbar and dock. Boosted links and history
+  // restores still get the page: see isFragmentRequest.
   @Get()
-  @Render('wardrobe/index')
   async index(
     @Req() req: FastifyRequest,
+    @Res() reply: FastifyReply,
     @Query() query: SearchGarmentDto,
     @Query('ownerId') ownerId: string | undefined,
     @I18n() i18n: I18nContext,
@@ -112,7 +117,7 @@ export class WardrobeController {
       value,
       label: this.garmentService.resolveCategoryLabel(value, i18n),
     }));
-    return {
+    const context = {
       garments,
       availableCategories,
       colors: Object.values(GarmentColor),
@@ -122,6 +127,14 @@ export class WardrobeController {
       viewOwner: viewOwner ?? null,
       canEdit: access.canManage,
     };
+    reply.header('Vary', FRAGMENT_VARY);
+    if (isFragmentRequest(req.headers)) {
+      this.logger.debug(
+        `wardrobe fragment for user ${userId ?? 'anonymous'}: ${garments.length} garments`,
+      );
+      return reply.viewPartial('partials/wardrobe_main', context);
+    }
+    return reply.view('wardrobe/index', context);
   }
 
   @Get('new')
