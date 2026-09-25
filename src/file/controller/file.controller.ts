@@ -9,11 +9,16 @@ import {
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { FileService } from '../file-service.abstract';
-import { ImageVariant } from '../image-variant';
+import { ImageVariant, parseStoredName } from '../image-variant';
 
-// Stored names are `<uuid>.webp`; anything else (path separators, dot
-// segments, encoded slashes) is rejected before it reaches the backend.
-const SAFE_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+// The route segment must be a photo's base name, `<uuid>.webp`, as defined
+// once by parseStoredName (reconciliation uses the same rule). DATA_PATH also
+// holds app.log: a looser "safe characters" check here served it, session
+// cookies included, to anyone. Variant names (`-thumb`, `-nobg`) are reached
+// only through their own routes.
+function isPhotoBaseName(fileName: string): boolean {
+  return parseStoredName(fileName)?.variant === 'original';
+}
 
 // Images only, no pages: every route here is under the /file/ static prefix
 // (static-prefixes.ts), so the session hook in app.ts skips it. A page added
@@ -58,7 +63,7 @@ export class FileController {
     variant: ImageVariant,
     reply: FastifyReply,
   ) {
-    if (!SAFE_FILE_NAME.test(fileName) || fileName.includes('..')) {
+    if (!isPhotoBaseName(fileName)) {
       throw new NotFoundException();
     }
     const stream = await this.fileService.getVariant(fileName, variant);

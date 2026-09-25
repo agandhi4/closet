@@ -3,6 +3,7 @@ import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import Joi from 'joi';
+import type { IncomingMessage } from 'node:http';
 import * as path from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -22,6 +23,15 @@ import { LoggerModule } from 'nestjs-pino';
 import { ErrorViewFilter } from './error-view.filter';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { ViewContextModule } from './view-context/view-context.module';
+import { isStaticPath } from './static-prefixes';
+
+// Nest mounts pino-http as middleware, which strips the mount prefix from
+// req.url ("/healthz" arrives as "/"); the full path is in originalUrl.
+function originalUrl(req: IncomingMessage): string {
+  return 'originalUrl' in req && typeof req.originalUrl === 'string'
+    ? req.originalUrl
+    : (req.url ?? '');
+}
 
 // Loopback only: right for `npm run start:prod` on a laptop, wrong behind a
 // containerised reverse proxy (production sets the Docker bridge range).
@@ -43,6 +53,23 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
         return {
           pinoHttp: {
             level: configService.getOrThrow<string>('LOG_LEVEL'),
+            // The session cookie is a bearer credential: a logged header is a
+            // stolen login for a year. app.log lives under DATA_PATH and the
+            // container logs reach Loki, so neither may ever hold one.
+            redact: {
+              paths: [
+                'req.headers.cookie',
+                'req.headers.authorization',
+                'res.headers["set-cookie"]',
+              ],
+              censor: '[redacted]',
+            },
+            // Every thumbnail, script and 30 s heartbeat was a log line: noise
+            // that cost ~16% of image throughput. Failures on these paths
+            // still surface through ErrorViewFilter.
+            autoLogging: {
+              ignore: (req) => isStaticPath(originalUrl(req)),
+            },
             transport: {
               targets: [
                 {

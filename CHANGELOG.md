@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- `/file/app.log` (and any other non-photo file under `DATA_PATH`) was served to anyone; the route now serves only photo names. Request logs no longer record `cookie`, `authorization` or `set-cookie` headers, and static requests and the heartbeat are no longer logged
+- The password reset form no longer prints its body (including the new password) to the container log
 - An undecodable photo upload (junk bytes sent as HEIC or JPEG) no longer crashes the server with an unhandled rejection; it is a 400 and the app keeps serving
 - Deleting an account now removes the user's photos from storage; the confirmation credentials must belong to the account being deleted, and a refused deletion answers 401 (400 for a malformed body) instead of 201
 - Choosing a photo the browser cannot decode no longer leaves the upload button disabled
