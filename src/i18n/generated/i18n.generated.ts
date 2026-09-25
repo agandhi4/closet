@@ -76,6 +76,7 @@ export type I18nTranslations = {
         "BG_STAGE_ENCODING": string;
         "BG_HINT_TYPICAL_DURATION": string;
         "BG_HINT_STILL_WORKING": string;
+        "BG_UNSUPPORTED_PHOTO": string;
         "MASK_EDITOR_TITLE": string;
         "MASK_EDITOR_HINT": string;
         "MASK_EDITOR_SKIP": string;

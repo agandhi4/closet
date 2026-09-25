@@ -69,6 +69,7 @@
   "BG_STAGE_ENCODING": "Ergebnis wird kodiert…",
   "BG_HINT_TYPICAL_DURATION": "Auf Mobilgeräten kann das einen Moment dauern.",
   "BG_HINT_STILL_WORKING": "Es wird noch gearbeitet. Besonders auf iPhone und iPad kann es etwas dauern.",
+  "BG_UNSUPPORTED_PHOTO": "Dieses Foto kann auf diesem Gerät nicht angezeigt werden und wird ohne Freisteller gespeichert.",
   "MASK_EDITOR_TITLE": "Hintergrund bereinigen",
   "MASK_EDITOR_HINT": "Überprüfe das Ergebnis. Verwende den Lösch- und Wiederherstellungspinsel, um Probleme zu beheben, und tippe dann auf Akzeptieren.",
   "MASK_EDITOR_SKIP": "Überspringen",

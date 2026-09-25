@@ -380,16 +380,20 @@ export class GarmentService {
 
     for await (const file of files) {
       if (file.fieldname === 'photo') {
-        photoPromise = this.fileService.storeImageFromFileUpload(
-          file,
-          userId,
-          photoFileName,
+        photoPromise = startPipeline(
+          this.fileService.storeImageFromFileUpload(
+            file,
+            userId,
+            photoFileName,
+          ),
         );
       } else if (file.fieldname === 'nobgPhoto') {
-        nobgPromise = this.fileService.storeNobgVariantFromStream(
-          file.file,
-          photoFileName,
-          { newUpload: true },
+        nobgPromise = startPipeline(
+          this.fileService.storeNobgVariantFromStream(
+            file.file,
+            photoFileName,
+            { newUpload: true },
+          ),
         );
       } else {
         file.file.resume();
@@ -455,6 +459,18 @@ export class GarmentService {
     if (['xxs', '2xs', '2xsmall', 'xxsmall'].includes(s)) return 'XX-Small';
     return input.trim();
   }
+}
+
+/**
+ * Arms a pipeline started inside a multipart `for await` loop so that a
+ * rejection while the loop is still consuming later parts is never an
+ * unhandled rejection (which kills the process). The original promise is
+ * returned untouched: the real error still surfaces from the later
+ * Promise.allSettled.
+ */
+function startPipeline<T>(pipeline: Promise<T>): Promise<T> {
+  pipeline.catch(() => undefined);
+  return pipeline;
 }
 
 /** Canonical sizes in wearing order first, anything custom alphabetically after. */
