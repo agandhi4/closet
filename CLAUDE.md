@@ -140,6 +140,7 @@ npm run test:e2e:smoke        # playwright smoke, the CI gate
 npm run test:load             # builds, boots on a scratch database + temp DATA_PATH, autocannon
 npm run lighthouse            # lhci autorun
 
+npm run typecheck             # tsc: app + tests + scripts, then the service worker (~3 s cold)
 npm run precommit             # format:check + lint + test + test:int + build (~16 s, run before every commit)
 npm run precommit:full        # + test:cov, e2e smoke, load test, lighthouse (minutes, the pre-PR gate)
 
@@ -220,7 +221,7 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **Pipelines started inside a multipart `for await` loop must be armed with a no-op catch at creation.** `GarmentService.storeUploadedPhotoWithCutout` starts the photo and cutout pipelines without awaiting (an unconsumed part hangs busboy) and only settles them after the loop; a rejection while later parts are still being read (an undecodable HEIC/JPEG) was an unhandled rejection that exited the process with an empty reply. `startPipeline()` attaches the catch and returns the same promise, so the real error still surfaces from `Promise.allSettled`. `test/integration/heic.spec.ts` records `unhandledRejection` and asserts the app answers the next request. Node's default (crash loudly) is kept on purpose; do not add a process-level handler.
 - **`bufferLogs: true` only flushes on `listen()`.** `createApp()` calls `app.flushLogs()` right after `useLogger`; without it an app that is only `init()`ed (the integration harness) buffers every Nest `Logger` call forever: nothing is emitted, `app.log` stays empty, and a `jest.spyOn(t.app.get(PinoLogger), 'warn')` sees zero calls whatever the app did. `test/integration/heic.spec.ts` asserts on such a spy and would catch a regression.
 - **`ScheduleModule.forRoot()` lives in `MaintenanceModule`**, not `AppModule`: `StorageReconciliationService.onApplicationBootstrap` deletes the cron job when `MAINTENANCE_ENABLED=false`, which only works if the scheduler (a deeper module, bootstrapped first) has already registered it. The integration harness sets `MAINTENANCE_ENABLED=false`.
-- **Nothing in `precommit` type-checks.** `nest build` uses SWC and `isolatedModules: true` makes ts-jest transpile-only, so `npx tsc --noEmit -p tsconfig.json` reports hundreds of pre-existing errors (spec files lack jest types under the root tsconfig). Run it and grep for the files you touched before calling type-level changes done.
+- **`npm run typecheck` is the only type check.** `nest build` uses SWC and ts-jest is transpile-only (`isolatedModules`), so neither reports type errors. The root `tsconfig.json` covers `src/`, `test/` and `scripts/` with jest types; the service worker has its own `views/assets/tsconfig.json` (WebWorker lib, strict) because it runs in a worker scope. It was 790 errors until 2026-09-25, one of them a live 500 (a misspelled MikroORM exception import is `undefined` at runtime, so `instanceof` threw).
 
 ## Workflow
 

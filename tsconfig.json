@@ -21,7 +21,11 @@
     "strictBindCallApply": false,
     "types": [
       "node",
+      "jest",
       "@fastify/view"
     ]
-  }
+  },
+  // The service worker runs in a worker scope, not Node: it is checked by
+  // views/assets/tsconfig.json (npm run typecheck runs both).
+  "exclude": ["node_modules", "dist", "views/assets"]
 }

@@ -142,7 +142,9 @@ export async function multipart(
   for (const [name, file] of Object.entries(files)) {
     form.append(
       name,
-      new Blob([file.data], { type: file.contentType }),
+      // A Uint8Array view: Node's Buffer<ArrayBufferLike> is not a BlobPart
+      // in the DOM lib's types (it may sit on a SharedArrayBuffer).
+      new Blob([new Uint8Array(file.data)], { type: file.contentType }),
       file.filename,
     );
   }

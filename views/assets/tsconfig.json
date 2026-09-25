@@ -1,0 +1,16 @@
+{
+  // Type-checks the service worker against the WebWorker lib (self is a
+  // ServiceWorkerGlobalScope). Bundled by esbuild in `npm run generate:sw`;
+  // this config never emits.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["src-sw.ts"]
+}
