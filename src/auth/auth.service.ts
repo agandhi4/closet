@@ -8,11 +8,14 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { File } from '../dal/entity/file.entity';
 import { User } from '../dal/entity/user.entity';
 import * as bcrypt from 'bcryptjs';
 import { ChangePasswordDto } from './dto/changePassword.dto';
+import { LoginDto } from './dto/login.dto';
 import { Payload } from './dto/payload.dto';
 import { EmailService } from '../email/email.service';
+import { FileService } from '../file/file-service.abstract';
 import { PasswordReset } from '../dal/entity/passwordReset.entity';
 import { randomInt } from 'crypto';
 import { ResetPasswordDto } from './dto/resetPassword.dto';
@@ -34,6 +37,7 @@ export class AuthService {
     private emailService: EmailService,
     @InjectRepository(PasswordReset)
     private passwordResetRepository: EntityRepository<PasswordReset>,
+    private readonly fileService: FileService,
   ) {
     this.passwordResetTemplate = Handlebars.compile(
       readFileSync(
@@ -95,9 +99,33 @@ export class AuthService {
     await this.em.persistAndFlush(user);
   }
 
-  async deleteUser(userId: any) {
-    const user = await this.userRepository.findOneOrFail({ id: userId });
-    await this.em.removeAndFlush(user);
+  /**
+   * Deletes the account after re-checking its own credentials (the form asks
+   * for them again; they must belong to the user being deleted, not to any
+   * account). The user's File rows go in the same transaction as the user:
+   * the DB cascade on garment.owner and file.created_by would drop the rows
+   * on its own, but only this path removes the bytes behind them. Variants
+   * are unlinked after commit, like GarmentService.remove.
+   */
+  async deleteUser(userId: number, credentials: LoginDto): Promise<void> {
+    const fileNames = await this.em.transactional(async (em) => {
+      const user = await em.findOneOrFail(User, { id: userId });
+      const valid =
+        user.email === credentials.email &&
+        (await bcrypt.compare(credentials.password, user.password));
+      if (!valid) throw new UnauthorizedException();
+
+      const files = await em.find(File, { createdBy: user });
+      em.remove(files);
+      em.remove(user);
+      return files.map((file) => file.fileName);
+    });
+    for (const fileName of fileNames) {
+      await this.fileService.deleteVariants(fileName);
+    }
+    this.logger.log(
+      `Deleted user ${userId} and ${fileNames.length} of their photos`,
+    );
   }
 
   public async resetPassword(details: ResetPasswordDto) {

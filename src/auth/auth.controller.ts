@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpException,
+  HttpStatus,
   Logger,
   Post,
   Query,
@@ -229,13 +231,18 @@ export class AuthController {
     @Res() reply: FastifyReply,
   ) {
     try {
-      await this.authService.signIn(loginDto.email, loginDto.password);
-      await this.authService.deleteUser(payload.userId);
+      await this.authService.deleteUser(payload.userId, loginDto);
       reply.clearCookie('access_token', { path: '/' });
       return reply.redirect('/', 302);
     } catch (error) {
       this.logger.warn(error);
-      return reply.view('auth/delete-account', {
+      // 401 for wrong credentials or another account's (UnauthorizedException
+      // from deleteUser), 400 for anything a malformed body caused.
+      const status =
+        error instanceof HttpException
+          ? error.getStatus()
+          : HttpStatus.BAD_REQUEST;
+      return reply.status(status).view('auth/delete-account', {
         layout: 'layout',
         error,
         ...(reply.locals ?? {}),
