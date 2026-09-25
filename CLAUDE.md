@@ -1,6 +1,6 @@
 # Closet
 
-Self-hosted digital wardrobe for the household: catalog garments (photo with background removal, category, brand, size, color), compose outfits, plan them on a calendar, and share a wardrobe with another user. Fork of Libre Closet (Lazztech, AGPL-3.0). Deployed on the homelab as `closet.box`.
+Self-hosted digital wardrobe for the household: catalog garments (photo with background removal, category, brand, size, color), compose outfits, plan them on a calendar, and share a wardrobe with another user. Fork of Libre Closet (Lazztech, AGPL-3.0; repo `agandhi4/closet`, upstream remote `lazztech/libre-closet`). Deployed on the homelab as `closet.box`.
 
 **The primary interface is the installed PWA on phones.** Every feature must work as an installed, offline-tolerant app first and as a desktop web page second.
 
@@ -13,7 +13,7 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **CSS**: Tailwind v4 (`@tailwindcss/cli`) + daisyUI. Source `views/assets/main.css`, compiled to `public/bundle.css` by `npm run generate:tailwind`.
 - **Data**: MikroORM 6 with runtime-selected driver: `better-sqlite` (default) or `postgresql`, chosen by `DATABASE_TYPE` in `src/dal/dal.module.ts`. Separate migration trees per driver.
 - **Auth**: optional (`AUTH_ENABLED`) JWT in an `access_token` httpOnly cookie, bcrypt passwords, `ConditionalAuthGuard` so the same controllers work open or authenticated. `DISABLE_REGISTRATION` locks signup.
-- **PWA**: Workbox `injectManifest` over a hand-written service worker (`views/assets/src-sw.ts`, esbuild to `.js`, injected to `public/sw.js`), `public/manifest.json`, `@khmyznikov/pwa-install`, `pulltorefreshjs`, Web Push via `web-push` + VAPID keys. Gated by `PWA_ENABLED`.
+- **PWA**: Workbox `injectManifest` over a hand-written service worker (`views/assets/src-sw.ts`, esbuild to `.js`, injected to `public/sw.js`), `/manifest.json` served from config by `AppController`, `@khmyznikov/pwa-install`, `pulltorefreshjs`, Web Push via `web-push` + VAPID keys. Gated by `PWA_ENABLED`.
 - **Images**: `sharp` (WebP optimization) and `@imgly/background-removal` (patched, see gotchas).
 - **Storage**: `src/file/` abstraction, `local` (disk under `DATA_PATH`) or `object` (S3 via `nestjs-s3`).
 - **i18n**: `nestjs-i18n`, strings in `src/i18n/<lang>/lang.json`, six languages.
@@ -44,10 +44,15 @@ src/
   i18n/                lang.json per language
 views/                 Handlebars, one directory per feature module + partials/ + layout
   assets/              main.css (Tailwind source), src-sw.ts (service worker source)
-public/                Static: manifest.json, sw.js (generated), bundle.css (generated), js/, assets/
+public/                Static: sw.js (generated), bundle.css (generated), js/, assets/ (icon.svg is the
+                       source; icon.png and favicon.ico come from `npm run generate:icons`)
 test/                  Playwright specs (smoke.spec.ts is the CI gate)
 docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature work against it.
 ```
+
+### Routes
+
+`GET /` redirects to `/wardrobe`; there is no landing page, and no privacy, terms or sitemap routes. `/about` carries the upstream attribution. `manifest.json` is not a static file: `AppController` serves it from config so `APP_NAME` and `ICON_NAME` flow into the installed PWA's name and icon.
 
 ### Request flow
 
@@ -113,7 +118,7 @@ Runs as the `closet` stack on the homelab NAS (`agandhi4/homelab`, `/volume1/doc
 |-------|-------|
 | URL (canonical, PWA) | `https://closet.kashhq.dedyn.io` |
 | URL (HTTP twin) | `http://closet.box` (no service worker or push here; secure context required) |
-| Image | `ghcr.io/agandhi4/libre-closet:latest`, amd64, published by `docker-publish.yml` on every push to `main` |
+| Image | `ghcr.io/agandhi4/closet:latest`, amd64, published by `docker-publish.yml` on every push to `main` |
 | Container port | 3000 (`PORT`) |
 | Database | pgvault Postgres, `closet_db` / `closet_user`, provisioned by `stacks/homeinfra/scripts/add-app.sh closet --port 3000` |
 | Persistent volume | `DATA_PATH` → `/volume1/docker/appdata/closet` (uploaded photos, `app.log`) |
@@ -131,8 +136,10 @@ PWA_ENABLED=true
 AUTH_ENABLED=true
 DISABLE_REGISTRATION=true          # flip to false only while creating the two household accounts
 ACCESS_TOKEN_SECRET=<openssl rand -hex 32>
-PUBLIC_VAPID_KEY=<npx web-push generate-vapid-keys>   # the committed .env keys are public, never ship them
+PUBLIC_VAPID_KEY=<npx web-push generate-vapid-keys>   # no defaults; required when PWA_ENABLED=true
 PRIVATE_VAPID_KEY=<same>
+# ICON_NAME left unset (default icon.png)
+# WATERMARK_ENABLED left unset (default false)
 DATABASE_TYPE=postgres
 DATABASE_HOST=pgvault
 DATABASE_PORT=5432
@@ -150,7 +157,7 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **`patches/@imgly+background-removal+1.7.0.patch`** is applied on every install. Read it before bumping that package; a version bump silently drops the patch.
 - **`@imgly/background-removal-data`** is a tarball from `staticimgly.com`, not the npm registry. Builds need outbound access to that host.
 - **`docker-publish.yml` publishes `:latest` on every push to `main`** (and semver tags on `v*` tags from `tag-release.yml`), amd64 only, GHCR only. Merging to main is deploying: the homelab autoupdater redeploys within the hour.
-- **Fork residue**: CI env still says `APP_NAME: Lazztech.Boilerplate` and the S3 bucket `test-lazztech-boilerplate`; `manifest.json` and `ICON_NAME` still point at `lazztech_icon.*`; `SITE_URL` defaults to `librecloset.lazz.tech`. Rebrand these together, not piecemeal.
+- **Upstream references are limited to attribution.** The only permitted mentions of the upstream project are the attribution link in the About page and README and code comments citing upstream issues or PRs. Any other occurrence of the upstream company or project name (assets, links, config defaults, CI values, marketing copy) is a rebrand regression; grep for it before a PR.
 - **Two parallel migration trees.** Forgetting the Postgres twin passes locally on SQLite and fails in CI's Postgres+MinIO job.
 - **`precommit` is minutes long** (Lighthouse and load test included). Use it as the pre-PR gate, not on every save.
 
