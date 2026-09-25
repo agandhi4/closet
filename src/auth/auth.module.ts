@@ -12,6 +12,7 @@ import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { User } from '../dal/entity/user.entity';
 import { PasswordReset } from '../dal/entity/passwordReset.entity';
 import { EmailModule } from '../email/email.module';
+import { FileModule } from '../file/file.module';
 
 @Module({
   imports: [
@@ -25,6 +26,8 @@ import { EmailModule } from '../email/email.module';
     }),
     MikroOrmModule.forFeature([PasswordReset, User]),
     EmailModule,
+    // Account deletion removes the user's photos through FileService.
+    FileModule,
   ],
   controllers: [AuthController],
   providers: [

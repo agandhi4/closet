@@ -6,6 +6,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PasswordReset } from '../dal/entity/passwordReset.entity';
 import { User } from '../dal/entity/user.entity';
 import { EmailService } from '../email/email.service';
+import { FileService } from '../file/file-service.abstract';
 import { AuthService } from './auth.service';
 
 describe('AuthService', () => {
@@ -45,6 +46,10 @@ describe('AuthService', () => {
             // you can mock other functions inside
             // the entity manager object, my case only needed query method
           },
+        },
+        {
+          provide: FileService,
+          useValue: { deleteVariants: jest.fn() },
         },
       ],
     }).compile();

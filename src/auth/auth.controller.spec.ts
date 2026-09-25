@@ -6,6 +6,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PasswordReset } from '../dal/entity/passwordReset.entity';
 import { User } from '../dal/entity/user.entity';
 import { EmailService } from '../email/email.service';
+import { FileService } from '../file/file-service.abstract';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { RegistrationGuard } from './registration.guard';
@@ -46,6 +47,10 @@ describe('AuthController', () => {
             find: jest.fn(),
             persistAndFlush: jest.fn(),
           },
+        },
+        {
+          provide: FileService,
+          useValue: { deleteVariants: jest.fn() },
         },
       ],
     }).compile();
