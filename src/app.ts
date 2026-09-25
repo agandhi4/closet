@@ -54,6 +54,10 @@ export async function createApp(): Promise<NestFastifyApplication> {
     },
   );
   app.useLogger(app.get(Logger));
+  // bufferLogs holds every Logger call until listen(); an app that is only
+  // init()ed (the integration harness) would otherwise buffer forever and
+  // emit nothing, so flush as soon as the real logger is in place.
+  app.flushLogs();
 
   app.get(Logger).log(`Trusted proxies: ${trustProxy.join(', ')}`, 'Bootstrap');
   app

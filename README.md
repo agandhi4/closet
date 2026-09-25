@@ -73,6 +73,8 @@ volumes:
 | `OBJECT_STORAGE_ENDPOINT`          | S3-compatible endpoint URL                                                           | -                       | `https://s3.example.com:8443`                                                             |
 | `OBJECT_STORAGE_REGION`            | S3 region                                                                            | `us-east-1`             | `us-west-1`                                                                               |
 | `OBJECT_STORAGE_BUCKET_NAME`       | S3 bucket name                                                                       | `closet`                | `my-awesome-closet-manager-bucket`                                                        |
+| `MAINTENANCE_ENABLED`              | Run the nightly (03:00) storage reconciliation; `npm run maintenance:reconcile` runs it once regardless | `true`   | `false`                                                                                   |
+| `MAX_HEIC_BYTES`                   | Largest HEIC/HEIF upload accepted; HEIC is decoded in memory before resizing         | `41943040` (40 MB)      | `20971520`                                                                                |
 | `EMAIL_FROM_ADDRESS`               | From address for password reset emails                                               | -                       | `closet@example.com`                                                                      |
 | `EMAIL_TRANSPORT`                  | `gmail` or `mailgun`                                                                 | `gmail`                 | `mailgun`                                                                                 |
 | `EMAIL_API_KEY`                    | Mailgun API key                                                                      | -                       | `fyhn2437cryb248cbrdc32`                                                                  |
@@ -119,7 +121,20 @@ npm run test:cov        # coverage
 npm run test:load       # autocannon load test, see below
 npm run generate:icons  # regenerate public/assets/icon.png and favicon.ico from icon.svg
 npm run precommit       # format check + lint + unit + integration + build (run before committing)
+npm run maintenance:reconcile [-- --dry-run]
+                        # one storage reconciliation pass (needs `npm run build`; see below)
 ```
+
+### Storage maintenance
+
+Every photo is a set of files in storage (`<uuid>.webp` plus `-nobg` and
+`-thumb` variants) and one `file` row. Deleting a garment or an account
+removes both, and a nightly job (03:00, `MAINTENANCE_ENABLED`) keeps them
+describing each other: stored photo sets older than a day with no row are
+deleted, rows older than a day that no garment references are deleted with
+their files, and rows whose original is missing are logged. Run it by hand,
+on the NAS with `docker exec closet npm run maintenance:reconcile`, or locally
+after `npm run build`; `-- --dry-run` only reports.
 
 ### Load test
 

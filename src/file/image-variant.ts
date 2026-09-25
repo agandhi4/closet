@@ -24,3 +24,27 @@ export function variantFileName(
     ? `${fileName}${suffix}`
     : `${fileName.slice(0, extIndex)}${suffix}${fileName.slice(extIndex)}`;
 }
+
+// Stored names are `<uuid>.webp` plus the two derived suffixes (see
+// FileService.storeImageFromFileUpload). Anything else under DATA_PATH
+// (app.log, sqlite3.db and its WAL) is not a photo and reconciliation must
+// never touch it.
+const STORED_NAME =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-(nobg|thumb))?\.webp$/i;
+
+export interface ParsedStoredName {
+  /** The original's file name, the key of the File row. */
+  baseName: string;
+  variant: ImageVariant;
+}
+
+/** Used by StorageReconciliationService to map any stored object to its File row. */
+export function parseStoredName(name: string): ParsedStoredName | undefined {
+  const match = STORED_NAME.exec(name);
+  if (!match) return undefined;
+  const [, uuid, suffix] = match;
+  return {
+    baseName: `${uuid}.webp`,
+    variant: (suffix as ImageVariant | undefined) ?? 'original',
+  };
+}
