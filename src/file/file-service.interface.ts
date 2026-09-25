@@ -3,6 +3,12 @@ import { File } from '../dal/entity/file.entity';
 import { Readable } from 'stream';
 import { ImageVariant } from './image-variant';
 
+/** One object as a backend reports it; `lastModified` is the backend's own timestamp. */
+export interface StoredObject {
+  name: string;
+  lastModified?: Date;
+}
+
 export interface FileServiceInterface {
   /**
    * @param upload multipart stream plus mimetype; drained and rejected when not an image
@@ -32,4 +38,6 @@ export interface FileServiceInterface {
   get(fileName: string): Promise<Readable>;
   getByShareableId(shareableId: string): Promise<Readable>;
   delete(fileName: string): Promise<void>;
+  /** Every object in the store, variants included; the caller filters. */
+  list(): AsyncIterable<StoredObject>;
 }

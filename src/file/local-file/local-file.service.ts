@@ -8,6 +8,7 @@ import { pipeline } from 'node:stream/promises';
 import * as path from 'path';
 import { File } from '../../dal/entity/file.entity';
 import { FileService } from '../file-service.abstract';
+import { StoredObject } from '../file-service.interface';
 
 @Injectable()
 export class LocalFileService extends FileService {
@@ -33,10 +34,29 @@ export class LocalFileService extends FileService {
     return fs.createReadStream(filePath);
   }
 
+  // A missing file is the normal case for deleteVariants (most photos have
+  // no cutout), so only a real failure is worth a warning.
   async delete(fileName: string): Promise<void> {
     await fs.promises
       .unlink(path.join(this.directory, fileName))
-      .catch((err) => this.logger.warn(err));
+      .catch((err: NodeJS.ErrnoException) => {
+        if (err.code !== 'ENOENT') this.logger.warn(err);
+      });
+  }
+
+  // DATA_PATH also holds app.log and the SQLite database; every entry is
+  // reported and the caller decides what is a photo (parseStoredName).
+  async *list(): AsyncIterable<StoredObject> {
+    const entries = await fs.promises.readdir(this.directory, {
+      withFileTypes: true,
+    });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const stat = await fs.promises.stat(
+        path.join(this.directory, entry.name),
+      );
+      yield { name: entry.name, lastModified: stat.mtime };
+    }
   }
 
   protected async store(fileName: string, stream: Readable): Promise<void> {
