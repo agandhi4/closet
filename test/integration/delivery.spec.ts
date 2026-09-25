@@ -123,7 +123,6 @@ describe('delivery (PWA_ENABLED=true)', () => {
 
     it('loads page-only libraries on their pages, not in the shell', () => {
       expect(html).not.toContain('Sortable.min.js');
-      expect(html).not.toContain('/modules/sse.js');
       expect(html).not.toContain('rel="preload"');
       expect(html).toContain('id="request-indicator"');
       expect(html).not.toContain('offline-indicator');

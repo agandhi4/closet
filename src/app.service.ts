@@ -5,10 +5,6 @@ import { ConfigService } from '@nestjs/config';
 export class AppService {
   constructor(private readonly configService: ConfigService) {}
 
-  getHello(): string {
-    return 'Hello World!';
-  }
-
   // Served at GET /manifest.json (AppController). Built at request time so the
   // installed PWA's name and icon follow APP_NAME / ICON_NAME instead of a
   // static file. The service worker (views/assets/src-sw.ts) does not precache

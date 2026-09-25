@@ -37,7 +37,12 @@ WORKDIR /app
 
 COPY package*.json ./
 COPY patches ./patches
-RUN npm ci
+# Runtime dependencies only. Everything the running app serves from
+# node_modules (htmx, background removal + models, onnxruntime-web, sharp,
+# workbox-window) is in "dependencies", and so is patch-package, because the
+# postinstall still has to apply patches/ here. The cache is cleared in the
+# same layer: npm ci leaves hundreds of MB of tarballs under /root/.npm.
+RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
