@@ -15,7 +15,8 @@ import sharp from 'sharp';
 import Stream, { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { File } from '../dal/entity/file.entity';
-import { FileServiceInterface } from './file-service.interface';
+import { FileServiceInterface, StoredObject } from './file-service.interface';
+import { decodeHeic, isHeicUpload } from './heic';
 import { IMAGE_VARIANTS, ImageVariant, variantFileName } from './image-variant';
 import { PROJECT_ROOT } from '../project-root';
 
@@ -39,7 +40,7 @@ export class UnreadableImageError extends Error {
 /**
  * Everything about a photo except the bytes: variant naming, transcoding,
  * thumbnail derivation, versioning and the File rows. Backends only provide
- * the three storage primitives (`get`, `store`, `delete`).
+ * the storage primitives (`get`, `store`, `delete`, `list`).
  *
  * Bytes are written before any row exists. The store methods return an
  * unpersisted File so the caller can commit it in the same transaction as the
@@ -67,6 +68,12 @@ export abstract class FileService implements FileServiceInterface {
   abstract get(fileName: string): Promise<Readable>;
   /** Missing files are not an error. */
   abstract delete(fileName: string): Promise<void>;
+  /**
+   * Every object in the store, one page at a time for backends that page.
+   * Names are as stored (variants included); StorageReconciliationService
+   * maps them back to File rows with parseStoredName.
+   */
+  abstract list(): AsyncIterable<StoredObject>;
   /** Must leave no partial object behind when it rejects. */
   protected abstract store(fileName: string, stream: Readable): Promise<void>;
 
@@ -82,16 +89,18 @@ export abstract class FileService implements FileServiceInterface {
     if (!upload) {
       throw new HttpException('No file uploaded', HttpStatus.BAD_REQUEST);
     }
+    const heic = isHeicUpload(upload);
     // https://github.com/fastify/fastify-multipart/issues/497
     // Unconsumed multipart streams can hang the request; drain before throwing
-    if (!upload.mimetype?.startsWith('image/')) {
+    if (!heic && !upload.mimetype?.startsWith('image/')) {
       upload.file.resume();
       throw new HttpException('Wrong filetype', HttpStatus.BAD_REQUEST);
     }
 
     const storedFileName = fileName ?? `${randomUUID()}.webp`;
+    const source = heic ? await this.decodeHeicUpload(upload) : upload.file;
     await this.transcodeUpload(
-      upload.file,
+      source,
       this.imageTransformer().autoOrient(),
       storedFileName,
     );
@@ -251,6 +260,27 @@ export abstract class FileService implements FileServiceInterface {
       },
       { persist: false },
     );
+  }
+
+  // HEIC is the one format sharp cannot read (see heic.ts). The whole part is
+  // buffered, so MAX_HEIC_BYTES bounds memory per upload; the 413 from the cap
+  // passes through, undecodable bytes are the client's error like any other.
+  private async decodeHeicUpload(upload: MultipartFile): Promise<Readable> {
+    const maxBytes = this.configService.getOrThrow<number>('MAX_HEIC_BYTES');
+    const startedAt = Date.now();
+    try {
+      const jpeg = await decodeHeic(upload, maxBytes);
+      this.logger.debug(
+        `Decoded HEIC ${upload.filename} in ${Date.now() - startedAt}ms`,
+      );
+      return jpeg;
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.warn(
+        `Rejected undecodable HEIC upload ${upload.filename}: ${String(error)}`,
+      );
+      throw new BadRequestException('Unreadable image');
+    }
   }
 
   // Client bytes: an undecodable stream is the client's error, not ours.

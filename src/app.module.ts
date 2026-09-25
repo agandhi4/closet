@@ -20,6 +20,7 @@ import { User } from './dal/entity/user.entity';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { ErrorViewFilter } from './error-view.filter';
+import { MaintenanceModule } from './maintenance/maintenance.module';
 import { ViewContextModule } from './view-context/view-context.module';
 
 // Loopback only: right for `npm run start:prod` on a laptop, wrong behind a
@@ -179,6 +180,16 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
           then: Joi.string().default('us-east-1'),
           otherwise: Joi.optional(),
         }),
+        // Nightly storage reconciliation (MaintenanceModule). Off in the
+        // integration harness; `npm run maintenance:reconcile` runs it once
+        // regardless.
+        MAINTENANCE_ENABLED: Joi.boolean().default(true),
+        // HEIC uploads are decoded in memory before sharp sees them; a part
+        // larger than this is a 413.
+        MAX_HEIC_BYTES: Joi.number()
+          .integer()
+          .min(1)
+          .default(40 * 1024 * 1024),
       }),
       validationOptions: {
         abortEarly: true,
@@ -213,6 +224,7 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     WardrobeModule,
     WardrobeShareModule,
     ViewContextModule,
+    MaintenanceModule,
   ],
   controllers: [AppController],
   providers: [

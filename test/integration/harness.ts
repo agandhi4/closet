@@ -34,6 +34,9 @@ const BASE_ENV: Env = {
   PWA_ENABLED: 'false',
   ACCESS_TOKEN_SECRET: 'integration-test-secret',
   FILE_STORAGE_TYPE: 'local',
+  // No nightly cron timer in a test process; reconcile.spec.ts calls
+  // StorageReconciliationService.reconcile() directly.
+  MAINTENANCE_ENABLED: 'false',
 };
 
 export const TEST_PASSWORD = 'Password123!';

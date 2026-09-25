@@ -7,6 +7,7 @@ import { InjectS3, type S3 } from 'nestjs-s3';
 import { Readable } from 'stream';
 import { File } from '../../dal/entity/file.entity';
 import { FileService } from '../file-service.abstract';
+import { StoredObject } from '../file-service.interface';
 
 @Injectable()
 export class S3FileService extends FileService {
@@ -45,6 +46,25 @@ export class S3FileService extends FileService {
       Key: fileName,
     });
     this.logger.debug(`Deleted object ${fileName}`);
+  }
+
+  // Keys are bare file names at the bucket root (no prefix is configured),
+  // so this walks the whole bucket, one ListObjectsV2 page at a time.
+  async *list(): AsyncIterable<StoredObject> {
+    let continuationToken: string | undefined;
+    do {
+      const page = await this.s3.listObjectsV2({
+        Bucket: this.bucketName,
+        ContinuationToken: continuationToken,
+      });
+      for (const object of page.Contents ?? []) {
+        if (!object.Key) continue;
+        yield { name: object.Key, lastModified: object.LastModified };
+      }
+      continuationToken = page.IsTruncated
+        ? page.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
   }
 
   protected async store(fileName: string, stream: Readable): Promise<void> {
