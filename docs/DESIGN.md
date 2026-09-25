@@ -222,5 +222,5 @@ This means a single-user self-hoster can run with `AUTH_ENABLED=false` and get a
 ### Phase 4 — Polish & Release
 
 13. Update navbar `views/partials/navbar.hbs` with Wardrobe and Outfits links
-14. Update `public/manifest.json` with app name, icons, and description
+14. The web manifest is served from config (`APP_NAME`, `ICON_NAME`) by `AppController`; there is no static `public/manifest.json`
 15. Tag `v0.1.0` and post to r/selfhosted + slow-fashion communities

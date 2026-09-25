@@ -12,9 +12,9 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **Views**: server-rendered Handlebars (`@fastify/view`) with htmx 2 for interactivity and `_hyperscript` for client logic. Not a SPA. There is no JSON API for the UI.
 - **CSS**: Tailwind v4 (`@tailwindcss/cli`) + daisyUI. Source `views/assets/main.css`, compiled to `public/bundle.css` by `npm run generate:tailwind`.
 - **Data**: MikroORM 6 with runtime-selected driver: `better-sqlite` (default) or `postgresql`, chosen by `DATABASE_TYPE` in `src/dal/dal.module.ts`. Separate migration trees per driver.
-- **Auth**: optional (`AUTH_ENABLED`) JWT in an `access_token` httpOnly cookie, bcrypt passwords, `ConditionalAuthGuard` so the same controllers work open or authenticated. `DISABLE_REGISTRATION` locks signup.
+- **Auth**: optional (`AUTH_ENABLED`) JWT in an `access_token` httpOnly cookie, bcrypt passwords. The session is resolved once per request by `AuthContextService` (cookie, JWT, user row, password fingerprint) into `req.auth`; guards only read it: `ConditionalAuthGuard` (open or authenticated, redirect when a session is required and missing), `RequireSessionGuard` (user-only pages: 404 with auth off, redirect without a session), `AuthGuard` (fetch endpoints: 401). Wardrobe permissions come from one `WardrobeShareService.resolveAccess`. `DISABLE_REGISTRATION` locks signup.
 - **PWA**: Workbox `injectManifest` over a hand-written service worker (`views/assets/src-sw.ts`, esbuild to `.js`, injected to `public/sw.js`), `/manifest.json` served from config by `AppController`, `@khmyznikov/pwa-install`, `pulltorefreshjs`, Web Push via `web-push` + VAPID keys. Gated by `PWA_ENABLED`.
-- **Images**: `sharp` (WebP optimization) and `@imgly/background-removal` (patched, see gotchas).
+- **Images**: `sharp` for transcoding, `@imgly/background-removal` in the browser (patched, see gotchas), `heic-convert` for HEIC uploads. See Architecture, Images.
 - **Storage**: `src/file/` abstraction, `local` (disk under `DATA_PATH`) or `object` (S3 via `nestjs-s3`).
 - **i18n**: `nestjs-i18n`, strings in `src/i18n/<lang>/lang.json`, six languages.
 - **Logging**: `nestjs-pino`, pretty to stdout and rotating `app.log` under `DATA_PATH`.
@@ -35,14 +35,15 @@ src/
   auth/                Login/register/password-reset controllers, JWT service, guards
   dal/                 Data access layer
     dal.module.ts      MikroORM config, picks sqlite vs postgres driver at runtime
-    entity/            user, garment, outfit, outfit-calendar, file, passwordReset, shareableId,
-                       userDevice, wardrobe-share
+    entity/            user, garment, outfit, outfit-garment (explicit pivot so both drivers index it),
+                       outfit-calendar, file, passwordReset, shareableId, userDevice, wardrobe-share
     migrations/        {sqlite,postgres}/ — two parallel trees, both must be generated for every change
   wardrobe/            Core domain: garments, outfits, calendar. Controllers render views;
                        services own business logic; view-models/ shape entities for templates
   wardrobe-share/      Invite-link sharing (view/edit) between users
-  file/                FileService abstract + local-file/ and s3-file/ implementations, file-url/;
-                       heic.ts decodes HEIC uploads (heic-convert) before sharp
+  file/                FileService abstract (variants, thumbs, versions, deleteVariants) over local-file/ and
+                       s3-file/ backends (get/store/delete/list only); image-variant.ts names variants,
+                       file-url/image-url.ts is the one URL builder; heic.ts decodes HEIC uploads before sharp
   maintenance/         StorageReconciliationService: nightly @Cron (MAINTENANCE_ENABLED) and
                        reconcile.cli.ts (`npm run maintenance:reconcile`) keeping storage and the
                        file table in step; owns ScheduleModule.forRoot()
@@ -66,7 +67,11 @@ docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature 
 
 ### Request flow
 
-Controller method → `@Render('feature/view')` or `reply.view(...)` → Handlebars template with `layout` → htmx in the browser swaps fragments returned by further controller routes. Controllers detect htmx via the `HX-Request` header when the same route must serve a full page and a fragment.
+Controller method → `@Render('feature/view')` or `reply.view(...)` → Handlebars template with `layout` → htmx in the browser swaps fragments returned by further controller routes. A route that serves both a page and a fragment decides with `isFragmentRequest` from `src/htmx/fragment-request.ts` (shared with the service worker's cache keys) and sets `Vary: HX-Request`.
+
+### Images
+
+Every photo is a set of WebP files sharing one base name: `<uuid>.webp` (original, 1080px, q90), `<uuid>-nobg.webp` (browser-made cutout, same size), `<uuid>-thumb.webp` (400px, q80, derived from the cutout when present). Only the original has a `File` row; `File.version` is bumped whenever bytes under an existing name are rewritten (a mask edit), and every variant URL carries `?v=<version>` so `FileController` can serve all three immutable for a year. Templates never build `/file/...` by hand: `{{imageUrl photo 'thumb'}}` (grids and strips, with `loading="lazy"` and dimensions) or `'nobg'` (detail, share, Open Graph). Thumbs missing in storage are generated on first request, single-flighted, which backfills old photos. Deletion always goes through `deleteVariants`.
 
 ### Config
 
@@ -95,7 +100,7 @@ Upstream rules we keep (from `.github/prompts/boilerplate.prompt.md`), plus ours
 - **daisyUI components, not bespoke CSS.** Theme through daisyUI tokens. No hardcoded colors in templates.
 - **No runtime CDN imports.** Every client dependency is an npm package served by `useStaticAssets` in `app.ts`. The installed PWA must boot with zero external requests.
 - **Config via `ConfigService`**, never `process.env` outside `app.ts`. New env vars: Joi entry in `app.module.ts` with a default, row in the README configuration table.
-- **Migrations come in pairs.** Any entity change produces both a SQLite and a Postgres migration (see Commands). Production runs Postgres, CI smoke-tests both, so a missing twin fails CI, not prod.
+- **Migrations come in pairs.** Any entity change produces both a SQLite and a Postgres migration (see Commands). Production runs Postgres; CI runs the integration tier on both drivers, so a missing or drifting twin fails CI, not prod.
 - **Cookies stay `Secure`-less.** The `.box` name is HTTP by design (Tailscale encrypts). Adding `secure: true` to `reply.setCookie` in `src/auth/` makes login silently never stick over `http://closet.box`. If a secure cookie is ever wanted it must be driven by a `COOKIE_SECURE` env var defaulting to false.
 - **Offline-first UX per `frontend-pwa.md`.** Reads render from cache with a freshness indicator, writes that cannot reach the server are disabled with an explanation, never silently dropped. Connectivity detection is active (heartbeat), not `navigator.onLine`.
 - **Logging**: use the injected pino logger with the module name as context. Log at operation boundaries with garment/outfit IDs and user IDs. Nothing inside template rendering or loops.
@@ -133,7 +138,7 @@ npm run test:e2e:smoke        # playwright smoke, the CI gate
 npm run test:load             # autocannon against a running instance
 npm run lighthouse            # lhci autorun
 
-npm run precommit             # format:check + lint + test + test:int + build (~30 s, run before every commit)
+npm run precommit             # format:check + lint + test + test:int + build (~16 s, run before every commit)
 npm run precommit:full        # + test:cov, e2e smoke, load test, lighthouse (minutes, the pre-PR gate)
 
 # Migrations — run BOTH after any entity change (build first, CLI reads dist)
@@ -196,7 +201,7 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **`docker-publish.yml` publishes `:latest` on every push to `main`** (and semver tags on `v*` tags from `tag-release.yml`), amd64 only, GHCR only. Merging to main is deploying: the homelab autoupdater redeploys within the hour.
 - **Upstream references are limited to attribution.** The only permitted mentions of the upstream project are the attribution link in the About page and README and code comments citing upstream issues or PRs. Any other occurrence of the upstream company or project name (assets, links, config defaults, CI values, marketing copy) is a rebrand regression; grep for it before a PR.
 - **Regenerate `package-lock.json` only with Node 22 / npm 10** (`nvm use`, or `docker run --rm -v $PWD:/app -w /app node:22 npm install --package-lock-only`). npm 11 prunes nested entries that npm 10's `npm ci` in the Docker build then reports as missing, so the image build fails while local installs look fine.
-- **Two parallel migration trees.** Forgetting the Postgres twin passes locally on SQLite and fails in CI's Postgres+MinIO job.
+- **Two parallel migration trees.** Forgetting the Postgres twin passes locally on SQLite and fails in CI's Postgres job (integration tier on Postgres 17, smoke against Postgres plus s3mock). The trees have drifted twice before (missing FK indexes, `garment.color` typed smallint): compare generated SQL, not just file counts.
 - **`precommit:full` is minutes long** (Lighthouse and load test included). Use it as the pre-PR gate; `precommit` is the per-commit one.
 - **`test:e2e` rebuilds unless :3000 is busy.** Playwright's `reuseExistingServer` is on outside CI, so leaving `npm run start:prod` running skips the `npm run build` in the webServer command; stop it when you need the e2e run to see fresh code.
 - **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation, `DalModule`'s driver pick), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different `AUTH_ENABLED` in a different spec file.
@@ -222,7 +227,7 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
 - Behavior assertions go in `test/integration/` first: a spec that boots the real app and checks the HTML, headers, rows and files is the default proof that a change works, and it runs in seconds without a build or a browser. Playwright is the full gate for what only a browser can show (service worker, htmx swaps, layout).
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
-- Summarize changes and wait for an explicit go-ahead before committing. Run `npm run format && npm run lint` before staging. If a hook fails, fix and create a new commit, never amend.
+- Summarize changes and wait for an explicit go-ahead before committing. After an independent review and verification pass, commit in scoped commits and push straight to `main` (solo repo, no PR); a push to `main` publishes the image and the homelab autoupdater deploys it. Run `npm run precommit` before staging. If a hook fails, fix and create a new commit, never amend.
 - Commit messages: concise, why over what.
 - When a new pattern or gotcha lands, update this file in the same commit and store the decision in Graphiti.
 - Upstream sync: this fork will diverge (rebrand, household features). Keep upstream-worthy fixes in their own commits so they can be offered back to `lazztech/libre-closet`.
