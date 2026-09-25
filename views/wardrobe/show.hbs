@@ -174,7 +174,9 @@
     </div>
   </form>
   <script type="module">
-    import { wireUpPhotoInput, wireUpEditMaskBtn, isBgRemovalEnabled } from '/js/background-removal.js';
+    {{!-- Lazy: the ONNX runtime and model only download once the photo input
+    or camera button is touched (see public/js/background-removal.js). --}}
+    import { wireUpPhotoInput, wireUpEditMaskBtn, isBgRemovalEnabled } from '/js/background-removal.js?v={{appVersion}}';
 
     const toggle = document.getElementById('bgRemovalToggle');
     const stored = localStorage.getItem('bgRemovalEnabled');

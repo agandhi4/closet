@@ -5,10 +5,9 @@ https://nestjs-i18n.com/quick-start --}}
 <html lang="{{locale}}">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="viewport-fit=cover, width=device-width, initial-scale=1.0"
-    />
+    {{! No viewport-fit=cover: iOS standalone handles the safe areas itself,
+    and cover puts content under the home indicator (frontend-pwa.md). }}
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     {{! https://developer.chrome.com/docs/lighthouse/seo/meta-description }}
     <meta name="description" content="{{ogDescription}}" />
     {{!-- Canonical URL --}}
@@ -31,46 +30,67 @@ https://nestjs-i18n.com/quick-start --}}
     <meta name="twitter:image" content="{{ogImage}}" />
     <meta property="og:site_name" content="{{appName}}" />
 
-    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    {{!-- Every first-party static URL carries ?v=appVersion (src/build-info.ts):
+    app.ts serves /modules, /js, /assets and bundle.css immutable for a year,
+    so the key is what rolls the cache on deploy. --}}
+    <link rel="icon" href="/favicon.ico?v={{appVersion}}" sizes="48x48" />
     {{!--
     https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/ConfiguringWebApplications/ConfiguringWebApplications.html
     https://developer.chrome.com/docs/lighthouse/pwa/apple-touch-icon --}}
-    <link rel="apple-touch-icon" href="/assets/{{iconName}}" />
+    <link rel="apple-touch-icon" href="/assets/{{iconName}}?v={{appVersion}}" />
 
-    {{!-- https://htmx.org/reference/#config --}} {{!--
-    https://htmx.org/attributes/hx-swap/#modifiers --}}
-    <meta name="htmx-config" content='{"globalViewTransitions": "true"}' />
-    {{!-- https://htmx.org/quirks/#attribute-inheritance --}}
-    <meta name="htmx-config" content='{"disableInheritance":true}' />
+    {{!-- https://htmx.org/reference/#config: view transitions on every swap
+    (https://htmx.org/attributes/hx-swap/#modifiers) and no attribute
+    inheritance (https://htmx.org/quirks/#attribute-inheritance) --}}
+    <meta
+      name="htmx-config"
+      content='{"globalViewTransitions":true,"disableInheritance":true}'
+    />
 
     <title>{{#if pageTitle}}{{pageTitle}}{{else}}{{appName}}{{/if}}</title>
     {{! Used inconjunction with service worker sw.js to enable PWA (Progressive
-    Web App) functionality. }}
+    Web App) functionality. Served by AppController, not a static file. }}
     <link rel="manifest" href="/manifest.json" />
+    {{! Include assets/main.css and build output from TailwindCSS/DaisyUI }}
+    <link href="/bundle.css?v={{appVersion}}" rel="stylesheet" />
     {{! Served modules from node_modules, look to app.ts to see how this is
     performed. https://htmx.org/docs/#installing
     https://blog.wesleyac.com/posts/why-not-javascript-cdn }}
-    <script defer src="/modules/htmx.min.js"></script>
-    <script defer src="/modules/_hyperscript.min.js"></script>
-    <script defer src="/modules/Sortable.min.js"></script>
-    <script defer src="/modules/sse.js"></script>
-    <script defer src="/js/color-multiselect.js" defer></script>
+    <script defer src="/modules/htmx.min.js?v={{appVersion}}"></script>
+    <script defer src="/modules/_hyperscript.min.js?v={{appVersion}}"></script>
+    <script defer src="/js/color-multiselect.js?v={{appVersion}}"></script>
+    {{! Bare specifiers for every ES module the pages import, so the versioned
+    URL lives here once. Page-specific modules (sortablejs, background
+    removal) are only fetched by the page that imports them. }}
     <script type="importmap">
       {
         "imports": {
-          "onnxruntime-web": "/modules/onnxruntime-web/dist/ort.all.bundle.min.mjs",
-          "onnxruntime-web/webgpu": "/modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs"
+          "onnxruntime-web": "/modules/onnxruntime-web/dist/ort.all.bundle.min.mjs?v={{appVersion}}",
+          "onnxruntime-web/webgpu": "/modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs?v={{appVersion}}",
+          "@imgly/background-removal": "/modules/background-removal/index.mjs?v={{appVersion}}",
+          "sortablejs": "/modules/modular/sortable.esm.js?v={{appVersion}}",
+          "workbox-window": "/modules/workbox-window.prod.mjs?v={{appVersion}}",
+          "pulltorefreshjs": "/modules/pulltorefresh/index.esm.js?v={{appVersion}}",
+          "toast": "/js/toast.js?v={{appVersion}}",
+          "mask-editor": "/js/mask-editor.js?v={{appVersion}}",
+          "web-push": "/js/webPush.js?v={{appVersion}}"
         }
       }
     </script>
+    {{! Heartbeat-driven online/offline state and the banner in app_status;
+    runs everywhere, service worker or not. }}
+    <script type="module" src="/js/connectivity.js?v={{appVersion}}"></script>
     {{#if pwaEnabled}}
-    <script type="module" src="/modules/pwa-install.bundle.js"></script>
-    {{/if}}     {{! Resource hint for CDN analytics }}
+    <script
+      type="module"
+      src="/modules/pwa-install.bundle.js?v={{appVersion}}"
+    ></script>
+    {{! Service worker registration, update toast, web push, iOS pull to
+    refresh. In the head so hx-boost body swaps never re-run it. }}
+    <script type="module" src="/js/pwa.js?v={{appVersion}}"></script>
+    {{/if}}
+    {{! Resource hint for CDN analytics }}
     <link rel="preconnect" href="https://static.cloudflareinsights.com" />
-    {{! Include assets/main.css and build output from
-    TailwindCSS/DaisyUI }}
-    <link href="/bundle.css" rel="preload" as="style" />
-    <link href="/bundle.css" rel="stylesheet" />
     <script>
       window.KNOWN_COLORS = new Set({{{knownColors}}});
     </script>
@@ -81,98 +101,18 @@ https://nestjs-i18n.com/quick-start --}}
   user experience where the body gets swapped out without a full page reload
   similar to a SPA. https://htmx.org/attributes/hx-boost/
   https://htmx.org/quirks/#some-people-don-t-like-hx-boost }}
-  <body
-    hx-boost="true"
-    hx-ext="sse"
-    class="h-screen flex flex-col"
-  >
+  {{! hx-inherit: with disableInheritance on, hx-boost has to be handed down
+  explicitly or no link is boosted. Nothing else in the views inherits. }}
+  <body hx-boost="true" hx-inherit="hx-boost" class="h-screen flex flex-col">
     {{! Caution: Triple brackets in handlebarsjs disables auto-escaping and may
     pose a XSS risk with HTMX. However the exception to this rule is when
     loading hbs rendered content which is pre-santized by the handlebars
     templatinng engine as it get's rendered.
     https://handlebarsjs.com/guide/expressions.html#literal-segments
-    https://htmx.org/essays/web-security-basics-with-htmx/ }} {{{body}}} {{! The
-    service worker is used in conjunction with the manifest.json to enable PWA
-    (Progressive Web App) functionality. This script tag uses JavaScript
-    modules, so the proper `type` attribute value is required.
-    https://developer.chrome.com/docs/workbox/handling-service-worker-updates }}
+    https://htmx.org/essays/web-security-basics-with-htmx/ }} {{{body}}}
+    {{> app_status}}
     {{#if pwaEnabled}}
-    <script type="module">
-      // This code sample uses features introduced in Workbox v6.
-      import { Workbox } from '/modules/workbox-window.prod.mjs';
-      import PullToRefresh from '/modules/pulltorefresh/index.esm.js';
-
-      if ('serviceWorker' in navigator) {
-        const wb = new Workbox('/sw.js');
-
-        // When an updated SW takes control of this page (via skipWaiting +
-        // clientsClaim), set a flag rather than reloading immediately.
-        // Immediate reloads cause a black screen on long-lived htmx-boosted
-        // pages because the new SW isn't ready to serve mid-session requests.
-        wb.addEventListener('controlling', (event) => {
-          if (event.isUpdate) {
-            window.__swUpdated = true;
-          }
-        });
-
-        // On the user's next htmx GET navigation after a SW update, cancel
-        // the htmx XHR and do a full page navigation to the destination
-        // instead. window.location.reload() would drop the user on the
-        // current URL, not where they were trying to go.
-        // Non-GET requests (form submits etc.) are passed through — they use
-        // NetworkFirst so the SW doesn't cache them and they reach the server
-        // regardless of which SW is in control.
-        document.addEventListener('htmx:beforeRequest', (event) => {
-          if (
-            window.__swUpdated &&
-            event.detail.requestConfig.boosted &&
-            event.detail.requestConfig.verb === 'get'
-          ) {
-            event.preventDefault();
-            window.location.href = event.detail.requestConfig.path;
-          }
-        });
-
-        // Register the service worker
-        wb.register().then(() => {
-          console.log('Service Worker registered');
-
-          // Check for access_token cookie first
-          if (
-            document.cookie
-              .split('; ')
-              .find((row) => row.startsWith('access_token='))
-          ) {
-            // If authenticated set up web push notifications
-            import('/js/webPush.js').then((module) => {
-              module.default
-                .subscribe()
-                .catch((err) =>
-                  console.warn('Web push subscription failed:', err),
-                );
-            });
-          } else {
-            console.log('Not authenticated - skipping web push subscription');
-          }
-        });
-      }
-
-      // https://stackoverflow.com/questions/75972895/ios-pwa-how-to-re-enable-pull-to-refresh
-      const iosStandalone = window.navigator.standalone === true;
-      if (iosStandalone) {
-        // If iosStandalone; pull to refresh is needed
-        PullToRefresh.init({
-          mainElement: 'main',
-          onRefresh() {
-            location.reload();
-          },
-        });
-      }
-    </script>
     <pwa-install id="pwa-install" manifest-url="/manifest.json"></pwa-install>
-    <script type="text/javascript">
-      var pwaInstall = document.getElementById('pwa-install');
-    </script>
     {{/if}}
   </body>
 </html>
