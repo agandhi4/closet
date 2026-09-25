@@ -1,3 +1,4 @@
+import { MikroORM } from '@mikro-orm/core';
 import { createTestApp, TestApp } from './harness';
 
 /**
@@ -23,6 +24,17 @@ describe('migrations', () => {
       );
     return rows.map((row) => row.name);
   };
+
+  // An entity change without its migration boots fine and fails later in
+  // production (garment.color became a smallint that way). The migrated
+  // schema must be exactly what the entities describe.
+  it('leaves no difference between the entities and the migrated schema', async () => {
+    const diff = await t.app
+      .get(MikroORM)
+      .getSchemaGenerator()
+      .getUpdateSchemaSQL({ wrap: false });
+    expect(diff.trim()).toBe('');
+  });
 
   it('creates the lookup and foreign-key indexes', async () => {
     expect(await indexNames()).toEqual(
