@@ -1,9 +1,9 @@
 import { BeforeCreate, Index, Property } from '@mikro-orm/core';
 import { randomUUID } from 'crypto';
 
-// Indexes live on the entities so both migration trees (sqlite, postgres)
-// emit the same DDL. SQLite's platform auto-indexes every ManyToOne; Postgres
-// does not, so an FK without an explicit @Index() is unindexed in production.
+// Indexes live on the entities so migration:create emits them. Postgres does
+// not index foreign keys on its own, so an FK without an explicit @Index() is
+// unindexed.
 export abstract class ShareableId {
   // Share-link lookups (findOneByShareableId, getByShareableId) hit this column.
   @Index()

@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import autocannon from 'autocannon';
 import sharp from 'sharp';
+import { createScratchDatabase } from '../test/support/scratch-database';
 
 /**
  * Builds the app, boots dist/main.js with auth off, seeds one garment with a
@@ -12,9 +13,10 @@ import sharp from 'sharp';
  * `test:load:compare` can diff each one against the saved baseline.
  *
  * LOAD_TEST_DURATION (seconds per target, default 5) is the only knob; the
- * server otherwise inherits the environment, as in CI's sqlite and postgres
- * jobs. DATA_PATH defaults to a fresh temp directory so a local run never
- * seeds the development database.
+ * server otherwise inherits the environment (file storage, as in CI's local
+ * and object-storage jobs). It always runs on a scratch Postgres database, and
+ * DATA_PATH defaults to a fresh temp directory, so a local run never seeds
+ * the development database or its photos.
  */
 
 const BASE_URL = 'http://localhost:3000';
@@ -51,6 +53,7 @@ async function main() {
   console.log('Building app...');
   execSync('npm run build', { stdio: 'inherit' });
 
+  const database = await createScratchDatabase('closet_load');
   const dataPath =
     process.env.DATA_PATH ??
     fs.mkdtempSync(path.join(os.tmpdir(), 'closet-load-'));
@@ -62,6 +65,7 @@ async function main() {
     stdio: ['ignore', 'ignore', 'pipe'],
     env: {
       ...process.env,
+      ...database.env,
       NODE_ENV: 'production',
       AUTH_ENABLED: 'false',
       DATA_PATH: dataPath,
@@ -131,6 +135,7 @@ async function main() {
     }
   } finally {
     server.kill('SIGTERM');
+    await database.drop();
     if (!process.env.DATA_PATH) {
       fs.rmSync(dataPath, { recursive: true, force: true });
     }

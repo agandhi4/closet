@@ -27,7 +27,7 @@ export function variantFileName(
 
 // Stored names are `<uuid>.webp` plus the two derived suffixes (see
 // FileService.storeImageFromFileUpload). Anything else under DATA_PATH
-// (app.log, sqlite3.db and its WAL) is not a photo and reconciliation must
+// (app.log) is not a photo and reconciliation must
 // never touch it.
 const STORED_NAME =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-(nobg|thumb))?\.webp$/i;

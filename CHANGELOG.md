@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Removed
 
+- SQLite support: `DATABASE_TYPE`, the `@mikro-orm/better-sqlite` driver, the SQLite migration tree and its CLI config. Postgres (13+) is required; `DATABASE_HOST`, `DATABASE_SCHEMA`, `DATABASE_USER` and `DATABASE_PASS` no longer have defaults. Tests and the load test run on scratch Postgres databases (`TEST_DATABASE_URL`, default pgvault-dev on `localhost:5432`)
 - The boilerplate SSE chat demo (`/chat`, `/sse`, `/message`) and the `htmx-ext-sse` dependency
 - The generic file gallery (`/file/files`, `/file/upload`); `/file/*` now only serves image variants
 

@@ -209,7 +209,7 @@
   "ABOUT_OPEN_SOURCE": "Open source",
   "ABOUT_OPEN_SOURCE_DESC": "{appName} mantiene la licenza AGPL-3.0 del progetto originale. Il codice sorgente di questo fork e del progetto originale è disponibile su GitHub.",
   "ABOUT_TECH": "Tecnologia",
-  "ABOUT_TECH_DESC": "Realizzato con NestJS, HTMX, SQLite/PostgreSQL, Docker e ONNX Runtime per la rimozione dello sfondo tramite IA lato client. L'app web progressiva funziona offline su desktop e dispositivi mobili.",
+  "ABOUT_TECH_DESC": "Realizzato con NestJS, HTMX, PostgreSQL, Docker e ONNX Runtime per la rimozione dello sfondo tramite IA lato client. L'app web progressiva funziona offline su desktop e dispositivi mobili.",
   "LOGIN_OG_TITLE": "Accedi — {appName}",
   "LOGIN_OG_DESC": "Accedi a {appName} per gestire il tuo guardaroba, creare outfit e pianificare i look.",
   "REGISTER_OG_TITLE": "Registrati — {appName}",

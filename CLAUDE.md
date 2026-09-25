@@ -11,14 +11,14 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **Runtime**: Node 22 (`.nvmrc` pins `v22.20.0`), TypeScript, NestJS 11 on the **Fastify** adapter (not Express: use `FastifyReply`, `reply.view`, `reply.setCookie`).
 - **Views**: server-rendered Handlebars (`@fastify/view`) with htmx 2 for interactivity and `_hyperscript` for client logic. Not a SPA. There is no JSON API for the UI.
 - **CSS**: Tailwind v4 (`@tailwindcss/cli`) + daisyUI. Source `views/assets/main.css`, compiled to `public/bundle.css` by `npm run generate:tailwind`.
-- **Data**: MikroORM 6 with runtime-selected driver: `better-sqlite` (default) or `postgresql`, chosen by `DATABASE_TYPE` in `src/dal/dal.module.ts`. Separate migration trees per driver.
+- **Data**: MikroORM 6 on PostgreSQL only (17 in production on pgvault, 17 in CI, pgvault-dev locally). SQLite was dropped on 2026-09-25: its test tier passed on behavior production never had (case-insensitive `LIKE`, unbounded `varchar`, a drifted `color` type) and its migration tree wiped rows. One migration tree, `src/dal/migrations/postgres/`.
 - **Auth**: optional (`AUTH_ENABLED`) JWT in an `access_token` httpOnly cookie, bcrypt passwords. The session is resolved once per request by `AuthContextService` (cookie, JWT, user row, password fingerprint) into `req.auth`; guards only read it: `ConditionalAuthGuard` (open or authenticated, redirect when a session is required and missing), `RequireSessionGuard` (user-only pages: 404 with auth off, redirect without a session), `AuthGuard` (fetch endpoints: 401). Wardrobe permissions come from one `WardrobeShareService.resolveAccess`. `DISABLE_REGISTRATION` locks signup.
 - **PWA**: Workbox `injectManifest` over a hand-written service worker (`views/assets/src-sw.ts`, esbuild to `.js`, injected to `public/sw.js`), `/manifest.json` served from config by `AppController`, `@khmyznikov/pwa-install`, `pulltorefreshjs`, Web Push via `web-push` + VAPID keys. Gated by `PWA_ENABLED`.
 - **Images**: `sharp` for transcoding, `@imgly/background-removal` in the browser (patched, see gotchas), `heic-convert` for HEIC uploads. See Architecture, Images.
 - **Storage**: `src/file/` abstraction, `local` (disk under `DATA_PATH`) or `object` (S3 via `nestjs-s3`).
 - **i18n**: `nestjs-i18n`, strings in `src/i18n/<lang>/lang.json`, six languages.
 - **Logging**: `nestjs-pino`, pretty to stdout and rotating `app.log` under `DATA_PATH`.
-- **Tests**: three tiers. Jest unit (`src/**/*.spec.ts`, mocks everything, verifies wiring); Jest integration (`test/integration/`, the real app in-process on an in-memory SQLite driven through `app.inject()`, verifies behavior: HTML, headers, rows, files); Playwright e2e (`test/*.spec.ts`, real browser against a built server). Plus autocannon load test (`scripts/load-test.ts`) and Lighthouse CI.
+- **Tests**: three tiers. Jest unit (`src/**/*.spec.ts`, mocks everything, verifies wiring); Jest integration (`test/integration/`, the real app in-process on a scratch Postgres database per spec file, driven through `app.inject()`, verifies behavior: HTML, headers, rows, files); Playwright e2e (`test/*.spec.ts`, real browser against a built server). Plus autocannon load test (`scripts/load-test.ts`) and Lighthouse CI.
 
 ## Architecture
 
@@ -34,10 +34,10 @@ src/
                        i18n, global error-view filter. Every new env var is added here with a default.
   auth/                Login/register/password-reset controllers, JWT service, guards
   dal/                 Data access layer
-    dal.module.ts      MikroORM config, picks sqlite vs postgres driver at runtime
-    entity/            user, garment, outfit, outfit-garment (explicit pivot so both drivers index it),
+    dal.module.ts      MikroORM config (Postgres, migrations run on boot)
+    entity/            user, garment, outfit, outfit-garment (explicit pivot so its foreign keys carry declared indexes),
                        outfit-calendar, file, passwordReset, shareableId, userDevice, wardrobe-share
-    migrations/        {sqlite,postgres}/ — two parallel trees, both must be generated for every change
+    migrations/        postgres/ — the one migration tree
   wardrobe/            Core domain: garments, outfits, calendar. Controllers render views;
                        services own business logic; view-models/ shape entities for templates
   wardrobe-share/      Invite-link sharing (view/edit) between users
@@ -100,7 +100,7 @@ Upstream rules we keep (from `.github/prompts/boilerplate.prompt.md`), plus ours
 - **daisyUI components, not bespoke CSS.** Theme through daisyUI tokens. No hardcoded colors in templates.
 - **No runtime CDN imports.** Every client dependency is an npm package served by `useStaticAssets` in `app.ts`. The installed PWA must boot with zero external requests.
 - **Config via `ConfigService`**, never `process.env` outside `app.ts`. New env vars: Joi entry in `app.module.ts` with a default, row in the README configuration table.
-- **Migrations come in pairs.** Any entity change produces both a SQLite and a Postgres migration (see Commands). Production runs Postgres; CI runs the integration tier on both drivers, so a missing or drifting twin fails CI, not prod.
+- **One database: Postgres.** Every tier (integration, Playwright, load test, CI) runs on Postgres. Do not reintroduce a second driver for test speed: the scratch-database harness is as fast as in-memory SQLite was.
 - **Cookies stay `Secure`-less.** The `.box` name is HTTP by design (Tailscale encrypts). Adding `secure: true` to `reply.setCookie` in `src/auth/` makes login silently never stick over `http://closet.box`. If a secure cookie is ever wanted it must be driven by a `COOKIE_SECURE` env var defaulting to false.
 - **Offline-first UX per `frontend-pwa.md`.** Reads render from cache with a freshness indicator, writes that cannot reach the server are disabled with an explanation, never silently dropped. Connectivity detection is active (heartbeat), not `navigator.onLine`.
 - **Logging**: use the injected pino logger with the module name as context. Log at operation boundaries with garment/outfit IDs and user IDs. Nothing inside template rendering or loops.
@@ -123,27 +123,28 @@ npm run format                # prettier
 
 # Test tiers, cheapest first
 npm test                      # jest unit: mocked DB/fs, verifies wiring. Seconds.
-npm run test:int              # jest integration: real app in-process, in-memory SQLite, temp DATA_PATH,
-                              # app.inject(). Asserts HTML, headers, DB rows, files. ~3 s. No build needed.
+(cd ../pgvault-dev && docker compose up -d --wait)
+                              # every tier below needs Postgres: pgvault-dev on localhost:5432 (superuser
+                              # postgres, trust auth). Dev app config lives in .env.local (DATABASE_*,
+                              # closet_db); see README Development.
+npm run test:int              # jest integration: real app in-process, temp DATA_PATH, app.inject().
+                              # Asserts HTML, headers, DB rows, files. ~5 s. No build needed.
                               # The default place for behavior assertions during development.
-TEST_DATABASE_URL=postgres://postgres:Password123@127.0.0.1:5432/postgres npm run test:int
-                              # same tier on Postgres: one database per spec file, created and dropped by
-                              # the harness (needs Postgres 13+; `docker run -d --rm -p 127.0.0.1:5432:5432
-                              # -e POSTGRES_PASSWORD=Password123 postgres:17-alpine`). CI runs both.
+                              # Each spec file gets a scratch database (test/support/scratch-database.ts)
+                              # on TEST_DATABASE_URL, default pgvault-dev; CI points it at a postgres:17 service.
 npm run test:e2e              # playwright (full): builds + boots :3000 unless one is already running.
 npm run test:e2e:smoke        # playwright smoke, the CI gate
                               # test/pwa.spec.ts (service worker, offline shell, lazy model) and
                               # test/auth.spec.ts skip unless the server was started with
                               # PWA_ENABLED=true (+ VAPID keys) / AUTH_ENABLED=true respectively
-npm run test:load             # autocannon against a running instance
+npm run test:load             # builds, boots on a scratch database + temp DATA_PATH, autocannon
 npm run lighthouse            # lhci autorun
 
 npm run precommit             # format:check + lint + test + test:int + build (~16 s, run before every commit)
 npm run precommit:full        # + test:cov, e2e smoke, load test, lighthouse (minutes, the pre-PR gate)
 
-# Migrations — run BOTH after any entity change (build first, CLI reads dist)
-npm run build
-npx mikro-orm migration:create --config mikro-orm.sqlite.cli-config.ts
+# Migrations: diff entities against the committed .snapshot-postgres.json; connects to closet_db on
+# pgvault-dev unless DATABASE_* say otherwise
 npx mikro-orm migration:create --config mikro-orm.postgres.cli-config.ts
 
 docker build -f docker/Dockerfile -t closet .
@@ -182,7 +183,6 @@ PUBLIC_VAPID_KEY=<npx web-push generate-vapid-keys>   # no defaults; required wh
 PRIVATE_VAPID_KEY=<same>
 # ICON_NAME left unset (default icon.png)
 # WATERMARK_ENABLED left unset (default false)
-DATABASE_TYPE=postgres
 DATABASE_HOST=pgvault
 DATABASE_PORT=5432
 DATABASE_SCHEMA=closet_db
@@ -201,14 +201,14 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **`docker-publish.yml` publishes `:latest` on every push to `main`** (and semver tags on `v*` tags from `tag-release.yml`), amd64 only, GHCR only. Merging to main is deploying: the homelab autoupdater redeploys within the hour.
 - **Upstream references are limited to attribution.** The only permitted mentions of the upstream project are the attribution link in the About page and README and code comments citing upstream issues or PRs. Any other occurrence of the upstream company or project name (assets, links, config defaults, CI values, marketing copy) is a rebrand regression; grep for it before a PR.
 - **Regenerate `package-lock.json` only with Node 22 / npm 10** (`nvm use`, or `docker run --rm -v $PWD:/app -w /app node:22 npm install --package-lock-only`). npm 11 prunes nested entries that npm 10's `npm ci` in the Docker build then reports as missing, so the image build fails while local installs look fine.
-- **Two parallel migration trees.** Forgetting the Postgres twin passes locally on SQLite and fails in CI's Postgres job (integration tier on Postgres 17, smoke against Postgres plus s3mock). The trees have drifted twice before (missing FK indexes, `garment.color` typed smallint): compare generated SQL, not just file counts.
+- **pgvault-dev runs Postgres 18; production and CI run 17.** Features new in 18 pass locally and fail in CI. The migration CLI's snapshot is pinned to `.snapshot-postgres.json` (`snapshotName`), so pointing it at another database no longer writes a stray `.snapshot-<db>.json`.
 - **`precommit:full` is minutes long** (Lighthouse and load test included). Use it as the pre-PR gate; `precommit` is the per-commit one.
 - **`test:e2e` rebuilds unless :3000 is busy.** Playwright's `reuseExistingServer` is on outside CI, so leaving `npm run start:prod` running skips the `npm run build` in the webServer command; stop it when you need the e2e run to see fresh code.
-- **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation, `DalModule`'s driver pick), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different `AUTH_ENABLED` in a different spec file.
+- **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different `AUTH_ENABLED` in a different spec file.
 - **htmx reads only the first `<meta name="htmx-config">`.** Keep the config in one JSON object. `disableInheritance` is on, so any attribute that must reach descendants needs `hx-inherit` on the ancestor (the body has `hx-inherit="hx-boost"`; without it no link is boosted).
 - **`public/build.json` lingers after `npm run build`.** `start:dev` then serves assets with that build's cache key; set `NODE_ENV=development` in `.env.local` (caching off) or delete the file if styles look stale.
 - **Nest answers POST with 201 unless the handler has `@HttpCode(200)`**, even when it sends through `@Res()`: htmx partials, `HX-Redirect` replies and re-rendered forms (failed login, validation errors) all come back 201. Integration specs assert 2xx on those; browsers and htmx do not care.
-- **Indexes are declared on the entities (`@Index()`), never only in a migration.** MikroORM's SQLite platform auto-indexes every `ManyToOne`; Postgres does not, so an FK without an explicit `@Index()` is indexed locally and unindexed in production, and the SQLite migration alone will never tell you. `test/integration/migrations.spec.ts` lists the expected index names.
+- **Indexes are declared on the entities (`@Index()`), never only in a migration.** Postgres does not index foreign keys on its own, so an FK without an explicit `@Index()` is unindexed. `test/integration/migrations.spec.ts` lists the expected index names.
 - **Postgres migrations run one transaction per migration (`allOrNothing: false`)**, in both `dal.module.ts` and `mikro-orm.postgres.cli-config.ts`. Index migrations use `CREATE INDEX CONCURRENTLY IF NOT EXISTS` and override `isTransactional()` to return false; MikroORM runs such migrations on a second connection, which under a batch-wide transaction cannot see tables created earlier in the same batch and fails a fresh database with "relation does not exist". A generated Postgres index migration must be hand-edited to this shape (see `Migration20260925181256`) and `src/dal/migrations/postgres-indexes.spec.ts` enforces it. Never hand-add DDL that the entities do not declare: CLI `migration:up` rewrites `.snapshot-*.json` from the live database, and the next `migration:create` emits a DROP for anything it cannot find in the metadata. SQLite's `migration:create` also needs a migrated `./data/sqlite3.db` (run `migration:up` with the sqlite config first) whenever a column changes type, because knex rebuilds the table from `sqlite_master`; read the generated file, it has duplicated a `create index` line before. To verify a Postgres migration locally: `docker run -d --rm --name pg -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=Password123 postgres:17-alpine`, then `migration:up` / `migration:down` with the postgres CLI config.
 - **Photo bytes are written before any row, and rows commit together.** `FileService.storeImageFromFileUpload` / `copyImage` return an unpersisted `File`; the caller (`GarmentService`) persists it inside `em.transactional` with the garment and calls `deleteVariants` if the transaction fails. `GarmentService.remove` and photo replacement delete the `File` row in the same transaction and unlink after commit. Do not `persistAndFlush` a `File` from inside `FileService`.
 - **The DB cascade deletes rows, never bytes.** `deleteRule: 'cascade'` on `File.createdBy` and `Garment.owner` drops the rows when a user goes, but only `FileService.deleteVariants` removes the files. Every path that removes a `File` row (`GarmentService.remove`, photo replacement, `AuthService.deleteUser`) must unlink through the file service after commit; the cascade is the safety net and `StorageReconciliationService` (nightly, or `npm run maintenance:reconcile`) is the backstop that deletes photo sets and rows older than a day that nothing references. Outfits and calendar entries own no files.

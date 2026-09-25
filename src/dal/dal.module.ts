@@ -1,15 +1,9 @@
-import { BetterSqliteDriver } from '@mikro-orm/better-sqlite';
-import { Connection, IDatabaseDriver, MikroORM } from '@mikro-orm/core';
 import { Migrator } from '@mikro-orm/migrations';
-import { MikroOrmModule, MikroOrmModuleOptions } from '@mikro-orm/nestjs';
+import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import path from 'path';
-
-// better-sqlite's special dbName for a private in-memory database; set as
-// DATABASE_SCHEMA by the integration harness.
-const IN_MEMORY_DB = ':memory:';
 
 // Query and migrator output goes through the app logger so it follows
 // LOG_LEVEL and pino's formatting (colors off: pino-pretty adds its own).
@@ -20,119 +14,59 @@ const ormLogger = new Logger('MikroORM');
     MikroOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        switch (configService.get('DATABASE_TYPE', 'sqlite')) {
-          case 'sqlite':
-            return {
-              name: 'sqlite',
-              driver: BetterSqliteDriver,
-              baseDir: process.cwd(),
-              dbName: configService.getOrThrow('DATABASE_SCHEMA'),
-              autoLoadEntities: true,
-              extensions: [Migrator],
-              migrations: {
-                pattern: /^.*\.(js|ts)$/, // ends with .js or .ts
-                path: path.join(__dirname, 'migrations/sqlite'),
-                pathTs: path.join(__dirname, 'migrations/sqlite'),
-                transactional: true,
-                // Snapshots serve migration:create, which runs through the
-                // mikro-orm.*.cli-config.ts files; the runtime must not write
-                // .snapshot-*.json next to the migrations on every boot.
-                snapshot: false,
-              },
-              logger: (message) => ormLogger.log(message),
-              colors: false,
-              allowGlobalContext: true,
-              debug: configService.get('NODE_ENV') === 'development',
-            } as MikroOrmModuleOptions<IDatabaseDriver<Connection>>;
-          case 'postgres':
-            return {
-              name: 'postgres',
-              driver: PostgreSqlDriver,
-              dbName: configService.get('DATABASE_SCHEMA', 'postgres'),
-              host: configService.get('DATABASE_HOST', 'localhost'),
-              port: configService.get<number>('DATABASE_PORT', 5432),
-              user: configService.get('DATABASE_USER', 'postgres'),
-              password: configService.get('DATABASE_PASS', 'postgres'),
-              autoLoadEntities: true,
-              extensions: [Migrator],
-              migrations: {
-                pattern: /^.*\.(js|ts)$/, // ends with .js or .ts
-                path: path.join(__dirname, 'migrations/postgres'),
-                pathTs: path.join(__dirname, 'migrations/postgres'),
-                transactional: true,
-                // One transaction per migration, not one around the whole
-                // pending batch. Index migrations opt out of transactions
-                // (CREATE INDEX CONCURRENTLY) and then run on a second
-                // connection, which under a batch-wide transaction cannot see
-                // tables created earlier in the same batch: a fresh database
-                // (CI, first boot) would fail on "relation does not exist".
-                // Keep in sync with mikro-orm.postgres.cli-config.ts.
-                allOrNothing: false,
-                // Snapshots serve migration:create, which runs through the
-                // mikro-orm.*.cli-config.ts files; the runtime must not write
-                // .snapshot-*.json next to the migrations on every boot.
-                snapshot: false,
-              },
-              driverOptions: {
-                connection: {
-                  ssl: configService.get('DATABASE_SSL')
-                    ? {
-                        rejectUnauthorized: false,
-                      }
-                    : undefined,
-                },
-              },
-              logger: (message) => ormLogger.log(message),
-              colors: false,
-              allowGlobalContext: true,
-              debug: configService.get('NODE_ENV') === 'development',
-            } as MikroOrmModuleOptions<IDatabaseDriver<Connection>>;
-          default:
-            throw new Error(
-              'Invalid database type selected. It must be either sqlite (default) or postgres.',
-            );
-        }
-      },
-      // "feat: add driver option to get around issues with useFactory and inject #204"
-      // https://github.com/mikro-orm/nestjs/pull/204
-      // Note: driver must be set statically here, before ConfigService is available
-      // This reads directly from process.env as it's evaluated at module load time
-      driver:
-        process.env.DATABASE_TYPE == 'sqlite'
-          ? BetterSqliteDriver
-          : PostgreSqlDriver,
+      useFactory: (configService: ConfigService) => ({
+        driver: PostgreSqlDriver,
+        dbName: configService.getOrThrow<string>('DATABASE_SCHEMA'),
+        host: configService.getOrThrow<string>('DATABASE_HOST'),
+        port: configService.getOrThrow<number>('DATABASE_PORT'),
+        user: configService.getOrThrow<string>('DATABASE_USER'),
+        password: configService.getOrThrow<string>('DATABASE_PASS'),
+        autoLoadEntities: true,
+        extensions: [Migrator],
+        migrations: {
+          pattern: /^.*\.(js|ts)$/, // ends with .js or .ts
+          path: path.join(__dirname, 'migrations/postgres'),
+          pathTs: path.join(__dirname, 'migrations/postgres'),
+          transactional: true,
+          // One transaction per migration, not one around the whole pending
+          // batch. Index migrations opt out of transactions (CREATE INDEX
+          // CONCURRENTLY) and then run on a second connection, which under a
+          // batch-wide transaction cannot see tables created earlier in the
+          // same batch: a fresh database (CI, first boot) would fail on
+          // "relation does not exist". Keep in sync with
+          // mikro-orm.postgres.cli-config.ts.
+          allOrNothing: false,
+          // Snapshots serve migration:create, which runs through
+          // mikro-orm.postgres.cli-config.ts; the runtime must not write
+          // .snapshot-*.json next to the migrations on every boot.
+          snapshot: false,
+        },
+        driverOptions: {
+          connection: {
+            ssl: configService.get<boolean>('DATABASE_SSL')
+              ? { rejectUnauthorized: false }
+              : undefined,
+          },
+        },
+        logger: (message: string) => ormLogger.log(message),
+        colors: false,
+        allowGlobalContext: true,
+        debug: configService.get('NODE_ENV') === 'development',
+      }),
+      // mikro-orm/nestjs#204: the driver must be known statically, before
+      // the factory runs, for the module to register the right EntityManager.
+      driver: PostgreSqlDriver,
     }),
   ],
 })
 export class DalModule implements OnModuleInit {
   private logger = new Logger(DalModule.name);
 
-  constructor(
-    private configService: ConfigService,
-    private readonly orm: MikroORM,
-  ) {}
+  constructor(private configService: ConfigService) {}
 
-  async onModuleInit() {
-    switch (this.configService.get('DATABASE_TYPE', 'sqlite')) {
-      case 'sqlite': {
-        const dbName = this.configService.getOrThrow<string>('DATABASE_SCHEMA');
-        this.logger.log(`Using sqlite db: ${dbName}`);
-        // WAL is a file-level journal; an in-memory database (integration
-        // tests) has no file and silently keeps its `memory` journal mode.
-        if (dbName === IN_MEMORY_DB) break;
-        await this.orm.em.getConnection().execute('PRAGMA journal_mode = WAL;');
-        this.logger.log('SQLite WAL mode enabled');
-        break;
-      }
-      case 'postgres':
-        this.logger.log(
-          `Using postgres db: ${this.configService.get(
-            'DATABASE_SCHEMA',
-            'postgres',
-          )}, host: ${this.configService.get('DATABASE_HOST', 'localhost')}`,
-        );
-        break;
-    }
+  onModuleInit() {
+    this.logger.log(
+      `Using postgres db: ${this.configService.get('DATABASE_SCHEMA')}, host: ${this.configService.get('DATABASE_HOST')}`,
+    );
   }
 }

@@ -209,7 +209,7 @@
   "ABOUT_OPEN_SOURCE": "Open source",
   "ABOUT_OPEN_SOURCE_DESC": "{appName} conserve la licence AGPL-3.0 du projet d'origine. Le code source de ce fork et du projet d'origine est disponible sur GitHub.",
   "ABOUT_TECH": "Technologie",
-  "ABOUT_TECH_DESC": "Construit avec NestJS, HTMX, SQLite/PostgreSQL, Docker et ONNX Runtime pour la suppression d'arrière-plan par IA côté client. L'application web progressive fonctionne hors ligne sur ordinateur et mobile.",
+  "ABOUT_TECH_DESC": "Construit avec NestJS, HTMX, PostgreSQL, Docker et ONNX Runtime pour la suppression d'arrière-plan par IA côté client. L'application web progressive fonctionne hors ligne sur ordinateur et mobile.",
   "LOGIN_OG_TITLE": "Connexion — {appName}",
   "LOGIN_OG_DESC": "Connectez-vous à {appName} pour gérer votre garde-robe, créer des tenues et planifier vos looks.",
   "REGISTER_OG_TITLE": "S'inscrire — {appName}",

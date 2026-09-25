@@ -62,7 +62,7 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
           # amd64 only: the sole deploy target is the Synology NAS, and emulated arm64
-          # builds of sharp/better-sqlite3 would turn commit-to-deploy into a 30+ minute wait.
+          # builds of sharp would turn commit-to-deploy into a 30+ minute wait.
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

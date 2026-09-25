@@ -1,6 +1,8 @@
-// In-process integration tier: the real app on an in-memory SQLite and a temp
-// DATA_PATH, driven through Fastify's inject(). `npm run test:int`. The unit
-// tier stays in package.json's "jest" block.
+// In-process integration tier: the real app on a fresh Postgres database per
+// spec file and a temp DATA_PATH, driven through Fastify's inject().
+// Needs pgvault-dev on localhost:5432 or TEST_DATABASE_URL (see
+// test/support/scratch-database.ts). `npm run test:int`. The unit tier stays in
+// package.json's "jest" block.
 module.exports = {
   rootDir: '.',
   testMatch: ['<rootDir>/test/integration/**/*.spec.ts'],
