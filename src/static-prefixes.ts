@@ -15,6 +15,9 @@ export const STATIC_FILES = [
   '/bundle.css',
   '/sw.js',
   '/manifest.json',
+  // Connectivity heartbeat (public/js/connectivity.js): a probe must never
+  // cost a JWT verification or a user query.
+  '/healthz',
   '/favicon.ico',
   '/robots.txt',
   '/llms.txt',

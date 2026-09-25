@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Header,
+  HttpCode,
   Logger,
   Post,
   Redirect,
@@ -32,12 +33,23 @@ export class AppController {
   index(): void {}
 
   // public/manifest.json was deleted so this route is not shadowed by the
-  // static-asset handler in app.ts.
+  // static-asset handler in app.ts. no-cache (revalidate, like sw.js): the
+  // installed app must pick up APP_NAME/ICON_NAME changes on its next check.
   @Get('manifest.json')
   @Header('Content-Type', 'application/manifest+json; charset=utf-8')
+  @Header('Cache-Control', 'no-cache')
   manifest(): Record<string, unknown> {
     return this.appService.getWebManifest();
   }
+
+  // Heartbeat for public/js/connectivity.js: the client decides it is online
+  // only when this answers, never from navigator.onLine. Listed in
+  // STATIC_FILES so the session hook skips it, and no-store so neither the
+  // HTTP cache nor the service worker can answer on the server's behalf.
+  @Get('healthz')
+  @HttpCode(204)
+  @Header('Cache-Control', 'no-store')
+  healthz(): void {}
 
   @Get('about')
   @Render('about')
