@@ -58,6 +58,9 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
+          # Names the commit in the static-asset cache key (public/build.json).
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           # amd64 only: the sole deploy target is the Synology NAS, and emulated arm64
           # builds of sharp/better-sqlite3 would turn commit-to-deploy into a 30+ minute wait.
           platforms: linux/amd64
