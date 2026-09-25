@@ -209,7 +209,7 @@
   "ABOUT_OPEN_SOURCE": "Open Source",
   "ABOUT_OPEN_SOURCE_DESC": "{appName} behält die AGPL-3.0-Lizenz des Ursprungsprojekts bei. Der Quellcode dieses Forks und des Originalprojekts ist auf GitHub verfügbar.",
   "ABOUT_TECH": "Technologie",
-  "ABOUT_TECH_DESC": "Entwickelt mit NestJS, HTMX, SQLite/PostgreSQL, Docker und ONNX Runtime für clientseitige KI-Hintergrundentfernung. Die Progressive Web App funktioniert offline auf Desktop und Mobilgeräten.",
+  "ABOUT_TECH_DESC": "Entwickelt mit NestJS, HTMX, PostgreSQL, Docker und ONNX Runtime für clientseitige KI-Hintergrundentfernung. Die Progressive Web App funktioniert offline auf Desktop und Mobilgeräten.",
   "LOGIN_OG_TITLE": "Anmelden — {appName}",
   "LOGIN_OG_DESC": "Melden Sie sich bei {appName} an, um Ihre Garderobe zu verwalten, Outfits zu erstellen und Looks zu planen.",
   "REGISTER_OG_TITLE": "Registrieren — {appName}",

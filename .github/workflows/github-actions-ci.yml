@@ -13,6 +13,29 @@ jobs:
     name: back-end-ci
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Postgres is the only database. 17 matches production (pgvault); the
+    # integration harness and the load test create scratch databases through
+    # TEST_DATABASE_URL and drop them WITH (FORCE), which needs 13+.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: Password123
+          POSTGRES_DB: postgres-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d postgres-test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://test:Password123@localhost:5432/postgres-test
+      DATABASE_HOST: localhost
+      DATABASE_PORT: "5432"
+      DATABASE_USER: test
+      DATABASE_PASS: Password123
+      DATABASE_SCHEMA: postgres-test
+      DATABASE_SSL: "false"
     steps:
       - uses: actions/checkout@master
 
@@ -38,7 +61,8 @@ jobs:
         run: |
           npm run test:cov
 
-      # In-process tier: real app on in-memory SQLite through app.inject().
+      # In-process tier: the real app through app.inject(), one scratch
+      # database per spec file.
       - name: npm test:int
         run: |
           npm run test:int
@@ -56,7 +80,6 @@ jobs:
           PUSH_NOTIFICATION_ENDPOINT: test
           EMAIL_FROM_ADDRESS: test
           EMAIL_PASSWORD: test
-          DATABASE_TYPE: sqlite
           FILE_STORAGE_TYPE: local
 
       # The smoke job runs with auth off; this proves the cookie session path
@@ -73,7 +96,6 @@ jobs:
           PUSH_NOTIFICATION_ENDPOINT: test
           EMAIL_FROM_ADDRESS: test
           EMAIL_PASSWORD: test
-          DATABASE_TYPE: sqlite
           FILE_STORAGE_TYPE: local
 
       - name: npm test:load local
@@ -86,26 +108,7 @@ jobs:
           PUSH_NOTIFICATION_ENDPOINT: test
           EMAIL_FROM_ADDRESS: test
           EMAIL_PASSWORD: test
-          DATABASE_TYPE: sqlite
           FILE_STORAGE_TYPE: local
-
-      # 17 rather than 11: the integration harness drops its per-file databases
-      # with DROP DATABASE ... WITH (FORCE) (Postgres 13+), and 11 is EOL.
-      - name: start postgresql db
-        uses: harmon758/postgresql-action@v1
-        with:
-          postgresql version: "17" # See https://hub.docker.com/_/postgres for available versions
-          postgresql db: "postgres-test"
-          postgresql user: "test"
-          postgresql password: "Password123"
-
-      # Same in-process tier as above, on Postgres: the harness creates one
-      # database per spec file from this admin URL and drops it afterwards.
-      - name: npm test:int (postgres)
-        run: |
-          npm run test:int
-        env:
-          TEST_DATABASE_URL: postgres://test:Password123@localhost:5432/postgres-test
 
       # minio/minio vanished from Docker Hub (and quay.io needs auth), so the
       # object-storage jobs run against adobe/s3mock: path-style S3, accepts any
@@ -129,13 +132,6 @@ jobs:
           PUSH_NOTIFICATION_ENDPOINT: test
           EMAIL_FROM_ADDRESS: test
           EMAIL_PASSWORD: test
-          DATABASE_TYPE: postgres
-          DATABASE_HOST: localhost
-          DATABASE_PORT: "5432"
-          DATABASE_USER: "test"
-          DATABASE_PASS: "Password123"
-          DATABASE_SCHEMA: "postgres-test"
-          DATABASE_SSL: "false"
           FILE_STORAGE_TYPE: object
           OBJECT_STORAGE_BUCKET_NAME: test-closet
           OBJECT_STORAGE_ACCESS_KEY_ID: minioadmin
@@ -152,13 +148,6 @@ jobs:
           PUSH_NOTIFICATION_ENDPOINT: test
           EMAIL_FROM_ADDRESS: test
           EMAIL_PASSWORD: test
-          DATABASE_TYPE: postgres
-          DATABASE_HOST: localhost
-          DATABASE_PORT: "5432"
-          DATABASE_USER: "test"
-          DATABASE_PASS: "Password123"
-          DATABASE_SCHEMA: "postgres-test"
-          DATABASE_SSL: "false"
           FILE_STORAGE_TYPE: object
           OBJECT_STORAGE_BUCKET_NAME: test-closet
           OBJECT_STORAGE_ACCESS_KEY_ID: minioadmin

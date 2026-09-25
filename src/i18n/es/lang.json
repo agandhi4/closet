@@ -209,7 +209,7 @@
   "ABOUT_OPEN_SOURCE": "Código abierto",
   "ABOUT_OPEN_SOURCE_DESC": "{appName} conserva la licencia AGPL-3.0 del proyecto original. El código fuente de este fork y del proyecto original está disponible en GitHub.",
   "ABOUT_TECH": "Tecnología",
-  "ABOUT_TECH_DESC": "Construido con NestJS, HTMX, SQLite/PostgreSQL, Docker y ONNX Runtime para eliminación de fondo con IA del lado del cliente. La aplicación web progresiva funciona sin conexión en escritorio y móvil.",
+  "ABOUT_TECH_DESC": "Construido con NestJS, HTMX, PostgreSQL, Docker y ONNX Runtime para eliminación de fondo con IA del lado del cliente. La aplicación web progresiva funciona sin conexión en escritorio y móvil.",
   "LOGIN_OG_TITLE": "Iniciar Sesión — {appName}",
   "LOGIN_OG_DESC": "Inicie sesión en {appName} para gestionar su armario, crear conjuntos y planificar looks.",
   "REGISTER_OG_TITLE": "Registrarse — {appName}",

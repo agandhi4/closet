@@ -148,7 +148,7 @@ export class StorageReconciliationService implements OnApplicationBootstrap {
   }
 
   // One listing serves all three passes; objects that are not photos (the
-  // SQLite database, app.log) are counted and otherwise ignored.
+  // app.log) are counted and otherwise ignored.
   private async scanStorage(): Promise<{
     photoSets: Map<string, StoredPhotoSet>;
     storedObjects: number;

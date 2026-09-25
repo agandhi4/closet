@@ -110,45 +110,16 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
         // Composite the app icon onto share-link Open Graph images.
         WATERMARK_ENABLED: Joi.boolean().default(false),
         DATA_PATH: Joi.string().default(path.join(process.cwd(), 'data')),
-        DATABASE_TYPE: Joi.string()
-          .valid('sqlite', 'postgres')
-          .default('sqlite'),
-        DATABASE_SCHEMA: Joi.string()
-          .when('DATABASE_TYPE', {
-            is: 'sqlite',
-            then: Joi.string().default((parent) =>
-              path.join(parent.DATA_PATH, 'sqlite3.db'),
-            ),
-          })
-          .when('DATABASE_TYPE', {
-            is: 'postgres',
-            then: Joi.string().required(),
-          }),
-        DATABASE_HOST: Joi.string().when('DATABASE_TYPE', {
-          is: 'postgres',
-          then: Joi.string().required(),
-          otherwise: Joi.optional(),
-        }),
-        DATABASE_PORT: Joi.number().when('DATABASE_TYPE', {
-          is: 'postgres',
-          then: Joi.number().required(),
-          otherwise: Joi.optional(),
-        }),
-        DATABASE_USER: Joi.string().when('DATABASE_TYPE', {
-          is: 'postgres',
-          then: Joi.string().required(),
-          otherwise: Joi.optional(),
-        }),
-        DATABASE_PASS: Joi.string().when('DATABASE_TYPE', {
-          is: 'postgres',
-          then: Joi.string().required(),
-          otherwise: Joi.optional(),
-        }),
-        DATABASE_SSL: Joi.boolean().when('DATABASE_TYPE', {
-          is: 'postgres',
-          then: Joi.boolean().default(false),
-          otherwise: Joi.optional(),
-        }),
+        // Postgres is the only database (SQLite was dropped 2026-09-25: its
+        // tests passed on behavior production never had). No defaults on
+        // purpose: a missing value must fail the boot, not reach localhost.
+        DATABASE_HOST: Joi.string().required(),
+        DATABASE_PORT: Joi.number().default(5432),
+        DATABASE_SCHEMA: Joi.string().required(),
+        DATABASE_USER: Joi.string().required(),
+        // Empty is valid: pgvault-dev and the test databases use trust auth.
+        DATABASE_PASS: Joi.string().allow('').required(),
+        DATABASE_SSL: Joi.boolean().default(false),
         FILE_STORAGE_TYPE: Joi.string()
           .valid('local', 'object')
           .default('local'),

@@ -2,8 +2,7 @@ import { createTestApp, TestApp } from './harness';
 
 /**
  * Booting the app runs migrator.up(); the schema it leaves behind must carry
- * every index the entities declare, on whichever driver the tier runs
- * against. The Postgres migration's shape (CONCURRENTLY, non-transactional)
+ * every index the entities declare. The Postgres migration's shape (CONCURRENTLY, non-transactional)
  * is checked statically in src/dal/migrations/postgres-indexes.spec.ts.
  */
 describe('migrations', () => {
@@ -16,11 +15,12 @@ describe('migrations', () => {
   afterAll(() => t?.cleanup());
 
   const indexNames = async (): Promise<string[]> => {
-    const sql =
-      t.databaseType === 'postgres'
-        ? 'select indexname as name from pg_indexes where schemaname = current_schema()'
-        : "select name from sqlite_master where type = 'index'";
-    const rows: { name: string }[] = await t.em().getConnection().execute(sql);
+    const rows: { name: string }[] = await t
+      .em()
+      .getConnection()
+      .execute(
+        'select indexname as name from pg_indexes where schemaname = current_schema()',
+      );
     return rows.map((row) => row.name);
   };
 

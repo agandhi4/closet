@@ -44,7 +44,7 @@ export class LocalFileService extends FileService {
       });
   }
 
-  // DATA_PATH also holds app.log and the SQLite database; every entry is
+  // DATA_PATH also holds app.log; every entry is
   // reported and the caller decides what is a photo (parseStoredName).
   async *list(): AsyncIterable<StoredObject> {
     const entries = await fs.promises.readdir(this.directory, {

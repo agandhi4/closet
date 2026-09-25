@@ -8,17 +8,7 @@ A fork of [Libre Closet](https://github.com/lazztech/libre-closet) by Lazztech L
 
 ## Quick start
 
-```bash
-# SQLite + local storage (zero config)
-docker run -d \
-  -p 3000:3000 \
-  -v closet_data:/app/data \
-  ghcr.io/agandhi4/closet:latest
-```
-
-Open [http://localhost:3000](http://localhost:3000). No account required by default.
-
-### docker-compose
+Closet needs a PostgreSQL 13+ database (production runs 17).
 
 ```yaml
 services:
@@ -35,11 +25,34 @@ services:
       PUBLIC_VAPID_KEY: '<public key>'
       PRIVATE_VAPID_KEY: '<private key>'
       DATA_PATH: /app/data
+      DATABASE_HOST: postgres
+      DATABASE_SCHEMA: closet
+      DATABASE_USER: closet
+      DATABASE_PASS: '<password>'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: closet
+      POSTGRES_PASSWORD: '<password>'
+      POSTGRES_DB: closet
+    volumes:
+      - closet_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U closet -d closet']
+      interval: 5s
+      retries: 10
     restart: unless-stopped
 
 volumes:
   closet_data:
+  closet_pg:
 ```
+
+Open [http://localhost:3000](http://localhost:3000). No account required by default.
 
 ---
 
@@ -52,7 +65,7 @@ volumes:
 | `APP_NAME`                         | Display name shown in the UI and navbar                                              | `Closet`                | `My awesome Closet manager`                                                               |
 | `ICON_NAME`                        | Icon file under `public/assets/` used for the navbar, manifest and share previews    | `icon.png`              | `my-icon.png`                                                                             |
 | `SITE_URL`                         | Public origin, used for absolute links in share previews and emails                  | `http://localhost:3000` | `https://closet.example.com`                                                              |
-| `DATA_PATH`                        | Directory for SQLite DB and uploaded files                                           | `./data`                | `./closet-data`                                                                           |
+| `DATA_PATH`                        | Directory for uploaded files and `app.log`                                           | `./data`                | `./closet-data`                                                                           |
 | `AUTH_ENABLED`                     | Enable JWT user accounts and login                                                   | `false`                 | `true`                                                                                    |
 | `DISABLE_REGISTRATION`             | Disallows user sign ups when true                                                    | `false`                 | `true`                                                                                    |
 | `PWA_ENABLED`                      | Enable service worker and PWA install prompt                                         | `false`                 | `true`                                                                                    |
@@ -60,12 +73,11 @@ volumes:
 | `ACCESS_TOKEN_SECRET`              | JWT signing secret - **change for production**                                       | `ChangeMe!`             | `u9n8c2y847rfctb23468tcb689f243`                                                          |
 | `TRUSTED_PROXIES`                  | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-*` headers are trusted (rate limiting, canonical URLs) | `127.0.0.1,::1` | `172.16.0.0/12`                                                                   |
 | `LOG_LEVEL`                        | pino level for the console and `app.log` (`trace` … `fatal`, or `silent`)            | `info`                  | `debug`                                                                                   |
-| `DATABASE_TYPE`                    | `sqlite` or `postgres`                                                               | `sqlite`                | `postgres`                                                                                |
-| `DATABASE_HOST`                    | Postgres host                                                                        | -                       | `192.168.10.5`                                                                            |
+| `DATABASE_HOST`                    | Postgres host (required)                                                             | -                       | `192.168.10.5`                                                                            |
 | `DATABASE_PORT`                    | Postgres port                                                                        | `5432`                  | `9867`                                                                                    |
-| `DATABASE_USER`                    | Postgres user                                                                        | -                       | `postgres`                                                                                |
-| `DATABASE_PASS`                    | Postgres password                                                                    | -                       | `7yfhcn2349cr32f`                                                                         |
-| `DATABASE_SCHEMA`                  | Postgres schema                                                                      | `postgres`              | `closet`                                                                                  |
+| `DATABASE_USER`                    | Postgres user (required)                                                             | -                       | `postgres`                                                                                |
+| `DATABASE_PASS`                    | Postgres password (required; may be empty for trust auth)                            | -                       | `7yfhcn2349cr32f`                                                                         |
+| `DATABASE_SCHEMA`                  | Postgres database name (required)                                                    | -                       | `closet`                                                                                  |
 | `DATABASE_SSL`                     | Use SSL for Postgres                                                                 | `false`                 | `true`                                                                                    |
 | `FILE_STORAGE_TYPE`                | `local` or `object` (S3)                                                             | `local`                 | `object`                                                                                  |
 | `OBJECT_STORAGE_ACCESS_KEY_ID`     | S3 access key                                                                        | -                       | `AKIAIOSFODNN7EXAMPLE`                                                                    |
@@ -100,14 +112,29 @@ npx web-push generate-vapid-keys
 ### Prerequisites
 
 - Node (see `.nvmrc`, Node 22) - install via [nvm](https://github.com/nvm-sh/nvm)
-- Docker (optional, for Postgres testing)
+- Docker, for Postgres. Development and tests use the shared local
+  **pgvault-dev** (a sibling `../pgvault-dev` compose project: Postgres on
+  `localhost:5432`, superuser `postgres`, trust auth).
 
 ```bash
 nvm install && nvm use
 npm install
-cp .env .env.local     # override defaults locally (gitignored)
+(cd ../pgvault-dev && docker compose up -d --wait)
+docker compose -f ../pgvault-dev/docker-compose.yml exec postgres \
+  psql -U postgres -c 'create database closet_db'   # once
+cat > .env.local <<'ENV'                            # gitignored
+DATABASE_HOST=localhost
+DATABASE_SCHEMA=closet_db
+DATABASE_USER=postgres
+DATABASE_PASS=
+ENV
 npm run start:dev
 ```
+
+The integration tier and the load test never touch `closet_db`: each run
+creates scratch databases on the server named by `TEST_DATABASE_URL`
+(default `postgres://postgres@localhost:5432/postgres`, pgvault-dev) and drops
+them afterwards.
 
 ### Scripts
 
@@ -115,7 +142,7 @@ npm run start:dev
 npm run start:dev       # watch mode
 npm run start:prod      # production
 npm run test            # unit tests
-npm run test:int        # integration tests (real app in-process, in-memory SQLite)
+npm run test:int        # integration tests (real app in-process, scratch Postgres database per file)
 npm run test:e2e        # Playwright end-to-end
 npm run test:cov        # coverage
 npm run test:load       # autocannon load test, see below
@@ -138,8 +165,8 @@ after `npm run build`; `-- --dry-run` only reports.
 
 ### Load test
 
-`npm run test:load` builds the app, starts it with `AUTH_ENABLED=false` and a
-temporary `DATA_PATH`, seeds one garment with a photo through the real
+`npm run test:load` builds the app, starts it with `AUTH_ENABLED=false`, a
+scratch Postgres database and a temporary `DATA_PATH`, seeds one garment with a photo through the real
 endpoints, and runs autocannon against `/wardrobe` (full page and htmx
 fragment), `/outfits/new` and the seeded `/file/thumb/...` image. Results
 land in `scripts/results/load-test-results.json`, one entry per target.
@@ -154,11 +181,8 @@ land in `scripts/results/load-test-results.json`, one entry per target.
 ### Migrations
 
 ```bash
-# SQLite (build first due to config differences)
-npm run build
-npx mikro-orm migration:create --config mikro-orm.sqlite.cli-config.ts
-
-# PostgreSQL
+# Diffs the entities against the committed snapshot; connects to closet_db on
+# pgvault-dev unless DATABASE_* say otherwise.
 npx mikro-orm migration:create --config mikro-orm.postgres.cli-config.ts
 ```
 
@@ -176,9 +200,7 @@ docker buildx build --platform linux/amd64 --no-cache -f docker/Dockerfile . -t 
 
 ## Deployment recommendations
 
-For most self-hosters: deploy to a VPS via [Coolify](https://coolify.io/) or Portainer using the docker-compose above with SQLite + local storage. SQLite handles thousands of users without issue - see [DjangoCon 2023: Use SQLite in Production](https://youtu.be/yTicYJDT1zE).
-
-If you need horizontal scaling later, switch to S3-compatible storage and add [Litestream](https://litestream.io/) for streaming SQLite backups before considering a PostgreSQL migration.
+For most self-hosters: deploy to a VPS via [Coolify](https://coolify.io/) or Portainer using the docker-compose above, with local storage. Back up both the Postgres database and `DATA_PATH`, taken close together: the nightly storage reconciliation deletes photos that no database row references.
 
 ---
 
