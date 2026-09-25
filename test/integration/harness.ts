@@ -76,8 +76,16 @@ export async function createTestApp(overrides: Partial<Env> = {}) {
   // DalModule picks its driver when app.module is first evaluated, so the
   // module graph must not load before the env above is in place.
   const { createApp } = await import('../../src/app');
-  const app = await createApp();
-  await app.init();
+  let app: NestFastifyApplication;
+  try {
+    app = await createApp();
+    await app.init();
+  } catch (error) {
+    // A failing boot (typically a migration) must not leak the database.
+    await database.drop();
+    await rm(dataPath, { recursive: true, force: true });
+    throw error;
+  }
 
   const orm = app.get(MikroORM);
   const inject = (options: InjectOptions) => app.inject(options);
