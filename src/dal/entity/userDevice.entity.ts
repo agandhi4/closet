@@ -1,5 +1,6 @@
 import {
   Entity,
+  Index,
   ManyToOne,
   PrimaryKey,
   Property,
@@ -24,6 +25,7 @@ export class UserDevice {
   @Property({ type: 'json', nullable: true })
   webPushSubscription?: webpush.PushSubscription;
 
+  @Index()
   @ManyToOne({
     entity: () => User,
     deleteRule: 'cascade',

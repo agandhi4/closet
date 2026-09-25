@@ -161,6 +161,15 @@
         },
         {
           "columnNames": [
+            "shareable_id"
+          ],
+          "keyName": "file_shareable_id_index",
+          "unique": false,
+          "constraint": false,
+          "primary": false
+        },
+        {
+          "columnNames": [
             "created_by_id"
           ],
           "keyName": "file_created_by_id_index",
@@ -298,7 +307,7 @@
         },
         "color": {
           "name": "color",
-          "type": "INTEGER",
+          "type": "TEXT",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -310,7 +319,7 @@
           "default": null,
           "comment": null,
           "enumItems": [],
-          "mappedType": "integer"
+          "mappedType": "text"
         },
         "brand": {
           "name": "brand",
@@ -344,8 +353,56 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "date_aquired": {
+          "name": "date_aquired",
+          "type": "datetime",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "notes": {
           "name": "notes",
+          "type": "TEXT",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "archived": {
+          "name": "archived",
+          "type": "INTEGER",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
+        "washing_details": {
+          "name": "washing_details",
           "type": "TEXT",
           "unsigned": false,
           "autoincrement": false,
@@ -391,54 +448,6 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "integer"
-        },
-        "date_aquired": {
-          "name": "date_aquired",
-          "type": "datetime",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "datetime"
-        },
-        "washing_details": {
-          "name": "washing_details",
-          "type": "TEXT",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
-        },
-        "archived": {
-          "name": "archived",
-          "type": "INTEGER",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "false",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "integer"
         }
       },
       "name": "garment",
@@ -468,6 +477,24 @@
           "keyName": "garment_photo_id_unique",
           "unique": true,
           "constraint": true,
+          "primary": false
+        },
+        {
+          "columnNames": [
+            "category"
+          ],
+          "keyName": "garment_category_index",
+          "unique": false,
+          "constraint": false,
+          "primary": false
+        },
+        {
+          "columnNames": [
+            "shareable_id"
+          ],
+          "keyName": "garment_shareable_id_index",
+          "unique": false,
+          "constraint": false,
           "primary": false
         }
       ],
@@ -650,6 +677,15 @@
         },
         {
           "columnNames": [
+            "shareable_id"
+          ],
+          "keyName": "outfit_shareable_id_index",
+          "unique": false,
+          "constraint": false,
+          "primary": false
+        },
+        {
+          "columnNames": [
             "owner_id"
           ],
           "keyName": "outfit_owner_id_index",
@@ -787,6 +823,15 @@
           "constraint": true,
           "unique": true,
           "primary": true
+        },
+        {
+          "columnNames": [
+            "date"
+          ],
+          "keyName": "outfit_calendar_date_index",
+          "unique": false,
+          "constraint": false,
+          "primary": false
         },
         {
           "columnNames": [
@@ -1152,6 +1197,15 @@
           "constraint": true,
           "unique": true,
           "primary": true
+        },
+        {
+          "columnNames": [
+            "shareable_id"
+          ],
+          "keyName": "user_shareable_id_index",
+          "unique": false,
+          "constraint": false,
+          "primary": false
         },
         {
           "columnNames": [

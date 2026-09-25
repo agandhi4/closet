@@ -1,4 +1,4 @@
-import { EntityRepository } from '@mikro-orm/core';
+import { EntityManager, EntityRepository } from '@mikro-orm/core';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import {
   Controller,
@@ -34,6 +34,7 @@ export class FileController {
     private readonly fileService: FileService,
     @InjectRepository(UserEntity)
     private readonly userRepository: EntityRepository<UserEntity>,
+    private readonly em: EntityManager,
   ) {}
 
   @UseGuards(ConditionalAuthGuard)
@@ -54,7 +55,16 @@ export class FileController {
   @Render('files')
   async uploadFile(@User() payload: Payload, @Req() req: FastifyRequest) {
     const data = await req.file();
-    await this.fileService.storeImageFromFileUpload(data, payload.userId);
+    const file = await this.fileService.storeImageFromFileUpload(
+      data,
+      payload.userId,
+    );
+    try {
+      await this.em.persistAndFlush(file);
+    } catch (error) {
+      await this.fileService.deleteVariants(file.fileName);
+      throw error;
+    }
     const user = await this.userRepository.findOne(
       { id: payload.userId },
       { populate: ['fileUploads'] },

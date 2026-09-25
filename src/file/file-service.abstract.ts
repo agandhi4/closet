@@ -1,5 +1,6 @@
 import { EntityManager, EntityRepository } from '@mikro-orm/core';
 import {
+  BadRequestException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -24,9 +25,27 @@ const THUMB_MAX_PX = 400;
 const THUMB_QUALITY = 80;
 
 /**
+ * The source side of a transcode failed (undecodable bytes, truncated
+ * upload) as opposed to the storage side. Uploads map it to a 400; a thumb
+ * rebuild hitting it means our own stored original is corrupt.
+ */
+export class UnreadableImageError extends Error {
+  constructor(readonly cause: unknown) {
+    super(`Unreadable image: ${String(cause)}`);
+    this.name = 'UnreadableImageError';
+  }
+}
+
+/**
  * Everything about a photo except the bytes: variant naming, transcoding,
  * thumbnail derivation, versioning and the File rows. Backends only provide
  * the three storage primitives (`get`, `store`, `delete`).
+ *
+ * Bytes are written before any row exists. The store methods return an
+ * unpersisted File so the caller can commit it in the same transaction as the
+ * garment that references it, and delete the variants (deleteVariants) if that
+ * transaction fails; nothing on disk is ever pointed at by a half-written
+ * state.
  */
 @Injectable()
 export abstract class FileService implements FileServiceInterface {
@@ -48,11 +67,16 @@ export abstract class FileService implements FileServiceInterface {
   abstract get(fileName: string): Promise<Readable>;
   /** Missing files are not an error. */
   abstract delete(fileName: string): Promise<void>;
+  /** Must leave no partial object behind when it rejects. */
   protected abstract store(fileName: string, stream: Readable): Promise<void>;
 
+  /**
+   * Transcodes the upload to the original variant and derives its thumb.
+   * Returns an unpersisted File row; on failure nothing is left in storage.
+   */
   async storeImageFromFileUpload(
     upload: MultipartFile | undefined,
-    userId: any,
+    userId?: number,
     fileName?: string,
   ): Promise<File> {
     if (!upload) {
@@ -66,29 +90,25 @@ export abstract class FileService implements FileServiceInterface {
     }
 
     const storedFileName = fileName ?? `${randomUUID()}.webp`;
-    await this.transcode(
+    await this.transcodeUpload(
       upload.file,
       this.imageTransformer().autoOrient(),
       storedFileName,
     );
-
-    // repository.create => persist pattern so that the @BeforeCreate hook
-    // fires and generates the shareableId
-    const file = this.fileRepository.create({
-      fileName: storedFileName,
-      createdOn: new Date().toISOString(),
-      createdBy: userId,
-    });
-    await this.em.persistAndFlush(file);
-    await this.regenerateThumb(storedFileName);
+    try {
+      await this.regenerateThumb(storedFileName);
+    } catch (error) {
+      await this.deleteVariants(storedFileName);
+      throw error;
+    }
     this.logger.log(`Stored upload ${storedFileName} for user ${userId}`);
-    return file;
+    return this.newFileRow(storedFileName, userId);
   }
 
   /**
    * Byte-for-byte copy of the original and, when present, the cutout under a
-   * fresh name with its own File row. Returns undefined when the source is
-   * gone from storage (the row can outlive the bytes).
+   * fresh name, returned as an unpersisted File row. Returns undefined when
+   * the source is gone from storage (the row can outlive the bytes).
    */
   async copyImage(
     sourceFileName: string,
@@ -101,24 +121,21 @@ export abstract class FileService implements FileServiceInterface {
     }
 
     const newFileName = `${randomUUID()}.webp`;
-    await this.store(newFileName, source);
-
-    const nobgSource = await this.getIfExists(
-      variantFileName(sourceFileName, 'nobg'),
-    );
-    if (nobgSource) {
-      await this.store(variantFileName(newFileName, 'nobg'), nobgSource);
+    try {
+      await this.store(newFileName, source);
+      const nobgSource = await this.getIfExists(
+        variantFileName(sourceFileName, 'nobg'),
+      );
+      if (nobgSource) {
+        await this.store(variantFileName(newFileName, 'nobg'), nobgSource);
+      }
+      await this.regenerateThumb(newFileName);
+    } catch (error) {
+      await this.deleteVariants(newFileName);
+      throw error;
     }
-
-    const file = this.fileRepository.create({
-      fileName: newFileName,
-      createdOn: new Date().toISOString(),
-      createdBy: userId,
-    });
-    await this.em.persistAndFlush(file);
-    await this.regenerateThumb(newFileName);
     this.logger.log(`Copied ${sourceFileName} to ${newFileName}`);
-    return file;
+    return this.newFileRow(newFileName, userId);
   }
 
   /**
@@ -135,7 +152,7 @@ export abstract class FileService implements FileServiceInterface {
     { newUpload }: { newUpload: boolean },
   ): Promise<void> {
     const nobgName = variantFileName(originalFileName, 'nobg');
-    await this.transcode(stream, this.imageTransformer(), nobgName);
+    await this.transcodeUpload(stream, this.imageTransformer(), nobgName);
     await this.regenerateThumb(originalFileName);
     if (!newUpload) {
       await this.bumpVersion(originalFileName);
@@ -223,6 +240,36 @@ export abstract class FileService implements FileServiceInterface {
     return this.get(file.fileName);
   }
 
+  // The @BeforeCreate hook on ShareableId runs from the UnitOfWork on insert,
+  // so the row is complete once whoever owns the transaction persists it.
+  private newFileRow(fileName: string, userId: number | undefined): File {
+    return this.fileRepository.create(
+      {
+        fileName,
+        createdOn: new Date().toISOString(),
+        createdBy: userId,
+      },
+      { persist: false },
+    );
+  }
+
+  // Client bytes: an undecodable stream is the client's error, not ours.
+  private async transcodeUpload(
+    source: Readable,
+    transformer: sharp.Sharp,
+    targetFileName: string,
+  ): Promise<void> {
+    try {
+      await this.transcode(source, transformer, targetFileName);
+    } catch (error) {
+      if (error instanceof UnreadableImageError) {
+        this.logger.warn(`Rejected unreadable upload for ${targetFileName}`);
+        throw new BadRequestException('Unreadable image');
+      }
+      throw error;
+    }
+  }
+
   private imageTransformer(): sharp.Sharp {
     return sharp()
       .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, {
@@ -253,20 +300,28 @@ export abstract class FileService implements FileServiceInterface {
 
   // Runs the source through sharp into the backend's store. Both sides are
   // awaited together: pipeline() ending the PassThrough is what tells the
-  // store (an S3 Upload or a file write) that the body is complete.
+  // store (an S3 Upload or a file write) that the body is complete. Whichever
+  // side fails first is the root cause; the other then fails from the
+  // destroyed PassThrough and is only drained. A source-side failure is
+  // reported as UnreadableImageError so callers can tell bad input from
+  // storage trouble.
   private async transcode(
     source: Readable,
     transformer: sharp.Sharp,
     targetFileName: string,
   ): Promise<void> {
     const passThrough = new Stream.PassThrough();
+    const stored = this.store(targetFileName, passThrough);
+    const piped = pipeline(source, transformer, passThrough).catch(
+      (error: unknown) => {
+        throw new UnreadableImageError(error);
+      },
+    );
     try {
-      await Promise.all([
-        this.store(targetFileName, passThrough),
-        pipeline(source, transformer, passThrough),
-      ]);
+      await Promise.all([stored, piped]);
     } catch (error) {
       passThrough.destroy();
+      await Promise.allSettled([stored, piped]);
       throw error;
     }
   }

@@ -1,6 +1,7 @@
 import {
   Collection,
   Entity,
+  Index,
   ManyToMany,
   ManyToOne,
   PrimaryKey,
@@ -8,6 +9,7 @@ import {
   type Ref,
 } from '@mikro-orm/core';
 import { Garment } from './garment.entity';
+import { OutfitGarment } from './outfit-garment.entity';
 import { ShareableId } from './shareableId.entity';
 import { User } from './user.entity';
 
@@ -30,9 +32,15 @@ export class Outfit extends ShareableId {
   @Property({ type: 'json', nullable: true })
   public slots?: OutfitSlot[];
 
-  @ManyToMany(() => Garment, (garment) => garment.outfits, { owner: true })
+  @ManyToMany({
+    entity: () => Garment,
+    inversedBy: (garment) => garment.outfits,
+    owner: true,
+    pivotEntity: () => OutfitGarment,
+  })
   public garments = new Collection<Garment>(this);
 
+  @Index()
   @ManyToOne({
     entity: () => User,
     deleteRule: 'cascade',

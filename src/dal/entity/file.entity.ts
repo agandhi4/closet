@@ -1,5 +1,6 @@
 import {
   Entity,
+  Index,
   ManyToOne,
   type Opt,
   PrimaryKey,
@@ -31,6 +32,7 @@ export class File extends ShareableId {
   @Property({ default: 1 })
   public version: number & Opt = 1;
 
+  @Index()
   @ManyToOne({
     entity: () => User,
     deleteRule: 'cascade',

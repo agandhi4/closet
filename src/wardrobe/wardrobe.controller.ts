@@ -14,6 +14,7 @@ import {
   Req,
   Res,
   UseGuards,
+  ValidationPipe,
 } from '@nestjs/common';
 import { I18n, I18nContext } from 'nestjs-i18n';
 import { ConditionalAuthGuard } from '../auth/conditional-auth.guard';
@@ -24,7 +25,7 @@ import {
   WardrobeAccess,
   WardrobeShareService,
 } from '../wardrobe-share/wardrobe-share.service';
-import type { SearchGarmentDto } from './dto/search-garment.dto';
+import { SearchGarmentDto } from './dto/search-garment.dto';
 import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
@@ -89,7 +90,9 @@ export class WardrobeController {
   async index(
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
-    @Query() query: SearchGarmentDto,
+    // 400 on an unknown colour: only enum names may reach the LIKE filter.
+    @Query(new ValidationPipe({ transform: true, whitelist: true }))
+    query: SearchGarmentDto,
     @Query('ownerId') ownerId: string | undefined,
     @I18n() i18n: I18nContext,
   ) {

@@ -61,6 +61,14 @@ const ormLogger = new Logger('MikroORM');
                 path: path.join(__dirname, 'migrations/postgres'),
                 pathTs: path.join(__dirname, 'migrations/postgres'),
                 transactional: true,
+                // One transaction per migration, not one around the whole
+                // pending batch. Index migrations opt out of transactions
+                // (CREATE INDEX CONCURRENTLY) and then run on a second
+                // connection, which under a batch-wide transaction cannot see
+                // tables created earlier in the same batch: a fresh database
+                // (CI, first boot) would fail on "relation does not exist".
+                // Keep in sync with mikro-orm.postgres.cli-config.ts.
+                allOrNothing: false,
                 // Snapshots serve migration:create, which runs through the
                 // mikro-orm.*.cli-config.ts files; the runtime must not write
                 // .snapshot-*.json next to the migrations on every boot.

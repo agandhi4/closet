@@ -80,10 +80,7 @@ export class OutfitService {
         .filter((id): id is number => id !== null) ?? [];
 
     if (garmentIds.length) {
-      const garments = await this.garmentRepository.find({
-        id: { $in: garmentIds },
-      });
-      outfit.garments.set(garments);
+      outfit.garments.set(await this.findOwnedGarments(garmentIds, userId));
     }
 
     if (userId != null) {
@@ -91,8 +88,24 @@ export class OutfitService {
       outfit.owner = user as any;
     }
 
+    // One flush: the outfit row and its pivot rows commit together.
     await this.outfitRepository.getEntityManager().persistAndFlush(outfit);
+    this.logger.log(
+      `Outfit ${outfit.id} created for user ${userId} with ${garmentIds.length} garments`,
+    );
     return outfit;
+  }
+
+  // The form only offers the user's own garments; ids outside that set
+  // (hand-edited requests) are dropped rather than attached.
+  private findOwnedGarments(
+    garmentIds: number[],
+    userId: number | undefined,
+  ): Promise<Garment[]> {
+    return this.garmentRepository.find({
+      id: { $in: garmentIds },
+      owner: userId != null ? { id: userId } : null,
+    });
   }
 
   async update(
@@ -112,19 +125,18 @@ export class OutfitService {
       const garmentIds = dto.slots
         .map((s) => s.garmentId)
         .filter((id): id is number => id !== null);
-      const garments = await this.garmentRepository.find({
-        id: { $in: garmentIds },
-      });
-      outfit.garments.set(garments);
+      outfit.garments.set(await this.findOwnedGarments(garmentIds, userId));
     }
 
     await this.outfitRepository.getEntityManager().flush();
+    this.logger.log(`Outfit ${id} updated by user ${userId}`);
     return outfit;
   }
 
   async remove(id: number, userId?: number): Promise<void> {
     const outfit = await this.findOne(id, userId);
     await this.outfitRepository.getEntityManager().removeAndFlush(outfit);
+    this.logger.log(`Outfit ${id} removed by user ${userId}`);
   }
 
   parseSlotsFromBody(

@@ -1,10 +1,11 @@
 import {
   Collection,
   Entity,
-  Enum,
+  Index,
   ManyToMany,
   ManyToOne,
   OneToOne,
+  type Opt,
   PrimaryKey,
   Property,
   type Ref,
@@ -26,11 +27,17 @@ export class Garment extends ShareableId {
   @Property({ nullable: true })
   public name?: string;
 
+  // Filtered on by the wardrobe list and the outfit row picker.
+  @Index()
   @Property()
   public category!: string;
 
-  @Enum({ nullable: true })
-  public color?: GarmentColor;
+  // Comma-joined GarmentColor values ("red,blue") from the colour
+  // multi-select; read by the ifInArray/formatColors template helpers and
+  // filtered with a LIKE match. Deliberately not an @Enum: MikroORM mapped
+  // the item-less enum to smallint on Postgres, which rejected every value.
+  @Property({ nullable: true })
+  public color?: string;
 
   @Property({ nullable: true })
   public brand?: string;
@@ -45,7 +52,8 @@ export class Garment extends ShareableId {
   public notes?: string;
 
   @Property({ default: false })
-  public archived = false;
+  public archived: boolean & Opt = false;
+
   @Property({ nullable: true, columnType: 'text' })
   public washingDetails?: string;
 
@@ -59,6 +67,7 @@ export class Garment extends ShareableId {
   })
   public photo?: Rel<File>;
 
+  @Index()
   @ManyToOne({
     entity: () => User,
     deleteRule: 'cascade',

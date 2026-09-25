@@ -1,4 +1,5 @@
 import { EntityRepository, FilterQuery } from '@mikro-orm/core';
+import { EntityManager } from '@mikro-orm/knex';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { randomUUID } from 'node:crypto';
 import {
@@ -11,7 +12,6 @@ import {
 import { I18nContext } from 'nestjs-i18n';
 import { Garment } from '../dal/entity/garment.entity';
 import { File } from '../dal/entity/file.entity';
-import { User } from '../dal/entity/user.entity';
 import { FileService } from '../file/file-service.abstract';
 import { MultipartFile } from '@fastify/multipart';
 import { CreateGarmentDto } from './dto/create-garment.dto';
@@ -33,6 +33,12 @@ const CANONICAL_SIZES = [
   '5X-Large',
 ];
 
+export interface AvailableFilters {
+  brands: string[];
+  sizes: string[];
+  categories: string[];
+}
+
 @Injectable()
 export class GarmentService {
   private readonly logger = new Logger(GarmentService.name);
@@ -40,8 +46,7 @@ export class GarmentService {
   constructor(
     @InjectRepository(Garment)
     private readonly garmentRepository: EntityRepository<Garment>,
-    @InjectRepository(User)
-    private readonly userRepository: EntityRepository<User>,
+    private readonly em: EntityManager,
     private readonly fileService: FileService,
     private readonly shareService: WardrobeShareService,
   ) {}
@@ -62,7 +67,9 @@ export class GarmentService {
     const normalizedSize = this.normalizeSize(dto.size);
     const searchConditions: FilterQuery<Garment> = {
       ...(dto.category ? { category: dto.category } : {}),
-      ...(dto.color ? { color: dto.color } : {}),
+      // color holds a comma-joined list; enum names never contain each other,
+      // so a substring match is an exact membership test.
+      ...(dto.color ? { color: { $like: `%${dto.color}%` } } : {}),
       ...(normalizedSize ? { size: normalizedSize } : {}),
       ...(dto.archived !== 'true' ? { archived: false } : {}),
       ...(dto.keyword
@@ -123,35 +130,24 @@ export class GarmentService {
   }
 
   async create(dto: CreateGarmentDto, userId?: number): Promise<Garment> {
-    let photo: File | undefined = undefined;
-    if (dto.files) {
-      for await (const file of dto.files) {
-        if (file.fieldname === 'photo') {
-          photo = await this.fileService.storeImageFromFileUpload(file, userId);
-        } else {
-          file.file.resume();
-        }
-      }
-    }
-
-    const garment = this.garmentRepository.create({
-      name: dto.name,
-      category: dto.category,
-      brand: dto.brand,
-      color: dto.color,
-      size: this.normalizeSize(dto.size),
-      notes: dto.notes,
-      washingDetails: dto.washingDetails,
-      dateAquired: dto.dateAquired ? new Date(dto.dateAquired) : undefined,
-      photo: photo ?? undefined,
-    });
-
-    if (userId != null) {
-      const user = await this.userRepository.findOneOrFail(userId);
-      garment.owner = user as any;
-    }
-
-    await this.garmentRepository.getEntityManager().persistAndFlush(garment);
+    const photo = await this.storeUploadedPhoto(dto.files, userId);
+    const garment = await this.commitWithPhoto(photo, (em) =>
+      em.create(Garment, {
+        name: dto.name,
+        category: dto.category,
+        brand: dto.brand,
+        color: dto.color,
+        size: this.normalizeSize(dto.size),
+        notes: dto.notes,
+        washingDetails: dto.washingDetails,
+        dateAquired: dto.dateAquired ? new Date(dto.dateAquired) : undefined,
+        photo,
+        owner: userId,
+      }),
+    );
+    this.logger.log(
+      `Garment ${garment.id} created for user ${userId}${photo ? ` with photo ${photo.fileName}` : ''}`,
+    );
     return garment;
   }
 
@@ -172,58 +168,62 @@ export class GarmentService {
     });
     if (!source) throw new NotFoundException('Garment not found');
 
-    let photo: File | undefined;
-    if (source.photo?.fileName) {
-      photo = await this.fileService.copyImage(source.photo.fileName, userId);
-    }
+    const photo = source.photo?.fileName
+      ? await this.fileService.copyImage(source.photo.fileName, userId)
+      : undefined;
 
-    const garment = this.garmentRepository.create({
-      name: dto.name,
-      category: dto.category,
-      brand: dto.brand,
-      color: dto.color as any,
-      size: this.normalizeSize(dto.size),
-      notes: dto.notes,
-      photo: photo ?? undefined,
-    });
-
-    if (userId != null) {
-      const user = await this.userRepository.findOneOrFail(userId);
-      garment.owner = user as any;
-    }
-
-    await this.garmentRepository.getEntityManager().persistAndFlush(garment);
+    const garment = await this.commitWithPhoto(photo, (em) =>
+      em.create(Garment, {
+        name: dto.name,
+        category: dto.category,
+        brand: dto.brand,
+        color: dto.color,
+        size: this.normalizeSize(dto.size),
+        notes: dto.notes,
+        photo,
+        owner: userId,
+      }),
+    );
+    this.logger.log(
+      `Garment ${garment.id} cloned from ${sourceId} for user ${userId}`,
+    );
     return garment;
   }
 
-  async findAvailableFilters(userId?: number): Promise<{
-    brands: string[];
-    sizes: string[];
-    categories: string[];
-  }> {
-    const where = userId != null ? { owner: { id: userId } } : { owner: null };
-    const garments = await this.garmentRepository.find(where);
+  /**
+   * Distinct brand, size and category values of one wardrobe (ownerless
+   * when auth is off), straight from the database: the list pages call this
+   * next to the filtered list query and must not rescan every row.
+   */
+  async findAvailableFilters(userId?: number): Promise<AvailableFilters> {
+    const [brands, sizes, categories] = await Promise.all([
+      this.distinctValues('brand', userId),
+      this.distinctValues('size', userId),
+      this.distinctValues('category', userId),
+    ]);
+    return {
+      brands: brands.sort(),
+      sizes: sizes.sort(compareSizes),
+      categories: categories.sort(),
+    };
+  }
 
-    const brands = [
-      ...new Set(garments.map((g) => g.brand).filter(Boolean) as string[]),
-    ].sort();
-    const allSizes = [
-      ...new Set(garments.map((g) => g.size).filter(Boolean) as string[]),
-    ];
-    const sizes = allSizes.sort((a, b) => {
-      const ai = CANONICAL_SIZES.indexOf(a);
-      const bi = CANONICAL_SIZES.indexOf(b);
-      if (ai === -1 && bi === -1) return a.localeCompare(b);
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
-
-    const categories = [
-      ...new Set(garments.map((g) => g.category).filter(Boolean)),
-    ].sort();
-
-    return { brands, sizes, categories };
+  private async distinctValues(
+    column: 'brand' | 'size' | 'category',
+    userId: number | undefined,
+  ): Promise<string[]> {
+    const rows: Record<typeof column, string | null>[] = await this.em
+      .createQueryBuilder(Garment)
+      .select(column, true)
+      .where({
+        owner: userId != null ? { id: userId } : null,
+        [column]: { $ne: null },
+      })
+      .execute();
+    // Empty strings are stored for cleared form fields; they are not values.
+    return rows
+      .map((row) => row[column])
+      .filter((value): value is string => !!value);
   }
 
   async update(
@@ -232,71 +232,39 @@ export class GarmentService {
     userId?: number,
     requestingUserId?: number,
   ): Promise<Garment> {
-    let photo: File | undefined;
-    if (dto.files) {
-      // Process file uploads BEFORE any async DB operations.
-      // @fastify/multipart yields live streams; if a stream isn't consumed,
-      // the parser backpressures and the async iterator hangs. Each file's
-      // pipeline must be started (not awaited) inside the loop so busboy can
-      // advance to the next part.
-      //
-      // IMPORTANT: photo and nobgPhoto pipelines must be started concurrently,
-      // not sequentially. Both come from the same multipart request body —
-      // awaiting one before starting the other would hang the iterator.
-      let photoPromise: Promise<File> | undefined;
-      let nobgPromise: Promise<void> | undefined;
-      const photoFileName = `${randomUUID()}.webp`;
+    const photo = dto.files
+      ? await this.storeUploadedPhotoWithCutout(id, dto.files, userId)
+      : undefined;
 
-      for await (const file of dto.files) {
-        if (file.fieldname === 'photo') {
-          photoPromise = this.fileService.storeImageFromFileUpload(
-            file,
-            userId,
-            photoFileName,
-          );
-        } else if (file.fieldname === 'nobgPhoto') {
-          nobgPromise = this.fileService.storeNobgVariantFromStream(
-            file.file,
-            photoFileName,
-            { newUpload: true },
-          );
-        } else {
-          file.file.resume();
+    const { garment, replacedPhoto } = await this.commitWithPhoto(
+      photo,
+      async (em) => {
+        const garment = await this.findOne(id, requestingUserId, userId);
+        const replacedPhoto = photo ? garment.photo : undefined;
+        if (photo) {
+          garment.photo = photo;
+          // The old row goes with the old bytes; the FK is set null on delete
+          // but the garment already points at the new photo in this flush.
+          if (replacedPhoto) em.remove(replacedPhoto);
         }
-      }
+        this.applyFields(garment, dto);
+        return { garment, replacedPhoto };
+      },
+    );
 
-      if (photoPromise) {
-        [photo] = await Promise.all([
-          photoPromise,
-          nobgPromise ?? Promise.resolve(),
-        ]);
-        // Both pipelines queued a thumb write in unknown order; this final
-        // write is guaranteed to run last and to read the cutout.
-        if (nobgPromise) {
-          await this.fileService.regenerateThumb(photoFileName);
-        }
-      } else if (nobgPromise) {
-        // Invariant: a cutout only ever accompanies a photo in the same
-        // request. The nobg pipeline had to be started above (multipart parts
-        // arrive in client order, and an unconsumed part hangs the parser),
-        // so drain it, remove whatever it wrote under the never-persisted
-        // name, and reject.
-        await nobgPromise.catch((err) => this.logger.warn(err));
-        await this.fileService.deleteVariants(photoFileName);
-        this.logger.warn(
-          `Garment ${id} update carried nobgPhoto without photo; discarded`,
-        );
-        throw new BadRequestException('nobgPhoto requires photo');
-      }
+    // Only after commit: an unlink cannot be rolled back.
+    if (photo && replacedPhoto) {
+      await this.fileService.deleteVariants(replacedPhoto.fileName);
+      this.logger.log(
+        `Garment ${id} photo replaced: ${replacedPhoto.fileName} -> ${photo.fileName}`,
+      );
     }
+    return garment;
+  }
 
-    const garment = await this.findOne(id, requestingUserId, userId);
-
-    if (photo) {
-      await this.deleteOldPhoto(garment);
-      garment.photo = photo;
-    }
-
+  // A key present in the DTO is an edit, even to empty; an absent key keeps
+  // the stored value (the photo-only form posts no fields at all).
+  private applyFields(garment: Garment, dto: UpdateGarmentDto): void {
     garment.name = dto.name ?? garment.name;
     garment.category = dto.category ?? garment.category;
     if ('brand' in dto) garment.brand = dto.brand;
@@ -308,16 +276,6 @@ export class GarmentService {
       garment.dateAquired = dto.dateAquired
         ? new Date(dto.dateAquired)
         : undefined;
-
-    await this.garmentRepository.getEntityManager().flush();
-    return garment;
-  }
-
-  private async deleteOldPhoto(garment: Garment) {
-    const oldFileName = garment.photo?.fileName;
-    if (oldFileName) {
-      await this.fileService.deleteVariants(oldFileName);
-    }
   }
 
   /**
@@ -346,18 +304,136 @@ export class GarmentService {
     return garment.photo.version;
   }
 
+  /** Garment and its File row go in one transaction; the bytes after commit. */
   async remove(id: number, userId?: number): Promise<void> {
-    const garment = await this.findOne(id, userId);
-    await this.deleteOldPhoto(garment);
-    await this.garmentRepository.getEntityManager().removeAndFlush(garment);
+    const photo = await this.em.transactional(async (em) => {
+      const garment = await this.findOne(id, userId);
+      em.remove(garment);
+      if (garment.photo) em.remove(garment.photo);
+      return garment.photo;
+    });
+    if (photo) await this.fileService.deleteVariants(photo.fileName);
     this.logger.log(`Garment ${id} removed by user ${userId}`);
   }
 
   async archive(id: number, userId?: number): Promise<Garment> {
     const garment = await this.findOne(id, userId);
     garment.archived = !garment.archived;
-    await this.garmentRepository.getEntityManager().flush();
+    await this.em.flush();
     return garment;
+  }
+
+  /**
+   * Commits `write` in one transaction. The photo's bytes were written before
+   * this point; if the rows do not land, the bytes are removed again so
+   * storage never holds a file no row points at.
+   */
+  private async commitWithPhoto<T>(
+    photo: File | undefined,
+    write: (em: EntityManager) => T | Promise<T>,
+  ): Promise<T> {
+    try {
+      return await this.em.transactional((em) => Promise.resolve(write(em)));
+    } catch (error) {
+      if (photo) {
+        this.logger.warn(
+          `Rolled back; removing orphaned upload ${photo.fileName}`,
+        );
+        await this.fileService.deleteVariants(photo.fileName);
+      }
+      throw error;
+    }
+  }
+
+  private async storeUploadedPhoto(
+    files: AsyncIterableIterator<MultipartFile> | undefined,
+    userId: number | undefined,
+  ): Promise<File | undefined> {
+    if (!files) return undefined;
+    let photo: File | undefined;
+    for await (const file of files) {
+      if (file.fieldname === 'photo') {
+        photo = await this.fileService.storeImageFromFileUpload(file, userId);
+      } else {
+        file.file.resume();
+      }
+    }
+    return photo;
+  }
+
+  // @fastify/multipart yields live streams; if a stream isn't consumed, the
+  // parser backpressures and the async iterator hangs. Each file's pipeline
+  // must be started (not awaited) inside the loop so busboy can advance to
+  // the next part.
+  //
+  // IMPORTANT: photo and nobgPhoto pipelines must be started concurrently,
+  // not sequentially. Both come from the same multipart request body:
+  // awaiting one before starting the other would hang the iterator.
+  private async storeUploadedPhotoWithCutout(
+    garmentId: number,
+    files: AsyncIterableIterator<MultipartFile>,
+    userId: number | undefined,
+  ): Promise<File | undefined> {
+    let photoPromise: Promise<File> | undefined;
+    let nobgPromise: Promise<void> | undefined;
+    const photoFileName = `${randomUUID()}.webp`;
+
+    for await (const file of files) {
+      if (file.fieldname === 'photo') {
+        photoPromise = this.fileService.storeImageFromFileUpload(
+          file,
+          userId,
+          photoFileName,
+        );
+      } else if (file.fieldname === 'nobgPhoto') {
+        nobgPromise = this.fileService.storeNobgVariantFromStream(
+          file.file,
+          photoFileName,
+          { newUpload: true },
+        );
+      } else {
+        file.file.resume();
+      }
+    }
+
+    if (!photoPromise) {
+      if (nobgPromise) {
+        // Invariant: a cutout only ever accompanies a photo in the same
+        // request. The nobg pipeline had to be started above (multipart parts
+        // arrive in client order, and an unconsumed part hangs the parser),
+        // so drain it, remove whatever it wrote under the never-persisted
+        // name, and reject.
+        await nobgPromise.catch((err) => this.logger.warn(err));
+        await this.fileService.deleteVariants(photoFileName);
+        this.logger.warn(
+          `Garment ${garmentId} update carried nobgPhoto without photo; discarded`,
+        );
+        throw new BadRequestException('nobgPhoto requires photo');
+      }
+      return undefined;
+    }
+
+    // Both pipelines must settle before anything is cleaned up: one may still
+    // be writing under photoFileName while the other has already failed.
+    const [photoResult, nobgResult] = await Promise.allSettled([
+      photoPromise,
+      nobgPromise ?? Promise.resolve(),
+    ]);
+    const failure = [photoResult, nobgResult].find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (failure) {
+      await this.fileService.deleteVariants(photoFileName);
+      throw failure.reason;
+    }
+    const photo = (photoResult as PromiseFulfilledResult<File>).value;
+
+    // Both pipelines queued a thumb write in unknown order; this final write
+    // is guaranteed to run last and to read the cutout.
+    if (nobgPromise) {
+      await this.fileService.regenerateThumb(photoFileName);
+    }
+    return photo;
   }
 
   private normalizeSize(input?: string): string | undefined {
@@ -379,4 +455,14 @@ export class GarmentService {
     if (['xxs', '2xs', '2xsmall', 'xxsmall'].includes(s)) return 'XX-Small';
     return input.trim();
   }
+}
+
+/** Canonical sizes in wearing order first, anything custom alphabetically after. */
+function compareSizes(a: string, b: string): number {
+  const ai = CANONICAL_SIZES.indexOf(a);
+  const bi = CANONICAL_SIZES.indexOf(b);
+  if (ai === -1 && bi === -1) return a.localeCompare(b);
+  if (ai === -1) return 1;
+  if (bi === -1) return -1;
+  return ai - bi;
 }

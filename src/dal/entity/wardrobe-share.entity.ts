@@ -1,5 +1,6 @@
 import {
   Entity,
+  Index,
   ManyToOne,
   PrimaryKey,
   Property,
@@ -19,6 +20,7 @@ export class WardrobeShare {
   @PrimaryKey()
   public id!: number;
 
+  @Index()
   @ManyToOne({
     entity: () => User,
     deleteRule: 'cascade',
@@ -26,6 +28,7 @@ export class WardrobeShare {
   })
   public grantor!: Ref<User>;
 
+  @Index()
   @ManyToOne({
     entity: () => User,
     deleteRule: 'cascade',
@@ -37,6 +40,7 @@ export class WardrobeShare {
   @Property({ default: SharePermission.VIEW })
   public permission: SharePermission = SharePermission.VIEW;
 
+  // The unique constraint doubles as the acceptInvite lookup index.
   @Property({ nullable: true, unique: true })
   public inviteToken?: string;
 
