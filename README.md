@@ -143,11 +143,12 @@ npm run start:dev       # watch mode
 npm run start:prod      # production
 npm run test            # unit tests
 npm run test:int        # integration tests (real app in-process, scratch Postgres database per file)
-npm run test:e2e        # Playwright end-to-end
+npm run test:e2e        # build, then Playwright end-to-end
 npm run test:cov        # coverage
 npm run test:load       # autocannon load test, see below
 npm run generate:icons  # regenerate public/assets/icon.png and favicon.ico from icon.svg
-npm run precommit       # format check + lint + unit + integration + build (run before committing)
+npm run check           # format, lint, types, unit + integration in parallel (the pre-commit hook)
+npm run verify:push     # build + Chromium Playwright (the pre-push hook)
 npm run maintenance:reconcile [-- --dry-run]
                         # one storage reconciliation pass (needs `npm run build`; see below)
 ```

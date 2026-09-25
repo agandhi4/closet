@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
+import { signIn } from './support/e2e-session';
 
 /**
  * What only a browser can show about the installed app: the service worker
@@ -18,6 +19,13 @@ test.describe('installed app delivery', () => {
     ({ browserName }) => browserName !== 'chromium',
     'service workers are only reliable in chromium here',
   );
+
+  // Production runs with auth on: without a session every page below would
+  // be the login page (which also loads bundle.css, so the first test passed
+  // on the wrong page).
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, 'pwa-test');
+  });
 
   async function waitForServiceWorker(page: Page) {
     await page.goto('/wardrobe');

@@ -1,0 +1,51 @@
+name: Nightly
+
+# Slow, trend-shaped checks that used to run on every push: the autocannon
+# load test and Lighthouse. Neither gates a deploy.
+on:
+  schedule:
+    - cron: "30 8 * * *" # 04:30 US Eastern
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: Password123
+          POSTGRES_DB: postgres-test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d postgres-test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      CI: true
+      # The load test runs on its own scratch database from here.
+      TEST_DATABASE_URL: postgres://test:Password123@localhost:5432/postgres-test
+      # Lighthouse boots the built app against this one.
+      DATABASE_HOST: localhost
+      DATABASE_USER: test
+      DATABASE_PASS: Password123
+      DATABASE_SCHEMA: postgres-test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:load
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: load-test-results
+          path: scripts/results/
+      # test:load built dist/; lighthouse starts it with start:prod.
+      - run: npm run lighthouse

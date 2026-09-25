@@ -11,7 +11,7 @@ import path from 'path';
 const OUT_PATH = path.join(__dirname, '..', 'public', 'build.json');
 
 function resolveCommit(): string | undefined {
-  // CI and Docker builds have no .git; docker-publish can pass GIT_SHA as a
+  // CI and Docker builds have no .git; the CI publish job passes GIT_SHA as a
   // build-arg (see docker/Dockerfile).
   const fromEnv = process.env.GIT_SHA ?? process.env.GITHUB_SHA;
   if (fromEnv) return fromEnv.slice(0, 7);

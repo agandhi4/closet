@@ -32,11 +32,11 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:int": "jest --selectProjects integration",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run build && playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
-    "test:e2e:smoke": "playwright test test/smoke.spec.ts --project=chromium",
+    "test:e2e:smoke": "npm run build && playwright test test/smoke.spec.ts --project=chromium",
     "postinstall": "patch-package",
     "test:load": "ts-node scripts/load-test.ts",
     "test:load:baseline": "ts-node scripts/load-test.ts --baseline",
@@ -47,7 +47,7 @@
     "lint:check": "eslint --cache --cache-location node_modules/.cache/closet/eslint \"{src,test,scripts}/**/*.ts\"",
     "check": "concurrently --group --kill-others-on-fail --names format,lint,types,jest \"npm:format:check\" \"npm:lint:check\" \"npm:typecheck\" \"npm:test:all\"",
     "prepare": "node -e \"require('fs').existsSync('.git') && require('child_process').execSync('git config core.hooksPath .githooks')\"",
-    "verify:push": "playwright test --project=chromium"
+    "verify:push": "npm run build && playwright test --project=chromium"
   },
   "dependencies": {
     "@aws-sdk/lib-storage": "^3.1009.0",
