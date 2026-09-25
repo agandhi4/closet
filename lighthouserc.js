@@ -27,6 +27,8 @@ module.exports = {
         // Pre-existing homepage issues unrelated to wardrobe feature
         'font-size': 'warn',
         'color-contrast': 'warn',
+        // robots.txt disallows everything on purpose (private app, no landing page)
+        'is-crawlable': 'off',
         // These audits return null (not applicable) and cannot use minScore
         redirects: 'warn',
         'third-party-facades': 'warn',
