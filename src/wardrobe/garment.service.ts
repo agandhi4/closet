@@ -104,16 +104,11 @@ export class GarmentService {
       populate: ['photo', 'outfits'],
     });
     if (!garment) throw new NotFoundException('Garment not found');
-    if (userId != null) {
-      if (garment.owner?.id === userId) return garment;
-      if (viewOwner != null && garment.owner?.id === viewOwner) {
-        if (await this.shareService.canView(userId, viewOwner)) {
-          return garment;
-        }
-      }
+    // 404 before 403 on purpose. The garment must belong to the wardrobe the
+    // request addresses, not merely to some wardrobe the user can see.
+    const access = await this.shareService.resolveAccess(userId, viewOwner);
+    if (!access.canView || garment.owner?.id !== access.ownerId) {
       throw new ForbiddenException();
-    } else {
-      if (garment.owner != null) throw new ForbiddenException();
     }
     return garment;
   }

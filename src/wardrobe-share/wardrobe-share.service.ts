@@ -14,6 +14,20 @@ import {
 import { User } from '../dal/entity/user.entity';
 import { randomUUID } from 'node:crypto';
 
+/**
+ * What the requesting user may do with the wardrobe a request addresses.
+ * `ownerId` is the wardrobe actually being read or written (the requester's
+ * own unless a share is in play; undefined when AUTH_ENABLED=false, where all
+ * data is owner-less), so callers pass it straight to GarmentService.
+ */
+export interface WardrobeAccess {
+  ownerId: number | undefined;
+  isOwner: boolean;
+  canView: boolean;
+  canManage: boolean;
+  permission?: SharePermission;
+}
+
 @Injectable()
 export class WardrobeShareService {
   private readonly logger = new Logger(WardrobeShareService.name);
@@ -149,14 +163,36 @@ export class WardrobeShareService {
     return share?.permission ?? null;
   }
 
-  async canView(userId: number, grantorId: number): Promise<boolean> {
-    const permission = await this.getSharePermission(userId, grantorId);
-    return permission !== null;
-  }
-
-  async canManage(userId: number, grantorId: number): Promise<boolean> {
-    const permission = await this.getSharePermission(userId, grantorId);
-    return permission === SharePermission.MANAGE;
+  /**
+   * The single ownership resolver for wardrobe routes (WardrobeController,
+   * GarmentService.findOne). At most one share lookup; none for own data.
+   */
+  async resolveAccess(
+    userId: number | undefined,
+    ownerId: number | undefined,
+  ): Promise<WardrobeAccess> {
+    if (userId == null) {
+      // AUTH_ENABLED=false: only owner-less data is reachable, so an ownerId
+      // in the URL addresses nothing this request may touch.
+      const ownerless = ownerId == null;
+      return {
+        ownerId: undefined,
+        isOwner: ownerless,
+        canView: ownerless,
+        canManage: ownerless,
+      };
+    }
+    if (ownerId == null || ownerId === userId) {
+      return { ownerId: userId, isOwner: true, canView: true, canManage: true };
+    }
+    const permission = await this.getSharePermission(userId, ownerId);
+    return {
+      ownerId,
+      isOwner: false,
+      canView: permission !== null,
+      canManage: permission === SharePermission.MANAGE,
+      permission: permission ?? undefined,
+    };
   }
 
   async findInviteByToken(token: string): Promise<WardrobeShare | null> {
