@@ -1,43 +1,31 @@
-import { EntityManager } from '@mikro-orm/core';
-import { getRepositoryToken } from '@mikro-orm/nestjs';
 import { NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { FastifyReply } from 'fastify';
 import { Readable } from 'stream';
-import { File } from '../../dal/entity/file.entity';
-import { User } from '../../dal/entity/user.entity';
 import { FileService } from '../file-service.abstract';
 import { FileController } from './file.controller';
 
 describe('FileController', () => {
   let controller: FileController;
-  let fileService: { getVariant: jest.Mock };
+  let fileService: {
+    getVariant: jest.Mock;
+    getByShareableId: jest.Mock;
+    watermarkImage: jest.Mock;
+  };
   let reply: { header: jest.Mock; send: jest.Mock; sent: boolean };
 
   beforeEach(async () => {
-    fileService = { getVariant: jest.fn() };
+    fileService = {
+      getVariant: jest.fn(),
+      getByShareableId: jest.fn(),
+      watermarkImage: jest.fn(),
+    };
     reply = { header: jest.fn(), send: jest.fn(), sent: false };
     reply.header.mockReturnValue(reply);
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FileController],
-      providers: [
-        { provide: FileService, useValue: fileService },
-        ConfigService,
-        {
-          provide: getRepositoryToken(File),
-          useValue: { findOne: jest.fn() },
-        },
-        {
-          provide: getRepositoryToken(User),
-          useValue: { findOne: jest.fn() },
-        },
-        {
-          provide: EntityManager,
-          useValue: { query: jest.fn() },
-        },
-      ],
+      providers: [{ provide: FileService, useValue: fileService }],
     }).compile();
 
     controller = module.get<FileController>(FileController);
@@ -84,5 +72,16 @@ describe('FileController', () => {
     await expect(
       controller.nobg('missing.webp', reply as unknown as FastifyReply),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  it('watermark resolves the file by shareable id and returns the watermarked stream', async () => {
+    const source = Readable.from(Buffer.from('source'));
+    const watermarked = Readable.from(Buffer.from('watermarked'));
+    fileService.getByShareableId.mockResolvedValue(source);
+    fileService.watermarkImage.mockResolvedValue(watermarked);
+
+    await expect(controller.watermark('share-1')).resolves.toBe(watermarked);
+    expect(fileService.getByShareableId).toHaveBeenCalledWith('share-1');
+    expect(fileService.watermarkImage).toHaveBeenCalledWith(source);
   });
 });
