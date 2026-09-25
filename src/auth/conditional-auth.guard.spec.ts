@@ -1,6 +1,7 @@
 import { ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ConditionalAuthGuard } from './conditional-auth.guard';
+import { RedirectToLoginException } from './redirect-to-login.exception';
 
 describe('ConditionalAuthGuard', () => {
   let guard: ConditionalAuthGuard;
@@ -45,11 +46,11 @@ describe('ConditionalAuthGuard', () => {
     expect(request.user).toBe(payload);
   });
 
-  it('redirects to /auth/login when no session was resolved', () => {
+  it('throws RedirectToLoginException when no session was resolved', () => {
     configService.get.mockReturnValue(true);
     const { context, response } = mockExecutionContext({ cookies: {} });
 
-    expect(guard.canActivate(context)).toBe(false);
-    expect(response.redirect).toHaveBeenCalledWith('/auth/login', 302);
+    expect(() => guard.canActivate(context)).toThrow(RedirectToLoginException);
+    expect(response.redirect).not.toHaveBeenCalled();
   });
 });
