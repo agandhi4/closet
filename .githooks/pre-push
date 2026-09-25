@@ -1,0 +1,6 @@
+#!/bin/sh
+# Build + Chromium Playwright against a freshly built server: what only a
+# browser can show (htmx swaps, service worker, layout). Playwright reuses a
+# server already listening on :3000, so stop `npm run start:dev` first or it
+# tests that instead of this build.
+exec npm run -s verify:push

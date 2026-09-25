@@ -17,8 +17,8 @@
     "generate:tailwind": "npx @tailwindcss/cli -i ./views/assets/main.css -o ./public/bundle.css --minify",
     "generate:tailwind:watch": "npx @tailwindcss/cli -i ./views/assets/main.css -o ./public/bundle.css --minify --watch",
     "generate:icons": "ts-node scripts/generate-icons.ts",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.ts\"",
+    "format:check": "prettier --check --cache \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json --tsBuildInfoFile node_modules/.cache/closet/tsc.tsbuildinfo && tsc -p views/assets/tsconfig.json",
     "start": "npm run generate && nest start",
     "start:dev": "concurrently \"nest start --watch\" \"npm run generate:tailwind:watch\"",
@@ -26,12 +26,12 @@
     "start:prod": "node dist/main",
     "maintenance:reconcile": "node dist/maintenance/reconcile.cli",
     "lighthouse": "lhci autorun",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "jest",
-    "test:watch": "jest --watch",
+    "lint": "eslint \"{src,test,scripts}/**/*.ts\" --fix",
+    "test": "jest --selectProjects unit",
+    "test:watch": "jest --selectProjects unit --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:int": "jest --config jest.integration.config.js",
+    "test:int": "jest --selectProjects integration",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
@@ -41,8 +41,13 @@
     "test:load": "ts-node scripts/load-test.ts",
     "test:load:baseline": "ts-node scripts/load-test.ts --baseline",
     "test:load:compare": "ts-node scripts/load-test.ts --compare",
-    "precommit": "npm run format:check && npm run lint && npm test && npm run test:int && npm run build",
-    "precommit:full": "npm run format && npm run lint && npm run test:cov && npm run test:int && npm run test:e2e:smoke && npm run build && npm run test:load && npm run lighthouse"
+    "precommit": "npm run check",
+    "precommit:full": "npm run check && npm run verify:push && npm run test:load && npm run lighthouse",
+    "test:all": "jest",
+    "lint:check": "eslint --cache --cache-location node_modules/.cache/closet/eslint \"{src,test,scripts}/**/*.ts\"",
+    "check": "concurrently --group --kill-others-on-fail --names format,lint,types,jest \"npm:format:check\" \"npm:lint:check\" \"npm:typecheck\" \"npm:test:all\"",
+    "prepare": "node -e \"require('fs').existsSync('.git') && require('child_process').execSync('git config core.hooksPath .githooks')\"",
+    "verify:push": "playwright test --project=chromium"
   },
   "dependencies": {
     "@aws-sdk/lib-storage": "^3.1009.0",
@@ -140,27 +145,5 @@
     "workbox-recipes": "^7.3.0",
     "workbox-routing": "^7.3.0",
     "workbox-strategies": "^7.3.0"
-  },
-  "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
-    },
-    "collectCoverageFrom": [
-      "**/*.(t|j)s",
-      "!**/migrations/**/*",
-      "!**/entity/**/*",
-      "!**/*.dto.*",
-      "!**/*.input.*",
-      "!**/*.module.*"
-    ],
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
   }
 }
