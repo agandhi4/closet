@@ -2,7 +2,6 @@ import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { FactoryProvider, Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { S3Module } from 'nestjs-s3';
-import { AuthModule } from '../auth/auth.module';
 import { File } from '../dal/entity/file.entity';
 import { User } from '../dal/entity/user.entity';
 import { FileController } from './controller/file.controller';
@@ -10,9 +9,11 @@ import { FileService } from './file-service.abstract';
 import { FileUrlService } from './file-url/file-url.service';
 import { LocalFileService } from './local-file/local-file.service';
 import { S3FileService } from './s3-file/s3-file.service';
+// Nothing here needs a guard (FileController serves images without a
+// session), and AuthModule imports this module for account deletion, so
+// AuthModule must not be imported back.
 @Module({
   imports: [
-    AuthModule,
     MikroOrmModule.forFeature([File, User]),
     S3Module.forRootAsync({
       inject: [ConfigService],

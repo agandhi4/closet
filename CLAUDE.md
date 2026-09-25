@@ -41,7 +41,11 @@ src/
   wardrobe/            Core domain: garments, outfits, calendar. Controllers render views;
                        services own business logic; view-models/ shape entities for templates
   wardrobe-share/      Invite-link sharing (view/edit) between users
-  file/                FileService abstract + local-file/ and s3-file/ implementations, file-url/
+  file/                FileService abstract + local-file/ and s3-file/ implementations, file-url/;
+                       heic.ts decodes HEIC uploads (heic-convert) before sharp
+  maintenance/         StorageReconciliationService: nightly @Cron (MAINTENANCE_ENABLED) and
+                       reconcile.cli.ts (`npm run maintenance:reconcile`) keeping storage and the
+                       file table in step; owns ScheduleModule.forRoot()
   email/               nodemailer (gmail or mailgun) for password reset
   notification/        Web Push to registered user devices
   open-graph/          OG meta for shared links
@@ -105,6 +109,9 @@ npm ci                        # postinstall applies patches/ via patch-package
 npm run start:dev             # nest --watch + tailwind --watch
 npm run build                 # nest build + generate (tailwind, service worker)
 npm run start:prod            # node dist/main
+npm run maintenance:reconcile [-- --dry-run]
+                              # one storage reconciliation pass from dist/ (build first). On the NAS:
+                              # docker exec closet npm run maintenance:reconcile
 
 npm run lint                  # eslint --fix
 npm run format                # prettier
@@ -199,6 +206,11 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **Indexes are declared on the entities (`@Index()`), never only in a migration.** MikroORM's SQLite platform auto-indexes every `ManyToOne`; Postgres does not, so an FK without an explicit `@Index()` is indexed locally and unindexed in production, and the SQLite migration alone will never tell you. `test/integration/migrations.spec.ts` lists the expected index names.
 - **Postgres migrations run one transaction per migration (`allOrNothing: false`)**, in both `dal.module.ts` and `mikro-orm.postgres.cli-config.ts`. Index migrations use `CREATE INDEX CONCURRENTLY IF NOT EXISTS` and override `isTransactional()` to return false; MikroORM runs such migrations on a second connection, which under a batch-wide transaction cannot see tables created earlier in the same batch and fails a fresh database with "relation does not exist". A generated Postgres index migration must be hand-edited to this shape (see `Migration20260925181256`) and `src/dal/migrations/postgres-indexes.spec.ts` enforces it. Never hand-add DDL that the entities do not declare: CLI `migration:up` rewrites `.snapshot-*.json` from the live database, and the next `migration:create` emits a DROP for anything it cannot find in the metadata. SQLite's `migration:create` also needs a migrated `./data/sqlite3.db` (run `migration:up` with the sqlite config first) whenever a column changes type, because knex rebuilds the table from `sqlite_master`; read the generated file, it has duplicated a `create index` line before. To verify a Postgres migration locally: `docker run -d --rm --name pg -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=Password123 postgres:17-alpine`, then `migration:up` / `migration:down` with the postgres CLI config.
 - **Photo bytes are written before any row, and rows commit together.** `FileService.storeImageFromFileUpload` / `copyImage` return an unpersisted `File`; the caller (`GarmentService`) persists it inside `em.transactional` with the garment and calls `deleteVariants` if the transaction fails. `GarmentService.remove` and photo replacement delete the `File` row in the same transaction and unlink after commit. Do not `persistAndFlush` a `File` from inside `FileService`.
+- **The DB cascade deletes rows, never bytes.** `deleteRule: 'cascade'` on `File.createdBy` and `Garment.owner` drops the rows when a user goes, but only `FileService.deleteVariants` removes the files. Every path that removes a `File` row (`GarmentService.remove`, photo replacement, `AuthService.deleteUser`) must unlink through the file service after commit; the cascade is the safety net and `StorageReconciliationService` (nightly, or `npm run maintenance:reconcile`) is the backstop that deletes photo sets and rows older than a day that nothing references. Outfits and calendar entries own no files.
+- **HEIC uploads are buffered.** sharp's libvips has no HEIC decoder, so `image/heic`, `image/heif` and an `application/octet-stream` named `.heic`/`.heif` are read whole (capped by `MAX_HEIC_BYTES`, 413 past it) and decoded with heic-convert to a JPEG before the streaming sharp pipeline. libheif applies the container's rotation while decoding and the JPEG carries no EXIF, so HEIC photos are stored as decoded. Chrome/Android cannot decode HEIC in a canvas: `background-removal.js` skips the client cutout for such files and the form submits the original.
+- **Pipelines started inside a multipart `for await` loop must be armed with a no-op catch at creation.** `GarmentService.storeUploadedPhotoWithCutout` starts the photo and cutout pipelines without awaiting (an unconsumed part hangs busboy) and only settles them after the loop; a rejection while later parts are still being read (an undecodable HEIC/JPEG) was an unhandled rejection that exited the process with an empty reply. `startPipeline()` attaches the catch and returns the same promise, so the real error still surfaces from `Promise.allSettled`. `test/integration/heic.spec.ts` records `unhandledRejection` and asserts the app answers the next request. Node's default (crash loudly) is kept on purpose; do not add a process-level handler.
+- **`bufferLogs: true` only flushes on `listen()`.** `createApp()` calls `app.flushLogs()` right after `useLogger`; without it an app that is only `init()`ed (the integration harness) buffers every Nest `Logger` call forever: nothing is emitted, `app.log` stays empty, and a `jest.spyOn(t.app.get(PinoLogger), 'warn')` sees zero calls whatever the app did. `test/integration/heic.spec.ts` asserts on such a spy and would catch a regression.
+- **`ScheduleModule.forRoot()` lives in `MaintenanceModule`**, not `AppModule`: `StorageReconciliationService.onApplicationBootstrap` deletes the cron job when `MAINTENANCE_ENABLED=false`, which only works if the scheduler (a deeper module, bootstrapped first) has already registered it. The integration harness sets `MAINTENANCE_ENABLED=false`.
 - **Nothing in `precommit` type-checks.** `nest build` uses SWC and `isolatedModules: true` makes ts-jest transpile-only, so `npx tsc --noEmit -p tsconfig.json` reports hundreds of pre-existing errors (spec files lack jest types under the root tsconfig). Run it and grep for the files you touched before calling type-level changes done.
 
 ## Workflow

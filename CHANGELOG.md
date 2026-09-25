@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+#### Added
+
+- Nightly storage reconciliation (`MAINTENANCE_ENABLED`, `@nestjs/schedule`) and `npm run maintenance:reconcile [-- --dry-run]`: orphaned photo sets and unreferenced `file` rows older than a day are deleted, rows whose original is missing are reported
+- HEIC/HEIF uploads: decoded server-side with heic-convert (capped by `MAX_HEIC_BYTES`), accepted by the photo inputs; browsers that cannot decode HEIC skip the client-side cutout and upload the original
+
+#### Fixed
+
+- An undecodable photo upload (junk bytes sent as HEIC or JPEG) no longer crashes the server with an unhandled rejection; it is a 400 and the app keeps serving
+- Deleting an account now removes the user's photos from storage; the confirmation credentials must belong to the account being deleted, and a refused deletion answers 401 (400 for a malformed body) instead of 201
+- Choosing a photo the browser cannot decode no longer leaves the upload button disabled
+- A missing cutout no longer logs a warning on every garment delete
+- Nest logger output is flushed once the pino logger is installed, so an app that is only initialised (the integration harness) no longer buffers every log line forever
+
 #### Changed
 
 - Rebrand to Closet, a private household fork of Libre Closet

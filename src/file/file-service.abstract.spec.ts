@@ -1,10 +1,24 @@
+import { MultipartFile } from '@fastify/multipart';
 import { EntityManager, EntityRepository } from '@mikro-orm/core';
-import { NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  PayloadTooLargeException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import heicConvert from 'heic-convert';
 import sharp from 'sharp';
 import { Readable } from 'stream';
 import { File } from '../dal/entity/file.entity';
 import { FileService } from './file-service.abstract';
+import { StoredObject } from './file-service.interface';
+
+// libheif is WASM and there is no HEIC fixture; the decode branch is about
+// what goes in and what comes out of the decoder, not the codec.
+jest.mock('heic-convert', () => jest.fn());
+const heicConvertMock = heicConvert as unknown as jest.Mock;
+
+const MAX_HEIC_BYTES = 1024;
 
 // Concrete subclass over an in-memory map so the inherited variant logic
 // (thumb derivation, fallbacks, versioning) is exercised end to end.
@@ -21,6 +35,10 @@ class TestFileService extends FileService {
   delete(fileName: string): Promise<void> {
     this.files.delete(fileName);
     return Promise.resolve();
+  }
+
+  list(): AsyncIterable<StoredObject> {
+    return Readable.from([...this.files.keys()].map((name) => ({ name })));
   }
 
   protected async store(fileName: string, stream: Readable): Promise<void> {
@@ -43,9 +61,19 @@ const collect = async (stream: Readable) => {
 };
 
 const build = (watermarkEnabled = false) => {
-  const config = { get: jest.fn().mockReturnValue(watermarkEnabled) };
+  const settings: Record<string, unknown> = {
+    WATERMARK_ENABLED: watermarkEnabled,
+    MAX_HEIC_BYTES,
+  };
+  const config = {
+    get: jest.fn((key: string) => settings[key]),
+    getOrThrow: jest.fn((key: string) => settings[key]),
+  };
   const fileRow = { fileName: 'a.webp', version: 1 } as File;
-  const fileRepository = { findOne: jest.fn().mockResolvedValue(fileRow) };
+  const fileRepository = {
+    findOne: jest.fn().mockResolvedValue(fileRow),
+    create: jest.fn((data: Partial<File>) => data as File),
+  };
   const em = { persistAndFlush: jest.fn(), removeAndFlush: jest.fn() };
   const service = new TestFileService(
     config as unknown as ConfigService,
@@ -202,6 +230,93 @@ describe('FileService.deleteVariants', () => {
     service.files.set('a.webp', Buffer.from('x'));
     service.files.set('a-thumb.webp', Buffer.from('x'));
     await service.deleteVariants('a.webp');
+    expect(service.files.size).toBe(0);
+  });
+});
+
+describe('FileService.storeImageFromFileUpload with HEIC', () => {
+  const part = (
+    data: Buffer,
+    mimetype: string,
+    filename = 'photo.heic',
+  ): MultipartFile =>
+    ({
+      file: Readable.from(data),
+      mimetype,
+      filename,
+      fieldname: 'photo',
+    }) as unknown as MultipartFile;
+
+  const decodedJpeg = async () =>
+    new Uint8Array(
+      await sharp({
+        create: { width: 600, height: 400, channels: 3, background: '#48c' },
+      })
+        .jpeg()
+        .toBuffer(),
+    );
+
+  beforeEach(() => heicConvertMock.mockReset());
+
+  it('decodes image/heic through heic-convert and stores webp original and thumb', async () => {
+    const { service } = build();
+    heicConvertMock.mockImplementation(decodedJpeg);
+    const bytes = Buffer.from('pretend heic container');
+
+    const file = await service.storeImageFromFileUpload(
+      part(bytes, 'image/heic'),
+      7,
+      'a.webp',
+    );
+
+    expect(heicConvertMock).toHaveBeenCalledWith({
+      buffer: bytes,
+      format: 'JPEG',
+      quality: 0.92,
+    });
+    expect(file.fileName).toBe('a.webp');
+    const original = await sharp(service.files.get('a.webp')).metadata();
+    expect(original.format).toBe('webp');
+    expect(original.width).toBe(600);
+    expect(service.files.has('a-thumb.webp')).toBe(true);
+  });
+
+  it('recognises a .heic sent as application/octet-stream by its name', async () => {
+    const { service } = build();
+    heicConvertMock.mockImplementation(decodedJpeg);
+    await service.storeImageFromFileUpload(
+      part(Buffer.from('x'), 'application/octet-stream', 'IMG_0001.HEIC'),
+      7,
+      'a.webp',
+    );
+    expect(heicConvertMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects undecodable bytes with a 400 and stores nothing', async () => {
+    const { service } = build();
+    heicConvertMock.mockRejectedValue(
+      new TypeError('input buffer is not a HEIC image'),
+    );
+    await expect(
+      service.storeImageFromFileUpload(
+        part(Buffer.from('not heic'), 'image/heif'),
+        7,
+        'a.webp',
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(service.files.size).toBe(0);
+  });
+
+  it('rejects a part over MAX_HEIC_BYTES with a 413 without decoding', async () => {
+    const { service } = build();
+    await expect(
+      service.storeImageFromFileUpload(
+        part(Buffer.alloc(MAX_HEIC_BYTES + 1), 'image/heic'),
+        7,
+        'a.webp',
+      ),
+    ).rejects.toThrow(PayloadTooLargeException);
+    expect(heicConvertMock).not.toHaveBeenCalled();
     expect(service.files.size).toBe(0);
   });
 });
