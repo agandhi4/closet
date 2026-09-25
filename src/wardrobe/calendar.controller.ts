@@ -15,7 +15,6 @@ import {
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { I18n, I18nContext } from 'nestjs-i18n';
 import { ConditionalAuthGuard } from '../auth/conditional-auth.guard';
-import { Payload } from '../auth/dto/payload.dto';
 import { CalendarService } from './calendar.service';
 
 @UseGuards(ConditionalAuthGuard)
@@ -24,7 +23,7 @@ export class CalendarController {
   constructor(private readonly calendarService: CalendarService) {}
 
   private userId(req: FastifyRequest): number | undefined {
-    return (req['user'] as Payload | undefined)?.userId;
+    return req.user?.userId;
   }
 
   @Get()
