@@ -15,7 +15,11 @@ import sharp from 'sharp';
 import Stream, { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { File } from '../dal/entity/file.entity';
-import { FileServiceInterface, StoredObject } from './file-service.interface';
+import {
+  FileServiceInterface,
+  StoreImageOptions,
+  StoredObject,
+} from './file-service.interface';
 import { decodeHeic, isHeicUpload } from './heic';
 import { IMAGE_VARIANTS, ImageVariant, variantFileName } from './image-variant';
 import { PROJECT_ROOT } from '../project-root';
@@ -74,17 +78,28 @@ export abstract class FileService implements FileServiceInterface {
    * maps them back to File rows with parseStoredName.
    */
   abstract list(): AsyncIterable<StoredObject>;
-  /** Must leave no partial object behind when it rejects. */
+  /**
+   * Must be atomic: until it resolves, readers see no object under `fileName`
+   * (or the previous one), never a partial write; and a rejected store leaves
+   * nothing behind. Photo and cutout are written concurrently and the thumb
+   * writer reads whichever exists (S3 gives this for free; the local backend
+   * writes to a temp file and renames).
+   */
   protected abstract store(fileName: string, stream: Readable): Promise<void>;
 
   /**
    * Transcodes the upload to the original variant and derives its thumb.
    * Returns an unpersisted File row; on failure nothing is left in storage.
+   *
+   * `fileName` + `deferThumb` is the photo half of a photo+cutout upload:
+   * the cutout is stored concurrently under the same name, so a thumb built
+   * here would come from the photo and be thrown away. The caller builds the
+   * one thumb with regenerateThumb once both halves are stored.
    */
   async storeImageFromFileUpload(
     upload: MultipartFile | undefined,
     userId?: number,
-    fileName?: string,
+    { fileName, deferThumb = false }: StoreImageOptions = {},
   ): Promise<File> {
     if (!upload) {
       throw new HttpException('No file uploaded', HttpStatus.BAD_REQUEST);
@@ -104,11 +119,13 @@ export abstract class FileService implements FileServiceInterface {
       this.imageTransformer().autoOrient(),
       storedFileName,
     );
-    try {
-      await this.regenerateThumb(storedFileName);
-    } catch (error) {
-      await this.deleteVariants(storedFileName);
-      throw error;
+    if (!deferThumb) {
+      try {
+        await this.regenerateThumb(storedFileName);
+      } catch (error) {
+        await this.deleteVariants(storedFileName);
+        throw error;
+      }
     }
     this.logger.log(`Stored upload ${storedFileName} for user ${userId}`);
     return this.newFileRow(storedFileName, userId);
@@ -148,12 +165,16 @@ export abstract class FileService implements FileServiceInterface {
   }
 
   /**
-   * Writes the background-removed cutout for `originalFileName` and refreshes
-   * its thumb. Unless the cutout belongs to a photo uploaded in the same
-   * request (`newUpload`), clients may already hold the old nobg and thumb
-   * under the current version, so the File version is bumped; the thumb is
-   * rewritten before the bump so no client can cache a stale thumb under the
-   * new version.
+   * Writes the background-removed cutout for `originalFileName`.
+   *
+   * `newUpload`: the cutout belongs to a photo stored in the same request
+   * (see storeImageFromFileUpload's deferThumb); no client has seen this
+   * name yet, so there is no version to bump, and the caller builds the thumb
+   * once both halves are stored.
+   *
+   * Otherwise (a mask edit) clients may already hold the old nobg and thumb
+   * under the current version: the thumb is rewritten first and the version
+   * bumped after, so no client can cache a stale thumb under the new version.
    */
   async storeNobgVariantFromStream(
     stream: Readable,
@@ -162,8 +183,8 @@ export abstract class FileService implements FileServiceInterface {
   ): Promise<void> {
     const nobgName = variantFileName(originalFileName, 'nobg');
     await this.transcodeUpload(stream, this.imageTransformer(), nobgName);
-    await this.regenerateThumb(originalFileName);
     if (!newUpload) {
+      await this.regenerateThumb(originalFileName);
       await this.bumpVersion(originalFileName);
     }
     this.logger.log(

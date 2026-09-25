@@ -381,11 +381,10 @@ export class GarmentService {
     for await (const file of files) {
       if (file.fieldname === 'photo') {
         photoPromise = startPipeline(
-          this.fileService.storeImageFromFileUpload(
-            file,
-            userId,
-            photoFileName,
-          ),
+          this.fileService.storeImageFromFileUpload(file, userId, {
+            fileName: photoFileName,
+            deferThumb: true,
+          }),
         );
       } else if (file.fieldname === 'nobgPhoto') {
         nobgPromise = startPipeline(
@@ -432,10 +431,13 @@ export class GarmentService {
     }
     const photo = (photoResult as PromiseFulfilledResult<File>).value;
 
-    // Both pipelines queued a thumb write in unknown order; this final write
-    // is guaranteed to run last and to read the cutout.
-    if (nobgPromise) {
+    // The one thumb, built after both halves are stored so it reads the
+    // cutout when there is one (neither pipeline builds its own).
+    try {
       await this.fileService.regenerateThumb(photoFileName);
+    } catch (error) {
+      await this.fileService.deleteVariants(photoFileName);
+      throw error;
     }
     return photo;
   }

@@ -9,11 +9,18 @@ export interface StoredObject {
   lastModified?: Date;
 }
 
+export interface StoreImageOptions {
+  /** Pre-chosen `<uuid>.webp`, so a cutout can be stored under it concurrently. */
+  fileName?: string;
+  /** The caller calls regenerateThumb after the cutout is stored too. */
+  deferThumb?: boolean;
+}
+
 export interface FileServiceInterface {
   /**
    * @param upload multipart stream plus mimetype; drained and rejected when not an image
    * @param userId user responsible for the file
-   * @param fileName optional pre-chosen name so a cutout can be stored concurrently
+   * @param options pre-chosen name and deferred thumb for a photo+cutout pair
    * @returns the File row (version 1), not yet persisted: the caller commits
    *   it with the entity that references it and calls deleteVariants if that
    *   commit fails
@@ -21,7 +28,7 @@ export interface FileServiceInterface {
   storeImageFromFileUpload(
     upload: MultipartFile | undefined,
     userId?: number,
-    fileName?: string,
+    options?: StoreImageOptions,
   ): Promise<File>;
   /** Same persistence contract as storeImageFromFileUpload. */
   copyImage(sourceFileName: string, userId?: number): Promise<File | undefined>;
