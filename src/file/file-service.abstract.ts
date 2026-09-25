@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { MultipartFile } from '@fastify/multipart';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
-import sharp from 'sharp';
+import sharp, { type Sharp } from 'sharp';
 import Stream, { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { File } from '../dal/entity/file.entity';
@@ -307,7 +307,7 @@ export abstract class FileService implements FileServiceInterface {
   // Client bytes: an undecodable stream is the client's error, not ours.
   private async transcodeUpload(
     source: Readable,
-    transformer: sharp.Sharp,
+    transformer: Sharp,
     targetFileName: string,
   ): Promise<void> {
     try {
@@ -321,7 +321,7 @@ export abstract class FileService implements FileServiceInterface {
     }
   }
 
-  private imageTransformer(): sharp.Sharp {
+  private imageTransformer(): Sharp {
     return sharp()
       .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, {
         fit: sharp.fit.inside,
@@ -358,7 +358,7 @@ export abstract class FileService implements FileServiceInterface {
   // storage trouble.
   private async transcode(
     source: Readable,
-    transformer: sharp.Sharp,
+    transformer: Sharp,
     targetFileName: string,
   ): Promise<void> {
     const passThrough = new Stream.PassThrough();

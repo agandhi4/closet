@@ -5,10 +5,18 @@ import { Email } from './dto/email.dto';
 import { EmailOptions } from './dto/emailOptions.dto';
 import mg from 'nodemailer-mailgun-transport';
 
+// What sendEmail reads back from either transport. SMTP (gmail) always
+// reports a messageId; nodemailer-mailgun-transport resolves
+// `{ ...result, messageId: result.id }` but its typings only promise
+// `object`, hence optional.
+interface SentMessage {
+  messageId?: string;
+}
+
 @Injectable()
 export class EmailService {
   private logger = new Logger(EmailService.name);
-  private transporter: nodemailer.Transporter;
+  private transporter: nodemailer.Transporter<SentMessage>;
   public readonly primaryEmailAddress?: string;
   private readonly transport?: string;
 
