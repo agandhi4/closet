@@ -677,6 +677,22 @@
           "enumItems": [],
           "mappedType": "string"
         },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "1",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
         "created_by_id": {
           "name": "created_by_id",
           "type": "int",
