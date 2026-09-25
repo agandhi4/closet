@@ -98,13 +98,13 @@
         id="photoInput"
         name="photo"
         class="file-input file-input-sm flex-1"
-        accept="image/jpeg,image/png,image/gif,image/webp"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
       />
       <input
         type="file"
         id="photoCaptureInput"
         class="hidden"
-        accept="image/jpeg,image/png,image/gif,image/webp"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
         capture="environment"
       />
       <button
@@ -172,6 +172,11 @@
         >{{t 'lang.BG_HINT_TYPICAL_DURATION'}}</span
       >
     </div>
+    {{!-- Shown by background-removal.js when the browser cannot decode the
+    chosen file (HEIC on Chrome/Android); the server still stores it. --}}
+    <p id="bgUnsupported" class="hidden text-sm text-base-content/60">
+      {{t 'lang.BG_UNSUPPORTED_PHOTO'}}
+    </p>
   </form>
   <script type="module">
     {{!-- Lazy: the ONNX runtime and model only download once the photo input

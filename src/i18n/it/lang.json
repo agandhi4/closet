@@ -69,6 +69,7 @@
   "BG_STAGE_ENCODING": "Codifica risultato…",
   "BG_HINT_TYPICAL_DURATION": "Su mobile potrebbe richiedere qualche istante.",
   "BG_HINT_STILL_WORKING": "Ancora in corso. Soprattutto su iPhone e iPad potrebbe richiedere piu tempo.",
+  "BG_UNSUPPORTED_PHOTO": "Questa foto non può essere visualizzata in anteprima su questo dispositivo, quindi verrà salvata senza ritaglio.",
   "MASK_EDITOR_TITLE": "Pulisci lo sfondo",
   "MASK_EDITOR_HINT": "Controlla il risultato. Usa i pennelli cancella e ripristina per correggere eventuali problemi, poi tocca Accetta.",
   "MASK_EDITOR_SKIP": "Salta",

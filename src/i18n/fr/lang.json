@@ -69,6 +69,7 @@
   "BG_STAGE_ENCODING": "Encodage du résultat…",
   "BG_HINT_TYPICAL_DURATION": "Cela peut prendre un moment sur mobile.",
   "BG_HINT_STILL_WORKING": "Toujours en cours. En particulier sur iPhone et iPad, cela peut prendre un peu de temps.",
+  "BG_UNSUPPORTED_PHOTO": "Cette photo ne peut pas être prévisualisée sur cet appareil ; elle sera enregistrée sans détourage.",
   "MASK_EDITOR_TITLE": "Nettoyer l'arrière-plan",
   "MASK_EDITOR_HINT": "Vérifiez le résultat. Utilisez les pinceaux d'effacement et de restauration pour corriger les problèmes, puis appuyez sur Accepter.",
   "MASK_EDITOR_SKIP": "Passer",

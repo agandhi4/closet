@@ -121,6 +121,7 @@ export const wireUpPhotoInput = () => {
   const bgStatus = document.getElementById('bgStatus');
   const bgStatusText = document.getElementById('bgStatusText');
   const bgStatusHint = document.getElementById('bgStatusHint');
+  const bgUnsupported = document.getElementById('bgUnsupported');
   const photoCaptureBtn = document.getElementById('photoCaptureBtn');
 
   if (!photoInput || !nobgInput) return;
@@ -134,6 +135,7 @@ export const wireUpPhotoInput = () => {
   photoInput.addEventListener('change', async function () {
     // Re-enable submit for the "no file" case; it will be gated by html required
     nobgInput.value = '';
+    bgUnsupported?.classList.add('hidden');
 
     const file = photoInput.files?.[0];
     if (!file) return;
@@ -143,7 +145,17 @@ export const wireUpPhotoInput = () => {
       return;
     }
 
-    const squareFile = await squarePadBlob(file);
+    let squareFile;
+    try {
+      squareFile = await squarePadBlob(file);
+    } catch (err) {
+      // The browser cannot decode this file (HEIC on Chrome/Android). The
+      // server can, so the original goes up as-is and no cutout is made.
+      console.info('[bg-removal] browser cannot decode this photo, skipping cutout:', err);
+      bgUnsupported?.classList.remove('hidden');
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
 
     if (submitBtn) submitBtn.disabled = true;
     if (bgStatus) bgStatus.classList.remove('hidden');

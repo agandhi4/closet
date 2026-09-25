@@ -69,6 +69,7 @@
   "BG_STAGE_ENCODING": "Codificando resultado…",
   "BG_HINT_TYPICAL_DURATION": "Esto puede tardar un momento en móvil.",
   "BG_HINT_STILL_WORKING": "Sigue trabajando. Especialmente en iPhone e iPad puede tardar un poco.",
+  "BG_UNSUPPORTED_PHOTO": "Esta foto no se puede previsualizar en este dispositivo, así que se guardará sin recorte.",
   "MASK_EDITOR_TITLE": "Limpiar fondo",
   "MASK_EDITOR_HINT": "Revisa el resultado. Usa los pinceles de borrar y restaurar para corregir cualquier problema, luego toca Aceptar.",
   "MASK_EDITOR_SKIP": "Omitir",
