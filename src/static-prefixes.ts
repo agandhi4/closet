@@ -24,15 +24,10 @@ export const STATIC_FILES = [
   '/llms-full.txt',
 ] as const;
 
-// FileController serves immutable images under /file/**, but these two routes
-// under the same prefix are guarded pages that need the auth context.
-const APP_ROUTES_UNDER_STATIC_PREFIX = ['/file/files', '/file/upload'] as const;
-
+// Every /file/** route is an image variant served by FileController without
+// a session; a new page under that prefix would need its own carve-out here.
 export function isStaticPath(url: string): boolean {
   const path = url.split('?')[0];
-  if ((APP_ROUTES_UNDER_STATIC_PREFIX as readonly string[]).includes(path)) {
-    return false;
-  }
   return (
     (STATIC_FILES as readonly string[]).includes(path) ||
     STATIC_PREFIXES.some((prefix) => path.startsWith(prefix))

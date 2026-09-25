@@ -1,5 +1,3 @@
-import { EntityManager, EntityRepository } from '@mikro-orm/core';
-import { InjectRepository } from '@mikro-orm/nestjs';
 import {
   Controller,
   Get,
@@ -7,72 +5,24 @@ import {
   Logger,
   NotFoundException,
   Param,
-  Post,
-  Render,
-  Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
-import type { FastifyReply, FastifyRequest } from 'fastify';
-import { AuthGuard } from '../../auth/auth.guard';
-import { Payload } from '../../auth/dto/payload.dto';
-import { User } from '../../auth/user.decorator';
-import { User as UserEntity } from '../../dal/entity/user.entity';
+import type { FastifyReply } from 'fastify';
 import { FileService } from '../file-service.abstract';
-import { ConditionalAuthGuard } from '../../auth/conditional-auth.guard';
 import { ImageVariant } from '../image-variant';
 
 // Stored names are `<uuid>.webp`; anything else (path separators, dot
 // segments, encoded slashes) is rejected before it reaches the backend.
 const SAFE_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
+// Images only, no pages: every route here is under the /file/ static prefix
+// (static-prefixes.ts), so the session hook in app.ts skips it. A page added
+// here would render without reply.locals.
 @Controller('file')
 export class FileController {
   private logger = new Logger(FileController.name);
 
-  constructor(
-    private readonly fileService: FileService,
-    @InjectRepository(UserEntity)
-    private readonly userRepository: EntityRepository<UserEntity>,
-    private readonly em: EntityManager,
-  ) {}
-
-  @UseGuards(ConditionalAuthGuard)
-  @Get('files')
-  @Render('files')
-  async getFiles(@User() payload: Payload) {
-    const user = await this.userRepository.findOne(
-      { id: payload.userId },
-      { populate: ['fileUploads'] },
-    );
-    return {
-      files: user?.fileUploads,
-    };
-  }
-
-  @UseGuards(AuthGuard)
-  @Post('upload')
-  @Render('files')
-  async uploadFile(@User() payload: Payload, @Req() req: FastifyRequest) {
-    const data = await req.file();
-    const file = await this.fileService.storeImageFromFileUpload(
-      data,
-      payload.userId,
-    );
-    try {
-      await this.em.persistAndFlush(file);
-    } catch (error) {
-      await this.fileService.deleteVariants(file.fileName);
-      throw error;
-    }
-    const user = await this.userRepository.findOne(
-      { id: payload.userId },
-      { populate: ['fileUploads'] },
-    );
-    return {
-      files: user?.fileUploads,
-    };
-  }
+  constructor(private readonly fileService: FileService) {}
 
   // Image variants. URLs carry `?v=<File.version>` (see imageUrl()), which is
   // what makes the one-year immutable cache safe: a rewritten image is only
