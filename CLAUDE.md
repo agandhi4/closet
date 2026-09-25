@@ -24,7 +24,9 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 
 ```
 src/
-  main.ts              Fastify bootstrap, static assets, view engine, preHandler that fills reply.locals
+  main.ts              Fastify bootstrap, static assets, view engine, preHandler that resolves the session
+                       once (req.auth via AuthContextService) and fills reply.locals; skipped entirely for
+                       the static paths in static-prefixes.ts
   app.module.ts        Root module. Joi env schema (the ONLY place config is declared), pino, throttler,
                        i18n, global error-view filter. Every new env var is added here with a default.
   auth/                Login/register/password-reset controllers, JWT service, guards
@@ -136,6 +138,7 @@ PWA_ENABLED=true
 AUTH_ENABLED=true
 DISABLE_REGISTRATION=true          # flip to false only while creating the two household accounts
 ACCESS_TOKEN_SECRET=<openssl rand -hex 32>
+TRUSTED_PROXIES=172.16.0.0/12      # Docker bridge range: Caddy is the client Fastify sees, so trust its X-Forwarded-For
 PUBLIC_VAPID_KEY=<npx web-push generate-vapid-keys>   # no defaults; required when PWA_ENABLED=true
 PRIVATE_VAPID_KEY=<same>
 # ICON_NAME left unset (default icon.png)

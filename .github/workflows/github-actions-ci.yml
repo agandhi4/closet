@@ -54,6 +54,23 @@ jobs:
           DATABASE_TYPE: sqlite
           FILE_STORAGE_TYPE: local
 
+      # The smoke job runs with auth off; this proves the cookie session path
+      # (login, guards, profile) with auth on. Playwright's webServer inherits
+      # this env, so the server it builds and starts sees AUTH_ENABLED.
+      - name: playwright login e2e (AUTH_ENABLED=true)
+        run: |
+          npx playwright test test/auth.spec.ts --project=chromium
+        env:
+          CI: true
+          APP_NAME: Closet
+          AUTH_ENABLED: "true"
+          ACCESS_TOKEN_SECRET: ci-only-secret
+          PUSH_NOTIFICATION_ENDPOINT: test
+          EMAIL_FROM_ADDRESS: test
+          EMAIL_PASSWORD: test
+          DATABASE_TYPE: sqlite
+          FILE_STORAGE_TYPE: local
+
       - name: npm test:load local
         run: |
           npm run test:load
