@@ -7,17 +7,25 @@ import {
   Logger,
 } from '@nestjs/common';
 import { FastifyReply, FastifyRequest } from 'fastify';
+import { RedirectToLoginException } from './auth/redirect-to-login.exception';
 
 @Catch()
 export class ErrorViewFilter implements ExceptionFilter {
   private logger = new Logger(ErrorViewFilter.name);
 
   async catch(exception: unknown, host: ArgumentsHost) {
-    this.logger.warn(exception);
-
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<FastifyReply>();
     const request = ctx.getRequest<FastifyRequest>();
+
+    // A logged-out page hit is routine, not an error: send the redirect the
+    // guard asked for and keep it out of the warn log.
+    if (exception instanceof RedirectToLoginException) {
+      this.logger.debug(`${request.url} -> ${exception.location}`);
+      return response.redirect(exception.location, exception.getStatus());
+    }
+
+    this.logger.warn(exception);
 
     if (response.sent) {
       this.logger.warn('Response already sent, skipping error filter');

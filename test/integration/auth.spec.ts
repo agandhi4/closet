@@ -2,6 +2,7 @@ import { EntityRepository } from '@mikro-orm/core';
 import { getRepositoryToken } from '@mikro-orm/nestjs';
 import { AuthContextService } from '../../src/auth/auth-context.service';
 import { User } from '../../src/dal/entity/user.entity';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
 describe('sessions (AUTH_ENABLED=true)', () => {
@@ -41,6 +42,25 @@ describe('sessions (AUTH_ENABLED=true)', () => {
     const res = await t.inject({ method: 'GET', url });
     expect(res.statusCode).toBe(status);
     if (status === 302) expect(res.headers.location).toBe('/auth/login');
+  });
+
+  it('a logged-out page hit redirects without warn or error log lines', async () => {
+    // Nest's Logger delegates to the nestjs-pino instance registered by
+    // app.useLogger (app.ts), so a spy there sees every warn the guards and
+    // ErrorViewFilter could emit for this request.
+    const logger = t.app.get(PinoLogger);
+    const warn = jest.spyOn(logger, 'warn');
+    const error = jest.spyOn(logger, 'error');
+    try {
+      const res = await t.inject({ method: 'GET', url: '/wardrobe' });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe('/auth/login');
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
   });
 
   it('a session cookie opens the wardrobe and the profile', async () => {

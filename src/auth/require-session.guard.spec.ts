@@ -1,5 +1,6 @@
 import { ExecutionContext, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RedirectToLoginException } from './redirect-to-login.exception';
 import { RequireSessionGuard } from './require-session.guard';
 
 describe('RequireSessionGuard', () => {
@@ -34,12 +35,12 @@ describe('RequireSessionGuard', () => {
     expect(() => guard.canActivate(context)).toThrow(NotFoundException);
   });
 
-  it('redirects to /auth/login when no session was resolved', () => {
+  it('throws RedirectToLoginException when no session was resolved', () => {
     configService.get.mockReturnValue(true);
     const { context, response } = mockExecutionContext({ cookies: {} });
 
-    expect(guard.canActivate(context)).toBe(false);
-    expect(response.redirect).toHaveBeenCalledWith('/auth/login', 302);
+    expect(() => guard.canActivate(context)).toThrow(RedirectToLoginException);
+    expect(response.redirect).not.toHaveBeenCalled();
   });
 
   it('publishes the resolved payload as request.user', () => {

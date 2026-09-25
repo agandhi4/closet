@@ -5,13 +5,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { FastifyReply, FastifyRequest } from 'fastify';
+import { FastifyRequest } from 'fastify';
+import { RedirectToLoginException } from './redirect-to-login.exception';
 
 /**
  * Pages and form submissions that only exist with user accounts (wardrobe
  * sharing): 404 when AUTH_ENABLED=false, 302 to /auth/login without a
- * session (it is a browser navigation, so a 401 page would be a dead end),
- * pass with request.user set otherwise. Fetch-driven endpoints use AuthGuard
+ * session (RedirectToLoginException: it is a browser navigation, so a 401
+ * page would be a dead end), pass with request.user set otherwise. Fetch-driven endpoints use AuthGuard
  * (401) instead; open-or-authenticated routes use ConditionalAuthGuard.
  */
 @Injectable()
@@ -29,8 +30,6 @@ export class RequireSessionGuard implements CanActivate {
       return true;
     }
 
-    const response = context.switchToHttp().getResponse<FastifyReply>();
-    void response.redirect('/auth/login', 302);
-    return false;
+    throw new RedirectToLoginException();
   }
 }
