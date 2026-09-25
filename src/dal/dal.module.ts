@@ -7,6 +7,14 @@ import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import path from 'path';
 
+// better-sqlite's special dbName for a private in-memory database; set as
+// DATABASE_SCHEMA by the integration harness.
+const IN_MEMORY_DB = ':memory:';
+
+// Query and migrator output goes through the app logger so it follows
+// LOG_LEVEL and pino's formatting (colors off: pino-pretty adds its own).
+const ormLogger = new Logger('MikroORM');
+
 @Module({
   imports: [
     MikroOrmModule.forRootAsync({
@@ -27,10 +35,15 @@ import path from 'path';
                 path: path.join(__dirname, 'migrations/sqlite'),
                 pathTs: path.join(__dirname, 'migrations/sqlite'),
                 transactional: true,
+                // Snapshots serve migration:create, which runs through the
+                // mikro-orm.*.cli-config.ts files; the runtime must not write
+                // .snapshot-*.json next to the migrations on every boot.
+                snapshot: false,
               },
-              logger: (message) => console.log(message),
+              logger: (message) => ormLogger.log(message),
+              colors: false,
               allowGlobalContext: true,
-              debug: configService.get('NODE_ENV') !== 'production',
+              debug: configService.get('NODE_ENV') === 'development',
             } as MikroOrmModuleOptions<IDatabaseDriver<Connection>>;
           case 'postgres':
             return {
@@ -48,6 +61,10 @@ import path from 'path';
                 path: path.join(__dirname, 'migrations/postgres'),
                 pathTs: path.join(__dirname, 'migrations/postgres'),
                 transactional: true,
+                // Snapshots serve migration:create, which runs through the
+                // mikro-orm.*.cli-config.ts files; the runtime must not write
+                // .snapshot-*.json next to the migrations on every boot.
+                snapshot: false,
               },
               driverOptions: {
                 connection: {
@@ -58,9 +75,10 @@ import path from 'path';
                     : undefined,
                 },
               },
-              logger: (message) => console.log(message),
+              logger: (message) => ormLogger.log(message),
+              colors: false,
               allowGlobalContext: true,
-              debug: configService.get('NODE_ENV') !== 'production',
+              debug: configService.get('NODE_ENV') === 'development',
             } as MikroOrmModuleOptions<IDatabaseDriver<Connection>>;
           default:
             throw new Error(
@@ -89,14 +107,16 @@ export class DalModule implements OnModuleInit {
 
   async onModuleInit() {
     switch (this.configService.get('DATABASE_TYPE', 'sqlite')) {
-      case 'sqlite':
-        this.logger.log(
-          `Using sqlite db: ${this.configService.getOrThrow('DATABASE_SCHEMA')}),
-          )}`,
-        );
+      case 'sqlite': {
+        const dbName = this.configService.getOrThrow<string>('DATABASE_SCHEMA');
+        this.logger.log(`Using sqlite db: ${dbName}`);
+        // WAL is a file-level journal; an in-memory database (integration
+        // tests) has no file and silently keeps its `memory` journal mode.
+        if (dbName === IN_MEMORY_DB) break;
         await this.orm.em.getConnection().execute('PRAGMA journal_mode = WAL;');
         this.logger.log('SQLite WAL mode enabled');
         break;
+      }
       case 'postgres':
         this.logger.log(
           `Using postgres db: ${this.configService.get(

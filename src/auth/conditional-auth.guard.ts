@@ -5,7 +5,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 /**
  * When AUTH_ENABLED=false: passes all requests through (no auth needed).
  * When AUTH_ENABLED=true: requires the session resolved by AuthContextService
- * (`req.auth`, see main.ts) and exposes its payload as request.user.
+ * (`req.auth`, see app.ts) and exposes its payload as request.user.
  *   - Authenticated: passes through.
  *   - Unauthenticated: redirects to /auth/login instead of returning 401/403.
  */

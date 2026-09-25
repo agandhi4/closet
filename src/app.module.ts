@@ -41,6 +41,7 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
         };
         return {
           pinoHttp: {
+            level: configService.getOrThrow<string>('LOG_LEVEL'),
             transport: {
               targets: [
                 {
@@ -74,8 +75,13 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
           .valid('development', 'production', 'test')
           .default('production'),
         PORT: Joi.number().default(3000),
+        // pino level for both the console and app.log; `silent` is what the
+        // integration harness uses so test output is only jest's.
+        LOG_LEVEL: Joi.string()
+          .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
+          .default('info'),
         // Comma-separated IPs/CIDRs whose X-Forwarded-* headers are trusted
-        // (Fastify trustProxy). Consumed in main.ts before the app exists.
+        // (Fastify trustProxy). Consumed in app.ts before the app exists.
         TRUSTED_PROXIES: Joi.string().default(DEFAULT_TRUSTED_PROXIES),
         APP_NAME: Joi.string().default('Closet'),
         AUTH_ENABLED: Joi.boolean().default(false),
@@ -184,11 +190,13 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
       resolvers: [AcceptLanguageResolver],
       loaderOptions: {
         path: path.join(__dirname, '/i18n/'),
-        watch: process.env.NODE_ENV !== 'production',
+        watch: process.env.NODE_ENV === 'development',
       },
-      // only try to build types output types in src directory if the NODE_ENV is not 'production'
+      // Live-reloading and regenerating src/i18n/generated/ are development
+      // conveniences only: production must not watch, and parallel test
+      // workers must not race to rewrite a source file.
       typesOutputPath:
-        process.env.NODE_ENV !== 'production'
+        process.env.NODE_ENV === 'development'
           ? path.join(__dirname, '../src/i18n/generated/i18n.generated.ts')
           : undefined,
       viewEngine: 'hbs',

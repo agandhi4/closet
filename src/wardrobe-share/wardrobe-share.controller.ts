@@ -15,7 +15,6 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { ConditionalAuthGuard } from '../auth/conditional-auth.guard';
 import { RequireSessionGuard } from '../auth/require-session.guard';
 import { Payload } from '../auth/dto/payload.dto';
 import { User } from '../auth/user.decorator';
@@ -99,13 +98,12 @@ export class WardrobeShareController {
     return reply.redirect('/wardrobe-share/manage', 302);
   }
 
-  @UseGuards(ConditionalAuthGuard)
+  // No guard: with auth on, ConditionalAuthGuard would bounce the anonymous
+  // recipient to login before they ever see what they were invited to. The
+  // session, if any, is already on req.auth from the preHandler in app.ts.
   @Get('invite/:token')
   @Render('wardrobe-share/invite')
-  async viewInvite(
-    @Param('token') token: string,
-    @User() payload: Payload | undefined,
-  ) {
+  async viewInvite(@Param('token') token: string, @Req() req: FastifyRequest) {
     const share = await this.shareService.findInviteByToken(token);
     if (!share) {
       return { error: true, message: 'Invite not found or has expired.' };
@@ -122,7 +120,7 @@ export class WardrobeShareController {
         share.grantor.unwrap().email ||
         'A user',
       token,
-      isLoggedIn: !!payload,
+      isLoggedIn: req.auth !== undefined,
     };
   }
 
