@@ -113,11 +113,28 @@ npm run start:dev
 npm run start:dev       # watch mode
 npm run start:prod      # production
 npm run test            # unit tests
+npm run test:int        # integration tests (real app in-process, in-memory SQLite)
 npm run test:e2e        # Playwright end-to-end
 npm run test:cov        # coverage
+npm run test:load       # autocannon load test, see below
 npm run generate:icons  # regenerate public/assets/icon.png and favicon.ico from icon.svg
-npm run precommit       # lint + test + lighthouse (run before committing)
+npm run precommit       # format check + lint + unit + integration + build (run before committing)
 ```
+
+### Load test
+
+`npm run test:load` builds the app, starts it with `AUTH_ENABLED=false` and a
+temporary `DATA_PATH`, seeds one garment with a photo through the real
+endpoints, and runs autocannon against `/wardrobe` (full page and htmx
+fragment), `/outfits/new` and the seeded `/file/thumb/...` image. Results
+land in `scripts/results/load-test-results.json`, one entry per target.
+
+| Variable             | Description                       | Default |
+| -------------------- | --------------------------------- | ------- |
+| `LOAD_TEST_DURATION` | Seconds of load per target        | `5`     |
+
+`npm run test:load:baseline` saves the run as the baseline;
+`npm run test:load:compare` reports the change per target against it.
 
 ### Migrations
 
