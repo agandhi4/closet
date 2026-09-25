@@ -1,0 +1,204 @@
+name: CI
+
+# One workflow so publishing can wait for the tests. Until 2026-09-25 the
+# image published from a separate workflow in parallel with CI: a red run
+# still shipped :latest, and the homelab updater deploys :latest.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    # Docs-only commits neither need tests nor a redeploy (a new image rolls
+    # every client's static-asset cache key). Tag pushes ignore path filters.
+    paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
+  pull_request:
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to apply (e.g. 0.2.2). Leave blank when triggered by a tag push."
+        required: false
+        default: ""
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# Actions are pinned by commit; .github/dependabot.yml proposes updates.
+jobs:
+  check:
+    name: format, lint, types, unit + integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine # production (pgvault) runs 17
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: Password123
+          POSTGRES_DB: postgres-test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d postgres-test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      # The integration tier creates one scratch database per spec file here.
+      TEST_DATABASE_URL: postgres://test:Password123@localhost:5432/postgres-test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # The same command as the pre-commit hook.
+      - run: npm run check
+
+  e2e:
+    name: browser (production config)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: Password123
+          POSTGRES_DB: postgres-test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d postgres-test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      CI: true
+      DATABASE_HOST: localhost
+      DATABASE_USER: test
+      DATABASE_PASS: Password123
+      DATABASE_SCHEMA: postgres-test
+      # As production: auth and the PWA on, so the login and service worker
+      # specs run instead of skipping. Web Push needs an https: SITE_URL as its
+      # VAPID subject; nothing is fetched from it.
+      AUTH_ENABLED: "true"
+      PWA_ENABLED: "true"
+      SITE_URL: https://closet.test
+      ACCESS_TOKEN_SECRET: ci-only-secret
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Throwaway VAPID keys
+        run: |
+          keys=$(npx web-push generate-vapid-keys --json)
+          echo "PUBLIC_VAPID_KEY=$(echo "$keys" | jq -r .publicKey)" >> "$GITHUB_ENV"
+          echo "PRIVATE_VAPID_KEY=$(echo "$keys" | jq -r .privateKey)" >> "$GITHUB_ENV"
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npx playwright test --project=chromium
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+  # The S3 backend's only coverage. Production uses local storage; remove this
+  # job with the backend.
+  object-storage:
+    name: smoke on S3 storage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: Password123
+          POSTGRES_DB: postgres-test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d postgres-test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+      # adobe/s3mock: path-style S3, any credentials (minio left Docker Hub).
+      s3:
+        image: adobe/s3mock:5
+        ports: ["9000:9090"]
+    env:
+      CI: true
+      DATABASE_HOST: localhost
+      DATABASE_USER: test
+      DATABASE_PASS: Password123
+      DATABASE_SCHEMA: postgres-test
+      FILE_STORAGE_TYPE: object
+      OBJECT_STORAGE_BUCKET_NAME: test-closet
+      OBJECT_STORAGE_ACCESS_KEY_ID: test
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: test
+      OBJECT_STORAGE_ENDPOINT: http://127.0.0.1:9000
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # s3mock v5 ignores its initialBuckets env.
+      - name: Create bucket
+        run: |
+          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:9000/ && break; sleep 1; done
+          curl -sf -X PUT http://127.0.0.1:9000/test-closet
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:smoke
+
+  publish:
+    name: publish image
+    needs: [check, e2e, object-storage]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GHCR_REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+          # `latest` is what the homelab autoupdater polls: every main push and
+          # every release moves it. sha-<7> is the rollback target.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || inputs.version != '' }}
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=sha,prefix=sha-
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          # Names the commit in the static-asset cache key (public/build.json).
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          # amd64 only: the sole deploy target is the Synology NAS, and emulated
+          # arm64 builds of sharp would turn commit-to-deploy into a 30+ minute wait.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

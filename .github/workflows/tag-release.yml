@@ -13,7 +13,7 @@ jobs:
             contents: write
             actions: write
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
             - name: Extract version from branch name
               id: version
@@ -27,8 +27,10 @@ jobs:
                   git tag ${{ steps.version.outputs.tag }}
                   git push origin ${{ steps.version.outputs.tag }}
 
-            - name: Trigger Docker publish
+            # A tag pushed with GITHUB_TOKEN starts no workflow, so CI (tests,
+            # then publish) is dispatched on the tag explicitly.
+            - name: Run CI and publish the tag
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  gh workflow run docker-publish.yml --ref ${{ steps.version.outputs.tag }}
+                  gh workflow run ci.yml --ref ${{ steps.version.outputs.tag }}

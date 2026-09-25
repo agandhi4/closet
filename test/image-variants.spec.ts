@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import sharp from 'sharp';
+import { signIn } from './support/e2e-session';
 
 /**
  * Every garment photo is served as three immutable WebP variants addressed
@@ -10,12 +11,7 @@ import sharp from 'sharp';
 test('wardrobe grid uses versioned thumb URLs served as immutable webp', async ({
   page,
 }) => {
-  const email = `image-test-${Date.now()}@example.com`;
-  const password = 'Password123!';
-  // No-op when AUTH_ENABLED=false; establishes a session otherwise.
-  await page.request.post('/auth/register', {
-    form: { email, password, confirmPassword: password },
-  });
+  await signIn(page, 'image-test');
 
   const name = `Image Variant Garment ${Date.now()}`;
   const photo = await sharp({

@@ -56,7 +56,8 @@ views/                 Handlebars, one directory per feature module + partials/ 
   assets/              main.css (Tailwind source), src-sw.ts (service worker source)
 public/                Static: sw.js (generated), bundle.css (generated), js/, assets/ (icon.svg is the
                        source; icon.png and favicon.ico come from `npm run generate:icons`)
-test/                  Playwright specs (smoke.spec.ts is the CI gate)
+test/                  Playwright specs (CI runs all of them in Chromium with auth + PWA on)
+  support/             scratch-database.ts (jest + load test), e2e-session.ts (Playwright signIn)
   integration/         Jest in-process specs + harness.ts (createTestApp, multipart, HTML helpers)
 docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature work against it.
 ```
@@ -132,11 +133,14 @@ npm run test:int              # jest integration (jest.integration.config.js): r
                               # The default place for behavior assertions during development.
                               # Each spec file gets a scratch database (test/support/scratch-database.ts)
                               # on TEST_DATABASE_URL, default pgvault-dev; CI points it at a postgres:17 service.
-npm run test:e2e              # playwright (full): builds + boots :3000 unless one is already running.
-npm run test:e2e:smoke        # playwright smoke, the CI gate
+npm run test:e2e              # build, then playwright (all browsers); serves dist on :3000 unless one is running.
+npm run test:e2e:smoke        # build, then the smoke spec in chromium
                               # test/pwa.spec.ts (service worker, offline shell, lazy model) and
                               # test/auth.spec.ts skip unless the server was started with
-                              # PWA_ENABLED=true (+ VAPID keys) / AUTH_ENABLED=true respectively
+                              # PWA_ENABLED=true (+ VAPID keys, https: SITE_URL) / AUTH_ENABLED=true.
+                              # Production config locally, as CI's e2e job runs it:
+                              # SITE_URL=https://closet.test PWA_ENABLED=true AUTH_ENABLED=true \
+                              #   PUBLIC_VAPID_KEY=.. PRIVATE_VAPID_KEY=.. npm run verify:push
 npm run test:load             # builds, boots on a scratch database + temp DATA_PATH, autocannon
 npm run lighthouse            # lhci autorun
 
@@ -167,7 +171,7 @@ Runs as the `closet` stack on the homelab NAS (`agandhi4/homelab`, `/volume1/doc
 |-------|-------|
 | URL (canonical, PWA) | `https://closet.kashhq.dedyn.io` |
 | URL (HTTP twin) | `http://closet.box` (no service worker or push here; secure context required) |
-| Image | `ghcr.io/agandhi4/closet:latest`, amd64, published by `docker-publish.yml` on every push to `main` |
+| Image | `ghcr.io/agandhi4/closet:latest`, amd64, published by the `publish` job of `ci.yml` after the tests pass, on every non-docs push to `main` |
 | Container port | 3000 (`PORT`) |
 | Database | pgvault Postgres, `closet_db` / `closet_user`, provisioned by `stacks/homeinfra/scripts/add-app.sh closet --port 3000` |
 | Persistent volume | `DATA_PATH` → `/volume1/docker/appdata/closet` (uploaded photos, `app.log`) |
@@ -205,12 +209,12 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 
 - **`patches/@imgly+background-removal+1.7.0.patch`** is applied on every install. Read it before bumping that package; a version bump silently drops the patch.
 - **`@imgly/background-removal-data`** is a tarball from `staticimgly.com`, not the npm registry. Builds need outbound access to that host.
-- **`docker-publish.yml` publishes `:latest` on every push to `main`** (and semver tags on `v*` tags from `tag-release.yml`), amd64 only, GHCR only. Merging to main is deploying: the homelab autoupdater redeploys within the hour.
+- **`ci.yml`'s `publish` job pushes `:latest` and `sha-<7>` only after `check`, `e2e` and `object-storage` pass** (and semver tags on `v*` tags from `tag-release.yml`), amd64 only, GHCR only. Until 2026-09-25 publishing was a separate workflow racing CI, so a red run still deployed. Docs-only pushes (`docs/**`, `*.md`) skip CI and publish entirely. Pushing to main is still deploying: the homelab autoupdater redeploys within the hour. The browser job runs with auth and the PWA on, as production does; specs sign in through `test/support/e2e-session.ts`. Load test and Lighthouse run nightly (`nightly.yml`).
 - **Upstream references are limited to attribution.** The only permitted mentions of the upstream project are the attribution link in the About page and README and code comments citing upstream issues or PRs. Any other occurrence of the upstream company or project name (assets, links, config defaults, CI values, marketing copy) is a rebrand regression; grep for it before a PR.
 - **Regenerate `package-lock.json` only with Node 22 / npm 10** (`nvm use`, or `docker run --rm -v $PWD:/app -w /app node:22 npm install --package-lock-only`). npm 11 prunes nested entries that npm 10's `npm ci` in the Docker build then reports as missing, so the image build fails while local installs look fine.
 - **pgvault-dev runs Postgres 18; production and CI run 17.** Features new in 18 pass locally and fail in CI. The migration CLI's snapshot is pinned to `.snapshot-postgres.json` (`snapshotName`), so pointing it at another database no longer writes a stray `.snapshot-<db>.json`.
-- **`precommit:full` is minutes long** (Lighthouse and load test included). Use it as the pre-PR gate; `precommit` is the per-commit one.
-- **`test:e2e` rebuilds unless :3000 is busy.** Playwright's `reuseExistingServer` is on outside CI, so leaving `npm run start:prod` running skips the `npm run build` in the webServer command; stop it when you need the e2e run to see fresh code.
+- **`precommit:full` is minutes long** (Lighthouse and load test included); CI runs those two nightly, not per push.
+- **Playwright serves whatever is on :3000.** The webServer command only starts `dist/` (the npm scripts build first); `reuseExistingServer` is on outside CI, so a running `start:dev`/`start:prod` is tested instead of the fresh build. Stop it before `verify:push`.
 - **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different `AUTH_ENABLED` in a different spec file.
 - **htmx reads only the first `<meta name="htmx-config">`.** Keep the config in one JSON object. `disableInheritance` is on, so any attribute that must reach descendants needs `hx-inherit` on the ancestor (the body has `hx-inherit="hx-boost"`; without it no link is boosted).
 - **`public/build.json` lingers after `npm run build`.** `start:dev` then serves assets with that build's cache key; set `NODE_ENV=development` in `.env.local` (caching off) or delete the file if styles look stale.

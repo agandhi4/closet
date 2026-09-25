@@ -77,7 +77,9 @@ export default defineConfig({
    * instance already listening on :3000 (npm run start:prod) is reused and
    * the rebuild is skipped. */
   webServer: {
-    command: 'npm run build && npm run start:prod',
+    // Serves the existing build: the npm scripts (test:e2e, verify:push) and
+    // CI build first, once, so a run with several server configs builds once.
+    command: 'npm run start:prod',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     stderr: 'pipe',
