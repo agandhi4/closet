@@ -5,6 +5,7 @@ import {
   Get,
   Header,
   Logger,
+  NotFoundException,
   Param,
   Post,
   Render,
@@ -19,6 +20,11 @@ import { User } from '../../auth/user.decorator';
 import { User as UserEntity } from '../../dal/entity/user.entity';
 import { FileService } from '../file-service.abstract';
 import { ConditionalAuthGuard } from '../../auth/conditional-auth.guard';
+import { ImageVariant } from '../image-variant';
+
+// Stored names are `<uuid>.webp`; anything else (path separators, dot
+// segments, encoded slashes) is rejected before it reaches the backend.
+const SAFE_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 @Controller('file')
 export class FileController {
@@ -58,10 +64,25 @@ export class FileController {
     };
   }
 
+  // Image variants. URLs carry `?v=<File.version>` (see imageUrl()), which is
+  // what makes the one-year immutable cache safe: a rewritten image is only
+  // ever reached through a new version.
   @Get(':fileName')
-  @Header('Cache-Control', 'public, max-age=31536000, immutable') // public for CDN, max-age= 1 year for immutable content
-  async getFile(@Param('fileName') fileName: string) {
-    return this.fileService.get(fileName);
+  async getFile(
+    @Param('fileName') fileName: string,
+    @Res() reply: FastifyReply,
+  ) {
+    return this.sendVariant(fileName, 'original', reply);
+  }
+
+  @Get('nobg/:fileName')
+  async nobg(@Param('fileName') fileName: string, @Res() reply: FastifyReply) {
+    return this.sendVariant(fileName, 'nobg', reply);
+  }
+
+  @Get('thumb/:fileName')
+  async thumb(@Param('fileName') fileName: string, @Res() reply: FastifyReply) {
+    return this.sendVariant(fileName, 'thumb', reply);
   }
 
   @Get('watermark/:shareableId')
@@ -72,16 +93,17 @@ export class FileController {
     return this.fileService.watermarkImage(fileStream);
   }
 
-  @Get('nobg/:fileName')
-  @Header('content-type', 'image/webp')
-  async nobg(@Param('fileName') fileName: string, @Res() reply: FastifyReply) {
-    const stream = await this.fileService.getNobgVariant(fileName);
-    if (!stream) {
-      return reply
-        .header('Cache-Control', 'no-store')
-        .redirect(`/file/${fileName}`, 302);
+  private async sendVariant(
+    fileName: string,
+    variant: ImageVariant,
+    reply: FastifyReply,
+  ) {
+    if (!SAFE_FILE_NAME.test(fileName) || fileName.includes('..')) {
+      throw new NotFoundException();
     }
-    reply.header('Cache-Control', 'no-store');
+    const stream = await this.fileService.getVariant(fileName, variant);
+    reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+    reply.header('Content-Type', 'image/webp');
     // Log stream errors, but don't try to re-send if headers are already in flight
     stream.on('error', (err) => {
       this.logger.error(err);
