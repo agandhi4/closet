@@ -1,8 +1,8 @@
 // Paths that never render a view and never read the session. The per-request
-// hook in main.ts skips auth resolution and view-context building for them,
+// hook in app.ts skips auth resolution and view-context building for them,
 // so a page load's dozens of asset requests cost zero JWT verifications and
 // zero user queries. Keep in step with the useStaticAssets() registrations in
-// main.ts and the image routes in FileController.
+// app.ts and the image routes in FileController.
 export const STATIC_PREFIXES = [
   '/modules/',
   '/assets/',

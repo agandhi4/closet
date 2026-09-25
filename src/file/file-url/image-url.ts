@@ -6,7 +6,7 @@ export interface ImageRef {
 }
 
 // The single source of truth for /file/** image paths. Used by the `imageUrl`
-// Handlebars helper (src/main.ts), view-models that pre-build URLs, and
+// Handlebars helper (src/app.ts), view-models that pre-build URLs, and
 // FileUrlService. Routes live in FileController and must stay in step.
 //
 // `v` is the File.version cache-buster: every variant is served with an

@@ -32,7 +32,7 @@ export class AppController {
   index(): void {}
 
   // public/manifest.json was deleted so this route is not shadowed by the
-  // static-asset handler in main.ts.
+  // static-asset handler in app.ts.
   @Get('manifest.json')
   @Header('Content-Type', 'application/manifest+json; charset=utf-8')
   manifest(): Record<string, unknown> {

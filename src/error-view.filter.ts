@@ -35,7 +35,7 @@ export class ErrorViewFilter implements ExceptionFilter {
         : 'Internal server error';
 
     try {
-      // locals is only missing on static paths (see isStaticPath in main.ts),
+      // locals is only missing on static paths (see isStaticPath in app.ts),
       // whose errors are asset 404s; the page still renders, just without
       // the app name and session.
       await response.status(status).view('error', {

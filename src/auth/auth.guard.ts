@@ -11,7 +11,7 @@ import { FastifyRequest } from 'fastify';
 /**
  * Routes that only make sense with user accounts: 404 when AUTH_ENABLED=false,
  * 401 without a session. The session itself is resolved once per request by
- * AuthContextService (`req.auth`, see main.ts); this guard only publishes its
+ * AuthContextService (`req.auth`, see app.ts); this guard only publishes its
  * payload as request.user for the @User() decorator.
  */
 @Injectable()

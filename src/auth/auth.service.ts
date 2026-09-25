@@ -19,6 +19,7 @@ import { ResetPasswordDto } from './dto/resetPassword.dto';
 import Handlebars from 'handlebars';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { PROJECT_ROOT } from '../project-root';
 
 @Injectable()
 export class AuthService {
@@ -36,7 +37,7 @@ export class AuthService {
   ) {
     this.passwordResetTemplate = Handlebars.compile(
       readFileSync(
-        join(__dirname, '..', '..', 'views', 'email', 'password-reset.hbs'),
+        join(PROJECT_ROOT, 'views', 'email', 'password-reset.hbs'),
         'utf-8',
       ),
     );

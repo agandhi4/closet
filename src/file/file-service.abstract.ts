@@ -16,6 +16,7 @@ import { pipeline } from 'stream/promises';
 import { File } from '../dal/entity/file.entity';
 import { FileServiceInterface } from './file-service.interface';
 import { IMAGE_VARIANTS, ImageVariant, variantFileName } from './image-variant';
+import { PROJECT_ROOT } from '../project-root';
 
 const IMAGE_MAX_PX = 1080;
 const IMAGE_QUALITY = 90;
@@ -282,7 +283,7 @@ export abstract class FileService implements FileServiceInterface {
   async getWatermark() {
     return sharp(
       join(
-        process.cwd(),
+        PROJECT_ROOT,
         'public',
         'assets',
         this.configService.getOrThrow('ICON_NAME'),

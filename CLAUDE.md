@@ -18,15 +18,18 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **Storage**: `src/file/` abstraction, `local` (disk under `DATA_PATH`) or `object` (S3 via `nestjs-s3`).
 - **i18n**: `nestjs-i18n`, strings in `src/i18n/<lang>/lang.json`, six languages.
 - **Logging**: `nestjs-pino`, pretty to stdout and rotating `app.log` under `DATA_PATH`.
-- **Tests**: Jest unit, Playwright e2e (`test/`), autocannon load test (`scripts/load-test.ts`), Lighthouse CI.
+- **Tests**: three tiers. Jest unit (`src/**/*.spec.ts`, mocks everything, verifies wiring); Jest integration (`test/integration/`, the real app in-process on an in-memory SQLite driven through `app.inject()`, verifies behavior: HTML, headers, rows, files); Playwright e2e (`test/*.spec.ts`, real browser against a built server). Plus autocannon load test (`scripts/load-test.ts`) and Lighthouse CI.
 
 ## Architecture
 
 ```
 src/
-  main.ts              Fastify bootstrap, static assets, view engine, preHandler that resolves the session
-                       once (req.auth via AuthContextService) and fills reply.locals; skipped entirely for
-                       the static paths in static-prefixes.ts
+  app.ts               createApp(): Fastify adapter, static assets, view engine + Handlebars helpers,
+                       preHandler that resolves the session once (req.auth via AuthContextService) and
+                       fills reply.locals; skipped entirely for the static paths in static-prefixes.ts.
+                       Shared by main.ts (listen) and the integration harness (init + inject)
+  main.ts              createApp() + listen
+  project-root.ts      PROJECT_ROOT for public/, views/, node_modules/ paths; valid from src/ and dist/
   app.module.ts        Root module. Joi env schema (the ONLY place config is declared), pino, throttler,
                        i18n, global error-view filter. Every new env var is added here with a default.
   auth/                Login/register/password-reset controllers, JWT service, guards
@@ -49,6 +52,7 @@ views/                 Handlebars, one directory per feature module + partials/ 
 public/                Static: sw.js (generated), bundle.css (generated), js/, assets/ (icon.svg is the
                        source; icon.png and favicon.ico come from `npm run generate:icons`)
 test/                  Playwright specs (smoke.spec.ts is the CI gate)
+  integration/         Jest in-process specs + harness.ts (createTestApp, multipart, HTML helpers)
 docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature work against it.
 ```
 
@@ -76,8 +80,8 @@ Upstream rules we keep (from `.github/prompts/boilerplate.prompt.md`), plus ours
 - **Locality of behavior.** Keep view logic beside its markup. Extract only when reused.
 - **Every user-facing string goes through i18n.** `{{t 'lang.KEY'}}` in templates, `i18n.t()` in controllers and DTO validation messages. Add the key to every language file, English first.
 - **daisyUI components, not bespoke CSS.** Theme through daisyUI tokens. No hardcoded colors in templates.
-- **No runtime CDN imports.** Every client dependency is an npm package served by `useStaticAssets` in `main.ts`. The installed PWA must boot with zero external requests.
-- **Config via `ConfigService`**, never `process.env` outside `main.ts`. New env vars: Joi entry in `app.module.ts` with a default, row in the README configuration table.
+- **No runtime CDN imports.** Every client dependency is an npm package served by `useStaticAssets` in `app.ts`. The installed PWA must boot with zero external requests.
+- **Config via `ConfigService`**, never `process.env` outside `app.ts`. New env vars: Joi entry in `app.module.ts` with a default, row in the README configuration table.
 - **Migrations come in pairs.** Any entity change produces both a SQLite and a Postgres migration (see Commands). Production runs Postgres, CI smoke-tests both, so a missing twin fails CI, not prod.
 - **Cookies stay `Secure`-less.** The `.box` name is HTTP by design (Tailscale encrypts). Adding `secure: true` to `reply.setCookie` in `src/auth/` makes login silently never stick over `http://closet.box`. If a secure cookie is ever wanted it must be driven by a `COOKIE_SECURE` env var defaulting to false.
 - **Offline-first UX per `frontend-pwa.md`.** Reads render from cache with a freshness indicator, writes that cannot reach the server are disabled with an explanation, never silently dropped. Connectivity detection is active (heartbeat), not `navigator.onLine`.
@@ -95,12 +99,19 @@ npm run start:prod            # node dist/main
 
 npm run lint                  # eslint --fix
 npm run format                # prettier
-npm test                      # jest unit
-npm run test:e2e              # playwright (full)
+
+# Test tiers, cheapest first
+npm test                      # jest unit: mocked DB/fs, verifies wiring. Seconds.
+npm run test:int              # jest integration: real app in-process, in-memory SQLite, temp DATA_PATH,
+                              # app.inject(). Asserts HTML, headers, DB rows, files. ~3 s. No build needed.
+                              # The default place for behavior assertions during development.
+npm run test:e2e              # playwright (full): builds + boots :3000 unless one is already running.
 npm run test:e2e:smoke        # playwright smoke, the CI gate
 npm run test:load             # autocannon against a running instance
 npm run lighthouse            # lhci autorun
-npm run precommit             # format + lint + test:cov + smoke + build + load + lighthouse (slow)
+
+npm run precommit             # format:check + lint + test + test:int + build (~30 s, run before every commit)
+npm run precommit:full        # + test:cov, e2e smoke, load test, lighthouse (minutes, the pre-PR gate)
 
 # Migrations — run BOTH after any entity change (build first, CLI reads dist)
 npm run build
@@ -163,7 +174,10 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **Upstream references are limited to attribution.** The only permitted mentions of the upstream project are the attribution link in the About page and README and code comments citing upstream issues or PRs. Any other occurrence of the upstream company or project name (assets, links, config defaults, CI values, marketing copy) is a rebrand regression; grep for it before a PR.
 - **Regenerate `package-lock.json` only with Node 22 / npm 10** (`nvm use`, or `docker run --rm -v $PWD:/app -w /app node:22 npm install --package-lock-only`). npm 11 prunes nested entries that npm 10's `npm ci` in the Docker build then reports as missing, so the image build fails while local installs look fine.
 - **Two parallel migration trees.** Forgetting the Postgres twin passes locally on SQLite and fails in CI's Postgres+MinIO job.
-- **`precommit` is minutes long** (Lighthouse and load test included). Use it as the pre-PR gate, not on every save.
+- **`precommit:full` is minutes long** (Lighthouse and load test included). Use it as the pre-PR gate; `precommit` is the per-commit one.
+- **`test:e2e` rebuilds unless :3000 is busy.** Playwright's `reuseExistingServer` is on outside CI, so leaving `npm run start:prod` running skips the `npm run build` in the webServer command; stop it when you need the e2e run to see fresh code.
+- **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation, `DalModule`'s driver pick), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different `AUTH_ENABLED` in a different spec file.
+- **Nest answers POST with 201 unless the handler has `@HttpCode(200)`**, even when it sends through `@Res()`: htmx partials, `HX-Redirect` replies and re-rendered forms (failed login, validation errors) all come back 201. Integration specs assert 2xx on those; browsers and htmx do not care.
 
 ## Workflow
 
@@ -172,7 +186,8 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 
 - Before implementing, search Graphiti with `group_ids: ["closet"]` for decisions and gotchas in the area.
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
-- Every feature is verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and Playwright verify code, not the app.
+- Behavior assertions go in `test/integration/` first: a spec that boots the real app and checks the HTML, headers, rows and files is the default proof that a change works, and it runs in seconds without a build or a browser. Playwright is the full gate for what only a browser can show (service worker, htmx swaps, layout).
+- Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
 - Summarize changes and wait for an explicit go-ahead before committing. Run `npm run format && npm run lint` before staging. If a hook fails, fix and create a new commit, never amend.
 - Commit messages: concise, why over what.
 - When a new pattern or gotcha lands, update this file in the same commit and store the decision in Graphiti.
