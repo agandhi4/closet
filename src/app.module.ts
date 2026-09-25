@@ -22,6 +22,10 @@ import { LoggerModule } from 'nestjs-pino';
 import { ErrorViewFilter } from './error-view.filter';
 import { ViewContextModule } from './view-context/view-context.module';
 
+// Loopback only: right for `npm run start:prod` on a laptop, wrong behind a
+// containerised reverse proxy (production sets the Docker bridge range).
+export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
+
 @Module({
   imports: [
     LoggerModule.forRootAsync({
@@ -70,6 +74,9 @@ import { ViewContextModule } from './view-context/view-context.module';
           .valid('development', 'production', 'test')
           .default('production'),
         PORT: Joi.number().default(3000),
+        // Comma-separated IPs/CIDRs whose X-Forwarded-* headers are trusted
+        // (Fastify trustProxy). Consumed in main.ts before the app exists.
+        TRUSTED_PROXIES: Joi.string().default(DEFAULT_TRUSTED_PROXIES),
         APP_NAME: Joi.string().default('Closet'),
         AUTH_ENABLED: Joi.boolean().default(false),
         DISABLE_REGISTRATION: Joi.boolean().default(false),
@@ -182,7 +189,7 @@ import { ViewContextModule } from './view-context/view-context.module';
       // only try to build types output types in src directory if the NODE_ENV is not 'production'
       typesOutputPath:
         process.env.NODE_ENV !== 'production'
-          ? path.join(__dirname, '../src/generated/i18n.generated.ts')
+          ? path.join(__dirname, '../src/i18n/generated/i18n.generated.ts')
           : undefined,
       viewEngine: 'hbs',
     }),
