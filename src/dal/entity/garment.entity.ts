@@ -8,6 +8,7 @@ import {
   PrimaryKey,
   Property,
   type Ref,
+  type Rel,
 } from '@mikro-orm/core';
 import { File } from './file.entity';
 import { Outfit } from './outfit.entity';
@@ -48,11 +49,15 @@ export class Garment extends ShareableId {
   @Property({ nullable: true, columnType: 'text' })
   public washingDetails?: string;
 
+  // Not `ref: true`, so this is the populated File itself, not a Reference.
+  // Rel<> keeps emitDecoratorMetadata from emitting `File` as design:type,
+  // which the garment <-> file <-> user import cycle cannot satisfy under the
+  // MikroORM CLI's ts-node loader.
   @OneToOne({
     entity: () => File,
     nullable: true,
   })
-  public photo?: Ref<File>;
+  public photo?: Rel<File>;
 
   @ManyToOne({
     entity: () => User,
