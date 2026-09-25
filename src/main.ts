@@ -155,6 +155,13 @@ async function bootstrap() {
   hbs.registerHelper('json', function (context: unknown) {
     return JSON.stringify(context);
   });
+  // Builds an object from named arguments so it can be passed as a positional
+  // parameter, e.g. interpolation args for nestjs-i18n's `t` helper, which
+  // takes (key, args) and ignores the Handlebars hash:
+  //   {{t 'lang.KEY' (hash appName=appName)}}
+  hbs.registerHelper('hash', function (options: HelperOptions) {
+    return options.hash;
+  });
   hbs.registerHelper(
     'ifInArray',
     function (

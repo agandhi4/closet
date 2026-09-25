@@ -4,8 +4,8 @@
   {
     "@context": "https://schema.org",
     "@type": "WebPage",
-    "name": "Login — Libre Closet",
-    "description": "Sign in to your Libre Closet account to manage your wardrobe, build outfits, and schedule looks.",
+    "name": {{{json ogTitle}}},
+    "description": {{{json ogDescription}}},
     "isPartOf": {
       "@id": "{{siteUrl}}/#website"
     }
@@ -13,7 +13,7 @@
 </script>
 
 <main class="flex flex-col justify-center items-center h-full">
-  <h1 class="text-2xl font-bold mb-4">{{t 'lang.LOGIN_OG_TITLE'}}</h1>
+  <h1 class="text-2xl font-bold mb-4">{{t 'lang.LOGIN_OG_TITLE' (hash appName=appName)}}</h1>
   {{#if error}}
   <div
     role="alert"
