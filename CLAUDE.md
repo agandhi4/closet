@@ -99,7 +99,7 @@ Upstream rules we keep (from `.github/prompts/boilerplate.prompt.md`), plus ours
 - **Locality of behavior.** Keep view logic beside its markup. Extract only when reused.
 - **Every user-facing string goes through i18n.** `{{t 'lang.KEY'}}` in templates, `i18n.t()` in controllers and DTO validation messages. Add the key to every language file, English first.
 - **daisyUI components, not bespoke CSS.** Theme through daisyUI tokens. No hardcoded colors in templates.
-- **No runtime CDN imports.** Every client dependency is an npm package served by `useStaticAssets` in `app.ts`. The installed PWA must boot with zero external requests.
+- **No runtime CDN imports.** Every client dependency is an npm package served by the `@fastify/static` registrations in `app.ts` (`registerStaticAssets`). The installed PWA must boot with zero external requests.
 - **Config via `ConfigService`**, never `process.env` outside `app.ts`. New env vars: Joi entry in `app.module.ts` with a default, row in the README configuration table.
 - **One database: Postgres.** Every tier (integration, Playwright, load test, CI) runs on Postgres. Do not reintroduce a second driver for test speed: the scratch-database harness is as fast as in-memory SQLite was.
 - **Cookies stay `Secure`-less.** The `.box` name is HTTP by design (Tailscale encrypts). Adding `secure: true` to `reply.setCookie` in `src/auth/` makes login silently never stick over `http://closet.box`. If a secure cookie is ever wanted it must be driven by a `COOKIE_SECURE` env var defaulting to false.

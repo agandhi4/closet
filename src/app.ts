@@ -6,6 +6,7 @@ import {
 import fastifyCompress from '@fastify/compress';
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import fastifyView from '@fastify/view';
 import hbs from 'hbs';
 import type { HelperOptions } from 'handlebars';
@@ -110,7 +111,7 @@ export async function createApp(): Promise<NestFastifyApplication> {
     },
   });
 
-  registerStaticAssets(app);
+  await registerStaticAssets(app);
   await registerViewEngine(app);
   registerHandlebarsHelpers();
 
@@ -130,17 +131,23 @@ const SERVICE_WORKER_CACHE_CONTROL = 'no-cache';
 
 // Keep in step with STATIC_PREFIXES in static-prefixes.ts: every root here
 // must be a path the session hook skips.
-function registerStaticAssets(app: NestFastifyApplication) {
+//
+// Registers @fastify/static directly rather than through Nest's
+// useStaticAssets(): that helper registers the same plugin, but its options
+// type is a stale copy (platform-fastify 11.2.6 still types setHeaders' first
+// argument as a raw response with setHeader(), while @fastify/static 10 passes
+// the FastifyReply). The plugin's own types are the ones that match runtime.
+async function registerStaticAssets(app: NestFastifyApplication) {
   const dev = app.get(ConfigService).get<string>('NODE_ENV') === 'development';
   const cacheControl = dev ? REVALIDATE : IMMUTABLE_YEAR;
-  // @fastify/static writes its own Cache-Control after setHeaders, so
-  // per-file policy needs cacheControl:false and a hand-set header.
-  app.useStaticAssets({
+  // Per-file policy: since @fastify/static 10, setHeaders receives the
+  // FastifyReply and runs after send's headers, so its Cache-Control wins.
+  // (Before 10 it was the raw response and send overwrote it afterwards.)
+  await app.register(fastifyStatic, {
     root: PUBLIC_DIR,
     decorateReply: false,
-    cacheControl: false,
-    setHeaders: (res, path) => {
-      res.setHeader(
+    setHeaders: (reply, path) => {
+      reply.header(
         'Cache-Control',
         path.endsWith('sw.js') ? SERVICE_WORKER_CACHE_CONTROL : cacheControl,
       );
@@ -154,7 +161,7 @@ function registerStaticAssets(app: NestFastifyApplication) {
   /** Serve htmx and other libraries from node_modules
    * https://htmx.org/docs/#installing
    * https://blog.wesleyac.com/posts/why-not-javascript-cdn */
-  app.useStaticAssets({
+  await app.register(fastifyStatic, {
     root: [
       nodeModule('htmx.org/dist'),
       nodeModule('hyperscript.org/dist'),
@@ -167,7 +174,7 @@ function registerStaticAssets(app: NestFastifyApplication) {
     ...immutable,
   });
 
-  app.useStaticAssets({
+  await app.register(fastifyStatic, {
     root: nodeModule('pulltorefreshjs/dist'),
     prefix: '/modules/pulltorefresh',
     decorateReply: false,
@@ -177,19 +184,19 @@ function registerStaticAssets(app: NestFastifyApplication) {
   // with unversioned relative URLs (resources.json and chunk imports), so the
   // service worker revalidates them (NetworkFirst, cache:'no-cache' in
   // src-sw.ts) instead of trusting this header.
-  app.useStaticAssets({
+  await app.register(fastifyStatic, {
     root: nodeModule('@imgly/background-removal/dist'),
     prefix: '/modules/background-removal',
     decorateReply: false,
     ...immutable,
   });
-  app.useStaticAssets({
+  await app.register(fastifyStatic, {
     root: nodeModule('onnxruntime-web'),
     prefix: '/modules/onnxruntime-web',
     decorateReply: false,
     ...immutable,
   });
-  app.useStaticAssets({
+  await app.register(fastifyStatic, {
     root: nodeModule('@imgly/background-removal-data/dist'),
     prefix: '/bg-removal-models',
     decorateReply: false,
