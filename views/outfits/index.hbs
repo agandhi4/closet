@@ -61,9 +61,13 @@
         <a href="/outfits/{{this.id}}" class="flex flex-wrap gap-1 mt-1">
           {{#each this.garments}} {{#if this.photo}}
           <img
-            src="/file/nobg/{{this.photo.fileName}}"
+            src="{{imageUrl this.photo 'thumb'}}"
             alt="{{this.name}}"
             class="size-20 rounded object-cover"
+            width="80"
+            height="80"
+            loading="lazy"
+            decoding="async"
           />
           {{else}}
           <div

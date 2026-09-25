@@ -14,6 +14,8 @@ import { AppModule } from './app.module';
 import { Logger } from 'nestjs-pino';
 import { ViewContextService } from './view-context/view-context.service';
 import { GarmentColor } from './wardrobe/garment-color.enum';
+import { ImageRef, imageUrl } from './file/file-url/image-url';
+import { isImageVariant } from './file/image-variant';
 
 async function bootstrap() {
   // https://docs.nestjs.com/security/rate-limiting#proxies
@@ -208,6 +210,18 @@ async function bootstrap() {
       return arr.includes(value) ? options.fn(this) : options.inverse(this);
     },
   );
+  hbs.registerHelper('gt', (a: number, b: number) => a > b);
+  // {{imageUrl photo 'thumb'}} -> /file/thumb/<fileName>?v=<version>
+  // The only place templates may build /file/** image paths.
+  // SafeString: the path is already URL-encoded, and escaping would turn the
+  // `=` in `?v=` into `&#x3D;`, which breaks the URL when the helper is used
+  // inside an inline <script> string (wardrobe/show).
+  hbs.registerHelper('imageUrl', (image: ImageRef, variant: string) => {
+    if (!isImageVariant(variant)) {
+      throw new Error(`imageUrl: unknown variant '${variant}'`);
+    }
+    return new hbs.handlebars.SafeString(imageUrl(image, variant));
+  });
 
   await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 }

@@ -14,6 +14,7 @@ import { CalendarDay } from './view-models/calendar-day.view-model';
 import { WeekSchedule } from './view-models/week-schedule.view-model';
 import { I18nContext } from 'nestjs-i18n';
 import { WeekNavBoundaries } from './view-models/week-nav-boundaries';
+import { imageUrl } from '../file/file-url/image-url';
 
 @Injectable()
 export class CalendarService {
@@ -308,8 +309,7 @@ export class CalendarService {
         const outfit = entry.outfit.unwrap();
         const garmentPhotos = outfit.garments
           .getItems()
-          .map((g) => g.photo?.fileName ?? null)
-          .filter((f): f is string => f !== null);
+          .flatMap((g) => (g.photo ? [imageUrl(g.photo, 'thumb')] : []));
         return {
           id: entry.id,
           wornAt: entry.wornAt ?? null,

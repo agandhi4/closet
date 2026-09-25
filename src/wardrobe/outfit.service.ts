@@ -14,6 +14,7 @@ import { GarmentCategory } from './garment-category.enum';
 import { GarmentService } from './garment.service';
 import { CreateOutfitDto } from './dto/create-outfit.dto';
 import { UpdateOutfitDto } from './dto/update-outfit.dto';
+import { imageUrl } from '../file/file-url/image-url';
 @Injectable()
 export class OutfitService {
   private readonly logger = new Logger(OutfitService.name);
@@ -219,7 +220,7 @@ export class OutfitService {
         ? {
             id: sel.id,
             name: sel.name,
-            photo: sel.photo ? `/file/nobg/${sel.photo.fileName}` : null,
+            photo: sel.photo ? imageUrl(sel.photo, 'nobg') : null,
             brand: sel.brand ?? null,
             color: sel.color ?? null,
             size: sel.size ?? null,

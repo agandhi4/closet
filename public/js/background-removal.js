@@ -3,8 +3,8 @@
  *
  * Runs @imgly/background-removal in a Web Worker (ONNX + WASM) before the
  * form submits, injecting the processed webp into a hidden nobgPhoto field.
- * On any failure the form submits unchanged — the server-side fallback path
- * handles generation lazily on first /file/nobg/ request.
+ * On any failure the form submits unchanged and the nobg variant falls back
+ * to the original photo when served.
  *
  * Models are served from /bg-removal-models/ (@imgly/background-removal-data
  * installed from the IMG.LY CDN tarball — no runtime CDN required).
@@ -190,19 +190,29 @@ export const wireUpPhotoInput = async () => {
  * Wires up the edit-mask button on the garment image.
  * Fetches the existing original + nobg images, opens the mask editor,
  * then POSTs only the updated nobg variant to /wardrobe/:id/nobg.
- * @param {string} fileName - The stored filename of the garment photo.
- * @param {number} garmentId - The garment's database ID.
+ *
+ * Image URLs come from the server (the `imageUrl` helper) and carry the
+ * photo's version. Every /file/** response is cached as immutable, so after
+ * a successful edit the server's new version is spliced into the URLs: the
+ * displayed image and any further edit both read the fresh cutout.
+ * @param {{ garmentId: number, originalUrl: string, nobgUrl: string }} opts
  */
-export const wireUpEditMaskBtn = async (fileName, garmentId) => {
+export const wireUpEditMaskBtn = async ({ garmentId, originalUrl, nobgUrl }) => {
   const btn = document.getElementById('editMaskBtn');
   if (!btn) return;
+
+  const withVersion = (url, version) => {
+    const u = new URL(url, location.origin);
+    u.searchParams.set('v', String(version));
+    return u.pathname + u.search;
+  };
 
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     try {
       const [origResp, nobgResp] = await Promise.all([
-        fetch(`/file/${fileName}`),
-        fetch(`/file/nobg/${fileName}`),
+        fetch(originalUrl),
+        fetch(nobgUrl),
       ]);
       const origBlob = await origResp.blob();
       const nobgBlob = await nobgResp.blob();
@@ -210,7 +220,7 @@ export const wireUpEditMaskBtn = async (fileName, garmentId) => {
       // Square-pad the original to match the layout used during initial upload,
       // so the restore brush samples from the correct pixel positions.
       const squaredBlob = await squarePadBlob(origBlob);
-      const squaredFile = new File([squaredBlob], fileName, { type: 'image/png' });
+      const squaredFile = new File([squaredBlob], 'original.png', { type: 'image/png' });
 
       const editedBlob = await openMaskEditor(squaredFile, nobgBlob);
 
@@ -219,15 +229,14 @@ export const wireUpEditMaskBtn = async (fileName, garmentId) => {
 
       const formData = new FormData();
       formData.append('nobgPhoto', new File([editedBlob], 'nobg.webp', { type: 'image/webp' }));
-      await fetch(`/wardrobe/${garmentId}/nobg`, { method: 'POST', body: formData });
+      const resp = await fetch(`/wardrobe/${garmentId}/nobg`, { method: 'POST', body: formData });
+      if (!resp.ok) throw new Error(`POST /wardrobe/${garmentId}/nobg -> ${resp.status}`);
+      const { version } = await resp.json();
 
-      // Display the edited result directly from the in-memory blob — avoids
-      // any browser cache serving the old nobg image after the POST.
+      originalUrl = withVersion(originalUrl, version);
+      nobgUrl = withVersion(nobgUrl, version);
       const img = btn.closest('figure')?.querySelector('img');
-      if (img) {
-        const objectUrl = URL.createObjectURL(editedBlob);
-        img.src = objectUrl;
-      }
+      if (img) img.src = nobgUrl;
     } catch (err) {
       console.warn('[edit-mask] Failed:', err);
     } finally {
