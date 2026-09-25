@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000">
+  <!-- App icon. Rendered to icon.png and favicon.ico by `npm run generate:icons`.
+       Everything sits inside the central 80% (100..900) so a maskable crop keeps it intact. -->
+  <rect width="1000" height="1000" rx="220" fill="#222428"/>
+  <g fill="none" stroke="#ffffff" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <!-- hook: open loop above the shoulders, joined to the neck at the bottom -->
+    <path d="M500 405 V370 A70 70 0 1 0 430 300"/>
+    <!-- shoulders down to the bar ends -->
+    <path d="M500 405 L170 610 A60 60 0 0 0 200 720 H800 A60 60 0 0 0 830 610 Z"/>
+  </g>
+</svg>
