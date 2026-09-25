@@ -13,6 +13,8 @@ dotenv.config({ path: path.resolve(__dirname, '.env') });
  */
 export default defineConfig({
   testDir: './test',
+  /* test/integration/ holds the jest in-process tier (npm run test:int). */
+  testIgnore: '**/integration/**',
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -70,7 +72,9 @@ export default defineConfig({
     // },
   ],
 
-  /* Run your local dev server before starting the tests */
+  /* Run your local dev server before starting the tests. Outside CI an
+   * instance already listening on :3000 (npm run start:prod) is reused and
+   * the rebuild is skipped. */
   webServer: {
     command: 'npm run build && npm run start:prod',
     url: 'http://localhost:3000',

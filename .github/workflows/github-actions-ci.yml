@@ -38,6 +38,11 @@ jobs:
         run: |
           npm run test:cov
 
+      # In-process tier: real app on in-memory SQLite through app.inject().
+      - name: npm test:int
+        run: |
+          npm run test:int
+
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 

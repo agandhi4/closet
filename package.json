@@ -28,6 +28,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test:int": "jest --config jest.integration.config.js",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
@@ -37,7 +38,8 @@
     "test:load": "ts-node scripts/load-test.ts",
     "test:load:baseline": "ts-node scripts/load-test.ts --baseline",
     "test:load:compare": "ts-node scripts/load-test.ts --compare",
-    "precommit": "npm run format && npm run lint && npm run test:cov && npm run test:e2e:smoke && npm run build && npm run test:load && npm run lighthouse"
+    "precommit": "npm run format:check && npm run lint && npm test && npm run test:int && npm run build",
+    "precommit:full": "npm run format && npm run lint && npm run test:cov && npm run test:int && npm run test:e2e:smoke && npm run build && npm run test:load && npm run lighthouse"
   },
   "dependencies": {
     "@aws-sdk/lib-storage": "^3.1009.0",
