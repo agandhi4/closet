@@ -94,7 +94,10 @@ describe('storage reconciliation', () => {
 
     const filesBefore = await storedFiles();
     const rowsBefore = await t.em().count(File);
-    const objectsBefore = (await readdir(t.dataPath)).length;
+    // Files only: DATA_PATH/.incoming (in-flight writes) is not an object.
+    const objectsBefore = (
+      await readdir(t.dataPath, { withFileTypes: true })
+    ).filter((entry) => entry.isFile()).length;
     const expected: Omit<ReconciliationReport, 'durationMs' | 'dryRun'> = {
       storedObjects: objectsBefore,
       orphanedObjectsDeleted: 1,

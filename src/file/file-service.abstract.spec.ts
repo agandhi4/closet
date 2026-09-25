@@ -149,7 +149,7 @@ describe('FileService.getVariant', () => {
 });
 
 describe('FileService.storeNobgVariantFromStream', () => {
-  it('keeps version 1 for a cutout that belongs to a new upload', async () => {
+  it('stores only the cutout for a new upload: no thumb, version 1', async () => {
     const { service, em, fileRow } = build();
     service.files.set('a.webp', await png(1000));
     await service.storeNobgVariantFromStream(
@@ -157,10 +157,8 @@ describe('FileService.storeNobgVariantFromStream', () => {
       'a.webp',
       { newUpload: true },
     );
-    expect(service.storeCalls).toEqual(['a-nobg.webp', 'a-thumb.webp']);
-    expect(
-      (await sharp(service.files.get('a-thumb.webp')).metadata()).width,
-    ).toBe(400);
+    // The caller builds the one thumb once the photo half is stored too.
+    expect(service.storeCalls).toEqual(['a-nobg.webp']);
     expect(em.persistAndFlush).not.toHaveBeenCalled();
     expect(fileRow.version).toBe(1);
   });
@@ -203,24 +201,23 @@ describe('FileService.storeNobgVariantFromStream', () => {
 });
 
 describe('FileService.regenerateThumb', () => {
-  it('a trailing regenerate after a concurrent upload always reads the cutout', async () => {
+  it('after a photo + cutout pair, builds one thumb from the cutout', async () => {
     const { service } = build();
-    // Mirror GarmentService.update: original and cutout land concurrently and
-    // each queue a thumb write in unknown order; the explicit final call wins.
+    // Mirror GarmentService.storeUploadedPhotoWithCutout: both halves are
+    // stored concurrently without thumbs, then one regenerate runs.
     service.files.set('a.webp', await png(1000));
-    await Promise.all([
-      service.regenerateThumb('a.webp'),
-      service.storeNobgVariantFromStream(
-        Readable.from(await png(300)),
-        'a.webp',
-        { newUpload: true },
-      ),
-    ]);
+    await service.storeNobgVariantFromStream(
+      Readable.from(await png(300)),
+      'a.webp',
+      { newUpload: true },
+    );
     await service.regenerateThumb('a.webp');
     expect(
       (await sharp(service.files.get('a-thumb.webp')).metadata()).width,
     ).toBe(300);
-    expect(service.storeCalls.at(-1)).toBe('a-thumb.webp');
+    expect(
+      service.storeCalls.filter((name) => name === 'a-thumb.webp'),
+    ).toHaveLength(1);
   });
 });
 
@@ -266,7 +263,7 @@ describe('FileService.storeImageFromFileUpload with HEIC', () => {
     const file = await service.storeImageFromFileUpload(
       part(bytes, 'image/heic'),
       7,
-      'a.webp',
+      { fileName: 'a.webp' },
     );
 
     expect(heicConvertMock).toHaveBeenCalledWith({
@@ -287,7 +284,7 @@ describe('FileService.storeImageFromFileUpload with HEIC', () => {
     await service.storeImageFromFileUpload(
       part(Buffer.from('x'), 'application/octet-stream', 'IMG_0001.HEIC'),
       7,
-      'a.webp',
+      { fileName: 'a.webp' },
     );
     expect(heicConvertMock).toHaveBeenCalledTimes(1);
   });
@@ -301,7 +298,7 @@ describe('FileService.storeImageFromFileUpload with HEIC', () => {
       service.storeImageFromFileUpload(
         part(Buffer.from('not heic'), 'image/heif'),
         7,
-        'a.webp',
+        { fileName: 'a.webp' },
       ),
     ).rejects.toThrow(BadRequestException);
     expect(service.files.size).toBe(0);
@@ -313,7 +310,7 @@ describe('FileService.storeImageFromFileUpload with HEIC', () => {
       service.storeImageFromFileUpload(
         part(Buffer.alloc(MAX_HEIC_BYTES + 1), 'image/heic'),
         7,
-        'a.webp',
+        { fileName: 'a.webp' },
       ),
     ).rejects.toThrow(PayloadTooLargeException);
     expect(heicConvertMock).not.toHaveBeenCalled();
