@@ -11,8 +11,6 @@ import { FileServiceInterface } from './file-service.interface';
 export abstract class FileService implements FileServiceInterface {
   public logger = new Logger(FileService.name);
 
-  public watermark: Promise<Buffer<ArrayBufferLike>>;
-
   constructor(readonly configService: ConfigService) {}
 
   public nobgFileName(fileName: string): string {
@@ -97,15 +95,21 @@ export abstract class FileService implements FileServiceInterface {
       .toBuffer();
   }
 
+  // Serves share-link Open Graph previews. The icon composite is opt-in via
+  // WATERMARK_ENABLED; the resize to JPEG always happens.
   async watermarkImage(
     fileStream: Stream.Readable | undefined,
   ): Promise<Readable | undefined> {
-    const watermark = await this.getWatermark();
-    return fileStream?.pipe(
-      sharp()
-        .jpeg()
-        .resize(1080, 1080, { fit: sharp.fit.inside })
-        .composite([{ input: watermark, gravity: 'southwest' }]),
-    );
+    if (!fileStream) {
+      return undefined;
+    }
+    const transformer = sharp()
+      .jpeg()
+      .resize(1080, 1080, { fit: sharp.fit.inside });
+    if (this.configService.get<boolean>('WATERMARK_ENABLED')) {
+      const watermark = await this.getWatermark();
+      transformer.composite([{ input: watermark, gravity: 'southwest' }]);
+    }
+    return fileStream.pipe(transformer);
   }
 }
