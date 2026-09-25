@@ -168,7 +168,6 @@ export class AuthController {
     @I18n() i18n: I18nContext,
     @Body() body: ResetPasswordDto,
   ) {
-    console.log(body);
     const instance = plainToInstance(ResetPasswordDto, body);
     const validationErrors = await i18n.validate(instance);
     if (validationErrors.length) {

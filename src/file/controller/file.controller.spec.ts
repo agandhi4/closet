@@ -5,6 +5,8 @@ import { Readable } from 'stream';
 import { FileService } from '../file-service.abstract';
 import { FileController } from './file.controller';
 
+const PHOTO = '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b.webp';
+
 describe('FileController', () => {
   let controller: FileController;
   let fileService: {
@@ -45,9 +47,9 @@ describe('FileController', () => {
       const stream = Readable.from(Buffer.from('bytes'));
       fileService.getVariant.mockResolvedValue(stream);
 
-      await controller[method]('abc.webp', reply);
+      await controller[method](PHOTO, reply);
 
-      expect(fileService.getVariant).toHaveBeenCalledWith('abc.webp', variant);
+      expect(fileService.getVariant).toHaveBeenCalledWith(PHOTO, variant);
       expect(reply.header).toHaveBeenCalledWith(
         'Cache-Control',
         'public, max-age=31536000, immutable',
@@ -57,8 +59,20 @@ describe('FileController', () => {
     },
   );
 
-  it.each(['..', '..%2Fetc%2Fpasswd', '.hidden', 'a/b.webp', ''])(
-    'rejects unsafe file name %p with 404 before touching storage',
+  // DATA_PATH also holds app.log; only a photo base name may be served.
+  it.each([
+    '..',
+    '..%2Fetc%2Fpasswd',
+    '.hidden',
+    'a/b.webp',
+    '',
+    'app.log',
+    'sqlite3.db',
+    'abc.webp',
+    PHOTO.replace('.webp', '-thumb.webp'),
+    `${PHOTO}.log`,
+  ])(
+    'rejects non-photo file name %p with 404 before touching storage',
     async (fileName) => {
       await expect(
         controller.thumb(fileName, reply as unknown as FastifyReply),
@@ -70,7 +84,7 @@ describe('FileController', () => {
   it('propagates a missing original as 404', async () => {
     fileService.getVariant.mockRejectedValue(new NotFoundException());
     await expect(
-      controller.nobg('missing.webp', reply as unknown as FastifyReply),
+      controller.nobg(PHOTO, reply as unknown as FastifyReply),
     ).rejects.toThrow(NotFoundException);
   });
 
