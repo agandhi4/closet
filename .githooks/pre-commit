@@ -1,0 +1,6 @@
+#!/bin/sh
+# Installed by `npm install` (package.json "prepare" sets core.hooksPath).
+# Format, lint, types and both Jest tiers, in parallel (~6 s warm). The
+# integration tier needs Postgres: pgvault-dev on localhost:5432 or
+# TEST_DATABASE_URL. Bypass only with intent: git commit --no-verify.
+exec npm run -s check

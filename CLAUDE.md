@@ -118,16 +118,16 @@ npm run maintenance:reconcile [-- --dry-run]
                               # one storage reconciliation pass from dist/ (build first). On the NAS:
                               # docker exec closet npm run maintenance:reconcile
 
-npm run lint                  # eslint --fix
-npm run format                # prettier
+npm run lint                  # eslint --fix (src, test, scripts); lint:check is the no-fix, cached gate
+npm run format                # prettier --write; format:check is the cached gate
 
 # Test tiers, cheapest first
-npm test                      # jest unit: mocked DB/fs, verifies wiring. Seconds.
+npm test                      # jest unit (jest.unit.config.js): mocked DB/fs, verifies wiring. Seconds.
 (cd ../pgvault-dev && docker compose up -d --wait)
                               # every tier below needs Postgres: pgvault-dev on localhost:5432 (superuser
                               # postgres, trust auth). Dev app config lives in .env.local (DATABASE_*,
                               # closet_db); see README Development.
-npm run test:int              # jest integration: real app in-process, temp DATA_PATH, app.inject().
+npm run test:int              # jest integration (jest.integration.config.js): real app in-process, temp DATA_PATH, app.inject().
                               # Asserts HTML, headers, DB rows, files. ~5 s. No build needed.
                               # The default place for behavior assertions during development.
                               # Each spec file gets a scratch database (test/support/scratch-database.ts)
@@ -140,9 +140,15 @@ npm run test:e2e:smoke        # playwright smoke, the CI gate
 npm run test:load             # builds, boots on a scratch database + temp DATA_PATH, autocannon
 npm run lighthouse            # lhci autorun
 
+npm run test:all              # both jest tiers in one run (jest.config.js projects); test:cov adds coverage
 npm run typecheck             # tsc: app + tests + scripts, then the service worker (~3 s cold)
-npm run precommit             # format:check + lint + test + test:int + build (~16 s, run before every commit)
-npm run precommit:full        # + test:cov, e2e smoke, load test, lighthouse (minutes, the pre-PR gate)
+npm run check                 # format:check, lint:check, typecheck and test:all in parallel (~7 s warm).
+                              # The pre-commit hook. `precommit` is an alias.
+npm run verify:push           # build + Chromium Playwright against the fresh build. The pre-push hook.
+npm run precommit:full        # check + verify:push + load test + lighthouse (minutes)
+
+# Git hooks live in .githooks/ and are installed by `npm install` (the prepare script sets
+# core.hooksPath; skipped where there is no .git, e.g. the Docker build). They need pgvault-dev.
 
 # Migrations: diff entities against the committed .snapshot-postgres.json; connects to closet_db on
 # pgvault-dev unless DATABASE_* say otherwise
@@ -232,7 +238,7 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
 - Behavior assertions go in `test/integration/` first: a spec that boots the real app and checks the HTML, headers, rows and files is the default proof that a change works, and it runs in seconds without a build or a browser. Playwright is the full gate for what only a browser can show (service worker, htmx swaps, layout).
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
-- Summarize changes and wait for an explicit go-ahead before committing. After an independent review and verification pass, commit in scoped commits and push straight to `main` (solo repo, no PR); a push to `main` publishes the image and the homelab autoupdater deploys it. Run `npm run precommit` before staging. If a hook fails, fix and create a new commit, never amend.
+- Summarize changes and wait for an explicit go-ahead before committing. After an independent review and verification pass, commit in scoped commits and push straight to `main` (solo repo, no PR); a push to `main` publishes the image and the homelab autoupdater deploys it. The pre-commit hook runs `npm run check`; never bypass it with `--no-verify` to get a commit through. If a hook fails, fix and create a new commit, never amend.
 - Commit messages: concise, why over what.
 - When a new pattern or gotcha lands, update this file in the same commit and store the decision in Graphiti.
 - Upstream sync: this fork will diverge (rebrand, household features). Keep upstream-worthy fixes in their own commits so they can be offered back to `lazztech/libre-closet`.

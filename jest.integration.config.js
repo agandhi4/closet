@@ -1,9 +1,10 @@
 // In-process integration tier: the real app on a fresh Postgres database per
 // spec file and a temp DATA_PATH, driven through Fastify's inject().
 // Needs pgvault-dev on localhost:5432 or TEST_DATABASE_URL (see
-// test/support/scratch-database.ts). `npm run test:int`. The unit tier stays in
-// package.json's "jest" block.
+// test/support/scratch-database.ts). `npm run test:int`. Part of
+// jest.config.js.
 module.exports = {
+  displayName: 'integration',
   rootDir: '.',
   testMatch: ['<rootDir>/test/integration/**/*.spec.ts'],
   testEnvironment: 'node',
@@ -18,5 +19,4 @@ module.exports = {
   // Every spec boots its own app in beforeAll; the budget covers a cold
   // ts-jest compile of src/ plus migrations.
   testTimeout: 30000,
-  maxWorkers: '50%',
 };
