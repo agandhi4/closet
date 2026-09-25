@@ -1,16 +1,17 @@
 import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AuthContextService } from './auth-context.service';
 import { AuthGuard } from './auth.guard';
 import { ConditionalAuthGuard } from './conditional-auth.guard';
 import { RegistrationGuard } from './registration.guard';
+import { RequireSessionGuard } from './require-session.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { User } from '../dal/entity/user.entity';
 import { PasswordReset } from '../dal/entity/passwordReset.entity';
 import { EmailModule } from '../email/email.module';
-import { ViewContextModule } from '../view-context/view-context.module';
 
 @Module({
   imports: [
@@ -28,11 +29,19 @@ import { ViewContextModule } from '../view-context/view-context.module';
   controllers: [AuthController],
   providers: [
     AuthService,
+    AuthContextService,
     AuthGuard,
     ConditionalAuthGuard,
+    RequireSessionGuard,
     RegistrationGuard,
-    ViewContextModule,
   ],
-  exports: [JwtModule, AuthService, AuthGuard, ConditionalAuthGuard],
+  exports: [
+    JwtModule,
+    AuthService,
+    AuthContextService,
+    AuthGuard,
+    ConditionalAuthGuard,
+    RequireSessionGuard,
+  ],
 })
 export class AuthModule {}

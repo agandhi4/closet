@@ -1,39 +1,40 @@
-import { EntityRepository } from '@mikro-orm/core';
-import { InjectRepository } from '@mikro-orm/nestjs';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { FastifyRequest } from 'fastify';
 import { I18nContext, I18nService } from 'nestjs-i18n';
-import { User } from '../dal/entity/user.entity';
+import { AuthContext } from '../auth/auth-context.service';
 
+const OG_LOCALES: Record<string, string> = {
+  en: 'en_US',
+  ru: 'ru_RU',
+  es: 'es_ES',
+  fr: 'fr_FR',
+  it: 'it_IT',
+  de: 'de_DE',
+};
+
+/**
+ * Builds the template context exposed as `reply.locals` by the preHandler
+ * hook in main.ts. The session comes in as an argument: this service must not
+ * read the cookie or load the user itself (AuthContextService already did).
+ */
 @Injectable()
 export class ViewContextService {
-  private logger = new Logger(ViewContextService.name);
-
   constructor(
-    @InjectRepository(User)
-    private readonly userRepository: EntityRepository<User>,
-    private configService: ConfigService,
-    private jwtService: JwtService,
-    private i18n: I18nService,
+    private readonly configService: ConfigService,
+    private readonly i18n: I18nService,
   ) {}
 
-  async buildContext(req: FastifyRequest) {
+  buildContext(
+    req: FastifyRequest,
+    auth: AuthContext | undefined,
+  ): Record<string, any> {
     const locale = I18nContext.current()?.lang ?? 'en';
     const path = req.url.split('?')[0];
     const protocol =
       (req.headers['x-forwarded-proto'] as string) ?? req.protocol;
     const host = (req.headers['x-forwarded-host'] as string) ?? req.hostname;
     const canonicalUrl = `${protocol}://${host}${path}`;
-    const ogLocaleMap: Record<string, string> = {
-      en: 'en_US',
-      ru: 'ru_RU',
-      es: 'es_ES',
-      fr: 'fr_FR',
-      it: 'it_IT',
-      de: 'de_DE',
-    };
 
     const siteUrl = this.configService.get<string>('SITE_URL') ?? host;
     const baseUrl = `${protocol}://${host}`;
@@ -42,9 +43,8 @@ export class ViewContextService {
     const appDescription = this.i18n.t('lang.APP_DESCRIPTION', {
       lang: locale,
     });
-    const ogImage = `${baseUrl}/assets/${iconName}`;
 
-    const context: Record<string, any> = {
+    return {
       appName,
       iconName,
       siteUrl,
@@ -55,25 +55,11 @@ export class ViewContextService {
       locale,
       canonicalUrl,
       ogUrl: canonicalUrl,
-      ogLocale: ogLocaleMap[locale] ?? 'en_US',
+      ogLocale: OG_LOCALES[locale] ?? 'en_US',
       ogTitle: appName,
       ogDescription: appDescription,
-      ogImage,
+      ogImage: `${baseUrl}/assets/${iconName}`,
+      user: auth?.user,
     };
-
-    try {
-      const token = (req.cookies as Record<string, string>)?.['access_token'];
-      if (token) {
-        const payload = await this.jwtService.verifyAsync(token, {
-          secret: this.configService.get<string>('ACCESS_TOKEN_SECRET'),
-        });
-        const user = await this.userRepository.findOne({ id: payload.userId });
-        context.user = user;
-      }
-    } catch {
-      this.logger.debug('User payload not available');
-    }
-
-    return context;
   }
 }

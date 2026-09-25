@@ -77,16 +77,6 @@ export class AuthService {
     } as Payload);
   }
 
-  public async verifyPwf(payload: Payload) {
-    // Verify password fingerprint, tokens invalidate on password change or if missing
-    const user = await this.userRepository.findOneOrFail({
-      id: payload.userId,
-    });
-    if (user.password.slice(-8) !== payload.pwf) {
-      throw new UnauthorizedException();
-    }
-  }
-
   public async changePassword(userId: any, details: ChangePasswordDto) {
     this.logger.debug(this.changePassword.name);
     const user = await this.userRepository.findOneOrFail({ id: userId });

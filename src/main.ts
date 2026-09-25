@@ -10,16 +10,26 @@ import fastifyView from '@fastify/view';
 import hbs from 'hbs';
 import type { HelperOptions } from 'handlebars';
 import { join } from 'path';
-import { AppModule } from './app.module';
+import { AppModule, DEFAULT_TRUSTED_PROXIES } from './app.module';
 import { Logger } from 'nestjs-pino';
+import { AuthContextService } from './auth/auth-context.service';
 import { ViewContextService } from './view-context/view-context.service';
+import { isStaticPath } from './static-prefixes';
 import { GarmentColor } from './wardrobe/garment-color.enum';
 import { ImageRef, imageUrl } from './file/file-url/image-url';
 import { isImageVariant } from './file/image-variant';
 
 async function bootstrap() {
+  // Reverse proxies whose X-Forwarded-* headers are believed, so the
+  // throttler and canonical URLs see the real client. Read from the raw
+  // environment because the adapter must exist before ConfigService does;
+  // the Joi default in AppModule is the single source of the fallback.
   // https://docs.nestjs.com/security/rate-limiting#proxies
-  const adapter = new FastifyAdapter({ trustProxy: ['127.0.0.1', '::1'] }); // Trust requests from the loopback address
+  const trustProxy = (process.env.TRUSTED_PROXIES ?? DEFAULT_TRUSTED_PROXIES)
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const adapter = new FastifyAdapter({ trustProxy });
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     adapter,
@@ -29,16 +39,24 @@ async function bootstrap() {
   );
   app.useLogger(app.get(Logger));
 
-  // Express-like res.locals equivalent? https://github.com/fastify/fastify/issues/303
+  app.get(Logger).log(`Trusted proxies: ${trustProxy.join(', ')}`, 'Bootstrap');
+
+  // One session resolution per request: the JWT is verified and the user
+  // loaded here and nowhere else (guards and views read req.auth). Static
+  // paths skip everything, so asset requests never touch the database.
+  // Express-like res.locals equivalent: https://github.com/fastify/fastify/issues/303
+  const authContextService = app.get(AuthContextService);
   const viewContextService = app.get(ViewContextService);
   const fastify = app.getHttpAdapter().getInstance();
+  fastify.decorateRequest('auth', null);
   fastify.decorateReply('locals', null);
   fastify.addHook('preHandler', async (req, reply) => {
-    reply.locals = await viewContextService.buildContext(req);
+    if (isStaticPath(req.url)) return;
+    req.auth = await authContextService.resolve(req);
+    reply.locals = viewContextService.buildContext(req, req.auth);
   });
 
   // Security headers on all responses
-  // eslint-disable-next-line @typescript-eslint/require-await -- Fastify onSend hook must return a Promise if not using the callback (next) pattern
   fastify.addHook('onSend', async (_request, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');

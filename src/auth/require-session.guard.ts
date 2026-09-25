@@ -1,21 +1,26 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FastifyReply, FastifyRequest } from 'fastify';
 
 /**
- * When AUTH_ENABLED=false: passes all requests through (no auth needed).
- * When AUTH_ENABLED=true: requires the session resolved by AuthContextService
- * (`req.auth`, see main.ts) and exposes its payload as request.user.
- *   - Authenticated: passes through.
- *   - Unauthenticated: redirects to /auth/login instead of returning 401/403.
+ * Pages and form submissions that only exist with user accounts (wardrobe
+ * sharing): 404 when AUTH_ENABLED=false, 302 to /auth/login without a
+ * session (it is a browser navigation, so a 401 page would be a dead end),
+ * pass with request.user set otherwise. Fetch-driven endpoints use AuthGuard
+ * (401) instead; open-or-authenticated routes use ConditionalAuthGuard.
  */
 @Injectable()
-export class ConditionalAuthGuard implements CanActivate {
+export class RequireSessionGuard implements CanActivate {
   constructor(private readonly configService: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
     if (!this.configService.get<boolean>('AUTH_ENABLED')) {
-      return true;
+      throw new NotFoundException();
     }
 
     const request = context.switchToHttp().getRequest<FastifyRequest>();

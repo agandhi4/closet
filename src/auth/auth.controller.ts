@@ -49,7 +49,7 @@ export class AuthController {
         layout: 'layout',
         input: body,
         validationErrors,
-        ...((reply as any).locals ?? {}),
+        ...(reply.locals ?? {}),
       });
     }
 
@@ -100,7 +100,7 @@ export class AuthController {
       return reply.view('auth/login', {
         layout: 'layout',
         error,
-        ...((reply as any).locals ?? {}),
+        ...(reply.locals ?? {}),
       });
     }
   }
@@ -144,7 +144,7 @@ export class AuthController {
       return reply.view('auth/reset', {
         layout: 'layout',
         error,
-        ...((reply as any).locals ?? {}),
+        ...(reply.locals ?? {}),
       });
     }
   }
@@ -192,7 +192,7 @@ export class AuthController {
         layout: 'layout',
         input: body,
         validationErrors,
-        ...((reply as any).locals ?? {}),
+        ...(reply.locals ?? {}),
       });
     }
 
@@ -238,7 +238,7 @@ export class AuthController {
       return reply.view('auth/delete-account', {
         layout: 'layout',
         error,
-        ...((reply as any).locals ?? {}),
+        ...(reply.locals ?? {}),
       });
     }
   }
@@ -281,7 +281,7 @@ export class AuthController {
         layout: 'layout',
         input: body,
         validationErrors,
-        ...((reply as any).locals ?? {}),
+        ...(reply.locals ?? {}),
       });
     }
 
