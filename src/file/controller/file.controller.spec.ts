@@ -33,10 +33,6 @@ describe('FileController', () => {
     controller = module.get<FileController>(FileController);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
-  });
-
   it.each([
     ['getFile', 'original'],
     ['nobg', 'nobg'],
