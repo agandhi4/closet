@@ -7,7 +7,6 @@ import { ExpirationPlugin } from 'workbox-expiration';
 import {
   CacheFirst,
   NetworkFirst,
-  NetworkOnly,
   StaleWhileRevalidate,
 } from 'workbox-strategies';
 import { pageCacheKey } from '../../src/htmx/fragment-request';
@@ -21,7 +20,7 @@ import { pageCacheKey } from '../../src/htmx/fragment-request';
  *    when there is none. Fragments are keyed apart from pages.
  *  - Versioned scripts and styles are StaleWhileRevalidate; garment images
  *    are CacheFirst so recently viewed items render offline.
- *  - Anything unmatched (POSTs, /healthz, /sse) goes straight to the network.
+ *  - Anything unmatched (POSTs, /healthz) goes straight to the network.
  */
 
 declare const self: ServiceWorkerGlobalScope;
@@ -58,9 +57,6 @@ const pages = new NetworkFirst({
 const isPageRequest = ({ request }: { request: Request }) =>
   request.mode === 'navigate' || request.headers.get('HX-Request') === 'true';
 
-// Streaming; never cache, never time out.
-registerRoute(({ url }) => url.pathname === '/sse', new NetworkOnly());
-
 registerRoute(isPageRequest, pages);
 
 // First-party scripts and styles are `?v=`-versioned and served immutable by
@@ -86,8 +82,8 @@ registerRoute(
 );
 
 // Garment photos: FileController serves them immutable under a versioned
-// URL, so cached bytes are never stale. request.destination guards against
-// /file/files and /file/upload, which are pages under the same prefix.
+// URL, so cached bytes are never stale. Only <img> loads are cached, so a
+// watermark preview fetched by a share scraper never fills the quota.
 registerRoute(
   ({ url, request }) =>
     url.pathname.startsWith('/file/') && request.destination === 'image',

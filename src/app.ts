@@ -151,7 +151,6 @@ function registerStaticAssets(app: NestFastifyApplication) {
   app.useStaticAssets({
     root: [
       nodeModule('htmx.org/dist'),
-      nodeModule('htmx-ext-sse/'),
       nodeModule('hyperscript.org/dist'),
       nodeModule('@khmyznikov/pwa-install/dist'),
       nodeModule('workbox-window/build'),

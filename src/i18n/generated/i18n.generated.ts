@@ -15,7 +15,6 @@ export type I18nTranslations = {
         "LOGOUT": string;
         "REGISTER": string;
         "LOGIN": string;
-        "SEND": string;
         "EMAIL": string;
         "NEW_EMAIL": string;
         "CONFIRM_EMAIL": string;
@@ -38,14 +37,10 @@ export type I18nTranslations = {
         "TIME": string;
         "RETURN_TO_HOME": string;
         "FORCE_PWA": string;
-        "TEST_WEB_PUSH": string;
-        "YOUR_MESSAGE": string;
         "SW_UPDATE_PROMPT": string;
         "COPY_TEXT": string;
         "SHARE": string;
-        "UPLOAD": string;
         "COPIED": string;
-        "SHARING_NOT_SUPPORTED": string;
         "NAME": string;
         "CATEGORY": string;
         "BRAND": string;
