@@ -1,13 +1,11 @@
 import { EntityManager } from '@mikro-orm/core';
 import { getRepositoryToken } from '@mikro-orm/nestjs';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { User } from '../dal/entity/user.entity';
 import { UserDevice } from '../dal/entity/userDevice.entity';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './notification.service';
-import { AuthService } from '../auth/auth.service';
 
 describe('NotificationController', () => {
   let controller: NotificationController;
@@ -38,11 +36,6 @@ describe('NotificationController', () => {
               }
             }),
           },
-        },
-        JwtService,
-        {
-          provide: AuthService,
-          useValue: { verifyPwf: jest.fn() },
         },
         {
           provide: getRepositoryToken(User),

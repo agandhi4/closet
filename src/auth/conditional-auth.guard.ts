@@ -1,46 +1,31 @@
-import { Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { CanActivate, ExecutionContext } from '@nestjs/common';
-import { FastifyRequest } from 'fastify';
-import { AuthService } from './auth.service';
+import { FastifyReply, FastifyRequest } from 'fastify';
 
 /**
  * When AUTH_ENABLED=false: passes all requests through (no auth needed).
- * When AUTH_ENABLED=true: parses the JWT cookie and populates request.user.
+ * When AUTH_ENABLED=true: requires the session resolved by AuthContextService
+ * (`req.auth`, see main.ts) and exposes its payload as request.user.
  *   - Authenticated: passes through.
  *   - Unauthenticated: redirects to /auth/login instead of returning 401/403.
  */
 @Injectable()
 export class ConditionalAuthGuard implements CanActivate {
-  constructor(
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
-    private readonly authService: AuthService,
-  ) {}
+  constructor(private readonly configService: ConfigService) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     if (!this.configService.get<boolean>('AUTH_ENABLED')) {
       return true;
     }
 
     const request = context.switchToHttp().getRequest<FastifyRequest>();
-    const token = (request.cookies as Record<string, string>)?.['access_token'];
-    if (token) {
-      try {
-        const payload = await this.jwtService.verifyAsync(token, {
-          secret: this.configService.get<string>('ACCESS_TOKEN_SECRET'),
-        });
-        await this.authService.verifyPwf(payload);
-        request['user'] = payload;
-        return true;
-      } catch {
-        // invalid/expired token or fingerprint mismatch — fall through to redirect
-      }
+    if (request.auth) {
+      request.user = request.auth.payload;
+      return true;
     }
 
-    const response = context.switchToHttp().getResponse();
-    response.redirect('/auth/login', 302);
+    const response = context.switchToHttp().getResponse<FastifyReply>();
+    void response.redirect('/auth/login', 302);
     return false;
   }
 }

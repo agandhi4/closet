@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { type PushSubscription } from 'web-push';
 import { AuthGuard } from '../auth/auth.guard';
+import { RequireSessionGuard } from '../auth/require-session.guard';
 import { Payload } from '../auth/dto/payload.dto';
 import { User } from '../auth/user.decorator';
 import { NotificationService } from './notification.service';
@@ -40,7 +41,9 @@ export class NotificationController {
     );
   }
 
-  @UseGuards(AuthGuard)
+  // Submitted by the htmx form on the chat page, so a logged-out user is sent
+  // to login. /subscribe stays a 401 because public/js/webPush.js fetches it.
+  @UseGuards(RequireSessionGuard)
   @Post('test')
   async postTest(@User() payload: Payload) {
     await this.notificationService.sendWebPushNotification(

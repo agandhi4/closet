@@ -6,39 +6,28 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { FastifyRequest } from 'fastify';
-import { AuthService } from './auth.service';
 
+/**
+ * Routes that only make sense with user accounts: 404 when AUTH_ENABLED=false,
+ * 401 without a session. The session itself is resolved once per request by
+ * AuthContextService (`req.auth`, see main.ts); this guard only publishes its
+ * payload as request.user for the @User() decorator.
+ */
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(
-    private jwtService: JwtService,
-    private configService: ConfigService,
-    private authService: AuthService,
-  ) {}
+  constructor(private readonly configService: ConfigService) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     if (!this.configService.get<boolean>('AUTH_ENABLED')) {
       throw new NotFoundException();
     }
 
     const request = context.switchToHttp().getRequest<FastifyRequest>();
-    const token = (request.cookies as Record<string, string>)?.['access_token'];
-    if (!token) {
+    if (!request.auth) {
       throw new UnauthorizedException();
     }
-    try {
-      const payload = await this.jwtService.verifyAsync(token, {
-        secret: this.configService.get<string>('ACCESS_TOKEN_SECRET'),
-      });
-      await this.authService.verifyPwf(payload);
-      // 💡 We're assigning the payload to the request object here
-      // so that we can access it with our the user decorator
-      request['user'] = payload;
-    } catch {
-      throw new UnauthorizedException();
-    }
+    request.user = request.auth.payload;
     return true;
   }
 }

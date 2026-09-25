@@ -2,7 +2,6 @@ import { EntityManager } from '@mikro-orm/core';
 import { getRepositoryToken } from '@mikro-orm/nestjs';
 import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { FastifyReply } from 'fastify';
 import { Readable } from 'stream';
@@ -10,7 +9,6 @@ import { File } from '../../dal/entity/file.entity';
 import { User } from '../../dal/entity/user.entity';
 import { FileService } from '../file-service.abstract';
 import { FileController } from './file.controller';
-import { AuthService } from '../../auth/auth.service';
 
 describe('FileController', () => {
   let controller: FileController;
@@ -25,13 +23,8 @@ describe('FileController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FileController],
       providers: [
-        JwtService,
         { provide: FileService, useValue: fileService },
         ConfigService,
-        {
-          provide: AuthService,
-          useValue: { verifyPwf: jest.fn() },
-        },
         {
           provide: getRepositoryToken(File),
           useValue: { findOne: jest.fn() },

@@ -7,13 +7,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { ViewContextService } from './view-context/view-context.service';
 
 @Catch()
 export class ErrorViewFilter implements ExceptionFilter {
   private logger = new Logger(ErrorViewFilter.name);
-
-  constructor(private readonly viewContextService: ViewContextService) {}
 
   async catch(exception: unknown, host: ArgumentsHost) {
     this.logger.warn(exception);
@@ -38,9 +35,9 @@ export class ErrorViewFilter implements ExceptionFilter {
         : 'Internal server error';
 
     try {
-      const context =
-        (response as any).locals ||
-        (await this.viewContextService.buildContext(request));
+      // locals is only missing on static paths (see isStaticPath in main.ts),
+      // whose errors are asset 404s; the page still renders, just without
+      // the app name and session.
       await response.status(status).view('error', {
         layout: 'layout',
         statusCode: status,
@@ -48,7 +45,7 @@ export class ErrorViewFilter implements ExceptionFilter {
           typeof message === 'string' ? message : (message as any).message,
         timestamp: new Date().toISOString(),
         path: request.url,
-        ...context,
+        ...(response.locals ?? {}),
       });
     } catch (renderError) {
       this.logger.error(renderError);

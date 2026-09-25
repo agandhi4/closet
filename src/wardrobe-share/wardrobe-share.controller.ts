@@ -15,22 +15,25 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
 import { ConditionalAuthGuard } from '../auth/conditional-auth.guard';
+import { RequireSessionGuard } from '../auth/require-session.guard';
 import { Payload } from '../auth/dto/payload.dto';
 import { User } from '../auth/user.decorator';
 import { WardrobeShareService } from './wardrobe-share.service';
 import { SharePermission } from '../dal/entity/wardrobe-share.entity';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
-@UseGuards(ConditionalAuthGuard)
+// Sharing only exists with user accounts, and every route is a page or a
+// form/htmx submission from one, so RequireSessionGuard (404 with auth off,
+// login redirect without a session) rather than AuthGuard's 401. The invite
+// landing page is the one route an anonymous visitor may open.
 @Controller('wardrobe-share')
 export class WardrobeShareController {
   private readonly logger = new Logger(WardrobeShareController.name);
 
   constructor(private readonly shareService: WardrobeShareService) {}
 
-  @UseGuards(AuthGuard)
+  @UseGuards(RequireSessionGuard)
   @Get('manage')
   @Render('wardrobe-share/manage')
   async manage(
@@ -62,7 +65,7 @@ export class WardrobeShareController {
     };
   }
 
-  @UseGuards(AuthGuard)
+  @UseGuards(RequireSessionGuard)
   @Post('create-invite-link')
   async createInviteLink(
     @User() payload: Payload,
@@ -85,7 +88,7 @@ export class WardrobeShareController {
     return reply.redirect('/wardrobe-share/manage', 302);
   }
 
-  @UseGuards(AuthGuard)
+  @UseGuards(RequireSessionGuard)
   @Post(':id/remove')
   async removeShare(
     @User() payload: Payload,
@@ -123,7 +126,7 @@ export class WardrobeShareController {
     };
   }
 
-  @UseGuards(AuthGuard)
+  @UseGuards(RequireSessionGuard)
   @Post('invite/:token/accept')
   async acceptInvite(
     @User() payload: Payload,
@@ -148,7 +151,7 @@ export class WardrobeShareController {
     return reply.redirect('/wardrobe-share/manage', 302);
   }
 
-  @UseGuards(AuthGuard)
+  @UseGuards(RequireSessionGuard)
   @Post('invite/:token/decline')
   async declineInvite(
     @User() payload: Payload,
