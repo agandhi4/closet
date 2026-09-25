@@ -29,7 +29,7 @@
     class="relative rounded-box overflow-hidden mb-6 bg-base-200 aspect-square w-full max-w-sm mx-auto"
   >
     <img
-      src="/file/nobg/{{garment.photo.fileName}}"
+      src="{{imageUrl garment.photo 'nobg'}}"
       alt="{{garment.name}}"
       class="object-cover w-full h-full"
     />
@@ -214,7 +214,11 @@
 
     wireUpPhotoInput();
     {{#if garment.photo}}
-    wireUpEditMaskBtn('{{garment.photo.fileName}}', {{garment.id}});
+    wireUpEditMaskBtn({
+      garmentId: {{garment.id}},
+      originalUrl: '{{imageUrl garment.photo 'original'}}',
+      nobgUrl: '{{imageUrl garment.photo 'nobg'}}',
+    });
     if (!isBgRemovalEnabled()) {
       document.getElementById('editMaskBtn')?.style.setProperty('display', 'none');
     }

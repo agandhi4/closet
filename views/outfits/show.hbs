@@ -34,9 +34,13 @@
     >
       {{#if this.photo}}
       <img
-        src="/file/nobg/{{this.photo.fileName}}"
+        src="{{imageUrl this.photo 'thumb'}}"
         alt="{{this.name}}"
         class="size-20 rounded-box object-cover shadow-sm"
+        width="80"
+        height="80"
+        loading="lazy"
+        decoding="async"
       />
       {{else}}
       <div

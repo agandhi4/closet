@@ -2,6 +2,7 @@ import { EntityRepository, FilterQuery } from '@mikro-orm/core';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { randomUUID } from 'node:crypto';
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -179,19 +180,6 @@ export class GarmentService {
     let photo: File | undefined;
     if (source.photo?.fileName) {
       photo = await this.fileService.copyImage(source.photo.fileName, userId);
-      if (photo) {
-        const nobgSourceName = this.fileService.nobgFileName(
-          source.photo.fileName,
-        );
-        const nobgStream = await this.fileService
-          .get(nobgSourceName)
-          .catch(() => undefined);
-        if (nobgStream) {
-          await this.fileService
-            .storeNobgVariantFromStream(nobgStream, photo.fileName)
-            .catch((err) => this.logger.warn(err));
-        }
-      }
     }
 
     const garment = this.garmentRepository.create({
@@ -275,6 +263,7 @@ export class GarmentService {
           nobgPromise = this.fileService.storeNobgVariantFromStream(
             file.file,
             photoFileName,
+            { newUpload: true },
           );
         } else {
           file.file.resume();
@@ -286,6 +275,23 @@ export class GarmentService {
           photoPromise,
           nobgPromise ?? Promise.resolve(),
         ]);
+        // Both pipelines queued a thumb write in unknown order; this final
+        // write is guaranteed to run last and to read the cutout.
+        if (nobgPromise) {
+          await this.fileService.regenerateThumb(photoFileName);
+        }
+      } else if (nobgPromise) {
+        // Invariant: a cutout only ever accompanies a photo in the same
+        // request. The nobg pipeline had to be started above (multipart parts
+        // arrive in client order, and an unconsumed part hangs the parser),
+        // so drain it, remove whatever it wrote under the never-persisted
+        // name, and reject.
+        await nobgPromise.catch((err) => this.logger.warn(err));
+        await this.fileService.deleteVariants(photoFileName);
+        this.logger.warn(
+          `Garment ${id} update carried nobgPhoto without photo; discarded`,
+        );
+        throw new BadRequestException('nobgPhoto requires photo');
       }
     }
 
@@ -293,7 +299,7 @@ export class GarmentService {
 
     if (photo) {
       await this.deleteOldPhoto(garment);
-      garment.photo = photo as any;
+      garment.photo = photo;
     }
 
     garment.name = dto.name ?? garment.name;
@@ -315,42 +321,41 @@ export class GarmentService {
   private async deleteOldPhoto(garment: Garment) {
     const oldFileName = garment.photo?.fileName;
     if (oldFileName) {
-      await this.fileService
-        .delete(oldFileName)
-        .catch((err) => this.logger.warn(err));
-      const nobgFileName = this.fileService.nobgFileName(oldFileName);
-      await this.fileService
-        .delete(nobgFileName)
-        .catch((err) => this.logger.warn(err));
+      await this.fileService.deleteVariants(oldFileName);
     }
   }
 
+  /**
+   * Replaces the cutout after a mask edit. Returns the photo's version after
+   * the write so the client can point at the new immutable URL; undefined
+   * when the garment has no photo or no cutout was sent.
+   */
   async updateNobg(
     id: number,
     nobgPhoto: MultipartFile | undefined,
     userId?: number,
     requestingUserId?: number,
-  ): Promise<void> {
+  ): Promise<number | undefined> {
     const garment = await this.findOne(id, requestingUserId, userId);
-    if (!garment.photo?.fileName) return;
-    await this.streamNobgIfPresent(nobgPhoto, garment.photo.fileName);
-  }
-
-  private streamNobgIfPresent(
-    nobgPhoto: MultipartFile | undefined,
-    photoFileName: string,
-  ): Promise<void> {
-    if (!nobgPhoto) return Promise.resolve();
-    const fileStream = nobgPhoto.file;
-    return this.fileService.storeNobgVariantFromStream(
-      fileStream,
-      photoFileName,
+    if (!garment.photo?.fileName || !nobgPhoto) return undefined;
+    await this.fileService.storeNobgVariantFromStream(
+      nobgPhoto.file,
+      garment.photo.fileName,
+      { newUpload: false },
     );
+    // storeNobgVariantFromStream bumped the same managed File instance
+    // (identity map), so the populated photo already carries the new version.
+    this.logger.log(
+      `Garment ${id} cutout replaced, photo version ${garment.photo.version}`,
+    );
+    return garment.photo.version;
   }
 
   async remove(id: number, userId?: number): Promise<void> {
     const garment = await this.findOne(id, userId);
+    await this.deleteOldPhoto(garment);
     await this.garmentRepository.getEntityManager().removeAndFlush(garment);
+    this.logger.log(`Garment ${id} removed by user ${userId}`);
   }
 
   async archive(id: number, userId?: number): Promise<Garment> {

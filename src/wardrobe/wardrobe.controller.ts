@@ -451,15 +451,15 @@ export class WardrobeController {
     }
 
     const nobgPhoto = await req.file();
-    await this.garmentService.updateNobg(
+    const version = await this.garmentService.updateNobg(
       id,
       nobgPhoto,
       viewOwner ?? userId,
       userId,
     );
-    const redirectSuffix = viewOwner ? `?ownerId=${viewOwner}` : '';
-    reply.header('HX-Redirect', `/wardrobe/${id}${redirectSuffix}`);
-    return reply.send();
+    // Called by the mask editor (public/js/background-removal.js) via fetch,
+    // not htmx: the version lets it swap in the new immutable image URL.
+    return reply.send({ version });
   }
 
   @Delete(':id')

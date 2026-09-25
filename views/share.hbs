@@ -4,7 +4,7 @@
   {{#if file}}
   <div class="card bg-base-100 w-full max-w-sm shadow-sm">
     <figure>
-      <img src="/file/{{file.fileName}}" alt="File upload" class="object-cover w-full" />
+      <img src="{{imageUrl file 'original'}}" alt="File upload" class="object-cover w-full" />
     </figure>
     <div class="card-body">
       <h2 class="card-title">{{file.fileName}}</h2>
@@ -15,7 +15,7 @@
   <div class="card bg-base-100 w-full max-w-sm shadow-sm">
     {{#if garment.photo}}
     <figure class="aspect-square overflow-hidden">
-      <img src="/file/nobg/{{garment.photo.fileName}}" alt="{{garment.name}}" class="object-cover w-full h-full" />
+      <img src="{{imageUrl garment.photo 'nobg'}}" alt="{{garment.name}}" class="object-cover w-full h-full" />
     </figure>
     {{else}}
     <div class="aspect-square bg-base-200 flex items-center justify-center text-base-content/30">
@@ -45,8 +45,8 @@
       {{/if}} {{#if garments.length}}
       <div class="flex flex-wrap gap-2">
         {{#each garments}} {{#if this.photo}}
-        <img src="/file/nobg/{{this.photo.fileName}}" alt="{{this.name}}"
-          class="size-20 rounded-box object-cover shadow-sm" />
+        <img src="{{imageUrl this.photo 'thumb'}}" alt="{{this.name}}"
+          class="size-20 rounded-box object-cover shadow-sm" width="80" height="80" loading="lazy" decoding="async" />
         {{else}}
         <div class="size-20 rounded-box bg-base-200 flex items-center justify-center text-base-content/30">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"

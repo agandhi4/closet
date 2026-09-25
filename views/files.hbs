@@ -4,7 +4,7 @@
     {{#each files}}
     <div class="card bg-base-100 w-96 shadow-sm">
       <figure>
-        <img src="/file/{{this.fileName}}" alt="File upload" />
+        <img src="{{imageUrl this 'original'}}" alt="File upload" loading="lazy" decoding="async" />
       </figure>
       <div class="card-body">
         <h2 class="card-title">{{this.fileName}}</h2>
