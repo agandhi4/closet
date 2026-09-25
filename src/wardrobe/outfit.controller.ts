@@ -112,8 +112,9 @@ export class OutfitController {
     @I18n() i18n: I18nContext,
   ) {
     if (!category?.trim()) return reply.status(400).send();
-    const garments = await this.garmentService.findAll(this.userId(req));
-    const items = garments.filter((g) => g.category === category);
+    const items = await this.garmentService.findAll(this.userId(req), {
+      category,
+    });
     const count = items.length;
     const rawIdx =
       indexStr !== undefined && indexStr !== '' ? parseInt(indexStr) : 1;

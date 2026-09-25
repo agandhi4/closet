@@ -1,5 +1,6 @@
 import {
   Entity,
+  Index,
   ManyToOne,
   PrimaryKey,
   Property,
@@ -13,10 +14,12 @@ export class OutfitCalendar {
   @PrimaryKey()
   public id!: number;
 
-  /** The calendar date this outfit is planned for. */
+  /** The calendar date this outfit is planned for; findWeek ranges over it. */
+  @Index()
   @Property()
   public date!: Date;
 
+  @Index()
   @ManyToOne({
     entity: () => Outfit,
     deleteRule: 'cascade',
@@ -24,6 +27,7 @@ export class OutfitCalendar {
   })
   public outfit!: Ref<Outfit>;
 
+  @Index()
   @ManyToOne({
     entity: () => User,
     deleteRule: 'cascade',

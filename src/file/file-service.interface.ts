@@ -8,13 +8,16 @@ export interface FileServiceInterface {
    * @param upload multipart stream plus mimetype; drained and rejected when not an image
    * @param userId user responsible for the file
    * @param fileName optional pre-chosen name so a cutout can be stored concurrently
-   * @returns the persisted File row (version 1)
+   * @returns the File row (version 1), not yet persisted: the caller commits
+   *   it with the entity that references it and calls deleteVariants if that
+   *   commit fails
    */
   storeImageFromFileUpload(
     upload: MultipartFile | undefined,
-    userId: any,
+    userId?: number,
     fileName?: string,
   ): Promise<File>;
+  /** Same persistence contract as storeImageFromFileUpload. */
   copyImage(sourceFileName: string, userId?: number): Promise<File | undefined>;
   storeNobgVariantFromStream(
     stream: Readable,

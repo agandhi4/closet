@@ -135,18 +135,18 @@ export class CalendarService {
     return entry;
   }
 
-  /** Returns outfits the user may add to the calendar (respects auth scoping). */
-  async findOutfitsForUser(userId?: number): Promise<Outfit[]> {
-    if (userId != null) {
-      return this.outfitRepository.find(
-        { owner: { id: userId } },
-        { populate: ['garments', 'garments.photo'] },
-      );
-    }
-    return this.outfitRepository.find(
-      { owner: null },
-      { populate: ['garments', 'garments.photo'] },
+  /**
+   * The "add outfit" picker: id and name of every outfit the user may
+   * schedule, and nothing else. Garments and photos are not loaded here.
+   */
+  async findOutfitOptions(
+    userId?: number,
+  ): Promise<{ id: number; name: string | null }[]> {
+    const outfits = await this.outfitRepository.find(
+      userId != null ? { owner: { id: userId } } : { owner: null },
+      { fields: ['id', 'name'], orderBy: { id: 'ASC' } },
     );
+    return outfits.map((o) => ({ id: o.id, name: o.name ?? null }));
   }
 
   /**
@@ -163,7 +163,7 @@ export class CalendarService {
     const anchor = this.parseWeekParam(weekParam);
     const [weekSchedule, outfits] = await Promise.all([
       this.findWeek(anchor, userId),
-      this.findOutfitsForUser(userId),
+      this.findOutfitOptions(userId),
     ]);
 
     const weekBounds = this.findWeekBounds(weekSchedule);
@@ -189,7 +189,7 @@ export class CalendarService {
     return {
       pageTitle: i18n.t('lang.CALENDAR_PAGE_TITLE'),
       days,
-      outfits: outfits.map((o) => ({ id: o.id, name: o.name })),
+      outfits,
       weekParam: this.toWeekParam(weekSchedule.weekStart),
       weekLabel: this.formatWeekLabel(
         weekSchedule.weekStart,

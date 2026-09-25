@@ -16,6 +16,8 @@ export default {
     path: 'src/dal/migrations/postgres',
     pattern: /^[\w-]+\d+|\d\.ts$/,
     transactional: true,
+    // Per-migration transactions; see the postgres branch of dal.module.ts.
+    allOrNothing: false,
   },
   debug: true,
 } as Options;

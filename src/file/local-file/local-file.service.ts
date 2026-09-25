@@ -40,10 +40,15 @@ export class LocalFileService extends FileService {
   }
 
   protected async store(fileName: string, stream: Readable): Promise<void> {
-    await pipeline(
-      stream,
-      fs.createWriteStream(path.join(this.directory, fileName)),
-    );
+    const filePath = path.join(this.directory, fileName);
+    try {
+      await pipeline(stream, fs.createWriteStream(filePath));
+    } catch (error) {
+      // A failed pipeline leaves whatever was flushed so far under the final
+      // name; `force` covers the case where the stream never opened.
+      await fs.promises.rm(filePath, { force: true });
+      throw error;
+    }
   }
 
   setupDir() {
