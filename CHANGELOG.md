@@ -20,6 +20,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A missing cutout no longer logs a warning on every garment delete
 - Nest logger output is flushed once the pino logger is installed, so an app that is only initialised (the integration harness) no longer buffers every log line forever
 
+#### Performance
+
+- Photos are stored as versioned variants (original and cutout at q90, a 400px thumbnail) served immutable for a year under `?v=<File.version>`; grids render thumbnails with lazy loading and dimensions. A 150-garment grid went from 28.6 MB uncached to 1.3 MB, zero once cached
+- The session is resolved once per request and not at all for static assets and images (was up to three JWT verifications and user queries per request, one per image)
+- Static scripts and styles carry a build cache key and are served immutable; `sw.js` and `manifest.json` are `no-cache`
+- Service worker: cache-first app shell, network-first pages and htmx fragments with a 3 s timeout, cached garment images for offline reads, no more 42 MB model download on every garment page
+- The wardrobe answers htmx requests with a fragment instead of the full page; filter dropdowns come from `SELECT DISTINCT` instead of a second full scan
+- Indexes on every relation and lookup column, backfilled on Postgres with `CREATE INDEX CONCURRENTLY`
+- Photo and row writes are one transaction with compensation; deleting a garment removes its files and file row
+
+#### Fixed (data and security)
+
+- `garment.color` had become a smallint on Postgres, so any garment saved with a color failed there; the column is a validated string again
+- With auth disabled, a request carrying `?ownerId` could write into that owner's wardrobe; an own garment addressed under a foreign `?ownerId` was served. Both are 403
+- Handlebars partials were registered asynchronously and never awaited, so the first render after boot could fail
+- The invite landing page redirected the anonymous recipient it exists for
+- The runtime migrator wrote schema snapshot files into `src/` and `dist/` on every boot
+
+#### Developer experience
+
+- In-process integration tier (`npm run test:int`) booting the real app with an in-memory SQLite or a throwaway Postgres; runs on both drivers in CI. `npm run precommit` is the fast chain (about 16 s); `npm run precommit:full` keeps Playwright, the load test and Lighthouse
+- `TRUSTED_PROXIES`, `LOG_LEVEL`, `/healthz`, offline banner and update toast, `RequireSessionGuard`, one `resolveAccess` for wardrobe permissions
+
 #### Changed
 
 - Rebrand to Closet, a private household fork of Libre Closet
