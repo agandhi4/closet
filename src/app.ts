@@ -74,8 +74,10 @@ export async function createApp(): Promise<NestFastifyApplication> {
   const authContextService = app.get(AuthContextService);
   const viewContextService = app.get(ViewContextService);
   const fastify = app.getHttpAdapter().getInstance();
-  fastify.decorateRequest('auth', null);
-  fastify.decorateReply('locals', null);
+  // Declared up front so every request object has the same shape; the hook
+  // below fills them (both stay undefined on static paths).
+  fastify.decorateRequest('auth', undefined);
+  fastify.decorateReply('locals', undefined);
   fastify.addHook('preHandler', async (req, reply) => {
     if (isStaticPath(req.url)) return;
     req.auth = await authContextService.resolve(req);

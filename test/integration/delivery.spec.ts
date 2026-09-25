@@ -109,7 +109,8 @@ describe('delivery (PWA_ENABLED=true)', () => {
     });
 
     it('has one htmx-config meta and no viewport-fit', () => {
-      const metas = html.match(/<meta\s+name="htmx-config"[^>]*>/g) ?? [];
+      const metas: string[] =
+        html.match(/<meta\s+name="htmx-config"[^>]*>/g) ?? [];
       expect(metas).toHaveLength(1);
       const content = /content='([^']+)'/.exec(metas[0])![1];
       expect(JSON.parse(content)).toEqual({

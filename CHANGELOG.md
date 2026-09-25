@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- Accepting a wardrobe invite that races a duplicate grant now answers 400 instead of 500 (the unique-violation check referenced a MikroORM export that does not exist)
 - `/file/app.log` (and any other non-photo file under `DATA_PATH`) was served to anyone; the route now serves only photo names. Request logs no longer record `cookie`, `authorization` or `set-cookie` headers, and static requests and the heartbeat are no longer logged
 - Uploading a photo together with its background-removed cutout failed with 500 whenever the cutout was a realistic size: the thumbnail read the cutout while it was still being written. Local storage writes are now atomic, and each upload builds its thumbnail once
 - The password reset form no longer prints its body (including the new password) to the container log

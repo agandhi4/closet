@@ -1,4 +1,7 @@
-import { EntityRepository, UniqueConstraintException } from '@mikro-orm/core';
+import {
+  EntityRepository,
+  UniqueConstraintViolationException,
+} from '@mikro-orm/core';
 import {
   BadRequestException,
   ForbiddenException,
@@ -101,7 +104,7 @@ export class WardrobeShareService {
     try {
       await this.shareRepository.getEntityManager().flush();
     } catch (e) {
-      if (e instanceof UniqueConstraintException) {
+      if (e instanceof UniqueConstraintViolationException) {
         throw new BadRequestException(
           'You already have access to this wardrobe.',
         );

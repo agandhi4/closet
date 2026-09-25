@@ -47,7 +47,7 @@ describe('FileController', () => {
       const stream = Readable.from(Buffer.from('bytes'));
       fileService.getVariant.mockResolvedValue(stream);
 
-      await controller[method](PHOTO, reply);
+      await controller[method](PHOTO, reply as unknown as FastifyReply);
 
       expect(fileService.getVariant).toHaveBeenCalledWith(PHOTO, variant);
       expect(reply.header).toHaveBeenCalledWith(

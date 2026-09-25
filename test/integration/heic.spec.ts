@@ -129,7 +129,7 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
       method: 'GET',
       url: `/wardrobe/${garmentId}`,
     });
-    const accepts = page.body.match(/accept="[^"]*"/g) ?? [];
+    const accepts: string[] = page.body.match(/accept="[^"]*"/g) ?? [];
     const photoInputs = accepts.filter((a) => a.includes('image/jpeg'));
     expect(photoInputs.length).toBeGreaterThanOrEqual(2);
     for (const accept of photoInputs) {

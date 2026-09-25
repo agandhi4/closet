@@ -19,6 +19,7 @@
     "generate:icons": "ts-node scripts/generate-icons.ts",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json --tsBuildInfoFile node_modules/.cache/closet/tsc.tsbuildinfo && tsc -p views/assets/tsconfig.json",
     "start": "npm run generate && nest start",
     "start:dev": "concurrently \"nest start --watch\" \"npm run generate:tailwind:watch\"",
     "start:debug": "concurrently \"nest start --debug --watch\" \"npm run generate:tailwind:watch\"",
