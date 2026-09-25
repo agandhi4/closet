@@ -1,51 +1,30 @@
-# Libre Closet
+# Closet
 
-> Free, self-hosted, open-source wardrobe organizer. Catalog clothing with photos, build outfits with a drag-and-drop interface, schedule looks on a calendar, and share wardrobes. Privacy-first — your data stays on your server, no subscriptions, no ads, no third-party tracking.
+> Private, self-hosted household wardrobe organizer. Catalog garments with photos, build outfits, schedule them on a calendar, and share a wardrobe between users.
 
-## What It Does
+## What It Is
 
-Libre Closet is a digital wardrobe manager you host yourself. Photograph your clothes, organize them into custom categories, and build outfits with a Clueless-inspired visual builder. Schedule what to wear on a calendar, share your wardrobe with friends or a stylist, and use it offline as a PWA. Runs on any Linux server, NAS, or Raspberry Pi via a single Docker command.
+Closet is a self-hosted fork of Libre Closet (AGPL-3.0). It runs as a server-rendered progressive web app on your own hardware; data stays in a local SQLite or PostgreSQL database.
 
-## Key Features
+## Routes
 
-- Clueless-inspired drag-and-drop outfit builder
-- Outfit scheduling on a visual calendar
-- On-device AI background removal (ONNX runtime, client-side, no GPU needed)
-- Custom garment categories adapted to your wardrobe
-- Privacy-first: data stays on your server, no analytics SDKs, no ads
-- Offline-ready Progressive Web App (install to home screen, works without internet)
-- One-command Docker deploy (runs on Linux, NAS, Raspberry Pi)
-- Multilingual: English, Italian, French, Russian, German, Spanish
-- Wardrobe sharing with VIEW or MANAGE permissions
-- HTMX-powered SPA with server-rendered HTML for fast page loads
-
-## Pricing
-
-- **Free**: Full app, no restrictions. Self-hosted under AGPL-3.0 license.
+- /wardrobe - garment catalog
+- /outfits - saved outfits and the outfit builder
+- /calendar - outfit schedule
+- /about - about and license attribution
+- /auth/login - sign in (when authentication is enabled)
 
 ## Tech Stack
 
-- Open source (AGPL-3.0 license)
-- Self-hosted with Docker
-- NestJS backend (TypeScript)
-- HTMX + hyperscript frontend (server-rendered, no client framework)
-- SQLite or PostgreSQL database
-- ONNX runtime for client-side AI background removal
-- Workbox service worker for offline PWA
-- S3-compatible file storage
-- JWT-based authentication (optional)
-
-## Platforms
-
-- Progressive Web App (any modern browser, desktop or mobile)
-- Install to home screen via PWA manifest
-- Self-hosted via Docker or docker-compose
+- NestJS on Fastify (TypeScript), Handlebars templates
+- htmx + hyperscript, Tailwind + daisyUI
+- SQLite or PostgreSQL via MikroORM
+- Client-side background removal (ONNX runtime)
+- Workbox service worker, Web Push
+- Local disk or S3-compatible file storage
 
 ## Links
 
-- Website: https://librecloset.lazz.tech
-- GitHub: https://github.com/lazztech/libre-closet
-- Documentation: https://github.com/lazztech/libre-closet#readme
-- Open Wardrobe (demo): https://librecloset.lazz.tech/wardrobe
-- Register: https://librecloset.lazz.tech/auth/register
-- Lazztech: https://lazztech.com
+- Repository: https://github.com/agandhi4/closet
+- Container: ghcr.io/agandhi4/closet
+- Upstream: https://github.com/lazztech/libre-closet
