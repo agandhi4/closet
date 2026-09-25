@@ -15,24 +15,29 @@ describe('NotificationService', () => {
     privateKey: 'UUxI4O8-FbRouAevSmBQ6o18hgE4nSG3qwvJTfKc-ls',
   };
 
+  const configValue = (key: string) => {
+    switch (key) {
+      case 'PWA_ENABLED':
+        return true;
+      case 'SITE_URL':
+        return 'https://mysite.com';
+      case 'PUBLIC_VAPID_KEY':
+        return DUMMY_VAPID_KEYS.publicKey;
+      case 'PRIVATE_VAPID_KEY':
+        return DUMMY_VAPID_KEYS.privateKey;
+      default:
+        return '';
+    }
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         {
           provide: ConfigService,
           useValue: {
-            get: jest.fn((key: string) => {
-              switch (key) {
-                case 'SITE_URL':
-                  return 'https://mysite.com';
-                case 'PUBLIC_VAPID_KEY':
-                  return DUMMY_VAPID_KEYS.publicKey;
-                case 'PRIVATE_VAPID_KEY':
-                  return DUMMY_VAPID_KEYS.privateKey;
-                default:
-                  return '';
-              }
-            }),
+            get: jest.fn(configValue),
+            getOrThrow: jest.fn(configValue),
           },
         },
         NotificationService,

@@ -70,19 +70,31 @@ import { ViewContextModule } from './view-context/view-context.module';
           .valid('development', 'production', 'test')
           .default('production'),
         PORT: Joi.number().default(3000),
-        APP_NAME: Joi.string().default('Boilerplate'),
+        APP_NAME: Joi.string().default('Closet'),
         AUTH_ENABLED: Joi.boolean().default(false),
         DISABLE_REGISTRATION: Joi.boolean().default(false),
         PWA_ENABLED: Joi.boolean().default(false),
         ACCESS_TOKEN_SECRET: Joi.string().default('ChangeMe!'),
-        PUBLIC_VAPID_KEY: Joi.optional().default(
-          'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U',
-        ),
-        PRIVATE_VAPID_KEY: Joi.optional().default(
-          'UUxI4O8-FbRouAevSmBQ6o18hgE4nSG3qwvJTfKc-ls',
-        ),
-        SITE_URL: Joi.string().default('https://librecloset.lazz.tech'),
-        ICON_NAME: Joi.string().default('lazztech_icon.webp'),
+        // No defaults on purpose: a PWA deploy that forgot its VAPID keys must
+        // fail at boot rather than push with a keypair anyone can read from git.
+        PUBLIC_VAPID_KEY: Joi.string().when('PWA_ENABLED', {
+          is: true,
+          then: Joi.required(),
+          otherwise: Joi.optional(),
+        }),
+        PRIVATE_VAPID_KEY: Joi.string().when('PWA_ENABLED', {
+          is: true,
+          then: Joi.required(),
+          otherwise: Joi.optional(),
+        }),
+        // Also the VAPID subject (see NotificationService) and the base of
+        // absolute asset URLs in push payloads.
+        SITE_URL: Joi.string().default('http://localhost:3000'),
+        // File under public/assets/ used for apple-touch-icon, Open Graph
+        // previews, push notification icons and the share-link watermark.
+        ICON_NAME: Joi.string().default('icon.png'),
+        // Composite the app icon onto share-link Open Graph images.
+        WATERMARK_ENABLED: Joi.boolean().default(false),
         DATA_PATH: Joi.string().default(path.join(process.cwd(), 'data')),
         DATABASE_TYPE: Joi.string()
           .valid('sqlite', 'postgres')

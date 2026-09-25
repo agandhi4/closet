@@ -12,6 +12,11 @@ import { PushNotificationDto } from './dto/pushNotification.dto';
 export class NotificationService {
   private logger = new Logger(NotificationService.name);
 
+  // Web Push is a PWA feature: VAPID keys are only required (and only
+  // validated by web-push, which rejects empty keys and non-https subjects)
+  // when PWA_ENABLED is true. See the Joi schema in app.module.ts.
+  private readonly pushConfigured: boolean;
+
   constructor(
     private configService: ConfigService,
     @InjectRepository(User)
@@ -20,11 +25,20 @@ export class NotificationService {
     private userDeviceRepository: EntityRepository<UserDevice>,
     private readonly em: EntityManager,
   ) {
+    this.pushConfigured =
+      this.configService.get<boolean>('PWA_ENABLED') === true;
+    if (!this.pushConfigured) {
+      this.logger.log(
+        'PWA disabled; web push notifications are not configured',
+      );
+      return;
+    }
     webpush.setVapidDetails(
-      this.configService.get('SITE_URL') || '',
-      this.configService.get<string>('PUBLIC_VAPID_KEY') || '',
-      this.configService.get<string>('PRIVATE_VAPID_KEY') || '',
+      this.configService.getOrThrow<string>('SITE_URL'),
+      this.configService.getOrThrow<string>('PUBLIC_VAPID_KEY'),
+      this.configService.getOrThrow<string>('PRIVATE_VAPID_KEY'),
     );
+    this.logger.log('Web push notifications configured');
   }
 
   public async addUserWebPushNotificationSubscription(
@@ -61,6 +75,12 @@ export class NotificationService {
     notification: PushNotificationDto,
     userId: any,
   ) {
+    if (!this.pushConfigured) {
+      this.logger.warn(
+        `Dropping web push notification for user ${userId}: PWA disabled`,
+      );
+      return;
+    }
     const user = await this.userRepository.findOneOrFail(
       { id: userId },
       {

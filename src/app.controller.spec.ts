@@ -10,19 +10,55 @@ describe('AppController', () => {
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService, ConfigService],
+      providers: [
+        AppService,
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue('Closet'),
+            getOrThrow: jest.fn((key: string) =>
+              key === 'ICON_NAME' ? 'icon.png' : 'Closet',
+            ),
+          },
+        },
+      ],
     }).compile();
 
     appController = app.get<AppController>(AppController);
   });
 
-  describe('index', () => {
-    it('should return a context object with translated pageTitle', () => {
-      const i18n = { t: (key: string) => key } as unknown as I18nContext;
-      expect(appController.index(i18n)).toEqual({
-        pageTitle: 'lang.PAGE_TITLE_HOME',
-        ogTitle: 'lang.PAGE_TITLE_HOME',
+  describe('about', () => {
+    it('translates the page title and passes the app name to the OG strings', () => {
+      const t = jest.fn((key: string) => key);
+      const i18n = { t } as unknown as I18nContext;
+      expect(appController.about(i18n)).toEqual({
+        pageTitle: 'lang.ABOUT_TITLE',
+        ogTitle: 'lang.ABOUT_OG_TITLE',
+        ogDescription: 'lang.ABOUT_OG_DESC',
       });
+      expect(t).toHaveBeenCalledWith('lang.ABOUT_OG_TITLE', {
+        args: { appName: 'Closet' },
+      });
+      expect(t).toHaveBeenCalledWith('lang.ABOUT_OG_DESC', {
+        args: { appName: 'Closet' },
+      });
+    });
+  });
+
+  describe('manifest', () => {
+    it('builds the web manifest from APP_NAME and ICON_NAME', () => {
+      const manifest = appController.manifest();
+      expect(manifest.name).toBe('Closet');
+      expect(manifest.short_name).toBe('Closet');
+      expect(manifest.icons).toEqual([
+        {
+          src: '/assets/icon.png',
+          sizes: '1000x1000',
+          type: 'image/png',
+          purpose: 'maskable any',
+        },
+      ]);
+      expect(manifest.start_url).toBe('/wardrobe');
     });
   });
 });

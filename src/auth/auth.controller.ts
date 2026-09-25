@@ -16,6 +16,7 @@ import { I18n, I18nContext } from 'nestjs-i18n';
 import { AuthGuard } from './auth.guard';
 import { RegistrationGuard } from './registration.guard';
 import { AuthService } from './auth.service';
+import { ConfigService } from '@nestjs/config';
 import { EmailDto } from './dto/email.dto';
 import { LoginDto } from './dto/login.dto';
 import { Payload } from './dto/payload.dto';
@@ -29,7 +30,10 @@ import { minutes, seconds, Throttle } from '@nestjs/throttler';
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private configService: ConfigService,
+  ) {}
 
   @UseGuards(RegistrationGuard)
   @Post('register')
@@ -113,9 +117,10 @@ export class AuthController {
   @Get('login')
   @Render('auth/login')
   getLogin(@I18n() i18n: I18nContext): any {
+    const appName = this.configService.get<string>('APP_NAME');
     return {
-      ogTitle: i18n.t('lang.LOGIN_OG_TITLE'),
-      ogDescription: i18n.t('lang.LOGIN_OG_DESC'),
+      ogTitle: i18n.t('lang.LOGIN_OG_TITLE', { args: { appName } }),
+      ogDescription: i18n.t('lang.LOGIN_OG_DESC', { args: { appName } }),
     };
   }
 
@@ -199,9 +204,10 @@ export class AuthController {
   @Get('register')
   @Render('auth/register')
   getRegister(@I18n() i18n: I18nContext): any {
+    const appName = this.configService.get<string>('APP_NAME');
     return {
-      ogTitle: i18n.t('lang.REGISTER_OG_TITLE'),
-      ogDescription: i18n.t('lang.REGISTER_OG_DESC'),
+      ogTitle: i18n.t('lang.REGISTER_OG_TITLE', { args: { appName } }),
+      ogDescription: i18n.t('lang.REGISTER_OG_DESC', { args: { appName } }),
     };
   }
 

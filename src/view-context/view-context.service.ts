@@ -4,7 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { FastifyRequest } from 'fastify';
-import { I18nContext } from 'nestjs-i18n';
+import { I18nContext, I18nService } from 'nestjs-i18n';
 import { User } from '../dal/entity/user.entity';
 
 @Injectable()
@@ -16,6 +16,7 @@ export class ViewContextService {
     private readonly userRepository: EntityRepository<User>,
     private configService: ConfigService,
     private jwtService: JwtService,
+    private i18n: I18nService,
   ) {}
 
   async buildContext(req: FastifyRequest) {
@@ -37,12 +38,15 @@ export class ViewContextService {
     const siteUrl = this.configService.get<string>('SITE_URL') ?? host;
     const baseUrl = `${protocol}://${host}`;
     const appName = this.configService.get<string>('APP_NAME');
-    const appDescription =
-      'Self-hosted wardrobe organizer. Catalog clothes with photos, build outfits, and install as an offline PWA. Free and open-source. No subscription, no ads.';
-    const ogImage = `${baseUrl}/assets/lazztech_icon.png`;
+    const iconName = this.configService.getOrThrow<string>('ICON_NAME');
+    const appDescription = this.i18n.t('lang.APP_DESCRIPTION', {
+      lang: locale,
+    });
+    const ogImage = `${baseUrl}/assets/${iconName}`;
 
     const context: Record<string, any> = {
       appName,
+      iconName,
       siteUrl,
       baseUrl: req.url === '/' ? '' : req.url,
       authEnabled: this.configService.get<boolean>('AUTH_ENABLED'),
