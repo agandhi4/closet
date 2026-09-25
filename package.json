@@ -1,8 +1,8 @@
 {
-  "name": "libre-closet",
+  "name": "closet",
   "version": "0.5.1",
-  "description": "A free, open-source digital wardrobe organizer. Catalog your clothing, build outfits, and share looks.",
-  "author": "Lazztech LLC",
+  "description": "Private household wardrobe organizer: garments, outfits, and a calendar.",
+  "author": "Aakash Gandhi",
   "private": true,
   "license": "AGPL-3.0",
   "engines": {
@@ -15,6 +15,7 @@
     "generate:sw:watch": "npx workbox injectManifest --watch",
     "generate:tailwind": "npx @tailwindcss/cli -i ./views/assets/main.css -o ./public/bundle.css --minify",
     "generate:tailwind:watch": "npx @tailwindcss/cli -i ./views/assets/main.css -o ./public/bundle.css --minify --watch",
+    "generate:icons": "ts-node scripts/generate-icons.ts",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "npm run generate && nest start",
@@ -117,6 +118,7 @@
     "jest": "^30.0.0",
     "npm-check-updates": "^19.1.1",
     "patch-package": "^8.0.1",
+    "png-to-ico": "^3.0.2",
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",
     "ts-jest": "^29.2.5",
