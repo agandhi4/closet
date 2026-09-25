@@ -35,7 +35,7 @@ https://nestjs-i18n.com/quick-start --}}
     {{!--
     https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/ConfiguringWebApplications/ConfiguringWebApplications.html
     https://developer.chrome.com/docs/lighthouse/pwa/apple-touch-icon --}}
-    <link rel="apple-touch-icon" href="/assets/lazztech_icon.png" />
+    <link rel="apple-touch-icon" href="/assets/{{iconName}}" />
 
     {{!-- https://htmx.org/reference/#config --}} {{!--
     https://htmx.org/attributes/hx-swap/#modifiers --}}
@@ -43,11 +43,10 @@ https://nestjs-i18n.com/quick-start --}}
     {{!-- https://htmx.org/quirks/#attribute-inheritance --}}
     <meta name="htmx-config" content='{"disableInheritance":true}' />
 
-    <title>{{#if pageTitle}}{{pageTitle}}{{else}}{{appName}} — Free Self-Hosted Wardrobe Organizer{{/if}}</title>
+    <title>{{#if pageTitle}}{{pageTitle}}{{else}}{{appName}}{{/if}}</title>
     {{! Used inconjunction with service worker sw.js to enable PWA (Progressive
     Web App) functionality. }}
     <link rel="manifest" href="/manifest.json" />
-    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
     {{! Served modules from node_modules, look to main.ts to see how this is
     performed. https://htmx.org/docs/#installing
     https://blog.wesleyac.com/posts/why-not-javascript-cdn }}
