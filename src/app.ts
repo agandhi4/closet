@@ -19,6 +19,8 @@ import { GarmentColor } from './wardrobe/garment-color.enum';
 import { ImageRef, imageUrl } from './file/file-url/image-url';
 import { isImageVariant } from './file/image-variant';
 import { PROJECT_ROOT } from './project-root';
+import { BUILD_INFO } from './build-info';
+import { ConfigService } from '@nestjs/config';
 
 const PUBLIC_DIR = join(PROJECT_ROOT, 'public');
 const VIEWS_DIR = join(PROJECT_ROOT, 'views');
@@ -54,6 +56,12 @@ export async function createApp(): Promise<NestFastifyApplication> {
   app.useLogger(app.get(Logger));
 
   app.get(Logger).log(`Trusted proxies: ${trustProxy.join(', ')}`, 'Bootstrap');
+  app
+    .get(Logger)
+    .log(
+      `Build ${BUILD_INFO.version} (${BUILD_INFO.commit ?? 'no commit'}), static cache key ${BUILD_INFO.assetVersion}`,
+      'Bootstrap',
+    );
 
   // One session resolution per request: the JWT is verified and the user
   // loaded here and nowhere else (guards and views read req.auth). Static
@@ -103,13 +111,39 @@ export async function createApp(): Promise<NestFastifyApplication> {
   return app;
 }
 
+// Every static URL is versioned (`?v=` from BUILD_INFO.assetVersion in
+// layout.hbs and the importmap; `?v=<photo version>` on /file/**), so a deploy
+// changes URLs, never the bytes behind one: a year, immutable. The two files
+// whose URL cannot change keep revalidating: sw.js below (the browser must
+// see a new worker to update the app shell) and manifest.json (a route,
+// AppController). NODE_ENV=development turns caching off so `tailwind
+// --watch` output shows up on a plain reload.
+const IMMUTABLE_YEAR = 'public, max-age=31536000, immutable';
+const REVALIDATE = 'public, max-age=0';
+const SERVICE_WORKER_CACHE_CONTROL = 'no-cache';
+
 // Keep in step with STATIC_PREFIXES in static-prefixes.ts: every root here
 // must be a path the session hook skips.
 function registerStaticAssets(app: NestFastifyApplication) {
+  const dev = app.get(ConfigService).get<string>('NODE_ENV') === 'development';
+  const cacheControl = dev ? REVALIDATE : IMMUTABLE_YEAR;
+  // @fastify/static writes its own Cache-Control after setHeaders, so
+  // per-file policy needs cacheControl:false and a hand-set header.
   app.useStaticAssets({
     root: PUBLIC_DIR,
     decorateReply: false,
+    cacheControl: false,
+    setHeaders: (res, path) => {
+      res.setHeader(
+        'Cache-Control',
+        path.endsWith('sw.js') ? SERVICE_WORKER_CACHE_CONTROL : cacheControl,
+      );
+    },
   });
+
+  const immutable = dev
+    ? { maxAge: 0, immutable: false }
+    : { maxAge: '1y', immutable: true };
 
   /** Serve htmx and other libraries from node_modules
    * https://htmx.org/docs/#installing
@@ -125,27 +159,36 @@ function registerStaticAssets(app: NestFastifyApplication) {
     ],
     prefix: '/modules/',
     decorateReply: false,
+    ...immutable,
   });
 
   app.useStaticAssets({
     root: nodeModule('pulltorefreshjs/dist'),
     prefix: '/modules/pulltorefresh',
     decorateReply: false,
+    ...immutable,
   });
+  // The background-removal runtime and models are fetched by the library
+  // with unversioned relative URLs (resources.json and chunk imports), so the
+  // service worker revalidates them (NetworkFirst, cache:'no-cache' in
+  // src-sw.ts) instead of trusting this header.
   app.useStaticAssets({
     root: nodeModule('@imgly/background-removal/dist'),
     prefix: '/modules/background-removal',
     decorateReply: false,
+    ...immutable,
   });
   app.useStaticAssets({
     root: nodeModule('onnxruntime-web'),
     prefix: '/modules/onnxruntime-web',
     decorateReply: false,
+    ...immutable,
   });
   app.useStaticAssets({
     root: nodeModule('@imgly/background-removal-data/dist'),
     prefix: '/bg-removal-models',
     decorateReply: false,
+    ...immutable,
   });
 }
 

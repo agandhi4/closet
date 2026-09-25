@@ -21,6 +21,12 @@ COPY tsconfig*.json ./
 COPY nest-cli.json .
 COPY tailwind.config.js .
 COPY workbox-config.js .
+COPY scripts ./scripts
+
+# No .git in the build context: docker-publish.yml can pass the commit so the
+# static cache key (public/build.json) names it; the build time is the fallback.
+ARG GIT_SHA
+ENV GIT_SHA=$GIT_SHA
 
 RUN npm run build
 

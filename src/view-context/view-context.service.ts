@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { FastifyRequest } from 'fastify';
 import { I18nContext, I18nService } from 'nestjs-i18n';
 import { AuthContext } from '../auth/auth-context.service';
+import { BUILD_INFO } from '../build-info';
 
 const OG_LOCALES: Record<string, string> = {
   en: 'en_US',
@@ -52,6 +53,9 @@ export class ViewContextService {
       authEnabled: this.configService.get<boolean>('AUTH_ENABLED'),
       signupsDisabled: this.configService.get<boolean>('DISABLE_REGISTRATION'),
       pwaEnabled: this.configService.get<boolean>('PWA_ENABLED'),
+      // `?v=` on every static URL in layout.hbs; see src/build-info.ts.
+      appVersion: BUILD_INFO.assetVersion,
+      appRelease: BUILD_INFO.version,
       locale,
       canonicalUrl,
       ogUrl: canonicalUrl,
