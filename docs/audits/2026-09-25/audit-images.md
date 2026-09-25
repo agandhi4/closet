@@ -1,0 +1,47 @@
+# Closet file/image pipeline audit
+
+## Lifecycle
+
+### Upload (garment create/replace)
+1. Fastify multipart, `fastifyMultipart` registered `src/main.ts:64` — `fileSize: 100MB`, `files: 5`. No `bodyLimit` set separately; multipart streams parts, not buffered wholesale.
+2. `GarmentController` (`src/wardrobe/wardrobe.controller.ts:390` create, `:438` nobg update) hands `req.files()`/`req.file()` (live `MultipartFile` streams) into `GarmentService`.
+3. `GarmentService.create`/`update` (`src/wardrobe/garment.service.ts:129-160`, `:246-313`) iterate the async multipart iterator and start (not await) per-part pipelines to avoid backpressure hangs — comment at `garment.service.ts:254-263` documents this correctly.
+4. `LocalFileService.storeImageFromFileUpload` (`src/file/local-file/local-file.service.ts:36-77`): checks `mimetype.startsWith('image/')`, streams `upload.file → sharp().autoOrient().webp({quality:100}).resize(1080,1080,'inside') → fs.createWriteStream`, all via `pipeline()`. Streamed end-to-end, no full-buffer in memory — good.
+5. Client-side background removal (`public/js/background-removal.js`) runs `@imgly/background-removal` in a Web Worker (ONNX/WASM, model `isnet_quint8`) in-browser before submit, produces `nobgPhoto` field; server never runs bg-removal itself. `patches/@imgly+background-removal+1.7.0.patch` forces iOS Safari to `numThreads=1`/no-WebGPU (iOS WebGPU+multithread combo crashes) — narrow, justified patch.
+6. `nobgPhoto` part is piped through `FileService.storeNobgVariantFromStream` (`file-service.abstract.ts:45-59`, webp q100, 1080×1080) to `<uuid>-nobg.webp`, stored under the *same* base filename as the primary photo (not content-hashed).
+7. On upload failure, no server-side bg-removal fallback exists despite the code comment at `background-removal.js:7` claiming one ("server-side fallback path handles generation lazily on first /file/nobg/ request") — `FileController.nobg` (`file.controller.ts:75-93`) only serves whatever nobg file already exists or 302s to the plain photo; it never generates one. The comment is aspirational/stale.
+8. DB row: `File` entity (`src/dal/entity/file.entity.ts`) created only after the storage write succeeds; `garment.photo` OneToOne is set and flushed after. If the process crashes between storage write and `persistAndFlush`, the blob is an orphan (no DB pointer) — narrow window, low impact.
+
+### Read (grid + detail)
+- Grid (`views/wardrobe/index.hbs:31`) and detail (`views/wardrobe/show.hbs:32`) both request **the same image**: `/file/nobg/:fileName`, the full 1080×1080 q100 webp. No separate thumbnail derivative exists anywhere in the pipeline.
+- `FileController.nobg` (`file.controller.ts:75-93`) sets `Cache-Control: no-store` unconditionally, and streams from disk/S3 (no on-the-fly resize — CPU cost is only the disk/S3 read, not per-request transform).
+- `FileController.getFile` (`:61-65`, plain `/file/:fileName`) sets `Cache-Control: public, max-age=31536000, immutable` but has **no auth guard** (contrast `ConditionalAuthGuard`/`AuthGuard` used on the sibling `files`/`upload` routes at `:33`/`:46`), and sets no `Content-Type` header at all (Fastify falls back to `application/octet-stream` for a raw stream return).
+
+### Delete
+- `GarmentService.remove` (`garment.service.ts:351-354`) calls only `removeAndFlush(garment)` — it never calls `fileService.delete()` for the photo or its nobg variant. Compare `deleteOldPhoto` (`:315-326`), used only on *replace*, which does call `fileService.delete()` for both. Deleting a garment therefore always orphans 2 files (original + nobg) on disk/S3, forever.
+- `File.createdBy` and `Garment.owner` have `deleteRule: 'cascade'` at the DB level (`file.entity.ts:29`, `garment.entity.ts:57-62`). Deleting a user cascades the `garment` and `file` **rows** but never touches physical bytes — the ORM cascade bypasses `FileService` entirely, so user deletion is a second, larger orphan-file source (every garment + every photo the user ever uploaded).
+- No reconciliation job exists anywhere in `src/` (no cron/sweep referenced).
+
+## Findings, by impact
+
+### 1. HEIC photos — the default iPhone camera format — cannot be decoded; uploads fail (S, verify-then-document; root cause is a dependency limitation, not app code)
+`sharp` `^0.34.4` (`package.json:83`) ships prebuilt libvips **without HEIC decode support** (only patent-free AVIF is bundled under the `heif` format ID). Verified in this checkout:
+```
+sharp.format.heif.input.fileSuffix === ['.avif']   // no '.heic'
+```
+`LocalFileService.storeImageFromFileUpload` (`local-file.service.ts:52-66`) passes the mimetype check (`image/heic` starts with `image/`) then feeds the stream to `sharp().autoOrient()...`, which throws on decode. The `pipeline()` catch destroys the write stream and rethrows (`:63-66`) but **does not unlink the partially-created file** at `path.join(this.directory, storedFileName)` — a zero/partial-byte orphan is left even on this "handled" error path. CLAUDE.md's own framing — "uploads come from a phone camera (multi-MB HEIC/JPEG)" — confirms HEIC is expected input, not an edge case. Any household member who hasn't set their iPhone camera to "Most Compatible" (JPEG) gets a failed upload with whatever generic error `GarmentController` surfaces.
+**Fix**: add `heic-decode`/`heic-convert` (or install a libvips build with `--with-heif` via a system package, which reintroduces the licensing question) as an explicit pre-decode step for `image/heic`/`image/heif` mimetypes before handing bytes to `sharp`, and unlink the destination path in the `catch` block regardless of cause. Effort M (dependency + Docker image work + tests across both storage backends).
+
+### 2. The most-viewed screen (garment grid) never caches its images (M)
+`FileController.nobg` (`file.controller.ts:84`) hardcodes `Cache-Control: no-store` on the *only* image endpoint the grid uses (`views/wardrobe/index.hbs:31`), and there is no separate thumbnail — grid and detail both fetch the full 1080×1080 webp quality-100 derivative. Every grid render, for every garment, on every visit (including from the service-worker's precache-first PWA), re-fetches every photo from origin. This directly contradicts CLAUDE.md's own offline-first mandate ("Reads render from cache with a freshness indicator") and is expensive on a phone data connection. The `no-store` appears to be a workaround for a real problem: the nobg filename is stable (derived from the original photo's UUID, not content-hashed — `nobgFileName()` in `file-service.abstract.ts:16-21`), so editing the mask (`wireUpEditMaskBtn`, `background-removal.js:196-236`) overwrites the same URL's bytes; a long-lived Cache-Control would serve stale masks after an edit.
+**Fix**: version the nobg file identity (either content-hash the filename, or add a `File.version`/`updatedOn` column and route `/file/nobg/:fileName?v=N` or `/file/:fileId-:version`), then set `public, max-age=31536000, immutable` like the plain `/file/:fileName` route already does. Separately, generate a real thumbnail derivative (e.g. 320px) for the grid at upload time instead of shipping the 1080px asset to every grid cell. Effort M.
+
+### 3. Deleting a garment or a user permanently orphans photo files (S)
+`GarmentService.remove` (`garment.service.ts:351-354`) never calls `FileService.delete`, unlike the parallel `deleteOldPhoto` path used on replace (`:315-326`). User deletion cascades `garment`/`file` DB rows via MikroORM `deleteRule: 'cascade'` (`file.entity.ts:29`, `garment.entity.ts:57-62`) without ever invoking `FileService`, so it's structurally impossible for physical bytes to be cleaned up on that path even if `remove()` were fixed — the DB and the storage layer are not kept in sync by construction. On a self-hosted box with a bounded disk (`DATA_PATH` on the NAS volume), this is a slow, silent, unbounded leak with a photo-heavy app as the primary payload.
+**Fix**: make `GarmentService.remove` call `fileService.delete()` for both variants before/with the DB delete (matching `deleteOldPhoto`), and replace the DB-level cascade on `File.createdBy` with an application-level hook (MikroORM `@BeforeDelete`/explicit service call in the user-deletion flow) that goes through `FileService` — the storage abstraction should be the only path that ever removes a stored image. Add a periodic reconciliation job (list storage, diff against `file` table) as a safety net; effort for the app-level fix is S, the reconciliation job is M.
+
+## What's fine
+- Multipart handling is properly streamed end-to-end (upload → sharp → disk/S3) with no whole-file buffering; the `pipeline()` usage and the documented "start-don't-await" pattern for concurrent multipart parts (`garment.service.ts:254-263`) is correct and non-obvious enough that the comment earns its place.
+- `local-file.service.ts` and `s3-file.service.ts` implement a consistent interface with equivalent streaming behavior (`Upload` from `@aws-sdk/lib-storage` for S3, `fs.createWriteStream`/`pipeline` for local) — no leaky Readable-vs-Buffer mismatch between backends.
+- Client-side background removal keeping the ONNX/WASM compute off the server is the right call for a self-hosted single-container app; the iOS `patches/` fix is narrowly scoped and well-commented.
+- OG/watermark image path (`FileController.watermark`, `file.controller.ts:67-73`) has sane 24h caching and always re-encodes to JPEG, which is appropriate for link-preview consumers that don't respect webp.
