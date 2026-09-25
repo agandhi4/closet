@@ -72,6 +72,15 @@ Controller method → `@Render('feature/view')` or `reply.view(...)` → Handleb
 
 `public/sw.js` is a build artifact. Edit `views/assets/src-sw.ts` and run `npm run generate:sw`. The precache manifest comes from `workbox-config.js` globs. Service workers and Web Push require a secure context, which is why production is served over HTTPS (see Deployment).
 
+Delivery model (audit fixes, see `src-sw.ts`, `public/js/pwa.js`, `public/js/connectivity.js`):
+
+- **Static cache key.** Every first-party static URL carries `?v={{appVersion}}` (layout.hbs, the importmap, show.hbs). `appVersion` is `src/build-info.ts`: package.json version plus the commit (or build time) from `public/build.json`, which `scripts/write-build-info.ts` writes during `npm run build`. `app.ts` serves `/modules`, `/js`, `/assets`, `/bg-removal-models` and `bundle.css` as `public, max-age=31536000, immutable`, so **the key is the only thing that rolls the cache**: `npm version`, a new commit in a built tree, or `GIT_SHA` passed to the Docker build all change it; a build with none of those still gets a unique timestamp. `sw.js` and `manifest.json` stay `no-cache`. `NODE_ENV=development` turns the immutable policy off so `tailwind --watch` output shows on a plain reload.
+- **Service worker strategies.** public/ files are precached by content hash (`?v` ignored on match). Navigations and htmx requests are NetworkFirst (3 s timeout, `pages-v1`); fragments are keyed `url|hx` by `src/htmx/fragment-request.ts`, which the server uses for the same decision. Versioned scripts are StaleWhileRevalidate (`assets-v1`), `/file/**` images CacheFirst (`images-v1`, 500 entries, 30 days). The background-removal runtime and models revalidate with `cache: 'no-cache'` because the library loads chunks by unversioned URLs. Unmatched requests (POST, `/healthz`, `/sse`) bypass the worker.
+- **Updates.** The worker does not `skipWaiting()` on install. `pwa.js` shows an "Update available: Reload" toast on `waiting`, posts `SKIP_WAITING` on tap, and reloads on `controlling`. Never force a reload.
+- **Connectivity.** `connectivity.js` probes `GET /healthz` (204, `no-store`, skips the session hook) every 30 s while visible, on every `htmx:sendError`/`responseError`, and every 5 s while offline; it drives `#connectivity-banner` in `partials/app_status.hbs`. `navigator.onLine` is only a hint.
+- **Page-only libraries** (sortablejs on the outfit form, `sse.js` on chat, `@imgly/background-removal` on the garment page) load from the page that needs them, as ES modules through the importmap in layout.hbs so boosted navigations cannot race a global. Background removal downloads nothing until the photo input or camera button is touched.
+- **Wardrobe fragment.** `GET /wardrobe` with a fragment request (`HX-Request` without `HX-Boosted`/history restore) returns `partials/wardrobe_main` with `Vary`; the filter bar and search form target `#wardrobe-main` with `hx-push-url`, so filtering never re-renders navbar and dock.
+
 ## Conventions
 
 Upstream rules we keep (from `.github/prompts/boilerplate.prompt.md`), plus ours:
@@ -107,6 +116,9 @@ npm run test:int              # jest integration: real app in-process, in-memory
                               # The default place for behavior assertions during development.
 npm run test:e2e              # playwright (full): builds + boots :3000 unless one is already running.
 npm run test:e2e:smoke        # playwright smoke, the CI gate
+                              # test/pwa.spec.ts (service worker, offline shell, lazy model) and
+                              # test/auth.spec.ts skip unless the server was started with
+                              # PWA_ENABLED=true (+ VAPID keys) / AUTH_ENABLED=true respectively
 npm run test:load             # autocannon against a running instance
 npm run lighthouse            # lhci autorun
 
@@ -177,6 +189,8 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **`precommit:full` is minutes long** (Lighthouse and load test included). Use it as the pre-PR gate; `precommit` is the per-commit one.
 - **`test:e2e` rebuilds unless :3000 is busy.** Playwright's `reuseExistingServer` is on outside CI, so leaving `npm run start:prod` running skips the `npm run build` in the webServer command; stop it when you need the e2e run to see fresh code.
 - **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation, `DalModule`'s driver pick), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different `AUTH_ENABLED` in a different spec file.
+- **htmx reads only the first `<meta name="htmx-config">`.** Keep the config in one JSON object. `disableInheritance` is on, so any attribute that must reach descendants needs `hx-inherit` on the ancestor (the body has `hx-inherit="hx-boost"`; without it no link is boosted).
+- **`public/build.json` lingers after `npm run build`.** `start:dev` then serves assets with that build's cache key; set `NODE_ENV=development` in `.env.local` (caching off) or delete the file if styles look stale.
 - **Nest answers POST with 201 unless the handler has `@HttpCode(200)`**, even when it sends through `@Res()`: htmx partials, `HX-Redirect` replies and re-rendered forms (failed login, validation errors) all come back 201. Integration specs assert 2xx on those; browsers and htmx do not care.
 
 ## Workflow

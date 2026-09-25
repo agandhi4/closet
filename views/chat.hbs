@@ -1,4 +1,6 @@
 {{!-- Load navbar partial --}} {{>navbar}}
+{{!-- The SSE extension is only used here, so only this page loads it. --}}
+<script defer src="/modules/sse.js?v={{appVersion}}"></script>
 <main class="flex flex-col h-screen">
   <div class="w-full p-2 gap-2 pt-20 shadow-md bg-base-200 flex justify-center">
     {{#if user}}

@@ -128,6 +128,12 @@ export type I18nTranslations = {
         "CATEGORY_LINGERIE": string;
         "OFFLINE_TITLE": string;
         "OFFLINE_DESC": string;
+        "OFFLINE_BANNER": string;
+        "RECONNECTING": string;
+        "BACK_ONLINE": string;
+        "UPDATE_AVAILABLE": string;
+        "RELOAD": string;
+        "APP_VERSION": string;
         "SHARED_BY": string;
         "SELECT_AN_OUTFIT": string;
         "UNTITLED_OUTFIT": string;

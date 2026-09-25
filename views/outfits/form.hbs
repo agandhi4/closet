@@ -36,13 +36,21 @@
     <input type="hidden" name="returnTo" value="{{returnTo}}" />
     {{#if returnToWeek}}<input type="hidden" name="returnToWeek" value="{{returnToWeek}}" />{{/if}}
     <div class="card bg-base-100 shadow-sm mb-4">
-      <div
-        id="outfit-rows-list"
-        class="card-body p-3 divide-y divide-base-300"
-        _="init js(me) Sortable.create(me, { handle: '.drag-handle', animation: 150, ghostClass: 'opacity-40' }) end"
-      >
+      <div id="outfit-rows-list" class="card-body p-3 divide-y divide-base-300">
         {{#each categoryRows}}{{> outfit_row row=this}}{{/each}}
       </div>
+      {{!-- The only page that drags, so the only page that loads sortablejs
+      (importmap in layout.hbs). A module script rather than a global: htmx
+      inserts external scripts asynchronously on boosted navigations, so an
+      `init` on the list could run before a classic <script src> landed. --}}
+      <script type="module">
+        import Sortable from 'sortablejs';
+        Sortable.create(document.getElementById('outfit-rows-list'), {
+          handle: '.drag-handle',
+          animation: 150,
+          ghostClass: 'opacity-40',
+        });
+      </script>
       <div class="flex gap-2 p-3 pt-0">
         <input
           type="text"

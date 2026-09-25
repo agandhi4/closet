@@ -7,12 +7,21 @@
  * to the original photo when served.
  *
  * Models are served from /bg-removal-models/ (@imgly/background-removal-data
- * installed from the IMG.LY CDN tarball — no runtime CDN required).
+ * installed from the IMG.LY CDN tarball, no runtime CDN required).
+ *
+ * Nothing heavy happens at import: the runtime module and the 42 MB model
+ * are fetched on the first sign of intent (the photo input or camera button
+ * is touched) and only while the bgRemovalEnabled toggle is on. Opening a
+ * garment page costs the size of this file and mask-editor.js, nothing more.
+ * The module specifier resolves through the importmap in layout.hbs.
  */
+
+import { openMaskEditor } from 'mask-editor';
 
 let activeProgressHandler = null;
 
-export const isBgRemovalEnabled = () => localStorage.getItem('bgRemovalEnabled') !== 'false';
+export const isBgRemovalEnabled = () =>
+  localStorage.getItem('bgRemovalEnabled') !== 'false';
 
 const config = {
   publicPath: location.origin + '/bg-removal-models/',
@@ -32,6 +41,32 @@ const config = {
   progress: (key, current, total) => {
     activeProgressHandler?.(key, current, total);
   },
+};
+
+let modulePromise = null;
+/** The runtime (ONNX + WASM glue), fetched once. */
+const loadModule = () =>
+  (modulePromise ??= import('@imgly/background-removal'));
+
+let warmed = false;
+/**
+ * Fetches the runtime and the model so they are ready by the time a photo is
+ * picked. Called on intent only; a no-op while the toggle is off (the change
+ * handler loads on demand if it is switched on later).
+ */
+export const warmUp = () => {
+  if (warmed || !isBgRemovalEnabled()) return;
+  warmed = true;
+  console.info('[bg-removal] warming up runtime and model');
+  loadModule()
+    .then((mod) => mod.preload(config))
+    .then(() => console.info('[bg-removal] assets preloaded'))
+    .catch((err) => {
+      // Old browser, no ES module support, offline: the form still works and
+      // the server fallback handles the photo.
+      warmed = false;
+      console.warn('[bg-removal] preload failed:', err);
+    });
 };
 
 const updateStatusText = (bgStatus, bgStatusText, key) => {
@@ -79,33 +114,22 @@ const squarePadBlob = async (blob) => {
   return canvas.convertToBlob({ type: 'image/png' });
 };
 
-let mod = await import('/modules/background-removal/index.mjs');
-let removeBackground = mod.removeBackground;
-
-import { openMaskEditor } from '/js/mask-editor.js';
-
-export const initBackgroundRemoval = async () => {
-  try {
-    mod.preload(config).then(() => {
-      console.log('Asset preloading succeeded');
-    });
-  } catch (err) {
-    // Package failed to load (old browser, no ES module support, etc.)
-    // Leave the form as-is; server fallback will handle it.
-    console.warn('[bg-removal] Failed to load background-removal module:', err);
-    return;
-  }
-};
-
-export const wireUpPhotoInput = async () => {
+export const wireUpPhotoInput = () => {
   const photoInput = document.getElementById('photoInput');
   const nobgInput = document.getElementById('nobgPhotoInput');
   const submitBtn = document.getElementById('photoBtn');
   const bgStatus = document.getElementById('bgStatus');
   const bgStatusText = document.getElementById('bgStatusText');
   const bgStatusHint = document.getElementById('bgStatusHint');
+  const photoCaptureBtn = document.getElementById('photoCaptureBtn');
 
   if (!photoInput || !nobgInput) return;
+
+  // Intent: the chooser or camera is about to open, so the download can
+  // overlap with the user picking a photo.
+  photoInput.addEventListener('focus', warmUp);
+  photoInput.addEventListener('click', warmUp);
+  photoCaptureBtn?.addEventListener('click', warmUp);
 
   photoInput.addEventListener('change', async function () {
     // Re-enable submit for the "no file" case; it will be gated by html required
@@ -160,7 +184,7 @@ export const wireUpPhotoInput = async () => {
     };
 
     try {
-      console.log(config);
+      const { removeBackground } = await loadModule();
       const rawBlob = await removeBackground(squareFile, config);
       const blob = await openMaskEditor(squareFile, rawBlob);
 
@@ -168,7 +192,7 @@ export const wireUpPhotoInput = async () => {
       dt.items.add(new File([blob], 'nobg.webp', { type: 'image/webp' }));
       nobgInput.files = dt.files;
     } catch (err) {
-      // Processing failed — clear any partial result and let server fallback run
+      // Processing failed: clear any partial result and let server fallback run
       console.warn(
         '[bg-removal] Processing failed, using server fallback:',
         err,
@@ -182,14 +206,13 @@ export const wireUpPhotoInput = async () => {
       if (submitBtn) submitBtn.disabled = false;
     }
   });
-
-  console.log('wired up photo input for background removal');
 };
 
 /**
  * Wires up the edit-mask button on the garment image.
  * Fetches the existing original + nobg images, opens the mask editor,
  * then POSTs only the updated nobg variant to /wardrobe/:id/nobg.
+ * The editor is brush work on the existing cutout; no model is involved.
  *
  * Image URLs come from the server (the `imageUrl` helper) and carry the
  * photo's version. Every /file/** response is cached as immutable, so after
@@ -197,7 +220,7 @@ export const wireUpPhotoInput = async () => {
  * displayed image and any further edit both read the fresh cutout.
  * @param {{ garmentId: number, originalUrl: string, nobgUrl: string }} opts
  */
-export const wireUpEditMaskBtn = async ({ garmentId, originalUrl, nobgUrl }) => {
+export const wireUpEditMaskBtn = ({ garmentId, originalUrl, nobgUrl }) => {
   const btn = document.getElementById('editMaskBtn');
   if (!btn) return;
 
@@ -247,10 +270,7 @@ export const wireUpEditMaskBtn = async ({ garmentId, originalUrl, nobgUrl }) => 
 
 export default {
   isBgRemovalEnabled,
-  initBackgroundRemoval,
+  warmUp,
   wireUpPhotoInput,
   wireUpEditMaskBtn,
 };
-
-// Preload clientside background removal models
-(() => initBackgroundRemoval())();
