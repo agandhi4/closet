@@ -73,3 +73,6 @@ node_modules/
 
 # Load test results
 /scripts/results/
+
+# Agent tooling (worktrees are full checkouts)
+.claude/

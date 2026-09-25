@@ -16,7 +16,4 @@ module.exports = {
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
   },
-  // Every spec boots its own app in beforeAll; the budget covers a cold
-  // ts-jest compile of src/ plus migrations.
-  testTimeout: 30000,
 };

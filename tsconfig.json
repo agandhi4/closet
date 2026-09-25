@@ -27,5 +27,6 @@
   },
   // The service worker runs in a worker scope, not Node: it is checked by
   // views/assets/tsconfig.json (npm run typecheck runs both).
-  "exclude": ["node_modules", "dist", "views/assets"]
+  // .claude/worktrees holds whole checkouts made by agent tooling.
+  "exclude": ["node_modules", "dist", "views/assets", ".claude"]
 }
