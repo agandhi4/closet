@@ -3,7 +3,7 @@ import type { AuthContext } from '../auth/auth-context.service';
 
 /**
  * The per-request page context: built by ViewContextService in the
- * preHandler hook in app.ts for every non-static request (Nest and
+ * preValidation hook in app.ts for every non-static request (Nest and
  * plain-Fastify routes alike) and stored as `reply.locals`. Handlebars
  * templates read it as their root context; JSX pages take it as a prop.
  *

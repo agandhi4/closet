@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import type { Db } from '../db/client';
 import { isStaticPath } from '../static-prefixes';
 import { createSessionHook } from './auth';
 import { createErrorHandler } from './errors';
@@ -9,11 +10,14 @@ import { shellRoutes } from './shell/routes';
 export interface WebConfig {
   appName: string;
   iconName: string;
+  /** APP_TIMEZONE: the household's IANA zone, which decides "today". */
+  timeZone: string;
 }
 
 export interface WebOptions {
   config: WebConfig;
   logger: WebLogger;
+  db: Db;
 }
 
 /**
@@ -22,7 +26,15 @@ export interface WebOptions {
  * app.init(), so the routes sit beside Nest's). Encapsulated on purpose: the
  * session hook and the error handler below apply to these routes only,
  * never to Nest's, which keep SessionGuard and ErrorViewFilter. The root
- * preHandler in app.ts (req.auth, reply.locals) runs before both.
+ * preValidation hook in app.ts (req.auth, reply.locals) runs before both.
+ *
+ * Request validation is Fastify's own: each route declares a JSON schema
+ * for its body, querystring and params with TypeBox, and the handler's
+ * request types are inferred from it (FastifyPluginCallbackTypebox). A
+ * request that fails it never reaches the handler: the error handler
+ * renders a 400 page with Fastify's message. Both hooks here run at
+ * preValidation, before that check, so an anonymous request is sent to log
+ * in and a failed validation still has its page context.
  *
  * A ported feature is one more `app.register(<feature>Routes, options)`.
  *
@@ -36,7 +48,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   options,
 ) => {
   const { logger } = options;
-  app.addHook('preHandler', createSessionHook(logger));
+  app.addHook('preValidation', createSessionHook(logger));
   app.setErrorHandler(createErrorHandler(logger));
   // One line per request, as pino-http writes for Nest routes; static paths
   // (the heartbeat, the manifest) stay out of the log there too.

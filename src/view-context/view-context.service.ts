@@ -16,7 +16,7 @@ const OG_LOCALES: Record<string, string> = {
 };
 
 /**
- * Builds the template context exposed as `reply.locals` by the preHandler
+ * Builds the template context exposed as `reply.locals` by the preValidation
  * hook in app.ts. The session comes in as an argument: this service must not
  * read the cookie or load the user itself (AuthContextService already did).
  */

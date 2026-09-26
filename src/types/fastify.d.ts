@@ -3,7 +3,7 @@ import type { ViewContext } from '../web/view-context';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    /** Session resolved once per request by the preHandler hook in app.ts (AuthContextService). Undefined on static paths and for anonymous requests; SessionGuard guarantees it on every non-@Public() route. Read through @UserId(). */
+    /** Session resolved once per request by the preValidation hook in app.ts (AuthContextService). Undefined on static paths and for anonymous requests; SessionGuard guarantees it on every non-@Public() route. Read through @UserId(). */
     auth?: AuthContext;
   }
 

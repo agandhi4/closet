@@ -96,7 +96,7 @@ export function createErrorHandler(logger: WebLogger) {
     }
     // No page context: a static path (the session hook skips those; their
     // routes, /healthz and /manifest.json, answer data), or a failure before
-    // the root preHandler ran, such as an unparsable body. Data, then.
+    // the root preValidation hook ran, such as an unparsable body. Data, then.
     // ErrorViewFilter renders a page without app name or session there.
     if (!reply.locals) {
       return reply.status(status).send({ statusCode: status, message });

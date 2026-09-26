@@ -14,12 +14,14 @@ declare module 'fastify' {
 }
 
 /**
- * The session gate for plain-Fastify routes, a preHandler in the web plugin's
- * scope. It runs after the root preHandler in app.ts has resolved `req.auth`
- * and answers exactly as SessionGuard + ErrorViewFilter do for Nest routes
- * (the decision is shared: decideSessionAccess): a page navigation without a
- * session is a 302 to the login page, an htmx fragment or fetch a bodiless
- * 401 with `HX-Redirect`. Both are routine, so they log at debug.
+ * The session gate for plain-Fastify routes, a preValidation hook in the web
+ * plugin's scope. It runs after the root hook in app.ts has resolved
+ * `req.auth` and before schema validation, so a request without a session is
+ * sent to log in rather than told its body is malformed. It answers exactly
+ * as SessionGuard + ErrorViewFilter do for Nest routes (the decision is
+ * shared: decideSessionAccess): a page navigation without a session is a 302
+ * to the login page, an htmx fragment or fetch a bodiless 401 with
+ * `HX-Redirect`. Both are routine, so they log at debug.
  */
 export function createSessionHook(logger: WebLogger) {
   return async function requireSession(
@@ -40,4 +42,18 @@ export function createSessionHook(logger: WebLogger) {
         return reply.status(401).header('HX-Redirect', LOGIN_PATH).send();
     }
   };
+}
+
+/**
+ * The signed-in user's id on a protected route, where requireSession has
+ * already refused requests without a session; the web layer's @UserId().
+ * Calling it from a public route is a programming error.
+ */
+export function sessionUserId(request: FastifyRequest): number {
+  if (!request.auth) {
+    throw new Error(
+      `sessionUserId() on ${request.method} ${request.url}, which has no session: is the route public?`,
+    );
+  }
+  return request.auth.user.id;
 }
