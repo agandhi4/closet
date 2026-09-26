@@ -13,6 +13,6 @@
         "bierner.markdown-mermaid",
         "streetsidesoftware.code-spell-checker",
         "ms-playwright.playwright",
-        "orta.vscode-jest"
+        "vitest.explorer"
     ]
 }

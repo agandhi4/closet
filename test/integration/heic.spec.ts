@@ -59,8 +59,9 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
     expect(garment.photo).toBeFalsy();
   };
 
-  // Jest does not exit on an unhandled rejection the way Node does, so the
-  // crash this file guards against is made visible by recording them.
+  // Vitest does not exit on an unhandled rejection the way Node does; it
+  // fails the run with a file-level "Unhandled Rejection". Recording them
+  // pins the crash this file guards against on the upload that caused it.
   const unhandled: unknown[] = [];
   const recordUnhandled = (reason: unknown) => unhandled.push(reason);
 
