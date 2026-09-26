@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment } from '../../src/db/schema';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { garmentRow, jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, TestApp, userIdOf } from './harness';
+import { createTestApp, hxLocationPath, TestApp, userIdOf } from './harness';
 
 /**
  * The garment edit, clone and archive paths: the forms render the stored
@@ -387,7 +387,7 @@ describe('garment edit, clone and archive', () => {
 
       const archive = await post(`/wardrobe/${id}/archive`, {}, alice.cookie);
       expect(archive.statusCode).toBeLessThan(300);
-      expect(archive.headers['hx-redirect']).toBe('/wardrobe');
+      expect(hxLocationPath(archive)).toBe('/wardrobe');
       expect((await load(id)).archived).toBe(true);
       expect(await listed('keyword=Archive')).toBe(false);
       expect(await listed('keyword=Archive&archived=true')).toBe(true);

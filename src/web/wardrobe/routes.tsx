@@ -5,7 +5,12 @@ import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
-import { renderFragment, renderPage, wantsFragment } from '../render';
+import {
+  navigateTo,
+  renderFragment,
+  renderPage,
+  wantsFragment,
+} from '../render';
 import {
   resolveWardrobeAccess,
   sharedWardrobesOf,
@@ -561,10 +566,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `Garment ${id} ${archived ? 'archived' : 'unarchived'} by user ${access.ownerId}`,
       );
-      return reply
-        .header('HX-Redirect', wardrobeUrl(viewOwner))
-        .status(200)
-        .send();
+      return navigateTo(reply, wardrobeUrl(viewOwner));
     },
   );
 
@@ -582,7 +584,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       if (!(await removeGarment(deps, id, access.ownerId))) throw notFound();
       logger.info(`Garment ${id} deleted by user ${access.ownerId}`);
-      return reply.header('HX-Redirect', '/wardrobe').status(200).send();
+      return navigateTo(reply, '/wardrobe');
     },
   );
 

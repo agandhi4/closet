@@ -95,29 +95,28 @@ export function OutfitsPage(props: {
 }
 
 /**
- * One outfit: name (a link), the "add to calendar" dropdown, notes, and its
- * garments' thumbnails in the order it was built. The card body navigates
- * by script because it contains the dropdown's form, which an <a> cannot.
+ * One outfit: name, the "add to calendar" dropdown, notes, and its garments'
+ * thumbnails in the order it was built. The whole card is the name's
+ * (boosted) link, stretched over it by its ::after; the card holds the
+ * dropdown's form, which an <a> cannot, so the dropdown sits above the
+ * stretched link instead.
  */
 function OutfitCard({ outfit }: { outfit: OutfitSummary }) {
   const href = `/outfits/${outfit.id}`;
   return (
     <div
-      class="card bg-base-100 w-96 shadow-sm hover:shadow-md transition-shadow"
+      class="card relative bg-base-100 w-96 shadow-sm hover:shadow-md transition-shadow"
       data-outfit-id={outfit.id}
     >
-      <div
-        class="card-body p-3 cursor-pointer"
-        onclick={`window.location.href=${JSON.stringify(href)}`}
-      >
+      <div class="card-body p-3">
         <div class="flex items-center justify-between gap-2">
-          <a href={href} class="card-title text-sm hover:underline truncate">
+          <a
+            href={href}
+            class="card-title text-sm hover:underline truncate after:absolute after:inset-0"
+          >
             {outfit.name || t('UNTITLED_OUTFIT')}
           </a>
-          <div
-            class="dropdown dropdown-end shrink-0"
-            onclick="event.stopPropagation();"
-          >
+          <div class="dropdown dropdown-end shrink-0 relative z-10">
             <label
               tabindex={0}
               class="btn btn-ghost btn-xs btn-square"
@@ -174,11 +173,11 @@ function OutfitCard({ outfit }: { outfit: OutfitSummary }) {
             {outfit.notes}
           </p>
         )}
-        <a href={href} class="flex flex-wrap gap-1 mt-1">
+        <div class="flex flex-wrap gap-1 mt-1">
           {outfit.garments.map((garment) => (
             <GarmentThumb garment={garment} class="rounded" />
           ))}
-        </a>
+        </div>
       </div>
     </div>
   );

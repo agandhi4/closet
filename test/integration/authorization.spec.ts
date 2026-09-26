@@ -456,7 +456,7 @@ const ROUTES: Route[] = [
   {
     name: 'POST /calendar/:id/delete',
     kind: 'write',
-    ok: 200,
+    ok: 303,
     secret: calendarEntry,
     vias: BOTH,
     request: (f, q) => ({

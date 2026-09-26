@@ -182,6 +182,42 @@ describe('wardrobe share lifecycle', () => {
 
   afterAll(() => t?.cleanup());
 
+  it('the wardrobe switcher swaps the grid in place, never reloading the page', async () => {
+    const grantee = await signUp('switcher');
+    await acceptOk(await createInvite(owner, 'VIEW'), grantee);
+    const page = await t.inject({
+      method: 'GET',
+      url: '/wardrobe',
+      headers: { cookie: grantee.cookie },
+    });
+    const select = /<select\b[^>]*name="ownerId"[^>]*>/.exec(page.body)?.[0];
+    expect(select).toBeDefined();
+    expect(select).toContain('hx-get="/wardrobe"');
+    expect(select).toContain('hx-target="#wardrobe-main"');
+    expect(select).toContain('hx-push-url="true"');
+    expect(page.body).toContain(`<option value="${owner.id}">`);
+
+    // What htmx sends for the owner's option: the grid fragment alone.
+    const swapped = await t.inject({
+      method: 'GET',
+      url: `/wardrobe?ownerId=${owner.id}`,
+      headers: { cookie: grantee.cookie, 'hx-request': 'true' },
+    });
+    expect(swapped.statusCode).toBe(200);
+    expect(swapped.body).toMatch(/^<main id="wardrobe-main"/);
+    expect(swapped.body).toContain(
+      `/wardrobe/${garmentId}?ownerId=${owner.id}`,
+    );
+    // And the empty value is the grantee's own wardrobe.
+    const own = await t.inject({
+      method: 'GET',
+      url: '/wardrobe?ownerId=',
+      headers: { cookie: grantee.cookie, 'hx-request': 'true' },
+    });
+    expect(own.statusCode).toBe(200);
+    expect(own.body).not.toContain(`/wardrobe/${garmentId}`);
+  });
+
   it('the public invite page never shows the inviter email', async () => {
     const email = `inviter-${randomUUID().slice(0, 8)}@example.com`;
     const cookie = await t.register(email);

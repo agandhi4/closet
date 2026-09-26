@@ -89,19 +89,24 @@ export function WardrobeMain({ model }: { model: WardrobeModel }) {
         )}
       </div>
 
+      {/* Switching wardrobe swaps this main like a filter does (unfiltered,
+          ?ownerId= the only parameter; '' is the requester's own). */}
       {model.sharedWardrobes.length > 0 && (
         <div class="mb-4 px-2">
           <select
+            name="ownerId"
             class="select select-bordered select-sm w-full"
             aria-label={t('MY_WARDROBE')}
-            onchange="location.href=this.value"
+            hx-get="/wardrobe"
+            hx-trigger="change"
+            {...SWAP_MAIN}
           >
-            <option value="/wardrobe" selected={viewOwner === undefined}>
+            <option value="" selected={viewOwner === undefined}>
               {t('MY_WARDROBE')}
             </option>
             {model.sharedWardrobes.map((shared) => (
               <option
-                value={wardrobeUrl(shared.grantorId)}
+                value={shared.grantorId}
                 selected={viewOwner === shared.grantorId}
               >
                 {shared.grantorName} ({shared.permission})

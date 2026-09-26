@@ -9,7 +9,7 @@ import type { OutgoingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client, type QueryResult } from 'pg';
-import { vi } from 'vitest';
+import { expect, vi } from 'vitest';
 import { createApp } from '../../src/app';
 import { loadConfig } from '../../src/config';
 import type { Db } from '../../src/db/client';
@@ -350,6 +350,23 @@ export function unescapeHtml(html: string): string {
     .replaceAll('&quot;', '"')
     .replaceAll('&#39;', "'")
     .replaceAll('&amp;', '&');
+}
+
+/**
+ * The path an htmx write navigates to (`navigateTo`, src/web/render.ts):
+ * asserts the answer is an HX-Location that swaps the body as a boosted page
+ * (no HX-Redirect, which reloads the document) and returns its path.
+ */
+export function hxLocationPath(res: LightMyRequestResponse): string {
+  expect(res.headers['hx-redirect']).toBeUndefined();
+  const location = JSON.parse(String(res.headers['hx-location'])) as {
+    path: string;
+  };
+  expect(location).toMatchObject({
+    target: 'body',
+    headers: { 'HX-Boosted': 'true' },
+  });
+  return location.path;
 }
 
 export function hasText(html: string, text: string): boolean {

@@ -10,6 +10,7 @@ import { createGarment, jpegPhoto, uploadPhoto } from './garments';
 import {
   createTestApp,
   hasText,
+  hxLocationPath,
   imgTags,
   recordQueries,
   TestApp,
@@ -541,7 +542,7 @@ describe('outfits', () => {
         [b, 'Gym'],
       ] as const) {
         expect(res.body).toContain(
-          `<a href="/outfits/${id}" class="card-title text-sm hover:underline truncate">${name}</a>`,
+          `<a href="/outfits/${id}" class="card-title text-sm hover:underline truncate after:absolute after:inset-0">${name}</a>`,
         );
         // The per-card "add to calendar" form schedules this outfit.
         expect(res.body).toContain(
@@ -930,7 +931,7 @@ describe('outfits', () => {
 
       const res = await t.inject({ method: 'DELETE', url: `/outfits/${id}` });
       expect(res.statusCode).toBe(200);
-      expect(res.headers['hx-redirect']).toBe('/outfits');
+      expect(hxLocationPath(res)).toBe('/outfits');
 
       expect(await outfitRow(id)).toBeUndefined();
       expect(await savedSlots(id)).toEqual([]);
