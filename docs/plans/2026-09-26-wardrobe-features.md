@@ -1,7 +1,7 @@
 # Wardrobe features plan (2026-09-26)
 
 Status: **approved 2026-09-26**, every section. The backlog is GitHub issues (one per section, in
-milestones by phase, ordered in the pinned Roadmap issue); this document holds the design and the
+milestones by phase, ordered in the pinned Roadmap issue, #27); this document holds the design and the
 reasons, and each issue links to its section. Build order, each feeding the next: garment
 properties (6), adding garments from a link (0), wears and washes with multiples (1), outfits by
 occasion (8), capsules (2), weather (7), the outfit gallery (3), Today (9), trips (4), weekly auto-plan (12),
