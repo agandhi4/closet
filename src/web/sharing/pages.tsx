@@ -1,3 +1,4 @@
+import { sharedBy } from '../share/share-page';
 import type { Child } from 'hono/jsx';
 import { PostForm } from '../auth/form';
 import type { SharePermission } from '../../db/schema';
@@ -319,10 +320,9 @@ function InviteDetails(props: {
   token: string;
 }) {
   const { invite, ctx } = props;
-  const from =
-    invite.grantor.firstName ||
-    invite.grantor.email ||
-    t('INVITE_FROM_UNKNOWN');
+  // Public page (opened before signing in, fetched by link previews): the
+  // inviter is named the way /share names an owner, never by email.
+  const from = sharedBy(invite.grantor) ?? t('INVITE_FROM_UNKNOWN');
   return (
     <>
       <h1 class="text-2xl font-bold mb-2">{t('WARDROBE_INVITE')}</h1>

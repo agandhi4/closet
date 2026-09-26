@@ -182,6 +182,23 @@ describe('wardrobe share lifecycle', () => {
 
   afterAll(() => t?.cleanup());
 
+  it('the public invite page never shows the inviter email', async () => {
+    const email = `inviter-${randomUUID().slice(0, 8)}@example.com`;
+    const cookie = await t.register(email);
+    const inviter = { id: await userIdOf(t, email), cookie };
+    const token = await createInvite(inviter, 'VIEW');
+
+    const res = await t.inject({
+      method: 'GET',
+      url: `/wardrobe-share/invite/${token}`,
+      anonymous: true,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain(email);
+    expect(res.body).toContain('A user');
+  });
+
   describe('revoke (POST /wardrobe-share/:id/remove)', () => {
     it('by the grantor: the MANAGE grantee loses read and write access', async () => {
       const grantee = await signUp('manager');
