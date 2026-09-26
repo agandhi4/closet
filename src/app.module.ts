@@ -22,6 +22,7 @@ import { ErrorViewFilter } from './error-view.filter';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { ViewContextModule } from './view-context/view-context.module';
 import { isStaticPath } from './static-prefixes';
+import { isValidTimeZone } from './web/calendar/calendar-date';
 
 // Nest mounts pino-http as middleware, which strips the mount prefix from
 // req.url ("/healthz" arrives as "/"); the full path is in originalUrl.
@@ -110,6 +111,14 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
         // (Fastify trustProxy). Consumed in app.ts before the app exists.
         TRUSTED_PROXIES: Joi.string().default(DEFAULT_TRUSTED_PROXIES),
         APP_NAME: Joi.string().default('Closet'),
+        // The household's IANA time zone: it decides what "today" is on the
+        // calendar and which week opens by default. One zone, because one
+        // household shares the calendar; an unknown name fails the boot.
+        APP_TIMEZONE: Joi.string()
+          .custom((value: string, helpers) =>
+            isValidTimeZone(value) ? value : helpers.error('any.invalid'),
+          )
+          .default('America/New_York'),
         DISABLE_REGISTRATION: Joi.boolean().default(false),
         PWA_ENABLED: Joi.boolean().default(false),
         ACCESS_TOKEN_SECRET: Joi.string().default('ChangeMe!'),

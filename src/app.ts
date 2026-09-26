@@ -23,6 +23,8 @@ import { PROJECT_ROOT } from './project-root';
 import { BUILD_INFO } from './build-info';
 import { ConfigService } from '@nestjs/config';
 import { Logger as NestLogger } from '@nestjs/common';
+import type { Db } from './db/client';
+import { DB } from './db/db.module';
 import { webPlugin } from './web/plugin';
 
 const PUBLIC_DIR = join(PROJECT_ROOT, 'public');
@@ -81,7 +83,11 @@ export async function createApp(): Promise<NestFastifyApplication> {
   // below fills them (both stay undefined on static paths).
   fastify.decorateRequest('auth', undefined);
   fastify.decorateReply('locals', undefined);
-  fastify.addHook('preHandler', async (req, reply) => {
+  // preValidation, not preHandler: the web layer's schema validation
+  // (src/web/plugin.ts) runs between the two, and a request it refuses must
+  // already have its session and page context for the 400 page. Nest routes
+  // are unaffected (guards run inside Nest's handler).
+  fastify.addHook('preValidation', async (req, reply) => {
     if (isStaticPath(req.url)) return;
     req.auth = await authContextService.resolve(req);
     reply.locals = viewContextService.buildContext(req, req.auth);
@@ -117,16 +123,25 @@ export async function createApp(): Promise<NestFastifyApplication> {
   await registerViewEngine(app);
   registerHandlebarsHelpers();
 
+  // Nest adds its JSON and urlencoded body parsers in app.init(), after the
+  // web plugin below, and a Fastify plugin only inherits the content-type
+  // parsers its parent had when it was registered: without this a form post
+  // to a web-layer route is a 415. The adapter records the registration, so
+  // app.init() does not add them twice.
+  adapter.registerParserMiddleware();
+
   // Ported features (src/web/), beside Nest's routes on the same instance.
   // Last, so the root hooks and plugins above (session, security headers,
-  // cookies, compression) are in place for its routes.
+  // cookies, compression, body parsers) are in place for its routes.
   const config = app.get(ConfigService);
   await fastify.register(webPlugin, {
     config: {
       appName: config.getOrThrow<string>('APP_NAME'),
       iconName: config.getOrThrow<string>('ICON_NAME'),
+      timeZone: config.getOrThrow<string>('APP_TIMEZONE'),
     },
     logger: new NestLogger('Web'),
+    db: app.get<Db>(DB),
   });
 
   return app;

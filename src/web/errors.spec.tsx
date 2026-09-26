@@ -48,9 +48,10 @@ describe('createErrorHandler', () => {
   beforeEach(async () => {
     logger = { debug: vi.fn(), log: vi.fn(), warn: vi.fn(), error: vi.fn() };
     app = Fastify();
-    // What the root preHandler in app.ts does for every non-static request.
+    // What the root preValidation hook in app.ts does for every non-static
+    // request.
     app.decorateReply('locals', undefined);
-    app.addHook('preHandler', async (request, reply) => {
+    app.addHook('preValidation', async (request, reply) => {
       if (request.url !== '/static') reply.locals = ctx;
     });
     app.setErrorHandler(createErrorHandler(logger));
@@ -70,6 +71,20 @@ describe('createErrorHandler', () => {
       });
     });
     app.post('/json', () => 'unreachable');
+    // As a ported route declares its input (src/web/plugin.ts, Validation).
+    app.post(
+      '/validated',
+      {
+        schema: {
+          body: {
+            type: 'object',
+            required: ['date'],
+            properties: { date: { type: 'string', format: 'date' } },
+          },
+        },
+      },
+      () => 'unreachable',
+    );
     app.get('/static', () => {
       throw new Error('boom');
     });
@@ -112,7 +127,7 @@ describe('createErrorHandler', () => {
     expect(res.body).toContain('<p>request file too large</p>');
   });
 
-  // Body parsing runs before the root preHandler, so there is no page
+  // Body parsing runs before the root preValidation hook, so there is no page
   // context yet: the status is kept and the answer is data.
   it('answers an unparsable body with a 400 before any page context exists', async () => {
     const res = await app.inject({
@@ -123,6 +138,20 @@ describe('createErrorHandler', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ statusCode: 400 });
+  });
+
+  // Validation runs after the root preValidation hook: the page context
+  // exists, so a malformed input gets the error page.
+  it('renders a failed schema validation as the 400 error page', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/validated',
+      payload: { date: 'garbage' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/^<!DOCTYPE html>/);
+    expect(res.body).toContain('<h1>Error 400</h1>');
+    expect(res.body).toContain('body/date must match format &quot;date&quot;');
   });
 
   it('hides the detail of anything else behind a 500, logged with its stack', async () => {

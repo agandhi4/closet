@@ -19,6 +19,8 @@ services:
     volumes:
       - closet_data:/app/data
     environment:
+      # The household's time zone: decides "today" on the calendar.
+      APP_TIMEZONE: America/New_York
       PWA_ENABLED: 'true'
       # Required when PWA_ENABLED is true: npx web-push generate-vapid-keys
       PUBLIC_VAPID_KEY: '<public key>'
@@ -62,6 +64,7 @@ Open [http://localhost:3000](http://localhost:3000) and register an account: log
 | Variable                           | Description                                                                          | Default                 | Example                                                                                   |
 | ---------------------------------- | ------------------------------------------------------------------------------------ | ----------------------- | ----------------------------------------------------------------------------------------- |
 | `APP_NAME`                         | Display name shown in the UI and navbar                                              | `Closet`                | `My awesome Closet manager`                                                               |
+| `APP_TIMEZONE`                     | The household's IANA time zone: what "today" is on the calendar and which week opens by default | `America/New_York` | `Europe/Berlin`                                                                   |
 | `ICON_NAME`                        | Icon file under `public/assets/` used for the navbar, manifest and share previews    | `icon.png`              | `my-icon.png`                                                                             |
 | `SITE_URL`                         | Public origin, used for absolute links in share previews                             | `http://localhost:3000` | `https://closet.example.com`                                                              |
 | `DATA_PATH`                        | Directory for uploaded files and `app.log`                                           | `./data`                | `./closet-data`                                                                           |
