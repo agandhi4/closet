@@ -10,6 +10,8 @@ import { createErrorHandler } from './errors';
 import { loggableUrl } from './loggable-url';
 import type { WebLogger } from './logger';
 import { outfitRoutes } from './outfits/routes';
+import { pushRoutes } from './push/routes';
+import { createPushSender, type VapidConfig } from './push/sender';
 import { shellRoutes } from './shell/routes';
 import { sharingRoutes } from './sharing/routes';
 
@@ -21,6 +23,8 @@ export interface WebConfig {
   timeZone: string;
   /** DISABLE_REGISTRATION: the registration routes redirect to the login page. */
   registrationDisabled: boolean;
+  /** Web Push identity; set exactly when PWA_ENABLED (no /push routes otherwise). */
+  vapid: VapidConfig | undefined;
 }
 
 export interface WebOptions {
@@ -78,4 +82,14 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(outfitRoutes, options);
   await app.register(authRoutes, options);
   await app.register(sharingRoutes, options);
+  const { vapid } = options.config;
+  if (vapid) {
+    await app.register(pushRoutes, {
+      db: options.db,
+      logger,
+      appName: options.config.appName,
+      vapid,
+      sender: createPushSender({ db: options.db, logger, vapid }),
+    });
+  }
 };

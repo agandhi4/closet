@@ -90,7 +90,7 @@ describe('sessions', () => {
       [
         'fetch',
         'POST',
-        '/notification/subscribe',
+        '/wardrobe-share/create-invite-link',
         { 'sec-fetch-mode': 'cors' },
       ],
       [

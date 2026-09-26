@@ -9,7 +9,6 @@ import {
 import { File } from './file.entity';
 import { Garment } from './garment.entity';
 import { ShareableId } from './shareableId.entity';
-import { UserDevice } from './userDevice.entity';
 
 @Entity()
 export class User extends ShareableId {
@@ -28,9 +27,6 @@ export class User extends ShareableId {
 
   @Property()
   public password!: string;
-
-  @OneToMany(() => UserDevice, (userDevice) => userDevice.user)
-  public userDevices = new Collection<UserDevice>(this);
 
   @OneToMany(() => File, (file) => file.createdBy)
   public fileUploads = new Collection<File>(this);

@@ -543,4 +543,16 @@ describe('account', () => {
       expect(await passwordHash(email)).toBe(hashBefore);
     });
   });
+
+  // PWA_ENABLED is off in this app: no service worker, so no Web Push
+  // (test/integration/push.spec.ts has it on).
+  it('without the PWA the profile has no notification controls and /push does not exist', async () => {
+    const profile = await t.inject({ method: 'GET', url: '/auth/profile' });
+    expect(profile.statusCode).toBe(200);
+    expect(profile.body).not.toContain('<push-settings');
+    expect(profile.body).not.toContain('/push/test');
+
+    const test = await t.inject({ method: 'POST', url: '/push/test' });
+    expect(test.statusCode).toBe(404);
+  });
 });

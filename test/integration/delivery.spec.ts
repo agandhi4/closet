@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createGarment } from './garments';
-import { createTestApp, TestApp } from './harness';
+import { createTestApp, PWA_ENV, TestApp } from './harness';
 
 /**
  * How the app shell reaches the installed PWA: cache headers on static roots,
@@ -11,16 +11,7 @@ describe('delivery (PWA_ENABLED=true)', () => {
   let t: TestApp;
 
   beforeAll(async () => {
-    // Throwaway keypair from `npx web-push generate-vapid-keys`, never used
-    // by a deployment; PWA_ENABLED requires a syntactically valid pair.
-    // web-push rejects an http: VAPID subject, so the site must be https here.
-    t = await createTestApp({
-      PWA_ENABLED: 'true',
-      SITE_URL: 'https://closet.test',
-      PUBLIC_VAPID_KEY:
-        'BIaV1uMypSUEcMFNiKX5wdEPfTc7liQhw-iTn3WN5TjIc-A0CiCF8jqaef8Vo1jB89cMgxM-FR7ghq0EVO2HlhE',
-      PRIVATE_VAPID_KEY: 'xznGX5XpEHzBpfVxnrNyUPBjBbQwl4gtu8inPxMNQws',
-    });
+    t = await createTestApp(PWA_ENV);
   });
 
   afterAll(() => t?.cleanup());
