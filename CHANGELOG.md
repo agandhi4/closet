@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Security
 
+- Stored XSS through garment colours: the colour picker put a stored colour into the page as markup, so a colour posted by a MANAGE grantee (or, before the CSRF check, any site) ran script in the owner's session on the edit page. Colours are now one of the built-in set, checked on the server (anything else re-renders the form with a 400), and the picker builds its pills as text
 - Image decompression bombs: every image decode is limited to 64 megapixels (sharp's `limitInputPixels`, and a dimension check before a HEIC's pixels are allocated). A few KB of PNG or HEIC could declare a gigabyte of pixels and exhaust the NAS's memory; such an upload is now a 400 "Image too large"
 - Cross-site request forgery: every POST, PUT, PATCH and DELETE must come from this site (its `Origin`, or `Referer` without one, names the address it was sent to or `SITE_URL`), else 403; the session cookie is `SameSite=Lax`. Emails, passwords, shares and garments could be changed from any other site before
 - Login and registration are rate limited (5 a minute per address) and changing the password or deleting the account (5 a minute per user): `@nestjs/throttler` had never limited anything. The client address comes from `TRUSTED_PROXIES`, which must include the reverse proxy's address
@@ -29,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- Wardrobe search ignores case ("blazer" finds "Black Linen Blazer"; Postgres `LIKE` did not), and `%`, `_` and `\` in the search box match themselves instead of acting as wildcards ("100%" matched everything)
+- Garment notes, names and other text longer than 255 characters are saved instead of failing with a 500
+- The garment form is checked on the server: a blank category, an unknown colour or a date that is not a real one shows the form again with a message (a blank category was saved, a bad date was a 500); categories are saved trimmed and lower case, so "Tops" and "tops" are one filter; a cleared field is saved as empty rather than as an empty string
+- Cloning a garment keeps its washing details and acquisition date, and the Clone button shows to everyone who may clone (a VIEW grantee could clone but never saw the button)
+- A photo upload to a garment the user cannot change is refused before the photo is read, so nothing is stored
 - Account forms (login, registration, email, password, deletion) submit as real form posts, so browsers offer to save the password: a registration's browser-generated password was never saved and the account was lost. A failed login shows "Incorrect email or password" once with a 401 (it swapped a whole second page into the page and said "Error"); validation failures are 400 with the messages under the fields; deleting the account with wrong credentials now shows the error
 - The inline checks while registering or changing the email answer with the messages only, instead of a whole page nested into the form; they no longer replace the fields being typed in or dim the submit button
 - Emails are case-insensitive: stored lower case and matched regardless of case at login, registration and email change. Changing the email to one another account uses is a field error instead of a 500
@@ -53,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Performance
 
+- The wardrobe grid loads 48 garments at a time and the next 48 as you scroll (keyset pages, one query of plain rows per page), with the result count from a `count(*)`. At 1,500 garments (Postgres with 1 ms of latency) `/wardrobe` went from 63 ms to 6.5 ms to the first byte and from 870 KB to 42 KB of HTML (56 KB to 6 KB gzipped); memory after 1,000 page loads went from 664 MB to 348 MB. Owner-first indexes replace the owner-only and category-only ones, and the unused brand list query is gone
 - Photos are stored as versioned variants (original and cutout at q90, a 400px thumbnail) served immutable for a year under `?v=<File.version>`; grids render thumbnails with lazy loading and dimensions. A 150-garment grid went from 28.6 MB uncached to 1.3 MB, zero once cached
 - The session is resolved once per request and not at all for static assets and images (was up to three JWT verifications and user queries per request, one per image)
 - Static scripts and styles carry a build cache key and are served immutable; `sw.js` and `manifest.json` are `no-cache`
@@ -77,6 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Changed
 
+- Garments (`/wardrobe`, the garment page and forms, photo and cutout uploads, clone, archive, delete) are served by the plain-Fastify web layer with Drizzle queries and typed JSX views; URLs, form fields and htmx targets are unchanged. No feature is served by Nest any more, and MikroORM is gone from the app (its old migrations only build test databases)
+- Garment colours are a fixed set; typing a new colour into the picker is gone. `garment.date_aquired` (a timestamp at UTC midnight) is now `acquired_on date`, and free-text garment columns are `text`. The migration trims stored text, turns empty strings into NULL and lowercases categories (outfit rows follow), and refuses to run if an acquisition date is not UTC midnight, a stored colour is not built in, a category is blank, or two garments, outfits or photos share a share id
+- Share ids of garments, outfits and photos are unique; the never-used `flagged`, `banned`, `file.mimetype` and `user.shareable_id` columns are dropped
 - Web Push is served by the plain-Fastify web layer at `/push/*` (`vapid-public-key`, `subscribe`, `unsubscribe`, `test`) instead of `/notification/*`, only when `PWA_ENABLED`. `user_device` keeps the subscription keys as columns (`key_p256dh`, `key_auth`), the endpoint and user agent as text, and gains `created_at`/`updated_at`; the migration deletes rows without usable keys (the browser sends its subscription again). The VAPID keys and `SITE_URL` (the https contact) are checked at boot
 - The share page (`/share`) is served by the plain-Fastify web layer with Drizzle queries and a typed JSX view; its link preview reads "Shared by <email>" (was "From <email>"), and a missing or unknown share id or type still renders the empty page. The never-linked `type=file` preview is gone
 - Photos (`/file/**`, uploads, cutouts, thumbnails, copies, share previews) are a plain module on Drizzle (`src/web/files`) and their routes are served by the plain-Fastify web layer; URLs, headers and caching are unchanged. An unknown share-preview id answers 404 (was 500), and a missing photo's 404 no longer renders an HTML error page for an image request
