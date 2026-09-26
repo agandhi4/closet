@@ -119,6 +119,24 @@ export function expectFullPage(res: LightMyRequestResponse): void {
   // htmx reads only the first htmx-config meta (CLAUDE.md Gotchas).
   expect(res.body.match(/<meta\s+name="htmx-config"/g)).toHaveLength(1);
   expectNoRawI18nKeys(res);
+  expectNativePostForms(res);
+}
+
+/**
+ * The layout boosts every form, and htmx drops a boosted 4xx: a refused
+ * native post would do nothing on screen (the boosted registration form is
+ * how the owner lost their password). Every `<form method="post">` must opt
+ * out with hx-boost="false"; forms that post through htmx (hx-post) handle
+ * their own responses and are not native posts.
+ */
+export function expectNativePostForms(res: LightMyRequestResponse): void {
+  const offenders = (res.body.match(/<form\b[^>]*>/gi) ?? []).filter(
+    (tag) =>
+      /\bmethod=["']?post\b/i.test(tag) &&
+      !/\bhx-post=/i.test(tag) &&
+      !/\bhx-boost=["']?false\b/i.test(tag),
+  );
+  expect(offenders).toEqual([]);
 }
 
 /**

@@ -84,9 +84,13 @@ export function OutfitFormPage(props: {
 function OutfitForm({ model }: { model: OutfitFormModel }) {
   const { outfit } = model;
   return (
+    // A native post (hx-boost="false"): the layout boosts every form, and htmx
+    // drops a boosted 4xx, so a refused save (bad schedule date, mismatched
+    // rows) would do nothing on screen. See CLAUDE.md, native posts.
     <form
       method="post"
       action={outfit ? `/outfits/${outfit.id}` : '/outfits'}
+      hx-boost="false"
       class="flex flex-col gap-4"
     >
       <input type="hidden" name="returnTo" value={model.returnTo} />
