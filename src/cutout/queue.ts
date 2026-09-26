@@ -1,6 +1,7 @@
 import type { Db, DbConfig } from '../db/client';
 import type { Logger } from '../logger';
 import type { Photos } from '../web/files/photos';
+import { settlesWithin } from './deadline';
 import { CutoutListener } from './listener';
 import {
   claimNextCutout,
@@ -14,6 +15,11 @@ import { MAX_CUTOUT_ATTEMPTS } from './state';
 // After the queue itself could not be read (the database away), look again
 // this much later rather than spin.
 const CLAIM_RETRY_MS = 30_000;
+// How long stop() waits for the runner to close and the job loop to end
+// (after the listener's own bounded close). The loop ends within a query
+// once stopped; a runner closes in well under a second. Past this, stop()
+// returns anyway: a hung shutdown blocks the deploy behind it.
+const STOP_TIMEOUT_MS = 10_000;
 
 export interface CutoutQueueDeps {
   db: Db;
@@ -47,7 +53,9 @@ export class CutoutQueue {
   private runner: CutoutRunner | undefined;
   private listener: CutoutListener | undefined;
   private loop: Promise<void> | undefined;
-  private stopping = false;
+  // Aborted by stop(). One per start(), so a loop still ending when stop()
+  // gave up on it can never be revived by the next start().
+  private halt: AbortController | undefined;
   // Set by wake(); the loop looks again before waiting when it is set, so a
   // wake that lands while a claim is in flight is never lost.
   private woken = false;
@@ -60,7 +68,8 @@ export class CutoutQueue {
   start(runner: CutoutRunner): void {
     if (this.runner) throw new Error('The cutout queue is already running');
     this.runner = runner;
-    this.stopping = false;
+    const halt = new AbortController();
+    this.halt = halt;
     this.deps.logger.info(
       `Cutout queue started; resuming pending cutouts, polling every ${this.deps.pollMs / 1000} s while idle`,
     );
@@ -70,7 +79,7 @@ export class CutoutQueue {
       wake: () => this.wake(),
     });
     this.listener.start();
-    this.loop = this.run(runner);
+    this.loop = this.run(runner, halt.signal);
   }
 
   /**
@@ -90,27 +99,46 @@ export class CutoutQueue {
   }
 
   /**
-   * Stops the listener, the loop and the runner. A job cut short stays
-   * pending, so the next start runs it again.
+   * Stops the listener, the loop and the runner. Always resolves, within the
+   * listener's close timeout plus STOP_TIMEOUT_MS however they hang, and
+   * never rejects. A job cut short stays pending, so the next start runs it
+   * again.
    */
   async stop(): Promise<void> {
     const runner = this.runner;
     if (!runner) return;
-    this.stopping = true;
-    this.wakeUp?.();
-    await this.listener?.close();
+    const { logger } = this.deps;
+    const startedAt = Date.now();
+    const listener = this.listener;
+    const loop = this.loop;
+    this.halt?.abort();
+    this.halt = undefined;
     this.listener = undefined;
-    await runner.close();
-    await this.loop;
+    this.loop = undefined;
+    await listener?.close();
+    // Never rejects: a failed close is logged, and the app's onClose still
+    // ends the pool after it (an open pool keeps the process alive).
+    const closeRunner = runner.close().catch((error: unknown) => {
+      logger.error({ err: error }, 'Cutout runner failed to close');
+    });
+    const ended = await settlesWithin(
+      closeRunner.then(() => loop),
+      STOP_TIMEOUT_MS,
+    );
+    if (!ended) {
+      logger.warn(
+        `Cutout queue gave up waiting for its runner and job loop after ${STOP_TIMEOUT_MS / 1000} s; a job still running stays pending`,
+      );
+    }
     this.runner = undefined;
-    this.deps.logger.info('Cutout queue stopped');
+    logger.info(`Cutout queue stopped in ${Date.now() - startedAt} ms`);
   }
 
-  private async run(runner: CutoutRunner): Promise<void> {
+  private async run(runner: CutoutRunner, halt: AbortSignal): Promise<void> {
     const { db, logger, pollMs } = this.deps;
     // Whether this look is the idle poll's rather than a wake's.
     let polling = false;
-    while (!this.stopping) {
+    while (!halt.aborted) {
       this.woken = false;
       let job: CutoutJob | undefined;
       try {
@@ -120,7 +148,7 @@ export class CutoutQueue {
           { err: error },
           `Could not read the cutout queue; trying again in ${CLAIM_RETRY_MS / 1000} s`,
         );
-        await this.sleep(CLAIM_RETRY_MS);
+        await this.sleep(CLAIM_RETRY_MS, halt);
         continue;
       }
       if (job) {
@@ -132,16 +160,20 @@ export class CutoutQueue {
           );
         }
         polling = false;
-        await this.process(job, runner);
+        await this.process(job, runner, halt);
         continue;
       }
       this.settleIdle();
-      polling = !this.woken && (await this.sleep(pollMs)) === 'timeout';
+      polling = !this.woken && (await this.sleep(pollMs, halt)) === 'timeout';
     }
     this.settleIdle();
   }
 
-  private async process(job: CutoutJob, runner: CutoutRunner): Promise<void> {
+  private async process(
+    job: CutoutJob,
+    runner: CutoutRunner,
+    halt: AbortSignal,
+  ): Promise<void> {
     const { photos, logger } = this.deps;
     const startedAt = Date.now();
     const queuedMs =
@@ -175,7 +207,7 @@ export class CutoutQueue {
         );
       }
     } catch (error) {
-      if (this.stopping) {
+      if (halt.aborted) {
         logger.info(`Cutout interrupted by shutdown: ${label}; stays pending`);
         return;
       }
@@ -220,18 +252,28 @@ export class CutoutQueue {
     }
   }
 
-  // Waits `ms`, or less when woken (or stopped): which one ended it.
-  private sleep(ms: number): Promise<'timeout' | 'woken'> {
+  // Waits `ms`, or less when woken or halted: which one ended it. Halted
+  // before it began, it does not wait at all: stop() often lands while the
+  // loop awaits a claim, when there is no sleep yet to cut short, and the
+  // loop checks `halt` only at its top (that lost wake-up hung stop() for
+  // the whole poll interval).
+  private sleep(
+    ms: number,
+    halt: AbortSignal,
+  ): Promise<'timeout' | 'woken' | 'halted'> {
+    if (halt.aborted) return Promise.resolve('halted');
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.wakeUp = undefined;
-        resolve('timeout');
-      }, ms);
-      this.wakeUp = () => {
-        this.wakeUp = undefined;
+      const end = (outcome: 'timeout' | 'woken' | 'halted') => {
         clearTimeout(timer);
-        resolve('woken');
+        halt.removeEventListener('abort', onHalt);
+        if (this.wakeUp === onWake) this.wakeUp = undefined;
+        resolve(outcome);
       };
+      const timer = setTimeout(() => end('timeout'), ms);
+      const onHalt = () => end('halted');
+      const onWake = () => end('woken');
+      halt.addEventListener('abort', onHalt);
+      this.wakeUp = onWake;
     });
   }
 

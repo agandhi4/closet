@@ -1,10 +1,12 @@
 import { inArray, sql } from 'drizzle-orm';
+import { connect, createServer, type Socket } from 'node:net';
 import { Readable } from 'node:stream';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { settlesWithin } from '../../src/cutout/deadline';
 import { LISTENER_APPLICATION_NAME } from '../../src/cutout/listener';
 import { CutoutQueue } from '../../src/cutout/queue';
 import { initialCutoutState } from '../../src/cutout/state';
-import { createDb, type Db } from '../../src/db/client';
+import { createDb, type Db, type DbConfig } from '../../src/db/client';
 import { file } from '../../src/db/schema';
 import { insertPhotoRow } from '../../src/web/files/queries';
 import { eventually, fakeRunner, halfMask } from './cutouts';
@@ -30,6 +32,55 @@ async function listenerBackends(t: TestApp): Promise<number[]> {
            and application_name = ${LISTENER_APPLICATION_NAME}`,
   );
   return rows.map((row) => row.pid);
+}
+
+/** Backends of the spec's database waiting on a lock (pg_stat_activity). */
+async function lockWaiters(t: TestApp): Promise<number> {
+  const { rows } = await t.db.execute<{ waiting: number }>(
+    sql`select count(*)::int as waiting from pg_stat_activity
+         where datname = current_database() and wait_event_type = 'Lock'`,
+  );
+  return rows[0].waiting;
+}
+
+/**
+ * A TCP relay to Postgres on `port` that can go silent: freeze() stops
+ * passing bytes either way while every socket stays open, as a peer behind a
+ * dropped route does, so the server's answer to pg's orderly end() (closing
+ * the connection) never arrives. Half-open, so a client's FIN is not answered
+ * for the server either.
+ */
+async function silenceableRelay({ host, port }: DbConfig) {
+  const sockets: Socket[] = [];
+  let frozen = false;
+  const server = createServer({ allowHalfOpen: true }, (inbound) => {
+    const outbound = connect({ host, port, allowHalfOpen: true });
+    sockets.push(inbound, outbound);
+    for (const [from, to] of [
+      [inbound, outbound],
+      [outbound, inbound],
+    ]) {
+      from.on('data', (chunk) => {
+        if (!frozen) to.write(chunk);
+      });
+      from.on('error', () => to.destroy());
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('The relay is not listening on a port');
+  }
+  return {
+    port: address.port,
+    freeze() {
+      frozen = true;
+    },
+    close() {
+      for (const socket of sockets) socket.destroy();
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
 }
 
 /** How many of the queue's lines at `level` start with `prefix` so far. */
@@ -194,6 +245,79 @@ describe('cutout queue: notifications from another process', () => {
   it('never opens a listener while the queue is not running', async () => {
     // The harness and the CLIs build the queue but never start it.
     expect(await listenerBackends(t)).toHaveLength(0);
+  });
+
+  it('stops while its loop awaits a claim, without waiting for the poll', async () => {
+    await startListening();
+    // The file table held, the next claim waits on its lock: stop() lands
+    // while the loop awaits the claim, when there is no sleep to wake yet.
+    // It used to go to sleep for the poll interval (an hour here) after.
+    const holder = await other.$client.connect();
+    try {
+      await holder.query('begin');
+      await holder.query('lock table file in exclusive mode');
+      t.cutouts.wake();
+      await eventually(
+        'the claim to wait on the lock',
+        async () => (await lockWaiters(t)) > 0,
+      );
+      const stopped = t.cutouts.stop();
+      await holder.query('rollback');
+
+      expect(await settlesWithin(stopped, 5_000)).toBe(true);
+    } finally {
+      holder.release();
+    }
+    expect(await listenerBackends(t)).toHaveLength(0);
+  });
+
+  it('stops for good when its runner fails to close', async () => {
+    const runner = fakeRunner();
+    runner.close = () => Promise.reject(new Error('The model process hung'));
+    t.cutouts.start(runner);
+    await t.cutouts.whenIdle();
+
+    await t.cutouts.stop();
+
+    expect(t.logs.messages('error', 'Cutout')).toContain(
+      'Cutout runner failed to close',
+    );
+    // Stopped: it starts again.
+    await startListening();
+  });
+
+  it('stops within its bound when the database stops answering', async () => {
+    // A queue whose listener connects through a relay that then goes
+    // silent: pg's orderly end() waits for the server to close the
+    // connection, which never happens, so the socket has to be destroyed.
+    const relay = await silenceableRelay(t.database);
+    const queue = new CutoutQueue({
+      db: other,
+      database: { ...t.database, host: '127.0.0.1', port: relay.port },
+      photos: t.photos,
+      logger: t.logger.child({ context: 'Cutout' }),
+      pollMs: 3_600_000,
+    });
+    try {
+      const connects = listenerConnects(t);
+      queue.start(fakeRunner());
+      await eventually('the relayed listener to connect', () =>
+        Promise.resolve(listenerConnects(t) > connects),
+      );
+      relay.freeze();
+      const startedAt = Date.now();
+
+      await queue.stop();
+
+      // The listener's 5 s close timeout, and not much more.
+      expect(Date.now() - startedAt).toBeLessThan(7_000);
+      expect(t.logs.messages('warn', 'Cutout')).toContain(
+        'Cutout listener connection did not close within 5 s; destroying its socket',
+      );
+    } finally {
+      await queue.stop();
+      await relay.close();
+    }
   });
 });
 
