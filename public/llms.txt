@@ -12,11 +12,11 @@ Closet is a self-hosted fork of Libre Closet (AGPL-3.0). It runs as a server-ren
 - /outfits - saved outfits and the outfit builder
 - /calendar - outfit schedule
 - /about - about and license attribution
-- /auth/login - sign in (when authentication is enabled)
+- /auth/login - sign in (always required)
 
 ## Tech Stack
 
-- NestJS on Fastify (TypeScript), Handlebars templates
+- Fastify (TypeScript), server-rendered JSX (hono/jsx)
 - htmx + hyperscript, Tailwind + daisyUI
 - PostgreSQL (Drizzle ORM)
 - Client-side background removal (ONNX runtime)

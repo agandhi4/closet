@@ -32,7 +32,7 @@ English, Italian, French, Russian, German and Spanish.
 - /outfits - saved outfits and the outfit builder
 - /calendar - outfit schedule
 - /about - about and license attribution
-- /auth/login - sign in (when authentication is enabled)
+- /auth/login - sign in (always required)
 
 ## Self-hosting
 
@@ -40,21 +40,25 @@ English, Italian, French, Russian, German and Spanish.
 docker run -d \
   -p 3000:3000 \
   -v closet_data:/app/data \
+  -e ACCESS_TOKEN_SECRET="$(openssl rand -hex 32)" \
+  -e DATABASE_HOST=<postgres host> -e DATABASE_SCHEMA=closet \
+  -e DATABASE_USER=closet -e DATABASE_PASS=<password> \
   ghcr.io/agandhi4/closet:latest
 ```
 
-See the README for docker-compose and environment variable options.
+It needs a PostgreSQL database and a session signing secret of at least 32
+characters. See the README for docker-compose and environment variable options.
 
 ## Tech Stack
 
 - **License:** AGPL-3.0
-- **Backend:** NestJS on Fastify (TypeScript), Handlebars templates
+- **Backend:** Fastify (TypeScript), server-rendered JSX (hono/jsx)
 - **Frontend:** htmx + hyperscript, Tailwind + daisyUI (server-rendered, no client framework)
 - **Database:** PostgreSQL (Drizzle ORM)
 - **Images:** client-side background removal (ONNX runtime), sharp for WebP
 - **Offline:** Workbox service worker, Web Push
 - **Storage:** local disk
-- **Auth:** optional JWT cookie authentication
+- **Auth:** JWT session cookie, login always required
 - **Deploy:** Docker image on GHCR
 
 ## Links

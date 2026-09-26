@@ -61,7 +61,7 @@ const BASE_ENV: Env = {
   TRUSTED_PROXIES: '127.0.0.1,::1',
   DISABLE_REGISTRATION: 'false',
   PWA_ENABLED: 'false',
-  ACCESS_TOKEN_SECRET: 'integration-test-secret',
+  ACCESS_TOKEN_SECRET: 'integration-test-secret-0123456789abcdef',
 };
 
 /**

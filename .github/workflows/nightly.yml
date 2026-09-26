@@ -34,6 +34,8 @@ jobs:
       DATABASE_USER: test
       DATABASE_PASS: Password123
       DATABASE_SCHEMA: postgres-test
+      # Required, 32+ characters (src/config.ts); the load test makes its own.
+      ACCESS_TOKEN_SECRET: ci-only-access-token-secret-not-for-deployment
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Security
 
+- `ACCESS_TOKEN_SECRET` has no default and must be at least 32 characters: the server refuses to start without one (`openssl rand -hex 32`). The old default, `ChangeMe!`, is public, and anyone who knew the secret could sign a session for any account. **Upgrading**: set it before deploying; a new value signs everyone out once
+
 - Stored XSS through garment colours: the colour picker put a stored colour into the page as markup, so a colour posted by a MANAGE grantee (or, before the CSRF check, any site) ran script in the owner's session on the edit page. Colours are now one of the built-in set, checked on the server (anything else re-renders the form with a 400), and the picker builds its pills as text
 - Image decompression bombs: every image decode is limited to 64 megapixels (sharp's `limitInputPixels`, and a dimension check before a HEIC's pixels are allocated). A few KB of PNG or HEIC could declare a gigabyte of pixels and exhaust the NAS's memory; such an upload is now a 400 "Image too large"
 - Cross-site request forgery: every POST, PUT, PATCH and DELETE must come from this site (its `Origin`, or `Referer` without one, names the address it was sent to or `SITE_URL`), else 403; the session cookie is `SameSite=Lax`. Emails, passwords, shares and garments could be changed from any other site before
