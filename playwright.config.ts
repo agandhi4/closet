@@ -1,13 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { parseEnv } from 'node:util';
 
-/**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
- */
-import dotenv from 'dotenv';
-import path from 'path';
-// quiet: dotenv 17 prints a promotional tip on every load otherwise.
-dotenv.config({ path: path.resolve(__dirname, '.env'), quiet: true });
+// The committed .env's public defaults (APP_NAME) for the specs, under
+// whatever the environment sets, as the server reads them (src/config.ts).
+const committedEnv = parseEnv(
+  readFileSync(path.resolve(__dirname, '.env'), 'utf8'),
+);
+for (const [key, value] of Object.entries(committedEnv)) {
+  process.env[key] ??= value;
+}
 
 /**
  * See https://playwright.dev/docs/test-configuration.
