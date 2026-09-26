@@ -1,12 +1,10 @@
 import { and, count, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
-import { User } from '../../src/dal/entity/user.entity';
 import { type SharePermission, wardrobeShare } from '../../src/db/schema';
 import { LOGIN_PATH } from '../../src/auth/session-access';
-import { createGarment } from './garments';
-import { createTestApp, TestApp } from './harness';
+import { createGarment, garmentRow, garmentsNamed } from './garments';
+import { createTestApp, TestApp, userIdOf } from './harness';
 
 /**
  * A wardrobe share after it is created (share.spec.ts covers creating and
@@ -34,7 +32,7 @@ describe('wardrobe share lifecycle', () => {
   const signUp = async (label: string): Promise<Account> => {
     const email = `${label}-${randomUUID().slice(0, 8)}@example.com`;
     const cookie = await t.register(email);
-    const { id } = await t.em().findOneOrFail(User, { email });
+    const id = await userIdOf(t, email);
     return { id, cookie };
   };
 
@@ -167,12 +165,10 @@ describe('wardrobe share lifecycle', () => {
   };
 
   const expectNoWritesLanded = async (account: Account) => {
-    const garment = await t.em().findOneOrFail(Garment, garmentId);
+    const garment = (await garmentRow(t, garmentId))!;
     expect(garment.name).toBe('Owner coat');
     expect(garment.category).toBe('shirt');
-    expect(
-      await t.em().count(Garment, { name: `Planted by ${account.id}` }),
-    ).toBe(0);
+    expect(await garmentsNamed(t, `Planted by ${account.id}`)).toBe(0);
   };
 
   beforeAll(async () => {

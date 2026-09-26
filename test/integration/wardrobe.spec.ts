@@ -2,9 +2,8 @@ import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
 import { variantFileName } from '../../src/web/files/image-variant';
-import { createGarment, jpegPhoto, uploadPhoto } from './garments';
+import { createGarment, garmentRow, jpegPhoto, uploadPhoto } from './garments';
 import { createTestApp, imgTags, TestApp } from './harness';
 
 const exists = (path: string) =>
@@ -39,9 +38,7 @@ describe('wardrobe', () => {
       garmentId = await createGarment(t, { name: 'Green shirt' });
       await uploadPhoto(t, garmentId, await jpegPhoto(1200, 800));
 
-      const garment = await t
-        .em()
-        .findOneOrFail(Garment, garmentId, { populate: ['photo'] });
+      const garment = (await garmentRow(t, garmentId))!;
       expect(garment.photo?.fileName).toMatch(/^[0-9a-f-]{36}\.webp$/);
       expect(garment.photo?.version).toBe(1);
       fileName = garment.photo!.fileName;
@@ -115,7 +112,7 @@ describe('wardrobe', () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers['hx-redirect']).toBe('/wardrobe');
 
-      expect(await t.em().findOne(Garment, garmentId)).toBeNull();
+      expect(await garmentRow(t, garmentId)).toBeUndefined();
       expect(await exists(filePath('original'))).toBe(false);
       expect(await exists(filePath('thumb'))).toBe(false);
 

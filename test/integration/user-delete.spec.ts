@@ -1,16 +1,17 @@
+import { eq, type SQL } from 'drizzle-orm';
 import { readdir } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
-import { User } from '../../src/dal/entity/user.entity';
+import { garment, user } from '../../src/db/schema';
 import { variantFileName } from '../../src/web/files/image-variant';
 import {
   createGarment,
   jpegPhoto,
+  photoFileName,
   photoRow,
   photoRowCount,
   uploadPhoto,
 } from './garments';
-import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
+import { createTestApp, TEST_PASSWORD, TestApp, userIdOf } from './harness';
 
 /**
  * Deleting an account removes the user's photos from storage, not only the
@@ -20,6 +21,8 @@ describe('account deletion', () => {
   let t: TestApp;
   const email = 'carol@example.com';
   const bystanderEmail = 'dave@example.com';
+
+  const accounts = (where: SQL) => t.db.$count(user, where);
 
   const storedFiles = async () =>
     (await readdir(t.dataPath)).filter((name) => name.endsWith('.webp'));
@@ -49,14 +52,9 @@ describe('account deletion', () => {
     });
     await uploadPhoto(t, bystanderGarment, await jpegPhoto(), bystanderCookie);
 
-    const em = t.em();
-    const user = await em.findOneOrFail(User, { email });
-    const fileName = (
-      await em.findOneOrFail(Garment, garmentId, { populate: ['photo'] })
-    ).photo!.fileName;
-    const bystanderFile = (
-      await em.findOneOrFail(Garment, bystanderGarment, { populate: ['photo'] })
-    ).photo!.fileName;
+    const userId = await userIdOf(t, email);
+    const fileName = await photoFileName(t, garmentId);
+    const bystanderFile = await photoFileName(t, bystanderGarment);
     expect(await storedFiles()).toEqual(
       expect.arrayContaining([fileName, variantFileName(fileName, 'thumb')]),
     );
@@ -77,10 +75,8 @@ describe('account deletion', () => {
     const malformed = await deleteAccount(cookie, { email });
     expect(malformed.statusCode).toBe(400);
     expect(malformed.headers.location).toBeUndefined();
-    expect(await t.em().findOne(User, { id: user.id })).not.toBeNull();
-    expect(
-      await t.em().findOne(User, { email: bystanderEmail }),
-    ).not.toBeNull();
+    expect(await accounts(eq(user.id, userId))).toBe(1);
+    expect(await accounts(eq(user.email, bystanderEmail))).toBe(1);
 
     const res = await deleteAccount(cookie, { email, password: TEST_PASSWORD });
     expect(res.statusCode).toBe(302);
@@ -88,10 +84,9 @@ describe('account deletion', () => {
     const cleared = res.cookies.find((c) => c.name === 'access_token');
     expect(cleared?.value).toBe('');
 
-    const after = t.em();
-    expect(await after.findOne(User, { id: user.id })).toBeNull();
-    expect(await after.count(Garment, { owner: user.id })).toBe(0);
-    expect(await photoRowCount(t, user.id)).toBe(0);
+    expect(await accounts(eq(user.id, userId))).toBe(0);
+    expect(await t.db.$count(garment, eq(garment.ownerId, userId))).toBe(0);
+    expect(await photoRowCount(t, userId)).toBe(0);
     expect(await photoRow(t, fileName)).toBeUndefined();
     const files = await storedFiles();
     expect(files).not.toContain(fileName);

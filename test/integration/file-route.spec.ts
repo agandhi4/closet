@@ -1,11 +1,16 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
-import { createGarment, jpegPhoto, photoRow, uploadPhoto } from './garments';
+import {
+  createGarment,
+  jpegPhoto,
+  photoFileName,
+  photoRow,
+  uploadPhoto,
+} from './garments';
 import { createTestApp, TestApp } from './harness';
 
 /**
@@ -24,10 +29,7 @@ describe('/file route and request logging', () => {
     t = await createTestApp({ LOG_LEVEL: 'info' });
     const garmentId = await createGarment(t, { name: 'Wool coat' });
     await uploadPhoto(t, garmentId, await jpegPhoto());
-    const garment = await t
-      .em()
-      .findOneOrFail(Garment, garmentId, { populate: ['photo'] });
-    photoName = garment.photo!.fileName;
+    photoName = await photoFileName(t, garmentId);
   });
 
   afterAll(() => t?.cleanup());

@@ -1,4 +1,3 @@
-import { EntityManager, MikroORM } from '@mikro-orm/core';
 import { eq } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
@@ -19,10 +18,10 @@ import { createScratchDatabase } from '../support/scratch-database';
 /**
  * Boots the real application in-process (createApp + app.init(), no listen)
  * against a private database and a fresh temp DATA_PATH, and exposes
- * app.inject() plus the database (t.db, Drizzle; t.em(), MikroORM) so specs
- * can assert on HTML, headers, rows and files together. New row assertions
- * use t.db: MikroORM goes away as features are ported. One app per spec file: AppModule reads process.env at
- * import time, so the env cannot change after the first boot in a worker.
+ * app.inject() plus the database (t.db, Drizzle) so specs can assert on
+ * HTML, headers, rows and files together. One app per spec file: AppModule
+ * reads process.env at import time, so the env cannot change after the
+ * first boot in a worker.
  *
  * Every spec file gets its own scratch Postgres database (see
  * test/support/scratch-database.ts), dropped again by cleanup().
@@ -132,8 +131,6 @@ export interface TestApp {
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
   /** The app's Drizzle instance (no identity map: reads see every commit). */
   db: Db;
-  /** A fresh identity map per call, so reads see what the app flushed. */
-  em: () => EntityManager;
   /**
    * POST /auth/register (a seeded row plus a login when DISABLE_REGISTRATION
    * is on); returns the session cookie for later requests.
@@ -184,7 +181,6 @@ export async function createTestApp(
     throw error;
   }
 
-  const orm = app.get(MikroORM);
   let owner: TestUser | undefined;
   const inject = ({
     anonymous = false,
@@ -261,7 +257,6 @@ export async function createTestApp(
     owner,
     inject,
     db,
-    em: () => orm.em.fork(),
     register,
     login,
     cleanup: async () => {
@@ -270,6 +265,16 @@ export async function createTestApp(
       await rm(dataPath, { recursive: true, force: true });
     },
   } satisfies TestApp;
+}
+
+/** The id of the account registered with `email`. */
+export async function userIdOf(t: TestApp, email: string): Promise<number> {
+  const [row] = await t.db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, email));
+  if (!row) throw new Error(`No account for ${email}`);
+  return row.id;
 }
 
 export interface MultipartFile {
@@ -347,10 +352,9 @@ type QueryCallback = (error: Error | null, result?: QueryResult) => void;
 
 /**
  * Runs `work` and counts the SQL statements the app sends meanwhile and the
- * rows they return. The app runs in this process and both pools (Drizzle's
- * and MikroORM's) go through node-postgres's one Client class (pg is pinned
- * to MikroORM's copy, CLAUDE.md Gotchas), so wrapping Client.prototype.query
- * sees every statement. For proving a page reads what it shows rather than a
+ * rows they return. The app runs in this process and its pool goes through
+ * node-postgres's Client class, so wrapping Client.prototype.query sees every
+ * statement. For proving a page reads what it shows rather than a
  * whole table: rows, not only statements, since one statement can return
  * everything.
  */

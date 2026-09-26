@@ -3,7 +3,6 @@ import { readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { Garment } from '../../src/dal/entity/garment.entity';
 import { file } from '../../src/db/schema';
 import {
   reconcileStorage,
@@ -14,6 +13,7 @@ import { variantFileName } from '../../src/web/files/image-variant';
 import {
   createGarment,
   jpegPhoto,
+  photoFileName,
   photoRow,
   photoRowCount,
   uploadPhoto,
@@ -46,10 +46,6 @@ describe('storage reconciliation', () => {
     await utimes(path, then, then);
   };
 
-  const photoFileName = async (garmentId: number) =>
-    (await t.em().findOneOrFail(Garment, garmentId, { populate: ['photo'] }))
-      .photo!.fileName;
-
   const ageRow = async (fileName: string, ageMs: number) => {
     await t.db
       .update(file)
@@ -78,13 +74,13 @@ describe('storage reconciliation', () => {
     // A live photo: row referenced by a garment, bytes present. Untouchable.
     const liveGarment = await createGarment(t, { name: 'Live' });
     await uploadPhoto(t, liveGarment, await jpegPhoto());
-    const live = await photoFileName(liveGarment);
+    const live = await photoFileName(t, liveGarment);
     await ageRow(live, 3 * DAY_MS);
 
     // A referenced row whose original vanished from disk: reported, kept.
     const lostGarment = await createGarment(t, { name: 'Lost' });
     await uploadPhoto(t, lostGarment, await jpegPhoto(300, 300));
-    const lost = await photoFileName(lostGarment);
+    const lost = await photoFileName(t, lostGarment);
     await ageRow(lost, 3 * DAY_MS);
     await rm(join(t.dataPath, lost));
 

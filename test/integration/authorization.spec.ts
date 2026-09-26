@@ -3,12 +3,22 @@ import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
-import { User } from '../../src/dal/entity/user.entity';
 import { outfit, outfitCalendar, outfitSlot } from '../../src/db/schema';
 import { LOGIN_PATH } from '../../src/auth/session-access';
-import { createGarment, jpegPhoto, pngCutout, uploadPhoto } from './garments';
-import { createTestApp, multipart, TestApp, unescapeHtml } from './harness';
+import {
+  createGarment,
+  garmentRow,
+  jpegPhoto,
+  pngCutout,
+  uploadPhoto,
+} from './garments';
+import {
+  createTestApp,
+  multipart,
+  TestApp,
+  unescapeHtml,
+  userIdOf,
+} from './harness';
 
 /**
  * The object-level authorization matrix. One owner (the harness's default
@@ -516,7 +526,7 @@ describe('authorization matrix', () => {
 
   const signUp = async (email: string) => {
     const cookie = await t.register(email);
-    const { id } = await t.em().findOneOrFail(User, { email });
+    const id = await userIdOf(t, email);
     return { id, cookie };
   };
 
@@ -623,10 +633,8 @@ describe('authorization matrix', () => {
       const cloneId = Number(
         /^\/wardrobe\/(\d+)$/.exec(res.headers.location as string)?.[1],
       );
-      const clone = await t
-        .em()
-        .findOneOrFail(Garment, cloneId, { populate: ['owner'] });
-      expect(clone.owner.id).toBe(actors[actor].id);
+      const clone = await garmentRow(t, cloneId);
+      expect(clone?.ownerId).toBe(actors[actor].id);
       // Added rows only: nothing that existed (the source) was modified.
       expect(after).toEqual(expect.arrayContaining(before));
     }

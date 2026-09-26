@@ -9,13 +9,14 @@ import {
   it,
   vi,
 } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
 import sharp from 'sharp';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { MAX_INPUT_PIXELS } from '../../src/web/files/photos';
 import {
   createGarment,
+  garmentRow,
   jpegPhoto,
+  photoFileName,
   photoRow,
   photoRowCount,
   uploadPhoto,
@@ -83,23 +84,16 @@ describe('garment writes', () => {
 
     expect(await photoRowCount(t)).toBe(rowsBefore);
     expect(await storedFiles()).toEqual(filesBefore);
-    const garment = await t
-      .em()
-      .findOneOrFail(Garment, garmentId, { populate: ['photo'] });
-    expect(garment.photo).toBeFalsy();
+    expect((await garmentRow(t, garmentId))?.photo).toBeNull();
   });
 
   it('replacing a photo removes the previous File row and its variants', async () => {
     const garmentId = await createGarment(t, { name: 'Red shirt' });
     await uploadPhoto(t, garmentId, await jpegPhoto());
-    const first = (
-      await t.em().findOneOrFail(Garment, garmentId, { populate: ['photo'] })
-    ).photo!.fileName;
+    const first = await photoFileName(t, garmentId);
 
     await uploadPhoto(t, garmentId, await jpegPhoto(300, 300));
-    const second = (
-      await t.em().findOneOrFail(Garment, garmentId, { populate: ['photo'] })
-    ).photo!.fileName;
+    const second = await photoFileName(t, garmentId);
     expect(second).not.toBe(first);
 
     expect(await photoRow(t, first)).toBeUndefined();
@@ -114,9 +108,7 @@ describe('garment writes', () => {
   it('deleting a garment removes its File row and every variant file', async () => {
     const garmentId = await createGarment(t, { name: 'Green shirt' });
     await uploadPhoto(t, garmentId, await jpegPhoto());
-    const fileName = (
-      await t.em().findOneOrFail(Garment, garmentId, { populate: ['photo'] })
-    ).photo!.fileName;
+    const fileName = await photoFileName(t, garmentId);
     expect(await storedFiles()).toEqual(
       expect.arrayContaining([fileName, variantFileName(fileName, 'thumb')]),
     );
@@ -127,7 +119,7 @@ describe('garment writes', () => {
     });
     expect(res.statusCode).toBe(200);
 
-    expect(await t.em().findOne(Garment, garmentId)).toBeNull();
+    expect(await garmentRow(t, garmentId)).toBeUndefined();
     expect(await photoRow(t, fileName)).toBeUndefined();
     const files = await storedFiles();
     expect(files).not.toContain(fileName);
@@ -213,9 +205,7 @@ describe('garment writes', () => {
       /^\/wardrobe\/(\d+)$/.exec(res.headers.location as string)![1],
     );
 
-    const clone = await t
-      .em()
-      .findOneOrFail(Garment, cloneId, { populate: ['photo'] });
+    const clone = (await garmentRow(t, cloneId))!;
     expect(clone.photo?.shareableId).toMatch(/^[0-9a-f-]{36}$/);
     expect(await storedFiles()).toContain(clone.photo!.fileName);
   });

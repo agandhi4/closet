@@ -1,9 +1,8 @@
 import { readdir } from 'node:fs/promises';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
 import { variantFileName } from '../../src/web/files/image-variant';
-import { createGarment, jpegPhoto } from './garments';
+import { createGarment, jpegPhoto, photoFileName } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
 
 /**
@@ -68,10 +67,7 @@ describe('photo + cutout upload', () => {
       `/wardrobe/${garmentId}?photoSaved=1`,
     );
 
-    const garment = await t
-      .em()
-      .findOneOrFail(Garment, garmentId, { populate: ['photo'] });
-    const fileName = garment.photo!.fileName;
+    const fileName = await photoFileName(t, garmentId);
     const stored = await readdir(t.dataPath);
     expect(stored).toEqual(
       expect.arrayContaining([
