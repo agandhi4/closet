@@ -22,6 +22,13 @@ export interface OutfitFormModel {
   scheduleDate?: IsoDate;
 }
 
+// Caps on what a person types, shared by the inputs' maxlength and the
+// route's schema (a longer post is a 400). The columns are text since
+// drizzle/0005; the name stays at the 255 it has always been, so no saved
+// outfit fails its own edit form, and notes get room like a garment's.
+export const OUTFIT_NAME_MAX = 255;
+export const OUTFIT_NOTES_MAX = 4000;
+
 // The one page that drags, so the one page that loads sortablejs (through
 // the importmap in the layout). An inline module rather than a
 // <script src>: a module URL runs once per document, so after a boosted
@@ -140,7 +147,7 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
           name="name"
           class="input input-bordered w-full"
           value={outfit?.name ?? ''}
-          maxlength={255}
+          maxlength={OUTFIT_NAME_MAX}
           placeholder={t('OUTFIT_NAME_PLACEHOLDER')}
         />
       </div>
@@ -154,7 +161,7 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
           name="notes"
           class="textarea textarea-bordered w-full"
           rows={2}
-          maxlength={255}
+          maxlength={OUTFIT_NOTES_MAX}
           placeholder={t('OUTFIT_NOTES_PLACEHOLDER')}
         >
           {outfit?.notes ?? ''}

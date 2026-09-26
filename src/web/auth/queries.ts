@@ -3,12 +3,12 @@ import type { Db } from '../../db/client';
 import { file, user } from '../../db/schema';
 
 /**
- * Account rows. Emails are compared case-insensitively and stored lower
- * case (normalizeEmail): rows written before 2026-09-26 may still carry
- * capitals, so lookups lower the column too. The unique constraint is still
- * on the raw column; a unique index on lower(email) is a later migration
- * (the data-model audit), and until then the register and update-email
- * routes check for a clash first.
+ * Account rows. Emails are stored as normalizeEmail writes them (trimmed,
+ * lower case; drizzle/0005 converted the older rows) and are unique
+ * case-insensitively: the `user_lower_email_unique` index on lower(email),
+ * which is also what the lookups below use. The register and update-email
+ * routes still check first, for a message under the field; a concurrent
+ * write that wins the race is the index's unique violation.
  */
 
 export interface AccountRow {

@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- Outfit names and notes are text columns: notes up to 4,000 characters are saved (the form stopped at 255, the length of the old column). Names stay capped at 255
+- Emails are unique regardless of case in the database too (an index on `lower(email)`); the upgrade stores every existing address trimmed and lower case, and refuses to start, naming the user ids, if two accounts would then share one
 - Wardrobe search ignores case ("blazer" finds "Black Linen Blazer"; Postgres `LIKE` did not), and `%`, `_` and `\` in the search box match themselves instead of acting as wildcards ("100%" matched everything)
 - Garment notes, names and other text longer than 255 characters are saved instead of failing with a 500
 - The garment form is checked on the server: a blank category, an unknown colour or a date that is not a real one shows the form again with a message (a blank category was saved, a bad date was a 500); categories are saved trimmed and lower case, so "Tops" and "tops" are one filter; a cleared field is saved as empty rather than as an empty string

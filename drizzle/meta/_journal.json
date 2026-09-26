@@ -36,6 +36,13 @@
       "when": 1790406055150,
       "tag": "0004_garment_web",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790411990194,
+      "tag": "0005_email_lower_outfit_text",
+      "breakpoints": true
     }
   ]
 }

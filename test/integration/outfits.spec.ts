@@ -414,7 +414,8 @@ describe('outfits', () => {
       ['a row without its garment id', 'category=tops&name=Unpaired'],
       ['a garment id that is not an id', 'category=tops&garmentId=abc'],
       ['a blank category', 'category=%20&garmentId='],
-      ['a name longer than the column', `name=${'x'.repeat(256)}`],
+      ['a name longer than its cap', `name=${'x'.repeat(256)}`],
+      ['notes longer than their cap', `notes=${'x'.repeat(4001)}`],
     ])('400s %s and writes nothing', async (_label, payload) => {
       const before = await outfitCount();
       const res = await t.inject({
@@ -425,6 +426,12 @@ describe('outfits', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(await outfitCount()).toBe(before);
+    });
+
+    it('keeps notes longer than the old varchar(255) whole', async () => {
+      const notes = 'Layer it. '.repeat(100).trim();
+      const id = await createOutfit({ name: 'Wordy', notes }, []);
+      expect((await outfitRow(id)).notes).toBe(notes);
     });
 
     it('schedules the new outfit and returns to that calendar week', async () => {

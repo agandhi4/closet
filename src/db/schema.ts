@@ -1,4 +1,4 @@
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
   date,
@@ -39,11 +39,15 @@ export const user = pgTable(
     id: serial('id').primaryKey(),
     firstName: varchar('first_name', { length: 255 }),
     lastName: varchar('last_name', { length: 255 }),
+    // Stored lower case (normalizeEmail); unique case-insensitively, the
+    // way every lookup compares it (drizzle/0005_email_lower_outfit_text.sql).
     email: varchar('email', { length: 255 }),
     // bcrypt hash.
     password: varchar('password', { length: 255 }).notNull(),
   },
-  (table) => [unique('user_email_unique').on(table.email)],
+  (table) => [
+    uniqueIndex('user_lower_email_unique').on(sql`lower(${table.email})`),
+  ],
 );
 
 // One row per browser push subscription (Web Push, src/web/push/). The
@@ -182,8 +186,8 @@ export const outfit = pgTable(
     id: serial('id').primaryKey(),
     // A random UUID for share links (/share?shareableId=), set on insert.
     shareableId: varchar('shareable_id', { length: 255 }).notNull(),
-    name: varchar('name', { length: 255 }),
-    notes: varchar('notes', { length: 255 }),
+    name: text('name'),
+    notes: text('notes'),
     ownerId: integer('owner_id').notNull(),
   },
   (table) => [
