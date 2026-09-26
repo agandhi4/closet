@@ -242,13 +242,13 @@ npm run start:prod            # node dist/main.js (the image runs `node dist/mai
 npm run start:test            # the build with background removal stubbed (test/support/test-server.ts): what
                               # Playwright, the load test and Lighthouse start; never downloads the model
 npm run maintenance:reconcile [-- --dry-run] [--force]
-                              # one storage reconciliation pass from dist/ (build first). On the NAS:
+                              # one storage reconciliation pass from dist/ (build first). On linux-box:
                               # docker exec closet npm run maintenance:reconcile. Exits 3 when the
                               # guard refused; --force deletes anyway (dry-run first). Like set-password it
                               # never migrates: a database behind the build is refused (start the server first)
 npm run user:set-password -- <email>
                               # sets a locked-out user's password (read without echo, or piped
-                              # stdin), signs out their sessions. On the NAS:
+                              # stdin), signs out their sessions. On linux-box:
                               # docker exec -it closet npm run user:set-password -- <email>
 npm run cutout:fetch-model    # downloads or verifies the background-removal model in MODELS_PATH (replaces a
                               # mismatched file); docker exec closet npm run cutout:fetch-model
@@ -319,49 +319,44 @@ Builds, test suites, and `npm ci` go through a `build-runner` subagent, never in
 
 ## Deployment
 
-Runs as the `closet` stack on the homelab NAS (`agandhi4/homelab`, `/volume1/docker/homelab` on the NAS). Same shape as `orbit` and `finplat`: one container from a GHCR image, joined to `homeinfra_web`, fronted by the shared Caddy.
+Runs as the `closet` stack on **linux-box** (the homelab compute host; `agandhi4/homelab`, deployed checkout `/docker`), moved from the NAS on 2026-09-26 because server-side background removal needs AVX (the NAS's Celeron J4125 has none). Runbook and rollback: the homelab repo's `docs/closet-move-to-linux-box.md`.
 
 | Piece | Value |
 |-------|-------|
-| URL (canonical, PWA) | `https://closet.kashhq.dedyn.io` |
+| URL (canonical, PWA) | `https://closet.kashhq.dedyn.io` (private: Pi-hole/tailnet split DNS only, no public records) |
 | URL (HTTP twin) | `http://closet.box` (no service worker or push here; secure context required) |
 | Image | `ghcr.io/agandhi4/closet:latest`, amd64, published by the `publish` job of `ci.yml` after the tests pass, on every non-docs push to `main` |
-| Container port | 3000 (`PORT`) |
-| Database | pgvault Postgres, `closet_db` / `closet_user`, provisioned by `stacks/homeinfra/scripts/add-app.sh closet --port 3000` |
-| Persistent volume | `DATA_PATH` → `/volume1/docker/appdata/closet` (uploaded photos, `app.log`) |
-| Caddy | `stacks/homeinfra/caddy/apps.d/closet.caddy` with both `http://closet.box` and `http://closet.kashhq.dedyn.io` → `closet:3000` |
-| DNS | nothing: Pi-hole wildcard `address=/box/` covers `closet.box`; `kashhq.dedyn.io` mirrors `.box` |
-| DSM reverse proxy | rule for `closet.box` and `closet.kashhq.dedyn.io` → `localhost:8080`, WebSocket header on |
-| Auto-update | `closet   # autoupdate` in `hosts/synology/manifest` |
+| Container | port 3000, `mem_limit 5g` (the model child's native memory is outside Node's heap) |
+| Database | pgvault Postgres on the NAS, `closet_db` / `closet_user`, reached over the LAN at `192.168.8.173:5433` |
+| Photos | `DATA_PATH` → the NAS shared folder `closet` (`/volume1/closet`), NFS-mounted on linux-box at `/mnt/closet` (fstab automount, same options as Immich's library) |
+| Model | `MODELS_PATH` → `/srv/docker/closet/models` on linux-box's local disk (BiRefNet 512, downloaded and checksum-verified at first boot) |
+| Caddy | linux-box Caddy: `stacks/caddy/apps.d/closet.caddy` (`http://closet.box`) and the `@closet` block in `kashhq-tls.caddy` (TLS) → `closet:3000` on `linuxbox_web`. After a route change: `docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile` (`deploy.sh up` does not restart an unchanged Caddy) |
+| DNS | Pi-hole map `hosts/pihole/dns/02-box-domain.conf.tmpl`: both names → linux-box; applied by `hosts/pihole/apply.sh` |
+| Auto-update | `closet    # autoupdate` in `hosts/linux-box/manifest`; the hourly `deploy-update.timer` (:40) on linux-box |
 
-Production env (`hosts/synology/closet.env`, gitignored, values never in this repo):
+Production env (`/docker/hosts/linux-box/closet.env`, mode 600, values never in this repo or printed):
 
 ```
-APP_NAME=Closet
-SITE_URL=https://closet.kashhq.dedyn.io
-PWA_ENABLED=true
-DISABLE_REGISTRATION=true          # flip to false only while creating the two household accounts
-ACCESS_TOKEN_SECRET=<openssl rand -hex 32>
-TRUSTED_PROXIES=172.16.0.0/12      # MUST include Caddy's address: see Trusted proxies below
-PUBLIC_VAPID_KEY=<npx web-push generate-vapid-keys>   # no defaults; required when PWA_ENABLED=true
+SITE_URL=https://closet.kashhq.dedyn.io          # compose default
+DISABLE_REGISTRATION=true          # flip to false only while creating household accounts
+ACCESS_TOKEN_SECRET=<openssl rand -hex 32>        # required, 32+ chars; rotated 2026-09-26
+PUBLIC_VAPID_KEY=<npx web-push generate-vapid-keys>   # required when PWA_ENABLED=true
 PRIVATE_VAPID_KEY=<same>
-# ICON_NAME left unset (default icon.png)
-# WATERMARK_ENABLED left unset (default false)
-# A local volume on /app/models (MODELS_PATH, the 940 MB model), optionally CUTOUT_THREADS (see
-# Background removal). Needs an AVX2 CPU: linux-box, not the NAS. A leftover CUTOUT_MODE is ignored
-DATABASE_HOST=pgvault
-DATABASE_PORT=5432
-DATABASE_SCHEMA=closet_db
-DATABASE_USER=closet_user
-DATABASE_PASS=<from add-app.sh, hex>
-DATA_PATH=/app/data
+CLOSET_DB_PASSWORD=<from add-app.sh>
+CLOSET_DATA_DIR=/mnt/closet
+CLOSET_DB_HOST=192.168.8.173
+CLOSET_DB_PORT=5433
+CLOSET_WEB_NETWORK=linuxbox_web
+TRUSTED_PROXIES=172.23.0.0/16      # linuxbox_web: Caddy is the edge here, so X-Forwarded-For is the real client
+CLOSET_MODELS_DIR=/srv/docker/closet/models
+# APP_TIMEZONE defaults to America/New_York in the compose file
 ```
 
 **Trusted proxies.** `TRUSTED_PROXIES` must include the address Caddy connects from (Request security). Check with the boot log line `Trusted proxies: ...` and a rate-limit hit's `for <ip>` warning: it must name the client, not Caddy.
 
-**Locked out.** There is no email reset. On the NAS: `docker exec -it closet npm run user:set-password -- <email>` asks for the new password twice without echoing it (or reads it from piped stdin), applies the registration rules, and signs out every session of that account. An unknown email exits 1 and changes nothing, and so does a database the running build has not migrated yet (it never migrates).
+**Locked out.** There is no email reset. On linux-box: `docker exec -it closet npm run user:set-password -- <email>` asks for the new password twice without echoing it (or reads it from piped stdin), applies the registration rules, and signs out every session of that account. An unknown email exits 1 and changes nothing, and so does a database the running build has not migrated yet (it never migrates).
 
-Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./deploy.sh up synology closet`. Data fixes go through `pgvault-connect closet_db` (read freely, write only when asked, inside a transaction).
+Deploy now (instead of waiting for the hourly timer): on linux-box, `docker pull ghcr.io/agandhi4/closet:latest && cd /docker && git pull --ff-only && ./deploy.sh up linux-box closet` (`up` does not pull images). Data fixes go through pgvault (read freely, write only when asked, inside a transaction).
 
 ## Gotchas
 
