@@ -1,9 +1,4 @@
-import type { WebLogger } from '../../src/web/logger';
+import pino from 'pino';
 
 /** For specs that call a plain module directly and do not assert its logs. */
-export const silentLogger: WebLogger = {
-  debug: () => undefined,
-  log: () => undefined,
-  warn: () => undefined,
-  error: () => undefined,
-};
+export const silentLogger = pino({ level: 'silent' });

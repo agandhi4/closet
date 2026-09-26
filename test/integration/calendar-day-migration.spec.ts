@@ -7,6 +7,7 @@ import {
   createScratchDatabase,
   type ScratchDatabase,
 } from '../support/scratch-database';
+import { silentLogger } from './logger';
 
 /**
  * drizzle/0001_calendar_day.sql on data shaped like production's: every
@@ -15,8 +16,6 @@ import {
  * MikroORM migrations, as production's was, adds rows, and runs the boot's
  * migration runner on it.
  */
-
-const LOGGER = { info: () => undefined, error: () => undefined };
 
 let databases: ScratchDatabase[] = [];
 
@@ -140,7 +139,7 @@ describe('calendar days become dates (0001_calendar_day)', () => {
       ),
     );
 
-    await runMigrations(configOf(env), LOGGER);
+    await runMigrations(configOf(env), silentLogger);
 
     expect(await calendarRows(env)).toEqual([
       { id: ids[0], day: '2026-09-25' },
@@ -167,7 +166,7 @@ describe('calendar days become dates (0001_calendar_day)', () => {
       { date: '2026-10-23T00:00:00Z' },
     ]);
 
-    await runMigrations(configOf(env), LOGGER);
+    await runMigrations(configOf(env), silentLogger);
 
     expect((await calendarRows(env)).map((row) => row.id)).toEqual([
       ids[1],
@@ -182,7 +181,7 @@ describe('calendar days become dates (0001_calendar_day)', () => {
       { date: '2026-09-25T04:00:00Z' },
     ]);
 
-    const run = runMigrations(configOf(env), LOGGER);
+    const run = runMigrations(configOf(env), silentLogger);
     await expect(run).rejects.toBeInstanceOf(MigrationFailedError);
     await expect(run).rejects.toThrow(
       /1 row\(s\) have a date that is not UTC midnight/,
@@ -207,7 +206,7 @@ describe('calendar days become dates (0001_calendar_day)', () => {
       { date: '2026-09-25T00:00:00Z', notes: 'Wedding' },
     ]);
 
-    await expect(runMigrations(configOf(env), LOGGER)).rejects.toThrow(
+    await expect(runMigrations(configOf(env), silentLogger)).rejects.toThrow(
       /1 row\(s\) have notes/,
     );
     expect(await columnsOf(env)).toMatchObject({ notes: 'character varying' });

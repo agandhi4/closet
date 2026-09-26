@@ -5,7 +5,8 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { join } from 'node:path';
 import { Client } from 'pg';
 import { PROJECT_ROOT } from '../project-root';
-import { connectionOptions, type DbConfig, type DbLogger } from './client';
+import type { Logger } from '../logger';
+import { connectionOptions, type DbConfig } from './client';
 
 /**
  * Brings the database to the schema in drizzle/ at boot, before anything
@@ -21,10 +22,11 @@ import { connectionOptions, type DbConfig, type DbLogger } from './client';
  * - A fresh database runs the baseline like any other migration.
  * - Then drizzle's migrate() applies whatever is newer than the last row.
  *
- * Every step runs on one dedicated connection holding a Postgres advisory
- * lock, so the server and the reconcile CLI (both boot the app) never
- * migrate the same database at once: the second waits, then finds nothing to
- * do.
+ * Only the server migrates (createApp(), before anything queries). Every
+ * step runs on one dedicated connection holding a Postgres advisory lock, so
+ * two servers on one database (an overlapping deploy) never migrate at once:
+ * the second waits, then finds nothing to do. The CLIs never migrate; they
+ * refuse a database that is behind (requireCurrentSchema).
  */
 
 export const MIGRATIONS_FOLDER = join(PROJECT_ROOT, 'drizzle');
@@ -79,7 +81,7 @@ export class LegacyMigrationsIncompleteError extends Error {
 
 export async function runMigrations(
   config: DbConfig,
-  logger: DbLogger,
+  logger: Logger,
 ): Promise<void> {
   const started = Date.now();
   const client = new Client(connectionOptions(config));
@@ -113,7 +115,41 @@ export async function runMigrations(
   }
 }
 
-async function acquireLock(client: Client, logger: DbLogger): Promise<void> {
+export class SchemaBehindError extends Error {
+  constructor(readonly pending: number) {
+    super(
+      `The database is ${pending} migration(s) behind this build. Start the ` +
+        `server (it migrates at boot), then run this again.`,
+    );
+    this.name = 'SchemaBehindError';
+  }
+}
+
+/**
+ * Refuses a database this build's migrations have not all reached: what the
+ * next server boot would apply, by the rule drizzle's migrator uses (every
+ * file whose journal `when` is newer than the last recorded row). The CLIs
+ * call it instead of migrating: a recovery tool run beside a server must not
+ * change the schema under it, and a schema it does not know is not one it
+ * should write to.
+ */
+export async function requireCurrentSchema(config: DbConfig): Promise<void> {
+  const client = new Client(connectionOptions(config));
+  await client.connect();
+  try {
+    const last = await lastAppliedAt(client);
+    const pending = readMigrationFiles({
+      migrationsFolder: MIGRATIONS_FOLDER,
+    }).filter(
+      (migration) => last === undefined || migration.folderMillis > last,
+    ).length;
+    if (pending > 0) throw new SchemaBehindError(pending);
+  } finally {
+    await client.end();
+  }
+}
+
+async function acquireLock(client: Client, logger: Logger): Promise<void> {
   const { rows } = await client.query<{ locked: boolean }>(
     'select pg_try_advisory_lock(hashtext($1)) as locked',
     [MIGRATION_LOCK_KEY],
@@ -149,7 +185,7 @@ async function requireLastLegacyMigration(client: Client): Promise<void> {
  * The table DDL is copied from drizzle-orm's pg-core dialect; migrate()
  * repeats it with IF NOT EXISTS.
  */
-async function recordBaseline(client: Client, logger: DbLogger): Promise<void> {
+async function recordBaseline(client: Client, logger: Logger): Promise<void> {
   const [baseline] = readMigrationFiles({
     migrationsFolder: MIGRATIONS_FOLDER,
   });
@@ -181,16 +217,29 @@ async function recordBaseline(client: Client, logger: DbLogger): Promise<void> {
   );
 }
 
-// Two queries: a statement naming a missing table fails at parse time, even
-// in a branch that would not run.
 async function appliedCount(client: Client): Promise<number> {
-  const exists = await client.query<{ exists: boolean }>(
-    'select to_regclass($1) is not null as exists',
-    [DRIZZLE_TABLE_REF],
-  );
-  if (!exists.rows[0].exists) return 0;
+  if (!(await drizzleTableExists(client))) return 0;
   const { rows } = await client.query<{ count: number }>(
     `select count(*)::int as count from ${DRIZZLE_TABLE_REF}`,
   );
   return rows[0].count;
+}
+
+// A query of its own: a statement naming a missing table fails at parse
+// time, even in a branch that would not run.
+async function drizzleTableExists(client: Client): Promise<boolean> {
+  const { rows } = await client.query<{ exists: boolean }>(
+    'select to_regclass($1) is not null as exists',
+    [DRIZZLE_TABLE_REF],
+  );
+  return rows[0].exists;
+}
+
+/** created_at of the newest recorded migration; undefined before the first. */
+async function lastAppliedAt(client: Client): Promise<number | undefined> {
+  if (!(await drizzleTableExists(client))) return undefined;
+  const { rows } = await client.query<{ createdAt: string | null }>(
+    `select max(created_at)::text as "createdAt" from ${DRIZZLE_TABLE_REF}`,
+  );
+  return rows[0].createdAt === null ? undefined : Number(rows[0].createdAt);
 }

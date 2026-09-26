@@ -1,7 +1,7 @@
 import { isPushServiceEndpoint } from './endpoint';
 import webpush from 'web-push';
 import type { Db } from '../../db/client';
-import type { WebLogger } from '../logger';
+import type { Logger } from '../../logger';
 import type { PushPayload } from './payload';
 import { deleteDeviceById, type DeviceRow, devicesOf } from './queries';
 
@@ -63,7 +63,7 @@ const ERROR_BODY_LOG_LIMIT = 200;
  */
 export function createPushSender(options: {
   db: Db;
-  logger: WebLogger;
+  logger: Logger;
   vapid: VapidConfig;
 }): PushSender {
   const { db, logger, vapid } = options;
@@ -111,7 +111,7 @@ export function createPushSender(options: {
         GONE_STATUSES.has(error.statusCode)
       ) {
         await deleteDeviceById(db, device.id);
-        logger.log(
+        logger.info(
           `Push device ${device.id} of user ${userId} is gone (${error.statusCode}); removed`,
         );
         return 'pruned';
@@ -144,13 +144,11 @@ export function createPushSender(options: {
         // Only the prune can get here (a database error deleting the row).
         report.failed += 1;
         logger.error(
+          { err: result.reason },
           `Push to device ${devices[index].id} of user ${userId}: could not remove the gone device`,
-          result.reason instanceof Error
-            ? result.reason.stack
-            : String(result.reason),
         );
       });
-      logger.log(
+      logger.info(
         `Push "${payload.tag ?? payload.title}" to user ${userId}: ${report.delivered}/${report.devices} delivered, ${report.pruned} removed, ${report.failed} failed`,
       );
       return report;

@@ -3,7 +3,7 @@ import type { Db, Queryable } from '../../db/client';
 import { HttpError } from '../errors';
 import type { Photos } from '../files/photos';
 import { insertPhotoRow, type NewPhotoRow } from '../files/queries';
-import type { WebLogger } from '../logger';
+import type { Logger } from '../../logger';
 import {
   deleteGarment,
   type GarmentDetail,
@@ -25,7 +25,7 @@ import type { GarmentFields } from './validation';
 export interface WardrobeDeps {
   db: Db;
   photos: Photos;
-  logger: WebLogger;
+  logger: Logger;
 }
 
 /**
@@ -100,11 +100,11 @@ export async function replacePhoto(
   });
   if (replaced) {
     await deps.photos.deleteVariants(replaced);
-    deps.logger.log(
+    deps.logger.info(
       `Garment ${id} photo replaced: ${replaced} -> ${photo.fileName}`,
     );
   } else {
-    deps.logger.log(`Garment ${id} photo added: ${photo.fileName}`);
+    deps.logger.info(`Garment ${id} photo added: ${photo.fileName}`);
   }
 }
 

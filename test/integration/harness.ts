@@ -1,27 +1,34 @@
 import { eq } from 'drizzle-orm';
-import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import type { InjectOptions, LightMyRequestResponse } from 'fastify';
+import type {
+  FastifyInstance,
+  InjectOptions,
+  LightMyRequestResponse,
+} from 'fastify';
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { OutgoingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client, type QueryResult } from 'pg';
 import { vi } from 'vitest';
+import { createApp } from '../../src/app';
+import { loadConfig } from '../../src/config';
 import type { Db } from '../../src/db/client';
-import { DB } from '../../src/db/db.module';
 import { user } from '../../src/db/schema';
+import { createLogger, createLoggerTo } from '../../src/logger';
 import { hashPassword } from '../../src/web/auth/passwords';
 import { insertUser } from '../../src/web/auth/queries';
 import type { Photos } from '../../src/web/files/photos';
+import { LogCapture } from '../support/log-capture';
 import { createScratchDatabase } from '../support/scratch-database';
 
 /**
- * Boots the real application in-process (createApp + app.init(), no listen)
+ * Boots the real application in-process (createApp + ready(), no listen)
  * against a private database and a fresh temp DATA_PATH, and exposes
- * app.inject() plus the database (t.db, Drizzle) so specs can assert on
- * HTML, headers, rows and files together. One app per spec file: AppModule
- * reads process.env at import time, so the env cannot change after the
- * first boot in a worker.
+ * inject() plus the database (t.db, Drizzle) and what the app logged
+ * (t.logs) so specs can assert on HTML, headers, rows, files and log lines
+ * together. The app's configuration is BASE_ENV plus the overrides, through
+ * the real loadConfig() but without the process environment or the .env
+ * files, so a developer's .env.local never leaks into a spec.
  *
  * Every spec file gets its own scratch Postgres database (see
  * test/support/scratch-database.ts), dropped again by cleanup().
@@ -47,7 +54,8 @@ export type Env = Record<string, string>;
 
 const BASE_ENV: Env = {
   NODE_ENV: 'test',
-  LOG_LEVEL: 'silent',
+  // Everything down to debug reaches t.logs (nothing reaches the console).
+  LOG_LEVEL: 'debug',
   APP_NAME: 'Closet',
   SITE_URL: 'http://localhost:3000',
   TRUSTED_PROXIES: '127.0.0.1,::1',
@@ -121,7 +129,7 @@ export interface TestUser {
 }
 
 export interface TestApp {
-  app: NestFastifyApplication;
+  app: FastifyInstance;
   /** Uploads, thumbs and app.log land here; removed by cleanup(). */
   dataPath: string;
   /** The app's one Photos (what the routes store and serve through). */
@@ -131,6 +139,11 @@ export interface TestApp {
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
   /** The app's Drizzle instance (no identity map: reads see every commit). */
   db: Db;
+  /**
+   * Every line the app logged at LOG_LEVEL and above, parsed; empty when the
+   * app writes the real app.log instead (TestAppOptions.appLog).
+   */
+  logs: LogCapture;
   /**
    * POST /auth/register (a seeded row plus a login when DISABLE_REGISTRATION
    * is on); returns the session cookie for later requests.
@@ -148,6 +161,11 @@ export interface TestAppOptions {
    * DATABASE_* values.
    */
   beforeBoot?: (databaseEnv: Env) => Promise<void>;
+  /**
+   * Log as the server does, to stdout and DATA_PATH/app.log (pino-pretty in
+   * a worker thread), instead of into t.logs.
+   */
+  appLog?: boolean;
 }
 
 export async function createTestApp(
@@ -156,24 +174,22 @@ export async function createTestApp(
 ) {
   const dataPath = await mkdtemp(join(tmpdir(), 'closet-int-'));
   const database = await createScratchDatabase('closet_it');
-  Object.assign(
-    process.env,
-    BASE_ENV,
-    database.env,
-    { DATA_PATH: dataPath },
-    overrides,
-  );
+  const config = loadConfig({
+    env: { ...BASE_ENV, ...database.env, DATA_PATH: dataPath, ...overrides },
+    envFiles: [],
+  });
+  const logs = new LogCapture();
+  const logger = options.appLog
+    ? createLogger(config)
+    : createLoggerTo(config.LOG_LEVEL, logs);
 
-  // Deferred on purpose: ConfigModule.forRoot validates process.env when
-  // app.module is first evaluated, so the module graph must not load before
-  // the env above is in place.
-  const { createApp } = await import('../../src/app');
-  let app: NestFastifyApplication;
+  let app: FastifyInstance;
+  let db: Db;
   let photos: Photos;
   try {
     await options.beforeBoot?.(database.env);
-    ({ app, photos } = await createApp());
-    await app.init();
+    ({ app, db, photos } = await createApp(config, logger));
+    await app.ready();
   } catch (error) {
     // A failing boot (typically a migration) must not leak the database.
     await database.drop();
@@ -206,7 +222,6 @@ export async function createTestApp(
     return `access_token=${token.value}`;
   };
 
-  const db = app.get<Db>(DB);
   const login = async (email: string, password = TEST_PASSWORD) =>
     sessionFrom(
       await inject({
@@ -218,9 +233,8 @@ export async function createTestApp(
       }),
       'login',
     );
-  const registrationDisabled = process.env.DISABLE_REGISTRATION === 'true';
   const register = async (email: string, password = TEST_PASSWORD) => {
-    if (registrationDisabled) {
+    if (config.DISABLE_REGISTRATION) {
       await insertUser(db, email, await hashPassword(password));
       return login(email, password);
     }
@@ -257,6 +271,7 @@ export async function createTestApp(
     owner,
     inject,
     db,
+    logs,
     register,
     login,
     cleanup: async () => {

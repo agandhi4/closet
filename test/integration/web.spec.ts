@@ -1,12 +1,11 @@
-import { Logger as PinoLogger } from 'nestjs-pino';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, TestApp } from './harness';
 import { expectFullPage } from './pages';
 
 /**
- * The plain-Fastify web layer (src/web/) inside the real app: its session
- * hook answers as SessionGuard does, on `GET /` (the one protected ported
- * route) and the public shell routes; its pages render in the shared shell.
+ * The web layer (src/web/) inside the real app: the session gate on `GET /`
+ * and the public shell routes, pages in the shared shell, the 404 page, and
+ * the request log.
  */
 describe('web layer', () => {
   let t: TestApp;
@@ -25,24 +24,17 @@ describe('web layer', () => {
     });
 
     it('redirects an anonymous page navigation to the login page, without warn logs', async () => {
-      const logger = t.app.get(PinoLogger);
-      const warn = vi.spyOn(logger, 'warn');
-      const error = vi.spyOn(logger, 'error');
-      try {
-        const res = await t.inject({
-          method: 'GET',
-          url: '/',
-          headers: { 'sec-fetch-mode': 'navigate' },
-          anonymous: true,
-        });
-        expect(res.statusCode).toBe(302);
-        expect(res.headers.location).toBe('/auth/login');
-        expect(warn).not.toHaveBeenCalled();
-        expect(error).not.toHaveBeenCalled();
-      } finally {
-        warn.mockRestore();
-        error.mockRestore();
-      }
+      t.logs.clear();
+      const res = await t.inject({
+        method: 'GET',
+        url: '/',
+        headers: { 'sec-fetch-mode': 'navigate' },
+        anonymous: true,
+      });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe('/auth/login');
+      expect(t.logs.messages('warn')).toEqual([]);
+      expect(t.logs.messages('error')).toEqual([]);
     });
 
     it.each([
@@ -116,7 +108,7 @@ describe('web layer', () => {
       expect(res.body).toContain('href="/auth/login"');
       expect(res.body).toContain('id="connectivity-banner"');
       expect(res.body).toMatch(/<body[^>]*hx-inherit="hx-boost"/);
-      // Security headers come from the root onSend hook, as for Nest routes.
+      // Security headers come from the root onSend hook.
       expect(res.headers['x-frame-options']).toBe('DENY');
     });
 
@@ -131,18 +123,20 @@ describe('web layer', () => {
     });
   });
 
-  // nestjs-pino's request log is Nest middleware, which never reaches these
-  // routes (CLAUDE.md Gotchas); the plugin writes its own line.
   it('logs each page request once, and not the heartbeat', async () => {
-    const log = vi.spyOn(t.app.get(PinoLogger), 'log');
-    try {
-      await t.inject({ method: 'GET', url: '/about' });
-      await t.inject({ method: 'GET', url: '/healthz' });
-      const lines = log.mock.calls.filter(([, context]) => context === 'Web');
-      expect(lines).toHaveLength(1);
-      expect(lines[0][0]).toMatch(/^GET \/about 200 \d+\.\dms$/);
-    } finally {
-      log.mockRestore();
-    }
+    t.logs.clear();
+    await t.inject({ method: 'GET', url: '/about' });
+    await t.inject({ method: 'GET', url: '/healthz' });
+    const lines = t.logs.messages('info', 'Http');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^GET \/about 200 \d+\.\dms$/);
+  });
+
+  it('logs a 404 like any other request', async () => {
+    t.logs.clear();
+    await t.inject({ method: 'GET', url: '/no-such-page' });
+    expect(t.logs.messages('info', 'Http')).toEqual([
+      expect.stringMatching(/^GET \/no-such-page 404 \d+\.\dms$/),
+    ]);
   });
 });

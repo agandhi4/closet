@@ -7,6 +7,7 @@ import {
   createScratchDatabase,
   type ScratchDatabase,
 } from '../support/scratch-database';
+import { silentLogger } from './logger';
 
 /**
  * drizzle/0004_garment_web.sql on data shaped like the old garment form's:
@@ -15,8 +16,6 @@ import {
  * builds a database with the legacy MikroORM migrations, as production's
  * was, adds rows, and runs the boot's migration runner on it.
  */
-
-const LOGGER = { info: () => undefined, error: () => undefined };
 
 let databases: ScratchDatabase[] = [];
 
@@ -49,7 +48,7 @@ async function withClient<T>(
   }
 }
 
-/** A garment row as the Nest garment form wrote it. */
+/** A garment row as the old (pre-web-layer) garment form wrote it. */
 interface LegacyGarment {
   name?: string | null;
   category?: string;
@@ -195,7 +194,7 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       ),
     );
 
-    await runMigrations(configOf(env), LOGGER);
+    await runMigrations(configOf(env), silentLogger);
 
     expect(await garmentRows(env)).toEqual([
       {
@@ -290,7 +289,7 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       { name: 'Shifted', dateAquired: '2024-03-15T04:00:00Z' },
     ]);
 
-    const run = runMigrations(configOf(env), LOGGER);
+    const run = runMigrations(configOf(env), silentLogger);
     await expect(run).rejects.toBeInstanceOf(MigrationFailedError);
     await expect(run).rejects.toThrow(
       /1 row\(s\) have a date_aquired that is not UTC midnight/,
@@ -310,7 +309,7 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       { name: 'Hat', color: 'mauve' },
     ]);
 
-    await expect(runMigrations(configOf(env), LOGGER)).rejects.toThrow(
+    await expect(runMigrations(configOf(env), silentLogger)).rejects.toThrow(
       /colours outside the built-in set \(Teal, mauve\)/,
     );
     expect(await columnsOf(env, 'garment')).toMatchObject({
@@ -321,7 +320,7 @@ describe('garments move to the web layer (0004_garment_web)', () => {
   it('aborts on a blank category', async () => {
     const { env } = await legacyDatabase([{ name: 'Nothing', category: ' ' }]);
 
-    await expect(runMigrations(configOf(env), LOGGER)).rejects.toThrow(
+    await expect(runMigrations(configOf(env), silentLogger)).rejects.toThrow(
       /1 row\(s\) have a blank category/,
     );
   });
@@ -332,7 +331,7 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       { name: 'Two', shareableId: 'same' },
     ]);
 
-    await expect(runMigrations(configOf(env), LOGGER)).rejects.toThrow(
+    await expect(runMigrations(configOf(env), silentLogger)).rejects.toThrow(
       /1 duplicate shareable_id value\(s\)/,
     );
   });

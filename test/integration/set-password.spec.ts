@@ -3,6 +3,7 @@ import { PassThrough, Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { user } from '../../src/db/schema';
 import { runSetPassword } from '../../src/maintenance/set-password';
+import { captureLogs } from '../support/log-capture';
 import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
 /**
@@ -28,16 +29,21 @@ describe('user:set-password', () => {
     let stderr = '';
     output.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
     errors.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
-    const logged: string[] = [];
+    const { logger, logs } = captureLogs();
     const status = await runSetPassword({
       args,
       db: t.db,
       input: Readable.from([stdin]),
       output,
       errors,
-      logger: { log: (message) => logged.push(message) },
+      logger,
     });
-    return { status, stdout, stderr, logged };
+    return {
+      status,
+      stdout,
+      stderr,
+      logged: logs.records.map((record) => record.msg),
+    };
   };
 
   const hashOf = async (email: string) =>

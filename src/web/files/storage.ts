@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import type { WebLogger } from '../logger';
+import type { Logger } from '../../logger';
 
 // Writes land here first and are renamed into DATA_PATH when complete (same
 // filesystem, so the rename is atomic). A reader, such as the thumb writer
@@ -29,7 +29,7 @@ export class PhotoStorage {
 
   constructor(
     readonly directory: string,
-    private readonly logger: WebLogger,
+    private readonly logger: Logger,
   ) {
     this.incoming = path.join(directory, INCOMING_DIR);
   }

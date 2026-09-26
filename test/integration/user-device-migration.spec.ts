@@ -7,14 +7,13 @@ import {
   createScratchDatabase,
   type ScratchDatabase,
 } from '../support/scratch-database';
+import { silentLogger } from './logger';
 
 /**
  * drizzle/0003_user_device_push.sql on a MikroORM-era database: the keys
  * move out of the subscription JSON into columns, rows that cannot be pushed
  * to are deleted, and the endpoint takes more than 255 characters.
  */
-
-const LOGGER = { info: () => undefined, error: () => undefined };
 
 const P256DH = 'B'.repeat(87);
 const AUTH = 'a'.repeat(22);
@@ -68,7 +67,7 @@ describe('user_device keys become columns (0003_user_device_push)', () => {
       );
     }
 
-    await runMigrations(configOf(database.env), LOGGER);
+    await runMigrations(configOf(database.env), silentLogger);
 
     const { rows } = await client.query(
       `select push_endpoint, key_p256dh, key_auth, user_agent, user_id,

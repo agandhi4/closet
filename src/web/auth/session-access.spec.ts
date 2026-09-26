@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { AuthContext } from '../web/auth/session';
+import type { AuthContext } from './session';
 import { decideSessionAccess } from './session-access';
 
-// The decision both gates take (SessionGuard for Nest routes, requireSession
-// in src/web/auth/require-session.ts for plain-Fastify routes); session.guard.spec.ts and
-// test/integration/web.spec.ts check that each gate answers with it.
+// The decision requireSession takes; test/integration/web.spec.ts checks
+// that the gate answers with it.
 describe('decideSessionAccess', () => {
   const session: AuthContext = { user: { id: 3, email: 'a@example.com' } };
   const anonymous = (headers: Record<string, string> = {}) => ({ headers });

@@ -1,30 +1,28 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { decideSessionAccess, LOGIN_PATH } from '../../auth/session-access';
+import { decideSessionAccess, LOGIN_PATH } from './session-access';
 import { loggableUrl } from '../loggable-url';
-import type { WebLogger } from '../logger';
+import type { Logger } from '../../logger';
 
 declare module 'fastify' {
   interface FastifyContextConfig {
     /**
      * Reachable without a session (login, the manifest, the about page).
-     * Plain-Fastify routes are protected unless they say `config: { public:
-     * true }`, as Nest routes are unless they are @Public().
+     * Every route is protected unless it says `config: { public: true }`.
      */
     public?: boolean;
   }
 }
 
 /**
- * The session gate for plain-Fastify routes, a preValidation hook in the web
- * plugin's scope. It runs after the root hook in app.ts has resolved
- * `req.auth` and before schema validation, so a request without a session is
- * sent to log in rather than told its body is malformed. It answers exactly
- * as SessionGuard + ErrorViewFilter do for Nest routes (the decision is
- * shared: decideSessionAccess): a page navigation without a session is a 302
- * to the login page, an htmx fragment or fetch a bodiless 401 with
- * `HX-Redirect`. Both are routine, so they log at debug.
+ * The session gate, a preValidation hook in the web plugin's scope. It runs
+ * after the root hook in app.ts has resolved `req.auth` and before schema
+ * validation, so a request without a session is sent to log in rather than
+ * told its body is malformed. It answers as decideSessionAccess decides: a
+ * page navigation without a session is a 302 to the login page, an htmx
+ * fragment or fetch a bodiless 401 with `HX-Redirect`. Both are routine, so
+ * they log at debug.
  */
-export function createSessionHook(logger: WebLogger) {
+export function createSessionHook(logger: Logger) {
   return async function requireSession(
     request: FastifyRequest,
     reply: FastifyReply,
@@ -49,7 +47,7 @@ export function createSessionHook(logger: WebLogger) {
 
 /**
  * The signed-in user's id on a protected route, where requireSession has
- * already refused requests without a session; the web layer's @UserId().
+ * already refused requests without a session.
  * Calling it from a public route is a programming error.
  */
 export function sessionUserId(request: FastifyRequest): number {

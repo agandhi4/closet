@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../../db/client';
-import type { WebLogger } from '../logger';
+import type { Logger } from '../../logger';
 import { findUserById } from './queries';
 import {
   passwordFingerprint,
@@ -22,14 +22,14 @@ export const SESSION_COOKIE = 'access_token';
 
 /**
  * Resolves a request's session once: cookie -> JWT -> user row -> password
- * fingerprint. The root preHandler in app.ts calls it for every non-static
- * request and stores the result as `request.auth`; SessionGuard, @UserId(),
- * the web layer's requireSession and the page context only read that.
+ * fingerprint. The root preValidation hook in app.ts calls it for every
+ * non-static request and stores the result as `request.auth`;
+ * requireSession, sessionUserId() and the page context only read that.
  */
 export function createSessionResolver(deps: {
   db: Db;
   tokens: SessionTokens;
-  logger: WebLogger;
+  logger: Logger;
 }) {
   const { db, tokens, logger } = deps;
   return async function resolveSession(
@@ -40,16 +40,16 @@ export function createSessionResolver(deps: {
 
     const claims = tokens.verify(token);
     if (!claims) {
-      logger.log('Rejected access token: invalid signature, claims or expiry');
+      logger.info('Rejected access token: invalid signature, claims or expiry');
       return undefined;
     }
     const user = await findUserById(db, claims.userId);
     if (!user) {
-      logger.log(`Access token for unknown user ${claims.userId}`);
+      logger.info(`Access token for unknown user ${claims.userId}`);
       return undefined;
     }
     if (passwordFingerprint(user.password) !== claims.pwf) {
-      logger.log(`Password fingerprint mismatch for user ${user.id}`);
+      logger.info(`Password fingerprint mismatch for user ${user.id}`);
       return undefined;
     }
     return { user: { id: user.id, email: user.email } };

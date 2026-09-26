@@ -1,21 +1,12 @@
-import { NotFoundException } from '@nestjs/common';
 import Fastify, { type FastifyInstance } from 'fastify';
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-  type Mock,
-} from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { captureLogs, type LogCapture } from '../../test/support/log-capture';
 import { createErrorHandler, HttpError } from './errors';
-import type { WebLogger } from './logger';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
 
 /**
- * The web plugin's error handler on a bare Fastify instance: routes that
+ * The app's error handler on a bare Fastify instance: routes that
  * throw what ported handlers can throw. The ported shell routes cannot fail
  * on request (test/integration/web.spec.ts covers their answers), so the
  * throwing routes here exist only in this spec.
@@ -38,11 +29,12 @@ const ctx: ViewContext = {
 
 describe('createErrorHandler', () => {
   let app: FastifyInstance;
-  let logger: Record<keyof WebLogger, Mock>;
+  let logs: LogCapture;
   let secondRender: unknown;
 
   beforeEach(async () => {
-    logger = { debug: vi.fn(), log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const captured = captureLogs();
+    logs = captured.logs;
     app = Fastify();
     // What the root preValidation hook in app.ts does for every non-static
     // request.
@@ -50,12 +42,9 @@ describe('createErrorHandler', () => {
     app.addHook('preValidation', async (request, reply) => {
       if (request.url !== '/static') reply.locals = ctx;
     });
-    app.setErrorHandler(createErrorHandler(logger));
+    app.setErrorHandler(createErrorHandler(captured.logger));
     app.get('/missing', () => {
       throw new HttpError(404);
-    });
-    app.get('/nest-missing', () => {
-      throw new NotFoundException();
     });
     app.get('/boom', () => {
       throw new Error('connection refused at 10.0.0.5');
@@ -107,13 +96,7 @@ describe('createErrorHandler', () => {
     expect(res.body).toContain('<p>Not Found</p>');
     expect(res.body).toContain('Path: /missing');
     expect(res.body).toContain('class="dock"');
-    expect(logger.warn).toHaveBeenCalledWith('GET /missing -> 404: Not Found');
-  });
-
-  it('answers a Nest exception from an unported service with its status', async () => {
-    const res = await app.inject({ method: 'GET', url: '/nest-missing' });
-    expect(res.statusCode).toBe(404);
-    expect(res.body).toContain('<h1>Error 404</h1>');
+    expect(logs.messages('warn')).toEqual(['GET /missing -> 404: Not Found']);
   });
 
   it('keeps a Fastify 4xx thrown in the handler, with its message', async () => {
@@ -155,10 +138,9 @@ describe('createErrorHandler', () => {
     expect(res.statusCode).toBe(500);
     expect(res.body).toContain('<p>Internal server error</p>');
     expect(res.body).not.toContain('10.0.0.5');
-    expect(logger.error).toHaveBeenCalledWith(
-      'GET /boom -> 500',
-      expect.stringContaining('connection refused at 10.0.0.5'),
-    );
+    const [logged] = logs.records.filter((record) => record.level === 'error');
+    expect(logged.msg).toBe('GET /boom -> 500');
+    expect(logged.err?.stack).toContain('connection refused at 10.0.0.5');
   });
 
   it('answers data on a path without a page context', async () => {

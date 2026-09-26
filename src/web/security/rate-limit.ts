@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { loggableUrl } from '../loggable-url';
-import type { WebLogger } from '../logger';
+import type { Logger } from '../../logger';
 
 /**
  * Brute-force limits for the routes that check a password. Registered once
@@ -20,7 +20,7 @@ import type { WebLogger } from '../logger';
  */
 export async function registerRateLimit(
   fastify: FastifyInstance,
-  logger: WebLogger,
+  logger: Logger,
 ): Promise<void> {
   await fastify.register(fastifyRateLimit, {
     global: false,

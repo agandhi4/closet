@@ -77,8 +77,7 @@ export async function uploadPhoto(
     payload: body.payload,
     headers: { ...body.headers, ...(cookie ? { cookie } : {}) },
   });
-  // Nest answers every POST with 201 unless the handler opts into @HttpCode;
-  // the redirect header is the contract the form relies on.
+  // The redirect header is the contract the form relies on.
   expect(res.statusCode).toBeLessThan(300);
   expect(res.headers['hx-redirect']).toBe(
     `/wardrobe/${garmentId}?photoSaved=1`,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WebLogger } from '../web/logger';
+import { captureLogs } from '../../test/support/log-capture';
 import { nextRunAt, scheduleNightly } from './nightly';
 
 // Every instant is explicit UTC and every zone is named, so these hold
@@ -34,13 +34,7 @@ describe('nextRunAt', () => {
 });
 
 describe('scheduleNightly', () => {
-  const error = vi.fn();
-  const logger: WebLogger = {
-    debug: vi.fn(),
-    log: vi.fn(),
-    warn: vi.fn(),
-    error,
-  };
+  const { logger, logs } = captureLogs();
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -69,10 +63,9 @@ describe('scheduleNightly', () => {
     expect(run).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(run).toHaveBeenCalledTimes(1);
-    expect(error).toHaveBeenCalledWith(
-      'Test job failed',
-      expect.stringContaining('storage unreachable'),
-    );
+    const [failure] = logs.records.filter((record) => record.level === 'error');
+    expect(failure.msg).toBe('Test job failed');
+    expect(failure.err?.stack).toContain('storage unreachable');
 
     await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
     expect(run).toHaveBeenCalledTimes(2);

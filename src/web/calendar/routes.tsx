@@ -116,7 +116,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (outcome === 'no-such-outfit') {
         throw new HttpError(404, 'Outfit not found');
       }
-      logger.log(
+      logger.info(
         outcome === 'scheduled'
           ? `Outfit ${outfitId} scheduled on ${date} by user ${ownerId}`
           : `Outfit ${outfitId} already scheduled on ${date} for user ${ownerId}`,
@@ -137,7 +137,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const outcome = await deleteEntry(db, id, ownerId);
       if (outcome !== 'deleted') throw entryNotFound();
-      logger.log(`Calendar entry ${id} deleted by user ${ownerId}`);
+      logger.info(`Calendar entry ${id} deleted by user ${ownerId}`);
       return reply
         .header('HX-Redirect', weekUrl(request.body?.week))
         .status(200)
@@ -153,7 +153,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const outcome = await toggleWorn(db, id, ownerId);
       if (typeof outcome === 'string') throw entryNotFound();
-      logger.log(
+      logger.info(
         `Calendar entry ${id} marked ${outcome.worn ? 'worn' : 'not worn'} by user ${ownerId}`,
       );
       const week = request.body?.week;

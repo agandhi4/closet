@@ -51,7 +51,7 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // Fastify answers a stream that fails before its headers through the
   // error handler and destroys one that fails later; either way the failure
-  // is logged here, since the Fastify instance's own logger is silent.
+  // is logged here, with the file it was serving.
   const sendImage = (
     reply: FastifyReply,
     stream: Readable,
@@ -59,10 +59,7 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     cacheControl: string,
   ) => {
     stream.on('error', (error) =>
-      logger.error(
-        `Streaming ${reply.request.url} failed`,
-        error instanceof Error ? error.stack : String(error),
-      ),
+      logger.error({ err: error }, `Streaming ${reply.request.url} failed`),
     );
     return reply
       .header('Cache-Control', cacheControl)

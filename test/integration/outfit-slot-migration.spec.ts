@@ -7,6 +7,7 @@ import {
   createScratchDatabase,
   type ScratchDatabase,
 } from '../support/scratch-database';
+import { silentLogger } from './logger';
 
 /**
  * drizzle/0002_outfit_slot.sql on legacy-shaped data: outfits whose
@@ -16,8 +17,6 @@ import {
  * rows the way the MikroORM-era app wrote them, and runs the boot's
  * migration runner on it.
  */
-
-const LOGGER = { info: () => undefined, error: () => undefined };
 
 let databases: ScratchDatabase[] = [];
 
@@ -196,7 +195,7 @@ describe('outfit composition moves to outfit_slot (0002_outfit_slot)', () => {
       return { top, pants, scarf, built, empty, nothing };
     });
 
-    await runMigrations(configOf(env), LOGGER);
+    await runMigrations(configOf(env), silentLogger);
 
     const slots = await slotsByOutfit(env);
     expect(slots.get(seeded.built)).toEqual([
@@ -237,7 +236,7 @@ describe('outfit composition moves to outfit_slot (0002_outfit_slot)', () => {
       return { kept, outfit };
     });
 
-    await runMigrations(configOf(env), LOGGER);
+    await runMigrations(configOf(env), silentLogger);
 
     expect((await slotsByOutfit(env)).get(seeded.outfit)).toEqual([
       ['tops', seeded.kept],
@@ -269,7 +268,7 @@ describe('outfit composition moves to outfit_slot (0002_outfit_slot)', () => {
       return { topA, topB, shoes, coat, nullSlots, jsonNull, emptyArray };
     });
 
-    await runMigrations(configOf(env), LOGGER);
+    await runMigrations(configOf(env), silentLogger);
 
     const slots = await slotsByOutfit(env);
     expect(slots.get(seeded.nullSlots)).toEqual([
@@ -294,7 +293,7 @@ describe('outfit composition moves to outfit_slot (0002_outfit_slot)', () => {
       return { outfit };
     });
 
-    const run = runMigrations(configOf(env), LOGGER);
+    const run = runMigrations(configOf(env), silentLogger);
     await expect(run).rejects.toBeInstanceOf(MigrationFailedError);
     await expect(run).rejects.toThrow(
       new RegExp(
@@ -325,7 +324,7 @@ describe('outfit composition moves to outfit_slot (0002_outfit_slot)', () => {
       );
     });
 
-    await expect(runMigrations(configOf(env), LOGGER)).rejects.toThrow(
+    await expect(runMigrations(configOf(env), silentLogger)).rejects.toThrow(
       /list different garments/,
     );
     expect(await tableExists(env, 'outfit_garments')).toBe(true);
@@ -342,7 +341,7 @@ describe('outfit composition moves to outfit_slot (0002_outfit_slot)', () => {
         await seed.outfit(await seed.user(), slots);
       });
       await expect(
-        runMigrations(configOf(env), LOGGER),
+        runMigrations(configOf(env), silentLogger),
         JSON.stringify(slots),
       ).rejects.toThrow(/outfit\.slots: 1 (row|slot)\(s\)/);
       expect(await outfitColumns(env)).toContain('slots');

@@ -5,9 +5,9 @@ const APP_NAME = process.env.APP_NAME || 'Closet';
 
 /**
  * The session is resolved once per request from the access_token cookie
- * (AuthContextService, see src/app.ts). This proves the cookie set by
- * /auth/login is honoured by SessionGuard on /wardrobe and /auth/profile and
- * by the navbar/profile templates that read the user.
+ * (createSessionResolver, see src/app.ts). This proves the cookie set by
+ * /auth/login is honoured by the session gate on /wardrobe and /auth/profile
+ * and by the navbar and profile page that show the user.
  */
 test.describe('login session', () => {
   test('cookie from /auth/login sticks across wardrobe and profile', async ({
