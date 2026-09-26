@@ -10,7 +10,9 @@ import {
   vi,
 } from 'vitest';
 import { Garment } from '../../src/dal/entity/garment.entity';
+import sharp from 'sharp';
 import { variantFileName } from '../../src/web/files/image-variant';
+import { MAX_INPUT_PIXELS } from '../../src/web/files/photos';
 import {
   createGarment,
   jpegPhoto,
@@ -151,6 +153,43 @@ describe('garment writes', () => {
     expect(await storedFiles()).toEqual(filesBefore);
     expect(await photoRowCount(t)).toBe(rowsBefore);
   });
+
+  // A decompression bomb: a few KB of PNG that decodes to 81 MP. sharp's
+  // limitInputPixels (MAX_INPUT_PIXELS) refuses it from the header.
+  it('an image over the pixel limit is a 400, stores nothing, and the app keeps serving', async () => {
+    const garmentId = await createGarment(t, { name: 'Bomb' });
+    const filesBefore = await storedFiles();
+    const rowsBefore = await photoRowCount(t);
+    const side = Math.ceil(Math.sqrt(MAX_INPUT_PIXELS)) + 1000;
+    const bomb = await sharp({
+      create: { width: side, height: side, channels: 3, background: '#000' },
+      limitInputPixels: false,
+    })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    expect(bomb.length).toBeLessThan(1024 * 1024);
+
+    const body = await multipart(
+      {},
+      { photo: { data: bomb, filename: 'bomb.png', contentType: 'image/png' } },
+    );
+    const res = await t.inject({
+      method: 'POST',
+      url: `/wardrobe/${garmentId}/photo`,
+      payload: body.payload,
+      headers: body.headers,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('Image too large');
+
+    expect(await storedFiles()).toEqual(filesBefore);
+    expect(await photoRowCount(t)).toBe(rowsBefore);
+    const next = await t.inject({
+      method: 'GET',
+      url: `/wardrobe/${garmentId}`,
+    });
+    expect(next.statusCode).toBe(200);
+  }, 30_000);
 
   it('cloning a garment with a photo commits the copied File row with the clone', async () => {
     const sourceId = await createGarment(t, { name: 'Source' });

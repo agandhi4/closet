@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Security
 
+- Image decompression bombs: every image decode is limited to 64 megapixels (sharp's `limitInputPixels`, and a dimension check before a HEIC's pixels are allocated). A few KB of PNG or HEIC could declare a gigabyte of pixels and exhaust the NAS's memory; such an upload is now a 400 "Image too large"
 - Cross-site request forgery: every POST, PUT, PATCH and DELETE must come from this site (its `Origin`, or `Referer` without one, names the address it was sent to or `SITE_URL`), else 403; the session cookie is `SameSite=Lax`. Emails, passwords, shares and garments could be changed from any other site before
 - Login and registration are rate limited (5 a minute per address) and changing the password or deleting the account (5 a minute per user): `@nestjs/throttler` had never limited anything. The client address comes from `TRUSTED_PROXIES`, which must include the reverse proxy's address
 - `?returnTo=` on the outfit form accepts only same-site paths: a `javascript:` value ran script from the Back link
@@ -23,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nightly storage reconciliation (`MAINTENANCE_ENABLED`, 03:00 in `APP_TIMEZONE`) and `npm run maintenance:reconcile [-- --dry-run] [--force]`: orphaned photo sets and unreferenced `file` rows older than a day are deleted, rows whose original is missing are reported. It refuses to delete anything while the `file` table is empty, or when one run would delete more than 25 photo sets or more than a fifth of them (logged, reported as `refused`, exit status 3; `--force` overrides)
 - `npm run user:set-password -- <email>`: sets a locked-out user's password from the server (read without echo, or from piped stdin), with the registration rules, signing out every session of that account
 - `APP_TIMEZONE` (IANA name, default `America/New_York`): the household's time zone, which decides what "today" is on the calendar and which week opens by default
-- HEIC/HEIF uploads: decoded server-side with heic-convert (capped by `MAX_HEIC_BYTES`), accepted by the photo inputs; browsers that cannot decode HEIC skip the client-side cutout and upload the original
+- HEIC/HEIF uploads: decoded server-side with heic-decode to raw pixels (capped by `MAX_HEIC_BYTES`), accepted by the photo inputs; browsers that cannot decode HEIC skip the client-side cutout and upload the original
 - Notifications on the profile page (with `PWA_ENABLED`): "Enable notifications on this device" asks for permission only on that tap, the page shows this device's state (on, off, blocked, unsupported, or "add to Home Screen first" in iOS Safari), and "Send a test notification" sends to all of the user's devices and says how many it reached. Signing out drops the device's subscription. Nothing sends notifications on its own yet
 
 #### Fixed
