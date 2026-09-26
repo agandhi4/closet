@@ -11,10 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Change password (`/auth/change-password`, linked from the profile): needs the current password (400 with an error when it is wrong), applies the registration password rules, signs out every other session and keeps the current one
 - Nightly storage reconciliation (`MAINTENANCE_ENABLED`, `@nestjs/schedule`) and `npm run maintenance:reconcile [-- --dry-run]`: orphaned photo sets and unreferenced `file` rows older than a day are deleted, rows whose original is missing are reported
+- `APP_TIMEZONE` (IANA name, default `America/New_York`): the household's time zone, which decides what "today" is on the calendar and which week opens by default
 - HEIC/HEIF uploads: decoded server-side with heic-convert (capped by `MAX_HEIC_BYTES`), accepted by the photo inputs; browsers that cannot decode HEIC skip the client-side cutout and upload the original
 
 #### Fixed
 
+- Calendar: every evening after UTC midnight (19:00 or 20:00 in New York) the calendar highlighted tomorrow and on Saturday evening opened next week; "today" now comes from `APP_TIMEZONE`. Days are plain dates end to end, so a server zone with DST can no longer mislabel a week (the spring-forward week read 8, 8, 9, ...)
+- Calendar: a malformed date, outfit id or week posted to `/calendar` answers 400 with the error page instead of 500, and a malformed `?week=` or `?calMonth=` opens the current week; deleting or marking an entry worn without a request body no longer 500s
+- Scheduling an outfit is idempotent: the same outfit on the same day twice (a double tap, or saving the outfit form again) keeps one calendar entry instead of adding a duplicate
 - Dependency security: sharp 0.35.4 (libvips 8.18.6, libheif 1.23.2 advisories; this app decodes untrusted uploads), @fastify/static 10.1.4 (path traversal and route-guard bypass), Nest 11.2.6. `npm audit --omit=dev`: 9 high to 0 high; 6 moderate remain in fastify (pinned by Nest 11) and the migration CLI
 - Accepting a wardrobe invite that races a duplicate grant now answers 400 instead of 500 (the unique-violation check referenced a MikroORM export that does not exist)
 - `/file/app.log` (and any other non-photo file under `DATA_PATH`) was served to anyone; the route now serves only photo names. Request logs no longer record `cookie`, `authorization` or `set-cookie` headers, and static requests and the heartbeat are no longer logged
@@ -50,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Changed
 
+- The calendar (`/calendar` and its writes) is served by the plain-Fastify web layer with Drizzle queries and typed JSX views; URLs, form fields, htmx targets and responses are unchanged. Web-layer input is validated by Fastify's JSON schemas (TypeBox)
+- `outfit_calendar.date` (timestamptz at UTC midnight) is now `day date`; the migration refuses to run if any value is not UTC midnight, removes duplicate schedules (keeping a worn one), drops the never-written `notes` column, and replaces the date and owner indexes with one unique `(owner_id, day, outfit_id)` index
 - `/`, `/about`, `/offline.html`, `/manifest.json`, `/healthz` and `/.well-known/*` are served by the plain-Fastify web layer (`src/web/`, typed JSX views through `hono/jsx`) instead of Nest and Handlebars, the first routes of the platform migration. Statuses, headers and cache policy are unchanged; the About and offline pages render the same shell. The session gate for these routes shares its decision with `SessionGuard`
 - Migrations run through Drizzle: `src/db/schema.ts` is the schema and `drizzle/` the migrations, applied at boot under a Postgres advisory lock (server and `maintenance:reconcile` never migrate at once). An existing database must have applied the last MikroORM migration (`Migration20260926021506`); its first boot records the Drizzle baseline without running it and changes nothing else. MikroORM still serves queries; its migrator, CLI config and snapshot are gone
 - Login is always required. One global `SessionGuard` replaces `ConditionalAuthGuard`, `RequireSessionGuard` and `AuthGuard`: every route needs a session unless it is `@Public()` (login, registration, logout, `/about`, `/offline.html`, `/healthz`, `/manifest.json`, `/.well-known/*`, `/share`, the invite landing page, `/file/**`). Signed out, a page navigation redirects to `/auth/login` and an htmx fragment or fetch answers 401 with `HX-Redirect: /auth/login`

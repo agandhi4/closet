@@ -86,7 +86,13 @@ const tableExists = (env: Record<string, string>, name: string) =>
     return rows[0].exists;
   });
 
-const [baseline] = readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER });
+const migrations = readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER });
+const [baseline] = migrations;
+/** Every migration in drizzle/, as drizzle records them once applied. */
+const allRecorded = migrations.map((migration) => ({
+  hash: migration.hash,
+  createdAt: migration.folderMillis,
+}));
 
 it('knows the newest legacy migration', () => {
   expect(legacyMigrationNames().at(-1)).toBe(LAST_LEGACY_MIGRATION);
@@ -116,11 +122,13 @@ describe('a database built by the legacy MikroORM migrations', () => {
 
   afterAll(() => t?.cleanup());
 
-  it('records the baseline exactly as drizzle would, without running it', async () => {
+  it('records the baseline exactly as drizzle would, without running it, then applies the rest', async () => {
     // Running it would have failed the boot: its CREATE TABLEs exist.
-    expect(await drizzleRows(databaseEnv)).toEqual([
-      { hash: baseline.hash, createdAt: baseline.folderMillis },
-    ]);
+    expect(await drizzleRows(databaseEnv)).toEqual(allRecorded);
+    expect(allRecorded[0]).toEqual({
+      hash: baseline.hash,
+      createdAt: baseline.folderMillis,
+    });
     expect(await tableExists(databaseEnv, 'mikro_orm_migrations')).toBe(true);
   });
 
@@ -140,9 +148,9 @@ describe('a database built by the legacy MikroORM migrations', () => {
   it('does nothing on the next boot', async () => {
     const logger = recordingLogger();
     await runMigrations(configOf(databaseEnv), logger);
-    expect(await drizzleRows(databaseEnv)).toHaveLength(1);
+    expect(await drizzleRows(databaseEnv)).toEqual(allRecorded);
     expect(logger.messages).toEqual([
-      'Schema up to date (1 Drizzle migrations recorded)',
+      `Schema up to date (${migrations.length} Drizzle migrations recorded)`,
     ]);
   });
 });
@@ -177,14 +185,16 @@ describe('a fresh database', () => {
 
   afterAll(() => database?.drop());
 
-  it('runs the baseline', async () => {
+  it('runs the baseline and every later migration', async () => {
     const logger = recordingLogger();
     await runMigrations(configOf(database.env), logger);
-    expect(await drizzleRows(database.env)).toEqual([
-      { hash: baseline.hash, createdAt: baseline.folderMillis },
-    ]);
+    expect(await drizzleRows(database.env)).toEqual(allRecorded);
     expect(logger.messages).toEqual([
-      expect.stringMatching(/^Applied 1 Drizzle migration\(s\) in \d+ ms$/),
+      expect.stringMatching(
+        new RegExp(
+          `^Applied ${migrations.length} Drizzle migration\\(s\\) in \\d+ ms$`,
+        ),
+      ),
     ]);
     const db = createDb(configOf(database.env), recordingLogger());
     try {
@@ -229,11 +239,13 @@ describe('two runners on one fresh database', () => {
       ]);
       await runs;
     });
-    expect(await drizzleRows(database.env)).toHaveLength(1);
+    expect(await drizzleRows(database.env)).toEqual(allRecorded);
     const outcomes = [first.messages.at(-1), second.messages.at(-1)].sort();
     expect(outcomes).toEqual([
-      expect.stringMatching(/^Applied 1 Drizzle migration\(s\)/),
-      'Schema up to date (1 Drizzle migrations recorded)',
+      expect.stringMatching(
+        new RegExp(`^Applied ${migrations.length} Drizzle migration\\(s\\)`),
+      ),
+      `Schema up to date (${migrations.length} Drizzle migrations recorded)`,
     ]);
   });
 });

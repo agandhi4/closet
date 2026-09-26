@@ -7,8 +7,6 @@ import { FileModule } from '../file/file.module';
 import { WardrobeShareModule } from '../wardrobe-share/wardrobe-share.module';
 import { GarmentService } from './garment.service';
 import { OutfitService } from './outfit.service';
-import { CalendarService } from './calendar.service';
-import { CalendarController } from './calendar.controller';
 import { WardrobeController } from './wardrobe.controller';
 import { OutfitController } from './outfit.controller';
 
@@ -18,8 +16,9 @@ import { OutfitController } from './outfit.controller';
     WardrobeShareModule,
     MikroOrmModule.forFeature([Garment, Outfit, OutfitCalendar]),
   ],
-  controllers: [WardrobeController, OutfitController, CalendarController],
-  providers: [GarmentService, OutfitService, CalendarService],
-  exports: [GarmentService, OutfitService, CalendarService],
+  // The calendar's routes live in src/web/calendar/ (plain Fastify).
+  controllers: [WardrobeController, OutfitController],
+  providers: [GarmentService, OutfitService],
+  exports: [GarmentService, OutfitService],
 })
 export class WardrobeModule {}

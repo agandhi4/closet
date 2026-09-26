@@ -327,7 +327,7 @@ describe('outfits', () => {
       const outfit = await t.em().findOneOrFail(Outfit, { name: 'Planned' });
       const entries = await calendarEntries(outfit.id);
       expect(entries).toHaveLength(1);
-      expect(entries[0].date.toISOString()).toBe('2026-10-14T00:00:00.000Z');
+      expect(entries[0].day).toBe('2026-10-14');
       expect(entries[0].wornAt).toBeFalsy();
     });
 
@@ -589,27 +589,21 @@ describe('outfits', () => {
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe('/calendar?week=2026-10-18');
       const entries = await calendarEntries(id);
-      expect(entries.map((e) => e.date.toISOString())).toEqual([
-        '2026-10-21T00:00:00.000Z',
-      ]);
+      expect(entries.map((e) => e.day)).toEqual(['2026-10-21']);
     });
 
-    // Known bug (docs/audits/2026-09-25-program2): repeated saves with a schedule date create duplicate calendar entries.
-    it.fails(
-      'saving the same schedule date twice keeps one calendar entry',
-      async () => {
-        const id = await createOutfit({ name: 'Saved twice' }, []);
-        for (let i = 0; i < 2; i++) {
-          const res = await updateOutfit(
-            id,
-            { name: 'Saved twice', scheduleDate: '2026-10-22' },
-            [],
-          );
-          expect(res.statusCode).toBe(302);
-        }
-        expect(await calendarEntries(id)).toHaveLength(1);
-      },
-    );
+    it('saving the same schedule date twice keeps one calendar entry', async () => {
+      const id = await createOutfit({ name: 'Saved twice' }, []);
+      for (let i = 0; i < 2; i++) {
+        const res = await updateOutfit(
+          id,
+          { name: 'Saved twice', scheduleDate: '2026-10-22' },
+          [],
+        );
+        expect(res.statusCode).toBe(302);
+      }
+      expect(await calendarEntries(id)).toHaveLength(1);
+    });
 
     // Known bug (docs/audits/2026-09-25-program2): editing an outfit silently drops archived garments from it.
     it.fails(
