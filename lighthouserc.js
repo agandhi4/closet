@@ -2,7 +2,8 @@ module.exports = {
   ci: {
     collect: {
       startServerCommand: 'npm run start:prod',
-      startServerReadyPattern: 'Nest application successfully started',
+      // Fastify's own line once listen() resolves (src/main.ts).
+      startServerReadyPattern: 'Server listening at',
       url: ['http://localhost:3000'],
       numberOfRuns: 1,
       settings: {
