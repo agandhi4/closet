@@ -86,26 +86,18 @@ export const ConfigSchema = Type.Object({
   DATABASE_PASS: Type.String(),
   DATABASE_SSL: Type.Boolean({ default: false }),
   // Nightly storage reconciliation at 03:00 APP_TIMEZONE, scheduled by the
-  // server (main.ts); `npm run maintenance:reconcile` runs it once
+  // server (server.ts); `npm run maintenance:reconcile` runs it once
   // regardless.
   MAINTENANCE_ENABLED: Type.Boolean({ default: true }),
   // HEIC uploads are decoded in memory before sharp sees them; a part larger
   // than this is a 413.
   MAX_HEIC_BYTES: Type.Integer({ minimum: 1, default: 40 * 1024 * 1024 }),
-  // Who removes the background of a garment photo. `client`: the browser,
-  // before upload (@imgly/background-removal). `server`: the upload is
-  // queued and this server runs BiRefNet in a child process (src/cutout/):
-  // ~3 s a photo and ~3.5 GB of RAM while loaded on an AVX2/AVX-512 CPU;
-  // far too slow on the NAS's Celeron (no AVX). See README, Background
-  // removal.
-  CUTOUT_MODE: Type.Union([Type.Literal('client'), Type.Literal('server')], {
-    default: 'client',
-  }),
-  // Where the server-mode model (940 MB) is kept. Downloaded there on first
-  // need and checksum-verified; a local disk, not NFS (read whole on every
-  // model load). `npm run cutout:fetch-model` seeds it.
+  // Where the background-removal model (BiRefNet, 940 MB; src/cutout/) is
+  // kept. Downloaded there at boot when missing and checksum-verified; a
+  // local disk, not NFS (read whole on every model load). `npm run
+  // cutout:fetch-model` seeds or repairs it.
   MODELS_PATH: NonEmpty({ default: join(process.cwd(), 'models') }),
-  // onnxruntime intra-op threads of the server-mode model (the benchmark:
+  // onnxruntime intra-op threads of the background-removal model (the benchmark:
   // 3.3 s a photo at 4, 2.7 s at 8, on an 8-core Ryzen).
   CUTOUT_THREADS: Type.Integer({ minimum: 1, maximum: 64, default: 4 }),
 });

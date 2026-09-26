@@ -32,13 +32,14 @@ export interface ClosetApp {
   db: Db;
   /**
    * The process's one Photos (its thumb single-flight must be shared): the
-   * web layer's, and the nightly reconciliation's in main.ts.
+   * web layer's, and the nightly reconciliation's in server.ts.
    */
   photos: Photos;
   /**
-   * The background-removal queue, never started here: main.ts starts it
-   * with the model in CUTOUT_MODE=server (the specs with a fake runner).
-   * The web layer wakes it when it queues a photo; closing the app stops it.
+   * The background-removal queue, never started here: server.ts starts it
+   * with the model (main.ts) or a stub (the e2e test server), the specs with
+   * a fake runner. The web layer wakes it when it queues a photo; closing
+   * the app stops it.
    */
   cutouts: CutoutQueue;
 }
@@ -47,7 +48,7 @@ export interface ClosetApp {
  * Builds the application without binding a port: migrations, the database
  * pool, Photos, then the Fastify instance with its root hooks, plugins,
  * static roots, error and not-found handlers, and the routes (webPlugin).
- * main.ts listens on it; the integration harness
+ * server.ts listens on it; the integration harness
  * (test/integration/harness.ts) drives it with inject(). Closing the app
  * ends the pool.
  *
@@ -88,7 +89,6 @@ export async function createApp(
     photos,
     logger: logger.child({ context: 'Cutout' }),
   });
-  boot.info(`Background removal: ${config.CUTOUT_MODE}`);
 
   const app = Fastify({
     trustProxy,
@@ -201,7 +201,6 @@ export async function createApp(
       iconName: config.ICON_NAME,
       timeZone: config.APP_TIMEZONE,
       registrationDisabled: config.DISABLE_REGISTRATION,
-      cutoutMode: config.CUTOUT_MODE,
       // loadConfig requires both keys when PWA_ENABLED; the sender checks
       // them (and SITE_URL as the https subject) at boot.
       vapid: config.PWA_ENABLED

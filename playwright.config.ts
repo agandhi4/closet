@@ -81,29 +81,15 @@ export default defineConfig({
     // },
   ],
 
-  /* Run your local dev server before starting the tests. Outside CI an
-   * instance already listening on :3000 (npm run start:prod) is reused and
-   * the rebuild is skipped. */
-  webServer: [
-    {
-      // Serves the existing build: the npm scripts (test:e2e, verify:push)
-      // and CI build first, once, so a run with several server configs
-      // builds once.
-      command: 'npm run start:prod',
-      url: 'http://localhost:3000',
-      reuseExistingServer: !process.env.CI,
-      stderr: 'pipe',
-    },
-    {
-      // CUTOUT_MODE=server with the model stubbed, for
-      // test/cutout-server.spec.ts: the app from src/ (transpiled, not
-      // type-checked), same database and environment as the one above.
-      command:
-        'npx ts-node --transpile-only test/support/cutout-stub-server.ts',
-      url: 'http://localhost:3001/healthz',
-      reuseExistingServer: !process.env.CI,
-      stderr: 'pipe',
-      timeout: 120_000,
-    },
-  ],
+  /* Outside CI a server already listening on :3000 is reused instead (a
+   * start:dev or start:prod one runs the real model on uploads). */
+  webServer: {
+    // Serves the existing build (the npm scripts test:e2e and verify:push,
+    // and CI, build first) with background removal stubbed: an upload's
+    // cutout arrives 3 s later without the model (test/support/test-server.ts).
+    command: 'npm run start:test',
+    url: 'http://localhost:3000/healthz',
+    reuseExistingServer: !process.env.CI,
+    stderr: 'pipe',
+  },
 });

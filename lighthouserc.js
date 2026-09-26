@@ -1,8 +1,9 @@
 module.exports = {
   ci: {
     collect: {
-      startServerCommand: 'npm run start:prod',
-      // Fastify's own line once listen() resolves (src/main.ts).
+      // The build with background removal stubbed: no model download.
+      startServerCommand: 'npm run start:test',
+      // Fastify's own line once listen() resolves (src/server.ts).
       startServerReadyPattern: 'Server listening at',
       url: ['http://localhost:3000'],
       numberOfRuns: 1,

@@ -147,8 +147,8 @@ function storedValues(garment: GarmentDetail): GarmentFormValues {
 
 /**
  * /wardrobe: the grid (with its fragment and its "load more" pages), the
- * garment page, the new/edit/clone forms and their posts, the photo and
- * cutout uploads, archive and delete. Every route takes `?ownerId=` for a
+ * garment page, the new/edit/clone forms and their posts, the photo upload,
+ * the cutout's polling, retry and mask edit, archive and delete. Every route takes `?ownerId=` for a
  * shared wardrobe (see resolve above).
  */
 export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
@@ -157,12 +157,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger } = options;
-  const { cutoutMode } = options.config;
   const deps: WardrobeDeps = {
     db,
     photos: options.photos,
     logger,
-    cutoutMode,
     cutouts: options.cutouts,
   };
 
@@ -361,75 +359,71 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',
             justSavedPhoto: request.query.photoSaved === '1',
-            cutoutMode,
           }}
         />,
       );
     },
   );
 
-  if (cutoutMode === 'server') {
-    // The garment page's photo while its cutout is pending polls this
-    // (hx-trigger every 2s) and swaps it in; the answer stops polling once
-    // the cutout is ready or failed.
-    app.get(
-      '/wardrobe/:id/cutout',
-      { schema: { params: GarmentParams, querystring: OwnerQuery } },
-      async (request, reply) => {
-        const { access, viewOwner } = await resolve(
-          options,
-          request,
-          request.query.ownerId,
-          'view',
-        );
-        const garment = await requireGarment(
-          options,
-          request.params.id,
-          access.ownerId,
-        );
-        return renderFragment(
-          reply,
-          <GarmentPhotoView
-            garment={garment}
-            viewOwner={viewOwner}
-            canEdit={access.canManage}
-            cutoutMode={cutoutMode}
-          />,
-        );
-      },
-    );
+  // The garment page's photo while its cutout is pending polls this
+  // (hx-trigger every 2s) and swaps it in; the answer stops polling once
+  // the cutout is ready or failed.
+  app.get(
+    '/wardrobe/:id/cutout',
+    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        options,
+        request,
+        request.query.ownerId,
+        'view',
+      );
+      const garment = await requireGarment(
+        options,
+        request.params.id,
+        access.ownerId,
+      );
+      return renderFragment(
+        reply,
+        <GarmentPhotoView
+          garment={garment}
+          viewOwner={viewOwner}
+          canEdit={access.canManage}
+        />,
+      );
+    },
+  );
 
-    // "Try again" on a failed cutout: a native post (PostForm), answered
-    // with the garment page, which shows it pending. Idempotent: a cutout
-    // that is no longer failed or pending is left alone.
-    app.post(
-      '/wardrobe/:id/cutout/retry',
-      { schema: { params: GarmentParams, querystring: OwnerQuery } },
-      async (request, reply) => {
-        const { access, viewOwner } = await resolve(
-          options,
-          request,
-          request.query.ownerId,
-          'manage',
+  // "Try again" on a failed cutout: a native post (PostForm), answered
+  // with the garment page, which shows it pending. Idempotent: a cutout
+  // that is no longer failed or pending is left alone.
+  app.post(
+    '/wardrobe/:id/cutout/retry',
+    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        options,
+        request,
+        request.query.ownerId,
+        'manage',
+      );
+      const { id } = request.params;
+      const garment = await requireGarment(options, id, access.ownerId);
+      if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
+      const outcome = await recordCutoutEvent(db, garment.photo.fileName, {
+        type: 'retry',
+      });
+      if (outcome.ok) {
+        logger.info(
+          `Garment ${id} cutout requeued by user ${sessionUserId(request)}`,
         );
-        const { id } = request.params;
-        const garment = await requireGarment(options, id, access.ownerId);
-        if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
-        const outcome = await recordCutoutEvent(db, garment.photo.fileName, {
-          type: 'retry',
-        });
-        if (outcome.ok) {
-          logger.info(
-            `Garment ${id} cutout requeued by user ${sessionUserId(request)}`,
-          );
-          options.cutouts.wake();
-        } else {
-          logger.info(`Garment ${id} cutout retry ignored (${outcome.reason})`);
-        }
-        return reply.redirect(garmentUrl(id, viewOwner), 303);
-      },
-    );
-  }
+        options.cutouts.wake();
+      } else {
+        logger.info(`Garment ${id} cutout retry ignored (${outcome.reason})`);
+      }
+      return reply.redirect(garmentUrl(id, viewOwner), 303);
+    },
+  );
 
   app.get(
     '/wardrobe/:id/edit',
@@ -565,9 +559,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // htmx (hx-post, multipart): the photo and, when the browser made one, its
-  // cutout. The garment is checked before the body is read, so a refused
-  // upload stores nothing.
+  // htmx (hx-post, multipart): the photo; its cutout is queued. The garment
+  // is checked before the body is read, so a refused upload stores nothing.
+  // Two files: pages cached before server-side removal also send the
+  // browser's cutout (nobgPhoto), which storeUploadParts drains and ignores;
+  // a third file would be a 413.
   app.post(
     '/wardrobe/:id/photo',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
@@ -593,8 +589,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The mask editor's fetch (public/js/background-removal.js): the edited
-  // cutout replaces the stored one; the answer is the photo's new version,
+  // The mask editor's save (public/js/mask-editor.js): the edited cutout
+  // replaces the stored one; the answer is the photo's new version,
   // so the page can point at the new immutable URL.
   app.post(
     '/wardrobe/:id/nobg',

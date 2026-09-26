@@ -45,7 +45,6 @@ describe('loadConfig', () => {
       DATABASE_SSL: false,
       MAINTENANCE_ENABLED: true,
       MAX_HEIC_BYTES: 40 * 1024 * 1024,
-      CUTOUT_MODE: 'client',
       CUTOUT_THREADS: 4,
     });
     expect(config.DATA_PATH).toBe(join(process.cwd(), 'data'));
@@ -68,6 +67,10 @@ describe('loadConfig', () => {
 
   it('ignores variables it does not declare', () => {
     expect(load({ HOME: '/root' })).not.toHaveProperty('HOME');
+  });
+
+  it('boots with the retired CUTOUT_MODE still set (production env files keep it)', () => {
+    expect(load({ CUTOUT_MODE: 'client' })).not.toHaveProperty('CUTOUT_MODE');
   });
 
   it('names every missing required variable, and accepts an empty database password', () => {
@@ -99,7 +102,6 @@ describe('loadConfig', () => {
       'NODE_ENV: must be one of development, production, test',
     ],
     ['APP_NAME', '', 'APP_NAME: expected string length greater or equal to 1'],
-    ['CUTOUT_MODE', 'gpu', 'CUTOUT_MODE: must be one of client, server'],
     [
       'CUTOUT_THREADS',
       '0',

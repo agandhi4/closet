@@ -73,13 +73,6 @@ export class UnreadableImageError extends Error {
   }
 }
 
-export interface StoreUploadOptions {
-  /** Pre-chosen `<uuid>.webp`, so a cutout can be stored under it concurrently. */
-  fileName?: string;
-  /** The caller calls regenerateThumb after the cutout is stored too. */
-  deferThumb?: boolean;
-}
-
 export interface PhotosConfig {
   /** DATA_PATH: where the photo files live. */
   dataPath: string;
@@ -134,9 +127,10 @@ export function createPhotos(
  */
 export class Photos {
   // Pending thumb write per original file name. Writes are chained rather
-  // than deduplicated so that on a fresh upload, where the original and the
-  // cutout land concurrently, the cutout's thumb always wins; lazy reads join
-  // the write already in flight instead of starting a duplicate.
+  // than deduplicated so that a cutout landing while a thumb of the original
+  // is still being written (a lazy backfill, a fresh upload's) always wins;
+  // lazy reads join the write already in flight instead of starting a
+  // duplicate.
   private readonly thumbJobs = new Map<string, Promise<void>>();
   private watermark: Promise<Buffer> | undefined;
 
@@ -153,119 +147,61 @@ export class Photos {
   /**
    * Transcodes the upload to the original variant and derives its thumb.
    * Returns the row to insert; on failure nothing is left in storage.
-   *
-   * `fileName` + `deferThumb` is the photo half of a photo+cutout upload:
-   * the cutout is stored concurrently under the same name, so a thumb built
-   * here would come from the photo and be thrown away. The caller builds the
-   * one thumb with regenerateThumb once both halves are stored.
    */
   async storeUpload(
     upload: MultipartFile | undefined,
     userId: number,
-    { fileName, deferThumb = false }: StoreUploadOptions = {},
   ): Promise<NewPhotoRow> {
     if (!upload) throw new HttpError(400, 'No file uploaded');
-    const storedFileName = fileName ?? `${randomUUID()}.webp`;
+    const fileName = `${randomUUID()}.webp`;
     const { pixels, raw } = await this.uploadSource(upload);
     await this.transcodeUpload(
       pixels,
       this.imageTransformer(raw).autoOrient(),
-      storedFileName,
+      fileName,
     );
-    if (!deferThumb) {
-      try {
-        await this.regenerateThumb(storedFileName);
-      } catch (error) {
-        await this.deleteVariants(storedFileName);
-        throw error;
-      }
-    }
-    this.logger.info(`Stored upload ${storedFileName} for user ${userId}`);
-    return newPhotoRow(storedFileName, userId);
-  }
-
-  /**
-   * The garment photo form's multipart body: a `photo` part and, when the
-   * browser made one, its `nobgPhoto` cutout, stored under one new name with
-   * one thumb (from the cutout when there is one). Returns the row to insert
-   * as storeUpload does, and whether a cutout came with it; undefined when
-   * no photo was sent. On any failure nothing is left in storage. A cutout
-   * without its photo is a 400.
-   *
-   * Both pipelines are started inside the `for await` loop and awaited only
-   * after it: @fastify/multipart yields live streams, and a part nobody
-   * reads backpressures the parser, so awaiting the photo before the cutout
-   * part is consumed would hang the request. Each is armed with a no-op
-   * catch where it starts (startPipeline): a rejection while later parts are
-   * still being read would otherwise be an unhandled rejection that kills
-   * the process. The real error still surfaces from Promise.allSettled.
-   */
-  async storeUploadParts(
-    parts: AsyncIterable<MultipartFile>,
-    userId: number,
-  ): Promise<{ row: NewPhotoRow; withCutout: boolean } | undefined> {
-    const fileName = `${randomUUID()}.webp`;
-    const { photo, cutout } = await this.startParts(parts, userId, fileName);
-    if (!photo) {
-      if (cutout) await this.refuseLoneCutout(cutout, fileName, userId);
-      return undefined;
-    }
     try {
-      // Both must settle before cleaning up: one may still be writing under
-      // the name while the other has already failed.
-      const [stored, cut] = await Promise.allSettled([photo, cutout]);
-      if (stored.status === 'rejected') throw stored.reason;
-      if (cut.status === 'rejected') throw cut.reason;
-      // The one thumb, built once both halves are stored so it reads the
-      // cutout when there is one (neither pipeline builds its own).
       await this.regenerateThumb(fileName);
-      return { row: stored.value, withCutout: cutout !== undefined };
     } catch (error) {
       await this.deleteVariants(fileName);
       throw error;
     }
+    this.logger.info(`Stored upload ${fileName} for user ${userId}`);
+    return newPhotoRow(fileName, userId);
   }
 
-  /** Starts (never awaits) a pipeline per part; see storeUploadParts. */
-  private async startParts(
+  /**
+   * The garment photo form's multipart body: its `photo` part, stored as
+   * storeUpload does; undefined when no photo was sent. Every other part is
+   * drained unread, notably `nobgPhoto`: pages an installed PWA cached
+   * before background removal moved to the server still post the browser's
+   * cutout, and the server makes its own.
+   *
+   * The photo's pipeline is started inside the `for await` loop and awaited
+   * only after it: @fastify/multipart yields live streams, and a part nobody
+   * reads backpressures the parser. It is armed with a no-op catch where it
+   * starts (startPipeline): a rejection while later parts are still being
+   * read would otherwise be an unhandled rejection that kills the process.
+   * The real error still surfaces from the caller's await.
+   */
+  async storeUploadParts(
     parts: AsyncIterable<MultipartFile>,
     userId: number,
-    fileName: string,
-  ): Promise<{ photo?: Promise<NewPhotoRow>; cutout?: Promise<unknown> }> {
-    const started: {
-      photo?: Promise<NewPhotoRow>;
-      cutout?: Promise<unknown>;
-    } = {};
+  ): Promise<NewPhotoRow | undefined> {
+    let photo: Promise<NewPhotoRow> | undefined;
     for await (const part of parts) {
-      if (part.fieldname === 'photo' && !started.photo) {
-        started.photo = startPipeline(
-          this.storeUpload(part, userId, { fileName, deferThumb: true }),
-        );
-      } else if (part.fieldname === 'nobgPhoto' && !started.cutout) {
-        started.cutout = startPipeline(
-          this.storeNewCutout(part.file, fileName),
-        );
-      } else {
-        part.file.resume();
+      if (part.fieldname === 'photo' && !photo) {
+        photo = startPipeline(this.storeUpload(part, userId));
+        continue;
       }
+      if (part.fieldname === 'nobgPhoto') {
+        this.logger.info(
+          `Upload by user ${userId}: ignored the browser's cutout (a page cached before server-side removal)`,
+        );
+      }
+      part.file.resume();
     }
-    return started;
-  }
-
-  // The cutout had to be consumed (parts arrive in the client's order), so
-  // it may have written under the never-persisted name: drain it, remove
-  // what it wrote, refuse.
-  private async refuseLoneCutout(
-    cutout: Promise<unknown>,
-    fileName: string,
-    userId: number,
-  ): Promise<never> {
-    await cutout.catch((error: unknown) =>
-      this.logger.warn(`Discarded cutout failed: ${String(error)}`),
-    );
-    await this.deleteVariants(fileName);
-    this.logger.warn(`Upload by user ${userId} had a cutout but no photo`);
-    throw new HttpError(400, 'nobgPhoto requires photo');
+    return photo;
   }
 
   /**
@@ -303,20 +239,6 @@ export class Photos {
     }
     this.logger.info(`Copied photo ${sourceFileName} to ${newFileName}`);
     return newPhotoRow(newFileName, userId);
-  }
-
-  /**
-   * The cutout half of a photo+cutout upload (storeUploadParts): no client
-   * has seen this name yet, so there is no version to bump and no state to
-   * change, and the caller builds the one thumb once both halves are stored.
-   */
-  private async storeNewCutout(
-    stream: Readable,
-    originalFileName: string,
-  ): Promise<void> {
-    const nobgName = variantFileName(originalFileName, 'nobg');
-    await this.transcodeUpload(stream, this.imageTransformer(), nobgName);
-    this.logger.info(`Stored cutout ${nobgName}`);
   }
 
   /**
@@ -380,9 +302,9 @@ export class Photos {
   }
 
   // The original's pixels with the mask, stretched back to their size, as
-  // alpha, centred on a transparent square: the shape of every
-  // browser-made cutout, which the mask editor (it pads the original the
-  // same way to paint it back) and the square tiles rely on.
+  // alpha, centred on a transparent square: the shape the browser's model
+  // gave every older cutout, which the mask editor (it pads the original
+  // the same way to paint it back) and the square tiles rely on.
   private async composeCutout(
     fileName: string,
     mask: Buffer,
@@ -711,7 +633,7 @@ function exceedsPixelLimit(cause: unknown): boolean {
  * Arms a pipeline started inside a multipart `for await` loop: a rejection
  * while the loop still reads later parts is then never unhandled (which
  * would exit the process). The same promise is returned, so the error still
- * reaches whoever settles it (storeUploadParts). Node's default of crashing
+ * reaches whoever awaits it (replacePhoto, from storeUploadParts). Node's default of crashing
  * on an unhandled rejection is kept on purpose: no process-level handler.
  */
 function startPipeline<T>(pipeline: Promise<T>): Promise<T> {

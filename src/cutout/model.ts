@@ -10,7 +10,7 @@ import type { Logger } from '../logger';
 /**
  * The server cutout model: which file, where it comes from, how to feed it.
  * Not baked into the image (940 MB): downloaded into MODELS_PATH on first
- * need (at boot in server mode, or `npm run cutout:fetch-model`), to a
+ * need (at boot, or `npm run cutout:fetch-model`), to a
  * temporary name, checksum-verified, then renamed into place. A file whose
  * checksum does not match is refused, never loaded.
  */

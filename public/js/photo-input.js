@@ -1,13 +1,12 @@
 /**
- * The garment photo form's file, prepared on the phone before upload, in
- * both background-removal modes: background-removal.js (client mode) and
- * the garment page's inline module (server mode, wirePhotoUpload) call it.
+ * The garment photo form's file, prepared on the phone before upload
+ * (wirePhotoUpload, called by the garment page's inline module); the
+ * server removes its background.
  */
 
 // The server stores photos at 1080 px (src/web/files/photos.ts); 1600
 // leaves it room to downscale well while a 24 MP phone photo (~8 MB, which
-// uploads slowly and made in-browser removal fail on iPhones) becomes a few
-// hundred KB.
+// uploads slowly on a phone connection) becomes a few hundred KB.
 const MAX_SIDE = 1600;
 const JPEG_QUALITY = 0.9;
 
@@ -21,7 +20,7 @@ const jpegName = (name) => `${name.replace(/\.[^.]*$/, '') || 'photo'}.jpg`;
  * @param {File} file
  * @returns {Promise<File>}
  */
-export const downscalePhoto = async (file) => {
+const downscalePhoto = async (file) => {
   let bitmap;
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
@@ -66,7 +65,7 @@ export const downscalePhoto = async (file) => {
  * @param {HTMLInputElement} input
  * @returns {Promise<File | undefined>}
  */
-export const preparePhoto = async (input) => {
+const preparePhoto = async (input) => {
   const file = input.files?.[0];
   if (!file) return undefined;
   const prepared = await downscalePhoto(file);
@@ -78,11 +77,7 @@ export const preparePhoto = async (input) => {
   return prepared;
 };
 
-/**
- * Server mode (CUTOUT_MODE=server): the photo goes up alone and the server
- * removes its background, so no model is ever loaded here. The submit
- * button waits for the prepared photo.
- */
+/** The submit button waits for the prepared photo. */
 export const wirePhotoUpload = () => {
   const photoInput = document.getElementById('photoInput');
   const submitBtn = document.getElementById('photoBtn');
