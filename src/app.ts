@@ -11,7 +11,8 @@ import fastifyView from '@fastify/view';
 import hbs from 'hbs';
 import type { HelperOptions } from 'handlebars';
 import { join } from 'path';
-import { AppModule, DEFAULT_TRUSTED_PROXIES } from './app.module';
+import { AppModule } from './app.module';
+import { loadConfig, trustedProxies } from './config';
 import { Logger } from 'nestjs-pino';
 import { ViewContextService } from './view-context/view-context.service';
 import { isStaticPath } from './static-prefixes';
@@ -65,20 +66,15 @@ export interface ClosetApp {
  * per-request session hook, security headers, plugins, static asset roots,
  * view engine and Handlebars helpers. main.ts listens on it; the integration
  * harness (test/integration/harness.ts) calls app.init() and drives it with
- * app.inject(). Reads process.env only where the adapter must exist before
- * ConfigService does.
+ * app.inject().
  */
 export async function createApp(): Promise<ClosetApp> {
   // Reverse proxies whose X-Forwarded-* headers are believed, so the rate
   // limits, the same-origin check and canonical URLs see the real client and
   // the address it asked for. Behind Caddy this must include Caddy's
-  // address (CLAUDE.md, Deployment). Read from the raw
-  // environment because the adapter must exist before ConfigService does;
-  // the Joi default in AppModule is the single source of the fallback.
-  const trustProxy = (process.env.TRUSTED_PROXIES ?? DEFAULT_TRUSTED_PROXIES)
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  // address (CLAUDE.md, Deployment). Loaded here because the adapter must
+  // exist before ConfigService does.
+  const trustProxy = trustedProxies(loadConfig());
   const adapter = new FastifyAdapter({ trustProxy });
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,

@@ -39,7 +39,7 @@ async function bootstrap() {
   } else {
     logger.log('Storage reconciliation disabled (MAINTENANCE_ENABLED=false)');
   }
-  await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
+  await app.listen(config.getOrThrow<number>('PORT'), '0.0.0.0');
 }
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
 bootstrap();
