@@ -9,7 +9,7 @@ import { OutfitGarment } from '../../src/dal/entity/outfit-garment.entity';
 import { Outfit } from '../../src/dal/entity/outfit.entity';
 import { User } from '../../src/dal/entity/user.entity';
 import { WardrobeShare } from '../../src/dal/entity/wardrobe-share.entity';
-import { LOGIN_PATH } from '../../src/auth/redirect-to-login.exception';
+import { LOGIN_PATH } from '../../src/auth/session-access';
 import { createGarment, jpegPhoto, pngCutout, uploadPhoto } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
 

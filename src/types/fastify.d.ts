@@ -1,4 +1,5 @@
 import type { AuthContext } from '../auth/auth-context.service';
+import type { ViewContext } from '../web/view-context';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -7,8 +8,8 @@ declare module 'fastify' {
   }
 
   interface FastifyReply {
-    /** Template context built per request by ViewContextService; absent only on static paths. */
-    locals?: Record<string, any>;
+    /** Page context built per request by ViewContextService; absent only on static paths. JSX pages read it through viewContext(reply). */
+    locals?: ViewContext;
     // @fastify/view's type definitions don't support custom propertyName values.
     // Required workaround for the viewPartial renderer registered without a global
     // layout in src/app.ts. Remove when the upstream issue is resolved.

@@ -6,7 +6,7 @@ import {
   SharePermission,
   WardrobeShare,
 } from '../../src/dal/entity/wardrobe-share.entity';
-import { LOGIN_PATH } from '../../src/auth/redirect-to-login.exception';
+import { LOGIN_PATH } from '../../src/auth/session-access';
 import { createGarment } from './garments';
 import { createTestApp, TestApp } from './harness';
 
