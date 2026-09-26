@@ -13,7 +13,7 @@ import { createTestApp, multipart, TestApp } from './harness';
  * PNG that always won the race, which is how "every real upload with a
  * cutout fails with 500" reached production.
  */
-describe('photo + cutout upload (AUTH_ENABLED=false)', () => {
+describe('photo + cutout upload', () => {
   let t: TestApp;
 
   beforeAll(async () => {

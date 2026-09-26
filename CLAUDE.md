@@ -12,7 +12,7 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **Views**: server-rendered Handlebars (`@fastify/view`) with htmx 2 for interactivity and `_hyperscript` for client logic. Not a SPA. There is no JSON API for the UI.
 - **CSS**: Tailwind v4 (`@tailwindcss/cli`) + daisyUI. Source `views/assets/main.css`, compiled to `public/bundle.css` by `npm run generate:tailwind`.
 - **Data**: MikroORM 6 on PostgreSQL only (17 in production on pgvault, 17 in CI, pgvault-dev locally). SQLite was dropped on 2026-09-25: its test tier passed on behavior production never had (case-insensitive `LIKE`, unbounded `varchar`, a drifted `color` type) and its migration tree wiped rows. One migration tree, `src/dal/migrations/postgres/`.
-- **Auth**: optional (`AUTH_ENABLED`) JWT in an `access_token` httpOnly cookie, bcrypt passwords. The session is resolved once per request by `AuthContextService` (cookie, JWT, user row, password fingerprint) into `req.auth`; guards only read it: `ConditionalAuthGuard` (open or authenticated, redirect when a session is required and missing), `RequireSessionGuard` (user-only pages: 404 with auth off, redirect without a session), `AuthGuard` (fetch endpoints: 401). Wardrobe permissions come from one `WardrobeShareService.resolveAccess`. `DISABLE_REGISTRATION` locks signup.
+- **Auth**: login is always required (the upstream `AUTH_ENABLED=false` mode was removed 2026-09-25). JWT in an `access_token` httpOnly cookie, bcrypt passwords. The session is resolved once per request by `AuthContextService` (cookie, JWT, user row, password fingerprint) into `req.auth`. One global `SessionGuard` (APP_GUARD, after the throttler) only reads it: every route needs a session unless it is `@Public()`; without one a page navigation is a 302 to `/auth/login` and an htmx fragment or fetch a 401 with `HX-Redirect: /auth/login`. Handlers take the user as `@UserId() userId: number`. Wardrobe permissions come from one `WardrobeShareService.resolveAccess`. `DISABLE_REGISTRATION` locks signup.
 - **PWA**: Workbox `injectManifest` over a hand-written service worker (`views/assets/src-sw.ts`, esbuild to `.js`, injected to `public/sw.js`), `/manifest.json` served from config by `AppController`, `@khmyznikov/pwa-install`, `pulltorefreshjs`, Web Push via `web-push` + VAPID keys. Gated by `PWA_ENABLED`.
 - **Images**: `sharp` for transcoding, `@imgly/background-removal` in the browser (patched, see gotchas), `heic-convert` for HEIC uploads. See Architecture, Images.
 - **Storage**: `src/file/` abstraction, `local` (disk under `DATA_PATH`) or `object` (S3 via `nestjs-s3`).
@@ -32,7 +32,8 @@ src/
   project-root.ts      PROJECT_ROOT for public/, views/, node_modules/ paths; valid from src/ and dist/
   app.module.ts        Root module. Joi env schema (the ONLY place config is declared), pino, throttler,
                        i18n, global error-view filter. Every new env var is added here with a default.
-  auth/                Login/register/password-reset controllers, JWT service, guards
+  auth/                Login/register/account controllers, AuthService, AuthContextService (session),
+                       SessionGuard + @Public() (the one auth gate), @UserId(), RegistrationGuard
   dal/                 Data access layer
     dal.module.ts      MikroORM config (Postgres, migrations run on boot)
     entity/            user, garment, outfit, outfit-garment (explicit pivot so its foreign keys carry declared indexes),
@@ -56,7 +57,7 @@ views/                 Handlebars, one directory per feature module + partials/ 
   assets/              main.css (Tailwind source), src-sw.ts (service worker source)
 public/                Static: sw.js (generated), bundle.css (generated), js/, assets/ (icon.svg is the
                        source; icon.png and favicon.ico come from `npm run generate:icons`)
-test/                  Playwright specs (CI runs all of them in Chromium with auth + PWA on)
+test/                  Playwright specs (CI runs all of them in Chromium with the PWA on)
   support/             scratch-database.ts (jest + load test), e2e-session.ts (Playwright signIn)
   integration/         Jest in-process specs + harness.ts (createTestApp, multipart, HTML helpers)
 docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature work against it.
@@ -64,7 +65,7 @@ docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature 
 
 ### Routes
 
-`GET /` redirects to `/wardrobe`; there is no landing page, and no privacy, terms or sitemap routes. `/about` carries the upstream attribution. `manifest.json` is not a static file: `AppController` serves it from config so `APP_NAME` and `ICON_NAME` flow into the installed PWA's name and icon.
+`GET /` redirects to `/wardrobe`; there is no landing page, and no privacy, terms or sitemap routes. Public (`@Public()`, reachable signed out): login, registration, logout, `/about`, `/offline.html`, `/healthz`, `/manifest.json`, `/.well-known/*`, the Open Graph share page `/share`, the invite landing `/wardrobe-share/invite/:token`, and every `/file/**` image. Everything else needs a session. `/about` carries the upstream attribution. `manifest.json` is not a static file: `AppController` serves it from config so `APP_NAME` and `ICON_NAME` flow into the installed PWA's name and icon.
 
 ### Request flow
 
@@ -135,11 +136,10 @@ npm run test:int              # jest integration (jest.integration.config.js): r
                               # on TEST_DATABASE_URL, default pgvault-dev; CI points it at a postgres:17 service.
 npm run test:e2e              # build, then playwright (all browsers); serves dist on :3000 unless one is running.
 npm run test:e2e:smoke        # build, then the smoke spec in chromium
-                              # test/pwa.spec.ts (service worker, offline shell, lazy model) and
-                              # test/auth.spec.ts skip unless the server was started with
-                              # PWA_ENABLED=true (+ VAPID keys, https: SITE_URL) / AUTH_ENABLED=true.
-                              # Production config locally, as CI's e2e job runs it:
-                              # SITE_URL=https://closet.test PWA_ENABLED=true AUTH_ENABLED=true \
+                              # test/pwa.spec.ts (service worker, offline shell, lazy model) skips
+                              # unless the server was started with PWA_ENABLED=true (+ VAPID keys,
+                              # https: SITE_URL). Production config locally, as CI's e2e job runs it:
+                              # SITE_URL=https://closet.test PWA_ENABLED=true \
                               #   PUBLIC_VAPID_KEY=.. PRIVATE_VAPID_KEY=.. npm run verify:push
 npm run test:load             # builds, boots on a scratch database + temp DATA_PATH, autocannon
 npm run lighthouse            # lhci autorun
@@ -186,7 +186,6 @@ Production env (`hosts/synology/closet.env`, gitignored, values never in this re
 APP_NAME=Closet
 SITE_URL=https://closet.kashhq.dedyn.io
 PWA_ENABLED=true
-AUTH_ENABLED=true
 DISABLE_REGISTRATION=true          # flip to false only while creating the two household accounts
 ACCESS_TOKEN_SECRET=<openssl rand -hex 32>
 TRUSTED_PROXIES=172.16.0.0/12      # Docker bridge range: Caddy is the client Fastify sees, so trust its X-Forwarded-For
@@ -209,13 +208,15 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 
 - **`patches/@imgly+background-removal+1.7.0.patch`** is applied on every install. Read it before bumping that package; a version bump silently drops the patch.
 - **`@imgly/background-removal-data`** is a tarball from `staticimgly.com`, not the npm registry. Builds need outbound access to that host.
-- **`ci.yml`'s `publish` job pushes `:latest` and `sha-<7>` only after `check`, `e2e` and `object-storage` pass** (and semver tags on `v*` tags from `tag-release.yml`), amd64 only, GHCR only. Until 2026-09-25 publishing was a separate workflow racing CI, so a red run still deployed. Docs-only pushes (`docs/**`, `*.md`) skip CI and publish entirely. Pushing to main is still deploying: the homelab autoupdater redeploys within the hour. The browser job runs with auth and the PWA on, as production does; specs sign in through `test/support/e2e-session.ts`. Load test and Lighthouse run nightly (`nightly.yml`).
+- **`ci.yml`'s `publish` job pushes `:latest` and `sha-<7>` only after `check`, `e2e` and `object-storage` pass** (and semver tags on `v*` tags from `tag-release.yml`), amd64 only, GHCR only. Until 2026-09-25 publishing was a separate workflow racing CI, so a red run still deployed. Docs-only pushes (`docs/**`, `*.md`) skip CI and publish entirely. Pushing to main is still deploying: the homelab autoupdater redeploys within the hour. The browser job runs with the PWA on, as production does; specs sign in through `test/support/e2e-session.ts`. Load test and Lighthouse run nightly (`nightly.yml`).
 - **Upstream references are limited to attribution.** The only permitted mentions of the upstream project are the attribution link in the About page and README and code comments citing upstream issues or PRs. Any other occurrence of the upstream company or project name (assets, links, config defaults, CI values, marketing copy) is a rebrand regression; grep for it before a PR.
 - **Regenerate `package-lock.json` only with Node 22 / npm 10** (`nvm use`, or `docker run --rm -v $PWD:/app -w /app node:22 npm install --package-lock-only`). npm 11 prunes nested entries that npm 10's `npm ci` in the Docker build then reports as missing, so the image build fails while local installs look fine.
 - **pgvault-dev runs Postgres 18; production and CI run 17.** Features new in 18 pass locally and fail in CI. The migration CLI's snapshot is pinned to `.snapshot-postgres.json` (`snapshotName`), so pointing it at another database no longer writes a stray `.snapshot-<db>.json`.
 - **`precommit:full` is minutes long** (Lighthouse and load test included); CI runs those two nightly, not per push.
 - **Playwright serves whatever is on :3000.** The webServer command only starts `dist/` (the npm scripts build first); `reuseExistingServer` is on outside CI, so a running `start:dev`/`start:prod` is tested instead of the fresh build. Stop it before `verify:push`.
-- **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different `AUTH_ENABLED` in a different spec file.
+- **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different config (`DISABLE_REGISTRATION`, `PWA_ENABLED`, ...) in a different spec file.
+- **The integration harness is signed in by default.** `createTestApp` registers `owner@example.com` at boot and `t.inject` sends that session (`t.owner.cookie`) unless the request has its own `cookie` header or passes `anonymous: true`. A test about signed-out behavior must say `anonymous: true`; one that forgets asserts on the owner's view.
+- **`@Public()` is the only way past `SessionGuard`, and static paths never have a session.** The preHandler in `app.ts` skips `static-prefixes.ts` paths, so a Nest route under one (`FileController`, `/healthz`, `/manifest.json`) always sees `req.auth` undefined and must be `@Public()`, or it answers every request with a login redirect. `@UserId()` on a `@Public()` route throws: a public handler reads `req.auth` itself if it cares (the invite landing page).
 - **htmx reads only the first `<meta name="htmx-config">`.** Keep the config in one JSON object. `disableInheritance` is on, so any attribute that must reach descendants needs `hx-inherit` on the ancestor (the body has `hx-inherit="hx-boost"`; without it no link is boosted).
 - **`public/build.json` lingers after `npm run build`.** `start:dev` then serves assets with that build's cache key; set `NODE_ENV=development` in `.env.local` (caching off) or delete the file if styles look stale.
 - **Nest answers POST with 201 unless the handler has `@HttpCode(200)`**, even when it sends through `@Res()`: htmx partials, `HX-Redirect` replies and re-rendered forms (failed login, validation errors) all come back 201. Integration specs assert 2xx on those; browsers and htmx do not care.

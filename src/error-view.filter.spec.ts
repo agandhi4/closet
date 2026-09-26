@@ -1,5 +1,8 @@
 import { ArgumentsHost, NotFoundException } from '@nestjs/common';
-import { RedirectToLoginException } from './auth/redirect-to-login.exception';
+import {
+  LoginRequiredException,
+  RedirectToLoginException,
+} from './auth/redirect-to-login.exception';
 import { ErrorViewFilter } from './error-view.filter';
 
 describe('ErrorViewFilter', () => {
@@ -8,6 +11,7 @@ describe('ErrorViewFilter', () => {
     sent: boolean;
     locals: Record<string, unknown>;
     redirect: jest.Mock;
+    header: jest.Mock;
     status: jest.Mock;
     view: jest.Mock;
     send: jest.Mock;
@@ -28,12 +32,14 @@ describe('ErrorViewFilter', () => {
       sent: false,
       locals: { appName: 'Closet' },
       redirect: jest.fn(),
+      header: jest.fn(),
       status: jest.fn(),
       view: jest.fn().mockResolvedValue(undefined),
       send: jest.fn(),
     };
     response.status.mockReturnValue(response);
     response.redirect.mockReturnValue(response);
+    response.header.mockReturnValue(response);
     warn = jest.spyOn(filter['logger'], 'warn').mockImplementation(() => {});
   });
 
@@ -41,6 +47,16 @@ describe('ErrorViewFilter', () => {
     await filter.catch(new RedirectToLoginException(), host());
 
     expect(response.redirect).toHaveBeenCalledWith('/auth/login', 302);
+    expect(response.view).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('answers LoginRequiredException with a bodiless 401 and HX-Redirect', async () => {
+    await filter.catch(new LoginRequiredException(), host());
+
+    expect(response.status).toHaveBeenCalledWith(401);
+    expect(response.header).toHaveBeenCalledWith('HX-Redirect', '/auth/login');
+    expect(response.send).toHaveBeenCalledWith();
     expect(response.view).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });

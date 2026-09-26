@@ -7,10 +7,9 @@ import { jpegPhoto, uploadPhoto } from './garments';
 import { createTestApp, TestApp } from './harness';
 
 /**
- * The garment edit, clone and archive paths with AUTH_ENABLED=true: the
- * forms render the stored values, POST /wardrobe/:id writes them, a clone
- * lands in the requester's wardrobe with its own copy of the photo set, and
- * archive toggles. Alice owns the garments; Bob holds a MANAGE share on her
+ * The garment edit, clone and archive paths: the forms render the stored
+ * values, POST /wardrobe/:id writes them, a clone lands in the requester's
+ * wardrobe with its own copy of the photo set, and archive toggles. Alice owns the garments; Bob holds a MANAGE share on her
  * wardrobe; Carol has no share.
  */
 
@@ -32,7 +31,7 @@ const FORM = {
   notes: 'Summer weddings',
 };
 
-describe('garment edit, clone and archive (AUTH_ENABLED=true)', () => {
+describe('garment edit, clone and archive', () => {
   let t: TestApp;
   let alice: { id: number; cookie: string };
   let bob: { id: number; cookie: string };
@@ -79,7 +78,7 @@ describe('garment edit, clone and archive (AUTH_ENABLED=true)', () => {
     );
 
   beforeAll(async () => {
-    t = await createTestApp({ AUTH_ENABLED: 'true' });
+    t = await createTestApp();
     alice = {
       cookie: await t.register('alice@example.com'),
       id: await userId('alice@example.com'),

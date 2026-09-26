@@ -6,7 +6,7 @@ import { createTestApp, TestApp } from './harness';
  * plain text column (it used to be an item-less @Enum, which Postgres mapped
  * to smallint and rejected). The filter is a membership test on that list.
  */
-describe('garment colours (AUTH_ENABLED=false)', () => {
+describe('garment colours', () => {
   let t: TestApp;
   let garmentId: number;
 

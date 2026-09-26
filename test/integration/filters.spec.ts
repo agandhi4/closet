@@ -5,7 +5,7 @@ import { createTestApp, TestApp } from './harness';
  * column; the rendered radio options are what the user sees, so assert on
  * those rather than on the service result.
  */
-describe('wardrobe filters (AUTH_ENABLED=false)', () => {
+describe('wardrobe filters', () => {
   let t: TestApp;
 
   const create = async (fields: Record<string, string>) => {

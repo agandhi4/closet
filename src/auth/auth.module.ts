@@ -2,10 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthContextService } from './auth-context.service';
-import { AuthGuard } from './auth.guard';
-import { ConditionalAuthGuard } from './conditional-auth.guard';
 import { RegistrationGuard } from './registration.guard';
-import { RequireSessionGuard } from './require-session.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
@@ -30,21 +27,7 @@ import { FileModule } from '../file/file.module';
     FileModule,
   ],
   controllers: [AuthController],
-  providers: [
-    AuthService,
-    AuthContextService,
-    AuthGuard,
-    ConditionalAuthGuard,
-    RequireSessionGuard,
-    RegistrationGuard,
-  ],
-  exports: [
-    JwtModule,
-    AuthService,
-    AuthContextService,
-    AuthGuard,
-    ConditionalAuthGuard,
-    RequireSessionGuard,
-  ],
+  providers: [AuthService, AuthContextService, RegistrationGuard],
+  exports: [JwtModule, AuthService, AuthContextService],
 })
 export class AuthModule {}

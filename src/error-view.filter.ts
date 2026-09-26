@@ -7,7 +7,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { RedirectToLoginException } from './auth/redirect-to-login.exception';
+import {
+  LoginRequiredException,
+  RedirectToLoginException,
+} from './auth/redirect-to-login.exception';
 
 @Catch()
 export class ErrorViewFilter implements ExceptionFilter {
@@ -23,6 +26,15 @@ export class ErrorViewFilter implements ExceptionFilter {
     if (exception instanceof RedirectToLoginException) {
       this.logger.debug(`${request.url} -> ${exception.location}`);
       return response.redirect(exception.location, exception.getStatus());
+    }
+    if (exception instanceof LoginRequiredException) {
+      this.logger.debug(
+        `${request.url} -> 401, HX-Redirect ${exception.location}`,
+      );
+      return response
+        .status(exception.getStatus())
+        .header('HX-Redirect', exception.location)
+        .send();
     }
 
     this.logger.warn(exception);

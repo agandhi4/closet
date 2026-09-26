@@ -13,37 +13,32 @@ import {
   Render,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
-import { RequireSessionGuard } from '../auth/require-session.guard';
-import { Payload } from '../auth/dto/payload.dto';
-import { User } from '../auth/user.decorator';
+import { Public } from '../auth/public.decorator';
+import { UserId } from '../auth/user.decorator';
 import { WardrobeShareService } from './wardrobe-share.service';
 import { SharePermission } from '../dal/entity/wardrobe-share.entity';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
-// Sharing only exists with user accounts, and every route is a page or a
-// form/htmx submission from one, so RequireSessionGuard (404 with auth off,
-// login redirect without a session) rather than AuthGuard's 401. The invite
-// landing page is the one route an anonymous visitor may open.
+// Every route needs a session (SessionGuard) except the invite landing page,
+// which an anonymous recipient must be able to open before signing in.
 @Controller('wardrobe-share')
 export class WardrobeShareController {
   private readonly logger = new Logger(WardrobeShareController.name);
 
   constructor(private readonly shareService: WardrobeShareService) {}
 
-  @UseGuards(RequireSessionGuard)
   @Get('manage')
   @Render('wardrobe-share/manage')
   async manage(
-    @User() payload: Payload,
+    @UserId() userId: number,
     @Req() req: FastifyRequest,
     @Query('error') error: string | undefined,
   ) {
     const [outbound, inbound, pending] = await Promise.all([
-      this.shareService.getOutboundShares(payload.userId),
-      this.shareService.getInboundShares(payload.userId),
-      this.shareService.getPendingShares(payload.userId),
+      this.shareService.getOutboundShares(userId),
+      this.shareService.getInboundShares(userId),
+      this.shareService.getPendingShares(userId),
     ]);
 
     const mapShare = (s: any) => ({
@@ -64,16 +59,15 @@ export class WardrobeShareController {
     };
   }
 
-  @UseGuards(RequireSessionGuard)
   @Post('create-invite-link')
   async createInviteLink(
-    @User() payload: Payload,
+    @UserId() userId: number,
     @Body() body: { permission: SharePermission },
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ) {
     const share = await this.shareService.createInviteLink(
-      payload.userId,
+      userId,
       body.permission || SharePermission.VIEW,
     );
     const inviteUrl = `${req.protocol}://${req.headers.host}/wardrobe-share/invite/${share.inviteToken}`;
@@ -87,20 +81,20 @@ export class WardrobeShareController {
     return reply.redirect('/wardrobe-share/manage', 302);
   }
 
-  @UseGuards(RequireSessionGuard)
   @Post(':id/remove')
   async removeShare(
-    @User() payload: Payload,
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) shareId: number,
     @Res() reply: FastifyReply,
   ) {
-    await this.shareService.removeShare(shareId, payload.userId);
+    await this.shareService.removeShare(shareId, userId);
     return reply.redirect('/wardrobe-share/manage', 302);
   }
 
-  // No guard: with auth on, ConditionalAuthGuard would bounce the anonymous
-  // recipient to login before they ever see what they were invited to. The
-  // session, if any, is already on req.auth from the preHandler in app.ts.
+  // @Public(): the anonymous recipient must see what they were invited to
+  // before being asked to sign in. The session, if any, is already on
+  // req.auth from the preHandler in app.ts.
+  @Public()
   @Get('invite/:token')
   @Render('wardrobe-share/invite')
   async viewInvite(@Param('token') token: string, @Req() req: FastifyRequest) {
@@ -124,15 +118,14 @@ export class WardrobeShareController {
     };
   }
 
-  @UseGuards(RequireSessionGuard)
   @Post('invite/:token/accept')
   async acceptInvite(
-    @User() payload: Payload,
+    @UserId() userId: number,
     @Param('token') token: string,
     @Res() reply: FastifyReply,
   ) {
     try {
-      await this.shareService.acceptInvite(token, payload.userId);
+      await this.shareService.acceptInvite(token, userId);
     } catch (e) {
       if (
         e instanceof BadRequestException ||
@@ -149,15 +142,14 @@ export class WardrobeShareController {
     return reply.redirect('/wardrobe-share/manage', 302);
   }
 
-  @UseGuards(RequireSessionGuard)
   @Post('invite/:token/decline')
   async declineInvite(
-    @User() payload: Payload,
+    @UserId() userId: number,
     @Param('token') token: string,
     @Res() reply: FastifyReply,
   ) {
     try {
-      await this.shareService.declineInvite(token, payload.userId);
+      await this.shareService.declineInvite(token, userId);
     } catch (e) {
       this.logger.warn(e);
     }

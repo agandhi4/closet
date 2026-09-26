@@ -69,7 +69,7 @@ function shownGarmentIds(html: string): number[] {
   );
 }
 
-describe('outfits (AUTH_ENABLED=false)', () => {
+describe('outfits', () => {
   let t: TestApp;
 
   const createOutfit = async (
@@ -273,7 +273,7 @@ describe('outfits (AUTH_ENABLED=false)', () => {
       const outfit = await t.em().findOneOrFail(Outfit, id);
       expect(outfit.name).toBe('Brunch');
       expect(outfit.notes).toBe('Sunny');
-      expect(outfit.owner).toBeFalsy();
+      expect(outfit.owner?.id).toBe(t.owner.id);
       expect(outfit.shareableId).toMatch(/^[0-9a-f-]{36}$/);
       expect(outfit.slots).toEqual([
         { category: 'tops', garmentId: top },

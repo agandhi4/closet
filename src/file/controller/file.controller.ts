@@ -8,6 +8,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { Public } from '../../auth/public.decorator';
 import { FileService } from '../file-service.abstract';
 import { ImageVariant, parseStoredName } from '../image-variant';
 
@@ -23,6 +24,11 @@ function isPhotoBaseName(fileName: string): boolean {
 // Images only, no pages: every route here is under the /file/ static prefix
 // (static-prefixes.ts), so the session hook in app.ts skips it. A page added
 // here would render without reply.locals.
+//
+// @Public(): there is never a session to check here (the hook is skipped),
+// and the photos are addressed by unguessable UUID names with immutable
+// caching; share previews and Open Graph images must load for anyone.
+@Public()
 @Controller('file')
 export class FileController {
   private logger = new Logger(FileController.name);

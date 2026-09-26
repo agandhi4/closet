@@ -15,19 +15,20 @@ import {
 import { plainToInstance } from 'class-transformer';
 import type { FastifyReply } from 'fastify';
 import { I18n, I18nContext } from 'nestjs-i18n';
-import { AuthGuard } from './auth.guard';
+import { Public } from './public.decorator';
 import { RegistrationGuard } from './registration.guard';
 import { AuthService } from './auth.service';
 import { ConfigService } from '@nestjs/config';
 import { EmailDto } from './dto/email.dto';
 import { LoginDto } from './dto/login.dto';
-import { Payload } from './dto/payload.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/resetPassword.dto';
-import { User } from './user.decorator';
+import { UserId } from './user.decorator';
 import { UpdateEmailDto } from './dto/updateEmail.dto';
 import { minutes, seconds, Throttle } from '@nestjs/throttler';
 
+// Sign-in, registration and logout are @Public(); the account pages need a
+// session like every other route (SessionGuard).
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
@@ -37,6 +38,7 @@ export class AuthController {
     private configService: ConfigService,
   ) {}
 
+  @Public()
   @UseGuards(RegistrationGuard)
   @Post('register')
   async postRegister(
@@ -64,6 +66,7 @@ export class AuthController {
     return reply.redirect('/auth/profile', 302);
   }
 
+  @Public()
   @UseGuards(RegistrationGuard)
   @Render('auth/register')
   @Post('validate/register')
@@ -83,6 +86,7 @@ export class AuthController {
     return { input: body };
   }
 
+  @Public()
   @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('login')
   async postLogin(@Body() loginDto: LoginDto, @Res() reply: FastifyReply) {
@@ -107,6 +111,7 @@ export class AuthController {
     }
   }
 
+  @Public()
   @Redirect('/')
   @Get('logout')
   getLogout(
@@ -116,6 +121,7 @@ export class AuthController {
     reply.clearCookie('access_token', { path: '/' });
   }
 
+  @Public()
   @Get('login')
   @Render('auth/login')
   getLogin(@I18n() i18n: I18nContext): any {
@@ -126,6 +132,7 @@ export class AuthController {
     };
   }
 
+  @Public()
   @Get('reset')
   @Render('auth/reset')
   getReset(@Query('email') emailQueryParam: string): any {
@@ -136,6 +143,7 @@ export class AuthController {
     };
   }
 
+  @Public()
   @Post('reset')
   async postReset(@Body() emailDto: EmailDto, @Res() reply: FastifyReply) {
     try {
@@ -151,6 +159,7 @@ export class AuthController {
     }
   }
 
+  @Public()
   @Get('reset-code')
   @Render('auth/reset-code')
   getResetCode(@Query('email') emailQueryParam: string): any {
@@ -161,6 +170,7 @@ export class AuthController {
     };
   }
 
+  @Public()
   @Throttle({ default: { limit: 5, ttl: minutes(10) } })
   @Render('auth/reset-code')
   @Post('validate/reset-code')
@@ -180,6 +190,7 @@ export class AuthController {
     return { input: body };
   }
 
+  @Public()
   @Post('reset-code')
   async postResetCode(
     @I18n() i18n: I18nContext,
@@ -201,6 +212,7 @@ export class AuthController {
     return reply.redirect('/auth/login', 302);
   }
 
+  @Public()
   @UseGuards(RegistrationGuard)
   @Get('register')
   @Render('auth/register')
@@ -212,25 +224,22 @@ export class AuthController {
     };
   }
 
-  @UseGuards(AuthGuard)
   @Get('profile')
   @Render('auth/profile')
   getProfile(): any {}
 
-  @UseGuards(AuthGuard)
   @Get('delete-account')
   @Render('auth/delete-account')
   getDeleteAccount(): any {}
 
-  @UseGuards(AuthGuard)
   @Post('delete-account')
   async postDeleteAccount(
-    @User() payload: Payload,
+    @UserId() userId: number,
     @Body() loginDto: LoginDto,
     @Res() reply: FastifyReply,
   ) {
     try {
-      await this.authService.deleteUser(payload.userId, loginDto);
+      await this.authService.deleteUser(userId, loginDto);
       reply.clearCookie('access_token', { path: '/' });
       return reply.redirect('/', 302);
     } catch (error) {
@@ -249,7 +258,6 @@ export class AuthController {
     }
   }
 
-  @UseGuards(AuthGuard)
   @Get('update-email')
   @Render('auth/update-email')
   getUpdateEmail() {}
@@ -272,10 +280,9 @@ export class AuthController {
     return { input: body };
   }
 
-  @UseGuards(AuthGuard)
   @Post('update-email')
   async postUpdateEmail(
-    @User() payload: Payload,
+    @UserId() userId: number,
     @I18n() i18n: I18nContext,
     @Body() body: UpdateEmailDto,
     @Res() reply: FastifyReply,
@@ -291,7 +298,7 @@ export class AuthController {
       });
     }
 
-    await this.authService.changeEmail(payload.userId, body.confirmEmail);
+    await this.authService.changeEmail(userId, body.confirmEmail);
     return reply.redirect('/auth/profile', 302);
   }
 }

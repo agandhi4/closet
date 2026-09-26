@@ -5,13 +5,13 @@ import { User } from '../../src/dal/entity/user.entity';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
-describe('sessions (AUTH_ENABLED=true)', () => {
+describe('sessions', () => {
   let t: TestApp;
   let cookie: string;
   const email = 'alice@example.com';
 
   beforeAll(async () => {
-    t = await createTestApp({ AUTH_ENABLED: 'true' });
+    t = await createTestApp();
     cookie = await t.register(email);
   });
 
@@ -26,6 +26,7 @@ describe('sessions (AUTH_ENABLED=true)', () => {
         password: TEST_PASSWORD,
         confirmPassword: TEST_PASSWORD,
       },
+      anonymous: true,
     });
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toBe('/auth/profile');
@@ -34,14 +35,80 @@ describe('sessions (AUTH_ENABLED=true)', () => {
     expect(token?.path).toBe('/');
   });
 
-  it.each([
-    ['/wardrobe', 302],
-    ['/wardrobe-share/manage', 302],
-    ['/auth/profile', 401],
-  ])('anonymous %s -> %i', async (url, status) => {
-    const res = await t.inject({ method: 'GET', url });
-    expect(res.statusCode).toBe(status);
-    if (status === 302) expect(res.headers.location).toBe('/auth/login');
+  // SessionGuard, the one global gate. Its three outcomes: public routes
+  // answer anyone, a page navigation without a session is redirected, and an
+  // htmx fragment or fetch gets a 401 whose HX-Redirect htmx follows.
+  describe('login required (SessionGuard)', () => {
+    it.each([
+      ['/auth/login', 200],
+      ['/auth/register', 200],
+      ['/about', 200],
+      ['/offline.html', 200],
+      ['/healthz', 204],
+      ['/manifest.json', 200],
+      ['/share?shareableId=nothing&type=garment', 200],
+    ])('public %s answers an anonymous visitor (%i)', async (url, status) => {
+      const res = await t.inject({ method: 'GET', url, anonymous: true });
+      expect(res.statusCode).toBe(status);
+      expect(res.headers.location).toBeUndefined();
+    });
+
+    it.each([
+      '/',
+      '/wardrobe',
+      '/outfits',
+      '/calendar',
+      '/wardrobe-share/manage',
+      '/auth/profile',
+      '/auth/update-email',
+      '/auth/delete-account',
+    ])('anonymous navigation to %s -> 302 /auth/login', async (url) => {
+      for (const headers of [
+        {},
+        { 'sec-fetch-mode': 'navigate' },
+        { 'hx-request': 'true', 'hx-boosted': 'true' },
+      ]) {
+        const res = await t.inject({
+          method: 'GET',
+          url,
+          headers,
+          anonymous: true,
+        });
+        expect(res.statusCode).toBe(302);
+        expect(res.headers.location).toBe('/auth/login');
+      }
+    });
+
+    it.each([
+      ['htmx fragment', 'GET', '/wardrobe', { 'hx-request': 'true' }],
+      [
+        'htmx form post',
+        'POST',
+        '/calendar/1/worn',
+        { 'hx-request': 'true', 'sec-fetch-mode': 'cors' },
+      ],
+      [
+        'fetch',
+        'POST',
+        '/notification/subscribe',
+        { 'sec-fetch-mode': 'cors' },
+      ],
+      [
+        'same-origin fetch',
+        'POST',
+        '/wardrobe/1/nobg',
+        { 'sec-fetch-mode': 'same-origin' },
+      ],
+    ] as const)(
+      'anonymous %s (%s %s) -> 401 with HX-Redirect',
+      async (_label, method, url, headers) => {
+        const res = await t.inject({ method, url, headers, anonymous: true });
+        expect(res.statusCode).toBe(401);
+        expect(res.headers['hx-redirect']).toBe('/auth/login');
+        expect(res.headers.location).toBeUndefined();
+        expect(res.body).toBe('');
+      },
+    );
   });
 
   it('a logged-out page hit redirects without warn or error log lines', async () => {
@@ -52,7 +119,11 @@ describe('sessions (AUTH_ENABLED=true)', () => {
     const warn = jest.spyOn(logger, 'warn');
     const error = jest.spyOn(logger, 'error');
     try {
-      const res = await t.inject({ method: 'GET', url: '/wardrobe' });
+      const res = await t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        anonymous: true,
+      });
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe('/auth/login');
       expect(warn).not.toHaveBeenCalled();
@@ -103,6 +174,7 @@ describe('sessions (AUTH_ENABLED=true)', () => {
       method: 'POST',
       url: '/auth/login',
       payload: { email, password: 'WrongPassword1' },
+      anonymous: true,
     });
     // Re-rendered login form (Nest's POST default is 201; see report).
     expect(wrong.statusCode).toBeLessThan(300);

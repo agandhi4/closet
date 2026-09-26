@@ -12,8 +12,8 @@ test('root redirects to a page that renders APP_NAME without console errors', as
     }
   });
 
-  // "/" is a 302 to /wardrobe (and on to /auth/login when AUTH_ENABLED);
-  // goto follows redirects, so assert on the final page.
+  // Signed out, "/" is a 302 to /auth/login; goto follows redirects, so
+  // assert on the final page.
   await page.goto('/');
   expect(page.url()).not.toMatch(/\/$/);
   await expect(page.locator('body')).toContainText(APP_NAME);

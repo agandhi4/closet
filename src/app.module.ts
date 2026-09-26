@@ -8,6 +8,7 @@ import * as path from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { SessionGuard } from './auth/session.guard';
 import { DalModule } from './dal/dal.module';
 import { NotificationModule } from './notification/notification.module';
 import { FileModule } from './file/file.module';
@@ -112,7 +113,6 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
         // (Fastify trustProxy). Consumed in app.ts before the app exists.
         TRUSTED_PROXIES: Joi.string().default(DEFAULT_TRUSTED_PROXIES),
         APP_NAME: Joi.string().default('Closet'),
-        AUTH_ENABLED: Joi.boolean().default(false),
         DISABLE_REGISTRATION: Joi.boolean().default(false),
         PWA_ENABLED: Joi.boolean().default(false),
         ACCESS_TOKEN_SECRET: Joi.string().default('ChangeMe!'),
@@ -231,6 +231,12 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    // Login is always required: every route needs a session unless it is
+    // @Public() (see SessionGuard). Runs after the throttler.
+    {
+      provide: APP_GUARD,
+      useClass: SessionGuard,
     },
     {
       provide: APP_FILTER,

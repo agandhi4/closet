@@ -1,11 +1,9 @@
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { FastifyRequest } from 'fastify';
 import { AuthContextService } from './auth-context.service';
 
 describe('AuthContextService', () => {
   let service: AuthContextService;
-  let configService: { get: jest.Mock };
   let jwtService: { verifyAsync: jest.Mock };
   let userRepository: { findOne: jest.Mock };
 
@@ -17,24 +15,12 @@ describe('AuthContextService', () => {
     ({ cookies }) as unknown as FastifyRequest;
 
   beforeEach(() => {
-    configService = { get: jest.fn().mockReturnValue(true) };
     jwtService = { verifyAsync: jest.fn() };
     userRepository = { findOne: jest.fn() };
     service = new AuthContextService(
       userRepository as any,
-      configService as unknown as ConfigService,
       jwtService as unknown as JwtService,
     );
-  });
-
-  it('returns undefined without touching the token when AUTH_ENABLED is false', async () => {
-    configService.get.mockReturnValue(false);
-
-    await expect(
-      service.resolve(request({ access_token: 'x' })),
-    ).resolves.toBeUndefined();
-    expect(jwtService.verifyAsync).not.toHaveBeenCalled();
-    expect(userRepository.findOne).not.toHaveBeenCalled();
   });
 
   it('returns undefined without a cookie', async () => {

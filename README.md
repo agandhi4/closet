@@ -19,7 +19,6 @@ services:
     volumes:
       - closet_data:/app/data
     environment:
-      AUTH_ENABLED: 'false'
       PWA_ENABLED: 'true'
       # Required when PWA_ENABLED is true: npx web-push generate-vapid-keys
       PUBLIC_VAPID_KEY: '<public key>'
@@ -52,7 +51,7 @@ volumes:
   closet_pg:
 ```
 
-Open [http://localhost:3000](http://localhost:3000). No account required by default.
+Open [http://localhost:3000](http://localhost:3000) and register an account: login is always required. Once everyone in the household has signed up, set `DISABLE_REGISTRATION=true`.
 
 ---
 
@@ -66,7 +65,6 @@ Open [http://localhost:3000](http://localhost:3000). No account required by defa
 | `ICON_NAME`                        | Icon file under `public/assets/` used for the navbar, manifest and share previews    | `icon.png`              | `my-icon.png`                                                                             |
 | `SITE_URL`                         | Public origin, used for absolute links in share previews and emails                  | `http://localhost:3000` | `https://closet.example.com`                                                              |
 | `DATA_PATH`                        | Directory for uploaded files and `app.log`                                           | `./data`                | `./closet-data`                                                                           |
-| `AUTH_ENABLED`                     | Enable JWT user accounts and login                                                   | `false`                 | `true`                                                                                    |
 | `DISABLE_REGISTRATION`             | Disallows user sign ups when true                                                    | `false`                 | `true`                                                                                    |
 | `PWA_ENABLED`                      | Enable service worker and PWA install prompt                                         | `false`                 | `true`                                                                                    |
 | `WATERMARK_ENABLED`                | Composite the app icon onto share-link preview images                                | `false`                 | `true`                                                                                    |
@@ -166,10 +164,11 @@ after `npm run build`; `-- --dry-run` only reports.
 
 ### Load test
 
-`npm run test:load` builds the app, starts it with `AUTH_ENABLED=false`, a
-scratch Postgres database and a temporary `DATA_PATH`, seeds one garment with a photo through the real
-endpoints, and runs autocannon against `/wardrobe` (full page and htmx
-fragment), `/outfits/new` and the seeded `/file/thumb/...` image. Results
+`npm run test:load` builds the app, starts it on a scratch Postgres database
+and a temporary `DATA_PATH`, registers a user and seeds one garment with a
+photo through the real endpoints, and runs autocannon against `/wardrobe`
+(full page and htmx fragment) and `/outfits/new` with that user's session, and
+against the seeded `/file/thumb/...` image. Results
 land in `scripts/results/load-test-results.json`, one entry per target.
 
 | Variable             | Description                       | Default |

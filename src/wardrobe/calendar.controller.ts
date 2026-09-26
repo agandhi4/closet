@@ -10,34 +10,28 @@ import {
   Render,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { I18n, I18nContext } from 'nestjs-i18n';
-import { ConditionalAuthGuard } from '../auth/conditional-auth.guard';
+import { UserId } from '../auth/user.decorator';
 import { CalendarService } from './calendar.service';
 
-@UseGuards(ConditionalAuthGuard)
 @Controller('calendar')
 export class CalendarController {
   constructor(private readonly calendarService: CalendarService) {}
-
-  private userId(req: FastifyRequest): number | undefined {
-    return req.user?.userId;
-  }
 
   @Get()
   @Render('calendar/index')
   async index(
     @Query('week') weekParam: string | undefined,
     @Query('calMonth') calMonthParam: string | undefined,
-    @Req() req: FastifyRequest,
+    @UserId() userId: number,
     @I18n() i18n: I18nContext,
   ) {
     return this.calendarService.buildIndexViewModel(
       weekParam,
       calMonthParam,
-      this.userId(req),
+      userId,
       i18n,
     );
   }
@@ -46,6 +40,7 @@ export class CalendarController {
   async create(
     @Body()
     body: { date: string; outfitId: string; notes?: string; week?: string },
+    @UserId() userId: number,
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ) {
@@ -55,7 +50,7 @@ export class CalendarController {
         outfitId: Number(body.outfitId),
         notes: body.notes,
       },
-      this.userId(req),
+      userId,
     );
     if (req.headers['hx-request'] === 'true') {
       return reply.status(204).send();
@@ -68,10 +63,10 @@ export class CalendarController {
   async remove(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { week?: string },
-    @Req() req: FastifyRequest,
+    @UserId() userId: number,
     @Res() reply: FastifyReply,
   ) {
-    await this.calendarService.remove(id, this.userId(req));
+    await this.calendarService.remove(id, userId);
     reply.header('HX-Redirect', `/calendar?week=${body.week ?? ''}`);
     return reply.send();
   }
@@ -80,11 +75,12 @@ export class CalendarController {
   async toggleWorn(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { week?: string },
+    @UserId() userId: number,
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
     @I18n() i18n: I18nContext,
   ) {
-    const entry = await this.calendarService.toggleWorn(id, this.userId(req));
+    const entry = await this.calendarService.toggleWorn(id, userId);
     const week = body.week ?? '';
 
     if (req.headers['hx-request']) {

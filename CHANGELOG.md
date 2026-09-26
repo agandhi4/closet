@@ -46,10 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Developer experience
 
 - In-process integration tier (`npm run test:int`) booting the real app with an in-memory SQLite or a throwaway Postgres; runs on both drivers in CI. `npm run precommit` is the fast chain (about 16 s); `npm run precommit:full` keeps Playwright, the load test and Lighthouse
-- `TRUSTED_PROXIES`, `LOG_LEVEL`, `/healthz`, offline banner and update toast, `RequireSessionGuard`, one `resolveAccess` for wardrobe permissions
+- `TRUSTED_PROXIES`, `LOG_LEVEL`, `/healthz`, offline banner and update toast, one `resolveAccess` for wardrobe permissions
 
 #### Changed
 
+- Login is always required. One global `SessionGuard` replaces `ConditionalAuthGuard`, `RequireSessionGuard` and `AuthGuard`: every route needs a session unless it is `@Public()` (login, registration, logout, `/about`, `/offline.html`, `/healthz`, `/manifest.json`, `/.well-known/*`, `/share`, the invite landing page, `/file/**`). Signed out, a page navigation redirects to `/auth/login` and an htmx fragment or fetch answers 401 with `HX-Redirect: /auth/login`
 - Rebrand to Closet, a private household fork of Libre Closet
 - Removed Lazztech branding, marketing content, and the privacy and terms pages
 - `/` now redirects to the wardrobe; there is no landing page
@@ -63,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Removed
 
+- `AUTH_ENABLED` and the anonymous mode it switched on (owner-less garments, outfits and calendar entries visible to every visitor). A leftover `AUTH_ENABLED` in the environment is ignored
 - SQLite support: `DATABASE_TYPE`, the `@mikro-orm/better-sqlite` driver, the SQLite migration tree and its CLI config. Postgres (13+) is required; `DATABASE_HOST`, `DATABASE_SCHEMA`, `DATABASE_USER` and `DATABASE_PASS` no longer have defaults. Tests and the load test run on scratch Postgres databases (`TEST_DATABASE_URL`, default pgvault-dev on `localhost:5432`)
 - The boilerplate SSE chat demo (`/chat`, `/sse`, `/message`) and the `htmx-ext-sse` dependency
 - The generic file gallery (`/file/files`, `/file/upload`); `/file/*` now only serves image variants

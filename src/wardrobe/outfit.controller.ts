@@ -10,18 +10,15 @@ import {
   Post,
   Query,
   Render,
-  Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
-import { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply } from 'fastify';
 import { I18n, I18nContext } from 'nestjs-i18n';
-import { ConditionalAuthGuard } from '../auth/conditional-auth.guard';
+import { UserId } from '../auth/user.decorator';
 import { OutfitService } from './outfit.service';
 import { GarmentService } from './garment.service';
 import { CalendarService } from './calendar.service';
 
-@UseGuards(ConditionalAuthGuard)
 @Controller('outfits')
 export class OutfitController {
   private readonly logger = new Logger(OutfitController.name);
@@ -32,26 +29,22 @@ export class OutfitController {
     private readonly calendarService: CalendarService,
   ) {}
 
-  private userId(req: FastifyRequest): number | undefined {
-    return req.user?.userId;
-  }
-
   @Get()
   @Render('outfits/index')
-  async index(@Req() req: FastifyRequest) {
-    const outfits = await this.outfitService.findAll(this.userId(req));
+  async index(@UserId() userId: number) {
+    const outfits = await this.outfitService.findAll(userId);
     return { outfits };
   }
 
   @Get('new')
   @Render('outfits/form')
   async newForm(
-    @Req() req: FastifyRequest,
+    @UserId() userId: number,
     @I18n() i18n: I18nContext,
     @Query('scheduleDate') scheduleDate?: string,
     @Query('returnTo') returnTo?: string,
   ) {
-    const garments = await this.garmentService.findAll(this.userId(req));
+    const garments = await this.garmentService.findAll(userId);
     const categoryRows = this.outfitService.buildCategoryRows(
       garments,
       [],
@@ -78,7 +71,7 @@ export class OutfitController {
       returnTo?: string;
       returnToWeek?: string;
     },
-    @Req() req: FastifyRequest,
+    @UserId() userId: number,
     @Res() reply: FastifyReply,
   ) {
     const slots = this.outfitService.parseSlotsFromBody(
@@ -88,12 +81,12 @@ export class OutfitController {
 
     const outfit = await this.outfitService.create(
       { name: body.name, notes: body.notes, slots },
-      this.userId(req),
+      userId,
     );
     if (body.scheduleDate) {
       await this.calendarService.create(
         { date: new Date(body.scheduleDate), outfitId: outfit.id },
-        this.userId(req),
+        userId,
       );
     }
     if (body.returnTo === '/calendar') {
@@ -107,12 +100,12 @@ export class OutfitController {
   async rowFragment(
     @Query('category') category: string,
     @Query('index') indexStr: string,
-    @Req() req: FastifyRequest,
+    @UserId() userId: number,
     @Res() reply: FastifyReply,
     @I18n() i18n: I18nContext,
   ) {
     if (!category?.trim()) return reply.status(400).send();
-    const items = await this.garmentService.findAll(this.userId(req), {
+    const items = await this.garmentService.findAll(userId, {
       category,
     });
     const count = items.length;
@@ -125,11 +118,8 @@ export class OutfitController {
 
   @Get(':id')
   @Render('outfits/show')
-  async show(
-    @Param('id', ParseIntPipe) id: number,
-    @Req() req: FastifyRequest,
-  ) {
-    const outfit = await this.outfitService.findOne(id, this.userId(req));
+  async show(@Param('id', ParseIntPipe) id: number, @UserId() userId: number) {
+    const outfit = await this.outfitService.findOne(id, userId);
     const garments = outfit.garments.getItems();
     return { outfit, garments };
   }
@@ -138,14 +128,14 @@ export class OutfitController {
   @Render('outfits/form')
   async editForm(
     @Param('id', ParseIntPipe) id: number,
-    @Req() req: FastifyRequest,
+    @UserId() userId: number,
     @I18n() i18n: I18nContext,
     @Query('returnTo') returnTo?: string,
     @Query('returnToWeek') returnToWeek?: string,
   ) {
     const [outfit, garments] = await Promise.all([
-      this.outfitService.findOne(id, this.userId(req)),
-      this.garmentService.findAll(this.userId(req)),
+      this.outfitService.findOne(id, userId),
+      this.garmentService.findAll(userId),
     ]);
     const selectedGarmentIds = outfit.garments.getItems().map((g) => g.id);
     return {
@@ -175,7 +165,7 @@ export class OutfitController {
       returnTo?: string;
       returnToWeek?: string;
     },
-    @Req() req: FastifyRequest,
+    @UserId() userId: number,
     @Res() reply: FastifyReply,
   ) {
     const slots = this.outfitService.parseSlotsFromBody(
@@ -186,12 +176,12 @@ export class OutfitController {
     await this.outfitService.update(
       id,
       { name: body.name, notes: body.notes, slots },
-      this.userId(req),
+      userId,
     );
     if (body.scheduleDate) {
       await this.calendarService.create(
         { date: new Date(body.scheduleDate), outfitId: id },
-        this.userId(req),
+        userId,
       );
     }
     if (body.returnTo === '/calendar') {
@@ -205,10 +195,10 @@ export class OutfitController {
   @HttpCode(200)
   async remove(
     @Param('id', ParseIntPipe) id: number,
-    @Req() req: FastifyRequest,
+    @UserId() userId: number,
     @Res() reply: FastifyReply,
   ) {
-    await this.outfitService.remove(id, this.userId(req));
+    await this.outfitService.remove(id, userId);
     reply.header('HX-Redirect', '/outfits');
     return reply.send();
   }

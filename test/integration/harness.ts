@@ -2,8 +2,10 @@ import { EntityManager, MikroORM } from '@mikro-orm/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { mkdtemp, rm } from 'node:fs/promises';
+import type { OutgoingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { User } from '../../src/dal/entity/user.entity';
 import { createScratchDatabase } from '../support/scratch-database';
 
 /**
@@ -15,6 +17,11 @@ import { createScratchDatabase } from '../support/scratch-database';
  *
  * Every spec file gets its own scratch Postgres database (see
  * test/support/scratch-database.ts), dropped again by cleanup().
+ *
+ * Login is always required, so every app starts with a signed-in default
+ * user, `t.owner`, and t.inject() sends the owner's session cookie unless the
+ * request carries its own `cookie` header or asks for `anonymous: true`.
+ * Specs that are not about accounts or sharing never think about sessions.
  */
 
 export type Env = Record<string, string>;
@@ -25,7 +32,6 @@ const BASE_ENV: Env = {
   APP_NAME: 'Closet',
   SITE_URL: 'http://localhost:3000',
   TRUSTED_PROXIES: '127.0.0.1,::1',
-  AUTH_ENABLED: 'false',
   DISABLE_REGISTRATION: 'false',
   PWA_ENABLED: 'false',
   ACCESS_TOKEN_SECRET: 'integration-test-secret',
@@ -36,12 +42,27 @@ const BASE_ENV: Env = {
 };
 
 export const TEST_PASSWORD = 'Password123!';
+export const OWNER_EMAIL = 'owner@example.com';
+
+export type TestInjectOptions = InjectOptions & {
+  /** Send no session cookie at all (the owner's is otherwise the default). */
+  anonymous?: boolean;
+};
+
+export interface TestUser {
+  id: number;
+  email: string;
+  /** `access_token=...`, ready for a `cookie` header. */
+  cookie: string;
+}
 
 export interface TestApp {
   app: NestFastifyApplication;
   /** Uploads, thumbs and app.log land here; removed by cleanup(). */
   dataPath: string;
-  inject: (options: InjectOptions) => Promise<LightMyRequestResponse>;
+  /** The user registered at boot, whose session t.inject() sends by default. */
+  owner: TestUser;
+  inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
   /** A fresh identity map per call, so reads see what the app flushed. */
   em: () => EntityManager;
   /** POST /auth/register; returns the session cookie for later requests. */
@@ -78,7 +99,15 @@ export async function createTestApp(overrides: Partial<Env> = {}) {
   }
 
   const orm = app.get(MikroORM);
-  const inject = (options: InjectOptions) => app.inject(options);
+  let owner: TestUser | undefined;
+  const inject = ({ anonymous = false, ...options }: TestInjectOptions) => {
+    const headers: OutgoingHttpHeaders = { ...options.headers };
+    const ownCookie = Object.keys(headers).some(
+      (name) => name.toLowerCase() === 'cookie',
+    );
+    if (!anonymous && !ownCookie && owner) headers.cookie = owner.cookie;
+    return app.inject({ ...options, headers });
+  };
   const sessionFrom = (res: LightMyRequestResponse, action: string) => {
     const token = res.cookies.find((c) => c.name === 'access_token');
     if (!token) {
@@ -89,26 +118,44 @@ export async function createTestApp(overrides: Partial<Env> = {}) {
     return `access_token=${token.value}`;
   };
 
+  const register = async (email: string, password = TEST_PASSWORD) =>
+    sessionFrom(
+      await inject({
+        method: 'POST',
+        url: '/auth/register',
+        payload: { email, password, confirmPassword: password },
+        anonymous: true,
+      }),
+      'register',
+    );
+
+  try {
+    const cookie = await register(OWNER_EMAIL);
+    const user = await orm.em
+      .fork()
+      .findOneOrFail(User, { email: OWNER_EMAIL });
+    owner = { id: user.id, email: OWNER_EMAIL, cookie };
+  } catch (error) {
+    await app.close();
+    await database.drop();
+    await rm(dataPath, { recursive: true, force: true });
+    throw error;
+  }
+
   return {
     app,
     dataPath,
+    owner,
     inject,
     em: () => orm.em.fork(),
-    register: async (email: string, password = TEST_PASSWORD) =>
-      sessionFrom(
-        await inject({
-          method: 'POST',
-          url: '/auth/register',
-          payload: { email, password, confirmPassword: password },
-        }),
-        'register',
-      ),
+    register,
     login: async (email: string, password = TEST_PASSWORD) =>
       sessionFrom(
         await inject({
           method: 'POST',
           url: '/auth/login',
           payload: { email, password },
+          anonymous: true,
         }),
         'login',
       ),

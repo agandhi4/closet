@@ -10,7 +10,7 @@ import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
  * Deleting an account removes the user's photos from storage, not only the
  * rows the database cascade drops.
  */
-describe('account deletion (AUTH_ENABLED=true)', () => {
+describe('account deletion', () => {
   let t: TestApp;
   const email = 'carol@example.com';
   const bystanderEmail = 'dave@example.com';
@@ -27,7 +27,7 @@ describe('account deletion (AUTH_ENABLED=true)', () => {
     });
 
   beforeAll(async () => {
-    t = await createTestApp({ AUTH_ENABLED: 'true' });
+    t = await createTestApp();
   });
 
   afterAll(() => t?.cleanup());
@@ -104,6 +104,7 @@ describe('account deletion (AUTH_ENABLED=true)', () => {
       url: '/auth/profile',
       headers: { cookie },
     });
-    expect(profile.statusCode).toBe(401);
+    expect(profile.statusCode).toBe(302);
+    expect(profile.headers.location).toBe('/auth/login');
   });
 });
