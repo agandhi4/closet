@@ -228,5 +228,22 @@
   "LOGIN_OG_TITLE": "Sign In — {appName}",
   "LOGIN_OG_DESC": "Sign in to {appName} to manage your wardrobe, build outfits, and plan looks.",
   "REGISTER_OG_TITLE": "Register — {appName}",
-  "REGISTER_OG_DESC": "Create your {appName} account to catalog garments, build outfits, and plan looks."
+  "REGISTER_OG_DESC": "Create your {appName} account to catalog garments, build outfits, and plan looks.",
+  "PUSH_HEADING": "Notifications",
+  "PUSH_CHECKING": "Checking this device…",
+  "PUSH_STATE_ON": "Notifications are on for this device.",
+  "PUSH_STATE_OFF": "Notifications are off on this device.",
+  "PUSH_STATE_BLOCKED": "Notifications are blocked for this site. Allow them in your browser or system settings, then reload this page.",
+  "PUSH_STATE_UNSUPPORTED": "This browser cannot receive notifications.",
+  "PUSH_STATE_INSTALL": "On iPhone and iPad, notifications need the installed app: tap Share, then Add to Home Screen, and enable them from the app.",
+  "PUSH_STATE_ERROR": "Something went wrong. Check your connection and try again.",
+  "PUSH_ENABLE": "Enable notifications on this device",
+  "PUSH_DISABLE": "Turn off on this device",
+  "PUSH_SEND_TEST": "Send a test notification",
+  "PUSH_TEST_TITLE": "{appName} notifications work",
+  "PUSH_TEST_BODY": "This is the test you sent from your profile.",
+  "PUSH_TEST_SENT": "Test sent to {count} of your devices.",
+  "PUSH_TEST_NO_DEVICES": "No device has notifications on. Enable them on this device first.",
+  "PUSH_TEST_FAILED": "The test could not be delivered to {count} of your devices. Try again later.",
+  "PUSH_TEST_REMOVED": "Devices that no longer accept notifications were removed: {count}."
 }

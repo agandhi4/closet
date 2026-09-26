@@ -171,6 +171,15 @@ export async function createApp(): Promise<NestFastifyApplication> {
       iconName: config.getOrThrow<string>('ICON_NAME'),
       timeZone: config.getOrThrow<string>('APP_TIMEZONE'),
       registrationDisabled: config.getOrThrow<boolean>('DISABLE_REGISTRATION'),
+      // The Joi schema requires both keys when PWA_ENABLED; the sender
+      // checks them (and SITE_URL as the https subject) at boot.
+      vapid: config.getOrThrow<boolean>('PWA_ENABLED')
+        ? {
+            subject: config.getOrThrow<string>('SITE_URL'),
+            publicKey: config.getOrThrow<string>('PUBLIC_VAPID_KEY'),
+            privateKey: config.getOrThrow<string>('PRIVATE_VAPID_KEY'),
+          }
+        : undefined,
     },
     logger: new NestLogger('Web'),
     db,

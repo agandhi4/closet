@@ -7,7 +7,6 @@ import * as path from 'path';
 import { SessionGuard } from './auth/session.guard';
 import { DalModule } from './dal/dal.module';
 import { DbModule } from './db/db.module';
-import { NotificationModule } from './notification/notification.module';
 import { FileModule } from './file/file.module';
 import { I18nModule } from 'nestjs-i18n';
 import { OpenGraphModule } from './open-graph/open-graph.module';
@@ -133,11 +132,11 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
           then: Joi.required(),
           otherwise: Joi.optional(),
         }),
-        // Also the VAPID subject (see NotificationService) and the base of
-        // absolute asset URLs in push payloads.
+        // Also the VAPID subject of Web Push (src/web/push/sender.ts), which
+        // web-push requires to be https: when PWA_ENABLED is true.
         SITE_URL: Joi.string().default('http://localhost:3000'),
         // File under public/assets/ used for apple-touch-icon, Open Graph
-        // previews, push notification icons and the share-link watermark.
+        // previews and the share-link watermark.
         ICON_NAME: Joi.string().default('icon.png'),
         // Composite the app icon onto share-link Open Graph images.
         WATERMARK_ENABLED: Joi.boolean().default(false),
@@ -214,7 +213,6 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     DbModule,
     DalModule,
     FileModule,
-    NotificationModule,
     OpenGraphModule,
     WardrobeModule,
     WardrobeShareModule,

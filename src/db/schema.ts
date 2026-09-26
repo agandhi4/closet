@@ -5,7 +5,6 @@ import {
   foreignKey,
   index,
   integer,
-  jsonb,
   pgTable,
   primaryKey,
   serial,
@@ -15,7 +14,6 @@ import {
   unique,
   varchar,
 } from 'drizzle-orm/pg-core';
-import type { PushSubscription } from 'web-push';
 
 /**
  * The database schema, and the only source of migrations: edit it, run
@@ -56,17 +54,32 @@ export const user = pgTable(
   ],
 );
 
+// One row per browser push subscription (Web Push, src/web/push/). The
+// endpoint is the browser's identity across accounts: a browser that signs in
+// as someone else, or renews its keys, keeps its row and changes owner or keys
+// (upsertDevice). A row goes with its user, on unsubscribe, and when the push
+// service answers 404/410 for its endpoint.
 export const userDevice = pgTable(
   'user_device',
   {
     id: serial('id').primaryKey(),
-    userAgent: varchar('user_agent', { length: 255 }).notNull(),
-    // Taken from the subscription as the device's identity.
-    pushEndpoint: varchar('push_endpoint', { length: 255 }).notNull(),
-    webPushSubscription: jsonb(
-      'web_push_subscription',
-    ).$type<PushSubscription>(),
     userId: integer('user_id').notNull(),
+    // The push service's URL for this browser; Firefox's run past 255
+    // characters, hence text.
+    pushEndpoint: text('push_endpoint').notNull(),
+    // The subscription's keys (RFC 8291), base64url: the browser's P-256
+    // public key and the auth secret the payload is encrypted to.
+    keyP256dh: text('key_p256dh').notNull(),
+    keyAuth: text('key_auth').notNull(),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    // When the browser last confirmed the subscription: every signed-in app
+    // start sends it again (public/js/push.js).
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
   },
   (table) => [
     index('user_device_user_id_index').on(table.userId),
