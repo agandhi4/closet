@@ -1,8 +1,12 @@
 # Wardrobe features plan (2026-09-26)
 
-Status: **proposed**, awaiting owner approval. Six features, built in this order because each feeds
-the next: adding garments from a link, wears and washes (with multiples), capsules, the outfit
-gallery, trips, AI guidance (optional).
+Status: **approved 2026-09-26**, every section. The backlog is GitHub issues (one per section, in
+milestones by phase, ordered in the pinned Roadmap issue); this document holds the design and the
+reasons, and each issue links to its section. Build order, each feeding the next: garment
+properties (6), adding garments from a link (0), wears and washes with multiples (1), outfits by
+occasion (8), capsules (2), weather (7), the outfit gallery (3), Today (9), trips (4), weekly auto-plan (12),
+insights (10), wishlist (11), outfit selfies (13), AI guidance (5, optional). The owner wants the app full-featured: features seen in Cladwell, Whering, ALTA and
+others are welcome and are collected under "Candidate features" as research finds them.
 `docs/DESIGN.md` listed wear tracking and packing lists / capsules as out of scope for v0.1; this
 is that next step.
 
@@ -21,7 +25,7 @@ is that next step.
 - **Features before bulk onboarding.** Production holds 1 garment, 0 outfits and 0 calendar entries,
   so no migration has live data to convert. Onboarding stays a candidate for later.
 
-## Principles that hold across all six
+## Principles that hold across every feature
 
 - **Private per owner, like outfits.** Capsules, trips, wears and washes are scoped to the signed-in
   user. Shares never reach them, and another user's id is a 404 (Request security, "Refusals do not
@@ -100,6 +104,9 @@ at the moment they happen.
 - `garment.last_washed_on date` (nullable) and `garment.wash_after_wears smallint` (nullable: null
   means the role's default).
 - `garment.quantity smallint not null default 1` (check `>= 1`): identical copies (see Multiples).
+- `garment.away text` (nullable, check `lent` or `repair`) and `garment.away_note`: out of the
+  closet for now. A manual state, separate from the derived wash state. Unavailable garments are
+  skipped by the generator and flagged on packing lists. Returning one clears it.
 
 **Rules**
 
@@ -196,6 +203,14 @@ both limited to a capsule when one is chosen.
 - Scale: combinations are enumerated lazily from the seed. Even 40 tops, 20 bottoms and 10 shoes
   (8,000) is sampled, never materialized.
 
+**Style this item.** `?with=<garmentId>` generates only outfits that contain that garment
+(reached from the garment page and from the insights' unworn list).
+
+**Say why not.** A card can be dismissed with a reason: too warm, too cold, clashes, not today.
+Too warm and too cold adjust the personal temperature offset (section 7). Clashes stores the
+garment pair in `generator_avoid` (owner, garment a, garment b), which the generator never combines
+again (undo from the garment page).
+
 **Picking.** A card's primary action depends on where the gallery was opened from, carried as
 `?for=`:
 
@@ -252,6 +267,179 @@ through the calendar (section 1).
   never an error page.
 - It is advisory only: AI output never writes anything without the user tapping.
 
+## 6. Garment properties
+
+**Goal:** store a lot about each garment without making the form a chore. The heavy tee versus the
+light tee is the example: two garments with the same category and colour that belong to different
+weather.
+
+**Model: typed, nullable columns on `garment`, never a key/value or JSON bag.** Every property is
+optional, has a fixed value set enforced by a check constraint (as the colours are), and is added by
+a migration, which drizzle-kit makes cheap. The generator, the weather matching and the filters read
+them as plain columns. A JSON bag would let values drift from the code's list with nothing to catch
+it. That is how the free-text colours became a stored XSS.
+
+| Property | Values | Applies to | Drives |
+|---|---|---|---|
+| `type` (subcategory) | a fixed list per category: tops = t-shirt, shirt, polo, blouse, sweater, cardigan, hoodie, sweatshirt, tank, ...; bottoms = jeans, chinos, trousers, shorts, skirt, joggers, ...; outerwear = jacket, coat, parka, trench, blazer, vest, rain jacket, ...; footwear = sneakers, boots, sandals, loafers, dress shoes, ...; accessories = hat, cap, beanie, scarf, belt, ... (upstream issue #130) | all | presets, grouping, AI |
+| `warmth` | 1 very light, 2 light, 3 medium, 4 warm, 5 very warm | tops, bottoms, one-piece, layers, footwear | weather matching |
+| `formality` | 1 lounge, 2 casual, 3 smart casual, 4 dressy | all | occasion matching |
+| `materials` | a set: cotton, linen, wool, merino, cashmere, silk, denim, leather, suede, polyester, nylon, fleece, down, knit, synthetic, other | all | care, warmth hints, AI |
+| `pattern` | solid, stripes, check, print, graphic, floral, other | tops, bottoms, one-piece, layers | generator (at most one loud pattern) |
+| `fit` | slim, regular, relaxed, oversized | tops, bottoms, one-piece, layers | AI, filters |
+| `sleeve` | sleeveless, short, three-quarter, long | tops, one-piece | weather matching |
+| `length` | short, knee, midi, full | bottoms, one-piece | weather matching |
+| `water_resistant` | boolean | layers, footwear, accessories | rain |
+
+No `season` property: seasons follow from warmth, and a "summer" set of garments is a capsule
+(section 2). That is one field fewer to fill.
+
+**Keeping it light.** The rules that decide which fields a garment shows live in one table in code
+(`GARMENT_PROPERTIES`: property, value set, the roles it applies to, the default per type).
+
+- **Pick a type and the rest fills in.** Choosing "t-shirt" presets warmth 2, sleeve short, formality
+  casual and pattern solid, shown as pre-selected chips you can change. A type's presets are
+  suggestions and never overwrite a value you set.
+- **The form asks only what applies.** Sleeve appears for tops, `water_resistant` for layers and
+  footwear. Everything past photo, category, type and colour sits in a collapsed "Details" section
+  of tap chips, never selects or free text.
+- **Machines fill what they can**: link import (section 0) maps JSON-LD `material` and
+  descriptions like "heavyweight", "linen" or "240 gsm", and the optional AI suggests from the
+  name and type. Suggestions arrive pre-selected for review, never saved blind.
+- **Bulk edit:** select mode on the grid (the capsule picker's) sets one property on every selected
+  garment in one post.
+- **A tagging mode:** `/wardrobe/tag` swipes through garments missing warmth or formality, one card
+  at a time with big buttons. Filling in forty garments is a few minutes, not forty form visits.
+- **Nothing is required.** A garment with no properties still works everywhere, and the generator
+  treats unknown warmth as the type's preset.
+
+## 7. Weather
+
+- **Provider: Open-Meteo** (free, no API key or account, 16-day hourly forecast with apparent
+  temperature, precipitation probability, wind and UV, plus a geocoding API and climate data for
+  dates further out). The server fetches from its fixed host, which is an allow-list, not the
+  user-URL path of section 0. The PWA itself still makes no external requests.
+- **Location:**
+  - A **home location** per user, set in the profile by searching a city (Open-Meteo geocoding).
+  - **"Use my location"** in the installed app (Geolocation, which needs the https name), stored
+    per user rounded to about 1 km and used while fresh.
+  - A trip's destination, geocoded, gives that trip its forecast.
+  - Coordinates go from the server to Open-Meteo rounded, and no other identifier is sent.
+- **Cache:** one fetch per rounded location per hour, in memory, and the last good answer is kept
+  for offline pages, shown with its time.
+- **Where it shows:**
+  - Today's summary on the wardrobe and calendar headers ("9 to 17°C, rain after 3 pm").
+  - The next 16 days on the calendar: an icon plus high and low per day.
+  - A trip's forecast for its dates. Past 16 days it shows climate normals labelled "typical".
+- **How it drives suggestions:** each occasion of the day (section 8) has a time window. Its
+  apparent-temperature range sets a target warmth for the outfit (the warmths of its layers
+  combined). A large swing between morning and evening asks for a layer. Rain asks for
+  water-resistant outerwear or footwear, and the card says so. The optional AI gets the same summary.
+- **Personal temperature offset** (Acloset): per user, in degrees, added to the apparent
+  temperature before matching. It is set in the profile and nudged by the gallery's "too warm" and
+  "too cold" (half a degree each, capped at plus or minus 5).
+- **Config:** `WEATHER_ENABLED` (default true). Off means no location is ever sent anywhere and no
+  weather is shown.
+
+## 8. Several outfits a day (occasions)
+
+A vacation day is often three outfits: day, dinner, a night out. Office day, then change for dinner,
+is common at home too.
+
+- **The calendar already allows it**: its unique key is (owner, day, outfit), not (owner, day). What
+  is missing is saying which part of the day each outfit is for.
+- **`outfit_calendar.occasion`**: all day (the default), work, daytime, workout, evening, night out.
+  Fixed, so each can carry defaults: a time window for the weather (work 8 am to 6 pm, evening 6 to
+  11 pm) and a formality hint (work at least smart casual, workout lounge). A day's entries show in
+  occasion order.
+- **UI:** a calendar day stacks its outfits as chips labelled by occasion, with "+ Another outfit"
+  and an occasion picker. The gallery opens with `for=day:YYYY-MM-DD&occasion=evening`, so its
+  suggestions use evening temperatures and the evening formality.
+- **Wears count days, not outfits.** Jeans worn in the day outfit and again at dinner are one wear
+  for washing. The `garment_wear` rows stay one per entry and garment (so unmarking an entry
+  removes exactly its rows), and the counts and wash rules count **distinct days**. Because the
+  counts are derived, this is a query rule, not extra data to keep in step.
+- **Trips:** a trip outfit gets an optional day of the trip and an occasion ("Day 2, dinner"). The
+  list stays standalone (owner decision), but the packing list can then see that the jeans for Day
+  2's daytime and dinner are one wear, and that a 5-day trip with 2 outfits a day needs a different
+  count of tees than 5 outfits. Unassigned outfits still count one wear each.
+
+## 9. Today (the home screen)
+
+`GET /` becomes Today instead of redirecting to the wardrobe (Cladwell's daily outfit).
+
+- The weather for the day at the top (section 7).
+- A row per occasion planned for today, or one "all day" row. Each shows the planned outfit if there
+  is one, otherwise up to 3 generated suggestions (section 3's generator, with that occasion's
+  window and formality), with Refresh and "Wear this".
+- "Wear this" schedules and marks worn in one tap (section 1's path).
+- **Push**, opt-in per device in the profile (this is issue #5's answer):
+  - A morning "today's outfit" at a chosen time: the planned outfit or the first suggestion, and
+    the weather line.
+  - An evening "What did you wear?" when nothing is marked worn today. It opens Today with the
+    day's entries ready to mark.
+  - Sent by a scheduler in `server.ts` beside the nightly timers (`APP_TIMEZONE`), through the
+    existing sender.
+
+## 10. Insights
+
+`/insights`: queries over `garment_wear`, `garment` and prices. Nothing stored.
+
+- % of the closet worn in the last 30, 90 and 365 days.
+- **Unworn in N days**, each with "Style this item" (section 3's `?with=`).
+- Most and least worn. Cost per wear (price ÷ wear days), with the best and worst values.
+- The pairs worn together most often.
+- A colour palette strip, and category and brand breakdowns.
+- It is computed on request; at household size each query is a few milliseconds. A yearly recap
+  is a later addition.
+
+## 11. Wishlist
+
+Things you are thinking of buying, added the same way as garments (a link: section 0) and judged
+against what you own.
+
+- **`garment.archived boolean` becomes `garment.status`**: `wishlist`, `closet`, `archived`. That
+  is three states with defined transitions: bought (wishlist to closet), archive (closet to
+  archived), restore (archived to closet), drop (delete a wishlist item). One `setGarmentStatus` is
+  the only writer, and a pure `garmentStatusTransition` (unit-tested, like the cutout state
+  machine) decides the legal moves.
+- "In the closet" becomes `status = 'closet'`: one predicate (`inCloset`) used by every closet read
+  (the grid, the builder, the generator, capsules, insights). An integration spec proves that a
+  wishlist garment appears in none of them.
+- The migration converts `archived` (true to archived, false to closet) and rebuilds the grid's
+  `(owner_id, archived, id desc)` index on status.
+- **"Goes with my closet"**: a wishlist item's page runs the generator with `?with=` over the
+  closet plus that item. It shows how many outfits it would make and the best few. "No layer goes
+  with this" is an answer too.
+- "Bought it" moves it into the closet, keeping its photo, properties and price, and sets
+  `acquired_on` to today.
+
+## 12. Weekly auto-plan
+
+- **A week template** per user (`week_template`: weekday, occasion; for example Monday to Friday
+  work, Saturday daytime and evening). Set once in the profile.
+- **"Plan my week"** on the calendar fills every template slot of the next 7 days that has no entry,
+  using the forecast for each slot. It never repeats a garment beyond its wash limit across the week
+  (the plan counts its own future wears) and never reuses a whole outfit within the week.
+- **Auto entries are marked** (`outfit_calendar.planned_by`: `user` or `auto`). A daily job
+  compares each future auto entry's forecast with the one it was planned for. When the target warmth
+  or the rain need changed, it re-plans that entry and sends a push ("Thursday turned cold: swapped
+  in the wool coat"). Entries you placed or edited are `user` and never touched.
+- Generated outfits it picks are saved like gallery picks.
+
+## 13. Outfit selfies
+
+- A calendar entry can carry a mirror photo (`outfit_calendar.photo_id`, nullable FK to `file`,
+  set null on delete), through the existing `Photos` pipeline, with no cutout requested.
+- Taking one from Today or the calendar marks the entry worn.
+- The calendar and the outfit page show the looks as you actually wore them. An outfit page gets a
+  "Worn" strip of its selfies.
+- **This breaks the rule that calendar entries own no files** (Gotchas, "The DB cascade deletes rows,
+  never bytes"). Deleting an entry, or a user, must unlink its photo through `Photos` after commit,
+  and `reconcileStorage` must count `outfit_calendar.photo_id` as a reference, or the nightly run
+  would delete every selfie as an orphan. Both are specified and tested with the feature, and the
+  gotcha is updated in CLAUDE.md.
+
 ## Delivery
 
 Each feature is its own GitHub issue (six) and ships alone. The work for each: its schema and migration
@@ -260,10 +448,53 @@ the one-writer rules), unit specs for the pure parts (roles, wash rules, the gen
 phone-width browser check as the installed PWA, and the CLAUDE.md sections (Architecture, Routes)
 updated in the same commit.
 
+## Candidate features (research, 2026-09-26)
+
+Surveyed: Cladwell, Whering, Indyx, Alta, Acloset, Stylebook, Pureple, Save Your Wardrobe, Fits,
+Clueless, Smart Closet, OpenWardrobe, and **Wardrowbe** (github.com/theEvgene/wardrowbe, MIT,
+self-hosted, household support, Open-Meteo, suggestions from a model). Wardrowbe is the closest
+thing to this app; read how it does something before designing that thing here. Its MIT code may
+be adapted with its notice kept (this repo is AGPL).
+
+**Folded into the sections above** (high value, low effort, fits the model):
+
+- **Availability status** (Stylebook): lent out, at the tailor or repair. A manual state beside the
+  derived wash state, never mixed with it. The generator and packing list skip unavailable garments.
+  One nullable `garment.away` column (`lent`, `repair`) plus an optional note: see section 1.
+- **Style this item** (Acloset "featured piece", the "unworn items" to "style it" flow): the
+  gallery takes `?with=<garmentId>` and only generates outfits containing it: see section 3.
+- **Say why not** (Acloset, Wardrowbe ratings): a skipped card can say too warm, too cold, clashes
+  or not today. Too warm and too cold adjust a **personal temperature offset** (section 7). Clashes
+  records the pair to avoid (section 3).
+- **Bulk edit** (Whering): select mode on the grid (the capsule picker's) sets one property on many
+  garments: see section 6.
+
+**Promoted to sections 9-13** (owner, 2026-09-26): Today, Insights, the wishlist, the weekly
+auto-plan and outfit selfies. The summaries below were the proposals; the sections hold the design.
+
+- **9. Today.** The home screen is today (Cladwell): the weather, then up to 3 suggestions per
+  occasion planned today (or one "all day" row), each with refresh and "Wear this". A planned
+  outfit shows first. This gives Web Push its use (issue #5): a morning "today's outfit" push, and
+  an evening "log what you wore?" reminder when nothing is marked (Fits, Wardrowbe). Both are
+  opt-in per device.
+- **10. Insights.** One stats page: % of the closet worn in 30/90/365 days, "unworn in N days" (each
+  links to style this item), most and least worn, cost per wear (price from section 0), pairs
+  most worn together, and a colour palette strip and brand breakdown (Whering, Cladwell,
+  Stylebook). All of it is queries over `garment_wear`. A yearly recap (Whering "Unpacked") comes
+  later.
+
+**Later** (worth doing, not yet): duplicate detection with image embeddings (Wardrowbe); generator rules ("never X with
+Y"); an inspiration library with "recreate this look"; care label and repair log (Save Your
+Wardrobe); measurements and per-brand sizes (Stylebook); order email import.
+
+**Skipped:** avatar try-on (a gimmick at household scale), and social feeds, polls and resale
+marketplaces (they need a user base).
+
 ## Open questions
 
-1. Link import is built first (section 0) because every other feature needs a stocked wardrobe and
-   this is the fastest way to stock it. Say if it should wait until after wears and washes.
+1. Properties (section 6) go first, so link import and the generator have fields to fill and read.
+   Link import follows immediately because it is the fastest way to stock the wardrobe.
 2. The role-default wash thresholds (top 1, bottom 3, layer 10) are a guess. Adjust them to taste.
 3. Should a trip's outfits also go on the calendar? Currently no, per the decision. A "Schedule
    these" button could be added later without changing the model.
+4. The type lists and their presets (section 6) are a first cut, to be tuned on real garments.
