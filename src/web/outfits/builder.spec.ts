@@ -3,7 +3,6 @@ import {
   clampIndex,
   cycleRow,
   newOutfitRows,
-  orderCategories,
   type RowGarment,
   savedOutfitRows,
 } from './builder';
@@ -41,12 +40,6 @@ describe('outfit builder rows', () => {
     expect(clampIndex(undefined, 0)).toBe(0);
     expect(clampIndex(-4, 3)).toBe(0);
     expect(clampIndex(99, 3)).toBe(3);
-  });
-
-  it('orders built-in categories as the enum does, custom ones after, sorted', () => {
-    expect(
-      orderCategories(['hats', 'footwear', 'belts', 'outerwear', 'tops']),
-    ).toEqual(['outerwear', 'tops', 'footwear', 'belts', 'hats']);
   });
 
   it('labels built-in categories in words and keeps custom ones as typed', () => {

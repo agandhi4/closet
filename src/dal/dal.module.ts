@@ -2,6 +2,9 @@ import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { File } from './entity/file.entity';
+import { Garment } from './entity/garment.entity';
+import { User } from './entity/user.entity';
 
 // Query output goes through the app logger so it follows LOG_LEVEL and
 // pino's formatting (colors off: pino-pretty adds its own).
@@ -19,7 +22,8 @@ const ormLogger = new Logger('MikroORM');
         port: configService.getOrThrow<number>('DATABASE_PORT'),
         user: configService.getOrThrow<string>('DATABASE_USER'),
         password: configService.getOrThrow<string>('DATABASE_PASS'),
-        autoLoadEntities: true,
+        // Only the integration specs' t.em() still reads through these.
+        entities: [User, Garment, File],
         driverOptions: {
           connection: {
             ssl: configService.get<boolean>('DATABASE_SSL')

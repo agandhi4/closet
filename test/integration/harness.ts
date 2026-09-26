@@ -13,6 +13,7 @@ import { DB } from '../../src/db/db.module';
 import { user } from '../../src/db/schema';
 import { hashPassword } from '../../src/web/auth/passwords';
 import { insertUser } from '../../src/web/auth/queries';
+import type { Photos } from '../../src/web/files/photos';
 import { createScratchDatabase } from '../support/scratch-database';
 
 /**
@@ -124,6 +125,8 @@ export interface TestApp {
   app: NestFastifyApplication;
   /** Uploads, thumbs and app.log land here; removed by cleanup(). */
   dataPath: string;
+  /** The app's one Photos (what the routes store and serve through). */
+  photos: Photos;
   /** The user registered at boot, whose session t.inject() sends by default. */
   owner: TestUser;
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
@@ -169,9 +172,10 @@ export async function createTestApp(
   // the env above is in place.
   const { createApp } = await import('../../src/app');
   let app: NestFastifyApplication;
+  let photos: Photos;
   try {
     await options.beforeBoot?.(database.env);
-    app = await createApp();
+    ({ app, photos } = await createApp());
     await app.init();
   } catch (error) {
     // A failing boot (typically a migration) must not leak the database.
@@ -253,6 +257,7 @@ export async function createTestApp(
   return {
     app,
     dataPath,
+    photos,
     owner,
     inject,
     db,

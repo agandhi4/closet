@@ -8,12 +8,8 @@ import { renderFragment, renderPage } from '../render';
 import { IsoDateSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import { viewContext } from '../view-context';
-import {
-  cycleRow,
-  newOutfitRows,
-  orderCategories,
-  savedOutfitRows,
-} from './builder';
+import { orderCategories } from '../wardrobe/garment';
+import { cycleRow, newOutfitRows, savedOutfitRows } from './builder';
 import { OutfitFormPage } from './form-page';
 import { OutfitsPage } from './list-page';
 import { OutfitRow } from './outfit-row';

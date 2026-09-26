@@ -8,7 +8,7 @@ import { User } from '../../src/dal/entity/user.entity';
 import { outfit, outfitCalendar, outfitSlot } from '../../src/db/schema';
 import { LOGIN_PATH } from '../../src/auth/session-access';
 import { createGarment, jpegPhoto, pngCutout, uploadPhoto } from './garments';
-import { createTestApp, multipart, TestApp } from './harness';
+import { createTestApp, multipart, TestApp, unescapeHtml } from './harness';
 
 /**
  * The object-level authorization matrix. One owner (the harness's default
@@ -55,7 +55,7 @@ interface Fixture {
 interface Route {
   name: string;
   kind: 'read' | 'write' | 'clone';
-  /** Status the route answers on success (Nest POSTs default to 201). */
+  /** Status the route answers on success. */
   ok: number;
   /** Text naming the owner's row: must appear on success, never on a refusal. */
   secret: (f: Fixture) => string;
@@ -170,8 +170,8 @@ const ROUTES: Route[] = [
   },
   {
     // A VIEW grantee may clone (audit L3): the copy lands in the grantee's
-    // own wardrobe and the owner's data is only read. The garment page hides
-    // the button from them (canClone = canManage); the routes allow it.
+    // own wardrobe and the owner's data is only read. The garment page shows
+    // the button to everyone who can see the garment (tested below).
     name: 'GET /wardrobe/:id/clone',
     kind: 'read',
     ok: 200,
@@ -226,11 +226,11 @@ const ROUTES: Route[] = [
     },
   },
   {
-    // Without ?ownerId the bytes are stored before the ownership check fails;
-    // the snapshot includes DATA_PATH, so it also proves they are removed.
+    // The garment is looked up before the body is read, so a refused upload
+    // stores nothing; the snapshot includes DATA_PATH, which proves it.
     name: 'POST /wardrobe/:id/photo',
     kind: 'write',
-    ok: 201,
+    ok: 200,
     secret: garmentName,
     vias: BOTH,
     request: async (f, q) => {
@@ -260,7 +260,7 @@ const ROUTES: Route[] = [
   {
     name: 'POST /wardrobe/:id/nobg',
     kind: 'write',
-    ok: 201,
+    ok: 200,
     secret: garmentName,
     vias: BOTH,
     request: async (f, q) => {
@@ -291,7 +291,7 @@ const ROUTES: Route[] = [
     // Archive and delete are owner-only, even for a MANAGE grantee.
     name: 'POST /wardrobe/:id/archive',
     kind: 'write',
-    ok: 201,
+    ok: 200,
     secret: garmentName,
     vias: BOTH,
     request: (f, q) => ({
@@ -688,6 +688,33 @@ describe('authorization matrix', () => {
     if (outcome === 'ok') await expectSuccess(route, observed);
     else expectRefused(outcome, observed);
   });
+
+  // The page offers what the routes allow: clone to anyone who can see the
+  // garment, edit to the owner and a MANAGE grantee, archive and delete to
+  // the owner only.
+  it.each([
+    ['owner', { clone: true, edit: true, remove: true }],
+    ['manager', { clone: true, edit: true, remove: false }],
+    ['viewer', { clone: true, edit: false, remove: false }],
+  ] as const)(
+    'the garment page shows %s the actions they may take',
+    async (actor, can) => {
+      const q = `?ownerId=${actors.owner.id}`;
+      const res = await t.inject({
+        method: 'GET',
+        url: `/wardrobe/${shared.garmentId}${q}`,
+        headers: { cookie: actors[actor].cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      const html = unescapeHtml(res.body);
+      const id = shared.garmentId;
+      expect(html.includes(`href="/wardrobe/${id}/clone`)).toBe(can.clone);
+      expect(html.includes(`href="/wardrobe/${id}/edit`)).toBe(can.edit);
+      expect(html.includes('name="photo"')).toBe(can.edit);
+      expect(html.includes(`hx-delete="/wardrobe/${id}`)).toBe(can.remove);
+      expect(html.includes(`/wardrobe/${id}/archive`)).toBe(can.remove);
+    },
+  );
 
   // The outfit form posts garment ids; ids outside the requester's own
   // wardrobe are dropped (the row stays, empty), so no outfit can reference

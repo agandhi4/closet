@@ -3,7 +3,7 @@ import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import type { ViewContext } from '../view-context';
-import { EmptyState, GarmentThumb } from './parts';
+import { EmptyState, GarmentThumb } from '../layout/parts';
 import type { OutfitSummary } from './queries';
 
 // After a successful POST /calendar from a card's dropdown: close the

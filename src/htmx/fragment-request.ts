@@ -1,9 +1,9 @@
 /**
  * Tells a request that wants an HTML fragment apart from one that wants a full
- * page. Shared by the server (WardrobeController) and the service worker
- * (views/assets/src-sw.ts, bundled by esbuild), so both sides agree on which
- * responses are fragments: a cached fragment must never be served as a page
- * and vice versa.
+ * page. Shared by the server (wantsFragment, src/web/render.ts) and the
+ * service worker (views/assets/src-sw.ts, bundled by esbuild), so both sides
+ * agree on which responses are fragments: a cached fragment must never be
+ * served as a page and vice versa.
  *
  * htmx sends `HX-Request: true` on every request it makes, but only some of
  * those can take a fragment:

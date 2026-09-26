@@ -5,9 +5,9 @@ import { file } from '../../src/db/schema';
 import { multipart, TestApp } from './harness';
 
 /**
- * The two requests the garment form issues (see views/wardrobe/form.hbs and
- * public/js): create the row, then attach the photo. Shared by the wardrobe,
- * mask-edit and share specs.
+ * The two requests the garment pages issue (src/web/wardrobe: the form,
+ * then the photo form on the garment page): create the row, then attach the
+ * photo. Shared by the wardrobe, mask-edit and share specs.
  */
 
 export function jpegPhoto(width = 1200, height = 800): Promise<Buffer> {

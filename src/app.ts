@@ -15,9 +15,6 @@ import { AppModule, DEFAULT_TRUSTED_PROXIES } from './app.module';
 import { Logger } from 'nestjs-pino';
 import { ViewContextService } from './view-context/view-context.service';
 import { isStaticPath } from './static-prefixes';
-import { GarmentColor } from './wardrobe/garment-color.enum';
-import { ImageRef, imageUrl } from './web/files/image-url';
-import { isImageVariant } from './web/files/image-variant';
 import { PROJECT_ROOT } from './project-root';
 import { BUILD_INFO } from './build-info';
 import { ConfigService } from '@nestjs/config';
@@ -25,7 +22,11 @@ import { Logger as NestLogger } from '@nestjs/common';
 import type { Db } from './db/client';
 import { DB } from './db/db.module';
 import { webPlugin } from './web/plugin';
-import { Photos } from './web/files/photos';
+import {
+  createPhotos,
+  type Photos,
+  type PhotosConfig,
+} from './web/files/photos';
 import { createSessionResolver } from './web/auth/session';
 import { createSessionTokens } from './web/auth/tokens';
 import { registerRateLimit } from './web/security/rate-limit';
@@ -36,6 +37,29 @@ const VIEWS_DIR = join(PROJECT_ROOT, 'views');
 const nodeModule = (...segments: string[]) =>
   join(PROJECT_ROOT, 'node_modules', ...segments);
 
+/** Where photos live and how share previews are made, from config. */
+export function photosConfig(config: ConfigService): PhotosConfig {
+  return {
+    dataPath: config.getOrThrow<string>('DATA_PATH'),
+    maxHeicBytes: config.getOrThrow<number>('MAX_HEIC_BYTES'),
+    watermarkIconPath: join(
+      PUBLIC_DIR,
+      'assets',
+      config.getOrThrow<string>('ICON_NAME'),
+    ),
+    watermarkEnabled: config.getOrThrow<boolean>('WATERMARK_ENABLED'),
+  };
+}
+
+export interface ClosetApp {
+  app: NestFastifyApplication;
+  /**
+   * The process's one Photos (its thumb single-flight must be shared): the
+   * web layer's, and the nightly reconciliation's in main.ts.
+   */
+  photos: Photos;
+}
+
 /**
  * Builds the fully configured application without binding a port: adapter,
  * per-request session hook, security headers, plugins, static asset roots,
@@ -44,7 +68,7 @@ const nodeModule = (...segments: string[]) =>
  * app.inject(). Reads process.env only where the adapter must exist before
  * ConfigService does.
  */
-export async function createApp(): Promise<NestFastifyApplication> {
+export async function createApp(): Promise<ClosetApp> {
   // Reverse proxies whose X-Forwarded-* headers are believed, so the rate
   // limits, the same-origin check and canonical URLs see the real client and
   // the address it asked for. Behind Caddy this must include Caddy's
@@ -80,6 +104,11 @@ export async function createApp(): Promise<NestFastifyApplication> {
   const config = app.get(ConfigService);
   const db = app.get<Db>(DB);
   const fastify = app.getHttpAdapter().getInstance();
+  const photos = createPhotos(
+    photosConfig(config),
+    db,
+    new NestLogger('Photos'),
+  );
 
   // CSRF: every POST/PUT/PATCH/DELETE, Nest route or web route, must come
   // from this site's own pages. A root hook added before app.init(), so it
@@ -184,10 +213,10 @@ export async function createApp(): Promise<NestFastifyApplication> {
     logger: new NestLogger('Web'),
     db,
     tokens,
-    photos: app.get<Photos>(Photos),
+    photos,
   });
 
-  return app;
+  return { app, photos };
 }
 
 // Every static URL is versioned (`?v=` from BUILD_INFO.assetVersion in
@@ -284,9 +313,6 @@ async function registerViewEngine(app: NestFastifyApplication) {
     viewExt: 'hbs',
     layout: 'layout',
     includeViewExtension: true,
-    defaultContext: {
-      knownColors: JSON.stringify(Object.values(GarmentColor)),
-    },
   });
 
   // hbs walks the directory asynchronously; without waiting, a render in the
@@ -314,86 +340,13 @@ async function registerViewEngine(app: NestFastifyApplication) {
 }
 
 // Registered on the hbs singleton after engine setup. nestjs-i18n adds `t` to
-// the same singleton (viewEngine: 'hbs' in AppModule).
+// the same singleton (viewEngine: 'hbs' in AppModule). The only Handlebars
+// left is the error page and its shell (views/layout.hbs and partials).
 function registerHandlebarsHelpers() {
-  hbs.registerHelper(
-    'filterErrors',
-    function (
-      errors: { property: string; constraints?: Record<string, string> }[],
-      property: string,
-    ) {
-      // Check if errors exists and is an array
-      if (!errors || !Array.isArray(errors)) {
-        return;
-      }
-      return errors
-        .filter((error) => error.property === property)
-        .flatMap((e) => Object.values(e.constraints || {}));
-    },
-  );
-  hbs.registerHelper('json', function (context: unknown) {
-    return JSON.stringify(context);
-  });
-  // Builds an object from named arguments so it can be passed as a positional
-  // parameter, e.g. interpolation args for nestjs-i18n's `t` helper, which
-  // takes (key, args) and ignores the Handlebars hash:
-  //   {{t 'lang.KEY' (hash appName=appName)}}
-  hbs.registerHelper('hash', function (options: HelperOptions) {
-    return options.hash;
-  });
-  hbs.registerHelper(
-    'ifInArray',
-    function (
-      item: string,
-      value: string | string[] | undefined,
-      options: Handlebars.HelperOptions,
-    ) {
-      if (!value) return options.inverse(this);
-      const arr = Array.isArray(value)
-        ? value
-        : value.split(',').map((s) => s.trim());
-      return arr.includes(item) ? options.fn(this) : options.inverse(this);
-    },
-  );
-  hbs.registerHelper('formatColors', function (value: string | undefined) {
-    if (!value) return '';
-    return value
-      .split(',')
-      .map((s) => s.trim())
-      .join(', ');
-  });
   hbs.registerHelper(
     'ifEquals',
     function (arg1: unknown, arg2: unknown, options: HelperOptions) {
       return arg1 == arg2 ? options.fn(this) : options.inverse(this);
     },
   );
-  hbs.registerHelper('formatDate', (date: string | Date | undefined) => {
-    if (!date) return '';
-    const d = date instanceof Date ? date : new Date(date);
-    return d.toISOString().split('T')[0];
-  });
-  hbs.registerHelper('join', function (arr: unknown[], separator: string) {
-    if (!Array.isArray(arr)) return '';
-    return arr.join(separator ?? ', ');
-  });
-  hbs.registerHelper(
-    'ifContains',
-    function (arr: unknown[], value: unknown, options) {
-      if (!Array.isArray(arr)) return options.inverse(this);
-      return arr.includes(value) ? options.fn(this) : options.inverse(this);
-    },
-  );
-  hbs.registerHelper('gt', (a: number, b: number) => a > b);
-  // {{imageUrl photo 'thumb'}} -> /file/thumb/<fileName>?v=<version>
-  // The only place templates may build /file/** image paths.
-  // SafeString: the path is already URL-encoded, and escaping would turn the
-  // `=` in `?v=` into `&#x3D;`, which breaks the URL when the helper is used
-  // inside an inline <script> string (wardrobe/show).
-  hbs.registerHelper('imageUrl', (image: ImageRef, variant: string) => {
-    if (!isImageVariant(variant)) {
-      throw new Error(`imageUrl: unknown variant '${variant}'`);
-    }
-    return new hbs.handlebars.SafeString(imageUrl(image, variant));
-  });
 }

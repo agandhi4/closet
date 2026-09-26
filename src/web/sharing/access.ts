@@ -21,9 +21,8 @@ export interface WardrobeAccess {
 }
 
 /**
- * The single ownership resolver for wardrobe routes. At most one share
- * lookup; none for the requester's own wardrobe. Used by the Nest garment
- * routes through WardrobeShareService until they are ported.
+ * The single ownership resolver for wardrobe routes (src/web/wardrobe). At
+ * most one share lookup; none for the requester's own wardrobe.
  */
 export async function resolveWardrobeAccess(
   db: Db,

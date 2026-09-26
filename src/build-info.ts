@@ -8,8 +8,8 @@ export interface BuildInfo {
   /** Short commit from public/build.json when the build could resolve one. */
   commit?: string;
   /**
-   * Cache key appended as `?v=` to every first-party static URL (layout.hbs,
-   * importmap, show.hbs). Static roots in app.ts are served immutable for a
+   * Cache key appended as `?v=` to every first-party static URL (the
+   * layouts, the importmap, page modules). Static roots in app.ts are served immutable for a
    * year, so this must differ between any two deploys: version plus commit
    * (or build time) from public/build.json, which scripts/write-build-info.ts
    * writes during `npm run build`. Without build.json (start:dev, tests) the

@@ -1,7 +1,12 @@
 import type { Child } from 'hono/jsx';
-import { imageUrl } from '../files/image-url';
+import { type ImageRef, imageUrl } from '../files/image-url';
 import { t } from '../i18n';
-import type { OutfitGarment } from './queries';
+
+/**
+ * Small pieces the garment, outfit and share pages have in common: the
+ * placeholder for a garment without a photo, a garment thumbnail, the back
+ * link and an empty-list state.
+ */
 
 /** The stand-in for a garment without a photo. */
 export function HangerIcon(props: { class: string; strokeWidth: string }) {
@@ -24,7 +29,10 @@ export function HangerIcon(props: { class: string; strokeWidth: string }) {
 }
 
 /** An 80px garment tile: the thumb variant, or the placeholder. */
-export function GarmentThumb(props: { garment: OutfitGarment; class: string }) {
+export function GarmentThumb(props: {
+  garment: { name: string | null; photo: ImageRef | null };
+  class: string;
+}) {
   const { garment } = props;
   return garment.photo ? (
     <img

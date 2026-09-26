@@ -1,6 +1,5 @@
 import type { ImageRef } from '../files/image-url';
-import { GarmentCategory } from '../../wardrobe/garment-category.enum';
-import { t, type StringKey } from '../i18n';
+import { categoryLabel, orderCategories } from '../wardrobe/garment';
 
 /**
  * The outfit builder's rows (GET /outfits/new, the edit form, and the
@@ -54,39 +53,6 @@ export interface SavedSlot {
   /** How many of those are newer (higher id) than the slot's garment. */
   newer: number;
   garment: (RowGarment & { category: string }) | null;
-}
-
-const CATEGORY_LABELS: Record<GarmentCategory, StringKey> = {
-  [GarmentCategory.ACCESSORIES]: 'CATEGORY_ACCESSORIES',
-  [GarmentCategory.BAGS]: 'CATEGORY_BAGS',
-  [GarmentCategory.OUTERWEAR]: 'CATEGORY_OUTERWEAR',
-  [GarmentCategory.DRESSES]: 'CATEGORY_DRESSES',
-  [GarmentCategory.TOPS]: 'CATEGORY_TOPS',
-  [GarmentCategory.BOTTOMS]: 'CATEGORY_BOTTOMS',
-  [GarmentCategory.FOOTWEAR]: 'CATEGORY_FOOTWEAR',
-  [GarmentCategory.OTHER]: 'CATEGORY_OTHER',
-};
-
-const ENUM_ORDER: string[] = Object.values(GarmentCategory);
-
-function isKnownCategory(value: string): value is GarmentCategory {
-  return ENUM_ORDER.includes(value);
-}
-
-/** The built-in categories' translated names; a custom category is its own label. */
-export function categoryLabel(category: string): string {
-  const normalized = category.toLowerCase();
-  return isKnownCategory(normalized)
-    ? t(CATEGORY_LABELS[normalized])
-    : category;
-}
-
-/** Built-in categories in enum order, then custom ones sorted. */
-export function orderCategories(categories: string[]): string[] {
-  return [
-    ...ENUM_ORDER.filter((category) => categories.includes(category)),
-    ...categories.filter((category) => !isKnownCategory(category)).sort(),
-  ];
 }
 
 /**

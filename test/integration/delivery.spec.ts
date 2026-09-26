@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createGarment } from './garments';
-import { createTestApp, PWA_ENV, TestApp } from './harness';
+import { createTestApp, PWA_ENV, TestApp, unescapeHtml } from './harness';
 
 /**
  * How the app shell reaches the installed PWA: cache headers on static roots,
@@ -104,8 +104,8 @@ describe('delivery (PWA_ENABLED=true)', () => {
       const metas: string[] =
         html.match(/<meta\s+name="htmx-config"[^>]*>/g) ?? [];
       expect(metas).toHaveLength(1);
-      const content = /content='([^']+)'/.exec(metas[0])![1];
-      expect(JSON.parse(content)).toEqual({
+      const content = /content="([^"]+)"/.exec(metas[0])![1];
+      expect(JSON.parse(unescapeHtml(content))).toEqual({
         globalViewTransitions: true,
         disableInheritance: true,
       });

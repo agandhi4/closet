@@ -1,4 +1,4 @@
-import { EntityManager } from '@mikro-orm/core';
+import { sql } from 'drizzle-orm';
 import { readdir } from 'node:fs/promises';
 import {
   afterAll,
@@ -58,19 +58,27 @@ describe('garment writes', () => {
     const filesBefore = await storedFiles();
     const rowsBefore = await photoRowCount(t);
 
-    // The transactional fork inherits EntityManager.prototype.flush; failing
-    // it once fails the commit that would have inserted the File row.
-    vi.spyOn(EntityManager.prototype, 'flush').mockRejectedValueOnce(
-      new Error('simulated flush failure'),
-    );
-
+    // The route's transaction does all its work (the File row inserted, the
+    // garment pointed at it) and then fails at COMMIT: a deferred constraint
+    // trigger on the garment runs only then.
+    await t.db.execute(sql`
+      create function fail_commit() returns trigger language plpgsql as $$
+      begin raise exception 'simulated commit failure'; end $$`);
+    await t.db.execute(sql`
+      create constraint trigger fail_commit after update on garment
+      deferrable initially deferred for each row execute function fail_commit()`);
     const body = await photoUpload();
-    const res = await t.inject({
-      method: 'POST',
-      url: `/wardrobe/${garmentId}/photo`,
-      payload: body.payload,
-      headers: body.headers,
-    });
+    const res = await t
+      .inject({
+        method: 'POST',
+        url: `/wardrobe/${garmentId}/photo`,
+        payload: body.payload,
+        headers: body.headers,
+      })
+      .finally(async () => {
+        await t.db.execute(sql`drop trigger fail_commit on garment`);
+        await t.db.execute(sql`drop function fail_commit()`);
+      });
     expect(res.statusCode).toBe(500);
 
     expect(await photoRowCount(t)).toBe(rowsBefore);
