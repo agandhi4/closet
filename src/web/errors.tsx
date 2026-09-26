@@ -7,6 +7,7 @@ import { Layout } from './layout/layout';
 import { Navbar } from './layout/navbar';
 import { loggableUrl } from './loggable-url';
 import type { WebLogger } from './logger';
+import { isStaticPath } from '../static-prefixes';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
 
@@ -97,10 +98,12 @@ export function createErrorHandler(logger: WebLogger) {
       return;
     }
     // No page context: a static path (the session hook skips those; their
-    // routes, /healthz and /manifest.json, answer data), or a failure before
-    // the root preValidation hook ran, such as an unparsable body. Data, then.
-    // ErrorViewFilter renders a page without app name or session there.
-    if (!reply.locals) {
+    // routes, /file/**, /healthz and /manifest.json, answer data), or a
+    // failure before the root preValidation hook ran, such as an unparsable
+    // body. Data, then. The path is checked, not only `reply.locals`:
+    // nestjs-i18n's root preHandler sets it to `{}` on every routed request,
+    // static ones included, which rendered image 404s as empty-shell pages.
+    if (isStaticPath(request.url) || !reply.locals) {
       return reply.status(status).send({ statusCode: status, message });
     }
     return renderPage(
