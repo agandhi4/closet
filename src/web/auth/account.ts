@@ -6,6 +6,7 @@ import { deleteUserAndFileRows } from './queries';
 /**
  * Deletes a user: their rows in one transaction (the cascade takes their
  * garments, outfits, calendar entries and shares), then their photos'
+ * (pending link imports' included)
  * bytes, which no transaction holds (CLAUDE.md Gotchas, "The DB cascade
  * deletes rows, never bytes"). POST /auth/delete-account and the seed's
  * `--remove` (src/seed/seed.ts) come through here. Returns how many photos

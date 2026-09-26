@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
-import { file, user } from '../../db/schema';
+import { file, pendingPhoto, user } from '../../db/schema';
 
 /**
  * Account rows. Emails are stored as normalizeEmail writes them (trimmed,
@@ -91,8 +91,9 @@ export async function updateEmail(
 }
 
 /**
- * Deletes the user and their File rows in one transaction and returns the
- * stored names, which the caller unlinks after commit: the database cascade
+ * Deletes the user, their File rows and their pending link photos' rows in
+ * one transaction and returns the stored names, which the caller unlinks
+ * after commit: the database cascade
  * drops rows (garments, outfits, calendar entries, shares), never the photo
  * bytes (CLAUDE.md Gotchas).
  */
@@ -105,8 +106,14 @@ export async function deleteUserAndFileRows(
       .delete(file)
       .where(eq(file.createdById, id))
       .returning({ fileName: file.fileName });
+    // Link imports never saved: their bytes have no `file` row, and the
+    // cascade would drop the rows that explain them to reconciliation.
+    const pending = await tx
+      .delete(pendingPhoto)
+      .where(eq(pendingPhoto.userId, id))
+      .returning({ fileName: pendingPhoto.fileName });
     await tx.delete(user).where(eq(user.id, id));
-    return files.map((row) => row.fileName);
+    return [...files, ...pending].map((row) => row.fileName);
   });
 }
 

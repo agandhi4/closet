@@ -32,15 +32,9 @@ import {
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
-import {
-  categoryLabel,
-  categorySuggestions,
-  normalizeCategory,
-  normalizeSize,
-  splitColors,
-} from './garment';
-import { type GarmentFormMode, GarmentFormPage } from './garment-form';
+import { normalizeCategory, normalizeSize, splitColors } from './garment';
 import { GarmentPage, GarmentPhotoView } from './garment-page';
+import { keptLinkPhoto } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
 import {
   bulkSetProperty,
@@ -56,11 +50,13 @@ import {
   updateGarmentFields,
   updateGarmentProperties,
 } from './queries';
+import { type GarmentFormRequest, renderGarmentForm } from './render-form';
 import { TagCard, type TagCardModel, TagPage } from './tag-page';
 import { garmentUrl, wardrobeUrl } from './urls';
 import {
-  BLANK_PROPERTIES,
+  BLANK_GARMENT_VALUES,
   BulkBody,
+  formValues,
   GarmentBody,
   type GarmentField,
   type GarmentFormValues,
@@ -90,6 +86,7 @@ import {
 import {
   cloneGarment,
   createGarment,
+  createGarmentWithLinkPhoto,
   removeGarment,
   replacePhoto,
   type WardrobeDeps,
@@ -211,7 +208,8 @@ function storedValues(garment: GarmentDetail): GarmentFormValues {
  * /wardrobe: the grid (with its fragment and its "load more" pages), the
  * garment page, the new/edit/clone forms and their posts, the photo upload,
  * the cutout's polling, retry and mask edit, archive and delete. Every route takes `?ownerId=` for a
- * shared wardrobe (see resolve above).
+ * shared wardrobe (resolve above). Adding from a link has its
+ * own plugin (link-import/routes.tsx) that ends on this form.
  */
 export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -251,50 +249,12 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   /** The form again, with the posted values and what is wrong with them. */
   async function refuseForm(
     reply: FastifyReply,
-    mode: GarmentFormMode,
-    suggestionsFrom: number,
-    viewOwner: number | undefined,
-    values: GarmentFormValues,
-    errors: FieldErrors<GarmentField>,
+    form: GarmentFormRequest & { errors: FieldErrors<GarmentField> },
   ): Promise<FastifyReply> {
     logger.warn(
-      `Garment form refused (${mode.kind}): ${Object.keys(errors).join(', ')}`,
+      `Garment form refused (${form.mode.kind}): ${Object.keys(form.errors).join(', ')}`,
     );
-    return renderForm(reply, mode, suggestionsFrom, viewOwner, values, {
-      errors,
-      status: 400,
-    });
-  }
-
-  async function renderForm(
-    reply: FastifyReply,
-    mode: GarmentFormMode,
-    suggestionsFrom: number,
-    viewOwner: number | undefined,
-    values: GarmentFormValues,
-    refusal: { errors: FieldErrors<GarmentField>; status: number } = {
-      errors: {},
-      status: 200,
-    },
-  ): Promise<FastifyReply> {
-    const { categories } = await filterOptions(db, suggestionsFrom);
-    return renderPage(
-      reply,
-      <GarmentFormPage
-        ctx={viewContext(reply)}
-        model={{
-          mode,
-          values,
-          viewOwner,
-          errors: refusal.errors,
-          categories: categorySuggestions(categories).map((value) => ({
-            value,
-            label: categoryLabel(value),
-          })),
-        }}
-      />,
-      { status: refusal.status },
-    );
+    return renderGarmentForm(reply, db, form, 400);
   }
 
   // Filtering and searching are navigation state: malformed values fall
@@ -412,18 +372,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'manage',
       );
-      return renderForm(reply, { kind: 'new' }, access.ownerId, viewOwner, {
-        name: '',
-        category: '',
-        brand: '',
-        colors: [],
-        size: '',
-        washingDetails: '',
-        dateAquired: '',
-        notes: '',
-        sourceUrl: '',
-        price: '',
-        properties: BLANK_PROPERTIES,
+      return renderGarmentForm(reply, db, {
+        mode: { kind: 'new' },
+        suggestionsFrom: access.ownerId,
+        viewOwner,
+        values: BLANK_GARMENT_VALUES,
       });
     },
   );
@@ -447,6 +400,9 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
+  // A new garment. A form prefilled from a link also posts `linkPhoto`, the
+  // photo fetched with it (stored, no row yet), which is claimed here with
+  // the garment (createGarmentWithLinkPhoto); a refused form keeps it.
   app.post(
     '/wardrobe',
     { schema: { querystring: OwnerQuery, body: GarmentBody } },
@@ -457,18 +413,38 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'manage',
       );
+      const { linkPhoto } = request.body;
+      const again = {
+        mode: { kind: 'new' },
+        suggestionsFrom: access.ownerId,
+        viewOwner,
+        link: linkPhoto ? keptLinkPhoto(linkPhoto) : undefined,
+      } as const;
       const form = readGarmentForm(request.body);
       if (!form.ok) {
-        return refuseForm(
-          reply,
-          { kind: 'new' },
-          access.ownerId,
-          viewOwner,
-          form.values,
-          form.errors,
-        );
+        return refuseForm(reply, {
+          ...again,
+          values: form.values,
+          errors: form.errors,
+        });
       }
-      const id = await createGarment(deps, access.ownerId, form.fields);
+      const id = linkPhoto
+        ? await createGarmentWithLinkPhoto(
+            deps,
+            access.ownerId,
+            sessionUserId(request),
+            form.fields,
+            linkPhoto,
+          )
+        : await createGarment(deps, access.ownerId, form.fields);
+      if (id === undefined) {
+        return refuseForm(reply, {
+          ...again,
+          link: keptLinkPhoto(undefined),
+          values: formValues(request.body),
+          errors: { linkPhoto: [t('linkImport.PHOTO_GONE')] },
+        });
+      }
       logger.info(
         `Garment ${id} created by user ${sessionUserId(request)} in wardrobe ${access.ownerId}`,
       );
@@ -682,13 +658,12 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.params.id,
         access.ownerId,
       );
-      return renderForm(
-        reply,
-        { kind: 'edit', garmentId: garment.id },
-        access.ownerId,
+      return renderGarmentForm(reply, db, {
+        mode: { kind: 'edit', garmentId: garment.id },
+        suggestionsFrom: access.ownerId,
         viewOwner,
-        storedValues(garment),
-      );
+        values: storedValues(garment),
+      });
     },
   );
 
@@ -714,14 +689,13 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       await requireGarment(options, id, access.ownerId);
       const form = readGarmentForm(request.body);
       if (!form.ok) {
-        return refuseForm(
-          reply,
-          { kind: 'edit', garmentId: id },
-          access.ownerId,
+        return refuseForm(reply, {
+          mode: { kind: 'edit', garmentId: id },
+          suggestionsFrom: access.ownerId,
           viewOwner,
-          form.values,
-          form.errors,
-        );
+          values: form.values,
+          errors: form.errors,
+        });
       }
       if (!(await updateGarmentFields(db, id, access.ownerId, form.fields))) {
         throw notFound();
@@ -749,16 +723,15 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         access.ownerId,
       );
       const values = storedValues(source);
-      return renderForm(
-        reply,
-        { kind: 'clone', garmentId: source.id },
-        sessionUserId(request),
+      return renderGarmentForm(reply, db, {
+        mode: { kind: 'clone', garmentId: source.id },
+        suggestionsFrom: sessionUserId(request),
         viewOwner,
-        {
+        values: {
           ...values,
           name: source.name ? t('CLONE_NAME', { name: source.name }) : '',
         },
-      );
+      });
     },
   );
 
@@ -786,14 +759,13 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const form = readGarmentForm(request.body);
       if (!form.ok) {
-        return refuseForm(
-          reply,
-          { kind: 'clone', garmentId: source.id },
-          userId,
+        return refuseForm(reply, {
+          mode: { kind: 'clone', garmentId: source.id },
+          suggestionsFrom: userId,
           viewOwner,
-          form.values,
-          form.errors,
-        );
+          values: form.values,
+          errors: form.errors,
+        });
       }
       const id = await cloneGarment(deps, source, userId, form.fields);
       logger.info(`Garment ${id} cloned from ${source.id} by user ${userId}`);

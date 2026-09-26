@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client, type QueryResult } from 'pg';
 import { expect, vi } from 'vitest';
-import { createApp } from '../../src/app';
+import { type AppOptions, createApp } from '../../src/app';
 import { loadConfig } from '../../src/config';
 import type { CutoutQueue } from '../../src/cutout/queue';
 import type { Db } from '../../src/db/client';
@@ -174,6 +174,12 @@ export interface TestAppOptions {
    * a worker thread), instead of into t.logs.
    */
   appLog?: boolean;
+  /**
+   * The outbound fetcher's test-only options (AppOptions.outboundFetch): a
+   * scripted resolver and a loopback alias standing in for the internet
+   * (test/integration/link-sites.ts, which serves it).
+   */
+  outboundFetch?: AppOptions['outboundFetch'];
 }
 
 export async function createTestApp(
@@ -197,7 +203,9 @@ export async function createTestApp(
   let cutouts: CutoutQueue;
   try {
     await options.beforeBoot?.(database.env);
-    ({ app, db, photos, cutouts } = await createApp(config, logger));
+    ({ app, db, photos, cutouts } = await createApp(config, logger, {
+      outboundFetch: options.outboundFetch,
+    }));
     await app.ready();
   } catch (error) {
     // A failing boot (typically a migration) must not leak the database.

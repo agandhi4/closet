@@ -1,3 +1,5 @@
+import { LINK_IMPORT_PATH } from '../wardrobe/urls';
+
 /**
  * The web app manifest, served at GET /manifest.json (routes.tsx). Built
  * from config so the installed PWA's name and icon follow APP_NAME and
@@ -46,6 +48,15 @@ export function webManifest(config: {
         url: '/wardrobe/new',
       },
     ],
+    // Android's share sheet: "Share" on a product page in any app opens the
+    // link import with the page's link (in `url`, or inside `text` after
+    // the title, depending on the app). GET, so the link page fetches
+    // nothing until the person taps Fetch. iOS has no share targets.
+    share_target: {
+      action: LINK_IMPORT_PATH,
+      method: 'GET',
+      params: { title: 'title', text: 'text', url: 'url' },
+    },
     description: 'Wardrobe organizer: garments, outfits, and a calendar.',
     screenshots: [
       {

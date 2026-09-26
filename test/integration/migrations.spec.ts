@@ -49,6 +49,8 @@ describe('migrations', () => {
         'outfit_calendar_owner_id_day_outfit_id_unique',
         'outfit_calendar_outfit_id_index',
         'user_device_user_id_index',
+        // Link imports' per-user cap (oldest first); also the user_id key's.
+        'pending_photo_user_id_created_at_index',
         'wardrobe_share_grantor_id_index',
         'wardrobe_share_grantee_id_index',
         'wardrobe_share_invite_token_unique',

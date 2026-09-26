@@ -10,10 +10,12 @@ import type { Photos } from './files/photos';
 import type { Logger } from '../logger';
 import { outfitRoutes } from './outfits/routes';
 import { pushRoutes } from './push/routes';
+import type { OutboundFetcher } from './security/outbound-fetch';
 import { createPushSender, type VapidConfig } from './push/sender';
 import { shareRoutes } from './share/routes';
 import { shellRoutes } from './shell/routes';
 import { sharingRoutes } from './sharing/routes';
+import { linkImportRoutes } from './wardrobe/link-import/routes';
 import { wardrobeRoutes } from './wardrobe/routes';
 
 /** Config the routes read, resolved once by createApp(). */
@@ -41,6 +43,12 @@ export interface WebOptions {
   photos: Photos;
   /** The background-removal queue, woken when a photo is queued. */
   cutouts: { wake(): void };
+  /**
+   * The process's one outbound fetcher (src/web/security/outbound-fetch.ts),
+   * built by createApp(): the only way a route fetches a URL a user
+   * supplied (the link import).
+   */
+  fetcher: OutboundFetcher;
 }
 
 /**
@@ -71,6 +79,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
 
   await app.register(shellRoutes, options);
   await app.register(wardrobeRoutes, options);
+  await app.register(linkImportRoutes, options);
   await app.register(capsuleRoutes, options);
   await app.register(calendarRoutes, options);
   await app.register(outfitRoutes, options);

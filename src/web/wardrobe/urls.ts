@@ -5,6 +5,11 @@
  * owner's wardrobe.
  */
 
+/** Adding a garment from a link (link-import/routes.tsx); the manifest's share target. */
+export const LINK_IMPORT_PATH = '/wardrobe/new/from-link';
+/** Picking another of the page's photos on the prefilled form. */
+export const LINK_PHOTO_PATH = `${LINK_IMPORT_PATH}/photo`;
+
 /** `path` with the query `params`, empty values left out. */
 function withQuery(
   path: string,

@@ -19,6 +19,7 @@ import {
   unescapeHtml,
   userIdOf,
 } from './harness';
+import { jpeg, type LinkSites, startLinkSites } from './link-sites';
 
 /**
  * The object-level authorization matrix. One owner (the harness's default
@@ -98,6 +99,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 let photo: Buffer;
 let cutout: Buffer;
+/** The link import's "internet": a shop serving /photo.jpg. */
+let sites: LinkSites;
 
 const ROUTES: Route[] = [
   // Wardrobe-level routes: the only id they take is ?ownerId.
@@ -140,6 +143,59 @@ const ROUTES: Route[] = [
       method: 'POST',
       url: `/wardrobe${q}`,
       payload: { name: 'Planted', category: 'shirt' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'ok',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
+  // Adding from a link (link-import/routes.tsx) is a write to the addressed
+  // wardrobe. The two posts fetch a photo from the local shop and store it
+  // (bytes only, no row), which is the change a success makes.
+  {
+    name: 'GET /wardrobe/new/from-link',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    vias: ['ownerId'],
+    request: (_, q) => ({ method: 'GET', url: `/wardrobe/new/from-link${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'ok',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/new/from-link',
+    kind: 'write',
+    ok: 200,
+    secret: garmentName,
+    vias: ['ownerId'],
+    request: (_, q) => ({
+      method: 'POST',
+      url: `/wardrobe/new/from-link${q}`,
+      payload: { url: sites.url('/photo.jpg') },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'ok',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/new/from-link/photo',
+    kind: 'write',
+    ok: 200,
+    secret: garmentName,
+    vias: ['ownerId'],
+    request: (_, q) => ({
+      method: 'POST',
+      url: `/wardrobe/new/from-link/photo${q}`,
+      payload: { url: sites.url('/photo.jpg') },
     }),
     expect: {
       owner: 'ok',
@@ -923,6 +979,7 @@ describe('authorization matrix', () => {
       'capsule',
       'capsule_garment',
       'file',
+      'pending_photo',
       'outfit',
       'outfit_slot',
       'outfit_calendar',
@@ -989,11 +1046,13 @@ describe('authorization matrix', () => {
   };
 
   beforeAll(async () => {
-    t = await createTestApp();
+    sites = await startLinkSites();
+    t = await createTestApp({}, { outboundFetch: sites.outboundFetch });
     [photo, cutout] = await Promise.all([
       jpegPhoto(320, 240),
       pngCutout(320, 240),
     ]);
+    sites.serve('/photo.jpg', jpeg(photo));
     actors.owner = t.owner;
     actors.manager = await signUp('manager@example.com');
     actors.viewer = await signUp('viewer@example.com');
@@ -1004,7 +1063,10 @@ describe('authorization matrix', () => {
     shared = await createFixture();
   });
 
-  afterAll(() => t?.cleanup());
+  afterAll(async () => {
+    await t?.cleanup();
+    await sites?.close();
+  });
 
   it.each(CASES)('$title', async ({ route, actor, via, outcome }) => {
     const mutates = outcome === 'ok' && route.kind === 'write';

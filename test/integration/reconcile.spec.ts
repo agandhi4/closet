@@ -114,6 +114,9 @@ describe('storage reconciliation', () => {
       orphanedObjectsDeleted: 1,
       orphanedRowsDeleted: 1,
       missingOriginals: 1,
+      // Link imports have their own pass (link-import.spec.ts).
+      pendingPhotosDeleted: 0,
+      pendingRowsWithoutFiles: 0,
     };
 
     const dryRun = await reconcile({ dryRun: true });

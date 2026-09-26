@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { InitialCutoutColumns } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file } from '../../db/schema';
@@ -30,6 +30,34 @@ export async function insertPhotoRow(
     .values(row)
     .returning({ id: file.id });
   return inserted.id;
+}
+
+/**
+ * Serializes every transaction that decides the fate of a stored name that
+ * may have no row yet (a link import's pending photo: claimed by a garment
+ * save, or discarded when another photo is picked). A row cannot be locked
+ * before it exists, so the name itself is: a transaction-scoped advisory
+ * lock, released at commit or rollback.
+ */
+export async function lockPhotoName(
+  tx: Queryable,
+  fileName: string,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`closet:photo:${fileName}`}))`,
+  );
+}
+
+export async function photoRowExists(
+  q: Queryable,
+  fileName: string,
+): Promise<boolean> {
+  const [row] = await q
+    .select({ id: file.id })
+    .from(file)
+    .where(eq(file.fileName, fileName))
+    .limit(1);
+  return row !== undefined;
 }
 
 /** The stored name behind a share link's image (the watermark route). */

@@ -141,6 +141,10 @@ export const GarmentBody = Type.Object({
   // same reason as props: forms cached before them (props=1 included) post
   // neither, and must not clear them.
   product: Type.Optional(Type.Literal('1')),
+  // A new garment's form prefilled from a link: the stored name of the
+  // photo fetched with it, claimed on save (POST /wardrobe only; judged by
+  // parseStoredName there, the one definition of a stored name).
+  linkPhoto: Type.Optional(Type.String({ maxLength: 64 })),
 });
 export type GarmentBody = Static<typeof GarmentBody>;
 
@@ -192,13 +196,29 @@ export const BLANK_PROPERTIES: PropertyFormValues = {
   preset: { category: '', type: '', weight: '' },
 };
 
+/** A new garment's form: every field empty. */
+export const BLANK_GARMENT_VALUES: GarmentFormValues = {
+  name: '',
+  category: '',
+  brand: '',
+  colors: [],
+  size: '',
+  washingDetails: '',
+  dateAquired: '',
+  notes: '',
+  sourceUrl: '',
+  price: '',
+  properties: BLANK_PROPERTIES,
+};
+
 export type GarmentField =
   | 'category'
   | 'color'
   | 'dateAquired'
   | 'fabricWeight'
   | 'sourceUrl'
-  | 'price';
+  | 'price'
+  | 'linkPhoto';
 
 /** The properties as stored (null for not set, or not applying to the role). */
 export interface GarmentPropertyFields {

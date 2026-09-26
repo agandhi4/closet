@@ -2,6 +2,12 @@ import { and, eq, isNotNull, notExists } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { file, garment } from '../db/schema';
 import { parseStoredName } from '../web/files/image-variant';
+import {
+  deletePendingPhotoRow,
+  pendingPhotoRows,
+  takeAgedPendingPhotos,
+} from '../web/files/pending-photos';
+import { photoRowExists } from '../web/files/queries';
 import type { Photos } from '../web/files/photos';
 import type { Logger } from '../logger';
 
@@ -42,6 +48,13 @@ export interface ReconciliationReport {
   orphanedRowsDeleted: number;
   /** `file` rows whose original is gone from storage; reported, never deleted. */
   missingOriginals: number;
+  /**
+   * Link imports never saved (a `pending_photo` row older than the cutoff),
+   * deleted with their photo sets. Explained orphans: outside the guard.
+   */
+  pendingPhotosDeleted: number;
+  /** `pending_photo` rows whose photo set is gone from storage, deleted. */
+  pendingRowsWithoutFiles: number;
   /** Why the guard refused; set only when it did, and then nothing was deleted. */
   refused?: string;
   durationMs: number;
@@ -74,6 +87,11 @@ interface FileRow {
  * unreferenced row is an orphan by definition. Everything is planned first
  * and checked by the guard; only then are the orphans deleted.
  *
+ * Link imports' pending photos (`pending_photo`, bytes without a `file`
+ * row) are not unexplained orphans: day-old ones go with their rows in a
+ * pass of their own before the plan, outside the guard, and younger ones
+ * are left out of the plan. Pending rows whose bytes are gone are deleted.
+ *
  * Runs nightly from the server (nightly.ts, server.ts) unless
  * MAINTENANCE_ENABLED is false, and on demand through
  * `npm run maintenance:reconcile` (reconcile.cli.ts).
@@ -93,12 +111,22 @@ export async function reconcileStorage(
     `Storage reconciliation started${dryRun ? ' (dry run)' : ''}, cutoff ${cutoff.toISOString()}`,
   );
 
-  const plan = await planReconciliation(deps, cutoff);
+  // Link imports first: their orphans are explained, so they are removed
+  // outside the guard (an evening of abandoned imports must not stop the
+  // clean-up), and the plan below never counts a pending photo.
+  const pendingRows = await pendingPhotoRows(deps.db);
+  const agedPending = await removeAgedPendingPhotos(
+    deps,
+    pendingRows,
+    cutoff,
+    dryRun,
+  );
+  const plan = await planReconciliation(deps, cutoff, pendingRows, agedPending);
   const refused = force
     ? undefined
     : guardRefusal({
         rows: plan.rowCount,
-        storedPhotoSets: plan.photoSets.size,
+        storedPhotoSets: plan.photoSets.size - plan.pendingSets,
         deletions: plan.orphanedSets.length + plan.orphanedRows.length,
       });
   if (refused) {
@@ -109,6 +137,11 @@ export async function reconcileStorage(
   const deleted = refused
     ? { rows: 0, objects: 0 }
     : await removeOrphans(deps, plan, dryRun);
+  const pendingRowsWithoutFiles = await removePendingRowsWithoutFiles(
+    deps,
+    plan.pendingRowsWithoutFiles,
+    dryRun,
+  );
 
   const report: ReconciliationReport = {
     dryRun,
@@ -117,6 +150,8 @@ export async function reconcileStorage(
     orphanedObjectsDeleted: deleted.objects,
     orphanedRowsDeleted: deleted.rows,
     missingOriginals: plan.missingOriginals,
+    pendingPhotosDeleted: agedPending.size,
+    pendingRowsWithoutFiles,
     ...(refused ? { refused } : {}),
     durationMs: Date.now() - startedAt,
   };
@@ -130,9 +165,54 @@ function summary(report: ReconciliationReport): string {
     `Storage reconciliation ${report.dryRun ? 'dry run ' : ''}done in ${report.durationMs}ms: ` +
     `${report.storedObjects} objects scanned (${report.storedPhotoSets} photo sets), ` +
     `${report.orphanedObjectsDeleted} orphaned photo sets and ${report.orphanedRowsDeleted} orphaned rows ` +
-    `${would}deleted, ${report.missingOriginals} rows missing their original` +
+    `${would}deleted, ${report.missingOriginals} rows missing their original, ` +
+    `${report.pendingPhotosDeleted} abandoned link imports and ${report.pendingRowsWithoutFiles} ` +
+    `pending rows without files ${would}deleted` +
     (report.refused ? ' (refused by the guard)' : '')
   );
+}
+
+/**
+ * Link imports never saved: pending photos older than the cutoff, their
+ * rows and their photo sets (a set that has a `file` row after all keeps
+ * its bytes). Each row is deleted in one statement, so a save claiming the
+ * photo at the same moment either wins (no row is returned here) or finds
+ * it gone. Returns the names; a dry run deletes nothing.
+ */
+async function removeAgedPendingPhotos(
+  { db, photos, logger }: ReconcileDeps,
+  snapshot: readonly { fileName: string; createdAt: Date }[],
+  cutoff: Date,
+  dryRun: boolean,
+): Promise<Set<string>> {
+  if (dryRun) {
+    return new Set(
+      snapshot
+        .filter((row) => row.createdAt < cutoff)
+        .map((row) => row.fileName),
+    );
+  }
+  const names = await takeAgedPendingPhotos(db, cutoff);
+  for (const name of names) {
+    if (await photoRowExists(db, name)) continue;
+    logger.debug(`Deleting abandoned link import ${name}`);
+    await photos.deleteVariants(name);
+  }
+  return new Set(names);
+}
+
+async function removePendingRowsWithoutFiles(
+  { db, logger }: ReconcileDeps,
+  names: readonly string[],
+  dryRun: boolean,
+): Promise<number> {
+  for (const name of names) {
+    logger.debug(
+      `${dryRun ? 'Would delete' : 'Deleting'} pending row ${name}: its photo set is gone`,
+    );
+    if (!dryRun) await deletePendingPhotoRow(db, name);
+  }
+  return names.length;
 }
 
 interface ReconciliationPlan {
@@ -144,16 +224,30 @@ interface ReconciliationPlan {
   /** Photo sets older than the cutoff with no row, by base name. */
   orphanedSets: [string, StoredPhotoSet][];
   missingOriginals: number;
+  /** Stored photo sets explained by a pending row (never orphans). */
+  pendingSets: number;
+  /** Pending rows (read before the scan) whose original is not stored. */
+  pendingRowsWithoutFiles: string[];
 }
 
 // Reads storage and both tables once and decides everything; deletes nothing.
+// The pending rows were read before the scan: a pending photo's bytes are
+// written before its row, so a row read first whose original the scan does
+// not list really has lost its bytes.
 async function planReconciliation(
   { db, photos, logger }: ReconcileDeps,
   cutoff: Date,
+  pendingRows: readonly { fileName: string }[],
+  agedPending: ReadonlySet<string>,
 ): Promise<ReconciliationPlan> {
   // created_on is an ISO timestamp as text (NewPhotoRow), so it orders as text.
   const cutoffIso = cutoff.toISOString();
   const { photoSets, storedObjects } = await scanStorage(photos);
+  const pendingNames = new Set(pendingRows.map((row) => row.fileName));
+  const pendingRowsWithoutFiles = [...pendingNames].filter(
+    (name) =>
+      !agedPending.has(name) && !photoSets.get(name)?.names.includes(name),
+  );
   const rows = await db
     .select({ id: file.id, fileName: file.fileName, createdOn: file.createdOn })
     .from(file);
@@ -171,7 +265,7 @@ async function planReconciliation(
   );
   const knownNames = new Set(rows.map((row) => row.fileName));
   const orphanedSets = [...photoSets].filter(([baseName, set]) => {
-    if (knownNames.has(baseName)) return false;
+    if (knownNames.has(baseName) || pendingNames.has(baseName)) return false;
     if (set.newest >= cutoff) {
       logger.debug(`Keeping recent orphan ${baseName}`);
       return false;
@@ -192,6 +286,8 @@ async function planReconciliation(
     orphanedRows,
     orphanedSets,
     missingOriginals,
+    pendingSets: [...pendingNames].filter((name) => photoSets.has(name)).length,
+    pendingRowsWithoutFiles,
   };
 }
 

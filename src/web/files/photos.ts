@@ -24,6 +24,7 @@ import {
 import {
   IMAGE_VARIANTS,
   type ImageVariant,
+  parseStoredName,
   variantFileName,
 } from './image-variant';
 import { findPhotoByShareableId, type NewPhotoRow } from './queries';
@@ -33,6 +34,10 @@ const IMAGE_MAX_PX = 1080;
 const IMAGE_QUALITY = 90;
 const THUMB_MAX_PX = 400;
 const THUMB_QUALITY = 80;
+// Link import's photo choices (preview): small enough that six inline as
+// data: URLs keep the page light.
+const PREVIEW_MAX_PX = 240;
+const PREVIEW_QUALITY = 70;
 
 /**
  * The decompression-bomb guard on every decode (sharp's limitInputPixels,
@@ -227,6 +232,45 @@ export class Photos {
       `Stored ${source.filename} as ${fileName} for user ${userId}${options.alphaIsCutout ? ' (its own cutout)' : ''}`,
     );
     return newPhotoRow(fileName, userId);
+  }
+
+  /**
+   * The row to insert for a photo whose bytes are already stored but which
+   * has no row yet: a link import's fetched photo, held until its garment
+   * form is saved (createGarmentWithLinkPhoto, src/web/wardrobe/writes.ts).
+   * Undefined when `fileName` is not a stored original's name or its bytes
+   * are gone (reconciliation removes such photos after a day). Whether a
+   * row already exists is the caller's check, under its lock.
+   */
+  async pendingPhotoRow(
+    fileName: string,
+    userId: number,
+  ): Promise<NewPhotoRow | undefined> {
+    if (parseStoredName(fileName)?.variant !== 'original') return undefined;
+    if (!(await this.storage.exists(fileName))) return undefined;
+    return newPhotoRow(fileName, userId);
+  }
+
+  /**
+   * A small WebP of an image that is not stored: link import's photo
+   * choices, shown inline as data: URLs before one is picked. The CSP
+   * allows no other origin's images, and the choices must not be stored:
+   * every unpicked one would be an orphan counting against reconciliation's
+   * deletion guard. The same decode bound and HEIC path as a stored photo;
+   * unreadable bytes are a 400 HttpError.
+   */
+  async preview(source: ImageSource): Promise<Buffer> {
+    const { pixels, raw } = await this.imageSource(source);
+    return this.encodeUpload(
+      pixels,
+      decoder(raw)
+        .autoOrient()
+        .resize(PREVIEW_MAX_PX, PREVIEW_MAX_PX, {
+          fit: sharp.fit.inside,
+          withoutEnlargement: true,
+        })
+        .webp({ quality: PREVIEW_QUALITY }),
+    );
   }
 
   /**

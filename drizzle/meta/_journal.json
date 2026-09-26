@@ -71,6 +71,13 @@
       "when": 1790459161175,
       "tag": "0009_capsules",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790459596255,
+      "tag": "0010_pending_photo",
+      "breakpoints": true
     }
   ]
 }

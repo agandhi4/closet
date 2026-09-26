@@ -78,6 +78,16 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
     .first()
     .evaluate((d: HTMLDetailsElement) => (d.open = true));
   await shot(page, '04-demo-garment-form');
+  // Adding from a link as Android's share sheet opens it. Only the link
+  // page: the prefilled form needs a fetch from the internet, which CI's
+  // shots must not depend on (link-import.spec.ts covers the form).
+  await shot(
+    page,
+    '04b-demo-link-import',
+    `/wardrobe/new/from-link?text=${encodeURIComponent(
+      'UB201 Tapered https://theunbrandedbrand.com/products/ub201-tapered-fit-indigo-selvedge',
+    )}`,
+  );
   await shot(page, '05-demo-select', '/wardrobe?select=1');
   await shot(page, '06-demo-outfits', '/outfits');
   await page

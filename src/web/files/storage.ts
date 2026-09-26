@@ -70,6 +70,17 @@ export class PhotoStorage {
     }
   }
 
+  async exists(fileName: string): Promise<boolean> {
+    const stat = await fs.promises
+      .stat(this.pathOf(fileName))
+      .catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+          return undefined;
+        throw error;
+      });
+    return stat?.isFile() ?? false;
+  }
+
   /**
    * Atomic: until it resolves, readers see no file under `fileName` (or the
    * previous one), never a partial write; a rejected store leaves nothing

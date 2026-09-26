@@ -6,10 +6,11 @@ import { loggableUrl } from '../loggable-url';
 import type { Logger } from '../../logger';
 
 /**
- * Brute-force limits for the routes that check a password. Registered once
- * at the root by createApp() with `global: false`: nothing is limited unless
- * its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
- * ACCOUNT_LIMIT). Every limited route counts on its own. Counters live in
+ * Brute-force limits for the routes that check a password, and a ceiling on
+ * the routes that fetch a user's URL. Registered once at the root by
+ * createApp() with `global: false`: nothing is limited unless its route opts
+ * in with `config: { rateLimit: SIGN_IN_LIMIT }` (or ACCOUNT_LIMIT,
+ * LINK_IMPORT_LIMIT). Every limited route counts on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
  * The client address is `request.ip`, which Fastify takes from
@@ -54,6 +55,20 @@ export const SIGN_IN_LIMIT: RateLimitOptions = {
  */
 export const ACCOUNT_LIMIT: RateLimitOptions = {
   max: 5,
+  timeWindow: '1 minute',
+  hook: 'preHandler',
+  keyGenerator: (request) => `user ${request.auth!.user.id}`,
+};
+
+/**
+ * The routes that fetch a URL the user supplied through the outbound
+ * fetcher (the link import and its photo choice; one import fetches the
+ * page and up to MAX_PHOTO_CHOICES images). Per signed-in user, like
+ * ACCOUNT_LIMIT: generous for someone adding what they bought, and a
+ * ceiling on how hard the server can be made to hammer another site.
+ */
+export const LINK_IMPORT_LIMIT: RateLimitOptions = {
+  max: 10,
   timeWindow: '1 minute',
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,

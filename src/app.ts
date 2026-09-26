@@ -19,6 +19,10 @@ import { createErrorHandler, HttpError } from './web/errors';
 import { createPhotos, type Photos, photosConfig } from './web/files/photos';
 import { loggableUrl } from './web/loggable-url';
 import { webPlugin } from './web/plugin';
+import {
+  createOutboundFetcher,
+  type OutboundFetcherOptions,
+} from './web/security/outbound-fetch';
 import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
 import { createViewContextBuilder } from './web/view-context';
@@ -44,6 +48,15 @@ export interface ClosetApp {
   cutouts: CutoutQueue;
 }
 
+export interface AppOptions {
+  /**
+   * The outbound fetcher's test-only options (a scripted resolver, a
+   * loopback alias standing in for the internet): the link import's specs
+   * pass them; production never does (CLAUDE.md Gotchas).
+   */
+  outboundFetch?: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
+}
+
 /**
  * Builds the application without binding a port: migrations, the database
  * pool, Photos, then the Fastify instance with its root hooks, plugins,
@@ -59,6 +72,7 @@ export interface ClosetApp {
 export async function createApp(
   config: Config,
   logger: Logger,
+  options: AppOptions = {},
 ): Promise<ClosetApp> {
   const boot = logger.child({ context: 'Bootstrap' });
   // Reverse proxies whose X-Forwarded-* headers are believed, so the rate
@@ -88,6 +102,12 @@ export async function createApp(
     db,
     photos,
     logger: logger.child({ context: 'Cutout' }),
+  });
+  // The only fetcher of user-supplied URLs (the link import); one per
+  // process, handed to the web layer like Photos.
+  const fetcher = createOutboundFetcher({
+    logger: logger.child({ context: 'OutboundFetch' }),
+    ...options.outboundFetch,
   });
 
   const app = Fastify({
@@ -213,6 +233,7 @@ export async function createApp(
     tokens,
     photos,
     cutouts,
+    fetcher,
   });
 
   return { app, db, photos, cutouts };

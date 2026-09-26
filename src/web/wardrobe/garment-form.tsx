@@ -8,11 +8,15 @@ import { BackLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { GARMENT_COLORS, normalizeCategory } from './garment';
 import {
+  LinkImportSection,
+  type LinkImportView,
+} from './link-import/photo-choice';
+import {
   PropertiesMain,
   PropertiesMore,
   REFRESH_PROPERTIES,
 } from './property-fields';
-import { garmentUrl, wardrobeUrl } from './urls';
+import { garmentUrl, LINK_IMPORT_PATH, wardrobeUrl } from './urls';
 import {
   BRAND_MAX,
   CATEGORY_MAX,
@@ -39,6 +43,8 @@ export interface GarmentFormModel {
   /** The shared wardrobe the form was opened in; undefined for one's own. */
   viewOwner: number | undefined;
   errors?: FieldErrors<GarmentField>;
+  /** A new garment's form prefilled from a link (link-import/routes.tsx). */
+  link?: LinkImportView;
 }
 
 const TITLES = {
@@ -70,18 +76,14 @@ export function GarmentFormPage(props: {
   model: GarmentFormModel;
 }) {
   const { ctx, model } = props;
-  const { mode, values, viewOwner, errors = {} } = model;
+  const { mode, values, viewOwner, link, errors = {} } = model;
   const back =
     mode.kind === 'new'
       ? wardrobeUrl(viewOwner)
       : garmentUrl(mode.garmentId, viewOwner);
   const title = t(TITLES[mode.kind]);
   const category = normalizeCategory(values.category);
-  // Opened by default only when something inside needs attention.
-  const moreOpen =
-    errors.dateAquired !== undefined ||
-    errors.sourceUrl !== undefined ||
-    errors.price !== undefined;
+  const moreOpen = moreDetailsOpen(model);
   return (
     <Layout ctx={ctx} title={title}>
       <Navbar ctx={ctx} />
@@ -90,7 +92,22 @@ export function GarmentFormPage(props: {
           <BackLink href={back} />
           <h1 class="text-2xl font-bold">{title}</h1>
         </div>
+        {mode.kind === 'new' && !link && (
+          <a
+            href={wardrobeUrl(viewOwner, {}, LINK_IMPORT_PATH)}
+            class="btn btn-outline btn-sm w-full mb-4"
+          >
+            {t('linkImport.ADD_FROM_LINK')}
+          </a>
+        )}
         <PostForm action={formAction(model)} class="flex flex-col gap-4">
+          {link && (
+            <LinkImportSection
+              link={link}
+              viewOwner={viewOwner}
+              errors={errors.linkPhoto}
+            />
+          )}
           <TextField
             name="name"
             label={t('NAME')}
@@ -207,6 +224,24 @@ export function GarmentFormPage(props: {
       </main>
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * "More details" opens by default only when something inside needs
+ * attention: a message, or what a link filled in there (materials, the
+ * link, the price) for review.
+ */
+function moreDetailsOpen({
+  errors = {},
+  link,
+  values,
+}: GarmentFormModel): boolean {
+  return (
+    errors.dateAquired !== undefined ||
+    errors.sourceUrl !== undefined ||
+    errors.price !== undefined ||
+    (link !== undefined && values.sourceUrl !== '')
   );
 }
 

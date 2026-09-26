@@ -167,6 +167,37 @@ export const file = pgTable(
   ],
 );
 
+// A link import's photo stored before its garment form is saved (bytes
+// only, no `file` row): bound to the user who fetched it, who alone may
+// claim or discard it, and at most MAX_PENDING_PER_USER of them per user.
+// The save deletes the row with the `file` row's insert; reconciliation
+// removes day-old ones with their bytes, outside its deletion guard
+// (src/web/files/pending-photos.ts, src/maintenance/reconcile.ts).
+export const pendingPhoto = pgTable(
+  'pending_photo',
+  {
+    fileName: varchar('file_name', { length: 255 }).primaryKey(),
+    userId: integer('user_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // The per-user cap's oldest-first eviction; also the foreign key's.
+    index('pending_photo_user_id_created_at_index').on(
+      table.userId,
+      table.createdAt,
+    ),
+    foreignKey({
+      name: 'pending_photo_user_id_foreign',
+      columns: [table.userId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
 export const garment = pgTable(
   'garment',
   {
