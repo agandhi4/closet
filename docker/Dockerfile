@@ -48,6 +48,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/views ./views
 COPY --from=builder /app/public ./public
+# The migrations the app runs at boot (src/db/migrate.ts reads SQL and
+# meta/_journal.json from <root>/drizzle).
+COPY drizzle ./drizzle
 
 COPY .env .
 

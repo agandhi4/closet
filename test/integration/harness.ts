@@ -6,13 +6,16 @@ import type { OutgoingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { User } from '../../src/dal/entity/user.entity';
+import type { Db } from '../../src/db/client';
+import { DB } from '../../src/db/db.module';
 import { createScratchDatabase } from '../support/scratch-database';
 
 /**
  * Boots the real application in-process (createApp + app.init(), no listen)
  * against a private database and a fresh temp DATA_PATH, and exposes
- * app.inject() plus the ORM so specs can assert on HTML, headers, rows and
- * files together. One app per spec file: AppModule reads process.env at
+ * app.inject() plus the database (t.db, Drizzle; t.em(), MikroORM) so specs
+ * can assert on HTML, headers, rows and files together. New row assertions
+ * use t.db: MikroORM goes away as features are ported. One app per spec file: AppModule reads process.env at
  * import time, so the env cannot change after the first boot in a worker.
  *
  * Every spec file gets its own scratch Postgres database (see
@@ -63,6 +66,8 @@ export interface TestApp {
   /** The user registered at boot, whose session t.inject() sends by default. */
   owner: TestUser;
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
+  /** The app's Drizzle instance (no identity map: reads see every commit). */
+  db: Db;
   /** A fresh identity map per call, so reads see what the app flushed. */
   em: () => EntityManager;
   /** POST /auth/register; returns the session cookie for later requests. */
@@ -72,7 +77,19 @@ export interface TestApp {
   cleanup: () => Promise<void>;
 }
 
-export async function createTestApp(overrides: Partial<Env> = {}) {
+export interface TestAppOptions {
+  /**
+   * Runs against the scratch database before the app boots (and migrates
+   * it), e.g. to build it with the legacy MikroORM migrations. Receives the
+   * DATABASE_* values.
+   */
+  beforeBoot?: (databaseEnv: Env) => Promise<void>;
+}
+
+export async function createTestApp(
+  overrides: Partial<Env> = {},
+  options: TestAppOptions = {},
+) {
   const dataPath = await mkdtemp(join(tmpdir(), 'closet-int-'));
   const database = await createScratchDatabase('closet_it');
   Object.assign(
@@ -89,6 +106,7 @@ export async function createTestApp(overrides: Partial<Env> = {}) {
   const { createApp } = await import('../../src/app');
   let app: NestFastifyApplication;
   try {
+    await options.beforeBoot?.(database.env);
     app = await createApp();
     await app.init();
   } catch (error) {
@@ -147,6 +165,7 @@ export async function createTestApp(overrides: Partial<Env> = {}) {
     dataPath,
     owner,
     inject,
+    db: app.get<Db>(DB),
     em: () => orm.em.fork(),
     register,
     login: async (email: string, password = TEST_PASSWORD) =>

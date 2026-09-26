@@ -7,7 +7,7 @@
     "dist",
     "**/*spec.ts",
     "public",
-    "**/mikro-orm.*.cli-config.*",
+    "drizzle.config.ts",
     "views",
     "**/playwright.config.ts",
     "vitest.config.ts",
