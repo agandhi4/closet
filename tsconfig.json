@@ -26,10 +26,7 @@
     "jsxImportSource": "hono/jsx",
     // src/web/i18n.ts types t() keys from src/i18n/en/lang.json.
     "resolveJsonModule": true,
-    "types": [
-      "node",
-      "@fastify/view"
-    ]
+    "types": ["node"]
   },
   // The service worker runs in a worker scope, not Node: it is checked by
   // views/assets/tsconfig.json (npm run typecheck runs both).

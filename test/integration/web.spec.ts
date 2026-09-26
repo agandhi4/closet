@@ -65,6 +65,37 @@ describe('web layer', () => {
     );
   });
 
+  describe('a path no route matches', () => {
+    it('is the 404 error page in the shell, with the session', async () => {
+      const res = await t.inject({ method: 'GET', url: '/no-such-page?x=1' });
+      expect(res.statusCode).toBe(404);
+      expectFullPage(res);
+      expect(res.body).toContain('<h1>Error 404</h1>');
+      expect(res.body).toContain('<p>Cannot GET /no-such-page?x=1</p>');
+      expect(res.body).toContain(
+        `<a href="/auth/profile">${t.owner.email}</a>`,
+      );
+    });
+
+    it('is the 404 page signed out too, not a login redirect', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/no-such-page',
+        anonymous: true,
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.body).toContain('<h1>Error 404</h1>');
+      expect(res.body).toContain('href="/auth/login"');
+    });
+
+    it('answers a missing static asset as data', async () => {
+      const res = await t.inject({ method: 'GET', url: '/assets/nope.png' });
+      expect(res.statusCode).toBe(404);
+      expect(res.headers['content-type']).toMatch(/^application\/json/);
+      expect(res.json()).toMatchObject({ statusCode: 404 });
+    });
+  });
+
   describe('public pages', () => {
     it('renders /about in the shell for an anonymous visitor', async () => {
       const res = await t.inject({

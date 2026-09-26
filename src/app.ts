@@ -7,9 +7,6 @@ import fastifyCompress from '@fastify/compress';
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import fastifyView from '@fastify/view';
-import hbs from 'hbs';
-import type { HelperOptions } from 'handlebars';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import { loadConfig, trustedProxies } from './config';
@@ -34,7 +31,6 @@ import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
 
 const PUBLIC_DIR = join(PROJECT_ROOT, 'public');
-const VIEWS_DIR = join(PROJECT_ROOT, 'views');
 const nodeModule = (...segments: string[]) =>
   join(PROJECT_ROOT, 'node_modules', ...segments);
 
@@ -63,8 +59,8 @@ export interface ClosetApp {
 
 /**
  * Builds the fully configured application without binding a port: adapter,
- * per-request session hook, security headers, plugins, static asset roots,
- * view engine and Handlebars helpers. main.ts listens on it; the integration
+ * per-request session hook, security headers, plugins and static asset
+ * roots. main.ts listens on it; the integration
  * harness (test/integration/harness.ts) calls app.init() and drives it with
  * app.inject().
  */
@@ -174,8 +170,6 @@ export async function createApp(): Promise<ClosetApp> {
   });
 
   await registerStaticAssets(app);
-  await registerViewEngine(app);
-  registerHandlebarsHelpers();
 
   // Nest adds its JSON and urlencoded body parsers in app.init(), after the
   // web plugin below, and a Fastify plugin only inherits the content-type
@@ -216,7 +210,7 @@ export async function createApp(): Promise<ClosetApp> {
 }
 
 // Every static URL is versioned (`?v=` from BUILD_INFO.assetVersion in
-// layout.hbs and the importmap; `?v=<photo version>` on /file/**), so a deploy
+// the layout and the importmap; `?v=<photo version>` on /file/**), so a deploy
 // changes URLs, never the bytes behind one: a year, immutable. The two files
 // whose URL cannot change keep revalidating: sw.js below (the browser must
 // see a new worker to update the app shell) and manifest.json (a route in
@@ -299,50 +293,4 @@ async function registerStaticAssets(app: NestFastifyApplication) {
     decorateReply: false,
     ...immutable,
   });
-}
-
-async function registerViewEngine(app: NestFastifyApplication) {
-  // Setup MVC https://docs.nestjs.com/techniques/mvc
-  app.setViewEngine({
-    engine: { handlebars: hbs },
-    templates: VIEWS_DIR,
-    viewExt: 'hbs',
-    layout: 'layout',
-    includeViewExtension: true,
-  });
-
-  // hbs walks the directory asynchronously; without waiting, a render in the
-  // first moments after boot fails with "partial navbar could not be found"
-  // (invisible behind listen(), immediate under app.inject()).
-  await new Promise<void>((resolve) =>
-    hbs.registerPartials(join(VIEWS_DIR, 'partials'), resolve),
-  );
-
-  // Second view instance without a global layout for htmx partial responses.
-  // @fastify/view's documented pattern for rendering templates both with and
-  // without a layout: register multiple instances with different propertyName.
-  // https://github.com/fastify/point-of-view#registering-multiple-engines-with-different-configurations
-  await app
-    .getHttpAdapter()
-    .getInstance()
-    .register(fastifyView, {
-      engine: { handlebars: hbs },
-      templates: VIEWS_DIR,
-      propertyName: 'viewPartial',
-      viewExt: 'hbs',
-      includeViewExtension: true,
-      production: process.env.NODE_ENV === 'production',
-    });
-}
-
-// Registered on the hbs singleton after engine setup. nestjs-i18n adds `t` to
-// the same singleton (viewEngine: 'hbs' in AppModule). The only Handlebars
-// left is the error page and its shell (views/layout.hbs and partials).
-function registerHandlebarsHelpers() {
-  hbs.registerHelper(
-    'ifEquals',
-    function (arg1: unknown, arg2: unknown, options: HelperOptions) {
-      return arg1 == arg2 ? options.fn(this) : options.inverse(this);
-    },
-  );
 }

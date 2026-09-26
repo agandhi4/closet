@@ -10,14 +10,5 @@ declare module 'fastify' {
   interface FastifyReply {
     /** Page context built per request by ViewContextService; absent only on static paths. JSX pages read it through viewContext(reply). */
     locals?: ViewContext;
-    // @fastify/view's type definitions don't support custom propertyName values.
-    // Required workaround for the viewPartial renderer registered without a global
-    // layout in src/app.ts. Remove when the upstream issue is resolved.
-    // https://github.com/fastify/point-of-view/issues/301
-    viewPartial(page: string, data?: Record<string, unknown>): FastifyReply;
-    viewPartialAsync(
-      page: string,
-      data?: Record<string, unknown>,
-    ): Promise<string>;
   }
 }

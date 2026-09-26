@@ -5,7 +5,6 @@ import type { ViewContext } from '../view-context';
  * Top bar with the app name and the in-flight request spinner; the account
  * links sit in the bar on desktop and in a drawer on mobile.
  * https://daisyui.com/components/drawer/#navbar-menu-for-desktop--sidebar-drawer-for-mobile
- * Twin of views/partials/navbar.hbs.
  */
 export function Navbar({ ctx }: { ctx: ViewContext }) {
   return (

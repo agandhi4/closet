@@ -40,7 +40,7 @@ const DAY = 60 * 60 * 24;
 const FALLBACK_HTML_URL = '/offline.html';
 const PAGES_CACHE = 'pages-v1';
 
-// Static URLs carry `?v=<build>` (layout.hbs); the precache is already keyed
+// Static URLs carry `?v=<build>` (src/web/layout/layout.tsx); the precache is already keyed
 // by content hash, so the query must not stop a precached file matching.
 precacheAndRoute(self.__WB_MANIFEST, {
   ignoreURLParametersMatching: [/^utm_/, /^fbclid$/, /^v$/],

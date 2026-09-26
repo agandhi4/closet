@@ -4,11 +4,14 @@ import {
   LoginRequiredException,
   RedirectToLoginException,
 } from './auth/redirect-to-login.exception';
-import { describeError } from './web/errors';
+import { createErrorHandler } from './web/errors';
 
 @Catch()
 export class ErrorViewFilter implements ExceptionFilter {
   private logger = new Logger(ErrorViewFilter.name);
+  // Nest's own failures (a path no route matches) get the web layer's
+  // answer: the JSX error page, or data where there is no page context.
+  private readonly handleError = createErrorHandler(this.logger);
 
   async catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -30,34 +33,6 @@ export class ErrorViewFilter implements ExceptionFilter {
         .header('HX-Redirect', exception.location)
         .send();
     }
-
-    this.logger.warn(exception);
-
-    if (response.sent) {
-      this.logger.warn('Response already sent, skipping error filter');
-      return;
-    }
-
-    // One mapping for both stacks: Nest's HttpExceptions and the web
-    // layer's HttpError, which plain modules called from Nest services throw
-    // (an unreadable photo from src/web/files is a 400 here too).
-    const { status, message } = describeError(exception);
-
-    try {
-      // locals is only missing on static paths (see isStaticPath in app.ts),
-      // whose errors are asset 404s; the page still renders, just without
-      // the app name and session.
-      await response.status(status).view('error', {
-        layout: 'layout',
-        statusCode: status,
-        message,
-        timestamp: new Date().toISOString(),
-        path: request.url,
-        ...(response.locals ?? {}),
-      });
-    } catch (renderError) {
-      this.logger.error(renderError);
-      response.status(status).send({ statusCode: status, message });
-    }
+    await this.handleError(exception, request, response);
   }
 }

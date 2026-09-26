@@ -1,5 +1,5 @@
 /**
- * Installed-app plumbing, loaded from layout.hbs when PWA_ENABLED: service
+ * Installed-app plumbing, loaded by the layout when PWA_ENABLED: service
  * worker registration and the update flow, Web Push on signed-in pages
  * (push.js), and pull to refresh for iOS standalone (which has none of its
  * own). Lives in the

@@ -4,8 +4,7 @@ import { escapeHtml } from './html';
 /**
  * English strings for JSX views, typed to the keys of src/i18n/en/lang.json:
  * `t('ABOUT_TITLE')`, `t('validation.IS_EMAIL')`. A misspelled key is a type
- * error, not raw text in the page. Handlebars views keep nestjs-i18n (`{{t
- * 'lang.KEY'}}`) until they are ported; both read the same file.
+ * error, not raw text in the page.
  */
 
 type Leaves<T> = {
@@ -13,7 +12,7 @@ type Leaves<T> = {
 }[keyof T & string];
 
 export type StringKey = Leaves<typeof english>;
-/** Values for `{name}` placeholders (nestjs-i18n's interpolation syntax). */
+/** Values for `{name}` placeholders in the catalog's strings. */
 export type StringParams = Record<string, string | number>;
 
 function flatten(node: object, prefix = ''): [string, string][] {
