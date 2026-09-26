@@ -1,4 +1,5 @@
 import type { LightMyRequestResponse } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { User } from '../../src/dal/entity/user.entity';
 import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
@@ -103,7 +104,7 @@ describe('account', () => {
     // default innerHTML swap and no hx-select, but @Render('auth/register')
     // wraps the answer in the layout, so htmx nests a second navbar, form and
     // dock inside the fieldset. Same for validate/update-email.
-    it.failing(
+    it.fails(
       'answers the htmx validation request with a fragment',
       async () => {
         const res = await validate({
@@ -128,13 +129,13 @@ describe('account', () => {
     });
 
     // Known bug (docs/audits/2026-09-25-program2): a failed POST /auth/login re-renders with status 201 instead of 4xx.
-    it.failing('a wrong password answers 401', async () => {
+    it.fails('a wrong password answers 401', async () => {
       const res = await postLogin(email, 'WrongPassword1');
       expect(res.statusCode).toBe(401);
     });
 
     // Known bug (docs/audits/2026-09-25-program2): the access_token maxAge is milliseconds, @fastify/cookie takes seconds (Max-Age=31536000000).
-    it.failing('the session cookie lives 365 days', async () => {
+    it.fails('the session cookie lives 365 days', async () => {
       const res = await postLogin(email, TEST_PASSWORD);
       expect(res.statusCode).toBe(302);
       expect(sessionSetCookie(res)).toMatch(/;\s*Max-Age=31536000(;|$)/);
@@ -144,19 +145,16 @@ describe('account', () => {
     // @Throttle({ default: ... }) only overrides the limits of a registered
     // one, so the guard iterates an empty list: login is not rate limited
     // at all.
-    it.failing(
-      'a sixth failed login within a minute is throttled',
-      async () => {
-        const client = nextClient();
-        const statuses: number[] = [];
-        for (let i = 0; i < 6; i++) {
-          statuses.push(
-            (await postLogin(email, 'WrongPassword1', client)).statusCode,
-          );
-        }
-        expect(statuses[5]).toBe(429);
-      },
-    );
+    it.fails('a sixth failed login within a minute is throttled', async () => {
+      const client = nextClient();
+      const statuses: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        statuses.push(
+          (await postLogin(email, 'WrongPassword1', client)).statusCode,
+        );
+      }
+      expect(statuses[5]).toBe(429);
+    });
   });
 
   describe('logout', () => {
@@ -270,7 +268,7 @@ describe('account', () => {
 
     // New bug: user.email is @Unique and changeEmail does not check for an
     // existing account first, so the unique violation escapes as a 500.
-    it.failing(
+    it.fails(
       'an address another account uses is refused with 4xx',
       async () => {
         await t.register('taken@example.com');

@@ -1,11 +1,12 @@
 import { JwtService } from '@nestjs/jwt';
 import type { FastifyRequest } from 'fastify';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { AuthContextService } from './auth-context.service';
 
 describe('AuthContextService', () => {
   let service: AuthContextService;
-  let jwtService: { verifyAsync: jest.Mock };
-  let userRepository: { findOne: jest.Mock };
+  let jwtService: { verifyAsync: Mock };
+  let userRepository: { findOne: Mock };
 
   const hash = '$2a$12$abcdefghijklmnopqrstuvwxyzFINGERPR';
   const user = { id: 7, email: 'a@b.c', password: hash };
@@ -15,8 +16,8 @@ describe('AuthContextService', () => {
     ({ cookies }) as unknown as FastifyRequest;
 
   beforeEach(() => {
-    jwtService = { verifyAsync: jest.fn() };
-    userRepository = { findOne: jest.fn() };
+    jwtService = { verifyAsync: vi.fn() };
+    userRepository = { findOne: vi.fn() };
     service = new AuthContextService(
       userRepository as any,
       jwtService as unknown as JwtService,

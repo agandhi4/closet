@@ -1,5 +1,14 @@
 import { ArgumentsHost, NotFoundException } from '@nestjs/common';
 import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+  type MockInstance,
+} from 'vitest';
+import {
   LoginRequiredException,
   RedirectToLoginException,
 } from './auth/redirect-to-login.exception';
@@ -10,13 +19,13 @@ describe('ErrorViewFilter', () => {
   let response: {
     sent: boolean;
     locals: Record<string, unknown>;
-    redirect: jest.Mock;
-    header: jest.Mock;
-    status: jest.Mock;
-    view: jest.Mock;
-    send: jest.Mock;
+    redirect: Mock;
+    header: Mock;
+    status: Mock;
+    view: Mock;
+    send: Mock;
   };
-  let warn: jest.SpyInstance;
+  let warn: MockInstance;
 
   const host = () =>
     ({
@@ -31,16 +40,16 @@ describe('ErrorViewFilter', () => {
     response = {
       sent: false,
       locals: { appName: 'Closet' },
-      redirect: jest.fn(),
-      header: jest.fn(),
-      status: jest.fn(),
-      view: jest.fn().mockResolvedValue(undefined),
-      send: jest.fn(),
+      redirect: vi.fn(),
+      header: vi.fn(),
+      status: vi.fn(),
+      view: vi.fn().mockResolvedValue(undefined),
+      send: vi.fn(),
     };
     response.status.mockReturnValue(response);
     response.redirect.mockReturnValue(response);
     response.header.mockReturnValue(response);
-    warn = jest.spyOn(filter['logger'], 'warn').mockImplementation(() => {});
+    warn = vi.spyOn(filter['logger'], 'warn').mockImplementation(() => {});
   });
 
   it('answers RedirectToLoginException with the 302 and no warn log', async () => {

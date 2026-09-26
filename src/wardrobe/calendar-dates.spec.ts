@@ -1,9 +1,14 @@
-/**
- * @jest-environment ../test/support/timezone-environment.ts
- * @jest-environment-options {"timeZone": "America/New_York"}
- */
 import { EntityRepository } from '@mikro-orm/core';
 import { I18nContext } from 'nestjs-i18n';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from 'vitest';
 import { OutfitCalendar } from '../dal/entity/outfit-calendar.entity';
 import { Outfit } from '../dal/entity/outfit.entity';
 import { CalendarService } from './calendar.service';
@@ -13,9 +18,9 @@ import { CalendarService } from './calendar.service';
  * with in-memory repositories and a fixed clock: week start, the week's
  * seven days and where entries land, the mini-month grid, month and year
  * boundaries, leap day, and both 2026 DST transitions. Runs in
- * America/New_York (see the pragma above) because UTC hides every
- * local-time mistake; entry dates are UTC midnight, as
- * `new Date('YYYY-MM-DD')` in the controllers produces them.
+ * America/New_York (the `unit-new-york` project in vitest.config.ts)
+ * because UTC hides every local-time mistake; entry dates are UTC midnight,
+ * as `new Date('YYYY-MM-DD')` in the controllers produces them.
  */
 
 type ViewModel = Awaited<ReturnType<CalendarService['buildIndexViewModel']>>;
@@ -40,7 +45,7 @@ const NOON_FRIDAY = new Date('2026-09-25T12:00:00-04:00');
 
 describe('CalendarService date logic (America/New_York)', () => {
   let entries: OutfitCalendar[];
-  let calendarFind: jest.Mock;
+  let calendarFind: Mock;
   let service: CalendarService;
 
   const view = (week?: string, calMonth?: string): Promise<ViewModel> =>
@@ -57,20 +62,20 @@ describe('CalendarService date logic (America/New_York)', () => {
     );
 
   beforeEach(() => {
-    jest.useFakeTimers({ now: NOON_FRIDAY });
+    vi.useFakeTimers({ now: NOON_FRIDAY });
     entries = [];
-    calendarFind = jest.fn(() => Promise.resolve(entries));
+    calendarFind = vi.fn(() => Promise.resolve(entries));
     service = new CalendarService(
       { find: calendarFind } as unknown as EntityRepository<OutfitCalendar>,
       {
-        find: jest.fn().mockResolvedValue([]),
+        find: vi.fn().mockResolvedValue([]),
       } as unknown as EntityRepository<Outfit>,
     );
   });
 
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => vi.useRealTimers());
 
-  it('runs in New York time (the environment pragma took effect)', () => {
+  it('runs in New York time (the project env took effect)', () => {
     expect(new Date('2026-01-15T12:00:00Z').getTimezoneOffset()).toBe(300);
     expect(new Date('2026-07-15T12:00:00Z').getTimezoneOffset()).toBe(240);
   });
@@ -278,7 +283,7 @@ describe('CalendarService date logic (America/New_York)', () => {
     });
 
     // Known bug (docs/audits/2026-09-25-program2, M5 "latent"): findWeek steps the days with local-time setDate, so under a DST zone the spring-forward week repeats Sunday's date and every later column is one day behind.
-    it.failing('the spring-forward week shows Mar 8 to Mar 14', async () => {
+    it.fails('the spring-forward week shows Mar 8 to Mar 14', async () => {
       const vm = await view('2026-03-10');
       expect(dayNums(vm)).toEqual([8, 9, 10, 11, 12, 13, 14]);
       expect(dates(vm)[6]).toBe('2026-03-14');
@@ -323,21 +328,18 @@ describe('CalendarService date logic (America/New_York)', () => {
     // The server's zone stands in for the household's here; the audit's fix
     // is one configured zone (APP_TIMEZONE) or the client's date.
     // Known bug (docs/audits/2026-09-25-program2): the calendar computes "today" and the default week in UTC, so evenings in US time zones highlight tomorrow.
-    it.failing(
-      'at 21:30 on Friday evening, today is still Friday',
-      async () => {
-        jest.setSystemTime(new Date('2026-09-25T21:30:00-04:00'));
-        const vm = await view('2026-09-23');
-        expect(vm.today).toBe('2026-09-25');
-        expect(vm.days[5].isToday).toBe(true);
-      },
-    );
+    it.fails('at 21:30 on Friday evening, today is still Friday', async () => {
+      vi.setSystemTime(new Date('2026-09-25T21:30:00-04:00'));
+      const vm = await view('2026-09-23');
+      expect(vm.today).toBe('2026-09-25');
+      expect(vm.days[5].isToday).toBe(true);
+    });
 
     // Known bug (docs/audits/2026-09-25-program2): the calendar computes "today" and the default week in UTC, so evenings in US time zones highlight tomorrow.
-    it.failing(
+    it.fails(
       'on Saturday evening the default week is still this week',
       async () => {
-        jest.setSystemTime(new Date('2026-09-26T21:00:00-04:00'));
+        vi.setSystemTime(new Date('2026-09-26T21:00:00-04:00'));
         expect((await view()).weekParam).toBe('2026-09-20');
       },
     );

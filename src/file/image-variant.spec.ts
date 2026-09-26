@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { isImageVariant, variantFileName } from './image-variant';
 
 describe('variantFileName', () => {

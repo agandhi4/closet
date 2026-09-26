@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { OutfitCalendar } from '../../src/dal/entity/outfit-calendar.entity';
 import { OutfitGarment } from '../../src/dal/entity/outfit-garment.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
@@ -349,7 +350,7 @@ describe('outfits', () => {
     });
 
     // Known bug (docs/audits/2026-09-25-program2): saving an outfit and scheduling it are not one transaction.
-    it.failing(
+    it.fails(
       'rejects an invalid schedule date without saving a half-written outfit',
       async () => {
         const before = await t.em().count(Outfit);
@@ -462,7 +463,7 @@ describe('outfits', () => {
       });
 
       // Known bug (docs/audits/2026-09-25-program2): the show page renders the unordered outfit_garments pivot, not the saved slot order.
-      it.failing(
+      it.fails(
         'the show page renders garments in the saved order',
         async () => {
           const res = await t.inject({
@@ -474,7 +475,7 @@ describe('outfits', () => {
       );
 
       // Known bug (docs/audits/2026-09-25-program2): the list renders the unordered outfit_garments pivot, not the saved slot order.
-      it.failing('the list renders garments in the saved order', async () => {
+      it.fails('the list renders garments in the saved order', async () => {
         const res = await t.inject({ method: 'GET', url: '/outfits' });
         const start = res.body.indexOf(
           `window.location = '/outfits/${outfitId}'`,
@@ -594,7 +595,7 @@ describe('outfits', () => {
     });
 
     // Known bug (docs/audits/2026-09-25-program2): repeated saves with a schedule date create duplicate calendar entries.
-    it.failing(
+    it.fails(
       'saving the same schedule date twice keeps one calendar entry',
       async () => {
         const id = await createOutfit({ name: 'Saved twice' }, []);
@@ -611,7 +612,7 @@ describe('outfits', () => {
     );
 
     // Known bug (docs/audits/2026-09-25-program2): editing an outfit silently drops archived garments from it.
-    it.failing(
+    it.fails(
       'an edit round trip keeps an archived garment in the outfit',
       async () => {
         const coat = await createGarment(t, {

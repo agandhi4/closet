@@ -1,6 +1,7 @@
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { OutfitCalendar } from '../../src/dal/entity/outfit-calendar.entity';

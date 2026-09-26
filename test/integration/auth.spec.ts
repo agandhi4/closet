@@ -1,5 +1,6 @@
 import { EntityRepository } from '@mikro-orm/core';
 import { getRepositoryToken } from '@mikro-orm/nestjs';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AuthContextService } from '../../src/auth/auth-context.service';
 import { User } from '../../src/dal/entity/user.entity';
 import { Logger as PinoLogger } from 'nestjs-pino';
@@ -116,8 +117,8 @@ describe('sessions', () => {
     // app.useLogger (app.ts), so a spy there sees every warn the guards and
     // ErrorViewFilter could emit for this request.
     const logger = t.app.get(PinoLogger);
-    const warn = jest.spyOn(logger, 'warn');
-    const error = jest.spyOn(logger, 'error');
+    const warn = vi.spyOn(logger, 'warn');
+    const error = vi.spyOn(logger, 'error');
     try {
       const res = await t.inject({
         method: 'GET',
@@ -194,8 +195,8 @@ describe('sessions', () => {
   });
 
   it('static assets are served without resolving the session', async () => {
-    const resolve = jest.spyOn(t.app.get(AuthContextService), 'resolve');
-    const findOne = jest.spyOn(
+    const resolve = vi.spyOn(t.app.get(AuthContextService), 'resolve');
+    const findOne = vi.spyOn(
       t.app.get<EntityRepository<User>>(getRepositoryToken(User)),
       'findOne',
     );

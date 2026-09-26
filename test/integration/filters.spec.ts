@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, TestApp } from './harness';
 
 /**

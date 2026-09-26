@@ -48,6 +48,13 @@ const ormLogger = new Logger('MikroORM');
               : undefined,
           },
         },
+        // Migrations are discovered by path and loaded through this. MikroORM's
+        // default is an import() inside its own package, which under Vitest
+        // bypasses the test transform: Node loads the .ts file itself and
+        // fails on anything type stripping cannot (an extensionless import of
+        // src/ code). An import() in our source is compiled with the app:
+        // require() in dist/, Vitest's module runner in tests.
+        dynamicImportProvider: (id: string) => import(id),
         logger: (message: string) => ormLogger.log(message),
         colors: false,
         allowGlobalContext: true,

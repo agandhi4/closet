@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { expect } from 'vitest';
 import { multipart, TestApp } from './harness';
 
 /**

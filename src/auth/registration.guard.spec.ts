@@ -1,13 +1,14 @@
 import { ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { RegistrationGuard } from './registration.guard';
 
 describe('RegistrationGuard', () => {
   let guard: RegistrationGuard;
-  let configService: { get: jest.Mock };
+  let configService: { get: Mock };
 
   const mockExecutionContext = () => {
-    const response = { redirect: jest.fn() };
+    const response = { redirect: vi.fn() };
     return {
       switchToHttp: () => ({
         getResponse: () => response,
@@ -17,7 +18,7 @@ describe('RegistrationGuard', () => {
   };
 
   beforeEach(() => {
-    configService = { get: jest.fn() };
+    configService = { get: vi.fn() };
     guard = new RegistrationGuard(configService as unknown as ConfigService);
   });
 

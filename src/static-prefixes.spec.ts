@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { isStaticPath } from './static-prefixes';
 
 describe('isStaticPath', () => {

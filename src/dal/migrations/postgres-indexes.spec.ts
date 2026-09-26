@@ -1,6 +1,7 @@
 import { Migration } from '@mikro-orm/migrations';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import { Migration20260925181256 } from './postgres/Migration20260925181256';
 import { Migration20260925183958 } from './postgres/Migration20260925183958';
 

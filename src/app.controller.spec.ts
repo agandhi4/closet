@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppController } from './app.controller';
 import { I18nContext } from 'nestjs-i18n';
 import { AppService } from './app.service';
@@ -15,8 +16,8 @@ describe('AppController', () => {
         {
           provide: ConfigService,
           useValue: {
-            get: jest.fn().mockReturnValue('Closet'),
-            getOrThrow: jest.fn((key: string) =>
+            get: vi.fn().mockReturnValue('Closet'),
+            getOrThrow: vi.fn((key: string) =>
               key === 'ICON_NAME' ? 'icon.png' : 'Closet',
             ),
           },
@@ -29,7 +30,7 @@ describe('AppController', () => {
 
   describe('about', () => {
     it('translates the page title and passes the app name to the OG strings', () => {
-      const t = jest.fn((key: string) => key);
+      const t = vi.fn((key: string) => key);
       const i18n = { t } as unknown as I18nContext;
       expect(appController.about(i18n)).toEqual({
         pageTitle: 'lang.ABOUT_TITLE',

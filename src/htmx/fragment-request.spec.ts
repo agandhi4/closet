@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { isFragmentRequest, pageCacheKey } from './fragment-request';
 
 describe('fragment-request', () => {

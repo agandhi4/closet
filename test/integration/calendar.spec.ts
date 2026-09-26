@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { OutfitCalendar } from '../../src/dal/entity/outfit-calendar.entity';
 import { Outfit } from '../../src/dal/entity/outfit.entity';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
@@ -263,7 +264,7 @@ describe('calendar', () => {
     });
 
     // Known bug (docs/audits/2026-09-25-program2): a malformed date reaches the database as an Invalid Date and 500s (audit2-datamodel, validation table).
-    it.failing(
+    it.fails(
       'rejects a malformed date with a 400 and writes nothing',
       async () => {
         const outfit = await createOutfit('Bad date');
@@ -278,7 +279,7 @@ describe('calendar', () => {
     );
 
     // Known bug (docs/audits/2026-09-25-program2): calendar days are stored as timestamps, not dates.
-    it.failing('stores the calendar day as a date column', async () => {
+    it.fails('stores the calendar day as a date column', async () => {
       const [column] = await t
         .em()
         .getConnection()

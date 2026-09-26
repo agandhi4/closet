@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createGarment } from './garments';
 import { createTestApp, TestApp } from './harness';
 

@@ -1,5 +1,14 @@
 import { EntityManager } from '@mikro-orm/core';
 import { readdir } from 'node:fs/promises';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { variantFileName } from '../../src/file/image-variant';
@@ -35,7 +44,7 @@ describe('garment writes', () => {
 
   afterAll(() => t?.cleanup());
 
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
 
   it('a rolled-back photo update leaves no File row and no files behind', async () => {
     const garmentId = await createGarment(t, { name: 'Blue shirt' });
@@ -44,9 +53,9 @@ describe('garment writes', () => {
 
     // The transactional fork inherits EntityManager.prototype.flush; failing
     // it once fails the commit that would have inserted the File row.
-    jest
-      .spyOn(EntityManager.prototype, 'flush')
-      .mockRejectedValueOnce(new Error('simulated flush failure'));
+    vi.spyOn(EntityManager.prototype, 'flush').mockRejectedValueOnce(
+      new Error('simulated flush failure'),
+    );
 
     const body = await photoUpload();
     const res = await t.inject({

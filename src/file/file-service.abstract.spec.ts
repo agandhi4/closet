@@ -9,14 +9,15 @@ import { ConfigService } from '@nestjs/config';
 import heicConvert from 'heic-convert';
 import sharp from 'sharp';
 import { Readable } from 'stream';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { File } from '../dal/entity/file.entity';
 import { FileService } from './file-service.abstract';
 import { StoredObject } from './file-service.interface';
 
 // libheif is WASM and there is no HEIC fixture; the decode branch is about
 // what goes in and what comes out of the decoder, not the codec.
-jest.mock('heic-convert', () => jest.fn());
-const heicConvertMock = heicConvert as unknown as jest.Mock;
+vi.mock('heic-convert', () => ({ default: vi.fn() }));
+const heicConvertMock = vi.mocked(heicConvert);
 
 const MAX_HEIC_BYTES = 1024;
 
@@ -66,15 +67,15 @@ const build = (watermarkEnabled = false) => {
     MAX_HEIC_BYTES,
   };
   const config = {
-    get: jest.fn((key: string) => settings[key]),
-    getOrThrow: jest.fn((key: string) => settings[key]),
+    get: vi.fn((key: string) => settings[key]),
+    getOrThrow: vi.fn((key: string) => settings[key]),
   };
   const fileRow = { fileName: 'a.webp', version: 1 } as File;
   const fileRepository = {
-    findOne: jest.fn().mockResolvedValue(fileRow),
-    create: jest.fn((data: Partial<File>) => data as File),
+    findOne: vi.fn().mockResolvedValue(fileRow),
+    create: vi.fn((data: Partial<File>) => data as File),
   };
-  const em = { persistAndFlush: jest.fn(), removeAndFlush: jest.fn() };
+  const em = { persistAndFlush: vi.fn(), removeAndFlush: vi.fn() };
   const service = new TestFileService(
     config as unknown as ConfigService,
     fileRepository as unknown as EntityRepository<File>,
@@ -253,7 +254,11 @@ describe('FileService.storeImageFromFileUpload with HEIC', () => {
         .toBuffer(),
     );
 
-  beforeEach(() => heicConvertMock.mockReset());
+  // Braced: Vitest runs a function returned from beforeEach as its cleanup,
+  // and mockReset() returns the mock itself.
+  beforeEach(() => {
+    heicConvertMock.mockReset();
+  });
 
   it('decodes image/heic through heic-convert and stores webp original and thumb', async () => {
     const { service } = build();
@@ -321,7 +326,7 @@ describe('FileService.storeImageFromFileUpload with HEIC', () => {
 describe('FileService.watermarkImage', () => {
   const buildWithWatermark = (watermarkEnabled: boolean) => {
     const { service } = build(watermarkEnabled);
-    const getWatermark = jest
+    const getWatermark = vi
       .spyOn(service, 'getWatermark')
       .mockImplementation(() => png(4));
     return { service, getWatermark };

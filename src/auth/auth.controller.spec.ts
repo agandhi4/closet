@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@mikro-orm/nestjs';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { User } from '../dal/entity/user.entity';
 import { FileService } from '../file/file-service.abstract';
 import { AuthController } from './auth.controller';
@@ -26,20 +27,20 @@ describe('AuthController', () => {
         {
           provide: EntityManager,
           useValue: {
-            query: jest.fn(),
+            query: vi.fn(),
           },
         },
         {
           provide: getRepositoryToken(User),
           useValue: {
-            findOne: jest.fn(),
-            find: jest.fn(),
-            persistAndFlush: jest.fn(),
+            findOne: vi.fn(),
+            find: vi.fn(),
+            persistAndFlush: vi.fn(),
           },
         },
         {
           provide: FileService,
-          useValue: { deleteVariants: jest.fn() },
+          useValue: { deleteVariants: vi.fn() },
         },
       ],
     }).compile();
