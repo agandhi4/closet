@@ -1,5 +1,6 @@
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { User } from '../../src/dal/entity/user.entity';
 import { variantFileName } from '../../src/file/image-variant';
@@ -206,7 +207,7 @@ describe('garment edit, clone and archive', () => {
     // New bug: POST /wardrobe/:id has no server-side validation. Category is
     // required (entity non-nullable, `required` in the form) but an empty
     // string is stored, and the garment drops out of every category filter.
-    it.failing(
+    it.fails(
       'an empty category is rejected and the row is unchanged',
       async () => {
         const id = await createFullGarment();
@@ -224,7 +225,7 @@ describe('garment edit, clone and archive', () => {
     // New bug: an unparseable dateAquired becomes `new Date('…')` (Invalid
     // Date) and reaches Postgres, which rejects it: 500 instead of a
     // re-rendered form.
-    it.failing(
+    it.fails(
       'an invalid date is rejected with 400 and the row is unchanged',
       async () => {
         const id = await createFullGarment();
@@ -241,7 +242,7 @@ describe('garment edit, clone and archive', () => {
     );
 
     // Known bug (docs/audits/2026-09-25-program2): notes longer than 255 characters return 500 (varchar(255)).
-    it.failing('keeps notes longer than 255 characters', async () => {
+    it.fails('keeps notes longer than 255 characters', async () => {
       const id = await createFullGarment();
       const notes = 'Long care history. '.repeat(30);
       const res = await post(
@@ -260,7 +261,7 @@ describe('garment edit, clone and archive', () => {
     });
 
     // Known bug (docs/audits/2026-09-25-program2): keyword search is case-sensitive on Postgres (LIKE, not ILIKE).
-    it.failing('keyword search ignores case', async () => {
+    it.fails('keyword search ignores case', async () => {
       const res = await get('/wardrobe?keyword=blazer', alice.cookie);
       expect(res.statusCode).toBe(200);
       expect(res.body).toContain('Black Linen Blazer');
@@ -327,7 +328,7 @@ describe('garment edit, clone and archive', () => {
     });
 
     // Known bug (docs/audits/2026-09-25-program2): cloning a garment drops washingDetails and dateAquired.
-    it.failing('POST keeps washingDetails and dateAquired', async () => {
+    it.fails('POST keeps washingDetails and dateAquired', async () => {
       const res = await post(
         `/wardrobe/${garmentId}/clone`,
         { ...FORM, name: 'Second copy' },

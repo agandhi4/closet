@@ -1,12 +1,13 @@
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { SharePermission } from '../dal/entity/wardrobe-share.entity';
 import { WardrobeShareService } from './wardrobe-share.service';
 
 describe('WardrobeShareService.resolveAccess', () => {
   let service: WardrobeShareService;
-  let shareRepository: { findOne: jest.Mock };
+  let shareRepository: { findOne: Mock };
 
   beforeEach(() => {
-    shareRepository = { findOne: jest.fn() };
+    shareRepository = { findOne: vi.fn() };
     service = new WardrobeShareService(shareRepository as any, {} as any);
   });
 

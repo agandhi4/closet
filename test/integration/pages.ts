@@ -1,4 +1,5 @@
 import type { LightMyRequestResponse } from 'fastify';
+import { expect } from 'vitest';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { Outfit } from '../../src/dal/entity/outfit.entity';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';

@@ -1,5 +1,14 @@
 import { readdir } from 'node:fs/promises';
 import { Logger as PinoLogger } from 'nestjs-pino';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { createGarment } from './garments';
@@ -64,7 +73,7 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
     process.off('unhandledRejection', recordUnhandled);
     await t?.cleanup();
   });
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
 
   // The photo pipeline is started inside the multipart loop without an
   // awaiting caller (GarmentService.storeUploadedPhotoWithCutout); a decode
@@ -81,7 +90,7 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
       const garmentId = await createGarment(t, { name: filename });
       const filesBefore = await storedFiles();
       const rowsBefore = await t.em().count(File);
-      const warn = jest.spyOn(t.app.get(PinoLogger), 'warn');
+      const warn = vi.spyOn(t.app.get(PinoLogger), 'warn');
 
       const res = await upload(
         garmentId,

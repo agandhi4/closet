@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { variantFileName } from '../../src/file/image-variant';

@@ -1,4 +1,4 @@
-import { OutfitSlot } from 'src/dal/entity/outfit.entity';
+import type { OutfitSlot } from '../../dal/entity/outfit.entity';
 
 export interface UpdateOutfitDto {
   name?: string;

@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { FastifyReply } from 'fastify';
 import { Readable } from 'stream';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { FileService } from '../file-service.abstract';
 import { FileController } from './file.controller';
 
@@ -10,19 +11,19 @@ const PHOTO = '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b.webp';
 describe('FileController', () => {
   let controller: FileController;
   let fileService: {
-    getVariant: jest.Mock;
-    getByShareableId: jest.Mock;
-    watermarkImage: jest.Mock;
+    getVariant: Mock;
+    getByShareableId: Mock;
+    watermarkImage: Mock;
   };
-  let reply: { header: jest.Mock; send: jest.Mock; sent: boolean };
+  let reply: { header: Mock; send: Mock; sent: boolean };
 
   beforeEach(async () => {
     fileService = {
-      getVariant: jest.fn(),
-      getByShareableId: jest.fn(),
-      watermarkImage: jest.fn(),
+      getVariant: vi.fn(),
+      getByShareableId: vi.fn(),
+      watermarkImage: vi.fn(),
     };
-    reply = { header: jest.fn(), send: jest.fn(), sent: false };
+    reply = { header: vi.fn(), send: vi.fn(), sent: false };
     reply.header.mockReturnValue(reply);
 
     const module: TestingModule = await Test.createTestingModule({

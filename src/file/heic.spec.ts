@@ -2,10 +2,11 @@ import { MultipartFile } from '@fastify/multipart';
 import { PayloadTooLargeException } from '@nestjs/common';
 import heicConvert from 'heic-convert';
 import { Readable } from 'stream';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { decodeHeic, isHeicUpload } from './heic';
 
-jest.mock('heic-convert', () => jest.fn());
-const heicConvertMock = heicConvert as unknown as jest.Mock;
+vi.mock('heic-convert', () => ({ default: vi.fn() }));
+const heicConvertMock = vi.mocked(heicConvert);
 
 const part = (mimetype: string, filename: string): MultipartFile =>
   ({ mimetype, filename }) as MultipartFile;
@@ -24,7 +25,11 @@ describe('isHeicUpload', () => {
 });
 
 describe('decodeHeic', () => {
-  beforeEach(() => heicConvertMock.mockReset());
+  // Braced: Vitest runs a function returned from beforeEach as its cleanup,
+  // and mockReset() returns the mock itself.
+  beforeEach(() => {
+    heicConvertMock.mockReset();
+  });
 
   it('drains the whole part before rejecting an oversized upload', async () => {
     const chunks = [Buffer.alloc(600), Buffer.alloc(600), Buffer.alloc(600)];

@@ -1,6 +1,7 @@
 import { EntityManager } from '@mikro-orm/knex';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
+import { describe, expect, it, vi } from 'vitest';
 import { FileService } from '../file/file-service.abstract';
 import {
   RECONCILE_CRON_JOB,
@@ -10,10 +11,10 @@ import {
 // The reconciliation passes themselves are covered against the real app in
 // test/integration/reconcile.spec.ts; this pins the cron guard's wiring.
 const build = (maintenanceEnabled: boolean) => {
-  const schedulerRegistry = { deleteCronJob: jest.fn() };
+  const schedulerRegistry = { deleteCronJob: vi.fn() };
   const service = new StorageReconciliationService(
     {
-      get: jest.fn((key: string) =>
+      get: vi.fn((key: string) =>
         key === 'MAINTENANCE_ENABLED' ? maintenanceEnabled : undefined,
       ),
     } as unknown as ConfigService,
@@ -42,7 +43,7 @@ describe('StorageReconciliationService cron guard', () => {
   it('logs instead of throwing when a scheduled run fails', async () => {
     const { service } = build(true);
     const failure = new Error('storage unreachable');
-    jest.spyOn(service, 'reconcile').mockRejectedValue(failure);
+    vi.spyOn(service, 'reconcile').mockRejectedValue(failure);
     await expect(service.scheduled()).resolves.toBeUndefined();
   });
 });

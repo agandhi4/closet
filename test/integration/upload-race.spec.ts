@@ -1,5 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import sharp from 'sharp';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { variantFileName } from '../../src/file/image-variant';
 import { createGarment, jpegPhoto } from './garments';
