@@ -1,8 +1,9 @@
-import type { FastifyPluginCallback } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { isStaticPath } from '../static-prefixes';
 import { createSessionHook } from './auth';
 import { createErrorHandler } from './errors';
 import type { WebLogger } from './logger';
+import { shellRoutes } from './shell/routes';
 
 /** Config the ported routes read, resolved once by createApp(). */
 export interface WebConfig {
@@ -30,10 +31,9 @@ export interface WebOptions {
  * its parent had when it was registered. That includes nestjs-pino's request
  * log, hence the onResponse hook below.
  */
-export const webPlugin: FastifyPluginCallback<WebOptions> = (
+export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   app,
   options,
-  done,
 ) => {
   const { logger } = options;
   app.addHook('preHandler', createSessionHook(logger));
@@ -46,5 +46,6 @@ export const webPlugin: FastifyPluginCallback<WebOptions> = (
       `${request.method} ${request.url} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms`,
     );
   });
-  done();
+
+  await app.register(shellRoutes, options);
 };
