@@ -22,6 +22,8 @@ describe('GET /manifest.json', () => {
     expect(manifest.short_name).toBe('Household Closet');
     expect(manifest.icons[0].src).toBe('/assets/icon.png');
     expect(manifest.start_url).toBe('/wardrobe');
+    // Issue #4: the install dialogs show none, so none are fetched.
+    expect(manifest).not.toHaveProperty('screenshots');
   });
 
   // Android's share sheet: a shared product page opens the link import,

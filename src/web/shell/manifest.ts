@@ -58,22 +58,9 @@ export function webManifest(config: {
       params: { title: 'title', text: 'text', url: 'url' },
     },
     description: 'Wardrobe organizer: garments, outfits, and a calendar.',
-    screenshots: [
-      {
-        src: '/assets/screenshots/Screenshot_1.webp',
-        sizes: '2300x2034',
-        type: 'image/webp',
-        form_factor: 'wide',
-        label: 'Wardrobe view with garment catalog',
-      },
-      {
-        src: '/assets/screenshots/Screenshot_mobile_1.webp',
-        sizes: '1179x2556',
-        type: 'image/webp',
-        form_factor: 'narrow',
-        label: 'Wardrobe view on mobile',
-      },
-    ],
+    // No `screenshots` (issue #4): the install dialogs (the browser's and
+    // <pwa-install>) would fetch them for a household whose phones already
+    // have the app.
     categories: ['lifestyle', 'utilities'],
   };
 }

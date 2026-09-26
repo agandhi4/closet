@@ -71,22 +71,28 @@ function startPush() {
     .catch((error) => console.warn('[pwa] push sync failed', error));
 }
 
-// The <pwa-install> dialog (@khmyznikov/pwa-install, 100 KB) only where
-// installing is possible: never in the installed app, and in Chromium only
-// once the browser offers it (beforeinstallprompt: installable and not
-// installed yet). Safari and Firefox have no such event; the element decides
-// there whether it has instructions to show. It is mounted once per document
-// on <html>, outside the body htmx swaps: in the body every navigation
-// re-mounted it, and every mount fetched /manifest.json again.
+// The <pwa-install> dialog (@khmyznikov/pwa-install, 100 KB) shows itself
+// wherever it is mounted and can install, and mounting it costs the bundle,
+// /manifest.json and the 45 KB icon. So only a load that can offer an
+// install pays for it: never the installed app (the caller checks), in
+// Chromium only once the browser offers installing (beforeinstallprompt:
+// installable and not installed yet), and elsewhere only where the element
+// has instructions to give (manualInstallPlatform). No screenshots in the
+// dialog (issue #4: the household's phones already have the app).
+// Mounted once per document on <html>, outside the body htmx swaps: in the
+// body every navigation re-mounted it, and every mount fetched the manifest.
 function offerInstall() {
   const mount = async (promptEvent) => {
     await import('pwa-install');
     const dialog = document.createElement('pwa-install');
     dialog.id = 'pwa-install';
     dialog.setAttribute('manifest-url', '/manifest.json');
+    dialog.setAttribute('disable-screenshots', 'true');
     if (promptEvent) dialog.externalPromptEvent = promptEvent;
     document.documentElement.append(dialog);
-    console.info('[pwa] install dialog mounted');
+    console.info(
+      `[pwa] install dialog mounted (${promptEvent ? 'browser prompt' : 'instructions'})`,
+    );
   };
   const failed = (error) =>
     console.warn('[pwa] install dialog failed to load', error);
@@ -100,9 +106,22 @@ function offerInstall() {
       },
       { once: true },
     );
-  } else {
+  } else if (manualInstallPlatform()) {
     mount().catch(failed);
   }
+}
+
+// Where a browser without beforeinstallprompt can still install the app, the
+// platforms @khmyznikov/pwa-install gives instructions for: Add to Home
+// Screen on iPhone and iPad (every browser there is WebKit), Add to Dock in
+// Safari on macOS, the browser menu on Android. Anywhere else (Firefox on a
+// desktop) the element would fetch everything and show nothing.
+function manualInstallPlatform() {
+  const ua = navigator.userAgent;
+  // iPadOS asks for the desktop site by default: a "Macintosh" with touch.
+  const touchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  const macSafari = /Macintosh/.test(ua) && /Version\/[\d.]+ Safari\//.test(ua);
+  return /iPhone|iPad|iPod|Android/.test(ua) || touchMac || macSafari;
 }
 
 // https://stackoverflow.com/questions/75972895/ios-pwa-how-to-re-enable-pull-to-refresh
