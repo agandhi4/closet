@@ -1,6 +1,5 @@
-import { MikroORM } from '@mikro-orm/core';
-import { PostgreSqlDriver } from '@mikro-orm/postgresql';
 import { randomBytes } from 'node:crypto';
+import { Client } from 'pg';
 
 /**
  * A throwaway Postgres database for one test run, created on the server named
@@ -27,20 +26,13 @@ export async function createScratchDatabase(
   const adminUrl = process.env.TEST_DATABASE_URL ?? LOCAL_ADMIN_URL;
   const url = new URL(adminUrl);
   const name = `${prefix}_${randomBytes(6).toString('hex')}`;
-  // The admin connection goes through MikroORM itself so no Postgres client
-  // dependency is needed beyond what the app already has.
   const run = async (sql: string) => {
-    const orm = await MikroORM.init({
-      driver: PostgreSqlDriver,
-      clientUrl: adminUrl,
-      entities: [],
-      discovery: { warnWhenNoEntities: false },
-      allowGlobalContext: true,
-    });
+    const client = new Client({ connectionString: adminUrl });
+    await client.connect();
     try {
-      await orm.em.getConnection().execute(sql);
+      await client.query(sql);
     } finally {
-      await orm.close();
+      await client.end();
     }
   };
 
