@@ -1,22 +1,48 @@
 import type { Child } from 'hono/jsx';
+import {
+  FITS,
+  FORMALITIES,
+  LENGTHS,
+  MATERIALS,
+  PATTERNS,
+  SLEEVES,
+  typesOf,
+  WARMTHS,
+} from '../../wardrobe/properties';
+import { PostForm } from '../auth/form';
 import { imageUrl } from '../files/image-url';
-import { t } from '../i18n';
+import { type StringKey, t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
-import { EmptyState, HangerIcon } from '../layout/parts';
+import {
+  EmptyState,
+  HangerIcon,
+  SavedToast,
+  StripFlags,
+} from '../layout/parts';
 import type { SharedWardrobe } from '../sharing/access';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, GARMENT_COLORS } from './garment';
 import type { FilterOptions, GarmentTile, GridPage } from './queries';
+import { type LabelledProperty, valueLabel } from './labels';
 import { garmentUrl, wardrobeUrl } from './urls';
+import { BULK_PROPERTIES, type BulkProperty } from './validation';
 
-/** The grid's filters as the page echoes them into its links and forms. */
+/**
+ * The grid's filters as the page echoes them into its links and forms. The
+ * keys are the query parameters' names ('' for not set).
+ */
 export interface GridSearch {
   keyword: string;
   category: string;
   color: string;
   size: string;
+  /** A type of `category`; '' without one. */
+  type: string;
+  warmth: string;
+  formality: string;
+  material: string;
   /** 'true' when archived garments are shown too; '' otherwise. */
   archived: string;
 }
@@ -31,7 +57,14 @@ export interface WardrobeModel {
   /** The shared wardrobe shown; undefined for the requester's own. */
   viewOwner: number | undefined;
   canEdit: boolean;
+  /** Select mode (?select=1): tiles are checkboxes of the bulk form. */
+  selecting: boolean;
+  /** After POST /wardrobe/bulk: its toast. */
+  bulkResult?: { updated: number; skipped: number };
 }
+
+/** The one-shot flags the bulk edit's redirect carries (GridQuery). */
+const BULK_FLAGS = ['bulkUpdated', 'bulkSkipped'] as const;
 
 /** Tiles above the fold on a phone load eagerly; the rest when scrolled near. */
 const EAGER_TILES = 8;
@@ -44,14 +77,13 @@ const SWAP_MAIN = {
   'hx-push-url': 'true',
 } as const;
 
-function searchParams(search: GridSearch) {
-  return {
-    keyword: search.keyword,
-    category: search.category,
-    color: search.color,
-    size: search.size,
-    archived: search.archived,
-  };
+/**
+ * The filters as query parameters (empty ones are left out of URLs). It
+ * also renders hidden inputs in the search form, so a key added to
+ * GridSearch lands in the page: only filters belong there.
+ */
+export function searchParams(search: GridSearch): Record<string, string> {
+  return { ...search };
 }
 
 /** GET /wardrobe: the shell around the swappable main. */
@@ -76,76 +108,167 @@ export function WardrobePage(props: {
  * dock, and always start again from the first page.
  */
 export function WardrobeMain({ model }: { model: WardrobeModel }) {
-  const { search, viewOwner, canEdit } = model;
-  const newUrl = wardrobeUrl(viewOwner, {}, '/wardrobe/new');
+  const { search, viewOwner, selecting } = model;
   return (
     <main id="wardrobe-main" class="p-4 pt-20 pb-40">
-      <div class="flex items-center justify-between mb-6 px-2">
-        <h1 class="text-2xl font-bold">{t('WARDROBE')}</h1>
-        {canEdit && (
-          <a href={newUrl} class="btn btn-primary btn-sm">
-            + {t('NEW_GARMENT')}
-          </a>
-        )}
-      </div>
-
-      {/* Switching wardrobe swaps this main like a filter does (unfiltered,
-          ?ownerId= the only parameter; '' is the requester's own). */}
-      {model.sharedWardrobes.length > 0 && (
-        <div class="mb-4 px-2">
-          <select
-            name="ownerId"
-            class="select select-bordered select-sm w-full"
-            aria-label={t('MY_WARDROBE')}
-            hx-get="/wardrobe"
-            hx-trigger="change"
-            {...SWAP_MAIN}
-          >
-            <option value="" selected={viewOwner === undefined}>
-              {t('MY_WARDROBE')}
-            </option>
-            {model.sharedWardrobes.map((shared) => (
-              <option
-                value={shared.grantorId}
-                selected={viewOwner === shared.grantorId}
-              >
-                {shared.grantorName} ({shared.permission})
-              </option>
-            ))}
-          </select>
-        </div>
+      <Heading model={model} />
+      {model.sharedWardrobes.length > 0 && !selecting && (
+        <WardrobeSwitcher model={model} />
       )}
 
       <p class="text-sm text-base-content/60 mb-4 px-2">
         {model.count} {t('RESULTS')}
       </p>
 
-      {model.page.tiles.length > 0 ? (
-        <div id="wardrobe-grid" class="flex flex-wrap gap-4 justify-center">
-          <GarmentTiles
-            page={model.page}
-            search={search}
-            viewOwner={viewOwner}
-            firstPage
-          />
-        </div>
+      {model.page.tiles.length === 0 ? (
+        <NoTiles model={model} />
+      ) : selecting ? (
+        <BulkForm search={search} viewOwner={viewOwner}>
+          <Grid model={model} />
+        </BulkForm>
       ) : (
-        <EmptyState message={t('NO_GARMENTS')}>
-          {canEdit && (
-            <a href={newUrl} class="btn btn-primary btn-sm">
-              {t('ADD_FIRST_GARMENT')}
-            </a>
-          )}
-        </EmptyState>
+        <Grid model={model} />
       )}
 
-      <FilterBar search={search} viewOwner={viewOwner} />
-      <FilterModal
-        search={search}
-        options={model.options}
-        viewOwner={viewOwner}
-      />
+      {selecting ? (
+        <BulkDialog />
+      ) : (
+        <>
+          <FilterBar search={search} viewOwner={viewOwner} />
+          <FilterModal
+            search={search}
+            options={model.options}
+            viewOwner={viewOwner}
+          />
+        </>
+      )}
+      {model.bulkResult && <BulkToast result={model.bulkResult} />}
     </main>
+  );
+}
+
+/**
+ * No tiles: nothing matches the filters (say so, offer to clear them), or
+ * the wardrobe is empty (offer the first garment).
+ */
+function NoTiles({ model }: { model: WardrobeModel }) {
+  const { search, viewOwner } = model;
+  const filtered = Object.values(searchParams(search)).some((value) => value);
+  if (filtered) {
+    const clear = wardrobeUrl(viewOwner);
+    return (
+      <EmptyState message={t('NO_GARMENTS_MATCH')}>
+        <a href={clear} hx-get={clear} {...SWAP_MAIN} class="btn btn-sm">
+          {t('CLEAR_FILTERS')}
+        </a>
+      </EmptyState>
+    );
+  }
+  return (
+    <EmptyState message={t('NO_GARMENTS')}>
+      {model.canEdit && (
+        <a
+          href={wardrobeUrl(viewOwner, {}, '/wardrobe/new')}
+          class="btn btn-primary btn-sm"
+        >
+          {t('ADD_FIRST_GARMENT')}
+        </a>
+      )}
+    </EmptyState>
+  );
+}
+
+/** The title and, for someone who may edit, Select (or Cancel) and New. */
+function Heading({ model }: { model: WardrobeModel }) {
+  const { search, viewOwner, canEdit, selecting } = model;
+  return (
+    <div class="flex items-center justify-between gap-2 mb-6 px-2">
+      <h1 class="text-2xl font-bold">
+        {selecting ? t('SELECT_GARMENTS') : t('WARDROBE')}
+      </h1>
+      {canEdit && (
+        <div class="flex gap-2">
+          {model.page.tiles.length > 0 && (
+            <SelectToggle
+              search={search}
+              viewOwner={viewOwner}
+              selecting={selecting}
+            />
+          )}
+          {!selecting && (
+            <a
+              href={wardrobeUrl(viewOwner, {}, '/wardrobe/new')}
+              class="btn btn-primary btn-sm"
+            >
+              + {t('NEW_GARMENT')}
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A grantee's wardrobe switcher: swaps this main like a filter does
+ * (unfiltered, ?ownerId= the only parameter; '' is the requester's own).
+ */
+function WardrobeSwitcher({ model }: { model: WardrobeModel }) {
+  const { viewOwner } = model;
+  return (
+    <div class="mb-4 px-2">
+      <select
+        name="ownerId"
+        class="select select-bordered select-sm w-full"
+        aria-label={t('MY_WARDROBE')}
+        hx-get="/wardrobe"
+        hx-trigger="change"
+        {...SWAP_MAIN}
+      >
+        <option value="" selected={viewOwner === undefined}>
+          {t('MY_WARDROBE')}
+        </option>
+        {model.sharedWardrobes.map((shared) => (
+          <option
+            value={shared.grantorId}
+            selected={viewOwner === shared.grantorId}
+          >
+            {shared.grantorName} ({shared.permission})
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function Grid({ model }: { model: WardrobeModel }) {
+  return (
+    <div id="wardrobe-grid" class="flex flex-wrap gap-4 justify-center">
+      <GarmentTiles
+        page={model.page}
+        search={model.search}
+        viewOwner={model.viewOwner}
+        selecting={model.selecting}
+        firstPage
+      />
+    </div>
+  );
+}
+
+/** "Select" into select mode, "Cancel" out of it; the filters stay. */
+function SelectToggle(props: {
+  search: GridSearch;
+  viewOwner: number | undefined;
+  selecting: boolean;
+}) {
+  const href = wardrobeUrl(props.viewOwner, {
+    ...searchParams(props.search),
+    select: props.selecting ? undefined : '1',
+  });
+  return (
+    <a href={href} hx-get={href} {...SWAP_MAIN} class="btn btn-ghost btn-sm">
+      {props.selecting ? t('CANCEL') : t('SELECT')}
+    </a>
   );
 }
 
@@ -160,24 +283,31 @@ export function GarmentTiles(props: {
   page: GridPage;
   search: GridSearch;
   viewOwner: number | undefined;
+  /** Select mode: checkbox tiles, and the next page asked for as such. */
+  selecting: boolean;
   firstPage?: boolean;
 }) {
-  const { page, search, viewOwner } = props;
+  const { page, search, viewOwner, selecting } = props;
   return (
     <>
-      {page.tiles.map((tile, index) => (
-        <Tile
-          tile={tile}
-          viewOwner={viewOwner}
-          eager={props.firstPage === true && index < EAGER_TILES}
-        />
-      ))}
+      {page.tiles.map((tile, index) => {
+        const eager = props.firstPage === true && index < EAGER_TILES;
+        return selecting ? (
+          <SelectTile tile={tile} eager={eager} />
+        ) : (
+          <Tile tile={tile} viewOwner={viewOwner} eager={eager} />
+        );
+      })}
       {page.before !== undefined && (
         <div
           class="w-full flex justify-center py-6"
           hx-get={wardrobeUrl(
             viewOwner,
-            { ...searchParams(search), before: page.before },
+            {
+              ...searchParams(search),
+              select: selecting ? '1' : undefined,
+              before: page.before,
+            },
             '/wardrobe/tiles',
           )}
           hx-trigger="revealed"
@@ -194,6 +324,8 @@ export function GarmentTiles(props: {
   );
 }
 
+const TILE_CLASS = 'card bg-base-100 w-40 sm:w-44 shadow-sm';
+
 function Tile(props: {
   tile: GarmentTile;
   viewOwner: number | undefined;
@@ -203,8 +335,39 @@ function Tile(props: {
   return (
     <a
       href={garmentUrl(tile.id, props.viewOwner)}
-      class={`card bg-base-100 w-40 sm:w-44 shadow-sm hover:shadow-md transition-shadow cursor-pointer ${tile.archived ? 'opacity-50' : ''}`}
+      class={`${TILE_CLASS} hover:shadow-md transition-shadow cursor-pointer ${tile.archived ? 'opacity-50' : ''}`}
     >
+      <TileContent tile={tile} eager={props.eager} />
+    </a>
+  );
+}
+
+/**
+ * A tile in select mode: a checkbox of the bulk form (`ids`), the whole
+ * card its label, ringed while checked. No link: a tap selects.
+ */
+function SelectTile(props: { tile: GarmentTile; eager: boolean }) {
+  const { tile } = props;
+  return (
+    <label
+      class={`${TILE_CLASS} relative cursor-pointer has-[:checked]:ring-2 has-[:checked]:ring-primary ${tile.archived ? 'opacity-50' : ''}`}
+    >
+      <input
+        type="checkbox"
+        name="ids"
+        value={String(tile.id)}
+        class="checkbox checkbox-primary checkbox-sm absolute top-2 left-2 z-10 not-checked:bg-base-100"
+        aria-label={tile.name ?? categoryLabel(tile.category)}
+      />
+      <TileContent tile={tile} eager={props.eager} />
+    </label>
+  );
+}
+
+function TileContent(props: { tile: GarmentTile; eager: boolean }) {
+  const { tile } = props;
+  return (
+    <>
       <figure class="aspect-square bg-base-200">
         {tile.photo ? (
           <img
@@ -228,7 +391,7 @@ function Tile(props: {
           {categoryLabel(tile.category)}
         </p>
       </div>
-    </a>
+    </>
   );
 }
 
@@ -253,6 +416,49 @@ function FilterPill(props: {
     >
       {props.label} &times;
     </a>
+  );
+}
+
+/** The property filters' pills (a type's pill only with its category's). */
+function PropertyPills(props: {
+  search: GridSearch;
+  viewOwner: number | undefined;
+}) {
+  const { search } = props;
+  const pills: { drop: keyof GridSearch; label: string }[] = [];
+  if (search.type) {
+    pills.push({ drop: 'type', label: valueLabel('type', search.type) });
+  }
+  if (search.warmth) {
+    pills.push({
+      drop: 'warmth',
+      label: `${t('PROPERTY_WARMTH')}: ${valueLabel('warmth', search.warmth)}`,
+    });
+  }
+  if (search.formality) {
+    pills.push({
+      drop: 'formality',
+      label: valueLabel('formality', search.formality),
+    });
+  }
+  if (search.material) {
+    pills.push({
+      drop: 'material',
+      label: valueLabel('materials', search.material),
+    });
+  }
+  return (
+    <>
+      {pills.map((pill) => (
+        <FilterPill
+          search={search}
+          viewOwner={props.viewOwner}
+          drop={pill.drop}
+          class="badge-info"
+          label={pill.label}
+        />
+      ))}
+    </>
   );
 }
 
@@ -315,6 +521,7 @@ function FilterBar(props: {
             label={search.size}
           />
         )}
+        <PropertyPills {...pill} />
         {search.archived && (
           <FilterPill
             {...pill}
@@ -332,10 +539,12 @@ function FilterBar(props: {
         id="search-form"
         class="flex gap-2"
       >
-        <input type="hidden" name="category" value={search.category} />
-        <input type="hidden" name="color" value={search.color} />
-        <input type="hidden" name="size" value={search.size} />
-        <input type="hidden" name="archived" value={search.archived} />
+        {/* Every other filter rides along with the keyword. */}
+        {Object.entries(searchParams(search))
+          .filter(([name, value]) => name !== 'keyword' && value !== '')
+          .map(([name, value]) => (
+            <input type="hidden" name={name} value={value} />
+          ))}
         {viewOwner !== undefined && (
           <input type="hidden" name="ownerId" value={viewOwner} />
         )}
@@ -417,6 +626,7 @@ function FilterModal(props: {
             ))}
           </FilterGroup>
         )}
+        <PropertyFilterGroups search={search} options={options} />
         <FilterGroup title={t('ARCHIVED')}>
           <label class="cursor-pointer flex items-center gap-2">
             <input
@@ -448,6 +658,71 @@ function FilterModal(props: {
         <button>{t('CLOSE')}</button>
       </form>
     </dialog>
+  );
+}
+
+/**
+ * The property filters, each offering only the values the wardrobe holds
+ * (FilterOptions). Types are listed for the chosen category alone, in the
+ * form's order.
+ */
+function PropertyFilterGroups(props: {
+  search: GridSearch;
+  options: FilterOptions;
+}) {
+  const { search, options } = props;
+  const types = typesOf(search.category)
+    .map((type) => type.value)
+    .filter((type) => options.types.includes(type));
+  const groups: {
+    name: keyof GridSearch;
+    property: LabelledProperty;
+    title: string;
+    values: readonly (string | number)[];
+  }[] = [
+    {
+      name: 'type',
+      property: 'type',
+      title: t('PROPERTY_TYPE'),
+      values: types,
+    },
+    {
+      name: 'warmth',
+      property: 'warmth',
+      title: t('PROPERTY_WARMTH'),
+      values: WARMTHS.filter((w) => options.warmths.includes(w)),
+    },
+    {
+      name: 'formality',
+      property: 'formality',
+      title: t('PROPERTY_FORMALITY'),
+      values: FORMALITIES.filter((f) => options.formalities.includes(f)),
+    },
+    {
+      name: 'material',
+      property: 'materials',
+      title: t('PROPERTY_MATERIALS'),
+      values: MATERIALS.filter((m) => options.materials.includes(m)),
+    },
+  ];
+  return (
+    <>
+      {groups
+        .filter((group) => group.values.length > 0)
+        .map((group) => (
+          <FilterGroup title={group.title}>
+            {group.values.map((value) => (
+              <Choice
+                name={group.name}
+                value={String(value)}
+                checked={String(value) === search[group.name]}
+                class="peer-checked:badge-info"
+                label={valueLabel(group.property, value)}
+              />
+            ))}
+          </FilterGroup>
+        ))}
+    </>
   );
 }
 
@@ -483,5 +758,202 @@ function Choice(props: {
         {props.label}
       </span>
     </label>
+  );
+}
+
+const BULK_FORM_ID = 'bulk-form';
+
+/**
+ * Select mode's form: the grid's checkbox tiles (later pages arrive inside
+ * it too), the bar with the live count and "Set…". A native post to
+ * POST /wardrobe/bulk carrying the filters in its query, so the redirect
+ * lands on the same grid. The count is the one line of script: it re-counts
+ * the checked boxes on every change.
+ */
+function BulkForm(props: {
+  search: GridSearch;
+  viewOwner: number | undefined;
+  children: Child;
+}) {
+  return (
+    <PostForm
+      id={BULK_FORM_ID}
+      action={wardrobeUrl(
+        props.viewOwner,
+        searchParams(props.search),
+        '/wardrobe/bulk',
+      )}
+    >
+      <div onchange="document.getElementById('selected-count').textContent = this.querySelectorAll('input[name=ids]:checked').length">
+        {props.children}
+        <div class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex items-center justify-between gap-2">
+          <span class="text-sm">
+            <span id="selected-count" class="font-semibold">
+              0
+            </span>{' '}
+            {t('SELECTED')}
+          </span>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            onclick="document.getElementById('bulk-dialog').showModal()"
+          >
+            {t('BULK_SET')}
+          </button>
+        </div>
+      </div>
+    </PostForm>
+  );
+}
+
+// Each bulk property's choices: the value field the garment form uses and
+// its values ('' clears; materials add one; water resistance is yes or no).
+const BULK_CHOICES: Record<
+  BulkProperty,
+  {
+    field: string;
+    label: StringKey;
+    values: readonly (string | number)[];
+    labelOf: (value: string | number) => string;
+    clearable: boolean;
+  }
+> = {
+  warmth: labelled('warmth', 'warmth', 'PROPERTY_WARMTH', WARMTHS),
+  formality: labelled(
+    'formality',
+    'formality',
+    'PROPERTY_FORMALITY',
+    FORMALITIES,
+  ),
+  materials: {
+    ...labelled('material', 'materials', 'PROPERTY_MATERIALS', MATERIALS),
+    clearable: false,
+  },
+  pattern: labelled('pattern', 'pattern', 'PROPERTY_PATTERN', PATTERNS),
+  fit: labelled('fit', 'fit', 'PROPERTY_FIT', FITS),
+  sleeve: labelled('sleeve', 'sleeve', 'PROPERTY_SLEEVE', SLEEVES),
+  length: labelled('length', 'length', 'PROPERTY_LENGTH', LENGTHS),
+  waterResistant: {
+    field: 'waterResistant',
+    label: 'PROPERTY_WATER_RESISTANT',
+    values: ['true', 'false'],
+    labelOf: (value) =>
+      t(value === 'true' ? 'WATER_RESISTANT_YES' : 'WATER_RESISTANT_NO'),
+    clearable: false,
+  },
+};
+
+function labelled(
+  field: string,
+  property: LabelledProperty,
+  label: StringKey,
+  values: readonly (string | number)[],
+) {
+  return {
+    field,
+    label,
+    values,
+    labelOf: (value: string | number) => valueLabel(property, value),
+    clearable: true,
+  };
+}
+
+/**
+ * "Set…": one property for every selected garment. The tabs are the
+ * `property` radio (daisyUI radio tabs: the checked tab shows its values,
+ * no script); each tab's chips are that property's field. Outside the form
+ * (forms cannot nest, and the backdrop is a dialog form of its own), its
+ * inputs join the bulk form through their `form` attribute.
+ */
+function BulkDialog() {
+  return (
+    <dialog id="bulk-dialog" class="modal modal-bottom sm:modal-middle">
+      <div class="modal-box">
+        <h3 class="font-bold text-lg mb-2">{t('BULK_TITLE')}</h3>
+        <p class="text-sm text-base-content/60 mb-4">{t('BULK_HINT')}</p>
+        <div role="tablist" class="tabs tabs-box tabs-sm flex-wrap">
+          {BULK_PROPERTIES.map((property, index) => {
+            const choice = BULK_CHOICES[property];
+            return (
+              <>
+                <input
+                  type="radio"
+                  name="property"
+                  value={property}
+                  form={BULK_FORM_ID}
+                  role="tab"
+                  class="tab"
+                  aria-label={t(choice.label)}
+                  checked={index === 0}
+                />
+                <div class="tab-content pt-4">
+                  {property === 'materials' && (
+                    <p class="text-xs text-base-content/60 mb-2">
+                      {t('BULK_MATERIALS_ADD')}
+                    </p>
+                  )}
+                  <div class="flex flex-wrap gap-2">
+                    {choice.clearable && (
+                      <input
+                        type="radio"
+                        name={choice.field}
+                        value=""
+                        form={BULK_FORM_ID}
+                        class="btn btn-sm btn-ghost rounded-full"
+                        aria-label={t('NOT_SET')}
+                      />
+                    )}
+                    {choice.values.map((value) => (
+                      <input
+                        type="radio"
+                        name={choice.field}
+                        value={String(value)}
+                        form={BULK_FORM_ID}
+                        class="btn btn-sm rounded-full"
+                        aria-label={choice.labelOf(value)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
+            );
+          })}
+        </div>
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            onclick="this.closest('dialog').close()"
+          >
+            {t('CANCEL')}
+          </button>
+          <button
+            type="submit"
+            form={BULK_FORM_ID}
+            class="btn btn-primary btn-sm"
+          >
+            {t('APPLY')}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>{t('CLOSE')}</button>
+      </form>
+    </dialog>
+  );
+}
+
+/** What the bulk edit did, once (StripFlags drops its flags from the URL). */
+function BulkToast(props: { result: { updated: number; skipped: number } }) {
+  const { updated, skipped } = props.result;
+  const text =
+    skipped > 0
+      ? t('BULK_RESULT_SKIPPED', { updated, skipped })
+      : t('BULK_RESULT', { updated });
+  return (
+    <>
+      <SavedToast id="bulk-toast" text={text} />
+      <StripFlags names={BULK_FLAGS} />
+    </>
   );
 }

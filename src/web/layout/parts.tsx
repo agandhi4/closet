@@ -1,5 +1,6 @@
 import type { Child } from 'hono/jsx';
 import { type ImageRef, imageUrl } from '../files/image-url';
+import { jsonForScript } from '../html';
 import { t } from '../i18n';
 
 /**
@@ -91,4 +92,55 @@ export function EmptyState(props: {
       {props.children}
     </div>
   );
+}
+
+/**
+ * A success message shown once after a redirect that carries a flag in the
+ * URL (`?created=1`, `?bulkUpdated=3`); it hides itself (toast-auto-hide in
+ * main.css). Pair it with StripFlags so a reload or a shared link does not
+ * show it again.
+ */
+export function SavedToast(props: { id: string; text: string }) {
+  return (
+    <div
+      id={props.id}
+      class="toast toast-top toast-center z-20 top-36 toast-auto-hide"
+      aria-live="polite"
+    >
+      <div class="alert alert-success shadow-md">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="size-5 shrink-0"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        <span>{props.text}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Drops one-shot flags from the address bar once the page has read them,
+ * so a reload or a copied URL does not replay their toast. `names` are the
+ * page's own constants; jsonForScript keeps them inert in the script anyway.
+ */
+export function StripFlags(props: { names: readonly string[] }) {
+  const script = `(() => {
+  const names = ${jsonForScript(props.names)};
+  const url = new URL(window.location.href);
+  if (names.some((name) => url.searchParams.has(name))) {
+    for (const name of names) url.searchParams.delete(name);
+    window.history.replaceState({}, '', url);
+  }
+})();`;
+  return <script dangerouslySetInnerHTML={{ __html: script }} />;
 }

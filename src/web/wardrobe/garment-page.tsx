@@ -5,7 +5,7 @@ import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
-import { BackLink, HangerIcon } from '../layout/parts';
+import { BackLink, HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import { ShareLinkButton } from '../share/share-button';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, splitColors } from './garment';
@@ -59,16 +59,8 @@ photoCaptureInput?.addEventListener('change', () => {
 wireUpEditMask(document.getElementById('garment-photo-slot'));
 wirePhotoUpload();`;
 
-// A fixed string: drops the one-shot flags so a reload or a shared URL does
-// not replay the toast.
-const STRIP_SAVE_FLAGS = `(() => {
-  const url = new URL(window.location.href);
-  if (url.searchParams.has('created') || url.searchParams.has('photoSaved')) {
-    url.searchParams.delete('created');
-    url.searchParams.delete('photoSaved');
-    window.history.replaceState({}, '', url);
-  }
-})();`;
+/** The one-shot flags the garment page's toasts read (GarmentPageQuery). */
+const GARMENT_PAGE_FLAGS = ['created', 'photoSaved'] as const;
 
 /** GET /wardrobe/:id: the photo (and its upload), the fields, and the actions. */
 export function GarmentPage(props: {
@@ -103,7 +95,7 @@ export function GarmentPage(props: {
       {model.justSavedPhoto && (
         <SavedToast id="photo-saved-toast" text={t('PHOTO_SAVED')} />
       )}
-      <script dangerouslySetInnerHTML={{ __html: STRIP_SAVE_FLAGS }} />
+      <StripFlags names={GARMENT_PAGE_FLAGS} />
       <Dock ctx={ctx} />
     </Layout>
   );
@@ -477,34 +469,6 @@ function PhotoForm({ model }: { model: GarmentPageModel }) {
         dangerouslySetInnerHTML={{ __html: PHOTO_SCRIPT }}
       />
     </>
-  );
-}
-
-function SavedToast(props: { id: string; text: string }) {
-  return (
-    <div
-      id={props.id}
-      class="toast toast-top toast-center z-20 top-36 toast-auto-hide"
-      aria-live="polite"
-    >
-      <div class="alert alert-success shadow-md">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="size-5 shrink-0"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-        <span>{props.text}</span>
-      </div>
-    </div>
   );
 }
 

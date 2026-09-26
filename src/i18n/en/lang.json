@@ -385,5 +385,17 @@
   "UNIT_OZ": "oz",
   "UNIT_GSM": "gsm",
   "FABRIC_WEIGHT_VALUE": "{oz} oz · {gsm} gsm",
-  "WATER_RESISTANT_YES": "Water-resistant"
+  "WATER_RESISTANT_YES": "Water-resistant",
+  "SELECT": "Select",
+  "SELECT_GARMENTS": "Select garments",
+  "BULK_SET": "Set…",
+  "BULK_TITLE": "Set on the selected garments",
+  "BULK_HINT": "Pick a property, then its value. Garments it does not apply to are skipped.",
+  "BULK_MATERIALS_ADD": "Adds the material to each garment’s materials.",
+  "NOT_SET": "Not set",
+  "WATER_RESISTANT_NO": "Not water-resistant",
+  "APPLY": "Apply",
+  "BULK_RESULT": "Set on {updated} garments",
+  "BULK_RESULT_SKIPPED": "Set on {updated} garments · {skipped} skipped (does not apply)",
+  "NO_GARMENTS_MATCH": "No garments match these filters."
 }

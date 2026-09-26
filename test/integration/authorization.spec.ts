@@ -142,6 +142,27 @@ const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  {
+    // Only ?ownerId: without it a grantee addresses their own wardrobe,
+    // where the owner's ids are ignored like unknown ones (a 303 that
+    // changes nothing; garment-bulk.spec.ts covers it).
+    name: 'POST /wardrobe/bulk',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: ['ownerId'],
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/bulk${q}`,
+      payload: { ids: [f.garmentId], property: 'warmth', warmth: '4' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'ok',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
 
   // Garment routes. Without ?ownerId a grantee addresses their own wardrobe,
   // which does not hold the owner's garment.

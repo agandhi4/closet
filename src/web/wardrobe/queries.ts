@@ -1,11 +1,32 @@
-import { and, desc, eq, ilike, lt, or, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  arrayContains,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  lt,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
 import type { ImageRef } from '../files/image-url';
 import { compareSizes } from './garment';
-import type { GarmentFields, GarmentPropertyFields } from './validation';
+import {
+  type Formality,
+  type Material,
+  propertyApplies,
+  type Warmth,
+} from '../../wardrobe/properties';
+import type {
+  BulkChange,
+  GarmentFields,
+  GarmentPropertyFields,
+} from './validation';
 
 /**
  * Garments' reads and writes. Every query names the wardrobe (owner) it
@@ -24,6 +45,12 @@ export interface GridFilters {
   category?: string;
   color?: string;
   size?: string;
+  /** A type of `category` (the route drops one that is not). */
+  type?: string;
+  warmth?: Warmth;
+  formality?: Formality;
+  /** Garments made (partly) of this material. */
+  material?: Material;
   /** Include archived garments (the modal's "Show archived"). */
   archived: boolean;
 }
@@ -55,6 +82,14 @@ function gridWhere(ownerId: number, filters: GridFilters): SQL | undefined {
     conditions.push(eq(garment.category, filters.category));
   }
   if (filters.size) conditions.push(eq(garment.size, filters.size));
+  if (filters.type) conditions.push(eq(garment.type, filters.type));
+  if (filters.warmth) conditions.push(eq(garment.warmth, filters.warmth));
+  if (filters.formality) {
+    conditions.push(eq(garment.formality, filters.formality));
+  }
+  if (filters.material) {
+    conditions.push(arrayContains(garment.materials, [filters.material]));
+  }
   if (filters.color) {
     // A whole item of the comma-joined list, never a substring of one.
     conditions.push(
@@ -123,15 +158,24 @@ export function gridCount(
   return db.$count(garment, gridWhere(ownerId, filters));
 }
 
-/** The values the filter modal offers, archived garments included. */
+/**
+ * The values the filter modal offers: only what the wardrobe holds
+ * (archived garments included), so no choice finds nothing.
+ */
 export interface FilterOptions {
   categories: string[];
   sizes: string[];
+  types: string[];
+  warmths: Warmth[];
+  formalities: Formality[];
+  materials: Material[];
 }
 
 /**
- * The wardrobe's distinct categories (sorted) and sizes (in wearing order),
- * in one statement. There is no brand filter in the UI, so no brand list.
+ * The wardrobe's distinct categories (sorted), sizes (in wearing order),
+ * types, warmths, formalities and materials, in one statement (materials
+ * through a subquery over their unnested arrays). There is no brand filter
+ * in the UI, so no brand list.
  */
 export async function filterOptions(
   db: Db,
@@ -145,12 +189,33 @@ export async function filterOptions(
       sizes: sql<
         string[]
       >`coalesce(array_agg(distinct ${garment.size}) filter (where ${garment.size} is not null), '{}')`,
+      types: sql<
+        string[]
+      >`coalesce(array_agg(distinct ${garment.type}) filter (where ${garment.type} is not null), '{}')`,
+      warmths: sql<
+        Warmth[]
+      >`coalesce(array_agg(distinct ${garment.warmth}) filter (where ${garment.warmth} is not null), '{}')`,
+      formalities: sql<
+        Formality[]
+      >`coalesce(array_agg(distinct ${garment.formality}) filter (where ${garment.formality} is not null), '{}')`,
+      // Its own scan of the wardrobe, deliberately uncorrelated: unnesting
+      // in the outer query would multiply its rows (harmless to the distinct
+      // aggregates above, but a trap for anything added later).
+      materials: sql<Material[]>`(
+        select coalesce(array_agg(distinct worn.material), '{}')
+        from garment owned cross join lateral unnest(owned.materials) as worn(material)
+        where owned.owner_id = ${ownerId}
+      )`,
     })
     .from(garment)
     .where(eq(garment.ownerId, ownerId));
   return {
     categories: [...row.categories].sort(),
     sizes: [...row.sizes].sort(compareSizes),
+    types: row.types,
+    warmths: [...row.warmths].sort(),
+    formalities: [...row.formalities].sort(),
+    materials: row.materials,
   };
 }
 
@@ -317,4 +382,67 @@ export function deleteGarment(
     }
     return locked.fileName;
   });
+}
+
+/**
+ * Sets one property on every listed garment of `ownerId`'s wardrobe whose
+ * role has it (propertyApplies: a sleeve is never set on shoes), in one
+ * transaction with the rows locked. Ids outside the wardrobe are ignored,
+ * like an unknown id. Materials add one to each garment's set; every other
+ * property is replaced (null clears it). Returns how many were set and how
+ * many were skipped for their role.
+ */
+export function bulkSetProperty(
+  db: Db,
+  ownerId: number,
+  ids: number[],
+  change: BulkChange,
+): Promise<{ updated: number; skipped: number }> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: garment.id, category: garment.category })
+      .from(garment)
+      .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, ids)))
+      .for('update');
+    const applicable = rows
+      .filter((row) => propertyApplies(change.property, row.category))
+      .map((row) => row.id);
+    if (applicable.length > 0) {
+      await tx
+        .update(garment)
+        .set(bulkSet(change))
+        .where(inArray(garment.id, applicable));
+    }
+    return {
+      updated: applicable.length,
+      skipped: rows.length - applicable.length,
+    };
+  });
+}
+
+function bulkSet(change: BulkChange) {
+  switch (change.property) {
+    case 'materials':
+      // Added once: a garment that already has it keeps its set as is.
+      return {
+        materials: sql<Material[]>`case
+          when ${garment.materials} @> array[${change.value}]::text[] then ${garment.materials}
+          else coalesce(${garment.materials}, '{}') || array[${change.value}]::text[]
+        end`,
+      };
+    case 'warmth':
+      return { warmth: change.value };
+    case 'formality':
+      return { formality: change.value };
+    case 'pattern':
+      return { pattern: change.value };
+    case 'fit':
+      return { fit: change.value };
+    case 'sleeve':
+      return { sleeve: change.value };
+    case 'length':
+      return { length: change.value };
+    case 'waterResistant':
+      return { waterResistant: change.value };
+  }
 }

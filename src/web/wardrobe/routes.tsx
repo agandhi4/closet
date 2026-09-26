@@ -1,6 +1,12 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { recordCutoutEvent } from '../../cutout/queries';
+import {
+  findType,
+  FORMALITIES,
+  MATERIALS,
+  WARMTHS,
+} from '../../wardrobe/properties';
 import { sessionUserId } from '../auth/require-session';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
@@ -29,6 +35,7 @@ import { type GarmentFormMode, GarmentFormPage } from './garment-form';
 import { GarmentPage, GarmentPhotoView } from './garment-page';
 import { PropertiesFragment } from './property-fields';
 import {
+  bulkSetProperty,
   filterOptions,
   findGarment,
   type GarmentDetail,
@@ -41,6 +48,7 @@ import {
 import { garmentUrl, wardrobeUrl } from './urls';
 import {
   BLANK_PROPERTIES,
+  BulkBody,
   GarmentBody,
   type GarmentField,
   type GarmentFormValues,
@@ -48,8 +56,10 @@ import {
   GarmentParams,
   GridQuery,
   OwnerQuery,
+  pick,
   PropertiesFragmentQuery,
   propertyFormValues,
+  readBulkChange,
   readGarmentForm,
   storedPropertyValues,
   TilesQuery,
@@ -58,6 +68,7 @@ import {
 import {
   GarmentTiles,
   type GridSearch,
+  searchParams,
   WardrobeMain,
   WardrobePage,
 } from './wardrobe-page';
@@ -119,12 +130,27 @@ async function requireGarment(
 }
 
 function gridSearch(query: GridQuery): GridSearch {
+  const category = query.category ? normalizeCategory(query.category) : '';
   return {
     keyword: query.keyword?.trim() ?? '',
-    category: query.category ? normalizeCategory(query.category) : '',
+    category,
     color: query.color ?? '',
     size: (query.size && normalizeSize(query.size)) || '',
+    ...propertySearch(query, category),
     archived: query.archived === 'true' ? 'true' : '',
+  };
+}
+
+/** The property filters; a type only with its own category. */
+function propertySearch(
+  query: GridQuery,
+  category: string,
+): Pick<GridSearch, 'type' | 'warmth' | 'formality' | 'material'> {
+  return {
+    type: findType(category, query.type)?.value ?? '',
+    warmth: query.warmth ?? '',
+    formality: query.formality ?? '',
+    material: query.material ?? '',
   };
 }
 
@@ -134,6 +160,10 @@ function gridFilters(search: GridSearch): GridFilters {
     category: search.category || undefined,
     color: search.color || undefined,
     size: search.size || undefined,
+    type: search.type || undefined,
+    warmth: pick(WARMTHS, search.warmth) ?? undefined,
+    formality: pick(FORMALITIES, search.formality) ?? undefined,
+    material: pick(MATERIALS, search.material) ?? undefined,
     archived: search.archived === 'true',
   };
 }
@@ -251,6 +281,15 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         sharedWardrobes,
         viewOwner,
         canEdit: access.canManage,
+        // Only someone who may write can select for a bulk edit.
+        selecting: access.canManage && request.query.select === '1',
+        bulkResult:
+          request.query.bulkUpdated === undefined
+            ? undefined
+            : {
+                updated: request.query.bulkUpdated,
+                skipped: request.query.bulkSkipped ?? 0,
+              },
       };
       if (wantsFragment(request, reply)) {
         return renderFragment(reply, <WardrobeMain model={model} />);
@@ -283,7 +322,12 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       return renderFragment(
         reply,
-        <GarmentTiles page={page} search={search} viewOwner={viewOwner} />,
+        <GarmentTiles
+          page={page}
+          search={search}
+          viewOwner={viewOwner}
+          selecting={access.canManage && request.query.select === '1'}
+        />,
       );
     },
   );
@@ -357,6 +401,42 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         `Garment ${id} created by user ${sessionUserId(request)} in wardrobe ${access.ownerId}`,
       );
       return reply.redirect(garmentUrl(id, viewOwner, '', { created: 1 }), 302);
+    },
+  );
+
+  // Select mode's "Set…": one property on every selected garment its role
+  // allows (bulkSetProperty), then back to the grid with the same filters
+  // (carried in the action's query) and a toast saying how many were set
+  // and skipped. A native post (PostForm): htmx drops a 4xx, and the answer
+  // is another page anyway.
+  app.post(
+    '/wardrobe/bulk',
+    { schema: { querystring: GridQuery, body: BulkBody } },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        options,
+        request,
+        request.query.ownerId,
+        'manage',
+      );
+      const ids = request.body.ids ?? [];
+      const change = readBulkChange(request.body);
+      const result =
+        change && ids.length > 0
+          ? await bulkSetProperty(db, access.ownerId, ids, change)
+          : { updated: 0, skipped: 0 };
+      logger.info(
+        `Bulk ${request.body.property} by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${result.updated} set, ${result.skipped} skipped, ${ids.length} selected`,
+      );
+      const search = gridSearch(request.query);
+      return reply.redirect(
+        wardrobeUrl(viewOwner, {
+          ...searchParams(search),
+          bulkUpdated: result.updated,
+          bulkSkipped: result.skipped,
+        }),
+        303,
+      );
     },
   );
 

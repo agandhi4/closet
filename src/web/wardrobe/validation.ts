@@ -425,8 +425,8 @@ function presetSource(
   };
 }
 
-/** The member of `set` the form posted; '' (the reset chip) is none. */
-function pick<T extends string | number>(
+/** The member of `set` a form or query posted; '' (the reset chip) is none. */
+export function pick<T extends string | number>(
   set: readonly T[],
   posted: string,
 ): T | null {
@@ -527,12 +527,29 @@ const GridFilters = {
     ]),
   ),
   size: Type.Optional(Type.String({ maxLength: SIZE_MAX })),
+  // A type outside the chosen category is dropped (gridSearch); the scales
+  // and the material are matched as stored values, so outside their sets
+  // they are a 400 like a colour.
+  type: Type.Optional(Type.String({ maxLength: 40 })),
+  warmth: choice(WARMTHS),
+  formality: choice(FORMALITIES),
+  material: Type.Optional(
+    Type.Union([
+      Type.Literal(''),
+      ...MATERIALS.map((material) => Type.Literal(material)),
+    ]),
+  ),
   archived: Type.Optional(Type.String({ maxLength: 10 })),
 };
 
 export const GridQuery = Type.Object({
   ...OwnerQuery.properties,
   ...GridFilters,
+  // Select mode: tiles are checkboxes of the bulk form. Navigation state.
+  select: Type.Optional(Type.String({ maxLength: 5 })),
+  // One-shot flags from POST /wardrobe/bulk's redirect (the toast).
+  bulkUpdated: Type.Optional(Type.Integer({ minimum: 0 })),
+  bulkSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 export type GridQuery = Static<typeof GridQuery>;
 
@@ -558,3 +575,109 @@ export const PropertiesFragmentQuery = Type.Object({
   category: Type.Optional(Type.String({ maxLength: CATEGORY_MAX })),
   ...PropertyFields,
 });
+
+/** The properties bulk edit can set: not type or weight, which are per garment. */
+export const BULK_PROPERTIES = [
+  'warmth',
+  'formality',
+  'materials',
+  'pattern',
+  'fit',
+  'sleeve',
+  'length',
+  'waterResistant',
+] as const;
+export type BulkProperty = (typeof BULK_PROPERTIES)[number];
+
+/**
+ * POST /wardrobe/bulk: the selected tiles' ids (none is a no-op), the
+ * property (the dialog's tab), and that property's value field, as the
+ * garment form names it. The other tabs' fields may ride along and are
+ * ignored. '' clears a property; materials add `material`.
+ */
+export const BulkBody = Type.Object({
+  ids: Type.Optional(Type.Array(RowId, { maxItems: 2000 })),
+  property: Type.Union(BULK_PROPERTIES.map((name) => Type.Literal(name))),
+  warmth: choice(WARMTHS),
+  formality: choice(FORMALITIES),
+  material: Type.Optional(
+    Type.Union(MATERIALS.map((material) => Type.Literal(material))),
+  ),
+  pattern: choice(PATTERNS),
+  fit: choice(FITS),
+  sleeve: choice(SLEEVES),
+  length: choice(LENGTHS),
+  waterResistant: Type.Optional(
+    Type.Union([Type.Literal('true'), Type.Literal('false')]),
+  ),
+});
+export type BulkBody = Static<typeof BulkBody>;
+
+/** One property's new value for every selected garment (bulkSetProperty). */
+export type BulkChange =
+  | { property: 'warmth'; value: Warmth | null }
+  | { property: 'formality'; value: Formality | null }
+  | { property: 'materials'; value: Material }
+  | { property: 'pattern'; value: Pattern | null }
+  | { property: 'fit'; value: Fit | null }
+  | { property: 'sleeve'; value: Sleeve | null }
+  | { property: 'length'; value: Length | null }
+  | { property: 'waterResistant'; value: boolean };
+
+// The field each bulk property's chips post.
+const BULK_FIELDS: Record<BulkProperty, keyof BulkBody> = {
+  warmth: 'warmth',
+  formality: 'formality',
+  materials: 'material',
+  pattern: 'pattern',
+  fit: 'fit',
+  sleeve: 'sleeve',
+  length: 'length',
+  waterResistant: 'waterResistant',
+};
+
+/**
+ * The change a bulk post asks for, or undefined when the chosen tab's
+ * chips were left alone. A radio group with nothing picked posts no key at
+ * all, which is not the "Not set" chip (the key with ''): reading the two
+ * alike would clear the property on every selected garment when someone
+ * switched tabs and tapped Apply without choosing.
+ */
+export function readBulkChange(body: BulkBody): BulkChange | undefined {
+  return body[BULK_FIELDS[body.property]] === undefined
+    ? undefined
+    : bulkChangeOf(body);
+}
+
+/** The chosen tab's posted value as its change ('' is "Not set"). */
+function bulkChangeOf(body: BulkBody): BulkChange | undefined {
+  switch (body.property) {
+    case 'warmth':
+      return { property: 'warmth', value: pick(WARMTHS, orEmpty(body.warmth)) };
+    case 'formality':
+      return {
+        property: 'formality',
+        value: pick(FORMALITIES, orEmpty(body.formality)),
+      };
+    case 'materials':
+      return body.material
+        ? { property: 'materials', value: body.material }
+        : undefined;
+    case 'pattern':
+      return {
+        property: 'pattern',
+        value: pick(PATTERNS, orEmpty(body.pattern)),
+      };
+    case 'fit':
+      return { property: 'fit', value: pick(FITS, orEmpty(body.fit)) };
+    case 'sleeve':
+      return { property: 'sleeve', value: pick(SLEEVES, orEmpty(body.sleeve)) };
+    case 'length':
+      return { property: 'length', value: pick(LENGTHS, orEmpty(body.length)) };
+    case 'waterResistant':
+      return {
+        property: 'waterResistant',
+        value: body.waterResistant === 'true',
+      };
+  }
+}
