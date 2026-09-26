@@ -105,6 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The boilerplate SSE chat demo (`/chat`, `/sse`, `/message`) and the `htmx-ext-sse` dependency
 - The Nest notification module (`/notification/*`), its `UserDevice` entity, and the `lodash` dependency it alone used
 - The generic file gallery (`/file/files`, `/file/upload`); `/file/*` now only serves image variants
+- S3 object storage (`FILE_STORAGE_TYPE=object`, `OBJECT_STORAGE_*`, `nestjs-s3`, the AWS SDK and CI's S3 smoke job): photos are stored on local disk under `DATA_PATH`, as production always did. A leftover `FILE_STORAGE_TYPE=local` is ignored
 
 ## 0.5.1 - 2026-09-10
 

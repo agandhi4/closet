@@ -4,7 +4,7 @@
 
 ## What It Is
 
-Closet is a self-hosted fork of Libre Closet (AGPL-3.0). It runs as a server-rendered progressive web app on your own hardware; data stays in a local SQLite or PostgreSQL database.
+Closet is a self-hosted fork of Libre Closet (AGPL-3.0). It runs as a server-rendered progressive web app on your own hardware; data stays in a PostgreSQL database.
 
 ## Routes
 
@@ -18,10 +18,10 @@ Closet is a self-hosted fork of Libre Closet (AGPL-3.0). It runs as a server-ren
 
 - NestJS on Fastify (TypeScript), Handlebars templates
 - htmx + hyperscript, Tailwind + daisyUI
-- SQLite or PostgreSQL via MikroORM
+- PostgreSQL (Drizzle ORM)
 - Client-side background removal (ONNX runtime)
 - Workbox service worker, Web Push
-- Local disk or S3-compatible file storage
+- Photos stored on local disk
 
 ## Links
 

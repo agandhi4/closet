@@ -14,10 +14,9 @@ import { createScratchDatabase } from '../test/support/scratch-database';
  * `test:load:compare` can diff each one against the saved baseline.
  *
  * LOAD_TEST_DURATION (seconds per target, default 5) is the only knob; the
- * server otherwise inherits the environment (file storage, as in CI's local
- * and object-storage jobs). It always runs on a scratch Postgres database, and
- * DATA_PATH defaults to a fresh temp directory, so a local run never seeds
- * the development database or its photos.
+ * server otherwise inherits the environment. It always runs on a scratch
+ * Postgres database, and DATA_PATH defaults to a fresh temp directory, so a
+ * local run never seeds the development database or its photos.
  */
 
 const BASE_URL = 'http://localhost:3000';

@@ -82,8 +82,8 @@ export abstract class FileService implements FileServiceInterface {
    * Must be atomic: until it resolves, readers see no object under `fileName`
    * (or the previous one), never a partial write; and a rejected store leaves
    * nothing behind. Photo and cutout are written concurrently and the thumb
-   * writer reads whichever exists (S3 gives this for free; the local backend
-   * writes to a temp file and renames).
+   * writer reads whichever exists (the local backend writes to a temp file
+   * and renames).
    */
   protected abstract store(fileName: string, stream: Readable): Promise<void>;
 
@@ -342,7 +342,7 @@ export abstract class FileService implements FileServiceInterface {
 
   // Runs the source through sharp into the backend's store. Both sides are
   // awaited together: pipeline() ending the PassThrough is what tells the
-  // store (an S3 Upload or a file write) that the body is complete. Whichever
+  // store (a file write) that the body is complete. Whichever
   // side fails first is the root cause; the other then fails from the
   // destroyed PassThrough and is only drained. A source-side failure is
   // reported as UnreadableImageError so callers can tell bad input from
