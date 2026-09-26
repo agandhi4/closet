@@ -95,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Removed
 
+- German, Spanish, French, Italian and Russian strings, the Accept-Language resolver and the unused generated i18n types: the app is English only
 - Password reset by email: `/auth/reset`, `/auth/reset-code` and their validation route, the `password_reset` table and `user.password_reset_id` (whose `ON DELETE CASCADE` let a deleted reset row take its user with it), `src/email/`, the `EMAIL_*` settings and the `nodemailer` and `nodemailer-mailgun-transport` dependencies
 - `AUTH_ENABLED` and the anonymous mode it switched on (owner-less garments, outfits and calendar entries visible to every visitor). A leftover `AUTH_ENABLED` in the environment is ignored
 - SQLite support: `DATABASE_TYPE`, the `@mikro-orm/better-sqlite` driver, the SQLite migration tree and its CLI config. Postgres (13+) is required; `DATABASE_HOST`, `DATABASE_SCHEMA`, `DATABASE_USER` and `DATABASE_PASS` no longer have defaults. Tests and the load test run on scratch Postgres databases (`TEST_DATABASE_URL`, default pgvault-dev on `localhost:5432`)

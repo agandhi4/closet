@@ -9,7 +9,7 @@ import { DalModule } from './dal/dal.module';
 import { DbModule } from './db/db.module';
 import { NotificationModule } from './notification/notification.module';
 import { FileModule } from './file/file.module';
-import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
+import { I18nModule } from 'nestjs-i18n';
 import { OpenGraphModule } from './open-graph/open-graph.module';
 import { WardrobeModule } from './wardrobe/wardrobe.module';
 import { WardrobeShareModule } from './wardrobe-share/wardrobe-share.module';
@@ -199,20 +199,15 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
       },
       isGlobal: true,
     }),
+    // English only (owner decision 2026-09-26): no language resolver, one
+    // catalog. Kept only for the Handlebars views still in Nest; JSX views use
+    // src/web/i18n.ts. Live reload is a development convenience.
     I18nModule.forRoot({
       fallbackLanguage: 'en',
-      resolvers: [AcceptLanguageResolver],
       loaderOptions: {
         path: path.join(__dirname, '/i18n/'),
         watch: process.env.NODE_ENV === 'development',
       },
-      // Live-reloading and regenerating src/i18n/generated/ are development
-      // conveniences only: production must not watch, and parallel test
-      // workers must not race to rewrite a source file.
-      typesOutputPath:
-        process.env.NODE_ENV === 'development'
-          ? path.join(__dirname, '../src/i18n/generated/i18n.generated.ts')
-          : undefined,
       viewEngine: 'hbs',
     }),
     // Runs the migrations (src/db/migrate.ts) before anything queries.
