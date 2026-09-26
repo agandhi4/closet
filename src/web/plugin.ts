@@ -13,6 +13,7 @@ import type { WebLogger } from './logger';
 import { outfitRoutes } from './outfits/routes';
 import { pushRoutes } from './push/routes';
 import { createPushSender, type VapidConfig } from './push/sender';
+import { shareRoutes } from './share/routes';
 import { shellRoutes } from './shell/routes';
 import { sharingRoutes } from './sharing/routes';
 
@@ -98,4 +99,5 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
     });
   }
   await app.register(fileRoutes, options);
+  await app.register(shareRoutes, options);
 };

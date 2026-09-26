@@ -45,7 +45,8 @@ src/
                        /push/*, the sender and the payload the service worker shares, see Web Push;
                        files/: photos, see Images: photos.ts (Photos), storage.ts (PhotoStorage, the
                        disk), queries.ts, routes.ts (/file/**), image-variant.ts (names), image-url.ts
-                       (the one URL builder), heic.ts).
+                       (the one URL builder), heic.ts; share/: /share, the public share-link page and
+                       its Open Graph preview).
                        schemas.ts: shared TypeBox pieces (RowId, IsoDateSchema).
                        security/: same-origin hook, rate limits, safeReturnTo, origin
   db/                  Drizzle: the schema and migration authority, and the query layer ported code uses
@@ -66,14 +67,11 @@ src/
   wardrobe-share/      WardrobeShareService: Nest's wrapper around src/web/sharing/access.ts for the
                        garment routes; goes when they are ported
   file/                FileModule: Nest's provider of the one Photos instance (src/web/files) for the
-                       garment code and createApp(); goes when garments are ported. file-url/: the
-                       Open Graph image URL
+                       garment code and createApp(); goes when garments are ported
   maintenance/         StorageReconciliationService: nightly @Cron (MAINTENANCE_ENABLED) and
                        reconcile.cli.ts (`npm run maintenance:reconcile`) keeping storage and the
                        file table in step; owns ScheduleModule.forRoot(). set-password.cli.ts
                        (`npm run user:set-password -- <email>`): the locked-out recovery
-  open-graph/          OG meta for shared links (Nest); its outfit branch reads findSharedOutfit from
-                       src/web/outfits/queries.ts through the DB token
   view-context/        Builds the per-request page context (ViewContext, user, flags) exposed as reply.locals
   i18n/en/lang.json    the English string catalog
 views/                 Handlebars, one directory per feature module + partials/ + layout
