@@ -31,8 +31,6 @@ export function SharePage(props: {
   preview: SharePreview | undefined;
 }) {
   const { ctx, shared, preview } = props;
-  const owner =
-    shared?.type === 'garment' ? shared.garment.owner : shared?.outfit.owner;
   return (
     <Layout
       ctx={ctx}
@@ -43,20 +41,31 @@ export function SharePage(props: {
     >
       <Navbar ctx={ctx} />
       <main class="p-4 pt-20 pb-24 max-w-lg mx-auto flex flex-col items-center gap-6">
-        {shared?.type === 'garment' && <GarmentCard garment={shared.garment} />}
-        {shared?.type === 'outfit' && <OutfitCard outfit={shared.outfit} />}
-        <div class="fixed bottom-15 left-0 right-0 p-4 shadow-lg bg-gradient-to-t from-base-100 via-base-100/50 to-transparent">
-          <div class="flex flex-row gap-2 items-center justify-center">
-            {owner && (
-              <p>
-                {t('SHARED_BY')} {owner.email}
-              </p>
-            )}
-          </div>
-        </div>
+        {shared && <SharedItem shared={shared} />}
       </main>
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+function SharedItem({ shared }: { shared: Shared }) {
+  const owner =
+    shared.type === 'garment' ? shared.garment.owner : shared.outfit.owner;
+  return (
+    <>
+      {shared.type === 'garment' ? (
+        <GarmentCard garment={shared.garment} />
+      ) : (
+        <OutfitCard outfit={shared.outfit} />
+      )}
+      <div class="fixed bottom-15 left-0 right-0 p-4 shadow-lg bg-gradient-to-t from-base-100 via-base-100/50 to-transparent">
+        <div class="flex flex-row gap-2 items-center justify-center">
+          <p>
+            {t('SHARED_BY')} {owner.email}
+          </p>
+        </div>
+      </div>
+    </>
   );
 }
 

@@ -13,7 +13,6 @@ import { WardrobeModule } from './wardrobe/wardrobe.module';
 import { WardrobeShareModule } from './wardrobe-share/wardrobe-share.module';
 import { LoggerModule } from 'nestjs-pino';
 import { ErrorViewFilter } from './error-view.filter';
-import { MaintenanceModule } from './maintenance/maintenance.module';
 import { ViewContextModule } from './view-context/view-context.module';
 import { isStaticPath } from './static-prefixes';
 import { isValidTimeZone } from './web/calendar/calendar-date';
@@ -150,8 +149,8 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
         // Empty is valid: pgvault-dev and the test databases use trust auth.
         DATABASE_PASS: Joi.string().allow('').required(),
         DATABASE_SSL: Joi.boolean().default(false),
-        // Nightly storage reconciliation (MaintenanceModule). Off in the
-        // integration harness; `npm run maintenance:reconcile` runs it once
+        // Nightly storage reconciliation at 03:00 APP_TIMEZONE, scheduled by
+        // the server (main.ts); `npm run maintenance:reconcile` runs it once
         // regardless.
         MAINTENANCE_ENABLED: Joi.boolean().default(true),
         // HEIC uploads are decoded in memory before sharp sees them; a part
@@ -184,7 +183,6 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     WardrobeModule,
     WardrobeShareModule,
     ViewContextModule,
-    MaintenanceModule,
   ],
   providers: [
     // Login is always required: every Nest route needs a session unless it
