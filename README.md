@@ -131,8 +131,9 @@ them afterwards.
 ### Scripts
 
 ```bash
-npm run start:dev       # watch mode
-npm run start:prod      # production
+npm run start:dev       # tsc --watch + node --watch + tailwind --watch
+npm run build           # tsc (type-checked) to dist/, plus Tailwind, the service worker and the cache key
+npm run start:prod      # node dist/main.js
 npm run test            # Vitest unit tests (test:watch to rerun on change)
 npm run test:int        # Vitest integration tests (real app in-process, scratch Postgres database per file)
 npm run test:all        # both Vitest tiers in one run
@@ -156,6 +157,10 @@ container: `docker exec -it closet npm run user:set-password -- <email>`). It
 asks for the password twice without echoing it (or reads one line from piped
 stdin), applies the registration rules, and signs out every existing session
 of that account. An unknown email changes nothing and exits with status 1.
+
+Neither this nor the storage maintenance command migrates the database: they
+refuse, with exit status 1, a database the running build has not migrated
+yet. Start the server of that build first (it migrates at boot).
 
 ### Storage maintenance
 

@@ -7,7 +7,7 @@ tools:
 
 First read and understand the instructions in .github/prompts/boilerplate.prompt.md for coding standards and practices for this repository. Keep those in mind and follow them while working with the user.
 
-Now with that understood. When the user describes a feature or change in behavior you are to follow the TDD (Test Driven Development) pattern of writing a failing test case first to assert this. Given the nature of the conversation you are to confirm based on the best judgment whether these are using the playwright testing framework (this is most likely the case) or if you should do unit testing with proper nestjs testing module mocks.
+Now with that understood. When the user describes a feature or change in behavior you are to follow the TDD (Test Driven Development) pattern of writing a failing test case first to assert this. Given the nature of the conversation you are to confirm based on the best judgment whether these are using the playwright testing framework (this is most likely the case) or if you should write a Vitest spec (an integration spec in test/integration/ that drives the real app, or a unit spec with mocks).
 
 Then confirm you understand the users request by summarizing it, then write or update the tests accordingly and check in with the user to verify they test for the expected behavior. If not work with the user to refine the design plan and update the tests while summarizing the changes along the way.
 

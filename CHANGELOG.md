@@ -54,7 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deleting an account now removes the user's photos from storage; the confirmation credentials must belong to the account being deleted, and a refused deletion answers 401 (400 for a malformed body) instead of 201
 - Choosing a photo the browser cannot decode no longer leaves the upload button disabled
 - A missing cutout no longer logs a warning on every garment delete
-- Nest logger output is flushed once the pino logger is installed, so an app that is only initialised (the integration harness) no longer buffers every log line forever
 - Web Push never worked: the page looked for the httpOnly session cookie before subscribing, so it never did; the service worker read a payload shape the server did not send; re-subscribing with renewed keys, or the same browser under another account, was a 500 (unique endpoint); endpoints over 255 characters (Firefox) failed; a device its push service reported gone was never removed. Subscriptions are now stored by endpoint (upserted), gone devices (404/410) are removed on the next send, and a malformed subscription is a 400
 
 #### Performance
@@ -84,6 +83,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Changed
 
+- The server is plain Fastify: NestJS, its config, logging and i18n modules, and Handlebars are gone (the last step of the platform migration). URLs, statuses, headers and pages are unchanged. A path no route matches renders the same error page as every other error, with the signed-in navbar; a missing static asset answers JSON like other static paths. Boot to listening went from about 650 ms to 430 ms and memory after boot from about 230 MB to 162 MB
+- Configuration is one validated schema (`src/config.ts`) with the same variables and defaults; a bad value stops the boot naming every offending variable, never its value. `LOG_LEVEL=debug` or `trace` now reaches the console and `app.log` (both were capped at `info`)
+- Every request, a 404 included, is logged as one line without headers (`GET /wardrobe 200 3.1ms`), each module's lines carry its `context`
+- `docker stop` shuts the server down gracefully (in-flight requests finish, the database pool closes); the image runs `node dist/main.js` directly
+- `npm run maintenance:reconcile` and `npm run user:set-password` no longer migrate the database: against a database the build has not migrated they exit 1 and say to start the server first
 - Garments (`/wardrobe`, the garment page and forms, photo and cutout uploads, clone, archive, delete) are served by the plain-Fastify web layer with Drizzle queries and typed JSX views; URLs, form fields and htmx targets are unchanged. No feature is served by Nest any more, and MikroORM is gone from the app (its old migrations only build test databases)
 - Garment colours are a fixed set; typing a new colour into the picker is gone. `garment.date_aquired` (a timestamp at UTC midnight) is now `acquired_on date`, and free-text garment columns are `text`. The migration trims stored text, turns empty strings into NULL and lowercases categories (outfit rows follow), and refuses to run if an acquisition date is not UTC midnight, a stored colour is not built in, a category is blank, or two garments, outfits or photos share a share id
 - Share ids of garments, outfits and photos are unique; the never-used `flagged`, `banned`, `file.mimetype` and `user.shareable_id` columns are dropped
@@ -96,7 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `outfit_calendar.date` (timestamptz at UTC midnight) is now `day date`; the migration refuses to run if any value is not UTC midnight, removes duplicate schedules (keeping a worn one), drops the never-written `notes` column, and replaces the date and owner indexes with one unique `(owner_id, day, outfit_id)` index
 - `/`, `/about`, `/offline.html`, `/manifest.json`, `/healthz` and `/.well-known/*` are served by the plain-Fastify web layer (`src/web/`, typed JSX views through `hono/jsx`) instead of Nest and Handlebars, the first routes of the platform migration. Statuses, headers and cache policy are unchanged; the About and offline pages render the same shell. The session gate for these routes shares its decision with `SessionGuard`
 - Migrations run through Drizzle: `src/db/schema.ts` is the schema and `drizzle/` the migrations, applied at boot under a Postgres advisory lock (server and `maintenance:reconcile` never migrate at once). An existing database must have applied the last MikroORM migration (`Migration20260926021506`); its first boot records the Drizzle baseline without running it and changes nothing else. MikroORM still serves queries; its migrator, CLI config and snapshot are gone
-- Login is always required. One global `SessionGuard` replaces `ConditionalAuthGuard`, `RequireSessionGuard` and `AuthGuard`: every route needs a session unless it is `@Public()` (login, registration, logout, `/about`, `/offline.html`, `/healthz`, `/manifest.json`, `/.well-known/*`, `/share`, the invite landing page, `/file/**`). Signed out, a page navigation redirects to `/auth/login` and an htmx fragment or fetch answers 401 with `HX-Redirect: /auth/login`
+- Login is always required. One session gate replaces `ConditionalAuthGuard`, `RequireSessionGuard` and `AuthGuard`: every route needs a session unless it is public (login, registration, logout, `/about`, `/offline.html`, `/healthz`, `/manifest.json`, `/.well-known/*`, `/share`, the invite landing page, `/file/**`). Signed out, a page navigation redirects to `/auth/login` and an htmx fragment or fetch answers 401 with `HX-Redirect: /auth/login`
 - Every garment, outfit, calendar entry and photo row has an owner: the columns are `NOT NULL`, and the migration deletes owner-less rows first (only the removed anonymous mode could reach them; their photo files go with the next storage reconciliation)
 - Rebrand to Closet, a private household fork of Libre Closet
 - Removed Lazztech branding, marketing content, and the privacy and terms pages
@@ -105,12 +109,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - VAPID keys are required when `PWA_ENABLED=true`; no committed defaults
 - Share-link preview watermark is opt-in via `WATERMARK_ENABLED` (default false)
 - New icon, generated by `npm run generate:icons`
-- Logged-out page hits redirect through `RedirectToLoginException`; no more "Forbidden resource" warnings per anonymous request
+- Logged-out page hits redirect to the login page without a "Forbidden resource" warning per anonymous request
 - Docker runtime stage installs production dependencies only (`npm ci --omit=dev`)
 - Load test measures `/wardrobe` (page and fragment), `/outfits/new` and a seeded thumbnail; `LOAD_TEST_DURATION` sets the seconds per target
 
 #### Removed
 
+- NestJS (`@nestjs/*`, `nestjs-pino`, `nestjs-i18n`), Handlebars (`@fastify/view`, `hbs`, `handlebars`), Joi, class-validator, class-transformer, reflect-metadata, rxjs, and the Nest CLI and SWC build tooling: 28 direct dependencies, 609 to 502 lines of production dependency tree. The build is `tsc`
 - German, Spanish, French, Italian and Russian strings, the Accept-Language resolver and the unused generated i18n types: the app is English only
 - Password reset by email: `/auth/reset`, `/auth/reset-code` and their validation route, the `password_reset` table and `user.password_reset_id` (whose `ON DELETE CASCADE` let a deleted reset row take its user with it), `src/email/`, the `EMAIL_*` settings and the `nodemailer` and `nodemailer-mailgun-transport` dependencies
 - `AUTH_ENABLED` and the anonymous mode it switched on (owner-less garments, outfits and calendar entries visible to every visitor). A leftover `AUTH_ENABLED` in the environment is ignored

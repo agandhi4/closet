@@ -1,5 +1,11 @@
 # Architecture Design Document
 
+> **Stale in its stack (2026-09-26).** This is the upstream MVP design. Its
+> scope and entity model are still the reference for feature work, but the
+> technology it names is gone: no SQLite (Postgres only), no Handlebars views
+> (typed JSX in `src/web/`), no NestJS or MikroORM (plain Fastify and
+> Drizzle), no S3. `CLAUDE.md` describes the system as it is.
+
 The inspiration here is for closet organization/management. This is predominantly oriented towards clothing, though may grow for other asset collection tracking.
 
 Here are some similar products I was able to find in this space.
