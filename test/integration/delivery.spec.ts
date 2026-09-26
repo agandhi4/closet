@@ -52,6 +52,16 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers['cache-control']).toBe('no-cache');
     });
+
+    // The server removes backgrounds: the in-browser model, its runtime and
+    // its WASM are no longer served.
+    it.each([
+      '/modules/background-removal/index.mjs',
+      '/modules/onnxruntime-web/dist/ort.all.bundle.min.mjs',
+      '/bg-removal-models/resources.json',
+    ])('no longer serves the in-browser model: %s is a 404', async (url) => {
+      expect((await t.inject({ method: 'GET', url })).statusCode).toBe(404);
+    });
   });
 
   describe('GET /healthz', () => {
@@ -136,6 +146,25 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(csp).not.toMatch(/https?:/);
     });
 
+    it('allows no eval and no blob: scripts, workers or fetches', async () => {
+      const res = await t.inject({ method: 'GET', url: '/wardrobe' });
+      const directives = new Map(
+        String(res.headers['content-security-policy'])
+          .split(';')
+          .map((directive) => directive.trim().split(/\s+/))
+          .filter(([name]) => name)
+          .map(([name, ...sources]) => [name, sources]),
+      );
+      expect(directives.get('script-src')).toEqual([
+        "'self'",
+        "'unsafe-inline'",
+      ]);
+      expect(directives.get('worker-src')).toEqual(["'self'"]);
+      expect(directives.get('connect-src')).toEqual(["'self'"]);
+      // The mask editor draws from object URLs.
+      expect(directives.get('img-src')).toContain('blob:');
+    });
+
     it('loads page-only libraries on their pages, not in the shell', () => {
       // pwa.js imports the install dialog and pull to refresh only where
       // they apply; the element is never in the markup.
@@ -143,6 +172,7 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(html).not.toContain('src="/modules/pwa-install');
       expect(html).not.toContain('<pwa-install');
       expect(html).not.toContain('Sortable.min.js');
+      expect(html).not.toMatch(/onnxruntime|background-removal/);
       expect(html).not.toContain('rel="preload"');
       expect(html).toContain('id="request-indicator"');
       expect(html).not.toContain('offline-indicator');

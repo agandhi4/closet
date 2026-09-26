@@ -36,10 +36,10 @@ WORKDIR /app
 
 COPY package*.json .npmrc ./
 COPY patches ./patches
-# Runtime dependencies only. Everything the running app serves from
-# node_modules (htmx, background removal + models, onnxruntime-web, sharp,
-# workbox-window) is in "dependencies", and so is patch-package, because the
-# postinstall still has to apply patches/ here. The cache is cleared in the
+# Runtime dependencies only. Everything the running app serves or loads from
+# node_modules (htmx, workbox-window, sharp, onnxruntime-node) is in
+# "dependencies", and so is patch-package, because the postinstall runs it
+# here too (it skips the .dev patches). The cache is cleared in the
 # same layer: npm ci leaves hundreds of MB of tarballs under /root/.npm.
 # onnxruntime-node (server-side background removal) ships binaries for six
 # platforms; the image is linux/amd64 only, so the other five (~170 MB) go.

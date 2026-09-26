@@ -155,10 +155,7 @@ export async function createApp(
       'Strict-Transport-Security',
       'max-age=31536000; includeSubDomains',
     );
-    reply.header(
-      'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none';",
-    );
+    reply.header('Content-Security-Policy', CONTENT_SECURITY_POLICY);
     return payload;
   });
 
@@ -221,6 +218,14 @@ export async function createApp(
   return { app, db, photos, cutouts };
 }
 
+// Inline script: the pages' one-line handlers and inline modules (CLAUDE.md,
+// Conventions). blob: images: the mask editor draws the original and the
+// cutout from object URLs. No eval (htmx's filters, hx-on and js: values are
+// unused) and no blob: scripts or workers: those were the in-browser
+// background-removal model's, removed on 2026-09-26.
+const CONTENT_SECURITY_POLICY =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none';";
+
 // Every static URL is versioned (`?v=` from BUILD_INFO.assetVersion in
 // the layout and the importmap; `?v=<photo version>` on /file/**), so a deploy
 // changes URLs, never the bytes behind one: a year, immutable. The two files
@@ -273,28 +278,6 @@ async function registerStaticAssets(app: FastifyInstance, config: Config) {
   await app.register(fastifyStatic, {
     root: nodeModule('pulltorefreshjs/dist'),
     prefix: '/modules/pulltorefresh',
-    decorateReply: false,
-    ...immutable,
-  });
-  // The background-removal runtime and models are fetched by the library
-  // with unversioned relative URLs (resources.json and chunk imports), so the
-  // service worker revalidates them (NetworkFirst, cache:'no-cache' in
-  // src-sw.ts) instead of trusting this header.
-  await app.register(fastifyStatic, {
-    root: nodeModule('@imgly/background-removal/dist'),
-    prefix: '/modules/background-removal',
-    decorateReply: false,
-    ...immutable,
-  });
-  await app.register(fastifyStatic, {
-    root: nodeModule('onnxruntime-web'),
-    prefix: '/modules/onnxruntime-web',
-    decorateReply: false,
-    ...immutable,
-  });
-  await app.register(fastifyStatic, {
-    root: nodeModule('@imgly/background-removal-data/dist'),
-    prefix: '/bg-removal-models',
     decorateReply: false,
     ...immutable,
   });

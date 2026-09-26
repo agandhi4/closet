@@ -143,17 +143,13 @@ registerRoute(endsSession, endSessionHandler, 'POST');
 registerRoute(isPageRequest, pages);
 
 // First-party scripts and styles are `?v=`-versioned and served immutable by
-// app.ts, so serving the cached copy while refreshing is safe. The
-// background-removal runtime is excluded: it loads its own chunks and
-// resources.json by relative, unversioned URLs and needs the rule below.
+// app.ts, so serving the cached copy while refreshing is safe.
 registerRoute(
   ({ url, request }) =>
     url.origin === self.location.origin &&
     (url.pathname === '/bundle.css' ||
       url.pathname.startsWith('/js/') ||
-      (url.pathname.startsWith('/modules/') &&
-        !url.pathname.startsWith('/modules/onnxruntime-web/') &&
-        !url.pathname.startsWith('/modules/background-removal/'))) &&
+      url.pathname.startsWith('/modules/')) &&
     request.method === 'GET',
   new StaleWhileRevalidate({
     cacheName: 'assets-v1',
@@ -183,45 +179,26 @@ registerRoute(
   }),
 );
 
-// Background-removal model resources include a stable resources.json URL.
-// NetworkFirst avoids stale metadata/chunk mismatches after deploys; the
-// fetch bypasses the year-long HTTP cache (app.ts) so the revalidation is
-// real, and the server's ETag keeps it a 304.
-registerRoute(
-  ({ url }) => url.pathname.startsWith('/bg-removal-models/'),
-  new NetworkFirst({
-    cacheName: 'bg-removal-models-v2',
-    fetchOptions: { cache: 'no-cache' },
-    plugins: [
-      new CacheableResponsePlugin({ statuses: [200] }),
-      new ExpirationPlugin({
-        maxEntries: 200,
-        maxAgeSeconds: 30 * DAY,
-        purgeOnQuotaError: true,
-      }),
-    ],
-  }),
-);
+// The in-browser background-removal model's caches (its runtime and ~42 MB
+// of model and WASM), filled by workers before 2026-09-26, when the server
+// took over background removal. Nothing reads them any more.
+const RETIRED_CACHES = [
+  'bg-removal-models',
+  'bg-removal-models-v2',
+  'bg-removal-runtime-modules-v1',
+];
 
-// Keep ORT and background-removal runtime modules fresh so JS/WASM assets don't drift.
-registerRoute(
-  ({ url }) =>
-    url.pathname.startsWith('/modules/onnxruntime-web/') ||
-    url.pathname.startsWith('/modules/background-removal/'),
-  new NetworkFirst({
-    cacheName: 'bg-removal-runtime-modules-v1',
-    networkTimeoutSeconds: 3,
-    fetchOptions: { cache: 'no-cache' },
-    plugins: [
-      new CacheableResponsePlugin({ statuses: [200] }),
-      new ExpirationPlugin({
-        maxEntries: 100,
-        maxAgeSeconds: 7 * DAY,
-        purgeOnQuotaError: true,
-      }),
-    ],
-  }),
-);
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      const deleted = await Promise.all(
+        RETIRED_CACHES.map((name) => self.caches.delete(name)),
+      );
+      const count = deleted.filter(Boolean).length;
+      if (count > 0) console.info(`[sw] dropped ${count} retired cache(s)`);
+    })(),
+  );
+});
 
 // The offline page is a rendered view, not a public/ file, so it cannot be
 // precached; warm it into the pages cache at install instead.
