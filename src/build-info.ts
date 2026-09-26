@@ -12,7 +12,7 @@ export interface BuildInfo {
    * importmap, show.hbs). Static roots in app.ts are served immutable for a
    * year, so this must differ between any two deploys: version plus commit
    * (or build time) from public/build.json, which scripts/write-build-info.ts
-   * writes during `npm run build`. Without build.json (start:dev, jest) the
+   * writes during `npm run build`. Without build.json (start:dev, tests) the
    * key is unique per boot instead.
    */
   assetVersion: string;

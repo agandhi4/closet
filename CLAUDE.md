@@ -18,7 +18,7 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **Storage**: `src/file/` abstraction, `local` (disk under `DATA_PATH`) or `object` (S3 via `nestjs-s3`).
 - **i18n**: `nestjs-i18n`, strings in `src/i18n/<lang>/lang.json`, six languages.
 - **Logging**: `nestjs-pino`, pretty to stdout and rotating `app.log` under `DATA_PATH`.
-- **Tests**: three tiers. Jest unit (`src/**/*.spec.ts`, mocks everything, verifies wiring); Jest integration (`test/integration/`, the real app in-process on a scratch Postgres database per spec file, driven through `app.inject()`, verifies behavior: HTML, headers, rows, files); Playwright e2e (`test/*.spec.ts`, real browser against a built server). Plus autocannon load test (`scripts/load-test.ts`) and Lighthouse CI.
+- **Tests**: three tiers. Vitest unit (`src/**/*.spec.ts`, mocks everything, verifies wiring); Vitest integration (`test/integration/`, the real app in-process on a scratch Postgres database per spec file, driven through `app.inject()`, verifies behavior: HTML, headers, rows, files); Playwright e2e (`test/*.spec.ts`, real browser against a built server). Both Vitest tiers are projects of one `vitest.config.ts` (unplugin-swc for Nest's decorator metadata; specs import `describe`/`it`/`expect`/`vi` from `'vitest'`, no globals). Plus autocannon load test (`scripts/load-test.ts`) and Lighthouse CI. Vitest replaced Jest on 2026-09-25, the first step of a platform migration (NestJS to plain Fastify and MikroORM to Drizzle follow feature by feature).
 
 ## Architecture
 
@@ -58,8 +58,8 @@ views/                 Handlebars, one directory per feature module + partials/ 
 public/                Static: sw.js (generated), bundle.css (generated), js/, assets/ (icon.svg is the
                        source; icon.png and favicon.ico come from `npm run generate:icons`)
 test/                  Playwright specs (CI runs all of them in Chromium with the PWA on)
-  support/             scratch-database.ts (jest + load test), e2e-session.ts (Playwright signIn)
-  integration/         Jest in-process specs + harness.ts (createTestApp, multipart, HTML helpers)
+  support/             scratch-database.ts (integration tier + load test), e2e-session.ts (Playwright signIn)
+  integration/         Vitest in-process specs + harness.ts (createTestApp, multipart, HTML helpers)
 docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature work against it.
 ```
 
@@ -124,12 +124,13 @@ npm run lint                  # eslint --fix (src, test, scripts); lint:check is
 npm run format                # prettier --write; format:check is the cached gate
 
 # Test tiers, cheapest first
-npm test                      # jest unit (jest.unit.config.js): mocked DB/fs, verifies wiring. Seconds.
+npm test                      # Vitest unit projects (unit, unit-new-york): mocked DB/fs, verifies wiring. ~1.5 s.
+npm run test:watch            # the same in watch mode; test:debug waits for an inspector on :9229
 (cd ../pgvault-dev && docker compose up -d --wait)
                               # every tier below needs Postgres: pgvault-dev on localhost:5432 (superuser
                               # postgres, trust auth). Dev app config lives in .env.local (DATABASE_*,
                               # closet_db); see README Development.
-npm run test:int              # jest integration (jest.integration.config.js): real app in-process, temp DATA_PATH, app.inject().
+npm run test:int              # Vitest integration project: real app in-process, temp DATA_PATH, app.inject().
                               # Asserts HTML, headers, DB rows, files. ~5 s. No build needed.
                               # The default place for behavior assertions during development.
                               # Each spec file gets a scratch database (test/support/scratch-database.ts)
@@ -144,9 +145,9 @@ npm run test:e2e:smoke        # build, then the smoke spec in chromium
 npm run test:load             # builds, boots on a scratch database + temp DATA_PATH, autocannon
 npm run lighthouse            # lhci autorun
 
-npm run test:all              # both jest tiers in one run (jest.config.js projects); test:cov adds coverage
+npm run test:all              # every Vitest project in one run (vitest.config.ts); test:cov adds v8 coverage in coverage/
 npm run typecheck             # tsc: app + tests + scripts, then the service worker (~3 s cold)
-npm run check                 # format:check, lint:check, typecheck and test:all in parallel (~7 s warm).
+npm run check                 # format:check, lint:check, typecheck and test:all in parallel (~12 s).
                               # The pre-commit hook. `precommit` is an alias.
 npm run verify:push           # build + Chromium Playwright against the fresh build. The pre-push hook.
 npm run precommit:full        # check + verify:push + load test + lighthouse (minutes)
@@ -214,7 +215,7 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **pgvault-dev runs Postgres 18; production and CI run 17.** Features new in 18 pass locally and fail in CI. The migration CLI's snapshot is pinned to `.snapshot-postgres.json` (`snapshotName`), so pointing it at another database no longer writes a stray `.snapshot-<db>.json`.
 - **`precommit:full` is minutes long** (Lighthouse and load test included); CI runs those two nightly, not per push.
 - **Playwright serves whatever is on :3000.** The webServer command only starts `dist/` (the npm scripts build first); `reuseExistingServer` is on outside CI, so a running `start:dev`/`start:prod` is tested instead of the fresh build. Stop it before `verify:push`.
-- **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different config (`DISABLE_REGISTRATION`, `PWA_ENABLED`, ...) in a different spec file.
+- **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different config (`DISABLE_REGISTRATION`, `PWA_ENABLED`, ...) in a different spec file. Vitest runs every file in its own child process (the default `forks` pool with `isolate`), which is what keeps one file's env and app out of the next: never set `isolate: false` or `pool: 'threads'` on the integration project.
 - **The integration harness is signed in by default.** `createTestApp` registers `owner@example.com` at boot and `t.inject` sends that session (`t.owner.cookie`) unless the request has its own `cookie` header or passes `anonymous: true`. A test about signed-out behavior must say `anonymous: true`; one that forgets asserts on the owner's view.
 - **`@Public()` is the only way past `SessionGuard`, and static paths never have a session.** The preHandler in `app.ts` skips `static-prefixes.ts` paths, so a Nest route under one (`FileController`, `/healthz`, `/manifest.json`) always sees `req.auth` undefined and must be `@Public()`, or it answers every request with a login redirect. `@UserId()` on a `@Public()` route throws: a public handler reads `req.auth` itself if it cares (the invite landing page).
 - **htmx does not swap 4xx/5xx responses** (its default `responseHandling`), boosted or not, and a boosted form's events fire on the body, not the form. A form whose refusal re-renders with a 4xx must be a native post (`hx-boost="false"`, as `views/auth/change-password.hbs`), or the user sees nothing. `delete-account`'s 401/400 re-render is still an `hx-post` and is invisible for that reason.
@@ -231,11 +232,15 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **`FileService.store` must be atomic.** Photo and cutout are written concurrently and the thumb writer reads whichever exists; the local backend writes to `DATA_PATH/.incoming/` and renames (S3 objects appear only when complete). Writing to the final name made every real photo+cutout upload fail with 500: the thumb step read a half-written cutout. Small flat-colour test fixtures always won the race; `test/integration/upload-race.spec.ts` uses a multi-MB noisy cutout. Boot removes `.incoming` entries older than an hour, never fresh ones (the reconcile CLI boots beside a live server).
 - **A photo upload builds its thumb once, at the end.** `storeUploadedPhotoWithCutout` stores both halves with `deferThumb` / `newUpload` and then calls `regenerateThumb`; the mask edit path (`newUpload: false`) still rewrites the thumb before bumping the version.
 - **Pipelines started inside a multipart `for await` loop must be armed with a no-op catch at creation.** `GarmentService.storeUploadedPhotoWithCutout` starts the photo and cutout pipelines without awaiting (an unconsumed part hangs busboy) and only settles them after the loop; a rejection while later parts are still being read (an undecodable HEIC/JPEG) was an unhandled rejection that exited the process with an empty reply. `startPipeline()` attaches the catch and returns the same promise, so the real error still surfaces from `Promise.allSettled`. `test/integration/heic.spec.ts` records `unhandledRejection` and asserts the app answers the next request. Node's default (crash loudly) is kept on purpose; do not add a process-level handler.
-- **`bufferLogs: true` only flushes on `listen()`.** `createApp()` calls `app.flushLogs()` right after `useLogger`; without it an app that is only `init()`ed (the integration harness) buffers every Nest `Logger` call forever: nothing is emitted, `app.log` stays empty, and a `jest.spyOn(t.app.get(PinoLogger), 'warn')` sees zero calls whatever the app did. `test/integration/heic.spec.ts` asserts on such a spy and would catch a regression.
+- **`bufferLogs: true` only flushes on `listen()`.** `createApp()` calls `app.flushLogs()` right after `useLogger`; without it an app that is only `init()`ed (the integration harness) buffers every Nest `Logger` call forever: nothing is emitted, `app.log` stays empty, and a `vi.spyOn(t.app.get(PinoLogger), 'warn')` sees zero calls whatever the app did. `test/integration/heic.spec.ts` asserts on such a spy and would catch a regression.
 - **`ScheduleModule.forRoot()` lives in `MaintenanceModule`**, not `AppModule`: `StorageReconciliationService.onApplicationBootstrap` deletes the cron job when `MAINTENANCE_ENABLED=false`, which only works if the scheduler (a deeper module, bootstrapped first) has already registered it. The integration harness sets `MAINTENANCE_ENABLED=false`.
 - **Register static roots with `app.register(fastifyStatic, …)`, not `app.useStaticAssets()`.** Both register the same plugin, but Nest 11's options type still describes `setHeaders(res)` as a raw response with `setHeader()`; `@fastify/static` 10 passes the `FastifyReply` (`reply.header()`) and applies it after `send`'s own Cache-Control, which is what makes the per-file policy in `registerStaticAssets` work. `test/integration/delivery.spec.ts` asserts the headers.
-- **`@fastify/static` 10 pulls in ESM-only `content-disposition` 3.** Node 22 `require()`s it natively; Jest on Node 22 cannot, so `jest.integration.config.js` transpiles that one package (nested path, hence the lookahead in `transformIgnorePatterns`). A new ESM-only dependency that the app loads at boot goes in `ESM_ONLY_DEPS`.
-- **`npm run typecheck` is the only type check.** `nest build` uses SWC and ts-jest is transpile-only (`isolatedModules`), so neither reports type errors. The root `tsconfig.json` covers `src/`, `test/` and `scripts/` with jest types; the service worker has its own `views/assets/tsconfig.json` (WebWorker lib, strict) because it runs in a worker scope. It was 790 errors until 2026-09-25, one of them a live 500 (a misspelled MikroORM exception import is `undefined` at runtime, so `instanceof` threw).
+- **MikroORM loads migrations through `dynamicImportProvider` in `dal.module.ts`.** Its own default is an `import()` inside `node_modules`, which Vitest does not intercept: Node then loads the migration `.ts` itself with type stripping and fails on anything that needs the app's compiler (an extensionless import of `src/` code, as `Migration20260925182919` has). The provider's `import()` sits in our source, so it is compiled with the app: `require()` in `dist/`, Vitest's module runner in tests. Keep it; the CLI config does not need it.
+- **Vitest runs a function returned from `beforeEach`/`beforeAll` as that hook's cleanup.** `beforeEach(() => mock.mockReset())` returns the mock, so Vitest calls it after every test; with `mockRejectedValue` set, the test fails with the mock's rejection. Brace hook bodies that return anything. Jest ignored the return value.
+- **`vi.mock` factories return the module namespace.** Mocking a CommonJS default export is `vi.mock('heic-convert', () => ({ default: vi.fn() }))`, and `vi.mocked(heicConvert)` types it; Jest's `() => jest.fn()` shape throws ("is not returning an object"). `vi.mock` is hoisted like `jest.mock`.
+- **`calendar-dates.spec.ts` runs in America/New_York through its own project**, `unit-new-york` in `vitest.config.ts` (`env: { TZ }`, `pool: 'forks'`). Vitest assigns `env` to the worker's real `process.env` before importing the spec, and Node reloads the zone on that assignment in a child process; worker threads keep the parent's zone, so the project must stay on forks. The spec's first test asserts the offset. Another spec that needs a zone gets its own project the same way; it stays under `npm test` if its name starts with `unit`.
+- **Vitest is pinned to `~4.0`.** Vitest 4.1 depends on Vite 8, whose optional peer chain (`@vitejs/devtools` back to `vitest`) crashes npm 10's resolver with "Cannot read properties of null (reading 'edgesOut')", and npm 11 lockfiles break the Docker build (see the lockfile gotcha). Bump only when `npx -y npm@10 install -D vitest@<new>` resolves, and prove the lockfile with `npm ci --dry-run` on npm 10.
+- **`npm run typecheck` is the only type check.** `nest build` and Vitest both compile with SWC, which strips types without checking them. The root `tsconfig.json` covers `src/`, `test/`, `scripts/` and `vitest.config.ts` (no test globals: a helper that calls `expect` without importing it fails here, not only at runtime); the service worker has its own `views/assets/tsconfig.json` (WebWorker lib, strict) because it runs in a worker scope. It was 790 errors until 2026-09-25, one of them a live 500 (a misspelled MikroORM exception import is `undefined` at runtime, so `instanceof` threw).
 
 ## Workflow
 

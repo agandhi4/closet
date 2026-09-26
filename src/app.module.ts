@@ -104,7 +104,7 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
           .default('production'),
         PORT: Joi.number().default(3000),
         // pino level for both the console and app.log; `silent` is what the
-        // integration harness uses so test output is only jest's.
+        // integration harness uses so test output is only Vitest's.
         LOG_LEVEL: Joi.string()
           .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
           .default('info'),

@@ -21,7 +21,6 @@
     "strictBindCallApply": false,
     "types": [
       "node",
-      "jest",
       "@fastify/view"
     ]
   },

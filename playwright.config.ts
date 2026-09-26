@@ -14,7 +14,7 @@ dotenv.config({ path: path.resolve(__dirname, '.env'), quiet: true });
  */
 export default defineConfig({
   testDir: './test',
-  /* test/integration/ holds the jest in-process tier (npm run test:int). */
+  /* test/integration/ holds the Vitest in-process tier (npm run test:int). */
   testIgnore: '**/integration/**',
   /* Run tests in files in parallel */
   fullyParallel: true,

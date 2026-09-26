@@ -136,10 +136,11 @@ them afterwards.
 ```bash
 npm run start:dev       # watch mode
 npm run start:prod      # production
-npm run test            # unit tests
-npm run test:int        # integration tests (real app in-process, scratch Postgres database per file)
+npm run test            # Vitest unit tests (test:watch to rerun on change)
+npm run test:int        # Vitest integration tests (real app in-process, scratch Postgres database per file)
+npm run test:all        # both Vitest tiers in one run
 npm run test:e2e        # build, then Playwright end-to-end
-npm run test:cov        # coverage
+npm run test:cov        # both Vitest tiers with v8 coverage (coverage/)
 npm run test:load       # autocannon load test, see below
 npm run generate:icons  # regenerate public/assets/icon.png and favicon.ico from icon.svg
 npm run check           # format, lint, types, unit + integration in parallel (the pre-commit hook)
