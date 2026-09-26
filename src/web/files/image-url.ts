@@ -5,9 +5,8 @@ export interface ImageRef {
   version?: number;
 }
 
-// The single source of truth for /file/** photo paths. Used by the `imageUrl`
-// Handlebars helper (src/app.ts), JSX views and view-models that pre-build
-// URLs. The routes are in routes.ts beside this file and must stay in step.
+// The single source of truth for /file/** photo paths, for JSX views and
+// view-models that pre-build URLs. The routes are in routes.ts beside this file and must stay in step.
 //
 // `v` is the File.version cache-buster: every variant is served with an
 // immutable one-year Cache-Control, so a rewritten image is only ever seen

@@ -5,7 +5,6 @@ import type { IncomingMessage } from 'node:http';
 import * as path from 'path';
 import { SessionGuard } from './auth/session.guard';
 import { DbModule } from './db/db.module';
-import { I18nModule } from 'nestjs-i18n';
 import { LoggerModule } from 'nestjs-pino';
 import { ErrorViewFilter } from './error-view.filter';
 import { ViewContextModule } from './view-context/view-context.module';
@@ -85,17 +84,6 @@ function originalUrl(req: IncomingMessage): string {
       envFilePath: ['.env.local', '.env'],
       validate: (env) => loadConfig({ env: env as Env, envFiles: [] }),
       isGlobal: true,
-    }),
-    // English only (owner decision 2026-09-26): no language resolver, one
-    // catalog. Kept only for the Handlebars views still in Nest; JSX views use
-    // src/web/i18n.ts. Live reload is a development convenience.
-    I18nModule.forRoot({
-      fallbackLanguage: 'en',
-      loaderOptions: {
-        path: path.join(__dirname, '/i18n/'),
-        watch: process.env.NODE_ENV === 'development',
-      },
-      viewEngine: 'hbs',
     }),
     // Runs the migrations (src/db/migrate.ts) before anything queries.
     DbModule,

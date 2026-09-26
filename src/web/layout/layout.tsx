@@ -5,13 +5,10 @@ import type { ViewContext } from '../view-context';
 import { AppStatus } from './app-status';
 
 /**
- * The document shell of every JSX page; views/layout.hbs is its Handlebars
- * twin for unported pages, so a change to the head or the body chrome goes
- * into both until the last Handlebars page is ported. The pages render
- * navbar and dock themselves (the error page and every current page do).
+ * The document shell of every page. The pages render navbar and dock
+ * themselves (the error page and every current page do).
  *
- * English only: `lang`, `og:locale` and the default description are fixed
- * rather than read from the request's nestjs-i18n locale in `ctx`.
+ * English only: `lang`, `og:locale` and the default description are fixed.
  */
 
 // https://htmx.org/reference/#config: view transitions on every swap

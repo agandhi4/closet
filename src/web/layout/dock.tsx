@@ -4,7 +4,7 @@ import type { ViewContext } from '../view-context';
 
 /**
  * Bottom navigation (daisyUI dock); a tab is active when the request URL is
- * exactly its href. Twin of views/partials/dock.hbs.
+ * exactly its href.
  */
 export function Dock({ ctx }: { ctx: ViewContext }) {
   return (

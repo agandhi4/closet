@@ -5,9 +5,9 @@
  * the tab is visible, immediately after any failed htmx request, and every
  * 5 s while offline.
  *
- * Owns #connectivity-banner in views/partials/app_status.hbs: a persistent
+ * Owns #connectivity-banner (src/web/layout/app-status.tsx): a persistent
  * "offline" banner, "reconnecting" while a retry is in flight, and a short
- * toast when the server answers again. Loaded from layout.hbs on every page,
+ * toast when the server answers again. Loaded by the layout on every page,
  * with or without a service worker.
  */
 import { showToast } from 'toast';

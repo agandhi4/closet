@@ -21,7 +21,6 @@ COPY tsconfig*.json ./
 COPY nest-cli.json .
 # SWC's JSX settings for the .tsx views (nest build merges it into its defaults).
 COPY .swcrc .
-COPY tailwind.config.js .
 COPY workbox-config.js .
 COPY scripts ./scripts
 

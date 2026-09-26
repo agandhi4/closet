@@ -13,7 +13,8 @@
  * are fetched on the first sign of intent (the photo input or camera button
  * is touched) and only while the bgRemovalEnabled toggle is on. Opening a
  * garment page costs the size of this file and mask-editor.js, nothing more.
- * The module specifier resolves through the importmap in layout.hbs.
+ * The module specifier resolves through the importmap in the layout
+ * (src/web/layout/layout.tsx).
  */
 
 import { openMaskEditor } from 'mask-editor';

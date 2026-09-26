@@ -4,7 +4,7 @@
  * feedback keeps using hx-swap-oob fragments; this is only for the two
  * scripts that run without a request.
  *
- * Renders into #toast-host (views/partials/app_status.hbs). hx-boost body
+ * Renders into #toast-host (src/web/layout/app-status.tsx). hx-boost body
  * swaps replace the host, so callers that need a toast to persist re-show it
  * on htmx:afterSettle.
  */

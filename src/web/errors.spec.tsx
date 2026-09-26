@@ -30,12 +30,8 @@ const ctx: ViewContext = {
   pwaEnabled: false,
   appVersion: '1.0.0+test',
   appRelease: '1.0.0',
-  locale: 'en',
   canonicalUrl: 'http://localhost/boom',
   ogUrl: 'http://localhost/boom',
-  ogLocale: 'en_US',
-  ogTitle: 'Closet',
-  ogDescription: 'Wardrobe organizer',
   ogImage: 'http://localhost/assets/icon.png',
   user: undefined,
 };

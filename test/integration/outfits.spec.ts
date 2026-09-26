@@ -40,7 +40,7 @@ interface OutfitFields {
   returnToWeek?: string;
 }
 
-/** The body views/outfits/form.hbs submits, in document order. */
+/** The body the outfit form (src/web/outfits/form-page.tsx) submits, in document order. */
 function outfitForm(fields: OutfitFields, slots: Slot[]) {
   const form = new URLSearchParams();
   for (const [key, value] of Object.entries(fields) as [string, string?][]) {

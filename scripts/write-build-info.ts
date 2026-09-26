@@ -4,7 +4,7 @@ import path from 'path';
 
 // Build step (`npm run generate:build-info`, part of `npm run build`).
 // Writes public/build.json, which src/build-info.ts folds into the `?v=`
-// cache key on every first-party static URL (see views/layout.hbs). The key
+// cache key on every first-party static URL (see src/web/layout/layout.tsx). The key
 // must change on every deploy because /modules, /js, /assets and bundle.css
 // are served immutable for a year: package.json version plus the commit when
 // one can be resolved, otherwise the build timestamp still makes it unique.

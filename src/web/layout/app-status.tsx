@@ -5,7 +5,7 @@ import { t } from '../i18n';
  * public/js/pwa.js. Lives inside <body>, so every hx-boost swap replaces it
  * with this empty copy; both scripts re-apply their state on
  * htmx:afterSettle. The strings travel as data attributes so the scripts stay
- * free of i18n. Twin of views/partials/app_status.hbs.
+ * free of i18n.
  */
 export function AppStatus() {
   return (

@@ -9,9 +9,6 @@ export default tseslint.config(
     ignores: [
       'eslint.config.mjs',
       './test/support/legacy-migrations/**/*',
-      // nestjs-i18n rewrites this at runtime; linting it strips its own
-      // eslint-disable header. Also listed in .prettierignore.
-      './src/i18n/generated/**/*',
     ],
   },
   eslint.configs.recommended,

@@ -4,12 +4,9 @@ import type { SessionUser } from './auth/session';
 /**
  * The per-request page context: built by ViewContextService in the
  * preValidation hook in app.ts for every non-static request (Nest and
- * plain-Fastify routes alike) and stored as `reply.locals`. Handlebars
- * templates read it as their root context; JSX pages take it as a prop.
- *
- * The strings in it (`ogDescription`) follow the request's language through
- * nestjs-i18n; JSX pages are English (src/web/i18n.ts) and take their text
- * from t() instead.
+ * plain-Fastify routes alike) and stored as `reply.locals`; JSX pages take
+ * it as a prop. Text is not in it: pages are English, from t()
+ * (src/web/i18n.ts).
  */
 export interface ViewContext {
   appName: string;
@@ -25,12 +22,9 @@ export interface ViewContext {
   appVersion: string;
   /** package.json version, shown on /about. */
   appRelease: string;
-  locale: string;
   canonicalUrl: string;
+  /** The page's link preview URL and image unless the page names its own (Layout). */
   ogUrl: string;
-  ogLocale: string;
-  ogTitle: string;
-  ogDescription: string;
   ogImage: string;
   user: SessionUser | undefined;
 }
