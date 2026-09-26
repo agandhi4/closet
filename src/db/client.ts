@@ -1,4 +1,9 @@
-import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import {
+  drizzle,
+  type NodePgDatabase,
+  type NodePgQueryResultHKT,
+} from 'drizzle-orm/node-postgres';
+import type { PgDatabase } from 'drizzle-orm/pg-core';
 import { type ClientConfig, Pool } from 'pg';
 import * as schema from './schema';
 
@@ -24,6 +29,14 @@ export interface DbLogger {
 }
 
 export type Db = NodePgDatabase<typeof schema> & { $client: Pool };
+
+/**
+ * What a query function needs to run: the Drizzle instance or a transaction
+ * opened on it (`db.transaction(async (tx) => ...)`). A write that must
+ * commit with others takes this instead of `Db`, so its caller decides the
+ * transaction (the outfit form saves and schedules in one).
+ */
+export type Queryable = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 
 export function connectionOptions(config: DbConfig): ClientConfig {
   return {

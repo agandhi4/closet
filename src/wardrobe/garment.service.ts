@@ -98,7 +98,7 @@ export class GarmentService {
     viewOwner?: number,
   ): Promise<Garment> {
     const garment = await this.garmentRepository.findOne(id, {
-      populate: ['photo', 'outfits'],
+      populate: ['photo'],
     });
     // One answer for "no such garment", "in a wardrobe you cannot see" and
     // "not in the wardrobe this request addresses": ids reveal nothing (see

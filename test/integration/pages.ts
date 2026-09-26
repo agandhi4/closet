@@ -1,7 +1,8 @@
+import { eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
 import { Garment } from '../../src/dal/entity/garment.entity';
-import { Outfit } from '../../src/dal/entity/outfit.entity';
+import { outfit as outfitTable } from '../../src/db/schema';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
 import { TestApp } from './harness';
 
@@ -57,9 +58,11 @@ export async function createPageFixture(
   }
   const outfitId = Number(match[1]);
 
-  const em = t.em();
-  const garment = await em.findOneOrFail(Garment, garmentId);
-  const outfit = await em.findOneOrFail(Outfit, outfitId);
+  const garment = await t.em().findOneOrFail(Garment, garmentId);
+  const [outfit] = await t.db
+    .select({ shareableId: outfitTable.shareableId })
+    .from(outfitTable)
+    .where(eq(outfitTable.id, outfitId));
   return {
     garmentId,
     garmentShareableId: garment.shareableId,

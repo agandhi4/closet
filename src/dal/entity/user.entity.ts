@@ -8,7 +8,6 @@ import {
 } from '@mikro-orm/core';
 import { File } from './file.entity';
 import { Garment } from './garment.entity';
-import { Outfit } from './outfit.entity';
 import { ShareableId } from './shareableId.entity';
 import { UserDevice } from './userDevice.entity';
 
@@ -38,7 +37,4 @@ export class User extends ShareableId {
 
   @OneToMany(() => Garment, (garment) => garment.owner)
   public garments = new Collection<Garment>(this);
-
-  @OneToMany(() => Outfit, (outfit) => outfit.owner)
-  public outfits = new Collection<Outfit>(this);
 }

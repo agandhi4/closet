@@ -18,7 +18,7 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **Storage**: `src/file/` abstraction, `local` (disk under `DATA_PATH`) or `object` (S3 via `nestjs-s3`).
 - **i18n**: strings in `src/i18n/<lang>/lang.json`. Handlebars views translate through `nestjs-i18n` (six languages); JSX views are English only, `t('KEY')` from `src/web/i18n.ts`, typed to the keys of `src/i18n/en/lang.json`.
 - **Logging**: `nestjs-pino`, pretty to stdout and rotating `app.log` under `DATA_PATH`.
-- **Tests**: three tiers. Vitest unit (`src/**/*.spec.ts`, mocks everything, verifies wiring); Vitest integration (`test/integration/`, the real app in-process on a scratch Postgres database per spec file, driven through `app.inject()`, verifies behavior: HTML, headers, rows, files); Playwright e2e (`test/*.spec.ts`, real browser against a built server). Both Vitest tiers are projects of one `vitest.config.ts` (unplugin-swc for Nest's decorator metadata; specs import `describe`/`it`/`expect`/`vi` from `'vitest'`, no globals). Integration specs assert rows through `t.db` (Drizzle); `t.em()` (MikroORM) stays for the existing specs. Plus autocannon load test (`scripts/load-test.ts`) and Lighthouse CI. Vitest replaced Jest on 2026-09-25, the first step of a platform migration (NestJS to plain Fastify and MikroORM to Drizzle follow feature by feature).
+- **Tests**: three tiers. Vitest unit (`src/**/*.spec.ts`, mocks everything, verifies wiring); Vitest integration (`test/integration/`, the real app in-process on a scratch Postgres database per spec file, driven through `app.inject()`, verifies behavior: HTML, headers, rows, files); Playwright e2e (`test/*.spec.ts`, real browser against a built server). Both Vitest tiers are projects of one `vitest.config.ts` (unplugin-swc for Nest's decorator metadata; specs import `describe`/`it`/`expect`/`vi` from `'vitest'`, no globals). Integration specs assert rows through `t.db` (Drizzle); `t.em()` (MikroORM) stays for the existing specs. `recordQueries(work)` (harness) counts the statements and rows a request reads, for proving a page reads what it shows. Plus autocannon load test (`scripts/load-test.ts`) and Lighthouse CI. Vitest replaced Jest on 2026-09-25, the first step of a platform migration (NestJS to plain Fastify and MikroORM to Drizzle follow feature by feature).
 
 ## Architecture
 
@@ -39,22 +39,26 @@ src/
                        createApp), errors.tsx (error page + handler), render.ts, loggable-url.ts,
                        i18n.ts (t), view-context.ts (the typed reply.locals), layout/ (JSX shell), and one
                        directory per ported feature (shell/: /, /about, /offline.html, manifest, healthz;
-                       calendar/: /calendar and its writes, see Calendar; auth/: /auth/*, the session
-                       resolver, tokens, passwords, requireSession; sharing/: /wardrobe-share/*, the
-                       access resolver). security/: same-origin hook, rate limits, safeReturnTo, origin
+                       calendar/: /calendar and its writes, see Calendar; outfits/: /outfits/*, the
+                       builder, see Outfits; auth/: /auth/*, the session resolver, tokens, passwords,
+                       requireSession; sharing/: /wardrobe-share/*, the access resolver).
+                       schemas.ts: shared TypeBox pieces (RowId, IsoDateSchema).
+                       security/: same-origin hook, rate limits, safeReturnTo, origin
   db/                  Drizzle: the schema and migration authority, and the query layer ported code uses
     schema.ts          Every table, index, constraint and relation (the source of drizzle/ migrations)
-    client.ts          createDb(config): one pg Pool (max 5, min 2) + drizzle(); framework-free
+    client.ts          createDb(config): one pg Pool (max 5, min 2) + drizzle(); framework-free. Db, and
+                       Queryable (Db or a transaction) for writes that must commit with others
     migrate.ts         runMigrations(config): boot-time runner (legacy adoption, advisory lock)
     db.module.ts       Global Nest module: DB token, runs the migrations onModuleInit, closes the pool
   dal/                 MikroORM, for queries not yet ported
     dal.module.ts      MikroORM config (no migrator)
-    entity/            user, garment, outfit, outfit-garment (explicit pivot), outfit-calendar, file,
-                       shareableId, userDevice (wardrobe_share has none: sharing is Drizzle only). Kept in
-                       step with src/db/schema.ts by hand
+    entity/            user, garment, file, shareableId, userDevice: what the unported garment, file,
+                       notification and share-page code still queries. Outfits, outfit_slot,
+                       outfit_calendar and wardrobe_share have none (Drizzle only). Kept in step with
+                       src/db/schema.ts by hand
     migrations/        postgres/ — the frozen MikroORM tree; only test/support/legacy-migrations.ts runs it
-  wardrobe/            Core domain: garments and outfits (Nest, not yet ported). Controllers render
-                       views; services own business logic
+  wardrobe/            Garments (Nest, not yet ported). Controller renders views; GarmentService owns
+                       the business logic
   wardrobe-share/      WardrobeShareService: Nest's wrapper around src/web/sharing/access.ts for the
                        garment routes; goes when they are ported
   file/                FileService abstract (variants, thumbs, versions, deleteVariants) over local-file/ and
@@ -65,7 +69,8 @@ src/
                        file table in step; owns ScheduleModule.forRoot(). set-password.cli.ts
                        (`npm run user:set-password -- <email>`): the locked-out recovery
   notification/        Web Push to registered user devices
-  open-graph/          OG meta for shared links
+  open-graph/          OG meta for shared links (Nest); its outfit branch reads findSharedOutfit from
+                       src/web/outfits/queries.ts through the DB token
   view-context/        Builds the per-request page context (ViewContext, user, flags) exposed as reply.locals
   i18n/                lang.json per language
 views/                 Handlebars, one directory per feature module + partials/ + layout
@@ -102,7 +107,7 @@ The migration off Nest and Handlebars is a strangler: a feature moves as a whole
 - **Auth**: every route needs a session; `{ config: { public: true } }` opts out. `requireSession` (`src/web/auth/require-session.ts`) and `SessionGuard` both take `decideSessionAccess` (`src/auth/session-access.ts`), so a page navigation without a session is a 302 to `/auth/login` and an htmx fragment or fetch a bodiless 401 with `HX-Redirect`, on either side. A handler reads the user from `request.auth` (always set past the hook on a non-public route).
 - **Queries**: Drizzle, `options.db` (`app.get(DB)` in `createApp()`), in `src/web/<feature>/queries.ts`. No MikroORM in ported code. A handler reads the user id with `sessionUserId(request)` (`src/web/auth/require-session.ts`, the twin of `@UserId()`). Row assertions in the feature's specs move from `t.em()` to `t.db`.
 - **Views**: one `.tsx` per page or fragment beside the routes, typed against its data. Pages take `ctx: ViewContext` and render `<Layout>`, `<Navbar>` and `<Dock>` from `src/web/layout/`. Strings: `t('KEY', { param })`; a misspelled key is a type error.
-- **Rendering**: `return renderPage(reply, <Page ctx={viewContext(reply)} />, { status })` (adds the doctype) or `renderFragment(...)`; both set `text/html; charset=utf-8` and throw instead of sending twice. JSX escapes `&` in attribute values (`href="...?a=1&amp;b=2"`, which the browser reads as `&`); specs that match URLs in markup read the body through `unescapeHtml` (`test/integration/harness.ts`).
+- **Rendering**: `return renderPage(reply, <Page ctx={viewContext(reply)} />, { status })` (adds the doctype) or `renderFragment(...)`; both set `text/html; charset=utf-8` and throw instead of sending twice. JSX escapes `&` in attribute values (`href="...?a=1&amp;b=2"`, which the browser reads as `&`); specs that match URLs in markup read the body through `unescapeHtml` (`test/integration/harness.ts`). Void elements render without the space Handlebars templates had (`<input type="hidden" name="x" value="1"/>`), so a ported page's exact-markup assertions change by that much.
 - **Errors**: `throw new HttpError(404)` (`src/web/errors.tsx`). The plugin's error handler renders `ErrorPage` in the layout with the status, as `ErrorViewFilter` does for Nest: 4xx keep their message, anything else is a logged 500 without detail. Nest exceptions thrown by not-yet-ported services map to their status too.
 - **Logging**: `options.logger` (a Nest `Logger` with context `Web` today, a pino child when Nest goes); the Fastify instance's own `request.log` is a no-op. The plugin writes one line per non-static request (`GET /about 200 5.6ms`), since pino-http's request log does not reach these routes (Gotchas).
 - **Escaping**: `hono/jsx` escapes every text child and attribute value, including text inside `<script>`. The one way to emit markup as-is is `dangerouslySetInnerHTML={{ __html }}`: grep for it, and every use needs a reason at the site. Feed it `tHtml(key, params)` (trusted template, escaped params) or `jsonForScript(value)` (inline JSON that cannot close its `<script>`), never a raw value. `hono/html` (`raw`, `html`) is banned by ESLint so there is no second hatch.
@@ -126,9 +131,18 @@ Every photo is a set of WebP files sharing one base name: `<uuid>.webp` (origina
 
 `src/web/calendar/` (ported to plain Fastify and Drizzle 2026-09-26). A calendar day is a plain date: `outfit_calendar.day` is a Postgres `date`, a `'YYYY-MM-DD'` string in TypeScript from the row through the URL and back, and all arithmetic is on day numbers in `calendar-date.ts`. No JS `Date` represents a calendar day: stepping an instant by 24 h or with local-time setters mislabels days as soon as a zone observes DST. The one conversion from an instant is `todayIn(APP_TIMEZONE, now)`: "today" (the highlight, the default week, the month links) is the household's date in `APP_TIMEZONE` (IANA name, default `America/New_York`, checked at boot), never UTC and never the container's zone. Weeks run Sunday to Saturday. `calendar-view.ts` builds the page model from plain dates (pure, unit-tested in New York time).
 
-- **Routes**: `GET /calendar[?week=YYYY-MM-DD][&calMonth=YYYY-MM]` (a missing or malformed value falls back to the current week / the week's month: navigation state, never a 400); `POST /calendar` (`date`, `outfitId`, optional `week`; 204 to htmx, else 302 to the week; malformed input is a 400); `POST /calendar/:id/delete` (200 with `HX-Redirect`) and `/worn` (the pill fragment to htmx, else 303), whose body is optional and only picks the redirect week. Entries are the signed-in user's own: 404 for no such entry, 403 for someone else's.
-- **Scheduling is idempotent**: `UNIQUE (owner_id, day, outfit_id)`, and both writers insert with `ON CONFLICT DO NOTHING` (`scheduleOutfit` for POST /calendar, `OutfitService.schedule` for the outfit form until the outfits port). The unique index leads with `(owner_id, day)`, so it is also the index of the week query and of the owner foreign key.
+- **Routes**: `GET /calendar[?week=YYYY-MM-DD][&calMonth=YYYY-MM]` (a missing or malformed value falls back to the current week / the week's month: navigation state, never a 400); `POST /calendar` (`date`, `outfitId`, optional `week`; 204 to htmx, else 302 to the week; malformed input is a 400); `POST /calendar/:id/delete` (200 with `HX-Redirect`) and `/worn` (the pill fragment to htmx, else 303), whose body is optional and only picks the redirect week. Entries are the signed-in user's own: 404 for no such entry and for someone else's.
+- **Scheduling is idempotent**: `UNIQUE (owner_id, day, outfit_id)`, and the one writer, `insertEntry` (`src/web/calendar/queries.ts`, taking a `Queryable`), inserts with `ON CONFLICT DO NOTHING`: POST /calendar through `scheduleOutfit` (ownership check first), the outfit form inside its save transaction. The unique index leads with `(owner_id, day)`, so it is also the index of the week query and of the owner foreign key.
 - **Worn** is toggled in one `UPDATE ... SET worn_at = CASE WHEN worn_at IS NULL THEN now() END`.
+
+### Outfits
+
+`src/web/outfits/` (ported to plain Fastify and Drizzle 2026-09-26). Outfits are private: every query is scoped to the signed-in owner, shares never reach them, `?ownerId=` is ignored, and another user's outfit id is a 404.
+
+- **Composition is `outfit_slot`** and nothing else: `(outfit_id, position)` primary key, `category` text, `garment_id` nullable (`ON DELETE SET NULL`: deleting a garment empties its slot). One row per builder row in the order the user left them; an empty slot is a row kept without a garment. `drizzle/0002_outfit_slot.sql` built it from the old `outfit.slots` JSON and `outfit_garments` pivot and aborts the boot if the two disagree for any outfit (compared as garment sets, owner-checked). A slot only ever names a garment of the outfit's owner: the save looks the posted ids up and stores any other as an empty slot. Archived garments stay in outfits.
+- **Pages read slots by position**: the list (newest outfit first), the outfit page and the calendar chips go through `db.query` with `slots` ordered by `position`, one statement for all outfits with their garments and thumbs.
+- **The builder** (`builder.ts`, pure, unit-tested): a row cycles through its category: position 0 is "no garment", 1..count the owner's unarchived garments of that category newest first, wrapping through 0. The server computes both neighbours (`data-prev-index`, `data-next-index`; the swipe script only reads them). `/outfits/new` reads one row per category (newest garment plus count, a window query), `GET /outfits/row-fragment?category=&index=` reads the count and the one garment at that offset (a missing index is 1, an out-of-range one is clamped, a missing or blank category is a 400). The edit form reads the saved slots with, per slot, its category's count and how many are newer; a garment outside the cycle (archived, or recategorised since) is shown marked, with `index` null and arrows to its neighbours by age, and cannot be stepped back to. Rows show the `thumb` variant; the detail dialog takes the `nobg` URL from a data attribute and loads it only when opened. An outfit saved with no rows edits like a new build.
+- **Saving** (POST /outfits, POST /outfits/:id): `category` and `garmentId` arrive one pair per row, in document order (a single row as scalars, which ajv's `coerceTypes: 'array'` turns into arrays); unequal counts are a 400. `scheduleDate` and `returnToWeek` are `''` or a real date (else 400). The outfit, its slots (replaced whole) and the calendar entry commit in one `db.transaction`; an update locks the outfit row (`FOR UPDATE`) so two saves cannot collide on the slot key. An update without `name`/`notes` leaves them; blank ones are stored as null ("Untitled Outfit"). The redirect goes back to `/calendar?week=` when `returnTo` is `/calendar`, else to the outfit.
 
 ### Config
 
@@ -144,7 +158,7 @@ Delivery model (audit fixes, see `src-sw.ts`, `public/js/pwa.js`, `public/js/con
 - **Service worker strategies.** public/ files are precached by content hash (`?v` ignored on match). Navigations and htmx requests are NetworkFirst (3 s timeout, `pages-v1`); fragments are keyed `url|hx` by `src/htmx/fragment-request.ts`, which the server uses for the same decision. Versioned scripts are StaleWhileRevalidate (`assets-v1`), `/file/**` images CacheFirst (`images-v1`, 500 entries, 30 days). The background-removal runtime and models revalidate with `cache: 'no-cache'` because the library loads chunks by unversioned URLs. Unmatched requests (POST, `/healthz`) bypass the worker.
 - **Updates.** The worker does not `skipWaiting()` on install. `pwa.js` shows an "Update available: Reload" toast on `waiting`, posts `SKIP_WAITING` on tap, and reloads on `controlling`. Never force a reload.
 - **Connectivity.** `connectivity.js` probes `GET /healthz` (204, `no-store`, skips the session hook) every 30 s while visible, on every `htmx:sendError`/`responseError`, and every 5 s while offline; it drives `#connectivity-banner` in `partials/app_status.hbs`. `navigator.onLine` is only a hint.
-- **Page-only libraries** (sortablejs on the outfit form, `@imgly/background-removal` on the garment page) load from the page that needs them, as ES modules through the importmap in layout.hbs so boosted navigations cannot race a global. Background removal downloads nothing until the photo input or camera button is touched.
+- **Page-only libraries** (sortablejs on the outfit form, `@imgly/background-removal` on the garment page) load from the page that needs them, as ES modules through the importmap (layout.hbs and its JSX twin) so boosted navigations cannot race a global. The outfit form imports sortablejs from an inline module (a fixed string through `dangerouslySetInnerHTML`, `src/web/outfits/form-page.tsx`): a `<script type="module" src>` runs once per document, so it would not run again when a boosted navigation returns to the page. Background removal downloads nothing until the photo input or camera button is touched.
 - **Wardrobe fragment.** `GET /wardrobe` with a fragment request (`HX-Request` without `HX-Boosted`/history restore) returns `partials/wardrobe_main` with `Vary`; the filter bar and search form target `#wardrobe-main` with `hx-push-url`, so filtering never re-renders navbar and dock.
 
 ## Conventions

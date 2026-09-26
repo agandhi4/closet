@@ -9,6 +9,7 @@ import { calendarRoutes } from './calendar/routes';
 import { createErrorHandler } from './errors';
 import { loggableUrl } from './loggable-url';
 import type { WebLogger } from './logger';
+import { outfitRoutes } from './outfits/routes';
 import { shellRoutes } from './shell/routes';
 import { sharingRoutes } from './sharing/routes';
 
@@ -74,6 +75,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
 
   await app.register(shellRoutes, options);
   await app.register(calendarRoutes, options);
+  await app.register(outfitRoutes, options);
   await app.register(authRoutes, options);
   await app.register(sharingRoutes, options);
 };

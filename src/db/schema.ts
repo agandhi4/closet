@@ -9,13 +9,13 @@ import {
   pgTable,
   primaryKey,
   serial,
+  smallint,
   text,
   timestamp,
   unique,
   varchar,
 } from 'drizzle-orm/pg-core';
 import type { PushSubscription } from 'web-push';
-import type { OutfitSlot } from '../dal/entity/outfit.entity';
 
 /**
  * The database schema, and the only source of migrations: edit it, run
@@ -167,7 +167,6 @@ export const outfit = pgTable(
     name: varchar('name', { length: 255 }),
     notes: varchar('notes', { length: 255 }),
     ownerId: integer('owner_id').notNull(),
-    slots: jsonb('slots').$type<OutfitSlot[]>(),
   },
   (table) => [
     index('outfit_owner_id_index').on(table.ownerId),
@@ -182,36 +181,42 @@ export const outfit = pgTable(
   ],
 );
 
-// The outfit <-> garment pivot. Its composite primary key leads with
-// outfit_id, and each column still has its own index for the reverse lookups
-// and the cascades.
-export const outfitGarment = pgTable(
-  'outfit_garments',
+// What an outfit wears: one row per builder row, in the order the user built
+// it (position 0 first). A slot names a category and optionally a garment; an
+// empty slot is a row kept without a choice. The one store of composition
+// since drizzle/0002_outfit_slot.sql replaced outfit.slots (JSON) and the
+// outfit_garments pivot, which disagreed. garment_id is only ever a garment
+// of the outfit's owner (the outfit form drops any other id). Deleting the
+// garment empties the slot; archiving it changes nothing here.
+export const outfitSlot = pgTable(
+  'outfit_slot',
   {
     outfitId: integer('outfit_id').notNull(),
-    garmentId: integer('garment_id').notNull(),
+    position: smallint('position').notNull(),
+    category: text('category').notNull(),
+    garmentId: integer('garment_id'),
   },
   (table) => [
+    // Also the index of the outfit_id foreign key.
     primaryKey({
-      name: 'outfit_garments_pkey',
-      columns: [table.outfitId, table.garmentId],
+      name: 'outfit_slot_pkey',
+      columns: [table.outfitId, table.position],
     }),
-    index('outfit_garments_garment_id_index').on(table.garmentId),
-    index('outfit_garments_outfit_id_index').on(table.outfitId),
+    index('outfit_slot_garment_id_index').on(table.garmentId),
     foreignKey({
-      name: 'outfit_garments_outfit_id_foreign',
+      name: 'outfit_slot_outfit_id_foreign',
       columns: [table.outfitId],
       foreignColumns: [outfit.id],
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
     foreignKey({
-      name: 'outfit_garments_garment_id_foreign',
+      name: 'outfit_slot_garment_id_foreign',
       columns: [table.garmentId],
       foreignColumns: [garment.id],
     })
       .onUpdate('cascade')
-      .onDelete('cascade'),
+      .onDelete('set null'),
   ],
 );
 
@@ -330,22 +335,22 @@ export const fileRelations = relations(file, ({ one }) => ({
 export const garmentRelations = relations(garment, ({ one, many }) => ({
   photo: one(file, { fields: [garment.photoId], references: [file.id] }),
   owner: one(user, { fields: [garment.ownerId], references: [user.id] }),
-  outfitGarments: many(outfitGarment),
+  outfitSlots: many(outfitSlot),
 }));
 
 export const outfitRelations = relations(outfit, ({ one, many }) => ({
   owner: one(user, { fields: [outfit.ownerId], references: [user.id] }),
-  outfitGarments: many(outfitGarment),
+  slots: many(outfitSlot),
   calendarEntries: many(outfitCalendar),
 }));
 
-export const outfitGarmentRelations = relations(outfitGarment, ({ one }) => ({
+export const outfitSlotRelations = relations(outfitSlot, ({ one }) => ({
   outfit: one(outfit, {
-    fields: [outfitGarment.outfitId],
+    fields: [outfitSlot.outfitId],
     references: [outfit.id],
   }),
   garment: one(garment, {
-    fields: [outfitGarment.garmentId],
+    fields: [outfitSlot.garmentId],
     references: [garment.id],
   }),
 }));

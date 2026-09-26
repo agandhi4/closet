@@ -1,7 +1,7 @@
 import { count, eq } from 'drizzle-orm';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { outfit, outfitCalendar, user } from '../../src/db/schema';
+import { garment, outfitCalendar, user } from '../../src/db/schema';
 import { createGarment } from './garments';
 import { APP_ORIGIN, createTestApp, TestApp } from './harness';
 
@@ -14,7 +14,7 @@ describe('request security', () => {
   let t: TestApp;
   let outfitId: number;
 
-  const rows = async (table: typeof outfit | typeof outfitCalendar) =>
+  const rows = async (table: typeof garment | typeof outfitCalendar) =>
     (await t.db.select({ n: count() }).from(table))[0].n;
 
   beforeAll(async () => {
@@ -33,12 +33,12 @@ describe('request security', () => {
   afterAll(() => t?.cleanup());
 
   describe('same-origin check (CSRF)', () => {
-    // POST /outfits is a Nest route, POST /calendar a web-layer one.
-    const createOutfit = (headers: Record<string, string>) =>
+    // POST /wardrobe is a Nest route, POST /calendar a web-layer one.
+    const createGarmentFrom = (headers: Record<string, string>) =>
       t.inject({
         method: 'POST',
-        url: '/outfits',
-        payload: { name: 'Planted outfit' },
+        url: '/wardrobe',
+        payload: { name: 'Planted garment', category: 'shirt' },
         headers,
         sameOrigin: false,
       });
@@ -59,10 +59,10 @@ describe('request security', () => {
       // Same host, other scheme: a different origin.
       ['this host over another scheme', { origin: 'https://localhost' }],
     ])('refuses %s with 403, before any write', async (_label, headers) => {
-      const outfitsBefore = await rows(outfit);
-      const nest = await createOutfit(headers);
+      const garmentsBefore = await rows(garment);
+      const nest = await createGarmentFrom(headers);
       expect(nest.statusCode).toBe(403);
-      expect(await rows(outfit)).toBe(outfitsBefore);
+      expect(await rows(garment)).toBe(garmentsBefore);
 
       const entriesBefore = await rows(outfitCalendar);
       const web = await schedule(headers);
@@ -112,16 +112,16 @@ describe('request security', () => {
         { referer: `${APP_ORIGIN}/outfits/new` },
       ],
     ])('accepts %s', async (_label, headers) => {
-      const res = await createOutfit(headers);
+      const res = await createGarmentFrom(headers);
       expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toMatch(/^\/outfits\/\d+$/);
+      expect(res.headers.location).toMatch(/^\/wardrobe\/\d+/);
       expect((await schedule(headers)).statusCode).toBe(302);
     });
 
     it('believes forwarded scheme and host only from a trusted proxy', async () => {
       // inject() comes from 127.0.0.1, which TRUSTED_PROXIES lists here: the
       // request's own origin is then what the proxy says it was sent to.
-      const res = await createOutfit({
+      const res = await createGarmentFrom({
         origin: 'https://closet.example',
         'x-forwarded-proto': 'https',
         'x-forwarded-host': 'closet.example',

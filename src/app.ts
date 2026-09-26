@@ -364,9 +364,6 @@ function registerHandlebarsHelpers() {
     const d = date instanceof Date ? date : new Date(date);
     return d.toISOString().split('T')[0];
   });
-  hbs.registerHelper('uri', (str: string) =>
-    encodeURIComponent(String(str ?? '')),
-  );
   hbs.registerHelper('join', function (arr: unknown[], separator: string) {
     if (!Array.isArray(arr)) return '';
     return arr.join(separator ?? ', ');

@@ -6,6 +6,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import type { OutgoingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Client, type QueryResult } from 'pg';
+import { vi } from 'vitest';
 import type { Db } from '../../src/db/client';
 import { DB } from '../../src/db/db.module';
 import { user } from '../../src/db/schema';
@@ -316,4 +318,61 @@ export function unescapeHtml(html: string): string {
 
 export function hasText(html: string, text: string): boolean {
   return html.includes(text);
+}
+
+export interface QueryRecord {
+  /** SQL statements sent. */
+  statements: number;
+  /** Rows they returned, all together. */
+  rows: number;
+}
+
+type QueryCallback = (error: Error | null, result?: QueryResult) => void;
+
+/**
+ * Runs `work` and counts the SQL statements the app sends meanwhile and the
+ * rows they return. The app runs in this process and both pools (Drizzle's
+ * and MikroORM's) go through node-postgres's one Client class (pg is pinned
+ * to MikroORM's copy, CLAUDE.md Gotchas), so wrapping Client.prototype.query
+ * sees every statement. For proving a page reads what it shows rather than a
+ * whole table: rows, not only statements, since one statement can return
+ * everything.
+ */
+export async function recordQueries(
+  work: () => Promise<unknown>,
+): Promise<QueryRecord> {
+  const record: QueryRecord = { statements: 0, rows: 0 };
+  const tally = (result: QueryResult | undefined) => {
+    record.rows += result?.rows.length ?? 0;
+  };
+  // The original, called below with the Client the app called it on.
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const query = Client.prototype.query;
+  const spy = vi
+    .spyOn(Client.prototype, 'query')
+    // Client.query is overloaded (promise, callback, Submittable); the
+    // wrapper forwards whatever it is given, so it is typed as the original.
+    .mockImplementation(function (this: Client, ...args: unknown[]) {
+      record.statements += 1;
+      const callback = args.at(-1);
+      if (typeof callback === 'function') {
+        args[args.length - 1] = ((error, result) => {
+          tally(result);
+          (callback as QueryCallback)(error, result);
+        }) satisfies QueryCallback;
+      }
+      const returned: unknown = Reflect.apply(query, this, args);
+      return returned instanceof Promise
+        ? returned.then((result: QueryResult) => {
+            tally(result);
+            return result;
+          })
+        : returned;
+    });
+  try {
+    await work();
+  } finally {
+    spy.mockRestore();
+  }
+  return record;
 }

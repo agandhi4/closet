@@ -1,18 +1,33 @@
+import { and, asc, count, eq, isNotNull, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { OutfitCalendar } from '../../src/dal/entity/outfit-calendar.entity';
-import { OutfitGarment } from '../../src/dal/entity/outfit-garment.entity';
-import { Garment } from '../../src/dal/entity/garment.entity';
-import { Outfit, OutfitSlot } from '../../src/dal/entity/outfit.entity';
+import {
+  garment as garmentTable,
+  outfit as outfitTable,
+  outfitCalendar,
+  outfitSlot,
+} from '../../src/db/schema';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, hasText, imgTags, TestApp } from './harness';
+import {
+  createTestApp,
+  hasText,
+  imgTags,
+  recordQueries,
+  TestApp,
+  unescapeHtml,
+} from './harness';
 
 /**
  * Outfits end to end: the list, the builder and its prev/next row fragment,
  * create/edit/delete as the builder form posts them (urlencoded, one
  * category + garmentId pair per row), and scheduling from the form. Proves
- * the rendered HTML, the `outfit.slots` JSON and the `outfit_garments`
- * pivot rows agree with what the user built.
+ * the rendered HTML and the outfit_slot rows agree with what the user built.
  */
+
+/** A saved outfit_slot row, as the tests compare them. */
+interface SavedSlot {
+  category: string;
+  garmentId: number | null;
+}
 
 /** One builder row as the form posts it: category plus garment (or none). */
 type Slot = [category: string, garmentId: number | null];
@@ -93,16 +108,49 @@ describe('outfits', () => {
       ...outfitForm(fields, slots),
     });
 
-  const pivotGarmentIds = async (outfitId: number): Promise<number[]> =>
-    (await t.em().find(OutfitGarment, { outfit: outfitId }))
-      .map((row) => row.garment.id)
+  /** The garments an outfit's slots name, ascending (the membership set). */
+  const slotGarmentIds = async (outfitId: number): Promise<number[]> =>
+    (
+      await t.db
+        .select({ garmentId: outfitSlot.garmentId })
+        .from(outfitSlot)
+        .where(
+          and(
+            eq(outfitSlot.outfitId, outfitId),
+            isNotNull(outfitSlot.garmentId),
+          ),
+        )
+    )
+      .map((row) => row.garmentId!)
       .sort(byId);
 
-  const savedSlots = async (outfitId: number): Promise<OutfitSlot[]> =>
-    (await t.em().findOneOrFail(Outfit, outfitId)).slots ?? [];
+  const savedSlots = (outfitId: number): Promise<SavedSlot[]> =>
+    t.db
+      .select({
+        category: outfitSlot.category,
+        garmentId: outfitSlot.garmentId,
+      })
+      .from(outfitSlot)
+      .where(eq(outfitSlot.outfitId, outfitId))
+      .orderBy(asc(outfitSlot.position));
+
+  const outfitRow = async (id: number) => {
+    const [row] = await t.db
+      .select()
+      .from(outfitTable)
+      .where(eq(outfitTable.id, id));
+    return row;
+  };
+
+  const outfitCount = async () =>
+    (await t.db.select({ n: count() }).from(outfitTable))[0].n;
 
   const calendarEntries = (outfitId: number) =>
-    t.em().find(OutfitCalendar, { outfit: outfitId }, { orderBy: { id: 1 } });
+    t.db
+      .select()
+      .from(outfitCalendar)
+      .where(eq(outfitCalendar.outfitId, outfitId))
+      .orderBy(asc(outfitCalendar.id));
 
   beforeAll(async () => {
     t = await createTestApp();
@@ -181,13 +229,64 @@ describe('outfits', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body).toMatch(/name="scheduleDate"[^>]*value="2026-10-14"/);
       expect(res.body).toContain(
-        '<input type="hidden" name="returnTo" value="/calendar" />',
+        '<input type="hidden" name="returnTo" value="/calendar"/>',
       );
+    });
+
+    it('ignores a malformed schedule date in the link', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/outfits/new?scheduleDate=2026-02-30',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).not.toContain('2026-02-30');
+    });
+
+    it('shows each row as the 400px thumb, the cutout only in the detail modal', async () => {
+      const coat = await createGarment(t, {
+        name: 'Photo coat',
+        category: 'coats',
+      });
+      await uploadPhoto(t, coat, await jpegPhoto(64, 64));
+
+      const res = await t.inject({ method: 'GET', url: '/outfits/new' });
+      const html = unescapeHtml(res.body);
+      const row = html.slice(html.indexOf('data-category="coats"'));
+      const img = imgTags(row)[0];
+      expect(img).toMatch(/src="\/file\/thumb\/[0-9a-f-]+\.webp\?v=1"/);
+      expect(img).toMatch(/width="56"/);
+      expect(row).toMatch(/data-garment-photo="\/file\/nobg\/[0-9a-f-]+\.webp/);
+      // No row loads an original or a cutout as an image.
+      for (const src of imgTags(html).map((tag) => /src="([^"]*)"/.exec(tag))) {
+        expect(src?.[1] ?? '').not.toMatch(
+          /^\/file\/(nobg\/)?[0-9a-f-]+\.webp/,
+        );
+      }
+    });
+
+    // The server audit: the builder loaded every garment to show one per
+    // category. Adding garments to a category must change neither the
+    // statements the page sends nor the rows they return.
+    it('reads one garment per category however many the wardrobe holds', async () => {
+      const load = () => t.inject({ method: 'GET', url: '/outfits/new' });
+      await load();
+      const before = await recordQueries(load);
+      const rows = formRows((await load()).body).length;
+
+      for (let i = 0; i < 12; i++) {
+        await createGarment(t, { name: `Sock ${i}`, category: 'tops' });
+      }
+      const after = await recordQueries(load);
+
+      expect(after).toEqual(before);
+      // The session's user row plus one row per category shown.
+      expect(after.rows).toBeLessThanOrEqual(rows + 1);
+      expect(after.statements).toBeLessThanOrEqual(2);
     });
   });
 
   describe('GET /outfits/row-fragment (prev/next swap)', () => {
-    // garmentService.findAll is newest first, so index 1 is the newest.
+    // A category's cycle is newest first, so index 1 is the newest.
     let scarves: number[];
 
     beforeAll(async () => {
@@ -204,8 +303,10 @@ describe('outfits', () => {
       index: Number(/data-index="(\d+)"/.exec(html)?.[1]),
       count: Number(/data-count="(\d+)"/.exec(html)?.[1]),
       garmentId: formRows(html)[0][1],
-      /** The prev and next buttons' swap URLs. */
-      links: [...html.matchAll(/hx-get="([^"]*)"/g)].map((m) => m[1]),
+      /** The prev and next buttons' swap URLs, as the browser reads them. */
+      links: [...unescapeHtml(html).matchAll(/hx-get="([^"]*)"/g)].map(
+        (m) => m[1],
+      ),
     });
 
     it('returns only the row partial with the garment at the requested index', async () => {
@@ -258,7 +359,7 @@ describe('outfits', () => {
   });
 
   describe('POST /outfits', () => {
-    it('stores the slots as posted and one pivot row per chosen garment', async () => {
+    it('stores one slot per row, in order, empty rows included', async () => {
       const top = await createGarment(t, { name: 'Linen', category: 'tops' });
       const pants = await createGarment(t, {
         name: 'Chinos',
@@ -271,27 +372,29 @@ describe('outfits', () => {
         ['bottoms', pants],
       ]);
 
-      const outfit = await t.em().findOneOrFail(Outfit, id);
+      const outfit = await outfitRow(id);
       expect(outfit.name).toBe('Brunch');
       expect(outfit.notes).toBe('Sunny');
-      expect(outfit.owner.id).toBe(t.owner.id);
+      expect(outfit.ownerId).toBe(t.owner.id);
       expect(outfit.shareableId).toMatch(/^[0-9a-f-]{36}$/);
-      expect(outfit.slots).toEqual([
+      expect(await savedSlots(id)).toEqual([
         { category: 'tops', garmentId: top },
         { category: 'footwear', garmentId: null },
         { category: 'bottoms', garmentId: pants },
       ]);
-      expect(await pivotGarmentIds(id)).toEqual(ascending([top, pants]));
       expect(await calendarEntries(id)).toHaveLength(0);
     });
 
-    it('does not attach garment ids that are not in the wardrobe', async () => {
+    it('keeps the row but not a garment id that is not in the wardrobe', async () => {
       const top = await createGarment(t, { name: 'Polo', category: 'tops' });
       const id = await createOutfit({ name: 'Tampered' }, [
         ['tops', top],
         ['bottoms', 999_999],
       ]);
-      expect(await pivotGarmentIds(id)).toEqual([top]);
+      expect(await savedSlots(id)).toEqual([
+        { category: 'tops', garmentId: top },
+        { category: 'bottoms', garmentId: null },
+      ]);
     });
 
     it('accepts a single row (scalar fields, not arrays) and an empty outfit', async () => {
@@ -300,11 +403,28 @@ describe('outfits', () => {
       expect(await savedSlots(single)).toEqual([
         { category: 'tops', garmentId: top },
       ]);
-      expect(await pivotGarmentIds(single)).toEqual([top]);
 
       const empty = await createOutfit({}, []);
       expect(await savedSlots(empty)).toEqual([]);
-      expect(await pivotGarmentIds(empty)).toEqual([]);
+      // A blank name is no name: the pages say "Untitled Outfit".
+      expect((await outfitRow(empty)).name).toBeNull();
+    });
+
+    it.each([
+      ['a row without its garment id', 'category=tops&name=Unpaired'],
+      ['a garment id that is not an id', 'category=tops&garmentId=abc'],
+      ['a blank category', 'category=%20&garmentId='],
+      ['a name longer than the column', `name=${'x'.repeat(256)}`],
+    ])('400s %s and writes nothing', async (_label, payload) => {
+      const before = await outfitCount();
+      const res = await t.inject({
+        method: 'POST',
+        url: '/outfits',
+        payload,
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(await outfitCount()).toBe(before);
     });
 
     it('schedules the new outfit and returns to that calendar week', async () => {
@@ -324,7 +444,10 @@ describe('outfits', () => {
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe('/calendar?week=2026-10-14');
 
-      const outfit = await t.em().findOneOrFail(Outfit, { name: 'Planned' });
+      const [outfit] = await t.db
+        .select({ id: outfitTable.id })
+        .from(outfitTable)
+        .where(eq(outfitTable.name, 'Planned'));
       const entries = await calendarEntries(outfit.id);
       expect(entries).toHaveLength(1);
       expect(entries[0].day).toBe('2026-10-14');
@@ -349,21 +472,54 @@ describe('outfits', () => {
       expect(res.headers.location).toBe('/calendar?week=2026-10-11');
     });
 
-    // Known bug (docs/audits/2026-09-25-program2): saving an outfit and scheduling it are not one transaction.
-    it.fails(
-      'rejects an invalid schedule date without saving a half-written outfit',
-      async () => {
-        const before = await t.em().count(Outfit);
+    it('rejects an invalid schedule date without saving a half-written outfit', async () => {
+      const before = await outfitCount();
+      const res = await t.inject({
+        method: 'POST',
+        url: '/outfits',
+        ...outfitForm({ name: 'Bad date', scheduleDate: 'garbage' }, []),
+      });
+      expect(res.statusCode).toBe(400);
+      expect(await outfitCount()).toBe(before);
+    });
+
+    // The outfit, its slots and its calendar entry commit together: a
+    // failure after the outfit row is written leaves nothing behind.
+    it('rolls the outfit back when scheduling it fails', async () => {
+      const before = await outfitCount();
+      const top = await createGarment(t, {
+        name: 'Rollback',
+        category: 'tops',
+      });
+      // A day Postgres rejects but the schema accepts cannot be posted (both
+      // use the full-date rule), so break the insert at the database: the
+      // calendar table refuses writes for the length of this request.
+      await t.db.execute(
+        sql`create function refuse_entry() returns trigger language plpgsql as $$ begin raise exception 'refused'; end $$`,
+      );
+      await t.db.execute(
+        sql`create trigger refuse_entry before insert on outfit_calendar for each row execute function refuse_entry()`,
+      );
+      try {
         const res = await t.inject({
           method: 'POST',
           url: '/outfits',
-          ...outfitForm({ name: 'Bad date', scheduleDate: 'garbage' }, []),
+          ...outfitForm({ name: 'Doomed plan', scheduleDate: '2026-11-02' }, [
+            ['tops', top],
+          ]),
         });
-        expect(res.statusCode).toBeGreaterThanOrEqual(400);
-        expect(res.statusCode).toBeLessThan(500);
-        expect(await t.em().count(Outfit)).toBe(before);
-      },
-    );
+        expect(res.statusCode).toBe(500);
+      } finally {
+        await t.db.execute(sql`drop trigger refuse_entry on outfit_calendar`);
+        await t.db.execute(sql`drop function refuse_entry()`);
+      }
+      expect(await outfitCount()).toBe(before);
+      const [orphans] = await t.db
+        .select({ n: count() })
+        .from(outfitSlot)
+        .where(eq(outfitSlot.garmentId, top));
+      expect(orphans.n).toBe(0);
+    });
   });
 
   describe('GET /outfits and GET /outfits/:id', () => {
@@ -382,7 +538,7 @@ describe('outfits', () => {
         );
         // The per-card "add to calendar" form schedules this outfit.
         expect(res.body).toContain(
-          `<input type="hidden" name="outfitId" value="${id}" />`,
+          `<input type="hidden" name="outfitId" value="${id}"/>`,
         );
       }
       expect(hasText(res.body, 'Mondays')).toBe(true);
@@ -462,28 +618,58 @@ describe('outfits', () => {
         ]);
       });
 
-      // Known bug (docs/audits/2026-09-25-program2): the show page renders the unordered outfit_garments pivot, not the saved slot order.
-      it.fails(
-        'the show page renders garments in the saved order',
-        async () => {
-          const res = await t.inject({
-            method: 'GET',
-            url: `/outfits/${outfitId}`,
-          });
-          expect(shownGarmentIds(res.body)).toEqual(saved);
-        },
-      );
+      it('the show page renders garments in the saved order', async () => {
+        const res = await t.inject({
+          method: 'GET',
+          url: `/outfits/${outfitId}`,
+        });
+        expect(shownGarmentIds(res.body)).toEqual(saved);
+      });
 
-      // Known bug (docs/audits/2026-09-25-program2): the list renders the unordered outfit_garments pivot, not the saved slot order.
-      it.fails('the list renders garments in the saved order', async () => {
+      it('the list renders garments in the saved order', async () => {
         const res = await t.inject({ method: 'GET', url: '/outfits' });
-        const start = res.body.indexOf(
-          `window.location = '/outfits/${outfitId}'`,
-        );
-        const end = res.body.indexOf("window.location = '/outfits/", start + 1);
+        const start = res.body.indexOf(`data-outfit-id="${outfitId}"`);
+        const end = res.body.indexOf('data-outfit-id="', start + 1);
         const card = res.body.slice(start, end === -1 ? undefined : end);
         const alts = imgTags(card).map((tag) => /alt="([^"]*)"/.exec(tag)?.[1]);
         expect(alts).toEqual(['Order shoes', 'Order pants', 'Order top']);
+      });
+
+      it('the calendar shows the garments in the saved order', async () => {
+        await t.inject({
+          method: 'POST',
+          url: '/calendar',
+          payload: { date: '2030-11-05', outfitId: String(outfitId) },
+        });
+        const res = await t.inject({
+          method: 'GET',
+          url: '/calendar?week=2030-11-05',
+        });
+        const photos = imgTags(res.body).map(
+          (tag) => /src="([^"]*)"/.exec(tag)?.[1],
+        );
+        const listed = await t.inject({ method: 'GET', url: '/outfits' });
+        const start = listed.body.indexOf(`data-outfit-id="${outfitId}"`);
+        const card = listed.body.slice(
+          start,
+          listed.body.indexOf('data-outfit-id="', start + 1),
+        );
+        const inOrder = imgTags(card).map(
+          (tag) => /src="([^"]*)"/.exec(tag)?.[1],
+        );
+        expect(photos).toEqual(inOrder);
+      });
+
+      it('lists outfits newest first, one statement for them all', async () => {
+        const load = () => t.inject({ method: 'GET', url: '/outfits' });
+        const res = await load();
+        const ids = [...res.body.matchAll(/data-outfit-id="(\d+)"/g)].map((m) =>
+          Number(m[1]),
+        );
+        expect(ids.length).toBeGreaterThan(3);
+        expect(ids).toEqual([...ids].sort((a, b) => b - a));
+        // The session's user row, then every outfit with its garments.
+        expect((await recordQueries(load)).statements).toBe(2);
       });
     });
   });
@@ -503,7 +689,7 @@ describe('outfits', () => {
       expect(res.body).toMatch(/<textarea[^>]*name="notes"[\s\S]*?Fireside/);
       expect(formRows(res.body)).toEqual([['tops', top]]);
       expect(res.body).toContain(
-        `<input type="hidden" name="returnTo" value="/outfits/${id}" />`,
+        `<input type="hidden" name="returnTo" value="/outfits/${id}"/>`,
       );
     });
 
@@ -514,10 +700,10 @@ describe('outfits', () => {
         url: `/outfits/${id}/edit?returnTo=/calendar&returnToWeek=2026-10-11`,
       });
       expect(res.body).toContain(
-        '<input type="hidden" name="returnTo" value="/calendar" />',
+        '<input type="hidden" name="returnTo" value="/calendar"/>',
       );
       expect(res.body).toContain(
-        '<input type="hidden" name="returnToWeek" value="2026-10-11" />',
+        '<input type="hidden" name="returnToWeek" value="2026-10-11"/>',
       );
     });
 
@@ -543,14 +729,13 @@ describe('outfits', () => {
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe(`/outfits/${id}`);
 
-      const outfit = await t.em().findOneOrFail(Outfit, id);
+      const outfit = await outfitRow(id);
       expect(outfit.name).toBe('Boardwalk');
       expect(outfit.notes).toBe('Hot');
-      expect(outfit.slots).toEqual([
+      expect(await savedSlots(id)).toEqual([
         { category: 'footwear', garmentId: sandals },
         { category: 'tops', garmentId: top },
       ]);
-      expect(await pivotGarmentIds(id)).toEqual(ascending([top, sandals]));
       expect(await calendarEntries(id)).toHaveLength(0);
 
       const form = await t.inject({
@@ -571,7 +756,38 @@ describe('outfits', () => {
         302,
       );
       expect(await savedSlots(id)).toEqual([]);
-      expect(await pivotGarmentIds(id)).toEqual([]);
+    });
+
+    it('leaves name and notes alone when the post does not carry them', async () => {
+      const id = await createOutfit({ name: 'Kept', notes: 'As is' }, []);
+      const res = await t.inject({
+        method: 'POST',
+        url: `/outfits/${id}`,
+        payload: { category: 'tops', garmentId: '' },
+      });
+      expect(res.statusCode).toBe(302);
+      expect(await outfitRow(id)).toMatchObject({
+        name: 'Kept',
+        notes: 'As is',
+      });
+      expect(await savedSlots(id)).toEqual([
+        { category: 'tops', garmentId: null },
+      ]);
+    });
+
+    it('400s a malformed schedule date and changes nothing', async () => {
+      const top = await createGarment(t, { name: 'Steady', category: 'tops' });
+      const id = await createOutfit({ name: 'Steady' }, [['tops', top]]);
+      const res = await updateOutfit(
+        id,
+        { name: 'Changed', scheduleDate: '2026-13-01' },
+        [],
+      );
+      expect(res.statusCode).toBe(400);
+      expect((await outfitRow(id)).name).toBe('Steady');
+      expect(await savedSlots(id)).toEqual([
+        { category: 'tops', garmentId: top },
+      ]);
     });
 
     it('schedules from the edit form and returns to the calendar week', async () => {
@@ -605,48 +821,86 @@ describe('outfits', () => {
       expect(await calendarEntries(id)).toHaveLength(1);
     });
 
-    // Known bug (docs/audits/2026-09-25-program2): editing an outfit silently drops archived garments from it.
-    it.fails(
-      'an edit round trip keeps an archived garment in the outfit',
-      async () => {
-        const coat = await createGarment(t, {
-          name: 'Archived coat',
-          category: 'coats',
-        });
-        const top = await createGarment(t, {
-          name: 'Kept top',
-          category: 'tops',
-        });
-        const id = await createOutfit({ name: 'Winter' }, [
-          ['coats', coat],
-          ['tops', top],
-        ]);
-        const archive = await t.inject({
-          method: 'POST',
-          url: `/wardrobe/${coat}/archive`,
-        });
-        expect(archive.statusCode).toBeLessThan(300);
-        expect((await t.em().findOneOrFail(Garment, coat)).archived).toBe(true);
+    it('an edit round trip keeps an archived garment in the outfit', async () => {
+      const coat = await createGarment(t, {
+        name: 'Archived coat',
+        category: 'coats',
+      });
+      const top = await createGarment(t, {
+        name: 'Kept top',
+        category: 'tops',
+      });
+      const id = await createOutfit({ name: 'Winter' }, [
+        ['coats', coat],
+        ['tops', top],
+      ]);
+      const archive = await t.inject({
+        method: 'POST',
+        url: `/wardrobe/${coat}/archive`,
+      });
+      expect(archive.statusCode).toBeLessThan(300);
+      const [archived] = await t.db
+        .select({ archived: garmentTable.archived })
+        .from(garmentTable)
+        .where(eq(garmentTable.id, coat));
+      expect(archived.archived).toBe(true);
 
-        // What the browser does: load the form, change the name, submit it.
-        const form = await t.inject({
-          method: 'GET',
-          url: `/outfits/${id}/edit`,
-        });
-        const res = await updateOutfit(
-          id,
-          { name: 'Winter (renamed)' },
-          formRows(form.body),
-        );
-        expect(res.statusCode).toBe(302);
+      // What the browser does: load the form, change the name, submit it.
+      const form = await t.inject({
+        method: 'GET',
+        url: `/outfits/${id}/edit`,
+      });
+      // The archived garment is shown, and marked.
+      expect(form.body).toContain('data-garment-name="Archived coat"');
+      expect(hasText(form.body, 'Archived</span>')).toBe(true);
+      const res = await updateOutfit(
+        id,
+        { name: 'Winter (renamed)' },
+        formRows(form.body),
+      );
+      expect(res.statusCode).toBe(302);
 
-        expect(await pivotGarmentIds(id)).toEqual(ascending([coat, top]));
-        expect(await savedSlots(id)).toEqual([
-          { category: 'coats', garmentId: coat },
-          { category: 'tops', garmentId: top },
-        ]);
-      },
-    );
+      expect(await slotGarmentIds(id)).toEqual(ascending([coat, top]));
+      expect(await savedSlots(id)).toEqual([
+        { category: 'coats', garmentId: coat },
+        { category: 'tops', garmentId: top },
+      ]);
+    });
+
+    // An archived garment is not in its category's cycle: its row steps to
+    // the neighbours it would have by age, and never back to it.
+    it('prev/next from an archived garment go to its unarchived neighbours', async () => {
+      const [older, archivedOne, newer] = [
+        await createGarment(t, { name: 'Belt 1', category: 'belts' }),
+        await createGarment(t, { name: 'Belt 2', category: 'belts' }),
+        await createGarment(t, { name: 'Belt 3', category: 'belts' }),
+      ];
+      const id = await createOutfit({ name: 'Belted' }, [
+        ['belts', archivedOne],
+      ]);
+      await t.inject({
+        method: 'POST',
+        url: `/wardrobe/${archivedOne}/archive`,
+      });
+
+      const form = await t.inject({
+        method: 'GET',
+        url: `/outfits/${id}/edit`,
+      });
+      const row = unescapeHtml(form.body);
+      expect(formRows(row)).toEqual([['belts', archivedOne]]);
+      expect(row).toContain('data-count="2"');
+      expect(row).not.toContain('data-index=');
+      const links = [...row.matchAll(/hx-get="([^"]*)"/g)].map((m) => m[1]);
+      expect(links).toEqual([
+        '/outfits/row-fragment?category=belts&index=1',
+        '/outfits/row-fragment?category=belts&index=2',
+      ]);
+      const next = await t.inject({ method: 'GET', url: links[1] });
+      expect(formRows(next.body)).toEqual([['belts', older]]);
+      const prev = await t.inject({ method: 'GET', url: links[0] });
+      expect(formRows(prev.body)).toEqual([['belts', newer]]);
+    });
 
     it('404s an update to an unknown outfit', async () => {
       const res = await updateOutfit(999_999, { name: 'Ghost' }, []);
@@ -655,7 +909,7 @@ describe('outfits', () => {
   });
 
   describe('DELETE /outfits/:id', () => {
-    it('removes the outfit, its pivot rows and its calendar entries, but not the garments', async () => {
+    it('removes the outfit, its slots and its calendar entries, but not the garments', async () => {
       const top = await createGarment(t, {
         name: 'Doomed top',
         category: 'tops',
@@ -664,17 +918,21 @@ describe('outfits', () => {
         { name: 'Doomed', scheduleDate: '2026-10-28' },
         [['tops', top]],
       );
-      expect(await pivotGarmentIds(id)).toEqual([top]);
+      expect(await slotGarmentIds(id)).toEqual([top]);
       expect(await calendarEntries(id)).toHaveLength(1);
 
       const res = await t.inject({ method: 'DELETE', url: `/outfits/${id}` });
       expect(res.statusCode).toBe(200);
       expect(res.headers['hx-redirect']).toBe('/outfits');
 
-      expect(await t.em().findOne(Outfit, id)).toBeNull();
-      expect(await pivotGarmentIds(id)).toEqual([]);
+      expect(await outfitRow(id)).toBeUndefined();
+      expect(await savedSlots(id)).toEqual([]);
       expect(await calendarEntries(id)).toHaveLength(0);
-      expect(await t.em().findOne(Garment, top)).not.toBeNull();
+      const [kept] = await t.db
+        .select({ n: count() })
+        .from(garmentTable)
+        .where(eq(garmentTable.id, top));
+      expect(kept.n).toBe(1);
 
       const gone = await t.inject({ method: 'GET', url: `/outfits/${id}` });
       expect(gone.statusCode).toBe(404);
