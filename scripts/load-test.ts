@@ -59,8 +59,8 @@ async function main() {
     fs.mkdtempSync(path.join(os.tmpdir(), 'closet-load-'));
   console.log(`Starting server (DATA_PATH=${dataPath})...`);
   let stderr = '';
-  // stdout is dropped: pino-http logs every request, and an unread pipe
-  // would fill up and stall the server under load.
+  // stdout is dropped: the server logs every request, and an unread pipe
+  // would fill up and stall it under load.
   const server = spawn('node', ['dist/main.js'], {
     stdio: ['ignore', 'ignore', 'pipe'],
     env: {

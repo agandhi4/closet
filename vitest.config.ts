@@ -1,18 +1,11 @@
-import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
 // Two tiers, one run (`npm run test:all`, the pre-commit hook): one worker
 // pool, one coverage report. `npm test` selects the unit projects (`unit*`),
 // `npm run test:int` the integration project.
 export default defineConfig({
-  // Nest resolves constructor injection from decorator metadata
-  // (emitDecoratorMetadata), which Vite's own TypeScript transform never
-  // emits: without SWC every injected dependency is undefined. unplugin-swc
-  // reads experimentalDecorators/emitDecoratorMetadata from tsconfig.json and
-  // turns Vite's transform off. It also reads jsx/jsxImportSource there
-  // (hono/jsx for the src/web/ views) and then parses every .ts file as TSX,
-  // which is why angle-bracket type assertions are banned (eslint.config.mjs).
-  plugins: [swc.vite({ module: { type: 'es6' } })],
+  // TypeScript and TSX go through Vite's own esbuild transform, which takes
+  // jsx/jsxImportSource (hono/jsx) from tsconfig.json.
   test: {
     // Global, inherited by every project (extends: true). The budget covers
     // an integration spec's beforeAll: scratch database, migrations and app
@@ -23,11 +16,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
-      exclude: [
-        'src/**/*.spec.{ts,tsx}',
-        'src/**/*.module.*',
-        'src/main.ts',
-      ],
+      exclude: ['src/**/*.spec.{ts,tsx}', 'src/main.ts'],
       reportsDirectory: 'coverage',
     },
     projects: [
@@ -62,8 +51,8 @@ export default defineConfig({
         // pgvault-dev on localhost:5432 or TEST_DATABASE_URL (see
         // test/support/scratch-database.ts). Files run in parallel, each in
         // its own child process (the default forks pool with isolation), so
-        // the env createTestApp writes into process.env and the AppModule it
-        // boots never outlive the file (test/integration/harness.ts).
+        // one file's app, rate-limit counters and mocks never meet another's
+        // (test/integration/harness.ts).
         extends: true,
         test: {
           name: 'integration',
