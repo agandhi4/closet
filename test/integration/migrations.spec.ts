@@ -1,11 +1,13 @@
-import { MikroORM } from '@mikro-orm/core';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { schemaDrift } from '../support/schema-drift';
 import { createTestApp, TestApp } from './harness';
 
 /**
- * Booting the app runs migrator.up(); the schema it leaves behind must carry
- * every index the entities declare. The Postgres migration's shape (CONCURRENTLY, non-transactional)
- * is checked statically in src/dal/migrations/postgres-indexes.spec.ts.
+ * Booting the app runs the Drizzle migrations (src/db/migrate.ts) on a fresh
+ * database; the schema they leave behind must be exactly src/db/schema.ts.
+ * The legacy path (a database built by MikroORM, as production's was) is
+ * test/integration/migration-runner.spec.ts.
  */
 describe('migrations', () => {
   let t: TestApp;
@@ -16,29 +18,18 @@ describe('migrations', () => {
 
   afterAll(() => t?.cleanup());
 
-  const indexNames = async (): Promise<string[]> => {
-    const rows: { name: string }[] = await t
-      .em()
-      .getConnection()
-      .execute(
-        'select indexname as name from pg_indexes where schemaname = current_schema()',
-      );
-    return rows.map((row) => row.name);
-  };
-
-  // An entity change without its migration boots fine and fails later in
-  // production (garment.color became a smallint that way). The migrated
-  // schema must be exactly what the entities describe.
-  it('leaves no difference between the entities and the migrated schema', async () => {
-    const diff = await t.app
-      .get(MikroORM)
-      .getSchemaGenerator()
-      .getUpdateSchemaSQL({ wrap: false });
-    expect(diff.trim()).toBe('');
+  it('leaves no difference between src/db/schema.ts and the migrated schema', async () => {
+    expect(await schemaDrift(t.db)).toEqual([]);
   });
 
+  // The drift check compares against the schema file, so an index dropped
+  // from both would pass it. Postgres does not index foreign keys on its
+  // own: this list is what the queries rely on.
   it('creates the lookup and foreign-key indexes', async () => {
-    expect(await indexNames()).toEqual(
+    const { rows } = await t.db.execute<{ name: string }>(
+      sql`select indexname as name from pg_indexes where schemaname = current_schema()`,
+    );
+    expect(rows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         'user_shareable_id_index',
         'file_shareable_id_index',
@@ -46,6 +37,7 @@ describe('migrations', () => {
         'garment_shareable_id_index',
         'garment_owner_id_index',
         'garment_category_index',
+        'garment_photo_id_unique',
         'outfit_shareable_id_index',
         'outfit_owner_id_index',
         'outfit_garments_outfit_id_index',
@@ -59,5 +51,46 @@ describe('migrations', () => {
         'wardrobe_share_invite_token_unique',
       ]),
     );
+  });
+
+  // relations() are checked only when a relational query uses them; every
+  // relation in the schema is walked once here.
+  it('resolves every relation in the schema', async () => {
+    await expect(
+      Promise.all([
+        t.db.query.user.findMany({
+          with: {
+            devices: true,
+            fileUploads: true,
+            garments: true,
+            outfits: true,
+            calendarEntries: true,
+            sharesGranted: true,
+            sharesReceived: true,
+          },
+        }),
+        t.db.query.file.findMany({ with: { createdBy: true, garment: true } }),
+        t.db.query.garment.findMany({
+          with: { photo: true, owner: true, outfitGarments: true },
+        }),
+        t.db.query.outfit.findMany({
+          with: { owner: true, outfitGarments: true, calendarEntries: true },
+        }),
+        t.db.query.outfitGarment.findMany({
+          with: { outfit: true, garment: true },
+        }),
+        t.db.query.outfitCalendar.findMany({
+          with: { outfit: true, owner: true },
+        }),
+        t.db.query.wardrobeShare.findMany({
+          with: { grantor: true, grantee: true },
+        }),
+        t.db.query.userDevice.findMany({ with: { user: true } }),
+      ]),
+    ).resolves.toBeDefined();
+    const owner = await t.db.query.user.findFirst({
+      where: (user, { eq }) => eq(user.id, t.owner.id),
+    });
+    expect(owner?.email).toBe(t.owner.email);
   });
 });

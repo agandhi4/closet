@@ -1,4 +1,3 @@
-import { MikroORM } from '@mikro-orm/core';
 import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -10,6 +9,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { SessionGuard } from './auth/session.guard';
 import { DalModule } from './dal/dal.module';
+import { DbModule } from './db/db.module';
 import { NotificationModule } from './notification/notification.module';
 import { FileModule } from './file/file.module';
 import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
@@ -212,6 +212,8 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     MikroOrmModule.forFeature([User]),
     // https://docs.nestjs.com/security/rate-limiting
     ThrottlerModule.forRoot(),
+    // Runs the migrations (src/db/migrate.ts) before anything queries.
+    DbModule,
     DalModule,
     AuthModule,
     FileModule,
@@ -245,14 +247,10 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
 export class AppModule implements OnModuleInit {
   public logger = new Logger(AppModule.name);
 
-  constructor(
-    private readonly orm: MikroORM,
-    private readonly configService: ConfigService,
-  ) {}
+  constructor(private readonly configService: ConfigService) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     this.logger.log(`NODE_ENV: ${this.configService.get('NODE_ENV')}`);
     this.logger.log(`DATA_PATH: ${this.configService.get('DATA_PATH')}`);
-    await this.orm.migrator.up();
   }
 }

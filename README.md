@@ -178,11 +178,18 @@ land in `scripts/results/load-test-results.json`, one entry per target.
 
 ### Migrations
 
+The schema is `src/db/schema.ts` (Drizzle). The app applies the migrations in
+`drizzle/` on every boot, so a deploy is the migration.
+
 ```bash
-# Diffs the entities against the committed snapshot; connects to closet_db on
-# pgvault-dev unless DATABASE_* say otherwise.
-npx mikro-orm migration:create --config mikro-orm.postgres.cli-config.ts
+# After editing src/db/schema.ts: writes drizzle/NNNN_<name>.sql and its
+# snapshot. Needs no database. Read the SQL before committing it.
+npx drizzle-kit generate --name <what-changed>
 ```
+
+Databases created before Drizzle took over (built by MikroORM's migrations)
+are adopted on their first boot: the runner checks that the last MikroORM
+migration was applied and records the Drizzle baseline without running it.
 
 ### Docker build
 
