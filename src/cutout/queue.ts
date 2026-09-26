@@ -1,6 +1,7 @@
-import type { Db } from '../db/client';
+import type { Db, DbConfig } from '../db/client';
 import type { Logger } from '../logger';
 import type { Photos } from '../web/files/photos';
+import { CutoutListener } from './listener';
 import {
   claimNextCutout,
   type CutoutJob,
@@ -16,8 +17,12 @@ const CLAIM_RETRY_MS = 30_000;
 
 export interface CutoutQueueDeps {
   db: Db;
+  /** The pool's settings, for the listener's own connection. */
+  database: DbConfig;
   photos: Photos;
   logger: Logger;
+  /** How long an idle queue waits before looking again unasked (CUTOUT_POLL_SECONDS). */
+  pollMs: number;
 }
 
 /**
@@ -27,9 +32,20 @@ export interface CutoutQueueDeps {
  * start) and nothing is held in memory. Built by createApp() for every app
  * but started only by server.ts, with the model runner; the integration
  * specs start it with a fake one. Stopped by the app's onClose.
+ *
+ * It looks for work when told to and on its own: wake() from a write in
+ * this process; a Postgres notification from a write in any process (the
+ * listener, one connection of its own while started); after the listener
+ * reconnects (notifications sent meanwhile are lost); and every `pollMs`
+ * while idle, the backstop for anything those missed. Two queues on one
+ * database (an overlapping deploy) both hear every notification; the claim
+ * skips rows locked by the other's claim, but a job stays pending while it
+ * runs, so both may run one photo and the state machine keeps one result
+ * (claimNextCutout).
  */
 export class CutoutQueue {
   private runner: CutoutRunner | undefined;
+  private listener: CutoutListener | undefined;
   private loop: Promise<void> | undefined;
   private stopping = false;
   // Set by wake(); the loop looks again before waiting when it is set, so a
@@ -45,11 +61,22 @@ export class CutoutQueue {
     if (this.runner) throw new Error('The cutout queue is already running');
     this.runner = runner;
     this.stopping = false;
-    this.deps.logger.info('Cutout queue started; resuming pending cutouts');
+    this.deps.logger.info(
+      `Cutout queue started; resuming pending cutouts, polling every ${this.deps.pollMs / 1000} s while idle`,
+    );
+    this.listener = new CutoutListener({
+      database: this.deps.database,
+      logger: this.deps.logger,
+      wake: () => this.wake(),
+    });
+    this.listener.start();
     this.loop = this.run(runner);
   }
 
-  /** A row became pending: look now. A no-op while the queue is not running. */
+  /**
+   * A row became pending: look now. A no-op while the queue is not running.
+   * Called by this process's writes and by the listener.
+   */
   wake(): void {
     this.woken = true;
     this.wakeUp?.();
@@ -63,14 +90,16 @@ export class CutoutQueue {
   }
 
   /**
-   * Stops the loop and the runner. A job cut short stays pending, so the
-   * next start runs it again.
+   * Stops the listener, the loop and the runner. A job cut short stays
+   * pending, so the next start runs it again.
    */
   async stop(): Promise<void> {
     const runner = this.runner;
     if (!runner) return;
     this.stopping = true;
     this.wakeUp?.();
+    await this.listener?.close();
+    this.listener = undefined;
     await runner.close();
     await this.loop;
     this.runner = undefined;
@@ -78,13 +107,16 @@ export class CutoutQueue {
   }
 
   private async run(runner: CutoutRunner): Promise<void> {
+    const { db, logger, pollMs } = this.deps;
+    // Whether this look is the idle poll's rather than a wake's.
+    let polling = false;
     while (!this.stopping) {
       this.woken = false;
       let job: CutoutJob | undefined;
       try {
-        job = await claimNextCutout(this.deps.db);
+        job = await claimNextCutout(db);
       } catch (error) {
-        this.deps.logger.error(
+        logger.error(
           { err: error },
           `Could not read the cutout queue; trying again in ${CLAIM_RETRY_MS / 1000} s`,
         );
@@ -92,11 +124,19 @@ export class CutoutQueue {
         continue;
       }
       if (job) {
+        if (polling) {
+          // Nothing told this server about the row: a notification was lost
+          // or the listener was down. Worth seeing if it keeps happening.
+          logger.info(
+            `Cutout poll found photo ${job.fileId} (${job.fileName.slice(0, 8)}) pending without a notification`,
+          );
+        }
+        polling = false;
         await this.process(job, runner);
         continue;
       }
       this.settleIdle();
-      if (!this.woken) await this.sleep();
+      polling = !this.woken && (await this.sleep(pollMs)) === 'timeout';
     }
     this.settleIdle();
   }
@@ -180,16 +220,17 @@ export class CutoutQueue {
     }
   }
 
-  private sleep(ms?: number): Promise<void> {
+  // Waits `ms`, or less when woken (or stopped): which one ended it.
+  private sleep(ms: number): Promise<'timeout' | 'woken'> {
     return new Promise((resolve) => {
-      const timer = ms === undefined ? undefined : setTimeout(done, ms);
-      function done() {
-        clearTimeout(timer);
-        resolve();
-      }
+      const timer = setTimeout(() => {
+        this.wakeUp = undefined;
+        resolve('timeout');
+      }, ms);
       this.wakeUp = () => {
         this.wakeUp = undefined;
-        done();
+        clearTimeout(timer);
+        resolve('woken');
       };
     });
   }

@@ -86,6 +86,7 @@ Open [http://localhost:3000](http://localhost:3000) and register an account: log
 | `MAX_HEIC_BYTES`                   | Largest HEIC/HEIF upload accepted; HEIC is decoded in memory before resizing         | `41943040` (40 MB)      | `20971520`                                                                                |
 | `MODELS_PATH`                      | Where the background-removal model (940 MB) is kept; downloaded there at boot when missing and checksum-verified. A local disk, not NFS | `./models` (`/app/models` in the image) | `/app/models` |
 | `CUTOUT_THREADS`                   | CPU threads the background-removal model uses                                       | `4`                     | `8`                                                                                       |
+| `CUTOUT_POLL_SECONDS`              | How often an idle cutout queue looks for photos no notification announced (a backstop: writes notify it at once) | `60` | `30` |
 | `PUBLIC_VAPID_KEY`                 | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>` |
 | `PRIVATE_VAPID_KEY`                | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>`                                             |
 

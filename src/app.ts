@@ -87,12 +87,10 @@ export async function createApp(
     `Build ${BUILD_INFO.version} (${BUILD_INFO.commit ?? 'no commit'}), static cache key ${BUILD_INFO.assetVersion}`,
   );
 
+  const database = dbConfig(config);
   // Before anything queries: the schema is current or the boot fails.
-  await runMigrations(
-    dbConfig(config),
-    logger.child({ context: 'Migrations' }),
-  );
-  const db = createDb(dbConfig(config), logger.child({ context: 'Db' }));
+  await runMigrations(database, logger.child({ context: 'Migrations' }));
+  const db = createDb(database, logger.child({ context: 'Db' }));
   const photos = createPhotos(
     photosConfig(config),
     db,
@@ -100,8 +98,10 @@ export async function createApp(
   );
   const cutouts = new CutoutQueue({
     db,
+    database,
     photos,
     logger: logger.child({ context: 'Cutout' }),
+    pollMs: config.CUTOUT_POLL_SECONDS * 1000,
   });
   // The only fetcher of user-supplied URLs (the link import); one per
   // process, handed to the web layer like Photos.

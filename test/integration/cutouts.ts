@@ -74,3 +74,22 @@ export async function alphaAt(
     .toBuffer({ resolveWithObject: true });
   return data[(y * info.width + x) * info.channels + 3];
 }
+
+/**
+ * Resolves once `check` holds, looking every 25 ms; fails naming `what`
+ * after `timeoutMs`. For work the queue does on its own (a notification, the
+ * poll, a reconnect), where whenIdle() would wake it and prove nothing.
+ */
+export async function eventually(
+  what: string,
+  check: () => Promise<boolean>,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out after ${timeoutMs} ms waiting for ${what}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}

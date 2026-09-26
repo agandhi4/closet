@@ -1,4 +1,4 @@
-import { and, asc, eq, lt } from 'drizzle-orm';
+import { and, asc, eq, lt, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../db/client';
 import { file, garment } from '../db/schema';
 import {
@@ -18,6 +18,26 @@ import {
 export interface CutoutRow extends CutoutState {
   id: number;
   fileName: string;
+}
+
+/**
+ * The channel every write that queues a cutout notifies (notifyCutoutQueued)
+ * and the queue's listener (src/cutout/listener.ts) listens on. Channels are
+ * per database, so this one name is safe on the shared pgvault instance.
+ */
+export const CUTOUT_QUEUED_CHANNEL = 'closet_cutout_queued';
+
+/**
+ * Tells every listening queue, in this process or another (a CLI, a second
+ * server during an overlapping deploy), that a row became pending. Inside a
+ * transaction Postgres delivers it only on commit, so a listener never looks
+ * before the row is visible, and a rollback sends nothing. Called by the
+ * two writes that make a row pending: applyCutoutEvent (request, retry) and
+ * insertPhotoRow (a new pending photo). The payload is empty so Postgres
+ * folds a transaction's repeats into one.
+ */
+export async function notifyCutoutQueued(q: Queryable): Promise<void> {
+  await q.execute(sql`select pg_notify(${CUTOUT_QUEUED_CHANNEL}, '')`);
 }
 
 /** What an event did: the transition, or `gone` when the photo row is gone. */
@@ -71,6 +91,7 @@ export async function applyCutoutEvent(
       ...(next.queued && { cutoutRequestedAt: new Date() }),
     })
     .where(eq(file.id, row.id));
+  if (next.queued) await notifyCutoutQueued(tx);
   return next;
 }
 

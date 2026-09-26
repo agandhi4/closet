@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
+import { notifyCutoutQueued } from '../../cutout/queries';
 import type { InitialCutoutColumns } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file } from '../../db/schema';
@@ -19,7 +20,8 @@ export interface NewPhotoRow {
 
 /**
  * Inserts the row inside the caller's transaction; returns its id. The
- * cutout columns (initialCutoutState) default to `none`.
+ * cutout columns (initialCutoutState) default to `none`; a pending row
+ * notifies the cutout queues on commit, whichever process inserts it.
  */
 export async function insertPhotoRow(
   q: Queryable,
@@ -29,6 +31,7 @@ export async function insertPhotoRow(
     .insert(file)
     .values(row)
     .returning({ id: file.id });
+  if (row.cutoutStatus === 'pending') await notifyCutoutQueued(q);
   return inserted.id;
 }
 

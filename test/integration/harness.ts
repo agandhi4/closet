@@ -13,7 +13,7 @@ import { expect, vi } from 'vitest';
 import { type AppOptions, createApp } from '../../src/app';
 import { loadConfig } from '../../src/config';
 import type { CutoutQueue } from '../../src/cutout/queue';
-import type { Db } from '../../src/db/client';
+import { type Db, dbConfig, type DbConfig } from '../../src/db/client';
 import { user } from '../../src/db/schema';
 import { createLogger, createLoggerTo, type Logger } from '../../src/logger';
 import { hashPassword } from '../../src/web/auth/passwords';
@@ -145,6 +145,11 @@ export interface TestApp {
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
   /** The app's Drizzle instance (no identity map: reads see every commit). */
   db: Db;
+  /**
+   * Where the app's database is (dbConfig): for a spec that connects as
+   * another process would (createDb, a pg Client).
+   */
+  database: DbConfig;
   /** The app's root logger, for modules a spec builds itself (into t.logs). */
   logger: Logger;
   /**
@@ -289,6 +294,7 @@ export async function createTestApp(
     owner,
     inject,
     db,
+    database: dbConfig(config),
     logger,
     logs,
     register,

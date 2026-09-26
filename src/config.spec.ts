@@ -46,6 +46,7 @@ describe('loadConfig', () => {
       MAINTENANCE_ENABLED: true,
       MAX_HEIC_BYTES: 40 * 1024 * 1024,
       CUTOUT_THREADS: 4,
+      CUTOUT_POLL_SECONDS: 60,
     });
     expect(config.DATA_PATH).toBe(join(process.cwd(), 'data'));
     expect(config.MODELS_PATH).toBe(join(process.cwd(), 'models'));

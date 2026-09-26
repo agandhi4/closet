@@ -59,7 +59,9 @@ export function connectionOptions(config: DbConfig): ClientConfig {
 // homelab app, and a household never needs more than a handful of concurrent
 // queries (a page is one to three). `min` keeps connections open across idle
 // periods: a fresh one costs ~11 ms, which the server audit measured on every
-// request once the old ORM's pool had shrunk.
+// request once the old ORM's pool had shrunk. The server holds one more
+// connection outside the pool while its cutout queue runs (the LISTEN
+// connection, src/cutout/listener.ts): at most POOL_MAX + 1 per server.
 const POOL_MAX = 10;
 const POOL_MIN = 2;
 const POOL_IDLE_TIMEOUT_MS = 30_000;

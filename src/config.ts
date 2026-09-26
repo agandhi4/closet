@@ -100,6 +100,11 @@ export const ConfigSchema = Type.Object({
   // onnxruntime intra-op threads of the background-removal model (the benchmark:
   // 3.3 s a photo at 4, 2.7 s at 8, on an 8-core Ryzen).
   CUTOUT_THREADS: Type.Integer({ minimum: 1, maximum: 64, default: 4 }),
+  // How often an idle cutout queue looks for pending photos on its own. A
+  // backstop only: writes notify the queue at once (LISTEN/NOTIFY,
+  // src/cutout/listener.ts); the poll catches what a lost notification or a
+  // dropped listener connection missed. One indexed claim, never while busy.
+  CUTOUT_POLL_SECONDS: Type.Integer({ minimum: 1, maximum: 3600, default: 60 }),
 });
 
 export type Config = Static<typeof ConfigSchema>;
