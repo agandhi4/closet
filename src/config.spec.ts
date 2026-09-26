@@ -45,8 +45,11 @@ describe('loadConfig', () => {
       DATABASE_SSL: false,
       MAINTENANCE_ENABLED: true,
       MAX_HEIC_BYTES: 40 * 1024 * 1024,
+      CUTOUT_MODE: 'client',
+      CUTOUT_THREADS: 4,
     });
     expect(config.DATA_PATH).toBe(join(process.cwd(), 'data'));
+    expect(config.MODELS_PATH).toBe(join(process.cwd(), 'models'));
     expect(config.PUBLIC_VAPID_KEY).toBeUndefined();
   });
 
@@ -96,6 +99,12 @@ describe('loadConfig', () => {
       'NODE_ENV: must be one of development, production, test',
     ],
     ['APP_NAME', '', 'APP_NAME: expected string length greater or equal to 1'],
+    ['CUTOUT_MODE', 'gpu', 'CUTOUT_MODE: must be one of client, server'],
+    [
+      'CUTOUT_THREADS',
+      '0',
+      'CUTOUT_THREADS: expected integer to be greater or equal to 1',
+    ],
   ])('refuses %s=%j, naming it', (key, value, problem) => {
     expect(problemsOf({ ...REQUIRED, [key]: value })).toEqual([problem]);
   });
