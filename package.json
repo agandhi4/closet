@@ -69,7 +69,6 @@
     "heic-decode": "^2.1.0",
     "hono": "^4.13.9",
     "htmx.org": "^2.0.7",
-    "hyperscript.org": "^0.9.14",
     "jsonwebtoken": "^9.0.3",
     "onnxruntime-web": "1.21.0",
     "patch-package": "^8.0.1",

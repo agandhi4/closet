@@ -29,27 +29,16 @@ export interface OutfitFormModel {
 export const OUTFIT_NAME_MAX = 255;
 export const OUTFIT_NOTES_MAX = 4000;
 
-// The one page that drags, so the one page that loads sortablejs (through
-// the importmap in the layout). An inline module rather than a
+// The one page that drags and swipes, so the one page that loads the
+// builder's script (public/js/outfit-builder.js, which imports sortablejs;
+// both through the importmap in the layout). An inline module rather than a
 // <script src>: a module URL runs once per document, so after a boosted
-// navigation back to this page an external one would not run again, and a
-// classic global could race htmx's asynchronous script insertion. A fixed
-// string with nothing interpolated, so it needs no escaping (and JSX would
-// otherwise escape its quotes).
-const SORTABLE_INIT = `import Sortable from 'sortablejs';
-Sortable.create(document.getElementById('outfit-rows-list'), {
-  handle: '.drag-handle',
-  animation: 150,
-  ghostClass: 'opacity-40',
-});`;
-
-// Appends a row for the typed or picked category (GET /outfits/row-fragment).
-const ADD_ROW = `on click
-   set cat to the value of #add-row-input
-   if cat is not ''
-     js(cat) htmx.ajax('GET', '/outfits/row-fragment?category=' + encodeURIComponent(cat), {target: '#outfit-rows-list', swap: 'beforeend'}) end
-     set the value of #add-row-input to ''
-   end`;
+// navigation back to this page an external one would not run again for the
+// new list, and a classic global could race htmx's asynchronous script
+// insertion. A fixed string with nothing interpolated, so it needs no
+// escaping (and JSX would otherwise escape its quotes).
+const BUILDER_INIT = `import { initOutfitBuilder } from 'outfit-builder';
+initOutfitBuilder(document.getElementById('outfit-rows-list'));`;
 
 /**
  * GET /outfits/new and /outfits/:id/edit: the builder rows (reorderable,
@@ -73,7 +62,10 @@ export function OutfitFormPage(props: {
           <h1 class="text-2xl font-bold">{title}</h1>
         </div>
         {model.rows.length > 0 ? (
-          <OutfitForm model={model} />
+          <>
+            <OutfitForm model={model} />
+            <AddRowForm />
+          </>
         ) : (
           <EmptyState message={t('NO_GARMENTS_FOR_BUILDER')}>
             <a href="/wardrobe/new" class="btn btn-primary btn-sm">
@@ -115,12 +107,19 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
         </div>
         <script
           type="module"
-          dangerouslySetInnerHTML={{ __html: SORTABLE_INIT }}
+          dangerouslySetInnerHTML={{ __html: BUILDER_INIT }}
         />
+        {/* "Add row" belongs to #add-row-form (after this form: forms do not
+            nest) through the form attribute, so the typed category is never
+            posted with the outfit, and Enter in the box adds a row instead
+            of saving. */}
         <div class="flex gap-2 p-3 pt-0">
           <input
             type="text"
             id="add-row-input"
+            name="category"
+            form="add-row-form"
+            required
             list="add-row-suggestions"
             class="input input-bordered input-sm flex-1"
             placeholder={t('TYPE_OR_SELECT_CATEGORY')}
@@ -131,7 +130,11 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
               <option value={category}></option>
             ))}
           </datalist>
-          <button type="button" class="btn btn-sm btn-outline" _={ADD_ROW}>
+          <button
+            type="submit"
+            form="add-row-form"
+            class="btn btn-sm btn-outline"
+          >
             {t('ADD_ROW')}
           </button>
         </div>
@@ -198,7 +201,29 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
   );
 }
 
-/** A row's garment in detail, filled and opened by the row's button (outfit-row.tsx). */
+/**
+ * Appends a row for the typed or picked category: GET /outfits/row-fragment
+ * with the box's `category`. Its box and button sit in the outfit form's
+ * markup and join this one through their form attribute.
+ * public/js/outfit-builder.js clears the box once the row is in.
+ */
+function AddRowForm() {
+  return (
+    <form
+      id="add-row-form"
+      method="get"
+      action="/outfits/row-fragment"
+      hx-get="/outfits/row-fragment"
+      hx-target="#outfit-rows-list"
+      hx-swap="beforeend"
+    ></form>
+  );
+}
+
+/**
+ * A row's garment in detail, filled and opened by the row's button
+ * (public/js/outfit-builder.js).
+ */
 function GarmentModal() {
   return (
     <dialog id="garment-modal" class="modal">

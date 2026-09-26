@@ -899,7 +899,12 @@ describe('outfits', () => {
       expect(formRows(row)).toEqual([['belts', archivedOne]]);
       expect(row).toContain('data-count="2"');
       expect(row).not.toContain('data-index=');
-      const links = [...row.matchAll(/hx-get="([^"]*)"/g)].map((m) => m[1]);
+      // The row's arrows (the page's other hx-get is "Add row").
+      const links = [
+        ...row.matchAll(
+          /hx-get="(\/outfits\/row-fragment\?[^"]*index=[^"]*)"/g,
+        ),
+      ].map((m) => m[1]);
       expect(links).toEqual([
         '/outfits/row-fragment?category=belts&index=1',
         '/outfits/row-fragment?category=belts&index=2',

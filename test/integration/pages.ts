@@ -122,6 +122,10 @@ export function expectFullPage(res: LightMyRequestResponse): void {
   expectNoRawI18nKeys(res);
   expectNativePostForms(res);
   expectNoScriptNavigation(res);
+  // _hyperscript left the app (2026-09-26): an `_=` attribute would do
+  // nothing at all.
+  expect(res.body).not.toMatch(/\s_="/);
+  expect(res.body).not.toContain('_hyperscript');
 }
 
 /**

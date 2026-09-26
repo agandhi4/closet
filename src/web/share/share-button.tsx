@@ -1,12 +1,14 @@
 import { t } from '../i18n';
 
-// The link reaches the script as a data attribute, never spliced into the
-// hyperscript source.
-const COPY_SHARE_LINK = `on click
-   call navigator.clipboard.writeText(@data-share-url)
-   then add .btn-success then remove .btn-outline
-   wait 1s
-   then remove .btn-success then add .btn-outline`;
+/**
+ * An inline click handler: copies the button's `data-copy` to the clipboard
+ * and flashes the button green for a second. `resting` is the class it wears
+ * otherwise. The copied text reaches the handler as a data attribute, never
+ * spliced into its source. Also the wardrobe-share invite link's copy button.
+ */
+export function copyAndFlash(resting: 'btn-outline' | 'btn-ghost'): string {
+  return `navigator.clipboard.writeText(this.dataset.copy).then(() => { this.classList.replace('${resting}', 'btn-success'); setTimeout(() => this.classList.replace('btn-success', '${resting}'), 1000); })`;
+}
 
 /**
  * Copies the public share link of a garment or outfit (the /share page,
@@ -26,8 +28,8 @@ export function ShareLinkButton(props: {
     <button
       type="button"
       class={`btn btn-outline btn-sm ${props.class ?? ''}`}
-      data-share-url={`${props.siteUrl}/share?${params}`}
-      _={COPY_SHARE_LINK}
+      data-copy={`${props.siteUrl}/share?${params}`}
+      onclick={copyAndFlash('btn-outline')}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"

@@ -245,7 +245,6 @@ async function registerStaticAssets(app: FastifyInstance, config: Config) {
   await app.register(fastifyStatic, {
     root: [
       nodeModule('htmx.org/dist'),
-      nodeModule('hyperscript.org/dist'),
       nodeModule('@khmyznikov/pwa-install/dist'),
       nodeModule('workbox-window/build'),
       nodeModule('sortablejs'),

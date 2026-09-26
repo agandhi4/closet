@@ -6,17 +6,22 @@ import type { ViewContext } from '../view-context';
 import { EmptyState, GarmentThumb } from '../layout/parts';
 import type { OutfitSummary } from './queries';
 
-// After a successful POST /calendar from a card's dropdown: close the
-// dropdown and show the toast for three seconds.
-const SCHEDULED = `on htmx:afterRequest[detail.successful]
-   reset me
-   call document.activeElement.blur()
-   for el in <[tabindex]/> in closest .dropdown
-     call el.blur()
-   end
-   remove .hidden from #calendar-toast
-   wait 3s
-   add .hidden to #calendar-toast`;
+// After a successful POST /calendar from a card's dropdown: clear the form,
+// close the dropdown (daisyUI's stays open while it holds focus) and show
+// the toast for three seconds. An inline module runs on every visit, so the
+// listener goes on this visit's list, never the document. A fixed string,
+// as in form-page.tsx.
+const ON_SCHEDULED = `const toast = document.getElementById('calendar-toast');
+let hideTimer;
+document.getElementById('outfit-cards').addEventListener('htmx:afterRequest', (event) => {
+  const form = event.target;
+  if (!form.matches('form[data-schedule]') || !event.detail.successful) return;
+  form.reset();
+  document.activeElement?.blur();
+  toast.classList.remove('hidden');
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => toast.classList.add('hidden'), 3000);
+});`;
 
 /** GET /outfits: every outfit as a card of its garments, newest first. */
 export function OutfitsPage(props: {
@@ -35,11 +40,17 @@ export function OutfitsPage(props: {
           </a>
         </div>
         {outfits.length > 0 ? (
-          <div class="flex flex-wrap gap-4 justify-center">
-            {outfits.map((outfit) => (
-              <OutfitCard outfit={outfit} />
-            ))}
-          </div>
+          <>
+            <div id="outfit-cards" class="flex flex-wrap gap-4 justify-center">
+              {outfits.map((outfit) => (
+                <OutfitCard outfit={outfit} />
+              ))}
+            </div>
+            <script
+              type="module"
+              dangerouslySetInnerHTML={{ __html: ON_SCHEDULED }}
+            />
+          </>
         ) : (
           <EmptyState
             message={t('NO_OUTFITS')}
@@ -149,7 +160,7 @@ function OutfitCard({ outfit }: { outfit: OutfitSummary }) {
                   hx-post="/calendar"
                   hx-swap="none"
                   hx-push-url="false"
-                  _={SCHEDULED}
+                  data-schedule=""
                   class="flex flex-col gap-2"
                 >
                   <input type="hidden" name="outfitId" value={outfit.id} />

@@ -428,9 +428,8 @@ function SavedToast(props: { id: string; text: string }) {
   return (
     <div
       id={props.id}
-      class="toast toast-top toast-center z-20 top-36"
+      class="toast toast-top toast-center z-20 top-36 toast-auto-hide"
       aria-live="polite"
-      _="init wait 4s then add .hidden to me"
     >
       <div class="alert alert-success shadow-md">
         <svg

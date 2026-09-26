@@ -3,7 +3,7 @@ import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
  * The outfit builder in a browser: the htmx row swaps (the ‹ › arrows, the
- * remove button, "Add row") and their hyperscript, then saving, which must
+ * remove button, "Add row") and public/js/outfit-builder.js, then saving, which must
  * keep the rows in the order they were left in. The integration tier covers
  * the server's side of each request; this proves the page wires them up.
  */
