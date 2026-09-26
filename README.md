@@ -72,7 +72,7 @@ Open [http://localhost:3000](http://localhost:3000) and register an account: log
 | `PWA_ENABLED`                      | Enable service worker and PWA install prompt                                         | `false`                 | `true`                                                                                    |
 | `WATERMARK_ENABLED`                | Composite the app icon onto share-link preview images                                | `false`                 | `true`                                                                                    |
 | `ACCESS_TOKEN_SECRET`              | JWT signing secret - **change for production**                                       | `ChangeMe!`             | `u9n8c2y847rfctb23468tcb689f243`                                                          |
-| `TRUSTED_PROXIES`                  | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-*` headers are trusted (rate limiting, canonical URLs) | `127.0.0.1,::1` | `172.16.0.0/12`                                                                   |
+| `TRUSTED_PROXIES`                  | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-*` headers are trusted (login rate limits, the cross-site request check, canonical URLs). Behind a reverse proxy it must include the proxy's address | `127.0.0.1,::1` | `172.16.0.0/12`                                                                   |
 | `LOG_LEVEL`                        | pino level for the console and `app.log` (`trace` … `fatal`, or `silent`)            | `info`                  | `debug`                                                                                   |
 | `DATABASE_HOST`                    | Postgres host (required)                                                             | -                       | `192.168.10.5`                                                                            |
 | `DATABASE_PORT`                    | Postgres port                                                                        | `5432`                  | `9867`                                                                                    |
@@ -150,7 +150,18 @@ npm run check           # format, lint, types, unit + integration in parallel (t
 npm run verify:push     # build + Chromium Playwright (the pre-push hook)
 npm run maintenance:reconcile [-- --dry-run]
                         # one storage reconciliation pass (needs `npm run build`; see below)
+npm run user:set-password -- <email>
+                        # set a locked-out user's password (needs `npm run build`; see below)
 ```
+
+### Locked out
+
+There is no password reset by email. Whoever runs the server sets a new
+password for an account with `npm run user:set-password -- <email>` (in a
+container: `docker exec -it closet npm run user:set-password -- <email>`). It
+asks for the password twice without echoing it (or reads one line from piped
+stdin), applies the registration rules, and signs out every existing session
+of that account. An unknown email changes nothing and exits with status 1.
 
 ### Storage maintenance
 
