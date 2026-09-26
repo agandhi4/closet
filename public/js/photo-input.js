@@ -36,6 +36,9 @@ export const downscalePhoto = async (file) => {
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
     const ctx = canvas.getContext('2d');
+    // No 2D canvas (disabled or unsupported): upload the photo as it is
+    // rather than leave the upload button disabled.
+    if (!ctx) return file;
     // JPEG has no alpha: a transparent PNG would turn black.
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
