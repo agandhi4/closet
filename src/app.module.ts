@@ -12,7 +12,6 @@ import { SessionGuard } from './auth/session.guard';
 import { DalModule } from './dal/dal.module';
 import { NotificationModule } from './notification/notification.module';
 import { FileModule } from './file/file.module';
-import { EmailModule } from './email/email.module';
 import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import { OpenGraphModule } from './open-graph/open-graph.module';
 import { WardrobeModule } from './wardrobe/wardrobe.module';
@@ -216,7 +215,6 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     DalModule,
     AuthModule,
     FileModule,
-    EmailModule,
     NotificationModule,
     OpenGraphModule,
     WardrobeModule,

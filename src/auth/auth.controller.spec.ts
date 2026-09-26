@@ -3,9 +3,7 @@ import { getRepositoryToken } from '@mikro-orm/nestjs';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
-import { PasswordReset } from '../dal/entity/passwordReset.entity';
 import { User } from '../dal/entity/user.entity';
-import { EmailService } from '../email/email.service';
 import { FileService } from '../file/file-service.abstract';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -25,7 +23,6 @@ describe('AuthController', () => {
       providers: [
         ConfigService,
         AuthService,
-        EmailService,
         {
           provide: EntityManager,
           useValue: {
@@ -34,14 +31,6 @@ describe('AuthController', () => {
         },
         {
           provide: getRepositoryToken(User),
-          useValue: {
-            findOne: jest.fn(),
-            find: jest.fn(),
-            persistAndFlush: jest.fn(),
-          },
-        },
-        {
-          provide: getRepositoryToken(PasswordReset),
           useValue: {
             findOne: jest.fn(),
             find: jest.fn(),

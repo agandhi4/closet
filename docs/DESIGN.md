@@ -46,7 +46,7 @@ These are tracked as v0.2+ candidates.
 
 ## Data Model
 
-The following entities extend the existing boilerplate schema. Existing entities (`User`, `File`, `PasswordReset`, `UserDevice`, `ShareableId`) are unchanged.
+The following entities extend the existing boilerplate schema. Existing entities (`User`, `File`, `UserDevice`, `ShareableId`) are unchanged. (Upstream also had `PasswordReset`; this fork removed it with password reset by email.)
 
 ### New Entities
 
@@ -92,11 +92,10 @@ Represents a saved combination of garments.
 
 ```mermaid
 erDiagram
-    User ||--o| PasswordReset : "passwordReset"
     User ||--o{ UserDevice : "userDevices"
     User ||--o{ File : "fileUploads"
-    User ||--o{ Garment : "garments (when auth enabled)"
-    User ||--o{ Outfit : "outfits (when auth enabled)"
+    User ||--o{ Garment : "garments"
+    User ||--o{ Outfit : "outfits"
     Garment ||--o| File : "photo"
     Garment }o--o{ Outfit : "outfits / garments"
 
@@ -145,11 +144,6 @@ erDiagram
         number createdById FK
         boolean flagged
         boolean banned
-    }
-
-    PasswordReset {
-        number id PK
-        string pin
     }
 
     UserDevice {

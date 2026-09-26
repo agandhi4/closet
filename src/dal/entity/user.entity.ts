@@ -1,18 +1,14 @@
 import {
-  Cascade,
   Collection,
   Entity,
   OneToMany,
-  OneToOne,
   PrimaryKey,
   Property,
-  type Ref,
   Unique,
 } from '@mikro-orm/core';
 import { File } from './file.entity';
 import { Garment } from './garment.entity';
 import { Outfit } from './outfit.entity';
-import { PasswordReset } from './passwordReset.entity';
 import { ShareableId } from './shareableId.entity';
 import { UserDevice } from './userDevice.entity';
 
@@ -33,15 +29,6 @@ export class User extends ShareableId {
 
   @Property()
   public password!: string;
-
-  @OneToOne({
-    entity: () => PasswordReset,
-    cascade: [Cascade.ALL],
-    nullable: true,
-    ref: true,
-    inversedBy: 'user',
-  })
-  public passwordReset!: Ref<PasswordReset>;
 
   @OneToMany(() => UserDevice, (userDevice) => userDevice.user)
   public userDevices = new Collection<UserDevice>(this);

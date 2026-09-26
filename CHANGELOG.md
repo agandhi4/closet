@@ -9,16 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Added
 
+- Change password (`/auth/change-password`, linked from the profile): needs the current password (400 with an error when it is wrong), applies the registration password rules, signs out every other session and keeps the current one
 - Nightly storage reconciliation (`MAINTENANCE_ENABLED`, `@nestjs/schedule`) and `npm run maintenance:reconcile [-- --dry-run]`: orphaned photo sets and unreferenced `file` rows older than a day are deleted, rows whose original is missing are reported
 - HEIC/HEIF uploads: decoded server-side with heic-convert (capped by `MAX_HEIC_BYTES`), accepted by the photo inputs; browsers that cannot decode HEIC skip the client-side cutout and upload the original
 
 #### Fixed
 
-- Dependency security: sharp 0.35.4 (libvips 8.18.6, libheif 1.23.2 advisories; this app decodes untrusted uploads), @fastify/static 10.1.4 (path traversal and route-guard bypass), Nest 11.2.6, nodemailer 10. `npm audit --omit=dev`: 9 high to 0 high; 6 moderate remain in fastify (pinned by Nest 11) and the migration CLI
+- Dependency security: sharp 0.35.4 (libvips 8.18.6, libheif 1.23.2 advisories; this app decodes untrusted uploads), @fastify/static 10.1.4 (path traversal and route-guard bypass), Nest 11.2.6. `npm audit --omit=dev`: 9 high to 0 high; 6 moderate remain in fastify (pinned by Nest 11) and the migration CLI
 - Accepting a wardrobe invite that races a duplicate grant now answers 400 instead of 500 (the unique-violation check referenced a MikroORM export that does not exist)
 - `/file/app.log` (and any other non-photo file under `DATA_PATH`) was served to anyone; the route now serves only photo names. Request logs no longer record `cookie`, `authorization` or `set-cookie` headers, and static requests and the heartbeat are no longer logged
 - Uploading a photo together with its background-removed cutout failed with 500 whenever the cutout was a realistic size: the thumbnail read the cutout while it was still being written. Local storage writes are now atomic, and each upload builds its thumbnail once
-- The password reset form no longer prints its body (including the new password) to the container log
 - An undecodable photo upload (junk bytes sent as HEIC or JPEG) no longer crashes the server with an unhandled rejection; it is a 400 and the app keeps serving
 - Deleting an account now removes the user's photos from storage; the confirmation credentials must belong to the account being deleted, and a refused deletion answers 401 (400 for a malformed body) instead of 201
 - Choosing a photo the browser cannot decode no longer leaves the upload button disabled
@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Removed
 
+- Password reset by email: `/auth/reset`, `/auth/reset-code` and their validation route, the `password_reset` table and `user.password_reset_id` (whose `ON DELETE CASCADE` let a deleted reset row take its user with it), `src/email/`, the `EMAIL_*` settings and the `nodemailer` and `nodemailer-mailgun-transport` dependencies
 - `AUTH_ENABLED` and the anonymous mode it switched on (owner-less garments, outfits and calendar entries visible to every visitor). A leftover `AUTH_ENABLED` in the environment is ignored
 - SQLite support: `DATABASE_TYPE`, the `@mikro-orm/better-sqlite` driver, the SQLite migration tree and its CLI config. Postgres (13+) is required; `DATABASE_HOST`, `DATABASE_SCHEMA`, `DATABASE_USER` and `DATABASE_PASS` no longer have defaults. Tests and the load test run on scratch Postgres databases (`TEST_DATABASE_URL`, default pgvault-dev on `localhost:5432`)
 - The boilerplate SSE chat demo (`/chat`, `/sse`, `/message`) and the `htmx-ext-sse` dependency

@@ -10,6 +10,7 @@ import {
   Redirect,
   Render,
   Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
@@ -19,13 +20,12 @@ import { Public } from './public.decorator';
 import { RegistrationGuard } from './registration.guard';
 import { AuthService } from './auth.service';
 import { ConfigService } from '@nestjs/config';
-import { EmailDto } from './dto/email.dto';
+import { ChangePasswordDto } from './dto/changePassword.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { ResetPasswordDto } from './dto/resetPassword.dto';
 import { UserId } from './user.decorator';
 import { UpdateEmailDto } from './dto/updateEmail.dto';
-import { minutes, seconds, Throttle } from '@nestjs/throttler';
+import { seconds, Throttle } from '@nestjs/throttler';
 
 // Sign-in, registration and logout are @Public(); the account pages need a
 // session like every other route (SessionGuard).
@@ -58,11 +58,7 @@ export class AuthController {
     }
 
     const jwt = await this.authService.register(body.email, body.password);
-    reply.setCookie('access_token', jwt, {
-      path: '/',
-      maxAge: 365 * 24 * 60 * 60 * 1000, // 365 days
-      httpOnly: true, // Prevents client-side JS from reading it
-    });
+    setSessionCookie(reply, jwt);
     return reply.redirect('/auth/profile', 302);
   }
 
@@ -95,11 +91,7 @@ export class AuthController {
         loginDto.email,
         loginDto.password,
       );
-      reply.setCookie('access_token', jwt, {
-        path: '/',
-        maxAge: 365 * 24 * 60 * 60 * 1000, // 365 days
-        httpOnly: true, // Prevents client-side JS from reading it
-      });
+      setSessionCookie(reply, jwt);
       reply.redirect('/auth/profile', 302);
     } catch (error) {
       this.logger.warn(error);
@@ -133,86 +125,6 @@ export class AuthController {
   }
 
   @Public()
-  @Get('reset')
-  @Render('auth/reset')
-  getReset(@Query('email') emailQueryParam: string): any {
-    return {
-      input: {
-        email: emailQueryParam,
-      },
-    };
-  }
-
-  @Public()
-  @Post('reset')
-  async postReset(@Body() emailDto: EmailDto, @Res() reply: FastifyReply) {
-    try {
-      await this.authService.sendPasswordResetEmail(emailDto.email);
-      return reply.redirect(`/auth/reset-code?email=${emailDto.email}`, 302);
-    } catch (error) {
-      this.logger.warn(error);
-      return reply.view('auth/reset', {
-        layout: 'layout',
-        error,
-        ...(reply.locals ?? {}),
-      });
-    }
-  }
-
-  @Public()
-  @Get('reset-code')
-  @Render('auth/reset-code')
-  getResetCode(@Query('email') emailQueryParam: string): any {
-    return {
-      input: {
-        email: emailQueryParam,
-      },
-    };
-  }
-
-  @Public()
-  @Throttle({ default: { limit: 5, ttl: minutes(10) } })
-  @Render('auth/reset-code')
-  @Post('validate/reset-code')
-  async postResetCodeValidate(
-    @I18n() i18n: I18nContext,
-    @Body() body: ResetPasswordDto,
-  ) {
-    const instance = plainToInstance(ResetPasswordDto, body);
-    const validationErrors = await i18n.validate(instance);
-    if (validationErrors.length) {
-      return {
-        input: body,
-        validationErrors,
-      };
-    }
-
-    return { input: body };
-  }
-
-  @Public()
-  @Post('reset-code')
-  async postResetCode(
-    @I18n() i18n: I18nContext,
-    @Body() body: ResetPasswordDto,
-    @Res() reply: FastifyReply,
-  ) {
-    const instance = plainToInstance(ResetPasswordDto, body);
-    const validationErrors = await i18n.validate(instance);
-    if (validationErrors.length) {
-      return reply.view('auth/reset-code', {
-        layout: 'layout',
-        input: body,
-        validationErrors,
-        ...(reply.locals ?? {}),
-      });
-    }
-
-    await this.authService.resetPassword(body);
-    return reply.redirect('/auth/login', 302);
-  }
-
-  @Public()
   @UseGuards(RegistrationGuard)
   @Get('register')
   @Render('auth/register')
@@ -226,7 +138,9 @@ export class AuthController {
 
   @Get('profile')
   @Render('auth/profile')
-  getProfile(): any {}
+  getProfile(@Query('passwordChanged') passwordChanged?: string) {
+    return { passwordChanged: passwordChanged === '1' };
+  }
 
   @Get('delete-account')
   @Render('auth/delete-account')
@@ -301,4 +215,64 @@ export class AuthController {
     await this.authService.changeEmail(userId, body.confirmEmail);
     return reply.redirect('/auth/profile', 302);
   }
+
+  @Get('change-password')
+  @Render('auth/change-password')
+  getChangePassword() {}
+
+  // A refused change answers 400 with the form re-rendered; the form is a
+  // native (unboosted) post so the browser shows it, see
+  // views/auth/change-password.hbs. Passwords are never echoed back.
+  @Post('change-password')
+  async postChangePassword(
+    @UserId() userId: number,
+    @I18n() i18n: I18nContext,
+    @Body() body: ChangePasswordDto,
+    @Res() reply: FastifyReply,
+  ) {
+    const rerender = (validationErrors: unknown[]) =>
+      reply.status(HttpStatus.BAD_REQUEST).view('auth/change-password', {
+        layout: 'layout',
+        validationErrors,
+        ...(reply.locals ?? {}),
+      });
+
+    const validationErrors = await i18n.validate(
+      plainToInstance(ChangePasswordDto, body),
+    );
+    if (validationErrors.length) return rerender(validationErrors);
+
+    let jwt: string;
+    try {
+      jwt = await this.authService.changePassword(
+        userId,
+        body.currentPassword,
+        body.newPassword,
+      );
+    } catch (error) {
+      if (!(error instanceof UnauthorizedException)) throw error;
+      // Shaped like a class-validator error so the template's filterErrors
+      // shows it under the field like every other message.
+      return rerender([
+        {
+          property: 'currentPassword',
+          constraints: {
+            currentPassword: i18n.t('lang.WRONG_CURRENT_PASSWORD'),
+          },
+        },
+      ]);
+    }
+    // The new hash revoked every older token, this session's included:
+    // replace it so the user stays signed in here.
+    setSessionCookie(reply, jwt);
+    return reply.redirect('/auth/profile?passwordChanged=1', 302);
+  }
+}
+
+function setSessionCookie(reply: FastifyReply, jwt: string): void {
+  reply.setCookie('access_token', jwt, {
+    path: '/',
+    maxAge: 365 * 24 * 60 * 60 * 1000, // 365 days
+    httpOnly: true, // Prevents client-side JS from reading it
+  });
 }
