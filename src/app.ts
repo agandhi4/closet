@@ -26,6 +26,8 @@ import { Logger as NestLogger } from '@nestjs/common';
 import type { Db } from './db/client';
 import { DB } from './db/db.module';
 import { webPlugin } from './web/plugin';
+import { registerRateLimit } from './web/security/rate-limit';
+import { createSameOriginHook } from './web/security/same-origin';
 
 const PUBLIC_DIR = join(PROJECT_ROOT, 'public');
 const VIEWS_DIR = join(PROJECT_ROOT, 'views');
@@ -41,11 +43,12 @@ const nodeModule = (...segments: string[]) =>
  * ConfigService does.
  */
 export async function createApp(): Promise<NestFastifyApplication> {
-  // Reverse proxies whose X-Forwarded-* headers are believed, so the
-  // throttler and canonical URLs see the real client. Read from the raw
+  // Reverse proxies whose X-Forwarded-* headers are believed, so the rate
+  // limits, the same-origin check and canonical URLs see the real client and
+  // the address it asked for. Behind Caddy this must include Caddy's
+  // address (CLAUDE.md, Deployment). Read from the raw
   // environment because the adapter must exist before ConfigService does;
   // the Joi default in AppModule is the single source of the fallback.
-  // https://docs.nestjs.com/security/rate-limiting#proxies
   const trustProxy = (process.env.TRUSTED_PROXIES ?? DEFAULT_TRUSTED_PROXIES)
     .split(',')
     .map((entry) => entry.trim())
@@ -79,6 +82,21 @@ export async function createApp(): Promise<NestFastifyApplication> {
   const authContextService = app.get(AuthContextService);
   const viewContextService = app.get(ViewContextService);
   const fastify = app.getHttpAdapter().getInstance();
+  const config = app.get(ConfigService);
+
+  // CSRF: every POST/PUT/PATCH/DELETE, Nest route or web route, must come
+  // from this site's own pages. A root hook added before app.init(), so it
+  // precedes every route; see src/web/security/same-origin.ts.
+  fastify.addHook(
+    'onRequest',
+    createSameOriginHook({
+      siteUrl: config.getOrThrow<string>('SITE_URL'),
+      logger: new NestLogger('Security'),
+    }),
+  );
+  // Per-route brute-force limits (routes opt in); before the web plugin so
+  // its routes see the plugin's onRoute hook.
+  await registerRateLimit(fastify, new NestLogger('RateLimit'));
   // Declared up front so every request object has the same shape; the hook
   // below fills them (both stay undefined on static paths).
   fastify.decorateRequest('auth', undefined);
@@ -133,9 +151,9 @@ export async function createApp(): Promise<NestFastifyApplication> {
   adapter.registerParserMiddleware();
 
   // Ported features (src/web/), beside Nest's routes on the same instance.
-  // Last, so the root hooks and plugins above (session, security headers,
-  // cookies, compression, body parsers) are in place for its routes.
-  const config = app.get(ConfigService);
+  // Last, so the root hooks and plugins above (same-origin check, rate
+  // limits, session, security headers, cookies, compression, body parsers)
+  // are in place for its routes.
   await fastify.register(webPlugin, {
     config: {
       appName: config.getOrThrow<string>('APP_NAME'),

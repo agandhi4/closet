@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { signIn } from './support/e2e-session';
+import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
  * What only a browser can show about the installed app: the service worker
@@ -86,6 +86,7 @@ test.describe('installed app delivery', () => {
   }) => {
     const createResponse = await page.request.post('/wardrobe', {
       form: { name: 'Lazy model garment', category: 'shirt' },
+      headers: SAME_ORIGIN,
     });
     const garmentId = new URL(createResponse.url()).pathname.split('/').pop();
 

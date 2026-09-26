@@ -5,6 +5,7 @@ import { t } from './i18n';
 import { Dock } from './layout/dock';
 import { Layout } from './layout/layout';
 import { Navbar } from './layout/navbar';
+import { loggableUrl } from './loggable-url';
 import type { WebLogger } from './logger';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
@@ -37,7 +38,7 @@ export function describeError(error: unknown): {
   message: string;
 } {
   // Services not yet ported still throw Nest's exceptions (NotFoundException
-  // from a query, ForbiddenException from resolveAccess); a ported handler
+  // from a query, ForbiddenException from an access check); a ported handler
   // calling one must answer as the Nest route did. Goes with Nest.
   if (error instanceof HttpException) {
     return {
@@ -81,17 +82,18 @@ export function createErrorHandler(logger: WebLogger) {
     reply: FastifyReply,
   ): Promise<FastifyReply | undefined> {
     const { status, message } = describeError(error);
+    const url = loggableUrl(request);
     if (status >= 500) {
       logger.error(
-        `${request.method} ${request.url} -> ${status}`,
+        `${request.method} ${url} -> ${status}`,
         error instanceof Error ? error.stack : String(error),
       );
     } else {
-      logger.warn(`${request.method} ${request.url} -> ${status}: ${message}`);
+      logger.warn(`${request.method} ${url} -> ${status}: ${message}`);
     }
 
     if (reply.sent) {
-      logger.warn(`${request.url}: response already sent, no error page`);
+      logger.warn(`${url}: response already sent, no error page`);
       return;
     }
     // No page context: a static path (the session hook skips those; their

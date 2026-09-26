@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import sharp from 'sharp';
-import { signIn } from './support/e2e-session';
+import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
  * Every garment photo is served as three immutable WebP variants addressed
@@ -23,6 +23,7 @@ test('wardrobe grid uses versioned thumb URLs served as immutable webp', async (
   // Same two requests the garment form issues: create, then upload the photo.
   const createResponse = await page.request.post('/wardrobe', {
     form: { name, category: 'shirt' },
+    headers: SAME_ORIGIN,
   });
   expect(createResponse.ok()).toBe(true);
   const garmentId = new URL(createResponse.url()).pathname.split('/').pop();
@@ -32,6 +33,7 @@ test('wardrobe grid uses versioned thumb URLs served as immutable webp', async (
       multipart: {
         photo: { name: 'photo.jpg', mimeType: 'image/jpeg', buffer: photo },
       },
+      headers: SAME_ORIGIN,
     },
   );
   expect(photoResponse.ok()).toBe(true);

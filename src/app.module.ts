@@ -108,7 +108,10 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
           .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent')
           .default('info'),
         // Comma-separated IPs/CIDRs whose X-Forwarded-* headers are trusted
-        // (Fastify trustProxy). Consumed in app.ts before the app exists.
+        // (Fastify trustProxy): the client IP the rate limits count and the
+        // origin the same-origin check compares. Behind a reverse proxy it
+        // must include the proxy's address. Consumed in app.ts before the
+        // app exists.
         TRUSTED_PROXIES: Joi.string().default(DEFAULT_TRUSTED_PROXIES),
         APP_NAME: Joi.string().default('Closet'),
         // The household's IANA time zone: it decides what "today" is on the

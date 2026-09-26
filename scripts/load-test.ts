@@ -152,12 +152,16 @@ async function main() {
   }
 }
 
-/** Registers the load-test user; returns its `access_token=...` cookie. */
+/**
+ * Registers the load-test user; returns its `access_token=...` cookie. Node's
+ * fetch sends no Origin, and every POST needs one naming the site (the CSRF
+ * check), hence the explicit header on each write below.
+ */
 async function signIn(): Promise<string> {
   const password = 'LoadTest123!';
   const res = await fetch(`${BASE_URL}/auth/register`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: BASE_URL },
     body: JSON.stringify({
       email: 'load-test@example.com',
       password,
@@ -182,7 +186,7 @@ async function signIn(): Promise<string> {
 async function seedGarment(cookie: string): Promise<string> {
   const created = await fetch(`${BASE_URL}/wardrobe`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', cookie },
+    headers: { 'content-type': 'application/json', cookie, origin: BASE_URL },
     body: JSON.stringify({ name: 'Load test shirt', category: 'shirt' }),
     redirect: 'manual',
   });
@@ -202,7 +206,7 @@ async function seedGarment(cookie: string): Promise<string> {
   );
   const uploaded = await fetch(`${BASE_URL}/wardrobe/${id}/photo`, {
     method: 'POST',
-    headers: { cookie },
+    headers: { cookie, origin: BASE_URL },
     body: photo,
   });
   if (!uploaded.ok) {

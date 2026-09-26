@@ -4,6 +4,7 @@ import { isStaticPath } from '../static-prefixes';
 import { createSessionHook } from './auth';
 import { calendarRoutes } from './calendar/routes';
 import { createErrorHandler } from './errors';
+import { loggableUrl } from './loggable-url';
 import type { WebLogger } from './logger';
 import { shellRoutes } from './shell/routes';
 
@@ -52,11 +53,12 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   app.addHook('preValidation', createSessionHook(logger));
   app.setErrorHandler(createErrorHandler(logger));
   // One line per request, as pino-http writes for Nest routes; static paths
-  // (the heartbeat, the manifest) stay out of the log there too.
+  // (the heartbeat, the manifest) stay out of the log there too. Routes with
+  // a secret in the path log their pattern (loggableUrl).
   app.addHook('onResponse', async (request, reply) => {
     if (isStaticPath(request.url)) return;
     logger.log(
-      `${request.method} ${request.url} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms`,
+      `${request.method} ${loggableUrl(request)} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms`,
     );
   });
 

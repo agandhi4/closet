@@ -25,6 +25,17 @@ import { createScratchDatabase } from '../support/scratch-database';
  * user, `t.owner`, and t.inject() sends the owner's session cookie unless the
  * request carries its own `cookie` header or asks for `anonymous: true`.
  * Specs that are not about accounts or sharing never think about sessions.
+ *
+ * Every state-changing request must name this site in Origin (the CSRF
+ * check, src/web/security/same-origin.ts), which inject() never does on its
+ * own: t.inject() adds `Origin: http://localhost` (the origin inject's
+ * requests are addressed to) unless the request sets Origin or Referer
+ * itself or asks for `sameOrigin: false`.
+ *
+ * Login and registration are rate limited per client address, and inject()
+ * always comes from 127.0.0.1: t.register() and t.login() each send their
+ * own X-Forwarded-For (127.0.0.1 is a trusted proxy here), so no spec runs
+ * into the limit by signing people up. Specs about the limit pick their own.
  */
 
 export type Env = Record<string, string>;
@@ -47,10 +58,45 @@ const BASE_ENV: Env = {
 export const TEST_PASSWORD = 'Password123!';
 export const OWNER_EMAIL = 'owner@example.com';
 
+/** The origin inject()'s requests are addressed to (Host: localhost:80). */
+export const APP_ORIGIN = 'http://localhost';
+
 export type TestInjectOptions = InjectOptions & {
   /** Send no session cookie at all (the owner's is otherwise the default). */
   anonymous?: boolean;
+  /**
+   * false: send no Origin on a state-changing request (the CSRF specs). By
+   * default one naming this site is added unless Origin or Referer is set.
+   */
+  sameOrigin?: boolean;
 };
+
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function hasHeader(headers: OutgoingHttpHeaders, name: string): boolean {
+  return Object.keys(headers).some((key) => key.toLowerCase() === name);
+}
+
+/** A state-changing request that says nothing about where it comes from. */
+function needsOrigin(
+  method: string | undefined,
+  headers: OutgoingHttpHeaders,
+): boolean {
+  return (
+    UNSAFE_METHODS.has((method ?? 'GET').toUpperCase()) &&
+    !hasHeader(headers, 'origin') &&
+    !hasHeader(headers, 'referer')
+  );
+}
+
+let clientSeq = 0;
+/** A client address of its own, for a request that counts against a rate limit. */
+export function uniqueClient(): { 'x-forwarded-for': string } {
+  clientSeq += 1;
+  return {
+    'x-forwarded-for': `198.18.${Math.floor(clientSeq / 250)}.${(clientSeq % 250) + 1}`,
+  };
+}
 
 export interface TestUser {
   id: number;
@@ -118,12 +164,18 @@ export async function createTestApp(
 
   const orm = app.get(MikroORM);
   let owner: TestUser | undefined;
-  const inject = ({ anonymous = false, ...options }: TestInjectOptions) => {
+  const inject = ({
+    anonymous = false,
+    sameOrigin = true,
+    ...options
+  }: TestInjectOptions) => {
     const headers: OutgoingHttpHeaders = { ...options.headers };
-    const ownCookie = Object.keys(headers).some(
-      (name) => name.toLowerCase() === 'cookie',
-    );
-    if (!anonymous && !ownCookie && owner) headers.cookie = owner.cookie;
+    if (!anonymous && !hasHeader(headers, 'cookie') && owner) {
+      headers.cookie = owner.cookie;
+    }
+    if (sameOrigin && needsOrigin(options.method, headers)) {
+      headers.origin = APP_ORIGIN;
+    }
     return app.inject({ ...options, headers });
   };
   const sessionFrom = (res: LightMyRequestResponse, action: string) => {
@@ -142,6 +194,7 @@ export async function createTestApp(
         method: 'POST',
         url: '/auth/register',
         payload: { email, password, confirmPassword: password },
+        headers: uniqueClient(),
         anonymous: true,
       }),
       'register',
@@ -174,6 +227,7 @@ export async function createTestApp(
           method: 'POST',
           url: '/auth/login',
           payload: { email, password },
+          headers: uniqueClient(),
           anonymous: true,
         }),
         'login',

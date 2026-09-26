@@ -4,6 +4,7 @@ import { FastifyRequest } from 'fastify';
 import { I18nContext, I18nService } from 'nestjs-i18n';
 import { AuthContext } from '../auth/auth-context.service';
 import { BUILD_INFO } from '../build-info';
+import { requestOrigin } from '../web/security/origin';
 import type { ViewContext } from '../web/view-context';
 
 const OG_LOCALES: Record<string, string> = {
@@ -33,13 +34,12 @@ export class ViewContextService {
   ): ViewContext {
     const locale = I18nContext.current()?.lang ?? 'en';
     const path = req.url.split('?')[0];
-    const protocol =
-      (req.headers['x-forwarded-proto'] as string) ?? req.protocol;
-    const host = (req.headers['x-forwarded-host'] as string) ?? req.hostname;
-    const canonicalUrl = `${protocol}://${host}${path}`;
+    // Forwarded headers only count from TRUSTED_PROXIES (requestOrigin); a
+    // client's own X-Forwarded-Host must not rewrite canonical and og URLs.
+    const origin = requestOrigin(req);
+    const canonicalUrl = `${origin}${path}`;
 
-    const siteUrl = this.configService.get<string>('SITE_URL') ?? host;
-    const origin = `${protocol}://${host}`;
+    const siteUrl = this.configService.get<string>('SITE_URL') ?? origin;
     const appName = this.configService.getOrThrow<string>('APP_NAME');
     const iconName = this.configService.getOrThrow<string>('ICON_NAME');
     const appDescription = this.i18n.t('lang.APP_DESCRIPTION', {

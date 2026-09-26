@@ -1,0 +1,150 @@
+import { count } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { outfit, outfitCalendar } from '../../src/db/schema';
+import { createGarment } from './garments';
+import { APP_ORIGIN, createTestApp, TestApp } from './harness';
+
+/**
+ * Cross-cutting request security: the same-origin (CSRF) check on every
+ * state-changing route, Nest's and the web layer's, and `returnTo` values.
+ */
+describe('request security', () => {
+  let t: TestApp;
+  let outfitId: number;
+
+  const rows = async (table: typeof outfit | typeof outfitCalendar) =>
+    (await t.db.select({ n: count() }).from(table))[0].n;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    // The outfit form only renders its fields (and the posted-back
+    // returnTo) once there is a garment to pick.
+    await createGarment(t, { name: 'Plain tee' });
+    const created = await t.inject({
+      method: 'POST',
+      url: '/outfits',
+      payload: { name: 'Scheduled look' },
+    });
+    outfitId = Number(/\d+$/.exec(created.headers.location as string)![0]);
+  });
+
+  afterAll(() => t?.cleanup());
+
+  describe('same-origin check (CSRF)', () => {
+    // POST /outfits is a Nest route, POST /calendar a web-layer one.
+    const createOutfit = (headers: Record<string, string>) =>
+      t.inject({
+        method: 'POST',
+        url: '/outfits',
+        payload: { name: 'Planted outfit' },
+        headers,
+        sameOrigin: false,
+      });
+    const schedule = (headers: Record<string, string>) =>
+      t.inject({
+        method: 'POST',
+        url: '/calendar',
+        payload: { date: '2026-09-21', outfitId: String(outfitId) },
+        headers,
+        sameOrigin: false,
+      });
+
+    it.each([
+      ['another site in Origin', { origin: 'https://evil.test' }],
+      ['another site in Referer', { referer: 'https://evil.test/page' }],
+      ['an opaque Origin', { origin: 'null' }],
+      ['neither Origin nor Referer', {}],
+      // Same host, other scheme: a different origin.
+      ['this host over another scheme', { origin: 'https://localhost' }],
+    ])('refuses %s with 403, before any write', async (_label, headers) => {
+      const outfitsBefore = await rows(outfit);
+      const nest = await createOutfit(headers);
+      expect(nest.statusCode).toBe(403);
+      expect(await rows(outfit)).toBe(outfitsBefore);
+
+      const entriesBefore = await rows(outfitCalendar);
+      const web = await schedule(headers);
+      expect(web.statusCode).toBe(403);
+      expect(await rows(outfitCalendar)).toBe(entriesBefore);
+    });
+
+    it('refuses a cross-site login too', async () => {
+      const login = await t.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: t.owner.email, password: 'whatever' },
+        headers: { origin: 'https://evil.test' },
+        anonymous: true,
+        sameOrigin: false,
+      });
+      expect(login.statusCode).toBe(403);
+      expect(login.cookies).toHaveLength(0);
+    });
+
+    it.each([
+      ['its own origin', { origin: APP_ORIGIN }],
+      [
+        'its own origin with the default port',
+        { origin: 'http://localhost:80' },
+      ],
+      ["SITE_URL's origin", { origin: 'http://localhost:3000' }],
+      [
+        'a same-origin Referer without Origin',
+        { referer: `${APP_ORIGIN}/outfits/new` },
+      ],
+    ])('accepts %s', async (_label, headers) => {
+      const res = await createOutfit(headers);
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toMatch(/^\/outfits\/\d+$/);
+      expect((await schedule(headers)).statusCode).toBe(302);
+    });
+
+    it('believes forwarded scheme and host only from a trusted proxy', async () => {
+      // inject() comes from 127.0.0.1, which TRUSTED_PROXIES lists here: the
+      // request's own origin is then what the proxy says it was sent to.
+      const res = await createOutfit({
+        origin: 'https://closet.example',
+        'x-forwarded-proto': 'https',
+        'x-forwarded-host': 'closet.example',
+      });
+      expect(res.statusCode).toBe(302);
+    });
+
+    it('never checks a safe method', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/outfits',
+        headers: { origin: 'https://evil.test' },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+  });
+
+  describe('returnTo on the outfit form', () => {
+    it.each([
+      "javascript:alert('x')",
+      '//evil.test',
+      '/\\evil.test',
+      'https://evil.test',
+    ])('replaces %s with the default', async (value) => {
+      const res = await t.inject({
+        method: 'GET',
+        url: `/outfits/new?returnTo=${encodeURIComponent(value)}`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).not.toContain('evil.test');
+      expect(res.body).not.toContain('javascript:');
+      expect(res.body).toContain('href="/outfits"');
+      expect(res.body).toContain('name="returnTo" value="/outfits"');
+    });
+
+    it('keeps a path on this site', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/outfits/new?returnTo=/calendar',
+      });
+      expect(res.body).toContain('href="/calendar"');
+      expect(res.body).toContain('name="returnTo" value="/calendar"');
+    });
+  });
+});

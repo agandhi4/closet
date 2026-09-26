@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { E2E_PASSWORD, signIn } from './support/e2e-session';
+import { E2E_PASSWORD, signIn, signUpHeaders } from './support/e2e-session';
 
 const APP_NAME = process.env.APP_NAME || 'Closet';
 
@@ -18,6 +18,7 @@ test.describe('login session', () => {
 
     const register = await page.request.post('/auth/register', {
       form: { email, password, confirmPassword: password },
+      headers: signUpHeaders(),
     });
     expect(register.ok()).toBe(true);
     await page.context().clearCookies();
@@ -32,6 +33,7 @@ test.describe('login session', () => {
     // set here is what the page sends on the navigations below.
     const login = await page.request.post('/auth/login', {
       form: { email, password },
+      headers: signUpHeaders(),
     });
     expect(login.ok()).toBe(true);
     expect(new URL(login.url()).pathname).toBe('/auth/profile');
