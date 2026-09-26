@@ -7,15 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+#### Security
+
+- Cross-site request forgery: every POST, PUT, PATCH and DELETE must come from this site (its `Origin`, or `Referer` without one, names the address it was sent to or `SITE_URL`), else 403; the session cookie is `SameSite=Lax`. Emails, passwords, shares and garments could be changed from any other site before
+- Login and registration are rate limited (5 a minute per address) and changing the password or deleting the account (5 a minute per user): `@nestjs/throttler` had never limited anything. The client address comes from `TRUSTED_PROXIES`, which must include the reverse proxy's address
+- `?returnTo=` on the outfit form accepts only same-site paths: a `javascript:` value ran script from the Back link
+- IDs no longer reveal whose data exists: another user's garment, outfit, calendar entry or share, and a wardrobe shared with someone else, answer 404 instead of 403. A grantee who can see a garment but not change it still gets 403
+- Invite tokens no longer reach the request log (the route pattern is logged); invite links are built from the trusted host, not the raw Host header
+- Signing out clears the browser's cache (`Clear-Site-Data`) and the app's cached pages, so the next person on the device cannot read the last user's wardrobe offline
+- Canonical and Open Graph URLs no longer trust `X-Forwarded-Host`/`-Proto` from clients that are not trusted proxies
+
 #### Added
 
 - Change password (`/auth/change-password`, linked from the profile): needs the current password (400 with an error when it is wrong), applies the registration password rules, signs out every other session and keeps the current one
 - Nightly storage reconciliation (`MAINTENANCE_ENABLED`, `@nestjs/schedule`) and `npm run maintenance:reconcile [-- --dry-run]`: orphaned photo sets and unreferenced `file` rows older than a day are deleted, rows whose original is missing are reported
+- `npm run user:set-password -- <email>`: sets a locked-out user's password from the server (read without echo, or from piped stdin), with the registration rules, signing out every session of that account
 - `APP_TIMEZONE` (IANA name, default `America/New_York`): the household's time zone, which decides what "today" is on the calendar and which week opens by default
 - HEIC/HEIF uploads: decoded server-side with heic-convert (capped by `MAX_HEIC_BYTES`), accepted by the photo inputs; browsers that cannot decode HEIC skip the client-side cutout and upload the original
 
 #### Fixed
 
+- Account forms (login, registration, email, password, deletion) submit as real form posts, so browsers offer to save the password: a registration's browser-generated password was never saved and the account was lost. A failed login shows "Incorrect email or password" once with a 401 (it swapped a whole second page into the page and said "Error"); validation failures are 400 with the messages under the fields; deleting the account with wrong credentials now shows the error
+- The inline checks while registering or changing the email answer with the messages only, instead of a whole page nested into the form; they no longer replace the fields being typed in or dim the submit button
+- Emails are case-insensitive: stored lower case and matched regardless of case at login, registration and email change. Changing the email to one another account uses is a field error instead of a 500
+- The session cookie's `Max-Age` was 1000 times the intended 365 days (milliseconds where seconds are expected)
 - Calendar: every evening after UTC midnight (19:00 or 20:00 in New York) the calendar highlighted tomorrow and on Saturday evening opened next week; "today" now comes from `APP_TIMEZONE`. Days are plain dates end to end, so a server zone with DST can no longer mislabel a week (the spring-forward week read 8, 8, 9, ...)
 - Calendar: a malformed date, outfit id or week posted to `/calendar` answers 400 with the error page instead of 500, and a malformed `?week=` or `?calMonth=` opens the current week; deleting or marking an entry worn without a request body no longer 500s
 - Scheduling an outfit is idempotent: the same outfit on the same day twice (a double tap, or saving the outfit form again) keeps one calendar entry instead of adding a duplicate
