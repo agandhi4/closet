@@ -10,9 +10,11 @@ on:
     # Docs-only commits neither need tests nor a redeploy (a new image rolls
     # every client's static-asset cache key). Tag pushes ignore path filters.
     paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
+  # Every PR runs the whole gate, docs-only ones included: main requires
+  # both jobs' checks (branch protection), and a skipped workflow would
+  # leave a PR waiting on them forever.
   pull_request:
     branches: [main]
-    paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
   workflow_dispatch:
     inputs:
       version:

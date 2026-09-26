@@ -1,6 +1,14 @@
 #!/bin/sh
-# Build + Chromium Playwright against a freshly built server: what only a
-# browser can show (htmx swaps, service worker, layout). Playwright reuses a
-# server already listening on :3000, so stop `npm run start:dev` first or it
-# tests that instead of this build.
-exec npm run -s verify:push
+# Build + Chromium Playwright against a freshly built server, but only when
+# pushing to main (a docs fix the owner pushes directly). Branches are
+# verified by CI on their pull request, which main requires to pass
+# (branch protection): running the browser suite here too would double the
+# work, and parallel agents' pushes would race for :3000, where Playwright
+# reuses whatever server is listening. Stop `npm run start:dev` first when
+# it does run, or it tests that instead of this build.
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    exec npm run -s verify:push
+  fi
+done
+exit 0
