@@ -1,5 +1,5 @@
 import { and, between, eq, sql } from 'drizzle-orm';
-import type { Db } from '../../db/client';
+import type { Db, Queryable } from '../../db/client';
 import { outfit, outfitCalendar } from '../../db/schema';
 import { imageUrl } from '../../file/file-url/image-url';
 import type { IsoDate } from './calendar-date';
@@ -34,9 +34,12 @@ export async function findEntries(
       outfit: {
         columns: { id: true, name: true },
         with: {
-          outfitGarments: {
+          // The outfit's garments in the order it was built (empty slots
+          // have nothing to show).
+          slots: {
             columns: {},
-            orderBy: (pivot, { asc }) => [asc(pivot.garmentId)],
+            where: (slot, { isNotNull }) => isNotNull(slot.garmentId),
+            orderBy: (slot, { asc }) => [asc(slot.position)],
             with: {
               garment: {
                 columns: {},
@@ -55,24 +58,25 @@ export async function findEntries(
     outfit: {
       id: row.outfit.id,
       name: row.outfit.name,
-      photoUrls: row.outfit.outfitGarments.flatMap(({ garment }) =>
-        garment.photo ? [imageUrl(garment.photo, 'thumb')] : [],
+      photoUrls: row.outfit.slots.flatMap(({ garment }) =>
+        garment?.photo ? [imageUrl(garment.photo, 'thumb')] : [],
       ),
     },
   }));
 }
 
+export type ScheduleOutcome = 'scheduled' | 'already-scheduled';
+
 /**
  * Plans the owner's outfit on `day`. Idempotent: planning the same outfit on
  * the same day again inserts nothing (the unique (owner, day, outfit)
  * constraint) and reports 'already-scheduled', so a double tap or a replayed
- * form is not an error. OutfitService.schedule is the outfit form's twin
- * until the outfits port.
+ * form is not an error.
  */
 export async function scheduleOutfit(
   db: Db,
   entry: { ownerId: number; outfitId: number; day: IsoDate },
-): Promise<'scheduled' | 'already-scheduled' | 'no-such-outfit'> {
+): Promise<ScheduleOutcome | 'no-such-outfit'> {
   const [owned] = await db
     .select({ id: outfit.id })
     .from(outfit)
@@ -80,6 +84,19 @@ export async function scheduleOutfit(
       and(eq(outfit.id, entry.outfitId), eq(outfit.ownerId, entry.ownerId)),
     );
   if (!owned) return 'no-such-outfit';
+  return insertEntry(db, entry);
+}
+
+/**
+ * The one writer of calendar entries, for an outfit the caller has already
+ * found to be the owner's: POST /calendar (scheduleOutfit) and the outfit
+ * form's "Add to calendar", inside its save transaction
+ * (src/web/outfits/queries.ts).
+ */
+export async function insertEntry(
+  db: Queryable,
+  entry: { ownerId: number; outfitId: number; day: IsoDate },
+): Promise<ScheduleOutcome> {
   const inserted = await db
     .insert(outfitCalendar)
     .values(entry)

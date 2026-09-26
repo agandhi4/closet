@@ -1,11 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { FileUrlService } from '../file/file-url/file-url.service';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { File } from '../dal/entity/file.entity';
 import { Garment } from '../dal/entity/garment.entity';
-import { Outfit } from '../dal/entity/outfit.entity';
-import { EntityManager, EntityRepository } from '@mikro-orm/core';
+import { EntityRepository } from '@mikro-orm/core';
+import type { Db } from '../db/client';
+import { DB } from '../db/db.module';
+import { findSharedOutfit } from '../web/outfits/queries';
 
 export interface OpenGraphTagValues {
   ogUrl: string;
@@ -22,9 +24,9 @@ export class OpenGraphService {
     private readonly fileRepository: EntityRepository<File>,
     @InjectRepository(Garment)
     private readonly garmentRepository: EntityRepository<Garment>,
-    @InjectRepository(Outfit)
-    private readonly outfitRepository: EntityRepository<Outfit>,
-    private readonly em: EntityManager,
+    // Outfits are ported (src/web/outfits); their share page reads through
+    // the feature's query until this module is ported too.
+    @Inject(DB) private readonly db: Db,
   ) {}
 
   public async getShareableTagValues(
@@ -73,19 +75,12 @@ export class OpenGraphService {
     }
 
     if (type == 'outfit') {
-      const outfit = await this.outfitRepository.findOne(
-        { shareableId },
-        { populate: ['owner', 'garments', 'garments.photo'] },
-      );
-      const createdBy = await outfit?.owner.load();
-      const firstPhotoGarment = outfit?.garments
-        .getItems()
-        .find((g) => g.photo);
-      const ogImage = firstPhotoGarment?.photo
-        ? this.fileUrlService.getWatermarkedFileUrl(
-            firstPhotoGarment.photo.shareableId,
-            req,
-          )
+      const outfit = await findSharedOutfit(this.db, shareableId);
+      const createdBy = outfit?.owner;
+      // The first garment, in the outfit's order, that has a photo.
+      const firstPhoto = outfit?.garments.find((g) => g.photo)?.photo;
+      const ogImage = firstPhoto
+        ? this.fileUrlService.getWatermarkedFileUrl(firstPhoto.shareableId, req)
         : undefined;
       return {
         ogUrl: `${req.protocol}://${req.host}/share?shareableId=${shareableId}&type=outfit`,
@@ -93,7 +88,7 @@ export class OpenGraphService {
         ogDescription: `From ${createdBy?.email}`,
         ogImage,
         outfit,
-        garments: outfit?.garments.getItems() ?? [],
+        garments: outfit?.garments ?? [],
         createdBy,
       };
     }

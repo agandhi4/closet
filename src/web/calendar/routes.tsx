@@ -4,6 +4,7 @@ import { sessionUserId } from '../auth/require-session';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
+import { IsoDateSchema, RowId } from '../schemas';
 import { viewContext } from '../view-context';
 import { parseIsoDate, parseYearMonth, todayIn } from './calendar-date';
 import { CalendarPage } from './calendar-page';
@@ -24,17 +25,10 @@ import { WornButton } from './worn-button';
  *   should still open the calendar. parseIsoDate/parseYearMonth decide.
  * - The writes validate their bodies strictly through the route schema: a
  *   malformed date, outfit id or week is a 400 error page and writes
- *   nothing. `format: 'date'` is ajv-formats' full-date (a real calendar
- *   date), the rule parseIsoDate also applies.
+ *   nothing (IsoDateSchema: the rule parseIsoDate also applies).
  * - POST /calendar/:id/delete and /worn take their body as optional: the
  *   posted week only picks the redirect target.
  */
-const IsoDateSchema = Type.String({ format: 'date' });
-
-// Ids are Postgres integers (serial): anything larger would fail in the
-// query as a 500 instead of here as a 400.
-const RowId = Type.Integer({ minimum: 1, maximum: 2_147_483_647 });
-
 const EntryParams = Type.Object({ id: RowId });
 
 // null: a post without a body (Fastify validates a missing body as null).

@@ -40,8 +40,9 @@ describe('migrations', () => {
         'garment_photo_id_unique',
         'outfit_shareable_id_index',
         'outfit_owner_id_index',
-        'outfit_garments_outfit_id_index',
-        'outfit_garments_garment_id_index',
+        // Also the index of outfit_slot.outfit_id.
+        'outfit_slot_pkey',
+        'outfit_slot_garment_id_index',
         // Also the (owner_id, day) index of the calendar's week queries.
         'outfit_calendar_owner_id_day_outfit_id_unique',
         'outfit_calendar_outfit_id_index',
@@ -71,12 +72,12 @@ describe('migrations', () => {
         }),
         t.db.query.file.findMany({ with: { createdBy: true, garment: true } }),
         t.db.query.garment.findMany({
-          with: { photo: true, owner: true, outfitGarments: true },
+          with: { photo: true, owner: true, outfitSlots: true },
         }),
         t.db.query.outfit.findMany({
-          with: { owner: true, outfitGarments: true, calendarEntries: true },
+          with: { owner: true, slots: true, calendarEntries: true },
         }),
-        t.db.query.outfitGarment.findMany({
+        t.db.query.outfitSlot.findMany({
           with: { outfit: true, garment: true },
         }),
         t.db.query.outfitCalendar.findMany({

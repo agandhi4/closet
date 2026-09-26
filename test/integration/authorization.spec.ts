@@ -1,13 +1,11 @@
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
+import { count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
-import { OutfitCalendar } from '../../src/dal/entity/outfit-calendar.entity';
-import { OutfitGarment } from '../../src/dal/entity/outfit-garment.entity';
-import { Outfit } from '../../src/dal/entity/outfit.entity';
 import { User } from '../../src/dal/entity/user.entity';
+import { outfit, outfitCalendar, outfitSlot } from '../../src/db/schema';
 import { LOGIN_PATH } from '../../src/auth/session-access';
 import { createGarment, jpegPhoto, pngCutout, uploadPhoto } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
@@ -569,9 +567,10 @@ describe('authorization matrix', () => {
       headers: { cookie },
     });
     expect(scheduled.statusCode).toBe(302);
-    const entry = await t
-      .em()
-      .findOneOrFail(OutfitCalendar, { outfit: outfitId });
+    const [entry] = await t.db
+      .select({ id: outfitCalendar.id })
+      .from(outfitCalendar)
+      .where(eq(outfitCalendar.outfitId, outfitId));
     return { garmentId, garmentName, outfitId, outfitName, entryId: entry.id };
   };
 
@@ -580,19 +579,20 @@ describe('authorization matrix', () => {
    * one sorted string per row, so a diff names exactly what changed.
    */
   const snapshot = async (): Promise<string[]> => {
-    const em = t.em();
     const tables = [
-      ...[Garment, File, Outfit, OutfitGarment, OutfitCalendar].map(
-        (entity) => em.getMetadata(entity).tableName,
-      ),
+      'garment',
+      'file',
+      'outfit',
+      'outfit_slot',
+      'outfit_calendar',
       'wardrobe_share',
     ];
     const rows = await Promise.all(
       tables.map(async (table) => {
-        const result: Record<string, unknown>[] = await em
-          .getConnection()
-          .execute(`select * from "${table}"`);
-        return result.map((row) => `${table} ${JSON.stringify(row)}`);
+        const result = await t.db.execute<Record<string, unknown>>(
+          sql.raw(`select * from "${table}"`),
+        );
+        return result.rows.map((row) => `${table} ${JSON.stringify(row)}`);
       }),
     );
     const stored = (await readdir(t.dataPath))
@@ -690,7 +690,16 @@ describe('authorization matrix', () => {
   });
 
   // The outfit form posts garment ids; ids outside the requester's own
-  // wardrobe are dropped, so no outfit can reference a shared garment.
+  // wardrobe are dropped (the row stays, empty), so no outfit can reference
+  // a shared garment.
+  const slotsOf = async (outfitId: number) => {
+    const [row] = await t.db
+      .select({ slots: count(), garments: count(outfitSlot.garmentId) })
+      .from(outfitSlot)
+      .where(eq(outfitSlot.outfitId, outfitId));
+    return row;
+  };
+
   it.each(['manager', 'viewer', 'stranger'] as const)(
     "POST /outfits as %s drops the owner's garment ids",
     async (actor) => {
@@ -708,11 +717,12 @@ describe('authorization matrix', () => {
       const outfitId = Number(
         /^\/outfits\/(\d+)$/.exec(res.headers.location as string)?.[1],
       );
-      const outfit = await t
-        .em()
-        .findOneOrFail(Outfit, outfitId, { populate: ['owner', 'garments'] });
-      expect(outfit.owner.id).toBe(actors[actor].id);
-      expect(outfit.garments.getItems()).toHaveLength(0);
+      const [created] = await t.db
+        .select({ ownerId: outfit.ownerId })
+        .from(outfit)
+        .where(eq(outfit.id, outfitId));
+      expect(created.ownerId).toBe(actors[actor].id);
+      expect(await slotsOf(outfitId)).toEqual({ slots: 1, garments: 0 });
 
       const edit = await t.inject({
         method: 'POST',
@@ -721,7 +731,7 @@ describe('authorization matrix', () => {
         headers: { cookie: actors[actor].cookie },
       });
       expect(edit.statusCode).toBe(302);
-      expect(await t.em().count(OutfitGarment, { outfit: outfitId })).toBe(0);
+      expect(await slotsOf(outfitId)).toEqual({ slots: 1, garments: 0 });
     },
   );
 });

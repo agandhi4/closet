@@ -1,8 +1,6 @@
 import {
-  Collection,
   Entity,
   Index,
-  ManyToMany,
   ManyToOne,
   OneToOne,
   type Opt,
@@ -12,7 +10,6 @@ import {
   type Rel,
 } from '@mikro-orm/core';
 import { File } from './file.entity';
-import { Outfit } from './outfit.entity';
 import { ShareableId } from './shareableId.entity';
 import { User } from './user.entity';
 import { GarmentColor } from '../../wardrobe/garment-color.enum';
@@ -75,6 +72,6 @@ export class Garment extends ShareableId {
   })
   public owner!: Ref<User>;
 
-  @ManyToMany(() => Outfit, (outfit) => outfit.garments)
-  public outfits = new Collection<Outfit>(this);
+  // Which outfits wear a garment is outfit_slot's (src/db/schema.ts), read
+  // through Drizzle only: no MikroORM entity maps outfits any more.
 }

@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Calendar: every evening after UTC midnight (19:00 or 20:00 in New York) the calendar highlighted tomorrow and on Saturday evening opened next week; "today" now comes from `APP_TIMEZONE`. Days are plain dates end to end, so a server zone with DST can no longer mislabel a week (the spring-forward week read 8, 8, 9, ...)
 - Calendar: a malformed date, outfit id or week posted to `/calendar` answers 400 with the error page instead of 500, and a malformed `?week=` or `?calMonth=` opens the current week; deleting or marking an entry worn without a request body no longer 500s
 - Scheduling an outfit is idempotent: the same outfit on the same day twice (a double tap, or saving the outfit form again) keeps one calendar entry instead of adding a duplicate
+- Outfits show their garments in the order they were built, on the list, the outfit page and the calendar (they came back in whatever order Postgres chose)
+- Editing an outfit keeps a garment that has since been archived: the form shows it, marked "Archived", and saving keeps it. Every save dropped it before
+- Saving an outfit and adding it to the calendar is one transaction: a malformed date is a 400 before anything is written (it saved the outfit and then failed with a 500), and a failure part-way leaves nothing behind. A name or notes over 255 characters, or a row without its garment field, is a 400 instead of a 500
+- The outfit form ignores garment ids that are not the user's without keeping them anywhere (the saved rows used to keep them)
 - Dependency security: sharp 0.35.4 (libvips 8.18.6, libheif 1.23.2 advisories; this app decodes untrusted uploads), @fastify/static 10.1.4 (path traversal and route-guard bypass), Nest 11.2.6. `npm audit --omit=dev`: 9 high to 0 high; 6 moderate remain in fastify (pinned by Nest 11) and the migration CLI
 - Accepting a wardrobe invite that races a duplicate grant now answers 400 instead of 500 (the unique-violation check referenced a MikroORM export that does not exist)
 - `/file/app.log` (and any other non-photo file under `DATA_PATH`) was served to anyone; the route now serves only photo names. Request logs no longer record `cookie`, `authorization` or `set-cookie` headers, and static requests and the heartbeat are no longer logged
@@ -53,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The wardrobe answers htmx requests with a fragment instead of the full page; filter dropdowns come from `SELECT DISTINCT` instead of a second full scan
 - Indexes on every relation and lookup column, backfilled on Postgres with `CREATE INDEX CONCURRENTLY`
 - Photo and row writes are one transaction with compensation; deleting a garment removes its files and file row
+- Outfit builder: `/outfits/new` reads one garment per category plus counts instead of the whole wardrobe, each prev/next swap reads one garment instead of the whole category, and rows show the 400px thumbnail instead of the 1080px cutout (which the detail dialog loads only when opened). The list and outfit pages read plain rows in one statement
 
 #### Fixed (data and security)
 
@@ -69,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Changed
 
+- Outfits (`/outfits`, the builder, its row fragment and the writes) are served by the plain-Fastify web layer with Drizzle queries and typed JSX views; URLs, form fields and htmx targets are unchanged. The list is newest first
+- What an outfit wears is one `outfit_slot` table (position, category, optional garment; deleting a garment empties its slot) instead of the `outfit.slots` JSON and the `outfit_garments` pivot, which disagreed. The migration copies the JSON rows in order, keeping a garment only if it still exists and belongs to the outfit's owner, builds slots from the pivot for outfits that had none, and refuses to run if any outfit's garments differ between the two stores
 - The calendar (`/calendar` and its writes) is served by the plain-Fastify web layer with Drizzle queries and typed JSX views; URLs, form fields, htmx targets and responses are unchanged. Web-layer input is validated by Fastify's JSON schemas (TypeBox)
 - `outfit_calendar.date` (timestamptz at UTC midnight) is now `day date`; the migration refuses to run if any value is not UTC midnight, removes duplicate schedules (keeping a worn one), drops the never-written `notes` column, and replaces the date and owner indexes with one unique `(owner_id, day, outfit_id)` index
 - `/`, `/about`, `/offline.html`, `/manifest.json`, `/healthz` and `/.well-known/*` are served by the plain-Fastify web layer (`src/web/`, typed JSX views through `hono/jsx`) instead of Nest and Handlebars, the first routes of the platform migration. Statuses, headers and cache policy are unchanged; the About and offline pages render the same shell. The session gate for these routes shares its decision with `SessionGuard`
