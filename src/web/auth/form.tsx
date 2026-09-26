@@ -118,7 +118,7 @@ export function ErrorAlert({ message }: { message: string }) {
  * every form and htmx drops a boosted 4xx, so every form that posts natively
  * goes through this. test/integration/pages.ts fails any page with a native
  * post that is still boosted. `confirm` asks before submitting; the text
- * travels as a data attribute, so nothing is spliced into the script.
+ * travels as a data attribute, so nothing is spliced into the handler.
  */
 export function PostForm(props: {
   action: string;
@@ -136,10 +136,8 @@ export function PostForm(props: {
       class={props.class}
       hx-boost="false"
       data-confirm={props.confirm}
-      _={
-        props.confirm
-          ? 'on submit if not confirm(@data-confirm) halt the event end'
-          : undefined
+      onsubmit={
+        props.confirm ? 'return confirm(this.dataset.confirm)' : undefined
       }
     >
       {props.children}

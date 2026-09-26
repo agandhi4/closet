@@ -140,7 +140,11 @@ export function WardrobeMain({ model }: { model: WardrobeModel }) {
       )}
 
       <FilterBar search={search} viewOwner={viewOwner} />
-      <FilterModal search={search} options={model.options} />
+      <FilterModal
+        search={search}
+        options={model.options}
+        viewOwner={viewOwner}
+      />
     </main>
   );
 }
@@ -252,39 +256,9 @@ function FilterPill(props: {
   );
 }
 
-// The modal's buttons fill the search form's hidden fields and submit it
-// through requestSubmit(), so htmx sees the submit event (form.submit()
-// would bypass it and reload the whole page).
-const CLEAR_FILTERS = `on click
-   for el in <#filter-modal input/>
-     set el.checked to false
-   end
-   set #active-category.value to ''
-   set #active-color.value to ''
-   set #active-size.value to ''
-   set #active-archived.value to ''
-   call #filter-modal.close()
-   call #search-form.requestSubmit()`;
-
-const APPLY_FILTERS = `on click
-   set category to ''
-   get the first <input[name='modal-category']:checked/>
-   if it then set category to it.value end
-   set color to ''
-   get the first <input[name='modal-color']:checked/>
-   if it then set color to it.value end
-   set size to ''
-   get the first <input[name='modal-size']:checked/>
-   if it then set size to it.value end
-   set archived to ''
-   get the first <input[name='modal-archived']:checked/>
-   if it then set archived to 'true' end
-   set #active-category.value to category
-   set #active-color.value to color
-   set #active-size.value to size
-   set #active-archived.value to archived
-   call #filter-modal.close()
-   call #search-form.requestSubmit()`;
+// The filter modal's form and its "Clear" send the search box's keyword
+// along, typed or not yet searched.
+const INCLUDE_KEYWORD = "#search-form [name='keyword']";
 
 /** The fixed bar above the dock: the filter button, active filters, search. */
 function FilterBar(props: {
@@ -298,7 +272,7 @@ function FilterBar(props: {
       <div class="flex flex-wrap items-center gap-2 mb-2">
         <button
           type="button"
-          _="on click call #filter-modal.showModal()"
+          onclick="document.getElementById('filter-modal').showModal()"
           class="btn btn-ghost btn-xs gap-1"
         >
           <svg
@@ -358,25 +332,10 @@ function FilterBar(props: {
         id="search-form"
         class="flex gap-2"
       >
-        <input
-          type="hidden"
-          name="category"
-          id="active-category"
-          value={search.category}
-        />
-        <input
-          type="hidden"
-          name="color"
-          id="active-color"
-          value={search.color}
-        />
-        <input type="hidden" name="size" id="active-size" value={search.size} />
-        <input
-          type="hidden"
-          name="archived"
-          id="active-archived"
-          value={search.archived}
-        />
+        <input type="hidden" name="category" value={search.category} />
+        <input type="hidden" name="color" value={search.color} />
+        <input type="hidden" name="size" value={search.size} />
+        <input type="hidden" name="archived" value={search.archived} />
         {viewOwner !== undefined && (
           <input type="hidden" name="ownerId" value={viewOwner} />
         )}
@@ -397,16 +356,36 @@ function FilterBar(props: {
   );
 }
 
-function FilterModal(props: { search: GridSearch; options: FilterOptions }) {
-  const { search, options } = props;
+/**
+ * The filters as a GET form of their own: applying submits it into
+ * #wardrobe-main like the search form (the swap takes the open dialog with
+ * it), with the search box's keyword; "Clear" asks for the grid with only
+ * the keyword. Without JavaScript it is a plain GET to /wardrobe.
+ */
+function FilterModal(props: {
+  search: GridSearch;
+  options: FilterOptions;
+  viewOwner: number | undefined;
+}) {
+  const { search, options, viewOwner } = props;
   return (
     <dialog id="filter-modal" class="modal modal-bottom sm:modal-middle">
-      <div class="modal-box">
+      <form
+        method="get"
+        action="/wardrobe"
+        hx-get="/wardrobe"
+        hx-include={INCLUDE_KEYWORD}
+        {...SWAP_MAIN}
+        class="modal-box"
+      >
         <h3 class="font-bold text-lg mb-4">{t('FILTERS')}</h3>
+        {viewOwner !== undefined && (
+          <input type="hidden" name="ownerId" value={viewOwner} />
+        )}
         <FilterGroup title={t('GARMENT_TYPE')}>
           {options.categories.map((category) => (
             <Choice
-              name="modal-category"
+              name="category"
               value={category}
               checked={category === search.category}
               class="peer-checked:badge-primary capitalize"
@@ -417,7 +396,7 @@ function FilterModal(props: { search: GridSearch; options: FilterOptions }) {
         <FilterGroup title={t('COLOR')}>
           {GARMENT_COLORS.map((color) => (
             <Choice
-              name="modal-color"
+              name="color"
               value={color}
               checked={color === search.color}
               class="peer-checked:badge-secondary capitalize"
@@ -429,7 +408,7 @@ function FilterModal(props: { search: GridSearch; options: FilterOptions }) {
           <FilterGroup title={t('SIZE')}>
             {options.sizes.map((size) => (
               <Choice
-                name="modal-size"
+                name="size"
                 value={size}
                 checked={size === search.size}
                 class="peer-checked:badge-accent"
@@ -442,7 +421,7 @@ function FilterModal(props: { search: GridSearch; options: FilterOptions }) {
           <label class="cursor-pointer flex items-center gap-2">
             <input
               type="checkbox"
-              name="modal-archived"
+              name="archived"
               value="true"
               class="checkbox checkbox-sm"
               checked={search.archived !== ''}
@@ -451,18 +430,20 @@ function FilterModal(props: { search: GridSearch; options: FilterOptions }) {
           </label>
         </FilterGroup>
         <div class="modal-action">
-          <button type="button" class="btn btn-ghost btn-sm" _={CLEAR_FILTERS}>
-            {t('CLEAR_FILTERS')}
-          </button>
           <button
             type="button"
-            class="btn btn-primary btn-sm"
-            _={APPLY_FILTERS}
+            class="btn btn-ghost btn-sm"
+            hx-get={wardrobeUrl(viewOwner)}
+            hx-include={INCLUDE_KEYWORD}
+            {...SWAP_MAIN}
           >
+            {t('CLEAR_FILTERS')}
+          </button>
+          <button type="submit" class="btn btn-primary btn-sm">
             {t('APPLY_FILTERS')}
           </button>
         </div>
-      </div>
+      </form>
       <form method="dialog" class="modal-backdrop">
         <button>{t('CLOSE')}</button>
       </form>
@@ -481,8 +462,7 @@ function FilterGroup(props: { title: string; children: Child }) {
   );
 }
 
-// Radios named modal-*: outside the search form on purpose, so only the
-// apply button (above) moves their values into it.
+// A radio of the filter form; its name is the query parameter.
 function Choice(props: {
   name: string;
   value: string;

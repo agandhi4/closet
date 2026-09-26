@@ -6,51 +6,6 @@ function rowUrl(category: string, index: number): string {
   return `/outfits/row-fragment?category=${encodeURIComponent(category)}&index=${index}`;
 }
 
-// Swipe left/right steps to the next/previous garment, like the ‹ › buttons.
-// The server has worked out both targets (data-next-index, data-prev-index),
-// including from a garment outside the cycle.
-const SWIPE = `on touchstart
-     set my startX to event.touches[0].clientX
-     set my startY to event.touches[0].clientY
-   on touchmove
-     if my startX is not null
-       set dx to Math.abs(event.touches[0].clientX - my startX)
-       set dy to Math.abs(event.touches[0].clientY - my startY)
-       if dx > dy
-         js(event) event.preventDefault() end
-       end
-     end
-   on touchend
-     if my startX is not null
-       set dx to event.changedTouches[0].clientX - my startX
-       set my startX to null
-       set my startY to null
-       if Math.abs(dx) >= 30
-         if dx < 0
-           set newIdx to @data-next-index
-         else
-           set newIdx to @data-prev-index
-         end
-         js(me, newIdx) htmx.ajax('GET', '/outfits/row-fragment?category=' + encodeURIComponent(me.dataset.category) + '&index=' + newIdx, {target: me, swap: 'outerHTML'}) end
-       end
-     end`;
-
-// Fills #garment-modal (GarmentModal, form-page.tsx) from the button's data
-// attributes and opens it.
-const OPEN_MODAL = `on click js(me)
-     const d = me.dataset;
-     document.getElementById('modal-garment-link').href = d.garmentHref;
-     document.getElementById('modal-garment-name').textContent = d.garmentName;
-     const img = document.getElementById('modal-photo-img');
-     const ph = document.getElementById('modal-photo-placeholder');
-     img.src = d.garmentPhoto || '';
-     img.classList.toggle('hidden', !d.garmentPhoto);
-     ph.classList.toggle('hidden', !!d.garmentPhoto);
-     [['modal-brand', d.garmentBrand], ['modal-color', d.garmentColor], ['modal-size', d.garmentSize], ['modal-notes', d.garmentNotes]]
-       .forEach(([id, val]) => { const el = document.getElementById(id); el.textContent = val || ''; el.classList.toggle('hidden', !val); });
-     document.getElementById('garment-modal').showModal();
-   end`;
-
 function EmptyPhoto() {
   return (
     <div class="outfit-none size-14 rounded-box bg-base-200 flex items-center justify-center">
@@ -59,7 +14,10 @@ function EmptyPhoto() {
   );
 }
 
-/** The row's garment: its thumb and name; a tap opens the detail modal. */
+/**
+ * The row's garment: its thumb and name; a tap opens the detail modal
+ * (public/js/outfit-builder.js fills it from the data attributes).
+ */
 function ChosenGarment({ garment }: { garment: RowGarment }) {
   const { photo } = garment;
   return (
@@ -73,7 +31,6 @@ function ChosenGarment({ garment }: { garment: RowGarment }) {
       data-garment-color={garment.color ?? ''}
       data-garment-size={garment.size ?? ''}
       data-garment-notes={garment.notes ?? ''}
-      _={OPEN_MODAL}
     >
       {photo ? (
         <img
@@ -103,19 +60,20 @@ function ChosenGarment({ garment }: { garment: RowGarment }) {
  * arrows, swipes and "Add row" swap in (outerHTML, or beforeend on the
  * list). Posts one category + garmentId pair; garmentId is empty for "no
  * garment". The row shows the 400px thumb; the detail modal loads the
- * cutout only when opened.
+ * cutout only when opened. A horizontal swipe steps like the arrows
+ * (public/js/outfit-builder.js reads data-prev-index and data-next-index,
+ * which the server works out); touch-pan-y leaves those moves to it.
  */
 export function OutfitRow({ row }: { row: BuilderRow }) {
   const { garment } = row;
   return (
     <div
-      class="outfit-row flex items-center gap-2 py-3"
+      class="outfit-row flex items-center gap-2 py-3 touch-pan-y"
       data-category={row.category}
       data-index={row.index ?? undefined}
       data-count={row.count}
       data-prev-index={row.prevIndex}
       data-next-index={row.nextIndex}
-      _={SWIPE}
     >
       <span
         class="drag-handle cursor-grab active:cursor-grabbing text-base-content/30 shrink-0 touch-none flex items-center justify-center p-3 -m-3"
@@ -173,7 +131,7 @@ export function OutfitRow({ row }: { row: BuilderRow }) {
         type="button"
         class="btn btn-ghost btn-sm btn-circle shrink-0 text-error"
         aria-label={t('OUTFIT_ROW_REMOVE')}
-        _="on click remove closest .outfit-row"
+        onclick="this.closest('.outfit-row').remove()"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

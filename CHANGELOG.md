@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- Pressing Enter in the outfit builder's "Add row" box saved the outfit; it adds the row now
 - Outfit names and notes are text columns: notes up to 4,000 characters are saved (the form stopped at 255, the length of the old column). Names stay capped at 255
 - Emails are unique regardless of case in the database too (an index on `lower(email)`); the upgrade stores every existing address trimmed and lower case, and refuses to start, naming the user ids, if two accounts would then share one
 - Wardrobe search ignores case ("blazer" finds "Black Linen Blazer"; Postgres `LIKE` did not), and `%`, `_` and `\` in the search box match themselves instead of acting as wildcards ("100%" matched everything)
@@ -78,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every navigation is lighter: the install dialog (100 KB) and pull to refresh load only where they apply (a browser tab that can install; iOS standalone) and are set up once, not per page (the dialog re-fetched `/manifest.json` on every tap); htmx keeps 3 history snapshots instead of 10 (half the per-tap sessionStorage work); the 250 ms page transition, which ignored taps while it ran, is gone; the logo links to the wardrobe instead of a redirect to it
 - A tapped card, dock item or link dims and the navbar spinner turns while its page loads, so a slow network no longer looks like a dead tap
 - No request to another origin: the Cloudflare Insights preconnect and its CSP entries are gone
+- `_hyperscript` (172 KB, 45 KB gzipped, the largest script on every page) is gone: its 13 uses were each a few lines of htmx attributes, CSS or plain script. The wardrobe filters are a plain GET form (they work without JavaScript), and swiping a builder row no longer holds up vertical scrolling (passive touch listeners)
 - The service worker is a production build (133 KB to 30 KB, 30 KB to 10 KB gzipped, no Workbox debug logging or assertions on every fetch), and navigation preload lets a page's request start while an idle-killed worker boots instead of after
 
 #### Fixed (data and security)

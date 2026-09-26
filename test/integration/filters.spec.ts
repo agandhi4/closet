@@ -21,10 +21,15 @@ describe('wardrobe filters', () => {
     );
   };
 
-  const optionValues = (html: string, name: string) =>
-    [...html.matchAll(new RegExp(`name="${name}" value="([^"]*)"`, 'g'))].map(
-      (m) => m[1],
-    );
+  /** The filter modal's radio values for one query parameter. */
+  const optionValues = (html: string, name: string) => {
+    const modal = /<dialog id="filter-modal"[\s\S]*?<\/dialog>/.exec(html)![0];
+    return [
+      ...modal.matchAll(
+        new RegExp(`type="radio" name="${name}" value="([^"]*)"`, 'g'),
+      ),
+    ].map((m) => m[1]);
+  };
 
   beforeAll(async () => {
     t = await createTestApp();
@@ -57,7 +62,7 @@ describe('wardrobe filters', () => {
   it('lists each category once, sorted, including archived garments', async () => {
     const res = await t.inject({ method: 'GET', url: '/wardrobe' });
     expect(res.statusCode).toBe(200);
-    expect(optionValues(res.body, 'modal-category')).toEqual([
+    expect(optionValues(res.body, 'category')).toEqual([
       'hat',
       'jacket',
       'pants',
@@ -67,7 +72,7 @@ describe('wardrobe filters', () => {
 
   it('lists each normalized size once in canonical order, custom sizes last', async () => {
     const res = await t.inject({ method: 'GET', url: '/wardrobe' });
-    expect(optionValues(res.body, 'modal-size')).toEqual([
+    expect(optionValues(res.body, 'size')).toEqual([
       'X-Small',
       'Large',
       'XX-Large',

@@ -40,6 +40,7 @@ function importMap(version: string) {
       pulltorefreshjs: `/modules/pulltorefresh/index.esm.js${v}`,
       toast: `/js/toast.js${v}`,
       'mask-editor': `/js/mask-editor.js${v}`,
+      'outfit-builder': `/js/outfit-builder.js${v}`,
       push: `/js/push.js${v}`,
     },
   };
@@ -110,7 +111,6 @@ export function Layout({
         {/* Libraries are served from node_modules (registerStaticAssets in
             app.ts), never a CDN. */}
         <script defer src={`/modules/htmx.min.js${v}`}></script>
-        <script defer src={`/modules/_hyperscript.min.js${v}`}></script>
         <script defer src={`/js/color-multiselect.js${v}`}></script>
         <script
           type="importmap"

@@ -19,6 +19,16 @@ and response bandwidth/latency. */
   z-index: 1000;
 }
 
+/* A notice that hides itself after 4 s (the garment page's "saved" toasts). */
+.toast-auto-hide {
+  animation: toast-auto-hide 0s 4s forwards;
+}
+@keyframes toast-auto-hide {
+  to {
+    visibility: hidden;
+  }
+}
+
 /* Tap feedback: pressed while touched, dimmed while the tapped link's
    request is in flight (the body's hx-indicator marks it htmx-request,
    src/web/layout/layout.tsx), so a slow network never looks like a dead

@@ -1,3 +1,4 @@
+import { copyAndFlash } from '../share/share-button';
 import { sharedBy } from '../share/share-page';
 import type { Child } from 'hono/jsx';
 import { PostForm } from '../auth/form';
@@ -40,8 +41,7 @@ function PermissionBadge(props: {
 
 /**
  * The invite URL in a read-only input plus a copy button. The URL reaches
- * the script as a data attribute (`@data-invite-url`), never spliced into
- * the hyperscript source.
+ * the handler as a data attribute, never spliced into its source.
  */
 function CopyableLink(props: {
   url: string;
@@ -55,17 +55,13 @@ function CopyableLink(props: {
         class={`input input-bordered input-${props.size} flex-1`}
         value={props.url}
         readonly
-        _="on click call me.select()"
+        onclick="this.select()"
       />
       <button
         type="button"
         class={`btn btn-ghost btn-${props.size}`}
-        data-invite-url={props.url}
-        _="on click
-             call navigator.clipboard.writeText(@data-invite-url)
-             then add .btn-success then remove .btn-ghost
-             wait 1s
-             then remove .btn-success then add .btn-ghost"
+        data-copy={props.url}
+        onclick={copyAndFlash('btn-ghost')}
       >
         {props.label}
       </button>
