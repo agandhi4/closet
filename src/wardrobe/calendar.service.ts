@@ -8,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { OutfitCalendar } from '../dal/entity/outfit-calendar.entity';
 import { Outfit } from '../dal/entity/outfit.entity';
-import { User } from '../dal/entity/user.entity';
 import { CreateCalendarEntryDto } from './dto/create-calendar-entry.dto';
 import { CalendarDay } from './view-models/calendar-day.view-model';
 import { WeekSchedule } from './view-models/week-schedule.view-model';
@@ -52,8 +51,6 @@ export class CalendarService {
     private readonly calendarRepository: EntityRepository<OutfitCalendar>,
     @InjectRepository(Outfit)
     private readonly outfitRepository: EntityRepository<Outfit>,
-    @InjectRepository(User)
-    private readonly userRepository: EntityRepository<User>,
   ) {}
 
   /**
@@ -61,16 +58,13 @@ export class CalendarService {
    * that contains `anchorDate`.  Populates outfit + garment thumbnails and
    * annotates each entry with a repeat-wear warning when applicable.
    */
-  async findWeek(anchorDate: Date, userId?: number): Promise<WeekSchedule> {
+  async findWeek(anchorDate: Date, userId: number): Promise<WeekSchedule> {
     const weekStart = startOfWeek(anchorDate);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
-    const ownerFilter =
-      userId != null ? { owner: { id: userId } } : { owner: null };
-
     const entries = await this.calendarRepository.find(
-      { ...ownerFilter, date: { $gte: weekStart, $lt: weekEnd } },
+      { owner: { id: userId }, date: { $gte: weekStart, $lt: weekEnd } },
       { populate: ['outfit', 'outfit.garments', 'outfit.garments.photo'] },
     );
 
@@ -92,25 +86,20 @@ export class CalendarService {
 
   async create(
     dto: CreateCalendarEntryDto,
-    userId?: number,
+    userId: number,
   ): Promise<OutfitCalendar> {
-    const outfit = await this.outfitRepository.findOne(
-      userId != null
-        ? { id: dto.outfitId, owner: { id: userId } }
-        : { id: dto.outfitId, owner: null },
-    );
+    const outfit = await this.outfitRepository.findOne({
+      id: dto.outfitId,
+      owner: { id: userId },
+    });
     if (!outfit) throw new NotFoundException('Outfit not found');
 
     const entry = this.calendarRepository.create({
       date: dto.date,
       outfit,
       notes: dto.notes,
+      owner: userId,
     });
-
-    if (userId != null) {
-      const user = await this.userRepository.findOneOrFail(userId);
-      entry.owner = user as any;
-    }
 
     await this.calendarRepository.getEntityManager().persistAndFlush(entry);
     this.logger.log(
@@ -119,7 +108,7 @@ export class CalendarService {
     return entry;
   }
 
-  async remove(id: number, userId?: number): Promise<void> {
+  async remove(id: number, userId: number): Promise<void> {
     const entry = await this.findOneOwned(id, userId);
     await this.calendarRepository.getEntityManager().removeAndFlush(entry);
   }
@@ -128,7 +117,7 @@ export class CalendarService {
    * Toggles the wornAt field.  If wornAt is null, sets it to today.
    * If already set, clears it (unmark worn).
    */
-  async toggleWorn(id: number, userId?: number): Promise<OutfitCalendar> {
+  async toggleWorn(id: number, userId: number): Promise<OutfitCalendar> {
     const entry = await this.findOneOwned(id, userId);
     entry.wornAt = entry.wornAt == null ? new Date() : undefined;
     await this.calendarRepository.getEntityManager().flush();
@@ -140,10 +129,10 @@ export class CalendarService {
    * schedule, and nothing else. Garments and photos are not loaded here.
    */
   async findOutfitOptions(
-    userId?: number,
+    userId: number,
   ): Promise<{ id: number; name: string | null }[]> {
     const outfits = await this.outfitRepository.find(
-      userId != null ? { owner: { id: userId } } : { owner: null },
+      { owner: { id: userId } },
       { fields: ['id', 'name'], orderBy: { id: 'ASC' } },
     );
     return outfits.map((o) => ({ id: o.id, name: o.name ?? null }));
@@ -157,7 +146,7 @@ export class CalendarService {
   async buildIndexViewModel(
     weekParam: string | undefined,
     calMonthParam: string | undefined,
-    userId: number | undefined,
+    userId: number,
     i18n: I18nContext,
   ) {
     const anchor = this.parseWeekParam(weekParam);
@@ -419,18 +408,13 @@ export class CalendarService {
 
   private async findOneOwned(
     id: number,
-    userId?: number,
+    userId: number,
   ): Promise<OutfitCalendar> {
     const entry = await this.calendarRepository.findOne(id, {
       populate: ['outfit'],
     });
     if (!entry) throw new NotFoundException('Calendar entry not found');
-
-    if (userId != null) {
-      if (entry.owner?.id !== userId) throw new ForbiddenException();
-    } else {
-      if (entry.owner != null) throw new ForbiddenException();
-    }
+    if (entry.owner.id !== userId) throw new ForbiddenException();
     return entry;
   }
 }

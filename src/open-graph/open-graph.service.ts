@@ -39,7 +39,7 @@ export class OpenGraphService {
           populate: ['createdBy'],
         },
       );
-      const createdBy = await file?.createdBy?.load();
+      const createdBy = await file?.createdBy.load();
       return {
         ogUrl: `${req.protocol}://${req.host}/file/${shareableId}`,
         ogTitle: file?.fileName,
@@ -55,7 +55,7 @@ export class OpenGraphService {
         { shareableId },
         { populate: ['owner', 'photo'] },
       );
-      const createdBy = await garment?.owner?.load();
+      const createdBy = await garment?.owner.load();
       const ogImage = garment?.photo
         ? this.fileUrlService.getWatermarkedFileUrl(
             garment.photo.shareableId,
@@ -77,7 +77,7 @@ export class OpenGraphService {
         { shareableId },
         { populate: ['owner', 'garments', 'garments.photo'] },
       );
-      const createdBy = await outfit?.owner?.load();
+      const createdBy = await outfit?.owner.load();
       const firstPhotoGarment = outfit?.garments
         .getItems()
         .find((g) => g.photo);

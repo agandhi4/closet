@@ -174,7 +174,7 @@ describe('garment edit, clone and archive', () => {
       expect(garment.dateAquired?.toISOString().slice(0, 10)).toBe(
         '2025-01-02',
       );
-      expect(garment.owner?.id).toBe(alice.id);
+      expect(garment.owner.id).toBe(alice.id);
       // The fields-only form never touches the photo.
       expect(garment.photo).toBeDefined();
     });
@@ -190,7 +190,7 @@ describe('garment edit, clone and archive', () => {
       expect(res.headers.location).toBe(`/wardrobe/${id}?ownerId=${alice.id}`);
       const garment = await load(id);
       expect(garment.name).toBe('Edited by Bob');
-      expect(garment.owner?.id).toBe(alice.id);
+      expect(garment.owner.id).toBe(alice.id);
     });
 
     it('a user without a share cannot edit', async () => {
@@ -297,7 +297,7 @@ describe('garment edit, clone and archive', () => {
       expect(cloneId).not.toBe(garmentId);
 
       const clone = await load(cloneId);
-      expect(clone.owner?.id).toBe(bob.id);
+      expect(clone.owner.id).toBe(bob.id);
       expect(clone).toMatchObject({
         name: 'Black Linen Blazer (cloned)',
         category: source.category,
@@ -313,7 +313,7 @@ describe('garment edit, clone and archive', () => {
       // the source's files stay where they were.
       expect(clone.photo).toBeDefined();
       expect(clone.photo!.fileName).not.toBe(source.photo!.fileName);
-      expect(clone.photo!.createdBy?.id).toBe(bob.id);
+      expect(clone.photo!.createdBy.id).toBe(bob.id);
       for (const path of photoFiles(clone.photo!.fileName)) {
         expect(await exists(path)).toBe(true);
       }

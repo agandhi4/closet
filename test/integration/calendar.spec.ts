@@ -234,7 +234,7 @@ describe('calendar', () => {
       const [entry] = await t.em().find(OutfitCalendar, { outfit });
       expect(entry.date.toISOString()).toBe('2030-10-09T00:00:00.000Z');
       expect(entry.wornAt).toBeFalsy();
-      expect(entry.owner?.id).toBe(t.owner.id);
+      expect(entry.owner.id).toBe(t.owner.id);
     });
 
     it('redirects to the posted week when there is one', async () => {

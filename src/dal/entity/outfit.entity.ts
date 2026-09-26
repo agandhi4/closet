@@ -45,7 +45,6 @@ export class Outfit extends ShareableId {
     entity: () => User,
     deleteRule: 'cascade',
     ref: true,
-    nullable: true,
   })
-  public owner?: Ref<User>;
+  public owner!: Ref<User>;
 }

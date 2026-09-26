@@ -71,20 +71,4 @@ describe('WardrobeShareService.resolveAccess', () => {
       permission: undefined,
     });
   });
-
-  it('unauthenticated: owner-less data only, never a share lookup', async () => {
-    await expect(service.resolveAccess(undefined, undefined)).resolves.toEqual({
-      ownerId: undefined,
-      isOwner: true,
-      canView: true,
-      canManage: true,
-    });
-    await expect(service.resolveAccess(undefined, 9)).resolves.toEqual({
-      ownerId: undefined,
-      isOwner: false,
-      canView: false,
-      canManage: false,
-    });
-    expect(shareRepository.findOne).not.toHaveBeenCalled();
-  });
 });

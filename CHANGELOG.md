@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Changed
 
 - Login is always required. One global `SessionGuard` replaces `ConditionalAuthGuard`, `RequireSessionGuard` and `AuthGuard`: every route needs a session unless it is `@Public()` (login, registration, logout, `/about`, `/offline.html`, `/healthz`, `/manifest.json`, `/.well-known/*`, `/share`, the invite landing page, `/file/**`). Signed out, a page navigation redirects to `/auth/login` and an htmx fragment or fetch answers 401 with `HX-Redirect: /auth/login`
+- Every garment, outfit, calendar entry and photo row has an owner: the columns are `NOT NULL`, and the migration deletes owner-less rows first (only the removed anonymous mode could reach them; their photo files go with the next storage reconciliation)
 - Rebrand to Closet, a private household fork of Libre Closet
 - Removed Lazztech branding, marketing content, and the privacy and terms pages
 - `/` now redirects to the wardrobe; there is no landing page

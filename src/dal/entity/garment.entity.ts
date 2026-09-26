@@ -72,9 +72,8 @@ export class Garment extends ShareableId {
     entity: () => User,
     deleteRule: 'cascade',
     ref: true,
-    nullable: true,
   })
-  public owner?: Ref<User>;
+  public owner!: Ref<User>;
 
   @ManyToMany(() => Outfit, (outfit) => outfit.garments)
   public outfits = new Collection<Outfit>(this);

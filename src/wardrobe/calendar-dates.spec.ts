@@ -6,7 +6,6 @@ import { EntityRepository } from '@mikro-orm/core';
 import { I18nContext } from 'nestjs-i18n';
 import { OutfitCalendar } from '../dal/entity/outfit-calendar.entity';
 import { Outfit } from '../dal/entity/outfit.entity';
-import { User } from '../dal/entity/user.entity';
 import { CalendarService } from './calendar.service';
 
 /**
@@ -45,7 +44,7 @@ describe('CalendarService date logic (America/New_York)', () => {
   let service: CalendarService;
 
   const view = (week?: string, calMonth?: string): Promise<ViewModel> =>
-    service.buildIndexViewModel(week, calMonth, undefined, i18n);
+    service.buildIndexViewModel(week, calMonth, 1, i18n);
 
   const dates = (vm: ViewModel) => vm.days.map((d) => d.dateParam);
   const dayNums = (vm: ViewModel) => vm.days.map((d) => d.dayNum);
@@ -66,7 +65,6 @@ describe('CalendarService date logic (America/New_York)', () => {
       {
         find: jest.fn().mockResolvedValue([]),
       } as unknown as EntityRepository<Outfit>,
-      {} as EntityRepository<User>,
     );
   });
 

@@ -49,6 +49,7 @@ describe('storage reconciliation', () => {
     em.create(File, {
       fileName,
       createdOn: new Date(Date.now() - ageMs).toISOString(),
+      createdBy: t.owner.id,
     });
     await em.flush();
     return fileName;

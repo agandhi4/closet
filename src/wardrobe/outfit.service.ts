@@ -9,7 +9,6 @@ import {
 import { I18nContext } from 'nestjs-i18n';
 import { Garment } from '../dal/entity/garment.entity';
 import { Outfit, OutfitSlot } from '../dal/entity/outfit.entity';
-import { User } from '../dal/entity/user.entity';
 import { GarmentCategory } from './garment-category.enum';
 import { GarmentService } from './garment.service';
 import { CreateOutfitDto } from './dto/create-outfit.dto';
@@ -24,37 +23,23 @@ export class OutfitService {
     private readonly outfitRepository: EntityRepository<Outfit>,
     @InjectRepository(Garment)
     private readonly garmentRepository: EntityRepository<Garment>,
-    @InjectRepository(User)
-    private readonly userRepository: EntityRepository<User>,
     private readonly garmentService: GarmentService,
   ) {}
 
-  async findAll(userId?: number): Promise<Outfit[]> {
-    if (userId != null) {
-      return this.outfitRepository.find(
-        { owner: { id: userId } },
-        { populate: ['garments', 'garments.photo'] },
-      );
-    }
-    // AUTH_ENABLED=false: only return outfits that belong to no user
+  async findAll(userId: number): Promise<Outfit[]> {
     return this.outfitRepository.find(
-      { owner: null },
+      { owner: { id: userId } },
       { populate: ['garments', 'garments.photo'] },
     );
   }
 
-  async findOne(id: number, userId?: number): Promise<Outfit> {
+  // Outfits are private to their owner whatever wardrobe shares exist.
+  async findOne(id: number, userId: number): Promise<Outfit> {
     const outfit = await this.outfitRepository.findOne(id, {
       populate: ['garments', 'garments.photo'],
     });
     if (!outfit) throw new NotFoundException('Outfit not found');
-    if (userId != null) {
-      // auth mode: must be the owner
-      if (outfit.owner?.id !== userId) throw new ForbiddenException();
-    } else {
-      // no-auth mode: only allow ownerless outfits
-      if (outfit.owner != null) throw new ForbiddenException();
-    }
+    if (outfit.owner.id !== userId) throw new ForbiddenException();
     return outfit;
   }
 
@@ -67,11 +52,12 @@ export class OutfitService {
     return outfit;
   }
 
-  async create(dto: CreateOutfitDto, userId?: number): Promise<Outfit> {
+  async create(dto: CreateOutfitDto, userId: number): Promise<Outfit> {
     const outfit = this.outfitRepository.create({
       name: dto.name,
       notes: dto.notes,
       slots: dto.slots,
+      owner: userId,
     });
 
     const garmentIds =
@@ -81,11 +67,6 @@ export class OutfitService {
 
     if (garmentIds.length) {
       outfit.garments.set(await this.findOwnedGarments(garmentIds, userId));
-    }
-
-    if (userId != null) {
-      const user = await this.userRepository.findOneOrFail(userId);
-      outfit.owner = user as any;
     }
 
     // One flush: the outfit row and its pivot rows commit together.
@@ -100,18 +81,18 @@ export class OutfitService {
   // (hand-edited requests) are dropped rather than attached.
   private findOwnedGarments(
     garmentIds: number[],
-    userId: number | undefined,
+    userId: number,
   ): Promise<Garment[]> {
     return this.garmentRepository.find({
       id: { $in: garmentIds },
-      owner: userId != null ? { id: userId } : null,
+      owner: { id: userId },
     });
   }
 
   async update(
     id: number,
     dto: UpdateOutfitDto,
-    userId?: number,
+    userId: number,
   ): Promise<Outfit> {
     const outfit = await this.findOne(id, userId);
 
@@ -133,7 +114,7 @@ export class OutfitService {
     return outfit;
   }
 
-  async remove(id: number, userId?: number): Promise<void> {
+  async remove(id: number, userId: number): Promise<void> {
     const outfit = await this.findOne(id, userId);
     await this.outfitRepository.getEntityManager().removeAndFlush(outfit);
     this.logger.log(`Outfit ${id} removed by user ${userId}`);
