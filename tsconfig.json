@@ -19,6 +19,13 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
+    // Views under src/web/ are typed JSX rendered to strings by hono/jsx
+    // (escape by default). SWC reads the same two settings: .swcrc for nest
+    // build, unplugin-swc from this file for Vitest.
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    // src/web/i18n.ts types t() keys from src/i18n/en/lang.json.
+    "resolveJsonModule": true,
     "types": [
       "node",
       "@fastify/view"

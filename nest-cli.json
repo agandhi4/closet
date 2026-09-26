@@ -10,6 +10,12 @@
         "watchAssets": true
       }
     ],
-    "builder": "swc"
+    "builder": {
+      "type": "swc",
+      "options": {
+        "extensions": [".js", ".ts", ".tsx"],
+        "ignore": ["**/*.spec.ts", "**/*.spec.tsx"]
+      }
+    }
   }
 }

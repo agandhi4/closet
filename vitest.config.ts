@@ -9,7 +9,9 @@ export default defineConfig({
   // (emitDecoratorMetadata), which Vite's own TypeScript transform never
   // emits: without SWC every injected dependency is undefined. unplugin-swc
   // reads experimentalDecorators/emitDecoratorMetadata from tsconfig.json and
-  // turns Vite's transform off.
+  // turns Vite's transform off. It also reads jsx/jsxImportSource there
+  // (hono/jsx for the src/web/ views) and then parses every .ts file as TSX,
+  // which is why angle-bracket type assertions are banned (eslint.config.mjs).
   plugins: [swc.vite({ module: { type: 'es6' } })],
   test: {
     // Global, inherited by every project (extends: true). The budget covers
@@ -20,9 +22,9 @@ export default defineConfig({
     maxWorkers: '50%',
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
+      include: ['src/**/*.{ts,tsx}'],
       exclude: [
-        'src/**/*.spec.ts',
+        'src/**/*.spec.{ts,tsx}',
         'src/**/migrations/**',
         'src/**/entity/**',
         'src/**/*.dto.*',
@@ -36,7 +38,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit',
-          include: ['src/**/*.spec.ts'],
+          include: ['src/**/*.spec.{ts,tsx}'],
           exclude: ['src/wardrobe/calendar-dates.spec.ts'],
         },
       },
@@ -66,7 +68,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'integration',
-          include: ['test/integration/**/*.spec.ts'],
+          include: ['test/integration/**/*.spec.{ts,tsx}'],
         },
       },
     ],
