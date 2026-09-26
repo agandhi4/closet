@@ -31,14 +31,16 @@ describe('migrations', () => {
     );
     expect(rows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
-        'user_shareable_id_index',
-        'file_shareable_id_index',
+        // Share links and the watermark route look rows up by these.
+        'file_shareable_id_unique',
+        'garment_shareable_id_unique',
+        'outfit_shareable_id_unique',
         'file_created_by_id_index',
-        'garment_shareable_id_index',
-        'garment_owner_id_index',
-        'garment_category_index',
+        // The wardrobe grid's keyset pages (also the owner_id foreign key)
+        // and its category filter, which the outfit builder shares.
+        'garment_owner_id_archived_id_index',
+        'garment_owner_id_category_id_index',
         'garment_photo_id_unique',
-        'outfit_shareable_id_index',
         'outfit_owner_id_index',
         // Also the index of outfit_slot.outfit_id.
         'outfit_slot_pkey',

@@ -42,8 +42,9 @@ export class Garment extends ShareableId {
   @Property({ nullable: true })
   public size?: string;
 
-  @Property({ type: Date, nullable: true })
-  public dateAquired?: Date;
+  // A 'YYYY-MM-DD' day (Postgres date), not an instant.
+  @Property({ type: 'string', columnType: 'date', nullable: true })
+  public acquiredOn?: string;
 
   @Property({ nullable: true })
   public notes?: string;

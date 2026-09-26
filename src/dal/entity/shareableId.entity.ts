@@ -1,4 +1,4 @@
-import { BeforeCreate, Index, Opt, Property } from '@mikro-orm/core';
+import { BeforeCreate, Opt, Property, Unique } from '@mikro-orm/core';
 import { randomUUID } from 'crypto';
 
 // Indexes live on the entities so migration:create emits them. Postgres does
@@ -9,7 +9,7 @@ export abstract class ShareableId {
   // NOT NULL in the schema; addId() fills it on insert, so it is optional
   // only when creating (Opt) and always present on a loaded row. The explicit
   // type: an intersection type reaches decorator metadata as Object.
-  @Index()
+  @Unique()
   @Property({ type: 'string' })
   shareableId!: Opt<string>;
 
@@ -18,11 +18,4 @@ export abstract class ShareableId {
   private addId() {
     this.shareableId = randomUUID();
   }
-
-  // Intended to be used to indicate that it's been reported
-  @Property({ nullable: true })
-  public flagged?: boolean;
-
-  @Property({ nullable: true })
-  public banned?: boolean;
 }

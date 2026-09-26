@@ -173,9 +173,7 @@ describe('garment edit, clone and archive', () => {
         notes: 'Tailored in May',
         archived: false,
       });
-      expect(garment.dateAquired?.toISOString().slice(0, 10)).toBe(
-        '2025-01-02',
-      );
+      expect(garment.acquiredOn).toBe('2025-01-02');
       expect(garment.owner.id).toBe(alice.id);
       // The fields-only form never touches the photo.
       expect(garment.photo).toBeDefined();
@@ -236,14 +234,13 @@ describe('garment edit, clone and archive', () => {
           alice.cookie,
         );
         expect(res.statusCode).toBe(400);
-        expect((await load(id)).dateAquired?.toISOString().slice(0, 10)).toBe(
-          FORM.dateAquired,
-        );
+        expect((await load(id)).acquiredOn).toBe(FORM.dateAquired);
       },
     );
 
-    // Known bug (docs/audits/2026-09-25-program2): notes longer than 255 characters return 500 (varchar(255)).
-    it.fails('keeps notes longer than 255 characters', async () => {
+    // Notes were varchar(255) until drizzle/0004_garment_web.sql: longer
+    // ones were a 500.
+    it('keeps notes longer than 255 characters', async () => {
       const id = await createFullGarment();
       const notes = 'Long care history. '.repeat(30);
       const res = await post(
@@ -338,9 +335,7 @@ describe('garment edit, clone and archive', () => {
       expect(res.statusCode).toBe(302);
       const clone = await load(idFromRedirect(res.headers.location));
       expect(clone.washingDetails).toBe(FORM.washingDetails);
-      expect(clone.dateAquired?.toISOString().slice(0, 10)).toBe(
-        FORM.dateAquired,
-      );
+      expect(clone.acquiredOn).toBe(FORM.dateAquired);
     });
 
     it('a user without a share cannot clone', async () => {

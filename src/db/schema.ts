@@ -12,6 +12,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
 
@@ -23,35 +24,26 @@ import {
  * gave it (`<table>_<column>_index`, `_unique`, `_foreign`); new ones should
  * follow the same pattern.
  *
- * The MikroORM entities in src/dal/entity/ describe the same tables for code
- * not yet ported to Drizzle. They no longer drive the schema: a change here
- * that touches a table an entity maps must be mirrored on the entity by hand.
- *
- * Columns hold what MikroORM wrote: varchar(255) strings, timestamptz dates,
- * and foreign keys that cascade on update and (except garment.photo_id) on
- * delete. Postgres does not index foreign keys on its own, so every FK column
- * has an explicit index (or leads a composite one). Calendar days are `date`
- * columns read as strings.
+ * Older columns hold what MikroORM wrote (varchar(255) where nothing longer
+ * fits, timestamptz instants); free text a person types is `text`, bounded
+ * by the route that writes it, not by the column. Foreign keys cascade on
+ * update and (except garment.photo_id and outfit_slot.garment_id) on delete.
+ * Postgres does not index foreign keys on its own, so every FK column has an
+ * explicit index (or leads a composite one). Calendar days (a planned day,
+ * an acquisition date) are `date` columns read as 'YYYY-MM-DD' strings.
  */
 
 export const user = pgTable(
   'user',
   {
     id: serial('id').primaryKey(),
-    // A random UUID for share links, set by the app on insert.
-    shareableId: varchar('shareable_id', { length: 255 }).notNull(),
-    flagged: boolean('flagged'),
-    banned: boolean('banned'),
     firstName: varchar('first_name', { length: 255 }),
     lastName: varchar('last_name', { length: 255 }),
     email: varchar('email', { length: 255 }),
     // bcrypt hash.
     password: varchar('password', { length: 255 }).notNull(),
   },
-  (table) => [
-    index('user_shareable_id_index').on(table.shareableId),
-    unique('user_email_unique').on(table.email),
-  ],
+  (table) => [unique('user_email_unique').on(table.email)],
 );
 
 // One row per browser push subscription (Web Push, src/web/push/). The
@@ -99,11 +91,10 @@ export const file = pgTable(
   'file',
   {
     id: serial('id').primaryKey(),
+    // A random UUID addressing the photo's share preview
+    // (/file/watermark/:shareableId), set by the app on insert.
     shareableId: varchar('shareable_id', { length: 255 }).notNull(),
-    flagged: boolean('flagged'),
-    banned: boolean('banned'),
     fileName: varchar('file_name', { length: 255 }).notNull(),
-    mimetype: varchar('mimetype', { length: 255 }),
     // An ISO timestamp as text, as MikroORM wrote it.
     createdOn: varchar('created_on', { length: 255 }).notNull(),
     createdById: integer('created_by_id').notNull(),
@@ -113,7 +104,7 @@ export const file = pgTable(
   },
   (table) => [
     index('file_created_by_id_index').on(table.createdById),
-    index('file_shareable_id_index').on(table.shareableId),
+    uniqueIndex('file_shareable_id_unique').on(table.shareableId),
     foreignKey({
       name: 'file_created_by_id_foreign',
       columns: [table.createdById],
@@ -129,28 +120,43 @@ export const garment = pgTable(
   'garment',
   {
     id: serial('id').primaryKey(),
+    // A random UUID for share links (/share?shareableId=), set on insert.
     shareableId: varchar('shareable_id', { length: 255 }).notNull(),
-    flagged: boolean('flagged'),
-    banned: boolean('banned'),
-    name: varchar('name', { length: 255 }),
-    category: varchar('category', { length: 255 }).notNull(),
-    brand: varchar('brand', { length: 255 }),
-    size: varchar('size', { length: 255 }),
-    notes: varchar('notes', { length: 255 }),
+    // Free text, trimmed, null when blank (src/web/wardrobe/validation.ts).
+    name: text('name'),
+    // Trimmed and lower case: the filter value and the outfit builder's key.
+    category: text('category').notNull(),
+    brand: text('brand'),
+    size: text('size'),
+    notes: text('notes'),
     photoId: integer('photo_id'),
     ownerId: integer('owner_id').notNull(),
-    // Comma-joined GarmentColor values ("red,blue").
-    color: varchar('color', { length: 255 }),
-    // Misspelled in the database; the TS name keeps the column's spelling so
-    // it can be found by grepping for either.
-    dateAquired: timestamp('date_aquired', { withTimezone: true }),
+    // Comma-joined GarmentColor values ("red,blue"), only ever enum names
+    // (the garment form validates them); null for none.
+    color: text('color'),
+    // The day the garment was acquired, not an instant (was date_aquired
+    // timestamptz at UTC midnight until drizzle/0004_garment_web.sql).
+    acquiredOn: date('acquired_on', { mode: 'string' }),
     washingDetails: text('washing_details'),
     archived: boolean('archived').default(false).notNull(),
   },
   (table) => [
-    index('garment_category_index').on(table.category),
-    index('garment_owner_id_index').on(table.ownerId),
-    index('garment_shareable_id_index').on(table.shareableId),
+    // The wardrobe grid's keyset pages: owner_id = ? AND archived = false
+    // [AND id < cursor] ORDER BY id DESC LIMIT n, read in index order. Also
+    // the index of the owner_id foreign key.
+    index('garment_owner_id_archived_id_index').on(
+      table.ownerId,
+      table.archived,
+      table.id.desc(),
+    ),
+    // The grid's category filter and the outfit builder's category cycles
+    // (owner, category, newest first; archived is a filter on top).
+    index('garment_owner_id_category_id_index').on(
+      table.ownerId,
+      table.category,
+      table.id.desc(),
+    ),
+    uniqueIndex('garment_shareable_id_unique').on(table.shareableId),
     foreignKey({
       name: 'garment_photo_id_foreign',
       columns: [table.photoId],
@@ -174,16 +180,15 @@ export const outfit = pgTable(
   'outfit',
   {
     id: serial('id').primaryKey(),
+    // A random UUID for share links (/share?shareableId=), set on insert.
     shareableId: varchar('shareable_id', { length: 255 }).notNull(),
-    flagged: boolean('flagged'),
-    banned: boolean('banned'),
     name: varchar('name', { length: 255 }),
     notes: varchar('notes', { length: 255 }),
     ownerId: integer('owner_id').notNull(),
   },
   (table) => [
     index('outfit_owner_id_index').on(table.ownerId),
-    index('outfit_shareable_id_index').on(table.shareableId),
+    uniqueIndex('outfit_shareable_id_unique').on(table.shareableId),
     foreignKey({
       name: 'outfit_owner_id_foreign',
       columns: [table.ownerId],

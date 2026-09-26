@@ -20,9 +20,6 @@ export class File extends ShareableId {
   @Property()
   public fileName!: string;
 
-  @Property({ nullable: true })
-  public mimetype?: string;
-
   @Property()
   public createdOn!: string;
 
