@@ -39,26 +39,22 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['src/**/*.spec.{ts,tsx}'],
-          exclude: [
-            'src/wardrobe/calendar-dates.spec.ts',
-            'src/web/calendar/**/*.spec.{ts,tsx}',
-          ],
+          exclude: ['src/web/calendar/**/*.spec.{ts,tsx}'],
         },
       },
       {
         // The calendar's date logic in a DST zone: UTC (CI's zone) hides
-        // every local-time mistake. `env` is applied to the worker's real
-        // process.env before the spec is imported, and assigning TZ there
-        // makes V8 reload its zone. That holds for child processes only, so
-        // the pool is pinned to forks (worker threads share the parent's
-        // zone). The spec asserts the offset in its first test.
+        // every local-time mistake, and the calendar must not depend on the
+        // process's zone at all (APP_TIMEZONE decides "today"). `env` is
+        // applied to the worker's real process.env before the spec is
+        // imported, and assigning TZ there makes V8 reload its zone. That
+        // holds for child processes only, so the pool is pinned to forks
+        // (worker threads share the parent's zone). Each spec asserts the
+        // offset in its first test.
         extends: true,
         test: {
           name: 'unit-new-york',
-          include: [
-            'src/wardrobe/calendar-dates.spec.ts',
-            'src/web/calendar/**/*.spec.{ts,tsx}',
-          ],
+          include: ['src/web/calendar/**/*.spec.{ts,tsx}'],
           env: { TZ: 'America/New_York' },
           pool: 'forks',
         },

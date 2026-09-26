@@ -5,19 +5,29 @@ import {
   PrimaryKey,
   Property,
   type Ref,
+  Unique,
 } from '@mikro-orm/core';
 import { Outfit } from './outfit.entity';
 import { User } from './user.entity';
 
+/**
+ * Mirror of outfit_calendar in src/db/schema.ts, which owns the table. The
+ * calendar itself is ported (src/web/calendar/, Drizzle); this entity remains
+ * for OutfitService.schedule, the outfit form's scheduling, until the outfits
+ * port.
+ */
 @Entity()
+@Unique({
+  name: 'outfit_calendar_owner_id_day_outfit_id_unique',
+  properties: ['owner', 'day', 'outfit'],
+})
 export class OutfitCalendar {
   @PrimaryKey()
   public id!: number;
 
-  /** The calendar date this outfit is planned for; findWeek ranges over it. */
-  @Index()
-  @Property()
-  public date!: Date;
+  /** The planned day, 'YYYY-MM-DD' (a Postgres date; MikroORM reads it as a string). */
+  @Property({ type: 'date' })
+  public day!: string;
 
   @Index()
   @ManyToOne({
@@ -27,7 +37,6 @@ export class OutfitCalendar {
   })
   public outfit!: Ref<Outfit>;
 
-  @Index()
   @ManyToOne({
     entity: () => User,
     deleteRule: 'cascade',
@@ -35,13 +44,7 @@ export class OutfitCalendar {
   })
   public owner!: Ref<User>;
 
-  /**
-   * Null until the user marks this entry as worn.
-   * Set to the actual wear date (may differ from `date` if rescheduled).
-   */
+  /** Null until the user marks this entry as worn. */
   @Property({ nullable: true })
   public wornAt?: Date;
-
-  @Property({ nullable: true })
-  public notes?: string;
 }

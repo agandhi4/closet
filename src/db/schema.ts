@@ -1,6 +1,7 @@
 import { relations } from 'drizzle-orm';
 import {
   boolean,
+  date,
   foreignKey,
   index,
   integer,
@@ -31,7 +32,8 @@ import type { OutfitSlot } from '../dal/entity/outfit.entity';
  * Columns hold what MikroORM wrote: varchar(255) strings, timestamptz dates,
  * and foreign keys that cascade on update and (except garment.photo_id) on
  * delete. Postgres does not index foreign keys on its own, so every FK column
- * has an explicit index.
+ * has an explicit index (or leads a composite one). Calendar days are `date`
+ * columns read as strings.
  */
 
 export const user = pgTable(
@@ -213,22 +215,31 @@ export const outfitGarment = pgTable(
   ],
 );
 
+// An outfit planned for a day. One row per (owner, day, outfit): scheduling
+// is idempotent (POST /calendar and the outfit form insert ... on conflict do
+// nothing).
 export const outfitCalendar = pgTable(
   'outfit_calendar',
   {
     id: serial('id').primaryKey(),
-    // The day the outfit is planned for, stored as an instant.
-    date: timestamp('date', { withTimezone: true }).notNull(),
+    // A calendar day, not an instant: 'YYYY-MM-DD' end to end
+    // (src/web/calendar/calendar-date.ts). Was `date timestamptz` at UTC
+    // midnight until drizzle/0001_calendar_day.sql.
+    day: date('day', { mode: 'string' }).notNull(),
     outfitId: integer('outfit_id').notNull(),
     ownerId: integer('owner_id').notNull(),
     // Null until the entry is marked worn.
     wornAt: timestamp('worn_at', { withTimezone: true }),
-    notes: varchar('notes', { length: 255 }),
   },
   (table) => [
-    index('outfit_calendar_date_index').on(table.date),
+    // Leads with owner_id and day, so it is also the index of the week and
+    // month range queries and of the owner_id foreign key.
+    unique('outfit_calendar_owner_id_day_outfit_id_unique').on(
+      table.ownerId,
+      table.day,
+      table.outfitId,
+    ),
     index('outfit_calendar_outfit_id_index').on(table.outfitId),
-    index('outfit_calendar_owner_id_index').on(table.ownerId),
     foreignKey({
       name: 'outfit_calendar_outfit_id_foreign',
       columns: [table.outfitId],

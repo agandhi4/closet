@@ -1,4 +1,5 @@
 import { EntityRepository, wrap } from '@mikro-orm/core';
+import { EntityManager } from '@mikro-orm/knex';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import {
   ForbiddenException,
@@ -8,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { I18nContext } from 'nestjs-i18n';
 import { Garment } from '../dal/entity/garment.entity';
+import { OutfitCalendar } from '../dal/entity/outfit-calendar.entity';
 import { Outfit, OutfitSlot } from '../dal/entity/outfit.entity';
 import { GarmentCategory } from './garment-category.enum';
 import { GarmentService } from './garment.service';
@@ -24,6 +26,7 @@ export class OutfitService {
     @InjectRepository(Garment)
     private readonly garmentRepository: EntityRepository<Garment>,
     private readonly garmentService: GarmentService,
+    private readonly em: EntityManager,
   ) {}
 
   async findAll(userId: number): Promise<Outfit[]> {
@@ -112,6 +115,28 @@ export class OutfitService {
     await this.outfitRepository.getEntityManager().flush();
     this.logger.log(`Outfit ${id} updated by user ${userId}`);
     return outfit;
+  }
+
+  /**
+   * The outfit form's "Add to calendar", for an outfit the caller owns
+   * (create just made it, update checked it). Idempotent like POST /calendar
+   * (src/web/calendar/queries.ts): saving the form again with the same day
+   * hits the unique (owner, day, outfit) constraint and inserts nothing.
+   * MikroORM until the outfits port moves this into src/web/, where it
+   * belongs in the same transaction as the outfit save.
+   */
+  async schedule(outfitId: number, day: string, userId: number): Promise<void> {
+    const inserted = await this.em
+      .createQueryBuilder(OutfitCalendar)
+      .insert({ day, outfit: outfitId, owner: userId })
+      .onConflict(['owner', 'day', 'outfit'])
+      .ignore()
+      .execute('run');
+    this.logger.log(
+      inserted.affectedRows
+        ? `Outfit ${outfitId} scheduled on ${day} by user ${userId}`
+        : `Outfit ${outfitId} already scheduled on ${day} for user ${userId}`,
+    );
   }
 
   async remove(id: number, userId: number): Promise<void> {

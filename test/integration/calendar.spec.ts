@@ -1,8 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { OutfitCalendar } from '../../src/dal/entity/outfit-calendar.entity';
-import { Outfit } from '../../src/dal/entity/outfit.entity';
+import { count, desc, eq, sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { outfit as outfitTable, outfitCalendar } from '../../src/db/schema';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, extractImgSrcs, hasText, TestApp } from './harness';
+import {
+  createTestApp,
+  extractImgSrcs,
+  hasText,
+  TestApp,
+  unescapeHtml,
+} from './harness';
+import { expectFullPage } from './pages';
 
 /**
  * The calendar page and its writes: the week view renders seven day columns
@@ -10,8 +17,8 @@ import { createTestApp, extractImgSrcs, hasText, TestApp } from './harness';
  * deleting and marking entries worn change exactly the rows they should.
  *
  * Weeks are in 2030 so the real "today" highlight can never land in them;
- * "today" and the default week are pinned down with a fake clock in
- * src/wardrobe/calendar-dates.spec.ts instead.
+ * "today" and the default week are pinned down with a fake clock below and
+ * in src/web/calendar/calendar-view.spec.ts. Rows are read through Drizzle.
  */
 
 const WEEK = ['06', '07', '08', '09', '10', '11', '12'].map(
@@ -79,16 +86,35 @@ describe('calendar', () => {
       },
     });
     expect(res.statusCode).toBe(204);
-    const entries = await t
-      .em()
-      .find(OutfitCalendar, { outfit: outfitId }, { orderBy: { id: -1 } });
-    return entries[0].id;
+    const [entry] = await t.db
+      .select({ id: outfitCalendar.id })
+      .from(outfitCalendar)
+      .where(eq(outfitCalendar.outfitId, outfitId))
+      .orderBy(desc(outfitCalendar.id))
+      .limit(1);
+    return entry.id;
   };
 
+  const entriesOf = (outfitId: number) =>
+    t.db
+      .select()
+      .from(outfitCalendar)
+      .where(eq(outfitCalendar.outfitId, outfitId))
+      .orderBy(outfitCalendar.id);
+
+  const entryById = async (id: number) =>
+    (
+      await t.db.select().from(outfitCalendar).where(eq(outfitCalendar.id, id))
+    ).at(0);
+
+  const entryCount = async () =>
+    (await t.db.select({ n: count() }).from(outfitCalendar))[0].n;
+
+  // JSX escapes '&' in attribute values; match URLs as the browser reads them.
   const weekPage = async (url = WEEK_URL) => {
     const res = await t.inject({ method: 'GET', url });
     expect(res.statusCode).toBe(200);
-    return res.body;
+    return unescapeHtml(res.body);
   };
 
   beforeAll(async () => {
@@ -168,6 +194,55 @@ describe('calendar', () => {
       );
     });
 
+    it('a malformed ?week= or ?calMonth= falls back to the current week and its month', async () => {
+      const current = [...dayColumns(await weekPage('/calendar')).keys()];
+      for (const query of [
+        'week=2030-02-30',
+        'week=2030-10-09T00:00:00Z',
+        'calMonth=garbage',
+        'calMonth=2030-13',
+        'week=garbage&calMonth=2030-00',
+      ]) {
+        const html = await weekPage(`/calendar?${query}`);
+        expect({ query, days: [...dayColumns(html).keys()] }).toEqual({
+          query,
+          days: current,
+        });
+      }
+      // calMonth alone moves only the mini month.
+      const html = await weekPage(`${WEEK_URL}&calMonth=garbage`);
+      expect(html).toMatch(/>\s*Oct 2030\s*</);
+    });
+
+    describe('today in APP_TIMEZONE (default America/New_York)', () => {
+      // Only Date is faked: timers, the database driver and the session
+      // (whose JWT has no not-before) keep working.
+      const at = async (instant: string) => {
+        vi.useFakeTimers({ toFake: ['Date'], now: new Date(instant) });
+        try {
+          return await weekPage('/calendar');
+        } finally {
+          vi.useRealTimers();
+        }
+      };
+
+      it("at 21:30 on a Friday in New York, today is New York's Friday, not UTC's Saturday", async () => {
+        const html = await at('2026-09-25T21:30:00-04:00');
+        const columns = dayColumns(html);
+        expect([...columns.keys()][0]).toBe('2026-09-20');
+        expect(columns.get('2026-09-25')).toMatch(
+          /text-base font-bold text-primary">\s*25\s*</,
+        );
+        expect(columns.get('2026-09-26')).not.toContain('text-primary');
+        expect(html).toMatch(/cal-today">\s*25\s*</);
+      });
+
+      it('on Saturday evening the default week is still this week', async () => {
+        const html = await at('2026-09-26T21:00:00-04:00');
+        expect([...dayColumns(html).keys()][0]).toBe('2026-09-20');
+      });
+    });
+
     it('renders each entry under its own day and nowhere else', async () => {
       const brunch = await createOutfit('Brunch look');
       const untitled = await createOutfit('');
@@ -210,11 +285,7 @@ describe('calendar', () => {
       await schedule(outfit, '2030-10-10');
 
       const thursday = dayColumns(await weekPage()).get('2030-10-10')!;
-      // The service builds the URL and `{{this}}` escapes its '=' as &#x3D;,
-      // which the browser decodes back.
-      const thumbs = extractImgSrcs(thursday).map((src) =>
-        src.replaceAll('&#x3D;', '='),
-      );
+      const thumbs = extractImgSrcs(thursday);
       expect(thumbs).toHaveLength(1);
       expect(thumbs[0]).toMatch(/^\/file\/thumb\/[0-9a-f-]{36}\.webp\?v=1$/);
       expect(hasText(thursday, 'Pictured')).toBe(false);
@@ -222,7 +293,7 @@ describe('calendar', () => {
   });
 
   describe('POST /calendar', () => {
-    it('creates an entry at UTC midnight of the date and redirects to its week', async () => {
+    it('creates an entry on that day and redirects to its week', async () => {
       const outfit = await createOutfit('Redirected');
       const res = await t.inject({
         method: 'POST',
@@ -232,10 +303,10 @@ describe('calendar', () => {
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe('/calendar?week=2030-10-09');
 
-      const [entry] = await t.em().find(OutfitCalendar, { outfit });
-      expect(entry.date.toISOString()).toBe('2030-10-09T00:00:00.000Z');
-      expect(entry.wornAt).toBeFalsy();
-      expect(entry.owner.id).toBe(t.owner.id);
+      const [entry] = await entriesOf(outfit);
+      expect(entry.day).toBe('2030-10-09');
+      expect(entry.wornAt).toBeNull();
+      expect(entry.ownerId).toBe(t.owner.id);
     });
 
     it('redirects to the posted week when there is one', async () => {
@@ -253,41 +324,86 @@ describe('calendar', () => {
     });
 
     it('404s an unknown outfit and writes nothing', async () => {
-      const before = await t.em().count(OutfitCalendar);
+      const before = await entryCount();
       const res = await t.inject({
         method: 'POST',
         url: '/calendar',
         ...form({ outfitId: '999999', date: '2030-10-09' }),
       });
       expect(res.statusCode).toBe(404);
-      expect(await t.em().count(OutfitCalendar)).toBe(before);
+      expect(await entryCount()).toBe(before);
     });
 
-    // Known bug (docs/audits/2026-09-25-program2): a malformed date reaches the database as an Invalid Date and 500s (audit2-datamodel, validation table).
-    it.fails(
-      'rejects a malformed date with a 400 and writes nothing',
-      async () => {
-        const outfit = await createOutfit('Bad date');
+    it('rejects a malformed date with a 400 and writes nothing', async () => {
+      const outfit = await createOutfit('Bad date');
+      const res = await t.inject({
+        method: 'POST',
+        url: '/calendar',
+        ...form({ outfitId: String(outfit), date: 'garbage' }),
+      });
+      expect(res.statusCode).toBe(400);
+      expect(await entriesOf(outfit)).toHaveLength(0);
+    });
+
+    it('answers every malformed field with the 400 error page and writes nothing', async () => {
+      const outfit = await createOutfit('Malformed fields');
+      const before = await entryCount();
+      const malformed: Record<string, string>[] = [
+        { outfitId: String(outfit), date: '2030-02-30' },
+        { outfitId: String(outfit), date: '2030-10-09T00:00:00Z' },
+        { outfitId: String(outfit) },
+        { outfitId: 'abc', date: '2030-10-09' },
+        { outfitId: '99999999999', date: '2030-10-09' },
+        { outfitId: String(outfit), date: '2030-10-09', week: 'garbage' },
+      ];
+      for (const fields of malformed) {
         const res = await t.inject({
           method: 'POST',
           url: '/calendar',
-          ...form({ outfitId: String(outfit), date: 'garbage' }),
+          ...form(fields),
         });
-        expect(res.statusCode).toBe(400);
-        expect(await t.em().count(OutfitCalendar, { outfit })).toBe(0);
-      },
-    );
+        expect({ fields, status: res.statusCode }).toEqual({
+          fields,
+          status: 400,
+        });
+        expectFullPage(res);
+      }
+      expect(await entryCount()).toBe(before);
+    });
 
-    // Known bug (docs/audits/2026-09-25-program2): calendar days are stored as timestamps, not dates.
-    it.fails('stores the calendar day as a date column', async () => {
-      const [column] = await t
-        .em()
-        .getConnection()
-        .execute<{ data_type: string }[]>(
-          `select data_type from information_schema.columns
-            where table_name = 'outfit_calendar' and column_name = 'date'`,
-        );
-      expect(column.data_type).toBe('date');
+    it('is idempotent: scheduling the same outfit on the same day twice answers the same and keeps one entry', async () => {
+      const outfit = await createOutfit('Scheduled twice');
+      for (const htmx of [true, false]) {
+        for (let i = 0; i < 2; i++) {
+          const res = await t.inject({
+            method: 'POST',
+            url: '/calendar',
+            ...form({ outfitId: String(outfit), date: '2030-10-10' }),
+            headers: {
+              ...form({}).headers,
+              ...(htmx ? { 'hx-request': 'true' } : {}),
+            },
+          });
+          expect(res.statusCode).toBe(htmx ? 204 : 302);
+          if (!htmx) {
+            expect(res.headers.location).toBe('/calendar?week=2030-10-10');
+          }
+        }
+      }
+      expect((await entriesOf(outfit)).map((entry) => entry.day)).toEqual([
+        '2030-10-10',
+      ]);
+      // Another day is another entry.
+      await schedule(outfit, '2030-10-11');
+      expect(await entriesOf(outfit)).toHaveLength(2);
+    });
+
+    it('stores the calendar day as a date column', async () => {
+      const { rows } = await t.db.execute<{ data_type: string }>(
+        sql`select data_type from information_schema.columns
+             where table_name = 'outfit_calendar' and column_name = 'day'`,
+      );
+      expect(rows[0].data_type).toBe('date');
     });
   });
 
@@ -306,9 +422,11 @@ describe('calendar', () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers['hx-redirect']).toBe('/calendar?week=2030-10-11');
 
-      expect(await t.em().findOne(OutfitCalendar, drop)).toBeNull();
-      expect(await t.em().findOne(OutfitCalendar, keep)).not.toBeNull();
-      expect(await t.em().findOne(Outfit, outfit)).not.toBeNull();
+      expect(await entryById(drop)).toBeUndefined();
+      expect(await entryById(keep)).toBeDefined();
+      expect(
+        await t.db.select().from(outfitTable).where(eq(outfitTable.id, outfit)),
+      ).toHaveLength(1);
 
       const columns = dayColumns(await weekPage());
       expect(columns.get('2030-10-11')).not.toContain(`/calendar/${drop}/`);
@@ -322,6 +440,33 @@ describe('calendar', () => {
         ...form({ week: '2030-10-06' }),
       });
       expect(res.statusCode).toBe(404);
+    });
+
+    it('without a body still deletes and sends the page to the current week', async () => {
+      const outfit = await createOutfit('Bodiless delete');
+      const entry = await schedule(outfit, '2030-10-08');
+      const res = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/delete`,
+        headers: { 'hx-request': 'true' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['hx-redirect']).toBe('/calendar');
+      expect(await entryById(entry)).toBeUndefined();
+    });
+
+    it('rejects a malformed week or id with a 400 and deletes nothing', async () => {
+      const outfit = await createOutfit('Malformed delete');
+      const entry = await schedule(outfit, '2030-10-08');
+      for (const [url, fields] of [
+        [`/calendar/${entry}/delete`, { week: 'garbage' }],
+        ['/calendar/abc/delete', { week: '2030-10-08' }],
+        ['/calendar/0/delete', { week: '2030-10-08' }],
+      ] as const) {
+        const res = await t.inject({ method: 'POST', url, ...form(fields) });
+        expect({ url, status: res.statusCode }).toEqual({ url, status: 400 });
+      }
+      expect(await entryById(entry)).toBeDefined();
     });
   });
 
@@ -337,8 +482,7 @@ describe('calendar', () => {
         },
       });
 
-    const wornAt = async (id: number) =>
-      (await t.em().findOneOrFail(OutfitCalendar, id)).wornAt ?? null;
+    const wornAt = async (id: number) => (await entryById(id))!.wornAt;
 
     it('toggles worn on and off, answering htmx with the swapped button', async () => {
       const outfit = await createOutfit('Worn toggle');
@@ -378,6 +522,29 @@ describe('calendar', () => {
 
     it('404s an unknown entry', async () => {
       expect((await toggle(999_999, true)).statusCode).toBe(404);
+    });
+
+    it('without a body toggles, and redirects a plain post to the current week', async () => {
+      const outfit = await createOutfit('Bodiless worn');
+      const entry = await schedule(outfit, '2030-10-09');
+
+      const htmx = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/worn`,
+        headers: { 'hx-request': 'true' },
+      });
+      expect(htmx.statusCode).toBe(200);
+      expect(htmx.body).toContain(`hx-post="/calendar/${entry}/worn"`);
+      expect(htmx.body).not.toContain('name="week"');
+      expect(await wornAt(entry)).toBeInstanceOf(Date);
+
+      const plain = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/worn`,
+      });
+      expect(plain.statusCode).toBe(303);
+      expect(plain.headers.location).toBe('/calendar');
+      expect(await wornAt(entry)).toBeNull();
     });
   });
 });

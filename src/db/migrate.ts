@@ -1,3 +1,4 @@
+import { DrizzleQueryError } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -46,6 +47,24 @@ const DRIZZLE_TABLE_REF = `"${DRIZZLE_SCHEMA}"."${DRIZZLE_TABLE}"`;
 // migrate the same one.
 export const MIGRATION_LOCK_KEY = 'closet:migrations';
 
+/**
+ * A migration statement failed; the batch rolled back. The message is the
+ * database's reason (a guard's RAISE EXCEPTION, a violated constraint), which
+ * drizzle keeps only as the cause of an error whose own message is the whole
+ * failed statement.
+ */
+export class MigrationFailedError extends Error {
+  constructor(cause: Error) {
+    super(
+      `A Drizzle migration failed and nothing was applied: ${cause.message}`,
+      {
+        cause,
+      },
+    );
+    this.name = 'MigrationFailedError';
+  }
+}
+
 export class LegacyMigrationsIncompleteError extends Error {
   constructor() {
     super(
@@ -72,7 +91,14 @@ export async function runMigrations(
       await recordBaseline(client, logger);
     }
     const before = await appliedCount(client);
-    await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
+    try {
+      await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
+    } catch (error) {
+      if (error instanceof DrizzleQueryError && error.cause instanceof Error) {
+        throw new MigrationFailedError(error.cause);
+      }
+      throw error;
+    }
     const applied = (await appliedCount(client)) - before;
     logger.info(
       applied === 0

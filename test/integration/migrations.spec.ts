@@ -42,9 +42,9 @@ describe('migrations', () => {
         'outfit_owner_id_index',
         'outfit_garments_outfit_id_index',
         'outfit_garments_garment_id_index',
-        'outfit_calendar_date_index',
+        // Also the (owner_id, day) index of the calendar's week queries.
+        'outfit_calendar_owner_id_day_outfit_id_unique',
         'outfit_calendar_outfit_id_index',
-        'outfit_calendar_owner_id_index',
         'user_device_user_id_index',
         'wardrobe_share_grantor_id_index',
         'wardrobe_share_grantee_id_index',

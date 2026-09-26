@@ -232,6 +232,20 @@ export function extractImgSrcs(html: string): string[] {
     .filter((src): src is string => src !== undefined);
 }
 
+/**
+ * Undoes the escaping JSX views apply to text and attribute values (the set
+ * src/web/html.ts escapeHtml writes), so a spec can match an attribute such
+ * as `href="/calendar?week=...&calMonth=..."` as the browser reads it.
+ */
+export function unescapeHtml(html: string): string {
+  return html
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+    .replaceAll('&amp;', '&');
+}
+
 export function hasText(html: string, text: string): boolean {
   return html.includes(text);
 }

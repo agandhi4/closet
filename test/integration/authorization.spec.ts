@@ -24,9 +24,10 @@ import { createTestApp, multipart, TestApp } from './harness';
  * stored file. Sharing covers garments only: outfits and calendar entries
  * stay private to their owner whatever the share.
  *
- * Refusals are 403 (GarmentService/OutfitService.findOne,
- * CalendarService.findOneOwned: the row exists but is not in the addressed
- * wardrobe), except POST /calendar, whose owner-scoped outfit lookup is a 404.
+ * Refusals are 403 (GarmentService/OutfitService.findOne, the calendar's
+ * owner-scoped writes in src/web/calendar/queries.ts: the row exists but is
+ * not in the addressed wardrobe), except POST /calendar, whose owner-scoped
+ * outfit lookup is a 404.
  */
 
 type SignedIn = 'owner' | 'manager' | 'viewer' | 'stranger';
@@ -428,10 +429,12 @@ const ROUTES: Route[] = [
     ok: 302,
     secret: outfitName,
     vias: BOTH,
+    // Not today(): the fixture already planned the outfit today, and
+    // scheduling is idempotent, so the same day would change no row.
     request: (f, q) => ({
       method: 'POST',
       url: `/calendar${q}`,
-      payload: { date: today(), outfitId: String(f.outfitId) },
+      payload: { date: '2030-10-09', outfitId: String(f.outfitId) },
     }),
     expect: {
       owner: 'ok',

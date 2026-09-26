@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { Db } from '../db/client';
 import { isStaticPath } from '../static-prefixes';
 import { createSessionHook } from './auth';
+import { calendarRoutes } from './calendar/routes';
 import { createErrorHandler } from './errors';
 import type { WebLogger } from './logger';
 import { shellRoutes } from './shell/routes';
@@ -60,4 +61,5 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   });
 
   await app.register(shellRoutes, options);
+  await app.register(calendarRoutes, options);
 };

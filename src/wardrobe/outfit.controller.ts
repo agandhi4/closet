@@ -17,7 +17,6 @@ import { I18n, I18nContext } from 'nestjs-i18n';
 import { UserId } from '../auth/user.decorator';
 import { OutfitService } from './outfit.service';
 import { GarmentService } from './garment.service';
-import { CalendarService } from './calendar.service';
 
 @Controller('outfits')
 export class OutfitController {
@@ -26,7 +25,6 @@ export class OutfitController {
   constructor(
     private readonly outfitService: OutfitService,
     private readonly garmentService: GarmentService,
-    private readonly calendarService: CalendarService,
   ) {}
 
   @Get()
@@ -84,10 +82,7 @@ export class OutfitController {
       userId,
     );
     if (body.scheduleDate) {
-      await this.calendarService.create(
-        { date: new Date(body.scheduleDate), outfitId: outfit.id },
-        userId,
-      );
+      await this.outfitService.schedule(outfit.id, body.scheduleDate, userId);
     }
     if (body.returnTo === '/calendar') {
       const week = body.returnToWeek ?? body.scheduleDate;
@@ -179,10 +174,7 @@ export class OutfitController {
       userId,
     );
     if (body.scheduleDate) {
-      await this.calendarService.create(
-        { date: new Date(body.scheduleDate), outfitId: id },
-        userId,
-      );
+      await this.outfitService.schedule(id, body.scheduleDate, userId);
     }
     if (body.returnTo === '/calendar') {
       const week = body.returnToWeek ?? body.scheduleDate;
