@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `npm run user:set-password -- <email>`: sets a locked-out user's password from the server (read without echo, or from piped stdin), with the registration rules, signing out every session of that account
 - `APP_TIMEZONE` (IANA name, default `America/New_York`): the household's time zone, which decides what "today" is on the calendar and which week opens by default
 - HEIC/HEIF uploads: decoded server-side with heic-convert (capped by `MAX_HEIC_BYTES`), accepted by the photo inputs; browsers that cannot decode HEIC skip the client-side cutout and upload the original
+- Notifications on the profile page (with `PWA_ENABLED`): "Enable notifications on this device" asks for permission only on that tap, the page shows this device's state (on, off, blocked, unsupported, or "add to Home Screen first" in iOS Safari), and "Send a test notification" sends to all of the user's devices and says how many it reached. Signing out drops the device's subscription. Nothing sends notifications on its own yet
 
 #### Fixed
 
@@ -47,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Choosing a photo the browser cannot decode no longer leaves the upload button disabled
 - A missing cutout no longer logs a warning on every garment delete
 - Nest logger output is flushed once the pino logger is installed, so an app that is only initialised (the integration harness) no longer buffers every log line forever
+- Web Push never worked: the page looked for the httpOnly session cookie before subscribing, so it never did; the service worker read a payload shape the server did not send; re-subscribing with renewed keys, or the same browser under another account, was a 500 (unique endpoint); endpoints over 255 characters (Firefox) failed; a device its push service reported gone was never removed. Subscriptions are now stored by endpoint (upserted), gone devices (404/410) are removed on the next send, and a malformed subscription is a 400
 
 #### Performance
 
@@ -74,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Changed
 
+- Web Push is served by the plain-Fastify web layer at `/push/*` (`vapid-public-key`, `subscribe`, `unsubscribe`, `test`) instead of `/notification/*`, only when `PWA_ENABLED`. `user_device` keeps the subscription keys as columns (`key_p256dh`, `key_auth`), the endpoint and user agent as text, and gains `created_at`/`updated_at`; the migration deletes rows without usable keys (the browser sends its subscription again). The VAPID keys and `SITE_URL` (the https contact) are checked at boot
 - Outfits (`/outfits`, the builder, its row fragment and the writes) are served by the plain-Fastify web layer with Drizzle queries and typed JSX views; URLs, form fields and htmx targets are unchanged. The list is newest first
 - What an outfit wears is one `outfit_slot` table (position, category, optional garment; deleting a garment empties its slot) instead of the `outfit.slots` JSON and the `outfit_garments` pivot, which disagreed. The migration copies the JSON rows in order, keeping a garment only if it still exists and belongs to the outfit's owner, builds slots from the pivot for outfits that had none, and refuses to run if any outfit's garments differ between the two stores
 - The calendar (`/calendar` and its writes) is served by the plain-Fastify web layer with Drizzle queries and typed JSX views; URLs, form fields, htmx targets and responses are unchanged. Web-layer input is validated by Fastify's JSON schemas (TypeBox)
@@ -100,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AUTH_ENABLED` and the anonymous mode it switched on (owner-less garments, outfits and calendar entries visible to every visitor). A leftover `AUTH_ENABLED` in the environment is ignored
 - SQLite support: `DATABASE_TYPE`, the `@mikro-orm/better-sqlite` driver, the SQLite migration tree and its CLI config. Postgres (13+) is required; `DATABASE_HOST`, `DATABASE_SCHEMA`, `DATABASE_USER` and `DATABASE_PASS` no longer have defaults. Tests and the load test run on scratch Postgres databases (`TEST_DATABASE_URL`, default pgvault-dev on `localhost:5432`)
 - The boilerplate SSE chat demo (`/chat`, `/sse`, `/message`) and the `htmx-ext-sse` dependency
+- The Nest notification module (`/notification/*`), its `UserDevice` entity, and the `lodash` dependency it alone used
 - The generic file gallery (`/file/files`, `/file/upload`); `/file/*` now only serves image variants
 
 ## 0.5.1 - 2026-09-10
