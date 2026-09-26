@@ -257,6 +257,9 @@ export const outfitCalendar = pgTable(
   ],
 );
 
+/** What a wardrobe share lets the grantee do: read, or read and write. */
+export type SharePermission = 'VIEW' | 'MANAGE';
+
 // A grantor's wardrobe shared with a grantee. A pending invite has an
 // invite_token and no grantee yet.
 export const wardrobeShare = pgTable(
@@ -265,8 +268,10 @@ export const wardrobeShare = pgTable(
     id: serial('id').primaryKey(),
     grantorId: integer('grantor_id').notNull(),
     granteeId: integer('grantee_id'),
-    // A SharePermission value ('VIEW' | 'MANAGE').
+    // Typed in TypeScript only ($type): the column is plain varchar, and
+    // every write goes through a validated SharePermission.
     permission: varchar('permission', { length: 255 })
+      .$type<SharePermission>()
       .default('VIEW')
       .notNull(),
     inviteToken: varchar('invite_token', { length: 255 }),

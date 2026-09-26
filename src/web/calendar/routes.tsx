@@ -10,7 +10,6 @@ import { CalendarPage } from './calendar-page';
 import { buildCalendarView, weekOf } from './calendar-view';
 import {
   deleteEntry,
-  type EntryMiss,
   findEntries,
   scheduleOutfit,
   toggleWorn,
@@ -44,12 +43,10 @@ const WeekBody = Type.Union([
   Type.Null(),
 ]);
 
-// 404 for no such entry, 403 for someone else's, as the Nest controller
-// answered (test/integration/authorization.spec.ts).
-function entryMiss(miss: EntryMiss): HttpError {
-  return miss === 'not-found'
-    ? new HttpError(404, 'Calendar entry not found')
-    : new HttpError(403);
+// Someone else's entry is not found, like a missing one: ids reveal nothing
+// (test/integration/authorization.spec.ts).
+function entryNotFound(): HttpError {
+  return new HttpError(404, 'Calendar entry not found');
 }
 
 function weekUrl(week: string | undefined): string {
@@ -145,7 +142,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const { id } = request.params;
       const outcome = await deleteEntry(db, id, ownerId);
-      if (outcome !== 'deleted') throw entryMiss(outcome);
+      if (outcome !== 'deleted') throw entryNotFound();
       logger.log(`Calendar entry ${id} deleted by user ${ownerId}`);
       return reply
         .header('HX-Redirect', weekUrl(request.body?.week))
@@ -161,7 +158,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const { id } = request.params;
       const outcome = await toggleWorn(db, id, ownerId);
-      if (typeof outcome === 'string') throw entryMiss(outcome);
+      if (typeof outcome === 'string') throw entryNotFound();
       logger.log(
         `Calendar entry ${id} marked ${outcome.worn ? 'worn' : 'not worn'} by user ${ownerId}`,
       );

@@ -1,13 +1,14 @@
 import { count, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Logger as PinoLogger } from 'nestjs-pino';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { outfit, outfitCalendar, user } from '../../src/db/schema';
 import { createGarment } from './garments';
 import { APP_ORIGIN, createTestApp, TestApp } from './harness';
 
 /**
  * Cross-cutting request security: the same-origin (CSRF) check on every
- * state-changing route, Nest's and the web layer's; `returnTo` values; and
- * what logout tells the browser.
+ * state-changing route, Nest's and the web layer's; `returnTo` values;
+ * what logout tells the browser; and invite tokens staying out of the logs.
  */
 describe('request security', () => {
   let t: TestApp;
@@ -178,5 +179,46 @@ describe('request security', () => {
     const cleared = res.cookies.find((c) => c.name === 'access_token');
     expect(cleared?.value).toBe('');
     expect(cleared?.sameSite).toBe('Lax');
+  });
+
+  it('an invite token never reaches the request log', async () => {
+    const created = await t.inject({
+      method: 'POST',
+      url: '/wardrobe-share/create-invite-link',
+      payload: { permission: 'VIEW' },
+      headers: { 'hx-request': 'true' },
+    });
+    const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(
+      created.body,
+    )![1];
+
+    const logger = t.app.get(PinoLogger);
+    const lines: string[] = [];
+    const spies = (['log', 'warn', 'debug', 'error'] as const).map((level) =>
+      vi.spyOn(logger, level).mockImplementation((message: unknown) => {
+        lines.push(String(message));
+      }),
+    );
+    try {
+      const landing = await t.inject({
+        method: 'GET',
+        url: `/wardrobe-share/invite/${token}`,
+        anonymous: true,
+      });
+      expect(landing.statusCode).toBe(200);
+      const declined = await t.inject({
+        method: 'POST',
+        url: `/wardrobe-share/invite/${token}/decline`,
+      });
+      expect(declined.statusCode).toBe(302);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^GET \/wardrobe-share\/invite\/:token 200 /),
+      ]),
+    );
+    expect(lines.join('\n')).not.toContain(token);
   });
 });

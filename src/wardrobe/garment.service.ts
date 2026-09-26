@@ -4,7 +4,6 @@ import { InjectRepository } from '@mikro-orm/nestjs';
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -101,12 +100,14 @@ export class GarmentService {
     const garment = await this.garmentRepository.findOne(id, {
       populate: ['photo', 'outfits'],
     });
+    // One answer for "no such garment", "in a wardrobe you cannot see" and
+    // "not in the wardrobe this request addresses": ids reveal nothing (see
+    // WardrobeAccess). The garment must belong to the addressed wardrobe,
+    // not merely to some wardrobe the user can see.
     if (!garment) throw new NotFoundException('Garment not found');
-    // 404 before 403 on purpose. The garment must belong to the wardrobe the
-    // request addresses, not merely to some wardrobe the user can see.
     const access = await this.shareService.resolveAccess(userId, viewOwner);
     if (!access.canView || garment.owner.id !== access.ownerId) {
-      throw new ForbiddenException();
+      throw new NotFoundException('Garment not found');
     }
     return garment;
   }

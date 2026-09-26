@@ -1,12 +1,7 @@
 import { EntityRepository, wrap } from '@mikro-orm/core';
 import { EntityManager } from '@mikro-orm/knex';
 import { InjectRepository } from '@mikro-orm/nestjs';
-import {
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { I18nContext } from 'nestjs-i18n';
 import { Garment } from '../dal/entity/garment.entity';
 import { OutfitCalendar } from '../dal/entity/outfit-calendar.entity';
@@ -41,8 +36,11 @@ export class OutfitService {
     const outfit = await this.outfitRepository.findOne(id, {
       populate: ['garments', 'garments.photo'],
     });
-    if (!outfit) throw new NotFoundException('Outfit not found');
-    if (outfit.owner.id !== userId) throw new ForbiddenException();
+    // Someone else's outfit is not found, like a missing one: ids reveal
+    // nothing (see WardrobeAccess).
+    if (!outfit || outfit.owner.id !== userId) {
+      throw new NotFoundException('Outfit not found');
+    }
     return outfit;
   }
 

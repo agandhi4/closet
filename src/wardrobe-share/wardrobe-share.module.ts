@@ -1,13 +1,9 @@
-import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { Module } from '@nestjs/common';
-import { WardrobeShare } from '../dal/entity/wardrobe-share.entity';
-import { User } from '../dal/entity/user.entity';
-import { WardrobeShareController } from './wardrobe-share.controller';
 import { WardrobeShareService } from './wardrobe-share.service';
 
+// Routes and views live in src/web/sharing; this module only provides the
+// access resolver to the garment routes still in Nest.
 @Module({
-  imports: [MikroOrmModule.forFeature([WardrobeShare, User])],
-  controllers: [WardrobeShareController],
   providers: [WardrobeShareService],
   exports: [WardrobeShareService],
 })
