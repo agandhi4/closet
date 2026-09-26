@@ -206,6 +206,20 @@ Databases created before Drizzle took over (built by MikroORM's migrations)
 are adopted on their first boot: the runner checks that the last MikroORM
 migration was applied and records the Drizzle baseline without running it.
 
+A migration that converts data refuses to guess: it fails the boot, changes
+nothing, and names what to fix. `0004_garment_web` (garment colours become a
+fixed set, the acquisition date a plain date) stops on a colour outside the
+built-in set (older builds let people type their own), an acquisition date
+that is not UTC midnight, a blank category, or a share id two rows hold. To
+check a database before upgrading:
+
+```sql
+SELECT DISTINCT unnest(string_to_array(color, ',')) FROM garment;  -- built-in names only
+SELECT count(*) FROM garment
+ WHERE (date_aquired AT TIME ZONE 'UTC')::time <> '00:00'
+    OR btrim(category) = '';                                       -- 0
+```
+
 ### Docker build
 
 ```bash
