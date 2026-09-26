@@ -140,7 +140,7 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
         </div>
       </div>
 
-      <div class="form-control">
+      <div class="flex flex-col">
         <label class="label" for="outfit-name">
           <span class="label-text">{t('NAME')}</span>
         </label>
@@ -155,7 +155,7 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
         />
       </div>
 
-      <div class="form-control">
+      <div class="flex flex-col">
         <label class="label" for="outfit-notes">
           <span class="label-text">{t('NOTES')}</span>
         </label>
@@ -171,7 +171,7 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
         </textarea>
       </div>
 
-      <div class="form-control">
+      <div class="flex flex-col">
         <label class="label" for="outfit-schedule-date">
           <span class="label-text">{t('ADD_TO_CALENDAR')}</span>
         </label>

@@ -85,7 +85,7 @@ export function GarmentFormPage(props: {
             maxlength={NAME_MAX}
             placeholder={t('NAME_PLACEHOLDER')}
           />
-          <div class="form-control">
+          <div class="flex flex-col">
             <label class="label" for="garment-category">
               <span class="label-text">{t('CATEGORY')} *</span>
             </label>
@@ -129,7 +129,7 @@ export function GarmentFormPage(props: {
             value={values.washingDetails}
             placeholder={t('WASHING_DETAILS_PLACEHOLDER')}
           />
-          <div class="form-control">
+          <div class="flex flex-col">
             <label class="label" for="garment-acquired">
               <span class="label-text">{t('DATE_ACQUIRED')}</span>
             </label>
@@ -137,7 +137,7 @@ export function GarmentFormPage(props: {
               id="garment-acquired"
               type="date"
               name="dateAquired"
-              class={`input input-bordered ${errors.dateAquired ? 'input-error' : ''}`}
+              class={`input input-bordered w-full ${errors.dateAquired ? 'input-error' : ''}`}
               value={values.dateAquired}
             />
             <Messages messages={errors.dateAquired} />
@@ -172,7 +172,7 @@ function TextField(props: {
 }) {
   const id = `garment-${props.name}`;
   return (
-    <div class="form-control">
+    <div class="flex flex-col">
       <label class="label" for={id}>
         <span class="label-text">{props.label}</span>
       </label>
@@ -180,7 +180,7 @@ function TextField(props: {
         id={id}
         type="text"
         name={props.name}
-        class="input input-bordered"
+        class="input input-bordered w-full"
         value={props.value}
         maxlength={props.maxlength}
         placeholder={props.placeholder}
@@ -197,14 +197,14 @@ function TextArea(props: {
 }) {
   const id = `garment-${props.name}`;
   return (
-    <div class="form-control">
+    <div class="flex flex-col">
       <label class="label" for={id}>
         <span class="label-text">{props.label}</span>
       </label>
       <textarea
         id={id}
         name={props.name}
-        class="textarea textarea-bordered"
+        class="textarea textarea-bordered w-full"
         rows={3}
         maxlength={TEXT_MAX}
         placeholder={props.placeholder}
@@ -238,7 +238,7 @@ function ColorMultiSelect(props: { selected: string[]; errors?: string[] }) {
   const selected = new Set(props.selected);
   const count = GARMENT_COLORS.filter((color) => selected.has(color)).length;
   return (
-    <div class="form-control w-full min-w-0">
+    <div class="flex flex-col w-full min-w-0">
       <span class="label">
         <span class="label-text">{t('COLOR')}</span>
       </span>
