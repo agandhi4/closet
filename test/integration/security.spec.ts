@@ -2,7 +2,7 @@ import { count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment, outfitCalendar, user } from '../../src/db/schema';
 import { createGarment } from './garments';
-import { APP_ORIGIN, createTestApp, TestApp } from './harness';
+import { APP_ORIGIN, createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
 /**
  * Cross-cutting request security: the same-origin (CSRF) check on every
@@ -69,7 +69,7 @@ describe('request security', () => {
       expect(await rows(outfitCalendar)).toBe(entriesBefore);
     });
 
-    it('refuses a cross-site login, and an email change without a password', async () => {
+    it('refuses a cross-site login and a cross-site email change', async () => {
       const login = await t.inject({
         method: 'POST',
         url: '/auth/login',
@@ -87,6 +87,7 @@ describe('request security', () => {
         payload: {
           email: 'hijacked@evil.test',
           confirmEmail: 'hijacked@evil.test',
+          currentPassword: TEST_PASSWORD,
         },
         headers: { origin: 'https://evil.test' },
         sameOrigin: false,
@@ -169,11 +170,11 @@ describe('request security', () => {
   it('logout clears the cookie and tells the browser to drop its cache', async () => {
     const cookie = await t.register('leaving-device@example.com');
     const res = await t.inject({
-      method: 'GET',
+      method: 'POST',
       url: '/auth/logout',
       headers: { cookie },
     });
-    expect(res.statusCode).toBe(302);
+    expect(res.statusCode).toBe(303);
     expect(res.headers['clear-site-data']).toBe('"cache"');
     const cleared = res.cookies.find((c) => c.name === 'access_token');
     expect(cleared?.value).toBe('');

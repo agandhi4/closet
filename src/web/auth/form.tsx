@@ -124,10 +124,13 @@ export function PostForm(props: {
   action: string;
   confirm?: string;
   class?: string;
-  children: Child;
+  /** For buttons outside the form that submit it through their `form` attribute. */
+  id?: string;
+  children?: Child;
 }) {
   return (
     <form
+      id={props.id}
       method="post"
       action={props.action}
       class={props.class}

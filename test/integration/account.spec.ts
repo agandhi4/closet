@@ -227,21 +227,24 @@ describe('account', () => {
   });
 
   describe('logout', () => {
-    it('clears the session cookie and the app sends the next page to login', async () => {
+    it('POST clears the session cookie and sends the browser to login', async () => {
       const cookie = await t.register('logout@example.com');
       expect(await profileStatus(cookie)).toBe(200);
 
       const res = await t.inject({
-        method: 'GET',
+        method: 'POST',
         url: '/auth/logout',
         headers: { cookie },
       });
-      expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe('/');
+      expect(res.statusCode).toBe(303);
+      expect(res.headers.location).toBe('/auth/login');
       const cleared = res.cookies.find((c) => c.name === 'access_token');
       expect(cleared?.value).toBe('');
       expect(cleared?.path).toBe('/');
       expect(cleared?.expires?.getTime()).toBeLessThanOrEqual(Date.now());
+      expect(t.logs.messages('info', 'Web')).toContain(
+        `User ${await userIdOf(t, 'logout@example.com')} signed out`,
+      );
 
       // What the browser sends after applying that Set-Cookie: nothing.
       const next = await t.inject({
@@ -252,6 +255,47 @@ describe('account', () => {
       expect(next.statusCode).toBe(302);
       expect(next.headers.location).toBe('/auth/login');
     });
+
+    it('a cross-site POST is refused and the session lives on', async () => {
+      const cookie = await t.register('logout-csrf@example.com');
+      const res = await t.inject({
+        method: 'POST',
+        url: '/auth/logout',
+        headers: { cookie, origin: 'https://evil.example' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.headers['set-cookie']).toBeUndefined();
+      expect(res.headers['clear-site-data']).toBeUndefined();
+      expect(await profileStatus(cookie)).toBe(200);
+    });
+
+    it('GET signs nobody out: it asks, with a native post to the same path', async () => {
+      const cookie = await t.register('logout-get@example.com');
+      const res = await t.inject({
+        method: 'GET',
+        url: '/auth/logout',
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expectFullPage(res);
+      expect(res.body).toContain('Sign out of Closet on this device?');
+      expect(res.body).toMatch(
+        /<form method="post" action="\/auth\/logout" hx-boost="false">/,
+      );
+      expect(res.headers['set-cookie']).toBeUndefined();
+      expect(res.headers['clear-site-data']).toBeUndefined();
+      expect(await profileStatus(cookie)).toBe(200);
+    });
+
+    it('GET without a session goes to the login page', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/auth/logout',
+        anonymous: true,
+      });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe('/auth/login');
+    });
   });
 
   describe('update email', () => {
@@ -259,6 +303,14 @@ describe('account', () => {
     const newEmail = 'after@example.com';
     let cookie: string;
     let userId: number;
+
+    const postUpdate = (session: string, fields: Record<string, string>) =>
+      t.inject({
+        method: 'POST',
+        url: '/auth/update-email',
+        payload: { currentPassword: TEST_PASSWORD, ...fields },
+        headers: { cookie: session },
+      });
 
     beforeAll(async () => {
       cookie = await t.register(oldEmail);
@@ -274,6 +326,9 @@ describe('account', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body).toContain('action="/auth/update-email"');
       expect(res.body).toContain('name="confirmEmail"');
+      expect(res.body).toMatch(
+        /<input id="currentPassword" name="currentPassword" type="password"[^>]*autocomplete="current-password"/,
+      );
     });
 
     it('POST /auth/validate/update-email flags a mismatched confirmation', async () => {
@@ -298,11 +353,9 @@ describe('account', () => {
     });
 
     it('a mismatched submission is a 400 re-render and changes nothing', async () => {
-      const res = await t.inject({
-        method: 'POST',
-        url: '/auth/update-email',
-        payload: { email: newEmail, confirmEmail: 'other@example.com' },
-        headers: { cookie },
+      const res = await postUpdate(cookie, {
+        email: newEmail,
+        confirmEmail: 'other@example.com',
       });
       expect(res.statusCode).toBe(400);
       expectFullPage(res);
@@ -311,11 +364,9 @@ describe('account', () => {
     });
 
     it('POST /auth/update-email changes the row; only the new address logs in', async () => {
-      const res = await t.inject({
-        method: 'POST',
-        url: '/auth/update-email',
-        payload: { email: newEmail, confirmEmail: newEmail },
-        headers: { cookie },
+      const res = await postUpdate(cookie, {
+        email: newEmail,
+        confirmEmail: newEmail,
       });
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe('/auth/profile');
@@ -339,14 +390,9 @@ describe('account', () => {
 
     it('an address another account uses, in any case, is a 400 field error', async () => {
       await t.register('taken@example.com');
-      const res = await t.inject({
-        method: 'POST',
-        url: '/auth/update-email',
-        payload: {
-          email: 'Taken@Example.com',
-          confirmEmail: 'Taken@Example.com',
-        },
-        headers: { cookie },
+      const res = await postUpdate(cookie, {
+        email: 'Taken@Example.com',
+        confirmEmail: 'Taken@Example.com',
       });
       expect(res.statusCode).toBe(400);
       expect(res.body).toContain('Another account already uses this email');
@@ -354,17 +400,73 @@ describe('account', () => {
     });
 
     it('a new address is stored lower case', async () => {
-      const res = await t.inject({
-        method: 'POST',
-        url: '/auth/update-email',
-        payload: {
-          email: 'Mixed@Example.com',
-          confirmEmail: 'mixed@example.COM',
-        },
-        headers: { cookie },
+      const res = await postUpdate(cookie, {
+        email: 'Mixed@Example.com',
+        confirmEmail: 'mixed@example.COM',
       });
       expect(res.statusCode).toBe(302);
       expect(await emailOf(userId)).toBe('mixed@example.com');
+    });
+    it('a wrong current password is a 400 re-render; nothing changes, the password is not echoed', async () => {
+      const email = 'email-guess@example.com';
+      const session = await t.register(email);
+      const id = await userIdOf(t, email);
+      const res = await postUpdate(session, {
+        email: 'thief@example.com',
+        confirmEmail: 'thief@example.com',
+        currentPassword: 'NotMyPassword1',
+      });
+      expect(res.statusCode).toBe(400);
+      expectFullPage(res);
+      expect(res.body).toContain('Current password is incorrect');
+      expect(res.body).toMatch(/input-error">\s*<input\s+id="currentPassword"/);
+      expect(res.body).not.toContain('NotMyPassword1');
+      expect(res.body).toContain('value="thief@example.com"');
+      expect(await emailOf(id)).toBe(email);
+      expect(t.logs.messages('info', 'Web')).toContain(
+        `Email change refused for user ${id}: wrong current password`,
+      );
+    });
+
+    it('a wrong password does not reveal whether the new address is taken', async () => {
+      await t.register('taken-probe@example.com');
+      // A session of its own: every post counts against its user's limit.
+      const session = await t.register('prober@example.com');
+      const res = await postUpdate(session, {
+        email: 'taken-probe@example.com',
+        confirmEmail: 'taken-probe@example.com',
+        currentPassword: 'NotMyPassword1',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toContain('Current password is incorrect');
+      expect(res.body).not.toContain('Another account already uses');
+    });
+
+    it('a sixth attempt within a minute is refused with 429, per user', async () => {
+      const email = 'email-limit@example.com';
+      const session = await t.register(email);
+      const id = await userIdOf(t, email);
+      const attempt = (currentPassword: string) =>
+        postUpdate(session, {
+          email: 'limited@example.com',
+          confirmEmail: 'limited@example.com',
+          currentPassword,
+        });
+      const statuses: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        statuses.push((await attempt('NotMyPassword1')).statusCode);
+      }
+      expect(statuses).toEqual([400, 400, 400, 400, 400, 429]);
+      // Even the right password waits out the window...
+      expect((await attempt(TEST_PASSWORD)).statusCode).toBe(429);
+      expect(await emailOf(id)).toBe(email);
+      // ...while another account is unaffected.
+      const other = await t.register('email-limit-other@example.com');
+      const moved = await postUpdate(other, {
+        email: 'email-limit-moved@example.com',
+        confirmEmail: 'email-limit-moved@example.com',
+      });
+      expect(moved.statusCode).toBe(302);
     });
   });
 

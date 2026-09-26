@@ -93,7 +93,10 @@ test.describe('installed app delivery', () => {
       });
     expect(await cachedPages()).toContain('/wardrobe');
 
-    await page.goto('/auth/logout');
+    await page
+      .getByRole('button', { name: 'Logout' })
+      .filter({ visible: true })
+      .click();
     await expect(page).toHaveURL(/\/auth\/login$/);
     await expect
       .poll(async () => (await cachedPages()).includes('/wardrobe'))

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { E2E_PASSWORD, signIn, signUpHeaders } from './support/e2e-session';
 
 const APP_NAME = process.env.APP_NAME || 'Closet';
@@ -147,5 +147,59 @@ test.describe('login session', () => {
     );
     await page.goto('/auth/profile');
     await expect(page.locator('main h1')).toHaveText(email);
+  });
+});
+
+/**
+ * Signing out is a POST from the navbar (a GET let any cross-site link sign
+ * someone out). The button submits one hidden native form through its
+ * `form` attribute, from the desktop bar and from the phone's drawer.
+ */
+test.describe('logout', () => {
+  // The bar's button and the drawer's; only one is on screen at a time.
+  const logoutButton = (page: Page) =>
+    page.getByRole('button', { name: 'Logout' }).filter({ visible: true });
+
+  const expectSignedOut = async (page: Page) => {
+    await expect(page).toHaveURL(/\/auth\/login$/);
+    await page.goto('/wardrobe');
+    await expect(page).toHaveURL(/\/auth\/login$/);
+  };
+
+  test('the navbar button signs out', async ({ page }) => {
+    await signIn(page, 'logout-desktop');
+    await page.goto('/wardrobe');
+    await logoutButton(page).click();
+    await expectSignedOut(page);
+  });
+
+  test.describe('on a phone', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('the drawer button signs out', async ({ page }) => {
+      await signIn(page, 'logout-phone');
+      await page.goto('/wardrobe');
+      await expect(logoutButton(page)).toHaveCount(0);
+      await page.locator('label[aria-label="open sidebar"]').click();
+      await logoutButton(page).click();
+      await expectSignedOut(page);
+    });
+  });
+
+  test('an old sign-out link asks first instead of signing out', async ({
+    page,
+  }) => {
+    const email = await signIn(page, 'logout-link');
+    await page.goto('/auth/logout');
+    await expect(page.locator('main h1')).toHaveText(
+      `Sign out of ${APP_NAME} on this device?`,
+    );
+    // Nothing has ended yet.
+    await page.goto('/auth/profile');
+    await expect(page.locator('main h1')).toHaveText(email);
+
+    await page.goto('/auth/logout');
+    await page.locator('main').getByRole('button', { name: 'Logout' }).click();
+    await expectSignedOut(page);
   });
 });

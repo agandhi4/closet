@@ -26,9 +26,19 @@ export const RegisterBody = Type.Object({
 });
 export type RegisterBody = Static<typeof RegisterBody>;
 
-export const UpdateEmailBody = Type.Object({
+/** What the inline check of the email form looks at. */
+export const UpdateEmailFields = Type.Object({
   email: Email,
   confirmEmail: Email,
+});
+export type UpdateEmailFields = Static<typeof UpdateEmailFields>;
+
+// The email is the login name: changing it needs the password, like
+// changing the password does, so an unattended session cannot take the
+// account over. The route checks it; validateEmailChange does not.
+export const UpdateEmailBody = Type.Object({
+  ...UpdateEmailFields.properties,
+  currentPassword: Password,
 });
 export type UpdateEmailBody = Static<typeof UpdateEmailBody>;
 
@@ -90,9 +100,9 @@ export function validateRegistration(
 }
 
 export function validateEmailChange(
-  body: UpdateEmailBody,
-): FieldErrors<keyof UpdateEmailBody> {
-  return only<keyof UpdateEmailBody>([
+  body: UpdateEmailFields,
+): FieldErrors<keyof UpdateEmailFields> {
+  return only<keyof UpdateEmailFields>([
     ['email', emailErrors(body.email)],
     [
       'confirmEmail',

@@ -63,7 +63,7 @@ const pages = new NetworkFirst({
 const isPageRequest = ({ request }: { request: Request }) =>
   request.mode === 'navigate' || request.headers.get('HX-Request') === 'true';
 
-// Signing out (GET /auth/logout) and deleting the account (POST
+// Signing out (POST /auth/logout) and deleting the account (POST
 // /auth/delete-account) end a session: once the server has answered with
 // its redirect, the pages cached for that user must not answer the next
 // person on this device, offline or on a slow network. The server also
@@ -120,7 +120,8 @@ async function dropPushSubscription(): Promise<void> {
   }
 }
 
-registerRoute(endsSession, endSessionHandler, 'GET');
+// POST only: GET /auth/logout is the confirmation page old cached pages
+// link to, which ends nothing.
 registerRoute(endsSession, endSessionHandler, 'POST');
 
 registerRoute(isPageRequest, pages);
