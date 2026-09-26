@@ -6,6 +6,7 @@
   "WARDROBE": "Wardrobe",
   "OUTFITS": "Outfits",
   "LOGOUT": "Logout",
+  "LOGOUT_PROMPT": "Sign out of {appName} on this device?",
   "REGISTER": "Register",
   "LOGIN": "Login",
   "EMAIL": "Email",

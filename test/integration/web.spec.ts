@@ -119,7 +119,19 @@ describe('web layer', () => {
       expect(res.body).toContain(
         `<a href="/auth/profile">${t.owner.email}</a>`,
       );
-      expect(res.body).toContain('href="/auth/logout"');
+      // Signing out is a native POST: one hidden form, submitted by the
+      // desktop bar's and the drawer's buttons through their form attribute.
+      expect(res.body).not.toContain('href="/auth/logout"');
+      expect(
+        res.body.match(
+          /<form id="logout-form" method="post" action="\/auth\/logout" class="hidden" hx-boost="false">/g,
+        ),
+      ).toHaveLength(1);
+      expect(
+        res.body.match(
+          /<button type="submit" form="logout-form">Logout<\/button>/g,
+        ),
+      ).toHaveLength(2);
     });
   });
 

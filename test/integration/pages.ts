@@ -96,6 +96,8 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app('/auth/update-email'),
     app('/auth/delete-account'),
     app('/auth/change-password'),
+    // Public, but a signed-out visitor is sent to log in like any app page.
+    app('/auth/logout'),
     app('/wardrobe-share/manage'),
     open('/about'),
     open('/offline.html'),

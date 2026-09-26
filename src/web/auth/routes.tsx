@@ -8,10 +8,12 @@ import { renderFragment, renderPage } from '../render';
 import { ACCOUNT_LIMIT, SIGN_IN_LIMIT } from '../security/rate-limit';
 import { viewContext } from '../view-context';
 import { InlineErrors } from './form';
+import { LOGOUT_PATH } from './logout';
 import {
   ChangePasswordPage,
   DeleteAccountPage,
   LoginPage,
+  LogoutPage,
   ProfilePage,
   REGISTER_FIELDS,
   RegisterPage,
@@ -34,10 +36,12 @@ import { endSession, setSessionCookie } from './session';
 import {
   ChangePasswordBody,
   DeleteAccountBody,
+  type FieldErrors,
   hasErrors,
   LoginBody,
   RegisterBody,
   UpdateEmailBody,
+  UpdateEmailFields,
   validateEmailChange,
   validatePasswordChange,
   validateRegistration,
@@ -101,13 +105,24 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // A GET for parity with the navbar's plain link. The service worker drops
-  // its page cache on this navigation (views/assets/src-sw.ts).
-  app.get('/auth/logout', { config: { public: true } }, async (req, reply) => {
+  // Only a same-origin POST signs out (the same-origin hook refuses any
+  // other), so a cross-site link or image cannot. The service worker drops
+  // its page cache when this answers with its redirect
+  // (views/assets/src-sw.ts). Public: a stale tab signing out again still
+  // gets the cookie cleared and lands on the login page.
+  app.post(LOGOUT_PATH, { config: { public: true } }, async (req, reply) => {
     if (req.auth) logger.info(`User ${req.auth.user.id} signed out`);
     endSession(reply);
-    return reply.redirect('/', 302);
+    return reply.redirect(LOGIN_PATH, 303);
   });
+
+  // Pages cached by the installed app before logout became a POST still
+  // link here: ask with a one-button form instead of signing out on a GET.
+  app.get(LOGOUT_PATH, { config: { public: true } }, async (req, reply) =>
+    req.auth
+      ? renderPage(reply, <LogoutPage ctx={viewContext(reply)} />)
+      : reply.redirect(LOGIN_PATH, 302),
+  );
 
   app.get(
     '/auth/register',
@@ -199,7 +214,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   app.post(
     '/auth/validate/update-email',
-    { schema: { body: UpdateEmailBody } },
+    { schema: { body: UpdateEmailFields } },
     async (request, reply) =>
       renderFragment(
         reply,
@@ -212,28 +227,42 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   app.post(
     '/auth/update-email',
-    { schema: { body: UpdateEmailBody } },
+    {
+      config: { rateLimit: ACCOUNT_LIMIT },
+      schema: { body: UpdateEmailBody },
+    },
     async (request, reply) => {
       const id = sessionUserId(request);
       const body = request.body;
       const email = normalizeEmail(body.email);
-      const refuse = (errors: ReturnType<typeof validateEmailChange>) =>
+      const refuse = (errors: FieldErrors<keyof UpdateEmailBody>) =>
         renderPage(
           reply,
           <UpdateEmailPage
             ctx={viewContext(reply)}
-            input={body}
+            input={{ email: body.email, confirmEmail: body.confirmEmail }}
             errors={errors}
           />,
           { status: 400 },
         );
 
       const errors = validateEmailChange(body);
-      if (!hasErrors(errors)) {
-        const holder = await findUserByEmail(db, email);
-        if (holder && holder.id !== id) errors.email = [t('EMAIL_IN_USE')];
-      }
       if (hasErrors(errors)) return refuse(errors);
+
+      // The password before the clash check: whether an address is taken is
+      // only answered to someone who proved they own this account.
+      const account = await findUserById(db, id);
+      if (!(await verifyPassword(body.currentPassword, account?.password))) {
+        logger.info(
+          `Email change refused for user ${id}: wrong current password`,
+        );
+        return refuse({ currentPassword: [t('WRONG_CURRENT_PASSWORD')] });
+      }
+
+      const holder = await findUserByEmail(db, email);
+      if (holder && holder.id !== id) {
+        return refuse({ email: [t('EMAIL_IN_USE')] });
+      }
 
       try {
         await updateEmail(db, id, email);

@@ -7,6 +7,7 @@ import { Navbar } from '../layout/navbar';
 import { PushSettings } from '../push/settings';
 import type { ViewContext } from '../view-context';
 import { ErrorAlert, Field, Fieldset, PostForm, SubmitButton } from './form';
+import { LOGOUT_PATH } from './logout';
 import type {
   ChangePasswordBody,
   FieldErrors,
@@ -90,6 +91,20 @@ export function LoginPage(props: {
           />
           <SubmitButton label={t('LOGIN')} />
         </Fieldset>
+      </PostForm>
+    </AccountShell>
+  );
+}
+
+/** GET /auth/logout: what a signed-in visitor sees behind an old sign-out link. */
+export function LogoutPage(props: { ctx: ViewContext }) {
+  return (
+    <AccountShell ctx={props.ctx}>
+      <h1 class="text-2xl font-bold">
+        {t('LOGOUT_PROMPT', { appName: props.ctx.appName })}
+      </h1>
+      <PostForm action={LOGOUT_PATH}>
+        <SubmitButton label={t('LOGOUT')} />
       </PostForm>
     </AccountShell>
   );
@@ -185,10 +200,13 @@ export function ProfilePage(props: {
 }
 
 export interface UpdateEmailFormState {
-  input?: Partial<UpdateEmailBody>;
+  /** What was typed: the addresses only, the password is never echoed. */
+  input?: Pick<Partial<UpdateEmailBody>, 'email' | 'confirmEmail'>;
   errors?: FieldErrors<keyof UpdateEmailBody>;
 }
 
+// The inline check's slots. Not the password's: only the submission checks
+// it, and its message stays until the next one.
 export const UPDATE_EMAIL_FIELDS = ['email', 'confirmEmail'] as const;
 
 /** The email fieldset; POST /auth/validate/update-email refills its messages. */
@@ -213,6 +231,13 @@ function UpdateEmailFields({ input = {}, errors = {} }: UpdateEmailFormState) {
         autocomplete="username"
         value={input.confirmEmail}
         errors={errors.confirmEmail}
+      />
+      <Field
+        id="currentPassword"
+        label={t('CURRENT_PASSWORD')}
+        type="password"
+        autocomplete="current-password"
+        errors={errors.currentPassword}
       />
       <SubmitButton label={t('UPDATE')} />
     </Fieldset>

@@ -1,3 +1,4 @@
+import { LogoutButton, LogoutForm } from '../auth/logout';
 import { t } from '../i18n';
 import type { ViewContext } from '../view-context';
 
@@ -63,6 +64,7 @@ export function Navbar({ ctx }: { ctx: ViewContext }) {
           <AccountLinks ctx={ctx} />
         </ul>
       </div>
+      {ctx.user && <LogoutForm />}
     </div>
   );
 }
@@ -72,7 +74,7 @@ function AccountLinks({ ctx }: { ctx: ViewContext }) {
     return (
       <>
         <li>
-          <a href="/auth/logout">{t('LOGOUT')}</a>
+          <LogoutButton />
         </li>
         <li>
           <a href="/auth/profile">{ctx.user.email}</a>
