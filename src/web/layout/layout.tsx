@@ -11,11 +11,17 @@ import { AppStatus } from './app-status';
  * English only: `lang`, `og:locale` and the default description are fixed.
  */
 
-// https://htmx.org/reference/#config: view transitions on every swap
-// (https://htmx.org/attributes/hx-swap/#modifiers) and no attribute
-// inheritance (https://htmx.org/quirks/#attribute-inheritance). htmx reads
-// only the first htmx-config meta, so this is the whole config.
-const HTMX_CONFIG = { globalViewTransitions: true, disableInheritance: true };
+// https://htmx.org/reference/#config. htmx reads only the first htmx-config
+// meta, so this is the whole config.
+//  - No attribute inheritance (https://htmx.org/quirks/#attribute-inheritance).
+//  - Three history snapshots, not ten: before every navigation htmx parses
+//    and re-serializes the whole sessionStorage cache (up to 180 KB at ten
+//    with 48 tiles loaded; about 9 ms a tap on a mid-range phone, 4 ms at
+//    three). Three covers the usual back depth (a page, its detail, its
+//    edit form); further back is fetched, through the service worker.
+//  - No view transitions: while one runs (about 250 ms after every swap) the
+//    page takes no taps, and navbar and dock cross-fade for nothing.
+const HTMX_CONFIG = { disableInheritance: true, historyCacheSize: 3 };
 
 // Bare specifiers for every ES module the pages import, so the versioned URL
 // lives here once. Page-specific modules (sortablejs, background removal) are
@@ -29,6 +35,8 @@ function importMap(version: string) {
       '@imgly/background-removal': `/modules/background-removal/index.mjs${v}`,
       sortablejs: `/modules/modular/sortable.esm.js${v}`,
       'workbox-window': `/modules/workbox-window.prod.mjs${v}`,
+      // pwa.js imports these two only where they do something.
+      'pwa-install': `/modules/pwa-install.bundle.js${v}`,
       pulltorefreshjs: `/modules/pulltorefresh/index.esm.js${v}`,
       toast: `/js/toast.js${v}`,
       'mask-editor': `/js/mask-editor.js${v}`,
@@ -114,36 +122,28 @@ export function Layout({
             AppStatus; runs everywhere, service worker or not. */}
         <script type="module" src={`/js/connectivity.js${v}`}></script>
         {ctx.pwaEnabled && (
-          <>
-            <script
-              type="module"
-              src={`/modules/pwa-install.bundle.js${v}`}
-            ></script>
-            {/* Service worker registration, update toast, Web Push, iOS
-                pull to refresh. In the head so hx-boost body swaps never
-                re-run it. */}
-            <script type="module" src={`/js/pwa.js${v}`}></script>
-          </>
+          // Service worker registration, update toast, Web Push, the install
+          // dialog, iOS pull to refresh. In the head so hx-boost body swaps
+          // never re-run it.
+          <script type="module" src={`/js/pwa.js${v}`}></script>
         )}
-        <link rel="preconnect" href="https://static.cloudflareinsights.com" />
       </head>
 
       {/* hx-boost swaps the body on every link and form
           (https://htmx.org/attributes/hx-boost/). With disableInheritance on,
-          hx-inherit hands it down explicitly or no link is boosted. */}
+          hx-inherit hands it down explicitly or no link is boosted. Every
+          request lights the navbar spinner (#loading) and marks the tapped
+          link htmx-request (pressed styling in main.css), so a slow network
+          never looks like a dead tap; an element with its own hx-indicator
+          (the photo form) keeps it. */}
       <body
         hx-boost="true"
-        hx-inherit="hx-boost"
+        hx-indicator="#loading, closest a"
+        hx-inherit="hx-boost hx-indicator"
         class="h-screen flex flex-col"
       >
         {children}
         <AppStatus />
-        {ctx.pwaEnabled && (
-          <pwa-install
-            id="pwa-install"
-            manifest-url="/manifest.json"
-          ></pwa-install>
-        )}
       </body>
     </html>
   );

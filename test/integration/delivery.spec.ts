@@ -105,16 +105,43 @@ describe('delivery (PWA_ENABLED=true)', () => {
         html.match(/<meta\s+name="htmx-config"[^>]*>/g) ?? [];
       expect(metas).toHaveLength(1);
       const content = /content="([^"]+)"/.exec(metas[0])![1];
+      // No view transitions (they drop taps while they run) and a short
+      // history cache (layout.tsx says why).
       expect(JSON.parse(unescapeHtml(content))).toEqual({
-        globalViewTransitions: true,
         disableInheritance: true,
+        historyCacheSize: 3,
       });
       expect(html).not.toContain('viewport-fit');
-      // Without this, disableInheritance switches hx-boost off for every link.
-      expect(html).toMatch(/<body[^>]*hx-inherit="hx-boost"/);
+      // Without this, disableInheritance switches hx-boost off for every link
+      // and every request loses its tap feedback.
+      expect(html).toMatch(
+        /<body[^>]*hx-indicator="#loading, closest a"[^>]*hx-inherit="hx-boost hx-indicator"/,
+      );
+    });
+
+    it('makes no request to another origin', async () => {
+      expect(html).not.toContain('preconnect');
+      // Every script and link loads from this origin; the canonical link
+      // names the page, it loads nothing.
+      const tags: string[] = html.match(/<(script|link)\b[^>]*>/g) ?? [];
+      const external = tags.filter(
+        (tag) =>
+          !tag.includes('rel="canonical"') &&
+          /\s(src|href)="(https?:)?\/\//.test(tag),
+      );
+      expect(external).toEqual([]);
+      const res = await t.inject({ method: 'GET', url: '/wardrobe' });
+      const csp = String(res.headers['content-security-policy']);
+      expect(csp).toContain("default-src 'self'");
+      expect(csp).not.toMatch(/https?:/);
     });
 
     it('loads page-only libraries on their pages, not in the shell', () => {
+      // pwa.js imports the install dialog and pull to refresh only where
+      // they apply; the element is never in the markup.
+      expect(html).toContain('/js/pwa.js?v=');
+      expect(html).not.toContain('src="/modules/pwa-install');
+      expect(html).not.toContain('<pwa-install');
       expect(html).not.toContain('Sortable.min.js');
       expect(html).not.toContain('rel="preload"');
       expect(html).toContain('id="request-indicator"');

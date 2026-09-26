@@ -34,10 +34,12 @@ export function Navbar({ ctx }: { ctx: ViewContext }) {
               </svg>
             </label>
           </div>
-          <a class="mx-2 flex flex-row gap-2 pt-1" href="/">
+          {/* The wardrobe, not /: that is a redirect to it. */}
+          <a class="mx-2 flex flex-row gap-2 pt-1" href="/wardrobe">
             <span class="text-lg font-semibold">{ctx.appName}</span>
-            {/* In-flight htmx request spinner (hx-indicator="#loading" across
-                the views). Connectivity is a separate concern: AppStatus. */}
+            {/* In-flight htmx request spinner: every request's indicator (the
+                body's hx-indicator, layout.tsx). Connectivity is a separate
+                concern: AppStatus. */}
             <div class="relative size-6">
               <div id="request-indicator" class="absolute inset-0">
                 <span
