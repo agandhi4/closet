@@ -21,6 +21,15 @@ export interface SharePreview {
 }
 
 /**
+ * Who the page and its preview say shared the item: the owner's first name
+ * if they set one, else nobody. Never the email: the page is public, and
+ * link-preview crawlers keep what they read.
+ */
+export function sharedBy(owner: { firstName: string | null }) {
+  return owner.firstName?.trim() || undefined;
+}
+
+/**
  * GET /share: the landing page of a garment or outfit share link, opened by
  * whoever the link was sent to and fetched by link-preview crawlers. An
  * unknown link renders the empty page, as it always has.
@@ -49,8 +58,9 @@ export function SharePage(props: {
 }
 
 function SharedItem({ shared }: { shared: Shared }) {
-  const owner =
-    shared.type === 'garment' ? shared.garment.owner : shared.outfit.owner;
+  const owner = sharedBy(
+    shared.type === 'garment' ? shared.garment.owner : shared.outfit.owner,
+  );
   return (
     <>
       {shared.type === 'garment' ? (
@@ -58,13 +68,15 @@ function SharedItem({ shared }: { shared: Shared }) {
       ) : (
         <OutfitCard outfit={shared.outfit} />
       )}
-      <div class="fixed bottom-15 left-0 right-0 p-4 shadow-lg bg-gradient-to-t from-base-100 via-base-100/50 to-transparent">
-        <div class="flex flex-row gap-2 items-center justify-center">
-          <p>
-            {t('SHARED_BY')} {owner.email}
-          </p>
+      {owner && (
+        <div class="fixed bottom-15 left-0 right-0 p-4 shadow-lg bg-gradient-to-t from-base-100 via-base-100/50 to-transparent">
+          <div class="flex flex-row gap-2 items-center justify-center">
+            <p>
+              {t('SHARED_BY')} {owner}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

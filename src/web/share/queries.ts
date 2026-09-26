@@ -4,10 +4,14 @@ import { garment, outfit, outfitSlot } from '../../db/schema';
 
 /**
  * The public share page's reads: a garment or an outfit by its share id,
- * whoever asks (a share link is a bearer link), with its owner's email.
+ * whoever asks (a share link is a bearer link), with its owner's first name.
+ * Never the email: the page is public and link-preview crawlers keep what
+ * they read.
  * Photos carry their shareableId, which addresses the watermarked Open Graph
  * image (/file/watermark/:shareableId).
  */
+
+const OWNER_COLUMNS = { columns: { firstName: true } } as const;
 
 const PHOTO_COLUMNS = {
   columns: { fileName: true, version: true, shareableId: true },
@@ -17,7 +21,7 @@ export async function findSharedGarment(db: Db, shareableId: string) {
   return db.query.garment.findFirst({
     columns: { name: true, category: true, brand: true },
     where: eq(garment.shareableId, shareableId),
-    with: { owner: { columns: { email: true } }, photo: PHOTO_COLUMNS },
+    with: { owner: OWNER_COLUMNS, photo: PHOTO_COLUMNS },
   });
 }
 
@@ -31,7 +35,7 @@ export async function findSharedOutfit(db: Db, shareableId: string) {
     columns: { name: true, notes: true },
     where: eq(outfit.shareableId, shareableId),
     with: {
-      owner: { columns: { email: true } },
+      owner: OWNER_COLUMNS,
       slots: {
         columns: {},
         where: isNotNull(outfitSlot.garmentId),
