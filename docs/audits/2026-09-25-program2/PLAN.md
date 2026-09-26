@@ -1,5 +1,20 @@
 # Program 2 plan (2026-09-25)
 
+## Status (2026-09-26): shipped
+
+Phases 0, 1 and 2 are complete, the platform migration is complete (Fastify, Drizzle, typed JSX,
+Vitest; Nest, MikroORM, Handlebars and Jest removed), and Phase 4 shipped its main items: the PWA
+quick wins, server-side background removal (BiRefNet 512) with the in-browser model deleted, and the
+move to linux-box. Summary and numbers: docs/PROJECT_LOG.md (2026-09-26). The sections below are the
+plan as written, kept as the record of what was decided and why.
+
+Still open:
+- Stale-while-revalidate pages with a freshness indicator (and their cleanup on logout).
+- The unminified sortable (31 KB) and the install dialog's screenshots (a product call).
+- What Web Push is for (candidate: a morning reminder of today's planned outfit).
+- Backups: the separate homelab effort (homelab repo, docs/backups-effort.md).
+- Grafana on the NAS allows anonymous admin (homelab).
+
 Sources: the audit2-*.md reports in this folder; the homelab stack and backup report lives in the
 private homelab repo (docs/audits/2026-09-25-closet-stack-and-backups.md) because this repo is public.
 **Do not commit audit2-correctness.md until phase 0 is deployed**: it describes live exploits.
