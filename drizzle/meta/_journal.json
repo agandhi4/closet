@@ -50,6 +50,13 @@
       "when": 1790436146937,
       "tag": "0006_file_cutout",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790447350418,
+      "tag": "0007_garment_properties",
+      "breakpoints": true
     }
   ]
 }

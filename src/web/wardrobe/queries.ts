@@ -5,7 +5,7 @@ import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
 import type { ImageRef } from '../files/image-url';
 import { compareSizes } from './garment';
-import type { GarmentFields } from './validation';
+import type { GarmentFields, GarmentPropertyFields } from './validation';
 
 /**
  * Garments' reads and writes. Every query names the wardrobe (owner) it
@@ -159,8 +159,11 @@ export interface GarmentPhoto extends ImageRef {
   cutoutStatus: CutoutStatus;
 }
 
-/** A garment as its page and its forms show it. */
-export interface GarmentDetail extends GarmentFields {
+/** A garment as its page and its forms show it, every property included. */
+export interface GarmentDetail
+  extends
+    Omit<GarmentFields, keyof GarmentPropertyFields>,
+    GarmentPropertyFields {
   id: number;
   shareableId: string;
   archived: boolean;
@@ -179,6 +182,16 @@ const detailColumns = {
   washingDetails: garment.washingDetails,
   acquiredOn: garment.acquiredOn,
   archived: garment.archived,
+  type: garment.type,
+  warmth: garment.warmth,
+  formality: garment.formality,
+  materials: garment.materials,
+  pattern: garment.pattern,
+  fit: garment.fit,
+  sleeve: garment.sleeve,
+  length: garment.length,
+  fabricWeight: garment.fabricWeight,
+  waterResistant: garment.waterResistant,
   photo: {
     fileName: file.fileName,
     version: file.version,

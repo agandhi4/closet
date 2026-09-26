@@ -4,6 +4,30 @@ import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
 import { t } from '../i18n';
 import { RowId } from '../schemas';
 import {
+  applyPresets,
+  FABRIC_WEIGHT_GSM,
+  type Fit,
+  FITS,
+  type Formality,
+  FORMALITIES,
+  findType,
+  type GarmentProperty,
+  gsmToOz,
+  type Length,
+  LENGTHS,
+  type Material,
+  MATERIALS,
+  ozToGsm,
+  type Pattern,
+  PATTERNS,
+  type PresetSource,
+  propertyApplies,
+  type Sleeve,
+  SLEEVES,
+  type Warmth,
+  WARMTHS,
+} from '../../wardrobe/properties';
+import {
   GARMENT_COLORS,
   isGarmentColor,
   normalizeCategory,
@@ -32,6 +56,59 @@ export const TEXT_MAX = 4000;
 const ColorValue = Type.String({ maxLength: 40 });
 
 /**
+ * One of a property's values as a form posts it ('' for the reset chip).
+ * Only the form's own chips post these, so anything else is a hand-made
+ * request: a 400 from the schema, not a message under a field.
+ */
+function choice(values: readonly (string | number)[]) {
+  return Type.Optional(
+    Type.Union([
+      Type.Literal(''),
+      ...values.map((value) => Type.Literal(String(value))),
+    ]),
+  );
+}
+
+export const FabricWeightUnit = Type.Union([
+  Type.Literal('oz'),
+  Type.Literal('gsm'),
+]);
+export type FabricWeightUnit = Static<typeof FabricWeightUnit>;
+
+/**
+ * The property fields as the form posts them; shared by the garment form's
+ * body and the properties fragment's query. A type is checked against the
+ * posted category in readProperties (it is a free choice of the category's
+ * list, which the schema cannot see).
+ */
+export const PropertyFields = {
+  type: Type.Optional(Type.String({ maxLength: 40 })),
+  warmth: choice(WARMTHS),
+  formality: choice(FORMALITIES),
+  materials: Type.Optional(
+    Type.Array(
+      Type.Union(MATERIALS.map((material) => Type.Literal(material))),
+      { maxItems: MATERIALS.length * 2 },
+    ),
+  ),
+  pattern: choice(PATTERNS),
+  fit: choice(FITS),
+  sleeve: choice(SLEEVES),
+  length: choice(LENGTHS),
+  fabricWeight: Type.Optional(Type.String({ maxLength: 12 })),
+  fabricWeightUnit: Type.Optional(FabricWeightUnit),
+  waterResistant: Type.Optional(Type.Literal('true')),
+  // Hidden: the category, type and weight (gsm) the shown presets came
+  // from, so a type change replaces only values still at their preset
+  // (applyPresets, src/wardrobe/properties.ts). Never stored.
+  presetCategory: Type.Optional(Type.String({ maxLength: CATEGORY_MAX })),
+  presetType: Type.Optional(Type.String({ maxLength: 40 })),
+  presetWeight: Type.Optional(Type.String({ maxLength: 12 })),
+};
+const PostedProperties = Type.Object(PropertyFields);
+type PostedProperties = Static<typeof PostedProperties>;
+
+/**
  * One garment form post (new, edit, clone). The form posts every text field,
  * '' when left empty; `color` is one value per checked box (none when no box
  * is checked; ajv's coerceTypes 'array' makes a single one a list).
@@ -49,6 +126,11 @@ export const GarmentBody = Type.Object({
   washingDetails: Type.Optional(Type.String({ maxLength: TEXT_MAX })),
   dateAquired: Type.Optional(Type.String({ maxLength: 32 })),
   notes: Type.Optional(Type.String({ maxLength: TEXT_MAX })),
+  ...PropertyFields,
+  // '1' from every form that renders the properties. A form the installed
+  // app cached before they existed posts none, and its save must leave the
+  // stored ones alone rather than clear them (an edit writes every field).
+  props: Type.Optional(Type.Literal('1')),
 });
 export type GarmentBody = Static<typeof GarmentBody>;
 
@@ -62,12 +144,68 @@ export interface GarmentFormValues {
   washingDetails: string;
   dateAquired: string;
   notes: string;
+  properties: PropertyFormValues;
 }
 
-export type GarmentField = 'category' | 'color' | 'dateAquired';
+/** The property fields as the form shows them (strings as posted). */
+export interface PropertyFormValues {
+  type: string;
+  warmth: string;
+  formality: string;
+  materials: string[];
+  pattern: string;
+  fit: string;
+  sleeve: string;
+  length: string;
+  /** As typed, in `fabricWeightUnit`. */
+  fabricWeight: string;
+  fabricWeightUnit: FabricWeightUnit;
+  waterResistant: boolean;
+  /** Where the shown presets came from (hidden fields; see PropertyFields). */
+  preset: { category: string; type: string; weight: string };
+}
 
-/** A garment's fields as stored: trimmed, null when blank. */
-export interface GarmentFields {
+export const BLANK_PROPERTIES: PropertyFormValues = {
+  type: '',
+  warmth: '',
+  formality: '',
+  materials: [],
+  pattern: '',
+  fit: '',
+  sleeve: '',
+  length: '',
+  fabricWeight: '',
+  fabricWeightUnit: 'oz',
+  waterResistant: false,
+  preset: { category: '', type: '', weight: '' },
+};
+
+export type GarmentField =
+  | 'category'
+  | 'color'
+  | 'dateAquired'
+  | 'fabricWeight';
+
+/** The properties as stored (null for not set, or not applying to the role). */
+export interface GarmentPropertyFields {
+  type: string | null;
+  warmth: Warmth | null;
+  formality: Formality | null;
+  materials: Material[] | null;
+  pattern: Pattern | null;
+  fit: Fit | null;
+  sleeve: Sleeve | null;
+  length: Length | null;
+  /** Grams per square metre. */
+  fabricWeight: number | null;
+  waterResistant: boolean;
+}
+
+/**
+ * A garment's fields as stored: trimmed, null when blank. The properties
+ * are absent (left as stored) when the posting form predates them.
+ */
+export interface GarmentFields extends Partial<GarmentPropertyFields> {
   name: string | null;
   category: string;
   brand: string | null;
@@ -103,7 +241,196 @@ export function formValues(body: GarmentBody): GarmentFormValues {
     washingDetails: body.washingDetails ?? '',
     dateAquired: body.dateAquired ?? '',
     notes: body.notes ?? '',
+    properties: propertyFormValues(body),
   };
+}
+
+/** The posted property fields as the form shows them. */
+export function propertyFormValues(
+  posted: PostedProperties,
+): PropertyFormValues {
+  return {
+    type: orEmpty(posted.type),
+    warmth: orEmpty(posted.warmth),
+    formality: orEmpty(posted.formality),
+    materials: posted.materials ?? [],
+    pattern: orEmpty(posted.pattern),
+    fit: orEmpty(posted.fit),
+    sleeve: orEmpty(posted.sleeve),
+    length: orEmpty(posted.length),
+    fabricWeight: orEmpty(posted.fabricWeight),
+    fabricWeightUnit: posted.fabricWeightUnit ?? 'oz',
+    waterResistant: posted.waterResistant === 'true',
+    preset: {
+      category: orEmpty(posted.presetCategory),
+      type: orEmpty(posted.presetType),
+      weight: orEmpty(posted.presetWeight),
+    },
+  };
+}
+
+/** A stored garment's properties as the form shows them (weight in oz). */
+export function storedPropertyValues(
+  stored: GarmentPropertyFields & { category: string },
+): PropertyFormValues {
+  return {
+    type: orEmpty(stored.type),
+    warmth: asText(stored.warmth),
+    formality: asText(stored.formality),
+    materials: stored.materials ?? [],
+    pattern: orEmpty(stored.pattern),
+    fit: orEmpty(stored.fit),
+    sleeve: orEmpty(stored.sleeve),
+    length: orEmpty(stored.length),
+    fabricWeight: asText(stored.fabricWeight, gsmToOz),
+    fabricWeightUnit: 'oz',
+    waterResistant: stored.waterResistant,
+    // The stored values that still equal the stored type's presets follow
+    // a type change; the rest were chosen.
+    preset: {
+      category: stored.category,
+      type: orEmpty(stored.type),
+      weight: asText(stored.fabricWeight),
+    },
+  };
+}
+
+/** A form field's text for an optional value: '' for none. */
+function orEmpty(value: string | null | undefined): string {
+  return value ?? '';
+}
+
+/** A number as a form field's text, through `show` (e.g. gsm to oz); '' for none. */
+function asText(
+  value: number | null,
+  show: (value: number) => number = (n) => n,
+): string {
+  return value === null ? '' : String(show(value));
+}
+
+/**
+ * A typed weight in grams per square metre: null when empty, a message
+ * when it is not a number or outside FABRIC_WEIGHT_GSM (named in the unit
+ * the person typed).
+ */
+export function readFabricWeight(
+  posted: string,
+  unit: FabricWeightUnit,
+): { gsm: number | null } | { error: string } {
+  const typed = posted.trim();
+  if (!typed) return { gsm: null };
+  const value = Number(typed.replace(',', '.'));
+  if (!Number.isFinite(value) || value <= 0) {
+    return { error: t('validation.FABRIC_WEIGHT_NUMBER') };
+  }
+  const gsm = unit === 'gsm' ? Math.round(value) : ozToGsm(value);
+  if (gsm < FABRIC_WEIGHT_GSM.min || gsm > FABRIC_WEIGHT_GSM.max) {
+    const [min, max] =
+      unit === 'gsm'
+        ? [FABRIC_WEIGHT_GSM.min, FABRIC_WEIGHT_GSM.max]
+        : [gsmToOz(FABRIC_WEIGHT_GSM.min), gsmToOz(FABRIC_WEIGHT_GSM.max)];
+    return {
+      error: t('validation.FABRIC_WEIGHT_RANGE', {
+        min,
+        max,
+        unit: t(unit === 'gsm' ? 'UNIT_GSM' : 'UNIT_OZ'),
+      }),
+    };
+  }
+  return { gsm };
+}
+
+/**
+ * The posted properties as stored for a garment of `category`: a type
+ * outside the category's list and every property its role does not have
+ * are null (so recategorising a tee as shorts drops its sleeve), and
+ * materials are a set, null for none. The weight is the only field a
+ * person types, so the only one with a message.
+ */
+export function readProperties(
+  values: PropertyFormValues,
+  category: string,
+): { ok: true; fields: GarmentPropertyFields } | { ok: false; error: string } {
+  const weight = readFabricWeight(values.fabricWeight, values.fabricWeightUnit);
+  if ('error' in weight) return { ok: false, error: weight.error };
+  /** `value` when the category's role has `property`, else not set. */
+  const only = <T>(property: GarmentProperty, value: T | null): T | null =>
+    propertyApplies(property, category) ? value : null;
+  // In MATERIALS order, each once; none is null, never an empty array.
+  const materials = MATERIALS.filter((m) => values.materials.includes(m));
+  return {
+    ok: true,
+    fields: {
+      type: findType(category, values.type)?.value ?? null,
+      warmth: only('warmth', pick(WARMTHS, values.warmth)),
+      formality: only('formality', pick(FORMALITIES, values.formality)),
+      materials: only('materials', materials.length > 0 ? materials : null),
+      pattern: only('pattern', pick(PATTERNS, values.pattern)),
+      fit: only('fit', pick(FITS, values.fit)),
+      sleeve: only('sleeve', pick(SLEEVES, values.sleeve)),
+      length: only('length', pick(LENGTHS, values.length)),
+      fabricWeight: only('fabricWeight', weight.gsm),
+      waterResistant: only('waterResistant', values.waterResistant) === true,
+    },
+  };
+}
+
+/**
+ * The form's properties after the category, type or weight changed (the
+ * properties fragment): a type outside the category is dropped, values
+ * still at the previous presets follow the new ones (applyPresets), and
+ * the hidden preset fields move to what the presets now come from. An
+ * unreadable weight counts as none here; the save names it.
+ */
+export function withPresets(
+  values: PropertyFormValues,
+  category: string,
+): PropertyFormValues {
+  const type = findType(category, values.type)?.value ?? null;
+  const weight = readFabricWeight(values.fabricWeight, values.fabricWeightUnit);
+  const gsm = 'gsm' in weight ? weight.gsm : null;
+  const next = applyPresets(
+    {
+      warmth: pick(WARMTHS, values.warmth),
+      formality: pick(FORMALITIES, values.formality),
+      sleeve: pick(SLEEVES, values.sleeve),
+      length: pick(LENGTHS, values.length),
+      waterResistant: values.waterResistant,
+    },
+    presetSource(values.preset),
+    { category, type, fabricWeight: gsm },
+  );
+  return {
+    ...values,
+    type: orEmpty(type),
+    warmth: asText(next.warmth),
+    formality: asText(next.formality),
+    sleeve: orEmpty(next.sleeve),
+    length: orEmpty(next.length),
+    waterResistant: next.waterResistant,
+    preset: { category, type: orEmpty(type), weight: asText(gsm) },
+  };
+}
+
+/** The hidden preset fields as applyPresets reads them; null before any. */
+function presetSource(
+  preset: PropertyFormValues['preset'],
+): PresetSource | null {
+  if (!preset.category) return null;
+  const gsm = Number(preset.weight);
+  return {
+    category: normalizeCategory(preset.category),
+    type: preset.type || null,
+    fabricWeight: preset.weight && Number.isInteger(gsm) ? gsm : null,
+  };
+}
+
+/** The member of `set` the form posted; '' (the reset chip) is none. */
+function pick<T extends string | number>(
+  set: readonly T[],
+  posted: string,
+): T | null {
+  return set.find((value) => String(value) === posted) ?? null;
 }
 
 /** The posted colours without repeats, and the messages for any not built in. */
@@ -131,18 +458,20 @@ export function readGarmentForm(body: GarmentBody): GarmentForm {
   const category = normalizeCategory(body.category);
   const colors = readColors(body.color);
   const acquiredOn = readDay(body.dateAquired);
-  if (!category || colors.errors.length > 0 || acquiredOn === undefined) {
-    const errors: FieldErrors<GarmentField> = {};
-    if (!category) errors.category = [t('validation.CATEGORY_REQUIRED')];
-    if (colors.errors.length > 0) errors.color = colors.errors;
-    if (acquiredOn === undefined) {
-      errors.dateAquired = [t('validation.INVALID_DATE')];
-    }
+  // Absent when the posting form predates properties (see GarmentBody.props).
+  const properties =
+    body.props === '1'
+      ? readProperties(propertyFormValues(body), category)
+      : undefined;
+  const errors = formErrors({ category, colors, acquiredOn, properties });
+  // (The date check repeats formErrors' to narrow acquiredOn for the store.)
+  if (Object.keys(errors).length > 0 || acquiredOn === undefined) {
     return { ok: false, values: formValues(body), errors };
   }
   return {
     ok: true,
     fields: {
+      ...(properties?.ok ? properties.fields : {}),
       name: line(body.name),
       category,
       brand: line(body.brand),
@@ -153,6 +482,25 @@ export function readGarmentForm(body: GarmentBody): GarmentForm {
       acquiredOn,
     },
   };
+}
+
+/** The messages for what a well-formed garment form can still get wrong. */
+function formErrors(read: {
+  category: string;
+  colors: { errors: string[] };
+  acquiredOn: IsoDate | null | undefined;
+  properties: ReturnType<typeof readProperties> | undefined;
+}): FieldErrors<GarmentField> {
+  const errors: FieldErrors<GarmentField> = {};
+  if (!read.category) errors.category = [t('validation.CATEGORY_REQUIRED')];
+  if (read.colors.errors.length > 0) errors.color = read.colors.errors;
+  if (read.acquiredOn === undefined) {
+    errors.dateAquired = [t('validation.INVALID_DATE')];
+  }
+  if (read.properties?.ok === false) {
+    errors.fabricWeight = [read.properties.error];
+  }
+  return errors;
 }
 
 /**
@@ -199,4 +547,14 @@ export const GarmentPageQuery = Type.Object({
   ...OwnerQuery.properties,
   created: Type.Optional(Type.String()),
   photoSaved: Type.Optional(Type.String()),
+});
+
+/**
+ * GET /wardrobe/properties-fragment: the form's category and property
+ * fields, as the category input, a type chip or the weight sends them
+ * (hx-include). Malformed values are a 400 like the form's own.
+ */
+export const PropertiesFragmentQuery = Type.Object({
+  category: Type.Optional(Type.String({ maxLength: CATEGORY_MAX })),
+  ...PropertyFields,
 });

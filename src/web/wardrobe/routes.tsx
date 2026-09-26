@@ -27,6 +27,7 @@ import {
 } from './garment';
 import { type GarmentFormMode, GarmentFormPage } from './garment-form';
 import { GarmentPage, GarmentPhotoView } from './garment-page';
+import { PropertiesFragment } from './property-fields';
 import {
   filterOptions,
   findGarment,
@@ -39,6 +40,7 @@ import {
 } from './queries';
 import { garmentUrl, wardrobeUrl } from './urls';
 import {
+  BLANK_PROPERTIES,
   GarmentBody,
   type GarmentField,
   type GarmentFormValues,
@@ -46,8 +48,12 @@ import {
   GarmentParams,
   GridQuery,
   OwnerQuery,
+  PropertiesFragmentQuery,
+  propertyFormValues,
   readGarmentForm,
+  storedPropertyValues,
   TilesQuery,
+  withPresets,
 } from './validation';
 import {
   GarmentTiles,
@@ -142,6 +148,7 @@ function storedValues(garment: GarmentDetail): GarmentFormValues {
     washingDetails: garment.washingDetails ?? '',
     dateAquired: garment.acquiredOn ?? '',
     notes: garment.notes ?? '',
+    properties: storedPropertyValues(garment),
   };
 }
 
@@ -300,7 +307,27 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         washingDetails: '',
         dateAquired: '',
         notes: '',
+        properties: BLANK_PROPERTIES,
       });
+    },
+  );
+
+  // The form's properties after its category, a type chip or the weight
+  // changed (src/web/wardrobe/property-fields.tsx): both blocks, the second
+  // out of band, with presets filled where the user has not chosen. Reads
+  // nothing and writes nothing (a POST only because it carries the form).
+  app.post(
+    '/wardrobe/properties-fragment',
+    { schema: { body: PropertiesFragmentQuery } },
+    (request, reply) => {
+      const category = normalizeCategory(request.body.category ?? '');
+      return renderFragment(
+        reply,
+        <PropertiesFragment
+          category={category}
+          values={withPresets(propertyFormValues(request.body), category)}
+        />,
+      );
     },
   );
 

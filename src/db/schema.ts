@@ -17,6 +17,24 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { CUTOUT_STATUSES } from '../cutout/state';
+import {
+  ALL_GARMENT_TYPES,
+  FABRIC_WEIGHT_GSM,
+  type Fit,
+  FITS,
+  type Formality,
+  FORMALITIES,
+  type Length,
+  LENGTHS,
+  type Material,
+  MATERIALS,
+  type Pattern,
+  PATTERNS,
+  type Sleeve,
+  SLEEVES,
+  type Warmth,
+  WARMTHS,
+} from '../wardrobe/properties';
 
 /**
  * The database schema, and the only source of migrations: edit it, run
@@ -34,6 +52,15 @@ import { CUTOUT_STATUSES } from '../cutout/state';
  * explicit index (or leads a composite one). Calendar days (a planned day,
  * an acquisition date) are `date` columns read as 'YYYY-MM-DD' strings.
  */
+
+/**
+ * A check constraint's list of literals, inlined (constraints take no
+ * parameters). Only for the code's own constant lists: the values are
+ * quoted, never escaped, so nothing a person typed may reach it.
+ */
+function sqlList(values: readonly string[]) {
+  return sql.raw(values.map((value) => `'${value}'`).join(', '));
+}
 
 export const user = pgTable(
   'user',
@@ -125,7 +152,7 @@ export const file = pgTable(
     index('file_created_by_id_index').on(table.createdById),
     check(
       'file_cutout_status_check',
-      sql`${table.cutoutStatus} in (${sql.raw(CUTOUT_STATUSES.map((status) => `'${status}'`).join(', '))})`,
+      sql`${table.cutoutStatus} in (${sqlList(CUTOUT_STATUSES)})`,
     ),
     uniqueIndex('file_shareable_id_unique').on(table.shareableId),
     foreignKey({
@@ -162,8 +189,57 @@ export const garment = pgTable(
     acquiredOn: date('acquired_on', { mode: 'string' }),
     washingDetails: text('washing_details'),
     archived: boolean('archived').default(false).notNull(),
+    // The properties (src/wardrobe/properties.ts, which owns every value
+    // set these checks list). All optional; a save stores null for one
+    // outside the garment's role, and a type only ever belongs to the
+    // garment's category (the code's rule: a type may appear under two).
+    type: text('type'),
+    warmth: smallint('warmth').$type<Warmth>(),
+    formality: smallint('formality').$type<Formality>(),
+    // A set, no repeats, null for none (never an empty array).
+    materials: text('materials').array().$type<Material[]>(),
+    pattern: text('pattern').$type<Pattern>(),
+    fit: text('fit').$type<Fit>(),
+    sleeve: text('sleeve').$type<Sleeve>(),
+    length: text('length').$type<Length>(),
+    // Grams per square metre; entered and shown in oz too.
+    fabricWeight: smallint('fabric_weight'),
+    waterResistant: boolean('water_resistant').default(false).notNull(),
   },
   (table) => [
+    check(
+      'garment_type_check',
+      sql`${table.type} in (${sqlList(ALL_GARMENT_TYPES)})`,
+    ),
+    check(
+      'garment_warmth_check',
+      sql`${table.warmth} in (${sql.raw(WARMTHS.join(', '))})`,
+    ),
+    check(
+      'garment_formality_check',
+      sql`${table.formality} in (${sql.raw(FORMALITIES.join(', '))})`,
+    ),
+    check(
+      'garment_materials_check',
+      sql`${table.materials} <@ array[${sqlList(MATERIALS)}]::text[] and cardinality(${table.materials}) > 0`,
+    ),
+    check(
+      'garment_pattern_check',
+      sql`${table.pattern} in (${sqlList(PATTERNS)})`,
+    ),
+    check('garment_fit_check', sql`${table.fit} in (${sqlList(FITS)})`),
+    check(
+      'garment_sleeve_check',
+      sql`${table.sleeve} in (${sqlList(SLEEVES)})`,
+    ),
+    check(
+      'garment_length_check',
+      sql`${table.length} in (${sqlList(LENGTHS)})`,
+    ),
+    check(
+      'garment_fabric_weight_check',
+      sql`${table.fabricWeight} between ${sql.raw(String(FABRIC_WEIGHT_GSM.min))} and ${sql.raw(String(FABRIC_WEIGHT_GSM.max))}`,
+    ),
     // The wardrobe grid's keyset pages: owner_id = ? AND archived = false
     // [AND id < cursor] ORDER BY id DESC LIMIT n, read in index order. Also
     // the index of the owner_id foreign key.

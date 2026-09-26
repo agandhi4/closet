@@ -55,3 +55,19 @@ export function t(key: StringKey, params: StringParams = {}): string {
 export function tHtml(key: StringKey, params: StringParams = {}): string {
   return interpolate(key, params, escapeHtml);
 }
+
+/**
+ * A string whose key is built at runtime: a value set's label
+ * (`property.warmth.3`, `property.type.t-shirt`; src/web/wardrobe/labels.ts).
+ * Throws on a key the catalog lacks, which labels.spec.ts rules out for
+ * every value of every set. Deliberately no fallback for stored values: a
+ * stored property is always in its check constraint's set (the migration
+ * that drops a value still held by a row fails at boot, before any request),
+ * so a miss here is a missing catalog string, a bug to surface, not data to
+ * render raw.
+ */
+export function tKey(key: string): string {
+  const template = STRINGS.get(key);
+  if (template === undefined) throw new Error(`No string for key '${key}'`);
+  return template;
+}

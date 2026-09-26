@@ -9,6 +9,7 @@ import { BackLink, HangerIcon } from '../layout/parts';
 import { ShareLinkButton } from '../share/share-button';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, splitColors } from './garment';
+import { fabricWeightLabel, valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
 import { garmentUrl, wardrobeUrl } from './urls';
 
@@ -239,6 +240,45 @@ function EditMaskButton(props: {
   );
 }
 
+/**
+ * The set properties as one row of chips ("Light · Casual · 6 oz · 203 gsm
+ * · Cotton · Short sleeve"); nothing when none is set.
+ */
+function PropertyChips({ garment }: { garment: GarmentDetail }) {
+  const words = (
+    [
+      ['formality', garment.formality],
+      ['pattern', garment.pattern],
+      ['fit', garment.fit],
+      ['sleeve', garment.sleeve],
+      ['length', garment.length],
+    ] as const
+  ).flatMap(([property, value]) =>
+    value === null ? [] : [valueLabel(property, value)],
+  );
+  const chips = [
+    ...(garment.warmth === null
+      ? []
+      : [`${t('PROPERTY_WARMTH')}: ${valueLabel('warmth', garment.warmth)}`]),
+    ...words,
+    ...(garment.fabricWeight === null
+      ? []
+      : [fabricWeightLabel(garment.fabricWeight)]),
+    ...(garment.materials ?? []).map((material) =>
+      valueLabel('materials', material),
+    ),
+    ...(garment.waterResistant ? [t('WATER_RESISTANT_YES')] : []),
+  ];
+  if (chips.length === 0) return null;
+  return (
+    <ul class="flex flex-wrap gap-2" aria-label={t('MORE_DETAILS')}>
+      {chips.map((chip) => (
+        <li class="badge badge-outline">{chip}</li>
+      ))}
+    </ul>
+  );
+}
+
 /** The fields: category always, the rest when set. */
 function GarmentDetails({ garment }: { garment: GarmentDetail }) {
   const colors = splitColors(garment.color);
@@ -246,10 +286,14 @@ function GarmentDetails({ garment }: { garment: GarmentDetail }) {
     <div class="card bg-base-100 shadow-sm mb-4">
       <div class="card-body gap-3">
         <Detail label={t('CATEGORY')}>
-          <span class="capitalize font-medium">
-            {categoryLabel(garment.category)}
+          <span class="font-medium">
+            {/* capitalize is for a custom category stored lower case; a
+                type's label is already written as it should read. */}
+            <span class="capitalize">{categoryLabel(garment.category)}</span>
+            {garment.type && ` · ${valueLabel('type', garment.type)}`}
           </span>
         </Detail>
+        <PropertyChips garment={garment} />
         {garment.brand && (
           <Detail label={t('BRAND')}>
             <span class="font-medium">{garment.brand}</span>

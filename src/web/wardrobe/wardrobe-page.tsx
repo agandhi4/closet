@@ -382,7 +382,7 @@ function FilterModal(props: {
         {viewOwner !== undefined && (
           <input type="hidden" name="ownerId" value={viewOwner} />
         )}
-        <FilterGroup title={t('GARMENT_TYPE')}>
+        <FilterGroup title={t('CATEGORY')}>
           {options.categories.map((category) => (
             <Choice
               name="category"

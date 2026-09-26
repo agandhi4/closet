@@ -6,7 +6,12 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { BackLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
-import { GARMENT_COLORS } from './garment';
+import { GARMENT_COLORS, normalizeCategory } from './garment';
+import {
+  PropertiesMain,
+  PropertiesMore,
+  REFRESH_PROPERTIES,
+} from './property-fields';
 import { garmentUrl, wardrobeUrl } from './urls';
 import {
   BRAND_MAX,
@@ -69,6 +74,9 @@ export function GarmentFormPage(props: {
       ? wardrobeUrl(viewOwner)
       : garmentUrl(mode.garmentId, viewOwner);
   const title = t(TITLES[mode.kind]);
+  const category = normalizeCategory(values.category);
+  // Opened by default only when something inside needs attention.
+  const moreOpen = errors.dateAquired !== undefined;
   return (
     <Layout ctx={ctx} title={title}>
       <Navbar ctx={ctx} />
@@ -100,6 +108,7 @@ export function GarmentFormPage(props: {
               required
               placeholder={t('TYPE_OR_SELECT_CATEGORY')}
               autocomplete="off"
+              {...REFRESH_PROPERTIES}
             />
             <datalist id="category-suggestions">
               {model.categories.map((category) => (
@@ -108,6 +117,12 @@ export function GarmentFormPage(props: {
             </datalist>
             <Messages messages={errors.category} />
           </div>
+          <PropertiesMain
+            category={category}
+            values={values.properties}
+            errors={errors.fabricWeight}
+          />
+          <ColorMultiSelect selected={values.colors} errors={errors.color} />
           <TextField
             name="brand"
             label={t('BRAND')}
@@ -115,7 +130,6 @@ export function GarmentFormPage(props: {
             maxlength={BRAND_MAX}
             placeholder={t('BRAND_PLACEHOLDER')}
           />
-          <ColorMultiSelect selected={values.colors} errors={errors.color} />
           <TextField
             name="size"
             label={t('SIZE')}
@@ -123,31 +137,39 @@ export function GarmentFormPage(props: {
             maxlength={SIZE_MAX}
             placeholder={t('SIZE_PLACEHOLDER')}
           />
-          <TextArea
-            name="washingDetails"
-            label={t('WASHING_DETAILS')}
-            value={values.washingDetails}
-            placeholder={t('WASHING_DETAILS_PLACEHOLDER')}
-          />
-          <div class="flex flex-col">
-            <label class="label" for="garment-acquired">
-              <span class="label-text">{t('DATE_ACQUIRED')}</span>
-            </label>
-            <input
-              id="garment-acquired"
-              type="date"
-              name="dateAquired"
-              class={`input input-bordered w-full ${errors.dateAquired ? 'input-error' : ''}`}
-              value={values.dateAquired}
-            />
-            <Messages messages={errors.dateAquired} />
-          </div>
-          <TextArea
-            name="notes"
-            label={t('NOTES')}
-            value={values.notes}
-            placeholder={t('NOTES_PLACEHOLDER')}
-          />
+          <details class="collapse collapse-arrow bg-base-200" open={moreOpen}>
+            <summary class="collapse-title font-medium">
+              {t('MORE_DETAILS')}
+            </summary>
+            <div class="collapse-content flex flex-col gap-4">
+              <PropertiesMore category={category} values={values.properties} />
+              <TextArea
+                name="washingDetails"
+                label={t('WASHING_DETAILS')}
+                value={values.washingDetails}
+                placeholder={t('WASHING_DETAILS_PLACEHOLDER')}
+              />
+              <div class="flex flex-col">
+                <label class="label" for="garment-acquired">
+                  <span class="label-text">{t('DATE_ACQUIRED')}</span>
+                </label>
+                <input
+                  id="garment-acquired"
+                  type="date"
+                  name="dateAquired"
+                  class={`input input-bordered w-full ${errors.dateAquired ? 'input-error' : ''}`}
+                  value={values.dateAquired}
+                />
+                <Messages messages={errors.dateAquired} />
+              </div>
+              <TextArea
+                name="notes"
+                label={t('NOTES')}
+                value={values.notes}
+                placeholder={t('NOTES_PLACEHOLDER')}
+              />
+            </div>
+          </details>
           <div class="flex gap-2 mt-2">
             <a href={back} class="btn btn-ghost flex-1">
               {t('CANCEL')}

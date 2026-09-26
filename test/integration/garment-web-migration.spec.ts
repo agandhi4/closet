@@ -248,6 +248,17 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       shareable_id: 'character varying',
       size: 'text',
       washing_details: 'text',
+      // Added by 0007_garment_properties (the migrations run to the latest).
+      type: 'text',
+      warmth: 'smallint',
+      formality: 'smallint',
+      materials: 'ARRAY',
+      pattern: 'text',
+      fit: 'text',
+      sleeve: 'text',
+      length: 'text',
+      fabric_weight: 'smallint',
+      water_resistant: 'boolean',
     });
     expect(Object.keys(await columnsOf(env, 'user')).sort()).toEqual([
       'email',

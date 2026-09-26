@@ -1,3 +1,4 @@
+import { GarmentCategory, isBuiltInCategory } from '../../wardrobe/properties';
 import { t, type StringKey } from '../i18n';
 
 /**
@@ -5,18 +6,6 @@ import { t, type StringKey } from '../i18n';
  * wardrobe (src/web/wardrobe) and the outfit builder (src/web/outfits).
  * Pure: no database, no request.
  */
-
-/** The built-in categories, in the order pages list them. Others are free text. */
-export enum GarmentCategory {
-  ACCESSORIES = 'accessories',
-  BAGS = 'bags',
-  OUTERWEAR = 'outerwear',
-  DRESSES = 'dresses',
-  TOPS = 'tops',
-  BOTTOMS = 'bottoms',
-  FOOTWEAR = 'footwear',
-  OTHER = 'other',
-}
 
 /**
  * The only colours a garment may carry (the form validates them on the
@@ -69,10 +58,6 @@ const CATEGORY_LABELS: Record<GarmentCategory, StringKey> = {
 
 const ENUM_ORDER: string[] = Object.values(GarmentCategory);
 
-function isKnownCategory(value: string): value is GarmentCategory {
-  return ENUM_ORDER.includes(value);
-}
-
 /** A category as stored: trimmed and lower case, so "Tops" and "tops " are one. */
 export function normalizeCategory(value: string): string {
   return value.trim().toLowerCase();
@@ -81,7 +66,7 @@ export function normalizeCategory(value: string): string {
 /** The built-in categories' translated names; a custom category is its own label. */
 export function categoryLabel(category: string): string {
   const normalized = category.toLowerCase();
-  return isKnownCategory(normalized)
+  return isBuiltInCategory(normalized)
     ? t(CATEGORY_LABELS[normalized])
     : category;
 }
@@ -90,7 +75,7 @@ export function categoryLabel(category: string): string {
 export function orderCategories(categories: string[]): string[] {
   return [
     ...ENUM_ORDER.filter((category) => categories.includes(category)),
-    ...categories.filter((category) => !isKnownCategory(category)).sort(),
+    ...categories.filter((category) => !isBuiltInCategory(category)).sort(),
   ];
 }
 
