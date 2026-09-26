@@ -1,6 +1,7 @@
 /**
  * Installed-app plumbing, loaded by the layout when PWA_ENABLED: service
- * worker registration and the update flow, Web Push on signed-in pages
+ * worker registration and the update flow, the freshness indicator of pages
+ * served from the worker's cache (freshness.js), Web Push on signed-in pages
  * (push.js), the install dialog in a browser tab that can install the app,
  * and pull to refresh for iOS standalone (which has none of its own). Lives
  * in the head so hx-boost body swaps never re-run it; anything that touches
@@ -17,6 +18,7 @@
  */
 import { Workbox } from 'workbox-window';
 import { showToast } from 'toast';
+import { watchFreshness } from 'freshness';
 
 const strings = () => document.getElementById('app-status')?.dataset ?? {};
 
@@ -129,7 +131,10 @@ const standalone =
   window.navigator.standalone === true ||
   window.matchMedia('(display-mode: standalone)').matches;
 
-if ('serviceWorker' in navigator) registerServiceWorker();
+if ('serviceWorker' in navigator) {
+  registerServiceWorker();
+  watchFreshness();
+}
 // Also without a service worker (an http: origin): the profile page then
 // says this browser cannot receive notifications.
 if (document.documentElement.hasAttribute('data-signed-in')) startPush();

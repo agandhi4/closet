@@ -49,6 +49,13 @@ export function Navbar({ ctx }: { ctx: ViewContext }) {
               </div>
             </div>
           </a>
+          {/* "Updated 3 minutes ago" while the page on screen is a cached
+              copy a minute old or more (public/js/freshness.js); in the bar,
+              so it never covers or moves the content. */}
+          <span
+            id="freshness"
+            class="hidden min-w-0 truncate pt-1 text-xs text-base-content/60"
+          ></span>
           <div class="hidden flex-none ml-auto lg:block pt-1">
             <ul class="menu menu-horizontal">
               <AccountLinks ctx={ctx} />

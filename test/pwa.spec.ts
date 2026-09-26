@@ -1,12 +1,14 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import sharp from 'sharp';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { cachedPaths, waitForServiceWorker } from './support/service-worker';
 
 /**
  * What only a browser can show about the installed app: the service worker
  * serves the shell from cache, the app still renders offline with the
  * connectivity banner, and no page ever fetches a background-removal model
- * or WASM (the server removes backgrounds).
+ * or WASM (the server removes backgrounds). test/stale-pages.spec.ts covers
+ * the tab roots' stale-while-revalidate and the freshness indicator.
  *
  * Needs a server started with PWA_ENABLED=true (and VAPID keys); Chromium
  * only, the one Playwright engine with usable service worker support.
@@ -27,14 +29,6 @@ test.describe('installed app delivery', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, 'pwa-test');
   });
-
-  async function waitForServiceWorker(page: Page) {
-    await page.goto('/wardrobe');
-    await page.evaluate(() => navigator.serviceWorker.ready);
-    // A freshly registered worker precaches in the background; wait until it
-    // controls the page so the next navigation goes through it.
-    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
-  }
 
   test('serves the stylesheet from cache on the second load', async ({
     page,
@@ -64,8 +58,8 @@ test.describe('installed app delivery', () => {
     context,
   }) => {
     await waitForServiceWorker(page);
-    // The wardrobe page itself is NetworkFirst; visit it through the worker
-    // once so a copy is in pages-v1.
+    // Visit the wardrobe through the worker once so a copy is in its page
+    // cache.
     await page.goto('/wardrobe');
     await expect(page.locator('#connectivity-banner')).toBeHidden();
 
@@ -104,7 +98,8 @@ test.describe('installed app delivery', () => {
     ).toBeVisible();
 
     await context.setOffline(true);
-    // Visited above, so pages-v1 has it: the failed preload falls back to it.
+    // Visited above, so the page cache has it: served from there while the
+    // preload fails behind it.
     await page.goto('/outfits');
     await expect(
       page.getByRole('heading', { level: 1, name: 'Outfits' }),
@@ -147,14 +142,7 @@ test.describe('installed app delivery', () => {
   test('signing out drops the cached pages', async ({ page }) => {
     await waitForServiceWorker(page);
     await page.goto('/wardrobe');
-    const cachedPages = () =>
-      page.evaluate(async () => {
-        const cache = await caches.open('pages-v1');
-        return (await cache.keys()).map(
-          (request) => new URL(request.url).pathname,
-        );
-      });
-    expect(await cachedPages()).toContain('/wardrobe');
+    expect(await cachedPaths(page)).toContain('/wardrobe');
 
     await page
       .getByRole('button', { name: 'Logout' })
@@ -162,7 +150,7 @@ test.describe('installed app delivery', () => {
       .click();
     await expect(page).toHaveURL(/\/auth\/login$/);
     await expect
-      .poll(async () => (await cachedPages()).includes('/wardrobe'))
+      .poll(async () => (await cachedPaths(page)).includes('/wardrobe'))
       .toBe(false);
   });
 

@@ -1,4 +1,8 @@
-import { clientsClaim } from 'workbox-core';
+import { clientsClaim, copyResponse } from 'workbox-core';
+import type {
+  RouteHandlerCallbackOptions,
+  WorkboxPlugin,
+} from 'workbox-core/types';
 import * as navigationPreload from 'workbox-navigation-preload';
 import { precacheAndRoute } from 'workbox-precaching';
 import { warmStrategyCache } from 'workbox-recipes';
@@ -9,8 +13,19 @@ import {
   CacheFirst,
   NetworkFirst,
   StaleWhileRevalidate,
+  Strategy,
+  StrategyHandler,
 } from 'workbox-strategies';
 import { pageCacheKey } from '../../src/htmx/fragment-request';
+import {
+  CACHED_AT_HEADER,
+  cachedAt,
+  type FreshPage,
+  pageAccount,
+  type Revalidation,
+  revalidationOutcome,
+  servesStaleWhileRevalidate,
+} from '../../src/web/page-cache';
 import {
   notificationTarget,
   parsePushPayload,
@@ -18,21 +33,30 @@ import {
 } from '../../src/web/push/payload';
 
 /**
- * Caching model (public/js/pwa.js is the page side):
+ * Caching model (public/js/pwa.js and public/js/freshness.js are the page
+ * side):
  *  - App shell files under public/ are precached by content hash
  *    (workbox-config.js), so a repeat visit paints from cache.
- *  - Pages and htmx fragments are NetworkFirst with a short timeout: fresh
- *    when the server is quick, the last copy when it is not, /offline.html
- *    when there is none. Fragments are keyed apart from pages. Navigations
- *    use the navigation preload response, so the request is already on the
- *    wire while a cold worker boots.
+ *  - The tab roots (/wardrobe, /outfits, /calendar) opened as a document are
+ *    stale-while-revalidate: the cached copy at once, the server's behind
+ *    it. The page asks what it was given (PAGE_FRESHNESS), says how old it
+ *    is, and swaps in or offers the server's copy when it differs.
+ *  - Every other page and every htmx request is NetworkFirst with a short
+ *    timeout: fresh when the server is quick, the last copy (stamped, so the
+ *    page can say how old it is) when it is not, /offline.html when there is
+ *    none. Fragments are keyed apart from pages. Navigations use the
+ *    navigation preload response, so the request is already on the wire
+ *    while a cold worker boots.
+ *  - The page cache holds one account's pages (src/web/page-cache.ts): it is
+ *    dropped when a session starts or ends here, and when a page rendered
+ *    for another account arrives.
+ *  - Versioned scripts and styles are StaleWhileRevalidate; garment images
+ *    are CacheFirst so recently viewed items render offline.
+ *  - Anything unmatched (other POSTs, /healthz) goes straight to the network.
  *
  * Built by `npm run generate:sw` with NODE_ENV=production, which strips
  * Workbox's development logging and assertions; the console.* calls here are
  * the worker's only logs.
- *  - Versioned scripts and styles are StaleWhileRevalidate; garment images
- *    are CacheFirst so recently viewed items render offline.
- *  - Anything unmatched (POSTs, /healthz) goes straight to the network.
  */
 
 declare const self: ServiceWorkerGlobalScope;
@@ -46,15 +70,18 @@ clientsClaim();
 // https://developer.chrome.com/docs/workbox/modules/workbox-navigation-preload
 // The browser starts a navigation's request in parallel with booting the
 // worker (iOS and Android stop idle workers within seconds, so most cold
-// opens boot one). NetworkFirst's fetch answers a navigation with
-// event.preloadResponse when there is one, keeping the 3 s timeout, the
-// cache write and the offline fallback. Only the `pages` route handles GET
+// opens boot one). Both page strategies fetch through StrategyHandler.fetch,
+// which answers a navigation with event.preloadResponse when there is one:
+// NetworkFirst keeps its 3 s timeout, cache write and offline fallback, and
+// a tab root revalidates with it. Only those two routes handle GET
 // navigations, so every preload is consumed.
 navigationPreload.enable();
 
 const DAY = 60 * 60 * 24;
 const FALLBACK_HTML_URL = '/offline.html';
-const PAGES_CACHE = 'pages-v1';
+// v2 since 2026-09-26: copies are stamped and owned (pageStore below);
+// pages-v1 held neither and is retired on activate.
+const PAGES_CACHE = 'pages-v2';
 
 // Static URLs carry `?v=<build>` (src/web/layout/layout.tsx); the precache is already keyed
 // by content hash, so the query must not stop a precached file matching.
@@ -62,60 +89,252 @@ precacheAndRoute(self.__WB_MANIFEST, {
   ignoreURLParametersMatching: [/^utm_/, /^fbclid$/, /^v$/],
 });
 
-// Pages and htmx fragments. The key plugin keeps a fragment (`|hx`) from
-// ever answering a navigation for the same URL, and the other way round.
-const pages = new NetworkFirst({
-  cacheName: PAGES_CACHE,
-  networkTimeoutSeconds: 3,
-  plugins: [
-    {
-      cacheKeyWillBeUsed: async ({ request }) =>
-        pageCacheKey(request.url, request.headers),
-    },
-    new CacheableResponsePlugin({ statuses: [200] }),
-    new ExpirationPlugin({ maxEntries: 50, purgeOnQuotaError: true }),
-  ],
-});
-const isPageRequest = ({ request }: { request: Request }) =>
-  request.mode === 'navigate' || request.headers.get('HX-Request') === 'true';
+// Bookkeeping kept inside the pages cache, so dropping the cache drops it
+// too. Off-origin keys: no page request can ever match one.
+const OWNER_KEY = 'https://page-cache.invalid/owner';
+const ACTIVATED_AT_KEY = 'https://page-cache.invalid/activated-at';
 
-// Signing out (POST /auth/logout) and deleting the account (POST
-// /auth/delete-account) end a session: once the server has answered with
-// its redirect, the pages cached for that user must not answer the next
-// person on this device, offline or on a slow network. The server also
-// sends Clear-Site-Data: "cache", which not every browser applies to Cache
-// Storage. The offline page is re-warmed, now rendered signed out.
-// Registered before the page route: the first matching route wins.
-const SESSION_ENDING_PATHS = new Set(['/auth/logout', '/auth/delete-account']);
+async function readRecord(key: string): Promise<string | undefined> {
+  const cache = await self.caches.open(PAGES_CACHE);
+  return (await cache.match(key))?.text();
+}
 
-async function rewarmOfflinePage(): Promise<void> {
+async function writeRecord(key: string, value: string): Promise<void> {
+  const cache = await self.caches.open(PAGES_CACHE);
+  await cache.put(key, new Response(value));
+}
+
+interface RevalidationResult {
+  outcome: Revalidation;
+  /** When the server's answer arrived (epoch ms). */
+  fetchedAt: number;
+  /** The server's page, when it differs from the cached copy. */
+  html?: string;
+}
+
+interface ServedFromCache {
+  cachedAt: number;
+  /** A tab root's revalidation; NetworkFirst fallbacks have none. */
+  revalidation?: Promise<RevalidationResult>;
+}
+
+// The documents this worker answered from its cache, by URL, for the page's
+// question (PAGE_FRESHNESS below). A page asks as soon as its script runs,
+// so a short list is plenty; a document the network answered has no entry
+// and is told it is fresh. htmx requests read the stamp from their own
+// response instead.
+const SERVED_PAGES_KEPT = 20;
+const servedPages = new Map<string, ServedFromCache>();
+
+function noteServed(url: string, served: ServedFromCache | undefined): void {
+  servedPages.delete(url);
+  if (!served) return;
+  servedPages.set(url, served);
+  const oldest = servedPages.keys().next().value;
+  if (servedPages.size > SERVED_PAGES_KEPT && oldest !== undefined) {
+    servedPages.delete(oldest);
+  }
+}
+
+/**
+ * Empties the page cache, whoever's pages it held, and warms the offline
+ * page again for whoever is signed in now (it is a rendered view, with the
+ * signed-in chrome).
+ */
+async function dropPages(
+  event: ExtendableEvent,
+  reason: string,
+): Promise<void> {
+  // servedPages stays: a page served a moment ago may not have asked yet,
+  // and its answer (the revalidation) is what makes it reload.
+  await self.caches.delete(PAGES_CACHE);
+  console.info(`[sw] ${reason}: cached pages dropped`);
+  event.waitUntil(rewarmOfflinePage(event));
+}
+
+async function rewarmOfflinePage(event: ExtendableEvent): Promise<void> {
   try {
-    const cache = await self.caches.open(PAGES_CACHE);
-    await cache.add(FALLBACK_HTML_URL);
+    await Promise.all(
+      pages.handleAll({ event, request: new Request(FALLBACK_HTML_URL) }),
+    );
   } catch (error) {
     console.warn('[sw] could not re-warm the offline page', error);
   }
 }
 
-const endsSession = ({ url }: { url: URL }) =>
-  url.origin === self.location.origin && SESSION_ENDING_PATHS.has(url.pathname);
+/**
+ * The cache holds one account's pages. The worker cannot read the httpOnly
+ * session cookie, so it learns the account from each page it stores
+ * (X-Page-Account, set by the server on every HTML answer). A page for
+ * another account, from a sign-in this worker never saw, empties the cache
+ * before it is written. With the drops when a session starts or ends
+ * (sessionBoundaryHandler), a cached page is only ever served to the session
+ * it was rendered for.
+ */
+async function claimPageCache(
+  account: string,
+  event: ExtendableEvent,
+): Promise<void> {
+  const owner = await readRecord(OWNER_KEY);
+  if (owner === account) return;
+  if (owner !== undefined) {
+    await dropPages(event, 'a page for another account arrived');
+  }
+  await writeRecord(OWNER_KEY, account);
+}
 
-const endSessionHandler = async ({
+// Every page either strategy stores, after the 200 filter: owner-checked and
+// stamped with when it arrived. A followed redirect is not stored under the
+// URL that redirected: the body is another page's.
+const pageStore: WorkboxPlugin = {
+  cacheWillUpdate: async ({ response, event }) => {
+    if (response.redirected) return null;
+    await claimPageCache(pageAccount(response.headers), event);
+    return copyResponse(response, (init) => {
+      const headers = new Headers(init.headers);
+      headers.set(CACHED_AT_HEADER, String(Date.now()));
+      return { ...init, headers };
+    });
+  },
+};
+
+// A document NetworkFirst answered from its cache (the network timed out or
+// failed) is noted for the page's question; one from the network clears the
+// note.
+const noteNavigations: WorkboxPlugin = {
+  handlerWillRespond: async ({ request, response }) => {
+    if (request.mode === 'navigate') {
+      const stamp = cachedAt(response.headers);
+      noteServed(request.url, stamp ? { cachedAt: stamp } : undefined);
+    }
+    return response;
+  },
+};
+
+// Shared by both page strategies, which share the cache: the key rule (a
+// fragment `|hx` never answers a page and the other way round), the store
+// rules and one expiration.
+const pagePlugins: WorkboxPlugin[] = [
+  {
+    cacheKeyWillBeUsed: async ({ request }) =>
+      pageCacheKey(request.url, request.headers),
+  },
+  new CacheableResponsePlugin({ statuses: [200] }),
+  pageStore,
+  new ExpirationPlugin({ maxEntries: 50, purgeOnQuotaError: true }),
+];
+
+const pages = new NetworkFirst({
+  cacheName: PAGES_CACHE,
+  networkTimeoutSeconds: 3,
+  plugins: [...pagePlugins, noteNavigations],
+});
+
+/**
+ * Fetches the server's copy of a cached page, stores it and compares it with
+ * the cached one. The outcome is only told once the cache holds the new copy
+ * (or has been dropped), so a page that reloads on it finds that.
+ */
+async function revalidate(
+  handler: StrategyHandler,
+  request: Request,
+  cached: Response,
+): Promise<RevalidationResult> {
+  const path = new URL(request.url).pathname;
+  let fresh: FreshPage | undefined;
+  try {
+    const response = await handler.fetch(request);
+    await handler.cachePut(request, response.clone());
+    fresh = {
+      status: response.status,
+      redirected: response.type === 'opaqueredirect' || response.redirected,
+      account: pageAccount(response.headers),
+      body: response.status === 200 ? await response.text() : '',
+    };
+  } catch (error) {
+    console.warn(`[sw] could not revalidate ${path}`, error);
+  }
+  const outcome = revalidationOutcome(
+    { account: pageAccount(cached.headers), body: await cached.text() },
+    fresh,
+  );
+  if (outcome === 'signed-out' || outcome === 'account-changed') {
+    await dropPages(handler.event, `${path} revalidated ${outcome}`);
+  }
+  if (outcome !== 'current') {
+    console.info(`[sw] ${path} revalidated: ${outcome}`);
+  }
+  return {
+    outcome,
+    fetchedAt: Date.now(),
+    html: outcome === 'updated' ? fresh?.body : undefined,
+  };
+}
+
+/**
+ * The tab roots on a document load (servesStaleWhileRevalidate): the cached
+ * copy at once and the server's behind it, through the navigation preload.
+ * Without a copy it is NetworkFirst. So is a copy stored before this worker
+ * activated: an older build rendered it, and its <head> (the importmap, the
+ * asset URLs) must not meet this build's precached scripts.
+ */
+class StaleTabRoot extends Strategy {
+  protected async _handle(
+    request: Request,
+    handler: StrategyHandler,
+  ): Promise<Response> {
+    const cached = await handler.cacheMatch(request);
+    const stamp = cached ? cachedAt(cached.headers) : 0;
+    const activatedAt = Number((await readRecord(ACTIVATED_AT_KEY)) ?? 0);
+    if (!cached || stamp <= activatedAt) {
+      return pages.handle({ event: handler.event, request });
+    }
+    const revalidation = revalidate(handler, request, cached.clone());
+    void handler.waitUntil(revalidation);
+    noteServed(request.url, { cachedAt: stamp, revalidation });
+    const ageSeconds = Math.round((Date.now() - stamp) / 1000);
+    console.info(
+      `[sw] ${new URL(request.url).pathname} opened from the cache (${ageSeconds} s old)`,
+    );
+    return cached;
+  }
+}
+
+const tabRoots = new StaleTabRoot({
+  cacheName: PAGES_CACHE,
+  plugins: pagePlugins,
+});
+
+const isPageRequest = ({ request }: { request: Request }) =>
+  request.mode === 'navigate' || request.headers.get('HX-Request') === 'true';
+
+// Signing in (POST /auth/login, /auth/register) and out (POST /auth/logout,
+// /auth/delete-account) change whose pages this device may show: once the
+// server has answered with its redirect, the cached pages go, so no session
+// is ever served the previous one's, online or off. The server also sends
+// Clear-Site-Data: "cache" on sign-out, which not every browser applies to
+// Cache Storage. Registered before the page routes: the first match wins.
+const SESSION_STARTS = new Set(['/auth/login', '/auth/register']);
+const SESSION_ENDS = new Set(['/auth/logout', '/auth/delete-account']);
+
+const isSessionBoundary = ({ url }: { url: URL }) =>
+  url.origin === self.location.origin &&
+  (SESSION_STARTS.has(url.pathname) || SESSION_ENDS.has(url.pathname));
+
+const sessionBoundaryHandler = async ({
   request,
+  url,
   event,
-}: {
-  request: Request;
-  event: ExtendableEvent;
-}) => {
+}: RouteHandlerCallbackOptions) => {
   const response = await fetch(request);
-  // A redirect means the session ended (a navigation sees it as an opaque
-  // redirect, htmx's XHR as a followed one); a refused deletion is a 401 page.
-  // Deleted before answering, so the redirect's next page cannot race it.
+  // A redirect means the session changed (a navigation sees it as an opaque
+  // redirect, htmx's XHR as a followed one); a refusal (a wrong password, a
+  // taken email) re-renders the form with a 4xx and changes nothing.
+  // Dropped before answering, so the redirect's next page cannot race it.
   if (response.type === 'opaqueredirect' || response.redirected) {
-    console.info('[sw] session ended, dropping cached pages');
-    await self.caches.delete(PAGES_CACHE);
-    event.waitUntil(rewarmOfflinePage());
-    event.waitUntil(dropPushSubscription());
+    const ends = SESSION_ENDS.has(url.pathname);
+    await dropPages(event, ends ? 'session ended' : 'session started');
+    if (ends) event.waitUntil(dropPushSubscription());
   }
   return response;
 };
@@ -137,9 +356,13 @@ async function dropPushSubscription(): Promise<void> {
 }
 
 // POST only: GET /auth/logout is the confirmation page old cached pages
-// link to, which ends nothing.
-registerRoute(endsSession, endSessionHandler, 'POST');
+// link to, and GET /auth/login the form; neither changes a session.
+registerRoute(isSessionBoundary, sessionBoundaryHandler, 'POST');
 
+registerRoute(
+  ({ request }) => servesStaleWhileRevalidate(request, self.location.origin),
+  tabRoots,
+);
 registerRoute(isPageRequest, pages);
 
 // First-party scripts and styles are `?v=`-versioned and served immutable by
@@ -180,18 +403,23 @@ registerRoute(
   }),
 );
 
-// The in-browser background-removal model's caches (its runtime and ~42 MB
-// of model and WASM), filled by workers before 2026-09-26, when the server
-// took over background removal. Nothing reads them any more.
+// Caches nothing reads any more: the in-browser background-removal model's
+// (its runtime and ~42 MB of model and WASM, filled by workers before
+// 2026-09-26, when the server took over background removal), and pages-v1
+// (unstamped, unowned pages; see PAGES_CACHE).
 const RETIRED_CACHES = [
   'bg-removal-models',
   'bg-removal-models-v2',
   'bg-removal-runtime-modules-v1',
+  'pages-v1',
 ];
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
+      // StaleTabRoot serves stale-first only what this build's worker
+      // stored after this moment.
+      await writeRecord(ACTIVATED_AT_KEY, String(Date.now()));
       const deleted = await Promise.all(
         RETIRED_CACHES.map((name) => self.caches.delete(name)),
       );
@@ -221,14 +449,85 @@ setCatchHandler(async ({ request }) => {
   return Response.error();
 });
 
+/**
+ * PAGE_FRESHNESS: a document asks how it was served. Answers `fresh`, or
+ * `cached` with the stamp and then, for a tab root, `revalidated` with the
+ * outcome (and the server's page when it differs).
+ */
+async function answerFreshness(url: string, port: MessagePort): Promise<void> {
+  const served = servedPages.get(url);
+  servedPages.delete(url);
+  if (!served) {
+    port.postMessage({ state: 'fresh' });
+    return;
+  }
+  port.postMessage({
+    state: 'cached',
+    cachedAt: served.cachedAt,
+    revalidating: served.revalidation !== undefined,
+  });
+  if (served.revalidation) {
+    port.postMessage({ state: 'revalidated', ...(await served.revalidation) });
+  }
+}
+
+// URL.canParse is Safari 17+; the installed app still meets iOS 16.
+function isOwnUrl(value: string): boolean {
+  try {
+    return new URL(value).origin === self.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * REVALIDATE_PAGE: a page showing a cached copy is back online (frontend-
+ * pwa.md: refetch on reconnect) and asks for the server's, compared with the
+ * cached copy like a tab root's revalidation.
+ */
+async function revalidateForPage(
+  event: ExtendableMessageEvent,
+  url: string,
+  port: MessagePort,
+): Promise<void> {
+  if (!isOwnUrl(url)) {
+    console.warn('[sw] REVALIDATE_PAGE for another origin, ignored');
+    return;
+  }
+  const request = new Request(url);
+  // A strategy's handler outside a fetch event: it applies the page cache's
+  // plugins (key, store rules) and holds the event open until destroyed.
+  const handler = new StrategyHandler(tabRoots, { event, request });
+  try {
+    const cached = await handler.cacheMatch(request);
+    const result: RevalidationResult = cached
+      ? await revalidate(handler, request, cached)
+      : { outcome: 'failed', fetchedAt: Date.now() };
+    port.postMessage({ state: 'revalidated', ...result });
+  } finally {
+    await handler.doneWaiting().catch((error: unknown) => {
+      console.warn('[sw] revalidation cleanup failed', error);
+    });
+    handler.destroy();
+  }
+}
+
 // Update flow: pwa.js shows a toast when a new worker is waiting and sends
-// this message when the user taps Reload. No skipWaiting() on install: a
+// SKIP_WAITING when the user taps Reload. No skipWaiting() on install: a
 // worker that seizes control mid-session leaves pages holding stale asset
 // URLs, which is the black-screen bug the old hard-navigate hack papered over.
+// The page questions come from public/js/freshness.js, each with a
+// MessagePort for the answers.
 self.addEventListener('message', (event) => {
-  if (event.data?.type === 'SKIP_WAITING') {
+  const type: unknown = event.data?.type;
+  const [port] = event.ports;
+  if (type === 'SKIP_WAITING') {
     console.log('[sw] SKIP_WAITING received');
     void self.skipWaiting();
+  } else if (type === 'PAGE_FRESHNESS' && port) {
+    event.waitUntil(answerFreshness(String(event.data.url), port));
+  } else if (type === 'REVALIDATE_PAGE' && port) {
+    event.waitUntil(revalidateForPage(event, String(event.data.url), port));
   }
 });
 

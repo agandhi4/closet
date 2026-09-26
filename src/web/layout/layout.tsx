@@ -42,6 +42,8 @@ function importMap(version: string) {
       'photo-input': `/js/photo-input.js${v}`,
       'outfit-builder': `/js/outfit-builder.js${v}`,
       push: `/js/push.js${v}`,
+      freshness: `/js/freshness.js${v}`,
+      'age-label': `/js/age-label.js${v}`,
     },
   };
 }

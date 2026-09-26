@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { JSX } from 'hono/jsx/jsx-runtime';
 import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
+import { PAGE_ACCOUNT_HEADER } from './page-cache';
 
 const HTML = 'text/html; charset=utf-8';
 
@@ -89,5 +90,9 @@ function send(
   if (reply.sent) {
     throw new Error(`${reply.request.url}: reply already sent`);
   }
+  // Whose page this is, for the service worker's page cache
+  // (src/web/page-cache.ts): it keeps one account's pages at a time.
+  const { auth } = reply.request;
+  if (auth) reply.header(PAGE_ACCOUNT_HEADER, String(auth.user.id));
   return reply.status(status).type(HTML).send(html);
 }

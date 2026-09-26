@@ -244,4 +244,64 @@ describe('delivery (PWA_ENABLED=true)', () => {
       );
     });
   });
+
+  // What the service worker's page cache relies on (src/web/page-cache.ts).
+  describe('the page cache contract', () => {
+    it('names the account on every HTML answer of a session', async () => {
+      const page = await t.inject({ method: 'GET', url: '/outfits' });
+      expect(page.headers['x-page-account']).toBe(String(t.owner.id));
+      const fragment = await t.inject({
+        method: 'GET',
+        url: '/wardrobe?keyword=x',
+        headers: { 'hx-request': 'true' },
+      });
+      expect(fragment.headers['x-page-account']).toBe(String(t.owner.id));
+
+      const other = await t.register('page-cache-other@example.com');
+      const theirs = await t.inject({
+        method: 'GET',
+        url: '/outfits',
+        headers: { cookie: other },
+      });
+      expect(theirs.headers['x-page-account']).not.toBe(String(t.owner.id));
+      expect(theirs.headers['x-page-account']).toMatch(/^\d+$/);
+    });
+
+    it('names no account on a signed-out render', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/auth/login',
+        anonymous: true,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['x-page-account']).toBeUndefined();
+    });
+
+    // The worker tells "changed" from "the same" by comparing bodies, so a
+    // tab root must render byte for byte the same while nothing changes.
+    it.each(['/wardrobe', '/outfits', '/calendar'])(
+      'renders %s identically twice',
+      async (url) => {
+        const first = await t.inject({ method: 'GET', url });
+        const second = await t.inject({ method: 'GET', url });
+        expect(first.statusCode).toBe(200);
+        expect(second.body).toBe(first.body);
+      },
+    );
+
+    it('renders the freshness indicator hidden, with its strings', async () => {
+      const res = await t.inject({ method: 'GET', url: '/wardrobe' });
+      expect(res.body).toMatch(/<span id="freshness" class="hidden[^"]*"/);
+      expect(res.body).toContain('data-text-updated-ago="Updated {ago}"');
+      const importmap = /<script type="importmap">([\s\S]*?)<\/script>/.exec(
+        res.body,
+      );
+      const imports = JSON.parse(importmap![1]).imports as Record<
+        string,
+        string
+      >;
+      expect(imports.freshness).toMatch(/^\/js\/freshness\.js\?v=/);
+      expect(imports['age-label']).toMatch(/^\/js\/age-label\.js\?v=/);
+    });
+  });
 });

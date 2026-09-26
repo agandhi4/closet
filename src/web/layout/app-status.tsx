@@ -1,11 +1,11 @@
 import { t } from '../i18n';
 
 /**
- * Connectivity banner and toast host, owned by public/js/connectivity.js and
- * public/js/pwa.js. Lives inside <body>, so every hx-boost swap replaces it
- * with this empty copy; both scripts re-apply their state on
- * htmx:afterSettle. The strings travel as data attributes so the scripts stay
- * free of i18n.
+ * Connectivity banner and toast host, owned by public/js/connectivity.js,
+ * public/js/pwa.js and public/js/freshness.js. Lives inside <body>, so every
+ * hx-boost swap replaces it with this empty copy; the scripts re-apply their
+ * state on htmx:afterSettle. The strings travel as data attributes so the
+ * scripts stay free of i18n.
  */
 export function AppStatus() {
   return (
@@ -16,6 +16,10 @@ export function AppStatus() {
       data-text-back-online={t('BACK_ONLINE')}
       data-text-update-available={t('UPDATE_AVAILABLE')}
       data-text-reload={t('RELOAD')}
+      // freshness.js puts "3 minutes ago" (Intl.RelativeTimeFormat) in {ago}.
+      data-text-updated-ago={t('UPDATED_AGO', { ago: '{ago}' })}
+      data-text-newer-page={t('NEWER_PAGE_AVAILABLE')}
+      data-text-refresh={t('REFRESH')}
     >
       <div
         id="connectivity-banner"
