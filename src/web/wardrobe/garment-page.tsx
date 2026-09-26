@@ -44,8 +44,8 @@ function photoScript(
   appVersion: string,
   cutoutMode: 'client' | 'server',
 ): string {
-  const module = (name: string) =>
-    jsonForScript(`/js/${name}.js?v=${appVersion}`);
+  // Not in the importmap: only client mode's page imports it.
+  const removal = jsonForScript(`/js/background-removal.js?v=${appVersion}`);
   const common = `import { wireUpEditMask } from 'mask-editor';
 
 // Some Chrome/Android versions drop the Camera option from the gallery
@@ -68,11 +68,11 @@ photoCaptureInput?.addEventListener('change', () => {
 wireUpEditMask(document.getElementById('garment-photo-slot'));
 `;
   if (cutoutMode === 'server') {
-    return `import { wirePhotoUpload } from ${module('photo-input')};
+    return `import { wirePhotoUpload } from 'photo-input';
 ${common}
 wirePhotoUpload();`;
   }
-  return `import { wireUpPhotoInput, isBgRemovalEnabled } from ${module('background-removal')};
+  return `import { wireUpPhotoInput, isBgRemovalEnabled } from ${removal};
 ${common}
 const toggle = document.getElementById('bgRemovalToggle');
 const stored = localStorage.getItem('bgRemovalEnabled');

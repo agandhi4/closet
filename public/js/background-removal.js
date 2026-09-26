@@ -18,6 +18,7 @@
  */
 
 import { openMaskEditor, squarePadBlob } from 'mask-editor';
+import { preparePhoto } from 'photo-input';
 
 let activeProgressHandler = null;
 
@@ -117,7 +118,10 @@ export const wireUpPhotoInput = () => {
     nobgInput.value = '';
     bgUnsupported?.classList.add('hidden');
 
-    const file = photoInput.files?.[0];
+    // Downscaled first (photo-input.js): the model and the upload both take
+    // the smaller photo.
+    if (submitBtn) submitBtn.disabled = true;
+    const file = await preparePhoto(photoInput);
     if (!file) return;
 
     if (!isBgRemovalEnabled()) {
