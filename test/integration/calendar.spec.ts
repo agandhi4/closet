@@ -261,7 +261,9 @@ describe('calendar', () => {
         `/outfits/${brunch}/edit?returnTo=/calendar&returnToWeek=2030-10-08`,
       );
       expect(hasText(saturday, 'Untitled Outfit')).toBe(true);
-      expect(saturday).toContain(`action="/calendar/${untitledEntry}/worn"`);
+      expect(saturday).toContain(`action="/calendar/${untitledEntry}/delete"`);
+      // 2030 is ahead: a planned day has no worn pill.
+      expect(saturday).not.toContain(`/calendar/${untitledEntry}/worn`);
 
       for (const [date, column] of columns) {
         if (date !== '2030-10-08') {
@@ -486,41 +488,62 @@ describe('calendar', () => {
     });
   });
 
+  // Marking worn is for days up to today (a planned day cannot be worn yet),
+  // so these entries sit on a Wednesday in 2020. The wears marking writes
+  // are covered in wears.spec.ts.
   describe('POST /calendar/:id/worn', () => {
-    const toggle = (id: number, htmx: boolean) =>
+    const PAST = '2020-10-07';
+
+    const post = (
+      id: number,
+      options: { htmx: boolean; worn?: '1' | '0'; week?: string },
+    ) =>
       t.inject({
         method: 'POST',
         url: `/calendar/${id}/worn`,
-        ...form({ week: '2030-10-09' }),
+        ...form({
+          week: options.week ?? PAST,
+          ...(options.worn && { worn: options.worn }),
+        }),
         headers: {
           ...form({}).headers,
-          ...(htmx ? { 'hx-request': 'true' } : {}),
+          ...(options.htmx ? { 'hx-request': 'true' } : {}),
         },
       });
 
     const wornAt = async (id: number) => (await entryById(id))!.wornAt;
 
-    it('toggles worn on and off, answering htmx with the swapped button', async () => {
-      const outfit = await createOutfit('Worn toggle');
-      const entry = await schedule(outfit, '2030-10-09');
+    it('marks worn and not worn as the pill asks, answering htmx with the swapped pill', async () => {
+      const outfit = await createOutfit('Worn pill');
+      const entry = await schedule(outfit, PAST);
 
-      const on = await toggle(entry, true);
-      expect(on.statusCode).toBeLessThan(300);
+      const on = await post(entry, { htmx: true, worn: '1' });
+      expect(on.statusCode).toBe(200);
       expect(on.body).not.toContain('<html');
       expect(on.body).toContain(`hx-post="/calendar/${entry}/worn"`);
       expect(on.body).toContain('bg-success');
       expect(hasText(on.body, '✓ Worn')).toBe(true);
+      // The swapped pill asks for the other state next.
+      expect(on.body).toContain('name="worn" value="0"');
       const stamped = await wornAt(entry);
       expect(stamped).toBeInstanceOf(Date);
       expect(Math.abs(Date.now() - stamped!.getTime())).toBeLessThan(60_000);
 
-      const wednesday = dayColumns(await weekPage()).get('2030-10-09')!;
+      const wednesday = dayColumns(
+        await weekPage(`/calendar?week=${PAST}`),
+      ).get(PAST)!;
       const button = wednesday.slice(
         wednesday.indexOf(`action="/calendar/${entry}/worn"`),
       );
       expect(button).toMatch(/bg-success[\s\S]*✓ Worn/);
 
-      const off = await toggle(entry, true);
+      // A double tap (or a replayed post) asks for worn again: still worn,
+      // the first instant kept.
+      const again = await post(entry, { htmx: true, worn: '1' });
+      expect(again.body).toContain('bg-success');
+      expect(await wornAt(entry)).toEqual(stamped);
+
+      const off = await post(entry, { htmx: true, worn: '0' });
       expect(off.body).not.toContain('bg-success');
       expect(hasText(off.body, 'Worn?')).toBe(true);
       expect(await wornAt(entry)).toBeNull();
@@ -528,21 +551,33 @@ describe('calendar', () => {
 
     it('redirects a plain form post back to the week', async () => {
       const outfit = await createOutfit('Worn redirect');
-      const entry = await schedule(outfit, '2030-10-09');
+      const entry = await schedule(outfit, PAST);
 
-      const res = await toggle(entry, false);
+      const res = await post(entry, { htmx: false, worn: '1' });
       expect(res.statusCode).toBe(303);
-      expect(res.headers.location).toBe('/calendar?week=2030-10-09');
+      expect(res.headers.location).toBe(`/calendar?week=${PAST}`);
       expect(await wornAt(entry)).toBeInstanceOf(Date);
     });
 
     it('404s an unknown entry', async () => {
-      expect((await toggle(999_999, true)).statusCode).toBe(404);
+      expect((await post(999_999, { htmx: true, worn: '1' })).statusCode).toBe(
+        404,
+      );
+    });
+
+    it('without `worn` (a pill cached before it posted one) toggles', async () => {
+      const outfit = await createOutfit('Cached pill');
+      const entry = await schedule(outfit, PAST);
+
+      await post(entry, { htmx: true });
+      expect(await wornAt(entry)).toBeInstanceOf(Date);
+      await post(entry, { htmx: true });
+      expect(await wornAt(entry)).toBeNull();
     });
 
     it('without a body toggles, and redirects a plain post to the current week', async () => {
       const outfit = await createOutfit('Bodiless worn');
-      const entry = await schedule(outfit, '2030-10-09');
+      const entry = await schedule(outfit, PAST);
 
       const htmx = await t.inject({
         method: 'POST',
@@ -560,6 +595,35 @@ describe('calendar', () => {
       });
       expect(plain.statusCode).toBe(303);
       expect(plain.headers.location).toBe('/calendar');
+      expect(await wornAt(entry)).toBeNull();
+    });
+
+    it('refuses to mark a planned day worn, and shows its chip no pill', async () => {
+      const outfit = await createOutfit('Planned');
+      const entry = await schedule(outfit, '2030-10-09');
+
+      const res = await post(entry, {
+        htmx: true,
+        worn: '1',
+        week: '2030-10-09',
+      });
+      expect(res.statusCode).toBe(409);
+      expect(await wornAt(entry)).toBeNull();
+
+      const wednesday = dayColumns(await weekPage()).get('2030-10-09')!;
+      expect(wednesday).toContain(`/calendar/${entry}/delete`);
+      expect(wednesday).not.toContain(`/calendar/${entry}/worn`);
+    });
+
+    it('rejects a `worn` that is neither 1 nor 0', async () => {
+      const outfit = await createOutfit('Bad worn');
+      const entry = await schedule(outfit, PAST);
+      const res = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/worn`,
+        ...form({ worn: 'yes' }),
+      });
+      expect(res.statusCode).toBe(400);
       expect(await wornAt(entry)).toBeNull();
     });
   });

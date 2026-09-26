@@ -19,7 +19,15 @@ import {
 } from 'drizzle-orm/pg-core';
 import { CUTOUT_STATUSES } from '../cutout/state';
 import {
+  AWAY_REASONS,
+  type AwayReason,
+  QUANTITY_MAX,
+  WASH_AFTER_CHOICES,
+} from '../wardrobe/availability';
+import {
   ALL_GARMENT_TYPES,
+  type Condition,
+  CONDITIONS,
   FABRIC_WEIGHT_GSM,
   type Fit,
   FITS,
@@ -245,6 +253,26 @@ export const garment = pgTable(
     // What it cost, in the household's currency; a string in TypeScript
     // ('24.90'), so no cent is lost to a float.
     price: numeric('price', { precision: 10, scale: 2 }),
+    // Identical copies (three white tees are one garment, quantity 3). The
+    // wash rules count copies (src/wardrobe/availability.ts).
+    quantity: smallint('quantity').default(1).notNull(),
+    // Wears a copy takes before it needs a wash; null is the role's
+    // default, NEVER_WASH (0) never. Written by the garment form.
+    washAfterWears: smallint('wash_after_wears'),
+    // The day it was last washed (the household's date, APP_TIMEZONE):
+    // wears after it count toward the next wash. Written only by
+    // markWashed (src/web/wears/queries.ts); no history is kept.
+    lastWashedOn: date('last_washed_on', { mode: 'string' }),
+    // Out of the closet for now (lent, at the repair shop), and a word on
+    // where; a manual state, never derived. The owner's own record, like
+    // wears: setAway (src/web/wears/queries.ts) is its writer.
+    away: text('away').$type<AwayReason>(),
+    awayNote: text('away_note'),
+    // What shape it is in (src/wardrobe/properties.ts CONDITIONS); a garment
+    // property like the others (owner and MANAGE write it), and never part
+    // of availability. The note says what is wrong, so only with a problem.
+    condition: text('condition').$type<Condition>().default('good').notNull(),
+    conditionNote: text('condition_note'),
   },
   (table) => [
     check(
@@ -278,6 +306,30 @@ export const garment = pgTable(
     ),
     check('garment_source_url_check', sql`${table.sourceUrl} ~* '^https?://'`),
     check('garment_price_check', sql`${table.price} >= 0`),
+    check(
+      'garment_quantity_check',
+      sql`${table.quantity} between 1 and ${sql.raw(String(QUANTITY_MAX))}`,
+    ),
+    check(
+      'garment_wash_after_wears_check',
+      sql`${table.washAfterWears} between 0 and ${sql.raw(String(Math.max(...WASH_AFTER_CHOICES)))}`,
+    ),
+    check(
+      'garment_away_check',
+      sql`${table.away} in (${sqlList(AWAY_REASONS)})`,
+    ),
+    check(
+      'garment_away_note_check',
+      sql`${table.awayNote} is null or ${table.away} is not null`,
+    ),
+    check(
+      'garment_condition_check',
+      sql`${table.condition} in (${sqlList(CONDITIONS)})`,
+    ),
+    check(
+      'garment_condition_note_check',
+      sql`${table.conditionNote} is null or ${table.condition} <> 'good'`,
+    ),
     check(
       'garment_fabric_weight_check',
       sql`${table.fabricWeight} between ${sql.raw(String(FABRIC_WEIGHT_GSM.min))} and ${sql.raw(String(FABRIC_WEIGHT_GSM.max))}`,
@@ -415,6 +467,67 @@ export const outfitCalendar = pgTable(
       name: 'outfit_calendar_owner_id_foreign',
       columns: [table.ownerId],
       foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// One garment worn on one day: the wear log that outfit edits cannot
+// rewrite (docs/plans/2026-09-26-wardrobe-features.md, section 1). Written
+// only by src/web/wears/queries.ts: setEntryWorn snapshots a calendar
+// entry's garments when it is marked worn (outfit_calendar_id set; unmarking
+// or deleting the entry takes exactly its rows), setWoreToday logs one
+// garment alone (outfit_calendar_id null). Counts are distinct days, never
+// rows: two entries on one day are one wear. The owner's own record, like
+// outfits and the calendar: shares never reach it.
+export const garmentWear = pgTable(
+  'garment_wear',
+  {
+    id: serial('id').primaryKey(),
+    garmentId: integer('garment_id').notNull(),
+    ownerId: integer('owner_id').notNull(),
+    // The day worn, not an instant ('YYYY-MM-DD', APP_TIMEZONE's date).
+    day: date('day', { mode: 'string' }).notNull(),
+    outfitCalendarId: integer('outfit_calendar_id'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // One entry counts a garment once (an outfit may hold it in two
+    // slots). Also the index of the outfit_calendar_id foreign key.
+    unique('garment_wear_outfit_calendar_id_garment_id_unique').on(
+      table.outfitCalendarId,
+      table.garmentId,
+    ),
+    // "Wore today" once a day: the single-garment wears (no entry).
+    uniqueIndex('garment_wear_garment_id_day_single_unique')
+      .on(table.garmentId, table.day)
+      .where(sql`${table.outfitCalendarId} is null`),
+    // The counts (per garment, days after the last wash). Also the index of
+    // the garment_id foreign key.
+    index('garment_wear_garment_id_day_index').on(table.garmentId, table.day),
+    // The owner_id foreign key's (an account's deletion cascades by it).
+    index('garment_wear_owner_id_index').on(table.ownerId),
+    foreignKey({
+      name: 'garment_wear_garment_id_foreign',
+      columns: [table.garmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'garment_wear_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'garment_wear_outfit_calendar_id_foreign',
+      columns: [table.outfitCalendarId],
+      foreignColumns: [outfitCalendar.id],
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
@@ -573,6 +686,18 @@ export const garmentRelations = relations(garment, ({ one, many }) => ({
   owner: one(user, { fields: [garment.ownerId], references: [user.id] }),
   outfitSlots: many(outfitSlot),
   capsuleGarments: many(capsuleGarment),
+  wears: many(garmentWear),
+}));
+
+export const garmentWearRelations = relations(garmentWear, ({ one }) => ({
+  garment: one(garment, {
+    fields: [garmentWear.garmentId],
+    references: [garment.id],
+  }),
+  entry: one(outfitCalendar, {
+    fields: [garmentWear.outfitCalendarId],
+    references: [outfitCalendar.id],
+  }),
 }));
 
 export const capsuleRelations = relations(capsule, ({ one, many }) => ({
@@ -608,16 +733,20 @@ export const outfitSlotRelations = relations(outfitSlot, ({ one }) => ({
   }),
 }));
 
-export const outfitCalendarRelations = relations(outfitCalendar, ({ one }) => ({
-  outfit: one(outfit, {
-    fields: [outfitCalendar.outfitId],
-    references: [outfit.id],
+export const outfitCalendarRelations = relations(
+  outfitCalendar,
+  ({ one, many }) => ({
+    outfit: one(outfit, {
+      fields: [outfitCalendar.outfitId],
+      references: [outfit.id],
+    }),
+    owner: one(user, {
+      fields: [outfitCalendar.ownerId],
+      references: [user.id],
+    }),
+    wears: many(garmentWear),
   }),
-  owner: one(user, {
-    fields: [outfitCalendar.ownerId],
-    references: [user.id],
-  }),
-}));
+);
 
 export const wardrobeShareRelations = relations(wardrobeShare, ({ one }) => ({
   grantor: one(user, {

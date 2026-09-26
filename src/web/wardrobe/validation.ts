@@ -4,7 +4,14 @@ import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
 import { t } from '../i18n';
 import { RowId } from '../schemas';
 import {
+  NEVER_WASH,
+  QUANTITY_MAX,
+  WASH_AFTER_CHOICES,
+} from '../../wardrobe/availability';
+import {
   applyPresets,
+  type Condition,
+  CONDITIONS,
   FABRIC_WEIGHT_GSM,
   type Fit,
   FITS,
@@ -54,6 +61,8 @@ export const TEXT_MAX = 4000;
 export const SOURCE_URL_MAX = 2048;
 /** "$12,345,678.90" and a little room: numeric(10, 2) holds 8 digits before the point. */
 export const PRICE_INPUT_MAX = 20;
+/** "Hole in the left elbow", "At the cobbler on Fulton St": a line, not a story. */
+export const CARE_NOTE_MAX = 200;
 
 // Room for a hostile value to reach readGarmentForm and be named in its
 // message; every real colour is a few letters.
@@ -112,6 +121,31 @@ export const PropertyFields = {
 const PostedProperties = Type.Object(PropertyFields);
 type PostedProperties = Static<typeof PostedProperties>;
 
+const ConditionValue = Type.Union(
+  CONDITIONS.map((condition) => Type.Literal(condition)),
+);
+
+/** A condition and what is wrong, as the form and the garment page post them. */
+const PostedConditionFields = {
+  condition: Type.Optional(ConditionValue),
+  conditionNote: Type.Optional(Type.String({ maxLength: CARE_NOTE_MAX })),
+};
+
+/**
+ * The care fields (#7): identical copies, wears before a wash ('' the
+ * role's default, NEVER_WASH never) and the condition. Quantity is typed,
+ * so it is the one with a message (readCareFields); the rest are choices.
+ */
+const PostedCareFields = {
+  quantity: Type.Optional(Type.String({ maxLength: 6 })),
+  washAfterWears: choice([NEVER_WASH, ...WASH_AFTER_CHOICES]),
+  ...PostedConditionFields,
+};
+
+/** POST /wardrobe/:id/condition: the garment page's condition control. */
+export const ConditionBody = Type.Object(PostedConditionFields);
+export type ConditionBody = Static<typeof ConditionBody>;
+
 /**
  * One garment form post (new, edit, clone). The form posts every text field,
  * '' when left empty; `color` is one value per checked box (none when no box
@@ -145,6 +179,10 @@ export const GarmentBody = Type.Object({
   // photo fetched with it, claimed on save (POST /wardrobe only; judged by
   // parseStoredName there, the one definition of a stored name).
   linkPhoto: Type.Optional(Type.String({ maxLength: 64 })),
+  ...PostedCareFields,
+  // '1' from every form that renders the care fields: forms cached before
+  // them post none, and must not reset a garment to one copy in good shape.
+  care: Type.Optional(Type.Literal('1')),
 });
 export type GarmentBody = Static<typeof GarmentBody>;
 
@@ -161,7 +199,23 @@ export interface GarmentFormValues {
   sourceUrl: string;
   price: string;
   properties: PropertyFormValues;
+  care: CareFormValues;
 }
+
+/** The care fields as the form shows them (strings as posted). */
+export interface CareFormValues {
+  quantity: string;
+  washAfterWears: string;
+  condition: Condition;
+  conditionNote: string;
+}
+
+export const BLANK_CARE: CareFormValues = {
+  quantity: '1',
+  washAfterWears: '',
+  condition: 'good',
+  conditionNote: '',
+};
 
 /** The property fields as the form shows them (strings as posted). */
 export interface PropertyFormValues {
@@ -209,6 +263,7 @@ export const BLANK_GARMENT_VALUES: GarmentFormValues = {
   sourceUrl: '',
   price: '',
   properties: BLANK_PROPERTIES,
+  care: BLANK_CARE,
 };
 
 export type GarmentField =
@@ -218,7 +273,8 @@ export type GarmentField =
   | 'fabricWeight'
   | 'sourceUrl'
   | 'price'
-  | 'linkPhoto';
+  | 'linkPhoto'
+  | 'quantity';
 
 /** The properties as stored (null for not set, or not applying to the role). */
 export interface GarmentPropertyFields {
@@ -243,13 +299,30 @@ export interface ProductFields {
   price: string | null;
 }
 
+/** A garment's condition as stored: the note only with a problem. */
+export interface ConditionFields {
+  condition: Condition;
+  conditionNote: string | null;
+}
+
+/** Copies, wash limit and condition, as stored. */
+export interface CareFields extends ConditionFields {
+  /** 1 to QUANTITY_MAX. */
+  quantity: number;
+  /** null: the role's default; NEVER_WASH: never. */
+  washAfterWears: number | null;
+}
+
 /**
- * A garment's fields as stored: trimmed, null when blank. The properties
- * and the product fields are absent (left as stored) when the posting form
- * predates them.
+ * A garment's fields as stored: trimmed, null when blank. The properties,
+ * the product fields and the care fields are absent (left as stored) when
+ * the posting form predates them.
  */
 export interface GarmentFields
-  extends Partial<GarmentPropertyFields>, Partial<ProductFields> {
+  extends
+    Partial<GarmentPropertyFields>,
+    Partial<ProductFields>,
+    Partial<CareFields> {
   name: string | null;
   category: string;
   brand: string | null;
@@ -288,6 +361,76 @@ export function formValues(body: GarmentBody): GarmentFormValues {
     sourceUrl: body.sourceUrl ?? '',
     price: body.price ?? '',
     properties: propertyFormValues(body),
+    care: careFormValues(body),
+  };
+}
+
+/** The posted care fields as the form shows them; a new garment's without them. */
+function careFormValues(body: GarmentBody): CareFormValues {
+  if (body.care !== '1') return BLANK_CARE;
+  return {
+    quantity: body.quantity ?? '',
+    washAfterWears: body.washAfterWears ?? '',
+    condition: body.condition ?? 'good',
+    conditionNote: body.conditionNote ?? '',
+  };
+}
+
+/** A stored garment's care fields as the form shows them. */
+export function storedCareValues(stored: CareFields): CareFormValues {
+  return {
+    quantity: String(stored.quantity),
+    washAfterWears: asText(stored.washAfterWears),
+    condition: stored.condition,
+    conditionNote: orEmpty(stored.conditionNote),
+  };
+}
+
+/**
+ * The condition as stored: the note trimmed, and only with a problem (a
+ * garment in good shape has nothing to note; the column's check agrees).
+ */
+export function readCondition(posted: {
+  condition?: Condition;
+  conditionNote?: string;
+}): ConditionFields {
+  const condition = posted.condition ?? 'good';
+  return {
+    condition,
+    conditionNote: condition === 'good' ? null : line(posted.conditionNote),
+  };
+}
+
+/**
+ * The care fields as stored, or the quantity's message; none (left as
+ * stored) when the posting form predates them (GarmentBody.care). A blank
+ * quantity is one copy.
+ */
+export function readCareFields(
+  posted: Pick<
+    GarmentBody,
+    'care' | 'quantity' | 'washAfterWears' | 'condition' | 'conditionNote'
+  >,
+): { ok: true; fields: Partial<CareFields> } | { ok: false; error: string } {
+  if (posted.care !== '1') return { ok: true, fields: {} };
+  const typed = posted.quantity?.trim() || '1';
+  const quantity = Number(typed);
+  if (!/^\d+$/.test(typed) || quantity < 1 || quantity > QUANTITY_MAX) {
+    return {
+      ok: false,
+      error: t('validation.QUANTITY_RANGE', { max: QUANTITY_MAX }),
+    };
+  }
+  return {
+    ok: true,
+    fields: {
+      quantity,
+      washAfterWears: pick(
+        [NEVER_WASH, ...WASH_AFTER_CHOICES],
+        posted.washAfterWears ?? '',
+      ),
+      ...readCondition(posted),
+    },
   };
 }
 
@@ -563,23 +706,34 @@ export function readProductFields(
   };
 }
 
+/**
+ * The posted properties as stored for `category`; none (left as stored)
+ * when the posting form predates them (GarmentBody.props).
+ */
+function readPostedProperties(
+  body: GarmentBody,
+  category: string,
+): ReturnType<typeof readProperties> | undefined {
+  return body.props === '1'
+    ? readProperties(propertyFormValues(body), category)
+    : undefined;
+}
+
 /** The posted form as the garment to store, or what to show the person. */
 export function readGarmentForm(body: GarmentBody): GarmentForm {
   const category = normalizeCategory(body.category);
   const colors = readColors(body.color);
   const acquiredOn = readDay(body.dateAquired);
-  // Absent when the posting form predates properties (see GarmentBody.props).
-  const properties =
-    body.props === '1'
-      ? readProperties(propertyFormValues(body), category)
-      : undefined;
+  const properties = readPostedProperties(body, category);
   const product = readProductFields(body);
+  const care = readCareFields(body);
   const errors = formErrors({
     category,
     colors,
     acquiredOn,
     properties,
     product,
+    care,
   });
   // (The date check repeats formErrors' to narrow acquiredOn for the store.)
   if (Object.keys(errors).length > 0 || acquiredOn === undefined) {
@@ -590,6 +744,7 @@ export function readGarmentForm(body: GarmentBody): GarmentForm {
     fields: {
       ...(properties?.ok ? properties.fields : {}),
       ...(product.ok && product.fields),
+      ...(care.ok && care.fields),
       name: line(body.name),
       category,
       brand: line(body.brand),
@@ -609,6 +764,7 @@ function formErrors(read: {
   acquiredOn: IsoDate | null | undefined;
   properties: ReturnType<typeof readProperties> | undefined;
   product: ReturnType<typeof readProductFields>;
+  care: ReturnType<typeof readCareFields>;
 }): FieldErrors<GarmentField> {
   const errors: FieldErrors<GarmentField> = read.product.ok
     ? {}
@@ -621,6 +777,7 @@ function formErrors(read: {
   if (read.properties?.ok === false) {
     errors.fabricWeight = [read.properties.error];
   }
+  if (!read.care.ok) errors.quantity = [read.care.error];
   return errors;
 }
 
@@ -661,6 +818,11 @@ const GridFilters = {
     ]),
   ),
   archived: Type.Optional(Type.String({ maxLength: 10 })),
+  // 'true' filters, like archived: garments with a copy that needs a wash
+  // (the owner's own wardrobe only: a share never reveals wears; gridSearch
+  // drops it), and those whose condition is not good.
+  needsWash: Type.Optional(Type.String({ maxLength: 10 })),
+  attention: Type.Optional(Type.String({ maxLength: 10 })),
   // A capsule of the addressed wardrobe (src/web/capsules): a 400 when not
   // an id, a 404 when not one of the wardrobe's capsules (the route).
   capsule: Type.Optional(Type.Union([Type.Literal(''), RowId])),
@@ -713,6 +875,7 @@ export const BULK_PROPERTIES = [
   'sleeve',
   'length',
   'waterResistant',
+  'condition',
 ] as const;
 export type BulkProperty = (typeof BULK_PROPERTIES)[number];
 
@@ -737,6 +900,8 @@ export const BulkBody = Type.Object({
   waterResistant: Type.Optional(
     Type.Union([Type.Literal('true'), Type.Literal('false')]),
   ),
+  // Never cleared: 'good' is the reset.
+  condition: Type.Optional(ConditionValue),
 });
 export type BulkBody = Static<typeof BulkBody>;
 
@@ -749,7 +914,8 @@ export type BulkChange =
   | { property: 'fit'; value: Fit | null }
   | { property: 'sleeve'; value: Sleeve | null }
   | { property: 'length'; value: Length | null }
-  | { property: 'waterResistant'; value: boolean };
+  | { property: 'waterResistant'; value: boolean }
+  | { property: 'condition'; value: Condition };
 
 // The field each bulk property's chips post.
 const BULK_FIELDS: Record<BulkProperty, keyof BulkBody> = {
@@ -761,6 +927,7 @@ const BULK_FIELDS: Record<BulkProperty, keyof BulkBody> = {
   sleeve: 'sleeve',
   length: 'length',
   waterResistant: 'waterResistant',
+  condition: 'condition',
 };
 
 /**
@@ -778,36 +945,48 @@ export function readBulkChange(body: BulkBody): BulkChange | undefined {
 
 /** The chosen tab's posted value as its change ('' is "Not set"). */
 function bulkChangeOf(body: BulkBody): BulkChange | undefined {
-  switch (body.property) {
-    case 'warmth':
-      return { property: 'warmth', value: pick(WARMTHS, orEmpty(body.warmth)) };
-    case 'formality':
-      return {
-        property: 'formality',
-        value: pick(FORMALITIES, orEmpty(body.formality)),
-      };
-    case 'materials':
-      return body.material
-        ? { property: 'materials', value: body.material }
-        : undefined;
-    case 'pattern':
-      return {
-        property: 'pattern',
-        value: pick(PATTERNS, orEmpty(body.pattern)),
-      };
-    case 'fit':
-      return { property: 'fit', value: pick(FITS, orEmpty(body.fit)) };
-    case 'sleeve':
-      return { property: 'sleeve', value: pick(SLEEVES, orEmpty(body.sleeve)) };
-    case 'length':
-      return { property: 'length', value: pick(LENGTHS, orEmpty(body.length)) };
-    case 'waterResistant':
-      return {
-        property: 'waterResistant',
-        value: body.waterResistant === 'true',
-      };
-  }
+  return BULK_CHANGES[body.property](body);
 }
+
+// Each bulk property's reader of its posted value.
+const BULK_CHANGES: Record<
+  BulkProperty,
+  (body: BulkBody) => BulkChange | undefined
+> = {
+  warmth: (body) => ({
+    property: 'warmth',
+    value: pick(WARMTHS, orEmpty(body.warmth)),
+  }),
+  formality: (body) => ({
+    property: 'formality',
+    value: pick(FORMALITIES, orEmpty(body.formality)),
+  }),
+  // Added, never cleared: no value is no change.
+  materials: (body) =>
+    body.material ? { property: 'materials', value: body.material } : undefined,
+  pattern: (body) => ({
+    property: 'pattern',
+    value: pick(PATTERNS, orEmpty(body.pattern)),
+  }),
+  fit: (body) => ({ property: 'fit', value: pick(FITS, orEmpty(body.fit)) }),
+  sleeve: (body) => ({
+    property: 'sleeve',
+    value: pick(SLEEVES, orEmpty(body.sleeve)),
+  }),
+  length: (body) => ({
+    property: 'length',
+    value: pick(LENGTHS, orEmpty(body.length)),
+  }),
+  waterResistant: (body) => ({
+    property: 'waterResistant',
+    value: body.waterResistant === 'true',
+  }),
+  // Good is the reset: no value is no change.
+  condition: (body) =>
+    body.condition
+      ? { property: 'condition', value: body.condition }
+      : undefined,
+};
 
 /** GET /wardrobe/tag: the wardrobe, and where Next left off. */
 export const TagQuery = Type.Object({

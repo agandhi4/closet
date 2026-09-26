@@ -15,6 +15,7 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { sessionUserId } from '../auth/require-session';
+import { todayIn } from '../calendar/calendar-date';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
@@ -32,7 +33,9 @@ import {
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
+import { countNeedingWash, wearSummary } from '../wears/queries';
 import { normalizeCategory, normalizeSize, splitColors } from './garment';
+import { GarmentCondition } from './garment-condition';
 import { GarmentPage, GarmentPhotoView } from './garment-page';
 import { keptLinkPhoto } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
@@ -46,6 +49,7 @@ import {
   type GridFilters,
   gridPage,
   nextToTag,
+  setCondition,
   toggleArchived,
   updateGarmentFields,
   updateGarmentProperties,
@@ -56,6 +60,7 @@ import { garmentUrl, wardrobeUrl } from './urls';
 import {
   BLANK_GARMENT_VALUES,
   BulkBody,
+  ConditionBody,
   formValues,
   GarmentBody,
   type GarmentField,
@@ -68,8 +73,10 @@ import {
   PropertiesFragmentQuery,
   propertyFormValues,
   readBulkChange,
+  readCondition,
   readGarmentForm,
   readTags,
+  storedCareValues,
   storedPropertyValues,
   TagBody,
   TagQuery,
@@ -131,7 +138,8 @@ async function requireGarment(
   return garment;
 }
 
-function gridSearch(query: GridQuery): GridSearch {
+/** The filters as the page echoes them. */
+function gridSearch(query: GridQuery, isOwner: boolean): GridSearch {
   const category = query.category ? normalizeCategory(query.category) : '';
   return {
     keyword: query.keyword?.trim() ?? '',
@@ -141,6 +149,22 @@ function gridSearch(query: GridQuery): GridSearch {
     ...propertySearch(query, category),
     archived: query.archived === 'true' ? 'true' : '',
     capsule: query.capsule ? String(query.capsule) : '',
+    ...careSearch(query, isOwner),
+  };
+}
+
+/**
+ * The care filters. "Needs a wash" reads the owner's wears, so it is
+ * dropped on a shared wardrobe (`isOwner` false), like a type without its
+ * category: the grid shows unfiltered, and reveals nothing.
+ */
+function careSearch(
+  query: GridQuery,
+  isOwner: boolean,
+): Pick<GridSearch, 'needsWash' | 'attention'> {
+  return {
+    needsWash: isOwner && query.needsWash === 'true' ? 'true' : '',
+    attention: query.attention === 'true' ? 'true' : '',
   };
 }
 
@@ -169,6 +193,8 @@ function gridFilters(search: GridSearch): GridFilters {
     material: pick(MATERIALS, search.material) ?? undefined,
     archived: search.archived === 'true',
     capsule: search.capsule ? Number(search.capsule) : undefined,
+    needsWash: search.needsWash === 'true',
+    attention: search.attention === 'true',
   };
 }
 
@@ -201,6 +227,7 @@ function storedValues(garment: GarmentDetail): GarmentFormValues {
     sourceUrl: garment.sourceUrl ?? '',
     price: garment.price ?? '',
     properties: storedPropertyValues(garment),
+    care: storedCareValues(garment),
   };
 }
 
@@ -216,7 +243,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   options,
   done,
 ) => {
-  const { db, logger } = options;
+  const { db, logger, config } = options;
   const deps: WardrobeDeps = {
     db,
     photos: options.photos,
@@ -274,19 +301,28 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'view',
       );
-      const search = gridSearch(request.query);
+      const search = gridSearch(request.query, access.isOwner);
       const filters = gridFilters(search);
       const pick = access.canManage ? request.query.pick : undefined;
-      const [page, count, filterValues, sharedWardrobes, toTag, capsules] =
-        await Promise.all([
-          gridPage(db, access.ownerId, filters),
-          gridCount(db, access.ownerId, filters),
-          filterOptions(db, access.ownerId),
-          sharedWardrobesOf(db, userId),
-          // The "need details" prompt is only for someone who can tag.
-          access.canManage ? countToTag(db, access.ownerId) : 0,
-          capsuleNames(db, access.ownerId),
-        ]);
+      const [
+        page,
+        count,
+        filterValues,
+        sharedWardrobes,
+        toTag,
+        toWash,
+        capsules,
+      ] = await Promise.all([
+        gridPage(db, access.ownerId, filters, { ownerView: access.isOwner }),
+        gridCount(db, access.ownerId, filters),
+        filterOptions(db, access.ownerId),
+        sharedWardrobesOf(db, userId),
+        // The "need details" prompt is only for someone who can tag.
+        access.canManage ? countToTag(db, access.ownerId) : 0,
+        // The laundry prompt reads wears: the owner's alone.
+        access.isOwner ? countNeedingWash(db, access.ownerId) : 0,
+        capsuleNames(db, access.ownerId),
+      ]);
       if (filters.capsule) listedCapsule(capsules, filters.capsule);
       const picking =
         pick === undefined
@@ -300,7 +336,9 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         sharedWardrobes,
         viewOwner,
         canEdit: access.canManage,
+        ownerView: access.isOwner,
         toTag,
+        toWash,
         // Only someone who may write can select for a bulk edit or pick.
         selecting:
           access.canManage &&
@@ -335,10 +373,13 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // the capsule's own wardrobe (inCapsule), and the page that started
       // the scroll already refused a foreign one. Neither does the picker:
       // a capsule of another wardrobe has no members here.
-      const search = gridSearch(request.query);
+      const search = gridSearch(request.query, access.isOwner);
       const pick = access.canManage ? request.query.pick : undefined;
       const [page, picking] = await Promise.all([
-        gridPage(db, access.ownerId, gridFilters(search), request.query.before),
+        gridPage(db, access.ownerId, gridFilters(search), {
+          before: request.query.before,
+          ownerView: access.isOwner,
+        }),
         pick === undefined
           ? undefined
           : memberIds(db, pick, access.ownerId).then((members) => ({
@@ -476,7 +517,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `Bulk ${request.body.property} by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${result.updated} set, ${result.skipped} skipped, ${ids.length} selected`,
       );
-      const search = gridSearch(request.query);
+      const search = gridSearch(request.query, access.isOwner);
       return reply.redirect(
         wardrobeUrl(viewOwner, {
           ...searchParams(search),
@@ -561,9 +602,14 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'view',
       );
-      const [garment, capsules] = await Promise.all([
-        requireGarment(options, request.params.id, access.ownerId),
-        capsulesOfGarment(db, access.ownerId, request.params.id),
+      const { id } = request.params;
+      const today = todayIn(config.timeZone, new Date());
+      const [garment, capsules, wear] = await Promise.all([
+        requireGarment(options, id, access.ownerId),
+        capsulesOfGarment(db, access.ownerId, id),
+        // Wears and washes are the owner's own records: never read for a
+        // grantee (the section is not rendered either).
+        access.isOwner ? wearSummary(db, id, today) : undefined,
       ]);
       return renderPage(
         reply,
@@ -573,12 +619,51 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             garment,
             capsules,
             viewOwner,
+            wear: wear && { summary: wear, today },
             canEdit: access.canManage,
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',
             justSavedPhoto: request.query.photoSaved === '1',
           }}
         />,
+      );
+    },
+  );
+
+  // The garment page's condition control (garment-condition.tsx): posted
+  // on every change, answered with the section (a plain post gets the page
+  // again). A garment property: the owner and a MANAGE grantee.
+  app.post(
+    '/wardrobe/:id/condition',
+    {
+      schema: {
+        params: GarmentParams,
+        querystring: OwnerQuery,
+        body: ConditionBody,
+      },
+    },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        options,
+        request,
+        request.query.ownerId,
+        'manage',
+      );
+      const { id } = request.params;
+      const fields = readCondition(request.body);
+      if (!(await setCondition(db, id, access.ownerId, fields))) {
+        throw notFound();
+      }
+      logger.info(
+        `Garment ${id} condition ${fields.condition}${fields.conditionNote ? ' (with a note)' : ''} set by user ${sessionUserId(request)}`,
+      );
+      if (!request.headers['hx-request']) {
+        return reply.redirect(garmentUrl(id, viewOwner), 303);
+      }
+      const garment = await requireGarment(options, id, access.ownerId);
+      return renderFragment(
+        reply,
+        <GarmentCondition garment={garment} viewOwner={viewOwner} canEdit />,
       );
     },
   );

@@ -307,8 +307,11 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const { id } = request.params;
-      if (!(await deleteOutfit(db, id, ownerId))) throw outfitNotFound();
-      logger.info(`Outfit ${id} deleted by user ${ownerId}`);
+      const deleted = await deleteOutfit(db, id, ownerId);
+      if (!deleted) throw outfitNotFound();
+      logger.info(
+        `Outfit ${id} deleted by user ${ownerId} (${deleted.wearsKept} wears kept as day-level wears)`,
+      );
       return navigateTo(reply, '/outfits');
     },
   );

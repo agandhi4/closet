@@ -7,6 +7,7 @@ import {
   inArray,
   isNull,
   lt,
+  ne,
   notInArray,
   or,
   type SQL,
@@ -16,10 +17,13 @@ import { randomUUID } from 'node:crypto';
 import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
+import type { AwayReason } from '../../wardrobe/availability';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
+import { dirtyCopiesSql, needsWash } from '../wears/queries';
 import { compareSizes } from './garment';
 import {
+  type Condition,
   type Formality,
   GarmentCategory,
   type Material,
@@ -29,6 +33,8 @@ import {
 } from '../../wardrobe/properties';
 import type {
   BulkChange,
+  CareFields,
+  ConditionFields,
   GarmentFields,
   GarmentPropertyFields,
   ProductFields,
@@ -61,6 +67,10 @@ export interface GridFilters {
   archived: boolean;
   /** Members of this capsule only (inCapsule). */
   capsule?: number;
+  /** A copy needs a wash (the owner's own wardrobe only; the route decides). */
+  needsWash: boolean;
+  /** Condition not good: needs repair or replacing soon. */
+  attention: boolean;
 }
 
 /** A grid tile: what the card shows and links to. */
@@ -70,6 +80,11 @@ export interface GarmentTile {
   category: string;
   archived: boolean;
   photo: ImageRef | null;
+  /** The "x3" badge. */
+  quantity: number;
+  condition: Condition;
+  /** The owner's own records; absent on a shared wardrobe's grid. */
+  care?: { dirty: number; away: AwayReason | null };
 }
 
 export interface GridPage {
@@ -93,6 +108,8 @@ function gridWhere(ownerId: number, filters: GridFilters): SQL | undefined {
     conditions.push(eq(garment.category, filters.category));
   }
   if (filters.capsule) conditions.push(inCapsule(filters.capsule));
+  if (filters.needsWash) conditions.push(needsWash());
+  if (filters.attention) conditions.push(ne(garment.condition, 'good'));
   if (filters.size) conditions.push(eq(garment.size, filters.size));
   if (filters.color) {
     // A whole item of the comma-joined list, never a substring of one.
@@ -129,27 +146,37 @@ function propertyConditions(filters: GridFilters): SQL[] {
   return conditions;
 }
 
+const tileColumns = {
+  id: garment.id,
+  name: garment.name,
+  category: garment.category,
+  archived: garment.archived,
+  photo: { fileName: file.fileName, version: file.version },
+  quantity: garment.quantity,
+  condition: garment.condition,
+};
+
 /**
  * One page of the grid, newest first: `before` is the id the previous page
  * ended at (keyset, so a page costs the same however deep it is and a
  * garment added meanwhile never shifts one onto the next). One statement,
  * one row per tile, served by garment_owner_id_archived_id_index (or the
- * category one) in index order.
+ * category one) in index order. `ownerView` adds the owner's own records to
+ * each tile (dirty copies, away), which a share never shows.
  */
 export async function gridPage(
   db: Db,
   ownerId: number,
   filters: GridFilters,
-  before?: number,
+  options: { before?: number; ownerView: boolean },
 ): Promise<GridPage> {
+  const { before, ownerView } = options;
+  // Not computed at all for a share (the correlated count is the cost).
+  const own = ownerView
+    ? { dirty: dirtyCopiesSql(), away: sql<AwayReason | null>`${garment.away}` }
+    : { dirty: sql<number>`0`, away: sql<AwayReason | null>`null` };
   const rows = await db
-    .select({
-      id: garment.id,
-      name: garment.name,
-      category: garment.category,
-      archived: garment.archived,
-      photo: { fileName: file.fileName, version: file.version },
-    })
+    .select({ ...tileColumns, ...own })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))
     .where(
@@ -160,7 +187,11 @@ export async function gridPage(
     )
     .orderBy(desc(garment.id))
     .limit(GRID_PAGE_SIZE + 1);
-  const tiles = rows.slice(0, GRID_PAGE_SIZE);
+  const tiles = rows
+    .slice(0, GRID_PAGE_SIZE)
+    .map(({ dirty, away, ...tile }) =>
+      ownerView ? { ...tile, care: { dirty, away } } : tile,
+    );
   return {
     tiles,
     before: rows.length > GRID_PAGE_SIZE ? tiles.at(-1)!.id : undefined,
@@ -245,13 +276,22 @@ export interface GarmentPhoto extends ImageRef {
 /** A garment as its page and its forms show it, every property included. */
 export interface GarmentDetail
   extends
-    Omit<GarmentFields, keyof GarmentPropertyFields | keyof ProductFields>,
+    Omit<
+      GarmentFields,
+      keyof GarmentPropertyFields | keyof ProductFields | keyof CareFields
+    >,
     GarmentPropertyFields,
-    ProductFields {
+    ProductFields,
+    CareFields {
   id: number;
   shareableId: string;
   archived: boolean;
   photo: GarmentPhoto | null;
+  // The owner's own records (src/web/wears): the page shows them to the
+  // owner alone.
+  lastWashedOn: string | null;
+  away: AwayReason | null;
+  awayNote: string | null;
 }
 
 const detailColumns = {
@@ -278,6 +318,13 @@ const detailColumns = {
   waterResistant: garment.waterResistant,
   sourceUrl: garment.sourceUrl,
   price: garment.price,
+  quantity: garment.quantity,
+  washAfterWears: garment.washAfterWears,
+  condition: garment.condition,
+  conditionNote: garment.conditionNote,
+  lastWashedOn: garment.lastWashedOn,
+  away: garment.away,
+  awayNote: garment.awayNote,
   photo: {
     fileName: file.fileName,
     version: file.version,
@@ -426,12 +473,16 @@ export function bulkSetProperty(
       .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, ids)))
       .for('update');
     const applicable = rows
-      .filter((row) => propertyApplies(change.property, row.category))
+      .filter((row) => bulkApplies(change, row.category))
       .map((row) => row.id);
     if (applicable.length > 0) {
       await tx
         .update(garment)
-        .set(bulkSet(change))
+        .set(
+          change.property === 'condition'
+            ? conditionSet(change.value)
+            : bulkSet(change),
+        )
         .where(inArray(garment.id, applicable));
     }
     return {
@@ -441,7 +492,25 @@ export function bulkSetProperty(
   });
 }
 
-function bulkSet(change: BulkChange) {
+/** Condition belongs to every role; the rest are propertyApplies'. */
+function bulkApplies(change: BulkChange, category: string): boolean {
+  return (
+    change.property === 'condition' ||
+    propertyApplies(change.property, category)
+  );
+}
+
+/**
+ * A bulk condition. A note says what is wrong: good has none (the column's
+ * check); a problem keeps the one already written.
+ */
+function conditionSet(condition: Condition) {
+  return condition === 'good'
+    ? { condition, conditionNote: null }
+    : { condition };
+}
+
+function bulkSet(change: Exclude<BulkChange, { property: 'condition' }>) {
   switch (change.property) {
     case 'materials':
       // Added once: a garment that already has it keeps its set as is.
@@ -528,6 +597,24 @@ export async function updateGarmentProperties(
   id: number,
   ownerId: number,
   fields: Partial<GarmentPropertyFields>,
+): Promise<boolean> {
+  const updated = await db
+    .update(garment)
+    .set(fields)
+    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
+    .returning({ id: garment.id });
+  return updated.length > 0;
+}
+
+/**
+ * The garment page's condition control: sets the condition and its note;
+ * false when the garment is not in `ownerId`'s wardrobe.
+ */
+export async function setCondition(
+  db: Db,
+  id: number,
+  ownerId: number,
+  fields: ConditionFields,
 ): Promise<boolean> {
   const updated = await db
     .update(garment)

@@ -59,6 +59,13 @@ describe('migrations', () => {
         // Also the index of capsule_garment.capsule_id.
         'capsule_garment_pkey',
         'capsule_garment_garment_id_index',
+        // The wear counts (per garment, by day; also garment_id's foreign
+        // key), an entry's wears (also outfit_calendar_id's), "Wore today"
+        // once a day, and the owner_id foreign key.
+        'garment_wear_garment_id_day_index',
+        'garment_wear_outfit_calendar_id_garment_id_unique',
+        'garment_wear_garment_id_day_single_unique',
+        'garment_wear_owner_id_index',
         // Login and every email lookup compare lower(email).
         'user_lower_email_unique',
       ]),
@@ -89,6 +96,7 @@ describe('migrations', () => {
             owner: true,
             outfitSlots: true,
             capsuleGarments: true,
+            wears: true,
           },
         }),
         t.db.query.outfit.findMany({
@@ -98,7 +106,10 @@ describe('migrations', () => {
           with: { outfit: true, garment: true },
         }),
         t.db.query.outfitCalendar.findMany({
-          with: { outfit: true, owner: true },
+          with: { outfit: true, owner: true, wears: true },
+        }),
+        t.db.query.garmentWear.findMany({
+          with: { garment: true, entry: true },
         }),
         t.db.query.wardrobeShare.findMany({
           with: { grantor: true, grantee: true },

@@ -37,10 +37,49 @@ function render() {
   banner.classList.remove('hidden');
 }
 
+// Controls this module disabled, so reconnecting re-enables exactly those
+// and never one disabled for another reason (the empty photo form's Upload).
+const GUARD_MARK = 'offlineDisabled';
+const CONTROLS = 'button, input, select, textarea';
+
+/**
+ * The writes marked data-needs-network (and the controls inside them) get
+ * the real `disabled` while offline or reconnecting, so neither a tap nor
+ * the keyboard can submit them; main.css dims them, the banner says why.
+ * Run on every state change and after every swap (new content may arrive
+ * while offline).
+ */
+function guardWrites() {
+  const offline = state !== 'online';
+  if (offline) {
+    for (const zone of document.querySelectorAll('[data-needs-network]')) {
+      const controls = zone.matches(CONTROLS)
+        ? [zone]
+        : zone.querySelectorAll(CONTROLS);
+      for (const control of controls) {
+        if (control.disabled) continue;
+        control.disabled = true;
+        control.setAttribute('aria-disabled', 'true');
+        control.dataset[GUARD_MARK] = '';
+      }
+    }
+    return;
+  }
+  for (const control of document.querySelectorAll('[data-offline-disabled]')) {
+    control.disabled = false;
+    control.removeAttribute('aria-disabled');
+    delete control.dataset[GUARD_MARK];
+  }
+}
+
 function setState(next) {
   if (next === state) return;
   const previous = state;
   state = next;
+  // On <html>, which boosted navigations never replace: main.css dims the
+  // writes marked data-needs-network while offline; guardWrites disables them.
+  document.documentElement.dataset.connectivity = state;
+  guardWrites();
   console.info(`[connectivity] ${previous} -> ${next}`);
   document.dispatchEvent(
     new CustomEvent('connectivity:change', { detail: { state, previous } }),
@@ -107,6 +146,9 @@ document.addEventListener('htmx:responseError', () =>
   probe('htmx:responseError'),
 );
 // hx-boost replaces the whole body, banner included.
-document.addEventListener('htmx:afterSettle', render);
+document.addEventListener('htmx:afterSettle', () => {
+  render();
+  guardWrites();
+});
 
 probe('load');

@@ -1,0 +1,125 @@
+import { PostForm } from '../auth/form';
+import { t } from '../i18n';
+import { Dock } from '../layout/dock';
+import { Layout } from '../layout/layout';
+import { Navbar } from '../layout/navbar';
+import {
+  BackLink,
+  EmptyState,
+  GarmentThumb,
+  SavedToast,
+  StripFlags,
+} from '../layout/parts';
+import type { ViewContext } from '../view-context';
+import { categoryLabel } from '../wardrobe/garment';
+import type { LaundryItem } from './queries';
+
+/** The one-shot flag POST /laundry's redirect carries. */
+const LAUNDRY_FLAGS = ['washed'] as const;
+
+/**
+ * GET /laundry: the owner's hamper as one native form (PostForm; the answer
+ * is this page again): what needs a wash, checked, then what was worn but
+ * is not due yet (jeans after one wear), unchecked. "Mark washed" posts the
+ * checked ones to POST /laundry, which washes every copy today.
+ */
+export function LaundryPage(props: {
+  ctx: ViewContext;
+  items: LaundryItem[];
+  /** After POST /laundry: how many were washed (the toast). */
+  washed: number | undefined;
+}) {
+  const { ctx, items } = props;
+  const due = items.filter((item) => item.dirty > 0);
+  const worn = items.filter((item) => item.dirty === 0);
+  return (
+    <Layout ctx={ctx} title={t('wear.LAUNDRY')}>
+      <Navbar ctx={ctx} />
+      <main class="p-4 pt-20 pb-40 max-w-lg mx-auto">
+        <div class="flex items-center gap-3 mb-6">
+          <BackLink href="/wardrobe" />
+          <h1 class="text-2xl font-bold flex-1">{t('wear.LAUNDRY')}</h1>
+        </div>
+        {items.length === 0 ? (
+          <EmptyState message={t('wear.LAUNDRY_EMPTY')}>
+            <a href="/wardrobe" class="btn btn-sm">
+              {t('WARDROBE')}
+            </a>
+          </EmptyState>
+        ) : (
+          <PostForm action="/laundry" class="flex flex-col gap-6">
+            {due.length > 0 && (
+              <LaundryGroup title={t('wear.LAUNDRY_DUE')} items={due} />
+            )}
+            {worn.length > 0 && (
+              <LaundryGroup title={t('wear.LAUNDRY_WORN')} items={worn} />
+            )}
+            <div class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex justify-end">
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                data-needs-network=""
+              >
+                {t('wear.MARK_WASHED')}
+              </button>
+            </div>
+          </PostForm>
+        )}
+      </main>
+      {props.washed !== undefined && (
+        <>
+          <SavedToast
+            id="laundry-toast"
+            text={t('wear.LAUNDRY_WASHED', { count: props.washed })}
+          />
+          <StripFlags names={LAUNDRY_FLAGS} />
+        </>
+      )}
+      <Dock ctx={ctx} />
+    </Layout>
+  );
+}
+
+function LaundryGroup(props: { title: string; items: LaundryItem[] }) {
+  return (
+    <section>
+      <h2 class="text-sm text-base-content/60 mb-2">{props.title}</h2>
+      <ul class="flex flex-col gap-2">
+        {props.items.map((item) => (
+          <li>
+            <LaundryRow item={item} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** A checkbox row: the whole row is its label; due garments start checked. */
+function LaundryRow({ item }: { item: LaundryItem }) {
+  const name = item.name ?? categoryLabel(item.category);
+  return (
+    <label class="flex items-center gap-3 rounded-box bg-base-100 shadow-sm p-2 cursor-pointer has-[:checked]:ring-2 has-[:checked]:ring-primary">
+      <input
+        type="checkbox"
+        name="ids"
+        value={String(item.id)}
+        checked={item.dirty > 0}
+        class="checkbox checkbox-primary checkbox-sm"
+        aria-label={name}
+      />
+      <GarmentThumb garment={item} class="rounded-box" />
+      <span class="flex flex-col min-w-0">
+        <span class="font-medium truncate">{name}</span>
+        <span class="text-xs text-base-content/60">{washLabel(item)}</span>
+      </span>
+    </label>
+  );
+}
+
+function washLabel(item: LaundryItem): string {
+  if (item.dirty === 0) return t('wear.NOT_DUE');
+  return item.quantity > 1
+    ? t('wear.COPIES_NEED_WASH', { dirty: item.dirty, quantity: item.quantity })
+    : t('wear.NEEDS_WASH');
+}

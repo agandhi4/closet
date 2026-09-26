@@ -24,7 +24,14 @@ describe('persona bibles', () => {
     );
 
     const tee = demo.garments.find((g) => g.id === 'T01')!;
-    expect(tee).toMatchObject({ quantity: 3, role: 'top' });
+    expect(tee).toMatchObject({ role: 'top', away: null });
+    expect(tee.fields).toMatchObject({
+      quantity: 3,
+      // The app's default for a top: the form's "the usual".
+      washAfterWears: null,
+      condition: 'good',
+      conditionNote: null,
+    });
     expect(tee.fields).toMatchObject({
       name: 'White tee',
       brand: 'Uniqlo',
@@ -55,6 +62,31 @@ describe('persona bibles', () => {
     expect(demo.capsules[3].fields.notes).toMatch(/Austin/);
     // An archived garment can be a member (it keeps its membership).
     expect(demo.capsules[1].garmentIds).toContain('Z03');
+  });
+
+  it('turns the Laundry, Condition and Away tables into garment form fields and away', () => {
+    const demo = loadPersona('demo');
+    const garment = (id: string) => demo.garments.find((g) => g.id === id)!;
+    // Only where Theo differs from the app's defaults: sweaters 2, the raw
+    // denim never (NEVER_WASH), the socks every wear; six socks.
+    expect(garment('T20').fields.washAfterWears).toBe(2);
+    expect(garment('B01').fields.washAfterWears).toBe(0);
+    expect(garment('B02').fields.washAfterWears).toBeNull();
+    expect(garment('A11').fields).toMatchObject({
+      washAfterWears: 1,
+      quantity: 6,
+    });
+    expect(garment('T21').fields).toMatchObject({
+      condition: 'replace_soon',
+      conditionNote: expect.stringMatching(/Pilling/),
+    });
+    expect(garment('B02').fields.condition).toBe('needs_repair');
+    expect(garment('G04').away).toEqual({
+      reason: 'lent',
+      note: expect.stringMatching(/Dana/),
+    });
+    expect(garment('F07').away).toMatchObject({ reason: 'repair' });
+    expect(demo.garments.filter((g) => g.away)).toHaveLength(2);
   });
 
   it('gives Dana and Riley no capsules', () => {
@@ -122,6 +154,21 @@ describe('persona bibles', () => {
       'two capsules of one name, in any case',
       `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Capsules\n\n| Capsule | Garments | Notes |\n|---|---|---|\n| Shoes | F01 | — |\n| SHOES | F01 | — |\n`,
       /two capsules are called "SHOES"/,
+    ],
+    [
+      'a condition the app does not have',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Condition\n\n| Garment | Condition | Note |\n|---|---|---|\n| F01 | shabby | — |\n`,
+      /not a garment form post/,
+    ],
+    [
+      'away for a garment that is not there',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Away\n\n| Garment | Away | Note |\n|---|---|---|\n| F02 | lent | — |\n`,
+      /Away: "F02" is not a garment/,
+    ],
+    [
+      'an away reason the app does not have',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Away\n\n| Garment | Away | Note |\n|---|---|---|\n| F01 | stolen | — |\n`,
+      /away: "stolen" is not lent or repair/,
     ],
     [
       'a capsule without a name',

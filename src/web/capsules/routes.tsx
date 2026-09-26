@@ -178,9 +178,14 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'view',
       );
       const capsule = await requireCapsule(request.params.id, access.ownerId);
-      const filters = { archived: false, capsule: capsule.id };
+      const filters = {
+        archived: false,
+        capsule: capsule.id,
+        needsWash: false,
+        attention: false,
+      };
       const [page, count] = await Promise.all([
-        gridPage(db, access.ownerId, filters),
+        gridPage(db, access.ownerId, filters, { ownerView: access.isOwner }),
         gridCount(db, access.ownerId, filters),
       ]);
       const { created, added, removed } = request.query;

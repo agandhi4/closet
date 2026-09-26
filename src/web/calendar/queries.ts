@@ -1,4 +1,4 @@
-import { and, between, eq, sql } from 'drizzle-orm';
+import { and, between, eq } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { outfit, outfitCalendar } from '../../db/schema';
 import { imageUrl } from '../files/image-url';
@@ -67,6 +67,11 @@ export async function findEntries(
 
 export type ScheduleOutcome = 'scheduled' | 'already-scheduled';
 
+/** What insertEntry did; a new entry's id, for a caller that marks it worn (the seed). */
+export type Scheduled =
+  | { outcome: 'scheduled'; id: number }
+  | { outcome: 'already-scheduled' };
+
 /**
  * Plans the owner's outfit on `day`. Idempotent: planning the same outfit on
  * the same day again inserts nothing (the unique (owner, day, outfit)
@@ -84,22 +89,22 @@ export async function scheduleOutfit(
       and(eq(outfit.id, entry.outfitId), eq(outfit.ownerId, entry.ownerId)),
     );
   if (!owned) return 'no-such-outfit';
-  return insertEntry(db, entry);
+  return (await insertEntry(db, entry)).outcome;
 }
 
 /**
  * The one writer of calendar entries, for an outfit the caller has already
  * found to be the owner's: POST /calendar (scheduleOutfit), the outfit
  * form's "Add to calendar", inside its save transaction
- * (src/web/outfits/queries.ts), and the seed's simulated history, which
- * records a past day as worn when it was (`wornAt`; the app itself marks an
- * entry worn with toggleWorn, at the tap).
+ * (src/web/outfits/queries.ts), and the seed's simulated history. An entry
+ * starts unworn: setEntryWorn (src/web/wears/queries.ts) is the only way to
+ * mark one, because its wear rows change with it.
  */
 export async function insertEntry(
   db: Queryable,
-  entry: { ownerId: number; outfitId: number; day: IsoDate; wornAt?: Date },
-): Promise<ScheduleOutcome> {
-  const inserted = await db
+  entry: { ownerId: number; outfitId: number; day: IsoDate },
+): Promise<Scheduled> {
+  const [inserted] = await db
     .insert(outfitCalendar)
     .values(entry)
     .onConflictDoNothing({
@@ -110,9 +115,12 @@ export async function insertEntry(
       ],
     })
     .returning({ id: outfitCalendar.id });
-  return inserted.length > 0 ? 'scheduled' : 'already-scheduled';
+  return inserted
+    ? { outcome: 'scheduled', id: inserted.id }
+    : { outcome: 'already-scheduled' };
 }
 
+/** Deletes the owner's entry; its wears go with it (garment_wear's foreign key). */
 export async function deleteEntry(
   db: Db,
   id: number,
@@ -123,23 +131,4 @@ export async function deleteEntry(
     .where(and(eq(outfitCalendar.id, id), eq(outfitCalendar.ownerId, ownerId)))
     .returning({ id: outfitCalendar.id });
   return deleted.length > 0 ? 'deleted' : 'not-found';
-}
-
-/**
- * Marks the entry worn (now) or clears the mark, in one statement so two
- * quick taps cannot both read "not worn". Returns the new state.
- */
-export async function toggleWorn(
-  db: Db,
-  id: number,
-  ownerId: number,
-): Promise<{ worn: boolean } | EntryMiss> {
-  const [updated] = await db
-    .update(outfitCalendar)
-    .set({
-      wornAt: sql`case when ${outfitCalendar.wornAt} is null then now() end`,
-    })
-    .where(and(eq(outfitCalendar.id, id), eq(outfitCalendar.ownerId, ownerId)))
-    .returning({ wornAt: outfitCalendar.wornAt });
-  return updated ? { worn: updated.wornAt !== null } : 'not-found';
 }

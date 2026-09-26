@@ -3,7 +3,7 @@ import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import sharp from 'sharp';
 import { initialCutoutState } from '../cutout/state';
-import type { Db } from '../db/client';
+import type { Db, Queryable } from '../db/client';
 import type { SharePermission } from '../db/schema';
 import type { Logger } from '../logger';
 import {
@@ -30,6 +30,7 @@ import type { Photos } from '../web/files/photos';
 import { insertPhotoRow, type NewPhotoRow } from '../web/files/queries';
 import { t } from '../web/i18n';
 import { createOutfit } from '../web/outfits/queries';
+import { markWashed, setAway, setEntryWorn } from '../web/wears/queries';
 import {
   acceptInvite,
   createInvite,
@@ -47,7 +48,7 @@ import {
   type SeedGarment,
   slotRank,
 } from './persona';
-import { simulate } from './simulate';
+import { type SimulatedLife, simulate } from './simulate';
 
 /**
  * `npm run seed`: writes the personas (src/seed/personas/*.md) through the
@@ -73,6 +74,10 @@ export interface SeedReport {
   capsules: number;
   entries: number;
   worn: number;
+  /** garment_wear rows the worn entries wrote. */
+  wears: number;
+  /** Laundry Sundays written (last_washed_on). */
+  washes: number;
   ms: number;
 }
 
@@ -126,6 +131,7 @@ export async function seedPersona(
           photoId,
         );
         if (garment.archivedOn) await toggleArchived(tx, id, userId);
+        if (garment.away) await setAway(tx, userId, id, garment.away);
         ids.set(garment.id, id);
       }
       const byId = new Map(persona.garments.map((g) => [g.id, g]));
@@ -159,16 +165,13 @@ export async function seedPersona(
           },
         });
       }
-      for (const entry of life.entries) {
-        await insertEntry(tx, {
-          ownerId: userId,
-          outfitId: outfitIds[entry.outfit],
-          day: entry.day,
-          ...(entry.worn && {
-            wornAt: instantAt(entry.day, WORN_HOUR, deps.timeZone),
-          }),
-        });
-      }
+      const wears = await writeHistory(tx, life, {
+        userId,
+        outfitIds,
+        garmentIds: ids,
+        anchor: options.anchor,
+        timeZone: deps.timeZone,
+      });
       return {
         userId,
         garments: persona.garments.length,
@@ -177,11 +180,13 @@ export async function seedPersona(
         capsules: persona.capsules.length,
         entries: life.entries.length,
         worn: life.entries.filter((e) => e.worn).length,
+        wears,
+        washes: life.washes.length,
         ms: Date.now() - startedAt,
       };
     });
     logger.info(
-      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries (${report.worn} worn) in ${report.ms}ms`,
+      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears), ${report.washes} laundry days in ${report.ms}ms`,
     );
     return report;
   } catch (error) {
@@ -193,6 +198,56 @@ export async function seedPersona(
     }
     throw error;
   }
+}
+
+/**
+ * The simulated history through the app's writers: every calendar entry
+ * (insertEntry), the worn ones marked as the pill does (setEntryWorn, which
+ * logs their wears) at 21:00 that day, then the laundry Sundays in order
+ * (markWashed), so each garment ends on its last one. Returns the wear rows
+ * written.
+ */
+async function writeHistory(
+  tx: Queryable,
+  life: SimulatedLife,
+  ids: {
+    userId: number;
+    /** By the bible's outfit index. */
+    outfitIds: number[];
+    /** By the bible's garment id. */
+    garmentIds: Map<string, number>;
+    anchor: IsoDate;
+    timeZone: string;
+  },
+): Promise<number> {
+  const { userId } = ids;
+  let wears = 0;
+  for (const entry of life.entries) {
+    const scheduled = await insertEntry(tx, {
+      ownerId: userId,
+      outfitId: ids.outfitIds[entry.outfit],
+      day: entry.day,
+    });
+    // The simulation plans each (day, outfit) once: always a new entry.
+    if (!entry.worn || scheduled.outcome !== 'scheduled') continue;
+    const worn = await setEntryWorn(tx, {
+      entryId: scheduled.id,
+      ownerId: userId,
+      worn: true,
+      at: instantAt(entry.day, WORN_HOUR, ids.timeZone),
+      today: ids.anchor,
+    });
+    if (typeof worn !== 'string') wears += worn.wears;
+  }
+  for (const wash of life.washes) {
+    await markWashed(
+      tx,
+      userId,
+      wash.garmentIds.map((id) => ids.garmentIds.get(id)!),
+      wash.day,
+    );
+  }
+  return wears;
 }
 
 // Garments drawn at once: sharp works on its own threads, so a few in

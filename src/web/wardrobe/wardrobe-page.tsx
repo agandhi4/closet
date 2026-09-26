@@ -1,5 +1,6 @@
 import type { Child } from 'hono/jsx';
 import {
+  CONDITIONS,
   FITS,
   FORMALITIES,
   LENGTHS,
@@ -49,6 +50,10 @@ export interface GridSearch {
   archived: string;
   /** A capsule's id: its members only. */
   capsule: string;
+  /** 'true': a copy needs a wash (the owner's own wardrobe only). */
+  needsWash: string;
+  /** 'true': condition not good. */
+  attention: string;
 }
 
 /** No filter at all: the whole closet (the capsule page spreads it with its id). */
@@ -63,6 +68,8 @@ export const EMPTY_SEARCH: GridSearch = {
   material: '',
   archived: '',
   capsule: '',
+  needsWash: '',
+  attention: '',
 };
 
 /**
@@ -86,8 +93,12 @@ export interface WardrobeModel {
   /** The shared wardrobe shown; undefined for the requester's own. */
   viewOwner: number | undefined;
   canEdit: boolean;
+  /** The requester's own wardrobe: wash state and away show (never a share's). */
+  ownerView: boolean;
   /** Garments still needing their type, warmth or formality (0 for a viewer). */
   toTag: number;
+  /** Garments with a copy that needs a wash (0 on a shared wardrobe). */
+  toWash: number;
   /** Select mode (?select=1, or the picker): tiles are checkboxes. */
   selecting: boolean;
   /** Select mode as the capsule picker; the capsule's name for the heading. */
@@ -153,6 +164,7 @@ export function WardrobeMain({ model }: { model: WardrobeModel }) {
           {model.toTag > 0 && (
             <TagPrompt count={model.toTag} viewOwner={viewOwner} />
           )}
+          {model.toWash > 0 && <LaundryPrompt count={model.toWash} />}
           {model.sharedWardrobes.length > 0 && (
             <WardrobeSwitcher model={model} />
           )}
@@ -211,6 +223,7 @@ function Controls({ model }: { model: WardrobeModel }) {
         options={model.options}
         capsules={model.capsules}
         viewOwner={viewOwner}
+        ownerView={model.ownerView}
       />
     </>
   );
@@ -257,6 +270,20 @@ function TagPrompt(props: { count: number; viewOwner: number | undefined }) {
         class="btn btn-sm btn-info"
       >
         {t('TAG_PROMPT_ACTION')}
+      </a>
+    </div>
+  );
+}
+
+/** "3 garments need a wash: Laundry", to the owner. */
+function LaundryPrompt(props: { count: number }) {
+  return (
+    <div role="status" class="alert alert-soft mb-4 mx-2 py-2">
+      <span class="text-sm">
+        {t('wear.LAUNDRY_PROMPT', { count: props.count })}
+      </span>
+      <a href="/laundry" class="btn btn-sm">
+        {t('wear.LAUNDRY')}
       </a>
     </div>
   );
@@ -489,7 +516,8 @@ function TileContent(props: { tile: GarmentTile; eager: boolean }) {
   const { tile } = props;
   return (
     <>
-      <figure class="aspect-square bg-base-200">
+      <figure class="relative aspect-square bg-base-200">
+        <TileBadges tile={tile} />
         {tile.photo ? (
           <img
             src={imageUrl(tile.photo, 'thumb')}
@@ -513,6 +541,53 @@ function TileContent(props: { tile: GarmentTile; eager: boolean }) {
         </p>
       </div>
     </>
+  );
+}
+
+/**
+ * What a tile says over its photo: "x3" for identical copies, the
+ * condition when it is not good, and to the owner alone, the wash state
+ * ("Wash", "2/3" of a multiple) and whether it is away.
+ */
+function TileBadges({ tile }: { tile: GarmentTile }) {
+  const badges: { text: string; class: string }[] = [];
+  if (tile.quantity > 1) {
+    badges.push({
+      text: t('QUANTITY_BADGE', { quantity: tile.quantity }),
+      class: 'badge-neutral',
+    });
+  }
+  if (tile.care?.away) {
+    badges.push({
+      text: t(`wear.away.${tile.care.away}`),
+      class: 'badge-warning',
+    });
+  }
+  if (tile.care && tile.care.dirty > 0) {
+    badges.push({
+      text:
+        tile.quantity > 1
+          ? t('wear.BADGE_WASH_COPIES', {
+              dirty: tile.care.dirty,
+              quantity: tile.quantity,
+            })
+          : t('wear.BADGE_WASH'),
+      class: 'badge-info',
+    });
+  }
+  if (tile.condition !== 'good') {
+    badges.push({
+      text: valueLabel('condition', tile.condition),
+      class: 'badge-warning badge-outline bg-base-100',
+    });
+  }
+  if (badges.length === 0) return null;
+  return (
+    <div class="absolute top-2 right-2 flex flex-col items-end gap-1">
+      {badges.map((badge) => (
+        <span class={`badge badge-sm ${badge.class}`}>{badge.text}</span>
+      ))}
+    </div>
   );
 }
 
@@ -655,6 +730,22 @@ function FilterBar(props: {
           />
         )}
         <PropertyPills {...pill} />
+        {search.needsWash && (
+          <FilterPill
+            {...pill}
+            drop="needsWash"
+            class="badge-info"
+            label={t('wear.FILTER_NEEDS_WASH')}
+          />
+        )}
+        {search.attention && (
+          <FilterPill
+            {...pill}
+            drop="attention"
+            class="badge-warning"
+            label={t('FILTER_ATTENTION')}
+          />
+        )}
         {search.archived && (
           <FilterPill
             {...pill}
@@ -709,6 +800,7 @@ function FilterModal(props: {
   options: FilterOptions;
   capsules: CapsuleRef[];
   viewOwner: number | undefined;
+  ownerView: boolean;
 }) {
   const { search, options, capsules, viewOwner } = props;
   return (
@@ -774,17 +866,27 @@ function FilterModal(props: {
           </FilterGroup>
         )}
         <PropertyFilterGroups search={search} options={options} />
-        <FilterGroup title={t('ARCHIVED')}>
-          <label class="cursor-pointer flex items-center gap-2">
-            <input
-              type="checkbox"
-              name="archived"
-              value="true"
-              class="checkbox checkbox-sm"
-              checked={search.archived !== ''}
+        <FilterGroup title={t('CARE')}>
+          {/* Wears are the owner's own: a share offers no wash filter. */}
+          {props.ownerView && (
+            <Toggle
+              name="needsWash"
+              checked={search.needsWash !== ''}
+              label={t('wear.FILTER_NEEDS_WASH')}
             />
-            <span class="text-sm">{t('SHOW_ARCHIVED')}</span>
-          </label>
+          )}
+          <Toggle
+            name="attention"
+            checked={search.attention !== ''}
+            label={t('FILTER_ATTENTION')}
+          />
+        </FilterGroup>
+        <FilterGroup title={t('ARCHIVED')}>
+          <Toggle
+            name="archived"
+            checked={search.archived !== ''}
+            label={t('SHOW_ARCHIVED')}
+          />
         </FilterGroup>
         <div class="modal-action">
           <button
@@ -881,6 +983,26 @@ function FilterGroup(props: { title: string; children: Child }) {
       </h4>
       <div class="flex flex-wrap gap-2">{props.children}</div>
     </div>
+  );
+}
+
+// A yes-or-no filter: its query parameter is 'true' when checked.
+function Toggle(props: {
+  name: keyof GridSearch;
+  checked: boolean;
+  label: string;
+}) {
+  return (
+    <label class="cursor-pointer flex items-center gap-2">
+      <input
+        type="checkbox"
+        name={props.name}
+        value="true"
+        class="checkbox checkbox-sm"
+        checked={props.checked}
+      />
+      <span class="text-sm">{props.label}</span>
+    </label>
   );
 }
 
@@ -1034,6 +1156,11 @@ const BULK_CHOICES: Record<
     values: ['true', 'false'],
     labelOf: (value) =>
       t(value === 'true' ? 'WATER_RESISTANT_YES' : 'WATER_RESISTANT_NO'),
+    clearable: false,
+  },
+  // Good is the reset, so no "Not set" chip.
+  condition: {
+    ...labelled('condition', 'condition', 'CONDITION', CONDITIONS),
     clearable: false,
   },
 };

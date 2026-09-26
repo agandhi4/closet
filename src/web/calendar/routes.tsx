@@ -9,12 +9,8 @@ import { viewContext } from '../view-context';
 import { parseIsoDate, parseYearMonth, todayIn } from './calendar-date';
 import { CalendarPage } from './calendar-page';
 import { buildCalendarView, weekOf } from './calendar-view';
-import {
-  deleteEntry,
-  findEntries,
-  scheduleOutfit,
-  toggleWorn,
-} from './queries';
+import { setEntryWorn } from '../wears/queries';
+import { deleteEntry, findEntries, scheduleOutfit } from './queries';
 import { WornButton } from './worn-button';
 
 /**
@@ -27,7 +23,8 @@ import { WornButton } from './worn-button';
  *   malformed date, outfit id or week is a 400 error page and writes
  *   nothing (IsoDateSchema: the rule parseIsoDate also applies).
  * - POST /calendar/:id/delete and /worn take their body as optional: the
- *   posted week only picks the redirect target.
+ *   posted week only picks the redirect target, and /worn's `worn` the
+ *   state to set (absent: a toggle, as pills cached before it posted).
  */
 const EntryParams = Type.Object({ id: RowId });
 
@@ -37,10 +34,32 @@ const WeekBody = Type.Union([
   Type.Null(),
 ]);
 
+const WornBody = Type.Union([
+  Type.Object({
+    week: Type.Optional(IsoDateSchema),
+    worn: Type.Optional(Type.Union([Type.Literal('1'), Type.Literal('0')])),
+  }),
+  Type.Null(),
+]);
+
 // Someone else's entry is not found, like a missing one: ids reveal nothing
 // (test/integration/authorization.spec.ts).
 function entryNotFound(): HttpError {
   return new HttpError(404, 'Calendar entry not found');
+}
+
+/** The log line for what POST /calendar/:id/worn did. */
+function wornMessage(
+  id: number,
+  ownerId: number,
+  outcome: { worn: boolean; changed: boolean; wears: number },
+): string {
+  const state = outcome.worn ? 'worn' : 'not worn';
+  if (!outcome.changed) {
+    return `Calendar entry ${id} already ${state} for user ${ownerId}`;
+  }
+  const wears = `${outcome.wears} wears ${outcome.worn ? 'logged' : 'removed'}`;
+  return `Calendar entry ${id} marked ${state} by user ${ownerId} (${wears})`;
 }
 
 function weekUrl(week: string | undefined): string {
@@ -145,17 +164,29 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
+  // The chip's worn pill: the entry and its wears change together
+  // (setEntryWorn). A day after today is refused (409): its chip has no
+  // pill, so only a page the installed app cached before that rule posts it.
   app.post(
     '/calendar/:id/worn',
-    { schema: { params: EntryParams, body: WeekBody } },
+    { schema: { params: EntryParams, body: WornBody } },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const { id } = request.params;
-      const outcome = await toggleWorn(db, id, ownerId);
-      if (typeof outcome === 'string') throw entryNotFound();
-      logger.info(
-        `Calendar entry ${id} marked ${outcome.worn ? 'worn' : 'not worn'} by user ${ownerId}`,
-      );
+      const posted = request.body?.worn;
+      const outcome = await setEntryWorn(db, {
+        entryId: id,
+        ownerId,
+        worn: posted === undefined ? undefined : posted === '1',
+        at: new Date(),
+        today: todayIn(config.timeZone, new Date()),
+      });
+      if (outcome === 'not-found') throw entryNotFound();
+      if (outcome === 'future') {
+        logger.info(`Calendar entry ${id}: not marked worn, its day is ahead`);
+        throw new HttpError(409, 'A planned day cannot be marked worn yet');
+      }
+      logger.info(wornMessage(id, ownerId, outcome));
       const week = request.body?.week;
       if (request.headers['hx-request']) {
         // Swapped in place of the posted form, carrying the posted week on.

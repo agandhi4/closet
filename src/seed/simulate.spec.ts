@@ -86,6 +86,18 @@ describe('simulate', () => {
     expect(names.has('Merino office')).toBe(true);
   });
 
+  it('does laundry on the Sundays up to the anchor, washing what can be washed', () => {
+    expect(life.washes.length).toBeGreaterThanOrEqual(12);
+    expect(life.washes.every((w) => dayOfWeek(w.day) === 0)).toBe(true);
+    expect(life.washes.every((w) => w.day <= '2026-09-26')).toBe(true);
+    expect(life.washes.at(-1)?.day).toBe('2026-09-20');
+    const washed = new Set(life.washes.flatMap((w) => w.garmentIds));
+    // Tops go in every week; the raw denim never; shoes are not laundered.
+    expect(washed.has('T01')).toBe(true);
+    expect(washed.has('B01')).toBe(false);
+    expect([...washed].some((id) => id.startsWith('F'))).toBe(false);
+  });
+
   it('writes no history for personas without a week', () => {
     expect(simulate(loadPersona('sparse'), '2026-09-26').entries).toEqual([]);
   });

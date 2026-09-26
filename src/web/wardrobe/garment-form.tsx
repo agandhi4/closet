@@ -1,3 +1,9 @@
+import {
+  NEVER_WASH,
+  QUANTITY_MAX,
+  WASH_AFTER_CHOICES,
+} from '../../wardrobe/availability';
+import { CONDITIONS } from '../../wardrobe/properties';
 import { PostForm } from '../auth/form';
 import type { FieldErrors } from '../auth/validation';
 import { t } from '../i18n';
@@ -7,6 +13,7 @@ import { Navbar } from '../layout/navbar';
 import { BackLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { GARMENT_COLORS, normalizeCategory } from './garment';
+import { valueLabel } from './labels';
 import {
   LinkImportSection,
   type LinkImportView,
@@ -19,6 +26,8 @@ import {
 import { garmentUrl, LINK_IMPORT_PATH, wardrobeUrl } from './urls';
 import {
   BRAND_MAX,
+  CARE_NOTE_MAX,
+  type CareFormValues,
   CATEGORY_MAX,
   type GarmentField,
   type GarmentFormValues,
@@ -159,18 +168,26 @@ export function GarmentFormPage(props: {
             maxlength={SIZE_MAX}
             placeholder={t('SIZE_PLACEHOLDER')}
           />
+          {/* The save writes the care fields only when this is posted (see GarmentBody.care). */}
+          <input type="hidden" name="care" value="1" />
+          <QuantityField
+            value={values.care.quantity}
+            errors={errors.quantity}
+          />
           <details class="collapse collapse-arrow bg-base-200" open={moreOpen}>
             <summary class="collapse-title font-medium">
               {t('MORE_DETAILS')}
             </summary>
             <div class="collapse-content flex flex-col gap-4">
               <PropertiesMore category={category} values={values.properties} />
+              <WashAfterField value={values.care.washAfterWears} />
               <TextArea
                 name="washingDetails"
                 label={t('WASHING_DETAILS')}
                 value={values.washingDetails}
                 placeholder={t('WASHING_DETAILS_PLACEHOLDER')}
               />
+              <ConditionFields care={values.care} />
               <div class="flex flex-col">
                 <label class="label" for="garment-acquired">
                   <span class="label-text">{t('DATE_ACQUIRED')}</span>
@@ -272,6 +289,97 @@ function TextField(props: {
         placeholder={props.placeholder}
       />
       <Messages messages={props.errors} />
+    </div>
+  );
+}
+
+/** Identical copies (three white tees): a number stepper, 1 to QUANTITY_MAX. */
+function QuantityField(props: { value: string; errors?: string[] }) {
+  return (
+    <div class="flex flex-col">
+      <label class="label" for="garment-quantity">
+        <span class="label-text">{t('QUANTITY')}</span>
+      </label>
+      <input
+        id="garment-quantity"
+        type="number"
+        name="quantity"
+        min="1"
+        max={QUANTITY_MAX}
+        step="1"
+        inputmode="numeric"
+        class={`input input-bordered w-28 ${props.errors ? 'input-error' : ''}`}
+        value={props.value}
+      />
+      <span class="text-xs text-base-content/60 mt-1">
+        {t('QUANTITY_HINT')}
+      </span>
+      <Messages messages={props.errors} />
+    </div>
+  );
+}
+
+/** Wears before a wash: the category's default, a count, or never. */
+function WashAfterField(props: { value: string }) {
+  const options: { value: string; label: string }[] = [
+    { value: '', label: t('WASH_AFTER_DEFAULT') },
+    ...WASH_AFTER_CHOICES.map((wears) => ({
+      value: String(wears),
+      label:
+        wears === 1
+          ? t('WASH_AFTER_EVERY')
+          : t('WASH_AFTER_WEARS', { count: wears }),
+    })),
+    { value: String(NEVER_WASH), label: t('WASH_AFTER_NEVER') },
+  ];
+  return (
+    <div class="flex flex-col">
+      <label class="label" for="garment-wash-after">
+        <span class="label-text">{t('WASH_AFTER')}</span>
+      </label>
+      <select
+        id="garment-wash-after"
+        name="washAfterWears"
+        class="select select-bordered w-full"
+      >
+        {options.map((option) => (
+          <option value={option.value} selected={option.value === props.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/** The condition chips and what is wrong (kept only with a problem). */
+function ConditionFields({ care }: { care: CareFormValues }) {
+  return (
+    <div class="flex flex-col gap-2">
+      <span class="label">
+        <span class="label-text">{t('CONDITION')}</span>
+      </span>
+      <div class="flex flex-wrap gap-2">
+        {CONDITIONS.map((condition) => (
+          <input
+            type="radio"
+            name="condition"
+            value={condition}
+            class="btn btn-sm rounded-full"
+            aria-label={valueLabel('condition', condition)}
+            checked={condition === care.condition}
+          />
+        ))}
+      </div>
+      <input
+        type="text"
+        name="conditionNote"
+        value={care.conditionNote}
+        maxlength={CARE_NOTE_MAX}
+        placeholder={t('CONDITION_NOTE_PLACEHOLDER')}
+        aria-label={t('CONDITION_NOTE')}
+        class="input input-bordered w-full"
+      />
     </div>
   );
 }

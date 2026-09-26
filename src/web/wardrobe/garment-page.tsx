@@ -10,7 +10,9 @@ import { Navbar } from '../layout/navbar';
 import { BackLink, HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import { ShareLinkButton } from '../share/share-button';
 import type { ViewContext } from '../view-context';
+import { type WearPanel, WearSection } from '../wears/wear-section';
 import { categoryLabel, priceLabel, splitColors } from './garment';
+import { GarmentCondition } from './garment-condition';
 import { fabricWeightLabel, valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
 import { garmentUrl, wardrobeUrl } from './urls';
@@ -21,7 +23,9 @@ export interface GarmentPageModel {
   capsules: GarmentCapsule[];
   /** The shared wardrobe it is in; undefined for the requester's own. */
   viewOwner: number | undefined;
-  /** Edit, photo and mask: the owner and a MANAGE grantee. */
+  /** Wears, washes and away: the owner's alone, never a grantee's. */
+  wear: WearPanel | undefined;
+  /** Edit, photo, mask and condition: the owner and a MANAGE grantee. */
   canEdit: boolean;
   /** Archive and delete: the owner only. */
   canDelete: boolean;
@@ -90,6 +94,12 @@ export function GarmentPage(props: {
         </div>
         {model.canEdit && <PhotoForm model={model} />}
         <GarmentDetails garment={garment} />
+        <GarmentCondition
+          garment={garment}
+          viewOwner={model.viewOwner}
+          canEdit={model.canEdit}
+        />
+        {model.wear && <WearSection garment={garment} panel={model.wear} />}
         <GarmentCapsules
           garmentId={garment.id}
           capsules={model.capsules}
@@ -306,6 +316,7 @@ function GarmentDetails({ garment }: { garment: GarmentDetail }) {
             <span class="font-medium">{garment.size}</span>
           </Detail>
         )}
+        <QuantityDetail quantity={garment.quantity} />
         {colors.length > 0 && (
           <Detail label={t('COLOR')}>
             <span class="capitalize font-medium">{colors.join(', ')}</span>
@@ -411,6 +422,16 @@ function GarmentActions({
         </div>
       )}
     </>
+  );
+}
+
+/** "3 identical", for multiples only. */
+function QuantityDetail({ quantity }: { quantity: number }) {
+  if (quantity === 1) return null;
+  return (
+    <Detail label={t('QUANTITY')}>
+      <span class="font-medium">{t('QUANTITY_VALUE', { quantity })}</span>
+    </Detail>
   );
 }
 

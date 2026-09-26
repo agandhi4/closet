@@ -262,6 +262,14 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       // Added by 0008_garment_source_url_price.
       source_url: 'text',
       price: 'numeric',
+      // Added by 0011_wears_washes.
+      quantity: 'smallint',
+      wash_after_wears: 'smallint',
+      last_washed_on: 'date',
+      away: 'text',
+      away_note: 'text',
+      condition: 'text',
+      condition_note: 'text',
     });
     expect(Object.keys(await columnsOf(env, 'user')).sort()).toEqual([
       'email',

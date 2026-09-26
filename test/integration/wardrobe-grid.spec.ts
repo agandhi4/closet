@@ -146,12 +146,13 @@ describe('wardrobe grid', () => {
   it('reads the page as plain rows: one statement for the tiles, whatever the wardrobe holds', async () => {
     const record = await recordQueries(() => get('/wardrobe'));
     // Session, then page, count, filter values, shared wardrobes, the
-    // "need details" count (tagging mode's prompt) and the capsules (the
-    // filter's choices; none here) in parallel. None of them returns more
-    // rows than a page and its lists.
-    expect(record.statements).toBe(7);
+    // "need details" count (tagging mode's prompt), the "need a wash" count
+    // (the laundry prompt, the owner's own) and the capsules (the filter's
+    // choices; none here) in parallel. None of them returns more rows than
+    // a page and its lists.
+    expect(record.statements).toBe(8);
     expect(record.rows).toBeLessThanOrEqual(
-      1 + (GRID_PAGE_SIZE + 1) + 1 + 1 + 1,
+      1 + (GRID_PAGE_SIZE + 1) + 1 + 1 + 1 + 1,
     );
   });
 

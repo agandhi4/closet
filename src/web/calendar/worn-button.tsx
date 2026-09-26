@@ -4,7 +4,9 @@ import type { IsoDate } from './calendar-date';
 /**
  * An entry's "Worn?" / "✓ Worn" pill: part of each chip on the calendar page,
  * and the whole response of POST /calendar/:id/worn to htmx, which swaps it
- * in place of the form that was posted (hx-target="this").
+ * in place of the form that was posted (hx-target="this"). It posts the
+ * state it asks for (`worn`), so a double tap or a replayed post marks once
+ * (setEntryWorn); pills cached before it did post none and toggle.
  */
 export function WornButton(props: {
   entryId: number;
@@ -24,8 +26,10 @@ export function WornButton(props: {
       hx-post={action}
       hx-target="this"
       hx-swap="outerHTML"
+      data-needs-network=""
     >
       {props.week && <input type="hidden" name="week" value={props.week} />}
+      <input type="hidden" name="worn" value={props.worn ? '0' : '1'} />
       <button
         type="submit"
         class={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${

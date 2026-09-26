@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALL_GARMENT_TYPES,
+  CONDITIONS,
   FITS,
   FORMALITIES,
   LENGTHS,
@@ -22,6 +23,7 @@ const SETS: [LabelledProperty, readonly (string | number)[]][] = [
   ['fit', FITS],
   ['sleeve', SLEEVES],
   ['length', LENGTHS],
+  ['condition', CONDITIONS],
 ];
 
 describe('property labels', () => {

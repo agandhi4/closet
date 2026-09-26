@@ -16,7 +16,8 @@ export type LabelledProperty =
   | 'pattern'
   | 'fit'
   | 'sleeve'
-  | 'length';
+  | 'length'
+  | 'condition';
 
 export function valueLabel(
   property: LabelledProperty,

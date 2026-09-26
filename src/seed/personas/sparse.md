@@ -64,3 +64,8 @@ Tagging mode (`countToTag`, `nextToTag`), bulk edit on untagged garments, cards 
 colours, a custom category, a MANAGE grantee (Theo) editing someone else's closet, and every feature's
 "not enough data" answer (the gallery with a few tops and two bottoms, weather matching with no warmth
 values, insights with no wears).
+
+Wears and washes (#7): she has logged nothing, so nothing is dirty and her laundry page is empty; every
+garment is one copy in good shape, washed by the app's defaults. Theo, managing her wardrobe, sees her
+garments' quantity and condition (garment properties, which he may set) but never a wash state, a wear
+count or whether something is away: those are her own records, like her calendar.

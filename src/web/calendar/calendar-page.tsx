@@ -151,7 +151,7 @@ function DayColumn({ day }: { day: CalendarDayView }) {
       </div>
       <div class="flex flex-col gap-1 p-3 flex-1">
         {day.entries.map((entry) => (
-          <EntryChip entry={entry} />
+          <EntryChip entry={entry} future={day.isFuture} />
         ))}
         {/* Also the marker the integration specs split day columns on. */}
         <a
@@ -175,9 +175,17 @@ function chipStyle(hue: number, worn: boolean): string {
 /**
  * The outfit bar (tap to edit the outfit, × to unschedule) and the worn pill.
  * The bar is the edit link's (boosted), stretched over it by its ::after; it
- * holds the delete form, which an <a> cannot, so the form sits above it.
+ * holds the delete form, which an <a> cannot, so the form sits above it. A
+ * planned day has no pill (it cannot be worn yet), unless an entry there
+ * was marked before that rule, which can still be unmarked.
  */
-function EntryChip({ entry }: { entry: CalendarEntryView }) {
+function EntryChip({
+  entry,
+  future,
+}: {
+  entry: CalendarEntryView;
+  future: boolean;
+}) {
   const editUrl = `/outfits/${entry.outfit.id}/edit?returnTo=/calendar&returnToWeek=${entry.day}`;
   const deleteUrl = `/calendar/${entry.id}/delete`;
   const name = entry.outfit.name || t('UNTITLED_OUTFIT');
@@ -228,7 +236,9 @@ function EntryChip({ entry }: { entry: CalendarEntryView }) {
           </button>
         </form>
       </div>
-      <WornButton entryId={entry.id} worn={entry.worn} week={entry.day} />
+      {(!future || entry.worn) && (
+        <WornButton entryId={entry.id} worn={entry.worn} week={entry.day} />
+      )}
     </div>
   );
 }

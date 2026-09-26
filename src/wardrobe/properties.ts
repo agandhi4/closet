@@ -117,6 +117,16 @@ export const LENGTHS = ['short', 'knee', 'midi', 'full'] as const;
 export type Length = (typeof LENGTHS)[number];
 
 /**
+ * What shape a garment is in: `needs_repair` (a hole, a torn loop; still in
+ * the closet and still worn) or `replace_soon` (pilling, a collar gone).
+ * Every role has it. It never feeds availability (src/wardrobe/availability.ts):
+ * a worn-out tee is still wearable, and a garment physically at the tailor
+ * is `away: repair` there, a different thing.
+ */
+export const CONDITIONS = ['good', 'needs_repair', 'replace_soon'] as const;
+export type Condition = (typeof CONDITIONS)[number];
+
+/**
  * Fabric weight is stored in grams per square metre (what most product
  * pages give, and an integer), entered and shown in ounces per square yard
  * too: a "6 oz heavyweight tee" is 203 gsm. Bounds reject typos, not

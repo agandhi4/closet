@@ -9,6 +9,7 @@ import {
   capsuleGarment,
   file,
   garment,
+  garmentWear,
   outfit,
   outfitCalendar,
   outfitSlot,
@@ -20,6 +21,7 @@ import { variantFileName } from '../../src/web/files/image-variant';
 import { loadPersona } from '../../src/seed/persona';
 import { runSeed, seedPersona } from '../../src/seed/seed';
 import { countToTag } from '../../src/web/wardrobe/queries';
+import { countNeedingWash, laundryList } from '../../src/web/wears/queries';
 import {
   createTestApp,
   extractImgSrcs,
@@ -88,7 +90,7 @@ describe('seed personas', () => {
    * What a persona is, without what differs between runs by design (row
    * ids, UUIDs, file names): every garment field and its cutout's bytes,
    * outfits with their slots, capsules with their garments, the calendar,
-   * shares.
+   * the wears, shares.
    */
   const snapshot = async (email: string) => {
     const id = await userIdOf(t, email);
@@ -115,6 +117,11 @@ describe('seed personas', () => {
       .from(outfitCalendar)
       .where(eq(outfitCalendar.ownerId, id))
       .orderBy(asc(outfitCalendar.day), asc(outfitCalendar.id));
+    const wears = await t.db
+      .select({ garmentId: garmentWear.garmentId, day: garmentWear.day })
+      .from(garmentWear)
+      .where(eq(garmentWear.ownerId, id))
+      .orderBy(asc(garmentWear.day), asc(garmentWear.garmentId));
     const shares = await t.db
       .select({
         grantee: wardrobeShare.granteeId,
@@ -151,6 +158,7 @@ describe('seed personas', () => {
         outfit: names.get(c.outfitId),
         wornAt: c.wornAt?.toISOString() ?? null,
       })),
+      wears: wears.map((w) => [ids.get(w.garmentId), w.day]),
       shares: shares.length,
     };
   };
@@ -221,7 +229,48 @@ describe('seed personas', () => {
     ]);
     expect(demo.capsules[1].garments).toContain('Old 511s');
     // Fully tagged but for the socks, which no type fits.
-    expect(await countToTag(t.db, await userIdOf(t, EMAILS[0]))).toBe(1);
+    const demoId = await userIdOf(t, EMAILS[0]);
+    expect(await countToTag(t.db, demoId)).toBe(1);
+
+    // Wears and washes (#7): every worn entry's garments, the laundry
+    // Sundays, the bible's multiples, condition and away.
+    const byName = (name: string) =>
+      demo.garments.find((g) => g.name === name)!;
+    expect(demo.wears.length).toBeGreaterThan(250);
+    // Each wear is a worn entry's day.
+    const wornDays = new Set(worn.map((entry) => entry.day));
+    expect(demo.wears.every(([, day]) => wornDays.has(day as string))).toBe(
+      true,
+    );
+    expect(byName('White tee')).toMatchObject({
+      quantity: 3,
+      lastWashedOn: '2026-09-20',
+    });
+    expect(byName('Black socks')).toMatchObject({
+      quantity: 6,
+      washAfterWears: 1,
+    });
+    // The raw denim is never washed, shoes are never laundered.
+    expect(byName('Raw selvedge jeans')).toMatchObject({
+      washAfterWears: 0,
+      lastWashedOn: null,
+    });
+    expect(byName('White sneakers').lastWashedOn).toBeNull();
+    expect(byName('Duffel')).toMatchObject({
+      away: 'lent',
+      awayNote: expect.stringMatching(/Dana/),
+    });
+    expect(byName('Bean Boots').away).toBe('repair');
+    expect(byName('Grey merino crewneck')).toMatchObject({
+      condition: 'replace_soon',
+      conditionNote: expect.stringMatching(/Pilling/),
+    });
+    expect(byName('501s').condition).toBe('needs_repair');
+    // Seeded on a Saturday: the week's wears are in the hamper.
+    expect(await countNeedingWash(t.db, demoId)).toBeGreaterThan(0);
+    expect((await laundryList(t.db, demoId)).length).toBeGreaterThan(3);
+    // Dana logged nothing: nothing to wash.
+    expect(await laundryList(t.db, await userIdOf(t, EMAILS[2]))).toEqual([]);
     // Dana's wardrobe is shared with Theo, MANAGE.
     expect((await snapshot(EMAILS[2])).shares).toBe(1);
 
@@ -365,6 +414,7 @@ describe('seed personas', () => {
     expect(await t.db.$count(file)).toBe(0);
     expect(await t.db.$count(capsule)).toBe(0);
     expect(await t.db.$count(capsuleGarment)).toBe(0);
+    expect(await t.db.$count(garmentWear)).toBe(0);
     const report = await reconcileStorage(
       { db: t.db, photos: t.photos, logger: t.logger },
       { dryRun: true, olderThanMs: 0 },

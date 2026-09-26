@@ -40,7 +40,11 @@ import { jpeg, type LinkSites, startLinkSites } from './link-sites';
  * wardrobe, anyone else's outfit), so ids reveal nothing; what they can see
  * but may not change is a 403 (a VIEW grantee writing, a grantee archiving).
  * Calendar entries and outfits are never shared, so every refusal there is
- * a 404.
+ * a 404. Wears, washes and away (#7) are the owner's own records too, but
+ * about a garment a grantee can see: with `?ownerId=` a 403, without it a
+ * 404 (the garment is not in their wardrobe); a garment's condition is a
+ * property like any other (MANAGE writes it). /laundry is always the
+ * requester's own: another user's ids are ignored.
  */
 
 type SignedIn = 'owner' | 'manager' | 'viewer' | 'stranger';
@@ -53,9 +57,11 @@ type Via = 'own' | 'ownerId';
  *     render its name; writes must change stored data; clones must add a
  *     garment to the requester's wardrobe and modify nothing that existed.
  * hidden: 200, but the requester's own data only (no owner names).
+ * ignored: the route's success status, but the owner's ids were ignored:
+ *     nothing leaked, nothing changed (/laundry's batch).
  * forbidden / notFound / login: refused, nothing leaked, nothing changed.
  */
-type Outcome = 'ok' | 'hidden' | 'forbidden' | 'notFound' | 'login';
+type Outcome = 'ok' | 'hidden' | 'ignored' | 'forbidden' | 'notFound' | 'login';
 
 interface Fixture {
   garmentId: number;
@@ -452,6 +458,53 @@ const ROUTES: Route[] = [
     },
   },
 
+  // Wears, washes and away (#7): the owner's own records about a garment a
+  // grantee may see, so `?ownerId=` is a 403 and their own wardrobe a 404.
+  // Plain posts (no htmx): the 303 back to the garment.
+  ...(['wear', 'washed', 'away'] as const).map(
+    (action): Route => ({
+      name: `POST /wardrobe/:id/${action}`,
+      kind: 'write',
+      ok: 303,
+      secret: garmentName,
+      vias: BOTH,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/wardrobe/${f.garmentId}/${action}${q}`,
+        payload: {
+          wear: { worn: '1' },
+          washed: {},
+          away: { away: 'lent', awayNote: 'Planted note' },
+        }[action],
+      }),
+      expect: {
+        owner: 'ok',
+        manager: ['notFound', 'forbidden'],
+        viewer: ['notFound', 'forbidden'],
+        stranger: 'notFound',
+      },
+    }),
+  ),
+  {
+    // Condition is a garment property: the owner and a MANAGE grantee.
+    name: 'POST /wardrobe/:id/condition',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.garmentId}/condition${q}`,
+      payload: { condition: 'needs_repair', conditionNote: 'Planted' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+
   // Capsules are part of the wardrobe (owner decision on #8): the same
   // ?ownerId= resolution as the garment routes. Without ?ownerId a grantee
   // addresses their own wardrobe, which holds no such capsule.
@@ -830,6 +883,40 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // The requester's own hamper whatever `?ownerId=` says. Not `shows`:
+    // the fixture's garment is not worn (the owner's page lists nothing).
+    name: 'GET /laundry',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/laundry${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    name: 'POST /laundry',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/laundry${q}`,
+      payload: { ids: [String(f.garmentId)] },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'ignored',
+      viewer: 'ignored',
+      stranger: 'ignored',
+    },
+  },
+  {
     name: 'POST /calendar/:id/worn',
     kind: 'write',
     ok: 303,
@@ -978,6 +1065,7 @@ describe('authorization matrix', () => {
       'garment',
       'capsule',
       'capsule_garment',
+      'garment_wear',
       'file',
       'pending_photo',
       'outfit',
@@ -1028,7 +1116,7 @@ describe('authorization matrix', () => {
     }
   };
 
-  const REFUSED_STATUS: Record<Exclude<Outcome, 'ok'>, number> = {
+  const REFUSED_STATUS: Record<Exclude<Outcome, 'ok' | 'ignored'>, number> = {
     hidden: 200,
     forbidden: 403,
     notFound: 404,
@@ -1036,10 +1124,13 @@ describe('authorization matrix', () => {
   };
 
   const expectRefused = (
+    route: Route,
     outcome: Exclude<Outcome, 'ok'>,
     { res, secret, before, after }: Observed,
   ) => {
-    expect(res.statusCode).toBe(REFUSED_STATUS[outcome]);
+    expect(res.statusCode).toBe(
+      outcome === 'ignored' ? route.ok : REFUSED_STATUS[outcome],
+    );
     if (outcome === 'login') expect(res.headers.location).toBe(LOGIN_PATH);
     expect(res.body).not.toContain(secret);
     expect(after).toEqual(before);
@@ -1087,12 +1178,12 @@ describe('authorization matrix', () => {
     const observed = { actor, res, secret, before, after };
 
     if (outcome === 'ok') await expectSuccess(route, observed);
-    else expectRefused(outcome, observed);
+    else expectRefused(route, outcome, observed);
   });
 
   // The page offers what the routes allow: clone to anyone who can see the
-  // garment, edit to the owner and a MANAGE grantee, archive and delete to
-  // the owner only.
+  // garment, edit (and condition) to the owner and a MANAGE grantee,
+  // archive, delete and the wear section to the owner only.
   it.each([
     ['owner', { clone: true, edit: true, remove: true }],
     ['manager', { clone: true, edit: true, remove: false }],
@@ -1114,6 +1205,9 @@ describe('authorization matrix', () => {
       expect(html.includes('name="photo"')).toBe(can.edit);
       expect(html.includes(`hx-delete="/wardrobe/${id}`)).toBe(can.remove);
       expect(html.includes(`/wardrobe/${id}/archive`)).toBe(can.remove);
+      expect(html.includes(`/wardrobe/${id}/condition`)).toBe(can.edit);
+      expect(html.includes('id="garment-wear"')).toBe(can.remove);
+      expect(html.includes(`/wardrobe/${id}/wear`)).toBe(can.remove);
     },
   );
 

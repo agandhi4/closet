@@ -84,8 +84,8 @@ chore coat, the waffle henley, the Red Wings).
   Allbirds, an Aer backpack. He knows.
 - **Denim**: a 14.5 oz raw selvedge pair he is breaking in (bought May 2026: not washed yet, on
   purpose), Levi's 501s for everything else, black 511s for nights out.
-- **Multiples**: white Uniqlo U tee x3 (one per office day), black Bombas socks x6 (the `Qty` column;
-  one row each until quantities exist, #7).
+- **Multiples**: white Uniqlo U tee x3 (one per office day), black Bombas socks x6 (the `Qty` column:
+  one garment with that many identical copies, #7).
 - **Archived**: the tees and shoes he replaced (kept in the app, not the closet).
 
 ## Next buys (his wishlist; seeds #18 and #34 later)
@@ -306,19 +306,42 @@ archived garment out but keep its membership, so the demo shows the rule (22 of 
 
 ## Laundry
 
-What makes a garment dirty, and so unavailable until Sunday's wash (the thresholds #7 will make
-real, plan section 1). `Garments` is a role, `type: <types>`, or a garment id; an id beats a type, a
-type beats a role, and anything unlisted (outerwear, footwear, accessories, bags) never gets dirty.
-Multiples count copies: three white tees are three wears.
+What makes a garment dirty, and so unavailable until Sunday's wash. The app's defaults decide most of
+it (#7, `src/wardrobe/availability.ts`: tops and dresses after 1 wear, bottoms after 3, outerwear after
+10, footwear, accessories and bags never); this table is where Theo differs, written as each garment's
+"Wash after" through the garment form. `Garments` is a role, `type: <types>`, or a garment id; an id
+beats a type, a type beats a role. Wears are counted by day, and multiples count copies: three white
+tees are three wears.
 
 | Garments | Wears before a wash |
 |---|---|
-| top | 1 |
 | type: sweater, cardigan, turtleneck, hoodie, sweatshirt | 2 |
-| bottom | 3 |
 | B01 | never |
+| A11 | 1 |
 
-B01 is the raw denim: never washed in the window, on purpose.
+B01 is the raw denim: never washed in the window, on purpose. A11 is the socks: an accessory, which the
+app never launders by default, but socks go in the wash after every wear.
+
+## Condition
+
+What is wearing out (#7). Still in the closet and still worn: condition never makes a garment
+unavailable. Written through the garment form's Condition. Values are the app's (`good`, `needs_repair`,
+`replace_soon`); unlisted is `good`.
+
+| Garment | Condition | Note |
+|---|---|---|
+| T21 | replace_soon | Pilling at the elbows; the charcoal one is on the Next buys list |
+| B02 | needs_repair | Back belt loop tore off; the tailor on DeKalb Av |
+
+## Away
+
+Out of the closet at the anchor (#7): lent to someone or at a repair shop, so the outfit generator skips
+them. Written by the garment page's "Where it is" (`setAway`). Neither is in an outfit he plans to wear.
+
+| Garment | Away | Note |
+|---|---|---|
+| G04 | lent | Dana has it for her October wedding weekend |
+| F07 | repair | Sent back to L.L.Bean for a resole before winter |
 
 ## Simulation (how the history is generated)
 
@@ -358,7 +381,12 @@ keep their meaning, and the weather follows the real dates of the window.
    wore is a second, worn entry.
 6. **Planned week**: the seven days after the anchor, drawn by the same rules from the weather's
    normals, planned and not worn (a meeting Wednesday and a date night if the week has them).
-7. **Laundry Sundays** wash everything dirty (the rules in Laundry).
+7. **Laundry Sundays** wash everything worn since the last wash that ever gets washed (the rules in
+   Laundry): each garment's `last_washed_on` is its last Sunday up to the anchor. A day's wears are
+   counted once, however many outfits that day used the garment, as the app counts them. The anchor is a
+   Saturday, so the week's wears are still in the hamper: the demo's laundry page is Saturday night's.
+8. **Wears**: every worn entry is marked through the app's own `setEntryWorn`, so each garment's wear
+   log is the outfits' garments on those days.
 
 **Seasonal drift**: the rules choose by band, not by month. At the reference anchor the window is a
 warm summer: shorts, linen, the sweater-polo and slides; the raw denim (bands `mild`, `cool`) mostly sits
@@ -367,8 +395,8 @@ gloves, scarf, beanie, cashmere, Down Sweater) and the garments no saved outfit 
 the window, which is what an "unworn in 90 days" insight (#17) should flag. Seeded in January, the same
 rules reach for the merino office outfit, the leather jacket and the hoodie.
 
-**What later features add** (plan section 10): wears and washes (#7: `quantity` 3 and 6, laundry
-Sundays as washes), occasions on each entry (#13: the workouts get written), the conference as a trip
+**What later features add** (plan section 10): wears and washes (#7, done: quantities 3 and 6, the
+worn entries as wears, laundry Sundays as washes, the Condition and Away tables), occasions on each entry (#13: the workouts get written), the conference as a trip
 with a packing list (#10; the Travel capsule is its pool), a generator-avoid pair olive chinos + olive
 chore coat (#21), and the Next buys as wishlist items (#18). The outfit gallery (#9) swipes from the
 capsules.

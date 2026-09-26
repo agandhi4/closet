@@ -43,6 +43,8 @@ export interface CalendarDayView {
   weekday: number;
   dayNum: number;
   isToday: boolean;
+  /** After today: nothing on it can be marked worn yet (setEntryWorn). */
+  isFuture: boolean;
   entries: CalendarEntryView[];
 }
 
@@ -101,6 +103,8 @@ export function buildCalendarView(input: {
       weekday: dayOfWeek(date),
       dayNum: dateParts(date).day,
       isToday: date === today,
+      // ISO dates compare correctly as strings.
+      isFuture: date > today,
       entries: entries
         .filter((entry) => entry.day === date)
         .map((entry, index) => ({

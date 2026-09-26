@@ -5,8 +5,8 @@ import {
   type IsoDate,
   startOfWeek,
 } from '../web/calendar/calendar-date';
+import { cleanCopies, washLimit } from '../wardrobe/availability';
 import type {
-  LaundryRule,
   Occasion,
   Persona,
   SeedEvent,
@@ -22,7 +22,8 @@ import { BANDS, type Band, type Weather, weatherFor } from './weather';
  * evenings out, what got logged and worn, laundry. Pure and deterministic:
  * the same persona and anchor give the same entries (random.ts). Later
  * features extend this rather than writing rows beside it (CLAUDE.md, Seed
- * personas): wears and washes (#7) read the same wears and Sundays.
+ * personas): wears and washes (#7) are its worn entries and its Sundays,
+ * judged by the app's own wash rules (src/wardrobe/availability.ts).
  */
 
 /** The bibles' dates are written for this Saturday; seeding shifts them by whole weeks. */
@@ -60,6 +61,13 @@ export interface SimulatedEntry {
   worn: boolean;
 }
 
+/** A laundry Sunday: the garments washed that day (every one worn since the last). */
+export interface SimulatedWash {
+  day: IsoDate;
+  /** Bible ids. */
+  garmentIds: string[];
+}
+
 export interface SimulatedLife {
   /**
    * Days added to the garments' reference dates (acquired, archived):
@@ -70,6 +78,8 @@ export interface SimulatedLife {
   first: IsoDate;
   anchor: IsoDate;
   entries: SimulatedEntry[];
+  /** Laundry Sundays up to the anchor (the planned week's are not history). */
+  washes: SimulatedWash[];
   weather: Weather[];
 }
 
@@ -113,21 +123,30 @@ export function simulate(persona: Persona, anchor: IsoDate): SimulatedLife {
     first,
     anchor,
     entries: [],
+    washes: [],
     weather,
   };
   if (!persona.week) return life;
 
   const day = new Days(persona, shifted);
   for (const today of weather) {
-    day.live(today, today.day > anchor, eventOn(today.day), life.entries);
-    if (dayOfWeek(today.day) === SUNDAY) day.laundry();
+    const planned = today.day > anchor;
+    day.live(today, planned, eventOn(today.day), life.entries);
+    if (dayOfWeek(today.day) === SUNDAY) {
+      const washed = day.laundry();
+      if (!planned && washed.length > 0) {
+        life.washes.push({ day: today.day, garmentIds: washed });
+      }
+    }
   }
   return life;
 }
 
 /** The simulation's state as the days go by: dirty clothes and recent outfits. */
 class Days {
-  private readonly wearsSinceWash = new Map<string, number>();
+  // Days each garment was worn since its wash: the app counts wears by
+  // distinct day (a morning and an evening outfit are one wear).
+  private readonly wornSinceWash = new Map<string, Set<IsoDate>>();
   private readonly lastWorn = new Map<number, IsoDate>();
   private readonly garments: Map<string, SeedGarment>;
 
@@ -197,9 +216,22 @@ class Days {
     return occasion ? this.choose([occasion], weather, 'evening', main) : -1;
   }
 
-  /** Sunday: everything dirty comes back clean. */
-  laundry(): void {
-    this.wearsSinceWash.clear();
+  /**
+   * Sunday: everything worn since the last wash that ever gets washed comes
+   * back clean (shoes and bags are not laundered; the raw denim is never
+   * washed). Returns what was washed, in bible order.
+   */
+  laundry(): string[] {
+    const washed = this.persona.garments
+      .filter(
+        (g) =>
+          (this.wornSinceWash.get(g.id)?.size ?? 0) > 0 &&
+          washLimit(g.fields.category, g.fields.washAfterWears ?? null) !==
+            null,
+      )
+      .map((g) => g.id);
+    this.wornSinceWash.clear();
+    return washed;
   }
 
   // The week's row, with a meeting Wednesday's office day made a meeting.
@@ -299,44 +331,28 @@ class Days {
     });
   }
 
+  // A clean copy of every garment left, by the app's rule (cleanCopies):
+  // the wears the garment form's "wash after" and quantity allow.
   private clean(outfit: SeedOutfit): boolean {
     return outfit.garmentIds.every((id) => {
-      const capacity = this.capacity(this.garments.get(id)!);
-      return capacity === null || (this.wearsSinceWash.get(id) ?? 0) < capacity;
+      const { fields } = this.garments.get(id)!;
+      return (
+        cleanCopies({
+          quantity: fields.quantity ?? 1,
+          limit: washLimit(fields.category, fields.washAfterWears ?? null),
+          wearsSinceWash: this.wornSinceWash.get(id)?.size ?? 0,
+        }) > 0
+      );
     });
   }
 
   private wear(outfit: number, day: IsoDate): void {
     this.lastWorn.set(outfit, day);
     for (const id of this.persona.outfits[outfit].garmentIds) {
-      this.wearsSinceWash.set(id, (this.wearsSinceWash.get(id) ?? 0) + 1);
+      const days = this.wornSinceWash.get(id) ?? new Set<IsoDate>();
+      this.wornSinceWash.set(id, days.add(day));
     }
   }
-
-  // Wears before a wash, copies included; null: never dirty (demo.md,
-  // Laundry: an id beats a type, a type beats a role, unlisted is never).
-  private capacity(garment: SeedGarment): number | null {
-    const rule = mostSpecific(this.persona.laundry, garment);
-    return rule?.wears == null ? null : rule.wears * garment.quantity;
-  }
-}
-
-function mostSpecific(
-  rules: LaundryRule[],
-  garment: SeedGarment,
-): LaundryRule | undefined {
-  const match = (test: (rule: LaundryRule) => boolean) => rules.find(test);
-  return (
-    match(
-      (r) => 'garmentId' in r.selector && r.selector.garmentId === garment.id,
-    ) ??
-    match(
-      (r) =>
-        'types' in r.selector &&
-        r.selector.types.includes(garment.fields.type ?? ''),
-    ) ??
-    match((r) => 'role' in r.selector && r.selector.role === garment.role)
-  );
 }
 
 /** How many bands the nearest of `bands` is from `band`; Infinity for none. */

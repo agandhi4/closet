@@ -18,6 +18,7 @@ import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
+import { detachOutfitWears } from '../wears/queries';
 import {
   type CategoryHead,
   clampIndex,
@@ -373,11 +374,13 @@ export function createOutfit(
       .returning({ id: outfit.id });
     const refused = await insertSlots(tx, created.id, ownerId, input.slots);
     const schedule = input.scheduleDate
-      ? await insertEntry(tx, {
-          ownerId,
-          outfitId: created.id,
-          day: input.scheduleDate,
-        })
+      ? (
+          await insertEntry(tx, {
+            ownerId,
+            outfitId: created.id,
+            day: input.scheduleDate,
+          })
+        ).outcome
       : undefined;
     return { id: created.id, slots: input.slots.length, refused, schedule };
   });
@@ -414,25 +417,42 @@ export function updateOutfit(
     await tx.delete(outfitSlot).where(eq(outfitSlot.outfitId, id));
     const refused = await insertSlots(tx, id, ownerId, input.slots);
     const schedule = input.scheduleDate
-      ? await insertEntry(tx, {
-          ownerId,
-          outfitId: id,
-          day: input.scheduleDate,
-        })
+      ? (
+          await insertEntry(tx, {
+            ownerId,
+            outfitId: id,
+            day: input.scheduleDate,
+          })
+        ).outcome
       : undefined;
     return { id, slots: input.slots.length, refused, schedule };
   });
 }
 
-/** Deletes the owner's outfit; its slots and calendar entries cascade. */
-export async function deleteOutfit(
+/**
+ * Deletes the owner's outfit; its slots and calendar entries cascade, but
+ * the days it was worn stay: detachOutfitWears (src/web/wears/queries.ts)
+ * turns its entries' wears into day-level wears first, in the same
+ * transaction. Never replace this with a plain delete: the cascade through
+ * outfit_calendar would erase the garments' wear history (CLAUDE.md, Wears
+ * and washes). Undefined when the outfit is not the owner's; else the wears
+ * kept.
+ */
+export function deleteOutfit(
   db: Db,
   id: number,
   ownerId: number,
-): Promise<boolean> {
-  const deleted = await db
-    .delete(outfit)
-    .where(and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)))
-    .returning({ id: outfit.id });
-  return deleted.length > 0;
+): Promise<{ wearsKept: number } | undefined> {
+  return db.transaction(async (tx) => {
+    // Locked like updateOutfit's: a save of this outfit takes its turn.
+    const [found] = await tx
+      .select({ id: outfit.id })
+      .from(outfit)
+      .where(and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)))
+      .for('update');
+    if (!found) return undefined;
+    const wearsKept = await detachOutfitWears(tx, id, ownerId);
+    await tx.delete(outfit).where(eq(outfit.id, id));
+    return { wearsKept };
+  });
 }

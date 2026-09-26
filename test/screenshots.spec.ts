@@ -112,6 +112,24 @@ test('demo: Theo, capsules', async ({ page }) => {
   await shot(page, '19-demo-capsule-picker');
 });
 
+test('demo: Theo, wears and washes', async ({ page }) => {
+  await signInAs(page, 'demo');
+  // Saturday night's hamper: the week's wears since Sunday's laundry.
+  await shot(page, '20-demo-laundry', '/laundry');
+  await expect(page.getByText('Needs a wash').first()).toBeVisible();
+  // The x3 white tees: worn this week (a search also finds shirts whose
+  // notes mention a white tee, so the tile is picked by its name).
+  await page.goto('/wardrobe?keyword=White%20tee');
+  await page
+    .locator('#wardrobe-grid')
+    .getByRole('heading', { name: 'White tee', exact: true })
+    .click();
+  await expect(page.locator('#garment-wear')).toContainText('Worn');
+  await shot(page, '21-demo-garment-wears');
+  await shot(page, '22-demo-needs-wash', '/wardrobe?needsWash=true');
+  await shot(page, '23-demo-needs-attention', '/wardrobe?attention=true');
+});
+
 test('sparse: Dana, untagged and degraded', async ({ page }) => {
   await signInAs(page, 'sparse');
   await shot(page, '12-sparse-wardrobe', '/wardrobe');
@@ -123,4 +141,5 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '14-fresh-wardrobe', '/wardrobe');
   await shot(page, '15-fresh-outfits', '/outfits');
   await shot(page, '16-fresh-calendar', `/calendar?week=${ANCHOR}`);
+  await shot(page, '24-fresh-laundry', '/laundry');
 });

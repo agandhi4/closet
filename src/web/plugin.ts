@@ -17,6 +17,7 @@ import { shellRoutes } from './shell/routes';
 import { sharingRoutes } from './sharing/routes';
 import { linkImportRoutes } from './wardrobe/link-import/routes';
 import { wardrobeRoutes } from './wardrobe/routes';
+import { wearRoutes } from './wears/routes';
 
 /** Config the routes read, resolved once by createApp(). */
 export interface WebConfig {
@@ -81,6 +82,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(wardrobeRoutes, options);
   await app.register(linkImportRoutes, options);
   await app.register(capsuleRoutes, options);
+  await app.register(wearRoutes, options);
   await app.register(calendarRoutes, options);
   await app.register(outfitRoutes, options);
   await app.register(authRoutes, options);

@@ -195,7 +195,8 @@
     "FABRIC_WEIGHT_NUMBER": "Enter the weight as a number, or leave it empty",
     "FABRIC_WEIGHT_RANGE": "Enter a weight between {min} and {max} {unit}",
     "CAPSULE_NAME_REQUIRED": "Give the capsule a name",
-    "CAPSULE_NAME_TAKEN": "You already have a capsule with this name"
+    "CAPSULE_NAME_TAKEN": "You already have a capsule with this name",
+    "QUANTITY_RANGE": "Copies must be a whole number from 1 to {max}"
   },
   "WARDROBE_SHARING": "Wardrobe Sharing",
   "SHARE_WARDROBE": "Share Your Wardrobe",
@@ -374,6 +375,11 @@
       "knee": "Knee length",
       "midi": "Midi",
       "full": "Full length"
+    },
+    "condition": {
+      "good": "Good",
+      "needs_repair": "Needs repair",
+      "replace_soon": "Replace soon"
     }
   },
   "PROPERTY_TYPE": "Type",
@@ -473,5 +479,56 @@
     "CHOICE_ALT": "Photo {number} from the page",
     "NO_PHOTO_CHOICE": "No photo",
     "PHOTO_GONE": "The photo from the link is no longer available. Save without it and add a photo on the garment page, or add from the link again."
+  },
+  "QUANTITY": "Identical copies",
+  "QUANTITY_HINT": "Three of the same white tee are one garment with 3 copies.",
+  "QUANTITY_VALUE": "{quantity} identical",
+  "QUANTITY_BADGE": "×{quantity}",
+  "WASH_AFTER": "Wash after",
+  "WASH_AFTER_DEFAULT": "The usual for its category",
+  "WASH_AFTER_EVERY": "Every wear",
+  "WASH_AFTER_WEARS": "{count} wears",
+  "WASH_AFTER_NEVER": "Never",
+  "CONDITION": "Condition",
+  "CONDITION_NOTE": "What is wrong",
+  "CONDITION_NOTE_PLACEHOLDER": "e.g. hole in the left elbow",
+  "CARE": "Care",
+  "FILTER_ATTENTION": "Needs attention",
+  "wear": {
+    "SECTION": "Wear and wash",
+    "NOT_WORN": "Not worn yet",
+    "WORN_ONCE": "Worn once",
+    "WORN_TIMES": "Worn {count} times",
+    "SINCE_WASH": "{count} since washed",
+    "LAST_WORN": "last worn {when}",
+    "LAST_WASHED": "Last washed {when}",
+    "TODAY": "today",
+    "YESTERDAY": "yesterday",
+    "DAYS_AGO": "{days} days ago",
+    "NEEDS_WASH": "Needs a wash",
+    "COPIES_NEED_WASH": "{dirty} of {quantity} need a wash",
+    "NOT_DUE": "Worn, not due yet",
+    "BADGE_WASH": "Wash",
+    "BADGE_WASH_COPIES": "Wash {dirty}/{quantity}",
+    "WORE_TODAY": "Wore today",
+    "UNDO_WORE_TODAY": "Undo “Wore today”",
+    "WORN_TODAY_CALENDAR": "Worn today (calendar)",
+    "WASHED": "Washed",
+    "WHERE": "Where it is",
+    "IN_CLOSET": "In the closet",
+    "away": {
+      "lent": "Lent",
+      "repair": "At repair"
+    },
+    "AWAY_NOTE": "Where, or who has it",
+    "AWAY_NOTE_PLACEHOLDER": "e.g. Dana has it, or the cobbler on Fulton St",
+    "FILTER_NEEDS_WASH": "Needs a wash",
+    "LAUNDRY": "Laundry",
+    "LAUNDRY_DUE": "Needs a wash",
+    "LAUNDRY_WORN": "Worn since the last wash",
+    "LAUNDRY_EMPTY": "Nothing needs a wash.",
+    "LAUNDRY_PROMPT": "{count} garments need a wash",
+    "LAUNDRY_WASHED": "{count} washed",
+    "MARK_WASHED": "Mark washed"
   }
 }

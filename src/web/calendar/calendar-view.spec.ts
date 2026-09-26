@@ -293,6 +293,19 @@ describe('calendar view (America/New_York)', () => {
       expect(cellsWith(vm, 'cal-today')).toEqual([25]);
     });
 
+    it('marks the days after today, which cannot be worn yet', () => {
+      const vm = view('2026-09-23');
+      expect(vm.days.map((d) => d.isFuture)).toEqual([
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+      ]);
+    });
+
     it('without ?week= (or with a malformed one) shows the current week', () => {
       expect(dates(view())[0]).toBe('2026-09-20');
       expect(dates(view('not-a-date'))[0]).toBe('2026-09-20');
