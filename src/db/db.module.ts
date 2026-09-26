@@ -42,7 +42,7 @@ function dbLogger(context: string): DbLogger {
  * importing this module, and so its onModuleInit runs before every
  * non-global module's (Nest gives global modules the greatest distance) and
  * before any onApplicationBootstrap: the schema is
- * current before anything queries it, through Drizzle or MikroORM.
+ * current before anything queries it.
  */
 @Global()
 @Module({

@@ -45,15 +45,17 @@ export function connectionOptions(config: DbConfig): ClientConfig {
     database: config.database,
     user: config.user,
     password: config.password,
-    // pgvault's certificate is self-signed; same policy as MikroORM's pool.
+    // pgvault's certificate is self-signed.
     ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
   };
 }
 
-// Small on purpose while MikroORM keeps its own pool beside this one. `min`
-// keeps connections open across idle periods: a fresh one costs ~11 ms, which
-// the server audit measured on every request once MikroORM's pool had shrunk.
-const POOL_MAX = 5;
+// The app's only pool. Modest because pgvault is one Postgres shared by every
+// homelab app, and a household never needs more than a handful of concurrent
+// queries (a page is one to three). `min` keeps connections open across idle
+// periods: a fresh one costs ~11 ms, which the server audit measured on every
+// request once the old ORM's pool had shrunk.
+const POOL_MAX = 10;
 const POOL_MIN = 2;
 const POOL_IDLE_TIMEOUT_MS = 30_000;
 
