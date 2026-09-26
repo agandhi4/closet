@@ -3,7 +3,7 @@ import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
-import { GarmentThumb, HangerIcon } from '../outfits/parts';
+import { GarmentThumb, HangerIcon } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import type { SharedGarment, SharedOutfit } from './queries';
 

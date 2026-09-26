@@ -16,6 +16,7 @@ import { createPushSender, type VapidConfig } from './push/sender';
 import { shareRoutes } from './share/routes';
 import { shellRoutes } from './shell/routes';
 import { sharingRoutes } from './sharing/routes';
+import { wardrobeRoutes } from './wardrobe/routes';
 
 /** Config the ported routes read, resolved once by createApp(). */
 export interface WebConfig {
@@ -35,9 +36,9 @@ export interface WebOptions {
   db: Db;
   tokens: SessionTokens;
   /**
-   * The process's one Photos (its thumb single-flight is shared with the
-   * Nest garment code, which gets it from FileModule until garments are
-   * ported): /file/** serves through it, account deletion unlinks through it.
+   * The process's one Photos, built by createApp() (its thumb single-flight
+   * must be shared): garment writes store through it, /file/** serves
+   * through it, account deletion and reconciliation unlink through it.
    */
   photos: Photos;
 }
@@ -84,6 +85,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   });
 
   await app.register(shellRoutes, options);
+  await app.register(wardrobeRoutes, options);
   await app.register(calendarRoutes, options);
   await app.register(outfitRoutes, options);
   await app.register(authRoutes, options);

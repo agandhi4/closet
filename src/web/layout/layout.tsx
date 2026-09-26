@@ -1,5 +1,4 @@
 import type { Child } from 'hono/jsx';
-import { GarmentColor } from '../../wardrobe/garment-color.enum';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
 import type { ViewContext } from '../view-context';
@@ -40,8 +39,6 @@ function importMap(version: string) {
     },
   };
 }
-
-const KNOWN_COLORS_SCRIPT = `window.KNOWN_COLORS = new Set(${jsonForScript(Object.values(GarmentColor))});`;
 
 export interface LayoutProps {
   ctx: ViewContext;
@@ -132,7 +129,6 @@ export function Layout({
           </>
         )}
         <link rel="preconnect" href="https://static.cloudflareinsights.com" />
-        <script dangerouslySetInnerHTML={{ __html: KNOWN_COLORS_SCRIPT }} />
       </head>
 
       {/* hx-boost swaps the body on every link and form

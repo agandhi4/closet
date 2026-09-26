@@ -20,7 +20,7 @@ const exists = (path: string) =>
     () => false,
   );
 
-/** Every field the garment form (views/wardrobe/form.hbs) posts. */
+/** Every field the garment form (src/web/wardrobe/garment-form.tsx) posts. */
 const FORM = {
   name: 'Black Linen Blazer',
   category: 'jacket',
@@ -166,7 +166,8 @@ describe('garment edit, clone and archive', () => {
       expect(garment).toMatchObject({
         name: 'Navy Linen Blazer',
         category: 'coat',
-        brand: '',
+        // A cleared field is no value, not an empty string.
+        brand: null,
         color: 'blue',
         size: 'X-Large',
         washingDetails: 'Hand wash cold',
@@ -203,40 +204,69 @@ describe('garment edit, clone and archive', () => {
       expect((await load(garmentId)).name).toBe(FORM.name);
     });
 
-    // New bug: POST /wardrobe/:id has no server-side validation. Category is
-    // required (entity non-nullable, `required` in the form) but an empty
-    // string is stored, and the garment drops out of every category filter.
-    it.fails(
-      'an empty category is rejected and the row is unchanged',
-      async () => {
+    // A blank category used to be stored, and the garment dropped out of
+    // every category filter.
+    it.each(['', '   '])(
+      'a blank category (%j) re-renders the form with a 400 and changes nothing',
+      async (category) => {
         const id = await createFullGarment();
         const res = await post(
           `/wardrobe/${id}`,
-          { ...FORM, category: '' },
+          { ...FORM, name: 'Not saved', category },
           alice.cookie,
         );
         expect(res.statusCode).toBe(400);
         expect(res.body).toContain(`action="/wardrobe/${id}"`);
-        expect((await load(id)).category).toBe(FORM.category);
+        // The form keeps what was typed, and says what is wrong.
+        expect(res.body).toContain('value="Not saved"');
+        expect(res.body).toContain('Give the garment a category');
+        expect(await load(id)).toMatchObject({
+          name: FORM.name,
+          category: FORM.category,
+        });
       },
     );
 
-    // New bug: an unparseable dateAquired becomes `new Date('…')` (Invalid
-    // Date) and reaches Postgres, which rejects it: 500 instead of a
-    // re-rendered form.
-    it.fails(
-      'an invalid date is rejected with 400 and the row is unchanged',
-      async () => {
+    // An unparseable date used to reach Postgres: a 500.
+    it.each(['not-a-date', '2024-02-30', '2024-3-5'])(
+      'an invalid date (%j) is refused with 400 and the row is unchanged',
+      async (dateAquired) => {
         const id = await createFullGarment();
         const res = await post(
           `/wardrobe/${id}`,
-          { ...FORM, dateAquired: 'not-a-date' },
+          { ...FORM, dateAquired },
           alice.cookie,
         );
         expect(res.statusCode).toBe(400);
+        expect(res.body).toContain('Enter a real date');
         expect((await load(id)).acquiredOn).toBe(FORM.dateAquired);
       },
     );
+
+    it('stores categories trimmed and lower case, and an empty date as none', async () => {
+      const id = await createFullGarment();
+      const res = await post(
+        `/wardrobe/${id}`,
+        { ...FORM, category: '  Outer Layer ', dateAquired: '' },
+        alice.cookie,
+      );
+      expect(res.statusCode).toBe(302);
+      expect(await load(id)).toMatchObject({
+        category: 'outer layer',
+        acquiredOn: null,
+      });
+    });
+
+    it('refuses a field longer than the form allows with a 400, writing nothing', async () => {
+      const id = await createFullGarment();
+      const res = await post(
+        `/wardrobe/${id}`,
+        { ...FORM, name: 'x'.repeat(201) },
+        alice.cookie,
+      );
+      expect(res.statusCode).toBe(400);
+      expect((await load(id)).name).toBe(FORM.name);
+    });
 
     // Notes were varchar(255) until drizzle/0004_garment_web.sql: longer
     // ones were a 500.
@@ -258,8 +288,8 @@ describe('garment edit, clone and archive', () => {
       expect(res.body).toContain('Black Linen Blazer');
     });
 
-    // Known bug (docs/audits/2026-09-25-program2): keyword search is case-sensitive on Postgres (LIKE, not ILIKE).
-    it.fails('keyword search ignores case', async () => {
+    // LIKE is case-sensitive on Postgres; the search is ILIKE.
+    it('keyword search ignores case', async () => {
       const res = await get('/wardrobe?keyword=blazer', alice.cookie);
       expect(res.statusCode).toBe(200);
       expect(res.body).toContain('Black Linen Blazer');
@@ -325,8 +355,8 @@ describe('garment edit, clone and archive', () => {
       expect(own.body).toContain(`/wardrobe/${cloneId}"`);
     });
 
-    // Known bug (docs/audits/2026-09-25-program2): cloning a garment drops washingDetails and dateAquired.
-    it.fails('POST keeps washingDetails and dateAquired', async () => {
+    // The clone used to drop both.
+    it('POST keeps washingDetails and dateAquired', async () => {
       const res = await post(
         `/wardrobe/${garmentId}/clone`,
         { ...FORM, name: 'Second copy' },

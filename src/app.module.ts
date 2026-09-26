@@ -7,10 +7,7 @@ import * as path from 'path';
 import { SessionGuard } from './auth/session.guard';
 import { DalModule } from './dal/dal.module';
 import { DbModule } from './db/db.module';
-import { FileModule } from './file/file.module';
 import { I18nModule } from 'nestjs-i18n';
-import { WardrobeModule } from './wardrobe/wardrobe.module';
-import { WardrobeShareModule } from './wardrobe-share/wardrobe-share.module';
 import { LoggerModule } from 'nestjs-pino';
 import { ErrorViewFilter } from './error-view.filter';
 import { ViewContextModule } from './view-context/view-context.module';
@@ -179,9 +176,6 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     // Runs the migrations (src/db/migrate.ts) before anything queries.
     DbModule,
     DalModule,
-    FileModule,
-    WardrobeModule,
-    WardrobeShareModule,
     ViewContextModule,
   ],
   providers: [

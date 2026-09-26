@@ -120,18 +120,28 @@ describe('/file route and request logging', () => {
       method: 'GET',
       url: `/file/thumb/${photoName}?v=thumb-marker`,
     });
+    const credentials = {
+      cookie: 'access_token=cookie-secret-sentinel',
+      authorization: 'Bearer auth-secret-sentinel',
+    };
+    // A web-layer page logs its own line (method, path, status), never
+    // headers; a request Nest answers (an unknown path) goes through
+    // pino-http, which logs headers and must redact these.
     await t.inject({
       method: 'GET',
-      url: '/wardrobe?page=page-marker',
-      headers: {
-        cookie: 'access_token=cookie-secret-sentinel',
-        authorization: 'Bearer auth-secret-sentinel',
-      },
+      url: '/wardrobe?page=web-marker',
+      headers: credentials,
+    });
+    await t.inject({
+      method: 'GET',
+      url: '/no-such-page?page=page-marker',
+      headers: credentials,
     });
 
     // One transport, in order: once the page is logged, the earlier static
     // requests would be too if they were logged at all.
     const log = await logContaining('page-marker');
+    expect(log).toContain('web-marker');
     expect(log).not.toContain('cookie-secret-sentinel');
     expect(log).not.toContain('auth-secret-sentinel');
     expect(log).toContain('[redacted]');

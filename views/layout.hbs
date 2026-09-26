@@ -95,9 +95,6 @@ the session cookie is httpOnly, so scripts cannot tell. }}
     {{/if}}
     {{! Resource hint for CDN analytics }}
     <link rel="preconnect" href="https://static.cloudflareinsights.com" />
-    <script>
-      window.KNOWN_COLORS = new Set({{{knownColors}}});
-    </script>
   </head>
 
   {{! hx-boost 'automagically' replaces all anchor tags with htmx logic that

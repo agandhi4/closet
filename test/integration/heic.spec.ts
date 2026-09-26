@@ -75,7 +75,7 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
   afterEach(() => vi.restoreAllMocks());
 
   // The photo pipeline is started inside the multipart loop without an
-  // awaiting caller (GarmentService.storeUploadedPhotoWithCutout); a decode
+  // awaiting caller (Photos.storeUploadParts); a decode
   // failure there used to be an unhandled rejection that killed the process.
   // Each case therefore also checks the app answers the next request.
   it.each([

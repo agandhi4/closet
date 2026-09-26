@@ -76,8 +76,8 @@ export interface PhotosConfig {
 /**
  * Builds the one Photos instance of a process (its thumb single-flight map
  * must be shared by every caller) and prepares its directory: creates it
- * and sweeps stale partial writes. Framework-free: FileModule wraps it for
- * the Nest garment code today; a plain entry point calls it the same way.
+ * and sweeps stale partial writes. createApp() builds the server's and
+ * hands it to the web layer; the reconciliation CLI builds its own.
  */
 export function createPhotos(
   config: PhotosConfig,
@@ -154,6 +154,89 @@ export class Photos {
     }
     this.logger.log(`Stored upload ${storedFileName} for user ${userId}`);
     return newPhotoRow(storedFileName, userId);
+  }
+
+  /**
+   * The garment photo form's multipart body: a `photo` part and, when the
+   * browser made one, its `nobgPhoto` cutout, stored under one new name with
+   * one thumb (from the cutout when there is one). Returns the row to insert
+   * as storeUpload does; undefined when no photo was sent. On any failure
+   * nothing is left in storage. A cutout without its photo is a 400.
+   *
+   * Both pipelines are started inside the `for await` loop and awaited only
+   * after it: @fastify/multipart yields live streams, and a part nobody
+   * reads backpressures the parser, so awaiting the photo before the cutout
+   * part is consumed would hang the request. Each is armed with a no-op
+   * catch where it starts (startPipeline): a rejection while later parts are
+   * still being read would otherwise be an unhandled rejection that kills
+   * the process. The real error still surfaces from Promise.allSettled.
+   */
+  async storeUploadParts(
+    parts: AsyncIterable<MultipartFile>,
+    userId: number,
+  ): Promise<NewPhotoRow | undefined> {
+    const fileName = `${randomUUID()}.webp`;
+    const { photo, cutout } = await this.startParts(parts, userId, fileName);
+    if (!photo) {
+      if (cutout) await this.refuseLoneCutout(cutout, fileName, userId);
+      return undefined;
+    }
+    try {
+      // Both must settle before cleaning up: one may still be writing under
+      // the name while the other has already failed.
+      const [stored, cut] = await Promise.allSettled([photo, cutout]);
+      if (stored.status === 'rejected') throw stored.reason;
+      if (cut.status === 'rejected') throw cut.reason;
+      // The one thumb, built once both halves are stored so it reads the
+      // cutout when there is one (neither pipeline builds its own).
+      await this.regenerateThumb(fileName);
+      return stored.value;
+    } catch (error) {
+      await this.deleteVariants(fileName);
+      throw error;
+    }
+  }
+
+  /** Starts (never awaits) a pipeline per part; see storeUploadParts. */
+  private async startParts(
+    parts: AsyncIterable<MultipartFile>,
+    userId: number,
+    fileName: string,
+  ): Promise<{ photo?: Promise<NewPhotoRow>; cutout?: Promise<unknown> }> {
+    const started: {
+      photo?: Promise<NewPhotoRow>;
+      cutout?: Promise<unknown>;
+    } = {};
+    for await (const part of parts) {
+      if (part.fieldname === 'photo' && !started.photo) {
+        started.photo = startPipeline(
+          this.storeUpload(part, userId, { fileName, deferThumb: true }),
+        );
+      } else if (part.fieldname === 'nobgPhoto' && !started.cutout) {
+        started.cutout = startPipeline(
+          this.storeCutout(part.file, fileName, { newUpload: true }),
+        );
+      } else {
+        part.file.resume();
+      }
+    }
+    return started;
+  }
+
+  // The cutout had to be consumed (parts arrive in the client's order), so
+  // it may have written under the never-persisted name: drain it, remove
+  // what it wrote, refuse.
+  private async refuseLoneCutout(
+    cutout: Promise<unknown>,
+    fileName: string,
+    userId: number,
+  ): Promise<never> {
+    await cutout.catch((error: unknown) =>
+      this.logger.warn(`Discarded cutout failed: ${String(error)}`),
+    );
+    await this.deleteVariants(fileName);
+    this.logger.warn(`Upload by user ${userId} had a cutout but no photo`);
+    throw new HttpError(400, 'nobgPhoto requires photo');
   }
 
   /**
@@ -462,6 +545,18 @@ export class Photos {
 // the refusal, not a failed decode.
 function exceedsPixelLimit(cause: unknown): boolean {
   return cause instanceof Error && /exceeds pixel limit/i.test(cause.message);
+}
+
+/**
+ * Arms a pipeline started inside a multipart `for await` loop: a rejection
+ * while the loop still reads later parts is then never unhandled (which
+ * would exit the process). The same promise is returned, so the error still
+ * reaches whoever settles it (storeUploadParts). Node's default of crashing
+ * on an unhandled rejection is kept on purpose: no process-level handler.
+ */
+function startPipeline<T>(pipeline: Promise<T>): Promise<T> {
+  pipeline.catch(() => undefined);
+  return pipeline;
 }
 
 function newPhotoRow(fileName: string, userId: number): NewPhotoRow {

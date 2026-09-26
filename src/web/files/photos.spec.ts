@@ -207,7 +207,7 @@ describe('Photos.storeCutout', () => {
 describe('Photos.regenerateThumb', () => {
   it('after a photo + cutout pair, builds one thumb from the cutout', async () => {
     const photos = build();
-    // Mirror GarmentService.storeUploadedPhotoWithCutout: both halves are
+    // Mirror Photos.storeUploadParts: both halves are
     // stored concurrently without thumbs, then one regenerate runs.
     await put('a.webp', await png(1000));
     await photos.storeCutout(Readable.from(await png(300)), 'a.webp', {

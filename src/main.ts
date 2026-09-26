@@ -5,13 +5,12 @@ import type { Db } from './db/client';
 import { DB } from './db/db.module';
 import { scheduleNightly } from './maintenance/nightly';
 import { reconcileStorage } from './maintenance/reconcile';
-import { Photos } from './web/files/photos';
 
 // The hour, in APP_TIMEZONE, of the nightly storage reconciliation.
 const RECONCILE_HOUR = 3;
 
 async function bootstrap() {
-  const app = await createApp();
+  const { app, photos } = await createApp();
   const config = app.get(ConfigService);
   const logger = new Logger('Reconciliation');
   // The server is the only process that schedules it: the integration
@@ -19,7 +18,7 @@ async function bootstrap() {
   if (config.getOrThrow<boolean>('MAINTENANCE_ENABLED')) {
     const deps = {
       db: app.get<Db>(DB),
-      photos: app.get<Photos>(Photos),
+      photos,
       logger,
     };
     const nightly = scheduleNightly({

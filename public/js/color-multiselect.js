@@ -1,115 +1,104 @@
-
+/**
+ * The garment form's colour picker (src/web/wardrobe/garment-form.tsx,
+ * ColorMultiSelect): a <details> holding one checkbox per built-in colour,
+ * a search box that filters them, and the checked ones shown as pills in the
+ * summary. The checkboxes are the form's `color` fields; this script only
+ * mirrors them. The server renders every option and validates what is
+ * posted, so there is nothing to create here.
+ *
+ * Every node is built with createElement and textContent, never innerHTML:
+ * option values and labels are data, and a value spliced into markup was a
+ * stored XSS (audit2-correctness H5).
+ *
+ * Loaded once from the layout's head; it initialises each picker on load and
+ * after every htmx swap (boosted navigations swap the body).
+ */
 (function () {
-  const KNOWN = window.KNOWN_COLORS
-
-  function swatch(value) {
-    const cls = KNOWN.has(value) ? 'ms-swatch ms-swatch--' + value : 'ms-swatch ms-swatch--other';
-    return '<span class="' + cls + '"></span>';
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
   }
 
   function initMultiselect(det) {
-    const pillsEl     = det.querySelector('.ms-pills');
-    const searchEl    = det.querySelector('.ms-search-input');
-    const optionsEl   = det.querySelector('.ms-options');
-    const emptyEl     = det.querySelector('.ms-empty');
-    const createRow   = det.querySelector('.ms-create');
-    const createLabel = det.querySelector('.ms-create-label');
-    const countEl     = det.querySelector('.ms-count');
-    const clearBtn    = det.querySelector('.ms-clear');
+    if (det.dataset.msReady) return;
+    det.dataset.msReady = 'true';
+
+    const pillsEl = det.querySelector('.ms-pills');
+    const searchEl = det.querySelector('.ms-search-input');
+    const optionsEl = det.querySelector('.ms-options');
+    const emptyEl = det.querySelector('.ms-empty');
+    const countEl = det.querySelector('.ms-count');
+    const clearBtn = det.querySelector('.ms-clear');
+    const placeholder = det.dataset.placeholder || '';
+    const selectedLabel = det.dataset.selectedLabel || '';
+
+    const boxes = () => [...optionsEl.querySelectorAll('input[type="checkbox"]')];
+
+    function pillFor(box) {
+      const option = box.closest('.ms-option');
+      const pill = el('span', 'ms-pill badge badge-ghost');
+      // The option's own swatch and label, whatever colour it is.
+      const swatch = option.querySelector('.ms-swatch');
+      if (swatch) pill.append(el('span', swatch.className));
+      pill.append(el('span', 'capitalize', box.value));
+      const remove = el('button', 'ms-pill-remove badge badge-sm badge-neutral', '×');
+      remove.type = 'button';
+      remove.setAttribute('aria-label', box.value);
+      remove.addEventListener('click', function (event) {
+        // Inside <summary>: without this the click also toggles the dropdown.
+        event.preventDefault();
+        event.stopPropagation();
+        box.checked = false;
+        renderPills();
+      });
+      pill.append(remove);
+      return pill;
+    }
 
     function renderPills() {
-      const checked = [...optionsEl.querySelectorAll('input:checked')];
-      pillsEl.innerHTML = '';
-      if (!checked.length) {
-        pillsEl.innerHTML = '<span class="ms-placeholder">' + (det.dataset.placeholder || 'Select…') + '</span>';
-        countEl.textContent = '0 selected';
-        return;
+      const checked = boxes().filter((box) => box.checked);
+      if (checked.length === 0) {
+        pillsEl.replaceChildren(el('span', 'ms-placeholder', placeholder));
+      } else {
+        pillsEl.replaceChildren(...checked.map(pillFor));
       }
-      checked.forEach(function (cb) {
-        const pill = document.createElement('span');
-        pill.className = 'ms-pill badge badge-ghost';
-        pill.innerHTML =
-          swatch(cb.value) +
-          '<span class="capitalize">' + cb.value + '</span>' +
-          '<span class="ms-pill-remove badge badge-sm badge-neutral" data-val="' + cb.value + '">\u00d7</span>'
-        pillsEl.appendChild(pill);
-      });
-      countEl.textContent = checked.length + ' selected';
+      countEl.textContent = `${checked.length} ${selectedLabel}`;
     }
 
-    function filterOptions(q) {
-      var visible = 0;
-      optionsEl.querySelectorAll('.ms-option').forEach(function (opt) {
-        var val = opt.querySelector('input').value;
-        var match = !q || val.includes(q.toLowerCase());
-        opt.classList.toggle('hidden', !match);
+    function filterOptions(query) {
+      const needle = query.trim().toLowerCase();
+      let visible = 0;
+      for (const box of boxes()) {
+        const match = !needle || box.value.includes(needle);
+        box.closest('.ms-option').classList.toggle('hidden', !match);
         if (match) visible++;
-      });
-      emptyEl.style.display = visible === 0 ? 'block' : 'none';
-      var exists = [...optionsEl.querySelectorAll('input')].some(function (c) {
-        return c.value === q.toLowerCase().trim();
-      });
-      createLabel.textContent = q;
-      createRow.style.display = (q && !exists) ? 'flex' : 'none';
-    }
-
-    function addCustom(value) {
-      var row = document.createElement('label');
-      row.className = 'ms-option';
-      row.innerHTML =
-        '<input type="checkbox" name="color" value="' + value + '" checked>' +
-        swatch(value) +
-        '<span class="capitalize">' + value + '</span>';
-      row.querySelector('input').addEventListener('change', renderPills);
-      optionsEl.appendChild(row);
-      searchEl.value = '';
-      filterOptions('');
-      renderPills();
-    }
-
-    // Events
-    optionsEl.addEventListener('change', renderPills);
-
-    pillsEl.addEventListener('click', function (e) {
-      var rm = e.target.closest('.ms-pill-remove');
-      if (!rm) return;
-      e.stopPropagation();
-      var cb = optionsEl.querySelector('input[value="' + rm.dataset.val + '"]');
-      if (cb) { cb.checked = false; renderPills(); }
-    });
-
-    searchEl.addEventListener('input', function () { filterOptions(searchEl.value); });
-
-    searchEl.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        var q = searchEl.value.trim();
-        if (q && createRow.style.display !== 'none') addCustom(q);
       }
-    });
+      emptyEl.hidden = visible > 0;
+    }
 
-    createRow.addEventListener('click', function () {
-      var q = searchEl.value.trim();
-      if (q) addCustom(q);
+    optionsEl.addEventListener('change', renderPills);
+    searchEl.addEventListener('input', () => filterOptions(searchEl.value));
+    // Enter in the search box must not submit the garment form.
+    searchEl.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') event.preventDefault();
     });
-
-    clearBtn.addEventListener('click', function () {
-      optionsEl.querySelectorAll('input').forEach(function (c) { c.checked = false; });
+    clearBtn.addEventListener('click', () => {
+      for (const box of boxes()) box.checked = false;
       searchEl.value = '';
       filterOptions('');
       renderPills();
     });
-
-    det.addEventListener('toggle', function () {
+    det.addEventListener('toggle', () => {
       if (det.open) {
-        setTimeout(function () { searchEl.focus(); }, 10);
+        setTimeout(() => searchEl.focus(), 10);
       } else {
         searchEl.value = '';
         filterOptions('');
       }
     });
 
-    // Initial render
     renderPills();
   }
 
@@ -117,16 +106,13 @@
     (root || document).querySelectorAll('.color-ms').forEach(initMultiselect);
   }
 
-  // Close on outside click
-  document.addEventListener('click', function (e) {
-    document.querySelectorAll('.color-ms[open]').forEach(function (det) {
-      if (!det.contains(e.target)) det.open = false;
+  // Close an open picker on a click anywhere else.
+  document.addEventListener('click', (event) => {
+    document.querySelectorAll('.color-ms[open]').forEach((det) => {
+      if (!det.contains(event.target)) det.open = false;
     });
   });
 
-  // Init on load
-  document.addEventListener('DOMContentLoaded', function () { initAll(); });
-
-  // Re-init after HTMX swaps
-  document.addEventListener('htmx:afterSwap', function (e) { initAll(e.detail.target); });
+  document.addEventListener('DOMContentLoaded', () => initAll());
+  document.addEventListener('htmx:afterSwap', (event) => initAll(event.detail.target));
 })();

@@ -5,7 +5,7 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import type { ViewContext } from '../view-context';
 import type { BuilderRow } from './builder';
-import { BackLink, EmptyState, HangerIcon } from './parts';
+import { BackLink, EmptyState, HangerIcon } from '../layout/parts';
 import { OutfitRow } from './outfit-row';
 
 export interface OutfitFormModel {

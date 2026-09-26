@@ -11,7 +11,6 @@ import {
   type ReconciliationReport,
 } from '../../src/maintenance/reconcile';
 import { variantFileName } from '../../src/web/files/image-variant';
-import { Photos } from '../../src/web/files/photos';
 import {
   createGarment,
   jpegPhoto,
@@ -33,7 +32,7 @@ describe('storage reconciliation', () => {
   let t: TestApp;
   const reconcile = (options?: ReconcileOptions) =>
     reconcileStorage(
-      { db: t.db, photos: t.app.get<Photos>(Photos), logger: silentLogger },
+      { db: t.db, photos: t.photos, logger: silentLogger },
       options,
     );
 

@@ -268,7 +268,7 @@ body {
     #fff 6px
   );
 }
-/* other + any custom value = neutral fallback */
+/* other: a neutral swatch */
 .ms-swatch--other {
   background: color-mix(in oklch, var(--color-base-content) 20%, transparent);
 }
@@ -279,23 +279,6 @@ body {
   font-size: 0.8125rem;
   color: color-mix(in oklch, var(--color-base-content) 40%, transparent);
   text-align: center;
-}
-
-/* Create row */
-.ms-create {
-  display: none;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4375rem 0.75rem;
-  cursor: pointer;
-  font-size: 0.875rem;
-  color: var(--color-primary);
-  border-top: 1px solid color-mix(in oklch, var(--color-base-content) 10%, transparent);
-  margin-top: 0.25rem;
-}
-
-.ms-create:hover {
-  background: color-mix(in oklch, var(--color-success) 10%, transparent);
 }
 
 /* Footer */

@@ -65,6 +65,21 @@ interface LegacyGarment {
 
 let seq = 0;
 
+/** Every column of a seeded garment, before a case's own values. */
+function legacyDefaults(n: number): Required<LegacyGarment> {
+  return {
+    shareableId: `garment-${n}`,
+    name: null,
+    category: 'tops',
+    brand: null,
+    size: null,
+    notes: null,
+    washingDetails: null,
+    color: null,
+    dateAquired: null,
+  };
+}
+
 /**
  * A MikroORM-era database with one user owning `garments`, and one outfit
  * whose single slot names the first garment's category as typed. Returns its
@@ -82,22 +97,23 @@ async function legacyDatabase(garments: LegacyGarment[]) {
        values ('owner-share-id', 'owner@example.com', 'x') returning id`,
     );
     const inserted: number[] = [];
-    for (const garment of garments) {
+    for (const given of garments) {
       seq += 1;
+      const row = { ...legacyDefaults(seq), ...given };
       const { rows } = await client.query<{ id: number }>(
         `insert into garment (shareable_id, name, category, brand, size, notes,
            washing_details, color, date_aquired, owner_id)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
         [
-          garment.shareableId ?? `garment-${seq}`,
-          garment.name ?? null,
-          garment.category ?? 'tops',
-          garment.brand ?? null,
-          garment.size ?? null,
-          garment.notes ?? null,
-          garment.washingDetails ?? null,
-          garment.color ?? null,
-          garment.dateAquired ?? null,
+          row.shareableId,
+          row.name,
+          row.category,
+          row.brand,
+          row.size,
+          row.notes,
+          row.washingDetails,
+          row.color,
+          row.dateAquired,
           owner.id,
         ],
       );

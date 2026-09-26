@@ -12,9 +12,6 @@ import {
 import { File } from './file.entity';
 import { ShareableId } from './shareableId.entity';
 import { User } from './user.entity';
-import { GarmentColor } from '../../wardrobe/garment-color.enum';
-
-export { GarmentColor };
 
 @Entity()
 export class Garment extends ShareableId {

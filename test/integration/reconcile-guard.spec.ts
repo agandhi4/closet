@@ -10,7 +10,6 @@ import {
   type ReconcileOptions,
 } from '../../src/maintenance/reconcile';
 import { variantFileName } from '../../src/web/files/image-variant';
-import { Photos } from '../../src/web/files/photos';
 import { photoRowCount } from './garments';
 import { createTestApp, TestApp } from './harness';
 import { silentLogger } from './logger';
@@ -32,7 +31,7 @@ describe('storage reconciliation guard', () => {
 
   const reconcile = (options?: ReconcileOptions) =>
     reconcileStorage(
-      { db: t.db, photos: t.app.get<Photos>(Photos), logger: silentLogger },
+      { db: t.db, photos: t.photos, logger: silentLogger },
       options,
     );
 
