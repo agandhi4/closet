@@ -17,6 +17,7 @@ import { I18n, I18nContext } from 'nestjs-i18n';
 import { UserId } from '../auth/user.decorator';
 import { OutfitService } from './outfit.service';
 import { GarmentService } from './garment.service';
+import { safeReturnTo } from '../web/security/return-to';
 
 @Controller('outfits')
 export class OutfitController {
@@ -51,7 +52,8 @@ export class OutfitController {
     return {
       outfit: null,
       scheduleDate: scheduleDate || null,
-      returnTo: returnTo || '/outfits',
+      // Rendered as the Back/Cancel link: same-site paths only.
+      returnTo: safeReturnTo(returnTo, '/outfits'),
       categoryRows,
       allCategoryRows: categoryRows,
     };
@@ -135,7 +137,7 @@ export class OutfitController {
     const selectedGarmentIds = outfit.garments.getItems().map((g) => g.id);
     return {
       outfit,
-      returnTo: returnTo || `/outfits/${id}`,
+      returnTo: safeReturnTo(returnTo, `/outfits/${id}`),
       returnToWeek: returnToWeek || null,
       categoryRows: this.outfitService.buildCategoryRows(
         garments,

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn } from './support/e2e-session';
+import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
  * Regression test for https://github.com/lazztech/Libre-Closet/issues/99 —
@@ -17,6 +17,7 @@ test('garment photo upload offers a direct camera capture entry point', async ({
   await signIn(page, 'camera-test');
   const createResponse = await page.request.post('/wardrobe', {
     form: { name: 'Camera Test Garment', category: 'shirt' },
+    headers: SAME_ORIGIN,
   });
   const garmentId = new URL(createResponse.url()).pathname.split('/').pop();
 
