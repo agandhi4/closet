@@ -82,7 +82,7 @@ describe('server cutouts: upload, page and polling (CUTOUT_MODE=server)', () => 
     expect(html).not.toContain('id="editMaskBtn"');
     expect(html).not.toContain('bgRemovalToggle');
     expect(html).not.toContain('nobgPhotoInput');
-    expect(html).toContain('/js/photo-input.js?v=');
+    expect(html).toContain(`import { wirePhotoUpload } from 'photo-input';`);
     expect(html).not.toContain('/js/background-removal.js');
     expectNativePostForms(res);
     expectNoRawI18nKeys(res);
@@ -229,7 +229,7 @@ describe('client mode keeps the in-browser flow (CUTOUT_MODE=client, the default
     const res = await t.inject({ method: 'GET', url: `/wardrobe/${id}` });
     const html = unescapeHtml(res.body);
     expect(html).toContain('/js/background-removal.js?v=');
-    expect(html).not.toContain('/js/photo-input.js');
+    expect(html).not.toContain('wirePhotoUpload');
     expect(html).toContain('id="bgRemovalToggle"');
     expect(html).toContain('id="nobgPhotoInput"');
     expect(html).toContain('<div id="garment-photo" class="mb-6">');

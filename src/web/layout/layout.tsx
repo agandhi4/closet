@@ -40,6 +40,7 @@ function importMap(version: string) {
       pulltorefreshjs: `/modules/pulltorefresh/index.esm.js${v}`,
       toast: `/js/toast.js${v}`,
       'mask-editor': `/js/mask-editor.js${v}`,
+      'photo-input': `/js/photo-input.js${v}`,
       'outfit-builder': `/js/outfit-builder.js${v}`,
       push: `/js/push.js${v}`,
     },
