@@ -58,6 +58,8 @@ document.addEventListener(
     if (Math.abs(dx) < SWIPE_MIN || Math.abs(dx) <= Math.abs(dy)) return;
     const index = dx < 0 ? row.dataset.nextIndex : row.dataset.prevIndex;
     const params = new URLSearchParams({ category: row.dataset.category, index });
+    // A build from a capsule steps only through its garments.
+    if (row.dataset.capsule) params.set('capsule', row.dataset.capsule);
     htmx.ajax('GET', `/outfits/row-fragment?${params}`, {
       target: row,
       swap: 'outerHTML',

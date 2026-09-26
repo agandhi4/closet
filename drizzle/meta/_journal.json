@@ -64,6 +64,13 @@
       "when": 1790453753061,
       "tag": "0008_garment_source_url_price",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790459161175,
+      "tag": "0009_capsules",
+      "breakpoints": true
     }
   ]
 }

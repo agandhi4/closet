@@ -2,6 +2,8 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { type Static, Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
 import { parseIsoDate } from '../calendar/calendar-date';
+import { findCapsule } from '../capsules/queries';
+import { capsuleNotFound } from '../capsules/validation';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
@@ -37,6 +39,8 @@ import { OutfitPage } from './show-page';
  *   parseIsoDate (a malformed one is dropped).
  * - The row fragment needs a category (400 without one: there is no row to
  *   render); its `index` is clamped into the category's cycle.
+ * - `?capsule=` (a new build from a capsule, and its rows) names data: not
+ *   an id is a 400, a capsule that is not the user's own a 404.
  * - The outfit form's post is data the write stores: anything malformed is
  *   a 400 and writes nothing. An empty date input posts '' (no schedule).
  */
@@ -58,9 +62,16 @@ const PageQuery = Type.Object({
   returnToWeek: Type.Optional(Type.String()),
 });
 
+// A new build from a capsule cycles only its garments (src/web/capsules).
+const NewQuery = Type.Object({
+  ...PageQuery.properties,
+  capsule: Type.Optional(RowId),
+});
+
 const RowQuery = Type.Object({
   category: Category,
   index: Type.Optional(Type.Integer()),
+  capsule: Type.Optional(RowId),
 });
 
 // The form posts one category + garmentId pair per row, in row order (a
@@ -151,17 +162,28 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     );
   });
 
+  // `?capsule=`: the rows cycle only that capsule's garments. The user's
+  // own capsule (outfits are private; a grantee builds from their own).
   app.get(
     '/outfits/new',
-    { schema: { querystring: PageQuery } },
+    { schema: { querystring: NewQuery } },
     async (request, reply) => {
+      const ownerId = sessionUserId(request);
       const { returnTo, scheduleDate } = request.query;
-      const heads = await categoryHeads(db, sessionUserId(request));
+      const capsule =
+        request.query.capsule === undefined
+          ? undefined
+          : await findCapsule(db, request.query.capsule, ownerId);
+      if (request.query.capsule !== undefined && !capsule) {
+        throw capsuleNotFound();
+      }
+      const heads = await categoryHeads(db, ownerId, capsule?.id);
       return renderPage(
         reply,
         <OutfitFormPage
           ctx={viewContext(reply)}
           model={{
+            capsule,
             rows: newOutfitRows(heads),
             categories: orderCategories(heads.map((head) => head.category)),
             returnTo: safeReturnTo(returnTo, '/outfits'),
@@ -172,16 +194,27 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // Prev/next, swipes and "Add row": one row, swapped in by htmx.
+  // Prev/next, swipes and "Add row": one row, swapped in by htmx. A
+  // capsule's cycle needs no lookup: inCapsule matches none of the user's
+  // garments for a capsule that is not theirs, so the row is empty.
   app.get(
     '/outfits/row-fragment',
     { schema: { querystring: RowQuery } },
     async (request, reply) => {
-      const { category, index } = request.query;
-      const at = await garmentAt(db, sessionUserId(request), category, index);
+      const { category, index, capsule } = request.query;
+      const at = await garmentAt(
+        db,
+        sessionUserId(request),
+        category,
+        index,
+        capsule,
+      );
       return renderFragment(
         reply,
-        <OutfitRow row={cycleRow(category, at.count, at.index, at.garment)} />,
+        <OutfitRow
+          row={cycleRow(category, at.count, at.index, at.garment)}
+          capsuleId={capsule}
+        />,
       );
     },
   );

@@ -14,6 +14,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment, outfit, outfitSlot } from '../../db/schema';
+import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
@@ -148,23 +149,29 @@ const rowGarment = {
 };
 const rowPhoto = { fileName: file.fileName, version: file.version };
 
-/** The garments prev/next cycle through: the owner's unarchived ones in `category`. */
-function inCycle(ownerId: number, category: string) {
+/**
+ * The garments prev/next cycle through: the owner's unarchived ones in
+ * `category`, only a capsule's members when building from one (`?capsule=`).
+ */
+function inCycle(ownerId: number, category: string, capsuleId?: number) {
   return and(
     eq(garment.ownerId, ownerId),
     eq(garment.category, category),
     eq(garment.archived, false),
+    capsuleId === undefined ? undefined : inCapsule(capsuleId),
   );
 }
 
 /**
  * The new-outfit builder: for each category of the owner's unarchived
- * garments, how many there are and the newest one (the row's default). One
- * statement returning one row per category, never the whole wardrobe.
+ * garments (a capsule's, when given), how many there are and the newest one
+ * (the row's default). One statement returning one row per category, never
+ * the whole wardrobe.
  */
 export async function categoryHeads(
   db: Db,
   ownerId: number,
+  capsuleId?: number,
 ): Promise<CategoryHead[]> {
   const ranked = db
     .select({
@@ -180,7 +187,13 @@ export async function categoryHeads(
         ),
     })
     .from(garment)
-    .where(and(eq(garment.ownerId, ownerId), eq(garment.archived, false)))
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        eq(garment.archived, false),
+        capsuleId === undefined ? undefined : inCapsule(capsuleId),
+      ),
+    )
     .as('ranked');
   const rows = await db
     .select({
@@ -207,26 +220,29 @@ export async function categoryHeads(
 
 /**
  * The row fragment's garment: the one at cycle position `index` (clamped;
- * 1 = newest) in `category`, with the category's count. Two small
- * statements (the count bounds the position), one garment row.
+ * 1 = newest) in `category` (within the capsule, when given), with the
+ * cycle's count. Two small statements (the count bounds the position), one
+ * garment row.
  */
 export async function garmentAt(
   db: Db,
   ownerId: number,
   category: string,
   requested: number | undefined,
+  capsuleId?: number,
 ): Promise<{ count: number; index: number; garment: RowGarment | null }> {
+  const cycle = inCycle(ownerId, category, capsuleId);
   const [{ total }] = await db
     .select({ total: count() })
     .from(garment)
-    .where(inCycle(ownerId, category));
+    .where(cycle);
   const index = clampIndex(requested, total);
   if (index === 0) return { count: total, index, garment: null };
   const [row] = await db
     .select({ ...rowGarment, photo: rowPhoto })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))
-    .where(inCycle(ownerId, category))
+    .where(cycle)
     .orderBy(desc(garment.id))
     .limit(1)
     .offset(index - 1);

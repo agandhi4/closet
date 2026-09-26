@@ -1,7 +1,8 @@
 /**
- * The wardrobe's links. `viewOwner` is the shared wardrobe a page shows
- * (undefined for the requester's own); every link and form on such a page
- * carries it as `?ownerId=`, so a grantee stays in the owner's wardrobe.
+ * The wardrobe's links, its capsules' included. `viewOwner` is the shared
+ * wardrobe a page shows (undefined for the requester's own); every link and
+ * form on such a page carries it as `?ownerId=`, so a grantee stays in the
+ * owner's wardrobe.
  */
 
 /** `path` with the query `params`, empty values left out. */
@@ -37,4 +38,20 @@ export function garmentUrl(
     ...params,
     ownerId: viewOwner,
   });
+}
+
+/** The capsule list, or a capsule's page or one of its sub-routes (`suffix`: '/edit', '/garments'). */
+export function capsuleUrl(
+  id: number | undefined,
+  viewOwner: number | undefined,
+  suffix = '',
+  params: Record<string, string | number | undefined> = {},
+): string {
+  return withQuery(
+    id === undefined ? '/capsules' : `/capsules/${id}${suffix}`,
+    {
+      ...params,
+      ownerId: viewOwner,
+    },
+  );
 }

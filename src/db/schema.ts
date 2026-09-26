@@ -390,6 +390,82 @@ export const outfitCalendar = pgTable(
   ],
 );
 
+// A named subset of one owner's garments (office, weekend, a trip's pool;
+// src/web/capsules). The closet itself is never a row: it is every
+// unarchived garment, what every page shows without a capsule. Part of the
+// wardrobe, so a share reaches it (resolveWardrobeAccess): a grantee views
+// the grantor's capsules, a MANAGE grantee edits their membership, only
+// the owner creates, renames and deletes them.
+export const capsule = pgTable(
+  'capsule',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    // Trimmed, never blank; bounded by the route (CAPSULE_NAME_MAX); one
+    // per owner whatever the case (capsule_owner_id_lower_name_unique).
+    name: text('name').notNull(),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // "Office" once per wardrobe, compared as the list sorts it; the
+    // writers answer a violation as 'name-taken'. Also the index of the
+    // owner_id foreign key and of every capsule query (owner first).
+    // owner_id is written as an expression on purpose: drizzle-kit's
+    // introspection marks every column of an index with any expression as
+    // one, so a plain column here reads back as drift (the drift test).
+    uniqueIndex('capsule_owner_id_lower_name_unique').on(
+      sql`${table.ownerId}`,
+      sql`lower(${table.name})`,
+    ),
+    foreignKey({
+      name: 'capsule_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// A capsule's garments. Only ever a garment of the capsule's owner: the one
+// writer, changeMembership (src/web/capsules/queries.ts), drops any other
+// id, which is also what makes the grid's capsule filter safe to apply to
+// any wardrobe. Archiving a garment keeps its membership (the capsule's
+// views leave it out, like every other view); deleting either side
+// deletes the row.
+export const capsuleGarment = pgTable(
+  'capsule_garment',
+  {
+    capsuleId: integer('capsule_id').notNull(),
+    garmentId: integer('garment_id').notNull(),
+  },
+  (table) => [
+    // Also the index of the capsule_id foreign key.
+    primaryKey({
+      name: 'capsule_garment_pkey',
+      columns: [table.capsuleId, table.garmentId],
+    }),
+    index('capsule_garment_garment_id_index').on(table.garmentId),
+    foreignKey({
+      name: 'capsule_garment_capsule_id_foreign',
+      columns: [table.capsuleId],
+      foreignColumns: [capsule.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'capsule_garment_garment_id_foreign',
+      columns: [table.garmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
 /** What a wardrobe share lets the grantee do: read, or read and write. */
 export type SharePermission = 'VIEW' | 'MANAGE';
 
@@ -445,6 +521,7 @@ export const userRelations = relations(user, ({ many }) => ({
   fileUploads: many(file),
   garments: many(garment),
   outfits: many(outfit),
+  capsules: many(capsule),
   calendarEntries: many(outfitCalendar),
   sharesGranted: many(wardrobeShare, { relationName: 'grantor' }),
   sharesReceived: many(wardrobeShare, { relationName: 'grantee' }),
@@ -464,6 +541,23 @@ export const garmentRelations = relations(garment, ({ one, many }) => ({
   photo: one(file, { fields: [garment.photoId], references: [file.id] }),
   owner: one(user, { fields: [garment.ownerId], references: [user.id] }),
   outfitSlots: many(outfitSlot),
+  capsuleGarments: many(capsuleGarment),
+}));
+
+export const capsuleRelations = relations(capsule, ({ one, many }) => ({
+  owner: one(user, { fields: [capsule.ownerId], references: [user.id] }),
+  garments: many(capsuleGarment),
+}));
+
+export const capsuleGarmentRelations = relations(capsuleGarment, ({ one }) => ({
+  capsule: one(capsule, {
+    fields: [capsuleGarment.capsuleId],
+    references: [capsule.id],
+  }),
+  garment: one(garment, {
+    fields: [capsuleGarment.garmentId],
+    references: [garment.id],
+  }),
 }));
 
 export const outfitRelations = relations(outfit, ({ one, many }) => ({

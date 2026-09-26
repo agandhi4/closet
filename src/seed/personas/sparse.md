@@ -55,7 +55,8 @@ Her half-finished first try: untitled (`—`), never scheduled. Same columns as 
 |---|---|---|---|---|
 | 1 | — | — | — | S01 jeans, S04 white tee |
 
-No calendar entries.
+No calendar entries, and no capsules: she has not found the Capsules tab. Theo, who manages her
+wardrobe, sees it empty and may choose garments for a capsule she makes, but only she can make one.
 
 ## Testing purpose
 

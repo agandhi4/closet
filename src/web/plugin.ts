@@ -4,6 +4,7 @@ import { createSessionHook } from './auth/require-session';
 import { authRoutes } from './auth/routes';
 import type { SessionTokens } from './auth/tokens';
 import { calendarRoutes } from './calendar/routes';
+import { capsuleRoutes } from './capsules/routes';
 import { fileRoutes } from './files/routes';
 import type { Photos } from './files/photos';
 import type { Logger } from '../logger';
@@ -70,6 +71,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
 
   await app.register(shellRoutes, options);
   await app.register(wardrobeRoutes, options);
+  await app.register(capsuleRoutes, options);
   await app.register(calendarRoutes, options);
   await app.register(outfitRoutes, options);
   await app.register(authRoutes, options);

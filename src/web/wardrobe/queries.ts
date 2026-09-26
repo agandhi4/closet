@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
+import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import { compareSizes } from './garment';
 import {
@@ -58,6 +59,8 @@ export interface GridFilters {
   material?: Material;
   /** Include archived garments (the modal's "Show archived"). */
   archived: boolean;
+  /** Members of this capsule only (inCapsule). */
+  capsule?: number;
 }
 
 /** A grid tile: what the card shows and links to. */
@@ -81,20 +84,16 @@ export function containsPattern(text: string): string {
 }
 
 function gridWhere(ownerId: number, filters: GridFilters): SQL | undefined {
-  const conditions: (SQL | undefined)[] = [eq(garment.ownerId, ownerId)];
+  const conditions: (SQL | undefined)[] = [
+    eq(garment.ownerId, ownerId),
+    ...propertyConditions(filters),
+  ];
   if (!filters.archived) conditions.push(eq(garment.archived, false));
   if (filters.category) {
     conditions.push(eq(garment.category, filters.category));
   }
+  if (filters.capsule) conditions.push(inCapsule(filters.capsule));
   if (filters.size) conditions.push(eq(garment.size, filters.size));
-  if (filters.type) conditions.push(eq(garment.type, filters.type));
-  if (filters.warmth) conditions.push(eq(garment.warmth, filters.warmth));
-  if (filters.formality) {
-    conditions.push(eq(garment.formality, filters.formality));
-  }
-  if (filters.material) {
-    conditions.push(arrayContains(garment.materials, [filters.material]));
-  }
   if (filters.color) {
     // A whole item of the comma-joined list, never a substring of one.
     conditions.push(
@@ -114,6 +113,20 @@ function gridWhere(ownerId: number, filters: GridFilters): SQL | undefined {
     );
   }
   return and(...conditions);
+}
+
+/** The property filters (#12) as conditions. */
+function propertyConditions(filters: GridFilters): SQL[] {
+  const conditions: SQL[] = [];
+  if (filters.type) conditions.push(eq(garment.type, filters.type));
+  if (filters.warmth) conditions.push(eq(garment.warmth, filters.warmth));
+  if (filters.formality) {
+    conditions.push(eq(garment.formality, filters.formality));
+  }
+  if (filters.material) {
+    conditions.push(arrayContains(garment.materials, [filters.material]));
+  }
+  return conditions;
 }
 
 /**

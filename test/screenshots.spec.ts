@@ -91,6 +91,17 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
   await shot(page, '11-demo-shares', '/wardrobe-share/manage');
 });
 
+test('demo: Theo, capsules', async ({ page }) => {
+  await signInAs(page, 'demo');
+  await shot(page, '17-demo-capsules', '/capsules');
+  await page.getByRole('link', { name: /^Weekend/ }).click();
+  await expect(page.getByRole('heading', { name: 'Weekend' })).toBeVisible();
+  await shot(page, '18-demo-capsule');
+  await page.getByRole('link', { name: 'Choose garments' }).first().click();
+  await expect(page.locator('#pick-form')).toBeVisible();
+  await shot(page, '19-demo-capsule-picker');
+});
+
 test('sparse: Dana, untagged and degraded', async ({ page }) => {
   await signInAs(page, 'sparse');
   await shot(page, '12-sparse-wardrobe', '/wardrobe');

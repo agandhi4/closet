@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  capsule,
+  capsuleGarment,
   file,
   garment,
   outfit,
@@ -85,7 +87,8 @@ describe('seed personas', () => {
   /**
    * What a persona is, without what differs between runs by design (row
    * ids, UUIDs, file names): every garment field and its cutout's bytes,
-   * outfits with their slots, the calendar, shares.
+   * outfits with their slots, capsules with their garments, the calendar,
+   * shares.
    */
   const snapshot = async (email: string) => {
     const id = await userIdOf(t, email);
@@ -102,6 +105,11 @@ describe('seed personas', () => {
       with: { slots: { orderBy: asc(outfitSlot.position) } },
     });
     const names = new Map(outfits.map((o) => [o.id, o.name]));
+    const capsules = await t.db.query.capsule.findMany({
+      where: eq(capsule.ownerId, id),
+      orderBy: asc(capsule.id),
+      with: { garments: { orderBy: asc(capsuleGarment.garmentId) } },
+    });
     const calendar = await t.db
       .select()
       .from(outfitCalendar)
@@ -133,6 +141,11 @@ describe('seed personas', () => {
           s.garmentId && ids.get(s.garmentId),
         ]),
       })),
+      capsules: capsules.map((c) => ({
+        name: c.name,
+        notes: c.notes,
+        garments: c.garments.map((g) => ids.get(g.garmentId)),
+      })),
       calendar: calendar.map((c) => ({
         day: c.day,
         outfit: names.get(c.outfitId),
@@ -154,7 +167,7 @@ describe('seed personas', () => {
     const first = await seedAll();
     expect(first).toMatchObject({ status: 0, stderr: '' });
     expect(first.stdout).toContain(
-      'demo: seeded 83 garments, 83 photos, 26 outfits',
+      'demo: seeded 83 garments, 83 photos, 26 outfits, 4 capsules',
     );
     expect(first.stdout).toContain(
       `Sign in as demo@closet.invalid with ${PASSWORD}`,
@@ -162,7 +175,12 @@ describe('seed personas', () => {
     expect(first.stdout).toContain(
       'sparse: seeded 12 garments, 8 photos, 1 outfits',
     );
-    expect(first.stdout).toContain('fresh: seeded 0 garments');
+    expect(first.stdout).toContain(
+      'fresh: seeded 0 garments, 0 photos, 0 outfits, 0 capsules',
+    );
+    expect(first.stdout).toContain(
+      'sparse: seeded 12 garments, 8 photos, 1 outfits, 0 capsules',
+    );
 
     const demo = await snapshot(EMAILS[0]);
     expect(demo.garments.filter((g) => g.archived)).toHaveLength(3);
@@ -193,6 +211,15 @@ describe('seed personas', () => {
         .filter((entry) => entry.day > ANCHOR)
         .every((entry) => entry.wornAt === null),
     ).toBe(true);
+    // Theo's capsules, from the bible's table; Weekend keeps the archived
+    // 511s it held before the archive.
+    expect(demo.capsules.map((c) => [c.name, c.garments.length])).toEqual([
+      ['Office', 29],
+      ['Weekend', 23],
+      ['Date night', 18],
+      ['Travel', 16],
+    ]);
+    expect(demo.capsules[1].garments).toContain('Old 511s');
     // Fully tagged but for the socks, which no type fits.
     expect(await countToTag(t.db, await userIdOf(t, EMAILS[0]))).toBe(1);
     // Dana's wardrobe is shared with Theo, MANAGE.
@@ -282,6 +309,27 @@ describe('seed personas', () => {
     });
     expect(theirs.statusCode).toBe(200);
     expect(theirs.body).toContain('Olive chore coat');
+    // The owner's VIEW of Theo reaches his capsules (owner decision, #8).
+    const capsules = await t.inject({
+      method: 'GET',
+      url: `/capsules?ownerId=${demoId}`,
+    });
+    expect(capsules.statusCode).toBe(200);
+    for (const name of ['Office', 'Weekend', 'Date night', 'Travel']) {
+      expect(capsules.body).toContain(name);
+    }
+    const [weekend] = await t.db
+      .select({ id: capsule.id })
+      .from(capsule)
+      .where(eq(capsule.name, 'Weekend'));
+    const page = await t.inject({
+      method: 'GET',
+      url: `/capsules/${weekend.id}?ownerId=${demoId}`,
+    });
+    expect(page.statusCode).toBe(200);
+    // 22 of 23: the archived 511s keep their membership, hidden.
+    expect(page.body).toContain('22 garments');
+    expect(page.body).not.toContain('Old 511s');
   });
 
   it('rolls a persona back whole, photos included, when a write fails', async () => {
@@ -315,6 +363,8 @@ describe('seed personas', () => {
     expect(await storedFiles()).toEqual([]);
     expect(await t.db.$count(garment)).toBe(0);
     expect(await t.db.$count(file)).toBe(0);
+    expect(await t.db.$count(capsule)).toBe(0);
+    expect(await t.db.$count(capsuleGarment)).toBe(0);
     const report = await reconcileStorage(
       { db: t.db, photos: t.photos, logger: t.logger },
       { dryRun: true, olderThanMs: 0 },

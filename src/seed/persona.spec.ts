@@ -45,6 +45,21 @@ describe('persona bibles', () => {
     );
     const office = demo.outfits[0];
     expect(office).toMatchObject({ name: 'Office uniform', favourite: true });
+
+    expect(demo.capsules.map((c) => c.fields.name)).toEqual([
+      'Office',
+      'Weekend',
+      'Date night',
+      'Travel',
+    ]);
+    expect(demo.capsules[3].fields.notes).toMatch(/Austin/);
+    // An archived garment can be a member (it keeps its membership).
+    expect(demo.capsules[1].garmentIds).toContain('Z03');
+  });
+
+  it('gives Dana and Riley no capsules', () => {
+    expect(loadPersona('sparse').capsules).toEqual([]);
+    expect(loadPersona('fresh').capsules).toEqual([]);
   });
 
   it('reads Dana: a custom category, four garments without a photo, a share with Theo', () => {
@@ -97,6 +112,21 @@ describe('persona bibles', () => {
       'a short row',
       bible('| F01 | Shoes | sneakers | white |'),
       /4 cells for 5 columns/,
+    ],
+    [
+      'a capsule naming an unknown garment',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Capsules\n\n| Capsule | Garments | Notes |\n|---|---|---|\n| Shoes | F01, F99 | — |\n`,
+      /capsule "Shoes": unknown garments: F99/,
+    ],
+    [
+      'two capsules of one name, in any case',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Capsules\n\n| Capsule | Garments | Notes |\n|---|---|---|\n| Shoes | F01 | — |\n| SHOES | F01 | — |\n`,
+      /two capsules are called "SHOES"/,
+    ],
+    [
+      'a capsule without a name',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Capsules\n\n| Capsule | Garments | Notes |\n|---|---|---|\n| — | F01 | — |\n`,
+      /CAPSULE_NAME_REQUIRED|Give the capsule a name/,
     ],
   ])('refuses %s', (_, markdown, message) => {
     expect(() => parsePersona('fresh', markdown)).toThrow(BibleError);

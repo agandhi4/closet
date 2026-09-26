@@ -1,5 +1,7 @@
 import type { Child } from 'hono/jsx';
 import { PostForm } from '../auth/form';
+import { GarmentCapsules } from '../capsules/garment-capsules';
+import type { GarmentCapsule } from '../capsules/queries';
 import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
@@ -15,6 +17,8 @@ import { garmentUrl, wardrobeUrl } from './urls';
 
 export interface GarmentPageModel {
   garment: GarmentDetail;
+  /** The wardrobe's capsules, and whether the garment is in each. */
+  capsules: GarmentCapsule[];
   /** The shared wardrobe it is in; undefined for the requester's own. */
   viewOwner: number | undefined;
   /** Edit, photo and mask: the owner and a MANAGE grantee. */
@@ -86,6 +90,12 @@ export function GarmentPage(props: {
         </div>
         {model.canEdit && <PhotoForm model={model} />}
         <GarmentDetails garment={garment} />
+        <GarmentCapsules
+          garmentId={garment.id}
+          capsules={model.capsules}
+          viewOwner={model.viewOwner}
+          canEdit={model.canEdit}
+        />
         <GarmentActions ctx={ctx} model={model} />
         {model.canEdit && garment.photo && <MaskEditorDialog />}
       </main>

@@ -52,6 +52,11 @@ describe('migrations', () => {
         'wardrobe_share_grantor_id_index',
         'wardrobe_share_grantee_id_index',
         'wardrobe_share_invite_token_unique',
+        // One name per owner, any case; also the owner_id foreign key's.
+        'capsule_owner_id_lower_name_unique',
+        // Also the index of capsule_garment.capsule_id.
+        'capsule_garment_pkey',
+        'capsule_garment_garment_id_index',
         // Login and every email lookup compare lower(email).
         'user_lower_email_unique',
       ]),
@@ -69,6 +74,7 @@ describe('migrations', () => {
             fileUploads: true,
             garments: true,
             outfits: true,
+            capsules: true,
             calendarEntries: true,
             sharesGranted: true,
             sharesReceived: true,
@@ -76,7 +82,12 @@ describe('migrations', () => {
         }),
         t.db.query.file.findMany({ with: { createdBy: true, garment: true } }),
         t.db.query.garment.findMany({
-          with: { photo: true, owner: true, outfitSlots: true },
+          with: {
+            photo: true,
+            owner: true,
+            outfitSlots: true,
+            capsuleGarments: true,
+          },
         }),
         t.db.query.outfit.findMany({
           with: { owner: true, slots: true, calendarEntries: true },
@@ -91,6 +102,10 @@ describe('migrations', () => {
           with: { grantor: true, grantee: true },
         }),
         t.db.query.userDevice.findMany({ with: { user: true } }),
+        t.db.query.capsule.findMany({ with: { owner: true, garments: true } }),
+        t.db.query.capsuleGarment.findMany({
+          with: { capsule: true, garment: true },
+        }),
       ]),
     ).resolves.toBeDefined();
     const owner = await t.db.query.user.findFirst({

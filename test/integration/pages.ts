@@ -19,14 +19,15 @@ export const HX_BOOSTED = { 'hx-request': 'true', 'hx-boosted': 'true' };
 export interface PageFixture {
   garmentId: number;
   garmentShareableId: string;
+  capsuleId: number;
   outfitId: number;
   outfitShareableId: string;
 }
 
 /**
- * One garment with a photo and one outfit wearing it, created through the
- * same requests the UI makes, so detail, edit, clone and share pages have
- * something real to render.
+ * One garment with a photo, a capsule holding it and one outfit wearing it,
+ * created through the same requests the UI makes, so detail, edit, clone
+ * and share pages have something real to render.
  */
 export async function createPageFixture(
   t: TestApp,
@@ -39,6 +40,24 @@ export async function createPageFixture(
     cookie,
   });
   await uploadPhoto(t, garmentId, await jpegPhoto(), cookie);
+
+  const capsule = await t.inject({
+    method: 'POST',
+    url: '/capsules',
+    payload: { name: 'Office' },
+    headers,
+  });
+  expect(capsule.statusCode).toBe(303);
+  const capsuleId = Number(
+    /^\/capsules\/(\d+)\?/.exec(capsule.headers.location as string)?.[1],
+  );
+  const chosen = await t.inject({
+    method: 'POST',
+    url: `/capsules/${capsuleId}/garments`,
+    payload: { ids: [garmentId] },
+    headers,
+  });
+  expect(chosen.statusCode).toBe(303);
 
   const res = await t.inject({
     method: 'POST',
@@ -65,6 +84,7 @@ export async function createPageFixture(
   return {
     garmentId,
     garmentShareableId: garment.shareableId,
+    capsuleId,
     outfitId,
     outfitShareableId: outfit.shareableId,
   };
@@ -87,8 +107,15 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app(`/wardrobe/${f.garmentId}`),
     app(`/wardrobe/${f.garmentId}/edit`),
     app(`/wardrobe/${f.garmentId}/clone`),
+    app(`/wardrobe?capsule=${f.capsuleId}`),
+    app(`/wardrobe?pick=${f.capsuleId}`),
+    app('/capsules'),
+    app('/capsules/new'),
+    app(`/capsules/${f.capsuleId}`),
+    app(`/capsules/${f.capsuleId}/edit`),
     app('/outfits'),
     app('/outfits/new'),
+    app(`/outfits/new?capsule=${f.capsuleId}`),
     app(`/outfits/${f.outfitId}`),
     app(`/outfits/${f.outfitId}/edit`),
     app('/calendar'),

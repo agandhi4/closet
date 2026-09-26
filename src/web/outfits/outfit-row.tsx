@@ -2,8 +2,13 @@ import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
 import type { BuilderRow, RowGarment } from './builder';
 
-function rowUrl(category: string, index: number): string {
-  return `/outfits/row-fragment?category=${encodeURIComponent(category)}&index=${index}`;
+function rowUrl(
+  category: string,
+  index: number,
+  capsuleId: number | undefined,
+): string {
+  const capsule = capsuleId === undefined ? '' : `&capsule=${capsuleId}`;
+  return `/outfits/row-fragment?category=${encodeURIComponent(category)}&index=${index}${capsule}`;
 }
 
 function EmptyPhoto() {
@@ -62,14 +67,22 @@ function ChosenGarment({ garment }: { garment: RowGarment }) {
  * garment". The row shows the 400px thumb; the detail modal loads the
  * cutout only when opened. A horizontal swipe steps like the arrows
  * (public/js/outfit-builder.js reads data-prev-index and data-next-index,
- * which the server works out); touch-pan-y leaves those moves to it.
+ * which the server works out); touch-pan-y leaves those moves to it. A
+ * build from a capsule (`capsuleId`) steps only through its garments.
  */
-export function OutfitRow({ row }: { row: BuilderRow }) {
+export function OutfitRow({
+  row,
+  capsuleId,
+}: {
+  row: BuilderRow;
+  capsuleId?: number;
+}) {
   const { garment } = row;
   return (
     <div
       class="outfit-row flex items-center gap-2 py-3 touch-pan-y"
       data-category={row.category}
+      data-capsule={capsuleId}
       data-index={row.index ?? undefined}
       data-count={row.count}
       data-prev-index={row.prevIndex}
@@ -101,7 +114,7 @@ export function OutfitRow({ row }: { row: BuilderRow }) {
         type="button"
         class="btn btn-ghost btn-sm btn-circle shrink-0"
         aria-label={t('OUTFIT_ROW_PREVIOUS')}
-        hx-get={rowUrl(row.category, row.prevIndex)}
+        hx-get={rowUrl(row.category, row.prevIndex, capsuleId)}
         hx-target="closest .outfit-row"
         hx-swap="outerHTML"
       >
@@ -119,7 +132,7 @@ export function OutfitRow({ row }: { row: BuilderRow }) {
         type="button"
         class="btn btn-ghost btn-sm btn-circle shrink-0"
         aria-label={t('OUTFIT_ROW_NEXT')}
-        hx-get={rowUrl(row.category, row.nextIndex)}
+        hx-get={rowUrl(row.category, row.nextIndex, capsuleId)}
         hx-target="closest .outfit-row"
         hx-swap="outerHTML"
       >

@@ -21,13 +21,15 @@ import {
   SavedToast,
   StripFlags,
 } from '../layout/parts';
+import type { CapsuleRef } from '../capsules/queries';
 import type { SharedWardrobe } from '../sharing/access';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, GARMENT_COLORS } from './garment';
 import type { FilterOptions, GarmentTile, GridPage } from './queries';
 import { type LabelledProperty, valueLabel } from './labels';
-import { garmentUrl, wardrobeUrl } from './urls';
+import { capsuleUrl, garmentUrl, wardrobeUrl } from './urls';
 import { BULK_PROPERTIES, type BulkProperty } from './validation';
+import { WardrobeTabs } from './wardrobe-tabs';
 
 /**
  * The grid's filters as the page echoes them into its links and forms. The
@@ -45,6 +47,33 @@ export interface GridSearch {
   material: string;
   /** 'true' when archived garments are shown too; '' otherwise. */
   archived: string;
+  /** A capsule's id: its members only. */
+  capsule: string;
+}
+
+/** No filter at all: the whole closet (the capsule page spreads it with its id). */
+export const EMPTY_SEARCH: GridSearch = {
+  keyword: '',
+  category: '',
+  color: '',
+  size: '',
+  type: '',
+  warmth: '',
+  formality: '',
+  material: '',
+  archived: '',
+  capsule: '',
+};
+
+/**
+ * The capsule picker (`?pick=`): select mode whose checkboxes are the
+ * capsule's membership. Members start checked, and every tile says it was
+ * shown (a hidden `shown`), so the post changes only what the picker
+ * showed (POST /capsules/:id/garments).
+ */
+export interface Picking {
+  capsuleId: number;
+  members: ReadonlySet<number>;
 }
 
 export interface WardrobeModel {
@@ -59,8 +88,12 @@ export interface WardrobeModel {
   canEdit: boolean;
   /** Garments still needing their type, warmth or formality (0 for a viewer). */
   toTag: number;
-  /** Select mode (?select=1): tiles are checkboxes of the bulk form. */
+  /** Select mode (?select=1, or the picker): tiles are checkboxes. */
   selecting: boolean;
+  /** Select mode as the capsule picker; the capsule's name for the heading. */
+  picking?: Picking & { name: string };
+  /** The wardrobe's capsules: the filter's choices and its pill's name. */
+  capsules: CapsuleRef[];
   /** After POST /wardrobe/bulk: its toast. */
   bulkResult?: { updated: number; skipped: number };
 }
@@ -110,45 +143,76 @@ export function WardrobePage(props: {
  * dock, and always start again from the first page.
  */
 export function WardrobeMain({ model }: { model: WardrobeModel }) {
-  const { search, viewOwner, selecting } = model;
+  const { viewOwner, selecting } = model;
   return (
     <main id="wardrobe-main" class="p-4 pt-20 pb-40">
       <Heading model={model} />
-      {model.toTag > 0 && !selecting && (
-        <TagPrompt count={model.toTag} viewOwner={viewOwner} />
-      )}
-      {model.sharedWardrobes.length > 0 && !selecting && (
-        <WardrobeSwitcher model={model} />
+      {!selecting && (
+        <>
+          <WardrobeTabs active="garments" viewOwner={viewOwner} />
+          {model.toTag > 0 && (
+            <TagPrompt count={model.toTag} viewOwner={viewOwner} />
+          )}
+          {model.sharedWardrobes.length > 0 && (
+            <WardrobeSwitcher model={model} />
+          )}
+        </>
       )}
 
       <p class="text-sm text-base-content/60 mb-4 px-2">
         {model.count} {t('RESULTS')}
       </p>
 
-      {model.page.tiles.length === 0 ? (
-        <NoTiles model={model} />
-      ) : selecting ? (
-        <BulkForm search={search} viewOwner={viewOwner}>
-          <Grid model={model} />
-        </BulkForm>
-      ) : (
-        <Grid model={model} />
-      )}
-
-      {selecting ? (
-        <BulkDialog />
-      ) : (
-        <>
-          <FilterBar search={search} viewOwner={viewOwner} />
-          <FilterModal
-            search={search}
-            options={model.options}
-            viewOwner={viewOwner}
-          />
-        </>
-      )}
+      <Tiles model={model} />
+      <Controls model={model} />
       {model.bulkResult && <BulkToast result={model.bulkResult} />}
     </main>
+  );
+}
+
+/** The first page: links, or checkboxes inside select mode's form (bulk or picker). */
+function Tiles({ model }: { model: WardrobeModel }) {
+  const { picking } = model;
+  if (model.page.tiles.length === 0) return <NoTiles model={model} />;
+  if (picking) {
+    return (
+      <PickForm model={model} picking={picking}>
+        <Grid model={model} />
+      </PickForm>
+    );
+  }
+  if (model.selecting) {
+    return (
+      <BulkForm search={model.search} viewOwner={model.viewOwner}>
+        <Grid model={model} />
+      </BulkForm>
+    );
+  }
+  return <Grid model={model} />;
+}
+
+/**
+ * What sits under the grid: the filter bar and modal while browsing, the
+ * bulk dialog in select mode (the picker needs neither).
+ */
+function Controls({ model }: { model: WardrobeModel }) {
+  const { search, viewOwner } = model;
+  if (model.picking) return null;
+  if (model.selecting) return <BulkDialog />;
+  return (
+    <>
+      <FilterBar
+        search={search}
+        viewOwner={viewOwner}
+        capsules={model.capsules}
+      />
+      <FilterModal
+        search={search}
+        options={model.options}
+        capsules={model.capsules}
+        viewOwner={viewOwner}
+      />
+    </>
   );
 }
 
@@ -198,9 +262,27 @@ function TagPrompt(props: { count: number; viewOwner: number | undefined }) {
   );
 }
 
-/** The title and, for someone who may edit, Select (or Cancel) and New. */
+/**
+ * The title and, for someone who may edit, Select (or Cancel) and New. The
+ * picker's Cancel goes back to its capsule.
+ */
 function Heading({ model }: { model: WardrobeModel }) {
-  const { search, viewOwner, canEdit, selecting } = model;
+  const { search, viewOwner, canEdit, selecting, picking } = model;
+  if (picking) {
+    return (
+      <div class="flex items-center justify-between gap-2 mb-6 px-2">
+        <h1 class="text-2xl font-bold">
+          {t('PICK_GARMENTS_FOR', { name: picking.name })}
+        </h1>
+        <a
+          href={capsuleUrl(picking.capsuleId, viewOwner)}
+          class="btn btn-ghost btn-sm"
+        >
+          {t('CANCEL')}
+        </a>
+      </div>
+    );
+  }
   return (
     <div class="flex items-center justify-between gap-2 mb-6 px-2">
       <h1 class="text-2xl font-bold">
@@ -269,6 +351,7 @@ function Grid({ model }: { model: WardrobeModel }) {
         search={model.search}
         viewOwner={model.viewOwner}
         selecting={model.selecting}
+        picking={model.picking}
         firstPage
       />
     </div>
@@ -305,15 +388,22 @@ export function GarmentTiles(props: {
   viewOwner: number | undefined;
   /** Select mode: checkbox tiles, and the next page asked for as such. */
   selecting: boolean;
+  /** The capsule picker: members checked, every tile marked shown. */
+  picking?: Picking;
   firstPage?: boolean;
 }) {
-  const { page, search, viewOwner, selecting } = props;
+  const { page, search, viewOwner, selecting, picking } = props;
   return (
     <>
       {page.tiles.map((tile, index) => {
         const eager = props.firstPage === true && index < EAGER_TILES;
         return selecting ? (
-          <SelectTile tile={tile} eager={eager} />
+          <SelectTile
+            tile={tile}
+            eager={eager}
+            checked={picking?.members.has(tile.id) ?? false}
+            shown={picking !== undefined}
+          />
         ) : (
           <Tile tile={tile} viewOwner={viewOwner} eager={eager} />
         );
@@ -325,7 +415,8 @@ export function GarmentTiles(props: {
             viewOwner,
             {
               ...searchParams(search),
-              select: selecting ? '1' : undefined,
+              select: selecting && !picking ? '1' : undefined,
+              pick: picking?.capsuleId,
               before: page.before,
             },
             '/wardrobe/tiles',
@@ -363,10 +454,16 @@ function Tile(props: {
 }
 
 /**
- * A tile in select mode: a checkbox of the bulk form (`ids`), the whole
- * card its label, ringed while checked. No link: a tap selects.
+ * A tile in select mode: a checkbox of the bulk form or the picker
+ * (`ids`), the whole card its label, ringed while checked. No link: a tap
+ * selects. In the picker a hidden `shown` says the tile was on screen.
  */
-function SelectTile(props: { tile: GarmentTile; eager: boolean }) {
+function SelectTile(props: {
+  tile: GarmentTile;
+  eager: boolean;
+  checked: boolean;
+  shown: boolean;
+}) {
   const { tile } = props;
   return (
     <label
@@ -376,9 +473,13 @@ function SelectTile(props: { tile: GarmentTile; eager: boolean }) {
         type="checkbox"
         name="ids"
         value={String(tile.id)}
+        checked={props.checked}
         class="checkbox checkbox-primary checkbox-sm absolute top-2 left-2 z-10 not-checked:bg-base-100"
         aria-label={tile.name ?? categoryLabel(tile.category)}
       />
+      {props.shown && (
+        <input type="hidden" name="shown" value={String(tile.id)} />
+      )}
       <TileContent tile={tile} eager={props.eager} />
     </label>
   );
@@ -490,9 +591,13 @@ const INCLUDE_KEYWORD = "#search-form [name='keyword']";
 function FilterBar(props: {
   search: GridSearch;
   viewOwner: number | undefined;
+  capsules: CapsuleRef[];
 }) {
   const { search, viewOwner } = props;
   const pill = { search, viewOwner };
+  const capsule = props.capsules.find(
+    (candidate) => String(candidate.id) === search.capsule,
+  );
   return (
     <div class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 pt-2 pb-2">
       <div class="flex flex-wrap items-center gap-2 mb-2">
@@ -517,6 +622,14 @@ function FilterBar(props: {
           </svg>
           {t('FILTER_SEARCH')}
         </button>
+        {capsule && (
+          <FilterPill
+            {...pill}
+            drop="capsule"
+            class="badge-neutral"
+            label={capsule.name}
+          />
+        )}
         {search.category && (
           <FilterPill
             {...pill}
@@ -594,9 +707,10 @@ function FilterBar(props: {
 function FilterModal(props: {
   search: GridSearch;
   options: FilterOptions;
+  capsules: CapsuleRef[];
   viewOwner: number | undefined;
 }) {
-  const { search, options, viewOwner } = props;
+  const { search, options, capsules, viewOwner } = props;
   return (
     <dialog id="filter-modal" class="modal modal-bottom sm:modal-middle">
       <form
@@ -610,6 +724,19 @@ function FilterModal(props: {
         <h3 class="font-bold text-lg mb-4">{t('FILTERS')}</h3>
         {viewOwner !== undefined && (
           <input type="hidden" name="ownerId" value={viewOwner} />
+        )}
+        {capsules.length > 0 && (
+          <FilterGroup title={t('CAPSULE')}>
+            {capsules.map((capsule) => (
+              <Choice
+                name="capsule"
+                value={String(capsule.id)}
+                checked={String(capsule.id) === search.capsule}
+                class="peer-checked:badge-neutral"
+                label={capsule.name}
+              />
+            ))}
+          </FilterGroup>
         )}
         <FilterGroup title={t('CATEGORY')}>
           {options.categories.map((category) => (
@@ -785,10 +912,40 @@ const BULK_FORM_ID = 'bulk-form';
 
 /**
  * Select mode's form: the grid's checkbox tiles (later pages arrive inside
- * it too), the bar with the live count and "Set…". A native post to
- * POST /wardrobe/bulk carrying the filters in its query, so the redirect
- * lands on the same grid. The count is the one line of script: it re-counts
- * the checked boxes on every change.
+ * it too) and the bar above the dock with the live count and the mode's
+ * action. A native post carrying what the page needs back in its action's
+ * query. The count is the one line of script: it re-counts the checked
+ * boxes on every change.
+ */
+function SelectForm(props: {
+  id: string;
+  action: string;
+  /** Boxes checked as rendered (the picker's members on this page). */
+  checked: number;
+  button: Child;
+  children: Child;
+}) {
+  return (
+    <PostForm id={props.id} action={props.action}>
+      <div onchange="document.getElementById('selected-count').textContent = this.querySelectorAll('input[name=ids]:checked').length">
+        {props.children}
+        <div class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex items-center justify-between gap-2">
+          <span class="text-sm">
+            <span id="selected-count" class="font-semibold">
+              {props.checked}
+            </span>{' '}
+            {t('SELECTED')}
+          </span>
+          {props.button}
+        </div>
+      </div>
+    </PostForm>
+  );
+}
+
+/**
+ * Bulk edit: POST /wardrobe/bulk with the filters in its query, so the
+ * redirect lands on the same grid; "Set…" opens the dialog below.
  */
 function BulkForm(props: {
   search: GridSearch;
@@ -796,33 +953,51 @@ function BulkForm(props: {
   children: Child;
 }) {
   return (
-    <PostForm
+    <SelectForm
       id={BULK_FORM_ID}
       action={wardrobeUrl(
         props.viewOwner,
         searchParams(props.search),
         '/wardrobe/bulk',
       )}
+      checked={0}
+      button={
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          onclick="document.getElementById('bulk-dialog').showModal()"
+        >
+          {t('BULK_SET')}
+        </button>
+      }
     >
-      <div onchange="document.getElementById('selected-count').textContent = this.querySelectorAll('input[name=ids]:checked').length">
-        {props.children}
-        <div class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex items-center justify-between gap-2">
-          <span class="text-sm">
-            <span id="selected-count" class="font-semibold">
-              0
-            </span>{' '}
-            {t('SELECTED')}
-          </span>
-          <button
-            type="button"
-            class="btn btn-primary btn-sm"
-            onclick="document.getElementById('bulk-dialog').showModal()"
-          >
-            {t('BULK_SET')}
-          </button>
-        </div>
-      </div>
-    </PostForm>
+      {props.children}
+    </SelectForm>
+  );
+}
+
+/** The capsule picker: Save posts the membership and returns to the capsule. */
+function PickForm(props: {
+  model: WardrobeModel;
+  picking: Picking;
+  children: Child;
+}) {
+  const { model, picking } = props;
+  return (
+    <SelectForm
+      id="pick-form"
+      action={capsuleUrl(picking.capsuleId, model.viewOwner, '/garments')}
+      checked={
+        model.page.tiles.filter((tile) => picking.members.has(tile.id)).length
+      }
+      button={
+        <button type="submit" class="btn btn-primary btn-sm">
+          {t('SAVE')}
+        </button>
+      }
+    >
+      {props.children}
+    </SelectForm>
   );
 }
 

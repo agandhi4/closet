@@ -287,6 +287,23 @@ is never drawn. Bands are the day's feels-like high (see Simulation); `any` is e
 "Old weekend jeans" was saved in 2025 and is never worn in the window. The workouts (17, 18) are
 saved but not scheduled until occasions (#13) can label a second outfit that day as a workout.
 
+## Capsules
+
+Named subsets of the closet (#8), each for a part of his life; the closet itself is every garment
+he has not archived and is never a row. A garment can be in several (the white tee is in three).
+Written through the app's own writers (`createCapsule`, then `changeMembership`), in this order.
+`Garments` are ids.
+
+| Capsule | Garments | Notes |
+|---|---|---|
+| Office | T01, T12, T13, T14, T17, T18, T20, T21, T23, B02, B04, B05, B07, B08, O03, O04, O07, O08, O09, O11, F01, F02, F05, F08, A03, A04, A05, A08, G01 | Tuesday to Thursday at Flatiron: smart casual, the blazer on meeting Wednesdays, jeans only on Thursdays. |
+| Weekend | T01, T04, T05, T06, T11, T15, T16, B01, B02, B11, B12, O01, O11, F01, F02, F06, F10, A01, A07, A12, G02, G03, Z03 | Fort Greene Park, the greenmarket, brunch, errands on foot. |
+| Date night | T02, T07, T11, T17, T18, T22, T24, B03, B06, B07, O02, O04, F03, F05, F08, A06, A08, A09 | Friday or Saturday: the sharper version of every day. |
+| Travel | T01, T08, T09, T13, T18, B02, B06, B13, O08, F02, F04, F11, A07, A11, G03, G04 | The Austin conference duffel: three days, one bag, nothing that wrinkles. |
+
+Weekend still holds the old 511s (Z03), put in before they were archived: a capsule's pages leave an
+archived garment out but keep its membership, so the demo shows the rule (22 of 23 shown).
+
 ## Laundry
 
 What makes a garment dirty, and so unavailable until Sunday's wash (the thresholds #7 will make
@@ -352,5 +369,6 @@ rules reach for the merino office outfit, the leather jacket and the hoodie.
 
 **What later features add** (plan section 10): wears and washes (#7: `quantity` 3 and 6, laundry
 Sundays as washes), occasions on each entry (#13: the workouts get written), the conference as a trip
-with a packing list (#10), capsules Office, Summer, Date night and Conference (#8), a generator-avoid
-pair olive chinos + olive chore coat (#21), and the Next buys as wishlist items (#18).
+with a packing list (#10; the Travel capsule is its pool), a generator-avoid pair olive chinos + olive
+chore coat (#21), and the Next buys as wishlist items (#18). The outfit gallery (#9) swipes from the
+capsules.

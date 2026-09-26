@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import type { SharePermission } from '../db/schema';
 import { PROJECT_ROOT } from '../project-root';
 import { type IsoDate, parseIsoDate } from '../web/calendar/calendar-date';
+import type { CapsuleFields } from '../web/capsules/queries';
+import { CapsuleBody, readCapsuleForm } from '../web/capsules/validation';
 import { normalizeCategory } from '../web/wardrobe/garment';
 import {
   GarmentBody,
@@ -82,6 +84,13 @@ export interface SeedOutfit {
   garmentIds: string[];
 }
 
+export interface SeedCapsule {
+  /** As the capsule form stores them (readCapsuleForm's result). */
+  fields: CapsuleFields;
+  /** Garment ids (archived ones too: they keep their membership). */
+  garmentIds: string[];
+}
+
 export interface SeedEvent {
   from: IsoDate;
   to: IsoDate;
@@ -112,6 +121,7 @@ export interface Persona {
   sharesWith: { persona: PersonaKey; permission: SharePermission }[];
   garments: SeedGarment[];
   outfits: SeedOutfit[];
+  capsules: SeedCapsule[];
   /** Sunday first: the occasions each weekday draws from; null without a history. */
   week: Occasion[][] | null;
   events: SeedEvent[];
@@ -157,6 +167,12 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
     ),
     garments,
     outfits,
+    capsules: uniqueNames(
+      source,
+      find('Capsule', 'Garments').flatMap((table) =>
+        table.rows.map((row) => readCapsule(source, row, ids)),
+      ),
+    ),
     week: week ? readWeek(source, week) : null,
     events: find('From', 'To', 'Wears').flatMap((table) =>
       table.rows.map((row) => readEvent(source, row, names)),
@@ -362,6 +378,11 @@ export function slotRank(category: string): number {
   return rank === -1 ? SLOT_ORDER.length : rank;
 }
 
+/** The garment ids a cell names (`T13 white oxford, B04`), in order. */
+function garmentIdsIn(cell: string): string[] {
+  return [...cell.matchAll(/\b[A-Z]\d{2}\b/g)].map(([id]) => id);
+}
+
 function readOutfit(
   source: string,
   row: Record<string, string>,
@@ -371,9 +392,7 @@ function readOutfit(
   const favourite = title.endsWith(' *');
   const name = favourite ? title.slice(0, -2) : title;
   const where = `${source} outfit "${name || row['#']}"`;
-  const garments = [...row.Garments.matchAll(/\b[A-Z]\d{2}\b/g)].map(
-    ([id]) => id,
-  );
+  const garments = garmentIdsIn(row.Garments);
   const unknown = garments.filter((id) => !garmentIds.has(id));
   if (unknown.length > 0 || garments.length === 0) {
     throw new BibleError(where, `unknown garments: ${unknown.join(', ')}`);
@@ -392,6 +411,42 @@ function readOutfit(
     bands: readBands(where, plain(row.Bands)),
     garmentIds: garments,
   };
+}
+
+// Through the capsule form's own two layers, like a garment: a name the
+// form would refuse (blank, too long) fails here, before anything is written.
+function readCapsule(
+  source: string,
+  row: Record<string, string>,
+  garmentIds: Set<string>,
+): SeedCapsule {
+  const where = `${source} capsule "${plain(row.Capsule)}"`;
+  const post = { name: plain(row.Capsule), notes: plain(row.Notes ?? '') };
+  if (!Value.Check(CapsuleBody, post)) {
+    throw new BibleError(where, 'not a capsule form post');
+  }
+  const form = readCapsuleForm(post);
+  if (!form.ok) throw new BibleError(where, JSON.stringify(form.errors));
+  const garments = garmentIdsIn(row.Garments);
+  const unknown = garments.filter((id) => !garmentIds.has(id));
+  if (unknown.length > 0) {
+    throw new BibleError(where, `unknown garments: ${unknown.join(', ')}`);
+  }
+  return { fields: form.fields, garmentIds: garments };
+}
+
+// A wardrobe holds a name once, whatever its case (the capsule table's
+// unique index): refused here, before anything is written.
+function uniqueNames(source: string, capsules: SeedCapsule[]): SeedCapsule[] {
+  const seen = new Set<string>();
+  for (const { fields } of capsules) {
+    const key = fields.name.toLowerCase();
+    if (seen.has(key)) {
+      throw new BibleError(source, `two capsules are called "${fields.name}"`);
+    }
+    seen.add(key);
+  }
+  return capsules;
 }
 
 function readBands(where: string, text: string): Band[] {

@@ -28,8 +28,10 @@ import {
  * stranger and an anonymous visitor, with and without `?ownerId=<owner>`.
  * Each case asserts the status (or redirect), that refused requests leak
  * no names into the body, and that a refused write changed no row and no
- * stored file. Sharing covers garments only: outfits and calendar entries
- * stay private to their owner whatever the share.
+ * stored file. Sharing covers the wardrobe, its garments and its capsules
+ * (a VIEW grantee reads them, a MANAGE grantee also changes membership,
+ * only the owner creates, renames and deletes a capsule): outfits and
+ * calendar entries stay private to their owner whatever the share.
  *
  * Refusals follow WardrobeAccess (src/web/sharing/access.ts): what the
  * requester cannot see does not exist for them, a 404 like an unknown id (a
@@ -57,6 +59,9 @@ type Outcome = 'ok' | 'hidden' | 'forbidden' | 'notFound' | 'login';
 interface Fixture {
   garmentId: number;
   garmentName: string;
+  /** A capsule holding the garment. */
+  capsuleId: number;
+  capsuleName: string;
   outfitId: number;
   outfitName: string;
   entryId: number;
@@ -82,6 +87,7 @@ interface Route {
 
 const BOTH: Via[] = ['own', 'ownerId'];
 const garmentName = (f: Fixture) => f.garmentName;
+const capsuleName = (f: Fixture) => f.capsuleName;
 const outfitName = (f: Fixture) => f.outfitName;
 // A calendar chip whose outfit has photos shows thumbnails, not the name,
 // so the chip's link stands in for it. (Error pages echo the request path,
@@ -390,6 +396,205 @@ const ROUTES: Route[] = [
     },
   },
 
+  // Capsules are part of the wardrobe (owner decision on #8): the same
+  // ?ownerId= resolution as the garment routes. Without ?ownerId a grantee
+  // addresses their own wardrobe, which holds no such capsule.
+  {
+    name: 'GET /capsules',
+    kind: 'read',
+    ok: 200,
+    secret: capsuleName,
+    shows: true,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/capsules${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: ['hidden', 'ok'],
+      viewer: ['hidden', 'ok'],
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
+    name: 'GET /capsules/new',
+    kind: 'read',
+    ok: 200,
+    secret: capsuleName,
+    vias: ['ownerId'],
+    request: (_, q) => ({ method: 'GET', url: `/capsules/new${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'forbidden',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /capsules',
+    kind: 'write',
+    ok: 303,
+    secret: capsuleName,
+    vias: ['ownerId'],
+    request: (_, q) => ({
+      method: 'POST',
+      url: `/capsules${q}`,
+      payload: { name: 'Planted capsule' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'forbidden',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /capsules/:id',
+    kind: 'read',
+    ok: 200,
+    secret: capsuleName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({ method: 'GET', url: `/capsules/${f.capsuleId}${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /capsules/:id/edit',
+    kind: 'read',
+    ok: 200,
+    secret: capsuleName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/capsules/${f.capsuleId}/edit${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'forbidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /capsules/:id',
+    kind: 'write',
+    ok: 303,
+    secret: capsuleName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/capsules/${f.capsuleId}${q}`,
+      // A name of its own: an owner's capsule names are unique.
+      payload: { name: `Renamed ${f.capsuleName}` },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'forbidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'DELETE /capsules/:id',
+    kind: 'write',
+    ok: 200,
+    secret: capsuleName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'DELETE',
+      url: `/capsules/${f.capsuleId}${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'forbidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    // The picker's Save: the garment was shown and left unchecked, so it
+    // leaves the capsule (a change a refusal must not make).
+    name: 'POST /capsules/:id/garments',
+    kind: 'write',
+    ok: 303,
+    secret: capsuleName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/capsules/${f.capsuleId}/garments${q}`,
+      payload: { shown: [f.garmentId] },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    // The garment page's toggles: the capsule was listed and unchecked.
+    name: 'POST /wardrobe/:id/capsules',
+    kind: 'write',
+    ok: 200,
+    secret: capsuleName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.garmentId}/capsules${q}`,
+      payload: { shown: [f.capsuleId] },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    // The grid filtered to the capsule: without ?ownerId a grantee's own
+    // wardrobe has no such capsule.
+    name: 'GET /wardrobe?capsule=',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe${q ? `${q}&` : '?'}capsule=${f.capsuleId}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    // The picker. A VIEW grantee gets the grid without it, as with
+    // ?select=1; in their own wardrobe the capsule is unknown.
+    name: 'GET /wardrobe?pick=',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe${q ? `${q}&` : '?'}pick=${f.capsuleId}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
+    },
+  },
+
   // Outfits and calendar are not shared and ignore ?ownerId; the ownerId
   // via proves a grantee cannot reach them by naming the owner.
   {
@@ -400,6 +605,46 @@ const ROUTES: Route[] = [
     shows: true,
     vias: BOTH,
     request: (_, q) => ({ method: 'GET', url: `/outfits${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    // Building from a capsule: the requester's own capsules only, whatever
+    // the share (outfits hold only their owner's garments).
+    name: 'GET /outfits/new?capsule=',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/outfits/new${q ? `${q}&` : '?'}capsule=${f.capsuleId}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // The builder's row within a capsule: someone else's capsule cycles
+    // none of the requester's garments (an empty row, nothing revealed).
+    name: 'GET /outfits/row-fragment?capsule=',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/outfits/row-fragment${q ? `${q}&` : '?'}category=shirt&capsule=${f.capsuleId}`,
+    }),
     expect: {
       owner: 'ok',
       manager: 'hidden',
@@ -608,9 +853,28 @@ describe('authorization matrix', () => {
     const cookie = actors.owner.cookie!;
     const tag = randomUUID().slice(0, 8);
     const garmentName = `Coat ${tag}`;
+    const capsuleName = `Capsule ${tag}`;
     const outfitName = `Look ${tag}`;
     const garmentId = await createGarment(t, { name: garmentName, cookie });
     await uploadPhoto(t, garmentId, photo, cookie);
+
+    const created = await t.inject({
+      method: 'POST',
+      url: '/capsules',
+      payload: { name: capsuleName },
+      headers: { cookie },
+    });
+    const capsuleId = Number(
+      /^\/capsules\/(\d+)\?/.exec(created.headers.location as string)?.[1],
+    );
+    expect(capsuleId).toBeGreaterThan(0);
+    const chosen = await t.inject({
+      method: 'POST',
+      url: `/capsules/${capsuleId}/garments`,
+      payload: { ids: [garmentId], shown: [garmentId] },
+      headers: { cookie },
+    });
+    expect(chosen.statusCode).toBe(303);
 
     const outfit = await t.inject({
       method: 'POST',
@@ -638,7 +902,15 @@ describe('authorization matrix', () => {
       .select({ id: outfitCalendar.id })
       .from(outfitCalendar)
       .where(eq(outfitCalendar.outfitId, outfitId));
-    return { garmentId, garmentName, outfitId, outfitName, entryId: entry.id };
+    return {
+      garmentId,
+      garmentName,
+      capsuleId,
+      capsuleName,
+      outfitId,
+      outfitName,
+      entryId: entry.id,
+    };
   };
 
   /**
@@ -648,6 +920,8 @@ describe('authorization matrix', () => {
   const snapshot = async (): Promise<string[]> => {
     const tables = [
       'garment',
+      'capsule',
+      'capsule_garment',
       'file',
       'outfit',
       'outfit_slot',

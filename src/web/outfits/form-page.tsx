@@ -1,4 +1,5 @@
 import type { IsoDate } from '../calendar/calendar-date';
+import type { CapsuleRef } from '../capsules/queries';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -20,6 +21,8 @@ export interface OutfitFormModel {
   returnToWeek?: IsoDate;
   /** "Add to calendar" prefilled (from a calendar day's "+ Build outfit"). */
   scheduleDate?: IsoDate;
+  /** A new build from a capsule (`?capsule=`): every row cycles only its garments. */
+  capsule?: CapsuleRef;
 }
 
 // Caps on what a person types, shared by the inputs' maxlength and the
@@ -60,11 +63,20 @@ export function OutfitFormPage(props: {
         <div class="flex items-center gap-3 mb-6">
           <BackLink href={model.returnTo} />
           <h1 class="text-2xl font-bold">{title}</h1>
+          {model.capsule && (
+            // Dropping the capsule starts the build again from the closet.
+            <a
+              href="/outfits/new"
+              class="badge badge-neutral gap-1 no-underline"
+            >
+              {t('BUILDING_FROM_CAPSULE', { name: model.capsule.name })} &times;
+            </a>
+          )}
         </div>
         {model.rows.length > 0 ? (
           <>
             <OutfitForm model={model} />
-            <AddRowForm />
+            <AddRowForm capsuleId={model.capsule?.id} />
           </>
         ) : (
           <EmptyState message={t('NO_GARMENTS_FOR_BUILDER')}>
@@ -102,7 +114,7 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
           class="card-body p-3 divide-y divide-base-300"
         >
           {model.rows.map((row) => (
-            <OutfitRow row={row} />
+            <OutfitRow row={row} capsuleId={model.capsule?.id} />
           ))}
         </div>
         <script
@@ -189,7 +201,14 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
           {t('SAVE')}
         </button>
         {!outfit && (
-          <a href="/outfits/new" class="btn btn-ghost">
+          <a
+            href={
+              model.capsule
+                ? `/outfits/new?capsule=${model.capsule.id}`
+                : '/outfits/new'
+            }
+            class="btn btn-ghost"
+          >
             {t('START_OVER')}
           </a>
         )}
@@ -203,11 +222,11 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
 
 /**
  * Appends a row for the typed or picked category: GET /outfits/row-fragment
- * with the box's `category`. Its box and button sit in the outfit form's
- * markup and join this one through their form attribute.
- * public/js/outfit-builder.js clears the box once the row is in.
+ * with the box's `category` (and the build's capsule). Its box and button
+ * sit in the outfit form's markup and join this one through their form
+ * attribute. public/js/outfit-builder.js clears the box once the row is in.
  */
-function AddRowForm() {
+function AddRowForm(props: { capsuleId: number | undefined }) {
   return (
     <form
       id="add-row-form"
@@ -216,7 +235,11 @@ function AddRowForm() {
       hx-get="/outfits/row-fragment"
       hx-target="#outfit-rows-list"
       hx-swap="beforeend"
-    ></form>
+    >
+      {props.capsuleId !== undefined && (
+        <input type="hidden" name="capsule" value={props.capsuleId} />
+      )}
+    </form>
   );
 }
 

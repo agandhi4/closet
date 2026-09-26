@@ -2,6 +2,13 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { recordCutoutEvent } from '../../cutout/queries';
 import {
+  type CapsuleRef,
+  capsuleNames,
+  capsulesOfGarment,
+  memberIds,
+} from '../capsules/queries';
+import { capsuleNotFound } from '../capsules/validation';
+import {
   findType,
   FORMALITIES,
   MATERIALS,
@@ -19,9 +26,10 @@ import {
   wantsFragment,
 } from '../render';
 import {
-  resolveWardrobeAccess,
+  type AuthorizedWardrobe,
+  authorizeWardrobe,
   sharedWardrobesOf,
-  type WardrobeAccess,
+  type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
@@ -88,42 +96,32 @@ import {
 } from './writes';
 
 /**
- * Who may do what (WardrobeAccess, src/web/sharing/access.ts): a wardrobe
- * the requester cannot see is a 404 like an unknown id, and so is a garment
- * outside the wardrobe the request addresses; one they can see but not
- * change is a 403. Reads need a view, writes a MANAGE share (or ownership),
- * archive and delete ownership, and a clone only a view: it lands in the
- * requester's own wardrobe and only reads the source.
+ * Who may do what (authorizeWardrobe, src/web/sharing/access.ts): a
+ * wardrobe the requester cannot see is a 404 like an unknown id, and so is
+ * a garment outside the wardrobe the request addresses; one they can see
+ * but not change is a 403. Reads need a view, writes a MANAGE share (or
+ * ownership), archive and delete ownership, and a clone only a view: it
+ * lands in the requester's own wardrobe and only reads the source.
  */
-type Need = 'view' | 'manage' | 'own';
-
-interface Resolved {
-  access: WardrobeAccess;
-  /** The shared wardrobe addressed, for links; undefined for one's own. */
-  viewOwner: number | undefined;
-}
-
-async function resolve(
+function resolve(
   { db }: WebOptions,
   request: FastifyRequest,
   ownerId: number | '' | undefined,
-  need: Need,
-): Promise<Resolved> {
-  const access = await resolveWardrobeAccess(
+  need: WardrobeNeed,
+): Promise<AuthorizedWardrobe> {
+  return authorizeWardrobe(
     db,
     sessionUserId(request),
-    ownerId || undefined,
+    ownerId,
+    need,
+    GARMENT_NOT_FOUND,
   );
-  if (!access.canView) throw notFound();
-  if (need === 'manage' && !access.canManage) throw new HttpError(403);
-  if (need === 'own' && !access.isOwner) throw new HttpError(403);
-  // `?ownerId=<self>` is the own wardrobe (nobody shares with themselves),
-  // and its links must not carry the parameter.
-  return { access, viewOwner: access.isOwner ? undefined : access.ownerId };
 }
 
+const GARMENT_NOT_FOUND = 'Garment not found';
+
 function notFound(): HttpError {
-  return new HttpError(404, 'Garment not found');
+  return new HttpError(404, GARMENT_NOT_FOUND);
 }
 
 async function requireGarment(
@@ -145,6 +143,7 @@ function gridSearch(query: GridQuery): GridSearch {
     size: (query.size && normalizeSize(query.size)) || '',
     ...propertySearch(query, category),
     archived: query.archived === 'true' ? 'true' : '',
+    capsule: query.capsule ? String(query.capsule) : '',
   };
 }
 
@@ -172,7 +171,24 @@ function gridFilters(search: GridSearch): GridFilters {
     formality: pick(FORMALITIES, search.formality) ?? undefined,
     material: pick(MATERIALS, search.material) ?? undefined,
     archived: search.archived === 'true',
+    capsule: search.capsule ? Number(search.capsule) : undefined,
   };
+}
+
+/** What POST /wardrobe/bulk's redirect reports, for its toast. */
+function bulkResult(
+  query: GridQuery,
+): { updated: number; skipped: number } | undefined {
+  return query.bulkUpdated === undefined
+    ? undefined
+    : { updated: query.bulkUpdated, skipped: query.bulkSkipped ?? 0 };
+}
+
+/** The capsule `id` names among the wardrobe's own, or a 404 like an unknown id. */
+function listedCapsule(capsules: CapsuleRef[], id: number): CapsuleRef {
+  const found = capsules.find((capsule) => capsule.id === id);
+  if (!found) throw capsuleNotFound();
+  return found;
 }
 
 function storedValues(garment: GarmentDetail): GarmentFormValues {
@@ -209,6 +225,15 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     logger,
     cutouts: options.cutouts,
   };
+
+  /** The capsule picker for `capsule`: its members start checked. */
+  async function picker(capsule: CapsuleRef, ownerId: number) {
+    return {
+      capsuleId: capsule.id,
+      name: capsule.name,
+      members: await memberIds(db, capsule.id, ownerId),
+    };
+  }
 
   /** The tagging card for the garment after `before` (the first without). */
   async function tagCardModel(
@@ -274,8 +299,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // Filtering and searching are navigation state: malformed values fall
   // back or are dropped, except a colour outside the built-in set (400,
-  // GridQuery). An htmx fragment request (the filter bar, the search form)
-  // gets #wardrobe-main alone; the first page only, always.
+  // GridQuery) and a capsule that is not the wardrobe's (404). An htmx
+  // fragment request (the filter bar, the search form) gets #wardrobe-main
+  // alone; the first page only, always. `?pick=` (owner and MANAGE) is the
+  // capsule picker: select mode with the capsule's members checked.
   app.get(
     '/wardrobe',
     { schema: { querystring: GridQuery } },
@@ -289,7 +316,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const search = gridSearch(request.query);
       const filters = gridFilters(search);
-      const [page, count, filterValues, sharedWardrobes, toTag] =
+      const pick = access.canManage ? request.query.pick : undefined;
+      const [page, count, filterValues, sharedWardrobes, toTag, capsules] =
         await Promise.all([
           gridPage(db, access.ownerId, filters),
           gridCount(db, access.ownerId, filters),
@@ -297,7 +325,13 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           sharedWardrobesOf(db, userId),
           // The "need details" prompt is only for someone who can tag.
           access.canManage ? countToTag(db, access.ownerId) : 0,
+          capsuleNames(db, access.ownerId),
         ]);
+      if (filters.capsule) listedCapsule(capsules, filters.capsule);
+      const picking =
+        pick === undefined
+          ? undefined
+          : await picker(listedCapsule(capsules, pick), access.ownerId);
       const model = {
         search,
         page,
@@ -307,15 +341,13 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         viewOwner,
         canEdit: access.canManage,
         toTag,
-        // Only someone who may write can select for a bulk edit.
-        selecting: access.canManage && request.query.select === '1',
-        bulkResult:
-          request.query.bulkUpdated === undefined
-            ? undefined
-            : {
-                updated: request.query.bulkUpdated,
-                skipped: request.query.bulkSkipped ?? 0,
-              },
+        // Only someone who may write can select for a bulk edit or pick.
+        selecting:
+          access.canManage &&
+          (request.query.select === '1' || picking !== undefined),
+        picking,
+        capsules,
+        bulkResult: bulkResult(request.query),
       };
       if (wantsFragment(request, reply)) {
         return renderFragment(reply, <WardrobeMain model={model} />);
@@ -339,20 +371,32 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'view',
       );
+      // The capsule filter needs no lookup here: it matches nothing outside
+      // the capsule's own wardrobe (inCapsule), and the page that started
+      // the scroll already refused a foreign one. Neither does the picker:
+      // a capsule of another wardrobe has no members here.
       const search = gridSearch(request.query);
-      const page = await gridPage(
-        db,
-        access.ownerId,
-        gridFilters(search),
-        request.query.before,
-      );
+      const pick = access.canManage ? request.query.pick : undefined;
+      const [page, picking] = await Promise.all([
+        gridPage(db, access.ownerId, gridFilters(search), request.query.before),
+        pick === undefined
+          ? undefined
+          : memberIds(db, pick, access.ownerId).then((members) => ({
+              capsuleId: pick,
+              members,
+            })),
+      ]);
       return renderFragment(
         reply,
         <GarmentTiles
           page={page}
           search={search}
           viewOwner={viewOwner}
-          selecting={access.canManage && request.query.select === '1'}
+          selecting={
+            access.canManage &&
+            (request.query.select === '1' || pick !== undefined)
+          }
+          picking={picking}
         />,
       );
     },
@@ -541,17 +585,17 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'view',
       );
-      const garment = await requireGarment(
-        options,
-        request.params.id,
-        access.ownerId,
-      );
+      const [garment, capsules] = await Promise.all([
+        requireGarment(options, request.params.id, access.ownerId),
+        capsulesOfGarment(db, access.ownerId, request.params.id),
+      ]);
       return renderPage(
         reply,
         <GarmentPage
           ctx={viewContext(reply)}
           model={{
             garment,
+            capsules,
             viewOwner,
             canEdit: access.canManage,
             canDelete: access.isOwner,

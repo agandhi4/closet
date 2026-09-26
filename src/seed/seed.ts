@@ -18,6 +18,7 @@ import {
   normalizeEmail,
 } from '../web/auth/queries';
 import { insertEntry } from '../web/calendar/queries';
+import { changeMembership, createCapsule } from '../web/capsules/queries';
 import {
   addDays,
   instantAt,
@@ -69,6 +70,7 @@ export interface SeedReport {
   garments: number;
   photos: number;
   outfits: number;
+  capsules: number;
   entries: number;
   worn: number;
   ms: number;
@@ -144,6 +146,19 @@ export async function seedPersona(
         });
         outfitIds.push(saved.id);
       }
+      for (const capsule of persona.capsules) {
+        const capsuleId = await createCapsule(tx, userId, capsule.fields);
+        // The bible's names are checked unique (persona.ts): unreachable.
+        if (capsuleId === 'name-taken') {
+          throw new Error(`Capsule "${capsule.fields.name}" twice`);
+        }
+        await changeMembership(tx, userId, {
+          add: {
+            capsuleIds: [capsuleId],
+            garmentIds: capsule.garmentIds.map((id) => ids.get(id)!),
+          },
+        });
+      }
       for (const entry of life.entries) {
         await insertEntry(tx, {
           ownerId: userId,
@@ -159,13 +174,14 @@ export async function seedPersona(
         garments: persona.garments.length,
         photos: photos.size,
         outfits: outfitIds.length,
+        capsules: persona.capsules.length,
         entries: life.entries.length,
         worn: life.entries.filter((e) => e.worn).length,
         ms: Date.now() - startedAt,
       };
     });
     logger.info(
-      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.photos} photos, ${report.outfits} outfits, ${report.entries} calendar entries (${report.worn} worn) in ${report.ms}ms`,
+      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries (${report.worn} worn) in ${report.ms}ms`,
     );
     return report;
   } catch (error) {
@@ -459,7 +475,7 @@ async function seedOne(
   const report = await seedPersona(command, persona, options);
   output.write(
     report
-      ? `${persona.key}: seeded ${report.garments} garments, ${report.photos} photos, ${report.outfits} outfits, ${report.entries} calendar entries in ${(report.ms / 1000).toFixed(1)} s. Sign in as ${persona.account.email} with ${options.password}\n`
+      ? `${persona.key}: seeded ${report.garments} garments, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries in ${(report.ms / 1000).toFixed(1)} s. Sign in as ${persona.account.email} with ${options.password}\n`
       : `${persona.key}: already seeded, left as it is (--reset rebuilds it)\n`,
   );
   if (!grantee) return;

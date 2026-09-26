@@ -641,6 +641,9 @@ const GridFilters = {
     ]),
   ),
   archived: Type.Optional(Type.String({ maxLength: 10 })),
+  // A capsule of the addressed wardrobe (src/web/capsules): a 400 when not
+  // an id, a 404 when not one of the wardrobe's capsules (the route).
+  capsule: Type.Optional(Type.Union([Type.Literal(''), RowId])),
 };
 
 export const GridQuery = Type.Object({
@@ -648,6 +651,9 @@ export const GridQuery = Type.Object({
   ...GridFilters,
   // Select mode: tiles are checkboxes of the bulk form. Navigation state.
   select: Type.Optional(Type.String({ maxLength: 5 })),
+  // The capsule picker: select mode whose checkboxes are this capsule's
+  // membership (POST /capsules/:id/garments). Owner and MANAGE only.
+  pick: Type.Optional(RowId),
   // One-shot flags from POST /wardrobe/bulk's redirect (the toast).
   bulkUpdated: Type.Optional(Type.Integer({ minimum: 0 })),
   bulkSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
