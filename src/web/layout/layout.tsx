@@ -26,12 +26,13 @@ const HTMX_CONFIG = { disableInheritance: true, historyCacheSize: 3 };
 // Bare specifiers for every ES module the pages import, so the versioned URL
 // lives here once. Page-specific modules (sortablejs, the garment page's
 // mask-editor and photo-input) are only fetched by the page that imports
-// them.
+// them. sortablejs is the minified build `npm run generate:vendor` makes
+// (views/assets/sortable.js), not the package's unminified ESM.
 function importMap(version: string) {
   const v = `?v=${version}`;
   return {
     imports: {
-      sortablejs: `/modules/modular/sortable.esm.js${v}`,
+      sortablejs: `/vendor/sortable.min.js${v}`,
       'workbox-window': `/modules/workbox-window.prod.mjs${v}`,
       // pwa.js imports these two only where they do something.
       'pwa-install': `/modules/pwa-install.bundle.js${v}`,
@@ -67,8 +68,8 @@ export function Layout({
   children,
 }: LayoutProps) {
   // Every first-party static URL carries ?v=appVersion (src/build-info.ts):
-  // app.ts serves /modules, /js, /assets and bundle.css immutable for a year,
-  // so the key is what rolls the cache on deploy.
+  // app.ts serves /modules, /js, /vendor, /assets and bundle.css immutable
+  // for a year, so the key is what rolls the cache on deploy.
   const v = `?v=${ctx.appVersion}`;
   return (
     // data-signed-in: pwa.js starts Web Push (push.js) only on signed-in

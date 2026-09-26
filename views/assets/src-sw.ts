@@ -149,6 +149,7 @@ registerRoute(
     url.origin === self.location.origin &&
     (url.pathname === '/bundle.css' ||
       url.pathname.startsWith('/js/') ||
+      url.pathname.startsWith('/vendor/') ||
       url.pathname.startsWith('/modules/')) &&
     request.method === 'GET',
   new StaleWhileRevalidate({

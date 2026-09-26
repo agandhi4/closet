@@ -7,6 +7,8 @@ export const STATIC_PREFIXES = [
   '/modules/',
   '/assets/',
   '/js/',
+  // Built from npm packages by `npm run generate:vendor` (public/vendor/).
+  '/vendor/',
   '/file/',
 ] as const;
 

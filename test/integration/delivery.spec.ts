@@ -53,6 +53,28 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(res.headers['cache-control']).toBe('no-cache');
     });
 
+    // The package's ESM build is unminified (modular/sortable.esm.js,
+    // 119 KB); the importmap points at the build's minified bundle
+    // (views/assets/sortable.js) and the package directory is not served.
+    it('serves sortablejs minified and immutable', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/vendor/sortable.min.js',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toMatch(/javascript/);
+      expect(res.headers['cache-control']).toBe(
+        'public, max-age=31536000, immutable',
+      );
+      expect(res.body).toMatch(/export\s*\{[^}]*\bas default\b/);
+      expect(res.rawPayload.byteLength).toBeLessThan(45_000);
+      const unminified = await t.inject({
+        method: 'GET',
+        url: '/modules/modular/sortable.esm.js',
+      });
+      expect(unminified.statusCode).toBe(404);
+    });
+
     // The server removes backgrounds: the in-browser model, its runtime and
     // its WASM are no longer served.
     it.each([
@@ -108,6 +130,7 @@ describe('delivery (PWA_ENABLED=true)', () => {
       for (const url of Object.values(imports)) {
         expect(url).toMatch(/\?v=[^&"]+$/);
       }
+      expect(imports.sortablejs).toMatch(/^\/vendor\/sortable\.min\.js\?v=/);
     });
 
     it('has one htmx-config meta and no viewport-fit', () => {
@@ -171,7 +194,8 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(html).toContain('/js/pwa.js?v=');
       expect(html).not.toContain('src="/modules/pwa-install');
       expect(html).not.toContain('<pwa-install');
-      expect(html).not.toContain('Sortable.min.js');
+      // sortablejs is only mapped here; the outfit form imports it.
+      expect(html).not.toMatch(/<script\b[^>]*\ssrc="[^"]*sortable/i);
       expect(html).not.toMatch(/onnxruntime|background-removal/);
       expect(html).not.toContain('rel="preload"');
       expect(html).toContain('id="request-indicator"');

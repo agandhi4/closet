@@ -63,6 +63,7 @@ data/**
 public/bundle.css
 public/sw.js
 public/build.json
+public/vendor/
 views/assets/src-sw.js
 
 # Playwright

@@ -6,6 +6,7 @@ describe('isStaticPath', () => {
     '/modules/htmx.min.js',
     '/assets/icon.png',
     '/js/mask-editor.js',
+    '/vendor/sortable.min.js?v=0.5.1',
     '/file/8d755fce.webp?v=3',
     '/file/nobg/8d755fce.webp',
     '/file/thumb/8d755fce.webp?v=1',
@@ -29,6 +30,7 @@ describe('isStaticPath', () => {
     '/modules',
     '/filebrowser',
     '/assetsx',
+    '/vendorx',
     // The retired in-browser model's root: a 404 page now, not a static path.
     '/bg-removal-models/model.onnx',
   ])('treats %s as an app route', (url) => {
