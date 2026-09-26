@@ -1,7 +1,6 @@
 import type { Child } from 'hono/jsx';
 import { PostForm } from '../auth/form';
 import { imageUrl } from '../files/image-url';
-import { jsonForScript } from '../html';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -23,8 +22,6 @@ export interface GarmentPageModel {
   canDelete: boolean;
   justCreated: boolean;
   justSavedPhoto: boolean;
-  /** CUTOUT_MODE: who removes the background, and so what the photo form does. */
-  cutoutMode: 'client' | 'server';
 }
 
 const PHOTO_ACCEPT =
@@ -32,21 +29,14 @@ const PHOTO_ACCEPT =
 
 /**
  * The photo form's client side, as an inline module so it runs again after
- * a boosted navigation back here; the only values in it go through
- * jsonForScript. Both modes: the camera button and the mask editor's pencil
+ * a boosted navigation back here (a fixed string): the photo is prepared on
+ * the phone before upload (photo-input.js; the server removes its
+ * background), the camera button, and the mask editor's pencil
  * (mask-editor.js, delegated on #garment-photo-slot because the cutout
- * polling swaps the photo). Client mode also runs background removal before
- * upload (background-removal.js, which downloads nothing until the photo
- * input or camera is touched); server mode only prepares the photo
- * (photo-input.js) and never loads the model.
+ * polling swaps the photo).
  */
-function photoScript(
-  appVersion: string,
-  cutoutMode: 'client' | 'server',
-): string {
-  // Not in the importmap: only client mode's page imports it.
-  const removal = jsonForScript(`/js/background-removal.js?v=${appVersion}`);
-  const common = `import { wireUpEditMask } from 'mask-editor';
+const PHOTO_SCRIPT = `import { wirePhotoUpload } from 'photo-input';
+import { wireUpEditMask } from 'mask-editor';
 
 // Some Chrome/Android versions drop the Camera option from the gallery
 // input's chooser depending on its accept value (upstream issue 99): a
@@ -66,33 +56,7 @@ photoCaptureInput?.addEventListener('change', () => {
 });
 
 wireUpEditMask(document.getElementById('garment-photo-slot'));
-`;
-  if (cutoutMode === 'server') {
-    return `import { wirePhotoUpload } from 'photo-input';
-${common}
 wirePhotoUpload();`;
-  }
-  return `import { wireUpPhotoInput, isBgRemovalEnabled } from ${removal};
-${common}
-const toggle = document.getElementById('bgRemovalToggle');
-const stored = localStorage.getItem('bgRemovalEnabled');
-toggle.checked = stored === null ? true : stored !== 'false';
-localStorage.setItem('bgRemovalEnabled', toggle.checked);
-toggle.addEventListener('change', () => {
-  localStorage.setItem('bgRemovalEnabled', toggle.checked);
-  const editBtn = document.getElementById('editMaskBtn');
-  if (editBtn) editBtn.style.display = toggle.checked ? '' : 'none';
-  if (toggle.checked) {
-    const photoInput = document.getElementById('photoInput');
-    if (photoInput?.files?.length) photoInput.dispatchEvent(new Event('change'));
-  }
-});
-
-wireUpPhotoInput();
-if (!isBgRemovalEnabled()) {
-  document.getElementById('editMaskBtn')?.style.setProperty('display', 'none');
-}`;
-}
 
 // A fixed string: drops the one-shot flags so a reload or a shared URL does
 // not replay the toast.
@@ -125,10 +89,9 @@ export function GarmentPage(props: {
             garment={garment}
             viewOwner={model.viewOwner}
             canEdit={model.canEdit}
-            cutoutMode={model.cutoutMode}
           />
         </div>
-        {model.canEdit && <PhotoForm ctx={ctx} model={model} />}
+        {model.canEdit && <PhotoForm model={model} />}
         <GarmentDetails garment={garment} />
         <GarmentActions ctx={ctx} model={model} />
         {model.canEdit && garment.photo && <MaskEditorDialog />}
@@ -147,8 +110,7 @@ export function GarmentPage(props: {
 
 /**
  * The garment's photo: the cutout (the original when there is none), with
- * the mask editor's pencil. In server mode it also shows where the server
- * cutout stands: pending polls GET /wardrobe/:id/cutout every 2 s (this
+ * the mask editor's pencil, and where the cutout stands: pending polls GET /wardrobe/:id/cutout every 2 s (this
  * component again, swapped over itself; the answer without the trigger ends
  * the polling), failed offers "Try again". Its own hx-indicator keeps the
  * polls off the navbar spinner.
@@ -157,7 +119,6 @@ export function GarmentPhotoView(props: {
   garment: GarmentDetail;
   viewOwner: number | undefined;
   canEdit: boolean;
-  cutoutMode: 'client' | 'server';
 }) {
   const { garment, viewOwner, canEdit } = props;
   const photo = garment.photo;
@@ -171,7 +132,7 @@ export function GarmentPhotoView(props: {
       </div>
     );
   }
-  const status = props.cutoutMode === 'server' ? photo.cutoutStatus : 'none';
+  const status = photo.cutoutStatus;
   const pending = status === 'pending';
   const polling = pending
     ? {
@@ -220,7 +181,7 @@ export function GarmentPhotoView(props: {
   );
 }
 
-/** A failed server cutout, and "Try again" for whoever may change the photo. */
+/** A failed cutout, and "Try again" for whoever may change the photo. */
 function CutoutFailed(props: { retryUrl: string | undefined }) {
   return (
     <div
@@ -399,19 +360,12 @@ function Detail(props: { label: string; block?: boolean; children: Child }) {
 }
 
 /**
- * Photo upload: the chosen file and, in client mode when background removal
- * made one, its cutout (nobgPhoto) in one multipart post; the server answers
- * HX-Redirect to this page with ?photoSaved=1. In server mode only the
- * photo goes up and the page then shows its cutout pending.
+ * Photo upload: the chosen file, downscaled on the phone, in a multipart
+ * post; the server answers HX-Redirect to this page with ?photoSaved=1,
+ * which then shows its cutout pending.
  */
-function PhotoForm({
-  ctx,
-  model,
-}: {
-  ctx: ViewContext;
-  model: GarmentPageModel;
-}) {
-  const { garment, viewOwner, cutoutMode } = model;
+function PhotoForm({ model }: { model: GarmentPageModel }) {
+  const { garment, viewOwner } = model;
   return (
     <>
       <form
@@ -423,15 +377,6 @@ function PhotoForm({
         hx-swap="outerHTML"
         class="flex flex-col gap-2 mb-6"
       >
-        {cutoutMode === 'client' && (
-          <input
-            type="file"
-            id="nobgPhotoInput"
-            name="nobgPhoto"
-            class="hidden"
-            accept="image/webp"
-          />
-        )}
         <div class="flex gap-2 items-center">
           <input
             type="file"
@@ -482,56 +427,11 @@ function PhotoForm({
             class="htmx-indicator loading loading-ring loading-sm"
           ></span>
         </div>
-        {cutoutMode === 'client' && <ClientCutoutStatus />}
       </form>
       <script
         type="module"
-        dangerouslySetInnerHTML={{
-          __html: photoScript(ctx.appVersion, cutoutMode),
-        }}
+        dangerouslySetInnerHTML={{ __html: PHOTO_SCRIPT }}
       />
-    </>
-  );
-}
-
-/** Client mode's toggle and progress for the in-browser model (background-removal.js). */
-function ClientCutoutStatus() {
-  return (
-    <>
-      <label class="flex items-center gap-2 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          id="bgRemovalToggle"
-          class="toggle toggle-sm"
-          checked
-        />
-        <span class="text-sm">{t('BG_REMOVAL_TOGGLE')}</span>
-      </label>
-      <div
-        id="bgStatus"
-        class="hidden flex flex-col gap-1 text-sm text-base-content/60"
-        data-text-default={t('REMOVING_BACKGROUND')}
-        data-text-downloading={t('BG_STAGE_DOWNLOADING')}
-        data-text-decoding={t('BG_STAGE_DECODING')}
-        data-text-inference={t('BG_STAGE_INFERENCE')}
-        data-text-mask={t('BG_STAGE_MASK')}
-        data-text-encoding={t('BG_STAGE_ENCODING')}
-        data-text-hint-typical={t('BG_HINT_TYPICAL_DURATION')}
-        data-text-hint-slow={t('BG_HINT_STILL_WORKING')}
-      >
-        <div class="flex items-center gap-2">
-          <span class="loading loading-spinner loading-xs"></span>
-          <span id="bgStatusText">{t('REMOVING_BACKGROUND')}</span>
-        </div>
-        <span id="bgStatusHint" class="text-xs opacity-80">
-          {t('BG_HINT_TYPICAL_DURATION')}
-        </span>
-      </div>
-      {/* Shown by background-removal.js when the browser cannot decode the
-          chosen file (HEIC on Chrome/Android); the server still stores it. */}
-      <p id="bgUnsupported" class="hidden text-sm text-base-content/60">
-        {t('BG_UNSUPPORTED_PHOTO')}
-      </p>
     </>
   );
 }

@@ -3,13 +3,7 @@ import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { retryFailedCutouts } from '../../src/cutout/queue';
 import { file } from '../../src/db/schema';
-import {
-  alphaAt,
-  fakeRunner,
-  halfMask,
-  requestCutout,
-  storedCutout,
-} from './cutouts';
+import { alphaAt, fakeRunner, halfMask, storedCutout } from './cutouts';
 import {
   createGarment,
   jpegPhoto,
@@ -40,13 +34,11 @@ describe('cutout queue', () => {
 
   afterAll(() => t?.cleanup());
 
-  /** A garment with a 1200x800 photo (stored at 1080x720), queued. */
+  /** A garment with a 1200x800 photo (stored at 1080x720), queued by its upload. */
   async function queuedPhoto(name: string) {
     const garmentId = await createGarment(t, { name });
     await uploadPhoto(t, garmentId, await jpegPhoto(1200, 800));
-    const fileName = await photoFileName(t, garmentId);
-    await requestCutout(t, fileName);
-    return { garmentId, fileName };
+    return { garmentId, fileName: await photoFileName(t, garmentId) };
   }
 
   it('makes the cutout from the mask: ready, new version, square with the background clear', async () => {
@@ -193,8 +185,12 @@ describe('cutout queue', () => {
 
   it('writes nothing for a photo replaced while the job ran', async () => {
     const { garmentId, fileName } = await queuedPhoto('Replaced shirt');
-    const runner = fakeRunner(async () => {
-      await uploadPhoto(t, garmentId, await jpegPhoto(900, 900));
+    // Only the first job replaces the photo; the replacement is queued in
+    // its own right and runs next.
+    const runner = fakeRunner(async (call) => {
+      if (call === 1) {
+        await uploadPhoto(t, garmentId, await jpegPhoto(900, 900));
+      }
       return halfMask();
     });
 
@@ -206,6 +202,10 @@ describe('cutout queue', () => {
     );
     expect(await photoRow(t, fileName)).toBeUndefined();
     expect(await storedCutout(t, fileName)).toBeUndefined();
+    expect(runner.calls).toBe(2);
+    expect(await photoRow(t, await photoFileName(t, garmentId))).toMatchObject({
+      cutoutStatus: 'ready',
+    });
   });
 
   it('resumes a job a restart interrupted', async () => {

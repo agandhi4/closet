@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BIREFNET_512, CutoutModel } from '../../src/cutout/model';
 import { ModelRunner } from '../../src/cutout/runner';
 import { PROJECT_ROOT } from '../../src/project-root';
-import { alphaAt, requestCutout, storedCutout } from './cutouts';
+import { alphaAt, storedCutout } from './cutouts';
 import {
   createGarment,
   photoFileName,
@@ -51,7 +51,7 @@ describe.skipIf(!present)(
     let t: TestApp;
 
     beforeAll(async () => {
-      t = await createTestApp({ CUTOUT_MODE: 'server' });
+      t = await createTestApp();
     });
 
     afterAll(() => t?.cleanup());
@@ -61,6 +61,9 @@ describe.skipIf(!present)(
       await uploadPhoto(t, garmentId, await garmentPhoto());
       const fileName = await photoFileName(t, garmentId);
       const logger = t.logger.child({ context: 'Cutout' });
+
+      // The upload queued it; the job runs once the queue starts.
+      const startedAt = Date.now();
       t.cutouts.start(
         new ModelRunner({
           model: new CutoutModel(BIREFNET_512, modelsPath, logger),
@@ -68,9 +71,6 @@ describe.skipIf(!present)(
           logger,
         }),
       );
-
-      const startedAt = Date.now();
-      await requestCutout(t, fileName);
       await t.cutouts.whenIdle();
       const elapsedMs = Date.now() - startedAt;
 
@@ -86,9 +86,8 @@ describe.skipIf(!present)(
 
       // A second photo finds the model loaded.
       const warmId = await createGarment(t, { name: 'Real model shirt 2' });
-      await uploadPhoto(t, warmId, await garmentPhoto());
       const warmStartedAt = Date.now();
-      await requestCutout(t, await photoFileName(t, warmId));
+      await uploadPhoto(t, warmId, await garmentPhoto());
       await t.cutouts.whenIdle();
       const warmMs = Date.now() - warmStartedAt;
 

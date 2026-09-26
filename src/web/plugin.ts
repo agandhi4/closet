@@ -25,12 +25,6 @@ export interface WebConfig {
   registrationDisabled: boolean;
   /** Web Push identity; set exactly when PWA_ENABLED (no /push routes otherwise). */
   vapid: VapidConfig | undefined;
-  /**
-   * CUTOUT_MODE: who removes a garment photo's background, the browser
-   * before upload or this server after it (the cutout status fragment and
-   * the retry route exist only then).
-   */
-  cutoutMode: 'client' | 'server';
 }
 
 export interface WebOptions {

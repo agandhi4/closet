@@ -8,7 +8,8 @@ import sharp from 'sharp';
 import { createScratchDatabase } from '../test/support/scratch-database';
 
 /**
- * Builds the app, boots dist/main.js, registers a user and seeds one garment
+ * Builds the app, boots it with background removal stubbed
+ * (test/support/test-server.ts), registers a user and seeds one garment
  * with a photo through the real endpoints, then runs autocannon against the
  * pages that user actually loads, with their session cookie (so every page
  * request pays the real session resolution). Results are written per target so
@@ -62,20 +63,24 @@ async function main() {
   let stderr = '';
   // stdout is dropped: the server logs every request, and an unread pipe
   // would fill up and stall it under load.
-  const server = spawn('node', ['dist/main.js'], {
-    stdio: ['ignore', 'ignore', 'pipe'],
-    env: {
-      ...process.env,
-      ...database.env,
-      NODE_ENV: 'production',
-      // A load test must be able to create its user whatever the caller's
-      // environment says.
-      DISABLE_REGISTRATION: 'false',
-      DATA_PATH: dataPath,
-      // Required by the server; nothing outside this run ever sees a token.
-      ACCESS_TOKEN_SECRET: randomBytes(32).toString('hex'),
+  const server = spawn(
+    'node',
+    ['-r', 'ts-node/register/transpile-only', 'test/support/test-server.ts'],
+    {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      env: {
+        ...process.env,
+        ...database.env,
+        NODE_ENV: 'production',
+        // A load test must be able to create its user whatever the caller's
+        // environment says.
+        DISABLE_REGISTRATION: 'false',
+        DATA_PATH: dataPath,
+        // Required by the server; nothing outside this run ever sees a token.
+        ACCESS_TOKEN_SECRET: randomBytes(32).toString('hex'),
+      },
     },
-  });
+  );
   server.stderr.on('data', (data: Buffer) => {
     stderr += data.toString();
   });

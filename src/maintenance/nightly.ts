@@ -5,7 +5,7 @@ import type { Logger } from '../logger';
  * A once-a-day job at a wall-clock hour in the household's zone
  * (APP_TIMEZONE), on plain timers: the next run is computed afresh after
  * every run, so DST changes and a slow run never drift it, and runs never
- * overlap. Started by main.ts (the server) only; the integration harness
+ * overlap. Started by server.ts (the server) only; the integration harness
  * and the CLIs never schedule anything.
  */
 

@@ -74,7 +74,7 @@ interface FileRow {
  * unreferenced row is an orphan by definition. Everything is planned first
  * and checked by the guard; only then are the orphans deleted.
  *
- * Runs nightly from the server (nightly.ts, main.ts) unless
+ * Runs nightly from the server (nightly.ts, server.ts) unless
  * MAINTENANCE_ENABLED is false, and on demand through
  * `npm run maintenance:reconcile` (reconcile.cli.ts).
  */

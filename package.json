@@ -25,6 +25,7 @@
     "start:dev": "tsc -p tsconfig.build.json && concurrently \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"node --watch dist/main.js\" \"npm run generate:tailwind:watch\"",
     "start:debug": "tsc -p tsconfig.build.json && concurrently \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"node --inspect --watch dist/main.js\" \"npm run generate:tailwind:watch\"",
     "start:prod": "node dist/main.js",
+    "start:test": "node -r ts-node/register/transpile-only test/support/test-server.ts",
     "maintenance:reconcile": "node dist/maintenance/reconcile.cli.js",
     "user:set-password": "node dist/maintenance/set-password.cli.js",
     "cutout:fetch-model": "node dist/cutout/fetch-model.cli.js",

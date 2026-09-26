@@ -1,20 +1,19 @@
 /**
  * The mask editor: brush work on a cutout (erase, or restore from the
- * original). Used by both background-removal modes: client mode opens it on
- * the in-browser model's result before upload (background-removal.js), and
- * the pencil on the garment photo opens it on the stored cutout
- * (wireUpEditMask), whoever made it.
+ * original). The pencil on the garment photo opens it on the stored cutout
+ * (wireUpEditMask): the server's, or one the browser made before background
+ * removal moved to the server.
  */
 
 /**
  * Centre-pads a Blob into a square PNG OffscreenCanvas blob.
- * This matches the layout of every stored cutout (the browser pads the photo
- * before its model runs; the server pads its cutout the same way, Photos
- * composeCutout) so that the restore brush samples the right pixels.
+ * This matches the layout of every stored cutout (the server pads its
+ * cutout to a square, Photos composeCutout, as the browser's model did)
+ * so that the restore brush samples the right pixels.
  * @param {Blob} blob
  * @returns {Promise<Blob>}
  */
-export const squarePadBlob = async (blob) => {
+const squarePadBlob = async (blob) => {
   const bitmap = await createImageBitmap(blob);
   const size = Math.max(bitmap.width, bitmap.height);
   const canvas = new OffscreenCanvas(size, size);
@@ -35,8 +34,8 @@ export const squarePadBlob = async (blob) => {
  * shared wardrobe). No model is involved.
  *
  * Delegated on `container` (#garment-photo-slot), and the URLs are read from
- * the button's data attributes at the tap: in server mode the photo is
- * swapped when its cutout arrives, button included. Every /file/** response
+ * the button's data attributes at the tap: the photo is swapped when its
+ * cutout arrives, button included. Every /file/** response
  * is cached as immutable, so after a save the server's new version is
  * written into the URLs: the image and any further edit read the new cutout.
  * @param {HTMLElement | null} container
@@ -90,11 +89,10 @@ export const wireUpEditMask = (container) => {
 /**
  * Opens the mask editor dialog for manual background cleanup.
  * @param {File} originalFile - The original (un-processed) image file.
- * @param {Blob} nobgBlob - The background-removed blob from @imgly/background-removal.
+ * @param {Blob} nobgBlob - The stored cutout.
  * @returns {Promise<Blob>} Resolves with the final (possibly edited) blob.
  */
-
-export function openMaskEditor(originalFile, nobgBlob) {
+function openMaskEditor(originalFile, nobgBlob) {
   return new Promise((resolve) => {
     const dialog = document.getElementById('maskEditorDialog');
     const canvas = document.getElementById('maskEditorCanvas');

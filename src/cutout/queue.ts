@@ -25,9 +25,8 @@ export interface CutoutQueueDeps {
  * queue: `file` rows whose cutout is pending (src/cutout/state.ts), oldest
  * request first, so a restart loses nothing (pending rows are picked up at
  * start) and nothing is held in memory. Built by createApp() for every app
- * but started only by main.ts in CUTOUT_MODE=server, with the model runner;
- * the integration specs start it with a fake one. Stopped by the app's
- * onClose.
+ * but started only by server.ts, with the model runner; the integration
+ * specs start it with a fake one. Stopped by the app's onClose.
  */
 export class CutoutQueue {
   private runner: CutoutRunner | undefined;
@@ -203,7 +202,7 @@ export class CutoutQueue {
 }
 
 /**
- * The nightly retry (main.ts, server mode): every failed cutout below
+ * The nightly retry (server.ts): every failed cutout below
  * MAX_CUTOUT_ATTEMPTS runs is requeued (`retry`). Returns how many were;
  * the caller wakes the queue.
  */

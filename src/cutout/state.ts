@@ -12,8 +12,9 @@
  *                      └──retry── pending | failed
  *   any ──edit──▶ edited        (the user saved a mask: always wins)
  *
- * - none: no server cutout was asked for (client mode, or a photo from
- *   before server mode; a browser-made cutout may exist).
+ * - none: no server cutout was asked for: a photo stored before
+ *   background removal moved to the server (its cutout, if any, was made
+ *   in the browser).
  * - pending: queued (the database is the queue, src/cutout/queue.ts); a
  *   running job is still pending, with cutout_job_version set by start.
  * - ready / failed: the job's result. failed shows the original and a
@@ -49,7 +50,7 @@ export interface CutoutState {
 }
 
 export type CutoutEvent =
-  /** A photo was stored in server mode: ask for a server cutout. */
+  /** A photo was stored: ask for its cutout. */
   | { type: 'request' }
   /** "Try again" or the nightly retry. */
   | { type: 'retry' }

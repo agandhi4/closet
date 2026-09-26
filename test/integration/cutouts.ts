@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { recordCutoutEvent } from '../../src/cutout/queries';
 import type { CutoutMask, CutoutRunner } from '../../src/cutout/runner';
 import { variantFileName } from '../../src/web/files/image-variant';
 import type { TestApp } from './harness';
@@ -54,12 +53,6 @@ export function fakeRunner(
     },
   };
   return runner;
-}
-
-/** Queues the photo as a server-mode upload does (`request`). */
-export async function requestCutout(t: TestApp, fileName: string) {
-  const outcome = await recordCutoutEvent(t.db, fileName, { type: 'request' });
-  if (!outcome.ok) throw new Error(`request refused: ${outcome.reason}`);
 }
 
 /** The stored cutout's bytes, undefined when there is none. */

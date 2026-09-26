@@ -1,6 +1,6 @@
 import type { MultipartFile } from '@fastify/multipart';
 import heicDecode from 'heic-decode';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -102,6 +102,9 @@ const put = (name: string, bytes: Buffer) =>
   writeFile(join(dataPath, name), bytes);
 const stored = (name: string) => readFile(join(dataPath, name));
 const has = (name: string) => existsSync(join(dataPath, name));
+/** Every photo file in storage, whatever its name. */
+const photoFiles = () =>
+  readdirSync(dataPath).filter((name) => name.endsWith('.webp'));
 
 beforeEach(async () => {
   dataPath = await mkdtemp(join(tmpdir(), 'closet-photos-'));
@@ -352,15 +355,6 @@ describe('Photos.storeUpload', () => {
     expect(has(row.fileName.replace('.webp', '-thumb.webp'))).toBe(true);
   });
 
-  it('with deferThumb stores only the original under the given name', async () => {
-    const photos = build();
-    await photos.storeUpload(part(await png(600), 'image/png', 'p.png'), 7, {
-      fileName: 'a.webp',
-      deferThumb: true,
-    });
-    expect(stores).toEqual(['a.webp']);
-  });
-
   it('refuses a part that is not an image with a 400', async () => {
     const photos = build();
     await expect(
@@ -374,16 +368,13 @@ describe('Photos.storeUpload', () => {
     heicMock.mockResolvedValue(heicContainer(600, 400));
     const bytes = Buffer.from('pretend heic container');
 
-    const row = await photos.storeUpload(part(bytes, 'image/heic'), 7, {
-      fileName: 'a.webp',
-    });
+    const row = await photos.storeUpload(part(bytes, 'image/heic'), 7);
 
     expect(heicMock).toHaveBeenCalledWith({ buffer: bytes });
-    expect(row.fileName).toBe('a.webp');
-    const original = await sharp(await stored('a.webp')).metadata();
+    const original = await sharp(await stored(row.fileName)).metadata();
     expect(original.format).toBe('webp');
     expect(original.width).toBe(600);
-    expect(has('a-thumb.webp')).toBe(true);
+    expect(has(row.fileName.replace('.webp', '-thumb.webp'))).toBe(true);
   });
 
   it('recognises a .heic sent as application/octet-stream by its name', async () => {
@@ -392,7 +383,6 @@ describe('Photos.storeUpload', () => {
     await photos.storeUpload(
       part(Buffer.from('x'), 'application/octet-stream', 'IMG_0001.HEIC'),
       7,
-      { fileName: 'a.webp' },
     );
     expect(heicMock).toHaveBeenCalledTimes(1);
   });
@@ -405,11 +395,10 @@ describe('Photos.storeUpload', () => {
     const refused = photos.storeUpload(
       part(Buffer.from('not heic'), 'image/heif'),
       7,
-      { fileName: 'a.webp' },
     );
     await expect(refused).rejects.toBeInstanceOf(HttpError);
     await expect(refused).rejects.toMatchObject({ statusCode: 400 });
-    expect(has('a.webp')).toBe(false);
+    expect(photoFiles()).toEqual([]);
   });
 
   it('rejects a HEIC part over MAX_HEIC_BYTES with a 413 without decoding', async () => {
@@ -418,22 +407,19 @@ describe('Photos.storeUpload', () => {
       photos.storeUpload(
         part(Buffer.alloc(MAX_HEIC_BYTES + 1), 'image/heic'),
         7,
-        { fileName: 'a.webp' },
       ),
     ).rejects.toMatchObject({ statusCode: 413 });
     expect(heicMock).not.toHaveBeenCalled();
-    expect(has('a.webp')).toBe(false);
+    expect(photoFiles()).toEqual([]);
   });
 
   it('refuses a HEIC declaring more pixels than MAX_INPUT_PIXELS with a 400', async () => {
     const photos = build();
     heicMock.mockResolvedValue(heicContainer(10_000, 10_000));
     await expect(
-      photos.storeUpload(part(Buffer.from('x'), 'image/heic'), 7, {
-        fileName: 'a.webp',
-      }),
+      photos.storeUpload(part(Buffer.from('x'), 'image/heic'), 7),
     ).rejects.toMatchObject({ statusCode: 400, message: 'Image too large' });
-    expect(has('a.webp')).toBe(false);
+    expect(photoFiles()).toEqual([]);
   });
 
   it('refuses any image over MAX_INPUT_PIXELS with a 400 before decoding it', async () => {
@@ -447,11 +433,9 @@ describe('Photos.storeUpload', () => {
       .png({ compressionLevel: 9 })
       .toBuffer();
     await expect(
-      photos.storeUpload(part(bomb, 'image/png', 'bomb.png'), 7, {
-        fileName: 'a.webp',
-      }),
+      photos.storeUpload(part(bomb, 'image/png', 'bomb.png'), 7),
     ).rejects.toMatchObject({ statusCode: 400, message: 'Image too large' });
-    expect(has('a.webp')).toBe(false);
+    expect(photoFiles()).toEqual([]);
   }, 30_000);
 
   it('rejects undecodable image bytes with a 400 and leaves no partial file', async () => {
@@ -460,10 +444,9 @@ describe('Photos.storeUpload', () => {
       photos.storeUpload(
         part(Buffer.from('not a jpeg'), 'image/jpeg', 'p.jpg'),
         7,
-        { fileName: 'a.webp' },
       ),
     ).rejects.toMatchObject({ statusCode: 400, message: 'Unreadable image' });
-    expect(has('a.webp')).toBe(false);
+    expect(photoFiles()).toEqual([]);
   });
 });
 

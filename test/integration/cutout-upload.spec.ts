@@ -1,4 +1,6 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { file } from '../../src/db/schema';
 import { fakeRunner, halfMask, storedCutout } from './cutouts';
 import {
   createGarment,
@@ -23,16 +25,15 @@ import {
 } from './pages';
 
 /**
- * The garment photo flow in CUTOUT_MODE=server: the upload is queued, the
- * page shows the cutout pending and polls a fragment that swaps it in, a
- * failure offers a native-post "Try again". Client mode keeps the
- * in-browser flow and none of these routes.
+ * The garment photo flow: the upload is queued, the page shows the cutout
+ * pending and polls a fragment that swaps it in, a failure offers a
+ * native-post "Try again". The browser never removes a background.
  */
-describe('server cutouts: upload, page and polling (CUTOUT_MODE=server)', () => {
+describe('cutouts: upload, page and polling', () => {
   let t: TestApp;
 
   beforeAll(async () => {
-    t = await createTestApp({ CUTOUT_MODE: 'server' });
+    t = await createTestApp();
   });
 
   afterEach(async () => {
@@ -50,7 +51,7 @@ describe('server cutouts: upload, page and polling (CUTOUT_MODE=server)', () => 
       headers: HX_FRAGMENT,
     });
 
-  it('queues an uploaded photo and shows it pending, polling, without the in-browser model', async () => {
+  it('queues an uploaded photo and shows it pending, polling', async () => {
     const id = await createGarment(t, { name: 'Pending shirt' });
     await uploadPhoto(t, id, await jpegPhoto());
     const fileName = await photoFileName(t, id);
@@ -78,12 +79,10 @@ describe('server cutouts: upload, page and polling (CUTOUT_MODE=server)', () => 
       ),
     );
     expect(html).toContain('Removing background…');
-    // Nothing to edit yet; no toggle, no cutout field, no model module.
+    // Nothing to edit yet; the form posts the photo alone.
     expect(html).not.toContain('id="editMaskBtn"');
-    expect(html).not.toContain('bgRemovalToggle');
-    expect(html).not.toContain('nobgPhotoInput');
+    expect(html).not.toContain('name="nobgPhoto"');
     expect(html).toContain(`import { wirePhotoUpload } from 'photo-input';`);
-    expect(html).not.toContain('/js/background-removal.js');
     expectNativePostForms(res);
     expectNoRawI18nKeys(res);
   });
@@ -152,11 +151,16 @@ describe('server cutouts: upload, page and polling (CUTOUT_MODE=server)', () => 
     });
   });
 
-  it('keeps a cutout the browser sent with the photo (a page from before the switch)', async () => {
-    const id = await createGarment(t, { name: 'Old page shirt' });
-    const body = await multipart(
-      {},
-      {
+  // Pages an installed PWA cached before background removal moved to the
+  // server post the browser's cutout with the photo, in either order.
+  it.each([
+    ['after', ['photo', 'nobgPhoto']],
+    ['before', ['nobgPhoto', 'photo']],
+  ] as const)(
+    'ignores a cutout sent %s the photo by a page cached before the server made them, and queues its own',
+    async (_order, fields) => {
+      const id = await createGarment(t, { name: `Old page shirt ${_order}` });
+      const parts = {
         photo: {
           data: await jpegPhoto(),
           filename: 'photo.jpg',
@@ -164,8 +168,42 @@ describe('server cutouts: upload, page and polling (CUTOUT_MODE=server)', () => 
         },
         nobgPhoto: {
           data: await pngCutout(),
-          filename: 'nobg.png',
-          contentType: 'image/png',
+          filename: 'nobg.webp',
+          contentType: 'image/webp',
+        },
+      };
+      const body = await multipart(
+        {},
+        Object.fromEntries(fields.map((field) => [field, parts[field]])),
+      );
+      const res = await t.inject({
+        method: 'POST',
+        url: `/wardrobe/${id}/photo`,
+        payload: body.payload,
+        headers: body.headers,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['hx-redirect']).toBe(`/wardrobe/${id}?photoSaved=1`);
+      const fileName = await photoFileName(t, id);
+      expect(await photoRow(t, fileName)).toMatchObject({
+        cutoutStatus: 'pending',
+      });
+      expect(await storedCutout(t, fileName)).toBeUndefined();
+      expect(t.logs.messages('info', 'Photos')).toContainEqual(
+        expect.stringMatching(/ignored the browser's cutout/),
+      );
+    },
+  );
+
+  it('refuses a cutout without its photo, storing nothing', async () => {
+    const id = await createGarment(t, { name: 'Lone cutout shirt' });
+    const body = await multipart(
+      {},
+      {
+        nobgPhoto: {
+          data: await pngCutout(),
+          filename: 'nobg.webp',
+          contentType: 'image/webp',
         },
       },
     );
@@ -175,10 +213,23 @@ describe('server cutouts: upload, page and polling (CUTOUT_MODE=server)', () => 
       payload: body.payload,
       headers: body.headers,
     });
-    expect(res.statusCode).toBe(200);
-    expect(await photoRow(t, await photoFileName(t, id))).toMatchObject({
-      cutoutStatus: 'none',
-    });
+    expect(res.statusCode).toBe(400);
+    expect((await garmentRow(t, id))?.photo).toBeNull();
+  });
+
+  it('shows a photo stored before server-side removal as it is: no polling, the pencil', async () => {
+    const id = await createGarment(t, { name: 'Legacy shirt' });
+    await uploadPhoto(t, id, await jpegPhoto());
+    const fileName = await photoFileName(t, id);
+    await t.db
+      .update(file)
+      .set({ cutoutStatus: 'none', cutoutRequestedAt: null })
+      .where(eq(file.fileName, fileName));
+
+    const html = unescapeHtml((await page(id)).body);
+    expect(html).toContain('<div id="garment-photo" class="mb-6">');
+    expect(html).not.toContain('hx-trigger="every 2s"');
+    expect(html).toContain('id="editMaskBtn"');
   });
 
   it('queues the copy of a pending photo when the garment is cloned', async () => {
@@ -207,40 +258,5 @@ describe('server cutouts: upload, page and polling (CUTOUT_MODE=server)', () => 
       headers: { ...HX_FRAGMENT, cookie: stranger },
     });
     expect(res.statusCode).toBe(404);
-  });
-});
-
-describe('client mode keeps the in-browser flow (CUTOUT_MODE=client, the default)', () => {
-  let t: TestApp;
-
-  beforeAll(async () => {
-    t = await createTestApp();
-  });
-
-  afterAll(() => t?.cleanup());
-
-  it('queues nothing, loads the in-browser model module and has no cutout routes', async () => {
-    const id = await createGarment(t, { name: 'Client shirt' });
-    await uploadPhoto(t, id, await jpegPhoto());
-    expect(await photoRow(t, await photoFileName(t, id))).toMatchObject({
-      cutoutStatus: 'none',
-    });
-
-    const res = await t.inject({ method: 'GET', url: `/wardrobe/${id}` });
-    const html = unescapeHtml(res.body);
-    expect(html).toContain('/js/background-removal.js?v=');
-    expect(html).not.toContain('wirePhotoUpload');
-    expect(html).toContain('id="bgRemovalToggle"');
-    expect(html).toContain('id="nobgPhotoInput"');
-    expect(html).toContain('<div id="garment-photo" class="mb-6">');
-    expect(html).not.toContain('hx-trigger="every 2s"');
-    expect(html).toContain('id="editMaskBtn"');
-
-    for (const [method, url] of [
-      ['GET', `/wardrobe/${id}/cutout`],
-      ['POST', `/wardrobe/${id}/cutout/retry`],
-    ] as const) {
-      expect((await t.inject({ method, url })).statusCode).toBe(404);
-    }
   });
 });
