@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { expect } from 'vitest';
-import { file } from '../../src/db/schema';
+import { file, garment } from '../../src/db/schema';
 import { multipart, TestApp } from './harness';
 
 /**
@@ -96,4 +96,24 @@ export function photoRowCount(t: TestApp, createdById?: number) {
     file,
     createdById === undefined ? undefined : eq(file.createdById, createdById),
   );
+}
+
+/** The garment's row with its photo's `file` row (null without a photo); undefined when gone. */
+export function garmentRow(t: TestApp, id: number) {
+  return t.db.query.garment.findFirst({
+    where: eq(garment.id, id),
+    with: { photo: true },
+  });
+}
+
+/** The stored name of the garment's photo (the test fails without one). */
+export async function photoFileName(t: TestApp, id: number): Promise<string> {
+  const row = await garmentRow(t, id);
+  if (!row?.photo) throw new Error(`Garment ${id} has no photo`);
+  return row.photo.fileName;
+}
+
+/** Garments with this name, in every wardrobe. */
+export function garmentsNamed(t: TestApp, name: string) {
+  return t.db.$count(garment, eq(garment.name, name));
 }

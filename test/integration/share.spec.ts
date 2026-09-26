@@ -1,16 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
-import { User } from '../../src/dal/entity/user.entity';
-import { createGarment } from './garments';
-import { createTestApp, TestApp } from './harness';
+import { createGarment, garmentRow, garmentsNamed } from './garments';
+import { createTestApp, TestApp, userIdOf } from './harness';
 
 describe('wardrobe sharing', () => {
   let t: TestApp;
   let alice: { id: number; cookie: string };
   let bob: { id: number; cookie: string };
 
-  const userId = async (email: string) =>
-    (await t.em().findOneOrFail(User, { email })).id;
+  const userId = async (email: string) => userIdOf(t, email);
 
   /** The htmx form on /wardrobe-share/manage: returns the invite token. */
   const createInvite = async (
@@ -88,7 +85,7 @@ describe('wardrobe sharing', () => {
       headers: { cookie: bob.cookie },
     });
     expect(write.statusCode).toBe(403);
-    expect(await t.em().count(Garment, { name: 'Bob addition' })).toBe(0);
+    expect(await garmentsNamed(t, 'Bob addition')).toBe(0);
   });
 
   it('a MANAGE invite upgrades the share and lets the grantee create', async () => {
@@ -100,10 +97,7 @@ describe('wardrobe sharing', () => {
       cookie: bob.cookie,
       ownerId: alice.id,
     });
-    const garment = await t
-      .em()
-      .findOneOrFail(Garment, garmentId, { populate: ['owner'] });
-    expect(garment.owner.id).toBe(alice.id);
+    expect((await garmentRow(t, garmentId))?.ownerId).toBe(alice.id);
 
     const grid = await t.inject({
       method: 'GET',

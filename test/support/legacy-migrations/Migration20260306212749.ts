@@ -1,7 +1,6 @@
 import { Migration } from '@mikro-orm/migrations';
 
 export class Migration20260306212749 extends Migration {
-
   override async up(): Promise<void> {
     this.addSql(`alter table "garment" drop column "colors";`);
 
@@ -13,5 +12,4 @@ export class Migration20260306212749 extends Migration {
 
     this.addSql(`alter table "garment" add column "colors" jsonb null;`);
   }
-
 }

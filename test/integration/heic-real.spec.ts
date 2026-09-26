@@ -2,9 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
 import { variantFileName } from '../../src/web/files/image-variant';
-import { createGarment } from './garments';
+import { createGarment, garmentRow } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
 
 /**
@@ -45,9 +44,7 @@ describe('a real HEIC upload', () => {
     });
     expect(res.statusCode).toBeLessThan(300);
 
-    const garment = await t
-      .em()
-      .findOneOrFail(Garment, garmentId, { populate: ['photo'] });
+    const garment = (await garmentRow(t, garmentId))!;
     const name = garment.photo!.fileName;
     const original = await sharp(join(t.dataPath, name)).metadata();
     const thumb = await sharp(

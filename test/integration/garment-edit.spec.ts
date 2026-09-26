@@ -1,11 +1,10 @@
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
-import { User } from '../../src/dal/entity/user.entity';
+import { garment } from '../../src/db/schema';
 import { variantFileName } from '../../src/web/files/image-variant';
-import { jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, TestApp } from './harness';
+import { garmentRow, jpegPhoto, uploadPhoto } from './garments';
+import { createTestApp, TestApp, userIdOf } from './harness';
 
 /**
  * The garment edit, clone and archive paths: the forms render the stored
@@ -39,11 +38,9 @@ describe('garment edit, clone and archive', () => {
   let carol: { cookie: string };
   let garmentId: number;
 
-  const userId = async (email: string) =>
-    (await t.em().findOneOrFail(User, { email })).id;
+  const userId = (email: string) => userIdOf(t, email);
 
-  const load = (id: number) =>
-    t.em().findOneOrFail(Garment, id, { populate: ['photo', 'owner'] });
+  const load = async (id: number) => (await garmentRow(t, id))!;
 
   const post = (
     url: string,
@@ -175,7 +172,7 @@ describe('garment edit, clone and archive', () => {
         archived: false,
       });
       expect(garment.acquiredOn).toBe('2025-01-02');
-      expect(garment.owner.id).toBe(alice.id);
+      expect(garment.ownerId).toBe(alice.id);
       // The fields-only form never touches the photo.
       expect(garment.photo).toBeDefined();
     });
@@ -191,7 +188,7 @@ describe('garment edit, clone and archive', () => {
       expect(res.headers.location).toBe(`/wardrobe/${id}?ownerId=${alice.id}`);
       const garment = await load(id);
       expect(garment.name).toBe('Edited by Bob');
-      expect(garment.owner.id).toBe(alice.id);
+      expect(garment.ownerId).toBe(alice.id);
     });
 
     it('a user without a share cannot edit', async () => {
@@ -326,7 +323,7 @@ describe('garment edit, clone and archive', () => {
       expect(cloneId).not.toBe(garmentId);
 
       const clone = await load(cloneId);
-      expect(clone.owner.id).toBe(bob.id);
+      expect(clone.ownerId).toBe(bob.id);
       expect(clone).toMatchObject({
         name: 'Black Linen Blazer (cloned)',
         category: source.category,
@@ -342,7 +339,7 @@ describe('garment edit, clone and archive', () => {
       // the source's files stay where they were.
       expect(clone.photo).toBeDefined();
       expect(clone.photo!.fileName).not.toBe(source.photo!.fileName);
-      expect(clone.photo!.createdBy.id).toBe(bob.id);
+      expect(clone.photo!.createdById).toBe(bob.id);
       for (const path of photoFiles(clone.photo!.fileName)) {
         expect(await exists(path)).toBe(true);
       }
@@ -369,14 +366,14 @@ describe('garment edit, clone and archive', () => {
     });
 
     it('a user without a share cannot clone', async () => {
-      const before = await t.em().count(Garment);
+      const before = await t.db.$count(garment);
       const res = await post(
         `/wardrobe/${garmentId}/clone?ownerId=${alice.id}`,
         FORM,
         carol.cookie,
       );
       expect(res.statusCode).toBe(404);
-      expect(await t.em().count(Garment)).toBe(before);
+      expect(await t.db.$count(garment)).toBe(before);
     });
   });
 

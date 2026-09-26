@@ -57,7 +57,6 @@ export class Migration20260925181256 extends Migration {
       `create index concurrently if not exists "garment_owner_id_index" on "garment" ("owner_id");`,
     );
 
-
     this.addSql(
       `create index concurrently if not exists "user_device_user_id_index" on "user_device" ("user_id");`,
     );
@@ -89,7 +88,9 @@ export class Migration20260925181256 extends Migration {
     );
 
     this.addSql(`drop index concurrently if exists "file_shareable_id_index";`);
-    this.addSql(`drop index concurrently if exists "file_created_by_id_index";`);
+    this.addSql(
+      `drop index concurrently if exists "file_created_by_id_index";`,
+    );
 
     this.addSql(
       `drop index concurrently if exists "garment_shareable_id_index";`,
@@ -97,8 +98,9 @@ export class Migration20260925181256 extends Migration {
     this.addSql(`drop index concurrently if exists "garment_category_index";`);
     this.addSql(`drop index concurrently if exists "garment_owner_id_index";`);
 
-
-    this.addSql(`drop index concurrently if exists "user_device_user_id_index";`);
+    this.addSql(
+      `drop index concurrently if exists "user_device_user_id_index";`,
+    );
 
     this.addSql(
       `drop index concurrently if exists "wardrobe_share_grantor_id_index";`,

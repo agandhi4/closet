@@ -5,7 +5,6 @@ import Joi from 'joi';
 import type { IncomingMessage } from 'node:http';
 import * as path from 'path';
 import { SessionGuard } from './auth/session.guard';
-import { DalModule } from './dal/dal.module';
 import { DbModule } from './db/db.module';
 import { I18nModule } from 'nestjs-i18n';
 import { LoggerModule } from 'nestjs-pino';
@@ -175,7 +174,6 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     }),
     // Runs the migrations (src/db/migrate.ts) before anything queries.
     DbModule,
-    DalModule,
     ViewContextModule,
   ],
   providers: [

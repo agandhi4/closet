@@ -6,16 +6,14 @@ import { join } from 'node:path';
 
 /**
  * The frozen MikroORM migration tree that built every database before
- * Drizzle took over (production included). Nothing at runtime runs it any
- * more: src/db/migrate.ts only checks that a legacy database recorded its
- * last entry. This helper is the one place MikroORM's migrator still runs,
- * so test/integration/migration-runner.spec.ts can build a database exactly
- * the way production's was built and boot the app on it.
+ * Drizzle took over (production included), kept beside this helper since
+ * MikroORM left the app. Nothing at runtime runs it: src/db/migrate.ts only
+ * checks that a legacy database recorded its last entry. This helper is the
+ * one place MikroORM (a devDependency now) still runs, so the migration
+ * specs can build a database exactly the way production's was built and
+ * boot the app on it.
  */
-export const LEGACY_MIGRATIONS_PATH = join(
-  __dirname,
-  '../../src/dal/migrations/postgres',
-);
+export const LEGACY_MIGRATIONS_PATH = join(__dirname, 'legacy-migrations');
 
 /** Migration names in the order MikroORM applies them (timestamped names). */
 export function legacyMigrationNames(): string[] {
@@ -55,9 +53,9 @@ export async function applyLegacyMigrations(
       snapshot: false,
     },
     // MikroORM's own import() lives in node_modules, which Vitest does not
-    // transform: Node would load the .ts migrations itself and fail on the
-    // extensionless import of src/ code in Migration20260925182919. An
-    // import() in this file goes through Vitest's module runner.
+    // transform: Node would load the .ts migrations itself (type stripping)
+    // and fail on their extensionless imports. An import() in this file goes
+    // through Vitest's module runner.
     dynamicImportProvider: (id: string) => import(id),
     // One "Processing/Applied" line per migration otherwise, in every run.
     logger: () => undefined,

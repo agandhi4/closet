@@ -2,11 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
 import { variantFileName } from '../../src/web/files/image-variant';
 import {
   createGarment,
   jpegPhoto,
+  photoFileName,
   photoRow,
   pngCutout,
   uploadPhoto,
@@ -25,10 +25,7 @@ describe('mask edit (POST /wardrobe/:id/nobg)', () => {
   it('replaces the cutout, rewrites the thumb and bumps the version', async () => {
     const garmentId = await createGarment(t, { name: 'Red jacket' });
     await uploadPhoto(t, garmentId, await jpegPhoto());
-    const garment = await t
-      .em()
-      .findOneOrFail(Garment, garmentId, { populate: ['photo'] });
-    const fileName = garment.photo!.fileName;
+    const fileName = await photoFileName(t, garmentId);
     const thumbPath = join(t.dataPath, variantFileName(fileName, 'thumb'));
     const nobgPath = join(t.dataPath, variantFileName(fileName, 'nobg'));
     const thumbBefore = await readFile(thumbPath);

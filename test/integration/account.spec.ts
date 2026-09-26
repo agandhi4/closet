@@ -1,7 +1,14 @@
+import { eq, type SQL } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { User } from '../../src/dal/entity/user.entity';
-import { createTestApp, TEST_PASSWORD, TestApp, uniqueClient } from './harness';
+import { user } from '../../src/db/schema';
+import {
+  createTestApp,
+  TEST_PASSWORD,
+  TestApp,
+  uniqueClient,
+  userIdOf,
+} from './harness';
 import { expectFragment, expectFullPage } from './pages';
 
 /**
@@ -57,8 +64,11 @@ describe('account', () => {
       })
     ).statusCode;
 
+  const account = async (where: SQL) =>
+    (await t.db.query.user.findFirst({ where }))!;
   const passwordHash = async (email: string) =>
-    (await t.em().findOneOrFail(User, { email })).password;
+    (await account(eq(user.email, email))).password;
+  const emailOf = async (id: number) => (await account(eq(user.id, id))).email;
 
   beforeAll(async () => {
     t = await createTestApp();
@@ -97,7 +107,9 @@ describe('account', () => {
       expect(res.statusCode).toBeLessThan(300);
       expect(res.body).not.toContain('class="text-error"');
       expect(res.body.match(/hx-swap-oob="true"/g)).toHaveLength(3);
-      expect(await t.em().count(User, { email: 'valid@example.com' })).toBe(0);
+      expect(await t.db.$count(user, eq(user.email, 'valid@example.com'))).toBe(
+        0,
+      );
     });
 
     // Only the message slots, swapped out of band by id: never the page
@@ -250,7 +262,7 @@ describe('account', () => {
 
     beforeAll(async () => {
       cookie = await t.register(oldEmail);
-      userId = (await t.em().findOneOrFail(User, { email: oldEmail })).id;
+      userId = await userIdOf(t, oldEmail);
     });
 
     it('GET /auth/update-email renders the form', async () => {
@@ -295,7 +307,7 @@ describe('account', () => {
       expect(res.statusCode).toBe(400);
       expectFullPage(res);
       expect(res.body).toContain('class="text-error"');
-      expect((await t.em().findOneOrFail(User, userId)).email).toBe(oldEmail);
+      expect(await emailOf(userId)).toBe(oldEmail);
     });
 
     it('POST /auth/update-email changes the row; only the new address logs in', async () => {
@@ -307,7 +319,7 @@ describe('account', () => {
       });
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe('/auth/profile');
-      expect((await t.em().findOneOrFail(User, userId)).email).toBe(newEmail);
+      expect(await emailOf(userId)).toBe(newEmail);
 
       const profile = await t.inject({
         method: 'GET',
@@ -338,7 +350,7 @@ describe('account', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.body).toContain('Another account already uses this email');
-      expect((await t.em().findOneOrFail(User, userId)).email).toBe(newEmail);
+      expect(await emailOf(userId)).toBe(newEmail);
     });
 
     it('a new address is stored lower case', async () => {
@@ -352,9 +364,7 @@ describe('account', () => {
         headers: { cookie },
       });
       expect(res.statusCode).toBe(302);
-      expect((await t.em().findOneOrFail(User, userId)).email).toBe(
-        'mixed@example.com',
-      );
+      expect(await emailOf(userId)).toBe('mixed@example.com');
     });
   });
 
@@ -372,7 +382,9 @@ describe('account', () => {
     expect(res.body).toContain(
       'data-confirm="Are you sure you want to delete your account?"',
     );
-    expect(await t.em().count(User, { email: 'leaving@example.com' })).toBe(1);
+    expect(await t.db.$count(user, eq(user.email, 'leaving@example.com'))).toBe(
+      1,
+    );
   });
 
   describe('change password', () => {

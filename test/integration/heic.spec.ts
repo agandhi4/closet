@@ -9,8 +9,7 @@ import {
   it,
   vi,
 } from 'vitest';
-import { Garment } from '../../src/dal/entity/garment.entity';
-import { createGarment, photoRowCount } from './garments';
+import { createGarment, garmentRow, photoRowCount } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
 
 /**
@@ -51,10 +50,7 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
   ) => {
     expect(await storedFiles()).toEqual(filesBefore);
     expect(await photoRowCount(t)).toBe(rowsBefore);
-    const garment = await t
-      .em()
-      .findOneOrFail(Garment, garmentId, { populate: ['photo'] });
-    expect(garment.photo).toBeFalsy();
+    expect((await garmentRow(t, garmentId))?.photo).toBeNull();
   };
 
   // Vitest does not exit on an unhandled rejection the way Node does; it
