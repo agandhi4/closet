@@ -12,9 +12,10 @@ import { Client, type QueryResult } from 'pg';
 import { expect, vi } from 'vitest';
 import { createApp } from '../../src/app';
 import { loadConfig } from '../../src/config';
+import type { CutoutQueue } from '../../src/cutout/queue';
 import type { Db } from '../../src/db/client';
 import { user } from '../../src/db/schema';
-import { createLogger, createLoggerTo } from '../../src/logger';
+import { createLogger, createLoggerTo, type Logger } from '../../src/logger';
 import { hashPassword } from '../../src/web/auth/passwords';
 import { insertUser } from '../../src/web/auth/queries';
 import type { Photos } from '../../src/web/files/photos';
@@ -134,11 +135,18 @@ export interface TestApp {
   dataPath: string;
   /** The app's one Photos (what the routes store and serve through). */
   photos: Photos;
+  /**
+   * The background-removal queue, not running: a spec starts it with a
+   * fake runner (test/integration/cutouts.ts); cleanup() stops it.
+   */
+  cutouts: CutoutQueue;
   /** The user registered at boot, whose session t.inject() sends by default. */
   owner: TestUser;
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
   /** The app's Drizzle instance (no identity map: reads see every commit). */
   db: Db;
+  /** The app's root logger, for modules a spec builds itself (into t.logs). */
+  logger: Logger;
   /**
    * Every line the app logged at LOG_LEVEL and above, parsed; empty when the
    * app writes the real app.log instead (TestAppOptions.appLog).
@@ -186,9 +194,10 @@ export async function createTestApp(
   let app: FastifyInstance;
   let db: Db;
   let photos: Photos;
+  let cutouts: CutoutQueue;
   try {
     await options.beforeBoot?.(database.env);
-    ({ app, db, photos } = await createApp(config, logger));
+    ({ app, db, photos, cutouts } = await createApp(config, logger));
     await app.ready();
   } catch (error) {
     // A failing boot (typically a migration) must not leak the database.
@@ -268,9 +277,11 @@ export async function createTestApp(
     app,
     dataPath,
     photos,
+    cutouts,
     owner,
     inject,
     db,
+    logger,
     logs,
     register,
     login,

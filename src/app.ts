@@ -7,6 +7,7 @@ import Fastify, { type FastifyInstance, LogController } from 'fastify';
 import { join } from 'node:path';
 import { BUILD_INFO } from './build-info';
 import { type Config, trustedProxies } from './config';
+import { CutoutQueue } from './cutout/queue';
 import { createDb, type Db, dbConfig } from './db/client';
 import { runMigrations } from './db/migrate';
 import type { Logger } from './logger';
@@ -34,6 +35,12 @@ export interface ClosetApp {
    * web layer's, and the nightly reconciliation's in main.ts.
    */
   photos: Photos;
+  /**
+   * The background-removal queue, never started here: main.ts starts it
+   * with the model in CUTOUT_MODE=server (the specs with a fake runner).
+   * The web layer wakes it when it queues a photo; closing the app stops it.
+   */
+  cutouts: CutoutQueue;
 }
 
 /**
@@ -76,6 +83,12 @@ export async function createApp(
     db,
     logger.child({ context: 'Photos' }),
   );
+  const cutouts = new CutoutQueue({
+    db,
+    photos,
+    logger: logger.child({ context: 'Cutout' }),
+  });
+  boot.info(`Background removal: ${config.CUTOUT_MODE}`);
 
   const app = Fastify({
     trustProxy,
@@ -83,7 +96,9 @@ export async function createApp(
     // One line per request comes from the onResponse hook below.
     logController: new LogController({ disableRequestLogging: true }),
   });
+  // The queue first: a job still running needs the pool to record itself.
   app.addHook('onClose', async () => {
+    await cutouts.stop();
     await db.$client.end();
   });
 
@@ -202,7 +217,7 @@ export async function createApp(
     photos,
   });
 
-  return { app, db, photos };
+  return { app, db, photos, cutouts };
 }
 
 // Every static URL is versioned (`?v=` from BUILD_INFO.assetVersion in
