@@ -33,6 +33,7 @@ export class LocalFileService extends FileService {
     this.directory = configService.getOrThrow('DATA_PATH');
     this.incoming = path.join(this.directory, INCOMING_DIR);
     this.setupDir();
+    this.logger.log(`Photos stored under ${this.directory}`);
   }
 
   async get(fileName: string): Promise<Readable> {

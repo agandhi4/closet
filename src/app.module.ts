@@ -151,37 +151,6 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
         // Empty is valid: pgvault-dev and the test databases use trust auth.
         DATABASE_PASS: Joi.string().allow('').required(),
         DATABASE_SSL: Joi.boolean().default(false),
-        FILE_STORAGE_TYPE: Joi.string()
-          .valid('local', 'object')
-          .default('local'),
-        OBJECT_STORAGE_BUCKET_NAME: Joi.string().when('FILE_STORAGE_TYPE', {
-          is: 'object',
-          then: Joi.string().required(),
-          otherwise: Joi.optional(),
-        }),
-        OBJECT_STORAGE_ACCESS_KEY_ID: Joi.string().when('FILE_STORAGE_TYPE', {
-          is: 'object',
-          then: Joi.string().required(),
-          otherwise: Joi.optional(),
-        }),
-        OBJECT_STORAGE_SECRET_ACCESS_KEY: Joi.string().when(
-          'FILE_STORAGE_TYPE',
-          {
-            is: 'object',
-            then: Joi.string().required(),
-            otherwise: Joi.optional(),
-          },
-        ),
-        OBJECT_STORAGE_ENDPOINT: Joi.string().when('FILE_STORAGE_TYPE', {
-          is: 'object',
-          then: Joi.string().required(),
-          otherwise: Joi.optional(),
-        }),
-        OBJECT_STORAGE_REGION: Joi.string().when('FILE_STORAGE_TYPE', {
-          is: 'object',
-          then: Joi.string().default('us-east-1'),
-          otherwise: Joi.optional(),
-        }),
         // Nightly storage reconciliation (MaintenanceModule). Off in the
         // integration harness; `npm run maintenance:reconcile` runs it once
         // regardless.

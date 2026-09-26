@@ -106,56 +106,9 @@ jobs:
           path: playwright-report/
           retention-days: 14
 
-  # The S3 backend's only coverage. Production uses local storage; remove this
-  # job with the backend.
-  object-storage:
-    name: smoke on S3 storage
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: Password123
-          POSTGRES_DB: postgres-test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U test -d postgres-test"
-          --health-interval 2s --health-timeout 3s --health-retries 30
-      # adobe/s3mock: path-style S3, any credentials (minio left Docker Hub).
-      s3:
-        image: adobe/s3mock:5
-        ports: ["9000:9090"]
-    env:
-      CI: true
-      DATABASE_HOST: localhost
-      DATABASE_USER: test
-      DATABASE_PASS: Password123
-      DATABASE_SCHEMA: postgres-test
-      FILE_STORAGE_TYPE: object
-      OBJECT_STORAGE_BUCKET_NAME: test-closet
-      OBJECT_STORAGE_ACCESS_KEY_ID: test
-      OBJECT_STORAGE_SECRET_ACCESS_KEY: test
-      OBJECT_STORAGE_ENDPOINT: http://127.0.0.1:9000
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      # s3mock v5 ignores its initialBuckets env.
-      - name: Create bucket
-        run: |
-          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:9000/ && break; sleep 1; done
-          curl -sf -X PUT http://127.0.0.1:9000/test-closet
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e:smoke
-
   publish:
     name: publish image
-    needs: [check, e2e, object-storage]
+    needs: [check, e2e]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20

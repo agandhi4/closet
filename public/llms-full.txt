@@ -4,7 +4,7 @@
 
 ## Overview
 
-Closet is a self-hosted fork of Libre Closet, licensed under the AGPL-3.0. It is a server-rendered progressive web app intended to be installed on a phone and used by a household. All data stays in a SQLite or PostgreSQL database on the host that runs it.
+Closet is a self-hosted fork of Libre Closet, licensed under the AGPL-3.0. It is a server-rendered progressive web app intended to be installed on a phone and used by a household. All data stays in a PostgreSQL database on the host that runs it.
 
 ## Features
 
@@ -50,10 +50,10 @@ See the README for docker-compose and environment variable options.
 - **License:** AGPL-3.0
 - **Backend:** NestJS on Fastify (TypeScript), Handlebars templates
 - **Frontend:** htmx + hyperscript, Tailwind + daisyUI (server-rendered, no client framework)
-- **Database:** SQLite or PostgreSQL via MikroORM
+- **Database:** PostgreSQL (Drizzle ORM)
 - **Images:** client-side background removal (ONNX runtime), sharp for WebP
 - **Offline:** Workbox service worker, Web Push
-- **Storage:** local disk or S3-compatible object storage
+- **Storage:** local disk
 - **Auth:** optional JWT cookie authentication
 - **Deploy:** Docker image on GHCR
 
