@@ -59,7 +59,11 @@ describe('mask edit (POST /wardrobe/:id/nobg)', () => {
     expect(thumbAfter.equals(thumbBefore)).toBe(false);
     expect((await sharp(thumbAfter).metadata()).hasAlpha).toBe(true);
 
-    expect((await photoRow(t, fileName))?.version).toBe(2);
+    // The user's mask: no server job result may replace it (src/cutout/state.ts).
+    expect(await photoRow(t, fileName)).toMatchObject({
+      version: 2,
+      cutoutStatus: 'edited',
+    });
 
     const grid = await t.inject({ method: 'GET', url: '/wardrobe' });
     expect(grid.body).toContain(`/file/thumb/${fileName}?v=2`);

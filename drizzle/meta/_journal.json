@@ -43,6 +43,13 @@
       "when": 1790411990194,
       "tag": "0005_email_lower_outfit_text",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790436146937,
+      "tag": "0006_file_cutout",
+      "breakpoints": true
     }
   ]
 }

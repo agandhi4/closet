@@ -259,6 +259,11 @@ describe('garments move to the web layer (0004_garment_web)', () => {
     expect(Object.keys(await columnsOf(env, 'file')).sort()).toEqual([
       'created_by_id',
       'created_on',
+      // Added by 0006_file_cutout (the migrations run to the latest).
+      'cutout_attempts',
+      'cutout_job_version',
+      'cutout_requested_at',
+      'cutout_status',
       'file_name',
       'id',
       'shareable_id',
