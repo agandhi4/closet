@@ -1,7 +1,8 @@
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { User } from '../../src/dal/entity/user.entity';
-import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
+import { createTestApp, TEST_PASSWORD, TestApp, uniqueClient } from './harness';
+import { expectFragment, expectFullPage } from './pages';
 
 /**
  * Account flows, end to end through the real controllers: inline
@@ -29,10 +30,11 @@ describe('account', () => {
   // Each login-driven test gets its own client address (TRUSTED_PROXIES
   // trusts X-Forwarded-For from inject's 127.0.0.1), so no test's attempts
   // count towards another's rate limit.
-  let clientSeq = 0;
-  const nextClient = () => ({ 'x-forwarded-for': `10.0.0.${++clientSeq}` });
-
-  const postLogin = (email: string, password: string, client = nextClient()) =>
+  const postLogin = (
+    email: string,
+    password: string,
+    client = uniqueClient(),
+  ) =>
     t.inject({
       method: 'POST',
       url: '/auth/login',
@@ -83,12 +85,10 @@ describe('account', () => {
       expect(
         res.body.match(/class="text-error"/g)?.length,
       ).toBeGreaterThanOrEqual(3);
-      expect(res.body).toContain('value="not-an-email"');
       expect(res.body).not.toMatch(/\blang\.(validation\.)?[A-Z_]{3,}/);
-      expect(res.body).toMatch(/btn-disabled/);
     });
 
-    it('a valid body has no errors and an enabled submit', async () => {
+    it('a valid body has no errors and clears every slot', async () => {
       const res = await validate({
         email: 'valid@example.com',
         password: TEST_PASSWORD,
@@ -96,25 +96,40 @@ describe('account', () => {
       });
       expect(res.statusCode).toBeLessThan(300);
       expect(res.body).not.toContain('class="text-error"');
-      expect(res.body).not.toContain('btn-disabled');
+      expect(res.body.match(/hx-swap-oob="true"/g)).toHaveLength(3);
       expect(await t.em().count(User, { email: 'valid@example.com' })).toBe(0);
     });
 
-    // New bug: the fieldset in views/auth/register.hbs posts here with the
-    // default innerHTML swap and no hx-select, but @Render('auth/register')
-    // wraps the answer in the layout, so htmx nests a second navbar, form and
-    // dock inside the fieldset. Same for validate/update-email.
-    it.fails(
-      'answers the htmx validation request with a fragment',
-      async () => {
-        const res = await validate({
-          email: 'not-an-email',
-          password: 'short',
-          confirmPassword: 'different',
-        });
-        expect(res.body).not.toMatch(/<html\b/i);
-      },
-    );
+    // Only the message slots, swapped out of band by id: never the page
+    // (which nested a second navbar and form into the fieldset), and never
+    // the inputs or the button, which a user may be typing in or clicking.
+    it('answers with the message slots alone, out of band', async () => {
+      const res = await validate({
+        email: 'not-an-email',
+        password: 'short',
+        confirmPassword: 'different',
+      });
+      expect(res.statusCode).toBe(200);
+      expectFragment(res);
+      for (const field of ['email', 'password', 'confirmPassword']) {
+        expect(res.body).toMatch(
+          new RegExp(`<div id="${field}-errors"[^>]*hx-swap-oob="true"`),
+        );
+      }
+      expect(res.body).not.toMatch(/<(input|button|fieldset)\b/);
+      // Passwords are never echoed back.
+      expect(res.body).not.toContain('different');
+
+      const page = await t.inject({
+        method: 'GET',
+        url: '/auth/register',
+        anonymous: true,
+      });
+      expect(page.body).toMatch(
+        /<fieldset\b[^>]*hx-post="\/auth\/validate\/register" hx-trigger="change" hx-swap="none"/,
+      );
+      expect(page.body).toContain('<div id="email-errors"');
+    });
   });
 
   describe('login', () => {
@@ -124,36 +139,78 @@ describe('account', () => {
 
     it('a wrong password re-renders the form without a session', async () => {
       const res = await postLogin(email, 'WrongPassword1');
-      expect(res.body).toContain('hx-post="/auth/login"');
+      expect(res.body).toContain('action="/auth/login"');
       expect(sessionCookie(res)).toBeUndefined();
     });
 
-    // Known bug (docs/audits/2026-09-25-program2): a failed POST /auth/login re-renders with status 201 instead of 4xx.
-    it.fails('a wrong password answers 401', async () => {
+    it('a wrong password answers 401 with one page and a specific message', async () => {
       const res = await postLogin(email, 'WrongPassword1');
       expect(res.statusCode).toBe(401);
+      expectFullPage(res);
+      // Once: a boosted post used to swap a whole page into the page.
+      expect(res.body.match(/<h1\b/g)).toHaveLength(1);
+      expect(
+        res.body.match(/<form\b[^>]*action="\/auth\/login"/g),
+      ).toHaveLength(1);
+      expect(res.body).toContain('Incorrect email or password');
+      // The address is kept for the retry; the password never is.
+      expect(res.body).toContain(`value="${email}"`);
+      expect(res.body).not.toContain('WrongPassword1');
     });
 
-    // Known bug (docs/audits/2026-09-25-program2): the access_token maxAge is milliseconds, @fastify/cookie takes seconds (Max-Age=31536000000).
-    it.fails('the session cookie lives 365 days', async () => {
+    it('an unknown email gets the same answer as a wrong password', async () => {
+      const res = await postLogin('nobody@example.com', 'WrongPassword1');
+      expect(res.statusCode).toBe(401);
+      expect(res.body).toContain('Incorrect email or password');
+    });
+
+    it('the address is matched case-insensitively', async () => {
+      const res = await postLogin('Login@Example.COM', TEST_PASSWORD);
+      expect(res.statusCode).toBe(302);
+      expect(sessionCookie(res)).toBeDefined();
+    });
+
+    it('the session cookie lives 365 days, SameSite=Lax, never Secure', async () => {
       const res = await postLogin(email, TEST_PASSWORD);
       expect(res.statusCode).toBe(302);
-      expect(sessionSetCookie(res)).toMatch(/;\s*Max-Age=31536000(;|$)/);
+      const cookie = sessionSetCookie(res);
+      expect(cookie).toMatch(/;\s*Max-Age=31536000(;|$)/);
+      expect(cookie).toMatch(/;\s*SameSite=Lax(;|$)/i);
+      expect(cookie).not.toMatch(/;\s*Secure(;|$)/i);
     });
 
-    // New bug: ThrottlerModule.forRoot() registers no named throttler, and
-    // @Throttle({ default: ... }) only overrides the limits of a registered
-    // one, so the guard iterates an empty list: login is not rate limited
-    // at all.
-    it.fails('a sixth failed login within a minute is throttled', async () => {
-      const client = nextClient();
+    it('a sixth login attempt within a minute is refused with 429', async () => {
+      const client = uniqueClient();
       const statuses: number[] = [];
       for (let i = 0; i < 6; i++) {
         statuses.push(
           (await postLogin(email, 'WrongPassword1', client)).statusCode,
         );
       }
-      expect(statuses[5]).toBe(429);
+      expect(statuses).toEqual([401, 401, 401, 401, 401, 429]);
+      // Even the right password waits out the window from that address...
+      expect((await postLogin(email, TEST_PASSWORD, client)).statusCode).toBe(
+        429,
+      );
+      // ...while another address is unaffected.
+      expect((await postLogin(email, TEST_PASSWORD)).statusCode).toBe(302);
+    });
+
+    it('the login form is one a password manager can save', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/auth/login',
+        anonymous: true,
+      });
+      expect(res.body).toMatch(
+        /<form method="post" action="\/auth\/login" hx-boost="false"/,
+      );
+      expect(res.body).toMatch(
+        /<input id="email" name="email" type="email"[^>]*autocomplete="username"/,
+      );
+      expect(res.body).toMatch(
+        /<input id="password" name="password" type="password"[^>]*autocomplete="current-password"/,
+      );
     });
   });
 
@@ -203,7 +260,7 @@ describe('account', () => {
         headers: { cookie },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.body).toContain('hx-post="/auth/update-email"');
+      expect(res.body).toContain('action="/auth/update-email"');
       expect(res.body).toContain('name="confirmEmail"');
     });
 
@@ -214,7 +271,8 @@ describe('account', () => {
         payload: { email: newEmail, confirmEmail: 'other@example.com' },
         headers: { cookie, 'hx-request': 'true' },
       });
-      expect(bad.statusCode).toBeLessThan(300);
+      expect(bad.statusCode).toBe(200);
+      expectFragment(bad);
       expect(bad.body).toContain('class="text-error"');
       expect(bad.body).not.toMatch(/\blang\.(validation\.)?[A-Z_]{3,}/);
 
@@ -227,14 +285,15 @@ describe('account', () => {
       expect(good.body).not.toContain('class="text-error"');
     });
 
-    it('a mismatched submission re-renders and changes nothing', async () => {
+    it('a mismatched submission is a 400 re-render and changes nothing', async () => {
       const res = await t.inject({
         method: 'POST',
         url: '/auth/update-email',
         payload: { email: newEmail, confirmEmail: 'other@example.com' },
         headers: { cookie },
       });
-      expect(res.statusCode).toBeLessThan(300);
+      expect(res.statusCode).toBe(400);
+      expectFullPage(res);
       expect(res.body).toContain('class="text-error"');
       expect((await t.em().findOneOrFail(User, userId)).email).toBe(oldEmail);
     });
@@ -266,25 +325,37 @@ describe('account', () => {
       ).toBeDefined();
     });
 
-    // New bug: user.email is @Unique and changeEmail does not check for an
-    // existing account first, so the unique violation escapes as a 500.
-    it.fails(
-      'an address another account uses is refused with 4xx',
-      async () => {
-        await t.register('taken@example.com');
-        const res = await t.inject({
-          method: 'POST',
-          url: '/auth/update-email',
-          payload: {
-            email: 'taken@example.com',
-            confirmEmail: 'taken@example.com',
-          },
-          headers: { cookie },
-        });
-        expect(res.statusCode).toBeGreaterThanOrEqual(400);
-        expect(res.statusCode).toBeLessThan(500);
-      },
-    );
+    it('an address another account uses, in any case, is a 400 field error', async () => {
+      await t.register('taken@example.com');
+      const res = await t.inject({
+        method: 'POST',
+        url: '/auth/update-email',
+        payload: {
+          email: 'Taken@Example.com',
+          confirmEmail: 'Taken@Example.com',
+        },
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toContain('Another account already uses this email');
+      expect((await t.em().findOneOrFail(User, userId)).email).toBe(newEmail);
+    });
+
+    it('a new address is stored lower case', async () => {
+      const res = await t.inject({
+        method: 'POST',
+        url: '/auth/update-email',
+        payload: {
+          email: 'Mixed@Example.com',
+          confirmEmail: 'mixed@example.COM',
+        },
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(302);
+      expect((await t.em().findOneOrFail(User, userId)).email).toBe(
+        'mixed@example.com',
+      );
+    });
   });
 
   it('GET /auth/delete-account renders the confirmation form', async () => {
@@ -295,7 +366,12 @@ describe('account', () => {
       headers: { cookie },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toContain('hx-post="/auth/delete-account"');
+    expect(res.body).toContain('action="/auth/delete-account"');
+    // A native post that asks first: its refusal page must be visible.
+    expect(res.body).toContain('hx-boost="false"');
+    expect(res.body).toContain(
+      'data-confirm="Are you sure you want to delete your account?"',
+    );
     expect(await t.em().count(User, { email: 'leaving@example.com' })).toBe(1);
   });
 

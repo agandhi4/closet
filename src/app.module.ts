@@ -4,7 +4,6 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import Joi from 'joi';
 import type { IncomingMessage } from 'node:http';
 import * as path from 'path';
-import { AuthModule } from './auth/auth.module';
 import { SessionGuard } from './auth/session.guard';
 import { DalModule } from './dal/dal.module';
 import { DbModule } from './db/db.module';
@@ -14,9 +13,6 @@ import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import { OpenGraphModule } from './open-graph/open-graph.module';
 import { WardrobeModule } from './wardrobe/wardrobe.module';
 import { WardrobeShareModule } from './wardrobe-share/wardrobe-share.module';
-import { MikroOrmModule } from '@mikro-orm/nestjs';
-import { User } from './dal/entity/user.entity';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { ErrorViewFilter } from './error-view.filter';
 import { MaintenanceModule } from './maintenance/maintenance.module';
@@ -219,13 +215,9 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
           : undefined,
       viewEngine: 'hbs',
     }),
-    MikroOrmModule.forFeature([User]),
-    // https://docs.nestjs.com/security/rate-limiting
-    ThrottlerModule.forRoot(),
     // Runs the migrations (src/db/migrate.ts) before anything queries.
     DbModule,
     DalModule,
-    AuthModule,
     FileModule,
     NotificationModule,
     OpenGraphModule,
@@ -235,13 +227,9 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     MaintenanceModule,
   ],
   providers: [
-    // https://docs.nestjs.com/security/rate-limiting#rate-limiting
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
-    // Login is always required: every route needs a session unless it is
-    // @Public() (see SessionGuard). Runs after the throttler.
+    // Login is always required: every Nest route needs a session unless it
+    // is @Public() (see SessionGuard). Rate limits are per route, in the
+    // web layer (src/web/security/rate-limit.ts).
     {
       provide: APP_GUARD,
       useClass: SessionGuard,

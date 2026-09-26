@@ -1,8 +1,4 @@
-import { EntityRepository } from '@mikro-orm/core';
-import { getRepositoryToken } from '@mikro-orm/nestjs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { AuthContextService } from '../../src/auth/auth-context.service';
-import { User } from '../../src/dal/entity/user.entity';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
@@ -34,6 +30,9 @@ describe('sessions', () => {
     const token = res.cookies.find((c) => c.name === 'access_token');
     expect(token?.httpOnly).toBe(true);
     expect(token?.path).toBe('/');
+    // Not sent on cross-site POSTs; never Secure (CLAUDE.md, Conventions).
+    expect(token?.sameSite).toBe('Lax');
+    expect(token?.secure).toBeUndefined();
   });
 
   // SessionGuard, the one global gate. Its three outcomes: public routes
@@ -177,9 +176,9 @@ describe('sessions', () => {
       payload: { email, password: 'WrongPassword1' },
       anonymous: true,
     });
-    // Re-rendered login form (Nest's POST default is 201; see report).
-    expect(wrong.statusCode).toBeLessThan(300);
-    expect(wrong.body).toContain('/auth/login');
+    // The login page again, with the refusal.
+    expect(wrong.statusCode).toBe(401);
+    expect(wrong.body).toContain('action="/auth/login"');
     expect(
       wrong.cookies.find((c) => c.name === 'access_token'),
     ).toBeUndefined();
@@ -195,27 +194,22 @@ describe('sessions', () => {
   });
 
   it('static assets are served without resolving the session', async () => {
-    const resolve = vi.spyOn(t.app.get(AuthContextService), 'resolve');
-    const findOne = vi.spyOn(
-      t.app.get<EntityRepository<User>>(getRepositoryToken(User)),
-      'findOne',
-    );
+    // The session resolver's user lookup is the only Drizzle query a
+    // page makes before its handler; an asset must make none at all.
+    const query = vi.spyOn(t.db.$client, 'query');
+    try {
+      const asset = await t.inject({
+        method: 'GET',
+        url: '/robots.txt',
+        headers: { cookie },
+      });
+      expect(asset.statusCode).toBe(200);
+      expect(query).not.toHaveBeenCalled();
 
-    const asset = await t.inject({
-      method: 'GET',
-      url: '/robots.txt',
-      headers: { cookie },
-    });
-    expect(asset.statusCode).toBe(200);
-    expect(resolve).not.toHaveBeenCalled();
-    expect(findOne).not.toHaveBeenCalled();
-
-    // Same cookie on a page: exactly one session resolution, one user load.
-    await t.inject({ method: 'GET', url: '/wardrobe', headers: { cookie } });
-    expect(resolve).toHaveBeenCalledTimes(1);
-    expect(findOne).toHaveBeenCalledTimes(1);
-
-    resolve.mockRestore();
-    findOne.mockRestore();
+      await t.inject({ method: 'GET', url: '/about', headers: { cookie } });
+      expect(query).toHaveBeenCalledTimes(1);
+    } finally {
+      query.mockRestore();
+    }
   });
 });

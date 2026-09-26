@@ -9,9 +9,9 @@ import { FileService } from './file-service.abstract';
 import { FileUrlService } from './file-url/file-url.service';
 import { LocalFileService } from './local-file/local-file.service';
 import { S3FileService } from './s3-file/s3-file.service';
-// Nothing here needs a guard (FileController serves images without a
-// session), and AuthModule imports this module for account deletion, so
-// AuthModule must not be imported back.
+// Nothing here needs a guard: FileController serves images without a
+// session. createApp() hands FileService to the web layer for account
+// deletion (src/web/auth/routes.tsx).
 @Module({
   imports: [
     MikroOrmModule.forFeature([File, User]),

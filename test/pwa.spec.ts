@@ -81,6 +81,25 @@ test.describe('installed app delivery', () => {
     });
   });
 
+  test('signing out drops the cached pages', async ({ page }) => {
+    await waitForServiceWorker(page);
+    await page.goto('/wardrobe');
+    const cachedPages = () =>
+      page.evaluate(async () => {
+        const cache = await caches.open('pages-v1');
+        return (await cache.keys()).map(
+          (request) => new URL(request.url).pathname,
+        );
+      });
+    expect(await cachedPages()).toContain('/wardrobe');
+
+    await page.goto('/auth/logout');
+    await expect(page).toHaveURL(/\/auth\/login$/);
+    await expect
+      .poll(async () => (await cachedPages()).includes('/wardrobe'))
+      .toBe(false);
+  });
+
   test('opening a garment does not download the background removal model', async ({
     page,
   }) => {

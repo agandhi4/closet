@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FastifyRequest } from 'fastify';
 import { I18nContext, I18nService } from 'nestjs-i18n';
-import { AuthContext } from '../auth/auth-context.service';
 import { BUILD_INFO } from '../build-info';
+import type { AuthContext } from '../web/auth/session';
 import { requestOrigin } from '../web/security/origin';
 import type { ViewContext } from '../web/view-context';
 
@@ -19,7 +19,7 @@ const OG_LOCALES: Record<string, string> = {
 /**
  * Builds the template context exposed as `reply.locals` by the preValidation
  * hook in app.ts. The session comes in as an argument: this service must not
- * read the cookie or load the user itself (AuthContextService already did).
+ * read the cookie or load the user itself (the session resolver already did).
  */
 @Injectable()
 export class ViewContextService {

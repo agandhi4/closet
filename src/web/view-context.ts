@@ -1,5 +1,5 @@
 import type { FastifyReply } from 'fastify';
-import type { AuthContext } from '../auth/auth-context.service';
+import type { SessionUser } from './auth/session';
 
 /**
  * The per-request page context: built by ViewContextService in the
@@ -32,7 +32,7 @@ export interface ViewContext {
   ogTitle: string;
   ogDescription: string;
   ogImage: string;
-  user: AuthContext['user'] | undefined;
+  user: SessionUser | undefined;
 }
 
 /**

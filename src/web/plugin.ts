@@ -1,7 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { Db } from '../db/client';
+import type { FileService } from '../file/file-service.abstract';
 import { isStaticPath } from '../static-prefixes';
-import { createSessionHook } from './auth';
+import { createSessionHook } from './auth/require-session';
+import { authRoutes } from './auth/routes';
+import type { SessionTokens } from './auth/tokens';
 import { calendarRoutes } from './calendar/routes';
 import { createErrorHandler } from './errors';
 import { loggableUrl } from './loggable-url';
@@ -14,12 +17,17 @@ export interface WebConfig {
   iconName: string;
   /** APP_TIMEZONE: the household's IANA zone, which decides "today". */
   timeZone: string;
+  /** DISABLE_REGISTRATION: the registration routes redirect to the login page. */
+  registrationDisabled: boolean;
 }
 
 export interface WebOptions {
   config: WebConfig;
   logger: WebLogger;
   db: Db;
+  tokens: SessionTokens;
+  /** Photo storage, still a Nest provider; account deletion unlinks through it. */
+  files: Pick<FileService, 'deleteVariants'>;
 }
 
 /**
@@ -28,7 +36,8 @@ export interface WebOptions {
  * app.init(), so the routes sit beside Nest's). Encapsulated on purpose: the
  * session hook and the error handler below apply to these routes only,
  * never to Nest's, which keep SessionGuard and ErrorViewFilter. The root
- * preValidation hook in app.ts (req.auth, reply.locals) runs before both.
+ * hooks in createApp() (same-origin check, rate limits, session resolution
+ * and page context at preValidation) run before both.
  *
  * Request validation is Fastify's own: each route declares a JSON schema
  * for its body, querystring and params with TypeBox, and the handler's
@@ -64,4 +73,5 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
 
   await app.register(shellRoutes, options);
   await app.register(calendarRoutes, options);
+  await app.register(authRoutes, options);
 };
