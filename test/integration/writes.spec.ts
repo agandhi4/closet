@@ -9,10 +9,15 @@ import {
   it,
   vi,
 } from 'vitest';
-import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
-import { variantFileName } from '../../src/file/image-variant';
-import { createGarment, jpegPhoto, uploadPhoto } from './garments';
+import { variantFileName } from '../../src/web/files/image-variant';
+import {
+  createGarment,
+  jpegPhoto,
+  photoRow,
+  photoRowCount,
+  uploadPhoto,
+} from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
 
 /**
@@ -49,7 +54,7 @@ describe('garment writes', () => {
   it('a rolled-back photo update leaves no File row and no files behind', async () => {
     const garmentId = await createGarment(t, { name: 'Blue shirt' });
     const filesBefore = await storedFiles();
-    const rowsBefore = await t.em().count(File);
+    const rowsBefore = await photoRowCount(t);
 
     // The transactional fork inherits EntityManager.prototype.flush; failing
     // it once fails the commit that would have inserted the File row.
@@ -66,7 +71,7 @@ describe('garment writes', () => {
     });
     expect(res.statusCode).toBe(500);
 
-    expect(await t.em().count(File)).toBe(rowsBefore);
+    expect(await photoRowCount(t)).toBe(rowsBefore);
     expect(await storedFiles()).toEqual(filesBefore);
     const garment = await t
       .em()
@@ -87,8 +92,8 @@ describe('garment writes', () => {
     ).photo!.fileName;
     expect(second).not.toBe(first);
 
-    expect(await t.em().findOne(File, { fileName: first })).toBeNull();
-    expect(await t.em().findOne(File, { fileName: second })).not.toBeNull();
+    expect(await photoRow(t, first)).toBeUndefined();
+    expect(await photoRow(t, second)).toBeDefined();
     const files = await storedFiles();
     expect(files).not.toContain(first);
     expect(files).not.toContain(variantFileName(first, 'thumb'));
@@ -113,7 +118,7 @@ describe('garment writes', () => {
     expect(res.statusCode).toBe(200);
 
     expect(await t.em().findOne(Garment, garmentId)).toBeNull();
-    expect(await t.em().findOne(File, { fileName })).toBeNull();
+    expect(await photoRow(t, fileName)).toBeUndefined();
     const files = await storedFiles();
     expect(files).not.toContain(fileName);
     expect(files).not.toContain(variantFileName(fileName, 'thumb'));
@@ -123,7 +128,7 @@ describe('garment writes', () => {
   it('a corrupted upload is a 400 and leaves no partial file on disk', async () => {
     const garmentId = await createGarment(t, { name: 'Corrupt' });
     const filesBefore = await storedFiles();
-    const rowsBefore = await t.em().count(File);
+    const rowsBefore = await photoRowCount(t);
 
     const body = await multipart(
       {},
@@ -144,7 +149,7 @@ describe('garment writes', () => {
     expect(res.statusCode).toBe(400);
 
     expect(await storedFiles()).toEqual(filesBefore);
-    expect(await t.em().count(File)).toBe(rowsBefore);
+    expect(await photoRowCount(t)).toBe(rowsBefore);
   });
 
   it('cloning a garment with a photo commits the copied File row with the clone', async () => {

@@ -14,7 +14,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment, outfit, outfitSlot } from '../../db/schema';
-import type { ImageRef } from '../../file/file-url/image-url';
+import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import {

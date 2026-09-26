@@ -1,16 +1,10 @@
-import {
-  ArgumentsHost,
-  Catch,
-  ExceptionFilter,
-  HttpException,
-  HttpStatus,
-  Logger,
-} from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import {
   LoginRequiredException,
   RedirectToLoginException,
 } from './auth/redirect-to-login.exception';
+import { describeError } from './web/errors';
 
 @Catch()
 export class ErrorViewFilter implements ExceptionFilter {
@@ -44,15 +38,10 @@ export class ErrorViewFilter implements ExceptionFilter {
       return;
     }
 
-    const status =
-      exception instanceof HttpException
-        ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
-
-    const message =
-      exception instanceof HttpException
-        ? exception.getResponse()
-        : 'Internal server error';
+    // One mapping for both stacks: Nest's HttpExceptions and the web
+    // layer's HttpError, which plain modules called from Nest services throw
+    // (an unreadable photo from src/web/files is a 400 here too).
+    const { status, message } = describeError(exception);
 
     try {
       // locals is only missing on static paths (see isStaticPath in app.ts),
@@ -61,8 +50,7 @@ export class ErrorViewFilter implements ExceptionFilter {
       await response.status(status).view('error', {
         layout: 'layout',
         statusCode: status,
-        message:
-          typeof message === 'string' ? message : (message as any).message,
+        message,
         timestamp: new Date().toISOString(),
         path: request.url,
         ...(response.locals ?? {}),

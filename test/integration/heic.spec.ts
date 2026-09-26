@@ -9,9 +9,8 @@ import {
   it,
   vi,
 } from 'vitest';
-import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
-import { createGarment } from './garments';
+import { createGarment, photoRowCount } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
 
 /**
@@ -19,7 +18,7 @@ import { createTestApp, multipart, TestApp } from './harness';
  * in the tree (libheif does not encode, and nothing in node_modules ships a
  * sample), so this covers the rejection paths against the real decoder; the
  * successful decode is unit-tested with heic-convert mocked
- * (src/file/file-service.abstract.spec.ts).
+ * (src/web/files/photos.spec.ts).
  */
 describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
   let t: TestApp;
@@ -52,7 +51,7 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
     rowsBefore: number,
   ) => {
     expect(await storedFiles()).toEqual(filesBefore);
-    expect(await t.em().count(File)).toBe(rowsBefore);
+    expect(await photoRowCount(t)).toBe(rowsBefore);
     const garment = await t
       .em()
       .findOneOrFail(Garment, garmentId, { populate: ['photo'] });
@@ -90,7 +89,7 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
     async (contentType: string, filename: string, warning: string) => {
       const garmentId = await createGarment(t, { name: filename });
       const filesBefore = await storedFiles();
-      const rowsBefore = await t.em().count(File);
+      const rowsBefore = await photoRowCount(t);
       const warn = vi.spyOn(t.app.get(PinoLogger), 'warn');
 
       const res = await upload(
@@ -121,7 +120,7 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
   it('a HEIC part over MAX_HEIC_BYTES is a 413 that leaves nothing behind', async () => {
     const garmentId = await createGarment(t, { name: 'Huge' });
     const filesBefore = await storedFiles();
-    const rowsBefore = await t.em().count(File);
+    const rowsBefore = await photoRowCount(t);
 
     const res = await upload(
       garmentId,

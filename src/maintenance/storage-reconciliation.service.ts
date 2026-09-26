@@ -4,8 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { File } from '../dal/entity/file.entity';
 import { Garment } from '../dal/entity/garment.entity';
-import { FileService } from '../file/file-service.abstract';
-import { parseStoredName } from '../file/image-variant';
+import { parseStoredName } from '../web/files/image-variant';
+import { Photos } from '../web/files/photos';
 
 export const RECONCILE_CRON_JOB = 'storage-reconciliation';
 
@@ -67,7 +67,7 @@ export class StorageReconciliationService implements OnApplicationBootstrap {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly fileService: FileService,
+    private readonly photos: Photos,
     private readonly em: EntityManager,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
@@ -155,7 +155,7 @@ export class StorageReconciliationService implements OnApplicationBootstrap {
   }> {
     const photoSets = new Map<string, StoredPhotoSet>();
     let storedObjects = 0;
-    for await (const object of this.fileService.list()) {
+    for await (const object of this.photos.storage.list()) {
       storedObjects += 1;
       const parsed = parseStoredName(object.name);
       if (!parsed) continue;
@@ -186,7 +186,7 @@ export class StorageReconciliationService implements OnApplicationBootstrap {
       this.logger.debug(
         `${dryRun ? 'Would delete' : 'Deleting'} orphaned ${set.names.join(', ')}`,
       );
-      if (!dryRun) await this.fileService.deleteVariants(baseName);
+      if (!dryRun) await this.photos.deleteVariants(baseName);
       deleted += 1;
     }
     return deleted;
@@ -215,7 +215,7 @@ export class StorageReconciliationService implements OnApplicationBootstrap {
         this.logger.debug(
           `${dryRun ? 'Would delete' : 'Deleted'} unreferenced File ${candidate.id} (${fileName})`,
         );
-        if (!dryRun) await this.fileService.deleteVariants(fileName);
+        if (!dryRun) await this.photos.deleteVariants(fileName);
         removed.set(candidate.id, fileName);
       } catch (error) {
         this.logger.warn(
@@ -238,7 +238,7 @@ export class StorageReconciliationService implements OnApplicationBootstrap {
       .where({ photo: { $ne: null } })
       .execute();
     const referencedIds = referenced.map((row) => row.photo);
-    // createdOn is an ISO string (FileService.newFileRow), so it orders as text.
+    // createdOn is an ISO string (src/web/files/photos.ts), so it orders as text.
     return em.find(
       File,
       {

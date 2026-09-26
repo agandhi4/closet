@@ -1,10 +1,15 @@
 import { readdir } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { User } from '../../src/dal/entity/user.entity';
-import { variantFileName } from '../../src/file/image-variant';
-import { createGarment, jpegPhoto, uploadPhoto } from './garments';
+import { variantFileName } from '../../src/web/files/image-variant';
+import {
+  createGarment,
+  jpegPhoto,
+  photoRow,
+  photoRowCount,
+  uploadPhoto,
+} from './garments';
 import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
 /**
@@ -86,17 +91,15 @@ describe('account deletion', () => {
     const after = t.em();
     expect(await after.findOne(User, { id: user.id })).toBeNull();
     expect(await after.count(Garment, { owner: user.id })).toBe(0);
-    expect(await after.count(File, { createdBy: user.id })).toBe(0);
-    expect(await after.findOne(File, { fileName })).toBeNull();
+    expect(await photoRowCount(t, user.id)).toBe(0);
+    expect(await photoRow(t, fileName)).toBeUndefined();
     const files = await storedFiles();
     expect(files).not.toContain(fileName);
     expect(files).not.toContain(variantFileName(fileName, 'thumb'));
     expect(files).not.toContain(variantFileName(fileName, 'nobg'));
 
     // The other household member is untouched.
-    expect(
-      await after.findOne(File, { fileName: bystanderFile }),
-    ).not.toBeNull();
+    expect(await photoRow(t, bystanderFile)).toBeDefined();
     expect(files).toContain(bystanderFile);
 
     // The old session is dead.

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
-import { variantFileName } from '../../src/file/image-variant';
+import { variantFileName } from '../../src/web/files/image-variant';
 import {
   ReconciliationReport,
   StorageReconciliationService,

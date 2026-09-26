@@ -1,7 +1,7 @@
 import { MultipartFile } from '@fastify/multipart';
-import { PayloadTooLargeException } from '@nestjs/common';
 import heicConvert from 'heic-convert';
 import { Readable } from 'stream';
+import { HttpError } from '../errors';
 
 // sharp's bundled libvips has no HEIC decoder, so iPhone photos (and the
 // HEIC option on Android) are decoded here first and handed to sharp as a
@@ -29,10 +29,10 @@ export function isHeicUpload({ mimetype, filename }: MultipartFile): boolean {
 
 /**
  * Buffers the part up to `maxBytes` and decodes it to a JPEG stream. Rejects
- * with PayloadTooLargeException (413) past the cap; whatever heic-convert
- * throws for undecodable bytes is passed through for the caller to map to
- * a client error. The part is fully drained on every path: an unconsumed
- * multipart stream hangs the request (see storeImageFromFileUpload).
+ * with a 413 HttpError past the cap; whatever heic-convert throws for
+ * undecodable bytes is passed through for the caller to map to a client
+ * error. The part is fully drained on every path: an unconsumed multipart
+ * stream hangs the request (see Photos.storeUpload).
  */
 export async function decodeHeic(
   part: MultipartFile,
@@ -40,9 +40,7 @@ export async function decodeHeic(
 ): Promise<Readable> {
   const buffer = await readUpTo(part.file, maxBytes);
   if (!buffer) {
-    throw new PayloadTooLargeException(
-      `HEIC uploads are limited to ${maxBytes} bytes`,
-    );
+    throw new HttpError(413, `HEIC uploads are limited to ${maxBytes} bytes`);
   }
   const jpeg = await heicConvert({
     buffer,

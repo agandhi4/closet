@@ -1,8 +1,8 @@
 import { MultipartFile } from '@fastify/multipart';
-import { PayloadTooLargeException } from '@nestjs/common';
 import heicConvert from 'heic-convert';
 import { Readable } from 'stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { HttpError } from '../errors';
 import { decodeHeic, isHeicUpload } from './heic';
 
 vi.mock('heic-convert', () => ({ default: vi.fn() }));
@@ -42,9 +42,12 @@ describe('decodeHeic', () => {
         }
       })(),
     );
-    await expect(
-      decodeHeic({ file, filename: 'big.heic' } as MultipartFile, 1000),
-    ).rejects.toThrow(PayloadTooLargeException);
+    const refused = decodeHeic(
+      { file, filename: 'big.heic' } as MultipartFile,
+      1000,
+    );
+    await expect(refused).rejects.toBeInstanceOf(HttpError);
+    await expect(refused).rejects.toMatchObject({ statusCode: 413 });
     // busboy only moves to the next part once this one is consumed.
     expect(read).toBe(chunks.length);
     expect(heicConvertMock).not.toHaveBeenCalled();

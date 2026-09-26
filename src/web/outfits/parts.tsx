@@ -1,5 +1,5 @@
 import type { Child } from 'hono/jsx';
-import { imageUrl } from '../../file/file-url/image-url';
+import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
 import type { OutfitGarment } from './queries';
 

@@ -11,13 +11,14 @@ import {
 import { I18nContext } from 'nestjs-i18n';
 import { Garment } from '../dal/entity/garment.entity';
 import { File } from '../dal/entity/file.entity';
-import { FileService } from '../file/file-service.abstract';
 import { MultipartFile } from '@fastify/multipart';
 import { CreateGarmentDto } from './dto/create-garment.dto';
 import { UpdateGarmentDto } from './dto/update-garment.dto';
 import { SearchGarmentDto } from './dto/search-garment.dto';
 import { GarmentCategory } from './garment-category.enum';
 import { WardrobeShareService } from '../wardrobe-share/wardrobe-share.service';
+import { Photos } from '../web/files/photos';
+import type { NewPhotoRow } from '../web/files/queries';
 
 const CANONICAL_SIZES = [
   'XX-Small',
@@ -46,7 +47,7 @@ export class GarmentService {
     @InjectRepository(Garment)
     private readonly garmentRepository: EntityRepository<Garment>,
     private readonly em: EntityManager,
-    private readonly fileService: FileService,
+    private readonly photos: Photos,
     private readonly shareService: WardrobeShareService,
   ) {}
 
@@ -124,7 +125,7 @@ export class GarmentService {
   /** `ownerId`: the wardrobe the garment lands in (a MANAGE grantee may add to another's). */
   async create(dto: CreateGarmentDto, ownerId: number): Promise<Garment> {
     const photo = await this.storeUploadedPhoto(dto.files, ownerId);
-    const garment = await this.commitWithPhoto(photo, (em) =>
+    const garment = await this.commitWithPhoto(photo, (em, photoRow) =>
       em.create(Garment, {
         name: dto.name,
         category: dto.category,
@@ -134,7 +135,7 @@ export class GarmentService {
         notes: dto.notes,
         washingDetails: dto.washingDetails,
         dateAquired: dto.dateAquired ? new Date(dto.dateAquired) : undefined,
-        photo,
+        photo: photoRow,
         owner: ownerId,
       }),
     );
@@ -162,10 +163,10 @@ export class GarmentService {
     if (!source) throw new NotFoundException('Garment not found');
 
     const photo = source.photo?.fileName
-      ? await this.fileService.copyImage(source.photo.fileName, userId)
+      ? await this.photos.copy(source.photo.fileName, userId)
       : undefined;
 
-    const garment = await this.commitWithPhoto(photo, (em) =>
+    const garment = await this.commitWithPhoto(photo, (em, photoRow) =>
       em.create(Garment, {
         name: dto.name,
         category: dto.category,
@@ -173,7 +174,7 @@ export class GarmentService {
         color: dto.color,
         size: this.normalizeSize(dto.size),
         notes: dto.notes,
-        photo,
+        photo: photoRow,
         owner: userId,
       }),
     );
@@ -232,11 +233,11 @@ export class GarmentService {
 
     const { garment, replacedPhoto } = await this.commitWithPhoto(
       photo,
-      async (em) => {
+      async (em, photoRow) => {
         const garment = await this.findOne(id, requestingUserId, ownerId);
-        const replacedPhoto = photo ? garment.photo : undefined;
-        if (photo) {
-          garment.photo = photo;
+        const replacedPhoto = photoRow ? garment.photo : undefined;
+        if (photoRow) {
+          garment.photo = photoRow;
           // The old row goes with the old bytes; the FK is set null on delete
           // but the garment already points at the new photo in this flush.
           if (replacedPhoto) em.remove(replacedPhoto);
@@ -248,7 +249,7 @@ export class GarmentService {
 
     // Only after commit: an unlink cannot be rolled back.
     if (photo && replacedPhoto) {
-      await this.fileService.deleteVariants(replacedPhoto.fileName);
+      await this.photos.deleteVariants(replacedPhoto.fileName);
       this.logger.log(
         `Garment ${id} photo replaced: ${replacedPhoto.fileName} -> ${photo.fileName}`,
       );
@@ -285,17 +286,13 @@ export class GarmentService {
   ): Promise<number | undefined> {
     const garment = await this.findOne(id, requestingUserId, ownerId);
     if (!garment.photo?.fileName || !nobgPhoto) return undefined;
-    await this.fileService.storeNobgVariantFromStream(
+    const version = await this.photos.storeCutout(
       nobgPhoto.file,
       garment.photo.fileName,
       { newUpload: false },
     );
-    // storeNobgVariantFromStream bumped the same managed File instance
-    // (identity map), so the populated photo already carries the new version.
-    this.logger.log(
-      `Garment ${id} cutout replaced, photo version ${garment.photo.version}`,
-    );
-    return garment.photo.version;
+    this.logger.log(`Garment ${id} cutout replaced, photo version ${version}`);
+    return version;
   }
 
   /** Garment and its File row go in one transaction; the bytes after commit. */
@@ -306,7 +303,7 @@ export class GarmentService {
       if (garment.photo) em.remove(garment.photo);
       return garment.photo;
     });
-    if (photo) await this.fileService.deleteVariants(photo.fileName);
+    if (photo) await this.photos.deleteVariants(photo.fileName);
     this.logger.log(`Garment ${id} removed by user ${userId}`);
   }
 
@@ -318,22 +315,26 @@ export class GarmentService {
   }
 
   /**
-   * Commits `write` in one transaction. The photo's bytes were written before
-   * this point; if the rows do not land, the bytes are removed again so
-   * storage never holds a file no row points at.
+   * Commits `write` in one transaction, with the photo's `file` row (as
+   * Photos returned it) created in the same one and handed to `write` to
+   * attach. The photo's bytes were written before this point; if the rows do
+   * not land, the bytes are removed again so storage never holds a file no
+   * row points at.
    */
   private async commitWithPhoto<T>(
-    photo: File | undefined,
-    write: (em: EntityManager) => T | Promise<T>,
+    photo: NewPhotoRow | undefined,
+    write: (em: EntityManager, photoRow: File | undefined) => T | Promise<T>,
   ): Promise<T> {
     try {
-      return await this.em.transactional((em) => Promise.resolve(write(em)));
+      return await this.em.transactional((em) =>
+        Promise.resolve(write(em, photo && photoEntity(em, photo))),
+      );
     } catch (error) {
       if (photo) {
         this.logger.warn(
           `Rolled back; removing orphaned upload ${photo.fileName}`,
         );
-        await this.fileService.deleteVariants(photo.fileName);
+        await this.photos.deleteVariants(photo.fileName);
       }
       throw error;
     }
@@ -342,12 +343,12 @@ export class GarmentService {
   private async storeUploadedPhoto(
     files: AsyncIterableIterator<MultipartFile> | undefined,
     ownerId: number,
-  ): Promise<File | undefined> {
+  ): Promise<NewPhotoRow | undefined> {
     if (!files) return undefined;
-    let photo: File | undefined;
+    let photo: NewPhotoRow | undefined;
     for await (const file of files) {
       if (file.fieldname === 'photo') {
-        photo = await this.fileService.storeImageFromFileUpload(file, ownerId);
+        photo = await this.photos.storeUpload(file, ownerId);
       } else {
         file.file.resume();
       }
@@ -367,26 +368,24 @@ export class GarmentService {
     garmentId: number,
     files: AsyncIterableIterator<MultipartFile>,
     ownerId: number,
-  ): Promise<File | undefined> {
-    let photoPromise: Promise<File> | undefined;
-    let nobgPromise: Promise<void> | undefined;
+  ): Promise<NewPhotoRow | undefined> {
+    let photoPromise: Promise<NewPhotoRow> | undefined;
+    let nobgPromise: Promise<unknown> | undefined;
     const photoFileName = `${randomUUID()}.webp`;
 
     for await (const file of files) {
       if (file.fieldname === 'photo') {
         photoPromise = startPipeline(
-          this.fileService.storeImageFromFileUpload(file, ownerId, {
+          this.photos.storeUpload(file, ownerId, {
             fileName: photoFileName,
             deferThumb: true,
           }),
         );
       } else if (file.fieldname === 'nobgPhoto') {
         nobgPromise = startPipeline(
-          this.fileService.storeNobgVariantFromStream(
-            file.file,
-            photoFileName,
-            { newUpload: true },
-          ),
+          this.photos.storeCutout(file.file, photoFileName, {
+            newUpload: true,
+          }),
         );
       } else {
         file.file.resume();
@@ -401,7 +400,7 @@ export class GarmentService {
         // so drain it, remove whatever it wrote under the never-persisted
         // name, and reject.
         await nobgPromise.catch((err) => this.logger.warn(err));
-        await this.fileService.deleteVariants(photoFileName);
+        await this.photos.deleteVariants(photoFileName);
         this.logger.warn(
           `Garment ${garmentId} update carried nobgPhoto without photo; discarded`,
         );
@@ -420,17 +419,17 @@ export class GarmentService {
       (result): result is PromiseRejectedResult => result.status === 'rejected',
     );
     if (failure) {
-      await this.fileService.deleteVariants(photoFileName);
+      await this.photos.deleteVariants(photoFileName);
       throw failure.reason;
     }
-    const photo = (photoResult as PromiseFulfilledResult<File>).value;
+    const photo = (photoResult as PromiseFulfilledResult<NewPhotoRow>).value;
 
     // The one thumb, built after both halves are stored so it reads the
     // cutout when there is one (neither pipeline builds its own).
     try {
-      await this.fileService.regenerateThumb(photoFileName);
+      await this.photos.regenerateThumb(photoFileName);
     } catch (error) {
-      await this.fileService.deleteVariants(photoFileName);
+      await this.photos.deleteVariants(photoFileName);
       throw error;
     }
     return photo;
@@ -467,6 +466,16 @@ export class GarmentService {
 function startPipeline<T>(pipeline: Promise<T>): Promise<T> {
   pipeline.catch(() => undefined);
   return pipeline;
+}
+
+// The MikroORM twin of insertPhotoRow for the garment code still on
+// MikroORM. shareableId is filled by ShareableId's @BeforeCreate on insert.
+function photoEntity(em: EntityManager, row: NewPhotoRow): File {
+  return em.create(File, {
+    fileName: row.fileName,
+    createdOn: row.createdOn,
+    createdBy: row.createdById,
+  });
 }
 
 /** Canonical sizes in wearing order first, anything custom alphabetically after. */

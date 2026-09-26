@@ -1,23 +1,44 @@
-import { MikroOrmModule } from '@mikro-orm/nestjs';
-import { Module } from '@nestjs/common';
-import { File } from '../dal/entity/file.entity';
-import { User } from '../dal/entity/user.entity';
-import { FileController } from './controller/file.controller';
-import { FileService } from './file-service.abstract';
+import { Logger, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { join } from 'node:path';
+import type { Db } from '../db/client';
+import { DB } from '../db/db.module';
+import { PROJECT_ROOT } from '../project-root';
+import { createPhotos, Photos } from '../web/files/photos';
 import { FileUrlService } from './file-url/file-url.service';
-import { LocalFileService } from './local-file/local-file.service';
 
-// Nothing here needs a guard: FileController serves images without a
-// session. createApp() hands FileService to the web layer for account
-// deletion (src/web/auth/routes.tsx). Photos live on local disk under
-// DATA_PATH, the only storage (the S3 backend was removed 2026-09-26).
+/**
+ * Nest's handle on src/web/files: the process's one Photos instance, built
+ * from config, for the garment code still in Nest (GarmentService) and for
+ * createApp(), which hands the same instance to the web layer (the /file
+ * routes, account deletion). One instance, because the thumb single-flight
+ * lives in it. Goes when garments are ported and createApp() calls
+ * createPhotos() itself.
+ */
 @Module({
-  imports: [MikroOrmModule.forFeature([File, User])],
-  controllers: [FileController],
   providers: [
-    { provide: FileService, useClass: LocalFileService },
+    {
+      provide: Photos,
+      inject: [ConfigService, DB],
+      useFactory: (config: ConfigService, db: Db): Photos =>
+        createPhotos(
+          {
+            dataPath: config.getOrThrow<string>('DATA_PATH'),
+            maxHeicBytes: config.getOrThrow<number>('MAX_HEIC_BYTES'),
+            watermarkIconPath: join(
+              PROJECT_ROOT,
+              'public',
+              'assets',
+              config.getOrThrow<string>('ICON_NAME'),
+            ),
+            watermarkEnabled: config.getOrThrow<boolean>('WATERMARK_ENABLED'),
+          },
+          db,
+          new Logger('Photos'),
+        ),
+    },
     FileUrlService,
   ],
-  exports: [FileService, FileUrlService],
+  exports: [Photos, FileUrlService],
 })
 export class FileModule {}

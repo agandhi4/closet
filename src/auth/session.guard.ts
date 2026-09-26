@@ -13,9 +13,9 @@ import { decideSessionAccess } from './session-access';
  * AppModule: every Nest route needs a signed-in user unless it is marked
  * @Public(). Plain-Fastify routes (src/web/) have their own hook; both take
  * the decision from decideSessionAccess. It only reads `req.auth`, which
- * AuthContextService resolved once in the preHandler hook in app.ts; it never
+ * createSessionResolver resolved once in the preValidation hook in app.ts; it never
  * touches the cookie or the JWT. Static paths skip that hook, so a route under
- * one (FileController) never has a session and must be @Public().
+ * one never has a session and must be public (as every /file route is).
  *
  * A guard cannot answer the request itself, so it throws and ErrorViewFilter
  * sends the 302 or the 401 with `HX-Redirect`.

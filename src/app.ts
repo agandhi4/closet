@@ -16,8 +16,8 @@ import { Logger } from 'nestjs-pino';
 import { ViewContextService } from './view-context/view-context.service';
 import { isStaticPath } from './static-prefixes';
 import { GarmentColor } from './wardrobe/garment-color.enum';
-import { ImageRef, imageUrl } from './file/file-url/image-url';
-import { isImageVariant } from './file/image-variant';
+import { ImageRef, imageUrl } from './web/files/image-url';
+import { isImageVariant } from './web/files/image-variant';
 import { PROJECT_ROOT } from './project-root';
 import { BUILD_INFO } from './build-info';
 import { ConfigService } from '@nestjs/config';
@@ -25,7 +25,7 @@ import { Logger as NestLogger } from '@nestjs/common';
 import type { Db } from './db/client';
 import { DB } from './db/db.module';
 import { webPlugin } from './web/plugin';
-import { FileService } from './file/file-service.abstract';
+import { Photos } from './web/files/photos';
 import { createSessionResolver } from './web/auth/session';
 import { createSessionTokens } from './web/auth/tokens';
 import { registerRateLimit } from './web/security/rate-limit';
@@ -184,7 +184,7 @@ export async function createApp(): Promise<NestFastifyApplication> {
     logger: new NestLogger('Web'),
     db,
     tokens,
-    files: app.get<FileService>(FileService),
+    photos: app.get<Photos>(Photos),
   });
 
   return app;
