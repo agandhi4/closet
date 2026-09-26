@@ -1,15 +1,13 @@
 import type { LightMyRequestResponse } from 'fastify';
 import { User } from '../../src/dal/entity/user.entity';
-import { EmailService } from '../../src/email/email.service';
 import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
 /**
- * Account flows, end to end through the real
- * controllers: inline registration validation, logout, changing the email,
- * the delete-account page, login failures, and the whole password reset
- * (EmailService stubbed at its one public method, the PIN read from the
- * password_reset row). Sessions are asserted through the `pwf` password
- * fingerprint AuthContextService checks on every request.
+ * Account flows, end to end through the real controllers: inline
+ * registration validation, logout, changing the email, the delete-account
+ * page, login failures, and changing the password. Sessions are asserted
+ * through the `pwf` password fingerprint AuthContextService checks on every
+ * request.
  */
 
 const NEW_PASSWORD = 'NewPassword456!';
@@ -26,7 +24,6 @@ function sessionSetCookie(res: LightMyRequestResponse): string {
 
 describe('account', () => {
   let t: TestApp;
-  let sendEmail: jest.SpyInstance;
 
   // Each login-driven test gets its own client address (TRUSTED_PROXIES
   // trusts X-Forwarded-For from inject's 127.0.0.1), so no test's attempts
@@ -62,19 +59,9 @@ describe('account', () => {
 
   beforeAll(async () => {
     t = await createTestApp();
-    // No EMAIL_TRANSPORT in tests, so the real transporter does not exist.
-    // AuthService holds this same singleton, so the spy sees every reset mail.
-    sendEmail = jest
-      .spyOn(t.app.get(EmailService), 'sendEmailFromPrimaryAddress')
-      .mockResolvedValue('<test-message-id>');
   });
 
-  beforeEach(() => sendEmail.mockClear());
-
-  afterAll(async () => {
-    sendEmail?.mockRestore();
-    await t?.cleanup();
-  });
+  afterAll(() => t?.cleanup());
 
   describe('POST /auth/validate/register', () => {
     const validate = (payload: Record<string, string>) =>
@@ -115,8 +102,7 @@ describe('account', () => {
     // New bug: the fieldset in views/auth/register.hbs posts here with the
     // default innerHTML swap and no hx-select, but @Render('auth/register')
     // wraps the answer in the layout, so htmx nests a second navbar, form and
-    // dock inside the fieldset. Same for validate/update-email and
-    // validate/reset-code.
+    // dock inside the fieldset. Same for validate/update-email.
     it.failing(
       'answers the htmx validation request with a fragment',
       async () => {
@@ -156,8 +142,8 @@ describe('account', () => {
 
     // New bug: ThrottlerModule.forRoot() registers no named throttler, and
     // @Throttle({ default: ... }) only overrides the limits of a registered
-    // one, so the guard iterates an empty list: login (and the reset-code
-    // validation) is not rate limited at all.
+    // one, so the guard iterates an empty list: login is not rate limited
+    // at all.
     it.failing(
       'a sixth failed login within a minute is throttled',
       async () => {
@@ -315,129 +301,172 @@ describe('account', () => {
     expect(await t.em().count(User, { email: 'leaving@example.com' })).toBe(1);
   });
 
-  describe('password reset', () => {
-    const email = 'forgetful@example.com';
-    let oldSession: string;
+  describe('change password', () => {
+    const email = 'changer@example.com';
+    let cookie: string;
 
-    const requestReset = (address: string) =>
+    const changePassword = (session: string, payload: Record<string, string>) =>
       t.inject({
         method: 'POST',
-        url: '/auth/reset',
-        payload: { email: address },
+        url: '/auth/change-password',
+        payload,
+        headers: { cookie: session },
       });
-
-    const submitCode = (resetCode: string, password: string) =>
-      t.inject({
-        method: 'POST',
-        url: '/auth/reset-code',
-        payload: { email, resetCode, password, confirmPassword: password },
-      });
-
-    const storedPin = async (address: string) => {
-      const user = await t
-        .em()
-        .findOneOrFail(
-          User,
-          { email: address },
-          { populate: ['passwordReset'] },
-        );
-      // Typed as always set, but null until the first reset request.
-      const pin = (
-        user.passwordReset as typeof user.passwordReset | null
-      )?.unwrap().pin;
-      if (!pin) throw new Error(`No password_reset row for ${address}`);
-      return pin;
-    };
 
     beforeAll(async () => {
-      oldSession = await t.register(email);
+      cookie = await t.register(email);
     });
 
-    it('an unknown address re-renders the form and sends nothing', async () => {
-      const res = await requestReset('nobody@example.com');
-      expect(res.statusCode).toBeLessThan(300);
-      expect(res.body).toContain('hx-post="/auth/reset"');
-      expect(sendEmail).not.toHaveBeenCalled();
-    });
-
-    it('POST /auth/validate/reset-code flags mismatched passwords', async () => {
-      const res = await t.inject({
-        method: 'POST',
-        url: '/auth/validate/reset-code',
-        payload: {
-          email,
-          resetCode: '123456',
-          password: NEW_PASSWORD,
-          confirmPassword: 'Different123',
-        },
-        headers: { 'hx-request': 'true' },
+    it('GET /auth/change-password renders the form, linked from the profile', async () => {
+      const page = await t.inject({
+        method: 'GET',
+        url: '/auth/change-password',
+        headers: { cookie },
       });
-      expect(res.statusCode).toBeLessThan(300);
-      expect(res.body).toContain('class="text-error"');
-      expect(res.body).not.toMatch(/\blang\.(validation\.)?[A-Z_]{3,}/);
+      expect(page.statusCode).toBe(200);
+      expect(page.body).toContain('action="/auth/change-password"');
+      for (const field of [
+        'currentPassword',
+        'newPassword',
+        'confirmPassword',
+      ]) {
+        expect(page.body).toContain(`name="${field}"`);
+      }
+
+      const profile = await t.inject({
+        method: 'GET',
+        url: '/auth/profile',
+        headers: { cookie },
+      });
+      expect(profile.body).toContain('href="/auth/change-password"');
+      expect(profile.body).not.toContain('/auth/reset');
     });
 
-    it('resets the password with the mailed PIN and ends every old session', async () => {
-      const res = await requestReset(email);
-      expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe(`/auth/reset-code?email=${email}`);
-
-      expect(sendEmail).toHaveBeenCalledTimes(1);
-      const mail = sendEmail.mock.calls[0][0] as { to: string; html: string };
-      expect(mail.to).toBe(email);
-      const pin = await storedPin(email);
-      expect(pin).toMatch(/^\d{6}$/);
-      expect(mail.html).toContain(pin);
-
+    it('a wrong current password is a 400 with a translated error; the hash is unchanged', async () => {
       const hashBefore = await passwordHash(email);
-      const done = await submitCode(pin, NEW_PASSWORD);
-      expect(done.statusCode).toBe(302);
-      expect(done.headers.location).toBe('/auth/login');
-      expect(await passwordHash(email)).not.toBe(hashBefore);
-
-      // The old token's pwf no longer matches the stored hash.
-      expect(await profileStatus(oldSession)).toBe(302);
-      expect(
-        sessionCookie(await postLogin(email, TEST_PASSWORD)),
-      ).toBeUndefined();
-      const fresh = sessionCookie(await postLogin(email, NEW_PASSWORD));
-      expect(fresh).toBeDefined();
-      expect(await profileStatus(fresh!)).toBe(200);
-    });
-
-    it('a wrong PIN leaves the password alone', async () => {
-      await requestReset(email);
-      const pin = await storedPin(email);
-      const wrong = pin === '100000' ? '100001' : '100000';
-      const hashBefore = await passwordHash(email);
-      await submitCode(wrong, 'Attacker789!');
+      const res = await changePassword(cookie, {
+        currentPassword: 'NotMyPassword1',
+        newPassword: NEW_PASSWORD,
+        confirmPassword: NEW_PASSWORD,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toContain('Current password is incorrect');
+      expect(res.body).not.toMatch(/\blang\.[A-Z_]{3,}/);
+      expect(res.body).not.toContain(NEW_PASSWORD);
+      expect(sessionCookie(res)).toBeUndefined();
       expect(await passwordHash(email)).toBe(hashBefore);
+      expect(await profileStatus(cookie)).toBe(200);
     });
 
-    // New bug: AuthService.resetPassword ignores a PIN mismatch and the
-    // controller redirects to /auth/login as if the reset worked; the user
-    // gets no error and their "new" password never works.
-    it.failing(
-      'a wrong PIN is reported instead of redirecting to login',
-      async () => {
-        await requestReset(email);
-        const pin = await storedPin(email);
-        const wrong = pin === '100000' ? '100001' : '100000';
-        const res = await submitCode(wrong, 'Attacker789!');
-        expect(res.statusCode).toBeGreaterThanOrEqual(400);
-        expect(res.headers.location).toBeUndefined();
+    it.each([
+      [
+        'a mismatched confirmation',
+        { newPassword: NEW_PASSWORD, confirmPassword: 'Different456!' },
+        'confirmPassword',
+        'Passwords must match',
+      ],
+      [
+        'a too-short password',
+        { newPassword: 'Ab1', confirmPassword: 'Ab1' },
+        'newPassword',
+        'at least 8 characters',
+      ],
+      [
+        'a password without a digit or capital',
+        { newPassword: 'lowercaseonly', confirmPassword: 'lowercaseonly' },
+        'newPassword',
+        'one uppercase letter',
+      ],
+    ])(
+      '%s is a 400 validation re-render; the hash is unchanged',
+      async (_label, fields, field, message) => {
+        const hashBefore = await passwordHash(email);
+        const res = await changePassword(cookie, {
+          currentPassword: TEST_PASSWORD,
+          ...fields,
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toContain(message);
+        // The error marks the field it belongs to, and only that one.
+        expect(res.body).toMatch(
+          new RegExp(`input-error">\\s*<input\\s+id="${field}"`),
+        );
+        expect(res.body.match(/input input-error/g)).toHaveLength(1);
+        expect(res.body).not.toMatch(/\blang\.(validation\.)?[A-Z_]{3,}/);
+        expect(await passwordHash(email)).toBe(hashBefore);
       },
     );
 
-    // Known bug (docs/audits/2026-09-25-program2): the reset PIN never expires and is not single-use.
-    it.failing('a PIN works only once', async () => {
-      await requestReset(email);
-      const pin = await storedPin(email);
-      await submitCode(pin, 'FirstReset111!');
-      const afterFirst = await passwordHash(email);
+    it('changes the hash, keeps this session signed in and ends every other session', async () => {
+      const otherDevice = await t.login(email);
+      expect(await profileStatus(otherDevice)).toBe(200);
+      const hashBefore = await passwordHash(email);
 
-      await submitCode(pin, 'SecondReset222!');
-      expect(await passwordHash(email)).toBe(afterFirst);
+      const res = await changePassword(cookie, {
+        currentPassword: TEST_PASSWORD,
+        newPassword: NEW_PASSWORD,
+        confirmPassword: NEW_PASSWORD,
+      });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe('/auth/profile?passwordChanged=1');
+      expect(await passwordHash(email)).not.toBe(hashBefore);
+
+      // This browser got a replacement cookie carrying the new fingerprint.
+      const replacement = sessionCookie(res);
+      expect(replacement).toBeDefined();
+      expect(sessionSetCookie(res)).toMatch(/HttpOnly/i);
+      const profile = await t.inject({
+        method: 'GET',
+        url: '/auth/profile?passwordChanged=1',
+        headers: { cookie: replacement! },
+      });
+      expect(profile.statusCode).toBe(200);
+      expect(profile.body).toContain('alert-success');
+
+      // Every token issued before the change is dead: the one this request
+      // was made with and the other device's. A page is redirected, an htmx
+      // fragment gets a 401 with HX-Redirect.
+      for (const old of [cookie, otherDevice]) {
+        expect(await profileStatus(old)).toBe(302);
+        const fragment = await t.inject({
+          method: 'GET',
+          url: '/wardrobe',
+          headers: { cookie: old, 'hx-request': 'true' },
+        });
+        expect(fragment.statusCode).toBe(401);
+        expect(fragment.headers['hx-redirect']).toBe('/auth/login');
+      }
+
+      // Only the new password logs in now.
+      expect(
+        sessionCookie(await postLogin(email, TEST_PASSWORD)),
+      ).toBeUndefined();
+      expect(sessionCookie(await postLogin(email, NEW_PASSWORD))).toBeDefined();
+    });
+
+    it('anonymously: the page redirects to login and the post changes nothing', async () => {
+      const page = await t.inject({
+        method: 'GET',
+        url: '/auth/change-password',
+        anonymous: true,
+      });
+      expect(page.statusCode).toBe(302);
+      expect(page.headers.location).toBe('/auth/login');
+
+      const hashBefore = await passwordHash(email);
+      const post = await t.inject({
+        method: 'POST',
+        url: '/auth/change-password',
+        payload: {
+          currentPassword: NEW_PASSWORD,
+          newPassword: 'Hijacked789!',
+          confirmPassword: 'Hijacked789!',
+        },
+        anonymous: true,
+      });
+      expect(post.statusCode).toBe(302);
+      expect(post.headers.location).toBe('/auth/login');
+      expect(await passwordHash(email)).toBe(hashBefore);
     });
   });
 });

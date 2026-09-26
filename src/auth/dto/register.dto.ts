@@ -1,5 +1,6 @@
-import { IsEmail, IsString, Matches, MinLength } from 'class-validator';
+import { IsEmail, IsString } from 'class-validator';
 import { Match } from '../match.decorator';
+import { IsAcceptablePassword } from '../password-rules.decorator';
 import { i18nValidationMessage } from 'nestjs-i18n';
 import { I18nTranslations } from '../../i18n/generated/i18n.generated';
 
@@ -15,17 +16,7 @@ export class RegisterDto {
   )
   email: string;
 
-  @IsString()
-  @MinLength(8, {
-    message: i18nValidationMessage<I18nTranslations>(
-      'lang.validation.MIN_PASSWORD_LENGTH',
-    ),
-  })
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
-    message: i18nValidationMessage<I18nTranslations>(
-      'lang.validation.PASSWORD_MUST_CONTAIN',
-    ),
-  })
+  @IsAcceptablePassword()
   password: string;
 
   @Match('password', {

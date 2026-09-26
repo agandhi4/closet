@@ -12,7 +12,7 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **Views**: server-rendered Handlebars (`@fastify/view`) with htmx 2 for interactivity and `_hyperscript` for client logic. Not a SPA. There is no JSON API for the UI.
 - **CSS**: Tailwind v4 (`@tailwindcss/cli`) + daisyUI. Source `views/assets/main.css`, compiled to `public/bundle.css` by `npm run generate:tailwind`.
 - **Data**: MikroORM 6 on PostgreSQL only (17 in production on pgvault, 17 in CI, pgvault-dev locally). SQLite was dropped on 2026-09-25: its test tier passed on behavior production never had (case-insensitive `LIKE`, unbounded `varchar`, a drifted `color` type) and its migration tree wiped rows. One migration tree, `src/dal/migrations/postgres/`.
-- **Auth**: login is always required (the upstream `AUTH_ENABLED=false` mode was removed 2026-09-25). JWT in an `access_token` httpOnly cookie, bcrypt passwords. The session is resolved once per request by `AuthContextService` (cookie, JWT, user row, password fingerprint) into `req.auth`. One global `SessionGuard` (APP_GUARD, after the throttler) only reads it: every route needs a session unless it is `@Public()`; without one a page navigation is a 302 to `/auth/login` and an htmx fragment or fetch a 401 with `HX-Redirect: /auth/login`. Handlers take the user as `@UserId() userId: number`. Wardrobe permissions come from one `WardrobeShareService.resolveAccess`. `DISABLE_REGISTRATION` locks signup.
+- **Auth**: login is always required (the upstream `AUTH_ENABLED=false` mode was removed 2026-09-25). JWT in an `access_token` httpOnly cookie, bcrypt passwords. The session is resolved once per request by `AuthContextService` (cookie, JWT, user row, password fingerprint) into `req.auth`. One global `SessionGuard` (APP_GUARD, after the throttler) only reads it: every route needs a session unless it is `@Public()`; without one a page navigation is a 302 to `/auth/login` and an htmx fragment or fetch a 401 with `HX-Redirect: /auth/login`. Handlers take the user as `@UserId() userId: number`. There is no password reset by email (removed with `src/email/` on 2026-09-25); a signed-in user changes it at `/auth/change-password`, which needs the current password, revokes every other session through the fingerprint and reissues this one's cookie. A forgotten password is a data fix through `pgvault-connect closet_db`. Wardrobe permissions come from one `WardrobeShareService.resolveAccess`. `DISABLE_REGISTRATION` locks signup.
 - **PWA**: Workbox `injectManifest` over a hand-written service worker (`views/assets/src-sw.ts`, esbuild to `.js`, injected to `public/sw.js`), `/manifest.json` served from config by `AppController`, `@khmyznikov/pwa-install`, `pulltorefreshjs`, Web Push via `web-push` + VAPID keys. Gated by `PWA_ENABLED`.
 - **Images**: `sharp` for transcoding, `@imgly/background-removal` in the browser (patched, see gotchas), `heic-convert` for HEIC uploads. See Architecture, Images.
 - **Storage**: `src/file/` abstraction, `local` (disk under `DATA_PATH`) or `object` (S3 via `nestjs-s3`).
@@ -32,12 +32,13 @@ src/
   project-root.ts      PROJECT_ROOT for public/, views/, node_modules/ paths; valid from src/ and dist/
   app.module.ts        Root module. Joi env schema (the ONLY place config is declared), pino, throttler,
                        i18n, global error-view filter. Every new env var is added here with a default.
-  auth/                Login/register/account controllers, AuthService, AuthContextService (session),
+  auth/                Login/register/account controllers (profile, update email, change password,
+                       delete account), AuthService, AuthContextService (session),
                        SessionGuard + @Public() (the one auth gate), @UserId(), RegistrationGuard
   dal/                 Data access layer
     dal.module.ts      MikroORM config (Postgres, migrations run on boot)
     entity/            user, garment, outfit, outfit-garment (explicit pivot so its foreign keys carry declared indexes),
-                       outfit-calendar, file, passwordReset, shareableId, userDevice, wardrobe-share
+                       outfit-calendar, file, shareableId, userDevice, wardrobe-share
     migrations/        postgres/ — the one migration tree
   wardrobe/            Core domain: garments, outfits, calendar. Controllers render views;
                        services own business logic; view-models/ shape entities for templates
@@ -48,7 +49,6 @@ src/
   maintenance/         StorageReconciliationService: nightly @Cron (MAINTENANCE_ENABLED) and
                        reconcile.cli.ts (`npm run maintenance:reconcile`) keeping storage and the
                        file table in step; owns ScheduleModule.forRoot()
-  email/               nodemailer (gmail or mailgun) for password reset
   notification/        Web Push to registered user devices
   open-graph/          OG meta for shared links
   view-context/        Builds the per-request template context (user, flags, i18n) exposed as reply.locals
@@ -217,6 +217,7 @@ Deploy: on the NAS, `cd /volume1/docker/homelab && /usr/local/bin/git pull && ./
 - **Integration specs boot one app per file.** `AppModule` reads `process.env` when it is first imported (Joi validation), so `createTestApp` sets the env and then imports `src/app`; a second `createTestApp` with different overrides in the same file would see the first env. Put a different config (`DISABLE_REGISTRATION`, `PWA_ENABLED`, ...) in a different spec file.
 - **The integration harness is signed in by default.** `createTestApp` registers `owner@example.com` at boot and `t.inject` sends that session (`t.owner.cookie`) unless the request has its own `cookie` header or passes `anonymous: true`. A test about signed-out behavior must say `anonymous: true`; one that forgets asserts on the owner's view.
 - **`@Public()` is the only way past `SessionGuard`, and static paths never have a session.** The preHandler in `app.ts` skips `static-prefixes.ts` paths, so a Nest route under one (`FileController`, `/healthz`, `/manifest.json`) always sees `req.auth` undefined and must be `@Public()`, or it answers every request with a login redirect. `@UserId()` on a `@Public()` route throws: a public handler reads `req.auth` itself if it cares (the invite landing page).
+- **htmx does not swap 4xx/5xx responses** (its default `responseHandling`), boosted or not, and a boosted form's events fire on the body, not the form. A form whose refusal re-renders with a 4xx must be a native post (`hx-boost="false"`, as `views/auth/change-password.hbs`), or the user sees nothing. `delete-account`'s 401/400 re-render is still an `hx-post` and is invisible for that reason.
 - **htmx reads only the first `<meta name="htmx-config">`.** Keep the config in one JSON object. `disableInheritance` is on, so any attribute that must reach descendants needs `hx-inherit` on the ancestor (the body has `hx-inherit="hx-boost"`; without it no link is boosted).
 - **`public/build.json` lingers after `npm run build`.** `start:dev` then serves assets with that build's cache key; set `NODE_ENV=development` in `.env.local` (caching off) or delete the file if styles look stale.
 - **Nest answers POST with 201 unless the handler has `@HttpCode(200)`**, even when it sends through `@Res()`: htmx partials, `HX-Redirect` replies and re-rendered forms (failed login, validation errors) all come back 201. Integration specs assert 2xx on those; browsers and htmx do not care.

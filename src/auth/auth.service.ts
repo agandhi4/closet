@@ -11,41 +11,23 @@ import { JwtService } from '@nestjs/jwt';
 import { File } from '../dal/entity/file.entity';
 import { User } from '../dal/entity/user.entity';
 import * as bcrypt from 'bcryptjs';
-import { ChangePasswordDto } from './dto/changePassword.dto';
 import { LoginDto } from './dto/login.dto';
 import { Payload } from './dto/payload.dto';
-import { EmailService } from '../email/email.service';
 import { FileService } from '../file/file-service.abstract';
-import { PasswordReset } from '../dal/entity/passwordReset.entity';
-import { randomInt } from 'crypto';
-import { ResetPasswordDto } from './dto/resetPassword.dto';
-import Handlebars from 'handlebars';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { PROJECT_ROOT } from '../project-root';
+
+const BCRYPT_ROUNDS = 12;
 
 @Injectable()
 export class AuthService {
   private logger = new Logger(AuthService.name);
-  private readonly passwordResetTemplate: Handlebars.TemplateDelegate;
 
   constructor(
     @InjectRepository(User)
     private readonly userRepository: EntityRepository<User>,
     private jwtService: JwtService,
     private readonly em: EntityManager,
-    private emailService: EmailService,
-    @InjectRepository(PasswordReset)
-    private passwordResetRepository: EntityRepository<PasswordReset>,
     private readonly fileService: FileService,
-  ) {
-    this.passwordResetTemplate = Handlebars.compile(
-      readFileSync(
-        join(PROJECT_ROOT, 'views', 'email', 'password-reset.hbs'),
-        'utf-8',
-      ),
-    );
-  }
+  ) {}
 
   async register(email: string, password: string): Promise<string> {
     this.logger.debug(this.register.name);
@@ -55,18 +37,14 @@ export class AuthService {
       throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const user = this.userRepository.create({
       email,
       password: hashedPassword,
     } as User);
     await this.em.persistAndFlush(user);
 
-    return this.jwtService.signAsync({
-      userId: user.id,
-      email: user.email,
-      pwf: hashedPassword.slice(-8),
-    } as Payload);
+    return this.signToken(user);
   }
 
   async signIn(email: string, password: string): Promise<string> {
@@ -75,25 +53,37 @@ export class AuthService {
     if (!valid) {
       throw new UnauthorizedException();
     }
-    return this.jwtService.signAsync({
-      userId: user.id,
-      email: user.email,
-      pwf: user.password.slice(-8),
-    } as Payload);
+    return this.signToken(user);
   }
 
-  public async changePassword(userId: any, details: ChangePasswordDto) {
-    this.logger.debug(this.changePassword.name);
+  /**
+   * Replaces the password after re-checking the current one
+   * (UnauthorizedException when it is wrong; nothing changes). The new hash
+   * changes the password fingerprint, so AuthContextService rejects every
+   * token issued before; the returned token is the caller's replacement
+   * session.
+   */
+  async changePassword(
+    userId: number,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<string> {
     const user = await this.userRepository.findOneOrFail({ id: userId });
-
-    if (await bcrypt.compare(details.oldPassword, user.password)) {
-      const newHashedPassword = await bcrypt.hash(details.newPassword, 12);
-      user.password = newHashedPassword;
-      return await this.em.persistAndFlush(user);
+    if (!(await bcrypt.compare(currentPassword, user.password))) {
+      this.logger.log(
+        `Password change refused for user ${userId}: wrong current password`,
+      );
+      throw new UnauthorizedException();
     }
+    user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    await this.em.flush();
+    this.logger.log(
+      `Password changed for user ${userId}; other sessions revoked`,
+    );
+    return this.signToken(user);
   }
 
-  public async changeEmail(userId: any, newEmail: string) {
+  public async changeEmail(userId: number, newEmail: string) {
     const user = await this.userRepository.findOneOrFail({ id: userId });
     user.email = newEmail;
     await this.em.persistAndFlush(user);
@@ -128,33 +118,13 @@ export class AuthService {
     );
   }
 
-  public async resetPassword(details: ResetPasswordDto) {
-    this.logger.debug(this.resetPassword.name);
-    const user = await this.userRepository.findOneOrFail({
-      email: details.email,
-    });
-
-    const passwordReset = await user.passwordReset.load();
-
-    if (passwordReset?.pin === details.resetCode) {
-      const hashedPassword = await bcrypt.hash(details.password, 12);
-      user.password = hashedPassword;
-      await this.em.persistAndFlush(user);
-    }
-  }
-
-  async sendPasswordResetEmail(email: string) {
-    this.logger.debug(this.sendPasswordResetEmail.name);
-    const user = await this.userRepository.findOneOrFail({ email });
-    const pin = randomInt(100000, 999999).toString();
-    await this.emailService.sendEmailFromPrimaryAddress({
-      to: user.email!,
-      subject: `Password reset for ${user.email}`,
-      text: `Hello, ${user.email}, please paste in the follow to reset your password: ${pin}`,
-      html: this.passwordResetTemplate({ email: user.email, pin }),
-    });
-
-    const passwordReset = this.passwordResetRepository.create({ pin, user });
-    await this.em.persistAndFlush(passwordReset);
+  // `pwf` is the tail of the bcrypt hash: AuthContextService compares it on
+  // every request, which is what ends older sessions after a password change.
+  private signToken(user: User): Promise<string> {
+    return this.jwtService.signAsync({
+      userId: user.id,
+      email: user.email,
+      pwf: user.password.slice(-8),
+    } as Payload);
   }
 }
