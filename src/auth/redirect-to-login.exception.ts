@@ -1,6 +1,5 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
-
-export const LOGIN_PATH = '/auth/login';
+import { LOGIN_PATH } from './session-access';
 
 /**
  * Thrown by SessionGuard when a page navigation arrives without a session. A

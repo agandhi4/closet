@@ -22,6 +22,8 @@ import { isImageVariant } from './file/image-variant';
 import { PROJECT_ROOT } from './project-root';
 import { BUILD_INFO } from './build-info';
 import { ConfigService } from '@nestjs/config';
+import { Logger as NestLogger } from '@nestjs/common';
+import { webPlugin } from './web/plugin';
 
 const PUBLIC_DIR = join(PROJECT_ROOT, 'public');
 const VIEWS_DIR = join(PROJECT_ROOT, 'views');
@@ -115,6 +117,18 @@ export async function createApp(): Promise<NestFastifyApplication> {
   await registerViewEngine(app);
   registerHandlebarsHelpers();
 
+  // Ported features (src/web/), beside Nest's routes on the same instance.
+  // Last, so the root hooks and plugins above (session, security headers,
+  // cookies, compression) are in place for its routes.
+  const config = app.get(ConfigService);
+  await fastify.register(webPlugin, {
+    config: {
+      appName: config.getOrThrow<string>('APP_NAME'),
+      iconName: config.getOrThrow<string>('ICON_NAME'),
+    },
+    logger: new NestLogger('Web'),
+  });
+
   return app;
 }
 
@@ -122,8 +136,8 @@ export async function createApp(): Promise<NestFastifyApplication> {
 // layout.hbs and the importmap; `?v=<photo version>` on /file/**), so a deploy
 // changes URLs, never the bytes behind one: a year, immutable. The two files
 // whose URL cannot change keep revalidating: sw.js below (the browser must
-// see a new worker to update the app shell) and manifest.json (a route,
-// AppController). NODE_ENV=development turns caching off so `tailwind
+// see a new worker to update the app shell) and manifest.json (a route in
+// src/web/shell). NODE_ENV=development turns caching off so `tailwind
 // --watch` output shows up on a plain reload.
 const IMMUTABLE_YEAR = 'public, max-age=31536000, immutable';
 const REVALIDATE = 'public, max-age=0';

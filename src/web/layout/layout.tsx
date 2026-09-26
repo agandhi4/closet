@@ -1,0 +1,150 @@
+import type { Child } from 'hono/jsx';
+import { GarmentColor } from '../../wardrobe/garment-color.enum';
+import { jsonForScript } from '../html';
+import { t } from '../i18n';
+import type { ViewContext } from '../view-context';
+import { AppStatus } from './app-status';
+
+/**
+ * The document shell of every JSX page; views/layout.hbs is its Handlebars
+ * twin for unported pages, so a change to the head or the body chrome goes
+ * into both until the last Handlebars page is ported. The pages render
+ * navbar and dock themselves (the error page and every current page do).
+ *
+ * English only: `lang`, `og:locale` and the default description are fixed
+ * rather than read from the request's nestjs-i18n locale in `ctx`.
+ */
+
+// https://htmx.org/reference/#config: view transitions on every swap
+// (https://htmx.org/attributes/hx-swap/#modifiers) and no attribute
+// inheritance (https://htmx.org/quirks/#attribute-inheritance). htmx reads
+// only the first htmx-config meta, so this is the whole config.
+const HTMX_CONFIG = { globalViewTransitions: true, disableInheritance: true };
+
+// Bare specifiers for every ES module the pages import, so the versioned URL
+// lives here once. Page-specific modules (sortablejs, background removal) are
+// only fetched by the page that imports them.
+function importMap(version: string) {
+  const v = `?v=${version}`;
+  return {
+    imports: {
+      'onnxruntime-web': `/modules/onnxruntime-web/dist/ort.all.bundle.min.mjs${v}`,
+      'onnxruntime-web/webgpu': `/modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs${v}`,
+      '@imgly/background-removal': `/modules/background-removal/index.mjs${v}`,
+      sortablejs: `/modules/modular/sortable.esm.js${v}`,
+      'workbox-window': `/modules/workbox-window.prod.mjs${v}`,
+      pulltorefreshjs: `/modules/pulltorefresh/index.esm.js${v}`,
+      toast: `/js/toast.js${v}`,
+      'mask-editor': `/js/mask-editor.js${v}`,
+      'web-push': `/js/webPush.js${v}`,
+    },
+  };
+}
+
+const KNOWN_COLORS_SCRIPT = `window.KNOWN_COLORS = new Set(${jsonForScript(Object.values(GarmentColor))});`;
+
+export interface LayoutProps {
+  ctx: ViewContext;
+  /** <title>; the app name when absent. */
+  title?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  children?: Child;
+}
+
+export function Layout({
+  ctx,
+  title,
+  ogTitle = ctx.appName,
+  ogDescription = t('APP_DESCRIPTION'),
+  children,
+}: LayoutProps) {
+  // Every first-party static URL carries ?v=appVersion (src/build-info.ts):
+  // app.ts serves /modules, /js, /assets and bundle.css immutable for a year,
+  // so the key is what rolls the cache on deploy.
+  const v = `?v=${ctx.appVersion}`;
+  return (
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        {/* No viewport-fit=cover: iOS standalone handles the safe areas
+            itself, and cover puts content under the home indicator. */}
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="description" content={ogDescription} />
+        <link rel="canonical" href={ctx.canonicalUrl} />
+        {/* https://ogp.me/ */}
+        <meta property="og:locale" content="en_US" />
+        <meta property="og:url" content={ctx.ogUrl} />
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content={ogTitle} />
+        <meta property="og:description" content={ogDescription} />
+        <meta property="og:image" content={ctx.ogImage} />
+        <meta property="og:image:width" content="1000" />
+        <meta property="og:image:height" content="1000" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta property="twitter:domain" content={ctx.siteUrl} />
+        <meta property="twitter:url" content={ctx.ogUrl} />
+        <meta name="twitter:title" content={ogTitle} />
+        <meta name="twitter:description" content={ogDescription} />
+        <meta name="twitter:image" content={ctx.ogImage} />
+        <meta property="og:site_name" content={ctx.appName} />
+
+        <link rel="icon" href={`/favicon.ico${v}`} sizes="48x48" />
+        <link rel="apple-touch-icon" href={`/assets/${ctx.iconName}${v}`} />
+
+        <meta name="htmx-config" content={JSON.stringify(HTMX_CONFIG)} />
+
+        <title>{title ?? ctx.appName}</title>
+        {/* Served from config by src/web/shell, not a static file. */}
+        <link rel="manifest" href="/manifest.json" />
+        <link href={`/bundle.css${v}`} rel="stylesheet" />
+        {/* Libraries are served from node_modules (registerStaticAssets in
+            app.ts), never a CDN. */}
+        <script defer src={`/modules/htmx.min.js${v}`}></script>
+        <script defer src={`/modules/_hyperscript.min.js${v}`}></script>
+        <script defer src={`/js/color-multiselect.js${v}`}></script>
+        <script
+          type="importmap"
+          dangerouslySetInnerHTML={{
+            __html: jsonForScript(importMap(ctx.appVersion)),
+          }}
+        />
+        {/* Heartbeat-driven online/offline state and the banner in
+            AppStatus; runs everywhere, service worker or not. */}
+        <script type="module" src={`/js/connectivity.js${v}`}></script>
+        {ctx.pwaEnabled && (
+          <>
+            <script
+              type="module"
+              src={`/modules/pwa-install.bundle.js${v}`}
+            ></script>
+            {/* Service worker registration, update toast, web push, iOS
+                pull to refresh. In the head so hx-boost body swaps never
+                re-run it. */}
+            <script type="module" src={`/js/pwa.js${v}`}></script>
+          </>
+        )}
+        <link rel="preconnect" href="https://static.cloudflareinsights.com" />
+        <script dangerouslySetInnerHTML={{ __html: KNOWN_COLORS_SCRIPT }} />
+      </head>
+
+      {/* hx-boost swaps the body on every link and form
+          (https://htmx.org/attributes/hx-boost/). With disableInheritance on,
+          hx-inherit hands it down explicitly or no link is boosted. */}
+      <body
+        hx-boost="true"
+        hx-inherit="hx-boost"
+        class="h-screen flex flex-col"
+      >
+        {children}
+        <AppStatus />
+        {ctx.pwaEnabled && (
+          <pwa-install
+            id="pwa-install"
+            manifest-url="/manifest.json"
+          ></pwa-install>
+        )}
+      </body>
+    </html>
+  );
+}

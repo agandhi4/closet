@@ -1,0 +1,96 @@
+import { t } from '../i18n';
+import type { ViewContext } from '../view-context';
+
+/**
+ * Top bar with the app name and the in-flight request spinner; the account
+ * links sit in the bar on desktop and in a drawer on mobile.
+ * https://daisyui.com/components/drawer/#navbar-menu-for-desktop--sidebar-drawer-for-mobile
+ * Twin of views/partials/navbar.hbs.
+ */
+export function Navbar({ ctx }: { ctx: ViewContext }) {
+  return (
+    <div class="drawer navbar">
+      <input id="my-drawer-2" type="checkbox" class="drawer-toggle" />
+      <div class="drawer-content flex flex-col">
+        <div class="navbar bg-base-300 w-full">
+          <div class="flex-none lg:hidden">
+            <label
+              for="my-drawer-2"
+              aria-label="open sidebar"
+              class="btn btn-square btn-ghost"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                class="inline-block h-6 w-6 stroke-current"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 12h16M4 18h16"
+                ></path>
+              </svg>
+            </label>
+          </div>
+          <a class="mx-2 flex flex-row gap-2 pt-1" href="/">
+            <span class="text-lg font-semibold">{ctx.appName}</span>
+            {/* In-flight htmx request spinner (hx-indicator="#loading" across
+                the views). Connectivity is a separate concern: AppStatus. */}
+            <div class="relative size-6">
+              <div id="request-indicator" class="absolute inset-0">
+                <span
+                  id="loading"
+                  class="htmx-indicator loading loading-ring loading-sm"
+                ></span>
+              </div>
+            </div>
+          </a>
+          <div class="hidden flex-none ml-auto lg:block pt-1">
+            <ul class="menu menu-horizontal">
+              <AccountLinks ctx={ctx} />
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="drawer-side pt-16">
+        <label
+          for="my-drawer-2"
+          aria-label="close sidebar"
+          class="drawer-overlay"
+        ></label>
+        <ul class="menu bg-base-200 min-h-full w-80 p-4 pt-8">
+          <AccountLinks ctx={ctx} />
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function AccountLinks({ ctx }: { ctx: ViewContext }) {
+  if (ctx.user) {
+    return (
+      <>
+        <li>
+          <a href="/auth/logout">{t('LOGOUT')}</a>
+        </li>
+        <li>
+          <a href="/auth/profile">{ctx.user.email}</a>
+        </li>
+      </>
+    );
+  }
+  return (
+    <>
+      {!ctx.signupsDisabled && (
+        <li>
+          <a href="/auth/register">{t('REGISTER')}</a>
+        </li>
+      )}
+      <li>
+        <a href="/auth/login">{t('LOGIN')}</a>
+      </li>
+    </>
+  );
+}
