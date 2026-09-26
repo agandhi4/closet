@@ -6,7 +6,12 @@ import sharp, { type Sharp } from 'sharp';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
 import type { WebLogger } from '../logger';
-import { decodeHeic, isHeicUpload } from './heic';
+import {
+  type DecodedHeic,
+  decodeHeic,
+  imageTooLarge,
+  isHeicUpload,
+} from './heic';
 import {
   IMAGE_VARIANTS,
   type ImageVariant,
@@ -23,6 +28,20 @@ const IMAGE_MAX_PX = 1080;
 const IMAGE_QUALITY = 90;
 const THUMB_MAX_PX = 400;
 const THUMB_QUALITY = 80;
+
+/**
+ * The decompression-bomb guard on every decode (sharp's limitInputPixels,
+ * and the HEIC dimension check before its pixels are allocated). sharp's own
+ * default is ~268 MP, about a gigabyte of pixels for a file of a few KB.
+ * 64 MP admits every phone's full-resolution mode up to 50 MP (Pixel,
+ * 8160x6144) and refuses the 200 MP modes; a refused upload is a 400.
+ */
+export const MAX_INPUT_PIXELS = 64_000_000;
+
+/** A sharp pipeline that decodes at most MAX_INPUT_PIXELS; the only way Photos builds one. */
+function decoder(raw?: DecodedHeic['raw']): Sharp {
+  return sharp({ limitInputPixels: MAX_INPUT_PIXELS, ...(raw && { raw }) });
+}
 
 /**
  * The source side of a transcode failed (undecodable bytes, truncated
@@ -119,10 +138,10 @@ export class Photos {
   ): Promise<NewPhotoRow> {
     if (!upload) throw new HttpError(400, 'No file uploaded');
     const storedFileName = fileName ?? `${randomUUID()}.webp`;
-    const source = await this.uploadSource(upload);
+    const { pixels, raw } = await this.uploadSource(upload);
     await this.transcodeUpload(
-      source,
-      this.imageTransformer().autoOrient(),
+      pixels,
+      this.imageTransformer(raw).autoOrient(),
       storedFileName,
     );
     if (!deferThumb) {
@@ -270,7 +289,7 @@ export class Photos {
   async watermarked(shareableId: string): Promise<Readable> {
     const fileName = await findPhotoByShareableId(this.db, shareableId);
     if (!fileName) throw new HttpError(404);
-    const transformer = sharp()
+    const transformer = decoder()
       .jpeg()
       .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, { fit: sharp.fit.inside });
     if (this.config.watermarkEnabled) {
@@ -287,7 +306,9 @@ export class Photos {
 
   // Built once: the icon does not change while the process runs.
   private watermarkIcon(): Promise<Buffer> {
-    this.watermark ??= sharp(this.config.watermarkIconPath)
+    this.watermark ??= sharp(this.config.watermarkIconPath, {
+      limitInputPixels: MAX_INPUT_PIXELS,
+    })
       .resize(150, 150)
       .extend({
         top: 0,
@@ -314,9 +335,11 @@ export class Photos {
     return stream;
   }
 
-  // The part's bytes in a format sharp reads: the stream itself, or the
-  // decoded JPEG of a HEIC.
-  private async uploadSource(upload: MultipartFile): Promise<Readable> {
+  // The part's bytes in a form sharp reads: the encoded stream itself, or
+  // a HEIC's decoded pixels with their layout.
+  private async uploadSource(
+    upload: MultipartFile,
+  ): Promise<{ pixels: Readable; raw?: DecodedHeic['raw'] }> {
     if (isHeicUpload(upload)) return this.decodeHeicUpload(upload);
     if (!upload.mimetype?.startsWith('image/')) {
       // https://github.com/fastify/fastify-multipart/issues/497
@@ -324,22 +347,32 @@ export class Photos {
       upload.file.resume();
       throw new HttpError(400, 'Wrong filetype');
     }
-    return upload.file;
+    return { pixels: upload.file };
   }
 
   // HEIC is the one format sharp cannot read (see heic.ts). The whole part is
   // buffered, so MAX_HEIC_BYTES bounds memory per upload; the 413 from the cap
-  // passes through, undecodable bytes are the client's error like any other.
-  private async decodeHeicUpload(upload: MultipartFile): Promise<Readable> {
+  // passes through, as does the 400 for too many pixels; undecodable bytes
+  // are the client's error like any other.
+  private async decodeHeicUpload(upload: MultipartFile): Promise<DecodedHeic> {
     const startedAt = Date.now();
     try {
-      const jpeg = await decodeHeic(upload, this.config.maxHeicBytes);
-      this.logger.debug(
-        `Decoded HEIC ${upload.filename} in ${Date.now() - startedAt}ms`,
+      const decoded = await decodeHeic(
+        upload,
+        this.config.maxHeicBytes,
+        MAX_INPUT_PIXELS,
       );
-      return jpeg;
+      this.logger.debug(
+        `Decoded HEIC ${upload.filename} (${decoded.raw.width}x${decoded.raw.height}) in ${Date.now() - startedAt}ms`,
+      );
+      return decoded;
     } catch (error) {
-      if (error instanceof HttpError) throw error;
+      if (error instanceof HttpError) {
+        this.logger.warn(
+          `Rejected HEIC upload ${upload.filename}: ${error.message}`,
+        );
+        throw error;
+      }
       this.logger.warn(
         `Rejected undecodable HEIC upload ${upload.filename}: ${String(error)}`,
       );
@@ -360,14 +393,16 @@ export class Photos {
         this.logger.warn(
           `Rejected unreadable upload for ${targetFileName}: ${String(error.cause)}`,
         );
-        throw new HttpError(400, 'Unreadable image');
+        throw exceedsPixelLimit(error.cause)
+          ? imageTooLarge()
+          : new HttpError(400, 'Unreadable image');
       }
       throw error;
     }
   }
 
-  private imageTransformer(): Sharp {
-    return sharp()
+  private imageTransformer(raw?: DecodedHeic['raw']): Sharp {
+    return decoder(raw)
       .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, {
         fit: sharp.fit.inside,
         withoutEnlargement: true,
@@ -383,7 +418,7 @@ export class Photos {
     const startedAt = Date.now();
     await this.transcode(
       source,
-      sharp()
+      decoder()
         .resize(THUMB_MAX_PX, THUMB_MAX_PX, {
           fit: sharp.fit.inside,
           withoutEnlargement: true,
@@ -420,6 +455,13 @@ export class Photos {
       throw error;
     }
   }
+}
+
+// sharp reports limitInputPixels only through its message ("Input image
+// exceeds pixel limit"); the header is read before any pixel, so this is
+// the refusal, not a failed decode.
+function exceedsPixelLimit(cause: unknown): boolean {
+  return cause instanceof Error && /exceeds pixel limit/i.test(cause.message);
 }
 
 function newPhotoRow(fileName: string, userId: number): NewPhotoRow {
