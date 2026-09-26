@@ -6,6 +6,7 @@
     "scripts",
     "dist",
     "**/*spec.ts",
+    "**/*spec.tsx",
     "public",
     "drizzle.config.ts",
     "views",

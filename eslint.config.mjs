@@ -42,6 +42,34 @@ export default tseslint.config(
       'no-unsafe-optional-chaining': 'off',
       complexity: ['warn', { max: 10 }],
       'max-depth': ['warn', { max: 3 }],
+      // Vitest (unplugin-swc) parses every .ts file as TSX once tsconfig sets
+      // `jsx`, and `<T>value` does not parse as TSX: tsc and nest build would
+      // accept a file the test run cannot load.
+      '@typescript-eslint/consistent-type-assertions': [
+        'error',
+        { assertionStyle: 'as' },
+      ],
+      // hono/jsx escapes every text child and attribute value. The one way to
+      // emit markup as-is is `dangerouslySetInnerHTML` (greppable, reviewed
+      // per use; see CLAUDE.md, Web layer). hono's `raw()` would be a second,
+      // quieter hatch.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'hono/html',
+              message:
+                'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (CLAUDE.md, Web layer).',
+            },
+            {
+              name: 'hono/utils/html',
+              message:
+                'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (CLAUDE.md, Web layer).',
+            },
+          ],
+        },
+      ],
     },
   },
 );
