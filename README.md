@@ -19,6 +19,8 @@ services:
     volumes:
       - closet_data:/app/data
     environment:
+      # Required: signs the session cookies. openssl rand -hex 32
+      ACCESS_TOKEN_SECRET: '<secret>'
       # The household's time zone: decides "today" on the calendar.
       APP_TIMEZONE: America/New_York
       PWA_ENABLED: 'true'
@@ -71,7 +73,7 @@ Open [http://localhost:3000](http://localhost:3000) and register an account: log
 | `DISABLE_REGISTRATION`             | Disallows user sign ups when true                                                    | `false`                 | `true`                                                                                    |
 | `PWA_ENABLED`                      | Enable service worker, PWA install prompt and Web Push notifications                 | `false`                 | `true`                                                                                    |
 | `WATERMARK_ENABLED`                | Composite the app icon onto share-link preview images                                | `false`                 | `true`                                                                                    |
-| `ACCESS_TOKEN_SECRET`              | JWT signing secret - **change for production**                                       | `ChangeMe!`             | `u9n8c2y847rfctb23468tcb689f243`                                                          |
+| `ACCESS_TOKEN_SECRET`              | Signs session tokens (required, at least 32 characters; the server refuses to start without it) | -            | `<openssl rand -hex 32>`                                                                  |
 | `TRUSTED_PROXIES`                  | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-*` headers are trusted (login rate limits, the cross-site request check, canonical URLs). Behind a reverse proxy it must include the proxy's address | `127.0.0.1,::1` | `172.16.0.0/12`                                                                   |
 | `LOG_LEVEL`                        | pino level for the console and `app.log` (`trace` … `fatal`, or `silent`)            | `info`                  | `debug`                                                                                   |
 | `DATABASE_HOST`                    | Postgres host (required)                                                             | -                       | `192.168.10.5`                                                                            |
@@ -85,10 +87,10 @@ Open [http://localhost:3000](http://localhost:3000) and register an account: log
 | `PUBLIC_VAPID_KEY`                 | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>` |
 | `PRIVATE_VAPID_KEY`                | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>`                                             |
 
-Generate JWT secret:
+Generate the session signing secret (anyone who knows it can sign in as any user, so never reuse an example value; changing it signs everyone out):
 
 ```bash
-openssl rand -base64 60
+openssl rand -hex 32
 ```
 
 Generate VAPID keys:
@@ -114,7 +116,8 @@ npm install
 (cd ../pgvault-dev && docker compose up -d --wait)
 docker compose -f ../pgvault-dev/docker-compose.yml exec postgres \
   psql -U postgres -c 'create database closet_db'   # once
-cat > .env.local <<'ENV'                            # gitignored
+cat > .env.local <<ENV                              # gitignored
+ACCESS_TOKEN_SECRET=$(openssl rand -hex 32)
 DATABASE_HOST=localhost
 DATABASE_SCHEMA=closet_db
 DATABASE_USER=postgres

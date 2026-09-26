@@ -21,6 +21,8 @@ const NonEmpty = (options: { default?: string } = {}) =>
 // containerised reverse proxy (production sets the Docker bridge range).
 export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
 
+export const ACCESS_TOKEN_SECRET_MIN = 32;
+
 export const ConfigSchema = Type.Object({
   NODE_ENV: Type.Union(
     [
@@ -56,7 +58,10 @@ export const ConfigSchema = Type.Object({
   APP_TIMEZONE: NonEmpty({ default: 'America/New_York' }),
   DISABLE_REGISTRATION: Type.Boolean({ default: false }),
   PWA_ENABLED: Type.Boolean({ default: false }),
-  ACCESS_TOKEN_SECRET: NonEmpty({ default: 'ChangeMe!' }),
+  // Signs every session token (HS256). No default on purpose: a known
+  // secret lets anyone mint a session for any user id. 32 characters is the
+  // floor (`openssl rand -hex 32` gives 64).
+  ACCESS_TOKEN_SECRET: Type.String({ minLength: ACCESS_TOKEN_SECRET_MIN }),
   // No defaults on purpose: a PWA deploy that forgot its VAPID keys must fail
   // at boot rather than push with a keypair anyone can read from git.
   // Required when PWA_ENABLED (checked below).
@@ -163,14 +168,20 @@ function coerce(schema: TSchema, raw: string): unknown {
   return raw;
 }
 
+// What to do about a refused value, where the rule alone does not say.
+const HINTS: Partial<Record<keyof Config, string>> = {
+  ACCESS_TOKEN_SECRET: `at least ${ACCESS_TOKEN_SECRET_MIN} characters; generate one with: openssl rand -hex 32`,
+};
+
 function describeErrors(config: unknown): string[] {
   const byKey = new Map<string, string>();
   for (const error of Value.Errors(ConfigSchema, config)) {
     const key = error.path.slice(1);
     if (byKey.has(key)) continue;
+    const hint = HINTS[key as keyof Config];
     byKey.set(
       key,
-      `${key}: ${describe(error.type, error.schema, error.message)}`,
+      `${key}: ${describe(error.type, error.schema, error.message)}${hint ? ` (${hint})` : ''}`,
     );
   }
   return [...byKey.values()];

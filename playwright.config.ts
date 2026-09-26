@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseEnv } from 'node:util';
@@ -11,6 +12,10 @@ const committedEnv = parseEnv(
 for (const [key, value] of Object.entries(committedEnv)) {
   process.env[key] ??= value;
 }
+// The server refuses to boot without a signing secret (src/config.ts). The
+// specs only sign in through the app, so a fresh one per run will do unless
+// the caller (CI) passes its own. The webServer inherits process.env.
+process.env.ACCESS_TOKEN_SECRET ??= randomBytes(32).toString('hex');
 
 /**
  * See https://playwright.dev/docs/test-configuration.

@@ -1,4 +1,5 @@
 import { ChildProcess, execSync, spawn } from 'child_process';
+import { randomBytes } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -71,6 +72,8 @@ async function main() {
       // environment says.
       DISABLE_REGISTRATION: 'false',
       DATA_PATH: dataPath,
+      // Required by the server; nothing outside this run ever sees a token.
+      ACCESS_TOKEN_SECRET: randomBytes(32).toString('hex'),
     },
   });
   server.stderr.on('data', (data: Buffer) => {

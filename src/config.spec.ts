@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig, trustedProxies, type Env } from './config';
 
-const DATABASE: Env = {
+// Everything without a default.
+const REQUIRED: Env = {
+  ACCESS_TOKEN_SECRET: 'x'.repeat(32),
   DATABASE_HOST: 'localhost',
   DATABASE_SCHEMA: 'closet_db',
   DATABASE_USER: 'closet',
@@ -12,7 +14,7 @@ const DATABASE: Env = {
 };
 
 const load = (env: Env, envFiles: string[] = []) =>
-  loadConfig({ env: { ...DATABASE, ...env }, envFiles });
+  loadConfig({ env: { ...REQUIRED, ...env }, envFiles });
 
 const problemsOf = (env: Env): string[] => {
   try {
@@ -65,8 +67,9 @@ describe('loadConfig', () => {
     expect(load({ HOME: '/root' })).not.toHaveProperty('HOME');
   });
 
-  it('names every missing database variable, and accepts an empty password', () => {
+  it('names every missing required variable, and accepts an empty database password', () => {
     expect(problemsOf({ DATABASE_PASS: '' })).toEqual([
+      'ACCESS_TOKEN_SECRET: is required (at least 32 characters; generate one with: openssl rand -hex 32)',
       'DATABASE_HOST: is required',
       'DATABASE_SCHEMA: is required',
       'DATABASE_USER: is required',
@@ -94,17 +97,29 @@ describe('loadConfig', () => {
     ],
     ['APP_NAME', '', 'APP_NAME: expected string length greater or equal to 1'],
   ])('refuses %s=%j, naming it', (key, value, problem) => {
-    expect(problemsOf({ ...DATABASE, [key]: value })).toEqual([problem]);
+    expect(problemsOf({ ...REQUIRED, [key]: value })).toEqual([problem]);
   });
 
+  it.each([
+    ['the old default', 'ChangeMe!'],
+    ['31 characters', 'x'.repeat(31)],
+  ])(
+    'refuses an ACCESS_TOKEN_SECRET of %s, saying how to make one',
+    (_label, secret) => {
+      expect(problemsOf({ ...REQUIRED, ACCESS_TOKEN_SECRET: secret })).toEqual([
+        'ACCESS_TOKEN_SECRET: expected string length greater or equal to 32 (at least 32 characters; generate one with: openssl rand -hex 32)',
+      ]);
+    },
+  );
+
   it('refuses an unknown time zone', () => {
-    expect(problemsOf({ ...DATABASE, APP_TIMEZONE: 'Mars/Olympus' })).toEqual([
+    expect(problemsOf({ ...REQUIRED, APP_TIMEZONE: 'Mars/Olympus' })).toEqual([
       'APP_TIMEZONE: "Mars/Olympus" is not an IANA time zone',
     ]);
   });
 
   it('requires both VAPID keys when the PWA is on', () => {
-    expect(problemsOf({ ...DATABASE, PWA_ENABLED: 'true' })).toEqual([
+    expect(problemsOf({ ...REQUIRED, PWA_ENABLED: 'true' })).toEqual([
       'PUBLIC_VAPID_KEY: is required when PWA_ENABLED is true',
       'PRIVATE_VAPID_KEY: is required when PWA_ENABLED is true',
     ]);
@@ -120,11 +135,15 @@ describe('loadConfig', () => {
   it('never puts a value in the message', () => {
     try {
       loadConfig({
-        env: { ACCESS_TOKEN_SECRET: '', DATABASE_PASS: 'hunter2' },
+        env: {
+          ACCESS_TOKEN_SECRET: 'too-short-secret',
+          DATABASE_PASS: 'hunter2',
+        },
         envFiles: [],
       });
     } catch (error) {
       expect(String(error)).not.toContain('hunter2');
+      expect(String(error)).not.toContain('too-short-secret');
       expect(String(error)).toContain('ACCESS_TOKEN_SECRET');
       return;
     }
