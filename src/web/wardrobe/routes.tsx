@@ -539,10 +539,9 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
       const part = await request.file();
       if (!part) throw new HttpError(400, 'No file uploaded');
-      const version = await options.photos.storeCutout(
+      const version = await options.photos.saveEditedCutout(
         part.file,
         garment.photo.fileName,
-        { newUpload: false },
       );
       logger.info(`Garment ${id} cutout replaced, photo version ${version}`);
       return reply.send({ version });

@@ -1,6 +1,7 @@
 import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   date,
   foreignKey,
   index,
@@ -15,6 +16,7 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { CUTOUT_STATUSES } from '../cutout/state';
 
 /**
  * The database schema, and the only source of migrations: edit it, run
@@ -105,9 +107,26 @@ export const file = pgTable(
     // Cache-busting token of the immutable /file/** URLs, bumped whenever a
     // variant's bytes are rewritten in place.
     version: integer('version').default(1).notNull(),
+    // The server-made cutout's state machine (src/cutout/state.ts), written
+    // only by applyCutoutEvent (src/cutout/queries.ts). Pending rows are the
+    // background-removal queue, oldest cutout_requested_at first.
+    cutoutStatus: text('cutout_status', { enum: CUTOUT_STATUSES })
+      .default('none')
+      .notNull(),
+    cutoutAttempts: integer('cutout_attempts').default(0).notNull(),
+    // The photo version the running job started for; a result for any
+    // other version is discarded.
+    cutoutJobVersion: integer('cutout_job_version'),
+    cutoutRequestedAt: timestamp('cutout_requested_at', {
+      withTimezone: true,
+    }),
   },
   (table) => [
     index('file_created_by_id_index').on(table.createdById),
+    check(
+      'file_cutout_status_check',
+      sql`${table.cutoutStatus} in (${sql.raw(CUTOUT_STATUSES.map((status) => `'${status}'`).join(', '))})`,
+    ),
     uniqueIndex('file_shareable_id_unique').on(table.shareableId),
     foreignKey({
       name: 'file_created_by_id_foreign',

@@ -7,11 +7,17 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  applyCutoutEvent,
+  type CutoutRow,
+  lockCutoutRow,
+} from '../../cutout/queries';
+import { transition } from '../../cutout/state';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
 import { captureLogs } from '../../../test/support/log-capture';
 import { MAX_INPUT_PIXELS, Photos } from './photos';
-import { bumpPhotoVersion, findPhotoByShareableId } from './queries';
+import { findPhotoByShareableId } from './queries';
 import { PhotoStorage } from './storage';
 
 // libheif is WASM and there is no HEIC fixture; the decode branch is about
@@ -19,13 +25,39 @@ import { PhotoStorage } from './storage';
 vi.mock('heic-decode', () => ({ default: { all: vi.fn() } }));
 const heicMock = vi.mocked(heicDecode.all);
 
-// The two row queries Photos makes; the integration tier runs them for real.
-vi.mock('./queries', () => ({
-  bumpPhotoVersion: vi.fn(),
-  findPhotoByShareableId: vi.fn(),
+// The row queries Photos makes; the integration tier runs them for real.
+vi.mock('./queries', () => ({ findPhotoByShareableId: vi.fn() }));
+vi.mock('../../cutout/queries', () => ({
+  lockCutoutRow: vi.fn(),
+  applyCutoutEvent: vi.fn(),
 }));
-const bumpMock = vi.mocked(bumpPhotoVersion);
 const findByShareMock = vi.mocked(findPhotoByShareableId);
+const lockMock = vi.mocked(lockCutoutRow);
+const applyMock = vi.mocked(applyCutoutEvent);
+
+// A transaction is the same fake: the cutout queries above are mocked.
+const tx = {};
+const db = {
+  transaction: (work: (tx: object) => Promise<unknown>) => work(tx),
+} as unknown as Db;
+
+const cutoutRow = (overrides: Partial<CutoutRow> = {}): CutoutRow => ({
+  id: 1,
+  fileName: 'a.webp',
+  status: 'ready',
+  version: 1,
+  attempts: 1,
+  jobVersion: null,
+  ...overrides,
+});
+
+/** applyCutoutEvent as the real one decides, minus the row write. */
+const applyAsTheMachine = () =>
+  applyMock.mockImplementation(async (_tx, row, event, effect) => {
+    const next = transition(row, event);
+    if (next.ok) await effect?.();
+    return next;
+  });
 
 const MAX_HEIC_BYTES = 1024;
 
@@ -58,7 +90,7 @@ const build = ({ watermarkEnabled = false } = {}) => {
     stores.push(name);
     return store(name, stream);
   });
-  const photos = new Photos(storage, {} as Db, logger, {
+  const photos = new Photos(storage, db, logger, {
     maxHeicBytes: MAX_HEIC_BYTES,
     watermarkIconPath: join(dataPath, 'icon.png'),
     watermarkEnabled,
@@ -74,8 +106,9 @@ const has = (name: string) => existsSync(join(dataPath, name));
 beforeEach(async () => {
   dataPath = await mkdtemp(join(tmpdir(), 'closet-photos-'));
   stores = [];
-  bumpMock.mockReset();
   findByShareMock.mockReset();
+  lockMock.mockReset();
+  applyMock.mockReset();
 });
 
 afterEach(async () => {
@@ -148,23 +181,11 @@ describe('Photos.getVariant', () => {
   });
 });
 
-describe('Photos.storeCutout', () => {
-  it('stores only the cutout for a new upload: no thumb, no version bump', async () => {
-    const photos = build();
-    await put('a.webp', await png(1000));
-    await expect(
-      photos.storeCutout(Readable.from(await png(600)), 'a.webp', {
-        newUpload: true,
-      }),
-    ).resolves.toBeUndefined();
-    // The caller builds the one thumb once the photo half is stored too.
-    expect(stores).toEqual(['a-nobg.webp']);
-    expect(bumpMock).not.toHaveBeenCalled();
-  });
-
+describe('Photos.saveEditedCutout', () => {
   it('rewrites the thumb from a first cutout added after the thumb was served', async () => {
     const photos = build();
-    bumpMock.mockResolvedValue(2);
+    lockMock.mockResolvedValue(cutoutRow({ status: 'none', version: 1 }));
+    applyAsTheMachine();
     await put('a.webp', await png(1000));
     await collect(await photos.getVariant('a.webp', 'thumb'));
     expect((await sharp(await stored('a-thumb.webp')).metadata()).width).toBe(
@@ -172,42 +193,60 @@ describe('Photos.storeCutout', () => {
     );
 
     await expect(
-      photos.storeCutout(Readable.from(await png(300)), 'a.webp', {
-        newUpload: false,
-      }),
+      photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
     ).resolves.toBe(2);
     expect((await sharp(await stored('a-thumb.webp')).metadata()).width).toBe(
       300,
     );
+    expect(applyMock).toHaveBeenCalledWith(
+      tx,
+      cutoutRow({ status: 'none', version: 1 }),
+      { type: 'edit' },
+      expect.any(Function),
+    );
   });
 
-  it('bumps the version only after the thumb is rewritten when replacing a cutout', async () => {
+  it('writes the cutout and the thumb before the row takes the new version', async () => {
     const photos = build();
     await put('a.webp', await png(1000));
     await put('a-nobg.webp', await png(600));
-    bumpMock.mockImplementation(() => {
+    lockMock.mockResolvedValue(cutoutRow());
+    applyMock.mockImplementation(async (_tx, row, event, effect) => {
+      await effect?.();
       // The new thumb is on disk before any client can see the new version.
       expect(stores).toEqual(['a-nobg.webp', 'a-thumb.webp']);
-      return Promise.resolve(2);
+      return transition(row, event);
     });
     await expect(
-      photos.storeCutout(Readable.from(await png(500)), 'a.webp', {
-        newUpload: false,
-      }),
+      photos.saveEditedCutout(Readable.from(await png(500)), 'a.webp'),
     ).resolves.toBe(2);
-    expect(bumpMock).toHaveBeenCalledWith({}, 'a.webp');
+  });
+
+  it('writes nothing for a photo whose row is gone', async () => {
+    const photos = build();
+    lockMock.mockResolvedValue(undefined);
+    await expect(
+      photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
+    ).resolves.toBeUndefined();
+    expect(applyMock).not.toHaveBeenCalled();
+    expect(stores).toEqual([]);
+  });
+
+  it('refuses undecodable bytes with a 400 before touching the row', async () => {
+    const photos = build();
+    await expect(
+      photos.saveEditedCutout(Readable.from(Buffer.from('nope')), 'a.webp'),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Unreadable image' });
+    expect(lockMock).not.toHaveBeenCalled();
+    expect(stores).toEqual([]);
   });
 });
 
 describe('Photos.regenerateThumb', () => {
-  it('after a photo + cutout pair, builds one thumb from the cutout', async () => {
+  it('builds the thumb from the cutout when both exist', async () => {
     const photos = build();
-    // Mirror Photos.storeUploadParts: both halves are
-    // stored concurrently without thumbs, then one regenerate runs.
     await put('a.webp', await png(1000));
-    await photos.storeCutout(Readable.from(await png(300)), 'a.webp', {
-      newUpload: true,
-    });
+    await put('a-nobg.webp', await png(300));
     await photos.regenerateThumb('a.webp');
     expect((await sharp(await stored('a-thumb.webp')).metadata()).width).toBe(
       300,
@@ -448,7 +487,7 @@ describe('Photos.watermarked', () => {
   it('serves the original as a JPEG without the icon when WATERMARK_ENABLED is false', async () => {
     const photos = build({ watermarkEnabled: false });
     const out = await collect(await photos.watermarked('share-1'));
-    expect(findByShareMock).toHaveBeenCalledWith({}, 'share-1');
+    expect(findByShareMock).toHaveBeenCalledWith(db, 'share-1');
     expect((await sharp(out).metadata()).format).toBe('jpeg');
   });
 

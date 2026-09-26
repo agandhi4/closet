@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { file } from '../../db/schema';
 
@@ -26,23 +26,6 @@ export async function insertPhotoRow(
     .values(row)
     .returning({ id: file.id });
   return inserted.id;
-}
-
-/**
- * Bumps the cache-busting version after bytes under an existing name were
- * rewritten (a mask edit). One statement, so two edits never both read 1
- * and write 2. Undefined when no row has that name.
- */
-export async function bumpPhotoVersion(
-  db: Db,
-  fileName: string,
-): Promise<number | undefined> {
-  const [row] = await db
-    .update(file)
-    .set({ version: sql`${file.version} + 1` })
-    .where(eq(file.fileName, fileName))
-    .returning({ version: file.version });
-  return row?.version;
 }
 
 /** The stored name behind a share link's image (the watermark route). */

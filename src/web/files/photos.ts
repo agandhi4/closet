@@ -1,10 +1,16 @@
 import type { MultipartFile } from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { PassThrough, type Readable } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import sharp, { type Sharp } from 'sharp';
 import type { Config } from '../../config';
+import {
+  applyCutoutEvent,
+  type CutoutOutcome,
+  lockCutoutRow,
+} from '../../cutout/queries';
+import type { CutoutEvent } from '../../cutout/state';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
 import type { Logger } from '../../logger';
@@ -20,11 +26,7 @@ import {
   type ImageVariant,
   variantFileName,
 } from './image-variant';
-import {
-  bumpPhotoVersion,
-  findPhotoByShareableId,
-  type NewPhotoRow,
-} from './queries';
+import { findPhotoByShareableId, type NewPhotoRow } from './queries';
 import { PhotoStorage } from './storage';
 
 const IMAGE_MAX_PX = 1080;
@@ -227,7 +229,7 @@ export class Photos {
         );
       } else if (part.fieldname === 'nobgPhoto' && !started.cutout) {
         started.cutout = startPipeline(
-          this.storeCutout(part.file, fileName, { newUpload: true }),
+          this.storeNewCutout(part.file, fileName),
         );
       } else {
         part.file.resume();
@@ -290,38 +292,74 @@ export class Photos {
   }
 
   /**
-   * Writes the background-removed cutout for `originalFileName` and returns
-   * the photo's version afterwards (undefined for a new upload, or when no
-   * row has that name).
-   *
-   * `newUpload`: the cutout belongs to a photo stored in the same request
-   * (see storeUpload's deferThumb); no client has seen this name yet, so
-   * there is no version to bump, and the caller builds the thumb once both
-   * halves are stored.
-   *
-   * Otherwise (a mask edit) clients may already hold the old nobg and thumb
-   * under the current version: the thumb is rewritten first and the version
-   * bumped after, so no client can cache a stale thumb under the new version.
+   * The cutout half of a photo+cutout upload (storeUploadParts): no client
+   * has seen this name yet, so there is no version to bump and no state to
+   * change, and the caller builds the one thumb once both halves are stored.
    */
-  async storeCutout(
+  private async storeNewCutout(
     stream: Readable,
     originalFileName: string,
-    { newUpload }: { newUpload: boolean },
-  ): Promise<number | undefined> {
+  ): Promise<void> {
     const nobgName = variantFileName(originalFileName, 'nobg');
     await this.transcodeUpload(stream, this.imageTransformer(), nobgName);
-    if (newUpload) {
-      this.logger.info(`Stored cutout ${nobgName}`);
+    this.logger.info(`Stored cutout ${nobgName}`);
+  }
+
+  /**
+   * The mask editor's cutout replaces the stored one (the `edit` event: a
+   * user's mask always wins, and no server job result replaces it after).
+   * Returns the photo's new version; undefined when no row has that name.
+   * The upload is encoded before the row is locked, so a slow client never
+   * holds the lock.
+   */
+  async saveEditedCutout(
+    stream: Readable,
+    originalFileName: string,
+  ): Promise<number | undefined> {
+    const bytes = await this.encodeUpload(stream, this.imageTransformer());
+    const outcome = await this.writeCutout(
+      originalFileName,
+      { type: 'edit' },
+      bytes,
+    );
+    if (!outcome.ok) {
+      this.logger.warn(
+        `Edited cutout for ${originalFileName} not stored: ${outcome.reason}`,
+      );
       return undefined;
     }
-    await this.regenerateThumb(originalFileName);
-    const version = await bumpPhotoVersion(this.db, originalFileName);
-    if (version === undefined) {
-      this.logger.warn(`Cutout ${nobgName} stored for a photo without a row`);
-    } else {
-      this.logger.info(`Replaced cutout ${nobgName}, now version ${version}`);
-    }
-    return version;
+    return outcome.state.version;
+  }
+
+  /**
+   * Writes cutout bytes under the photo's row lock, only if the state
+   * machine accepts `event` (src/cutout/state.ts): the nobg file, then the
+   * thumb, then the row with its new version, so no client can cache a
+   * stale thumb under the new version. Every writer of an existing photo's
+   * cutout (the mask editor, the server job) comes through here, so the
+   * lock orders them and a refused one writes no bytes: a job result never
+   * lands on a user's edit or on a replaced photo.
+   */
+  private writeCutout(
+    originalFileName: string,
+    event: CutoutEvent,
+    bytes: Buffer,
+  ): Promise<CutoutOutcome> {
+    const nobgName = variantFileName(originalFileName, 'nobg');
+    return this.db.transaction(async (tx) => {
+      const row = await lockCutoutRow(tx, originalFileName);
+      if (!row) return { ok: false, reason: 'gone' } as const;
+      const outcome = await applyCutoutEvent(tx, row, event, async () => {
+        await this.storage.store(nobgName, Readable.from(bytes));
+        await this.regenerateThumb(originalFileName);
+      });
+      if (outcome.ok) {
+        this.logger.info(
+          `Cutout ${nobgName} stored (${event.type}): ${row.status} -> ${outcome.state.status}, version ${outcome.state.version}`,
+        );
+      }
+      return outcome;
+    });
   }
 
   /**
@@ -494,6 +532,24 @@ export class Photos {
           : new HttpError(400, 'Unreadable image');
       }
       throw error;
+    }
+  }
+
+  // Client bytes into memory rather than storage: an undecodable stream is
+  // the client's error (400), as in transcodeUpload.
+  private async encodeUpload(
+    source: Readable,
+    transformer: Sharp,
+  ): Promise<Buffer> {
+    // pipe() does not forward a source failure; toBuffer() must see it.
+    source.on('error', (error) => transformer.destroy(error));
+    try {
+      return await source.pipe(transformer).toBuffer();
+    } catch (error) {
+      this.logger.warn(`Rejected unreadable upload: ${String(error)}`);
+      throw exceedsPixelLimit(error)
+        ? imageTooLarge()
+        : new HttpError(400, 'Unreadable image');
     }
   }
 
