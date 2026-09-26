@@ -6,7 +6,12 @@ import { renderPage } from '../render';
 import { requestOrigin } from '../security/origin';
 import { viewContext } from '../view-context';
 import { findSharedGarment, findSharedOutfit } from './queries';
-import { type Shared, SharePage, type SharePreview } from './share-page';
+import {
+  type Shared,
+  SharePage,
+  type SharePreview,
+  sharedBy,
+} from './share-page';
 
 // Navigation state from a link, never a 400: a missing or unknown value
 // renders the empty page, as a link to a deleted item does.
@@ -50,10 +55,12 @@ function sharePreview(
           // The first garment, in the outfit's order, with a photo.
           photo: shared.outfit.garments.find((g) => g.photo)?.photo,
         };
+  const owner = sharedBy(item.owner);
   return {
     url: `${origin}/share?shareableId=${encodeURIComponent(shareableId)}&type=${shared.type}`,
     title: item.name ?? undefined,
-    description: `${t('SHARED_BY')} ${item.owner.email}`,
+    // Without a first name the layout's default description stands.
+    description: owner && `${t('SHARED_BY')} ${owner}`,
     image: item.photo
       ? `${origin}/file/watermark/${item.photo.shareableId}`
       : undefined,

@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { file, garment } from '../../src/db/schema';
+import { file, garment, user } from '../../src/db/schema';
+import { t as translate } from '../../src/web/i18n';
 import { createGarment } from './garments';
 import { createTestApp, OWNER_EMAIL, TestApp, unescapeHtml } from './harness';
 import { createPageFixture, expectFullPage, PageFixture } from './pages';
@@ -36,15 +37,17 @@ describe('share page', () => {
 
   afterAll(() => t?.cleanup());
 
-  it('previews a garment with its name, owner and watermarked photo', async () => {
+  it("previews a garment with its name and watermarked photo, never its owner's email", async () => {
     const url = `/share?shareableId=${f.garmentShareableId}&type=garment`;
     const res = await open(url);
     expect(res.statusCode).toBe(200);
     expectFullPage(res);
     expect(res.body).toContain('Black Linen Blazer');
-    expect(res.body).toContain(`Shared by ${OWNER_EMAIL}`);
+    // The owner set no first name: the page names nobody.
+    expect(res.body).not.toContain(OWNER_EMAIL);
+    expect(res.body).not.toContain('Shared by');
     expect(meta(res.body, 'og:title')).toBe('Black Linen Blazer');
-    expect(meta(res.body, 'og:description')).toBe(`Shared by ${OWNER_EMAIL}`);
+    expect(meta(res.body, 'og:description')).toBe(translate('APP_DESCRIPTION'));
     expect(meta(res.body, 'og:url')).toBe(`http://localhost${url}`);
     expect(meta(res.body, 'og:image')).toBe(
       `http://localhost/file/watermark/${photoShareId}`,
@@ -60,12 +63,37 @@ describe('share page', () => {
       `/share?shareableId=${f.outfitShareableId}&type=outfit`,
     );
     expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain(OWNER_EMAIL);
     expect(res.body).toContain('Office look');
     expect(res.body).toContain('/file/thumb/');
     expect(meta(res.body, 'og:title')).toBe('Office look');
     expect(meta(res.body, 'og:image')).toBe(
       `http://localhost/file/watermark/${photoShareId}`,
     );
+  });
+
+  it('names the owner by first name when they set one, page and preview alike', async () => {
+    await t.db
+      .update(user)
+      .set({ firstName: ' Ada ' })
+      .where(eq(user.id, t.owner.id));
+    try {
+      for (const url of [
+        `/share?shareableId=${f.garmentShareableId}&type=garment`,
+        `/share?shareableId=${f.outfitShareableId}&type=outfit`,
+      ]) {
+        const res = await open(url);
+        expect(res.body).toContain('Shared by Ada</p>');
+        expect(meta(res.body, 'og:description')).toBe('Shared by Ada');
+        expect(meta(res.body, 'twitter:description')).toBe('Shared by Ada');
+        expect(res.body).not.toContain(OWNER_EMAIL);
+      }
+    } finally {
+      await t.db
+        .update(user)
+        .set({ firstName: null })
+        .where(eq(user.id, t.owner.id));
+    }
   });
 
   it('falls back to the app icon for a garment without a photo', async () => {

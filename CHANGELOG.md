@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `ACCESS_TOKEN_SECRET` has no default and must be at least 32 characters: the server refuses to start without one (`openssl rand -hex 32`). The old default, `ChangeMe!`, is public, and anyone who knew the secret could sign a session for any account. **Upgrading**: set it before deploying; a new value signs everyone out once
 - Signing out is a POST from the navbar's Logout button: a link or image on any other site could sign you out with a GET. `/auth/logout` opened directly (an old link in a cached page of the installed app) asks with a one-button "Sign out" page instead
+- The public share page (and the link preview crawlers build from it) no longer shows the owner's email: it says "Shared by" and their first name when one is set, else names nobody
 - Changing the email needs the current password, like changing the password (400 with an error when it is wrong, nothing changed), and is rate limited per user the same way: the email is the login name, so an unattended session could otherwise take the account over
 
 - Stored XSS through garment colours: the colour picker put a stored colour into the page as markup, so a colour posted by a MANAGE grantee (or, before the CSRF check, any site) ran script in the owner's session on the edit page. Colours are now one of the built-in set, checked on the server (anything else re-renders the form with a 400), and the picker builds its pills as text
