@@ -267,7 +267,6 @@ function GarmentActions({
             hx-confirm={t(
               garment.archived ? 'CONFIRM_UNARCHIVE' : 'CONFIRM_ARCHIVE',
             )}
-            hx-indicator="#loading"
           >
             {t(garment.archived ? 'UNARCHIVE' : 'ARCHIVE')}
           </button>
@@ -276,7 +275,6 @@ function GarmentActions({
             class="btn btn-error btn-outline btn-sm w-full"
             hx-delete={garmentUrl(garment.id, viewOwner)}
             hx-confirm={t('CONFIRM_DELETE')}
-            hx-indicator="#loading"
           >
             {t('DELETE')}
           </button>

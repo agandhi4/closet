@@ -107,7 +107,7 @@ describe('web layer', () => {
       );
       expect(res.body).toContain('href="/auth/login"');
       expect(res.body).toContain('id="connectivity-banner"');
-      expect(res.body).toMatch(/<body[^>]*hx-inherit="hx-boost"/);
+      expect(res.body).toMatch(/<body[^>]*hx-inherit="hx-boost hx-indicator"/);
       // Security headers come from the root onSend hook.
       expect(res.headers['x-frame-options']).toBe('DENY');
     });

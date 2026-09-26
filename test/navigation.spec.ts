@@ -147,3 +147,34 @@ test('switching to a shared wardrobe swaps the grid in place', async ({
   await expectSameDocument(grantee);
   await granteeContext.close();
 });
+
+test.describe('tap feedback', () => {
+  // page.route sees the page's requests only without a worker in between.
+  test.use({ serviceWorkers: 'block' });
+
+  test('a tapped card is marked and the spinner shows while the page loads', async ({
+    page,
+  }) => {
+    await signIn(page, 'nav-tap-feedback');
+    const id = await createGarment(page, 'Slow card');
+    await page.goto('/wardrobe');
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(`**/wardrobe/${id}`, async (route) => {
+      await held;
+      await route.continue();
+    });
+
+    const card = page.locator(`#wardrobe-grid a.card[href="/wardrobe/${id}"]`);
+    await card.click();
+    await expect(card).toHaveClass(/\bhtmx-request\b/);
+    await expect(page.locator('#loading')).toHaveClass(/\bhtmx-request\b/);
+
+    release();
+    await expect(page).toHaveURL(new RegExp(`/wardrobe/${id}$`));
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Slow card' }),
+    ).toBeVisible();
+  });
+});

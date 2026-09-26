@@ -19,6 +19,20 @@ and response bandwidth/latency. */
   z-index: 1000;
 }
 
+/* Tap feedback: pressed while touched, dimmed while the tapped link's
+   request is in flight (the body's hx-indicator marks it htmx-request,
+   src/web/layout/layout.tsx), so a slow network never looks like a dead
+   tap. An outfit card's link is its title stretched over the card. */
+a.card:active,
+.dock > a:active,
+.card:has(a:active) {
+  opacity: 0.8;
+}
+a.htmx-request,
+.card:has(a.htmx-request) {
+  opacity: 0.6;
+}
+
 /* ── Calendar: outfit chip colors (outfit.id % 6) ─────────────────────── */
 .chip-0 { background-color: color-mix(in oklch, var(--color-primary)   20%, transparent); color: var(--color-primary);   }
 .chip-1 { background-color: color-mix(in oklch, var(--color-secondary) 20%, transparent); color: var(--color-secondary); }

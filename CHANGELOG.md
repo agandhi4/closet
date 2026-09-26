@@ -75,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Photo and row writes are one transaction with compensation; deleting a garment removes its files and file row
 - Outfit builder: `/outfits/new` reads one garment per category plus counts instead of the whole wardrobe, each prev/next swap reads one garment instead of the whole category, and rows show the 400px thumbnail instead of the 1080px cutout (which the detail dialog loads only when opened). The list and outfit pages read plain rows in one statement
 - Taps that reloaded the whole app now swap the page in place: an outfit card, a calendar entry, the shared-wardrobe switcher, and the page after archiving or deleting a garment, deleting an outfit or unscheduling one (`HX-Location` instead of `HX-Redirect`). A reload re-ran every script, the service worker update check and the heartbeat, and painted white in between
+- Every navigation is lighter: the install dialog (100 KB) and pull to refresh load only where they apply (a browser tab that can install; iOS standalone) and are set up once, not per page (the dialog re-fetched `/manifest.json` on every tap); htmx keeps 3 history snapshots instead of 10 (half the per-tap sessionStorage work); the 250 ms page transition, which ignored taps while it ran, is gone; the logo links to the wardrobe instead of a redirect to it
+- A tapped card, dock item or link dims and the navbar spinner turns while its page loads, so a slow network no longer looks like a dead tap
+- No request to another origin: the Cloudflare Insights preconnect and its CSP entries are gone
 - The service worker is a production build (133 KB to 30 KB, 30 KB to 10 KB gzipped, no Workbox debug logging or assertions on every fetch), and navigation preload lets a page's request start while an idle-killed worker boots instead of after
 
 #### Fixed (data and security)

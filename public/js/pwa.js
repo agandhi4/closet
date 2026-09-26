@@ -1,10 +1,11 @@
 /**
  * Installed-app plumbing, loaded by the layout when PWA_ENABLED: service
  * worker registration and the update flow, Web Push on signed-in pages
- * (push.js), and pull to refresh for iOS standalone (which has none of its
- * own). Lives in the
- * head so hx-boost body swaps never re-run it; anything that touches the
- * body re-applies itself on htmx:afterSettle.
+ * (push.js), the install dialog in a browser tab that can install the app,
+ * and pull to refresh for iOS standalone (which has none of its own). Lives
+ * in the head so hx-boost body swaps never re-run it; anything that touches
+ * the body re-applies itself after a swap. The last two libraries are
+ * imported only where they do something.
  *
  * Update flow (frontend-pwa.md, "never force-reload"): the worker in
  * views/assets/src-sw.ts no longer calls skipWaiting() on install, so a new
@@ -15,7 +16,6 @@
  * moment there is nothing to work around.
  */
 import { Workbox } from 'workbox-window';
-import PullToRefresh from 'pulltorefreshjs';
 import { showToast } from 'toast';
 
 const strings = () => document.getElementById('app-status')?.dataset ?? {};
@@ -69,11 +69,47 @@ function startPush() {
     .catch((error) => console.warn('[pwa] push sync failed', error));
 }
 
+// The <pwa-install> dialog (@khmyznikov/pwa-install, 100 KB) only where
+// installing is possible: never in the installed app, and in Chromium only
+// once the browser offers it (beforeinstallprompt: installable and not
+// installed yet). Safari and Firefox have no such event; the element decides
+// there whether it has instructions to show. It is mounted once per document
+// on <html>, outside the body htmx swaps: in the body every navigation
+// re-mounted it, and every mount fetched /manifest.json again.
+function offerInstall() {
+  const mount = async (promptEvent) => {
+    await import('pwa-install');
+    const dialog = document.createElement('pwa-install');
+    dialog.id = 'pwa-install';
+    dialog.setAttribute('manifest-url', '/manifest.json');
+    if (promptEvent) dialog.externalPromptEvent = promptEvent;
+    document.documentElement.append(dialog);
+    console.info('[pwa] install dialog mounted');
+  };
+  const failed = (error) =>
+    console.warn('[pwa] install dialog failed to load', error);
+  if ('BeforeInstallPromptEvent' in window) {
+    window.addEventListener(
+      'beforeinstallprompt',
+      (event) => {
+        // The element shows its own dialog in place of the browser's.
+        event.preventDefault();
+        mount(event).catch(failed);
+      },
+      { once: true },
+    );
+  } else {
+    mount().catch(failed);
+  }
+}
+
 // https://stackoverflow.com/questions/75972895/ios-pwa-how-to-re-enable-pull-to-refresh
-// pulltorefresh binds to the <main> element at init, so it has to be redone
-// after each body swap.
-function installPullToRefresh() {
-  const init = () => {
+// pulltorefresh binds to the page's <main> and inserts its indicator into
+// the body, so a navigation (a swap of the whole body) needs it bound again;
+// a fragment swap (a filter, an outfit row) leaves both in place.
+async function installPullToRefresh() {
+  const { default: PullToRefresh } = await import('pulltorefreshjs');
+  const bind = () => {
     PullToRefresh.destroyAll();
     PullToRefresh.init({
       mainElement: 'main',
@@ -82,12 +118,24 @@ function installPullToRefresh() {
       },
     });
   };
-  init();
-  document.addEventListener('htmx:afterSettle', init);
+  bind();
+  document.addEventListener('htmx:afterSettle', (event) => {
+    if (event.detail.target === document.body) bind();
+  });
+  document.addEventListener('htmx:historyRestore', bind);
 }
+
+const standalone =
+  window.navigator.standalone === true ||
+  window.matchMedia('(display-mode: standalone)').matches;
 
 if ('serviceWorker' in navigator) registerServiceWorker();
 // Also without a service worker (an http: origin): the profile page then
 // says this browser cannot receive notifications.
 if (document.documentElement.hasAttribute('data-signed-in')) startPush();
-if (window.navigator.standalone === true) installPullToRefresh();
+if (!standalone) offerInstall();
+if (window.navigator.standalone === true) {
+  installPullToRefresh().catch((error) =>
+    console.warn('[pwa] pull to refresh failed to load', error),
+  );
+}

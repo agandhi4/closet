@@ -116,6 +116,33 @@ test.describe('installed app delivery', () => {
     await context.setOffline(false);
   });
 
+  test('navigating never fetches the manifest again', async ({ page }) => {
+    await waitForServiceWorker(page);
+    const fetched: string[] = [];
+    page.on('request', (request) => {
+      if (
+        new URL(request.url()).pathname === '/manifest.json' &&
+        request.resourceType() === 'fetch'
+      ) {
+        fetched.push(request.url());
+      }
+    });
+
+    for (const [href, url] of [
+      ['/outfits', /\/outfits$/],
+      ['/calendar', /\/calendar$/],
+      ['/wardrobe', /\/wardrobe$/],
+    ] as const) {
+      await page.locator(`.dock a[href="${href}"]`).click();
+      await expect(page).toHaveURL(url);
+    }
+    await page.waitForTimeout(500);
+    // The install dialog (public/js/pwa.js), when a browser offers
+    // installing at all, is mounted once outside the body htmx swaps.
+    expect(fetched).toEqual([]);
+    await expect(page.locator('body pwa-install')).toHaveCount(0);
+  });
+
   test('signing out drops the cached pages', async ({ page }) => {
     await waitForServiceWorker(page);
     await page.goto('/wardrobe');
