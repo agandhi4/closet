@@ -365,6 +365,63 @@ export function formValues(body: GarmentBody): GarmentFormValues {
   };
 }
 
+/**
+ * What the garment form posts when it shows `values` (formValues'
+ * inverse), every marker set: for a writer that has form values but no
+ * browser, so its garment goes through readGarmentForm like any other
+ * (the MCP tool add_garment_from_link, which saves a link import's
+ * prefilled form). The caller's values stay bounded by GarmentBody's
+ * caps; readGarmentForm judges the rest.
+ */
+export function formPost(values: GarmentFormValues): GarmentBody {
+  const { properties, care } = values;
+  return {
+    name: values.name,
+    category: values.category,
+    brand: values.brand,
+    color: values.colors,
+    size: values.size,
+    washingDetails: values.washingDetails,
+    dateAquired: values.dateAquired,
+    notes: values.notes,
+    props: '1',
+    type: properties.type,
+    warmth: choiceValue(WARMTHS, properties.warmth),
+    formality: choiceValue(FORMALITIES, properties.formality),
+    materials: MATERIALS.filter((m) => properties.materials.includes(m)),
+    pattern: choiceValue(PATTERNS, properties.pattern),
+    fit: choiceValue(FITS, properties.fit),
+    sleeve: choiceValue(SLEEVES, properties.sleeve),
+    length: choiceValue(LENGTHS, properties.length),
+    fabricWeight: properties.fabricWeight,
+    fabricWeightUnit: properties.fabricWeightUnit,
+    ...(properties.waterResistant && { waterResistant: 'true' }),
+    product: '1',
+    sourceUrl: values.sourceUrl,
+    price: values.price,
+    care: '1',
+    quantity: care.quantity,
+    washAfterWears: choiceValue(
+      [NEVER_WASH, ...WASH_AFTER_CHOICES],
+      care.washAfterWears,
+    ),
+    condition: care.condition,
+    conditionNote: care.conditionNote,
+  };
+}
+
+/**
+ * A choice field's text as the schema types it: one of `set` (as text), or
+ * '' (the reset chip) for anything else.
+ */
+function choiceValue<T extends string | number>(
+  set: readonly T[],
+  shown: string,
+): `${T}` | '' {
+  const found = pick(set, shown);
+  return found === null ? '' : (String(found) as `${T}`);
+}
+
 /** The posted care fields as the form shows them; a new garment's without them. */
 function careFormValues(body: GarmentBody): CareFormValues {
   if (body.care !== '1') return BLANK_CARE;

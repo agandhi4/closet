@@ -12,6 +12,7 @@ import {
 } from '../maintenance/set-password';
 import { deleteAccount } from '../web/auth/account';
 import { hashPassword, passwordProblems } from '../web/auth/passwords';
+import { createToken } from '../web/auth/personal-tokens';
 import {
   findUserByEmail,
   insertUser,
@@ -401,7 +402,7 @@ export interface SeedCommand extends SeedDeps {
 
 const USAGE = `Usage: npm run seed -- --persona <${PERSONA_KEYS.join('|')}|all> [--persona ...]
                      [--reset | --remove] [--anchor YYYY-MM-DD]
-                     [--share-with <email>] [--password-stdin]
+                     [--share-with <email>] [--password-stdin] [--token]
 `;
 
 /** A refusal with its message for the operator; exit status 1. */
@@ -430,6 +431,8 @@ interface SeedOptions {
   anchor?: IsoDate;
   shareWith?: string;
   passwordStdin: boolean;
+  /** Also print a personal access token (the MCP endpoint's) per persona. */
+  token: boolean;
 }
 
 const OPTIONS = {
@@ -439,6 +442,7 @@ const OPTIONS = {
   anchor: { type: 'string' },
   'share-with': { type: 'string' },
   'password-stdin': { type: 'boolean', default: false },
+  token: { type: 'boolean', default: false },
 } as const;
 
 function parseOptions(args: string[]) {
@@ -463,6 +467,7 @@ function readOptions(args: string[]): SeedOptions | undefined {
     anchor: anchor ?? undefined,
     shareWith: values['share-with'],
     passwordStdin: values['password-stdin'],
+    token: values.token,
   };
 }
 
@@ -504,7 +509,12 @@ async function seedCommand(
   const anchor = options.anchor ?? todayIn(command.timeZone, command.now);
   const password = await newPassword(command, options.passwordStdin);
   for (const persona of chosen) {
-    await seedOne(command, persona, { anchor, password }, grantee);
+    await seedOne(
+      command,
+      persona,
+      { anchor, password, token: options.token },
+      grantee,
+    );
   }
   await linkPersonas(command, personas);
 }
@@ -523,7 +533,7 @@ async function shareTarget(
 async function seedOne(
   command: SeedCommand,
   persona: Persona,
-  options: { anchor: IsoDate; password: string },
+  options: { anchor: IsoDate; password: string; token: boolean },
   grantee: { id: number; email: string } | undefined,
 ): Promise<void> {
   const { output } = command;
@@ -533,14 +543,28 @@ async function seedOne(
       ? `${persona.key}: seeded ${report.garments} garments, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries in ${(report.ms / 1000).toFixed(1)} s. Sign in as ${persona.account.email} with ${options.password}\n`
       : `${persona.key}: already seeded, left as it is (--reset rebuilds it)\n`,
   );
-  if (!grantee) return;
   const account = await findUserByEmail(
     command.db,
     normalizeEmail(persona.account.email),
   );
+  if (options.token) {
+    // Like the password: printed once, never logged. Outside the persona's
+    // transaction, so an existing persona gets one too; --reset and
+    // --remove take it with the account.
+    const created = await createToken(command.db, account!.id, SEED_TOKEN_NAME);
+    output.write(
+      created.created
+        ? `${persona.key}: MCP token ${created.token} (shown once; revoke it at /auth/tokens)\n`
+        : `${persona.key}: no MCP token, the account holds too many\n`,
+    );
+  }
+  if (!grantee) return;
   await share(command, account!.id, grantee.id, 'VIEW');
   output.write(`${persona.key}: shared (VIEW) with ${grantee.email}\n`);
 }
+
+/** The seed's tokens, by name on the persona's Agent access page. */
+const SEED_TOKEN_NAME = 'npm run seed';
 
 // The personas' password: from stdin when asked (the known one development
 // and CI use), else a random one, printed once with the logins.

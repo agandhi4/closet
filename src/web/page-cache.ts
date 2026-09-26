@@ -27,6 +27,19 @@ export const PAGE_ACCOUNT_HEADER = 'X-Page-Account';
  */
 export const CACHED_AT_HEADER = 'X-SW-Cached-At';
 
+/** The MCP endpoint's path (src/web/mcp): an API for programs, never a page. */
+export const MCP_PATH = '/mcp';
+
+/**
+ * Requests no worker route matches, so the worker neither answers nor
+ * caches them: the MCP endpoint. Programs call it, not the app (and they
+ * have no worker), but a browser tab opened on it must reach the server as
+ * it is and never land in the page cache.
+ */
+export function bypassesWorker(url: { pathname: string }): boolean {
+  return url.pathname === MCP_PATH || url.pathname.startsWith(`${MCP_PATH}/`);
+}
+
 /**
  * The dock's tabs, where the installed app opens (the manifest's start_url is
  * /wardrobe). Exact paths without a query: a filtered wardrobe or another

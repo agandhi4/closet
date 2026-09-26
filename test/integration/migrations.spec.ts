@@ -66,6 +66,10 @@ describe('migrations', () => {
         'garment_wear_outfit_calendar_id_garment_id_unique',
         'garment_wear_garment_id_day_single_unique',
         'garment_wear_owner_id_index',
+        // Every MCP call looks its bearer token up by its hash; the profile
+        // lists a user's tokens (also the user_id foreign key's).
+        'personal_access_token_token_hash_unique',
+        'personal_access_token_user_id_index',
         // Login and every email lookup compare lower(email).
         'user_lower_email_unique',
       ]),
@@ -80,6 +84,7 @@ describe('migrations', () => {
         t.db.query.user.findMany({
           with: {
             devices: true,
+            accessTokens: true,
             fileUploads: true,
             garments: true,
             outfits: true,
@@ -115,6 +120,7 @@ describe('migrations', () => {
           with: { grantor: true, grantee: true },
         }),
         t.db.query.userDevice.findMany({ with: { user: true } }),
+        t.db.query.personalAccessToken.findMany({ with: { user: true } }),
         t.db.query.capsule.findMany({ with: { owner: true, garments: true } }),
         t.db.query.capsuleGarment.findMany({
           with: { capsule: true, garment: true },

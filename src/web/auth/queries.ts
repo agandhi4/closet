@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { file, pendingPhoto, user } from '../../db/schema';
+import { revokeAllTokens } from './personal-tokens';
 
 /**
  * Account rows. Emails are stored as normalizeEmail writes them (trimmed,
@@ -69,17 +70,25 @@ export async function insertUser(
   return row;
 }
 
-export async function updatePasswordHash(
+/**
+ * The one writer of a password. The new hash ends every session issued
+ * before it (the fingerprint), and the same transaction revokes every
+ * personal access token: a new password is how an account is taken back.
+ */
+export function updatePasswordHash(
   db: Db,
   id: number,
   passwordHash: string,
 ): Promise<AccountRow> {
-  const [row] = await db
-    .update(user)
-    .set({ password: passwordHash })
-    .where(eq(user.id, id))
-    .returning(accountColumns);
-  return row;
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(user)
+      .set({ password: passwordHash })
+      .where(eq(user.id, id))
+      .returning(accountColumns);
+    await revokeAllTokens(tx, id);
+    return row;
+  });
 }
 
 export async function updateEmail(

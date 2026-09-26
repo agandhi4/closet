@@ -14,7 +14,7 @@ import { passwordProblems } from './passwords';
 // Generous caps: the columns are varchar(255), and bcrypt reads only the
 // first 72 bytes of a password.
 const Email = Type.String({ maxLength: 255 });
-const Password = Type.String({ maxLength: 1024 });
+export const Password = Type.String({ maxLength: 1024 });
 
 export const LoginBody = Type.Object({ email: Email, password: Password });
 export type LoginBody = Static<typeof LoginBody>;

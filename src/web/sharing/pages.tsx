@@ -1,4 +1,4 @@
-import { copyAndFlash } from '../share/share-button';
+import { CopyableText } from '../share/share-button';
 import { sharedBy } from '../share/share-page';
 import type { Child } from 'hono/jsx';
 import { PostForm } from '../auth/form';
@@ -39,41 +39,11 @@ function PermissionBadge(props: {
   );
 }
 
-/**
- * The invite URL in a read-only input plus a copy button. The URL reaches
- * the handler as a data attribute, never spliced into its source.
- */
-function CopyableLink(props: {
-  url: string;
-  size: 'xs' | 'sm';
-  label: string;
-}) {
-  return (
-    <div class="flex items-center gap-2">
-      <input
-        type="text"
-        class={`input input-bordered input-${props.size} flex-1`}
-        value={props.url}
-        readonly
-        onclick="this.select()"
-      />
-      <button
-        type="button"
-        class={`btn btn-ghost btn-${props.size}`}
-        data-copy={props.url}
-        onclick={copyAndFlash('btn-ghost')}
-      >
-        {props.label}
-      </button>
-    </div>
-  );
-}
-
 /** The answer to the create-invite form (htmx swaps it into #invite-link-result). */
 export function InviteLinkResult(props: { url: string }) {
   return (
     <div class="flex flex-col gap-3" id="invite-link-result">
-      <CopyableLink url={props.url} size="sm" label={t('COPY_TEXT')} />
+      <CopyableText value={props.url} size="sm" label={t('COPY_TEXT')} />
     </div>
   );
 }
@@ -172,8 +142,8 @@ export function ManagePage(props: {
                       )}
                     </div>
                     {share.inviteToken && (
-                      <CopyableLink
-                        url={inviteUrl(props.origin, share.inviteToken)}
+                      <CopyableText
+                        value={inviteUrl(props.origin, share.inviteToken)}
                         size="xs"
                         label={t('COPY_INVITE_LINK')}
                       />

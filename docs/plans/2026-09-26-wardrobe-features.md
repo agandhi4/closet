@@ -440,6 +440,54 @@ against what you own.
   would delete every selfie as an orphan. Both are specified and tested with the feature, and the
   gotcha is updated in CLAUDE.md.
 
+## 14. MCP server
+
+The owner's own Claude (Code, Desktop, mobile) works on the wardrobe through MCP (#33): searches it,
+adds pieces from links, builds outfits and capsules, plans days, and compares it with a shared
+wardrobe (the demo persona's, #32) to talk through what to buy. With it the owner's Claude is the
+stylist, so section 5 may shrink to what must run without anyone asking.
+
+- **Inside the app, not beside it.** `POST /mcp`, a Streamable HTTP endpoint on the official
+  `@modelcontextprotocol/sdk` in **stateless** mode (a server and transport per request, JSON
+  answers, no SSE and no session id; `GET` and `DELETE` are 405). Every tool calls the query and
+  write functions the pages use, so the one-writer rules, role applicability, presets and
+  `authorizeWardrobe` hold. There is no second path to the database for a write.
+- **Auth: personal access tokens.** `personal_access_token` (user, name, SHA-256 of the token,
+  a display prefix, `created_at`, `last_used_at`, `revoked_at`). A token is `closet_` plus 32
+  random bytes in base64url, shown once when created. Creating one asks for the current password
+  (it outlives signing out, like a password change would); revoking does not. A fast hash is right for 256 random bits:
+  nothing to brute-force, and a lookup by the hash's unique index. Created, listed and revoked
+  on the profile's "Agent access" page (native-post forms). A token acts exactly as its user,
+  shares included (VIEW reads Theo's wardrobe, MANAGE writes its garments, wears stay the
+  owner's). A new password revokes every token, as it ends every session.
+- **An API, not a page.** `Authorization: Bearer` only; a session cookie never authenticates it.
+  The same-origin check lets a request without Origin through (Claude sends none; a browser
+  cannot add the header cross-site without a CORS preflight, which is never answered) and still
+  refuses a foreign Origin (the MCP spec's DNS-rebinding rule). No page context, so errors are
+  JSON. The service worker never handles `/mcp`. A missing, unknown or revoked token is the same
+  401 with `WWW-Authenticate: Bearer`.
+- **Rate limits.** 120 calls a minute per token; `add_garment_from_link` has the link import's
+  budget too (10 a minute per user, whichever token), because it fetches a stranger's site.
+- **Tools.** Read: `search_garments` (the grid's filters, capsule, condition, needs-wash for
+  one's own), `get_garment`, `list_capsules`, `get_capsule`, `list_outfits`, `get_outfit`,
+  `get_calendar` (a date range, up to 62 days), `laundry_status` (own), `list_shared_wardrobes`,
+  `compare_with_shared_wardrobe` (own vs a shared wardrobe by role and type: gaps, overlaps;
+  pure and unit-tested). Write, each description saying so: `add_garment_from_link` (#6's
+  import and extraction, saved straight to the closet), `update_garment` (properties,
+  condition), `set_capsule_membership`, `create_outfit`, `schedule_outfit`, `mark_worn`,
+  `mark_washed`. Nothing deletes; there is no delete or archive tool.
+- **Metadata, not photos or emails.** Tools answer with ids, names, categories, properties,
+  colours, prices and counts; never photo bytes or URLs, and a shared wardrobe is named by its
+  owner's first name as the switcher names it.
+- **Logging** (context `Mcp`): one line per call with the tool, the user, the token's row id,
+  the outcome (ok, refused with its status, error) and the time. Never the token, its prefix,
+  the arguments or a URL.
+- **Deferred, with a hook each:** `plan_week` (#16), `wardrobe_stats` (#17), the wishlist and the
+  shopping loop (#18, #34: `add_garment_from_link` lands in the closet until the wishlist exists),
+  occasions (#13: `schedule_outfit` refuses a day that already has an outfit until an entry can
+  say which part of the day it is for). OAuth for Claude's connectors UI is not built: a token
+  in a header covers Claude Code and Desktop, and the app is reachable over the tailnet only.
+
 ## Delivery
 
 Each feature is its own GitHub issue (six) and ships alone. The work for each: its schema and migration

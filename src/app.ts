@@ -160,8 +160,13 @@ export async function createApp(
   // and a request it refuses must already have its session and page context
   // for the 400 page. It runs for the not-found handler too, so a 404 page
   // shows who is signed in.
+  // Bearer routes (the MCP endpoint) skip it too: their credential is a
+  // token, a cookie never counts there, and without a page context their
+  // errors answer as JSON.
   app.addHook('preValidation', async (request, reply) => {
-    if (isStaticPath(request.url)) return;
+    if (isStaticPath(request.url) || request.routeOptions.config.bearer) {
+      return;
+    }
     request.auth = await resolveSession(request);
     reply.locals = buildViewContext(request, request.auth);
   });
@@ -234,6 +239,7 @@ export async function createApp(
     photos,
     cutouts,
     fetcher,
+    mcpLogger: logger.child({ context: 'Mcp' }),
   });
 
   return { app, db, photos, cutouts };

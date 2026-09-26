@@ -11,6 +11,37 @@ export function copyAndFlash(resting: 'btn-outline' | 'btn-ghost'): string {
 }
 
 /**
+ * A value in a read-only input plus a copy button: the wardrobe-share invite
+ * links, a new personal access token and its connect command. The value
+ * reaches the handler as a data attribute, never spliced into its source.
+ */
+export function CopyableText(props: {
+  value: string;
+  size: 'xs' | 'sm';
+  label: string;
+}) {
+  return (
+    <div class="flex items-center gap-2">
+      <input
+        type="text"
+        class={`input input-bordered input-${props.size} flex-1`}
+        value={props.value}
+        readonly
+        onclick="this.select()"
+      />
+      <button
+        type="button"
+        class={`btn btn-ghost btn-${props.size}`}
+        data-copy={props.value}
+        onclick={copyAndFlash('btn-ghost')}
+      >
+        {props.label}
+      </button>
+    </div>
+  );
+}
+
+/**
  * Copies the public share link of a garment or outfit (the /share page,
  * src/web/share/routes.tsx) on SITE_URL, and flashes to say so.
  */

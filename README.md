@@ -59,6 +59,24 @@ Open [http://localhost:3000](http://localhost:3000) and register an account: log
 
 ---
 
+## Connect your Claude
+
+Closet is an MCP server: your own Claude (Claude Code, Claude Desktop) can search your wardrobe, add pieces from product links, build outfits and capsules, plan days, keep track of wears and laundry, and compare your closet with a wardrobe shared with you to talk through what to buy next.
+
+1. In the app, open **Profile › Agent Access** (`/auth/tokens`) and create a token; it asks for your password, since a token keeps working after you sign out. The token is shown once, and the page also shows the command below with it filled in.
+2. Add the server to Claude Code:
+
+   ```bash
+   claude mcp add --transport http closet https://closet.example.com/mcp \
+     --header "Authorization: Bearer <token>"
+   ```
+
+   Use your own `SITE_URL` in place of the address. In Claude Desktop, add the same URL and header as a remote MCP server.
+
+The token acts as you, shares included: a wardrobe shared with you read-only stays read-only. Tools that write say so, and none deletes anything. Revoke a token on the same page; changing your password revokes every token. The endpoint is rate-limited per token and, like the app, reachable only over the tailnet: it is not on the public internet, so Claude's hosted connectors (claude.ai) cannot reach it.
+
+---
+
 ## Configuration
 
 `.env` contains committed defaults. Override any value via a `.env.local` file (gitignored) or by passing real environment variables to Docker.

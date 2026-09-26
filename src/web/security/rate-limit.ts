@@ -7,10 +7,11 @@ import type { Logger } from '../../logger';
 
 /**
  * Brute-force limits for the routes that check a password, and a ceiling on
- * the routes that fetch a user's URL. Registered once at the root by
- * createApp() with `global: false`: nothing is limited unless its route opts
- * in with `config: { rateLimit: SIGN_IN_LIMIT }` (or ACCOUNT_LIMIT,
- * LINK_IMPORT_LIMIT). Every limited route counts on its own. Counters live in
+ * the routes that fetch a user's URL and on the MCP endpoint. Registered
+ * once at the root by createApp() with `global: false`: nothing is limited
+ * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
+ * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, MCP_LIMIT). Every limited route counts
+ * on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
  * The client address is `request.ip`, which Fastify takes from
@@ -47,8 +48,9 @@ export const SIGN_IN_LIMIT: RateLimitOptions = {
 };
 
 /**
- * Change password, change email and delete account (each checks the
- * current password): per signed-in user, whatever address
+ * Every route that checks the current password: change password, change
+ * email, delete account and creating a personal access token (src/web/auth/
+ * token-routes.tsx). Per signed-in user, whatever address
  * they come from. A preHandler, so it runs after the session gate (the web
  * plugin's own preHandler) has guaranteed `request.auth`; an anonymous
  * request is answered by the gate and never counted.
@@ -72,4 +74,30 @@ export const LINK_IMPORT_LIMIT: RateLimitOptions = {
   timeWindow: '1 minute',
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
+};
+
+/**
+ * The MCP endpoint (src/web/mcp): per personal access token, a preHandler
+ * after the endpoint's own hook has authenticated it (an unauthenticated
+ * call is a 401 there and never counted). An agent calls tools in bursts;
+ * this is room for a busy conversation and a ceiling on a runaway loop.
+ */
+export const MCP_LIMIT: RateLimitOptions = {
+  max: 120,
+  timeWindow: '1 minute',
+  hook: 'preHandler',
+  keyGenerator: (request) => `token ${request.accessToken!.tokenId}`,
+};
+
+/**
+ * The MCP tool that imports a link (add_garment_from_link) fetches a
+ * stranger's site like the link import's routes, so it gets their budget,
+ * per user, through `createRateLimit` (it is one call among many to the
+ * same endpoint, not a route of its own).
+ */
+export const MCP_LINK_IMPORT_LIMIT = {
+  max: 10,
+  timeWindow: '1 minute',
+  keyGenerator: (request: FastifyRequest) =>
+    `user ${request.accessToken!.user.id}`,
 };

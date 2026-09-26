@@ -309,7 +309,9 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // included: replace this one so the user stays signed in here.
       const updated = await setPassword(db, id, body.newPassword);
       setSessionCookie(reply, tokens.issue(updated));
-      logger.info(`Password changed for user ${id}; other sessions revoked`);
+      logger.info(
+        `Password changed for user ${id}; other sessions and access tokens revoked`,
+      );
       return reply.redirect(`${PROFILE_PATH}?passwordChanged=1`, 302);
     },
   );

@@ -198,6 +198,79 @@ export async function gridPage(
   };
 }
 
+/** No filter: the closet, every unarchived garment. */
+export const CLOSET_FILTERS: GridFilters = {
+  archived: false,
+  needsWash: false,
+  attention: false,
+};
+
+/**
+ * A garment as a list for a reader, not a screen, shows it: what it is
+ * (the MCP tools' search, capsule and comparison answers), never its photo.
+ */
+export interface GarmentSummary {
+  id: number;
+  name: string | null;
+  category: string;
+  type: string | null;
+  brand: string | null;
+  /** Comma-joined GARMENT_COLORS (splitColors). */
+  color: string | null;
+  size: string | null;
+  warmth: Warmth | null;
+  formality: Formality | null;
+  quantity: number;
+  condition: Condition;
+  price: string | null;
+  sourceUrl: string | null;
+  archived: boolean;
+}
+
+/**
+ * The grid's query with a summary per garment instead of a tile: the same
+ * filters (gridWhere), order and keyset (`before`), `limit` a page.
+ */
+export async function garmentSummaries(
+  db: Db,
+  ownerId: number,
+  filters: GridFilters,
+  options: { before?: number; limit: number },
+): Promise<{ garments: GarmentSummary[]; before: number | undefined }> {
+  const { before, limit } = options;
+  const rows = await db
+    .select({
+      id: garment.id,
+      name: garment.name,
+      category: garment.category,
+      type: garment.type,
+      brand: garment.brand,
+      color: garment.color,
+      size: garment.size,
+      warmth: garment.warmth,
+      formality: garment.formality,
+      quantity: garment.quantity,
+      condition: garment.condition,
+      price: garment.price,
+      sourceUrl: garment.sourceUrl,
+      archived: garment.archived,
+    })
+    .from(garment)
+    .where(
+      and(
+        gridWhere(ownerId, filters),
+        before === undefined ? undefined : lt(garment.id, before),
+      ),
+    )
+    .orderBy(desc(garment.id))
+    .limit(limit + 1);
+  const garments = rows.slice(0, limit);
+  return {
+    garments,
+    before: rows.length > limit ? garments.at(-1)!.id : undefined,
+  };
+}
+
 /** How many garments match the filters (the grid's result count). */
 export function gridCount(
   db: Db,

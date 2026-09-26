@@ -49,7 +49,8 @@ export function passwordProblems(password: string): StringKey[] {
  * Replaces a user's password: the change-password route and `npm run
  * user:set-password` both come through here. The new hash changes the
  * fingerprint every session token carries (tokens.ts), so every session
- * issued before is rejected from the next request on. Returns the updated
+ * issued before is rejected from the next request on, and every personal
+ * access token is revoked with it (updatePasswordHash). Returns the updated
  * row, for a caller that issues this device a fresh token.
  */
 export async function setPassword(

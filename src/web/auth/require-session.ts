@@ -10,6 +10,15 @@ declare module 'fastify' {
      * Every route is protected unless it says `config: { public: true }`.
      */
     public?: boolean;
+    /**
+     * An API route authenticated by a personal access token in
+     * `Authorization: Bearer`, never by the session cookie: the MCP endpoint
+     * (src/web/mcp). The session gate and the page context leave it alone
+     * (its errors are JSON), its plugin authenticates every request, and the
+     * same-origin check lets a request without Origin through (a non-browser
+     * client), still refusing a foreign one.
+     */
+    bearer?: boolean;
   }
 }
 
@@ -27,7 +36,10 @@ export function createSessionHook(logger: Logger) {
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<FastifyReply | undefined> {
-    const isPublic = request.routeOptions.config.public === true;
+    const { config } = request.routeOptions;
+    // A bearer route authenticates itself (a token, never this session).
+    if (config.bearer === true) return;
+    const isPublic = config.public === true;
     // Answering from an async hook means returning the reply: Fastify then
     // skips the handler.
     switch (decideSessionAccess(request, isPublic)) {

@@ -190,6 +190,9 @@ export function ProfilePage(props: {
       <a class="link" href="/wardrobe-share/manage">
         {t('WARDROBE_SHARING')}
       </a>
+      <a class="link" href="/auth/tokens">
+        {t('agentAccess.TITLE')}
+      </a>
       <a class="link" href="/auth/delete-account">
         {t('DELETE_ACCOUNT')}
       </a>

@@ -18,6 +18,7 @@ import {
 } from 'workbox-strategies';
 import { pageCacheKey } from '../../src/htmx/fragment-request';
 import {
+  bypassesWorker,
   CACHED_AT_HEADER,
   cachedAt,
   type FreshPage,
@@ -305,8 +306,11 @@ const tabRoots = new StaleTabRoot({
   plugins: pagePlugins,
 });
 
-const isPageRequest = ({ request }: { request: Request }) =>
-  request.mode === 'navigate' || request.headers.get('HX-Request') === 'true';
+// Never the MCP endpoint (bypassesWorker): a navigation to it would
+// otherwise be a page to this worker.
+const isPageRequest = ({ request, url }: { request: Request; url: URL }) =>
+  !bypassesWorker(url) &&
+  (request.mode === 'navigate' || request.headers.get('HX-Request') === 'true');
 
 // Signing in (POST /auth/login, /auth/register) and out (POST /auth/logout,
 // /auth/delete-account) change whose pages this device may show: once the

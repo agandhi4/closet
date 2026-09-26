@@ -2,6 +2,8 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { Db } from '../db/client';
 import { createSessionHook } from './auth/require-session';
 import { authRoutes } from './auth/routes';
+import { tokenRoutes } from './auth/token-routes';
+import { mcpRoutes } from './mcp/routes';
 import type { SessionTokens } from './auth/tokens';
 import { calendarRoutes } from './calendar/routes';
 import { capsuleRoutes } from './capsules/routes';
@@ -50,6 +52,8 @@ export interface WebOptions {
    * supplied (the link import).
    */
   fetcher: OutboundFetcher;
+  /** Context `Mcp`: one line per MCP tool call (src/web/mcp). */
+  mcpLogger: Logger;
 }
 
 /**
@@ -86,7 +90,10 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(calendarRoutes, options);
   await app.register(outfitRoutes, options);
   await app.register(authRoutes, options);
+  await app.register(tokenRoutes, options);
   await app.register(sharingRoutes, options);
+  // Bearer-authenticated (config.bearer): the session gate above passes it.
+  await app.register(mcpRoutes, options);
   const { vapid } = options.config;
   if (vapid) {
     await app.register(pushRoutes, {

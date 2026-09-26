@@ -1,0 +1,868 @@
+import { and, eq } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  capsuleGarment,
+  garment,
+  garmentWear,
+  outfit,
+  outfitCalendar,
+  personalAccessToken,
+} from '../../src/db/schema';
+import { todayIn } from '../../src/web/calendar/calendar-date';
+import { createCapsule } from '../../src/web/capsules/queries';
+import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
+import {
+  createTestApp,
+  type TestApp,
+  TEST_PASSWORD,
+  uniqueClient,
+  userIdOf,
+} from './harness';
+import {
+  html,
+  jpeg,
+  type LinkSites,
+  productShot,
+  startLinkSites,
+} from './link-sites';
+import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
+
+/**
+ * The MCP endpoint (#33) driven like a client: JSON-RPC over POST /mcp
+ * with a personal access token. Auth (and that a refusal says nothing),
+ * every tool's happy path, access through shares exactly as the pages
+ * grant it, the per-token rate limit, the same-origin rule for a bearer
+ * route, and that no log line carries a token.
+ */
+
+const TIME_ZONE = 'America/New_York';
+
+interface Garment {
+  id: number;
+  name: string;
+}
+
+describe('the MCP endpoint', () => {
+  let t: TestApp;
+  let sites: LinkSites;
+  let token: string;
+  let viewer: { cookie: string; id: number; token: string };
+  let manager: { cookie: string; id: number; token: string };
+  const issued: string[] = [];
+  const garments: Record<string, Garment> = {};
+  let capsuleId: number;
+
+  /** A garment of `ownerId`'s through the garment form (POST /wardrobe). */
+  const addGarment = async (
+    name: string,
+    fields: Record<string, string>,
+    cookie?: string,
+  ): Promise<Garment> => {
+    const res = await t.inject({
+      method: 'POST',
+      url: '/wardrobe',
+      payload: { name, props: '1', ...fields },
+      headers: cookie ? { cookie } : {},
+    });
+    expect(res.statusCode, res.body).toBe(302);
+    return {
+      id: Number(/^\/wardrobe\/(\d+)/.exec(String(res.headers.location))![1]),
+      name,
+    };
+  };
+
+  const signUp = async (email: string) => {
+    const cookie = await t.register(email);
+    const id = await userIdOf(t, email);
+    const own = await createAccessToken(t, { cookie });
+    issued.push(own);
+    return { cookie, id, token: own };
+  };
+
+  const share = async (granteeId: number, permission: 'VIEW' | 'MANAGE') => {
+    const invite = await createInvite(t.db, t.owner.id, permission);
+    const accepted = await acceptInvite(t.db, invite.inviteToken, granteeId);
+    expect(accepted.accepted).toBe(true);
+  };
+
+  beforeAll(async () => {
+    sites = await startLinkSites();
+    sites.serve('/img/tee.jpg', jpeg(await productShot('#223355')));
+    sites.serve(
+      '/products/tee',
+      html(`<!doctype html><html><head><title>Pocket Tee</title>
+      <script type="application/ld+json">${JSON.stringify({
+        '@type': 'Product',
+        name: 'Heavyweight Pocket Tee',
+        brand: { '@type': 'Brand', name: 'Studio Knit' },
+        color: 'Navy',
+        image: [sites.url('/img/tee.jpg')],
+        offers: { price: '48.00', priceCurrency: 'USD' },
+      })}</script></head><body></body></html>`),
+    );
+    sites.serve('/products/mystery', html('<html><body>Hello</body></html>'));
+    t = await createTestApp({}, { outboundFetch: sites.outboundFetch });
+
+    garments.tee = await addGarment('White Tee', {
+      category: 'tops',
+      type: 't-shirt',
+      color: 'white',
+      warmth: '2',
+      formality: '2',
+    });
+    garments.jeans = await addGarment('Raw Denim', {
+      category: 'bottoms',
+      type: 'jeans',
+      color: 'blue',
+    });
+    garments.boots = await addGarment('Chelsea Boots', {
+      category: 'footwear',
+      type: 'boots',
+      color: 'brown',
+    });
+
+    capsuleId = (await createCapsule(t.db, t.owner.id, {
+      name: 'Office',
+      notes: null,
+    })) as number;
+
+    token = await createAccessToken(t);
+    issued.push(token);
+    viewer = await signUp('viewer@example.com');
+    manager = await signUp('manager@example.com');
+    await share(viewer.id, 'VIEW');
+    await share(manager.id, 'MANAGE');
+  });
+
+  afterAll(async () => {
+    await t?.cleanup();
+    await sites?.close();
+  });
+
+  describe('authentication', () => {
+    const refusals: [string, () => Record<string, string>][] = [
+      ['no Authorization header', () => ({})],
+      ['a malformed header', () => ({ authorization: `Token ${token}` })],
+      [
+        'an unknown token',
+        () => ({
+          authorization: `Bearer closet_${'A'.repeat(43)}`,
+        }),
+      ],
+      ['a session cookie instead', () => ({ cookie: t.owner.cookie })],
+    ];
+
+    it.each(refusals)('refuses %s with a bare 401', async (_name, headers) => {
+      const res = await mcpRequest(t, undefined, 'tools/list', {}, headers());
+      expect(res.statusCode).toBe(401);
+      expect(res.headers['www-authenticate']).toBe('Bearer realm="closet"');
+      expect(res.json()).toEqual({ statusCode: 401, message: 'Unauthorized' });
+    });
+
+    it('refuses a revoked token the same way, and says nothing more', async () => {
+      const doomed = await createAccessToken(t, { name: 'Doomed' });
+      issued.push(doomed);
+      expect((await mcpRequest(t, doomed, 'tools/list')).statusCode).toBe(200);
+      const [row] = await t.db
+        .select({ id: personalAccessToken.id })
+        .from(personalAccessToken)
+        .where(eq(personalAccessToken.name, 'Doomed'));
+      const revoke = await t.inject({
+        method: 'POST',
+        url: `/auth/tokens/${row.id}/revoke`,
+      });
+      expect(revoke.statusCode).toBe(303);
+      const res = await mcpRequest(t, doomed, 'tools/list');
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ statusCode: 401, message: 'Unauthorized' });
+    });
+
+    it('answers GET and DELETE with 405 (stateless: no stream, no session)', async () => {
+      for (const method of ['GET', 'DELETE'] as const) {
+        const res = await t.inject({
+          method,
+          url: '/mcp',
+          anonymous: true,
+          sameOrigin: false,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(res.statusCode).toBe(405);
+      }
+    });
+
+    it('lets a request without Origin through and refuses a foreign one', async () => {
+      const foreign = await mcpRequest(
+        t,
+        token,
+        'tools/list',
+        {},
+        {
+          origin: 'https://evil.example',
+        },
+      );
+      expect(foreign.statusCode).toBe(403);
+      const own = await mcpRequest(
+        t,
+        token,
+        'tools/list',
+        {},
+        {
+          origin: 'http://localhost',
+        },
+      );
+      expect(own.statusCode).toBe(200);
+    });
+
+    it('records when a token was last used', async () => {
+      await mcpRequest(t, token, 'tools/list');
+      const rows = await t.db
+        .select({ lastUsedAt: personalAccessToken.lastUsedAt })
+        .from(personalAccessToken)
+        .where(eq(personalAccessToken.userId, t.owner.id));
+      expect(rows.some((row) => row.lastUsedAt !== null)).toBe(true);
+    });
+  });
+
+  describe('the protocol', () => {
+    it('initializes statelessly: no session id', async () => {
+      const res = await mcpRequest(t, token, 'initialize', {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: { name: 'spec', version: '1' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['mcp-session-id']).toBeUndefined();
+      const { result } = res.json<{
+        result: { serverInfo: { name: string }; instructions: string };
+      }>();
+      expect(result.serverInfo.name).toBe('Closet');
+      expect(result.instructions).toContain('nothing deletes');
+    });
+
+    it('lists every tool; each write says it writes and none is destructive', async () => {
+      const res = await mcpRequest(t, token, 'tools/list');
+      const { tools } = res.json<{
+        result: {
+          tools: {
+            name: string;
+            description: string;
+            annotations: { readOnlyHint: boolean; destructiveHint: boolean };
+          }[];
+        };
+      }>().result;
+      expect(tools.map((listed) => listed.name).sort()).toEqual(
+        [
+          'add_garment_from_link',
+          'compare_with_shared_wardrobe',
+          'create_outfit',
+          'get_calendar',
+          'get_capsule',
+          'get_garment',
+          'get_outfit',
+          'laundry_status',
+          'list_capsules',
+          'list_outfits',
+          'list_shared_wardrobes',
+          'mark_washed',
+          'mark_worn',
+          'schedule_outfit',
+          'search_garments',
+          'set_capsule_membership',
+          'update_garment',
+        ].sort(),
+      );
+      for (const listed of tools) {
+        expect(listed.annotations.destructiveHint).toBe(false);
+        expect(listed.description.startsWith('WRITES')).toBe(
+          !listed.annotations.readOnlyHint,
+        );
+      }
+    });
+
+    it('refuses arguments outside the schema', async () => {
+      const answer = await callTool(t, token, 'get_garment', { id: 'seven' });
+      expect(answer.isError).toBe(true);
+    });
+  });
+
+  describe('garments', () => {
+    it('search_garments filters like the grid', async () => {
+      const all = await tool<{ total: number; garments: Garment[] }>(
+        t,
+        token,
+        'search_garments',
+      );
+      expect(all.total).toBe(3);
+      const tops = await tool<{ garments: { name: string; role: string }[] }>(
+        t,
+        token,
+        'search_garments',
+        { category: 'tops', type: 't-shirt', warmth: 2 },
+      );
+      expect(tops.garments).toEqual([
+        expect.objectContaining({ name: 'White Tee', role: 'top' }),
+      ]);
+      const blue = await tool<{ garments: { name: string }[] }>(
+        t,
+        token,
+        'search_garments',
+        { color: 'blue' },
+      );
+      expect(blue.garments.map((g) => g.name)).toEqual(['Raw Denim']);
+    });
+
+    it('search_garments refuses a type without its category, or of another', async () => {
+      expect(
+        (await callTool(t, token, 'search_garments', { type: 'jeans' })).value
+          .error,
+      ).toMatch(/category/);
+      expect(
+        (
+          await callTool(t, token, 'search_garments', {
+            category: 'tops',
+            type: 'jeans',
+          })
+        ).value.error,
+      ).toMatch(/not a type of tops/);
+    });
+
+    it('get_garment answers everything but the photo, and the owner’s care', async () => {
+      const found = await tool<Record<string, unknown>>(
+        t,
+        token,
+        'get_garment',
+        { id: garments.tee.id },
+      );
+      expect(found).toMatchObject({
+        name: 'White Tee',
+        role: 'top',
+        colors: ['white'],
+        properties: { type: 't-shirt', warmth: 2, formality: 2 },
+        hasPhoto: false,
+        care: { worn: 0 },
+      });
+      expect(JSON.stringify(found)).not.toContain('/file/');
+    });
+
+    it('update_garment writes properties through the form’s readers and condition', async () => {
+      const updated = await tool<{
+        garment: { properties: Record<string, unknown>; condition: string };
+        ignored: string[];
+      }>(t, token, 'update_garment', {
+        id: garments.boots.id,
+        waterResistant: true,
+        materials: ['leather'],
+        sleeve: 'long',
+        condition: 'needs_repair',
+        conditionNote: 'Heel worn down',
+      });
+      expect(updated.garment.properties).toMatchObject({
+        waterResistant: true,
+        materials: ['leather'],
+        sleeve: null,
+      });
+      expect(updated.garment.condition).toBe('needs_repair');
+      // Boots have no sleeve: named, not stored.
+      expect(updated.ignored).toEqual(['sleeve']);
+      const [row] = await t.db
+        .select({ conditionNote: garment.conditionNote })
+        .from(garment)
+        .where(eq(garment.id, garments.boots.id));
+      expect(row.conditionNote).toBe('Heel worn down');
+      const attention = await tool<{ garments: { name: string }[] }>(
+        t,
+        token,
+        'search_garments',
+        { needsAttention: true },
+      );
+      expect(attention.garments.map((g) => g.name)).toEqual(['Chelsea Boots']);
+    });
+
+    it('update_garment brings a new type’s presets, the explicit values winning', async () => {
+      const shirt = await addGarment('Oxford', { category: 'tops' });
+      const updated = await tool<{
+        garment: { properties: Record<string, unknown> };
+      }>(t, token, 'update_garment', {
+        id: shirt.id,
+        type: 'shirt',
+        formality: 4,
+      });
+      expect(updated.garment.properties).toMatchObject({
+        type: 'shirt',
+        formality: 4,
+        sleeve: 'long',
+      });
+    });
+
+    it('add_garment_from_link imports and saves straight to the closet', async () => {
+      const added = await tool<{
+        garment: { id: number; name: string; brand: string; price: string };
+        notices: string[];
+      }>(t, token, 'add_garment_from_link', {
+        url: sites.url('/products/tee'),
+      });
+      expect(added.garment).toMatchObject({
+        name: 'Heavyweight Pocket Tee',
+        brand: 'Studio Knit',
+        price: '48.00',
+        hasPhoto: true,
+        properties: expect.objectContaining({ type: 't-shirt' }),
+      });
+      const [row] = await t.db
+        .select({ ownerId: garment.ownerId, photoId: garment.photoId })
+        .from(garment)
+        .where(eq(garment.id, added.garment.id));
+      expect(row.ownerId).toBe(t.owner.id);
+      expect(row.photoId).not.toBeNull();
+    });
+
+    it('add_garment_from_link asks for a category the page does not give, keeping nothing', async () => {
+      const before = await t.db.$count(garment);
+      const answer = await callTool(t, token, 'add_garment_from_link', {
+        url: sites.url('/products/mystery'),
+      });
+      expect(answer.isError).toBe(true);
+      expect(answer.value.error).toMatch(/category/i);
+      expect(await t.db.$count(garment)).toBe(before);
+      const named = await tool<{ garment: { category: string } }>(
+        t,
+        token,
+        'add_garment_from_link',
+        {
+          url: sites.url('/products/mystery'),
+          category: 'Accessories',
+          name: 'Scarf',
+        },
+      );
+      expect(named.garment.category).toBe('accessories');
+    });
+
+    it('add_garment_from_link refuses an address inside the network', async () => {
+      const answer = await callTool(t, token, 'add_garment_from_link', {
+        url: sites.url('/admin', 'intranet.test'),
+      });
+      expect(answer.isError).toBe(true);
+      expect(answer.value.error).not.toMatch(/127\.0\.0\.1|intranet/);
+    });
+  });
+
+  describe('capsules', () => {
+    it('set_capsule_membership adds and removes through the one writer', async () => {
+      const result = await tool(t, token, 'set_capsule_membership', {
+        id: capsuleId,
+        add: [garments.tee.id, garments.jeans.id],
+      });
+      expect(result).toEqual({ added: 2, removed: 0 });
+      await tool(t, token, 'set_capsule_membership', {
+        id: capsuleId,
+        remove: [garments.jeans.id],
+      });
+      const members = await t.db
+        .select({ id: capsuleGarment.garmentId })
+        .from(capsuleGarment)
+        .where(eq(capsuleGarment.capsuleId, capsuleId));
+      expect(members).toEqual([{ id: garments.tee.id }]);
+    });
+
+    it('list_capsules and get_capsule read what the pages show', async () => {
+      const list = await tool<{ capsules: unknown[] }>(
+        t,
+        token,
+        'list_capsules',
+      );
+      expect(list.capsules).toEqual([
+        { id: capsuleId, name: 'Office', count: 1 },
+      ]);
+      const capsule = await tool<{ name: string; garments: { id: number }[] }>(
+        t,
+        token,
+        'get_capsule',
+        { id: capsuleId },
+      );
+      expect(capsule.name).toBe('Office');
+      expect(capsule.garments.map((g) => g.id)).toEqual([garments.tee.id]);
+      const filtered = await tool<{ garments: { id: number }[] }>(
+        t,
+        token,
+        'search_garments',
+        { capsuleId },
+      );
+      expect(filtered.garments.map((g) => g.id)).toEqual([garments.tee.id]);
+    });
+
+    it('a capsule of another wardrobe is not found', async () => {
+      const answer = await callTool(t, viewer.token, 'get_capsule', {
+        id: capsuleId,
+      });
+      expect(answer).toEqual({
+        isError: true,
+        value: { error: 'Capsule not found' },
+      });
+    });
+  });
+
+  describe('outfits, the calendar and wears', () => {
+    const today = () => todayIn(TIME_ZONE, new Date());
+    let outfitId: number;
+
+    it('create_outfit saves the garments as slots, planned on a day', async () => {
+      const created = await tool<{ id: number }>(t, token, 'create_outfit', {
+        garmentIds: [garments.tee.id, garments.jeans.id, garments.boots.id],
+        name: 'Friday',
+        scheduleDate: today(),
+      });
+      outfitId = created.id;
+      const listed = await tool<{
+        outfits: { id: number; garments: Garment[] }[];
+      }>(t, token, 'list_outfits');
+      expect(listed.outfits[0].id).toBe(outfitId);
+      expect(listed.outfits[0].garments.map((g) => g.name)).toEqual([
+        'White Tee',
+        'Raw Denim',
+        'Chelsea Boots',
+      ]);
+      const one = await tool<{ name: string }>(t, token, 'get_outfit', {
+        id: outfitId,
+      });
+      expect(one.name).toBe('Friday');
+    });
+
+    it('create_outfit refuses a garment that is not the caller’s', async () => {
+      const answer = await callTool(t, viewer.token, 'create_outfit', {
+        garmentIds: [garments.tee.id],
+      });
+      expect(answer.isError).toBe(true);
+      expect(await t.db.$count(outfit, eq(outfit.ownerId, viewer.id))).toBe(0);
+    });
+
+    it('get_calendar shows the day; schedule_outfit keeps one outfit a day', async () => {
+      const calendar = await tool<{
+        entries: { id: number; day: string; outfit: { id: number } }[];
+      }>(t, token, 'get_calendar', { from: today(), to: today() });
+      expect(calendar.entries).toEqual([
+        expect.objectContaining({
+          day: today(),
+          outfit: expect.objectContaining({ id: outfitId }),
+        }),
+      ]);
+      const again = await tool(t, token, 'schedule_outfit', {
+        outfitId,
+        date: today(),
+      });
+      expect(again).toMatchObject({ outcome: 'already-scheduled' });
+      const other = await tool<{ id: number }>(t, token, 'create_outfit', {
+        garmentIds: [garments.tee.id],
+      });
+      const taken = await callTool(t, token, 'schedule_outfit', {
+        outfitId: other.id,
+        date: today(),
+      });
+      expect(taken.isError).toBe(true);
+      expect(taken.value.error).toMatch(/already has outfit/);
+    });
+
+    it('get_calendar refuses a range past two months', async () => {
+      const answer = await callTool(t, token, 'get_calendar', {
+        from: '2026-01-01',
+        to: '2026-06-01',
+      });
+      expect(answer.isError).toBe(true);
+    });
+
+    it('mark_worn records the entry’s wears; laundry_status and mark_washed follow', async () => {
+      const [entry] = await t.db
+        .select({ id: outfitCalendar.id })
+        .from(outfitCalendar)
+        .where(
+          and(
+            eq(outfitCalendar.ownerId, t.owner.id),
+            eq(outfitCalendar.outfitId, outfitId),
+          ),
+        );
+      const worn = await tool(t, token, 'mark_worn', { entryId: entry.id });
+      expect(worn).toMatchObject({ worn: true, garmentsRecorded: 3 });
+      const laundry = await tool<{
+        garments: { id: number; needsWash: boolean }[];
+      }>(t, token, 'laundry_status');
+      expect(laundry.garments).toContainEqual(
+        expect.objectContaining({ id: garments.tee.id, needsWash: true }),
+      );
+      const dirty = await tool<{ garments: { id: number }[] }>(
+        t,
+        token,
+        'search_garments',
+        { needsWash: true },
+      );
+      expect(dirty.garments.map((g) => g.id)).toContain(garments.tee.id);
+      const washed = await tool(t, token, 'mark_washed', {
+        garmentIds: [garments.tee.id],
+      });
+      expect(washed).toEqual({ washed: [garments.tee.id], day: today() });
+      const after = await tool<{ garments: { id: number }[] }>(
+        t,
+        token,
+        'search_garments',
+        { needsWash: true },
+      );
+      expect(after.garments.map((g) => g.id)).not.toContain(garments.tee.id);
+    });
+
+    it('mark_worn with a garment is Wore today', async () => {
+      await tool(t, token, 'mark_worn', { garmentId: garments.jeans.id });
+      const rows = await t.db
+        .select({ day: garmentWear.day })
+        .from(garmentWear)
+        .where(
+          and(
+            eq(garmentWear.garmentId, garments.jeans.id),
+            eq(garmentWear.day, today()),
+          ),
+        );
+      expect(rows.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('shares', () => {
+    it('list_shared_wardrobes names the owner without an email', async () => {
+      const listed = await tool<{
+        wardrobes: {
+          ownerId: number;
+          name: string | null;
+          permission: string;
+        }[];
+      }>(t, viewer.token, 'list_shared_wardrobes');
+      expect(listed.wardrobes).toEqual([
+        { ownerId: t.owner.id, name: null, permission: 'VIEW' },
+      ]);
+      expect(JSON.stringify(listed)).not.toContain('@');
+    });
+
+    it('VIEW reads the shared wardrobe but writes nothing', async () => {
+      const found = await tool<{ total: number }>(
+        t,
+        viewer.token,
+        'search_garments',
+        {
+          ownerId: t.owner.id,
+        },
+      );
+      expect(found.total).toBeGreaterThan(0);
+      const detail = await tool<Record<string, unknown>>(
+        t,
+        viewer.token,
+        'get_garment',
+        { id: garments.tee.id, ownerId: t.owner.id },
+      );
+      // The owner's wears are theirs alone.
+      expect(detail.care).toBeUndefined();
+      const refused = await callTool(t, viewer.token, 'update_garment', {
+        id: garments.tee.id,
+        ownerId: t.owner.id,
+        warmth: 5,
+      });
+      expect(refused).toEqual({ isError: true, value: { error: 'Forbidden' } });
+      const [row] = await t.db
+        .select({ warmth: garment.warmth })
+        .from(garment)
+        .where(eq(garment.id, garments.tee.id));
+      expect(row.warmth).toBe(2);
+    });
+
+    it('VIEW cannot needs-wash filter a shared wardrobe (it reads the owner’s wears)', async () => {
+      const answer = await callTool(t, viewer.token, 'search_garments', {
+        ownerId: t.owner.id,
+        needsWash: true,
+      });
+      expect(answer.isError).toBe(true);
+    });
+
+    it('MANAGE writes the garments but not the wears', async () => {
+      await tool(t, manager.token, 'update_garment', {
+        id: garments.jeans.id,
+        ownerId: t.owner.id,
+        fit: 'slim',
+      });
+      const [row] = await t.db
+        .select({ fit: garment.fit })
+        .from(garment)
+        .where(eq(garment.id, garments.jeans.id));
+      expect(row.fit).toBe('slim');
+      for (const [name, args] of [
+        ['mark_worn', { garmentId: garments.jeans.id, ownerId: t.owner.id }],
+        [
+          'mark_washed',
+          { garmentIds: [garments.jeans.id], ownerId: t.owner.id },
+        ],
+      ] as const) {
+        const answer = await callTool(t, manager.token, name, args);
+        expect(answer, name).toEqual({
+          isError: true,
+          value: { error: 'Forbidden' },
+        });
+      }
+    });
+
+    // Each tool through a share, as the pages grant it: a VIEW grantee
+    // reads, a MANAGE grantee also changes garments and capsule membership,
+    // wears stay the owner's, a stranger finds nothing.
+    it.each([
+      ['viewer', 'get_capsule', undefined],
+      ['viewer', 'list_capsules', undefined],
+      ['viewer', 'set_capsule_membership', 'Forbidden'],
+      ['manager', 'set_capsule_membership', undefined],
+      ['manager', 'mark_washed', 'Forbidden'],
+      ['viewer', 'mark_worn', 'Forbidden'],
+    ] as const)(
+      '%s calling %s on the shared wardrobe: %s',
+      async (actor, name, refusal) => {
+        const caller = actor === 'viewer' ? viewer : manager;
+        const args: Record<string, Record<string, unknown>> = {
+          get_capsule: { id: capsuleId },
+          list_capsules: {},
+          set_capsule_membership: { id: capsuleId, add: [garments.boots.id] },
+          mark_washed: { garmentIds: [garments.tee.id] },
+          mark_worn: { garmentId: garments.tee.id },
+        };
+        const answer = await callTool(t, caller.token, name, {
+          ...args[name],
+          ownerId: t.owner.id,
+        });
+        if (refusal) {
+          expect(answer).toEqual({ isError: true, value: { error: refusal } });
+        } else {
+          expect(answer.isError, JSON.stringify(answer.value)).toBe(false);
+        }
+      },
+    );
+
+    it('a wardrobe not shared with the caller does not exist for them', async () => {
+      const stranger = await signUp('stranger@example.com');
+      const answer = await callTool(t, stranger.token, 'search_garments', {
+        ownerId: t.owner.id,
+      });
+      expect(answer).toEqual({
+        isError: true,
+        value: { error: 'Wardrobe not found' },
+      });
+      const garmentAnswer = await callTool(t, stranger.token, 'get_garment', {
+        id: garments.tee.id,
+      });
+      expect(garmentAnswer.value.error).toBe('Garment not found');
+    });
+
+    it('compare_with_shared_wardrobe finds the gaps against the shared closet', async () => {
+      await addGarment(
+        'Grey Tee',
+        { category: 'tops', type: 't-shirt' },
+        viewer.cookie,
+      );
+      const compared = await tool<{
+        gaps: { kind: string; shared: { name: string }[] }[];
+        overlap: { kind: string }[];
+        complete: boolean;
+      }>(t, viewer.token, 'compare_with_shared_wardrobe', {
+        ownerId: t.owner.id,
+      });
+      expect(compared.complete).toBe(true);
+      expect(compared.overlap.map((group) => group.kind)).toContain('t-shirt');
+      expect(compared.gaps.map((group) => group.kind)).toEqual(
+        expect.arrayContaining(['jeans', 'boots']),
+      );
+    });
+  });
+
+  describe('a new password', () => {
+    it('revokes every token, as it ends every session', async () => {
+      const user = await signUp('rotating@example.com');
+      expect((await mcpRequest(t, user.token, 'tools/list')).statusCode).toBe(
+        200,
+      );
+      const res = await t.inject({
+        method: 'POST',
+        url: '/auth/change-password',
+        payload: {
+          currentPassword: TEST_PASSWORD,
+          newPassword: 'Another-pass1',
+          confirmPassword: 'Another-pass1',
+        },
+        headers: { cookie: user.cookie, ...uniqueClient() },
+      });
+      expect(res.statusCode).toBe(302);
+      expect((await mcpRequest(t, user.token, 'tools/list')).statusCode).toBe(
+        401,
+      );
+    });
+  });
+
+  describe('the rate limit', () => {
+    it('allows 120 calls a minute per token, then 429', async () => {
+      const busy = await createAccessToken(t, { name: 'Busy' });
+      issued.push(busy);
+      for (let call = 0; call < 120; call += 1) {
+        const res = await mcpRequest(t, busy, 'tools/list');
+        expect(res.statusCode).toBe(200);
+      }
+      const refused = await mcpRequest(t, busy, 'tools/list');
+      expect(refused.statusCode).toBe(429);
+      // Another token of the same user has its own budget.
+      expect((await mcpRequest(t, token, 'tools/list')).statusCode).toBe(200);
+    });
+
+    it('allows a user 10 link imports a minute, whichever token', async () => {
+      const importer = await signUp('importer@example.com');
+      const second = await createAccessToken(t, {
+        cookie: importer.cookie,
+        name: 'Second',
+      });
+      issued.push(second);
+      // Refused by the fetcher's address rule, but each is an import.
+      const blocked = { url: sites.url('/admin', 'intranet.test') };
+      for (let call = 0; call < 10; call += 1) {
+        const answer = await callTool(
+          t,
+          call % 2 ? second : importer.token,
+          'add_garment_from_link',
+          blocked,
+        );
+        expect(answer.value.error).not.toMatch(/Too many/);
+      }
+      const refused = await callTool(
+        t,
+        importer.token,
+        'add_garment_from_link',
+        blocked,
+      );
+      expect(refused).toEqual({
+        isError: true,
+        value: { error: 'Too many link imports: try again in a minute' },
+      });
+    });
+  });
+
+  describe('logging', () => {
+    it('logs each call with its tool, user and outcome', () => {
+      const lines = t.logs.messages('info', 'Mcp');
+      expect(lines).toContainEqual(
+        expect.stringMatching(
+          new RegExp(
+            `^MCP search_garments by user ${t.owner.id} \\(token \\d+\\): ok `,
+          ),
+        ),
+      );
+      expect(lines).toContainEqual(
+        expect.stringMatching(
+          /^MCP update_garment by user \d+ \(token \d+\): refused 403 /,
+        ),
+      );
+    });
+
+    it('never writes a token, or its prefix, to a log line', () => {
+      const everything = JSON.stringify(t.logs.records);
+      expect(issued.length).toBeGreaterThan(3);
+      for (const issuedToken of issued) {
+        expect(everything).not.toContain(issuedToken);
+        expect(everything).not.toContain(issuedToken.slice(0, 11));
+      }
+    });
+  });
+});

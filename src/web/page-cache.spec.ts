@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bypassesWorker,
   CACHED_AT_HEADER,
   cachedAt,
   PAGE_ACCOUNT_HEADER,
@@ -9,6 +10,19 @@ import {
 } from './page-cache';
 
 const ORIGIN = 'https://closet.test';
+
+describe('bypassesWorker', () => {
+  it.each(['/mcp', '/mcp/', '/mcp/anything'])('leaves %s alone', (path) => {
+    expect(bypassesWorker(new URL(`${ORIGIN}${path}`))).toBe(true);
+  });
+
+  it.each(['/wardrobe', '/mcpx', '/auth/tokens', '/'])(
+    'handles %s as the app',
+    (path) => {
+      expect(bypassesWorker(new URL(`${ORIGIN}${path}`))).toBe(false);
+    },
+  );
+});
 
 describe('servesStaleWhileRevalidate', () => {
   it.each(['/wardrobe', '/outfits', '/calendar'])(

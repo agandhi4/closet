@@ -4,6 +4,7 @@ import { readdir } from 'node:fs/promises';
 import { count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { outfit, outfitCalendar, outfitSlot } from '../../src/db/schema';
+import { createToken } from '../../src/web/auth/personal-tokens';
 import { LOGIN_PATH } from '../../src/web/auth/session-access';
 import {
   createGarment,
@@ -60,8 +61,17 @@ type Via = 'own' | 'ownerId';
  * ignored: the route's success status, but the owner's ids were ignored:
  *     nothing leaked, nothing changed (/laundry's batch).
  * forbidden / notFound / login: refused, nothing leaked, nothing changed.
+ * unauthorized: a 401 without a body worth reading: the MCP endpoint, where
+ *     a session cookie never counts (only a personal access token does).
  */
-type Outcome = 'ok' | 'hidden' | 'ignored' | 'forbidden' | 'notFound' | 'login';
+type Outcome =
+  | 'ok'
+  | 'hidden'
+  | 'ignored'
+  | 'forbidden'
+  | 'notFound'
+  | 'login'
+  | 'unauthorized';
 
 interface Fixture {
   garmentId: number;
@@ -72,6 +82,12 @@ interface Fixture {
   outfitId: number;
   outfitName: string;
   entryId: number;
+  /**
+   * A new personal access token of the owner's (OWNER_TOKEN_NAME), made
+   * when a request asks for it: few routes need one, and the owner may hold
+   * only MAX_ACTIVE_TOKENS.
+   */
+  ownerToken: () => Promise<number>;
 }
 
 interface Route {
@@ -90,6 +106,8 @@ interface Route {
   ) => InjectOptions | Promise<InjectOptions>;
   /** Per signed-in actor, one outcome for every via or one per via. */
   expect: Record<SignedIn, Outcome | Outcome[]>;
+  /** A signed-out visitor's outcome when it is not the login redirect. */
+  anonymous?: Outcome;
 }
 
 const BOTH: Via[] = ['own', 'ownerId'];
@@ -102,6 +120,7 @@ const outfitName = (f: Fixture) => f.outfitName;
 const calendarEntry = (f: Fixture) =>
   `/outfits/${f.outfitId}/edit?returnTo=/calendar`;
 const today = () => new Date().toISOString().slice(0, 10);
+const OWNER_TOKEN_NAME = 'Owner laptop token';
 
 let photo: Buffer;
 let cutout: Buffer;
@@ -916,6 +935,80 @@ const ROUTES: Route[] = [
       stranger: 'ignored',
     },
   },
+  // Agent access (#33): a user's own tokens only. Not object-level through
+  // a share: tokens are the account's, like its password.
+  {
+    name: 'GET /auth/tokens',
+    kind: 'read',
+    ok: 200,
+    secret: () => OWNER_TOKEN_NAME,
+    shows: true,
+    vias: ['own'],
+    request: async (f) => {
+      await f.ownerToken();
+      return { method: 'GET', url: '/auth/tokens' };
+    },
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    name: 'POST /auth/tokens/:id/revoke',
+    kind: 'write',
+    ok: 303,
+    secret: () => OWNER_TOKEN_NAME,
+    vias: ['own'],
+    request: async (f) => ({
+      method: 'POST',
+      url: `/auth/tokens/${await f.ownerToken()}/revoke`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // The MCP endpoint takes a bearer token and nothing else: every
+    // session, the owner's included, is a 401 (mcp.spec.ts drives the tools
+    // with tokens, shares included).
+    name: 'POST /mcp (a session cookie)',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: '/mcp',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      payload: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {
+          name: 'get_garment',
+          arguments: {
+            id: f.garmentId,
+            ...(q ? { ownerId: Number(q.split('=')[1]) } : {}),
+          },
+        },
+      },
+    }),
+    expect: {
+      owner: 'unauthorized',
+      manager: 'unauthorized',
+      viewer: 'unauthorized',
+      stranger: 'unauthorized',
+    },
+    anonymous: 'unauthorized',
+  },
   {
     name: 'POST /calendar/:id/worn',
     kind: 'write',
@@ -948,7 +1041,10 @@ const CASES: Case[] = ROUTES.flatMap((route) =>
   route.vias.flatMap((via, i) =>
     (['owner', 'manager', 'viewer', 'stranger', 'anonymous'] as const).map(
       (actor): Case => {
-        const expected = actor === 'anonymous' ? 'login' : route.expect[actor];
+        const expected =
+          actor === 'anonymous'
+            ? (route.anonymous ?? 'login')
+            : route.expect[actor];
         const outcome = Array.isArray(expected) ? expected[i] : expected;
         const where = via === 'ownerId' ? ' ?ownerId=<owner>' : '';
         return {
@@ -1053,6 +1149,11 @@ describe('authorization matrix', () => {
       outfitId,
       outfitName,
       entryId: entry.id,
+      ownerToken: async () => {
+        const token = await createToken(t.db, t.owner.id, OWNER_TOKEN_NAME);
+        if (!token.created) throw new Error('The owner holds too many tokens');
+        return token.id;
+      },
     };
   };
 
@@ -1072,6 +1173,7 @@ describe('authorization matrix', () => {
       'outfit_slot',
       'outfit_calendar',
       'wardrobe_share',
+      'personal_access_token',
     ];
     const rows = await Promise.all(
       tables.map(async (table) => {
@@ -1121,6 +1223,7 @@ describe('authorization matrix', () => {
     forbidden: 403,
     notFound: 404,
     login: 302,
+    unauthorized: 401,
   };
 
   const expectRefused = (

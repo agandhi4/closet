@@ -122,7 +122,7 @@ export async function runSetPassword(
     const userId = await setPasswordByEmail(db, email, password);
     logger.info(`Password set for user ${userId} via CLI`);
     output.write(
-      `Password set for user ${userId}; every existing session of that account is signed out.\n`,
+      `Password set for user ${userId}; every existing session of that account is signed out and its access tokens are revoked.\n`,
     );
     return 0;
   } catch (error) {

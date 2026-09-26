@@ -88,11 +88,14 @@ export async function authorizeWardrobe(
 
 export interface SharedWardrobe {
   grantorId: number;
+  /** The first name, else the email: what the switcher shows the grantee. */
   grantorName: string;
+  /** The first name alone (the MCP tools never pass an email on). */
+  grantorFirstName: string | null;
   permission: SharePermission;
 }
 
-/** Wardrobes shared with `userId`, for the wardrobe page's switcher. */
+/** Wardrobes shared with `userId`: the wardrobe page's switcher, list_shared_wardrobes (MCP). */
 export async function sharedWardrobesOf(
   db: Db,
   userId: number,
@@ -116,6 +119,7 @@ export async function sharedWardrobesOf(
   return rows.map((row) => ({
     grantorId: row.grantorId,
     grantorName: row.firstName || row.email || '',
+    grantorFirstName: row.firstName || null,
     permission: row.permission,
   }));
 }

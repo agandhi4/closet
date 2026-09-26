@@ -1,0 +1,161 @@
+import * as z from 'zod/v4';
+import { addDays, daysBetween, todayIn } from '../../calendar/calendar-date';
+import { findEntries } from '../../calendar/queries';
+import { HttpError } from '../../errors';
+import {
+  laundryList,
+  markWashed,
+  setEntryWorn,
+  setWoreToday,
+} from '../../wears/queries';
+import { defineTool, wardrobeFor } from '../tool';
+import { isoDate, ownerIdInput, rowId } from './common';
+
+/** get_calendar's widest range: two months, a planning conversation's horizon. */
+const MAX_CALENDAR_DAYS = 62;
+
+/**
+ * The calendar and the wears are the caller's own records (src/web/wears):
+ * no tool reaches them through a share. Garment-level writes take ownerId
+ * only to refuse a shared wardrobe as the pages do (403 where the garment
+ * is visible, 404 where it is not).
+ */
+export const calendarTools = [
+  defineTool({
+    name: 'get_calendar',
+    title: 'Get my calendar',
+    description: `Your calendar from one day to another (inclusive, at most ${MAX_CALENDAR_DAYS} days): each entry's id, day, outfit and whether it was worn. Without dates: this week, from today. Days are the household's (its time zone).`,
+    input: z.object({
+      from: isoDate().optional().describe('First day, YYYY-MM-DD.'),
+      to: isoDate().optional().describe('Last day, YYYY-MM-DD.'),
+    }),
+    writes: false,
+    async run({ from, to }, ctx) {
+      const today = todayIn(ctx.timeZone, new Date());
+      const first = from ?? today;
+      const last = to ?? addDays(first, 6);
+      const days = daysBetween(first, last) + 1;
+      if (days < 1 || days > MAX_CALENDAR_DAYS) {
+        throw new HttpError(
+          400,
+          `Ask for 1 to ${MAX_CALENDAR_DAYS} days, from before to`,
+        );
+      }
+      const entries = await findEntries(ctx.db, ctx.userId, first, last);
+      return {
+        today,
+        from: first,
+        to: last,
+        entries: entries.map((entry) => ({
+          id: entry.id,
+          day: entry.day,
+          worn: entry.worn,
+          outfit: { id: entry.outfit.id, name: entry.outfit.name },
+        })),
+      };
+    },
+  }),
+
+  defineTool({
+    name: 'laundry_status',
+    title: 'What needs a wash',
+    description:
+      'Your garments worn since their last wash that can get dirty, in the closet: those needing a wash first (dirty copies of how many), then those worn but not due yet.',
+    input: z.object({}),
+    writes: false,
+    async run(_args, ctx) {
+      const items = await laundryList(ctx.db, ctx.userId);
+      return {
+        garments: items.map(({ id, name, category, quantity, dirty }) => ({
+          id,
+          name,
+          category,
+          quantity,
+          dirtyCopies: dirty,
+          needsWash: dirty > 0,
+        })),
+      };
+    },
+  }),
+
+  defineTool({
+    name: 'mark_worn',
+    title: 'Mark worn',
+    description:
+      'WRITES: records a wear. With entryId: marks that calendar entry worn, which records each of its outfit’s garments as worn that day (not for a future day). With garmentId: "Wore today", one garment worn today on its own. Your own records only.',
+    input: z
+      .object({
+        entryId: rowId().optional().describe('A calendar entry id.'),
+        garmentId: rowId().optional().describe('One of your garments.'),
+        ownerId: ownerIdInput,
+      })
+      .refine(
+        (args) =>
+          (args.entryId === undefined) !== (args.garmentId === undefined),
+        {
+          message: 'Give either entryId or garmentId',
+        },
+      ),
+    writes: true,
+    idempotent: true,
+    async run({ entryId, garmentId, ownerId }, ctx) {
+      const now = new Date();
+      const today = todayIn(ctx.timeZone, now);
+      if (entryId !== undefined) {
+        const outcome = await setEntryWorn(ctx.db, {
+          entryId,
+          ownerId: ctx.userId,
+          worn: true,
+          at: now,
+          today,
+        });
+        if (outcome === 'not-found') {
+          throw new HttpError(404, 'Calendar entry not found');
+        }
+        if (outcome === 'future') {
+          throw new HttpError(400, 'A day still to come cannot be worn yet');
+        }
+        ctx.webLogger.info(
+          `Calendar entry ${entryId} marked worn by user ${ctx.userId} (MCP): ${outcome.wears} wears`,
+        );
+        return { entryId, worn: true, garmentsRecorded: outcome.wears };
+      }
+      // Wears are the owner's own: a shared wardrobe's garment is refused
+      // as the garment page's Wore today refuses it.
+      await wardrobeFor(ctx, ownerId, 'own');
+      const saved = await setWoreToday(ctx.db, {
+        garmentId: garmentId!,
+        ownerId: ctx.userId,
+        day: today,
+        worn: true,
+      });
+      if (saved === 'not-found') throw new HttpError(404, 'Garment not found');
+      ctx.webLogger.info(
+        `Garment ${garmentId} worn on ${today} by user ${ctx.userId} (MCP)`,
+      );
+      return { garmentId, day: today };
+    },
+  }),
+
+  defineTool({
+    name: 'mark_washed',
+    title: 'Mark washed',
+    description:
+      'WRITES: marks your garments washed today (every copy, like laundry day); wears today count as before the wash. Ids that are not your garments are ignored. Your own records only.',
+    input: z.object({
+      garmentIds: z.array(rowId()).min(1).max(500),
+      ownerId: ownerIdInput,
+    }),
+    writes: true,
+    idempotent: true,
+    async run({ garmentIds, ownerId }, ctx) {
+      await wardrobeFor(ctx, ownerId, 'own');
+      const today = todayIn(ctx.timeZone, new Date());
+      const washed = await markWashed(ctx.db, ctx.userId, garmentIds, today);
+      ctx.webLogger.info(
+        `Laundry by user ${ctx.userId} on ${today} (MCP): ${washed.length} washed of ${garmentIds.length} asked`,
+      );
+      return { washed, day: today };
+    },
+  }),
+];

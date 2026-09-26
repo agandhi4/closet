@@ -31,7 +31,8 @@ function claimedOrigin(headers: IncomingHttpHeaders): string | undefined {
  * absent), either the origin it was sent to (requestOrigin: the Host as
  * Fastify trusts it) or SITE_URL's origin (the canonical https name, which a
  * proxy missing from TRUSTED_PROXIES reports as plain http). Anything else,
- * including neither header, is a 403.
+ * including neither header, is a 403; only a bearer route (the MCP endpoint)
+ * accepts neither header.
  *
  * The session cookie is SameSite=Lax as well (session-cookie.ts); this
  * check does not depend on the browser's cookie policy, and it covers the
@@ -51,6 +52,14 @@ export function createSameOriginHook(options: {
     const claimed = claimedOrigin(request.headers);
     const own = requestOrigin(request);
     if (claimed !== undefined && (claimed === own || claimed === siteOrigin)) {
+      return;
+    }
+    // A bearer route (the MCP endpoint) is called by programs, which send no
+    // Origin. A cookie grants nothing there and a page cannot attach the
+    // Authorization header cross-site without a CORS preflight, which is
+    // never answered, so an absent Origin is no CSRF. A present foreign one
+    // is still refused: the MCP spec's defence against DNS rebinding.
+    if (claimed === undefined && request.routeOptions.config.bearer === true) {
       return;
     }
     logger.warn(

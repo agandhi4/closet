@@ -128,6 +128,40 @@ export const userDevice = pgTable(
   ],
 );
 
+// A personal access token (#33): a bearer credential for the MCP endpoint
+// (src/web/mcp) that acts as its user. Only the token's SHA-256 is stored
+// (src/web/auth/personal-tokens.ts): the token is 256 random bits, so a fast
+// hash is enough and the lookup is this unique index. `token_prefix` is what
+// the profile shows to tell tokens apart. Revoked rows stay (revoked_at), so
+// the list can still name them; a new password revokes them all.
+export const personalAccessToken = pgTable(
+  'personal_access_token',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').notNull(),
+    name: text('name').notNull(),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    tokenPrefix: varchar('token_prefix', { length: 16 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    // Written at most once a minute per token (authenticateToken).
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('personal_access_token_token_hash_unique').on(table.tokenHash),
+    index('personal_access_token_user_id_index').on(table.userId),
+    foreignKey({
+      name: 'personal_access_token_user_id_foreign',
+      columns: [table.userId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
 // One row per stored photo set (the original's name; see CLAUDE.md, Images).
 export const file = pgTable(
   'file',
@@ -662,6 +696,7 @@ export const wardrobeShare = pgTable(
 
 export const userRelations = relations(user, ({ many }) => ({
   devices: many(userDevice),
+  accessTokens: many(personalAccessToken),
   fileUploads: many(file),
   garments: many(garment),
   outfits: many(outfit),
@@ -670,6 +705,16 @@ export const userRelations = relations(user, ({ many }) => ({
   sharesGranted: many(wardrobeShare, { relationName: 'grantor' }),
   sharesReceived: many(wardrobeShare, { relationName: 'grantee' }),
 }));
+
+export const personalAccessTokenRelations = relations(
+  personalAccessToken,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [personalAccessToken.userId],
+      references: [user.id],
+    }),
+  }),
+);
 
 export const userDeviceRelations = relations(userDevice, ({ one }) => ({
   user: one(user, { fields: [userDevice.userId], references: [user.id] }),
