@@ -6,6 +6,7 @@ import {
   Get,
   HttpCode,
   Logger,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Post,
@@ -20,10 +21,8 @@ import { UserId } from '../auth/user.decorator';
 import { GarmentCategory } from './garment-category.enum';
 import { GarmentColor } from './garment-color.enum';
 import { GarmentService } from './garment.service';
-import {
-  WardrobeAccess,
-  WardrobeShareService,
-} from '../wardrobe-share/wardrobe-share.service';
+import { WardrobeShareService } from '../wardrobe-share/wardrobe-share.service';
+import type { WardrobeAccess } from '../web/sharing/access';
 import { SearchGarmentDto } from './dto/search-garment.dto';
 import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -56,12 +55,15 @@ export class WardrobeController {
     return { viewOwner, access };
   }
 
+  // A wardrobe the requester cannot see is a 404, as if it did not exist
+  // (ids reveal nothing); one they can see but not change is a 403. See
+  // WardrobeAccess.
   private async requireView(
     userId: number,
     ownerId: string | undefined,
   ): Promise<RequestAccess> {
     const resolved = await this.resolveAccess(userId, ownerId);
-    if (!resolved.access.canView) throw new ForbiddenException();
+    if (!resolved.access.canView) throw new NotFoundException();
     return resolved;
   }
 
@@ -69,8 +71,18 @@ export class WardrobeController {
     userId: number,
     ownerId: string | undefined,
   ): Promise<RequestAccess> {
-    const resolved = await this.resolveAccess(userId, ownerId);
+    const resolved = await this.requireView(userId, ownerId);
     if (!resolved.access.canManage) throw new ForbiddenException();
+    return resolved;
+  }
+
+  /** Archive and delete: the owner only, even for a MANAGE grantee. */
+  private async requireOwner(
+    userId: number,
+    ownerId: string | undefined,
+  ): Promise<RequestAccess> {
+    const resolved = await this.requireView(userId, ownerId);
+    if (!resolved.access.isOwner) throw new ForbiddenException();
     return resolved;
   }
 
@@ -94,14 +106,7 @@ export class WardrobeController {
     // wardrobe and the view must not render it as a shared one.
     const viewOwner = access.isOwner ? undefined : access.ownerId;
 
-    const sharedWardrobes = (
-      await this.shareService.getInboundShares(userId)
-    ).map((s) => ({
-      id: s.id,
-      grantorId: s.grantor.unwrap().id,
-      grantorName: s.grantor.unwrap().firstName || s.grantor.unwrap().email,
-      permission: s.permission,
-    }));
+    const sharedWardrobes = await this.shareService.sharedWardrobesOf(userId);
 
     const [garments, filters] = await Promise.all([
       this.garmentService.findAll(userId, query, viewOwner),
@@ -407,12 +412,7 @@ export class WardrobeController {
     @Res() reply: FastifyReply,
     @Query('ownerId') ownerId: string | undefined,
   ) {
-    const viewOwner = this.parseOwnerId(ownerId);
-
-    // Archive/unarchive is only allowed for the owner
-    if (viewOwner != null && viewOwner !== userId) {
-      throw new ForbiddenException();
-    }
+    const { viewOwner } = await this.requireOwner(userId, ownerId);
 
     await this.garmentService.archive(id, userId);
     const redirectSuffix = viewOwner ? `?ownerId=${viewOwner}` : '';
@@ -450,12 +450,7 @@ export class WardrobeController {
     @Res() reply: FastifyReply,
     @Query('ownerId') ownerId: string | undefined,
   ) {
-    const viewOwner = this.parseOwnerId(ownerId);
-
-    // Delete is only allowed for the owner
-    if (viewOwner != null && viewOwner !== userId) {
-      throw new ForbiddenException();
-    }
+    await this.requireOwner(userId, ownerId);
 
     await this.garmentService.remove(id, userId);
     reply.header('HX-Redirect', '/wardrobe');

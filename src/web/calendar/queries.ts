@@ -8,12 +8,12 @@ import type { CalendarEntry } from './calendar-view';
 /**
  * The calendar's reads and writes. Every one is scoped to the signed-in
  * owner: outfits and calendar entries are private whatever wardrobe shares
- * exist. An entry that is not the caller's is reported as a miss so the
- * route can answer 404 (no such entry) or 403 (someone else's), as the Nest
- * controller did.
+ * exist. An entry that is not the caller's is a miss, the same as one that
+ * does not exist: the route answers 404 either way, so entry ids reveal
+ * nothing about other users (WardrobeAccess, src/web/sharing/access.ts).
  */
 
-export type EntryMiss = 'not-found' | 'forbidden';
+export type EntryMiss = 'not-found';
 
 /** The owner's entries from `first` to `last` (inclusive), by day then id. */
 export async function findEntries(
@@ -103,7 +103,7 @@ export async function deleteEntry(
     .delete(outfitCalendar)
     .where(and(eq(outfitCalendar.id, id), eq(outfitCalendar.ownerId, ownerId)))
     .returning({ id: outfitCalendar.id });
-  return deleted.length > 0 ? 'deleted' : whyNotOwned(db, id);
+  return deleted.length > 0 ? 'deleted' : 'not-found';
 }
 
 /**
@@ -122,13 +122,5 @@ export async function toggleWorn(
     })
     .where(and(eq(outfitCalendar.id, id), eq(outfitCalendar.ownerId, ownerId)))
     .returning({ wornAt: outfitCalendar.wornAt });
-  return updated ? { worn: updated.wornAt !== null } : whyNotOwned(db, id);
-}
-
-async function whyNotOwned(db: Db, id: number): Promise<EntryMiss> {
-  const [exists] = await db
-    .select({ id: outfitCalendar.id })
-    .from(outfitCalendar)
-    .where(eq(outfitCalendar.id, id));
-  return exists ? 'forbidden' : 'not-found';
+  return updated ? { worn: updated.wornAt !== null } : 'not-found';
 }

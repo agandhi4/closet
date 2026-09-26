@@ -1,11 +1,9 @@
+import { and, count, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { User } from '../../src/dal/entity/user.entity';
-import {
-  SharePermission,
-  WardrobeShare,
-} from '../../src/dal/entity/wardrobe-share.entity';
+import { type SharePermission, wardrobeShare } from '../../src/db/schema';
 import { LOGIN_PATH } from '../../src/auth/session-access';
 import { createGarment } from './garments';
 import { createTestApp, TestApp } from './harness';
@@ -17,6 +15,9 @@ import { createTestApp, TestApp } from './harness';
  * invite twice, your own invite, an invite addressed to someone else, a
  * clash with a pending addressed invite) are refused without a half-made
  * share. Every test uses fresh grantees so shares never interact.
+ *
+ * Without a share the owner's wardrobe does not exist for a user: reads and
+ * writes addressing it are 404, as for an unknown id.
  */
 describe('wardrobe share lifecycle', () => {
   let t: TestApp;
@@ -58,16 +59,15 @@ describe('wardrobe share lifecycle', () => {
    * with "sent to a different email address", so it is written directly.
    */
   const createAddressedInvite = async (addressee: Account) => {
-    const em = t.em();
-    const share = em.create(WardrobeShare, {
-      grantor: owner.id,
-      grantee: addressee.id,
-      permission: SharePermission.VIEW,
-      inviteToken: randomUUID(),
+    const inviteToken = randomUUID();
+    await t.db.insert(wardrobeShare).values({
+      grantorId: owner.id,
+      granteeId: addressee.id,
+      permission: 'VIEW',
+      inviteToken,
       createdAt: new Date(),
     });
-    await em.flush();
-    return share.inviteToken!;
+    return inviteToken;
   };
 
   const post = (url: string, account?: Account, payload?: object) =>
@@ -91,22 +91,48 @@ describe('wardrobe share lifecycle', () => {
     expect(res.headers.location).toBe(MANAGE_PAGE);
   };
 
-  /** A refused accept: redirect back to the manage page carrying ?error=. */
-  const expectAcceptRefused = (
+  /**
+   * A refused accept: redirect back to the manage page carrying the refusal
+   * code, which the page shows as its message.
+   */
+  const expectAcceptRefused = async (
     res: Awaited<ReturnType<typeof accept>>,
+    code: string,
     message: string,
+    account: Account,
   ) => {
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe(
-      `${MANAGE_PAGE}?error=${encodeURIComponent(message)}`,
-    );
+    expect(res.headers.location).toBe(`${MANAGE_PAGE}?error=${code}`);
+    const page = await t.inject({
+      method: 'GET',
+      url: `${MANAGE_PAGE}?error=${code}`,
+      headers: { cookie: account.cookie },
+    });
+    expect(page.body).toContain(message);
   };
 
-  const shareBetween = (grantee: Account) =>
-    t.em().findOne(WardrobeShare, { grantor: owner.id, grantee: grantee.id });
+  type ShareRow = typeof wardrobeShare.$inferSelect;
 
-  const shareByToken = (token: string) =>
-    t.em().findOne(WardrobeShare, { inviteToken: token });
+  const shareBetween = async (grantee: Account): Promise<ShareRow | null> => {
+    const [row] = await t.db
+      .select()
+      .from(wardrobeShare)
+      .where(
+        and(
+          eq(wardrobeShare.grantorId, owner.id),
+          eq(wardrobeShare.granteeId, grantee.id),
+        ),
+      );
+    return row ?? null;
+  };
+
+  const shareByToken = async (token: string): Promise<ShareRow | null> => {
+    const [row] = await t.db
+      .select()
+      .from(wardrobeShare)
+      .where(eq(wardrobeShare.inviteToken, token));
+    return row ?? null;
+  };
 
   /** Status of reading the owner's wardrobe grid and garment as `account`. */
   const readStatuses = async (account: Account) => {
@@ -163,10 +189,7 @@ describe('wardrobe share lifecycle', () => {
   describe('revoke (POST /wardrobe-share/:id/remove)', () => {
     it('by the grantor: the MANAGE grantee loses read and write access', async () => {
       const grantee = await signUp('manager');
-      await acceptOk(
-        await createInvite(owner, SharePermission.MANAGE),
-        grantee,
-      );
+      await acceptOk(await createInvite(owner, 'MANAGE'), grantee);
       expect(await readStatuses(grantee)).toEqual([200, 200]);
       const share = await shareBetween(grantee);
 
@@ -175,40 +198,38 @@ describe('wardrobe share lifecycle', () => {
       expect(res.headers.location).toBe(MANAGE_PAGE);
       expect(await shareBetween(grantee)).toBeNull();
 
-      expect(await readStatuses(grantee)).toEqual([403, 403]);
-      expect(await writeStatuses(grantee)).toEqual([403, 403]);
+      expect(await readStatuses(grantee)).toEqual([404, 404]);
+      expect(await writeStatuses(grantee)).toEqual([404, 404]);
       await expectNoWritesLanded(grantee);
     });
 
     it('by the grantee: leaving a VIEW share ends read access', async () => {
       const grantee = await signUp('viewer');
-      await acceptOk(await createInvite(owner, SharePermission.VIEW), grantee);
+      await acceptOk(await createInvite(owner, 'VIEW'), grantee);
       const share = await shareBetween(grantee);
 
       const res = await post(`/wardrobe-share/${share!.id}/remove`, grantee);
       expect(res.statusCode).toBe(302);
       expect(await shareBetween(grantee)).toBeNull();
-      expect(await readStatuses(grantee)).toEqual([403, 403]);
+      expect(await readStatuses(grantee)).toEqual([404, 404]);
     });
 
     it('by a third party or anonymously: refused, the share and its access stay', async () => {
       const grantee = await signUp('manager');
       const stranger = await signUp('stranger');
-      await acceptOk(
-        await createInvite(owner, SharePermission.MANAGE),
-        grantee,
-      );
+      await acceptOk(await createInvite(owner, 'MANAGE'), grantee);
       const share = await shareBetween(grantee);
       const url = `/wardrobe-share/${share!.id}/remove`;
 
-      expect((await post(url, stranger)).statusCode).toBe(403);
+      // Not their share: as unknown as a missing id.
+      expect((await post(url, stranger)).statusCode).toBe(404);
       const anonymous = await post(url);
       expect(anonymous.statusCode).toBe(302);
       expect(anonymous.headers.location).toBe(LOGIN_PATH);
 
       expect(await shareBetween(grantee)).toMatchObject({
         id: share!.id,
-        permission: SharePermission.MANAGE,
+        permission: 'MANAGE',
       });
       expect(await readStatuses(grantee)).toEqual([200, 200]);
     });
@@ -226,7 +247,7 @@ describe('wardrobe share lifecycle', () => {
     // the controller), so the link survives for whoever it was meant for.
     it('by a recipient of an open link: the link stays pending and they gain nothing', async () => {
       const recipient = await signUp('recipient');
-      const token = await createInvite(owner, SharePermission.MANAGE);
+      const token = await createInvite(owner, 'MANAGE');
 
       const res = await decline(token, recipient);
       expect(res.statusCode).toBe(302);
@@ -234,25 +255,27 @@ describe('wardrobe share lifecycle', () => {
 
       const invite = await shareByToken(token);
       expect(invite).not.toBeNull();
-      expect(invite!.grantee).toBeNull();
+      expect(invite!.granteeId).toBeNull();
       expect(invite!.acceptedAt).toBeNull();
       expect(await shareBetween(recipient)).toBeNull();
-      expect(await readStatuses(recipient)).toEqual([403, 403]);
+      expect(await readStatuses(recipient)).toEqual([404, 404]);
     });
 
     it('by the grantor: the open link is deleted and can no longer be accepted', async () => {
       const recipient = await signUp('recipient');
-      const token = await createInvite(owner, SharePermission.VIEW);
+      const token = await createInvite(owner, 'VIEW');
 
       expect((await decline(token, owner)).statusCode).toBe(302);
       expect(await shareByToken(token)).toBeNull();
 
-      expectAcceptRefused(
+      await expectAcceptRefused(
         await accept(token, recipient),
+        'not-found',
         'Invite not found or has already been accepted.',
+        recipient,
       );
       expect(await shareBetween(recipient)).toBeNull();
-      expect(await readStatuses(recipient)).toEqual([403, 403]);
+      expect(await readStatuses(recipient)).toEqual([404, 404]);
     });
 
     it('by the addressee of an addressed invite: the invite is deleted, no share made', async () => {
@@ -262,7 +285,7 @@ describe('wardrobe share lifecycle', () => {
       expect((await decline(token, addressee)).statusCode).toBe(302);
       expect(await shareByToken(token)).toBeNull();
       expect(await shareBetween(addressee)).toBeNull();
-      expect(await readStatuses(addressee)).toEqual([403, 403]);
+      expect(await readStatuses(addressee)).toEqual([404, 404]);
     });
 
     it('by someone other than the addressee: refused, the invite is untouched', async () => {
@@ -272,12 +295,12 @@ describe('wardrobe share lifecycle', () => {
 
       expect((await decline(token, other)).statusCode).toBe(302);
       const invite = await shareByToken(token);
-      expect(invite!.grantee?.id).toBe(addressee.id);
+      expect(invite!.granteeId).toBe(addressee.id);
       expect(invite!.acceptedAt).toBeNull();
     });
 
     it('anonymously: redirected to login, the invite is untouched', async () => {
-      const token = await createInvite(owner, SharePermission.VIEW);
+      const token = await createInvite(owner, 'VIEW');
       const res = await decline(token);
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe(LOGIN_PATH);
@@ -288,48 +311,56 @@ describe('wardrobe share lifecycle', () => {
   describe('accept edge cases (POST /wardrobe-share/invite/:token/accept)', () => {
     it('the same invite twice: the second is refused and the share is unchanged', async () => {
       const grantee = await signUp('viewer');
-      const token = await createInvite(owner, SharePermission.VIEW);
+      const token = await createInvite(owner, 'VIEW');
       await acceptOk(token, grantee);
       const first = await shareBetween(grantee);
 
-      expectAcceptRefused(
+      await expectAcceptRefused(
         await accept(token, grantee),
+        'not-found',
         'Invite not found or has already been accepted.',
+        grantee,
       );
-      expect(await t.em().count(WardrobeShare, { grantee: grantee.id })).toBe(
-        1,
-      );
+      const [{ shares }] = await t.db
+        .select({ shares: count() })
+        .from(wardrobeShare)
+        .where(eq(wardrobeShare.granteeId, grantee.id));
+      expect(shares).toBe(1);
       expect(await shareBetween(grantee)).toMatchObject({
         id: first!.id,
-        permission: SharePermission.VIEW,
+        permission: 'VIEW',
       });
     });
 
     it('an invite someone else already accepted: refused, no access', async () => {
       const grantee = await signUp('viewer');
       const latecomer = await signUp('latecomer');
-      const token = await createInvite(owner, SharePermission.MANAGE);
+      const token = await createInvite(owner, 'MANAGE');
       await acceptOk(token, grantee);
 
-      expectAcceptRefused(
+      await expectAcceptRefused(
         await accept(token, latecomer),
+        'not-found',
         'Invite not found or has already been accepted.',
+        latecomer,
       );
       expect(await shareBetween(latecomer)).toBeNull();
-      expect(await readStatuses(latecomer)).toEqual([403, 403]);
-      expect(await writeStatuses(latecomer)).toEqual([403, 403]);
+      expect(await readStatuses(latecomer)).toEqual([404, 404]);
+      expect(await writeStatuses(latecomer)).toEqual([404, 404]);
       await expectNoWritesLanded(latecomer);
     });
 
     it('your own invite: refused, the link stays pending', async () => {
-      const token = await createInvite(owner, SharePermission.MANAGE);
+      const token = await createInvite(owner, 'MANAGE');
 
-      expectAcceptRefused(
+      await expectAcceptRefused(
         await accept(token, owner),
+        'own-invite',
         'You cannot accept your own invite.',
+        owner,
       );
       const invite = await shareByToken(token);
-      expect(invite!.grantee).toBeNull();
+      expect(invite!.granteeId).toBeNull();
       expect(invite!.acceptedAt).toBeNull();
     });
 
@@ -338,12 +369,14 @@ describe('wardrobe share lifecycle', () => {
       const other = await signUp('other');
       const token = await createAddressedInvite(addressee);
 
-      expectAcceptRefused(
+      await expectAcceptRefused(
         await accept(token, other),
+        'wrong-recipient',
         'This invite was sent to a different email address.',
+        other,
       );
       expect(await shareBetween(other)).toBeNull();
-      expect(await readStatuses(other)).toEqual([403, 403]);
+      expect(await readStatuses(other)).toEqual([404, 404]);
       expect(await shareByToken(token)).toMatchObject({ acceptedAt: null });
 
       await acceptOk(token, addressee);
@@ -357,23 +390,25 @@ describe('wardrobe share lifecycle', () => {
     it('an open link while an addressed invite is pending: refused without a 500', async () => {
       const addressee = await signUp('addressee');
       const pending = await createAddressedInvite(addressee);
-      const open = await createInvite(owner, SharePermission.MANAGE);
+      const open = await createInvite(owner, 'MANAGE');
 
-      expectAcceptRefused(
+      await expectAcceptRefused(
         await accept(open, addressee),
+        'already-shared',
         'You already have access to this wardrobe.',
+        addressee,
       );
-      expect(await readStatuses(addressee)).toEqual([403, 403]);
-      expect(await shareByToken(open)).toMatchObject({ grantee: null });
+      expect(await readStatuses(addressee)).toEqual([404, 404]);
+      expect(await shareByToken(open)).toMatchObject({ granteeId: null });
       expect(await shareByToken(pending)).toMatchObject({ acceptedAt: null });
     });
 
     it('anonymously: redirected to login, the invite is untouched', async () => {
-      const token = await createInvite(owner, SharePermission.VIEW);
+      const token = await createInvite(owner, 'VIEW');
       const res = await accept(token);
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe(LOGIN_PATH);
-      expect(await shareByToken(token)).toMatchObject({ grantee: null });
+      expect(await shareByToken(token)).toMatchObject({ granteeId: null });
     });
   });
 });

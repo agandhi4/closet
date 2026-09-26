@@ -184,13 +184,13 @@ describe('sessions', () => {
     ).toBeUndefined();
   });
 
-  it('a wardrobe you have no share for is forbidden', async () => {
+  it('a wardrobe you have no share for does not exist for you', async () => {
     const res = await t.inject({
       method: 'GET',
       url: '/wardrobe?ownerId=999',
       headers: { cookie },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(404);
   });
 
   it('static assets are served without resolving the session', async () => {

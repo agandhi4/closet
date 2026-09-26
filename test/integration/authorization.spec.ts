@@ -8,7 +8,6 @@ import { OutfitCalendar } from '../../src/dal/entity/outfit-calendar.entity';
 import { OutfitGarment } from '../../src/dal/entity/outfit-garment.entity';
 import { Outfit } from '../../src/dal/entity/outfit.entity';
 import { User } from '../../src/dal/entity/user.entity';
-import { WardrobeShare } from '../../src/dal/entity/wardrobe-share.entity';
 import { LOGIN_PATH } from '../../src/auth/session-access';
 import { createGarment, jpegPhoto, pngCutout, uploadPhoto } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
@@ -24,10 +23,13 @@ import { createTestApp, multipart, TestApp } from './harness';
  * stored file. Sharing covers garments only: outfits and calendar entries
  * stay private to their owner whatever the share.
  *
- * Refusals are 403 (GarmentService/OutfitService.findOne, the calendar's
- * owner-scoped writes in src/web/calendar/queries.ts: the row exists but is
- * not in the addressed wardrobe), except POST /calendar, whose owner-scoped
- * outfit lookup is a 404.
+ * Refusals follow WardrobeAccess (src/web/sharing/access.ts): what the
+ * requester cannot see does not exist for them, a 404 like an unknown id (a
+ * stranger's view of the owner's wardrobe, a garment outside the addressed
+ * wardrobe, anyone else's outfit), so ids reveal nothing; what they can see
+ * but may not change is a 403 (a VIEW grantee writing, a grantee archiving).
+ * Calendar entries and outfits are never shared, so every refusal there is
+ * a 404.
  */
 
 type SignedIn = 'owner' | 'manager' | 'viewer' | 'stranger';
@@ -97,7 +99,7 @@ const ROUTES: Route[] = [
       owner: 'ok',
       manager: ['hidden', 'ok'],
       viewer: ['hidden', 'ok'],
-      stranger: ['hidden', 'forbidden'],
+      stranger: ['hidden', 'notFound'],
     },
   },
   {
@@ -111,7 +113,7 @@ const ROUTES: Route[] = [
       owner: 'ok',
       manager: 'ok',
       viewer: 'forbidden',
-      stranger: 'forbidden',
+      stranger: 'notFound',
     },
   },
   {
@@ -129,7 +131,7 @@ const ROUTES: Route[] = [
       owner: 'ok',
       manager: 'ok',
       viewer: 'forbidden',
-      stranger: 'forbidden',
+      stranger: 'notFound',
     },
   },
 
@@ -145,9 +147,9 @@ const ROUTES: Route[] = [
     request: (f, q) => ({ method: 'GET', url: `/wardrobe/${f.garmentId}${q}` }),
     expect: {
       owner: 'ok',
-      manager: ['forbidden', 'ok'],
-      viewer: ['forbidden', 'ok'],
-      stranger: 'forbidden',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
     },
   },
   {
@@ -163,9 +165,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: ['forbidden', 'ok'],
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
     },
   },
   {
@@ -184,9 +186,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: ['forbidden', 'ok'],
-      viewer: ['forbidden', 'ok'],
-      stranger: 'forbidden',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
     },
   },
   {
@@ -202,9 +204,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: ['forbidden', 'ok'],
-      viewer: ['forbidden', 'ok'],
-      stranger: 'forbidden',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
     },
   },
   {
@@ -220,9 +222,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: ['forbidden', 'ok'],
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
     },
   },
   {
@@ -252,9 +254,9 @@ const ROUTES: Route[] = [
     },
     expect: {
       owner: 'ok',
-      manager: ['forbidden', 'ok'],
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
     },
   },
   {
@@ -282,9 +284,9 @@ const ROUTES: Route[] = [
     },
     expect: {
       owner: 'ok',
-      manager: ['forbidden', 'ok'],
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
     },
   },
   {
@@ -300,9 +302,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: 'forbidden',
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: ['notFound', 'forbidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
     },
   },
   {
@@ -317,9 +319,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: 'forbidden',
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: ['notFound', 'forbidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
     },
   },
 
@@ -350,9 +352,9 @@ const ROUTES: Route[] = [
     request: (f, q) => ({ method: 'GET', url: `/outfits/${f.outfitId}${q}` }),
     expect: {
       owner: 'ok',
-      manager: 'forbidden',
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
     },
   },
   {
@@ -368,9 +370,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: 'forbidden',
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
     },
   },
   {
@@ -386,9 +388,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: 'forbidden',
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
     },
   },
   {
@@ -403,9 +405,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: 'forbidden',
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
     },
   },
   {
@@ -456,9 +458,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: 'forbidden',
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
     },
   },
   {
@@ -474,9 +476,9 @@ const ROUTES: Route[] = [
     }),
     expect: {
       owner: 'ok',
-      manager: 'forbidden',
-      viewer: 'forbidden',
-      stranger: 'forbidden',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
     },
   },
 ];
@@ -579,10 +581,14 @@ describe('authorization matrix', () => {
    */
   const snapshot = async (): Promise<string[]> => {
     const em = t.em();
-    const tables = [Garment, File, Outfit, OutfitGarment, OutfitCalendar];
+    const tables = [
+      ...[Garment, File, Outfit, OutfitGarment, OutfitCalendar].map(
+        (entity) => em.getMetadata(entity).tableName,
+      ),
+      'wardrobe_share',
+    ];
     const rows = await Promise.all(
-      [...tables, WardrobeShare].map(async (entity) => {
-        const table = em.getMetadata(entity).tableName;
+      tables.map(async (table) => {
         const result: Record<string, unknown>[] = await em
           .getConnection()
           .execute(`select * from "${table}"`);

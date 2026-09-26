@@ -135,9 +135,10 @@ describe('garment edit, clone and archive', () => {
       expect(html).not.toMatch(/name="color" value="red"\s+checked/);
     });
 
-    it('is forbidden to a user without a share', async () => {
+    // Not in any wardrobe carol can see: as unknown as a missing id.
+    it('does not exist for a user without a share', async () => {
       const res = await get(`/wardrobe/${garmentId}/edit`, carol.cookie);
-      expect(res.statusCode).toBe(403);
+      expect(res.statusCode).toBe(404);
     });
   });
 
@@ -200,7 +201,7 @@ describe('garment edit, clone and archive', () => {
         { ...FORM, name: 'Hijacked' },
         carol.cookie,
       );
-      expect(res.statusCode).toBe(403);
+      expect(res.statusCode).toBe(404);
       expect((await load(garmentId)).name).toBe(FORM.name);
     });
 
@@ -349,7 +350,7 @@ describe('garment edit, clone and archive', () => {
         FORM,
         carol.cookie,
       );
-      expect(res.statusCode).toBe(403);
+      expect(res.statusCode).toBe(404);
       expect(await t.em().count(Garment)).toBe(before);
     });
   });
