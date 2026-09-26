@@ -5,7 +5,9 @@ import {
   eq,
   ilike,
   inArray,
+  isNull,
   lt,
+  notInArray,
   or,
   type SQL,
   sql,
@@ -18,8 +20,10 @@ import type { ImageRef } from '../files/image-url';
 import { compareSizes } from './garment';
 import {
   type Formality,
+  GarmentCategory,
   type Material,
   propertyApplies,
+  typesOf,
   type Warmth,
 } from '../../wardrobe/properties';
 import type {
@@ -445,4 +449,73 @@ function bulkSet(change: BulkChange) {
     case 'waterResistant':
       return { waterResistant: change.value };
   }
+}
+
+// The built-in categories with types, and those whose role has no warmth
+// (bags): what "needs tags" asks of each (a custom category has warmth and
+// formality but no types).
+const BUILT_IN = Object.values(GarmentCategory);
+const TYPED_CATEGORIES = BUILT_IN.filter((c) => typesOf(c).length > 0);
+const NO_WARMTH = BUILT_IN.filter((c) => !propertyApplies('warmth', c));
+
+/**
+ * A garment still missing what the outfit generator and the weather will
+ * read: its type (where its category has types), warmth (where its role
+ * has one) or formality. Archived garments are left out.
+ */
+function needsTags(ownerId: number): SQL | undefined {
+  return and(
+    eq(garment.ownerId, ownerId),
+    eq(garment.archived, false),
+    or(
+      isNull(garment.formality),
+      and(isNull(garment.warmth), notInArray(garment.category, NO_WARMTH)),
+      and(isNull(garment.type), inArray(garment.category, TYPED_CATEGORIES)),
+    ),
+  );
+}
+
+/** How many of `ownerId`'s garments still need tags (the wardrobe's prompt, the "left" count). */
+export function countToTag(db: Db, ownerId: number): Promise<number> {
+  return db.$count(garment, needsTags(ownerId));
+}
+
+/**
+ * The next garment to tag, newest first, below `before` when given: the
+ * tagging mode's cursor, so a skipped garment does not come back until the
+ * next pass.
+ */
+export async function nextToTag(
+  db: Db,
+  ownerId: number,
+  before?: number,
+): Promise<GarmentDetail | undefined> {
+  const [row] = await db
+    .select(detailColumns)
+    .from(garment)
+    .leftJoin(file, eq(file.id, garment.photoId))
+    .where(
+      and(
+        needsTags(ownerId),
+        before === undefined ? undefined : lt(garment.id, before),
+      ),
+    )
+    .orderBy(desc(garment.id))
+    .limit(1);
+  return row;
+}
+
+/** Writes the given properties; false when the garment is not in `ownerId`'s wardrobe. */
+export async function updateGarmentProperties(
+  db: Db,
+  id: number,
+  ownerId: number,
+  fields: Partial<GarmentPropertyFields>,
+): Promise<boolean> {
+  const updated = await db
+    .update(garment)
+    .set(fields)
+    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
+    .returning({ id: garment.id });
+  return updated.length > 0;
 }

@@ -57,6 +57,8 @@ export interface WardrobeModel {
   /** The shared wardrobe shown; undefined for the requester's own. */
   viewOwner: number | undefined;
   canEdit: boolean;
+  /** Garments still needing their type, warmth or formality (0 for a viewer). */
+  toTag: number;
   /** Select mode (?select=1): tiles are checkboxes of the bulk form. */
   selecting: boolean;
   /** After POST /wardrobe/bulk: its toast. */
@@ -112,6 +114,9 @@ export function WardrobeMain({ model }: { model: WardrobeModel }) {
   return (
     <main id="wardrobe-main" class="p-4 pt-20 pb-40">
       <Heading model={model} />
+      {model.toTag > 0 && !selecting && (
+        <TagPrompt count={model.toTag} viewOwner={viewOwner} />
+      )}
       {model.sharedWardrobes.length > 0 && !selecting && (
         <WardrobeSwitcher model={model} />
       )}
@@ -175,6 +180,21 @@ function NoTiles({ model }: { model: WardrobeModel }) {
         </a>
       )}
     </EmptyState>
+  );
+}
+
+/** "12 garments need details: Tag them", into tagging mode. */
+function TagPrompt(props: { count: number; viewOwner: number | undefined }) {
+  return (
+    <div role="status" class="alert alert-info alert-soft mb-4 mx-2 py-2">
+      <span class="text-sm">{t('TAG_PROMPT', { count: props.count })}</span>
+      <a
+        href={wardrobeUrl(props.viewOwner, {}, '/wardrobe/tag')}
+        class="btn btn-sm btn-info"
+      >
+        {t('TAG_PROMPT_ACTION')}
+      </a>
+    </div>
   );
 }
 

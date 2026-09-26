@@ -145,10 +145,13 @@ describe('wardrobe grid', () => {
 
   it('reads the page as plain rows: one statement for the tiles, whatever the wardrobe holds', async () => {
     const record = await recordQueries(() => get('/wardrobe'));
-    // Session, then page, count, filter values and shared wardrobes in
-    // parallel. None of them returns more rows than a page and its lists.
-    expect(record.statements).toBe(5);
-    expect(record.rows).toBeLessThanOrEqual(1 + (GRID_PAGE_SIZE + 1) + 1 + 1);
+    // Session, then page, count, filter values, shared wardrobes and the
+    // "need details" count (tagging mode's prompt) in parallel. None of
+    // them returns more rows than a page and its lists.
+    expect(record.statements).toBe(6);
+    expect(record.rows).toBeLessThanOrEqual(
+      1 + (GRID_PAGE_SIZE + 1) + 1 + 1 + 1,
+    );
   });
 
   it('a malformed cursor is a 400', async () => {

@@ -397,5 +397,11 @@
   "APPLY": "Apply",
   "BULK_RESULT": "Set on {updated} garments",
   "BULK_RESULT_SKIPPED": "Set on {updated} garments · {skipped} skipped (does not apply)",
-  "NO_GARMENTS_MATCH": "No garments match these filters."
+  "NO_GARMENTS_MATCH": "No garments match these filters.",
+  "TAG_GARMENTS": "Tag garments",
+  "TAG_ALL_DONE": "Every garment has its details. Nice.",
+  "TAG_LEFT": "{count} left to tag",
+  "TAG_NEXT": "Next",
+  "TAG_PROMPT": "{count} garments need details",
+  "TAG_PROMPT_ACTION": "Tag them"
 }

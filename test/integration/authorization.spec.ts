@@ -143,6 +143,24 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // Not `shows`: the card is the wardrobe's newest untagged garment, and
+    // other cases add garments to the owner's wardrobe, so which one it is
+    // depends on order. Refusals must still leak no name. Without ?ownerId
+    // a grantee tags their own wardrobe.
+    name: 'GET /wardrobe/tag',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/wardrobe/tag${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: ['hidden', 'ok'],
+      viewer: ['hidden', 'forbidden'],
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
     // Only ?ownerId: without it a grantee addresses their own wardrobe,
     // where the owner's ids are ignored like unknown ones (a 303 that
     // changes nothing; garment-bulk.spec.ts covers it).
@@ -248,6 +266,24 @@ const ROUTES: Route[] = [
       method: 'POST',
       url: `/wardrobe/${f.garmentId}${q}`,
       payload: { name: 'Edited', category: 'pants' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/:id/tag',
+    kind: 'write',
+    ok: 200,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.garmentId}/tag${q}`,
+      payload: { warmth: '3' },
     }),
     expect: {
       owner: 'ok',

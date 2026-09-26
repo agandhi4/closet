@@ -36,15 +36,19 @@ import { GarmentPage, GarmentPhotoView } from './garment-page';
 import { PropertiesFragment } from './property-fields';
 import {
   bulkSetProperty,
+  countToTag,
   filterOptions,
   findGarment,
   type GarmentDetail,
   gridCount,
   type GridFilters,
   gridPage,
+  nextToTag,
   toggleArchived,
   updateGarmentFields,
+  updateGarmentProperties,
 } from './queries';
+import { TagCard, type TagCardModel, TagPage } from './tag-page';
 import { garmentUrl, wardrobeUrl } from './urls';
 import {
   BLANK_PROPERTIES,
@@ -61,7 +65,10 @@ import {
   propertyFormValues,
   readBulkChange,
   readGarmentForm,
+  readTags,
   storedPropertyValues,
+  TagBody,
+  TagQuery,
   TilesQuery,
   withPresets,
 } from './validation';
@@ -201,6 +208,19 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     cutouts: options.cutouts,
   };
 
+  /** The tagging card for the garment after `before` (the first without). */
+  async function tagCardModel(
+    ownerId: number,
+    viewOwner: number | undefined,
+    before: number | undefined,
+  ): Promise<TagCardModel> {
+    const [garment, left] = await Promise.all([
+      nextToTag(db, ownerId, before),
+      countToTag(db, ownerId),
+    ]);
+    return { garment, left, viewOwner };
+  }
+
   /** The form again, with the posted values and what is wrong with them. */
   async function refuseForm(
     reply: FastifyReply,
@@ -267,12 +287,15 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const search = gridSearch(request.query);
       const filters = gridFilters(search);
-      const [page, count, filterValues, sharedWardrobes] = await Promise.all([
-        gridPage(db, access.ownerId, filters),
-        gridCount(db, access.ownerId, filters),
-        filterOptions(db, access.ownerId),
-        sharedWardrobesOf(db, userId),
-      ]);
+      const [page, count, filterValues, sharedWardrobes, toTag] =
+        await Promise.all([
+          gridPage(db, access.ownerId, filters),
+          gridCount(db, access.ownerId, filters),
+          filterOptions(db, access.ownerId),
+          sharedWardrobesOf(db, userId),
+          // The "need details" prompt is only for someone who can tag.
+          access.canManage ? countToTag(db, access.ownerId) : 0,
+        ]);
       const model = {
         search,
         page,
@@ -281,6 +304,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         sharedWardrobes,
         viewOwner,
         canEdit: access.canManage,
+        toTag,
         // Only someone who may write can select for a bulk edit.
         selecting: access.canManage && request.query.select === '1',
         bulkResult:
@@ -436,6 +460,69 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           bulkSkipped: result.skipped,
         }),
         303,
+      );
+    },
+  );
+
+  // Tagging mode (src/web/wardrobe/tag-page.tsx): the next garment still
+  // needing its type, warmth or formality, after `?before=` (Next). A
+  // fragment request (Next's swap) gets the card alone.
+  app.get(
+    '/wardrobe/tag',
+    { schema: { querystring: TagQuery } },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        options,
+        request,
+        request.query.ownerId,
+        'manage',
+      );
+      const model = await tagCardModel(
+        access.ownerId,
+        viewOwner,
+        request.query.before,
+      );
+      if (wantsFragment(request, reply)) {
+        return renderFragment(reply, <TagCard model={model} />);
+      }
+      return renderPage(
+        reply,
+        <TagPage ctx={viewContext(reply)} model={model} />,
+      );
+    },
+  );
+
+  // A tap on the tagging card: the card's chips, saved, then the same card
+  // (the type's presets filled where nothing was set; readTags).
+  app.post(
+    '/wardrobe/:id/tag',
+    {
+      schema: { params: GarmentParams, querystring: OwnerQuery, body: TagBody },
+    },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        options,
+        request,
+        request.query.ownerId,
+        'manage',
+      );
+      const { id } = request.params;
+      const garment = await requireGarment(options, id, access.ownerId);
+      const fields = readTags(request.body, garment);
+      if (!fields) throw new HttpError(400, 'Not a type of this category');
+      if (!(await updateGarmentProperties(db, id, access.ownerId, fields))) {
+        throw notFound();
+      }
+      logger.info(
+        `Garment ${id} tagged by user ${sessionUserId(request)}: ${Object.keys(request.body).join(', ')}`,
+      );
+      const [saved, left] = await Promise.all([
+        requireGarment(options, id, access.ownerId),
+        countToTag(db, access.ownerId),
+      ]);
+      return renderFragment(
+        reply,
+        <TagCard model={{ garment: saved, left, viewOwner }} />,
       );
     },
   );

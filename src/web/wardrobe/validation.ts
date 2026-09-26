@@ -681,3 +681,83 @@ function bulkChangeOf(body: BulkBody): BulkChange | undefined {
       };
   }
 }
+
+/** GET /wardrobe/tag: the wardrobe, and where Next left off. */
+export const TagQuery = Type.Object({
+  ...OwnerQuery.properties,
+  before: Type.Optional(RowId),
+});
+
+/**
+ * POST /wardrobe/:id/tag: the tagging card's chips, posted whole on every
+ * tap. A field the card never showed or the user never tapped is absent and
+ * leaves the stored value; a type outside the garment's category is a 400
+ * (the card only offers its own).
+ */
+export const TagBody = Type.Object({
+  type: Type.Optional(Type.String({ maxLength: 40 })),
+  warmth: choice(WARMTHS),
+  formality: choice(FORMALITIES),
+});
+export type TagBody = Static<typeof TagBody>;
+
+/** What the tagging card reads and writes of a garment. */
+type Taggable = Pick<
+  GarmentPropertyFields,
+  | 'type'
+  | 'warmth'
+  | 'formality'
+  | 'sleeve'
+  | 'length'
+  | 'waterResistant'
+  | 'fabricWeight'
+> & { category: string };
+
+/**
+ * The properties to store after a tap on the tagging card, or undefined for
+ * a type the category does not have. The tapped values replace the stored
+ * ones; a type brings its presets into properties still unset or still at
+ * the stored type's presets (applyPresets from the stored type): the first
+ * tag never overwrites what the garment form set, the heavy tee's warmth
+ * included, and changing one's mind about the type moves what the first
+ * type filled. Properties outside the garment's role stay as stored (null).
+ */
+export function readTags(
+  body: TagBody,
+  stored: Taggable,
+): Partial<GarmentPropertyFields> | undefined {
+  const { category } = stored;
+  const type = body.type ? findType(category, body.type)?.value : stored.type;
+  if (type === undefined) return undefined;
+  // A value for a property the role lacks (never on the card) is ignored;
+  // presets only fill properties the role has (the type table's rule).
+  const tapped = (property: 'warmth' | 'formality', posted?: string) =>
+    posted !== undefined && propertyApplies(property, category)
+      ? posted
+      : undefined;
+  const warmth = tapped('warmth', body.warmth);
+  const formality = tapped('formality', body.formality);
+  return {
+    type,
+    ...applyPresets(
+      {
+        warmth: warmth === undefined ? stored.warmth : pick(WARMTHS, warmth),
+        formality:
+          formality === undefined
+            ? stored.formality
+            : pick(FORMALITIES, formality),
+        sleeve: stored.sleeve,
+        length: stored.length,
+        waterResistant: stored.waterResistant,
+      },
+      // From the stored type: a tap on another type moves the values
+      // still at the first type's presets (the card saves every tap, so
+      // they are stored); the first tag has no source and fills only what
+      // is unset. The same rule as the form's hidden presetType.
+      stored.type === null
+        ? null
+        : { category, type: stored.type, fabricWeight: stored.fabricWeight },
+      { category, type, fabricWeight: stored.fabricWeight },
+    ),
+  };
+}
