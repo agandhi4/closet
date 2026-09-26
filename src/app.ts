@@ -127,7 +127,9 @@ export async function createApp(): Promise<NestFastifyApplication> {
   // web plugin below, and a Fastify plugin only inherits the content-type
   // parsers its parent had when it was registered: without this a form post
   // to a web-layer route is a 415. The adapter records the registration, so
-  // app.init() does not add them twice.
+  // app.init() does not add them twice — which also means app.init()'s own
+  // call, the one that would pass a global prefix and the rawBody option, is
+  // skipped. Neither is used today; adding either requires passing them here.
   adapter.registerParserMiddleware();
 
   // Ported features (src/web/), beside Nest's routes on the same instance.
