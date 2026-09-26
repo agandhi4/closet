@@ -39,7 +39,10 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['src/**/*.spec.{ts,tsx}'],
-          exclude: ['src/wardrobe/calendar-dates.spec.ts'],
+          exclude: [
+            'src/wardrobe/calendar-dates.spec.ts',
+            'src/web/calendar/**/*.spec.{ts,tsx}',
+          ],
         },
       },
       {
@@ -52,7 +55,10 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit-new-york',
-          include: ['src/wardrobe/calendar-dates.spec.ts'],
+          include: [
+            'src/wardrobe/calendar-dates.spec.ts',
+            'src/web/calendar/**/*.spec.{ts,tsx}',
+          ],
           env: { TZ: 'America/New_York' },
           pool: 'forks',
         },
