@@ -1,6 +1,7 @@
 import type { Readable, Writable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import type { Db } from '../db/client';
+import type { Logger } from '../logger';
 import { passwordProblems, setPassword } from '../web/auth/passwords';
 import { findUserByEmail, normalizeEmail } from '../web/auth/queries';
 import { t } from '../web/i18n';
@@ -97,7 +98,7 @@ export interface SetPasswordCommand {
   input: TerminalInput;
   output: Writable;
   errors: Writable;
-  logger: { log(message: string): void };
+  logger: Logger;
 }
 
 /** The whole command; resolves to the process exit status. */
@@ -119,7 +120,7 @@ export async function runSetPassword(
       }
     }
     const userId = await setPasswordByEmail(db, email, password);
-    logger.log(`Password set for user ${userId} via CLI`);
+    logger.info(`Password set for user ${userId} via CLI`);
     output.write(
       `Password set for user ${userId}; every existing session of that account is signed out.\n`,
     );

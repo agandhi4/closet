@@ -1,5 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-import { isFragmentRequest } from '../htmx/fragment-request';
+import { isFragmentRequest } from '../../htmx/fragment-request';
 
 export const LOGIN_PATH = '/auth/login';
 
@@ -15,10 +15,9 @@ export const LOGIN_PATH = '/auth/login';
 export type SessionAccess = 'allow' | 'redirect-to-login' | 'login-required';
 
 /**
- * The one session decision, shared by both gates so they cannot drift:
- * SessionGuard (Nest routes, @Public()) and requireSession in src/web/auth/require-session.ts
- * (plain-Fastify routes, `config: { public: true }`). It only reads
- * `req.auth`, which the preHandler in app.ts resolved.
+ * The session decision requireSession (require-session.ts) takes for every
+ * route, `config: { public: true }` or not. It only reads `req.auth`, which
+ * the root preValidation hook in app.ts resolved.
  */
 export function decideSessionAccess(
   request: Pick<FastifyRequest, 'auth' | 'headers'>,

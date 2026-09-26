@@ -5,13 +5,13 @@ import {
 } from 'drizzle-orm/node-postgres';
 import type { PgDatabase } from 'drizzle-orm/pg-core';
 import { type ClientConfig, Pool } from 'pg';
+import type { Config } from '../config';
+import type { Logger } from '../logger';
 import * as schema from './schema';
 
 /**
- * Where the database is, independent of how the host framework reads its
- * configuration: DbModule builds it from ConfigService (the DATABASE_* vars
- * declared in app.module.ts); a plain Fastify entry point builds the same
- * object and calls createDb() and runMigrations() the same way.
+ * Where the database is: the DATABASE_* variables (src/config.ts), as
+ * dbConfig() reads them for the server and the CLIs alike.
  */
 export interface DbConfig {
   host: string;
@@ -20,12 +20,6 @@ export interface DbConfig {
   user: string;
   password: string;
   ssl: boolean;
-}
-
-/** The two things the data layer reports; Nest's Logger and pino both fit. */
-export interface DbLogger {
-  info(message: string): void;
-  error(message: string, error: unknown): void;
 }
 
 export type Db = NodePgDatabase<typeof schema> & { $client: Pool };
@@ -37,6 +31,17 @@ export type Db = NodePgDatabase<typeof schema> & { $client: Pool };
  * transaction (the outfit form saves and schedules in one).
  */
 export type Queryable = PgDatabase<NodePgQueryResultHKT, typeof schema>;
+
+export function dbConfig(config: Config): DbConfig {
+  return {
+    host: config.DATABASE_HOST,
+    port: config.DATABASE_PORT,
+    database: config.DATABASE_SCHEMA,
+    user: config.DATABASE_USER,
+    password: config.DATABASE_PASS,
+    ssl: config.DATABASE_SSL,
+  };
+}
 
 export function connectionOptions(config: DbConfig): ClientConfig {
   return {
@@ -63,7 +68,7 @@ const POOL_IDLE_TIMEOUT_MS = 30_000;
  * One pg Pool and the Drizzle instance over it. The caller owns the pool's
  * lifetime: `db.$client.end()` on shutdown.
  */
-export function createDb(config: DbConfig, logger: DbLogger): Db {
+export function createDb(config: DbConfig, logger: Logger): Db {
   const pool = new Pool({
     ...connectionOptions(config),
     max: POOL_MAX,
@@ -74,7 +79,7 @@ export function createDb(config: DbConfig, logger: DbLogger): Db {
   // reported here, and an 'error' event without a listener kills the
   // process. The pool discards the connection and opens a new one on demand.
   pool.on('error', (error) => {
-    logger.error('Idle database connection failed', error);
+    logger.error({ err: error }, 'Idle database connection failed');
   });
   logger.info(
     `Drizzle pool for ${config.database} on ${config.host}:${config.port} (max ${POOL_MAX}, min ${POOL_MIN})`,

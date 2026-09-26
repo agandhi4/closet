@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { Logger as PinoLogger } from 'nestjs-pino';
 import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
 describe('sessions', () => {
@@ -35,10 +34,10 @@ describe('sessions', () => {
     expect(token?.secure).toBeUndefined();
   });
 
-  // SessionGuard, the one global gate. Its three outcomes: public routes
+  // requireSession, the one session gate. Its three outcomes: public routes
   // answer anyone, a page navigation without a session is redirected, and an
   // htmx fragment or fetch gets a 401 whose HX-Redirect htmx follows.
-  describe('login required (SessionGuard)', () => {
+  describe('login required (requireSession)', () => {
     it.each([
       ['/auth/login', 200],
       ['/auth/register', 200],
@@ -112,26 +111,16 @@ describe('sessions', () => {
   });
 
   it('a logged-out page hit redirects without warn or error log lines', async () => {
-    // Nest's Logger delegates to the nestjs-pino instance registered by
-    // app.useLogger (app.ts), so a spy there sees every warn the guards and
-    // ErrorViewFilter could emit for this request.
-    const logger = t.app.get(PinoLogger);
-    const warn = vi.spyOn(logger, 'warn');
-    const error = vi.spyOn(logger, 'error');
-    try {
-      const res = await t.inject({
-        method: 'GET',
-        url: '/wardrobe',
-        anonymous: true,
-      });
-      expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe('/auth/login');
-      expect(warn).not.toHaveBeenCalled();
-      expect(error).not.toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-      error.mockRestore();
-    }
+    t.logs.clear();
+    const res = await t.inject({
+      method: 'GET',
+      url: '/wardrobe',
+      anonymous: true,
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/auth/login');
+    expect(t.logs.messages('warn')).toEqual([]);
+    expect(t.logs.messages('error')).toEqual([]);
   });
 
   it('a session cookie opens the wardrobe and the profile', async () => {

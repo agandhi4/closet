@@ -1,5 +1,5 @@
 import { addDays, todayIn } from '../web/calendar/calendar-date';
-import type { WebLogger } from '../web/logger';
+import type { Logger } from '../logger';
 
 /**
  * A once-a-day job at a wall-clock hour in the household's zone
@@ -19,7 +19,7 @@ export interface NightlyOptions {
   hour: number;
   timeZone: string;
   run: () => Promise<unknown>;
-  logger: WebLogger;
+  logger: Logger;
   now?: () => Date;
 }
 
@@ -37,17 +37,14 @@ export function scheduleNightly({
   const scheduleNext = () => {
     if (stopped) return;
     const at = nextRunAt(now(), timeZone, hour);
-    logger.log(`${name} next runs at ${at.toISOString()}`);
+    logger.info(`${name} next runs at ${at.toISOString()}`);
     timer = setTimeout(() => {
       void (async () => {
         try {
           await run();
         } catch (error) {
           // Logged, never thrown: a failed night must not stop the next one.
-          logger.error(
-            `${name} failed`,
-            error instanceof Error ? error.stack : String(error),
-          );
+          logger.error({ err: error }, `${name} failed`);
         }
         scheduleNext();
       })();

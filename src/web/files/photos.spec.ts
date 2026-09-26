@@ -9,7 +9,7 @@ import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
-import type { WebLogger } from '../logger';
+import { captureLogs } from '../../../test/support/log-capture';
 import { MAX_INPUT_PIXELS, Photos } from './photos';
 import { bumpPhotoVersion, findPhotoByShareableId } from './queries';
 import { PhotoStorage } from './storage';
@@ -42,12 +42,7 @@ const collect = async (stream: Readable) => {
   return Buffer.concat(chunks);
 };
 
-const logger: WebLogger = {
-  debug: vi.fn(),
-  log: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-};
+const { logger } = captureLogs();
 
 // Photos over real disk storage in a temp directory, so the variant logic
 // (thumb derivation, fallbacks, atomic writes) runs end to end; `stores`

@@ -3,7 +3,7 @@ import { Type } from '@sinclair/typebox';
 import type { Db } from '../../db/client';
 import { sessionUserId } from '../auth/require-session';
 import { t } from '../i18n';
-import type { WebLogger } from '../logger';
+import type { Logger } from '../../logger';
 import { renderFragment } from '../render';
 import { HttpError } from '../errors';
 import { isPushServiceEndpoint } from './endpoint';
@@ -40,7 +40,7 @@ const TEST_TTL_SECONDS = 600;
 
 export interface PushRouteOptions {
   db: Db;
-  logger: WebLogger;
+  logger: Logger;
   appName: string;
   vapid: VapidConfig;
   sender: PushSender;
@@ -86,7 +86,7 @@ export const pushRoutes: FastifyPluginCallbackTypebox<PushRouteOptions> = (
         request.body,
         request.headers['user-agent']?.slice(0, USER_AGENT_LIMIT),
       );
-      logger.log(`User ${userId} confirmed push device ${deviceId}`);
+      logger.info(`User ${userId} confirmed push device ${deviceId}`);
       return reply.status(204).send();
     },
   );
@@ -100,7 +100,7 @@ export const pushRoutes: FastifyPluginCallbackTypebox<PushRouteOptions> = (
     async (request, reply) => {
       const userId = sessionUserId(request);
       if (await deleteDevice(db, userId, request.body.endpoint)) {
-        logger.log(`User ${userId} turned off push on a device`);
+        logger.info(`User ${userId} turned off push on a device`);
       }
       return reply.status(204).send();
     },

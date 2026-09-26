@@ -1,13 +1,12 @@
 import { count, eq } from 'drizzle-orm';
-import { Logger as PinoLogger } from 'nestjs-pino';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment, outfitCalendar, user } from '../../src/db/schema';
 import { createGarment } from './garments';
 import { APP_ORIGIN, createTestApp, TestApp } from './harness';
 
 /**
  * Cross-cutting request security: the same-origin (CSRF) check on every
- * state-changing route, Nest's and the web layer's; `returnTo` values;
+ * state-changing route; `returnTo` values;
  * what logout tells the browser; and invite tokens staying out of the logs.
  */
 describe('request security', () => {
@@ -33,7 +32,7 @@ describe('request security', () => {
   afterAll(() => t?.cleanup());
 
   describe('same-origin check (CSRF)', () => {
-    // POST /wardrobe is a Nest route, POST /calendar a web-layer one.
+    // Two writes of two features, the garments and the calendar.
     const createGarmentFrom = (headers: Record<string, string>) =>
       t.inject({
         method: 'POST',
@@ -60,8 +59,8 @@ describe('request security', () => {
       ['this host over another scheme', { origin: 'https://localhost' }],
     ])('refuses %s with 403, before any write', async (_label, headers) => {
       const garmentsBefore = await rows(garment);
-      const nest = await createGarmentFrom(headers);
-      expect(nest.statusCode).toBe(403);
+      const garments = await createGarmentFrom(headers);
+      expect(garments.statusCode).toBe(403);
       expect(await rows(garment)).toBe(garmentsBefore);
 
       const entriesBefore = await rows(outfitCalendar);
@@ -192,33 +191,23 @@ describe('request security', () => {
       created.body,
     )![1];
 
-    const logger = t.app.get(PinoLogger);
-    const lines: string[] = [];
-    const spies = (['log', 'warn', 'debug', 'error'] as const).map((level) =>
-      vi.spyOn(logger, level).mockImplementation((message: unknown) => {
-        lines.push(String(message));
-      }),
-    );
-    try {
-      const landing = await t.inject({
-        method: 'GET',
-        url: `/wardrobe-share/invite/${token}`,
-        anonymous: true,
-      });
-      expect(landing.statusCode).toBe(200);
-      const declined = await t.inject({
-        method: 'POST',
-        url: `/wardrobe-share/invite/${token}/decline`,
-      });
-      expect(declined.statusCode).toBe(302);
-    } finally {
-      for (const spy of spies) spy.mockRestore();
-    }
-    expect(lines).toEqual(
+    t.logs.clear();
+    const landing = await t.inject({
+      method: 'GET',
+      url: `/wardrobe-share/invite/${token}`,
+      anonymous: true,
+    });
+    expect(landing.statusCode).toBe(200);
+    const declined = await t.inject({
+      method: 'POST',
+      url: `/wardrobe-share/invite/${token}/decline`,
+    });
+    expect(declined.statusCode).toBe(302);
+    expect(t.logs.messages('info', 'Http')).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/^GET \/wardrobe-share\/invite\/:token 200 /),
       ]),
     );
-    expect(lines.join('\n')).not.toContain(token);
+    expect(t.logs.text()).not.toContain(token);
   });
 });

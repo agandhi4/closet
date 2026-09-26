@@ -1,5 +1,4 @@
 import { readdir } from 'node:fs/promises';
-import { Logger as PinoLogger } from 'nestjs-pino';
 import {
   afterAll,
   afterEach,
@@ -85,7 +84,7 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
       const garmentId = await createGarment(t, { name: filename });
       const filesBefore = await storedFiles();
       const rowsBefore = await photoRowCount(t);
-      const warn = vi.spyOn(t.app.get(PinoLogger), 'warn');
+      t.logs.clear();
 
       const res = await upload(
         garmentId,
@@ -95,9 +94,8 @@ describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
       );
       expect(res.statusCode).toBe(400);
       // The decoder, not the generic mimetype check, rejected it.
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining(warning),
-        expect.anything(),
+      expect(t.logs.messages('warn', 'Photos')).toEqual(
+        expect.arrayContaining([expect.stringContaining(warning)]),
       );
       await expectNothingStored(garmentId, filesBefore, rowsBefore);
 

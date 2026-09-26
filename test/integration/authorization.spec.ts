@@ -4,7 +4,7 @@ import { readdir } from 'node:fs/promises';
 import { count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { outfit, outfitCalendar, outfitSlot } from '../../src/db/schema';
-import { LOGIN_PATH } from '../../src/auth/session-access';
+import { LOGIN_PATH } from '../../src/web/auth/session-access';
 import {
   createGarment,
   garmentRow,

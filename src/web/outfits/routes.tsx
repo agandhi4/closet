@@ -244,7 +244,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const input = outfitInput(request.body);
       const result = await createOutfit(db, ownerId, input);
-      logger.log(
+      logger.info(
         `Outfit ${result.id} created by user ${ownerId}: ${describeSave(result, input.scheduleDate)}`,
       );
       return reply.redirect(afterSave(request.body, result.id), 302);
@@ -260,7 +260,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const input = outfitInput(request.body);
       const result = await updateOutfit(db, id, ownerId, input);
       if (result === 'not-found') throw outfitNotFound();
-      logger.log(
+      logger.info(
         `Outfit ${id} updated by user ${ownerId}: ${describeSave(result, input.scheduleDate)}`,
       );
       return reply.redirect(afterSave(request.body, id), 302);
@@ -275,7 +275,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const { id } = request.params;
       if (!(await deleteOutfit(db, id, ownerId))) throw outfitNotFound();
-      logger.log(`Outfit ${id} deleted by user ${ownerId}`);
+      logger.info(`Outfit ${id} deleted by user ${ownerId}`);
       return reply.header('HX-Redirect', '/outfits').status(200).send();
     },
   );

@@ -1,11 +1,14 @@
 import type { MultipartFile } from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { PassThrough, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import sharp, { type Sharp } from 'sharp';
+import type { Config } from '../../config';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
-import type { WebLogger } from '../logger';
+import type { Logger } from '../../logger';
+import { PROJECT_ROOT } from '../../project-root';
 import {
   type DecodedHeic,
   decodeHeic,
@@ -73,6 +76,16 @@ export interface PhotosConfig {
   watermarkEnabled: boolean;
 }
 
+/** Where photos live and how share previews are made, from config. */
+export function photosConfig(config: Config): PhotosConfig {
+  return {
+    dataPath: config.DATA_PATH,
+    maxHeicBytes: config.MAX_HEIC_BYTES,
+    watermarkIconPath: join(PROJECT_ROOT, 'public', 'assets', config.ICON_NAME),
+    watermarkEnabled: config.WATERMARK_ENABLED,
+  };
+}
+
 /**
  * Builds the one Photos instance of a process (its thumb single-flight map
  * must be shared by every caller) and prepares its directory: creates it
@@ -82,11 +95,11 @@ export interface PhotosConfig {
 export function createPhotos(
   config: PhotosConfig,
   db: Db,
-  logger: WebLogger,
+  logger: Logger,
 ): Photos {
   const storage = new PhotoStorage(config.dataPath, logger);
   storage.prepare();
-  logger.log(`Photos stored under ${config.dataPath}`);
+  logger.info(`Photos stored under ${config.dataPath}`);
   return new Photos(storage, db, logger, config);
 }
 
@@ -115,7 +128,7 @@ export class Photos {
   constructor(
     readonly storage: PhotoStorage,
     private readonly db: Db,
-    private readonly logger: WebLogger,
+    private readonly logger: Logger,
     private readonly config: Pick<
       PhotosConfig,
       'maxHeicBytes' | 'watermarkIconPath' | 'watermarkEnabled'
@@ -152,7 +165,7 @@ export class Photos {
         throw error;
       }
     }
-    this.logger.log(`Stored upload ${storedFileName} for user ${userId}`);
+    this.logger.info(`Stored upload ${storedFileName} for user ${userId}`);
     return newPhotoRow(storedFileName, userId);
   }
 
@@ -272,7 +285,7 @@ export class Photos {
       await this.deleteVariants(newFileName);
       throw error;
     }
-    this.logger.log(`Copied photo ${sourceFileName} to ${newFileName}`);
+    this.logger.info(`Copied photo ${sourceFileName} to ${newFileName}`);
     return newPhotoRow(newFileName, userId);
   }
 
@@ -298,7 +311,7 @@ export class Photos {
     const nobgName = variantFileName(originalFileName, 'nobg');
     await this.transcodeUpload(stream, this.imageTransformer(), nobgName);
     if (newUpload) {
-      this.logger.log(`Stored cutout ${nobgName}`);
+      this.logger.info(`Stored cutout ${nobgName}`);
       return undefined;
     }
     await this.regenerateThumb(originalFileName);
@@ -306,7 +319,7 @@ export class Photos {
     if (version === undefined) {
       this.logger.warn(`Cutout ${nobgName} stored for a photo without a row`);
     } else {
-      this.logger.log(`Replaced cutout ${nobgName}, now version ${version}`);
+      this.logger.info(`Replaced cutout ${nobgName}, now version ${version}`);
     }
     return version;
   }
@@ -361,7 +374,7 @@ export class Photos {
           this.logger.warn(`Failed to delete ${name}: ${String(error)}`),
         );
     }
-    this.logger.log(`Deleted variants of ${fileName}`);
+    this.logger.info(`Deleted variants of ${fileName}`);
   }
 
   /**

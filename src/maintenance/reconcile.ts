@@ -3,7 +3,7 @@ import type { Db } from '../db/client';
 import { file, garment } from '../db/schema';
 import { parseStoredName } from '../web/files/image-variant';
 import type { Photos } from '../web/files/photos';
-import type { WebLogger } from '../web/logger';
+import type { Logger } from '../logger';
 
 // Younger objects and rows are left alone: an upload writes its bytes before
 // its row exists, and a delete removes the row before the bytes, so anything
@@ -50,7 +50,7 @@ export interface ReconciliationReport {
 export interface ReconcileDeps {
   db: Db;
   photos: Photos;
-  logger: WebLogger;
+  logger: Logger;
 }
 
 interface StoredPhotoSet {
@@ -89,7 +89,7 @@ export async function reconcileStorage(
   const { logger } = deps;
   const startedAt = Date.now();
   const cutoff = new Date(startedAt - olderThanMs);
-  logger.log(
+  logger.info(
     `Storage reconciliation started${dryRun ? ' (dry run)' : ''}, cutoff ${cutoff.toISOString()}`,
   );
 
@@ -120,7 +120,7 @@ export async function reconcileStorage(
     ...(refused ? { refused } : {}),
     durationMs: Date.now() - startedAt,
   };
-  logger.log(summary(report));
+  logger.info(summary(report));
   return report;
 }
 
@@ -327,7 +327,7 @@ function reportMissingOriginals(
   rows: FileRow[],
   photoSets: Map<string, StoredPhotoSet>,
   cutoffIso: string,
-  logger: WebLogger,
+  logger: Logger,
 ): number {
   let missing = 0;
   for (const row of rows) {

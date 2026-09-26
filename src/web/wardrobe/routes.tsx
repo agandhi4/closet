@@ -315,7 +315,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const id = await createGarment(deps, access.ownerId, form.fields);
-      logger.log(
+      logger.info(
         `Garment ${id} created by user ${sessionUserId(request)} in wardrobe ${access.ownerId}`,
       );
       return reply.redirect(garmentUrl(id, viewOwner, '', { created: 1 }), 302);
@@ -413,7 +413,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (!(await updateGarmentFields(db, id, access.ownerId, form.fields))) {
         throw notFound();
       }
-      logger.log(`Garment ${id} updated by user ${sessionUserId(request)}`);
+      logger.info(`Garment ${id} updated by user ${sessionUserId(request)}`);
       return reply.redirect(garmentUrl(id, viewOwner), 302);
     },
   );
@@ -483,7 +483,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const id = await cloneGarment(deps, source, userId, form.fields);
-      logger.log(`Garment ${id} cloned from ${source.id} by user ${userId}`);
+      logger.info(`Garment ${id} cloned from ${source.id} by user ${userId}`);
       return reply.redirect(garmentUrl(id, undefined), 302);
     },
   );
@@ -539,7 +539,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         garment.photo.fileName,
         { newUpload: false },
       );
-      logger.log(`Garment ${id} cutout replaced, photo version ${version}`);
+      logger.info(`Garment ${id} cutout replaced, photo version ${version}`);
       return reply.send({ version });
     },
   );
@@ -558,7 +558,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const archived = await toggleArchived(db, id, access.ownerId);
       if (archived === undefined) throw notFound();
-      logger.log(
+      logger.info(
         `Garment ${id} ${archived ? 'archived' : 'unarchived'} by user ${access.ownerId}`,
       );
       return reply
@@ -581,7 +581,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const { id } = request.params;
       if (!(await removeGarment(deps, id, access.ownerId))) throw notFound();
-      logger.log(`Garment ${id} deleted by user ${access.ownerId}`);
+      logger.info(`Garment ${id} deleted by user ${access.ownerId}`);
       return reply.header('HX-Redirect', '/wardrobe').status(200).send();
     },
   );

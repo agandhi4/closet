@@ -1,7 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { LOGIN_PATH } from '../../auth/session-access';
+import { LOGIN_PATH } from './session-access';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
@@ -96,7 +96,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       setSessionCookie(reply, tokens.issue(account));
-      logger.log(`User ${account.id} signed in`);
+      logger.info(`User ${account.id} signed in`);
       return reply.redirect(PROFILE_PATH, 302);
     },
   );
@@ -104,7 +104,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // A GET for parity with the navbar's plain link. The service worker drops
   // its page cache on this navigation (views/assets/src-sw.ts).
   app.get('/auth/logout', { config: { public: true } }, async (req, reply) => {
-    if (req.auth) logger.log(`User ${req.auth.user.id} signed out`);
+    if (req.auth) logger.info(`User ${req.auth.user.id} signed out`);
     endSession(reply);
     return reply.redirect('/', 302);
   });
@@ -156,7 +156,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         return refuse({ email: [t('EMAIL_IN_USE')] });
       }
       setSessionCookie(reply, tokens.issue(account));
-      logger.log(`User ${account.id} registered`);
+      logger.info(`User ${account.id} registered`);
       return reply.redirect(PROFILE_PATH, 302);
     },
   );
@@ -241,7 +241,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         if (!isUniqueViolation(error)) throw error;
         return refuse({ email: [t('EMAIL_IN_USE')] });
       }
-      logger.log(`User ${id} changed their email`);
+      logger.info(`User ${id} changed their email`);
       return reply.redirect(PROFILE_PATH, 302);
     },
   );
@@ -271,7 +271,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
       const account = await findUserById(db, id);
       if (!(await verifyPassword(body.currentPassword, account?.password))) {
-        logger.log(
+        logger.info(
           `Password change refused for user ${id}: wrong current password`,
         );
         return refuse({ currentPassword: [t('WRONG_CURRENT_PASSWORD')] });
@@ -280,7 +280,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // included: replace this one so the user stays signed in here.
       const updated = await setPassword(db, id, body.newPassword);
       setSessionCookie(reply, tokens.issue(updated));
-      logger.log(`Password changed for user ${id}; other sessions revoked`);
+      logger.info(`Password changed for user ${id}; other sessions revoked`);
       return reply.redirect(`${PROFILE_PATH}?passwordChanged=1`, 302);
     },
   );
@@ -325,12 +325,12 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           await photos.deleteVariants(fileName);
         } catch (error) {
           logger.error(
+            { err: error },
             `Could not remove photo ${fileName} of deleted user ${id}`,
-            error instanceof Error ? error.stack : String(error),
           );
         }
       }
-      logger.log(`Deleted user ${id} and ${fileNames.length} of their photos`);
+      logger.info(`Deleted user ${id} and ${fileNames.length} of their photos`);
       endSession(reply);
       return reply.redirect('/', 302);
     },

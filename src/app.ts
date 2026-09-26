@@ -1,55 +1,34 @@
-import { NestFactory } from '@nestjs/core';
-import {
-  FastifyAdapter,
-  NestFastifyApplication,
-} from '@nestjs/platform-fastify';
 import fastifyCompress from '@fastify/compress';
 import fastifyCookie from '@fastify/cookie';
+import fastifyFormbody from '@fastify/formbody';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import { join } from 'path';
-import { AppModule } from './app.module';
-import { loadConfig, trustedProxies } from './config';
-import { Logger } from 'nestjs-pino';
-import { ViewContextService } from './view-context/view-context.service';
-import { isStaticPath } from './static-prefixes';
-import { PROJECT_ROOT } from './project-root';
+import Fastify, { type FastifyInstance, LogController } from 'fastify';
+import { join } from 'node:path';
 import { BUILD_INFO } from './build-info';
-import { ConfigService } from '@nestjs/config';
-import { Logger as NestLogger } from '@nestjs/common';
-import type { Db } from './db/client';
-import { DB } from './db/db.module';
-import { webPlugin } from './web/plugin';
-import {
-  createPhotos,
-  type Photos,
-  type PhotosConfig,
-} from './web/files/photos';
+import { type Config, trustedProxies } from './config';
+import { createDb, type Db, dbConfig } from './db/client';
+import { runMigrations } from './db/migrate';
+import type { Logger } from './logger';
+import { PROJECT_ROOT } from './project-root';
+import { isStaticPath } from './static-prefixes';
 import { createSessionResolver } from './web/auth/session';
 import { createSessionTokens } from './web/auth/tokens';
+import { createErrorHandler, HttpError } from './web/errors';
+import { createPhotos, type Photos, photosConfig } from './web/files/photos';
+import { loggableUrl } from './web/loggable-url';
+import { webPlugin } from './web/plugin';
 import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
+import { createViewContextBuilder } from './web/view-context';
 
 const PUBLIC_DIR = join(PROJECT_ROOT, 'public');
 const nodeModule = (...segments: string[]) =>
   join(PROJECT_ROOT, 'node_modules', ...segments);
 
-/** Where photos live and how share previews are made, from config. */
-export function photosConfig(config: ConfigService): PhotosConfig {
-  return {
-    dataPath: config.getOrThrow<string>('DATA_PATH'),
-    maxHeicBytes: config.getOrThrow<number>('MAX_HEIC_BYTES'),
-    watermarkIconPath: join(
-      PUBLIC_DIR,
-      'assets',
-      config.getOrThrow<string>('ICON_NAME'),
-    ),
-    watermarkEnabled: config.getOrThrow<boolean>('WATERMARK_ENABLED'),
-  };
-}
-
 export interface ClosetApp {
-  app: NestFastifyApplication;
+  app: FastifyInstance;
+  db: Db;
   /**
    * The process's one Photos (its thumb single-flight must be shared): the
    * web layer's, and the nightly reconciliation's in main.ts.
@@ -58,93 +37,102 @@ export interface ClosetApp {
 }
 
 /**
- * Builds the fully configured application without binding a port: adapter,
- * per-request session hook, security headers, plugins and static asset
- * roots. main.ts listens on it; the integration
- * harness (test/integration/harness.ts) calls app.init() and drives it with
- * app.inject().
+ * Builds the application without binding a port: migrations, the database
+ * pool, Photos, then the Fastify instance with its root hooks, plugins,
+ * static roots, error and not-found handlers, and the routes (webPlugin).
+ * main.ts listens on it; the integration harness
+ * (test/integration/harness.ts) drives it with inject(). Closing the app
+ * ends the pool.
+ *
+ * Registration order is behavior: a Fastify plugin inherits only the hooks,
+ * content-type parsers, decorators and error handler its parent had when it
+ * was registered, so everything below comes before webPlugin.
  */
-export async function createApp(): Promise<ClosetApp> {
+export async function createApp(
+  config: Config,
+  logger: Logger,
+): Promise<ClosetApp> {
+  const boot = logger.child({ context: 'Bootstrap' });
   // Reverse proxies whose X-Forwarded-* headers are believed, so the rate
   // limits, the same-origin check and canonical URLs see the real client and
   // the address it asked for. Behind Caddy this must include Caddy's
-  // address (CLAUDE.md, Deployment). Loaded here because the adapter must
-  // exist before ConfigService does.
-  const trustProxy = trustedProxies(loadConfig());
-  const adapter = new FastifyAdapter({ trustProxy });
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    adapter,
-    {
-      bufferLogs: true,
-    },
+  // address (CLAUDE.md, Deployment).
+  const trustProxy = trustedProxies(config);
+  boot.info(`NODE_ENV: ${config.NODE_ENV}`);
+  boot.info(`DATA_PATH: ${config.DATA_PATH}`);
+  boot.info(`Trusted proxies: ${trustProxy.join(', ')}`);
+  boot.info(
+    `Build ${BUILD_INFO.version} (${BUILD_INFO.commit ?? 'no commit'}), static cache key ${BUILD_INFO.assetVersion}`,
   );
-  app.useLogger(app.get(Logger));
-  // bufferLogs holds every Logger call until listen(); an app that is only
-  // init()ed (the integration harness) would otherwise buffer forever and
-  // emit nothing, so flush as soon as the real logger is in place.
-  app.flushLogs();
 
-  app.get(Logger).log(`Trusted proxies: ${trustProxy.join(', ')}`, 'Bootstrap');
-  app
-    .get(Logger)
-    .log(
-      `Build ${BUILD_INFO.version} (${BUILD_INFO.commit ?? 'no commit'}), static cache key ${BUILD_INFO.assetVersion}`,
-      'Bootstrap',
-    );
-
-  const config = app.get(ConfigService);
-  const db = app.get<Db>(DB);
-  const fastify = app.getHttpAdapter().getInstance();
+  // Before anything queries: the schema is current or the boot fails.
+  await runMigrations(
+    dbConfig(config),
+    logger.child({ context: 'Migrations' }),
+  );
+  const db = createDb(dbConfig(config), logger.child({ context: 'Db' }));
   const photos = createPhotos(
     photosConfig(config),
     db,
-    new NestLogger('Photos'),
+    logger.child({ context: 'Photos' }),
   );
 
-  // CSRF: every POST/PUT/PATCH/DELETE, Nest route or web route, must come
-  // from this site's own pages. A root hook added before app.init(), so it
-  // precedes every route; see src/web/security/same-origin.ts.
-  fastify.addHook(
+  const app = Fastify({
+    trustProxy,
+    loggerInstance: logger.child({ context: 'Fastify' }),
+    // One line per request comes from the onResponse hook below.
+    logController: new LogController({ disableRequestLogging: true }),
+  });
+  app.addHook('onClose', async () => {
+    await db.$client.end();
+  });
+
+  // CSRF: every POST/PUT/PATCH/DELETE must come from this site's own pages.
+  // onRequest, so it precedes every route and the body is never read; see
+  // src/web/security/same-origin.ts.
+  app.addHook(
     'onRequest',
     createSameOriginHook({
-      siteUrl: config.getOrThrow<string>('SITE_URL'),
-      logger: new NestLogger('Security'),
+      siteUrl: config.SITE_URL,
+      logger: logger.child({ context: 'Security' }),
     }),
   );
   // Per-route brute-force limits (login, registration, password changes);
-  // before the web plugin so its routes see the plugin's onRoute hook.
-  await registerRateLimit(fastify, new NestLogger('RateLimit'));
+  // before the routes so they see the plugin's onRoute hook.
+  await registerRateLimit(app, logger.child({ context: 'RateLimit' }));
 
   // One session resolution per request: the JWT is verified and the user
-  // loaded here and nowhere else (guards and views read req.auth). Static
-  // paths skip everything, so asset requests never touch the database.
-  // Express-like res.locals equivalent: https://github.com/fastify/fastify/issues/303
-  const tokens = createSessionTokens(
-    config.getOrThrow<string>('ACCESS_TOKEN_SECRET'),
-  );
+  // loaded here and nowhere else (the session gate and views read req.auth).
+  // Static paths skip everything, so asset requests never touch the database.
+  const tokens = createSessionTokens(config.ACCESS_TOKEN_SECRET);
   const resolveSession = createSessionResolver({
     db,
     tokens,
-    logger: new NestLogger('Session'),
+    logger: logger.child({ context: 'Session' }),
   });
-  const viewContextService = app.get(ViewContextService);
+  const buildViewContext = createViewContextBuilder({
+    appName: config.APP_NAME,
+    iconName: config.ICON_NAME,
+    siteUrl: config.SITE_URL,
+    registrationDisabled: config.DISABLE_REGISTRATION,
+    pwaEnabled: config.PWA_ENABLED,
+  });
   // Declared up front so every request object has the same shape; the hook
   // below fills them (both stay undefined on static paths).
-  fastify.decorateRequest('auth', undefined);
-  fastify.decorateReply('locals', undefined);
-  // preValidation, not preHandler: the web layer's schema validation
-  // (src/web/plugin.ts) runs between the two, and a request it refuses must
-  // already have its session and page context for the 400 page. Nest routes
-  // are unaffected (guards run inside Nest's handler).
-  fastify.addHook('preValidation', async (req, reply) => {
-    if (isStaticPath(req.url)) return;
-    req.auth = await resolveSession(req);
-    reply.locals = viewContextService.buildContext(req, req.auth);
+  app.decorateRequest('auth', undefined);
+  app.decorateReply('locals', undefined);
+  // preValidation, not preHandler: schema validation runs between the two,
+  // and a request it refuses must already have its session and page context
+  // for the 400 page. It runs for the not-found handler too, so a 404 page
+  // shows who is signed in.
+  app.addHook('preValidation', async (request, reply) => {
+    if (isStaticPath(request.url)) return;
+    request.auth = await resolveSession(request);
+    reply.locals = buildViewContext(request, request.auth);
   });
 
   // Security headers on all responses
-  fastify.addHook('onSend', async (_request, reply, payload) => {
+  app.addHook('onSend', async (_request, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -159,9 +147,22 @@ export async function createApp(): Promise<ClosetApp> {
     return payload;
   });
 
+  // One line per request, never its headers (the session cookie is a
+  // bearer credential). Static paths (every thumbnail, script and the 30 s
+  // heartbeat) stay out: logging them cost ~16% of image throughput. Routes
+  // with a secret in the path log their pattern (loggableUrl).
+  const http = logger.child({ context: 'Http' });
+  app.addHook('onResponse', async (request, reply) => {
+    if (isStaticPath(request.url)) return;
+    http.info(
+      `${request.method} ${loggableUrl(request)} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms`,
+    );
+  });
+
   await app.register(fastifyCookie);
-  // https://docs.nestjs.com/techniques/compression
   await app.register(fastifyCompress);
+  // Forms post urlencoded bodies; JSON is Fastify's own parser.
+  await app.register(fastifyFormbody);
   await app.register(fastifyMultipart, {
     limits: {
       fileSize: 100 * 1024 * 1024, // 100MB
@@ -169,44 +170,39 @@ export async function createApp(): Promise<ClosetApp> {
     },
   });
 
-  await registerStaticAssets(app);
+  await registerStaticAssets(app, config);
 
-  // Nest adds its JSON and urlencoded body parsers in app.init(), after the
-  // web plugin below, and a Fastify plugin only inherits the content-type
-  // parsers its parent had when it was registered: without this a form post
-  // to a web-layer route is a 415. The adapter records the registration, so
-  // app.init() does not add them twice — which also means app.init()'s own
-  // call, the one that would pass a global prefix and the rawBody option, is
-  // skipped. Neither is used today; adding either requires passing them here.
-  adapter.registerParserMiddleware();
+  const web = logger.child({ context: 'Web' });
+  app.setErrorHandler(createErrorHandler(web));
+  // A path no route matches is the 404 page (a static path, which has no
+  // page context, gets data from the error handler instead).
+  app.setNotFoundHandler((request) => {
+    throw new HttpError(404, `Cannot ${request.method} ${request.url}`);
+  });
 
-  // Ported features (src/web/), beside Nest's routes on the same instance.
-  // Last, so the root hooks and plugins above (same-origin check, rate
-  // limits, body parsers, session, security headers, cookies, compression)
-  // are in place for its routes.
-  await fastify.register(webPlugin, {
+  await app.register(webPlugin, {
     config: {
-      appName: config.getOrThrow<string>('APP_NAME'),
-      iconName: config.getOrThrow<string>('ICON_NAME'),
-      timeZone: config.getOrThrow<string>('APP_TIMEZONE'),
-      registrationDisabled: config.getOrThrow<boolean>('DISABLE_REGISTRATION'),
-      // The Joi schema requires both keys when PWA_ENABLED; the sender
-      // checks them (and SITE_URL as the https subject) at boot.
-      vapid: config.getOrThrow<boolean>('PWA_ENABLED')
+      appName: config.APP_NAME,
+      iconName: config.ICON_NAME,
+      timeZone: config.APP_TIMEZONE,
+      registrationDisabled: config.DISABLE_REGISTRATION,
+      // loadConfig requires both keys when PWA_ENABLED; the sender checks
+      // them (and SITE_URL as the https subject) at boot.
+      vapid: config.PWA_ENABLED
         ? {
-            subject: config.getOrThrow<string>('SITE_URL'),
-            publicKey: config.getOrThrow<string>('PUBLIC_VAPID_KEY'),
-            privateKey: config.getOrThrow<string>('PRIVATE_VAPID_KEY'),
+            subject: config.SITE_URL,
+            publicKey: config.PUBLIC_VAPID_KEY!,
+            privateKey: config.PRIVATE_VAPID_KEY!,
           }
         : undefined,
     },
-    logger: new NestLogger('Web'),
+    logger: web,
     db,
     tokens,
     photos,
   });
 
-  return { app, photos };
+  return { app, db, photos };
 }
 
 // Every static URL is versioned (`?v=` from BUILD_INFO.assetVersion in
@@ -222,14 +218,8 @@ const SERVICE_WORKER_CACHE_CONTROL = 'no-cache';
 
 // Keep in step with STATIC_PREFIXES in static-prefixes.ts: every root here
 // must be a path the session hook skips.
-//
-// Registers @fastify/static directly rather than through Nest's
-// useStaticAssets(): that helper registers the same plugin, but its options
-// type is a stale copy (platform-fastify 11.2.6 still types setHeaders' first
-// argument as a raw response with setHeader(), while @fastify/static 10 passes
-// the FastifyReply). The plugin's own types are the ones that match runtime.
-async function registerStaticAssets(app: NestFastifyApplication) {
-  const dev = app.get(ConfigService).get<string>('NODE_ENV') === 'development';
+async function registerStaticAssets(app: FastifyInstance, config: Config) {
+  const dev = config.NODE_ENV === 'development';
   const cacheControl = dev ? REVALIDATE : IMMUTABLE_YEAR;
   // Per-file policy: since @fastify/static 10, setHeaders receives the
   // FastifyReply and runs after send's headers, so its Cache-Control wins.

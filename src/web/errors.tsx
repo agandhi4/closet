@@ -1,4 +1,3 @@
-import { HttpException } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { STATUS_CODES } from 'node:http';
 import { t } from './i18n';
@@ -6,7 +5,7 @@ import { Dock } from './layout/dock';
 import { Layout } from './layout/layout';
 import { Navbar } from './layout/navbar';
 import { loggableUrl } from './loggable-url';
-import type { WebLogger } from './logger';
+import type { Logger } from '../logger';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
 
@@ -28,24 +27,15 @@ export class HttpError extends Error {
 const INTERNAL_ERROR = 'Internal server error';
 
 /**
- * Status and page message for anything a route throws, as ErrorViewFilter
- * decides them for Nest routes: an HttpError or a Fastify error (a failed
- * body parse, a schema validation) keeps its 4xx status and message;
- * everything else, and every 5xx, is a 500 without detail.
+ * Status and page message for anything a route throws: an HttpError or a
+ * Fastify error (a failed body parse, a schema validation, an oversized
+ * upload) keeps its 4xx status and message; everything else, and every 5xx,
+ * is a 500 without detail.
  */
 export function describeError(error: unknown): {
   status: number;
   message: string;
 } {
-  // Services not yet ported still throw Nest's exceptions (NotFoundException
-  // from a query, ForbiddenException from an access check); a ported handler
-  // calling one must answer as the Nest route did. Goes with Nest.
-  if (error instanceof HttpException) {
-    return {
-      status: error.getStatus(),
-      message: httpExceptionMessage(error),
-    };
-  }
   if (error instanceof Error) {
     const { statusCode } = error as Error & { statusCode?: unknown };
     if (
@@ -59,23 +49,13 @@ export function describeError(error: unknown): {
   return { status: 500, message: INTERNAL_ERROR };
 }
 
-// getResponse() is the string or body the exception was built with; a
-// ValidationPipe's BadRequestException carries one message per failure.
-function httpExceptionMessage(exception: HttpException): string {
-  const response = exception.getResponse();
-  if (typeof response === 'string') return response;
-  const { message } = response as { message?: unknown };
-  if (Array.isArray(message)) return message.join(',');
-  return typeof message === 'string' ? message : exception.message;
-}
-
 /**
- * The plugin-scoped error handler (src/web/plugin.ts): the error page, in
- * the layout, with the status of the failure. Twin of ErrorViewFilter for
- * Nest routes; the login redirect and 401 never reach it, requireSession
- * answers those itself.
+ * The app's error handler (set at the root by createApp(), so every route
+ * and the not-found handler share it): the error page, in the layout, with
+ * the status of the failure. The login redirect and 401 never reach it,
+ * requireSession answers those itself.
  */
-export function createErrorHandler(logger: WebLogger) {
+export function createErrorHandler(logger: Logger) {
   return async function handleError(
     error: unknown,
     request: FastifyRequest,
@@ -84,10 +64,7 @@ export function createErrorHandler(logger: WebLogger) {
     const { status, message } = describeError(error);
     const url = loggableUrl(request);
     if (status >= 500) {
-      logger.error(
-        `${request.method} ${url} -> ${status}`,
-        error instanceof Error ? error.stack : String(error),
-      );
+      logger.error({ err: error }, `${request.method} ${url} -> ${status}`);
     } else {
       logger.warn(`${request.method} ${url} -> ${status}: ${message}`);
     }

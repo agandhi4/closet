@@ -81,7 +81,7 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const id = sessionUserId(request);
       const permission = request.body.permission ?? 'VIEW';
       const invite = await createInvite(db, id, permission);
-      logger.log(`User ${id} created ${permission} invite ${invite.id}`);
+      logger.info(`User ${id} created ${permission} invite ${invite.id}`);
       if (wantsFragment(request, reply)) {
         return renderFragment(
           reply,
@@ -105,7 +105,7 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if ((await removeShare(db, shareId, userId)) === 'not-found') {
         throw new HttpError(404);
       }
-      logger.log(`User ${userId} removed share ${shareId}`);
+      logger.info(`User ${userId} removed share ${shareId}`);
       return reply.redirect(MANAGE_PATH, 302);
     },
   );
@@ -136,10 +136,10 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const id = sessionUserId(request);
       const result = await acceptInvite(db, request.params.token, id);
       if (!result.accepted) {
-        logger.log(`User ${id} could not accept an invite: ${result.reason}`);
+        logger.info(`User ${id} could not accept an invite: ${result.reason}`);
         return reply.redirect(`${MANAGE_PATH}?error=${result.reason}`, 302);
       }
-      logger.log(
+      logger.info(
         `User ${id} accepted share ${result.shareId} of user ${result.grantorId}'s wardrobe`,
       );
       return reply.redirect(MANAGE_PATH, 302);
@@ -154,7 +154,7 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const id = sessionUserId(request);
       const declined = await declineInvite(db, request.params.token, id);
-      logger.log(
+      logger.info(
         declined
           ? `User ${id} declined or withdrew an invite`
           : `User ${id} may not decline this invite; left in place`,

@@ -5,25 +5,28 @@ import {
   connectionOptions,
   createDb,
   type DbConfig,
-  type DbLogger,
 } from '../../src/db/client';
 import {
   LAST_LEGACY_MIGRATION,
   LegacyMigrationsIncompleteError,
   MIGRATION_LOCK_KEY,
   MIGRATIONS_FOLDER,
+  requireCurrentSchema,
   runMigrations,
+  SchemaBehindError,
 } from '../../src/db/migrate';
 import {
   applyLegacyMigrations,
   legacyMigrationNames,
 } from '../support/legacy-migrations';
+import { captureLogs } from '../support/log-capture';
 import { schemaDrift } from '../support/schema-drift';
 import {
   createScratchDatabase,
   type ScratchDatabase,
 } from '../support/scratch-database';
 import { createTestApp, TestApp } from './harness';
+import { silentLogger } from './logger';
 
 /**
  * src/db/migrate.ts on the three kinds of database it meets: one built by the
@@ -41,15 +44,6 @@ function configOf(env: Record<string, string>): DbConfig {
     user: env.DATABASE_USER,
     password: env.DATABASE_PASS,
     ssl: false,
-  };
-}
-
-function recordingLogger(): DbLogger & { messages: string[] } {
-  const messages: string[] = [];
-  return {
-    messages,
-    info: (message) => messages.push(message),
-    error: (message) => messages.push(message),
   };
 }
 
@@ -145,11 +139,17 @@ describe('a database built by the legacy MikroORM migrations', () => {
     expect(res.statusCode).toBe(204);
   });
 
+  it('is current for the CLIs once booted', async () => {
+    await expect(
+      requireCurrentSchema(configOf(databaseEnv)),
+    ).resolves.toBeUndefined();
+  });
+
   it('does nothing on the next boot', async () => {
-    const logger = recordingLogger();
+    const { logger, logs } = captureLogs();
     await runMigrations(configOf(databaseEnv), logger);
     expect(await drizzleRows(databaseEnv)).toEqual(allRecorded);
-    expect(logger.messages).toEqual([
+    expect(logs.messages('info')).toEqual([
       `Schema up to date (${migrations.length} Drizzle migrations recorded)`,
     ]);
   });
@@ -167,12 +167,21 @@ describe('a legacy database without the last MikroORM migration', () => {
   afterAll(() => database?.drop());
 
   it('refuses to migrate, naming the missing migration', async () => {
-    const run = runMigrations(configOf(database.env), recordingLogger());
+    const run = runMigrations(configOf(database.env), silentLogger);
     await expect(run).rejects.toBeInstanceOf(LegacyMigrationsIncompleteError);
     await expect(run).rejects.toThrow(LAST_LEGACY_MIGRATION);
     expect(
       await tableExists(database.env, 'drizzle.__drizzle_migrations'),
     ).toBe(false);
+  });
+
+  it('is behind by every Drizzle migration for the CLIs', async () => {
+    await expect(
+      requireCurrentSchema(configOf(database.env)),
+    ).rejects.toMatchObject({
+      name: 'SchemaBehindError',
+      pending: migrations.length,
+    });
   });
 });
 
@@ -186,17 +195,25 @@ describe('a fresh database', () => {
   afterAll(() => database?.drop());
 
   it('runs the baseline and every later migration', async () => {
-    const logger = recordingLogger();
+    const behind = requireCurrentSchema(configOf(database.env));
+    await expect(behind).rejects.toBeInstanceOf(SchemaBehindError);
+    await expect(behind).rejects.toThrow(
+      `The database is ${migrations.length} migration(s) behind this build.`,
+    );
+    const { logger, logs } = captureLogs();
     await runMigrations(configOf(database.env), logger);
     expect(await drizzleRows(database.env)).toEqual(allRecorded);
-    expect(logger.messages).toEqual([
+    expect(logs.messages('info')).toEqual([
       expect.stringMatching(
         new RegExp(
           `^Applied ${migrations.length} Drizzle migration\\(s\\) in \\d+ ms$`,
         ),
       ),
     ]);
-    const db = createDb(configOf(database.env), recordingLogger());
+    await expect(
+      requireCurrentSchema(configOf(database.env)),
+    ).resolves.toBeUndefined();
+    const db = createDb(configOf(database.env), silentLogger);
     try {
       expect(await schemaDrift(db)).toEqual([]);
     } finally {
@@ -217,19 +234,22 @@ describe('two runners on one fresh database', () => {
   // Without the lock both would read an empty history and run the baseline;
   // the second would fail on tables the first created.
   it('migrate one after the other', async () => {
-    const first = recordingLogger();
-    const second = recordingLogger();
+    const first = captureLogs();
+    const second = captureLogs();
     // Hold the lock so both runners are provably waiting on it, then let go.
     await withClient(database.env, async (holder) => {
       await holder.query('select pg_advisory_lock(hashtext($1))', [
         MIGRATION_LOCK_KEY,
       ]);
       const runs = Promise.all([
-        runMigrations(configOf(database.env), first),
-        runMigrations(configOf(database.env), second),
+        runMigrations(configOf(database.env), first.logger),
+        runMigrations(configOf(database.env), second.logger),
       ]);
       await expect
-        .poll(() => [...first.messages, ...second.messages])
+        .poll(() => [
+          ...first.logs.messages('info'),
+          ...second.logs.messages('info'),
+        ])
         .toEqual([
           'Another process is migrating this database; waiting for it',
           'Another process is migrating this database; waiting for it',
@@ -240,7 +260,10 @@ describe('two runners on one fresh database', () => {
       await runs;
     });
     expect(await drizzleRows(database.env)).toEqual(allRecorded);
-    const outcomes = [first.messages.at(-1), second.messages.at(-1)].sort();
+    const outcomes = [
+      first.logs.messages('info').at(-1),
+      second.logs.messages('info').at(-1),
+    ].sort();
     expect(outcomes).toEqual([
       expect.stringMatching(
         new RegExp(`^Applied ${migrations.length} Drizzle migration\\(s\\)`),

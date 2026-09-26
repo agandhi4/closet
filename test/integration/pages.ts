@@ -72,7 +72,7 @@ export async function createPageFixture(
 
 export interface PageRoute {
   url: string;
-  /** @Public(): renders for an anonymous visitor too, instead of a login redirect. */
+  /** `config: { public: true }`: renders for an anonymous visitor too, instead of a login redirect. */
   public: boolean;
 }
 
@@ -139,8 +139,8 @@ export function expectNativePostForms(res: LightMyRequestResponse): void {
 }
 
 /**
- * An htmx swap target: no layout around it. Status is the caller's to check:
- * Nest answers POST fragments with 201 (CLAUDE.md Gotchas).
+ * An htmx swap target: no layout around it. Status is the caller's to
+ * check.
  */
 export function expectFragment(res: LightMyRequestResponse): void {
   expect(res.headers['content-type']).toMatch(/^text\/html/);

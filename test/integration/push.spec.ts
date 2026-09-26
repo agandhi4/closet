@@ -1,5 +1,4 @@
 import { eq } from 'drizzle-orm';
-import { Logger as PinoLogger } from 'nestjs-pino';
 import { createECDH, randomBytes, randomUUID } from 'node:crypto';
 import {
   afterAll,
@@ -411,7 +410,7 @@ describe('web push (PWA_ENABLED=true)', () => {
       const { cookie, subs } = await userWithDevices(1);
       const [sub] = subs;
       const [row] = await devicesAt(sub.endpoint);
-      const warn = vi.spyOn(t.app.get(PinoLogger), 'warn');
+      t.logs.clear();
       vi.spyOn(webpush, 'sendNotification').mockRejectedValue(
         new webpush.WebPushError(
           'Received unexpected response code',
@@ -429,13 +428,14 @@ describe('web push (PWA_ENABLED=true)', () => {
         'The test could not be delivered to 1 of your devices.',
       );
       expect(await devicesAt(sub.endpoint)).toHaveLength(1);
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining(
-          `Push to device ${row.id} of user ${row.userId} failed: HTTP 500: upstream hiccup`,
-        ),
-        expect.anything(),
+      expect(t.logs.messages('warn')).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(
+            `Push to device ${row.id} of user ${row.userId} failed: HTTP 500: upstream hiccup`,
+          ),
+        ]),
       );
-      const logged = warn.mock.calls.flat().map(String).join('\n');
+      const logged = t.logs.text();
       expect(logged).not.toContain(sub.endpoint);
       expect(logged).not.toContain(new URL(sub.endpoint).pathname);
     });

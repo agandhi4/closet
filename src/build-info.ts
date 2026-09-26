@@ -47,6 +47,6 @@ export function loadBuildInfo(root = PROJECT_ROOT): BuildInfo {
   };
 }
 
-// Read once at boot; consumed by ViewContextService (template context) and
-// logged by createApp().
+// Read once at boot; consumed by the page context (src/web/view-context.ts)
+// and logged by createApp().
 export const BUILD_INFO: BuildInfo = loadBuildInfo();

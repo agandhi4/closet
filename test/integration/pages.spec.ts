@@ -15,7 +15,7 @@ import {
  * Every GET page renders for the signed-in default user: status 200, a whole
  * document with one htmx-config meta and no untranslated `lang.` key, the
  * full page again for boosted navigations, and bare fragments for the routes
- * htmx swaps into a page. Plus what an anonymous visitor gets: the @Public()
+ * htmx swaps into a page. Plus what an anonymous visitor gets: the public
  * pages, and a login redirect for everything else.
  */
 describe('pages', () => {

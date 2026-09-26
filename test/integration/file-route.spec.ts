@@ -25,8 +25,8 @@ describe('/file route and request logging', () => {
   let photoName: string;
 
   beforeAll(async () => {
-    // Logging on: the redaction assertions read the real app.log.
-    t = await createTestApp({ LOG_LEVEL: 'info' });
+    // The real outputs: the assertions below read app.log.
+    t = await createTestApp({ LOG_LEVEL: 'info' }, { appLog: true });
     const garmentId = await createGarment(t, { name: 'Wool coat' });
     await uploadPhoto(t, garmentId, await jpegPhoto());
     photoName = await photoFileName(t, garmentId);
@@ -126,9 +126,9 @@ describe('/file route and request logging', () => {
       cookie: 'access_token=cookie-secret-sentinel',
       authorization: 'Bearer auth-secret-sentinel',
     };
-    // A web-layer page logs its own line (method, path, status), never
-    // headers; a request Nest answers (an unknown path) goes through
-    // pino-http, which logs headers and must redact these.
+    // Every request line is method, path, status and time, never headers,
+    // pages and unknown paths alike (the logger's redaction is the net under
+    // that: src/logger.spec.ts).
     await t.inject({
       method: 'GET',
       url: '/wardrobe?page=web-marker',
@@ -146,7 +146,6 @@ describe('/file route and request logging', () => {
     expect(log).toContain('web-marker');
     expect(log).not.toContain('cookie-secret-sentinel');
     expect(log).not.toContain('auth-secret-sentinel');
-    expect(log).toContain('[redacted]');
     expect(log).not.toContain('heartbeat-marker');
     expect(log).not.toContain('thumb-marker');
   });

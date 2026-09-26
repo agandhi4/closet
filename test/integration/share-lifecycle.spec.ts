@@ -2,7 +2,7 @@ import { and, count, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type SharePermission, wardrobeShare } from '../../src/db/schema';
-import { LOGIN_PATH } from '../../src/auth/session-access';
+import { LOGIN_PATH } from '../../src/web/auth/session-access';
 import { createGarment, garmentRow, garmentsNamed } from './garments';
 import { createTestApp, TestApp, userIdOf } from './harness';
 

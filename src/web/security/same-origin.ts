@@ -5,7 +5,7 @@ import type {
 } from 'fastify';
 import type { IncomingHttpHeaders } from 'node:http';
 import { loggableUrl } from '../loggable-url';
-import type { WebLogger } from '../logger';
+import type { Logger } from '../../logger';
 import { originOf, requestOrigin } from './origin';
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -24,9 +24,9 @@ function claimedOrigin(headers: IncomingHttpHeaders): string | undefined {
 }
 
 /**
- * CSRF protection for every route, Nest's and the web layer's alike: a root
- * onRequest hook that createApp() adds before app.init(), so it runs ahead
- * of every route on the shared Fastify instance, before the body is read. A
+ * CSRF protection for every route: a root onRequest hook that createApp()
+ * adds before any route is registered, so it runs ahead of all of them,
+ * before the body is read. A
  * state-changing request must name, in Origin (or Referer when Origin is
  * absent), either the origin it was sent to (requestOrigin: the Host as
  * Fastify trusts it) or SITE_URL's origin (the canonical https name, which a
@@ -39,7 +39,7 @@ function claimedOrigin(headers: IncomingHttpHeaders): string | undefined {
  */
 export function createSameOriginHook(options: {
   siteUrl: string;
-  logger: WebLogger;
+  logger: Logger;
 }): onRequestAsyncHookHandler {
   const siteOrigin = originOf(options.siteUrl);
   const { logger } = options;
