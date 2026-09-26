@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import { PostForm } from '../auth/form';
 import type { SharePermission } from '../../db/schema';
 import { t, type StringKey } from '../i18n';
 import { Dock } from '../layout/dock';
@@ -87,15 +88,11 @@ function PostButton(props: {
   formClass?: string;
 }) {
   return (
-    <form
-      method="post"
-      action={props.action}
-      class={props.formClass ?? 'inline'}
-    >
+    <PostForm action={props.action} class={props.formClass ?? 'inline'}>
       <button type="submit" class={props.class}>
         {props.label}
       </button>
-    </form>
+    </PostForm>
   );
 }
 

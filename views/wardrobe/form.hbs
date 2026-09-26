@@ -22,12 +22,16 @@
       </svg>
     </a>
     <h1 class="text-2xl font-bold">
-      {{#if isClone}}{{t 'lang.CLONE_GARMENT'}}{{else if garment}}{{t 'lang.EDIT_GARMENT'}}{{else}}{{t 'lang.NEW_GARMENT'}}{{/if}}
+      {{#if isClone}}{{t 'lang.CLONE_GARMENT'}}{{else if garment}}{{t
+      'lang.EDIT_GARMENT'}}{{else}}{{t 'lang.NEW_GARMENT'}}{{/if}}
     </h1>
   </div>
 
+  {{!-- Native post (hx-boost="false"): htmx drops a boosted 4xx/5xx, so a
+  refused save would show nothing. test/integration/pages.ts guards it. --}}
   <form
     method="POST"
+    hx-boost="false"
     action="{{#if isClone}}/wardrobe/{{garment.id}}/clone{{#if viewOwner}}?ownerId={{viewOwner}}{{/if}}{{else if garment}}/wardrobe/{{garment.id}}{{#if viewOwner}}?ownerId={{viewOwner}}{{/if}}{{else}}/wardrobe{{#if viewOwner}}?ownerId={{viewOwner}}{{/if}}{{/if}}"
     class="flex flex-col gap-4"
   >
@@ -94,17 +98,23 @@
     </div>
 
     <div class="form-control">
-      <label class="label"><span class="label-text">{{t 'lang.WASHING_DETAILS'}}</span></label>
+      <label class="label"
+        ><span class="label-text">{{t 'lang.WASHING_DETAILS'}}</span></label
+      >
       <textarea
         name="washingDetails"
         class="textarea textarea-bordered"
         rows="3"
         placeholder="Wash at 30°C, do not tumble dry, do not iron…"
-      >{{#if garment}}{{garment.washingDetails}}{{/if}}</textarea>
+      >
+{{#if garment}}{{garment.washingDetails}}{{/if}}</textarea
+      >
     </div>
 
     <div class="form-control">
-      <label class="label"><span class="label-text">{{t 'lang.DATE_AQUIRED'}}</span></label>
+      <label class="label"
+        ><span class="label-text">{{t 'lang.DATE_AQUIRED'}}</span></label
+      >
       <input
         type="date"
         name="dateAquired"
@@ -114,7 +124,9 @@
     </div>
 
     <div class="form-control">
-      <label class="label"><span class="label-text">{{t 'lang.NOTES'}}</span></label>
+      <label class="label"
+        ><span class="label-text">{{t 'lang.NOTES'}}</span></label
+      >
       <textarea
         name="notes"
         class="textarea textarea-bordered"
