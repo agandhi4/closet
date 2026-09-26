@@ -73,7 +73,7 @@ export function PushSettings() {
         >
           {t('PUSH_SEND_TEST')}
         </button>
-        <div id="push-test-result" role="status" aria-live="polite"></div>
+        <div id="push-test-result" aria-live="polite"></div>
       </div>
     </section>
   );

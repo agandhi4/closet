@@ -36,7 +36,7 @@ function importMap(version: string) {
       pulltorefreshjs: `/modules/pulltorefresh/index.esm.js${v}`,
       toast: `/js/toast.js${v}`,
       'mask-editor': `/js/mask-editor.js${v}`,
-      'web-push': `/js/webPush.js${v}`,
+      push: `/js/push.js${v}`,
     },
   };
 }
@@ -64,7 +64,9 @@ export function Layout({
   // so the key is what rolls the cache on deploy.
   const v = `?v=${ctx.appVersion}`;
   return (
-    <html lang="en">
+    // data-signed-in: pwa.js starts Web Push (push.js) only on signed-in
+    // pages; the session cookie is httpOnly, so scripts cannot tell.
+    <html lang="en" data-signed-in={ctx.user ? '' : undefined}>
       <head>
         <meta charset="UTF-8" />
         {/* No viewport-fit=cover: iOS standalone handles the safe areas
@@ -118,7 +120,7 @@ export function Layout({
               type="module"
               src={`/modules/pwa-install.bundle.js${v}`}
             ></script>
-            {/* Service worker registration, update toast, web push, iOS
+            {/* Service worker registration, update toast, Web Push, iOS
                 pull to refresh. In the head so hx-boost body swaps never
                 re-run it. */}
             <script type="module" src={`/js/pwa.js${v}`}></script>

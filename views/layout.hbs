@@ -4,7 +4,9 @@ pages. Change both until the last Handlebars page is ported. --}}
 {{!-- locale value is for internationalization comes from the nest-i18n module
 and is provided globally in the ViewContextMiddleware
 https://nestjs-i18n.com/quick-start --}}
-<html lang="{{locale}}">
+{{! data-signed-in: pwa.js starts Web Push (push.js) only on signed-in pages;
+the session cookie is httpOnly, so scripts cannot tell. }}
+<html lang="{{locale}}" {{#if user}}data-signed-in{{/if}}>
   <head>
     <meta charset="UTF-8" />
     {{! No viewport-fit=cover: iOS standalone handles the safe areas itself,
@@ -75,7 +77,7 @@ https://nestjs-i18n.com/quick-start --}}
           "pulltorefreshjs": "/modules/pulltorefresh/index.esm.js?v={{appVersion}}",
           "toast": "/js/toast.js?v={{appVersion}}",
           "mask-editor": "/js/mask-editor.js?v={{appVersion}}",
-          "web-push": "/js/webPush.js?v={{appVersion}}"
+          "push": "/js/push.js?v={{appVersion}}"
         }
       }
     </script>
@@ -87,7 +89,7 @@ https://nestjs-i18n.com/quick-start --}}
       type="module"
       src="/modules/pwa-install.bundle.js?v={{appVersion}}"
     ></script>
-    {{! Service worker registration, update toast, web push, iOS pull to
+    {{! Service worker registration, update toast, Web Push, iOS pull to
     refresh. In the head so hx-boost body swaps never re-run it. }}
     <script type="module" src="/js/pwa.js?v={{appVersion}}"></script>
     {{/if}}

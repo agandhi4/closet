@@ -1,7 +1,8 @@
 /**
  * Installed-app plumbing, loaded from layout.hbs when PWA_ENABLED: service
- * worker registration and the update flow, web push subscription, and pull
- * to refresh for iOS standalone (which has none of its own). Lives in the
+ * worker registration and the update flow, Web Push on signed-in pages
+ * (push.js), and pull to refresh for iOS standalone (which has none of its
+ * own). Lives in the
  * head so hx-boost body swaps never re-run it; anything that touches the
  * body re-applies itself on htmx:afterSettle.
  *
@@ -55,18 +56,17 @@ function registerServiceWorker() {
     if (updateWaiting && !toast?.element.isConnected) showUpdateToast();
   });
 
-  wb.register().then(() => {
-    console.info('[pwa] service worker registered');
-    const authenticated = document.cookie
-      .split('; ')
-      .some((row) => row.startsWith('access_token='));
-    if (!authenticated) return;
-    import('web-push').then((module) =>
-      module.default
-        .subscribe()
-        .catch((err) => console.warn('[pwa] web push subscription failed', err)),
-    );
-  });
+  wb.register().then(() => console.info('[pwa] service worker registered'));
+}
+
+// The session cookie is httpOnly, so the layout says whether this page is
+// signed in (data-signed-in on <html>). push.js defines the profile page's
+// <push-settings> and re-sends an existing subscription; it never asks for
+// permission by itself.
+function startPush() {
+  import('push')
+    .then((push) => push.syncSubscription())
+    .catch((error) => console.warn('[pwa] push sync failed', error));
 }
 
 // https://stackoverflow.com/questions/75972895/ios-pwa-how-to-re-enable-pull-to-refresh
@@ -87,4 +87,7 @@ function installPullToRefresh() {
 }
 
 if ('serviceWorker' in navigator) registerServiceWorker();
+// Also without a service worker (an http: origin): the profile page then
+// says this browser cannot receive notifications.
+if (document.documentElement.hasAttribute('data-signed-in')) startPush();
 if (window.navigator.standalone === true) installPullToRefresh();
