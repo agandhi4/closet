@@ -10,7 +10,7 @@ import { safeReturnTo } from '../security/return-to';
 import { viewContext } from '../view-context';
 import { orderCategories } from '../wardrobe/garment';
 import { cycleRow, newOutfitRows, savedOutfitRows } from './builder';
-import { OutfitFormPage } from './form-page';
+import { OUTFIT_NAME_MAX, OUTFIT_NOTES_MAX, OutfitFormPage } from './form-page';
 import { OutfitsPage } from './list-page';
 import { OutfitRow } from './outfit-row';
 import {
@@ -69,8 +69,8 @@ const RowQuery = Type.Object({
 // fields: an update leaves name and notes as they are; no rows is an empty
 // outfit.
 const OutfitBody = Type.Object({
-  name: Type.Optional(Type.String({ maxLength: 255 })),
-  notes: Type.Optional(Type.String({ maxLength: 255 })),
+  name: Type.Optional(Type.String({ maxLength: OUTFIT_NAME_MAX })),
+  notes: Type.Optional(Type.String({ maxLength: OUTFIT_NOTES_MAX })),
   category: Type.Optional(Type.Array(Category, { maxItems: MAX_ROWS })),
   garmentId: Type.Optional(
     Type.Array(Type.Union([Type.Literal(''), RowId]), { maxItems: MAX_ROWS }),

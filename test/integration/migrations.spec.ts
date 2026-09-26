@@ -52,6 +52,8 @@ describe('migrations', () => {
         'wardrobe_share_grantor_id_index',
         'wardrobe_share_grantee_id_index',
         'wardrobe_share_invite_token_unique',
+        // Login and every email lookup compare lower(email).
+        'user_lower_email_unique',
       ]),
     );
   });
