@@ -43,7 +43,9 @@
       const swatch = option.querySelector('.ms-swatch');
       if (swatch) pill.append(el('span', swatch.className));
       pill.append(el('span', 'capitalize', box.value));
-      const remove = el('button', 'ms-pill-remove badge badge-sm badge-neutral', '×');
+      // Styled by .ms-pill-remove alone (views/assets/main.css): daisyUI's
+      // badge-neutral sets light text, invisible on that light background.
+      const remove = el('button', 'ms-pill-remove', '×');
       remove.type = 'button';
       remove.setAttribute('aria-label', box.value);
       remove.addEventListener('click', function (event) {
