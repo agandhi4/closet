@@ -14,11 +14,10 @@ import { createGarment, photoRowCount } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
 
 /**
- * HEIC parts go through heic-decode before sharp. There is no HEIC fixture
- * in the tree (libheif does not encode, and nothing in node_modules ships a
- * sample), so this covers the rejection paths against the real decoder; the
- * successful decode is unit-tested with heic-decode mocked
- * (src/web/files/photos.spec.ts).
+ * HEIC parts go through heic-decode before sharp. This file covers the
+ * rejection paths against the real decoder with a tiny byte cap; a real
+ * iPhone-style HEIC decoding end to end is heic-real.spec.ts (the cap is read
+ * once per app, so it needs its own file).
  */
 describe('HEIC uploads (POST /wardrobe/:id/photo)', () => {
   let t: TestApp;
