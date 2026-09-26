@@ -1,42 +1,34 @@
 import { expect, test } from '@playwright/test';
 import sharp from 'sharp';
-import { signIn } from './support/e2e-session';
+import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
- * CUTOUT_MODE=server in a browser, against test/support/cutout-stub-server.ts
- * (:3001, the model stubbed): the photo form uploads the photo alone and
- * never loads the in-browser model, the page shows the cutout pending, and
- * the polling fragment swaps the cutout in. Client mode is every other spec.
+ * A garment photo in a browser, against the test server (its model stubbed
+ * to answer in 3 s, test/support/test-server.ts): the form uploads the
+ * photo, the page shows the cutout pending, the polling fragment swaps the
+ * cutout in, and the pencil that arrives with it edits it
+ * (public/js/mask-editor.js), saving a new photo version.
  */
-const STUB_ORIGIN = 'http://localhost:3001';
-
-test.use({ baseURL: STUB_ORIGIN });
-
-test('an uploaded photo shows "Removing background" and then its cutout', async ({
+test('an uploaded photo shows "Removing background", then its cutout, which the pencil edits', async ({
   page,
 }) => {
-  await signIn(page, 'cutout-server', STUB_ORIGIN);
+  // The mask editor draws from blob: URLs; the CSP must still allow that.
+  const cspViolations: string[] = [];
+  page.on('console', (message) => {
+    if (/Content Security Policy/i.test(message.text())) {
+      cspViolations.push(message.text());
+    }
+  });
+
+  await signIn(page, 'cutout');
   const created = await page.request.post('/wardrobe', {
-    form: { name: 'Server cutout shirt', category: 'shirt' },
-    headers: { origin: STUB_ORIGIN },
+    form: { name: 'Cutout shirt', category: 'shirt' },
+    headers: SAME_ORIGIN,
   });
   expect(created.ok()).toBe(true);
   const garmentId = new URL(created.url()).pathname.split('/').pop();
 
-  const modelRequests: string[] = [];
-  page.on('request', (request) => {
-    const url = new URL(request.url());
-    if (
-      url.pathname.startsWith('/bg-removal-models/') ||
-      url.pathname.startsWith('/modules/background-removal/') ||
-      url.pathname.startsWith('/modules/onnxruntime-web/')
-    ) {
-      modelRequests.push(url.pathname);
-    }
-  });
-
   await page.goto(`/wardrobe/${garmentId}`);
-  await expect(page.locator('#bgRemovalToggle')).toHaveCount(0);
   await page.locator('#photoInput').setInputFiles({
     name: 'shirt.jpg',
     mimeType: 'image/jpeg',
@@ -63,12 +55,22 @@ test('an uploaded photo shows "Removing background" and then its cutout', async 
     { timeout: 15_000 },
   );
   await expect(page.locator('#garment-photo-status')).toHaveCount(0);
-  expect(modelRequests).toEqual([]);
 
   // The pencil swapped in with the cutout edits it: its URLs come from the
   // new button, and the save names the new version.
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/wardrobe/${garmentId}/nobg`) &&
+      response.request().method() === 'POST',
+  );
   await page.locator('#editMaskBtn').click();
   await expect(page.locator('#maskEditorDialog')).toBeVisible();
   await page.locator('#maskEditorAccept').click();
+  expect((await saved).status()).toBe(200);
   await expect(photo.locator('img')).toHaveAttribute('src', /\?v=3$/);
+  await expect(page.locator('#editMaskBtn')).toHaveAttribute(
+    'data-nobg-url',
+    /\?v=3$/,
+  );
+  expect(cspViolations).toEqual([]);
 });
