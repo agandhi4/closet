@@ -1,15 +1,21 @@
 import type { Child } from 'hono/jsx';
 import { t } from '../i18n';
 import type { ViewContext } from '../view-context';
+import { type Section, SECTION_HOME, sectionOf } from './sections';
 
 /**
- * Bottom navigation (daisyUI dock); a tab is active when the request URL is
- * exactly its href.
+ * Bottom navigation (daisyUI dock). A tab is active on every page of its
+ * section (sections.ts), so a garment, a filtered grid, a capsule or an
+ * outfit page keeps its tab lit. Rendered by the server into the body, so a
+ * boosted navigation, an htmx history restore and the service worker's
+ * cached tab roots all carry the dock of the page they show. Its z-index
+ * (above page content) is in main.css.
  */
 export function Dock({ ctx }: { ctx: ViewContext }) {
+  const active = sectionOf(ctx.path);
   return (
     <div class="dock">
-      <DockLink ctx={ctx} href="/wardrobe" label={t('WARDROBE')}>
+      <DockLink active={active} section="wardrobe" label={t('WARDROBE')}>
         {/* https://cdn.hugeicons.com/icons/hanger-stroke-rounded.svg */}
         <path
           d="M4.12572 15.3668L10.1284 11.9903C10.7234 11.6556 11.3252 11.5 12 11.5C12.6748 11.5 13.2766 11.6556 13.8716 11.9903L19.8743 15.3668C20.5697 15.7579 21 16.4937 21 17.2916C21 18.5113 20.0113 19.5 18.7916 19.5H5.20841C3.98874 19.5 3 18.5113 3 17.2916C3 16.4937 3.43034 15.7579 4.12572 15.3668Z"
@@ -23,14 +29,14 @@ export function Dock({ ctx }: { ctx: ViewContext }) {
           stroke-linecap="round"
         ></path>
       </DockLink>
-      <DockLink ctx={ctx} href="/outfits" label={t('OUTFITS')}>
+      <DockLink active={active} section="outfits" label={t('OUTFITS')}>
         <path
           stroke-linecap="round"
           stroke-linejoin="round"
           d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"
         />
       </DockLink>
-      <DockLink ctx={ctx} href="/calendar" label={t('CALENDAR')}>
+      <DockLink active={active} section="calendar" label={t('CALENDAR')}>
         <path
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -42,16 +48,19 @@ export function Dock({ ctx }: { ctx: ViewContext }) {
 }
 
 function DockLink(props: {
-  ctx: ViewContext;
-  href: string;
+  /** The section of the page on screen, if any. */
+  active: Section | undefined;
+  section: Section;
   label: string;
   /** The icon's SVG paths. */
   children: Child;
 }) {
+  const isActive = props.active === props.section;
   return (
     <a
-      class={props.ctx.baseUrl === props.href ? 'dock-active' : undefined}
-      href={props.href}
+      class={isActive ? 'dock-active' : undefined}
+      aria-current={isActive ? 'page' : undefined}
+      href={SECTION_HOME[props.section]}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"

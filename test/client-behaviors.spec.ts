@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
@@ -9,20 +10,6 @@ import { SAME_ORIGIN, signIn } from './support/e2e-session';
  * page's self-hiding toast. The outfit builder spec covers the arrows,
  * remove and "Add row".
  */
-
-async function createGarment(
-  page: Page,
-  name: string,
-  category: string,
-  fields: Record<string, string> = {},
-): Promise<number> {
-  const res = await page.request.post('/wardrobe', {
-    form: { name, category, ...fields },
-    headers: SAME_ORIGIN,
-  });
-  expect(res.ok()).toBe(true);
-  return Number(new URL(res.url()).pathname.split('/').pop());
-}
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];

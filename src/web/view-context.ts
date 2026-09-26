@@ -15,8 +15,8 @@ export interface ViewContext {
   iconName: string;
   /** SITE_URL. */
   siteUrl: string;
-  /** The request URL (path and query; '' for '/'): the dock marks its tab active on an exact match. */
-  baseUrl: string;
+  /** The request path, without the query: the dock's active tab (layout/sections.ts). */
+  path: string;
   signupsDisabled: boolean;
   pwaEnabled: boolean;
   /** `?v=` on every first-party static URL; see src/build-info.ts. */
@@ -66,12 +66,13 @@ export function createViewContextBuilder(config: ViewContextConfig) {
     // Forwarded headers only count from TRUSTED_PROXIES (requestOrigin); a
     // client's own X-Forwarded-Host must not rewrite canonical and og URLs.
     const origin = requestOrigin(request);
-    const canonicalUrl = `${origin}${request.url.split('?')[0]}`;
+    const path = request.url.split('?')[0];
+    const canonicalUrl = `${origin}${path}`;
     return {
       appName: config.appName,
       iconName: config.iconName,
       siteUrl: config.siteUrl,
-      baseUrl: request.url === '/' ? '' : request.url,
+      path,
       signupsDisabled: config.registrationDisabled,
       pwaEnabled: config.pwaEnabled,
       appVersion: BUILD_INFO.assetVersion,

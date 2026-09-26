@@ -599,7 +599,7 @@ function FilterBar(props: {
     (candidate) => String(candidate.id) === search.capsule,
   );
   return (
-    <div class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 pt-2 pb-2">
+    <div class="fixed bottom-dock left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 pt-2 pb-2">
       <div class="flex flex-wrap items-center gap-2 mb-2">
         <button
           type="button"
@@ -929,7 +929,7 @@ function SelectForm(props: {
     <PostForm id={props.id} action={props.action}>
       <div onchange="document.getElementById('selected-count').textContent = this.querySelectorAll('input[name=ids]:checked').length">
         {props.children}
-        <div class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex items-center justify-between gap-2">
+        <div class="fixed bottom-dock left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex items-center justify-between gap-2">
           <span class="text-sm">
             <span id="selected-count" class="font-semibold">
               {props.checked}

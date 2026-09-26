@@ -16,7 +16,7 @@ const ctx: ViewContext = {
   appName: 'Closet',
   iconName: 'icon.png',
   siteUrl: 'http://localhost:3000',
-  baseUrl: '/boom',
+  path: '/boom',
   signupsDisabled: false,
   pwaEnabled: false,
   appVersion: '1.0.0+test',

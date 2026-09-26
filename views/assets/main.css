@@ -11,12 +11,28 @@ and response bandwidth/latency. */
     }
 }
 
+/* The dock's height, the safe area included, as daisyUI sizes .dock: what a
+   bar fixed above the dock sits on (`bottom-dock`, the wardrobe's filter
+   and select bars). */
+@theme {
+  --spacing-dock: calc(4rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* The app chrome stacks above every page: page content stays at z-20 or
+   below (a stretched-link card's form is z-10, the bars above the dock
+   z-20). daisyUI gives .dock z-index 1, so any positioned z-10 in the page
+   (the outfit card's calendar button) drew over it. The dock sits below the
+   navbar, whose drawer (inside it) must cover the dock when open, and the
+   toasts (z 999) never reach down to it. */
 .navbar {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 1000;
+}
+.dock {
+  z-index: 900;
 }
 
 /* A notice that hides itself after 4 s (the garment page's "saved" toasts). */

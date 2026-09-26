@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { createGarment, createOutfit } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
@@ -20,34 +21,6 @@ async function expectSameDocument(page: Page): Promise<void> {
       () => (window as Window & { __sameDocument?: boolean }).__sameDocument,
     ),
   ).toBe(true);
-}
-
-async function createGarment(page: Page, name: string): Promise<number> {
-  const res = await page.request.post('/wardrobe', {
-    form: { name, category: 'tops' },
-    headers: SAME_ORIGIN,
-  });
-  expect(res.ok()).toBe(true);
-  return Number(new URL(res.url()).pathname.split('/').pop());
-}
-
-async function createOutfit(
-  page: Page,
-  name: string,
-  garmentId: number,
-  scheduleDate = '',
-): Promise<number> {
-  const res = await page.request.post('/outfits', {
-    form: {
-      name,
-      category: 'tops',
-      garmentId: String(garmentId),
-      scheduleDate,
-    },
-    headers: SAME_ORIGIN,
-  });
-  expect(res.ok()).toBe(true);
-  return Number(new URL(res.url()).pathname.split('/').pop());
 }
 
 test('deleting a garment swaps to the wardrobe (HX-Location)', async ({

@@ -8,6 +8,8 @@
  * from the worker (public/js/freshness.js), and says so.
  */
 
+import { SECTION_HOME } from './layout/sections';
+
 /**
  * The account a rendered page belongs to: the signed-in user's id, absent on
  * a signed-out render. Set by send() in src/web/render.ts on every HTML
@@ -31,7 +33,7 @@ export const CACHED_AT_HEADER = 'X-SW-Cached-At';
  * calendar week is a place the user navigated to, and goes to the network
  * first like every other page.
  */
-const TAB_ROOTS = new Set(['/wardrobe', '/outfits', '/calendar']);
+const TAB_ROOTS: ReadonlySet<string> = new Set(Object.values(SECTION_HOME));
 
 /**
  * Whether the worker answers this request from its cache before asking the

@@ -1,10 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
-import {
-  E2E_PASSWORD,
-  SAME_ORIGIN,
-  signIn,
-  signUpHeaders,
-} from './support/e2e-session';
+import { createGarment } from './support/e2e-data';
+import { E2E_PASSWORD, signIn, signUpHeaders } from './support/e2e-session';
 import {
   ageCachedPage,
   cachedPaths,
@@ -33,14 +29,6 @@ test.describe('stale-while-revalidate tab roots', () => {
 
   const FIVE_MINUTES = 5 * 60_000;
 
-  async function createGarment(page: Page, name: string): Promise<void> {
-    const res = await page.request.post('/wardrobe', {
-      form: { name, category: 'coats' },
-      headers: SAME_ORIGIN,
-    });
-    expect(res.ok()).toBe(true);
-  }
-
   const cachedStamp = (response: Awaited<ReturnType<Page['goto']>>) =>
     response?.headers()['x-sw-cached-at'];
 
@@ -49,7 +37,7 @@ test.describe('stale-while-revalidate tab roots', () => {
     context,
   }) => {
     await signIn(page, 'swr-open');
-    await createGarment(page, 'Cached coat');
+    await createGarment(page, 'Cached coat', 'coats');
     await waitForServiceWorker(page);
     await cachePage(page, '/wardrobe');
 
@@ -85,7 +73,7 @@ test.describe('stale-while-revalidate tab roots', () => {
     await waitForServiceWorker(page);
     await cachePage(page, '/wardrobe');
     // Changed behind the cache's back (another device, the API context).
-    await createGarment(page, 'Added elsewhere');
+    await createGarment(page, 'Added elsewhere', 'coats');
 
     const response = await page.goto('/wardrobe');
     expect(cachedStamp(response)).toBeTruthy(); // the stale copy came first
@@ -101,7 +89,7 @@ test.describe('stale-while-revalidate tab roots', () => {
     await signIn(page, 'swr-offer');
     await waitForServiceWorker(page);
     await cachePage(page, '/wardrobe');
-    await createGarment(page, 'Added while away');
+    await createGarment(page, 'Added while away', 'coats');
     await ageCachedPage(page, '/wardrobe', FIVE_MINUTES);
 
     // Opened offline: the old copy, nothing to compare it with yet.
@@ -131,7 +119,7 @@ test.describe('stale-while-revalidate tab roots', () => {
     playwright,
   }) => {
     await signIn(page, 'swr-first');
-    await createGarment(page, 'First account coat');
+    await createGarment(page, 'First account coat', 'coats');
     await waitForServiceWorker(page);
     await cachePage(page, '/wardrobe');
 
@@ -171,7 +159,7 @@ test.describe('stale-while-revalidate tab roots', () => {
     page,
   }) => {
     await signIn(page, 'swr-unseen-a');
-    await createGarment(page, 'Unseen coat');
+    await createGarment(page, 'Unseen coat', 'coats');
     await waitForServiceWorker(page);
     await cachePage(page, '/wardrobe');
 
@@ -191,7 +179,7 @@ test.describe('stale-while-revalidate tab roots', () => {
     page,
   }) => {
     await signIn(page, 'swr-backstop-a');
-    await createGarment(page, 'Backstop coat');
+    await createGarment(page, 'Backstop coat', 'coats');
     await waitForServiceWorker(page);
     await cachePage(page, '/wardrobe');
 
