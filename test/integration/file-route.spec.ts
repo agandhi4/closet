@@ -61,6 +61,14 @@ describe('/file route and request logging', () => {
     expect(await status(`/file/thumb/${randomUUID()}.webp?v=1`)).toBe(404);
   });
 
+  // An image request has no page to show: no session, no page context.
+  it('answers a refused image as data, not an error page', async () => {
+    const res = await t.inject({ method: 'GET', url: '/file/app.log' });
+    expect(res.statusCode).toBe(404);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+    expect(res.json()).toEqual({ statusCode: 404, message: 'Not Found' });
+  });
+
   it('serves the share preview of a photo by its share id, signed out', async () => {
     const row = await photoRow(t, photoName);
     const res = await t.inject({
