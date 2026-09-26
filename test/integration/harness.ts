@@ -54,9 +54,6 @@ const BASE_ENV: Env = {
   DISABLE_REGISTRATION: 'false',
   PWA_ENABLED: 'false',
   ACCESS_TOKEN_SECRET: 'integration-test-secret',
-  // No nightly cron timer in a test process; reconcile.spec.ts calls
-  // StorageReconciliationService.reconcile() directly.
-  MAINTENANCE_ENABLED: 'false',
 };
 
 /**

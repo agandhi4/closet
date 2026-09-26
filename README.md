@@ -80,7 +80,7 @@ Open [http://localhost:3000](http://localhost:3000) and register an account: log
 | `DATABASE_PASS`                    | Postgres password (required; may be empty for trust auth)                            | -                       | `7yfhcn2349cr32f`                                                                         |
 | `DATABASE_SCHEMA`                  | Postgres database name (required)                                                    | -                       | `closet`                                                                                  |
 | `DATABASE_SSL`                     | Use SSL for Postgres                                                                 | `false`                 | `true`                                                                                    |
-| `MAINTENANCE_ENABLED`              | Run the nightly (03:00) storage reconciliation; `npm run maintenance:reconcile` runs it once regardless | `true`   | `false`                                                                                   |
+| `MAINTENANCE_ENABLED`              | Run the nightly storage reconciliation (03:00 in `APP_TIMEZONE`); `npm run maintenance:reconcile` runs it once regardless | `true`   | `false`                                                                                   |
 | `MAX_HEIC_BYTES`                   | Largest HEIC/HEIF upload accepted; HEIC is decoded in memory before resizing         | `41943040` (40 MB)      | `20971520`                                                                                |
 | `PUBLIC_VAPID_KEY`                 | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>` |
 | `PRIVATE_VAPID_KEY`                | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>`                                             |
@@ -142,7 +142,7 @@ npm run test:load       # autocannon load test, see below
 npm run generate:icons  # regenerate public/assets/icon.png and favicon.ico from icon.svg
 npm run check           # format, lint, types, unit + integration in parallel (the pre-commit hook)
 npm run verify:push     # build + Chromium Playwright (the pre-push hook)
-npm run maintenance:reconcile [-- --dry-run]
+npm run maintenance:reconcile [-- --dry-run] [--force]
                         # one storage reconciliation pass (needs `npm run build`; see below)
 npm run user:set-password -- <email>
                         # set a locked-out user's password (needs `npm run build`; see below)
@@ -161,12 +161,19 @@ of that account. An unknown email changes nothing and exits with status 1.
 
 Every photo is a set of files in storage (`<uuid>.webp` plus `-nobg` and
 `-thumb` variants) and one `file` row. Deleting a garment or an account
-removes both, and a nightly job (03:00, `MAINTENANCE_ENABLED`) keeps them
-describing each other: stored photo sets older than a day with no row are
-deleted, rows older than a day that no garment references are deleted with
-their files, and rows whose original is missing are logged. Run it by hand,
-on the NAS with `docker exec closet npm run maintenance:reconcile`, or locally
-after `npm run build`; `-- --dry-run` only reports.
+removes both, and a nightly job (03:00 in `APP_TIMEZONE`, `MAINTENANCE_ENABLED`)
+keeps them describing each other: stored photo sets older than a day with no
+row are deleted, rows older than a day that no garment references are deleted
+with their files, and rows whose original is missing are logged. Run it by
+hand, on the NAS with `docker exec closet npm run maintenance:reconcile`, or
+locally after `npm run build`; `-- --dry-run` only reports.
+
+A run that would delete anything while the `file` table is empty, more than
+25 photo sets, or more than a fifth of the stored ones (once it is more than
+5) deletes nothing: it logs why, reports `refused` and exits with status 3.
+That is the database and the disk disagreeing wholesale (a restore, the wrong
+database), not stray uploads. Check with `-- --dry-run`, then
+`-- --force` deletes anyway.
 
 ### Load test
 

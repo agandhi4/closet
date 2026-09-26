@@ -41,7 +41,7 @@ function dbLogger(context: string): DbLogger {
  * boot-time migrations. Global, so a feature module injects DB without
  * importing this module, and so its onModuleInit runs before every
  * non-global module's (Nest gives global modules the greatest distance) and
- * before any onApplicationBootstrap (the maintenance cron): the schema is
+ * before any onApplicationBootstrap: the schema is
  * current before anything queries it, through Drizzle or MikroORM.
  */
 @Global()

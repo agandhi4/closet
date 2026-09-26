@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Added
 
 - Change password (`/auth/change-password`, linked from the profile): needs the current password (400 with an error when it is wrong), applies the registration password rules, signs out every other session and keeps the current one
-- Nightly storage reconciliation (`MAINTENANCE_ENABLED`, `@nestjs/schedule`) and `npm run maintenance:reconcile [-- --dry-run]`: orphaned photo sets and unreferenced `file` rows older than a day are deleted, rows whose original is missing are reported
+- Nightly storage reconciliation (`MAINTENANCE_ENABLED`, 03:00 in `APP_TIMEZONE`) and `npm run maintenance:reconcile [-- --dry-run] [--force]`: orphaned photo sets and unreferenced `file` rows older than a day are deleted, rows whose original is missing are reported. It refuses to delete anything while the `file` table is empty, or when one run would delete more than 25 photo sets or more than a fifth of them (logged, reported as `refused`, exit status 3; `--force` overrides)
 - `npm run user:set-password -- <email>`: sets a locked-out user's password from the server (read without echo, or from piped stdin), with the registration rules, signing out every session of that account
 - `APP_TIMEZONE` (IANA name, default `America/New_York`): the household's time zone, which decides what "today" is on the calendar and which week opens by default
 - HEIC/HEIF uploads: decoded server-side with heic-convert (capped by `MAX_HEIC_BYTES`), accepted by the photo inputs; browsers that cannot decode HEIC skip the client-side cutout and upload the original
@@ -107,6 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The boilerplate SSE chat demo (`/chat`, `/sse`, `/message`) and the `htmx-ext-sse` dependency
 - The Nest notification module (`/notification/*`), its `UserDevice` entity, and the `lodash` dependency it alone used
 - The generic file gallery (`/file/files`, `/file/upload`); `/file/*` now only serves image variants
+- `@nestjs/schedule`: the nightly reconciliation runs on a plain timer started by the server, so tests and the CLIs never schedule it
 - S3 object storage (`FILE_STORAGE_TYPE=object`, `OBJECT_STORAGE_*`, `nestjs-s3`, the AWS SDK and CI's S3 smoke job): photos are stored on local disk under `DATA_PATH`, as production always did. A leftover `FILE_STORAGE_TYPE=local` is ignored
 
 ## 0.5.1 - 2026-09-10

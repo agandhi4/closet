@@ -2,26 +2,40 @@ import { randomUUID } from 'node:crypto';
 import { readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { File } from '../../src/dal/entity/file.entity';
+import { eq } from 'drizzle-orm';
 import { Garment } from '../../src/dal/entity/garment.entity';
-import { variantFileName } from '../../src/web/files/image-variant';
+import { file } from '../../src/db/schema';
 import {
-  ReconciliationReport,
-  StorageReconciliationService,
-} from '../../src/maintenance/storage-reconciliation.service';
-import { createGarment, jpegPhoto, uploadPhoto } from './garments';
+  reconcileStorage,
+  type ReconcileOptions,
+  type ReconciliationReport,
+} from '../../src/maintenance/reconcile';
+import { variantFileName } from '../../src/web/files/image-variant';
+import { Photos } from '../../src/web/files/photos';
+import {
+  createGarment,
+  jpegPhoto,
+  photoRow,
+  photoRowCount,
+  uploadPhoto,
+} from './garments';
 import { createTestApp, TestApp } from './harness';
+import { silentLogger } from './logger';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * The three reconciliation passes against the real app: storage without
- * rows, rows without garments, rows without storage. Runs on Postgres too
- * when TEST_DATABASE_URL is set (the row queries differ per driver).
+ * rows, rows without garments, rows without storage. The deletion guard
+ * has its own spec (reconcile-guard.spec.ts).
  */
 describe('storage reconciliation', () => {
   let t: TestApp;
-  let service: StorageReconciliationService;
+  const reconcile = (options?: ReconcileOptions) =>
+    reconcileStorage(
+      { db: t.db, photos: t.app.get<Photos>(Photos), logger: silentLogger },
+      options,
+    );
 
   const storedFiles = async () =>
     (await readdir(t.dataPath)).filter((name) => name.endsWith('.webp')).sort();
@@ -38,27 +52,25 @@ describe('storage reconciliation', () => {
       .photo!.fileName;
 
   const ageRow = async (fileName: string, ageMs: number) => {
-    const em = t.em();
-    const row = await em.findOneOrFail(File, { fileName });
-    row.createdOn = new Date(Date.now() - ageMs).toISOString();
-    await em.flush();
+    await t.db
+      .update(file)
+      .set({ createdOn: new Date(Date.now() - ageMs).toISOString() })
+      .where(eq(file.fileName, fileName));
   };
 
   const orphanRow = async (ageMs: number) => {
     const fileName = `${randomUUID()}.webp`;
-    const em = t.em();
-    em.create(File, {
+    await t.db.insert(file).values({
       fileName,
+      shareableId: randomUUID(),
       createdOn: new Date(Date.now() - ageMs).toISOString(),
-      createdBy: t.owner.id,
+      createdById: t.owner.id,
     });
-    await em.flush();
     return fileName;
   };
 
   beforeAll(async () => {
     t = await createTestApp();
-    service = t.app.get(StorageReconciliationService);
   });
 
   afterAll(() => t?.cleanup());
@@ -95,25 +107,29 @@ describe('storage reconciliation', () => {
     await writeAged('notes.txt', 5 * DAY_MS);
 
     const filesBefore = await storedFiles();
-    const rowsBefore = await t.em().count(File);
+    const rowsBefore = await photoRowCount(t);
     // Files only: DATA_PATH/.incoming (in-flight writes) is not an object.
     const objectsBefore = (
       await readdir(t.dataPath, { withFileTypes: true })
     ).filter((entry) => entry.isFile()).length;
     const expected: Omit<ReconciliationReport, 'durationMs' | 'dryRun'> = {
       storedObjects: objectsBefore,
+      // live, lost (its thumb), staleOrphan, recentOrphan, staleRow
+      storedPhotoSets: 5,
       orphanedObjectsDeleted: 1,
       orphanedRowsDeleted: 1,
       missingOriginals: 1,
     };
 
-    const dryRun = await service.reconcile({ dryRun: true });
+    const dryRun = await reconcile({ dryRun: true });
     expect(dryRun).toMatchObject({ ...expected, dryRun: true });
+    expect(dryRun.refused).toBeUndefined();
     expect(await storedFiles()).toEqual(filesBefore);
-    expect(await t.em().count(File)).toBe(rowsBefore);
+    expect(await photoRowCount(t)).toBe(rowsBefore);
 
-    const report = await service.reconcile();
+    const report = await reconcile();
     expect(report).toMatchObject({ ...expected, dryRun: false });
+    expect(report.refused).toBeUndefined();
 
     const files = await storedFiles();
     expect(files).toContain(live);
@@ -127,15 +143,14 @@ describe('storage reconciliation', () => {
     expect(files).not.toContain(variantFileName(staleRow, 'thumb'));
     expect(await readdir(t.dataPath)).toContain('notes.txt');
 
-    const em = t.em();
-    expect(await em.findOne(File, { fileName: live })).not.toBeNull();
-    expect(await em.findOne(File, { fileName: lost })).not.toBeNull();
-    expect(await em.findOne(File, { fileName: recentRow })).not.toBeNull();
-    expect(await em.findOne(File, { fileName: staleRow })).toBeNull();
-    expect(await em.count(File)).toBe(rowsBefore - 1);
+    expect(await photoRow(t, live)).toBeDefined();
+    expect(await photoRow(t, lost)).toBeDefined();
+    expect(await photoRow(t, recentRow)).toBeDefined();
+    expect(await photoRow(t, staleRow)).toBeUndefined();
+    expect(await photoRowCount(t)).toBe(rowsBefore - 1);
 
     // A second pass finds nothing new to delete.
-    const again = await service.reconcile();
+    const again = await reconcile();
     expect(again).toMatchObject({
       orphanedObjectsDeleted: 0,
       orphanedRowsDeleted: 0,
