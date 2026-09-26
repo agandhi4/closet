@@ -11,7 +11,7 @@ import {
   vi,
 } from 'vitest';
 import webpush, { type PushSubscription } from 'web-push';
-import { userDevice } from '../../src/db/schema';
+import { user, userDevice } from '../../src/db/schema';
 import { createTestApp, PWA_ENV, TestApp } from './harness';
 import { expectFragment, expectFullPage } from './pages';
 
@@ -39,7 +39,9 @@ function subscription(endpoint = newEndpoint()): Subscription {
 }
 
 function newEndpoint(): string {
-  return `https://push.example.test/send/${randomUUID()}`;
+  // An FCM-shaped URL: subscribe only accepts push-service hosts, and
+  // sendNotification is stubbed, so nothing is sent to Google.
+  return `https://fcm.googleapis.com/fcm/send/${randomUUID()}`;
 }
 
 /** What a push service answers a delivered message with. */
@@ -142,6 +144,22 @@ describe('web push (PWA_ENABLED=true)', () => {
         userAgent: 'Mozilla/5.0 (Linux; Android 15) Chrome/140',
       });
     });
+
+    // The server POSTs to the endpoint, so an internal address would make
+    // /push/test an SSRF gadget (src/web/push/endpoint.ts).
+    it.each([
+      'https://127.0.0.1:5432/x',
+      'https://pgvault/x',
+      'https://nas.box/admin',
+      'https://fcm.googleapis.com.evil.example/x',
+    ])(
+      'refuses an endpoint outside the push services: %s',
+      async (endpoint) => {
+        const res = await subscribe(subscription(endpoint));
+        expect(res.statusCode).toBe(400);
+        expect(await devicesAt(endpoint)).toEqual([]);
+      },
+    );
 
     it('stores endpoints longer than 255 characters (Firefox)', async () => {
       const endpoint = `https://updates.push.services.mozilla.com/wpush/v2/${'g'.repeat(300)}`;
@@ -323,6 +341,31 @@ describe('web push (PWA_ENABLED=true)', () => {
           privateKey: PWA_ENV.PRIVATE_VAPID_KEY,
         },
       });
+    });
+
+    it('never contacts a stored endpoint outside the push services, and removes it', async () => {
+      const email = `push-internal-${randomUUID()}@example.com`;
+      const cookie = await t.register(email);
+      const [{ id: userId }] = await t.db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.email, email));
+      // A row from before subscribe checked hosts, written directly.
+      const internal = `https://10.0.0.5/${randomUUID()}`;
+      const keys = subscription().keys;
+      await t.db.insert(userDevice).values({
+        userId,
+        pushEndpoint: internal,
+        keyP256dh: keys.p256dh,
+        keyAuth: keys.auth,
+      });
+      const send = vi.spyOn(webpush, 'sendNotification');
+
+      const res = await sendTest(cookie);
+
+      expect(res.statusCode).toBe(200);
+      expect(send).not.toHaveBeenCalled();
+      expect(await devicesAt(internal)).toEqual([]);
     });
 
     it('says so when the caller has no device', async () => {

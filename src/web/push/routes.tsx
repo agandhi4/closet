@@ -5,6 +5,8 @@ import { sessionUserId } from '../auth/require-session';
 import { t } from '../i18n';
 import type { WebLogger } from '../logger';
 import { renderFragment } from '../render';
+import { HttpError } from '../errors';
+import { isPushServiceEndpoint } from './endpoint';
 import { deleteDevice, upsertDevice } from './queries';
 import type { PushSender, VapidConfig } from './sender';
 import { TestResult } from './settings';
@@ -71,6 +73,13 @@ export const pushRoutes: FastifyPluginCallbackTypebox<PushRouteOptions> = (
     { schema: { body: SubscribeBody } },
     async (request, reply) => {
       const userId = sessionUserId(request);
+      // The server will POST to this URL: only known push services (SSRF).
+      if (!isPushServiceEndpoint(request.body.endpoint)) {
+        logger.warn(
+          `User ${userId} sent a subscription outside the push services`,
+        );
+        throw new HttpError(400);
+      }
       const deviceId = await upsertDevice(
         db,
         userId,
