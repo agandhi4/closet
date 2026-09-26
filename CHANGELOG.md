@@ -32,9 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `APP_TIMEZONE` (IANA name, default `America/New_York`): the household's time zone, which decides what "today" is on the calendar and which week opens by default
 - HEIC/HEIF uploads: decoded server-side with heic-decode to raw pixels (capped by `MAX_HEIC_BYTES`), accepted by the photo inputs; browsers that cannot decode HEIC skip the client-side cutout and upload the original
 - Notifications on the profile page (with `PWA_ENABLED`): "Enable notifications on this device" asks for permission only on that tap, the page shows this device's state (on, off, blocked, unsupported, or "add to Home Screen first" in iOS Safari), and "Send a test notification" sends to all of the user's devices and says how many it reached. Signing out drops the device's subscription. Nothing sends notifications on its own yet
+- Server-side background removal, off by default (`CUTOUT_MODE=server`): the phone uploads only the photo, the server queues it and cuts it out with BiRefNet 512x512 in a child process (about 3 s a photo on an 8-core Ryzen, ~3.5 GB of RAM while loaded, needs AVX2 or better), and the garment page shows "Removing background…" until the cutout is swapped in, or "Try again" when it failed (failed ones are retried nightly up to three runs). A cutout edited in the mask editor is never replaced by the server's. The 940 MB model is downloaded into `MODELS_PATH` on first need, checksum-verified; `npm run cutout:fetch-model` seeds it. `client` (the default) keeps the in-browser removal unchanged
 
 #### Fixed
 
+- The phone shrinks a large photo to 1600 px (JPEG) before uploading it, in both background-removal modes: a 24 MP iPhone photo uploaded slowly and made the in-browser cutout fail. A photo the browser cannot open (HEIC on Android) still goes up as it is
+- Saving a mask edit on a garment in a wardrobe shared with you (MANAGE) failed with a 404: the edit was posted to your own wardrobe
 - Pressing Enter in the outfit builder's "Add row" box saved the outfit; it adds the row now
 - Outfit names and notes are text columns: notes up to 4,000 characters are saved (the form stopped at 255, the length of the old column). Names stay capped at 255
 - Emails are unique regardless of case in the database too (an index on `lower(email)`); the upgrade stores every existing address trimmed and lower case, and refuses to start, naming the user ids, if two accounts would then share one

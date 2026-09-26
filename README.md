@@ -84,6 +84,9 @@ Open [http://localhost:3000](http://localhost:3000) and register an account: log
 | `DATABASE_SSL`                     | Use SSL for Postgres                                                                 | `false`                 | `true`                                                                                    |
 | `MAINTENANCE_ENABLED`              | Run the nightly storage reconciliation (03:00 in `APP_TIMEZONE`); `npm run maintenance:reconcile` runs it once regardless | `true`   | `false`                                                                                   |
 | `MAX_HEIC_BYTES`                   | Largest HEIC/HEIF upload accepted; HEIC is decoded in memory before resizing         | `41943040` (40 MB)      | `20971520`                                                                                |
+| `CUTOUT_MODE`                      | Who removes a garment photo's background: `client` (the browser, before upload) or `server` (this server, after upload; see [Background removal](#background-removal)) | `client` | `server` |
+| `MODELS_PATH`                      | Where the server-mode model (940 MB) is kept; downloaded there on first need and checksum-verified. A local disk, not NFS | `./models` (`/app/models` in the image) | `/app/models` |
+| `CUTOUT_THREADS`                   | CPU threads the server-mode model uses                                               | `4`                     | `8`                                                                                       |
 | `PUBLIC_VAPID_KEY`                 | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>` |
 | `PRIVATE_VAPID_KEY`                | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>`                                             |
 
@@ -150,7 +153,14 @@ npm run maintenance:reconcile [-- --dry-run] [--force]
                         # one storage reconciliation pass (needs `npm run build`; see below)
 npm run user:set-password -- <email>
                         # set a locked-out user's password (needs `npm run build`; see below)
+npm run cutout:fetch-model
+                        # download or verify the server-mode cutout model into MODELS_PATH
+                        # (needs `npm run build`; see Background removal)
 ```
+
+`npm run test:int` includes one test with the real server-mode model; it
+runs only when `MODELS_PATH` (or `./models`) holds it and is skipped
+otherwise (CI never downloads it).
 
 ### Locked out
 
@@ -182,6 +192,41 @@ A run that would delete anything while the `file` table is empty, more than
 That is the database and the disk disagreeing wholesale (a restore, the wrong
 database), not stray uploads. Check with `-- --dry-run`, then
 `-- --force` deletes anyway.
+
+### Background removal
+
+Every garment photo gets a cutout (its background removed). `CUTOUT_MODE`
+decides where:
+
+- `client` (default): the browser runs a small model (IS-Net) before the
+  upload and sends the photo and its cutout. Nothing runs on the server.
+- `server`: the phone sends only the photo. The server queues it (the
+  garment page shows "Removing background…" and swaps the cutout in when it
+  is ready, or offers "Try again" if it failed) and runs
+  [BiRefNet 512x512](https://huggingface.co/onnx-community/BiRefNet_512x512-ONNX)
+  (MIT) with onnxruntime on the CPU, in a child process, one photo at a
+  time: about 3 s a photo on a recent 8-core CPU (7 s for the first after
+  a start or 15 idle minutes, which loads the model) and up to ~3.5 GB of
+  RAM while the model is loaded. It needs a CPU with AVX2 or better; on an
+  older one (a Celeron NAS) use `client`. A photo that takes over 60 s is
+  failed; failed ones are retried nightly (03:00 in `APP_TIMEZONE`) up to
+  three runs.
+
+In both modes the phone first shrinks a large photo to 1600 px (JPEG); the
+mask editor (the pencil on the photo) edits whichever cutout there is, and
+an edited cutout is never replaced by the server's.
+
+The server-mode model is not in the image. It is downloaded into
+`MODELS_PATH` the first time it is needed (at boot in server mode) from a
+pinned URL and refused unless its SHA-256 matches. Give it a local volume so
+it is fetched once, and seed it before switching:
+
+```bash
+docker exec closet npm run cutout:fetch-model   # download or verify; prints the path
+```
+
+Then set `CUTOUT_MODE=server` (and optionally `CUTOUT_THREADS`) and restart.
+Photos stored before the switch keep their cutouts.
 
 ### Load test
 
