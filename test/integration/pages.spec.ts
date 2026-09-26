@@ -61,10 +61,12 @@ describe('pages', () => {
     }
   });
 
-  it('the profile and invite pages show the signed-in account', async () => {
+  it('the profile shows the signed-in account; the public invite page does not', async () => {
     const profile = await t.inject({ method: 'GET', url: '/auth/profile' });
     expect(profile.body).toContain(t.owner.email);
 
+    // Public (anonymous visitors, link previews): the inviter is named by
+    // first name or generically, never by email.
     const invite = await t.inject({
       method: 'GET',
       url: `/wardrobe-share/invite/${inviteToken}`,
@@ -72,7 +74,7 @@ describe('pages', () => {
     });
     expect(invite.statusCode).toBe(200);
     expectFullPage(invite);
-    expect(invite.body).toContain(t.owner.email);
+    expect(invite.body).not.toContain(t.owner.email);
   });
 
   it('GET /wardrobe as an htmx fragment is only #wardrobe-main', async () => {
