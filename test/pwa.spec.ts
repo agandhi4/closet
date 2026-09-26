@@ -1,11 +1,12 @@
 import { test, expect, Page } from '@playwright/test';
+import sharp from 'sharp';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
  * What only a browser can show about the installed app: the service worker
  * serves the shell from cache, the app still renders offline with the
- * connectivity banner, and a garment page no longer pulls the background
- * removal runtime and model just for being opened.
+ * connectivity banner, and no page ever fetches a background-removal model
+ * or WASM (the server removes backgrounds).
  *
  * Needs a server started with PWA_ENABLED=true (and VAPID keys); Chromium
  * only, the one Playwright engine with usable service worker support.
@@ -165,36 +166,48 @@ test.describe('installed app delivery', () => {
       .toBe(false);
   });
 
-  test('opening a garment does not download the background removal model', async ({
+  test('never requests a model or WASM, through a whole photo upload', async ({
     page,
+    context,
   }) => {
     const createResponse = await page.request.post('/wardrobe', {
-      form: { name: 'Lazy model garment', category: 'shirt' },
+      form: { name: 'No model garment', category: 'shirt' },
       headers: SAME_ORIGIN,
     });
     const garmentId = new URL(createResponse.url()).pathname.split('/').pop();
 
-    const heavy: string[] = [];
-    page.on('request', (request) => {
-      const url = new URL(request.url());
-      if (
-        url.pathname.startsWith('/bg-removal-models/') ||
-        url.pathname.startsWith('/modules/background-removal/') ||
-        url.pathname.startsWith('/modules/onnxruntime-web/')
-      ) {
-        heavy.push(url.pathname);
+    // The context sees the service worker's requests too.
+    const model: string[] = [];
+    context.on('request', (request) => {
+      const { pathname } = new URL(request.url());
+      if (/onnx|imgly|background-removal|bg-removal|\.wasm$/.test(pathname)) {
+        model.push(pathname);
       }
     });
 
+    await waitForServiceWorker(page);
     await page.goto(`/wardrobe/${garmentId}`);
-    await expect(page.locator('#photoInput')).toBeVisible();
-    await page.waitForTimeout(1500);
-    expect(heavy).toEqual([]);
-
-    // Intent starts the download.
+    // What used to start the in-browser model's download.
     await page.locator('#photoInput').focus();
-    await expect
-      .poll(() => heavy.length, { timeout: 15_000 })
-      .toBeGreaterThan(0);
+    await page.locator('#photoInput').setInputFiles({
+      name: 'shirt.jpg',
+      mimeType: 'image/jpeg',
+      buffer: await sharp({
+        create: { width: 900, height: 1200, channels: 3, background: '#3a6' },
+      })
+        .jpeg()
+        .toBuffer(),
+    });
+    await expect(page.locator('#photoBtn')).toBeEnabled();
+    await page.locator('#photoBtn').click();
+    await expect(page.locator('#garment-photo img')).toHaveAttribute(
+      'src',
+      /\?v=2$/,
+      { timeout: 15_000 },
+    );
+    await page.locator('#editMaskBtn').click();
+    await expect(page.locator('#maskEditorDialog')).toBeVisible();
+
+    expect(model).toEqual([]);
   });
 });
