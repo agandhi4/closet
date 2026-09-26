@@ -140,7 +140,7 @@ describe('a database built by the legacy MikroORM migrations', () => {
     const legacy = await t.db.query.user.findFirst({
       where: (user, { eq }) => eq(user.email, 'legacy@example.com'),
     });
-    expect(legacy?.shareableId).toBe('legacy-share-id');
+    expect(legacy?.password).toBe('x');
     const res = await t.inject({ method: 'GET', url: '/healthz' });
     expect(res.statusCode).toBe(204);
   });

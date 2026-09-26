@@ -8,10 +8,9 @@ import {
 } from '@mikro-orm/core';
 import { File } from './file.entity';
 import { Garment } from './garment.entity';
-import { ShareableId } from './shareableId.entity';
 
 @Entity()
-export class User extends ShareableId {
+export class User {
   @PrimaryKey()
   public id!: number;
 

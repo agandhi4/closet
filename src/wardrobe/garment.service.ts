@@ -134,7 +134,7 @@ export class GarmentService {
         size: this.normalizeSize(dto.size),
         notes: dto.notes,
         washingDetails: dto.washingDetails,
-        dateAquired: dto.dateAquired ? new Date(dto.dateAquired) : undefined,
+        acquiredOn: dto.dateAquired || undefined,
         photo: photoRow,
         owner: ownerId,
       }),
@@ -267,10 +267,7 @@ export class GarmentService {
     if ('size' in dto) garment.size = this.normalizeSize(dto.size);
     if ('notes' in dto) garment.notes = dto.notes;
     if ('washingDetails' in dto) garment.washingDetails = dto.washingDetails;
-    if ('dateAquired' in dto)
-      garment.dateAquired = dto.dateAquired
-        ? new Date(dto.dateAquired)
-        : undefined;
+    if ('dateAquired' in dto) garment.acquiredOn = dto.dateAquired || undefined;
   }
 
   /**

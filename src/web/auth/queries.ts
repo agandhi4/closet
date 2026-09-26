@@ -1,5 +1,4 @@
 import { eq, sql } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
 import type { Db } from '../../db/client';
 import { file, user } from '../../db/schema';
 
@@ -60,7 +59,7 @@ export async function insertUser(
 ): Promise<AccountRow> {
   const [row] = await db
     .insert(user)
-    .values({ email, password: passwordHash, shareableId: randomUUID() })
+    .values({ email, password: passwordHash })
     .returning(accountColumns);
   return row;
 }
