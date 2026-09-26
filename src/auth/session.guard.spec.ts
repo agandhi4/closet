@@ -35,7 +35,7 @@ describe('SessionGuard', () => {
     }) as unknown as ExecutionContext;
 
   const anonymous = (headers: Record<string, string> = {}) => ({ headers });
-  const signedIn = { headers: {}, auth: { user: { id: 3 }, payload: {} } };
+  const signedIn = { headers: {}, auth: { user: { id: 3 } } };
 
   it('lets an anonymous request through a @Public() route', () => {
     expect(

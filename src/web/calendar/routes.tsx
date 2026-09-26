@@ -1,6 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
-import { sessionUserId } from '../auth';
+import { sessionUserId } from '../auth/require-session';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';

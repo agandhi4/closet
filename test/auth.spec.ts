@@ -77,4 +77,75 @@ test.describe('login session', () => {
     await page.goto('/auth/profile');
     await expect(page.locator('main h1')).toHaveText(email);
   });
+
+  // The account forms post natively (no htmx), which is what lets a
+  // browser offer to save the password; a refusal is one page, not a page
+  // swapped into the page.
+  test('a failed login shows one page with a specific message', async ({
+    page,
+  }) => {
+    const email = await signIn(page, 'failed-login');
+    await page.context().clearCookies();
+    // This browser's logins count against a per-address limit of five a
+    // minute: a forwarded address of its own keeps retries and repeats from
+    // sharing one budget.
+    await page.setExtraHTTPHeaders({
+      'x-forwarded-for': signUpHeaders()['x-forwarded-for'],
+    });
+
+    await page.goto('/auth/login');
+    await page.locator('#email').fill(email);
+    await page.locator('#password').fill('NotThePassword1');
+    await page.getByRole('button', { name: 'Login' }).click();
+
+    await expect(page.locator('[role="alert"]')).toHaveText(
+      'Incorrect email or password',
+    );
+    await expect(page.locator('h1')).toHaveCount(1);
+    await expect(page.locator('form')).toHaveCount(1);
+    await expect(page.locator('#email')).toHaveValue(email);
+
+    await page.locator('#password').fill(E2E_PASSWORD);
+    await page.getByRole('button', { name: 'Login' }).click();
+    await expect(page).toHaveURL(/\/auth\/profile$/);
+    await expect(page.locator('main h1')).toHaveText(email);
+  });
+
+  test('registering through the form signs the new account in', async ({
+    page,
+  }) => {
+    const email = `register-form-${Date.now()}@example.com`;
+    // Registration is rate limited per address too (see above).
+    await page.setExtraHTTPHeaders({
+      'x-forwarded-for': signUpHeaders()['x-forwarded-for'],
+    });
+    await page.goto('/auth/register');
+    await page.locator('#email').fill(email);
+    await page.locator('#password').fill(E2E_PASSWORD);
+    await page.locator('#confirmPassword').fill(E2E_PASSWORD);
+    // Inline validation refills only the message slots, never the inputs.
+    await expect(page.locator('#confirmPassword')).toHaveValue(E2E_PASSWORD);
+    await page.getByRole('button', { name: 'Register' }).click();
+
+    await expect(page).toHaveURL(/\/auth\/profile$/);
+    await expect(page.locator('main h1')).toHaveText(email);
+  });
+
+  test('delete account: wrong credentials show the error, nothing is deleted', async ({
+    page,
+  }) => {
+    const email = await signIn(page, 'delete-refused');
+    page.on('dialog', (dialog) => void dialog.accept());
+
+    await page.goto('/auth/delete-account');
+    await page.locator('#email').fill(email);
+    await page.locator('#password').fill('NotThePassword1');
+    await page.getByRole('button', { name: 'Delete Account' }).click();
+
+    await expect(page.locator('[role="alert"]')).toContainText(
+      'Incorrect email or password',
+    );
+    await page.goto('/auth/profile');
+    await expect(page.locator('main h1')).toHaveText(email);
+  });
 });

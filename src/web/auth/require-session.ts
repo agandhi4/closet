@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { decideSessionAccess, LOGIN_PATH } from '../auth/session-access';
-import type { WebLogger } from './logger';
+import { decideSessionAccess, LOGIN_PATH } from '../../auth/session-access';
+import { loggableUrl } from '../loggable-url';
+import type { WebLogger } from '../logger';
 
 declare module 'fastify' {
   interface FastifyContextConfig {
@@ -35,10 +36,12 @@ export function createSessionHook(logger: WebLogger) {
       case 'allow':
         return;
       case 'redirect-to-login':
-        logger.debug(`${request.url} -> ${LOGIN_PATH}`);
+        logger.debug(`${loggableUrl(request)} -> ${LOGIN_PATH}`);
         return reply.redirect(LOGIN_PATH, 302);
       case 'login-required':
-        logger.debug(`${request.url} -> 401, HX-Redirect ${LOGIN_PATH}`);
+        logger.debug(
+          `${loggableUrl(request)} -> 401, HX-Redirect ${LOGIN_PATH}`,
+        );
         return reply.status(401).header('HX-Redirect', LOGIN_PATH).send();
     }
   };
@@ -52,7 +55,7 @@ export function createSessionHook(logger: WebLogger) {
 export function sessionUserId(request: FastifyRequest): number {
   if (!request.auth) {
     throw new Error(
-      `sessionUserId() on ${request.method} ${request.url}, which has no session: is the route public?`,
+      `sessionUserId() on ${request.method} ${loggableUrl(request)}, which has no session: is the route public?`,
     );
   }
   return request.auth.user.id;

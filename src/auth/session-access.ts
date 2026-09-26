@@ -16,7 +16,7 @@ export type SessionAccess = 'allow' | 'redirect-to-login' | 'login-required';
 
 /**
  * The one session decision, shared by both gates so they cannot drift:
- * SessionGuard (Nest routes, @Public()) and requireSession in src/web/auth.ts
+ * SessionGuard (Nest routes, @Public()) and requireSession in src/web/auth/require-session.ts
  * (plain-Fastify routes, `config: { public: true }`). It only reads
  * `req.auth`, which the preHandler in app.ts resolved.
  */

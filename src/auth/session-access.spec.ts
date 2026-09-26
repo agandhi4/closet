@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { AuthContext } from './auth-context.service';
+import type { AuthContext } from '../web/auth/session';
 import { decideSessionAccess } from './session-access';
 
 // The decision both gates take (SessionGuard for Nest routes, requireSession
-// in src/web/auth.ts for plain-Fastify routes); session.guard.spec.ts and
+// in src/web/auth/require-session.ts for plain-Fastify routes); session.guard.spec.ts and
 // test/integration/web.spec.ts check that each gate answers with it.
 describe('decideSessionAccess', () => {
-  const session = { user: { id: 3 }, payload: {} } as unknown as AuthContext;
+  const session: AuthContext = { user: { id: 3, email: 'a@example.com' } };
   const anonymous = (headers: Record<string, string> = {}) => ({ headers });
 
   it('allows a public route without a session', () => {

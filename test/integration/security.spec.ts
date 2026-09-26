@@ -1,12 +1,13 @@
-import { count } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { outfit, outfitCalendar } from '../../src/db/schema';
+import { outfit, outfitCalendar, user } from '../../src/db/schema';
 import { createGarment } from './garments';
 import { APP_ORIGIN, createTestApp, TestApp } from './harness';
 
 /**
  * Cross-cutting request security: the same-origin (CSRF) check on every
- * state-changing route, Nest's and the web layer's, and `returnTo` values.
+ * state-changing route, Nest's and the web layer's; `returnTo` values; and
+ * what logout tells the browser.
  */
 describe('request security', () => {
   let t: TestApp;
@@ -68,7 +69,7 @@ describe('request security', () => {
       expect(await rows(outfitCalendar)).toBe(entriesBefore);
     });
 
-    it('refuses a cross-site login too', async () => {
+    it('refuses a cross-site login, and an email change without a password', async () => {
       const login = await t.inject({
         method: 'POST',
         url: '/auth/login',
@@ -79,6 +80,23 @@ describe('request security', () => {
       });
       expect(login.statusCode).toBe(403);
       expect(login.cookies).toHaveLength(0);
+
+      const change = await t.inject({
+        method: 'POST',
+        url: '/auth/update-email',
+        payload: {
+          email: 'hijacked@evil.test',
+          confirmEmail: 'hijacked@evil.test',
+        },
+        headers: { origin: 'https://evil.test' },
+        sameOrigin: false,
+      });
+      expect(change.statusCode).toBe(403);
+      const [owner] = await t.db
+        .select({ email: user.email })
+        .from(user)
+        .where(eq(user.id, t.owner.id));
+      expect(owner.email).toBe(t.owner.email);
     });
 
     it.each([
@@ -146,5 +164,19 @@ describe('request security', () => {
       expect(res.body).toContain('href="/calendar"');
       expect(res.body).toContain('name="returnTo" value="/calendar"');
     });
+  });
+
+  it('logout clears the cookie and tells the browser to drop its cache', async () => {
+    const cookie = await t.register('leaving-device@example.com');
+    const res = await t.inject({
+      method: 'GET',
+      url: '/auth/logout',
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['clear-site-data']).toBe('"cache"');
+    const cleared = res.cookies.find((c) => c.name === 'access_token');
+    expect(cleared?.value).toBe('');
+    expect(cleared?.sameSite).toBe('Lax');
   });
 });

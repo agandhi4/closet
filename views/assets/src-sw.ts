@@ -33,6 +33,7 @@ clientsClaim();
 
 const DAY = 60 * 60 * 24;
 const FALLBACK_HTML_URL = '/offline.html';
+const PAGES_CACHE = 'pages-v1';
 
 // Static URLs carry `?v=<build>` (layout.hbs); the precache is already keyed
 // by content hash, so the query must not stop a precached file matching.
@@ -43,7 +44,7 @@ precacheAndRoute(self.__WB_MANIFEST, {
 // Pages and htmx fragments. The key plugin keeps a fragment (`|hx`) from
 // ever answering a navigation for the same URL, and the other way round.
 const pages = new NetworkFirst({
-  cacheName: 'pages-v1',
+  cacheName: PAGES_CACHE,
   networkTimeoutSeconds: 3,
   plugins: [
     {
@@ -56,6 +57,49 @@ const pages = new NetworkFirst({
 });
 const isPageRequest = ({ request }: { request: Request }) =>
   request.mode === 'navigate' || request.headers.get('HX-Request') === 'true';
+
+// Signing out (GET /auth/logout) and deleting the account (POST
+// /auth/delete-account) end a session: once the server has answered with
+// its redirect, the pages cached for that user must not answer the next
+// person on this device, offline or on a slow network. The server also
+// sends Clear-Site-Data: "cache", which not every browser applies to Cache
+// Storage. The offline page is re-warmed, now rendered signed out.
+// Registered before the page route: the first matching route wins.
+const SESSION_ENDING_PATHS = new Set(['/auth/logout', '/auth/delete-account']);
+
+async function rewarmOfflinePage(): Promise<void> {
+  try {
+    const cache = await self.caches.open(PAGES_CACHE);
+    await cache.add(FALLBACK_HTML_URL);
+  } catch (error) {
+    console.warn('[sw] could not re-warm the offline page', error);
+  }
+}
+
+const endsSession = ({ url }: { url: URL }) =>
+  url.origin === self.location.origin && SESSION_ENDING_PATHS.has(url.pathname);
+
+const endSessionHandler = async ({
+  request,
+  event,
+}: {
+  request: Request;
+  event: ExtendableEvent;
+}) => {
+  const response = await fetch(request);
+  // A redirect means the session ended (a navigation sees it as an opaque
+  // redirect, htmx's XHR as a followed one); a refused deletion is a 401 page.
+  // Deleted before answering, so the redirect's next page cannot race it.
+  if (response.type === 'opaqueredirect' || response.redirected) {
+    console.info('[sw] session ended, dropping cached pages');
+    await self.caches.delete(PAGES_CACHE);
+    event.waitUntil(rewarmOfflinePage());
+  }
+  return response;
+};
+
+registerRoute(endsSession, endSessionHandler, 'GET');
+registerRoute(endsSession, endSessionHandler, 'POST');
 
 registerRoute(isPageRequest, pages);
 
@@ -151,10 +195,9 @@ warmStrategyCache({ urls: [FALLBACK_HTML_URL], strategy: pages });
 // public/js/connectivity.js turns into the offline banner.
 setCatchHandler(async ({ request }) => {
   const wantsPage =
-    request.mode === 'navigate' ||
-    request.headers.get('HX-Boosted') === 'true';
+    request.mode === 'navigate' || request.headers.get('HX-Boosted') === 'true';
   if (wantsPage) {
-    const cache = await self.caches.open('pages-v1');
+    const cache = await self.caches.open(PAGES_CACHE);
     const fallback = await cache.match(FALLBACK_HTML_URL);
     if (fallback) return fallback;
   }

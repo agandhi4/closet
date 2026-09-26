@@ -13,7 +13,6 @@ import type { HelperOptions } from 'handlebars';
 import { join } from 'path';
 import { AppModule, DEFAULT_TRUSTED_PROXIES } from './app.module';
 import { Logger } from 'nestjs-pino';
-import { AuthContextService } from './auth/auth-context.service';
 import { ViewContextService } from './view-context/view-context.service';
 import { isStaticPath } from './static-prefixes';
 import { GarmentColor } from './wardrobe/garment-color.enum';
@@ -26,6 +25,9 @@ import { Logger as NestLogger } from '@nestjs/common';
 import type { Db } from './db/client';
 import { DB } from './db/db.module';
 import { webPlugin } from './web/plugin';
+import { FileService } from './file/file-service.abstract';
+import { createSessionResolver } from './web/auth/session';
+import { createSessionTokens } from './web/auth/tokens';
 import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
 
@@ -75,14 +77,9 @@ export async function createApp(): Promise<NestFastifyApplication> {
       'Bootstrap',
     );
 
-  // One session resolution per request: the JWT is verified and the user
-  // loaded here and nowhere else (guards and views read req.auth). Static
-  // paths skip everything, so asset requests never touch the database.
-  // Express-like res.locals equivalent: https://github.com/fastify/fastify/issues/303
-  const authContextService = app.get(AuthContextService);
-  const viewContextService = app.get(ViewContextService);
-  const fastify = app.getHttpAdapter().getInstance();
   const config = app.get(ConfigService);
+  const db = app.get<Db>(DB);
+  const fastify = app.getHttpAdapter().getInstance();
 
   // CSRF: every POST/PUT/PATCH/DELETE, Nest route or web route, must come
   // from this site's own pages. A root hook added before app.init(), so it
@@ -94,9 +91,23 @@ export async function createApp(): Promise<NestFastifyApplication> {
       logger: new NestLogger('Security'),
     }),
   );
-  // Per-route brute-force limits (routes opt in); before the web plugin so
-  // its routes see the plugin's onRoute hook.
+  // Per-route brute-force limits (login, registration, password changes);
+  // before the web plugin so its routes see the plugin's onRoute hook.
   await registerRateLimit(fastify, new NestLogger('RateLimit'));
+
+  // One session resolution per request: the JWT is verified and the user
+  // loaded here and nowhere else (guards and views read req.auth). Static
+  // paths skip everything, so asset requests never touch the database.
+  // Express-like res.locals equivalent: https://github.com/fastify/fastify/issues/303
+  const tokens = createSessionTokens(
+    config.getOrThrow<string>('ACCESS_TOKEN_SECRET'),
+  );
+  const resolveSession = createSessionResolver({
+    db,
+    tokens,
+    logger: new NestLogger('Session'),
+  });
+  const viewContextService = app.get(ViewContextService);
   // Declared up front so every request object has the same shape; the hook
   // below fills them (both stay undefined on static paths).
   fastify.decorateRequest('auth', undefined);
@@ -107,7 +118,7 @@ export async function createApp(): Promise<NestFastifyApplication> {
   // are unaffected (guards run inside Nest's handler).
   fastify.addHook('preValidation', async (req, reply) => {
     if (isStaticPath(req.url)) return;
-    req.auth = await authContextService.resolve(req);
+    req.auth = await resolveSession(req);
     reply.locals = viewContextService.buildContext(req, req.auth);
   });
 
@@ -152,16 +163,19 @@ export async function createApp(): Promise<NestFastifyApplication> {
 
   // Ported features (src/web/), beside Nest's routes on the same instance.
   // Last, so the root hooks and plugins above (same-origin check, rate
-  // limits, session, security headers, cookies, compression, body parsers)
+  // limits, body parsers, session, security headers, cookies, compression)
   // are in place for its routes.
   await fastify.register(webPlugin, {
     config: {
       appName: config.getOrThrow<string>('APP_NAME'),
       iconName: config.getOrThrow<string>('ICON_NAME'),
       timeZone: config.getOrThrow<string>('APP_TIMEZONE'),
+      registrationDisabled: config.getOrThrow<boolean>('DISABLE_REGISTRATION'),
     },
     logger: new NestLogger('Web'),
-    db: app.get<Db>(DB),
+    db,
+    tokens,
+    files: app.get<FileService>(FileService),
   });
 
   return app;

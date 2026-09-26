@@ -1,13 +1,16 @@
 import { EntityManager, MikroORM } from '@mikro-orm/core';
+import { eq } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { OutgoingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { User } from '../../src/dal/entity/user.entity';
 import type { Db } from '../../src/db/client';
 import { DB } from '../../src/db/db.module';
+import { user } from '../../src/db/schema';
+import { hashPassword } from '../../src/web/auth/passwords';
+import { insertUser } from '../../src/web/auth/queries';
 import { createScratchDatabase } from '../support/scratch-database';
 
 /**
@@ -57,7 +60,6 @@ const BASE_ENV: Env = {
 
 export const TEST_PASSWORD = 'Password123!';
 export const OWNER_EMAIL = 'owner@example.com';
-
 /** The origin inject()'s requests are addressed to (Host: localhost:80). */
 export const APP_ORIGIN = 'http://localhost';
 
@@ -116,7 +118,10 @@ export interface TestApp {
   db: Db;
   /** A fresh identity map per call, so reads see what the app flushed. */
   em: () => EntityManager;
-  /** POST /auth/register; returns the session cookie for later requests. */
+  /**
+   * POST /auth/register (a seeded row plus a login when DISABLE_REGISTRATION
+   * is on); returns the session cookie for later requests.
+   */
   register: (email: string, password?: string) => Promise<string>;
   /** POST /auth/login; returns the session cookie for later requests. */
   login: (email: string, password?: string) => Promise<string>;
@@ -188,8 +193,25 @@ export async function createTestApp(
     return `access_token=${token.value}`;
   };
 
-  const register = async (email: string, password = TEST_PASSWORD) =>
+  const db = app.get<Db>(DB);
+  const login = async (email: string, password = TEST_PASSWORD) =>
     sessionFrom(
+      await inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email, password },
+        headers: uniqueClient(),
+        anonymous: true,
+      }),
+      'login',
+    );
+  const registrationDisabled = process.env.DISABLE_REGISTRATION === 'true';
+  const register = async (email: string, password = TEST_PASSWORD) => {
+    if (registrationDisabled) {
+      await insertUser(db, email, await hashPassword(password));
+      return login(email, password);
+    }
+    return sessionFrom(
       await inject({
         method: 'POST',
         url: '/auth/register',
@@ -199,13 +221,15 @@ export async function createTestApp(
       }),
       'register',
     );
+  };
 
   try {
     const cookie = await register(OWNER_EMAIL);
-    const user = await orm.em
-      .fork()
-      .findOneOrFail(User, { email: OWNER_EMAIL });
-    owner = { id: user.id, email: OWNER_EMAIL, cookie };
+    const [row] = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, OWNER_EMAIL));
+    owner = { id: row.id, email: OWNER_EMAIL, cookie };
   } catch (error) {
     await app.close();
     await database.drop();
@@ -218,20 +242,10 @@ export async function createTestApp(
     dataPath,
     owner,
     inject,
-    db: app.get<Db>(DB),
+    db,
     em: () => orm.em.fork(),
     register,
-    login: async (email: string, password = TEST_PASSWORD) =>
-      sessionFrom(
-        await inject({
-          method: 'POST',
-          url: '/auth/login',
-          payload: { email, password },
-          headers: uniqueClient(),
-          anonymous: true,
-        }),
-        'login',
-      ),
+    login,
     cleanup: async () => {
       await app.close();
       await database.drop();
