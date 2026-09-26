@@ -5,10 +5,8 @@ import { createGarment, jpegPhoto, uploadPhoto } from './garments';
 import { TestApp } from './harness';
 
 /**
- * Shared by pages.auth-off.spec.ts and pages.auth-on.spec.ts (one app per
- * AUTH_ENABLED value, see CLAUDE.md Gotchas): the fixture both render against,
- * the route table with the status each auth mode documents, and the checks
- * every rendered page must pass.
+ * Used by pages.spec.ts: the fixture every page renders against, the route
+ * table, and the checks every rendered page must pass.
  */
 
 /** A `lang.KEY` that reached the HTML untranslated. */
@@ -71,51 +69,39 @@ export async function createPageFixture(
 
 export interface PageRoute {
   url: string;
-  /** Expected status with AUTH_ENABLED=false (no session exists). */
-  authOff: number;
-  /** Expected status with AUTH_ENABLED=true and a signed-in user. */
-  authOn: number;
+  /** @Public(): renders for an anonymous visitor too, instead of a login redirect. */
+  public: boolean;
 }
 
-/**
- * Every GET route that renders a full page. Account-only pages (AuthGuard,
- * RequireSessionGuard) do not exist with auth off: 404, rendered by
- * ErrorViewFilter as a full error page.
- */
+/** Every GET route that renders a full page; all render for a signed-in user. */
 export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
-  const both = (url: string): PageRoute => ({ url, authOff: 200, authOn: 200 });
-  const accountOnly = (url: string): PageRoute => ({
-    url,
-    authOff: 404,
-    authOn: 200,
-  });
+  const app = (url: string): PageRoute => ({ url, public: false });
+  const open = (url: string): PageRoute => ({ url, public: true });
   return [
-    both('/wardrobe'),
-    both('/wardrobe?archived=true'),
-    both('/wardrobe/new'),
-    both(`/wardrobe/${f.garmentId}`),
-    both(`/wardrobe/${f.garmentId}/edit`),
-    both(`/wardrobe/${f.garmentId}/clone`),
-    both('/outfits'),
-    both('/outfits/new'),
-    both(`/outfits/${f.outfitId}`),
-    both(`/outfits/${f.outfitId}/edit`),
-    both('/calendar'),
-    both('/about'),
-    both('/offline.html'),
-    both('/auth/login'),
-    both('/auth/register'),
-    both('/auth/reset'),
-    both('/auth/reset-code?email=alice%40example.com'),
-    accountOnly('/auth/profile'),
-    accountOnly('/auth/update-email'),
-    accountOnly('/auth/delete-account'),
-    accountOnly('/wardrobe-share/manage'),
-    // With auth off no invite can exist, so the landing renders its
-    // "not found" state; with auth on the token is a live invite.
-    both(`/wardrobe-share/invite/${inviteToken}`),
-    both(`/share?shareableId=${f.garmentShareableId}&type=garment`),
-    both(`/share?shareableId=${f.outfitShareableId}&type=outfit`),
+    app('/wardrobe'),
+    app('/wardrobe?archived=true'),
+    app('/wardrobe/new'),
+    app(`/wardrobe/${f.garmentId}`),
+    app(`/wardrobe/${f.garmentId}/edit`),
+    app(`/wardrobe/${f.garmentId}/clone`),
+    app('/outfits'),
+    app('/outfits/new'),
+    app(`/outfits/${f.outfitId}`),
+    app(`/outfits/${f.outfitId}/edit`),
+    app('/calendar'),
+    app('/auth/profile'),
+    app('/auth/update-email'),
+    app('/auth/delete-account'),
+    app('/wardrobe-share/manage'),
+    open('/about'),
+    open('/offline.html'),
+    open('/auth/login'),
+    open('/auth/register'),
+    open('/auth/reset'),
+    open('/auth/reset-code?email=alice%40example.com'),
+    open(`/wardrobe-share/invite/${inviteToken}`),
+    open(`/share?shareableId=${f.garmentShareableId}&type=garment`),
+    open(`/share?shareableId=${f.outfitShareableId}&type=outfit`),
   ];
 }
 

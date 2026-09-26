@@ -1,7 +1,6 @@
 import { EntityRepository } from '@mikro-orm/core';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { FastifyRequest } from 'fastify';
 import { User } from '../dal/entity/user.entity';
@@ -15,9 +14,9 @@ export interface AuthContext {
 /**
  * The one place a request's session is established: cookie -> JWT -> User row
  * -> password fingerprint. Runs once per non-static request from the
- * preHandler hook in app.ts, which stores the result as `req.auth`. Guards
- * and ViewContextService read `req.auth`; none of them touch the cookie, the
- * JwtService or the user repository themselves.
+ * preHandler hook in app.ts, which stores the result as `req.auth`.
+ * SessionGuard, @UserId() and ViewContextService read `req.auth`; none of
+ * them touch the cookie, the JwtService or the user repository themselves.
  */
 @Injectable()
 export class AuthContextService {
@@ -26,14 +25,10 @@ export class AuthContextService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: EntityRepository<User>,
-    private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
   ) {}
 
   async resolve(req: FastifyRequest): Promise<AuthContext | undefined> {
-    if (!this.configService.get<boolean>('AUTH_ENABLED')) {
-      return undefined;
-    }
     const token = req.cookies?.['access_token'];
     if (!token) {
       return undefined;

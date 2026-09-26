@@ -10,7 +10,7 @@ import { createTestApp, multipart, TestApp } from './harness';
  * Write correctness: a photo's bytes, its File row and the garment that
  * points at it either all exist or none of them do.
  */
-describe('garment writes (AUTH_ENABLED=false)', () => {
+describe('garment writes', () => {
   let t: TestApp;
 
   /** Everything under DATA_PATH except the app log. */

@@ -50,7 +50,6 @@ export class ViewContextService {
       iconName,
       siteUrl,
       baseUrl: req.url === '/' ? '' : req.url,
-      authEnabled: this.configService.get<boolean>('AUTH_ENABLED'),
       signupsDisabled: this.configService.get<boolean>('DISABLE_REGISTRATION'),
       pwaEnabled: this.configService.get<boolean>('PWA_ENABLED'),
       // `?v=` on every static URL in layout.hbs; see src/build-info.ts.

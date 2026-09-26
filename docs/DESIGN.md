@@ -183,14 +183,7 @@ erDiagram
 
 ### Auth-Aware Behavior
 
-The app respects the existing `AUTH_ENABLED` configuration flag:
-
-| `AUTH_ENABLED` | List views (`/wardrobe`, `/outfits`)                | Owner assignment on create            | Edit / Delete guards                      |
-| -------------- | --------------------------------------------------- | ------------------------------------- | ----------------------------------------- |
-| `false`        | Show **all** garments / outfits in the database     | `owner` set to `null`                 | No ownership check — any visitor can edit |
-| `true`         | Show only items belonging to the **logged-in user** | `owner` set to the authenticated user | Scoped to owner; 403 on mismatch          |
-
-This means a single-user self-hoster can run with `AUTH_ENABLED=false` and get a zero-friction experience, while the hosted cloud deployment runs with `AUTH_ENABLED=true` to enforce per-user isolation.
+Upstream made accounts optional through an `AUTH_ENABLED` flag, with owner-less data visible to every visitor when it was off. This fork removed the flag on 2026-09-25: login is always required. Every route needs a session except the public ones (login, registration, the share and invite landing pages, images); list views show only the signed-in user's items (or a wardrobe shared with them), `owner` is always the authenticated user, and edits are scoped to the owner (403 on mismatch).
 | `GET` | `/share/garment/:shareableId` | Public garment share view |
 | `GET` | `/share/outfit/:shareableId` | Public outfit share view (extends existing `/share` route) |
 

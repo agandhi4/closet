@@ -3,7 +3,7 @@ import { User } from '../../src/dal/entity/user.entity';
 import { createGarment } from './garments';
 import { createTestApp, TestApp } from './harness';
 
-describe('wardrobe sharing (AUTH_ENABLED=true)', () => {
+describe('wardrobe sharing', () => {
   let t: TestApp;
   let alice: { id: number; cookie: string };
   let bob: { id: number; cookie: string };
@@ -40,7 +40,7 @@ describe('wardrobe sharing (AUTH_ENABLED=true)', () => {
   };
 
   beforeAll(async () => {
-    t = await createTestApp({ AUTH_ENABLED: 'true' });
+    t = await createTestApp();
     alice = {
       cookie: await t.register('alice@example.com'),
       id: await userId('alice@example.com'),

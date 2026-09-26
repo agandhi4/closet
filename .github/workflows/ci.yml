@@ -78,10 +78,9 @@ jobs:
       DATABASE_USER: test
       DATABASE_PASS: Password123
       DATABASE_SCHEMA: postgres-test
-      # As production: auth and the PWA on, so the login and service worker
-      # specs run instead of skipping. Web Push needs an https: SITE_URL as its
-      # VAPID subject; nothing is fetched from it.
-      AUTH_ENABLED: "true"
+      # As production: the PWA on, so the service worker specs run instead of
+      # skipping. Web Push needs an https: SITE_URL as its VAPID subject;
+      # nothing is fetched from it.
       PWA_ENABLED: "true"
       SITE_URL: https://closet.test
       ACCESS_TOKEN_SECRET: ci-only-secret

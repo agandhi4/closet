@@ -12,7 +12,7 @@ const exists = (path: string) =>
     () => false,
   );
 
-describe('wardrobe (AUTH_ENABLED=false)', () => {
+describe('wardrobe', () => {
   let t: TestApp;
 
   beforeAll(async () => {

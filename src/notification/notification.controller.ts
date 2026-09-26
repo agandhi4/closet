@@ -1,17 +1,7 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { type PushSubscription } from 'web-push';
-import { AuthGuard } from '../auth/auth.guard';
-import { RequireSessionGuard } from '../auth/require-session.guard';
-import { Payload } from '../auth/dto/payload.dto';
-import { User } from '../auth/user.decorator';
+import { UserId } from '../auth/user.decorator';
 import { NotificationService } from './notification.service';
 import { PushNotificationDto } from './dto/pushNotification.dto';
 
@@ -27,31 +17,29 @@ export class NotificationController {
     return this.configService.getOrThrow<string>('PUBLIC_VAPID_KEY');
   }
 
-  @UseGuards(AuthGuard)
+  // public/js/webPush.js fetches this and the key above; without a session
+  // SessionGuard answers the fetch with a 401.
   @Post('subscribe')
   async postSubscribe(
     @Headers('user-agent') userAgent: string,
-    @User() payload: Payload,
+    @UserId() userId: number,
     @Body() body: PushSubscription,
   ) {
     await this.notificationService.addUserWebPushNotificationSubscription(
-      payload.userId,
+      userId,
       body,
       userAgent,
     );
   }
 
-  // Submitted by the htmx form on the chat page, so a logged-out user is sent
-  // to login. /subscribe stays a 401 because public/js/webPush.js fetches it.
-  @UseGuards(RequireSessionGuard)
   @Post('test')
-  async postTest(@User() payload: Payload) {
+  async postTest(@UserId() userId: number) {
     await this.notificationService.sendWebPushNotification(
       {
         title: 'Test Web Push',
         body: 'body',
       } as PushNotificationDto,
-      payload.userId,
+      userId,
     );
   }
 }

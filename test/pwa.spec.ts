@@ -20,8 +20,8 @@ test.describe('installed app delivery', () => {
     'service workers are only reliable in chromium here',
   );
 
-  // Production runs with auth on: without a session every page below would
-  // be the login page (which also loads bundle.css, so the first test passed
+  // Login is always required: without a session every page below would be
+  // the login page (which also loads bundle.css, so the first test passed
   // on the wrong page).
   test.beforeEach(async ({ page }) => {
     await signIn(page, 'pwa-test');

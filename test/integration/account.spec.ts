@@ -4,7 +4,7 @@ import { EmailService } from '../../src/email/email.service';
 import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
 
 /**
- * Account flows with AUTH_ENABLED=true, end to end through the real
+ * Account flows, end to end through the real
  * controllers: inline registration validation, logout, changing the email,
  * the delete-account page, login failures, and the whole password reset
  * (EmailService stubbed at its one public method, the PIN read from the
@@ -24,7 +24,7 @@ function sessionSetCookie(res: LightMyRequestResponse): string {
   return cookie;
 }
 
-describe('account (AUTH_ENABLED=true)', () => {
+describe('account', () => {
   let t: TestApp;
   let sendEmail: jest.SpyInstance;
 
@@ -40,6 +40,7 @@ describe('account (AUTH_ENABLED=true)', () => {
       url: '/auth/login',
       payload: { email, password },
       headers: client,
+      anonymous: true,
     });
 
   const sessionCookie = (res: LightMyRequestResponse) => {
@@ -60,7 +61,7 @@ describe('account (AUTH_ENABLED=true)', () => {
     (await t.em().findOneOrFail(User, { email })).password;
 
   beforeAll(async () => {
-    t = await createTestApp({ AUTH_ENABLED: 'true' });
+    t = await createTestApp();
     // No EMAIL_TRANSPORT in tests, so the real transporter does not exist.
     // AuthService holds this same singleton, so the spy sees every reset mail.
     sendEmail = jest
@@ -190,7 +191,11 @@ describe('account (AUTH_ENABLED=true)', () => {
       expect(cleared?.expires?.getTime()).toBeLessThanOrEqual(Date.now());
 
       // What the browser sends after applying that Set-Cookie: nothing.
-      const next = await t.inject({ method: 'GET', url: '/wardrobe' });
+      const next = await t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        anonymous: true,
+      });
       expect(next.statusCode).toBe(302);
       expect(next.headers.location).toBe('/auth/login');
     });
@@ -391,7 +396,7 @@ describe('account (AUTH_ENABLED=true)', () => {
       expect(await passwordHash(email)).not.toBe(hashBefore);
 
       // The old token's pwf no longer matches the stored hash.
-      expect(await profileStatus(oldSession)).toBe(401);
+      expect(await profileStatus(oldSession)).toBe(302);
       expect(
         sessionCookie(await postLogin(email, TEST_PASSWORD)),
       ).toBeUndefined();

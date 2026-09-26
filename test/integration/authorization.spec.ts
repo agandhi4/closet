@@ -13,8 +13,8 @@ import { createGarment, jpegPhoto, pngCutout, uploadPhoto } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
 
 /**
- * The object-level authorization matrix with AUTH_ENABLED=true. One owner
- * holds a garment (with a photo), an outfit and a calendar entry; every
+ * The object-level authorization matrix. One owner (the harness's default
+ * user) holds a garment (with a photo), an outfit and a calendar entry; every
  * route that takes one of their ids (plus the `?ownerId=` wardrobe routes)
  * is requested by the owner, a MANAGE grantee, a VIEW grantee, a registered
  * stranger and an anonymous visitor, with and without `?ownerId=<owner>`.
@@ -504,7 +504,7 @@ const CASES: Case[] = ROUTES.flatMap((route) =>
   ),
 );
 
-describe('authorization matrix (AUTH_ENABLED=true)', () => {
+describe('authorization matrix', () => {
   let t: TestApp;
   const actors = {} as Record<ActorName, { id?: number; cookie?: string }>;
   /** Read-only and refused cases share it; successful writes get their own. */
@@ -640,12 +640,12 @@ describe('authorization matrix (AUTH_ENABLED=true)', () => {
   };
 
   beforeAll(async () => {
-    t = await createTestApp({ AUTH_ENABLED: 'true' });
+    t = await createTestApp();
     [photo, cutout] = await Promise.all([
       jpegPhoto(320, 240),
       pngCutout(320, 240),
     ]);
-    actors.owner = await signUp('owner@example.com');
+    actors.owner = t.owner;
     actors.manager = await signUp('manager@example.com');
     actors.viewer = await signUp('viewer@example.com');
     actors.stranger = await signUp('stranger@example.com');
@@ -669,6 +669,7 @@ describe('authorization matrix (AUTH_ENABLED=true)', () => {
     const res = await t.inject({
       ...request,
       headers: { ...request.headers, ...(cookie ? { cookie } : {}) },
+      anonymous: actor === 'anonymous',
     });
     const after = await snapshot();
 

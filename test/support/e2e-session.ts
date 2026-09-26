@@ -5,9 +5,8 @@ export const E2E_PASSWORD = 'Password123!';
 /**
  * Registers a fresh user through the real endpoint, which leaves its session
  * cookie in the page's context (page.request shares the context's cookies).
- * With AUTH_ENABLED=false the server ignores the session, so specs that call
- * this run unchanged in either mode. CI runs the browser tier with auth on,
- * as production does.
+ * Login is always required, so every spec that opens an app page calls this
+ * first.
  */
 export async function signIn(page: Page, prefix: string): Promise<string> {
   const email = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;

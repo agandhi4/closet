@@ -17,7 +17,7 @@ import { createTestApp, TestApp } from './harness';
  * clash with a pending addressed invite) are refused without a half-made
  * share. Every test uses fresh grantees so shares never interact.
  */
-describe('wardrobe share lifecycle (AUTH_ENABLED=true)', () => {
+describe('wardrobe share lifecycle', () => {
   let t: TestApp;
   let owner: Account;
   let garmentId: number;
@@ -75,6 +75,7 @@ describe('wardrobe share lifecycle (AUTH_ENABLED=true)', () => {
       url,
       payload,
       headers: account ? { cookie: account.cookie } : {},
+      anonymous: !account,
     });
 
   const accept = (token: string, account?: Account) =>
@@ -148,7 +149,7 @@ describe('wardrobe share lifecycle (AUTH_ENABLED=true)', () => {
   };
 
   beforeAll(async () => {
-    t = await createTestApp({ AUTH_ENABLED: 'true' });
+    t = await createTestApp();
     owner = await signUp('owner');
     garmentId = await createGarment(t, {
       name: 'Owner coat',

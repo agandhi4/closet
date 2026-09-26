@@ -7,9 +7,10 @@ import sharp from 'sharp';
 import { createScratchDatabase } from '../test/support/scratch-database';
 
 /**
- * Builds the app, boots dist/main.js with auth off, seeds one garment with a
- * photo through the real endpoints, then runs autocannon against the pages a
- * user actually loads. Results are written per target so
+ * Builds the app, boots dist/main.js, registers a user and seeds one garment
+ * with a photo through the real endpoints, then runs autocannon against the
+ * pages that user actually loads, with their session cookie (so every page
+ * request pays the real session resolution). Results are written per target so
  * `test:load:compare` can diff each one against the saved baseline.
  *
  * LOAD_TEST_DURATION (seconds per target, default 5) is the only knob; the
@@ -67,7 +68,9 @@ async function main() {
       ...process.env,
       ...database.env,
       NODE_ENV: 'production',
-      AUTH_ENABLED: 'false',
+      // A load test must be able to create its user whatever the caller's
+      // environment says.
+      DISABLE_REGISTRATION: 'false',
       DATA_PATH: dataPath,
     },
   });
@@ -81,15 +84,22 @@ async function main() {
   try {
     await waitForServer(`${BASE_URL}/healthz`, server, () => stderr);
 
-    const thumbUrl = await seedGarment();
+    const cookie = await signIn();
+    const thumbUrl = await seedGarment(cookie);
     const targets: Target[] = [
-      { name: 'wardrobe', url: `${BASE_URL}/wardrobe` },
+      { name: 'wardrobe', url: `${BASE_URL}/wardrobe`, headers: { cookie } },
       {
         name: 'wardrobe-fragment',
         url: `${BASE_URL}/wardrobe`,
-        headers: { 'HX-Request': 'true' },
+        headers: { cookie, 'HX-Request': 'true' },
       },
-      { name: 'outfits-new', url: `${BASE_URL}/outfits/new` },
+      {
+        name: 'outfits-new',
+        url: `${BASE_URL}/outfits/new`,
+        headers: { cookie },
+      },
+      // Images are public and skip the session hook: no cookie, as a browser
+      // fetching a cached share image would.
       { name: 'thumb', url: `${BASE_URL}${thumbUrl}` },
     ];
 
@@ -142,15 +152,37 @@ async function main() {
   }
 }
 
+/** Registers the load-test user; returns its `access_token=...` cookie. */
+async function signIn(): Promise<string> {
+  const password = 'LoadTest123!';
+  const res = await fetch(`${BASE_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      email: 'load-test@example.com',
+      password,
+      confirmPassword: password,
+    }),
+    redirect: 'manual',
+  });
+  const token = res.headers
+    .getSetCookie()
+    .find((cookie) => cookie.startsWith('access_token='));
+  if (!token) {
+    throw new Error(`Registering the load-test user failed: ${res.status}`);
+  }
+  return token.split(';')[0];
+}
+
 /**
  * The two requests the garment form makes (POST /wardrobe, then the photo),
  * as in test/integration/garments.ts. Returns the versioned thumb URL the
  * wardrobe grid renders for it.
  */
-async function seedGarment(): Promise<string> {
+async function seedGarment(cookie: string): Promise<string> {
   const created = await fetch(`${BASE_URL}/wardrobe`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie },
     body: JSON.stringify({ name: 'Load test shirt', category: 'shirt' }),
     redirect: 'manual',
   });
@@ -170,6 +202,7 @@ async function seedGarment(): Promise<string> {
   );
   const uploaded = await fetch(`${BASE_URL}/wardrobe/${id}/photo`, {
     method: 'POST',
+    headers: { cookie },
     body: photo,
   });
   if (!uploaded.ok) {
@@ -178,7 +211,9 @@ async function seedGarment(): Promise<string> {
     );
   }
 
-  const html = await (await fetch(`${BASE_URL}/wardrobe`)).text();
+  const html = await (
+    await fetch(`${BASE_URL}/wardrobe`, { headers: { cookie } })
+  ).text();
   const thumb = /\/file\/thumb\/[A-Za-z0-9._-]+\?v=\d+/.exec(html)?.[0];
   if (!thumb) {
     throw new Error('The wardrobe page does not show the seeded thumb');
