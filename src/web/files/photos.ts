@@ -48,6 +48,19 @@ function decoder(raw?: DecodedHeic['raw']): Sharp {
   return sharp({ limitInputPixels: MAX_INPUT_PIXELS, ...(raw && { raw }) });
 }
 
+/** Pixels Photos made itself (a decoded original, a mask), under the same limit. */
+function rawImage(
+  pixels: Buffer,
+  width: number,
+  height: number,
+  channels: 1 | 3 | 4,
+): Sharp {
+  return sharp(pixels, {
+    limitInputPixels: MAX_INPUT_PIXELS,
+    raw: { width, height, channels },
+  });
+}
+
 /**
  * The source side of a transcode failed (undecodable bytes, truncated
  * upload) as opposed to the storage side. Uploads map it to a 400; a thumb
@@ -329,6 +342,83 @@ export class Photos {
       return undefined;
     }
     return outcome.state.version;
+  }
+
+  /**
+   * The server model's input for a stored photo: the original as stored
+   * (1080 px, already decoded, HEIC included) stretched to `size` x `size`
+   * RGB, 3 bytes a pixel. Stretched rather than padded, as the model's own
+   * preprocessing and the benchmark did; saveModelCutout stretches the mask
+   * back. A 404 HttpError when the original is gone.
+   */
+  async cutoutInput(fileName: string, size: number): Promise<Buffer> {
+    const source = await this.getOrNotFound(fileName);
+    const transformer = decoder()
+      .removeAlpha()
+      .resize(size, size, { fit: 'fill', kernel: 'lanczos3' })
+      .raw();
+    source.on('error', (error) => transformer.destroy(error));
+    return source.pipe(transformer).toBuffer();
+  }
+
+  /**
+   * A server job's result (the queue, src/cutout/queue.ts): `mask`, a
+   * `maskSize` square of 0-255 alpha from the model, becomes the photo's
+   * cutout, stored only while the state machine accepts `succeed` for the
+   * photo version the job started for (never over an edit or a replaced
+   * photo). The outcome says which.
+   */
+  async saveModelCutout(
+    fileName: string,
+    mask: Buffer,
+    maskSize: number,
+    jobVersion: number,
+  ): Promise<CutoutOutcome> {
+    const bytes = await this.composeCutout(fileName, mask, maskSize);
+    return this.writeCutout(fileName, { type: 'succeed', jobVersion }, bytes);
+  }
+
+  // The original's pixels with the mask, stretched back to their size, as
+  // alpha, centred on a transparent square: the shape of every
+  // browser-made cutout, which the mask editor (it pads the original the
+  // same way to paint it back) and the square tiles rely on.
+  private async composeCutout(
+    fileName: string,
+    mask: Buffer,
+    maskSize: number,
+  ): Promise<Buffer> {
+    const source = await this.getOrNotFound(fileName);
+    const decode = decoder().removeAlpha().raw();
+    source.on('error', (error) => decode.destroy(error));
+    const { data: rgb, info } = await source
+      .pipe(decode)
+      .toBuffer({ resolveWithObject: true });
+    const { width, height } = info;
+    const alpha = await rawImage(mask, maskSize, maskSize, 1)
+      .resize(width, height, { fit: 'fill' })
+      // Without it sharp emits a single-channel input as 3-channel sRGB.
+      .extractChannel(0)
+      .raw()
+      .toBuffer();
+    // Joined, then read back, before extend(): sharp orders a pipeline's
+    // operations itself, and a channel join must not run after the padding.
+    const rgba = await rawImage(rgb, width, height, 3)
+      .joinChannel(alpha, { raw: { width, height, channels: 1 } })
+      .raw()
+      .toBuffer();
+    const side = Math.max(width, height);
+    const left = Math.floor((side - width) / 2);
+    const top = Math.floor((side - height) / 2);
+    return rawImage(rgba, width, height, 4)
+      .extend({
+        left,
+        right: side - width - left,
+        top,
+        bottom: side - height - top,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .webp({ quality: IMAGE_QUALITY })
+      .toBuffer();
   }
 
   /**
