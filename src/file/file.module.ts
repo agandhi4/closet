@@ -5,7 +5,6 @@ import type { Db } from '../db/client';
 import { DB } from '../db/db.module';
 import { PROJECT_ROOT } from '../project-root';
 import { createPhotos, Photos } from '../web/files/photos';
-import { FileUrlService } from './file-url/file-url.service';
 
 /**
  * Nest's handle on src/web/files: the process's one Photos instance, built
@@ -37,8 +36,7 @@ import { FileUrlService } from './file-url/file-url.service';
           new Logger('Photos'),
         ),
     },
-    FileUrlService,
   ],
-  exports: [Photos, FileUrlService],
+  exports: [Photos],
 })
 export class FileModule {}

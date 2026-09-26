@@ -9,7 +9,6 @@ import { DalModule } from './dal/dal.module';
 import { DbModule } from './db/db.module';
 import { FileModule } from './file/file.module';
 import { I18nModule } from 'nestjs-i18n';
-import { OpenGraphModule } from './open-graph/open-graph.module';
 import { WardrobeModule } from './wardrobe/wardrobe.module';
 import { WardrobeShareModule } from './wardrobe-share/wardrobe-share.module';
 import { LoggerModule } from 'nestjs-pino';
@@ -182,7 +181,6 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     DbModule,
     DalModule,
     FileModule,
-    OpenGraphModule,
     WardrobeModule,
     WardrobeShareModule,
     ViewContextModule,

@@ -49,6 +49,9 @@ export interface LayoutProps {
   title?: string;
   ogTitle?: string;
   ogDescription?: string;
+  /** The page's own link preview (the share page); the request URL and app icon otherwise. */
+  ogUrl?: string;
+  ogImage?: string;
   children?: Child;
 }
 
@@ -57,6 +60,8 @@ export function Layout({
   title,
   ogTitle = ctx.appName,
   ogDescription = t('APP_DESCRIPTION'),
+  ogUrl = ctx.ogUrl,
+  ogImage = ctx.ogImage,
   children,
 }: LayoutProps) {
   // Every first-party static URL carries ?v=appVersion (src/build-info.ts):
@@ -76,19 +81,19 @@ export function Layout({
         <link rel="canonical" href={ctx.canonicalUrl} />
         {/* https://ogp.me/ */}
         <meta property="og:locale" content="en_US" />
-        <meta property="og:url" content={ctx.ogUrl} />
+        <meta property="og:url" content={ogUrl} />
         <meta property="og:type" content="website" />
         <meta property="og:title" content={ogTitle} />
         <meta property="og:description" content={ogDescription} />
-        <meta property="og:image" content={ctx.ogImage} />
+        <meta property="og:image" content={ogImage} />
         <meta property="og:image:width" content="1000" />
         <meta property="og:image:height" content="1000" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta property="twitter:domain" content={ctx.siteUrl} />
-        <meta property="twitter:url" content={ctx.ogUrl} />
+        <meta property="twitter:url" content={ogUrl} />
         <meta name="twitter:title" content={ogTitle} />
         <meta name="twitter:description" content={ogDescription} />
-        <meta name="twitter:image" content={ctx.ogImage} />
+        <meta name="twitter:image" content={ogImage} />
         <meta property="og:site_name" content={ctx.appName} />
 
         <link rel="icon" href={`/favicon.ico${v}`} sizes="48x48" />
