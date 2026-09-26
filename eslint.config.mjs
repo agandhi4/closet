@@ -39,9 +39,8 @@ export default tseslint.config(
       'no-unsafe-optional-chaining': 'off',
       complexity: ['warn', { max: 10 }],
       'max-depth': ['warn', { max: 3 }],
-      // Vitest (unplugin-swc) parses every .ts file as TSX once tsconfig sets
-      // `jsx`, and `<T>value` does not parse as TSX: tsc and nest build would
-      // accept a file the test run cannot load.
+      // One assertion style: `<T>value` does not parse in .tsx files, so
+      // `as` everywhere.
       '@typescript-eslint/consistent-type-assertions': [
         'error',
         { assertionStyle: 'as' },

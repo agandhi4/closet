@@ -18,9 +18,6 @@ COPY src ./src
 COPY views ./views
 COPY public ./public
 COPY tsconfig*.json ./
-COPY nest-cli.json .
-# SWC's JSX settings for the .tsx views (nest build merges it into its defaults).
-COPY .swcrc .
 COPY workbox-config.js .
 COPY scripts ./scripts
 
@@ -47,7 +44,6 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/views ./views
 COPY --from=builder /app/public ./public
 # The migrations the app runs at boot (src/db/migrate.ts reads SQL and
 # meta/_journal.json from <root>/drizzle).
@@ -60,4 +56,6 @@ ENV NODE_ENV=production
 
 EXPOSE 3000
 
-CMD [ "npm", "run", "start:prod" ]
+# node itself is PID 1, so `docker stop`'s SIGTERM reaches main.ts, which
+# closes the server and the database pool before exiting.
+CMD [ "node", "dist/main.js" ]

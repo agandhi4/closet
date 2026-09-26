@@ -1,16 +1,13 @@
+// `npm run build`: src/ to dist/ (dist/main.js, dist/maintenance/*.cli.js),
+// type-checked on the way. The JSON the app imports (src/i18n/en/lang.json)
+// is emitted beside the code.
 {
   "extends": "./tsconfig.json",
-  "exclude": [
-    "node_modules",
-    "test",
-    "scripts",
-    "dist",
-    "**/*spec.ts",
-    "**/*spec.tsx",
-    "public",
-    "drizzle.config.ts",
-    "views",
-    "**/playwright.config.ts",
-    "vitest.config.ts",
-  ]
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "incremental": false
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.spec.ts", "src/**/*.spec.tsx"]
 }
