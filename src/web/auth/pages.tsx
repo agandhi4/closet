@@ -4,6 +4,7 @@ import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
+import { PushSettings } from '../push/settings';
 import type { ViewContext } from '../view-context';
 import { ErrorAlert, Field, Fieldset, PostForm, SubmitButton } from './form';
 import type {
@@ -177,6 +178,8 @@ export function ProfilePage(props: {
       <a class="link" href="/auth/delete-account">
         {t('DELETE_ACCOUNT')}
       </a>
+      {/* Web Push needs the service worker, which only PWA_ENABLED serves. */}
+      {props.ctx.pwaEnabled && <PushSettings />}
     </AccountShell>
   );
 }

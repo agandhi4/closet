@@ -10,6 +10,11 @@ import {
   StaleWhileRevalidate,
 } from 'workbox-strategies';
 import { pageCacheKey } from '../../src/htmx/fragment-request';
+import {
+  notificationTarget,
+  parsePushPayload,
+  type PushPayload,
+} from '../../src/web/push/payload';
 
 /**
  * Caching model (public/js/pwa.js is the page side):
@@ -94,9 +99,26 @@ const endSessionHandler = async ({
     console.info('[sw] session ended, dropping cached pages');
     await self.caches.delete(PAGES_CACHE);
     event.waitUntil(rewarmOfflinePage());
+    event.waitUntil(dropPushSubscription());
   }
   return response;
 };
+
+// A signed-out device receives nobody's notifications: the subscription goes
+// with the session. The server's row is removed when its push service next
+// answers 410 (src/web/push/sender.ts), or with the account. Signing in
+// again, the profile page offers to enable them (no new prompt: the
+// permission stays).
+async function dropPushSubscription(): Promise<void> {
+  try {
+    const subscription = await self.registration.pushManager.getSubscription();
+    if (!subscription) return;
+    await subscription.unsubscribe();
+    console.info('[sw] session ended, push subscription dropped');
+  } catch (error) {
+    console.warn('[sw] could not drop the push subscription', error);
+  }
+}
 
 registerRoute(endsSession, endSessionHandler, 'GET');
 registerRoute(endsSession, endSessionHandler, 'POST');
@@ -215,49 +237,65 @@ self.addEventListener('message', (event) => {
   }
 });
 
-// Web Push Notification Handling
-// https://blog.lekoala.be/the-only-snippet-you-will-need-to-deal-with-push-notifications-in-a-service-worker
-// @link https://flaviocopes.com/push-api/
-// @link https://web.dev/push-notifications-handling-messages/
-self.addEventListener('push', function (event) {
-  if (!event.data) {
-    console.log('This push event has no data.');
+// Web Push. The payload is PushPayload (src/web/push/payload.ts), the shape
+// the server's sender writes; anything else is dropped with a warning (a
+// browser may then show its own "updated in the background" notice).
+// https://web.dev/articles/push-notifications-handling-messages
+self.addEventListener('push', (event) => {
+  const payload = readPushPayload(event.data);
+  if (!payload) {
+    console.warn('[sw] push message without a readable payload, ignored');
     return;
   }
-  if (!self.registration || !self.registration.pushManager) {
-    console.log('Push is not supported');
-    return;
-  }
-
-  const eventText = event.data.text();
-  // Specify default options
-  let options = {};
-  let title = '';
-
-  // Support both plain text notification and json
-  if (eventText.substr(0, 1) === '{') {
-    const eventData = JSON.parse(eventText);
-    title = eventData.title;
-
-    // Set specific options
-    // @link https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/showNotification#parameters
-    if (eventData.options) {
-      options = Object.assign(options, eventData.options);
-    }
-
-    // Check expiration if specified
-    if (eventData.expires && Date.now() > eventData.expires) {
-      console.log('Push notification has expired');
-      return;
-    }
-  } else {
-    title = eventText;
-  }
-
-  // Warning: this can fail silently if notifications are disabled at system level
-  // The promise itself resolve to undefined and is not helpful to see if it has been displayed properly
-  const promiseChain = self.registration.showNotification(title, options);
-
-  // With this, the browser will keep the service worker running until the promise you passed in has settled.
-  event.waitUntil(promiseChain);
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      tag: payload.tag,
+      data: { url: payload.url },
+    }),
+  );
 });
+
+function readPushPayload(
+  data: PushMessageData | null,
+): PushPayload | undefined {
+  if (!data) return undefined;
+  try {
+    return parsePushPayload(data.json());
+  } catch {
+    // Not JSON: not a message this app sends.
+    return undefined;
+  }
+}
+
+// A tap opens the notification's page: in a window already showing it, else
+// in the first open window of the app, else a new one. Never off-origin
+// (notificationTarget).
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data: unknown = event.notification.data;
+  const url =
+    typeof data === 'object' && data !== null && 'url' in data
+      ? String(data.url)
+      : '/';
+  event.waitUntil(openWindow(notificationTarget(url, self.location.origin)));
+});
+
+async function openWindow(url: string): Promise<void> {
+  // Controlled windows only (clientsClaim makes that every open page):
+  // navigate() is refused for the others.
+  const windows = await self.clients.matchAll({ type: 'window' });
+  const showing = windows.find((client) => client.url === url);
+  if (showing) {
+    await showing.focus();
+    return;
+  }
+  const [open] = windows;
+  if (open) {
+    const focused = await open.focus();
+    // Null when the browser declines to navigate it (older WebKit): open a
+    // window instead.
+    if (await focused.navigate(url)) return;
+  }
+  await self.clients.openWindow(url);
+}

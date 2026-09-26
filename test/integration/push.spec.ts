@@ -13,7 +13,7 @@ import {
 import webpush, { type PushSubscription } from 'web-push';
 import { userDevice } from '../../src/db/schema';
 import { createTestApp, PWA_ENV, TestApp } from './harness';
-import { expectFragment } from './pages';
+import { expectFragment, expectFullPage } from './pages';
 
 /**
  * Web Push (src/web/push/): subscriptions stored per browser endpoint, the
@@ -414,6 +414,32 @@ describe('web push (PWA_ENABLED=true)', () => {
       expect(res.body).toContain(
         'The test could not be delivered to 1 of your devices.',
       );
+    });
+  });
+
+  describe('profile page', () => {
+    it('renders the notification controls and marks the page signed in', async () => {
+      const res = await t.inject({ method: 'GET', url: '/auth/profile' });
+      expectFullPage(res);
+      expect(res.body).toMatch(/<html[^>]*\bdata-signed-in\b/);
+      expect(res.body).toContain('<push-settings');
+      expect(res.body).toContain('data-action="enable"');
+      expect(res.body).toContain('data-action="disable"');
+      // Every state but "checking" starts hidden; the script picks one.
+      expect(res.body).toMatch(/<p data-show="checking">/);
+      expect(res.body).toMatch(/<p data-show="on" hidden/);
+      expect(res.body).toMatch(/hx-post="\/push\/test"/);
+      expect(res.body).toContain('"push":"/js/push.js?v=');
+    });
+
+    it('a signed-out page is not marked signed in', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/auth/login',
+        anonymous: true,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).not.toMatch(/<html[^>]*\bdata-signed-in\b/);
     });
   });
 });
