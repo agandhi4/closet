@@ -24,15 +24,13 @@ import { AppStatus } from './app-status';
 const HTMX_CONFIG = { disableInheritance: true, historyCacheSize: 3 };
 
 // Bare specifiers for every ES module the pages import, so the versioned URL
-// lives here once. Page-specific modules (sortablejs, background removal) are
-// only fetched by the page that imports them.
+// lives here once. Page-specific modules (sortablejs, the garment page's
+// mask-editor and photo-input) are only fetched by the page that imports
+// them.
 function importMap(version: string) {
   const v = `?v=${version}`;
   return {
     imports: {
-      'onnxruntime-web': `/modules/onnxruntime-web/dist/ort.all.bundle.min.mjs${v}`,
-      'onnxruntime-web/webgpu': `/modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs${v}`,
-      '@imgly/background-removal': `/modules/background-removal/index.mjs${v}`,
       sortablejs: `/modules/modular/sortable.esm.js${v}`,
       'workbox-window': `/modules/workbox-window.prod.mjs${v}`,
       // pwa.js imports these two only where they do something.

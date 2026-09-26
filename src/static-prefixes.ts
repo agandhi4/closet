@@ -7,7 +7,6 @@ export const STATIC_PREFIXES = [
   '/modules/',
   '/assets/',
   '/js/',
-  '/bg-removal-models/',
   '/file/',
 ] as const;
 

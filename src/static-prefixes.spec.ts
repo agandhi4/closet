@@ -4,10 +4,8 @@ import { isStaticPath } from './static-prefixes';
 describe('isStaticPath', () => {
   it.each([
     '/modules/htmx.min.js',
-    '/modules/background-removal/index.js',
     '/assets/icon.png',
     '/js/mask-editor.js',
-    '/bg-removal-models/model.onnx',
     '/file/8d755fce.webp?v=3',
     '/file/nobg/8d755fce.webp',
     '/file/thumb/8d755fce.webp?v=1',
@@ -31,6 +29,8 @@ describe('isStaticPath', () => {
     '/modules',
     '/filebrowser',
     '/assetsx',
+    // The retired in-browser model's root: a 404 page now, not a static path.
+    '/bg-removal-models/model.onnx',
   ])('treats %s as an app route', (url) => {
     expect(isStaticPath(url)).toBe(false);
   });
