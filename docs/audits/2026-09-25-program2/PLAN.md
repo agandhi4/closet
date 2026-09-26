@@ -8,12 +8,11 @@ quick wins, server-side background removal (BiRefNet 512) with the in-browser mo
 move to linux-box. Summary and numbers: docs/PROJECT_LOG.md (2026-09-26). The sections below are the
 plan as written, kept as the record of what was decided and why.
 
-Still open:
-- Stale-while-revalidate pages with a freshness indicator (and their cleanup on logout).
-- The unminified sortable (31 KB) and the install dialog's screenshots (a product call).
-- What Web Push is for (candidate: a morning reminder of today's planned outfit).
-- Backups: the separate homelab effort (homelab repo, docs/backups-effort.md).
-- Grafana on the NAS allows anonymous admin (homelab).
+Still open (tracked as GitHub issues since 2026-09-26; the issues are the source of truth):
+- #2 Stale-while-revalidate pages with a freshness indicator (and their cleanup on logout).
+- #3 The unminified sortable (31 KB); #4 the install dialog's screenshots (a product call).
+- #5 What Web Push is for (candidate: a morning reminder of today's planned outfit).
+- Backups and Grafana's anonymous admin: issues in the private homelab repo.
 
 Sources: the audit2-*.md reports in this folder; the homelab stack and backup report lives in the
 private homelab repo (docs/audits/2026-09-25-closet-stack-and-backups.md) because this repo is public.
