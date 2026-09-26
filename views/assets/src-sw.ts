@@ -147,7 +147,7 @@ registerRoute(
   }),
 );
 
-// Garment photos: FileController serves them immutable under a versioned
+// Garment photos: src/web/files/routes.ts serves them immutable under a versioned
 // URL, so cached bytes are never stale. Only <img> loads are cached, so a
 // watermark preview fetched by a share scraper never fills the quota.
 registerRoute(
