@@ -2,7 +2,7 @@ import { EntityManager } from '@mikro-orm/knex';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { describe, expect, it, vi } from 'vitest';
-import { FileService } from '../file/file-service.abstract';
+import type { Photos } from '../web/files/photos';
 import {
   RECONCILE_CRON_JOB,
   StorageReconciliationService,
@@ -18,7 +18,7 @@ const build = (maintenanceEnabled: boolean) => {
         key === 'MAINTENANCE_ENABLED' ? maintenanceEnabled : undefined,
       ),
     } as unknown as ConfigService,
-    {} as FileService,
+    {} as Photos,
     {} as EntityManager,
     schedulerRegistry as unknown as SchedulerRegistry,
   );

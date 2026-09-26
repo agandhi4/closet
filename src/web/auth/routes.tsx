@@ -57,7 +57,7 @@ const ProfileQuery = Type.Object({
  */
 export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
-  { config, db, tokens, files, logger },
+  { config, db, tokens, photos, logger },
   done,
 ) => {
   // DISABLE_REGISTRATION: every registration route sends the visitor to the
@@ -322,7 +322,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // bytes the nightly reconciliation removes; the account is gone.
       for (const fileName of fileNames) {
         try {
-          await files.deleteVariants(fileName);
+          await photos.deleteVariants(fileName);
         } catch (error) {
           logger.error(
             `Could not remove photo ${fileName} of deleted user ${id}`,

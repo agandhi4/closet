@@ -1,7 +1,7 @@
 import { and, between, eq, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { outfit, outfitCalendar } from '../../db/schema';
-import { imageUrl } from '../../file/file-url/image-url';
+import { imageUrl } from '../files/image-url';
 import type { IsoDate } from './calendar-date';
 import type { CalendarEntry } from './calendar-view';
 

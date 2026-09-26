@@ -2,7 +2,7 @@
 // hook in app.ts skips auth resolution and view-context building for them,
 // so a page load's dozens of asset requests cost zero JWT verifications and
 // zero user queries. Keep in step with the @fastify/static registrations in
-// app.ts and the image routes in FileController.
+// app.ts and the image routes in src/web/files/routes.ts.
 export const STATIC_PREFIXES = [
   '/modules/',
   '/assets/',
@@ -24,7 +24,7 @@ export const STATIC_FILES = [
   '/llms-full.txt',
 ] as const;
 
-// Every /file/** route is an image variant served by FileController without
+// Every /file/** route is an image served by src/web/files/routes.ts without
 // a session; a new page under that prefix would need its own carve-out here.
 export function isStaticPath(url: string): boolean {
   const path = url.split('?')[0];

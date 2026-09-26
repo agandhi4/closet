@@ -13,6 +13,7 @@ import {
   RedirectToLoginException,
 } from './auth/redirect-to-login.exception';
 import { ErrorViewFilter } from './error-view.filter';
+import { HttpError } from './web/errors';
 
 describe('ErrorViewFilter', () => {
   let filter: ErrorViewFilter;
@@ -82,6 +83,31 @@ describe('ErrorViewFilter', () => {
         statusCode: 404,
         path: '/wardrobe',
         appName: 'Closet',
+      }),
+    );
+  });
+
+  // Plain modules (src/web/files) throw the web layer's HttpError into the
+  // Nest services that still call them.
+  it("renders the web layer's HttpError with its status and message", async () => {
+    await filter.catch(new HttpError(400, 'Unreadable image'), host());
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.view).toHaveBeenCalledWith(
+      'error',
+      expect.objectContaining({ statusCode: 400, message: 'Unreadable image' }),
+    );
+  });
+
+  it('answers anything else with a 500 without detail', async () => {
+    await filter.catch(new Error('connection refused at 10.0.0.5'), host());
+
+    expect(response.status).toHaveBeenCalledWith(500);
+    expect(response.view).toHaveBeenCalledWith(
+      'error',
+      expect.objectContaining({
+        statusCode: 500,
+        message: 'Internal server error',
       }),
     );
   });

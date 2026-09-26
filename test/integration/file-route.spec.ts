@@ -2,8 +2,10 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Garment } from '../../src/dal/entity/garment.entity';
-import { variantFileName } from '../../src/file/image-variant';
-import { createGarment, jpegPhoto, uploadPhoto } from './garments';
+import { variantFileName } from '../../src/web/files/image-variant';
+import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
+import { createGarment, jpegPhoto, photoRow, uploadPhoto } from './garments';
 import { createTestApp, TestApp } from './harness';
 
 /**
@@ -37,6 +39,41 @@ describe('/file route and request logging', () => {
     expect(await status(`/file/${photoName}?v=1`)).toBe(200);
     expect(await status(`/file/thumb/${photoName}?v=1`)).toBe(200);
     expect(await status(`/file/nobg/${photoName}?v=1`)).toBe(200);
+  });
+
+  it('serves every variant as immutable WebP for a year', async () => {
+    for (const prefix of ['/file', '/file/nobg', '/file/thumb']) {
+      const res = await t.inject({
+        method: 'GET',
+        url: `${prefix}/${photoName}?v=1`,
+        anonymous: true,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toBe('image/webp');
+      expect(res.headers['cache-control']).toBe(
+        'public, max-age=31536000, immutable',
+      );
+    }
+  });
+
+  it('is a 404 for a well-formed name with no photo behind it', async () => {
+    expect(await status(`/file/${randomUUID()}.webp?v=1`)).toBe(404);
+    expect(await status(`/file/thumb/${randomUUID()}.webp?v=1`)).toBe(404);
+  });
+
+  it('serves the share preview of a photo by its share id, signed out', async () => {
+    const row = await photoRow(t, photoName);
+    const res = await t.inject({
+      method: 'GET',
+      url: `/file/watermark/${row!.shareableId}`,
+      anonymous: true,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('image/jpeg');
+    expect(res.headers['cache-control']).toBe('public, max-age=86400');
+    expect((await sharp(res.rawPayload).metadata()).format).toBe('jpeg');
+
+    expect(await status(`/file/watermark/${randomUUID()}`)).toBe(404);
   });
 
   it.each([

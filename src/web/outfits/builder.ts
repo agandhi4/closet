@@ -1,4 +1,4 @@
-import type { ImageRef } from '../../file/file-url/image-url';
+import type { ImageRef } from '../files/image-url';
 import { GarmentCategory } from '../../wardrobe/garment-category.enum';
 import { t, type StringKey } from '../i18n';
 

@@ -1,12 +1,13 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { Db } from '../db/client';
-import type { FileService } from '../file/file-service.abstract';
 import { isStaticPath } from '../static-prefixes';
 import { createSessionHook } from './auth/require-session';
 import { authRoutes } from './auth/routes';
 import type { SessionTokens } from './auth/tokens';
 import { calendarRoutes } from './calendar/routes';
 import { createErrorHandler } from './errors';
+import { fileRoutes } from './files/routes';
+import type { Photos } from './files/photos';
 import { loggableUrl } from './loggable-url';
 import type { WebLogger } from './logger';
 import { outfitRoutes } from './outfits/routes';
@@ -32,8 +33,12 @@ export interface WebOptions {
   logger: WebLogger;
   db: Db;
   tokens: SessionTokens;
-  /** Photo storage, still a Nest provider; account deletion unlinks through it. */
-  files: Pick<FileService, 'deleteVariants'>;
+  /**
+   * The process's one Photos (its thumb single-flight is shared with the
+   * Nest garment code, which gets it from FileModule until garments are
+   * ported): /file/** serves through it, account deletion unlinks through it.
+   */
+  photos: Photos;
 }
 
 /**
@@ -92,4 +97,5 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
       sender: createPushSender({ db: options.db, logger, vapid }),
     });
   }
+  await app.register(fileRoutes, options);
 };

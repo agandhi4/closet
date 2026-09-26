@@ -2,9 +2,9 @@
 //   original  <uuid>.webp        the upload, 1080px inside, q90
 //   nobg      <uuid>-nobg.webp   background-removed cutout, same size, q90
 //   thumb     <uuid>-thumb.webp  400px inside, q80, derived from nobg if present
-// Only the original has a File row; the others are derived on disk and
-// addressed through variantFileName. Used by FileService, FileController and
-// the imageUrl template helper.
+// Only the original has a `file` row; the others are derived on disk and
+// addressed through variantFileName. Used by Photos, the /file routes,
+// reconciliation and imageUrl().
 export const IMAGE_VARIANTS = ['original', 'nobg', 'thumb'] as const;
 
 export type ImageVariant = (typeof IMAGE_VARIANTS)[number];
@@ -26,9 +26,8 @@ export function variantFileName(
 }
 
 // Stored names are `<uuid>.webp` plus the two derived suffixes (see
-// FileService.storeImageFromFileUpload). Anything else under DATA_PATH
-// (app.log) is not a photo and reconciliation must
-// never touch it.
+// Photos.storeUpload). Anything else under DATA_PATH (app.log) is not a
+// photo: the /file routes never serve it and reconciliation never touches it.
 const STORED_NAME =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-(nobg|thumb))?\.webp$/i;
 
@@ -38,7 +37,7 @@ export interface ParsedStoredName {
   variant: ImageVariant;
 }
 
-/** Used by StorageReconciliationService to map any stored object to its File row. */
+/** The one definition of a stored photo name: the /file routes and reconciliation. */
 export function parseStoredName(name: string): ParsedStoredName | undefined {
   const match = STORED_NAME.exec(name);
   if (!match) return undefined;

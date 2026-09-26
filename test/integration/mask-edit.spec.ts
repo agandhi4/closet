@@ -2,10 +2,15 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { File } from '../../src/dal/entity/file.entity';
 import { Garment } from '../../src/dal/entity/garment.entity';
-import { variantFileName } from '../../src/file/image-variant';
-import { createGarment, jpegPhoto, pngCutout, uploadPhoto } from './garments';
+import { variantFileName } from '../../src/web/files/image-variant';
+import {
+  createGarment,
+  jpegPhoto,
+  photoRow,
+  pngCutout,
+  uploadPhoto,
+} from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
 
 describe('mask edit (POST /wardrobe/:id/nobg)', () => {
@@ -57,8 +62,7 @@ describe('mask edit (POST /wardrobe/:id/nobg)', () => {
     expect(thumbAfter.equals(thumbBefore)).toBe(false);
     expect((await sharp(thumbAfter).metadata()).hasAlpha).toBe(true);
 
-    const file = await t.em().findOneOrFail(File, { fileName });
-    expect(file.version).toBe(2);
+    expect((await photoRow(t, fileName))?.version).toBe(2);
 
     const grid = await t.inject({ method: 'GET', url: '/wardrobe' });
     expect(grid.body).toContain(`/file/thumb/${fileName}?v=2`);

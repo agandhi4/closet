@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Garment } from '../../src/dal/entity/garment.entity';
 import { User } from '../../src/dal/entity/user.entity';
-import { variantFileName } from '../../src/file/image-variant';
+import { variantFileName } from '../../src/web/files/image-variant';
 import { jpegPhoto, uploadPhoto } from './garments';
 import { createTestApp, TestApp } from './harness';
 

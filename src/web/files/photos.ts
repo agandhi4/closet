@@ -1,0 +1,432 @@
+import type { MultipartFile } from '@fastify/multipart';
+import { randomUUID } from 'node:crypto';
+import { PassThrough, type Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import sharp, { type Sharp } from 'sharp';
+import type { Db } from '../../db/client';
+import { HttpError } from '../errors';
+import type { WebLogger } from '../logger';
+import { decodeHeic, isHeicUpload } from './heic';
+import {
+  IMAGE_VARIANTS,
+  type ImageVariant,
+  variantFileName,
+} from './image-variant';
+import {
+  bumpPhotoVersion,
+  findPhotoByShareableId,
+  type NewPhotoRow,
+} from './queries';
+import { PhotoStorage } from './storage';
+
+const IMAGE_MAX_PX = 1080;
+const IMAGE_QUALITY = 90;
+const THUMB_MAX_PX = 400;
+const THUMB_QUALITY = 80;
+
+/**
+ * The source side of a transcode failed (undecodable bytes, truncated
+ * upload) as opposed to the storage side. Uploads map it to a 400; a thumb
+ * rebuild hitting it means our own stored original is corrupt.
+ */
+export class UnreadableImageError extends Error {
+  constructor(readonly cause: unknown) {
+    super(`Unreadable image: ${String(cause)}`);
+    this.name = 'UnreadableImageError';
+  }
+}
+
+export interface StoreUploadOptions {
+  /** Pre-chosen `<uuid>.webp`, so a cutout can be stored under it concurrently. */
+  fileName?: string;
+  /** The caller calls regenerateThumb after the cutout is stored too. */
+  deferThumb?: boolean;
+}
+
+export interface PhotosConfig {
+  /** DATA_PATH: where the photo files live. */
+  dataPath: string;
+  /** MAX_HEIC_BYTES: HEIC parts are buffered whole, so this bounds memory. */
+  maxHeicBytes: number;
+  /** Absolute path of the app icon composited onto share previews. */
+  watermarkIconPath: string;
+  /** WATERMARK_ENABLED: composite the icon; the resize happens regardless. */
+  watermarkEnabled: boolean;
+}
+
+/**
+ * Builds the one Photos instance of a process (its thumb single-flight map
+ * must be shared by every caller) and prepares its directory: creates it
+ * and sweeps stale partial writes. Framework-free: FileModule wraps it for
+ * the Nest garment code today; a plain entry point calls it the same way.
+ */
+export function createPhotos(
+  config: PhotosConfig,
+  db: Db,
+  logger: WebLogger,
+): Photos {
+  const storage = new PhotoStorage(config.dataPath, logger);
+  storage.prepare();
+  logger.log(`Photos stored under ${config.dataPath}`);
+  return new Photos(storage, db, logger, config);
+}
+
+/**
+ * Everything about a photo: variant naming, transcoding, thumbnail
+ * derivation, versions, and the bytes on disk (PhotoStorage). Every photo is
+ * a set of WebP files sharing one base name; only the original has a `file`
+ * row (see image-variant.ts).
+ *
+ * Bytes are written before any row exists. storeUpload and copy return the
+ * row to insert (NewPhotoRow) instead of inserting it, so the caller commits
+ * it in the same transaction as the garment that references it and calls
+ * deleteVariants if that transaction fails: nothing on disk is ever pointed
+ * at by a half-written state. Rows are removed by their owners' transactions
+ * too; deleteVariants after commit unlinks the bytes (the database cascade
+ * never does, CLAUDE.md Gotchas).
+ */
+export class Photos {
+  // Pending thumb write per original file name. Writes are chained rather
+  // than deduplicated so that on a fresh upload, where the original and the
+  // cutout land concurrently, the cutout's thumb always wins; lazy reads join
+  // the write already in flight instead of starting a duplicate.
+  private readonly thumbJobs = new Map<string, Promise<void>>();
+  private watermark: Promise<Buffer> | undefined;
+
+  constructor(
+    readonly storage: PhotoStorage,
+    private readonly db: Db,
+    private readonly logger: WebLogger,
+    private readonly config: Pick<
+      PhotosConfig,
+      'maxHeicBytes' | 'watermarkIconPath' | 'watermarkEnabled'
+    >,
+  ) {}
+
+  /**
+   * Transcodes the upload to the original variant and derives its thumb.
+   * Returns the row to insert; on failure nothing is left in storage.
+   *
+   * `fileName` + `deferThumb` is the photo half of a photo+cutout upload:
+   * the cutout is stored concurrently under the same name, so a thumb built
+   * here would come from the photo and be thrown away. The caller builds the
+   * one thumb with regenerateThumb once both halves are stored.
+   */
+  async storeUpload(
+    upload: MultipartFile | undefined,
+    userId: number,
+    { fileName, deferThumb = false }: StoreUploadOptions = {},
+  ): Promise<NewPhotoRow> {
+    if (!upload) throw new HttpError(400, 'No file uploaded');
+    const storedFileName = fileName ?? `${randomUUID()}.webp`;
+    const source = await this.uploadSource(upload);
+    await this.transcodeUpload(
+      source,
+      this.imageTransformer().autoOrient(),
+      storedFileName,
+    );
+    if (!deferThumb) {
+      try {
+        await this.regenerateThumb(storedFileName);
+      } catch (error) {
+        await this.deleteVariants(storedFileName);
+        throw error;
+      }
+    }
+    this.logger.log(`Stored upload ${storedFileName} for user ${userId}`);
+    return newPhotoRow(storedFileName, userId);
+  }
+
+  /**
+   * Byte-for-byte copy of the original and, when present, the cutout under a
+   * fresh name, with a new thumb; returns the row to insert, as storeUpload
+   * does. Undefined when the source is gone from storage (a row can outlive
+   * its bytes).
+   */
+  async copy(
+    sourceFileName: string,
+    userId: number,
+  ): Promise<NewPhotoRow | undefined> {
+    const source = await this.storage.get(sourceFileName);
+    if (!source) {
+      this.logger.warn(`Photo copy: source ${sourceFileName} is missing`);
+      return undefined;
+    }
+
+    const newFileName = `${randomUUID()}.webp`;
+    try {
+      await this.storage.store(newFileName, source);
+      const nobgSource = await this.storage.get(
+        variantFileName(sourceFileName, 'nobg'),
+      );
+      if (nobgSource) {
+        await this.storage.store(
+          variantFileName(newFileName, 'nobg'),
+          nobgSource,
+        );
+      }
+      await this.regenerateThumb(newFileName);
+    } catch (error) {
+      await this.deleteVariants(newFileName);
+      throw error;
+    }
+    this.logger.log(`Copied photo ${sourceFileName} to ${newFileName}`);
+    return newPhotoRow(newFileName, userId);
+  }
+
+  /**
+   * Writes the background-removed cutout for `originalFileName` and returns
+   * the photo's version afterwards (undefined for a new upload, or when no
+   * row has that name).
+   *
+   * `newUpload`: the cutout belongs to a photo stored in the same request
+   * (see storeUpload's deferThumb); no client has seen this name yet, so
+   * there is no version to bump, and the caller builds the thumb once both
+   * halves are stored.
+   *
+   * Otherwise (a mask edit) clients may already hold the old nobg and thumb
+   * under the current version: the thumb is rewritten first and the version
+   * bumped after, so no client can cache a stale thumb under the new version.
+   */
+  async storeCutout(
+    stream: Readable,
+    originalFileName: string,
+    { newUpload }: { newUpload: boolean },
+  ): Promise<number | undefined> {
+    const nobgName = variantFileName(originalFileName, 'nobg');
+    await this.transcodeUpload(stream, this.imageTransformer(), nobgName);
+    if (newUpload) {
+      this.logger.log(`Stored cutout ${nobgName}`);
+      return undefined;
+    }
+    await this.regenerateThumb(originalFileName);
+    const version = await bumpPhotoVersion(this.db, originalFileName);
+    if (version === undefined) {
+      this.logger.warn(`Cutout ${nobgName} stored for a photo without a row`);
+    } else {
+      this.logger.log(`Replaced cutout ${nobgName}, now version ${version}`);
+    }
+    return version;
+  }
+
+  /**
+   * Streams a variant, falling back gracefully: a missing cutout serves the
+   * original, a missing thumb is generated on first request (backfill for
+   * photos stored before thumbs existed). A 404 HttpError only when the
+   * original itself is gone.
+   */
+  async getVariant(fileName: string, variant: ImageVariant): Promise<Readable> {
+    switch (variant) {
+      case 'original':
+        return this.getOrNotFound(fileName);
+      case 'nobg':
+        return (
+          (await this.storage.get(variantFileName(fileName, 'nobg'))) ??
+          this.getOrNotFound(fileName)
+        );
+      case 'thumb': {
+        const thumbName = variantFileName(fileName, 'thumb');
+        const existing = await this.storage.get(thumbName);
+        if (existing) return existing;
+        await (this.thumbJobs.get(fileName) ?? this.regenerateThumb(fileName));
+        return this.getOrNotFound(thumbName);
+      }
+    }
+  }
+
+  /** Rewrites the thumb from the cutout if present, else from the original. */
+  regenerateThumb(fileName: string): Promise<void> {
+    const previous = this.thumbJobs.get(fileName) ?? Promise.resolve();
+    const job = previous
+      .catch(() => undefined)
+      .then(() => this.writeThumb(fileName))
+      .finally(() => {
+        if (this.thumbJobs.get(fileName) === job) {
+          this.thumbJobs.delete(fileName);
+        }
+      });
+    this.thumbJobs.set(fileName, job);
+    return job;
+  }
+
+  /** Removes every variant; a failure is logged, never thrown. */
+  async deleteVariants(fileName: string): Promise<void> {
+    for (const variant of IMAGE_VARIANTS) {
+      const name = variantFileName(fileName, variant);
+      await this.storage
+        .delete(name)
+        .catch((error: unknown) =>
+          this.logger.warn(`Failed to delete ${name}: ${String(error)}`),
+        );
+    }
+    this.logger.log(`Deleted variants of ${fileName}`);
+  }
+
+  /**
+   * The share-preview image of the photo behind `shareableId`: the original
+   * as a JPEG within 1080px, with the app icon composited when
+   * WATERMARK_ENABLED. A 404 HttpError when there is no such photo.
+   */
+  async watermarked(shareableId: string): Promise<Readable> {
+    const fileName = await findPhotoByShareableId(this.db, shareableId);
+    if (!fileName) throw new HttpError(404);
+    const transformer = sharp()
+      .jpeg()
+      .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, { fit: sharp.fit.inside });
+    if (this.config.watermarkEnabled) {
+      transformer.composite([
+        { input: await this.watermarkIcon(), gravity: 'southwest' },
+      ]);
+    }
+    const source = await this.getOrNotFound(fileName);
+    // pipe() does not forward a source failure; the reply streams the
+    // transformer, so it must fail with it.
+    source.on('error', (error) => transformer.destroy(error));
+    return source.pipe(transformer);
+  }
+
+  // Built once: the icon does not change while the process runs.
+  private watermarkIcon(): Promise<Buffer> {
+    this.watermark ??= sharp(this.config.watermarkIconPath)
+      .resize(150, 150)
+      .extend({
+        top: 0,
+        bottom: 20,
+        left: 20,
+        right: 0,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .composite([
+        {
+          input: Buffer.from([0, 0, 0, 200]),
+          raw: { width: 1, height: 1, channels: 4 },
+          tile: true,
+          blend: 'dest-in',
+        },
+      ])
+      .toBuffer();
+    return this.watermark;
+  }
+
+  private async getOrNotFound(fileName: string): Promise<Readable> {
+    const stream = await this.storage.get(fileName);
+    if (!stream) throw new HttpError(404);
+    return stream;
+  }
+
+  // The part's bytes in a format sharp reads: the stream itself, or the
+  // decoded JPEG of a HEIC.
+  private async uploadSource(upload: MultipartFile): Promise<Readable> {
+    if (isHeicUpload(upload)) return this.decodeHeicUpload(upload);
+    if (!upload.mimetype?.startsWith('image/')) {
+      // https://github.com/fastify/fastify-multipart/issues/497
+      // An unconsumed multipart stream hangs the request: drain, then refuse.
+      upload.file.resume();
+      throw new HttpError(400, 'Wrong filetype');
+    }
+    return upload.file;
+  }
+
+  // HEIC is the one format sharp cannot read (see heic.ts). The whole part is
+  // buffered, so MAX_HEIC_BYTES bounds memory per upload; the 413 from the cap
+  // passes through, undecodable bytes are the client's error like any other.
+  private async decodeHeicUpload(upload: MultipartFile): Promise<Readable> {
+    const startedAt = Date.now();
+    try {
+      const jpeg = await decodeHeic(upload, this.config.maxHeicBytes);
+      this.logger.debug(
+        `Decoded HEIC ${upload.filename} in ${Date.now() - startedAt}ms`,
+      );
+      return jpeg;
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      this.logger.warn(
+        `Rejected undecodable HEIC upload ${upload.filename}: ${String(error)}`,
+      );
+      throw new HttpError(400, 'Unreadable image');
+    }
+  }
+
+  // Client bytes: an undecodable stream is the client's error, not ours.
+  private async transcodeUpload(
+    source: Readable,
+    transformer: Sharp,
+    targetFileName: string,
+  ): Promise<void> {
+    try {
+      await this.transcode(source, transformer, targetFileName);
+    } catch (error) {
+      if (error instanceof UnreadableImageError) {
+        this.logger.warn(
+          `Rejected unreadable upload for ${targetFileName}: ${String(error.cause)}`,
+        );
+        throw new HttpError(400, 'Unreadable image');
+      }
+      throw error;
+    }
+  }
+
+  private imageTransformer(): Sharp {
+    return sharp()
+      .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, {
+        fit: sharp.fit.inside,
+        withoutEnlargement: true,
+      })
+      .webp({ quality: IMAGE_QUALITY });
+  }
+
+  private async writeThumb(fileName: string): Promise<void> {
+    const source =
+      (await this.storage.get(variantFileName(fileName, 'nobg'))) ??
+      (await this.getOrNotFound(fileName));
+    const thumbName = variantFileName(fileName, 'thumb');
+    const startedAt = Date.now();
+    await this.transcode(
+      source,
+      sharp()
+        .resize(THUMB_MAX_PX, THUMB_MAX_PX, {
+          fit: sharp.fit.inside,
+          withoutEnlargement: true,
+        })
+        .webp({ quality: THUMB_QUALITY }),
+      thumbName,
+    );
+    this.logger.debug(`Wrote ${thumbName} in ${Date.now() - startedAt}ms`);
+  }
+
+  // Runs the source through sharp into storage. Both sides are awaited
+  // together: pipeline() ending the PassThrough is what tells the store that
+  // the body is complete. Whichever side fails first is the root cause; the
+  // other then fails from the destroyed PassThrough and is only drained. A
+  // source-side failure is reported as UnreadableImageError so callers can
+  // tell bad input from storage trouble.
+  private async transcode(
+    source: Readable,
+    transformer: Sharp,
+    targetFileName: string,
+  ): Promise<void> {
+    const passThrough = new PassThrough();
+    const stored = this.storage.store(targetFileName, passThrough);
+    const piped = pipeline(source, transformer, passThrough).catch(
+      (error: unknown) => {
+        throw new UnreadableImageError(error);
+      },
+    );
+    try {
+      await Promise.all([stored, piped]);
+    } catch (error) {
+      passThrough.destroy();
+      await Promise.allSettled([stored, piped]);
+      throw error;
+    }
+  }
+}
+
+function newPhotoRow(fileName: string, userId: number): NewPhotoRow {
+  return {
+    fileName,
+    shareableId: randomUUID(),
+    createdOn: new Date().toISOString(),
+    createdById: userId,
+  };
+}

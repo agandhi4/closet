@@ -1,5 +1,7 @@
+import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { expect } from 'vitest';
+import { file } from '../../src/db/schema';
 import { multipart, TestApp } from './harness';
 
 /**
@@ -80,5 +82,18 @@ export async function uploadPhoto(
   expect(res.statusCode).toBeLessThan(300);
   expect(res.headers['hx-redirect']).toBe(
     `/wardrobe/${garmentId}?photoSaved=1`,
+  );
+}
+
+/** The `file` row of a stored photo, undefined when there is none. */
+export function photoRow(t: TestApp, fileName: string) {
+  return t.db.query.file.findFirst({ where: eq(file.fileName, fileName) });
+}
+
+/** `file` rows, all of them or one user's. */
+export function photoRowCount(t: TestApp, createdById?: number) {
+  return t.db.$count(
+    file,
+    createdById === undefined ? undefined : eq(file.createdById, createdById),
   );
 }
