@@ -174,49 +174,53 @@ function chipStyle(hue: number, worn: boolean): string {
 
 /**
  * The outfit bar (tap to edit the outfit, × to unschedule) and the worn pill.
- * The bar navigates by script because it contains the delete form, which an
- * <a> cannot.
+ * The bar is the edit link's (boosted), stretched over it by its ::after; it
+ * holds the delete form, which an <a> cannot, so the form sits above it.
  */
 function EntryChip({ entry }: { entry: CalendarEntryView }) {
   const editUrl = `/outfits/${entry.outfit.id}/edit?returnTo=/calendar&returnToWeek=${entry.day}`;
   const deleteUrl = `/calendar/${entry.id}/delete`;
+  const name = entry.outfit.name || t('UNTITLED_OUTFIT');
   return (
     <div class="flex items-center gap-2 mb-1">
       <div
-        class="min-w-0 flex-1 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1 leading-tight cursor-pointer"
+        class="relative min-w-0 flex-1 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1 leading-tight"
         style={chipStyle(entry.chipHue, entry.worn)}
-        onclick={`window.location.href=${JSON.stringify(editUrl)}`}
       >
-        {entry.outfit.photoUrls.length > 0 ? (
-          <span class="flex items-center gap-0.5 min-w-0 overflow-hidden flex-1">
-            {entry.outfit.photoUrls.map((src) => (
-              <img
-                src={src}
-                alt=""
-                class="size-6 rounded object-cover shrink-0"
-                width="24"
-                height="24"
-                loading="lazy"
-                decoding="async"
-              />
-            ))}
-          </span>
-        ) : (
-          <span class="truncate flex-1">
-            {entry.outfit.name || t('UNTITLED_OUTFIT')}
-          </span>
-        )}
+        <a
+          href={editUrl}
+          class="flex items-center min-w-0 flex-1 after:absolute after:inset-0"
+          aria-label={name}
+        >
+          {entry.outfit.photoUrls.length > 0 ? (
+            <span class="flex items-center gap-0.5 min-w-0 overflow-hidden flex-1">
+              {entry.outfit.photoUrls.map((src) => (
+                <img
+                  src={src}
+                  alt=""
+                  class="size-6 rounded object-cover shrink-0"
+                  width="24"
+                  height="24"
+                  loading="lazy"
+                  decoding="async"
+                />
+              ))}
+            </span>
+          ) : (
+            <span class="truncate flex-1">{name}</span>
+          )}
+        </a>
         <form
           method="post"
           action={deleteUrl}
           hx-post={deleteUrl}
           hx-confirm={t('CALENDAR_DELETE_CONFIRM')}
           hx-vals={JSON.stringify({ week: entry.day })}
+          class="relative z-10"
         >
           <input type="hidden" name="week" value={entry.day} />
           <button
             type="submit"
-            onclick="event.stopPropagation()"
             class="text-base-content/30 hover:text-error w-5 h-5 flex items-center justify-center rounded hover:bg-error/10 shrink-0 transition-colors"
             aria-label={t('DELETE')}
           >

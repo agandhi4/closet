@@ -74,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Indexes on every relation and lookup column, backfilled on Postgres with `CREATE INDEX CONCURRENTLY`
 - Photo and row writes are one transaction with compensation; deleting a garment removes its files and file row
 - Outfit builder: `/outfits/new` reads one garment per category plus counts instead of the whole wardrobe, each prev/next swap reads one garment instead of the whole category, and rows show the 400px thumbnail instead of the 1080px cutout (which the detail dialog loads only when opened). The list and outfit pages read plain rows in one statement
+- Taps that reloaded the whole app now swap the page in place: an outfit card, a calendar entry, the shared-wardrobe switcher, and the page after archiving or deleting a garment, deleting an outfit or unscheduling one (`HX-Location` instead of `HX-Redirect`). A reload re-ran every script, the service worker update check and the heartbeat, and painted white in between
 - The service worker is a production build (133 KB to 30 KB, 30 KB to 10 KB gzipped, no Workbox debug logging or assertions on every fetch), and navigation preload lets a page's request start while an idle-killed worker boots instead of after
 
 #### Fixed (data and security)

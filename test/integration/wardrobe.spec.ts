@@ -4,7 +4,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { createGarment, garmentRow, jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, imgTags, TestApp } from './harness';
+import { createTestApp, hxLocationPath, imgTags, TestApp } from './harness';
 
 const exists = (path: string) =>
   access(path).then(
@@ -110,7 +110,7 @@ describe('wardrobe', () => {
         url: `/wardrobe/${garmentId}`,
       });
       expect(res.statusCode).toBe(200);
-      expect(res.headers['hx-redirect']).toBe('/wardrobe');
+      expect(hxLocationPath(res)).toBe('/wardrobe');
 
       expect(await garmentRow(t, garmentId)).toBeUndefined();
       expect(await exists(filePath('original'))).toBe(false);

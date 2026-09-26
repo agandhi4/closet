@@ -56,6 +56,28 @@ export function wantsFragment(
   return isFragmentRequest(request.headers);
 }
 
+/**
+ * The answer to an htmx write that ends on another page (archive, delete):
+ * htmx fetches `path` and swaps the body like a boosted link, pushing the
+ * URL, so the document, its scripts and the service worker's page stay
+ * (https://htmx.org/headers/hx-location/). HX-Redirect reloaded all of it.
+ *
+ * The follow-up GET says HX-Boosted because it is a whole-page swap:
+ * isFragmentRequest (the server's routes and the worker's cache key) reads
+ * that header, so the page comes back whole and is cached as the page, and
+ * offline the worker answers it with the offline page. `path` is a same-site
+ * path the server built, never user input.
+ */
+export function navigateTo(reply: FastifyReply, path: string): FastifyReply {
+  const location = {
+    path,
+    target: 'body',
+    swap: 'innerHTML show:top',
+    headers: { 'HX-Boosted': 'true' },
+  };
+  return reply.header('HX-Location', JSON.stringify(location)).send();
+}
+
 function send(
   reply: FastifyReply,
   html: string,

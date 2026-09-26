@@ -3,7 +3,7 @@ import { Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
-import { renderFragment, renderPage } from '../render';
+import { navigateTo, renderFragment, renderPage } from '../render';
 import { IsoDateSchema, RowId } from '../schemas';
 import { viewContext } from '../view-context';
 import { parseIsoDate, parseYearMonth, todayIn } from './calendar-date';
@@ -128,7 +128,8 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // htmx only (hx-confirm): the page reloads on the week the chip was on.
+  // The chip's form (hx-confirm): htmx swaps the page to the week the chip
+  // was on; the same form posted natively gets the 303 there.
   app.post(
     '/calendar/:id/delete',
     { schema: { params: EntryParams, body: WeekBody } },
@@ -138,10 +139,9 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const outcome = await deleteEntry(db, id, ownerId);
       if (outcome !== 'deleted') throw entryNotFound();
       logger.info(`Calendar entry ${id} deleted by user ${ownerId}`);
-      return reply
-        .header('HX-Redirect', weekUrl(request.body?.week))
-        .status(200)
-        .send();
+      const target = weekUrl(request.body?.week);
+      if (request.headers['hx-request']) return navigateTo(reply, target);
+      return reply.redirect(target, 303);
     },
   );
 

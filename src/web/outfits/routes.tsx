@@ -4,7 +4,7 @@ import { sessionUserId } from '../auth/require-session';
 import { parseIsoDate } from '../calendar/calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
-import { renderFragment, renderPage } from '../render';
+import { navigateTo, renderFragment, renderPage } from '../render';
 import { IsoDateSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import { viewContext } from '../view-context';
@@ -267,7 +267,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // htmx only (hx-delete, hx-confirm): the browser goes back to the list.
+  // htmx only (hx-delete, hx-confirm): the page swaps to the list.
   app.delete(
     '/outfits/:id',
     { schema: { params: OutfitParams } },
@@ -276,7 +276,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       if (!(await deleteOutfit(db, id, ownerId))) throw outfitNotFound();
       logger.info(`Outfit ${id} deleted by user ${ownerId}`);
-      return reply.header('HX-Redirect', '/outfits').status(200).send();
+      return navigateTo(reply, '/outfits');
     },
   );
 

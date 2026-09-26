@@ -121,6 +121,17 @@ export function expectFullPage(res: LightMyRequestResponse): void {
   expect(res.body.match(/<meta\s+name="htmx-config"/g)).toHaveLength(1);
   expectNoRawI18nKeys(res);
   expectNativePostForms(res);
+  expectNoScriptNavigation(res);
+}
+
+/**
+ * Navigation is a link or an htmx request, never script setting the
+ * location: that is a full document load, which re-runs every shell script
+ * and the service worker update check, and races a boosted click on a link
+ * inside the element (client audit H4).
+ */
+export function expectNoScriptNavigation(res: LightMyRequestResponse): void {
+  expect(res.body).not.toMatch(/\blocation(\.href)?\s*=/);
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   createTestApp,
   extractImgSrcs,
   hasText,
+  hxLocationPath,
   TestApp,
   unescapeHtml,
 } from './harness';
@@ -288,7 +289,9 @@ describe('calendar', () => {
       const thumbs = extractImgSrcs(thursday);
       expect(thumbs).toHaveLength(1);
       expect(thumbs[0]).toMatch(/^\/file\/thumb\/[0-9a-f-]{36}\.webp\?v=1$/);
-      expect(hasText(thursday, 'Pictured')).toBe(false);
+      // The name only labels the edit link for screen readers.
+      expect(hasText(thursday, '>Pictured<')).toBe(false);
+      expect(hasText(thursday, 'aria-label="Pictured"')).toBe(true);
     });
   });
 
@@ -420,7 +423,7 @@ describe('calendar', () => {
         headers: { ...form({}).headers, 'hx-request': 'true' },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.headers['hx-redirect']).toBe('/calendar?week=2030-10-11');
+      expect(hxLocationPath(res)).toBe('/calendar?week=2030-10-11');
 
       expect(await entryById(drop)).toBeUndefined();
       expect(await entryById(keep)).toBeDefined();
@@ -431,6 +434,19 @@ describe('calendar', () => {
       const columns = dayColumns(await weekPage());
       expect(columns.get('2030-10-11')).not.toContain(`/calendar/${drop}/`);
       expect(columns.get('2030-10-07')).toContain(`/calendar/${keep}/delete`);
+    });
+
+    it('answers a native post (no htmx) with a 303 to the week', async () => {
+      const outfit = await createOutfit('Native delete');
+      const entry = await schedule(outfit, '2030-10-09');
+      const res = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/delete`,
+        ...form({ week: '2030-10-09' }),
+      });
+      expect(res.statusCode).toBe(303);
+      expect(res.headers.location).toBe('/calendar?week=2030-10-09');
+      expect(await entryById(entry)).toBeUndefined();
     });
 
     it('404s an unknown entry', async () => {
@@ -451,7 +467,7 @@ describe('calendar', () => {
         headers: { 'hx-request': 'true' },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.headers['hx-redirect']).toBe('/calendar');
+      expect(hxLocationPath(res)).toBe('/calendar');
       expect(await entryById(entry)).toBeUndefined();
     });
 
