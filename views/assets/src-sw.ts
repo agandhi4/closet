@@ -1,4 +1,5 @@
 import { clientsClaim } from 'workbox-core';
+import * as navigationPreload from 'workbox-navigation-preload';
 import { precacheAndRoute } from 'workbox-precaching';
 import { warmStrategyCache } from 'workbox-recipes';
 import { registerRoute, setCatchHandler } from 'workbox-routing';
@@ -22,7 +23,13 @@ import {
  *    (workbox-config.js), so a repeat visit paints from cache.
  *  - Pages and htmx fragments are NetworkFirst with a short timeout: fresh
  *    when the server is quick, the last copy when it is not, /offline.html
- *    when there is none. Fragments are keyed apart from pages.
+ *    when there is none. Fragments are keyed apart from pages. Navigations
+ *    use the navigation preload response, so the request is already on the
+ *    wire while a cold worker boots.
+ *
+ * Built by `npm run generate:sw` with NODE_ENV=production, which strips
+ * Workbox's development logging and assertions; the console.* calls here are
+ * the worker's only logs.
  *  - Versioned scripts and styles are StaleWhileRevalidate; garment images
  *    are CacheFirst so recently viewed items render offline.
  *  - Anything unmatched (POSTs, /healthz) goes straight to the network.
@@ -35,6 +42,15 @@ declare const self: ServiceWorkerGlobalScope;
 // the new worker must take the open pages so `controlling` fires and
 // pwa.js can reload.
 clientsClaim();
+
+// https://developer.chrome.com/docs/workbox/modules/workbox-navigation-preload
+// The browser starts a navigation's request in parallel with booting the
+// worker (iOS and Android stop idle workers within seconds, so most cold
+// opens boot one). NetworkFirst's fetch answers a navigation with
+// event.preloadResponse when there is one, keeping the 3 s timeout, the
+// cache write and the offline fallback. Only the `pages` route handles GET
+// navigations, so every preload is consumed.
+navigationPreload.enable();
 
 const DAY = 60 * 60 * 24;
 const FALLBACK_HTML_URL = '/offline.html';

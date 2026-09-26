@@ -81,6 +81,41 @@ test.describe('installed app delivery', () => {
     });
   });
 
+  test('navigations use the preload online and the cache or offline page offline', async ({
+    page,
+    context,
+  }) => {
+    await waitForServiceWorker(page);
+    // Enabled in the worker's activate event (views/assets/src-sw.ts).
+    await expect
+      .poll(() =>
+        page.evaluate(async () =>
+          (await navigator.serviceWorker.ready).navigationPreload.getState(),
+        ),
+      )
+      .toMatchObject({ enabled: true });
+
+    const online = await page.goto('/outfits');
+    expect(online?.fromServiceWorker()).toBe(true);
+    expect(online?.status()).toBe(200);
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Outfits' }),
+    ).toBeVisible();
+
+    await context.setOffline(true);
+    // Visited above, so pages-v1 has it: the failed preload falls back to it.
+    await page.goto('/outfits');
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Outfits' }),
+    ).toBeVisible();
+    // Never visited: the offline page.
+    await page.goto('/calendar');
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Offline.' }),
+    ).toBeVisible();
+    await context.setOffline(false);
+  });
+
   test('signing out drops the cached pages', async ({ page }) => {
     await waitForServiceWorker(page);
     await page.goto('/wardrobe');
