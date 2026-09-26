@@ -98,7 +98,7 @@ export abstract class FileService implements FileServiceInterface {
    */
   async storeImageFromFileUpload(
     upload: MultipartFile | undefined,
-    userId?: number,
+    userId: number,
     { fileName, deferThumb = false }: StoreImageOptions = {},
   ): Promise<File> {
     if (!upload) {
@@ -138,7 +138,7 @@ export abstract class FileService implements FileServiceInterface {
    */
   async copyImage(
     sourceFileName: string,
-    userId?: number,
+    userId: number,
   ): Promise<File | undefined> {
     const source = await this.getIfExists(sourceFileName);
     if (!source) {
@@ -256,15 +256,6 @@ export abstract class FileService implements FileServiceInterface {
     this.logger.log(`Deleted variants of ${fileName}`);
   }
 
-  async deleteById(fileId: any, userId: any): Promise<void> {
-    const file = await this.fileRepository.findOneOrFail({
-      id: fileId,
-      createdBy: userId,
-    });
-    await this.deleteVariants(file.fileName);
-    await this.em.removeAndFlush(file);
-  }
-
   async getByShareableId(shareableId: string): Promise<Readable> {
     const file = await this.fileRepository.findOneOrFail({ shareableId });
     return this.get(file.fileName);
@@ -272,7 +263,7 @@ export abstract class FileService implements FileServiceInterface {
 
   // The @BeforeCreate hook on ShareableId runs from the UnitOfWork on insert,
   // so the row is complete once whoever owns the transaction persists it.
-  private newFileRow(fileName: string, userId: number | undefined): File {
+  private newFileRow(fileName: string, userId: number): File {
     return this.fileRepository.create(
       {
         fileName,

@@ -616,7 +616,7 @@ describe('authorization matrix', () => {
       const clone = await t
         .em()
         .findOneOrFail(Garment, cloneId, { populate: ['owner'] });
-      expect(clone.owner?.id).toBe(actors[actor].id);
+      expect(clone.owner.id).toBe(actors[actor].id);
       // Added rows only: nothing that existed (the source) was modified.
       expect(after).toEqual(expect.arrayContaining(before));
     }
@@ -701,7 +701,7 @@ describe('authorization matrix', () => {
       const outfit = await t
         .em()
         .findOneOrFail(Outfit, outfitId, { populate: ['owner', 'garments'] });
-      expect(outfit.owner?.id).toBe(actors[actor].id);
+      expect(outfit.owner.id).toBe(actors[actor].id);
       expect(outfit.garments.getItems()).toHaveLength(0);
 
       const edit = await t.inject({

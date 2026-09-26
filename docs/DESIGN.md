@@ -65,7 +65,7 @@ Represents a single clothing item owned by a user.
 | `size`        | `string?`   | Free-text size (XS/S/M/L/XL or numeric)                   |
 | `notes`       | `string?`   | Free-text notes                                           |
 | `photo`       | `File` FK   | One-to-one relation to the existing `File` entity         |
-| `owner`       | `User?` FK  | Many-to-one; nullable — omitted when `AUTH_ENABLED=false` |
+| `owner`       | `User` FK   | Many-to-one; required (login is always required)          |
 | `outfits`     | `Outfit[]`  | Many-to-many back-reference                               |
 | `flagged`     | `boolean?`  | Inherited from `ShareableId`                              |
 | `banned`      | `boolean?`  | Inherited from `ShareableId`                              |
@@ -84,7 +84,7 @@ Represents a saved combination of garments.
 | `name`        | `string`    | User-provided label, e.g. "Summer Wedding Guest"          |
 | `notes`       | `string?`   | Free-text notes or occasion context                       |
 | `garments`    | `Garment[]` | Many-to-many; the garments that make up this outfit       |
-| `owner`       | `User?` FK  | Many-to-one; nullable — omitted when `AUTH_ENABLED=false` |
+| `owner`       | `User` FK   | Many-to-one; required (login is always required)          |
 | `flagged`     | `boolean?`  | Inherited from `ShareableId`                              |
 | `banned`      | `boolean?`  | Inherited from `ShareableId`                              |
 

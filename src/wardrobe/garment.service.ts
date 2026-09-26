@@ -59,8 +59,12 @@ export class GarmentService {
     return value;
   }
 
+  /**
+   * One wardrobe's garments: `viewOwner`'s when given (the caller has already
+   * checked the requester may view it), otherwise the requester's own.
+   */
   async findAll(
-    userId?: number,
+    userId: number,
     dto: SearchGarmentDto = {},
     viewOwner?: number,
   ): Promise<Garment[]> {
@@ -83,28 +87,15 @@ export class GarmentService {
         : {}),
     };
 
-    if (userId != null) {
-      if (viewOwner != null && viewOwner !== userId) {
-        return this.garmentRepository.find(
-          { owner: { id: viewOwner }, ...searchConditions },
-          { populate: ['photo'], orderBy: { id: 'DESC' } },
-        );
-      }
-      return this.garmentRepository.find(
-        { owner: { id: userId }, ...searchConditions },
-        { populate: ['photo'], orderBy: { id: 'DESC' } },
-      );
-    }
-    // AUTH_ENABLED=false: only return garments that belong to no user
     return this.garmentRepository.find(
-      { owner: null, ...searchConditions },
+      { owner: { id: viewOwner ?? userId }, ...searchConditions },
       { populate: ['photo'], orderBy: { id: 'DESC' } },
     );
   }
 
   async findOne(
     id: number,
-    userId?: number,
+    userId: number,
     viewOwner?: number,
   ): Promise<Garment> {
     const garment = await this.garmentRepository.findOne(id, {
@@ -114,7 +105,7 @@ export class GarmentService {
     // 404 before 403 on purpose. The garment must belong to the wardrobe the
     // request addresses, not merely to some wardrobe the user can see.
     const access = await this.shareService.resolveAccess(userId, viewOwner);
-    if (!access.canView || garment.owner?.id !== access.ownerId) {
+    if (!access.canView || garment.owner.id !== access.ownerId) {
       throw new ForbiddenException();
     }
     return garment;
@@ -129,8 +120,9 @@ export class GarmentService {
     return garment;
   }
 
-  async create(dto: CreateGarmentDto, userId?: number): Promise<Garment> {
-    const photo = await this.storeUploadedPhoto(dto.files, userId);
+  /** `ownerId`: the wardrobe the garment lands in (a MANAGE grantee may add to another's). */
+  async create(dto: CreateGarmentDto, ownerId: number): Promise<Garment> {
+    const photo = await this.storeUploadedPhoto(dto.files, ownerId);
     const garment = await this.commitWithPhoto(photo, (em) =>
       em.create(Garment, {
         name: dto.name,
@@ -142,11 +134,11 @@ export class GarmentService {
         washingDetails: dto.washingDetails,
         dateAquired: dto.dateAquired ? new Date(dto.dateAquired) : undefined,
         photo,
-        owner: userId,
+        owner: ownerId,
       }),
     );
     this.logger.log(
-      `Garment ${garment.id} created for user ${userId}${photo ? ` with photo ${photo.fileName}` : ''}`,
+      `Garment ${garment.id} created for user ${ownerId}${photo ? ` with photo ${photo.fileName}` : ''}`,
     );
     return garment;
   }
@@ -161,7 +153,7 @@ export class GarmentService {
       size?: string;
       notes?: string;
     },
-    userId?: number,
+    userId: number,
   ): Promise<Garment> {
     const source = await this.garmentRepository.findOne(sourceId, {
       populate: ['photo'],
@@ -191,15 +183,15 @@ export class GarmentService {
   }
 
   /**
-   * Distinct brand, size and category values of one wardrobe (ownerless
-   * when auth is off), straight from the database: the list pages call this
-   * next to the filtered list query and must not rescan every row.
+   * Distinct brand, size and category values of one wardrobe, straight from
+   * the database: the list pages call this next to the filtered list query
+   * and must not rescan every row.
    */
-  async findAvailableFilters(userId?: number): Promise<AvailableFilters> {
+  async findAvailableFilters(ownerId: number): Promise<AvailableFilters> {
     const [brands, sizes, categories] = await Promise.all([
-      this.distinctValues('brand', userId),
-      this.distinctValues('size', userId),
-      this.distinctValues('category', userId),
+      this.distinctValues('brand', ownerId),
+      this.distinctValues('size', ownerId),
+      this.distinctValues('category', ownerId),
     ]);
     return {
       brands: brands.sort(),
@@ -210,15 +202,12 @@ export class GarmentService {
 
   private async distinctValues(
     column: 'brand' | 'size' | 'category',
-    userId: number | undefined,
+    ownerId: number,
   ): Promise<string[]> {
     const rows: Record<typeof column, string | null>[] = await this.em
       .createQueryBuilder(Garment)
       .select(column, true)
-      .where({
-        owner: userId != null ? { id: userId } : null,
-        [column]: { $ne: null },
-      })
+      .where({ owner: { id: ownerId }, [column]: { $ne: null } })
       .execute();
     // Empty strings are stored for cleared form fields; they are not values.
     return rows
@@ -226,20 +215,24 @@ export class GarmentService {
       .filter((value): value is string => !!value);
   }
 
+  /**
+   * `ownerId` is the wardrobe the garment belongs to, `requestingUserId` who
+   * asks (the owner or a MANAGE grantee); findOne re-checks both.
+   */
   async update(
     id: number,
     dto: UpdateGarmentDto,
-    userId?: number,
-    requestingUserId?: number,
+    ownerId: number,
+    requestingUserId: number,
   ): Promise<Garment> {
     const photo = dto.files
-      ? await this.storeUploadedPhotoWithCutout(id, dto.files, userId)
+      ? await this.storeUploadedPhotoWithCutout(id, dto.files, ownerId)
       : undefined;
 
     const { garment, replacedPhoto } = await this.commitWithPhoto(
       photo,
       async (em) => {
-        const garment = await this.findOne(id, requestingUserId, userId);
+        const garment = await this.findOne(id, requestingUserId, ownerId);
         const replacedPhoto = photo ? garment.photo : undefined;
         if (photo) {
           garment.photo = photo;
@@ -286,10 +279,10 @@ export class GarmentService {
   async updateNobg(
     id: number,
     nobgPhoto: MultipartFile | undefined,
-    userId?: number,
-    requestingUserId?: number,
+    ownerId: number,
+    requestingUserId: number,
   ): Promise<number | undefined> {
-    const garment = await this.findOne(id, requestingUserId, userId);
+    const garment = await this.findOne(id, requestingUserId, ownerId);
     if (!garment.photo?.fileName || !nobgPhoto) return undefined;
     await this.fileService.storeNobgVariantFromStream(
       nobgPhoto.file,
@@ -305,7 +298,7 @@ export class GarmentService {
   }
 
   /** Garment and its File row go in one transaction; the bytes after commit. */
-  async remove(id: number, userId?: number): Promise<void> {
+  async remove(id: number, userId: number): Promise<void> {
     const photo = await this.em.transactional(async (em) => {
       const garment = await this.findOne(id, userId);
       em.remove(garment);
@@ -316,7 +309,7 @@ export class GarmentService {
     this.logger.log(`Garment ${id} removed by user ${userId}`);
   }
 
-  async archive(id: number, userId?: number): Promise<Garment> {
+  async archive(id: number, userId: number): Promise<Garment> {
     const garment = await this.findOne(id, userId);
     garment.archived = !garment.archived;
     await this.em.flush();
@@ -347,13 +340,13 @@ export class GarmentService {
 
   private async storeUploadedPhoto(
     files: AsyncIterableIterator<MultipartFile> | undefined,
-    userId: number | undefined,
+    ownerId: number,
   ): Promise<File | undefined> {
     if (!files) return undefined;
     let photo: File | undefined;
     for await (const file of files) {
       if (file.fieldname === 'photo') {
-        photo = await this.fileService.storeImageFromFileUpload(file, userId);
+        photo = await this.fileService.storeImageFromFileUpload(file, ownerId);
       } else {
         file.file.resume();
       }
@@ -372,7 +365,7 @@ export class GarmentService {
   private async storeUploadedPhotoWithCutout(
     garmentId: number,
     files: AsyncIterableIterator<MultipartFile>,
-    userId: number | undefined,
+    ownerId: number,
   ): Promise<File | undefined> {
     let photoPromise: Promise<File> | undefined;
     let nobgPromise: Promise<void> | undefined;
@@ -381,7 +374,7 @@ export class GarmentService {
     for await (const file of files) {
       if (file.fieldname === 'photo') {
         photoPromise = startPipeline(
-          this.fileService.storeImageFromFileUpload(file, userId, {
+          this.fileService.storeImageFromFileUpload(file, ownerId, {
             fileName: photoFileName,
             deferThumb: true,
           }),

@@ -37,7 +37,6 @@ export class File extends ShareableId {
     entity: () => User,
     deleteRule: 'cascade',
     ref: true,
-    nullable: true,
   })
-  public createdBy?: Ref<User>;
+  public createdBy!: Ref<User>;
 }

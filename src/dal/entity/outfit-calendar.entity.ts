@@ -32,9 +32,8 @@ export class OutfitCalendar {
     entity: () => User,
     deleteRule: 'cascade',
     ref: true,
-    nullable: true,
   })
-  public owner?: Ref<User>;
+  public owner!: Ref<User>;
 
   /**
    * Null until the user marks this entry as worn.

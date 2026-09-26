@@ -27,11 +27,11 @@ export interface FileServiceInterface {
    */
   storeImageFromFileUpload(
     upload: MultipartFile | undefined,
-    userId?: number,
+    userId: number,
     options?: StoreImageOptions,
   ): Promise<File>;
   /** Same persistence contract as storeImageFromFileUpload. */
-  copyImage(sourceFileName: string, userId?: number): Promise<File | undefined>;
+  copyImage(sourceFileName: string, userId: number): Promise<File | undefined>;
   storeNobgVariantFromStream(
     stream: Readable,
     originalFileName: string,
@@ -41,7 +41,6 @@ export interface FileServiceInterface {
   regenerateThumb(fileName: string): Promise<void>;
   bumpVersion(fileName: string): Promise<number | undefined>;
   deleteVariants(fileName: string): Promise<void>;
-  deleteById(fileId: any, userId: any): Promise<void>;
   get(fileName: string): Promise<Readable>;
   getByShareableId(shareableId: string): Promise<Readable>;
   delete(fileName: string): Promise<void>;

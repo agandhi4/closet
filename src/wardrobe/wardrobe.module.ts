@@ -3,9 +3,7 @@ import { Module } from '@nestjs/common';
 import { Garment } from '../dal/entity/garment.entity';
 import { Outfit } from '../dal/entity/outfit.entity';
 import { OutfitCalendar } from '../dal/entity/outfit-calendar.entity';
-import { User } from '../dal/entity/user.entity';
 import { FileModule } from '../file/file.module';
-import { AuthModule } from '../auth/auth.module';
 import { WardrobeShareModule } from '../wardrobe-share/wardrobe-share.module';
 import { GarmentService } from './garment.service';
 import { OutfitService } from './outfit.service';
@@ -16,10 +14,9 @@ import { OutfitController } from './outfit.controller';
 
 @Module({
   imports: [
-    AuthModule,
     FileModule,
     WardrobeShareModule,
-    MikroOrmModule.forFeature([Garment, Outfit, OutfitCalendar, User]),
+    MikroOrmModule.forFeature([Garment, Outfit, OutfitCalendar]),
   ],
   controllers: [WardrobeController, OutfitController, CalendarController],
   providers: [GarmentService, OutfitService, CalendarService],

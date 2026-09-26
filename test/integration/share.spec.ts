@@ -102,7 +102,7 @@ describe('wardrobe sharing', () => {
     const garment = await t
       .em()
       .findOneOrFail(Garment, garmentId, { populate: ['owner'] });
-    expect(garment.owner?.id).toBe(alice.id);
+    expect(garment.owner.id).toBe(alice.id);
 
     const grid = await t.inject({
       method: 'GET',
