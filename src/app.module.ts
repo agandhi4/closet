@@ -4,8 +4,6 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import Joi from 'joi';
 import type { IncomingMessage } from 'node:http';
 import * as path from 'path';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { SessionGuard } from './auth/session.guard';
 import { DalModule } from './dal/dal.module';
@@ -224,9 +222,7 @@ export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
     ViewContextModule,
     MaintenanceModule,
   ],
-  controllers: [AppController],
   providers: [
-    AppService,
     // https://docs.nestjs.com/security/rate-limiting#rate-limiting
     {
       provide: APP_GUARD,

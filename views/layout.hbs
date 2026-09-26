@@ -1,4 +1,6 @@
 <!DOCTYPE html>
+{{!-- JSX twin: src/web/layout/layout.tsx renders the same shell for ported
+pages. Change both until the last Handlebars page is ported. --}}
 {{!-- locale value is for internationalization comes from the nest-i18n module
 and is provided globally in the ViewContextMiddleware
 https://nestjs-i18n.com/quick-start --}}
@@ -49,7 +51,7 @@ https://nestjs-i18n.com/quick-start --}}
 
     <title>{{#if pageTitle}}{{pageTitle}}{{else}}{{appName}}{{/if}}</title>
     {{! Used inconjunction with service worker sw.js to enable PWA (Progressive
-    Web App) functionality. Served by AppController, not a static file. }}
+    Web App) functionality. Served from config by src/web/shell, not a static file. }}
     <link rel="manifest" href="/manifest.json" />
     {{! Include assets/main.css and build output from TailwindCSS/DaisyUI }}
     <link href="/bundle.css?v={{appVersion}}" rel="stylesheet" />

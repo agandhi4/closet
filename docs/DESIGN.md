@@ -209,5 +209,5 @@ Upstream made accounts optional through an `AUTH_ENABLED` flag, with owner-less 
 ### Phase 4 — Polish & Release
 
 13. Update navbar `views/partials/navbar.hbs` with Wardrobe and Outfits links
-14. The web manifest is served from config (`APP_NAME`, `ICON_NAME`) by `AppController`; there is no static `public/manifest.json`
+14. The web manifest is served from config (`APP_NAME`, `ICON_NAME`) by the shell routes in `src/web/shell`; there is no static `public/manifest.json`
 15. Tag `v0.1.0` and post to r/selfhosted + slow-fashion communities
