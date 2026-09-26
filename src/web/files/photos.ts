@@ -188,8 +188,9 @@ export class Photos {
    * The garment photo form's multipart body: a `photo` part and, when the
    * browser made one, its `nobgPhoto` cutout, stored under one new name with
    * one thumb (from the cutout when there is one). Returns the row to insert
-   * as storeUpload does; undefined when no photo was sent. On any failure
-   * nothing is left in storage. A cutout without its photo is a 400.
+   * as storeUpload does, and whether a cutout came with it; undefined when
+   * no photo was sent. On any failure nothing is left in storage. A cutout
+   * without its photo is a 400.
    *
    * Both pipelines are started inside the `for await` loop and awaited only
    * after it: @fastify/multipart yields live streams, and a part nobody
@@ -202,7 +203,7 @@ export class Photos {
   async storeUploadParts(
     parts: AsyncIterable<MultipartFile>,
     userId: number,
-  ): Promise<NewPhotoRow | undefined> {
+  ): Promise<{ row: NewPhotoRow; withCutout: boolean } | undefined> {
     const fileName = `${randomUUID()}.webp`;
     const { photo, cutout } = await this.startParts(parts, userId, fileName);
     if (!photo) {
@@ -218,7 +219,7 @@ export class Photos {
       // The one thumb, built once both halves are stored so it reads the
       // cutout when there is one (neither pipeline builds its own).
       await this.regenerateThumb(fileName);
-      return stored.value;
+      return { row: stored.value, withCutout: cutout !== undefined };
     } catch (error) {
       await this.deleteVariants(fileName);
       throw error;

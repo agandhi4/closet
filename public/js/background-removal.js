@@ -17,7 +17,7 @@
  * (src/web/layout/layout.tsx).
  */
 
-import { openMaskEditor } from 'mask-editor';
+import { openMaskEditor, squarePadBlob } from 'mask-editor';
 
 let activeProgressHandler = null;
 
@@ -92,27 +92,6 @@ const updateStatusText = (bgStatus, bgStatusText, key) => {
   if (key === 'compute:encode' && bgStatus.dataset.textEncoding) {
     bgStatusText.textContent = bgStatus.dataset.textEncoding;
   }
-};
-
-/**
- * Centre-pads a Blob into a square PNG OffscreenCanvas blob.
- * This matches the layout produced during the initial upload so that
- * the mask editor's restore brush samples the correct pixel positions.
- * @param {Blob} blob
- * @returns {Promise<Blob>}
- */
-const squarePadBlob = async (blob) => {
-  const bitmap = await createImageBitmap(blob);
-  const size = Math.max(bitmap.width, bitmap.height);
-  const canvas = new OffscreenCanvas(size, size);
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(
-    bitmap,
-    Math.floor((size - bitmap.width) / 2),
-    Math.floor((size - bitmap.height) / 2),
-  );
-  bitmap.close();
-  return canvas.convertToBlob({ type: 'image/png' });
 };
 
 export const wireUpPhotoInput = () => {
@@ -221,69 +200,8 @@ export const wireUpPhotoInput = () => {
   });
 };
 
-/**
- * Wires up the edit-mask button on the garment image.
- * Fetches the existing original + nobg images, opens the mask editor,
- * then POSTs only the updated nobg variant to /wardrobe/:id/nobg.
- * The editor is brush work on the existing cutout; no model is involved.
- *
- * Image URLs come from the server (the `imageUrl` helper) and carry the
- * photo's version. Every /file/** response is cached as immutable, so after
- * a successful edit the server's new version is spliced into the URLs: the
- * displayed image and any further edit both read the fresh cutout.
- * @param {{ garmentId: number, originalUrl: string, nobgUrl: string }} opts
- */
-export const wireUpEditMaskBtn = ({ garmentId, originalUrl, nobgUrl }) => {
-  const btn = document.getElementById('editMaskBtn');
-  if (!btn) return;
-
-  const withVersion = (url, version) => {
-    const u = new URL(url, location.origin);
-    u.searchParams.set('v', String(version));
-    return u.pathname + u.search;
-  };
-
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    try {
-      const [origResp, nobgResp] = await Promise.all([
-        fetch(originalUrl),
-        fetch(nobgUrl),
-      ]);
-      const origBlob = await origResp.blob();
-      const nobgBlob = await nobgResp.blob();
-
-      // Square-pad the original to match the layout used during initial upload,
-      // so the restore brush samples from the correct pixel positions.
-      const squaredBlob = await squarePadBlob(origBlob);
-      const squaredFile = new File([squaredBlob], 'original.png', { type: 'image/png' });
-
-      const editedBlob = await openMaskEditor(squaredFile, nobgBlob);
-
-      // openMaskEditor resolves with the exact nobgBlob reference on Skip.
-      if (editedBlob === nobgBlob) return;
-
-      const formData = new FormData();
-      formData.append('nobgPhoto', new File([editedBlob], 'nobg.webp', { type: 'image/webp' }));
-      const resp = await fetch(`/wardrobe/${garmentId}/nobg`, { method: 'POST', body: formData });
-      if (!resp.ok) throw new Error(`POST /wardrobe/${garmentId}/nobg -> ${resp.status}`);
-      const { version } = await resp.json();
-
-      originalUrl = withVersion(originalUrl, version);
-      nobgUrl = withVersion(nobgUrl, version);
-      const img = btn.closest('figure')?.querySelector('img');
-      if (img) img.src = nobgUrl;
-    } catch (err) {
-      console.warn('[edit-mask] Failed:', err);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-};
-
 export default {
   isBgRemovalEnabled,
   warmUp,
   wireUpPhotoInput,
-  wireUpEditMaskBtn,
 };

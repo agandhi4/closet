@@ -78,6 +78,8 @@
   "BG_HINT_TYPICAL_DURATION": "This may take a moment on mobile.",
   "BG_HINT_STILL_WORKING": "Still working. Particularly iPhone's and iPad may take a while..",
   "BG_UNSUPPORTED_PHOTO": "This photo can't be previewed on this device, so it will be saved without a cutout.",
+  "CUTOUT_FAILED": "The background could not be removed.",
+  "CUTOUT_RETRY": "Try again",
   "MASK_EDITOR_TITLE": "Clean up background",
   "MASK_EDITOR_HINT": "Review the result. Use the erase and restore brushes to fix any issues, then tap Accept.",
   "MASK_EDITOR_SKIP": "Skip",

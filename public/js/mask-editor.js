@@ -1,4 +1,93 @@
 /**
+ * The mask editor: brush work on a cutout (erase, or restore from the
+ * original). Used by both background-removal modes: client mode opens it on
+ * the in-browser model's result before upload (background-removal.js), and
+ * the pencil on the garment photo opens it on the stored cutout
+ * (wireUpEditMask), whoever made it.
+ */
+
+/**
+ * Centre-pads a Blob into a square PNG OffscreenCanvas blob.
+ * This matches the layout of every stored cutout (the browser pads the photo
+ * before its model runs; the server pads its cutout the same way, Photos
+ * composeCutout) so that the restore brush samples the right pixels.
+ * @param {Blob} blob
+ * @returns {Promise<Blob>}
+ */
+export const squarePadBlob = async (blob) => {
+  const bitmap = await createImageBitmap(blob);
+  const size = Math.max(bitmap.width, bitmap.height);
+  const canvas = new OffscreenCanvas(size, size);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(
+    bitmap,
+    Math.floor((size - bitmap.width) / 2),
+    Math.floor((size - bitmap.height) / 2),
+  );
+  bitmap.close();
+  return canvas.convertToBlob({ type: 'image/png' });
+};
+
+/**
+ * The pencil (#editMaskBtn) on the garment photo: fetches the stored
+ * original and cutout, opens the editor, then POSTs only the edited cutout
+ * to the button's data-save-url (/wardrobe/:id/nobg, with ?ownerId= in a
+ * shared wardrobe). No model is involved.
+ *
+ * Delegated on `container` (#garment-photo-slot), and the URLs are read from
+ * the button's data attributes at the tap: in server mode the photo is
+ * swapped when its cutout arrives, button included. Every /file/** response
+ * is cached as immutable, so after a save the server's new version is
+ * written into the URLs: the image and any further edit read the new cutout.
+ * @param {HTMLElement | null} container
+ */
+export const wireUpEditMask = (container) => {
+  const withVersion = (url, version) => {
+    const u = new URL(url, location.origin);
+    u.searchParams.set('v', String(version));
+    return u.pathname + u.search;
+  };
+
+  container?.addEventListener('click', async (event) => {
+    const btn = event.target.closest('#editMaskBtn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const { originalUrl, nobgUrl, saveUrl } = btn.dataset;
+      const [origResp, nobgResp] = await Promise.all([
+        fetch(originalUrl),
+        fetch(nobgUrl),
+      ]);
+      const origBlob = await origResp.blob();
+      const nobgBlob = await nobgResp.blob();
+
+      const squaredBlob = await squarePadBlob(origBlob);
+      const squaredFile = new File([squaredBlob], 'original.png', { type: 'image/png' });
+
+      const editedBlob = await openMaskEditor(squaredFile, nobgBlob);
+
+      // openMaskEditor resolves with the exact nobgBlob reference on Skip.
+      if (editedBlob === nobgBlob) return;
+
+      const formData = new FormData();
+      formData.append('nobgPhoto', new File([editedBlob], 'nobg.webp', { type: 'image/webp' }));
+      const resp = await fetch(saveUrl, { method: 'POST', body: formData });
+      if (!resp.ok) throw new Error(`POST ${saveUrl} -> ${resp.status}`);
+      const { version } = await resp.json();
+
+      btn.dataset.originalUrl = withVersion(originalUrl, version);
+      btn.dataset.nobgUrl = withVersion(nobgUrl, version);
+      const img = btn.closest('figure')?.querySelector('img');
+      if (img) img.src = btn.dataset.nobgUrl;
+    } catch (err) {
+      console.warn('[edit-mask] Failed:', err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+};
+
+/**
  * Opens the mask editor dialog for manual background cleanup.
  * @param {File} originalFile - The original (un-processed) image file.
  * @param {Blob} nobgBlob - The background-removed blob from @imgly/background-removal.

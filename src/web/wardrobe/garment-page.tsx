@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import { PostForm } from '../auth/form';
 import { imageUrl } from '../files/image-url';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
@@ -22,40 +23,30 @@ export interface GarmentPageModel {
   canDelete: boolean;
   justCreated: boolean;
   justSavedPhoto: boolean;
+  /** CUTOUT_MODE: who removes the background, and so what the photo form does. */
+  cutoutMode: 'client' | 'server';
 }
 
 const PHOTO_ACCEPT =
   'image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif';
 
 /**
- * The photo form's client side: background removal before upload, the
- * camera button, and the mask editor (public/js/background-removal.js,
- * which downloads nothing until the photo input or camera is touched). An
- * inline module, so it runs again after a boosted navigation back here; the
- * only values in it go through jsonForScript.
+ * The photo form's client side, as an inline module so it runs again after
+ * a boosted navigation back here; the only values in it go through
+ * jsonForScript. Both modes: the camera button and the mask editor's pencil
+ * (mask-editor.js, delegated on #garment-photo-slot because the cutout
+ * polling swaps the photo). Client mode also runs background removal before
+ * upload (background-removal.js, which downloads nothing until the photo
+ * input or camera is touched); server mode only prepares the photo
+ * (photo-input.js) and never loads the model.
  */
 function photoScript(
   appVersion: string,
-  editMask:
-    | { garmentId: number; originalUrl: string; nobgUrl: string }
-    | undefined,
+  cutoutMode: 'client' | 'server',
 ): string {
-  const module = `/js/background-removal.js?v=${appVersion}`;
-  return `import { wireUpPhotoInput, wireUpEditMaskBtn, isBgRemovalEnabled } from ${jsonForScript(module)};
-
-const toggle = document.getElementById('bgRemovalToggle');
-const stored = localStorage.getItem('bgRemovalEnabled');
-toggle.checked = stored === null ? true : stored !== 'false';
-localStorage.setItem('bgRemovalEnabled', toggle.checked);
-toggle.addEventListener('change', () => {
-  localStorage.setItem('bgRemovalEnabled', toggle.checked);
-  const editBtn = document.getElementById('editMaskBtn');
-  if (editBtn) editBtn.style.display = toggle.checked ? '' : 'none';
-  if (toggle.checked) {
-    const photoInput = document.getElementById('photoInput');
-    if (photoInput?.files?.length) photoInput.dispatchEvent(new Event('change'));
-  }
-});
+  const module = (name: string) =>
+    jsonForScript(`/js/${name}.js?v=${appVersion}`);
+  const common = `import { wireUpEditMask } from 'mask-editor';
 
 // Some Chrome/Android versions drop the Camera option from the gallery
 // input's chooser depending on its accept value (upstream issue 99): a
@@ -74,13 +65,32 @@ photoCaptureInput?.addEventListener('change', () => {
   photoInputEl.dispatchEvent(new Event('change'));
 });
 
-wireUpPhotoInput();
-const editMask = ${jsonForScript(editMask ?? null)};
-if (editMask) {
-  wireUpEditMaskBtn(editMask);
-  if (!isBgRemovalEnabled()) {
-    document.getElementById('editMaskBtn')?.style.setProperty('display', 'none');
+wireUpEditMask(document.getElementById('garment-photo-slot'));
+`;
+  if (cutoutMode === 'server') {
+    return `import { wirePhotoUpload } from ${module('photo-input')};
+${common}
+wirePhotoUpload();`;
   }
+  return `import { wireUpPhotoInput, isBgRemovalEnabled } from ${module('background-removal')};
+${common}
+const toggle = document.getElementById('bgRemovalToggle');
+const stored = localStorage.getItem('bgRemovalEnabled');
+toggle.checked = stored === null ? true : stored !== 'false';
+localStorage.setItem('bgRemovalEnabled', toggle.checked);
+toggle.addEventListener('change', () => {
+  localStorage.setItem('bgRemovalEnabled', toggle.checked);
+  const editBtn = document.getElementById('editMaskBtn');
+  if (editBtn) editBtn.style.display = toggle.checked ? '' : 'none';
+  if (toggle.checked) {
+    const photoInput = document.getElementById('photoInput');
+    if (photoInput?.files?.length) photoInput.dispatchEvent(new Event('change'));
+  }
+});
+
+wireUpPhotoInput();
+if (!isBgRemovalEnabled()) {
+  document.getElementById('editMaskBtn')?.style.setProperty('display', 'none');
 }`;
 }
 
@@ -110,7 +120,14 @@ export function GarmentPage(props: {
           <BackLink href={wardrobeUrl(model.viewOwner)} />
           <h1 class="text-2xl font-bold flex-1">{garment.name}</h1>
         </div>
-        <GarmentPhoto garment={garment} canEdit={model.canEdit} />
+        <div id="garment-photo-slot">
+          <GarmentPhotoView
+            garment={garment}
+            viewOwner={model.viewOwner}
+            canEdit={model.canEdit}
+            cutoutMode={model.cutoutMode}
+          />
+        </div>
         {model.canEdit && <PhotoForm ctx={ctx} model={model} />}
         <GarmentDetails garment={garment} />
         <GarmentActions ctx={ctx} model={model} />
@@ -128,48 +145,136 @@ export function GarmentPage(props: {
   );
 }
 
-/** The cutout (the original when there is none), with the mask editor's pencil. */
-function GarmentPhoto(props: { garment: GarmentDetail; canEdit: boolean }) {
-  const { garment } = props;
-  if (!garment.photo) {
+/**
+ * The garment's photo: the cutout (the original when there is none), with
+ * the mask editor's pencil. In server mode it also shows where the server
+ * cutout stands: pending polls GET /wardrobe/:id/cutout every 2 s (this
+ * component again, swapped over itself; the answer without the trigger ends
+ * the polling), failed offers "Try again". Its own hx-indicator keeps the
+ * polls off the navbar spinner.
+ */
+export function GarmentPhotoView(props: {
+  garment: GarmentDetail;
+  viewOwner: number | undefined;
+  canEdit: boolean;
+  cutoutMode: 'client' | 'server';
+}) {
+  const { garment, viewOwner, canEdit } = props;
+  const photo = garment.photo;
+  if (!photo) {
     return (
-      <div class="rounded-box bg-base-200 aspect-square w-full max-w-sm mx-auto flex items-center justify-center text-base-content/30 mb-6">
+      <div
+        id="garment-photo"
+        class="rounded-box bg-base-200 aspect-square w-full max-w-sm mx-auto flex items-center justify-center text-base-content/30 mb-6"
+      >
         <HangerIcon class="size-20" strokeWidth="1" />
       </div>
     );
   }
+  const status = props.cutoutMode === 'server' ? photo.cutoutStatus : 'none';
+  const pending = status === 'pending';
+  const polling = pending
+    ? {
+        'hx-get': garmentUrl(garment.id, viewOwner, '/cutout'),
+        'hx-trigger': 'every 2s',
+        'hx-swap': 'outerHTML',
+        'hx-indicator': '#garment-photo-status',
+      }
+    : {};
   return (
-    <figure class="relative rounded-box overflow-hidden mb-6 bg-base-200 aspect-square w-full max-w-sm mx-auto">
-      <img
-        src={imageUrl(garment.photo, 'nobg')}
-        alt={garment.name ?? ''}
-        class="object-cover w-full h-full"
-      />
-      {props.canEdit && (
-        <button
-          id="editMaskBtn"
-          type="button"
-          class="btn btn-circle btn-sm absolute top-2 right-2 btn-neutral opacity-80 hover:opacity-100"
-          title={t('MASK_EDITOR_TITLE')}
-          aria-label={t('MASK_EDITOR_TITLE')}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke-width="1.5"
-            stroke="currentColor"
-            class="size-4"
+    <div id="garment-photo" class="mb-6" {...polling}>
+      <figure class="relative rounded-box overflow-hidden bg-base-200 aspect-square w-full max-w-sm mx-auto">
+        <img
+          src={imageUrl(photo, 'nobg')}
+          alt={garment.name ?? ''}
+          class="object-cover w-full h-full"
+        />
+        {pending && (
+          <div
+            id="garment-photo-status"
+            role="status"
+            class="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-base-100/80 p-2 text-sm"
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
-            />
-          </svg>
-        </button>
+            <span class="loading loading-spinner loading-xs"></span>
+            {t('REMOVING_BACKGROUND')}
+          </div>
+        )}
+        {canEdit && !pending && (
+          <EditMaskButton
+            garment={garment}
+            photo={photo}
+            viewOwner={viewOwner}
+          />
+        )}
+      </figure>
+      {status === 'failed' && (
+        <CutoutFailed
+          retryUrl={
+            canEdit
+              ? garmentUrl(garment.id, viewOwner, '/cutout/retry')
+              : undefined
+          }
+        />
       )}
-    </figure>
+    </div>
+  );
+}
+
+/** A failed server cutout, and "Try again" for whoever may change the photo. */
+function CutoutFailed(props: { retryUrl: string | undefined }) {
+  return (
+    <div
+      role="alert"
+      class="alert alert-warning alert-soft mt-2 w-full max-w-sm mx-auto flex justify-between"
+    >
+      <span>{t('CUTOUT_FAILED')}</span>
+      {props.retryUrl && (
+        <PostForm action={props.retryUrl}>
+          <button type="submit" class="btn btn-sm">
+            {t('CUTOUT_RETRY')}
+          </button>
+        </PostForm>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The pencil: mask-editor.js reads what it edits and where it saves from
+ * the data attributes at the tap (the button is swapped with the photo),
+ * and writes the new version back into them after a save.
+ */
+function EditMaskButton(props: {
+  garment: GarmentDetail;
+  photo: NonNullable<GarmentDetail['photo']>;
+  viewOwner: number | undefined;
+}) {
+  return (
+    <button
+      id="editMaskBtn"
+      type="button"
+      class="btn btn-circle btn-sm absolute top-2 right-2 btn-neutral opacity-80 hover:opacity-100"
+      title={t('MASK_EDITOR_TITLE')}
+      aria-label={t('MASK_EDITOR_TITLE')}
+      data-original-url={imageUrl(props.photo, 'original')}
+      data-nobg-url={imageUrl(props.photo, 'nobg')}
+      data-save-url={garmentUrl(props.garment.id, props.viewOwner, '/nobg')}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="1.5"
+        stroke="currentColor"
+        class="size-4"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+        />
+      </svg>
+    </button>
   );
 }
 
@@ -294,9 +399,10 @@ function Detail(props: { label: string; block?: boolean; children: Child }) {
 }
 
 /**
- * Photo upload: the chosen file and, when background removal made one, its
- * cutout (nobgPhoto) in one multipart post; the server answers HX-Redirect to
- * this page with ?photoSaved=1.
+ * Photo upload: the chosen file and, in client mode when background removal
+ * made one, its cutout (nobgPhoto) in one multipart post; the server answers
+ * HX-Redirect to this page with ?photoSaved=1. In server mode only the
+ * photo goes up and the page then shows its cutout pending.
  */
 function PhotoForm({
   ctx,
@@ -305,12 +411,7 @@ function PhotoForm({
   ctx: ViewContext;
   model: GarmentPageModel;
 }) {
-  const { garment, viewOwner } = model;
-  const editMask = garment.photo && {
-    garmentId: garment.id,
-    originalUrl: imageUrl(garment.photo, 'original'),
-    nobgUrl: imageUrl(garment.photo, 'nobg'),
-  };
+  const { garment, viewOwner, cutoutMode } = model;
   return (
     <>
       <form
@@ -322,13 +423,15 @@ function PhotoForm({
         hx-swap="outerHTML"
         class="flex flex-col gap-2 mb-6"
       >
-        <input
-          type="file"
-          id="nobgPhotoInput"
-          name="nobgPhoto"
-          class="hidden"
-          accept="image/webp"
-        />
+        {cutoutMode === 'client' && (
+          <input
+            type="file"
+            id="nobgPhotoInput"
+            name="nobgPhoto"
+            class="hidden"
+            accept="image/webp"
+          />
+        )}
         <div class="flex gap-2 items-center">
           <input
             type="file"
@@ -379,47 +482,56 @@ function PhotoForm({
             class="htmx-indicator loading loading-ring loading-sm"
           ></span>
         </div>
-        <label class="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            id="bgRemovalToggle"
-            class="toggle toggle-sm"
-            checked
-          />
-          <span class="text-sm">{t('BG_REMOVAL_TOGGLE')}</span>
-        </label>
-        <div
-          id="bgStatus"
-          class="hidden flex flex-col gap-1 text-sm text-base-content/60"
-          data-text-default={t('REMOVING_BACKGROUND')}
-          data-text-downloading={t('BG_STAGE_DOWNLOADING')}
-          data-text-decoding={t('BG_STAGE_DECODING')}
-          data-text-inference={t('BG_STAGE_INFERENCE')}
-          data-text-mask={t('BG_STAGE_MASK')}
-          data-text-encoding={t('BG_STAGE_ENCODING')}
-          data-text-hint-typical={t('BG_HINT_TYPICAL_DURATION')}
-          data-text-hint-slow={t('BG_HINT_STILL_WORKING')}
-        >
-          <div class="flex items-center gap-2">
-            <span class="loading loading-spinner loading-xs"></span>
-            <span id="bgStatusText">{t('REMOVING_BACKGROUND')}</span>
-          </div>
-          <span id="bgStatusHint" class="text-xs opacity-80">
-            {t('BG_HINT_TYPICAL_DURATION')}
-          </span>
-        </div>
-        {/* Shown by background-removal.js when the browser cannot decode the
-            chosen file (HEIC on Chrome/Android); the server still stores it. */}
-        <p id="bgUnsupported" class="hidden text-sm text-base-content/60">
-          {t('BG_UNSUPPORTED_PHOTO')}
-        </p>
+        {cutoutMode === 'client' && <ClientCutoutStatus />}
       </form>
       <script
         type="module"
         dangerouslySetInnerHTML={{
-          __html: photoScript(ctx.appVersion, editMask ?? undefined),
+          __html: photoScript(ctx.appVersion, cutoutMode),
         }}
       />
+    </>
+  );
+}
+
+/** Client mode's toggle and progress for the in-browser model (background-removal.js). */
+function ClientCutoutStatus() {
+  return (
+    <>
+      <label class="flex items-center gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          id="bgRemovalToggle"
+          class="toggle toggle-sm"
+          checked
+        />
+        <span class="text-sm">{t('BG_REMOVAL_TOGGLE')}</span>
+      </label>
+      <div
+        id="bgStatus"
+        class="hidden flex flex-col gap-1 text-sm text-base-content/60"
+        data-text-default={t('REMOVING_BACKGROUND')}
+        data-text-downloading={t('BG_STAGE_DOWNLOADING')}
+        data-text-decoding={t('BG_STAGE_DECODING')}
+        data-text-inference={t('BG_STAGE_INFERENCE')}
+        data-text-mask={t('BG_STAGE_MASK')}
+        data-text-encoding={t('BG_STAGE_ENCODING')}
+        data-text-hint-typical={t('BG_HINT_TYPICAL_DURATION')}
+        data-text-hint-slow={t('BG_HINT_STILL_WORKING')}
+      >
+        <div class="flex items-center gap-2">
+          <span class="loading loading-spinner loading-xs"></span>
+          <span id="bgStatusText">{t('REMOVING_BACKGROUND')}</span>
+        </div>
+        <span id="bgStatusHint" class="text-xs opacity-80">
+          {t('BG_HINT_TYPICAL_DURATION')}
+        </span>
+      </div>
+      {/* Shown by background-removal.js when the browser cannot decode the
+          chosen file (HEIC on Chrome/Android); the server still stores it. */}
+      <p id="bgUnsupported" class="hidden text-sm text-base-content/60">
+        {t('BG_UNSUPPORTED_PHOTO')}
+      </p>
     </>
   );
 }

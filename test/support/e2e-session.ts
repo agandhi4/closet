@@ -16,16 +16,17 @@ export const SAME_ORIGIN = { origin: APP_ORIGIN };
 let clientSeq = 0;
 
 /**
- * SAME_ORIGIN plus a client address of its own. Login and registration are
- * rate limited per address and every spec signs up from 127.0.0.1, which is
- * a trusted proxy by default (TRUSTED_PROXIES), so each sign-up names a
- * different forwarded client instead of sharing one budget.
+ * SAME_ORIGIN (or `origin`, for a spec on another server) plus a client
+ * address of its own. Login and registration are rate limited per address
+ * and every spec signs up from 127.0.0.1, which is a trusted proxy by
+ * default (TRUSTED_PROXIES), so each sign-up names a different forwarded
+ * client instead of sharing one budget.
  */
-export function signUpHeaders(): Record<string, string> {
+export function signUpHeaders(origin = APP_ORIGIN): Record<string, string> {
   clientSeq += 1;
   const worker = process.env.TEST_WORKER_INDEX ?? '0';
   return {
-    ...SAME_ORIGIN,
+    origin,
     'x-forwarded-for': `198.19.${Number(worker) % 250}.${(clientSeq % 250) + 1}`,
   };
 }
@@ -36,11 +37,15 @@ export function signUpHeaders(): Record<string, string> {
  * Login is always required, so every spec that opens an app page calls this
  * first.
  */
-export async function signIn(page: Page, prefix: string): Promise<string> {
+export async function signIn(
+  page: Page,
+  prefix: string,
+  origin = APP_ORIGIN,
+): Promise<string> {
   const email = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
   const res = await page.request.post('/auth/register', {
     form: { email, password: E2E_PASSWORD, confirmPassword: E2E_PASSWORD },
-    headers: signUpHeaders(),
+    headers: signUpHeaders(origin),
   });
   if (!res.ok()) {
     throw new Error(`Registering ${email} failed: ${res.status()}`);

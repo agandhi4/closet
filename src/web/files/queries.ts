@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import type { InitialCutoutColumns } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file } from '../../db/schema';
 
@@ -16,10 +17,13 @@ export interface NewPhotoRow {
   createdById: number;
 }
 
-/** Inserts the row inside the caller's transaction; returns its id. */
+/**
+ * Inserts the row inside the caller's transaction; returns its id. The
+ * cutout columns (initialCutoutState) default to `none`.
+ */
 export async function insertPhotoRow(
   q: Queryable,
-  row: NewPhotoRow,
+  row: NewPhotoRow & Partial<InitialCutoutColumns>,
 ): Promise<number> {
   const [inserted] = await q
     .insert(file)
