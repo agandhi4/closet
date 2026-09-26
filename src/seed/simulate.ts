@@ -1,0 +1,350 @@
+import {
+  addDays,
+  dayOfWeek,
+  daysBetween,
+  type IsoDate,
+  startOfWeek,
+} from '../web/calendar/calendar-date';
+import type {
+  LaundryRule,
+  Occasion,
+  Persona,
+  SeedEvent,
+  SeedGarment,
+  SeedOutfit,
+} from './persona';
+import { stream } from './random';
+import { BANDS, type Band, type Weather, weatherFor } from './weather';
+
+/**
+ * A persona's life, day by day, from its bible's tables (the rules are the
+ * bible's Simulation section, demo.md): which saved outfit on which day,
+ * evenings out, what got logged and worn, laundry. Pure and deterministic:
+ * the same persona and anchor give the same entries (random.ts). Later
+ * features extend this rather than writing rows beside it (CLAUDE.md, Seed
+ * personas): wears and washes (#7) read the same wears and Sundays.
+ */
+
+/** The bibles' dates are written for this Saturday; seeding shifts them by whole weeks. */
+export const REFERENCE_ANCHOR: IsoDate = '2026-09-26';
+/** The first meeting Wednesday at the reference anchor; every other one after. */
+const REFERENCE_MEETING_WEDNESDAY: IsoDate = '2026-07-01';
+
+export const HISTORY_DAYS = 91;
+export const PLANNED_DAYS = 7;
+
+// demo.md, Simulation: the odds and weights.
+const LOGGED = 0.85;
+const OFFICE_CHANGE_OF_MIND = 0.04;
+const DATE_NIGHT_WEEKLY = 0.75;
+const DATE_NIGHT_FRIDAY = 0.6;
+const NIGHT_OUT_EVERY_WEEKS = 3;
+const FAVOURITE_WEIGHT = 3;
+const WORN_YESTERDAY = 0.2;
+const WORN_RECENTLY = 0.5;
+const RECENT_DAYS = 3;
+const RAIN_OUTFIT_WEIGHT = 4;
+
+const SUNDAY = 0;
+const WEDNESDAY = 3;
+const THURSDAY = 4;
+const FRIDAY = 5;
+const SATURDAY = 6;
+
+/** One calendar entry to write. */
+export interface SimulatedEntry {
+  day: IsoDate;
+  /** Index into persona.outfits. */
+  outfit: number;
+  /** Worn that day (a past entry he logged); false for a planned one. */
+  worn: boolean;
+}
+
+export interface SimulatedLife {
+  /**
+   * Days added to the garments' reference dates (acquired, archived):
+   * whole weeks, so the wardrobe stands where it did relative to the anchor.
+   */
+  shiftDays: number;
+  /** The history's first day and the anchor (its last). */
+  first: IsoDate;
+  anchor: IsoDate;
+  entries: SimulatedEntry[];
+  weather: Weather[];
+}
+
+/** Whole weeks from the reference anchor to `anchor`, never past it. */
+export function shiftFor(anchor: IsoDate): number {
+  return Math.floor(daysBetween(REFERENCE_ANCHOR, anchor) / 7) * 7;
+}
+
+// Events keep their season: they move by whole 52-week years (364 days, so
+// a Saturday stays a Saturday) to the year nearest the anchor. Seeded in
+// January, the summer's beach day and heat wave are simply not in the window.
+const YEAR_OF_WEEKS = 364;
+
+function eventShiftFor(anchor: IsoDate): number {
+  return (
+    Math.round(daysBetween(REFERENCE_ANCHOR, anchor) / YEAR_OF_WEEKS) *
+    YEAR_OF_WEEKS
+  );
+}
+
+export function simulate(persona: Persona, anchor: IsoDate): SimulatedLife {
+  const shiftDays = shiftFor(anchor);
+  const first = addDays(anchor, -(HISTORY_DAYS - 1));
+  const shifted = (day: IsoDate) => addDays(day, shiftDays);
+  const eventShift = eventShiftFor(anchor);
+  const events = persona.events.map((event) => ({
+    ...event,
+    from: addDays(event.from, eventShift),
+    to: addDays(event.to, eventShift),
+  }));
+  const eventOn = (day: IsoDate) =>
+    events.find((e) => e.from <= day && day <= e.to);
+  const weather = weatherFor(
+    persona.key,
+    first,
+    HISTORY_DAYS + PLANNED_DAYS,
+    (day) => eventOn(day)?.weatherShift ?? 0,
+  );
+  const life: SimulatedLife = {
+    shiftDays,
+    first,
+    anchor,
+    entries: [],
+    weather,
+  };
+  if (!persona.week) return life;
+
+  const day = new Days(persona, shifted);
+  for (const today of weather) {
+    day.live(today, today.day > anchor, eventOn(today.day), life.entries);
+    if (dayOfWeek(today.day) === SUNDAY) day.laundry();
+  }
+  return life;
+}
+
+/** The simulation's state as the days go by: dirty clothes and recent outfits. */
+class Days {
+  private readonly wearsSinceWash = new Map<string, number>();
+  private readonly lastWorn = new Map<number, IsoDate>();
+  private readonly garments: Map<string, SeedGarment>;
+
+  constructor(
+    private readonly persona: Persona,
+    private readonly shifted: (day: IsoDate) => IsoDate,
+  ) {
+    this.garments = new Map(persona.garments.map((g) => [g.id, g]));
+  }
+
+  live(
+    weather: Weather,
+    planned: boolean,
+    event: SeedEvent | undefined,
+    entries: SimulatedEntry[],
+  ): void {
+    const { day } = weather;
+    if (event && !event.recorded) return;
+    const main = this.mainOutfit(weather, event);
+    if (main === -1) return;
+    // Worn whether or not he logs it: the laundry does not care.
+    this.wear(main, day);
+    if (!this.logged(day, planned, event)) return;
+    const skipped = planned ? -1 : this.changeOfMind(weather, main);
+    if (skipped !== -1) entries.push({ day, outfit: skipped, worn: false });
+    entries.push({ day, outfit: main, worn: !planned });
+    const evening = event ? -1 : this.evening(weather, main);
+    if (evening === -1) return;
+    this.wear(evening, day);
+    entries.push({ day, outfit: evening, worn: !planned });
+  }
+
+  // The event's outfit, else the day's draw.
+  private mainOutfit(weather: Weather, event: SeedEvent | undefined): number {
+    return event?.wears
+      ? this.persona.outfits.findIndex((o) => o.name === event.wears)
+      : this.choose(this.occasionsOn(weather.day), weather, 'day');
+  }
+
+  // An event is a day he remembers; an ordinary one he logs most days.
+  private logged(
+    day: IsoDate,
+    planned: boolean,
+    event: SeedEvent | undefined,
+  ): boolean {
+    return (
+      planned ||
+      event !== undefined ||
+      stream(this.persona.key, 'logged', day).chance(LOGGED)
+    );
+  }
+
+  // The office outfit he planned and did not wear (rain changed his mind);
+  // -1 on most days.
+  private changeOfMind(weather: Weather, worn: number): number {
+    const changed =
+      this.occasionsOn(weather.day).includes('office') &&
+      stream(this.persona.key, 'change-of-mind', weather.day).chance(
+        OFFICE_CHANGE_OF_MIND,
+      );
+    return changed ? this.choose(['office'], weather, 'skipped', worn) : -1;
+  }
+
+  // The evening's second outfit (a date, a night out); -1 on most days.
+  private evening(weather: Weather, main: number): number {
+    const occasion = this.eveningOn(weather.day);
+    return occasion ? this.choose([occasion], weather, 'evening', main) : -1;
+  }
+
+  /** Sunday: everything dirty comes back clean. */
+  laundry(): void {
+    this.wearsSinceWash.clear();
+  }
+
+  // The week's row, with a meeting Wednesday's office day made a meeting.
+  private occasionsOn(day: IsoDate): Occasion[] {
+    const draws = this.persona.week![dayOfWeek(day)];
+    const weeks = daysBetween(this.shifted(REFERENCE_MEETING_WEDNESDAY), day);
+    const meeting = dayOfWeek(day) === WEDNESDAY && mod(weeks / 7, 2) === 0;
+    return meeting ? draws.map((o) => (o === 'office' ? 'meeting' : o)) : draws;
+  }
+
+  // Date night (most weeks, Friday or Saturday) and a night out with
+  // friends every third week (Thursday, or Saturday when that is free).
+  private eveningOn(day: IsoDate): Occasion | undefined {
+    const weekday = dayOfWeek(day);
+    const sunday = addDays(day, -weekday);
+    const random = stream(this.persona.key, 'evenings', sunday);
+    const dateNight = random.chance(DATE_NIGHT_WEEKLY)
+      ? random.chance(DATE_NIGHT_FRIDAY)
+        ? FRIDAY
+        : SATURDAY
+      : undefined;
+    const week =
+      daysBetween(startOfWeek(this.shifted(REFERENCE_ANCHOR)), sunday) / 7;
+    const nightOut =
+      mod(week, NIGHT_OUT_EVERY_WEEKS) === 0
+        ? dateNight === SATURDAY || random.chance(0.5)
+          ? THURSDAY
+          : SATURDAY
+        : undefined;
+    if (weekday === dateNight) return 'date';
+    if (weekday === nightOut) return 'night-out';
+    return undefined;
+  }
+
+  /**
+   * A saved outfit for the occasions and the weather, weighted (favourites,
+   * not what was just worn, rain gear in the rain); -1 when none fits. With
+   * nothing clean in the day's band, the neighbouring bands, then dirty
+   * clothes, are tried.
+   */
+  private choose(
+    occasions: Occasion[],
+    weather: Weather,
+    slot: string,
+    except = -1,
+  ): number {
+    const fits = (outfit: SeedOutfit, index: number) =>
+      index !== except &&
+      outfit.occasions.some((o) => occasions.includes(o)) &&
+      this.available(outfit, weather.day);
+    const tiers: [number, boolean][] = [
+      [0, false],
+      [1, false],
+      [0, true],
+      [1, true],
+      [2, true],
+    ];
+    for (const [distance, dirtyOk] of tiers) {
+      const candidates = this.persona.outfits.flatMap((outfit, index) =>
+        fits(outfit, index) &&
+        bandDistance(outfit.bands, weather.band) <= distance &&
+        (dirtyOk || this.clean(outfit))
+          ? [index]
+          : [],
+      );
+      if (candidates.length === 0) continue;
+      const weights = candidates.map((index) =>
+        this.weight(this.persona.outfits[index], index, weather),
+      );
+      const random = stream(this.persona.key, 'outfit', slot, weather.day);
+      return candidates[random.weighted(weights)];
+    }
+    return -1;
+  }
+
+  private weight(outfit: SeedOutfit, index: number, weather: Weather): number {
+    let weight = outfit.favourite ? FAVOURITE_WEIGHT : 1;
+    const last = this.lastWorn.get(index);
+    const since = last ? daysBetween(last, weather.day) : Infinity;
+    if (since === 1) weight *= WORN_YESTERDAY;
+    else if (since <= RECENT_DAYS) weight *= WORN_RECENTLY;
+    if (weather.rain && outfit.occasions.includes('rain')) {
+      weight *= RAIN_OUTFIT_WEIGHT;
+    }
+    return weight;
+  }
+
+  // Owned by then: acquired (reference dates, shifted) and not yet archived.
+  private available(outfit: SeedOutfit, day: IsoDate): boolean {
+    return outfit.garmentIds.every((id) => {
+      const garment = this.garments.get(id)!;
+      const acquired = garment.fields.acquiredOn;
+      return (
+        (!acquired || this.shifted(acquired) <= day) &&
+        (!garment.archivedOn || day < this.shifted(garment.archivedOn))
+      );
+    });
+  }
+
+  private clean(outfit: SeedOutfit): boolean {
+    return outfit.garmentIds.every((id) => {
+      const capacity = this.capacity(this.garments.get(id)!);
+      return capacity === null || (this.wearsSinceWash.get(id) ?? 0) < capacity;
+    });
+  }
+
+  private wear(outfit: number, day: IsoDate): void {
+    this.lastWorn.set(outfit, day);
+    for (const id of this.persona.outfits[outfit].garmentIds) {
+      this.wearsSinceWash.set(id, (this.wearsSinceWash.get(id) ?? 0) + 1);
+    }
+  }
+
+  // Wears before a wash, copies included; null: never dirty (demo.md,
+  // Laundry: an id beats a type, a type beats a role, unlisted is never).
+  private capacity(garment: SeedGarment): number | null {
+    const rule = mostSpecific(this.persona.laundry, garment);
+    return rule?.wears == null ? null : rule.wears * garment.quantity;
+  }
+}
+
+function mostSpecific(
+  rules: LaundryRule[],
+  garment: SeedGarment,
+): LaundryRule | undefined {
+  const match = (test: (rule: LaundryRule) => boolean) => rules.find(test);
+  return (
+    match(
+      (r) => 'garmentId' in r.selector && r.selector.garmentId === garment.id,
+    ) ??
+    match(
+      (r) =>
+        'types' in r.selector &&
+        r.selector.types.includes(garment.fields.type ?? ''),
+    ) ??
+    match((r) => 'role' in r.selector && r.selector.role === garment.role)
+  );
+}
+
+/** How many bands the nearest of `bands` is from `band`; Infinity for none. */
+function bandDistance(bands: readonly Band[], band: Band): number {
+  const at = BANDS.indexOf(band);
+  return Math.min(...bands.map((b) => Math.abs(BANDS.indexOf(b) - at)));
+}
+
+function mod(value: number, by: number): number {
+  return ((value % by) + by) % by;
+}

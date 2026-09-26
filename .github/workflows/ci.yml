@@ -102,13 +102,35 @@ jobs:
           echo "PRIVATE_VAPID_KEY=$(echo "$keys" | jq -r .privateKey)" >> "$GITHUB_ENV"
       - run: npx playwright install --with-deps chromium
       - run: npm run build
+      # SEED_SCREENSHOTS: test/screenshots.spec.ts seeds the personas into
+      # this job's database and saves 390 px shots of the key pages.
       - run: npx playwright test --project=chromium
+        env:
+          SEED_SCREENSHOTS: "1"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+      - id: screenshots
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: screenshots-390px
+          path: screenshots/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Link the screenshots
+        if: always() && steps.screenshots.outputs.artifact-url != ''
+        env:
+          URL: ${{ steps.screenshots.outputs.artifact-url }}
+        run: |
+          {
+            echo "### Phone screenshots (390 px, seed personas)"
+            echo ""
+            echo "[screenshots-390px]($URL): demo, sparse and fresh on the key pages."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: publish image

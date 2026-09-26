@@ -54,6 +54,9 @@ COPY --from=builder /app/public ./public
 # The migrations the app runs at boot (src/db/migrate.ts reads SQL and
 # meta/_journal.json from <root>/drizzle).
 COPY drizzle ./drizzle
+# The seed personas' bibles are the seed's data (src/seed/persona.ts reads
+# them from here): `docker exec closet npm run seed -- --persona demo`.
+COPY src/seed/personas ./src/seed/personas
 
 COPY .env .
 

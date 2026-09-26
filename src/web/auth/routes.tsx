@@ -7,6 +7,7 @@ import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { ACCOUNT_LIMIT, SIGN_IN_LIMIT } from '../security/rate-limit';
 import { viewContext } from '../view-context';
+import { deleteAccount } from './account';
 import { InlineErrors } from './form';
 import { LOGOUT_PATH } from './logout';
 import {
@@ -23,7 +24,6 @@ import {
 import { hashPassword, setPassword, verifyPassword } from './passwords';
 import {
   type AccountRow,
-  deleteUserAndFileRows,
   findUserByEmail,
   findUserById,
   insertUser,
@@ -346,20 +346,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
 
-      const fileNames = await deleteUserAndFileRows(db, id);
-      // After commit: an unlink cannot be rolled back. A failure leaves
-      // bytes the nightly reconciliation removes; the account is gone.
-      for (const fileName of fileNames) {
-        try {
-          await photos.deleteVariants(fileName);
-        } catch (error) {
-          logger.error(
-            { err: error },
-            `Could not remove photo ${fileName} of deleted user ${id}`,
-          );
-        }
-      }
-      logger.info(`Deleted user ${id} and ${fileNames.length} of their photos`);
+      await deleteAccount({ db, photos, logger }, id);
       endSession(reply);
       return reply.redirect('/', 302);
     },

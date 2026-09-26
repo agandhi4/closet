@@ -30,6 +30,7 @@ import type {
   BulkChange,
   GarmentFields,
   GarmentPropertyFields,
+  ProductFields,
 } from './validation';
 
 /**
@@ -231,8 +232,9 @@ export interface GarmentPhoto extends ImageRef {
 /** A garment as its page and its forms show it, every property included. */
 export interface GarmentDetail
   extends
-    Omit<GarmentFields, keyof GarmentPropertyFields>,
-    GarmentPropertyFields {
+    Omit<GarmentFields, keyof GarmentPropertyFields | keyof ProductFields>,
+    GarmentPropertyFields,
+    ProductFields {
   id: number;
   shareableId: string;
   archived: boolean;
@@ -261,6 +263,8 @@ const detailColumns = {
   length: garment.length,
   fabricWeight: garment.fabricWeight,
   waterResistant: garment.waterResistant,
+  sourceUrl: garment.sourceUrl,
+  price: garment.price,
   photo: {
     fileName: file.fileName,
     version: file.version,
@@ -354,7 +358,7 @@ export async function replacePhotoRow(
  * garment is not in `ownerId`'s wardrobe.
  */
 export async function toggleArchived(
-  db: Db,
+  db: Queryable,
   id: number,
   ownerId: number,
 ): Promise<boolean | undefined> {

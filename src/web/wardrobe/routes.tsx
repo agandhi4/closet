@@ -185,6 +185,8 @@ function storedValues(garment: GarmentDetail): GarmentFormValues {
     washingDetails: garment.washingDetails ?? '',
     dateAquired: garment.acquiredOn ?? '',
     notes: garment.notes ?? '',
+    sourceUrl: garment.sourceUrl ?? '',
+    price: garment.price ?? '',
     properties: storedPropertyValues(garment),
   };
 }
@@ -375,6 +377,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         washingDetails: '',
         dateAquired: '',
         notes: '',
+        sourceUrl: '',
+        price: '',
         properties: BLANK_PROPERTIES,
       });
     },

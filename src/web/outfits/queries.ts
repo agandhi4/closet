@@ -336,10 +336,11 @@ async function insertSlots(
 
 /**
  * POST /outfits: the outfit, its slots and the optional calendar entry
- * commit together or not at all.
+ * commit together or not at all. Inside a caller's transaction (the seed
+ * writes a whole persona in one) this is a savepoint.
  */
 export function createOutfit(
-  db: Db,
+  db: Queryable,
   ownerId: number,
   input: OutfitInput,
 ): Promise<SaveResult> {

@@ -190,6 +190,8 @@
     "CATEGORY_REQUIRED": "Give the garment a category",
     "UNKNOWN_COLOR": "Not a color this wardrobe knows: {color}",
     "INVALID_DATE": "Enter a real date, or leave it empty",
+    "SOURCE_URL_INVALID": "Enter a web address starting with https:// or http://, or leave it empty",
+    "PRICE_INVALID": "Enter a price such as 49.90, or leave it empty",
     "FABRIC_WEIGHT_NUMBER": "Enter the weight as a number, or leave it empty",
     "FABRIC_WEIGHT_RANGE": "Enter a weight between {min} and {max} {unit}"
   },
@@ -406,5 +408,10 @@
   "TAG_LEFT": "{count} left to tag",
   "TAG_NEXT": "Next",
   "TAG_PROMPT": "{count} garments need details",
-  "TAG_PROMPT_ACTION": "Tag them"
+  "TAG_PROMPT_ACTION": "Tag them",
+  "PRODUCT_LINK": "Product link",
+  "PRODUCT_LINK_PLACEHOLDER": "https://… the page you bought it from",
+  "PRICE": "Price",
+  "PRICE_PLACEHOLDER": "e.g. 49.90",
+  "VIEW_PRODUCT": "View product"
 }

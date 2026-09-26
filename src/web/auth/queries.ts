@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import type { Db } from '../../db/client';
+import type { Db, Queryable } from '../../db/client';
 import { file, user } from '../../db/schema';
 
 /**
@@ -51,15 +51,20 @@ export async function findUserByEmail(
   return row;
 }
 
-/** `email` must already be normalized; the caller checked it is free. */
+/**
+ * `email` must already be normalized; the caller checked it is free.
+ * Registration asks for no name; the seed's personas have one (the share
+ * page says "Shared by" the first name).
+ */
 export async function insertUser(
-  db: Db,
+  db: Queryable,
   email: string,
   passwordHash: string,
+  name: { firstName?: string; lastName?: string } = {},
 ): Promise<AccountRow> {
   const [row] = await db
     .insert(user)
-    .values({ email, password: passwordHash })
+    .values({ email, password: passwordHash, ...name })
     .returning(accountColumns);
   return row;
 }

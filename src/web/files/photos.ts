@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import sharp, { type Sharp } from 'sharp';
+import sharp, { type OutputInfo, type Sharp } from 'sharp';
 import type { Config } from '../../config';
 import {
   applyCutoutEvent,
@@ -62,6 +62,30 @@ function rawImage(
 }
 
 /**
+ * Image bytes from wherever Photos takes them: an upload's multipart part
+ * (storeUpload), the seed's generated art (src/seed/), a fetched product
+ * photo (link import, #6).
+ */
+export interface ImageSource {
+  stream: Readable;
+  mimetype: string;
+  /** As the sender named it: for logs, and the HEIC hint (isHeicUpload). */
+  filename: string;
+}
+
+export interface StoreImageOptions {
+  /**
+   * The image's transparency is already its cutout (art drawn on a
+   * transparent background, the seed's): the original is stored flattened
+   * on white, as a photo of the garment would be, and the cutout is the art
+   * as drawn, padded square like every cutout; the thumb derives from it.
+   * The caller inserts the row as a finished cutout,
+   * initialCutoutState('ready'), rather than queueing it.
+   */
+  alphaIsCutout?: boolean;
+}
+
+/**
  * The source side of a transcode failed (undecodable bytes, truncated
  * upload) as opposed to the storage side. Uploads map it to a 400; a thumb
  * rebuild hitting it means our own stored original is corrupt.
@@ -117,7 +141,7 @@ export function createPhotos(
  * a set of WebP files sharing one base name; only the original has a `file`
  * row (see image-variant.ts).
  *
- * Bytes are written before any row exists. storeUpload and copy return the
+ * Bytes are written before any row exists. storeImage and copy return the
  * row to insert (NewPhotoRow) instead of inserting it, so the caller commits
  * it in the same transaction as the garment that references it and calls
  * deleteVariants if that transaction fails: nothing on disk is ever pointed
@@ -144,29 +168,64 @@ export class Photos {
     >,
   ) {}
 
-  /**
-   * Transcodes the upload to the original variant and derives its thumb.
-   * Returns the row to insert; on failure nothing is left in storage.
-   */
-  async storeUpload(
+  /** storeImage for a multipart part; a 400 without one. */
+  storeUpload(
     upload: MultipartFile | undefined,
     userId: number,
   ): Promise<NewPhotoRow> {
     if (!upload) throw new HttpError(400, 'No file uploaded');
-    const fileName = `${randomUUID()}.webp`;
-    const { pixels, raw } = await this.uploadSource(upload);
-    await this.transcodeUpload(
-      pixels,
-      this.imageTransformer(raw).autoOrient(),
-      fileName,
+    return this.storeImage(
+      {
+        stream: upload.file,
+        mimetype: upload.mimetype,
+        filename: upload.filename,
+      },
+      userId,
     );
+  }
+
+  /**
+   * Transcodes the image to the original variant (1080 px, WebP, the decode
+   * bound and HEIC included) and derives its thumb; with `alphaIsCutout`
+   * the cutout too. Returns the row to insert; on failure nothing is left in
+   * storage. Bytes that are not an image are the sender's error: a 400.
+   */
+  async storeImage(
+    source: ImageSource,
+    userId: number,
+    options: StoreImageOptions = {},
+  ): Promise<NewPhotoRow> {
+    const fileName = `${randomUUID()}.webp`;
+    const { pixels, raw } = await this.imageSource(source);
+    const art = options.alphaIsCutout
+      ? await this.decodeUpload(
+          pixels,
+          decoder(raw)
+            .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, {
+              fit: sharp.fit.inside,
+              withoutEnlargement: true,
+            })
+            .ensureAlpha()
+            .raw(),
+        )
+      : undefined;
+    if (!art) {
+      await this.transcodeUpload(
+        pixels,
+        this.imageTransformer(raw).autoOrient(),
+        fileName,
+      );
+    }
     try {
+      if (art) await this.storeArtwork(art, fileName);
       await this.regenerateThumb(fileName);
     } catch (error) {
       await this.deleteVariants(fileName);
       throw error;
     }
-    this.logger.info(`Stored upload ${fileName} for user ${userId}`);
+    this.logger.info(
+      `Stored ${source.filename} as ${fileName} for user ${userId}${options.alphaIsCutout ? ' (its own cutout)' : ''}`,
+    );
     return newPhotoRow(fileName, userId);
   }
 
@@ -302,9 +361,7 @@ export class Photos {
   }
 
   // The original's pixels with the mask, stretched back to their size, as
-  // alpha, centred on a transparent square: the shape the browser's model
-  // gave every older cutout, which the mask editor (it pads the original
-  // the same way to paint it back) and the square tiles rely on.
+  // alpha, centred on a transparent square (squareCutout).
   private async composeCutout(
     fileName: string,
     mask: Buffer,
@@ -329,19 +386,26 @@ export class Photos {
       .joinChannel(alpha, { raw: { width, height, channels: 1 } })
       .raw()
       .toBuffer();
-    const side = Math.max(width, height);
-    const left = Math.floor((side - width) / 2);
-    const top = Math.floor((side - height) / 2);
-    return rawImage(rgba, width, height, 4)
-      .extend({
-        left,
-        right: side - width - left,
-        top,
-        bottom: side - height - top,
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      })
+    return squareCutout(rgba, width, height);
+  }
+
+  // storeImage's alphaIsCutout: the original is the art on white (the share
+  // preview is a JPEG of the original and the mask editor paints it back,
+  // so neither may meet transparency), the cutout is the art's own alpha,
+  // padded as composeCutout pads the model's.
+  private async storeArtwork(
+    { data, info }: { data: Buffer; info: OutputInfo },
+    fileName: string,
+  ): Promise<void> {
+    const original = await rawImage(data, info.width, info.height, 4)
+      .flatten({ background: '#ffffff' })
       .webp({ quality: IMAGE_QUALITY })
       .toBuffer();
+    await this.storage.store(fileName, Readable.from(original));
+    await this.storage.store(
+      variantFileName(fileName, 'nobg'),
+      Readable.from(await squareCutout(data, info.width, info.height)),
+    );
   }
 
   /**
@@ -482,46 +546,46 @@ export class Photos {
     return stream;
   }
 
-  // The part's bytes in a form sharp reads: the encoded stream itself, or
+  // The source's bytes in a form sharp reads: the encoded stream itself, or
   // a HEIC's decoded pixels with their layout.
-  private async uploadSource(
-    upload: MultipartFile,
+  private async imageSource(
+    source: ImageSource,
   ): Promise<{ pixels: Readable; raw?: DecodedHeic['raw'] }> {
-    if (isHeicUpload(upload)) return this.decodeHeicUpload(upload);
-    if (!upload.mimetype?.startsWith('image/')) {
+    if (isHeicUpload(source)) return this.decodeHeicSource(source);
+    if (!source.mimetype?.startsWith('image/')) {
       // https://github.com/fastify/fastify-multipart/issues/497
       // An unconsumed multipart stream hangs the request: drain, then refuse.
-      upload.file.resume();
+      source.stream.resume();
       throw new HttpError(400, 'Wrong filetype');
     }
-    return { pixels: upload.file };
+    return { pixels: source.stream };
   }
 
   // HEIC is the one format sharp cannot read (see heic.ts). The whole part is
   // buffered, so MAX_HEIC_BYTES bounds memory per upload; the 413 from the cap
   // passes through, as does the 400 for too many pixels; undecodable bytes
   // are the client's error like any other.
-  private async decodeHeicUpload(upload: MultipartFile): Promise<DecodedHeic> {
+  private async decodeHeicSource(source: ImageSource): Promise<DecodedHeic> {
     const startedAt = Date.now();
     try {
       const decoded = await decodeHeic(
-        upload,
+        source.stream,
         this.config.maxHeicBytes,
         MAX_INPUT_PIXELS,
       );
       this.logger.debug(
-        `Decoded HEIC ${upload.filename} (${decoded.raw.width}x${decoded.raw.height}) in ${Date.now() - startedAt}ms`,
+        `Decoded HEIC ${source.filename} (${decoded.raw.width}x${decoded.raw.height}) in ${Date.now() - startedAt}ms`,
       );
       return decoded;
     } catch (error) {
       if (error instanceof HttpError) {
         this.logger.warn(
-          `Rejected HEIC upload ${upload.filename}: ${error.message}`,
+          `Rejected HEIC upload ${source.filename}: ${error.message}`,
         );
         throw error;
       }
       this.logger.warn(
-        `Rejected undecodable HEIC upload ${upload.filename}: ${String(error)}`,
+        `Rejected undecodable HEIC upload ${source.filename}: ${String(error)}`,
       );
       throw new HttpError(400, 'Unreadable image');
     }
@@ -554,10 +618,20 @@ export class Photos {
     source: Readable,
     transformer: Sharp,
   ): Promise<Buffer> {
+    return (await this.decodeUpload(source, transformer)).data;
+  }
+
+  // encodeUpload with the output's layout (raw pixels need it).
+  private async decodeUpload(
+    source: Readable,
+    transformer: Sharp,
+  ): Promise<{ data: Buffer; info: OutputInfo }> {
     // pipe() does not forward a source failure; toBuffer() must see it.
     source.on('error', (error) => transformer.destroy(error));
     try {
-      return await source.pipe(transformer).toBuffer();
+      return await source
+        .pipe(transformer)
+        .toBuffer({ resolveWithObject: true });
     } catch (error) {
       this.logger.warn(`Rejected unreadable upload: ${String(error)}`);
       throw exceedsPixelLimit(error)
@@ -639,6 +713,31 @@ function exceedsPixelLimit(cause: unknown): boolean {
 function startPipeline<T>(pipeline: Promise<T>): Promise<T> {
   pipeline.catch(() => undefined);
   return pipeline;
+}
+
+/**
+ * A cutout's pixels (RGBA) centred on a transparent square: the shape the
+ * browser's model gave every older cutout, which the mask editor (it pads
+ * the original the same way to paint it back) and the square tiles rely on.
+ */
+function squareCutout(
+  rgba: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const side = Math.max(width, height);
+  const left = Math.floor((side - width) / 2);
+  const top = Math.floor((side - height) / 2);
+  return rawImage(rgba, width, height, 4)
+    .extend({
+      left,
+      right: side - width - left,
+      top,
+      bottom: side - height - top,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .webp({ quality: IMAGE_QUALITY })
+    .toBuffer();
 }
 
 function newPhotoRow(fileName: string, userId: number): NewPhotoRow {

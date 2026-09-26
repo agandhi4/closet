@@ -40,6 +40,18 @@ export function isGarmentColor(value: string): value is GarmentColor {
   return (GARMENT_COLORS as readonly string[]).includes(value);
 }
 
+// Prices are stored without a currency: one household, one currency, and
+// this household's is the US dollar (en-US like the string catalog).
+const PRICE_FORMAT = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+});
+
+/** A stored price ('24.90') as the garment page shows it ('$24.90'). */
+export function priceLabel(price: string): string {
+  return PRICE_FORMAT.format(Number(price));
+}
+
 /** The stored list as its colours ('' and null are none). */
 export function splitColors(color: string | null): string[] {
   return color ? color.split(',') : [];

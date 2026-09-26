@@ -19,7 +19,9 @@ import {
   type GarmentField,
   type GarmentFormValues,
   NAME_MAX,
+  PRICE_INPUT_MAX,
   SIZE_MAX,
+  SOURCE_URL_MAX,
   TEXT_MAX,
 } from './validation';
 
@@ -76,7 +78,10 @@ export function GarmentFormPage(props: {
   const title = t(TITLES[mode.kind]);
   const category = normalizeCategory(values.category);
   // Opened by default only when something inside needs attention.
-  const moreOpen = errors.dateAquired !== undefined;
+  const moreOpen =
+    errors.dateAquired !== undefined ||
+    errors.sourceUrl !== undefined ||
+    errors.price !== undefined;
   return (
     <Layout ctx={ctx} title={title}>
       <Navbar ctx={ctx} />
@@ -162,6 +167,26 @@ export function GarmentFormPage(props: {
                 />
                 <Messages messages={errors.dateAquired} />
               </div>
+              {/* The save writes the two below only when this is posted (see GarmentBody.product). */}
+              <input type="hidden" name="product" value="1" />
+              <TextField
+                name="sourceUrl"
+                label={t('PRODUCT_LINK')}
+                value={values.sourceUrl}
+                maxlength={SOURCE_URL_MAX}
+                placeholder={t('PRODUCT_LINK_PLACEHOLDER')}
+                type="url"
+                errors={errors.sourceUrl}
+              />
+              <TextField
+                name="price"
+                label={t('PRICE')}
+                value={values.price}
+                maxlength={PRICE_INPUT_MAX}
+                placeholder={t('PRICE_PLACEHOLDER')}
+                inputmode="decimal"
+                errors={errors.price}
+              />
               <TextArea
                 name="notes"
                 label={t('NOTES')}
@@ -191,6 +216,9 @@ function TextField(props: {
   value: string;
   maxlength: number;
   placeholder: string;
+  type?: 'text' | 'url';
+  inputmode?: 'decimal';
+  errors?: string[];
 }) {
   const id = `garment-${props.name}`;
   return (
@@ -200,13 +228,15 @@ function TextField(props: {
       </label>
       <input
         id={id}
-        type="text"
+        type={props.type ?? 'text'}
+        inputmode={props.inputmode}
         name={props.name}
-        class="input input-bordered w-full"
+        class={`input input-bordered w-full ${props.errors ? 'input-error' : ''}`}
         value={props.value}
         maxlength={props.maxlength}
         placeholder={props.placeholder}
       />
+      <Messages messages={props.errors} />
     </div>
   );
 }

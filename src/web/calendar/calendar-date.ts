@@ -71,6 +71,44 @@ export function todayIn(timeZone: string, now: Date): IsoDate {
   return formatIsoDate(part('year'), part('month'), part('day'));
 }
 
+/**
+ * The instant `day` reaches `hour`:00 in `timeZone`: todayIn's inverse,
+ * for the seed's history (a day worn "that evening"). The zone's offset is
+ * read from Intl at the first guess and again at the result, which settles
+ * on a DST switch day.
+ */
+export function instantAt(day: IsoDate, hour: number, timeZone: string): Date {
+  const { year, month, day: date } = dateParts(day);
+  const wall = Date.UTC(year, month - 1, date, hour);
+  const first = wall - zoneOffsetMs(timeZone, wall);
+  return new Date(wall - zoneOffsetMs(timeZone, first));
+}
+
+// How far `timeZone`'s wall clock is ahead of UTC at the instant `at`.
+function zoneOffsetMs(timeZone: string, at: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+  }).formatToParts(new Date(at));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((p) => p.type === type)!.value);
+  const wall = Date.UTC(
+    part('year'),
+    part('month') - 1,
+    part('day'),
+    part('hour'),
+    part('minute'),
+    part('second'),
+  );
+  return wall - Math.floor(at / 1000) * 1000;
+}
+
 export function formatIsoDate(
   year: number,
   month: number,
@@ -99,6 +137,11 @@ export function yearMonthOf(date: IsoDate): YearMonth {
 
 export function addDays(date: IsoDate, days: number): IsoDate {
   return fromDayNumber(toDayNumber(date) + days);
+}
+
+/** Days from `from` to `to`: negative when `to` is earlier. */
+export function daysBetween(from: IsoDate, to: IsoDate): number {
+  return toDayNumber(to) - toDayNumber(from);
 }
 
 /** 0 = Sunday ... 6 = Saturday. */

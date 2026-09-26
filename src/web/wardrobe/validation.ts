@@ -50,6 +50,10 @@ export const CATEGORY_MAX = 60;
 export const BRAND_MAX = 100;
 export const SIZE_MAX = 40;
 export const TEXT_MAX = 4000;
+/** Product pages' URLs run long (tracking parameters); browsers take ~2k. */
+export const SOURCE_URL_MAX = 2048;
+/** "$12,345,678.90" and a little room: numeric(10, 2) holds 8 digits before the point. */
+export const PRICE_INPUT_MAX = 20;
 
 // Room for a hostile value to reach readGarmentForm and be named in its
 // message; every real colour is a few letters.
@@ -131,6 +135,12 @@ export const GarmentBody = Type.Object({
   // app cached before they existed posts none, and its save must leave the
   // stored ones alone rather than clear them (an edit writes every field).
   props: Type.Optional(Type.Literal('1')),
+  sourceUrl: Type.Optional(Type.String({ maxLength: SOURCE_URL_MAX })),
+  price: Type.Optional(Type.String({ maxLength: PRICE_INPUT_MAX })),
+  // '1' from every form that renders the product link and price, for the
+  // same reason as props: forms cached before them (props=1 included) post
+  // neither, and must not clear them.
+  product: Type.Optional(Type.Literal('1')),
 });
 export type GarmentBody = Static<typeof GarmentBody>;
 
@@ -144,6 +154,8 @@ export interface GarmentFormValues {
   washingDetails: string;
   dateAquired: string;
   notes: string;
+  sourceUrl: string;
+  price: string;
   properties: PropertyFormValues;
 }
 
@@ -184,7 +196,9 @@ export type GarmentField =
   | 'category'
   | 'color'
   | 'dateAquired'
-  | 'fabricWeight';
+  | 'fabricWeight'
+  | 'sourceUrl'
+  | 'price';
 
 /** The properties as stored (null for not set, or not applying to the role). */
 export interface GarmentPropertyFields {
@@ -201,11 +215,21 @@ export interface GarmentPropertyFields {
   waterResistant: boolean;
 }
 
+/** Where the garment can be bought and what it cost, as stored. */
+export interface ProductFields {
+  /** An http(s) URL (readSourceUrl). */
+  sourceUrl: string | null;
+  /** numeric(10, 2) as text, always two decimals ('24.90'). */
+  price: string | null;
+}
+
 /**
  * A garment's fields as stored: trimmed, null when blank. The properties
- * are absent (left as stored) when the posting form predates them.
+ * and the product fields are absent (left as stored) when the posting form
+ * predates them.
  */
-export interface GarmentFields extends Partial<GarmentPropertyFields> {
+export interface GarmentFields
+  extends Partial<GarmentPropertyFields>, Partial<ProductFields> {
   name: string | null;
   category: string;
   brand: string | null;
@@ -241,6 +265,8 @@ export function formValues(body: GarmentBody): GarmentFormValues {
     washingDetails: body.washingDetails ?? '',
     dateAquired: body.dateAquired ?? '',
     notes: body.notes ?? '',
+    sourceUrl: body.sourceUrl ?? '',
+    price: body.price ?? '',
     properties: propertyFormValues(body),
   };
 }
@@ -453,6 +479,70 @@ function readDay(posted: string | undefined): IsoDate | null | undefined {
   return value ? parseIsoDate(value) : null;
 }
 
+/**
+ * A product page's address as stored: the URL as the parser writes it, or
+ * null when blank; a message for anything that is not an absolute http(s)
+ * URL (a `javascript:` link would run on the garment page's "View product").
+ */
+export function readSourceUrl(
+  posted: string | undefined,
+): { url: string | null } | { error: string } {
+  const typed = posted?.trim();
+  if (!typed) return { url: null };
+  const url = URL.parse(typed);
+  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
+    return { error: t('validation.SOURCE_URL_INVALID') };
+  }
+  return { url: url.href };
+}
+
+// Dollars and cents as people type them ("49.9", "$1,299.00"): the symbol
+// and thousands separators are dropped, then at most 8 digits before the
+// point (numeric(10, 2)) and 2 after. No sign: a price is never negative.
+const PRICE = /^(\d{1,8})(?:\.(\d{1,2}))?$/;
+
+/** A typed price as stored ('49.90'), null when blank, or a message. */
+export function readPrice(
+  posted: string | undefined,
+): { price: string | null } | { error: string } {
+  const typed = posted
+    ?.trim()
+    .replace(/^\$\s*/, '')
+    .replaceAll(',', '');
+  if (!typed) return { price: null };
+  const match = PRICE.exec(typed);
+  if (!match) return { error: t('validation.PRICE_INVALID') };
+  const [, whole, cents = ''] = match;
+  return { price: `${Number(whole)}.${cents.padEnd(2, '0')}` };
+}
+
+/**
+ * The product link and price as stored, or the messages for them; neither
+ * (left as stored) when the posting form predates them (GarmentBody.product).
+ */
+export function readProductFields(
+  posted: Pick<GarmentBody, 'product' | 'sourceUrl' | 'price'>,
+):
+  | { ok: true; fields: Partial<ProductFields> }
+  | { ok: false; errors: FieldErrors<'sourceUrl' | 'price'> } {
+  if (posted.product !== '1') return { ok: true, fields: {} };
+  const sourceUrl = readSourceUrl(posted.sourceUrl);
+  const price = readPrice(posted.price);
+  if ('url' in sourceUrl && 'price' in price) {
+    return {
+      ok: true,
+      fields: { sourceUrl: sourceUrl.url, price: price.price },
+    };
+  }
+  return {
+    ok: false,
+    errors: {
+      ...('error' in sourceUrl && { sourceUrl: [sourceUrl.error] }),
+      ...('error' in price && { price: [price.error] }),
+    },
+  };
+}
+
 /** The posted form as the garment to store, or what to show the person. */
 export function readGarmentForm(body: GarmentBody): GarmentForm {
   const category = normalizeCategory(body.category);
@@ -463,7 +553,14 @@ export function readGarmentForm(body: GarmentBody): GarmentForm {
     body.props === '1'
       ? readProperties(propertyFormValues(body), category)
       : undefined;
-  const errors = formErrors({ category, colors, acquiredOn, properties });
+  const product = readProductFields(body);
+  const errors = formErrors({
+    category,
+    colors,
+    acquiredOn,
+    properties,
+    product,
+  });
   // (The date check repeats formErrors' to narrow acquiredOn for the store.)
   if (Object.keys(errors).length > 0 || acquiredOn === undefined) {
     return { ok: false, values: formValues(body), errors };
@@ -472,6 +569,7 @@ export function readGarmentForm(body: GarmentBody): GarmentForm {
     ok: true,
     fields: {
       ...(properties?.ok ? properties.fields : {}),
+      ...(product.ok && product.fields),
       name: line(body.name),
       category,
       brand: line(body.brand),
@@ -490,8 +588,11 @@ function formErrors(read: {
   colors: { errors: string[] };
   acquiredOn: IsoDate | null | undefined;
   properties: ReturnType<typeof readProperties> | undefined;
+  product: ReturnType<typeof readProductFields>;
 }): FieldErrors<GarmentField> {
-  const errors: FieldErrors<GarmentField> = {};
+  const errors: FieldErrors<GarmentField> = read.product.ok
+    ? {}
+    : { ...read.product.errors };
   if (!read.category) errors.category = [t('validation.CATEGORY_REQUIRED')];
   if (read.colors.errors.length > 0) errors.color = read.colors.errors;
   if (read.acquiredOn === undefined) {

@@ -89,13 +89,15 @@ export async function scheduleOutfit(
 
 /**
  * The one writer of calendar entries, for an outfit the caller has already
- * found to be the owner's: POST /calendar (scheduleOutfit) and the outfit
+ * found to be the owner's: POST /calendar (scheduleOutfit), the outfit
  * form's "Add to calendar", inside its save transaction
- * (src/web/outfits/queries.ts).
+ * (src/web/outfits/queries.ts), and the seed's simulated history, which
+ * records a past day as worn when it was (`wornAt`; the app itself marks an
+ * entry worn with toggleWorn, at the tap).
  */
 export async function insertEntry(
   db: Queryable,
-  entry: { ownerId: number; outfitId: number; day: IsoDate },
+  entry: { ownerId: number; outfitId: number; day: IsoDate; wornAt?: Date },
 ): Promise<ScheduleOutcome> {
   const inserted = await db
     .insert(outfitCalendar)

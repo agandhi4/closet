@@ -1,4 +1,3 @@
-import type { MultipartFile } from '@fastify/multipart';
 import heicDecode from 'heic-decode';
 import { Readable } from 'node:stream';
 import { HttpError } from '../errors';
@@ -32,7 +31,13 @@ export function imageTooLarge(): HttpError {
  * Android and desktop browsers sometimes send a HEIC with no better type
  * than application/octet-stream; the file name is the only hint then.
  */
-export function isHeicUpload({ mimetype, filename }: MultipartFile): boolean {
+export function isHeicUpload({
+  mimetype,
+  filename,
+}: {
+  mimetype: string;
+  filename: string;
+}): boolean {
   if (HEIC_MIME_TYPES.has(mimetype)) return true;
   return (
     mimetype === 'application/octet-stream' && HEIC_EXTENSION.test(filename)
@@ -40,20 +45,20 @@ export function isHeicUpload({ mimetype, filename }: MultipartFile): boolean {
 }
 
 /**
- * Buffers the part up to `maxBytes` and decodes its primary image. Rejects
+ * Buffers the stream up to `maxBytes` and decodes its primary image. Rejects
  * with a 413 HttpError past the byte cap, and with imageTooLarge() past
  * `maxPixels` before any pixel is allocated (a small file can declare a
  * 20000x20000 grid); whatever heic-decode throws for undecodable bytes is
- * passed through for the caller to map to a client error. The part is fully
- * drained on every path: an unconsumed multipart stream hangs the request
- * (see Photos.storeUpload).
+ * passed through for the caller to map to a client error. The stream is
+ * fully drained on every path: an unconsumed multipart part hangs the
+ * request (see Photos.storeImage).
  */
 export async function decodeHeic(
-  part: MultipartFile,
+  stream: Readable,
   maxBytes: number,
   maxPixels: number,
 ): Promise<DecodedHeic> {
-  const buffer = await readUpTo(part.file, maxBytes);
+  const buffer = await readUpTo(stream, maxBytes);
   if (!buffer) {
     throw new HttpError(413, `HEIC uploads are limited to ${maxBytes} bytes`);
   }

@@ -6,6 +6,7 @@ import {
   foreignKey,
   index,
   integer,
+  numeric,
   pgTable,
   primaryKey,
   serial,
@@ -205,6 +206,14 @@ export const garment = pgTable(
     // Grams per square metre; entered and shown in oz too.
     fabricWeight: smallint('fabric_weight'),
     waterResistant: boolean('water_resistant').default(false).notNull(),
+    // Where it can be bought: an http(s) product page (readProductFields,
+    // src/web/wardrobe/validation.ts; the check is the backstop), shown as
+    // "View product". Written by the garment form and the seed; link import
+    // (#6) fills both from the page.
+    sourceUrl: text('source_url'),
+    // What it cost, in the household's currency; a string in TypeScript
+    // ('24.90'), so no cent is lost to a float.
+    price: numeric('price', { precision: 10, scale: 2 }),
   },
   (table) => [
     check(
@@ -236,6 +245,8 @@ export const garment = pgTable(
       'garment_length_check',
       sql`${table.length} in (${sqlList(LENGTHS)})`,
     ),
+    check('garment_source_url_check', sql`${table.sourceUrl} ~* '^https?://'`),
+    check('garment_price_check', sql`${table.price} >= 0`),
     check(
       'garment_fabric_weight_check',
       sql`${table.fabricWeight} between ${sql.raw(String(FABRIC_WEIGHT_GSM.min))} and ${sql.raw(String(FABRIC_WEIGHT_GSM.max))}`,

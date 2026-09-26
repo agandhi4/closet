@@ -1,4 +1,3 @@
-import { MultipartFile } from '@fastify/multipart';
 import heicDecode from 'heic-decode';
 import { Readable } from 'stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,11 +24,7 @@ const container = (width: number, height: number) => {
   return { decode, dispose };
 };
 
-const heicPart = (bytes = 'heic') =>
-  ({ file: Readable.from(Buffer.from(bytes)) }) as MultipartFile;
-
-const part = (mimetype: string, filename: string): MultipartFile =>
-  ({ mimetype, filename }) as MultipartFile;
+const heicBytes = (bytes = 'heic') => Readable.from(Buffer.from(bytes));
 
 describe('isHeicUpload', () => {
   it.each([
@@ -40,7 +35,7 @@ describe('isHeicUpload', () => {
     ['application/octet-stream', 'IMG_1.jpg', false],
     ['image/jpeg', 'photo.heic', false],
   ])('%s %s -> %s', (mimetype, filename, expected) => {
-    expect(isHeicUpload(part(mimetype, filename))).toBe(expected);
+    expect(isHeicUpload({ mimetype, filename })).toBe(expected);
   });
 });
 
@@ -62,11 +57,7 @@ describe('decodeHeic', () => {
         }
       })(),
     );
-    const refused = decodeHeic(
-      { file, filename: 'big.heic' } as MultipartFile,
-      1000,
-      1_000_000,
-    );
+    const refused = decodeHeic(file, 1000, 1_000_000);
     await expect(refused).rejects.toBeInstanceOf(HttpError);
     await expect(refused).rejects.toMatchObject({ statusCode: 413 });
     // busboy only moves to the next part once this one is consumed.
@@ -76,7 +67,7 @@ describe('decodeHeic', () => {
 
   it('returns the primary image as raw RGBA pixels with their layout', async () => {
     const { dispose } = container(3, 2);
-    const decoded = await decodeHeic(heicPart(), 1000, 1_000_000);
+    const decoded = await decodeHeic(heicBytes(), 1000, 1_000_000);
 
     expect(allMock).toHaveBeenCalledWith({ buffer: Buffer.from('heic') });
     expect(decoded.raw).toEqual({ width: 3, height: 2, channels: 4 });
@@ -90,7 +81,7 @@ describe('decodeHeic', () => {
   it('refuses more pixels than allowed before decoding any', async () => {
     // A few bytes can declare a 20000x20000 grid: 1.6 GB once decoded.
     const { decode, dispose } = container(20_000, 20_000);
-    const refused = decodeHeic(heicPart(), 1000, 64_000_000);
+    const refused = decodeHeic(heicBytes(), 1000, 64_000_000);
 
     await expect(refused).rejects.toBeInstanceOf(HttpError);
     await expect(refused).rejects.toMatchObject({

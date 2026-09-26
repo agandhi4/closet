@@ -69,6 +69,8 @@ views/assets/src-sw.js
 # Playwright
 node_modules/
 /test-results/
+# The seed personas' phone screenshots (test/screenshots.spec.ts)
+/screenshots/
 /playwright-report/
 /blob-report/
 /playwright/.cache/

@@ -3,8 +3,10 @@ import {
   addDays,
   addMonths,
   dayOfWeek,
+  daysBetween,
   daysInMonth,
   formatYearMonth,
+  instantAt,
   isValidTimeZone,
   parseIsoDate,
   parseYearMonth,
@@ -107,7 +109,41 @@ describe('calendar dates', () => {
     });
   });
 
+  describe('instantAt (a day at an hour in APP_TIMEZONE)', () => {
+    it("is that zone's wall-clock hour, summer and winter", () => {
+      expect(
+        instantAt('2026-07-01', 21, 'America/New_York').toISOString(),
+      ).toBe('2026-07-02T01:00:00.000Z');
+      expect(
+        instantAt('2026-01-15', 21, 'America/New_York').toISOString(),
+      ).toBe('2026-01-16T02:00:00.000Z');
+      expect(
+        instantAt('2026-01-15', 21, 'Pacific/Auckland').toISOString(),
+      ).toBe('2026-01-15T08:00:00.000Z');
+    });
+
+    it('is exact on both DST switch days, and round-trips through todayIn', () => {
+      expect(
+        instantAt('2026-03-08', 21, 'America/New_York').toISOString(),
+      ).toBe('2026-03-09T01:00:00.000Z');
+      expect(
+        instantAt('2026-11-01', 21, 'America/New_York').toISOString(),
+      ).toBe('2026-11-02T02:00:00.000Z');
+      for (const day of ['2026-03-08', '2026-11-01', '2026-12-31']) {
+        expect(
+          todayIn('America/New_York', instantAt(day, 0, 'America/New_York')),
+        ).toBe(day);
+      }
+    });
+  });
+
   describe('arithmetic', () => {
+    it('counts the days between two dates', () => {
+      expect(daysBetween('2026-06-28', '2026-09-26')).toBe(90);
+      expect(daysBetween('2026-09-26', '2026-06-28')).toBe(-90);
+      expect(daysBetween('2026-03-07', '2026-03-09')).toBe(2);
+    });
+
     it('steps days across months, years, leap days and DST changes', () => {
       expect(addDays('2026-01-31', 1)).toBe('2026-02-01');
       expect(addDays('2026-12-31', 1)).toBe('2027-01-01');

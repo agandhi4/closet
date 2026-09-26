@@ -8,7 +8,7 @@ import { Navbar } from '../layout/navbar';
 import { BackLink, HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import { ShareLinkButton } from '../share/share-button';
 import type { ViewContext } from '../view-context';
-import { categoryLabel, splitColors } from './garment';
+import { categoryLabel, priceLabel, splitColors } from './garment';
 import { fabricWeightLabel, valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
 import { garmentUrl, wardrobeUrl } from './urls';
@@ -310,6 +310,24 @@ function GarmentDetails({ garment }: { garment: GarmentDetail }) {
           <Detail label={t('DATE_ACQUIRED')}>
             <span class="font-medium">{garment.acquiredOn}</span>
           </Detail>
+        )}
+        {garment.price && (
+          <Detail label={t('PRICE')}>
+            <span class="font-medium">{priceLabel(garment.price)}</span>
+          </Detail>
+        )}
+        {garment.sourceUrl && (
+          // Only ever http(s) (readSourceUrl, and the column's check). A new
+          // tab, so the app stays where it was; noopener keeps the shop's page
+          // from reaching back into this one, noreferrer from learning its URL.
+          <a
+            href={garment.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="link link-primary text-sm self-start"
+          >
+            {t('VIEW_PRODUCT')}
+          </a>
         )}
         {garment.notes && (
           <Detail label={t('NOTES')} block>

@@ -450,6 +450,89 @@ describe('Photos.storeUpload', () => {
   });
 });
 
+describe('Photos.storeImage', () => {
+  /** Decoded RGBA with a pixel reader. */
+  const pixels = async (bytes: Buffer) => {
+    const { data, info } = await sharp(bytes)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const at = (x: number, y: number) => {
+      const offset = (y * info.width + x) * info.channels;
+      return [...data.subarray(offset, offset + 4)];
+    };
+    return { info, at };
+  };
+
+  /** A 300x400 transparent canvas with an opaque 100x200 block in it. */
+  const art = () =>
+    sharp({
+      create: {
+        width: 300,
+        height: 400,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([
+        {
+          input: {
+            create: {
+              width: 100,
+              height: 200,
+              channels: 4,
+              background: { r: 20, g: 40, b: 90, alpha: 1 },
+            },
+          },
+          left: 100,
+          top: 100,
+        },
+      ])
+      .png()
+      .toBuffer();
+
+  const source = async () => ({
+    stream: Readable.from(await art()),
+    mimetype: 'image/png',
+    filename: 'tee.png',
+  });
+
+  it('stores original and thumb only, by default (the cutout is queued)', async () => {
+    const photos = build();
+    const row = await photos.storeImage(await source(), 7);
+    expect(stores).toEqual([
+      row.fileName,
+      row.fileName.replace('.webp', '-thumb.webp'),
+    ]);
+  });
+
+  it('with alphaIsCutout, stores the art on white and its transparency as the padded-square cutout', async () => {
+    const photos = build();
+    const row = await photos.storeImage(await source(), 7, {
+      alphaIsCutout: true,
+    });
+    const nobgName = row.fileName.replace('.webp', '-nobg.webp');
+    const thumbName = row.fileName.replace('.webp', '-thumb.webp');
+    expect(stores).toEqual([row.fileName, nobgName, thumbName]);
+
+    // The original is what a photo would be: opaque, white where the
+    // canvas was transparent (the share preview is a JPEG of it).
+    const original = await pixels(await stored(row.fileName));
+    expect([original.info.width, original.info.height]).toEqual([300, 400]);
+    expect(original.at(5, 5)).toEqual([255, 255, 255, 255]);
+    const nobg = await pixels(await stored(nobgName));
+    expect([nobg.info.width, nobg.info.height]).toEqual([400, 400]);
+    // Transparent where the canvas was, opaque where the garment is.
+    expect(nobg.at(5, 5)[3]).toBe(0);
+    expect(nobg.at(200, 200)[3]).toBe(255);
+    // The thumb comes from the cutout, so it is square too.
+    expect(await sharp(await stored(thumbName)).metadata()).toMatchObject({
+      width: 400,
+      height: 400,
+    });
+  });
+});
+
 describe('Photos.watermarked', () => {
   beforeEach(async () => {
     // Red on the white photo, so a composite changes the output.

@@ -259,6 +259,9 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       length: 'text',
       fabric_weight: 'smallint',
       water_resistant: 'boolean',
+      // Added by 0008_garment_source_url_price.
+      source_url: 'text',
+      price: 'numeric',
     });
     expect(Object.keys(await columnsOf(env, 'user')).sort()).toEqual([
       'email',
