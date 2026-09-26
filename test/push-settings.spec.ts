@@ -11,8 +11,9 @@ import { signIn } from './support/e2e-session';
  * subscription is needed the page's PushManager is replaced by a stand-in
  * holding a subscription with real key sizes; everything after it (the
  * server's upsert, the sender, web-push's encryption) is real. The test
- * send's endpoint is a closed local port, so delivery fails fast and the
- * answer says so. A real delivery is out of scope.
+ * send's endpoint is an unresolvable name under push.apple.com (subscribe
+ * only accepts push-service hosts), so delivery fails at DNS and the answer
+ * says so. A real delivery is out of scope.
  *
  * Needs a server started with PWA_ENABLED=true (and VAPID keys), as
  * test/pwa.spec.ts does; Chromium only.
@@ -26,7 +27,9 @@ interface FakeSubscription {
 function fakeSubscription(): FakeSubscription {
   return {
     // Nothing listens on port 1: the server's send fails at connect.
-    endpoint: `https://127.0.0.1:1/push/${randomUUID()}`,
+    // Allowed by the push-service list (*.push.apple.com) but a name that does
+    // not resolve: the server's send fails at DNS, so nothing reaches Apple.
+    endpoint: `https://closet-e2e-${randomUUID().slice(0, 8)}.invalid-test.push.apple.com/push/${randomUUID()}`,
     keys: {
       p256dh: createECDH('prime256v1').generateKeys().toString('base64url'),
       auth: randomBytes(16).toString('base64url'),

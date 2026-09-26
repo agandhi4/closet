@@ -1,6 +1,6 @@
 -- Web Push subscriptions (src/web/push/): the keys become columns, the
 -- endpoint and user agent text (Firefox endpoints run past 255 characters),
--- and rows gain created_at/updated_at. See docs/audits/2026-09-25-program2,
+-- and rows gain created_at/updated_at. See the 2026-09-25 data-model audit,
 -- datamodel 1.4 and 1.7.
 -- Written by hand in drizzle-kit's form: generate cannot tell the dropped
 -- web_push_subscription from the added key columns without a TTY prompt.

@@ -1,3 +1,4 @@
+import { isPushServiceEndpoint } from './endpoint';
 import webpush from 'web-push';
 import type { Db } from '../../db/client';
 import type { WebLogger } from '../logger';
@@ -80,6 +81,15 @@ export function createPushSender(options: {
     body: string,
     { ttlSeconds }: SendOptions,
   ): Promise<Outcome> {
+    // Never connect to an endpoint outside the push services (SSRF), even one
+    // stored before subscribe checked it: drop the row instead.
+    if (!isPushServiceEndpoint(device.pushEndpoint)) {
+      await deleteDeviceById(db, device.id);
+      logger.warn(
+        `Push device ${device.id} of user ${userId} is not on a push service; removed unsent`,
+      );
+      return 'pruned';
+    }
     try {
       await webpush.sendNotification(
         {
