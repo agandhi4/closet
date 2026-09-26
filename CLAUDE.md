@@ -410,6 +410,7 @@ Deploy now (instead of waiting for the hourly timer): on linux-box, `docker pull
 <!-- ORCHESTRATION-OVERRIDE: claudebot agents skip this section.
      Your agent definition governs your workflow. -->
 
+- **Backlog: GitHub issues, ordered by the pinned Roadmap (#27).** Pull the first unchecked item whose dependencies are done; its issue links to its design section in `docs/plans/` and lists the acceptance criteria. Open work and status live in issues, not in docs or memory. `gh` defaults to this fork (`gh repo set-default`); in a fresh clone run `gh repo set-default agandhi4/closet` first, or pass `-R agandhi4/closet`: the `upstream` remote makes `gh` target lazztech/libre-closet otherwise. New ideas go in the **Later** milestone with where they were seen.
 - Before implementing, search Graphiti with `group_ids: ["closet"]` for decisions and gotchas in the area.
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
 - Behavior assertions go in `test/integration/` first: a spec that boots the real app and checks the HTML, headers, rows and files is the default proof that a change works, and it runs in seconds without a build or a browser. Playwright is the full gate for what only a browser can show (service worker, htmx swaps, layout).
