@@ -58,6 +58,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 **/*.sqlite
 **/*.sqlite3
 data/**
+# The server-mode cutout model (MODELS_PATH default, 940 MB)
+/models/
 public/bundle.css
 public/sw.js
 public/build.json
