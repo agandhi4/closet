@@ -1,5 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { recordCutoutEvent } from '../../cutout/queries';
 import { sessionUserId } from '../auth/require-session';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
@@ -25,7 +26,7 @@ import {
   splitColors,
 } from './garment';
 import { type GarmentFormMode, GarmentFormPage } from './garment-form';
-import { GarmentPage } from './garment-page';
+import { GarmentPage, GarmentPhotoView } from './garment-page';
 import {
   filterOptions,
   findGarment,
@@ -156,7 +157,14 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger } = options;
-  const deps: WardrobeDeps = { db, photos: options.photos, logger };
+  const { cutoutMode } = options.config;
+  const deps: WardrobeDeps = {
+    db,
+    photos: options.photos,
+    logger,
+    cutoutMode,
+    cutouts: options.cutouts,
+  };
 
   /** The form again, with the posted values and what is wrong with them. */
   async function refuseForm(
@@ -353,11 +361,75 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',
             justSavedPhoto: request.query.photoSaved === '1',
+            cutoutMode,
           }}
         />,
       );
     },
   );
+
+  if (cutoutMode === 'server') {
+    // The garment page's photo while its cutout is pending polls this
+    // (hx-trigger every 2s) and swaps it in; the answer stops polling once
+    // the cutout is ready or failed.
+    app.get(
+      '/wardrobe/:id/cutout',
+      { schema: { params: GarmentParams, querystring: OwnerQuery } },
+      async (request, reply) => {
+        const { access, viewOwner } = await resolve(
+          options,
+          request,
+          request.query.ownerId,
+          'view',
+        );
+        const garment = await requireGarment(
+          options,
+          request.params.id,
+          access.ownerId,
+        );
+        return renderFragment(
+          reply,
+          <GarmentPhotoView
+            garment={garment}
+            viewOwner={viewOwner}
+            canEdit={access.canManage}
+            cutoutMode={cutoutMode}
+          />,
+        );
+      },
+    );
+
+    // "Try again" on a failed cutout: a native post (PostForm), answered
+    // with the garment page, which shows it pending. Idempotent: a cutout
+    // that is no longer failed or pending is left alone.
+    app.post(
+      '/wardrobe/:id/cutout/retry',
+      { schema: { params: GarmentParams, querystring: OwnerQuery } },
+      async (request, reply) => {
+        const { access, viewOwner } = await resolve(
+          options,
+          request,
+          request.query.ownerId,
+          'manage',
+        );
+        const { id } = request.params;
+        const garment = await requireGarment(options, id, access.ownerId);
+        if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
+        const outcome = await recordCutoutEvent(db, garment.photo.fileName, {
+          type: 'retry',
+        });
+        if (outcome.ok) {
+          logger.info(
+            `Garment ${id} cutout requeued by user ${sessionUserId(request)}`,
+          );
+          options.cutouts.wake();
+        } else {
+          logger.info(`Garment ${id} cutout retry ignored (${outcome.reason})`);
+        }
+        return reply.redirect(garmentUrl(id, viewOwner), 303);
+      },
+    );
+  }
 
   app.get(
     '/wardrobe/:id/edit',

@@ -149,12 +149,14 @@ function nextState(state: CutoutState, event: CutoutEvent): CutoutState {
  * takes its source's status, and a pending copy is queued in its own
  * right).
  */
-export function initialCutoutState(status: CutoutStatus): {
+export interface InitialCutoutColumns {
   cutoutStatus: CutoutStatus;
   cutoutAttempts: number;
   cutoutJobVersion: null;
   cutoutRequestedAt: Date | null;
-} {
+}
+
+export function initialCutoutState(status: CutoutStatus): InitialCutoutColumns {
   return {
     cutoutStatus: status,
     cutoutAttempts: 0,

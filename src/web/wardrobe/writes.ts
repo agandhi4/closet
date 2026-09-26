@@ -1,4 +1,9 @@
 import type { MultipartFile } from '@fastify/multipart';
+import {
+  type CutoutStatus,
+  type InitialCutoutColumns,
+  initialCutoutState,
+} from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { HttpError } from '../errors';
 import type { Photos } from '../files/photos';
@@ -26,6 +31,10 @@ export interface WardrobeDeps {
   db: Db;
   photos: Photos;
   logger: Logger;
+  /** CUTOUT_MODE: `server` queues every uploaded photo that came without a cutout. */
+  cutoutMode: 'client' | 'server';
+  /** Told when a photo was queued (src/cutout/queue.ts). */
+  cutouts: { wake(): void };
 }
 
 /**
@@ -34,7 +43,7 @@ export interface WardrobeDeps {
  */
 async function commitWithPhoto<T>(
   { db, photos, logger }: WardrobeDeps,
-  photo: NewPhotoRow,
+  photo: NewPhotoRow & InitialCutoutColumns,
   write: (tx: Queryable, photoId: number) => Promise<T>,
 ): Promise<T> {
   try {
@@ -60,6 +69,8 @@ export function createGarment(
 /**
  * A copy of `source` in the requester's own wardrobe with the posted fields
  * and its own copy of the photo set (bytes and row), owned by the requester.
+ * The copy's cutout starts where the source's is (the bytes are the same);
+ * a pending one is queued in its own right.
  */
 export async function cloneGarment(
   deps: WardrobeDeps,
@@ -71,10 +82,26 @@ export async function cloneGarment(
   const photo = source.photo
     ? await deps.photos.copy(source.photo.fileName, requesterId)
     : undefined;
-  if (!photo) return insertGarment(deps.db, requesterId, fields, null);
-  return commitWithPhoto(deps, photo, (tx, photoId) =>
-    insertGarment(tx, requesterId, fields, photoId),
+  if (!photo || !source.photo) {
+    return insertGarment(deps.db, requesterId, fields, null);
+  }
+  const status = source.photo.cutoutStatus;
+  const id = await commitWithPhoto(
+    deps,
+    { ...photo, ...initialCutoutState(status) },
+    (tx, photoId) => insertGarment(tx, requesterId, fields, photoId),
   );
+  if (status === 'pending') deps.cutouts.wake();
+  return id;
+}
+
+// A new upload's cutout: in server mode one is asked for (`request`) unless
+// the browser sent its own (a page from before the switch still does).
+function uploadCutoutStatus(
+  deps: WardrobeDeps,
+  withCutout: boolean,
+): CutoutStatus {
+  return deps.cutoutMode === 'server' && !withCutout ? 'pending' : 'none';
 }
 
 /**
@@ -90,14 +117,28 @@ export async function replacePhoto(
   ownerId: number,
   parts: AsyncIterable<MultipartFile>,
 ): Promise<void> {
-  const photo = await deps.photos.storeUploadParts(parts, ownerId);
-  if (!photo) throw new HttpError(400, 'No file uploaded');
-  const replaced = await commitWithPhoto(deps, photo, async (tx, photoId) => {
-    const locked = await lockGarment(tx, id, ownerId);
-    if (!locked) throw new HttpError(404, 'Garment not found');
-    await replacePhotoRow(tx, id, photoId, locked.photoId);
-    return locked.fileName;
-  });
+  const upload = await deps.photos.storeUploadParts(parts, ownerId);
+  if (!upload) throw new HttpError(400, 'No file uploaded');
+  const photo = upload.row;
+  const cutout = initialCutoutState(
+    uploadCutoutStatus(deps, upload.withCutout),
+  );
+  const replaced = await commitWithPhoto(
+    deps,
+    { ...photo, ...cutout },
+    async (tx, photoId) => {
+      const locked = await lockGarment(tx, id, ownerId);
+      if (!locked) throw new HttpError(404, 'Garment not found');
+      await replacePhotoRow(tx, id, photoId, locked.photoId);
+      return locked.fileName;
+    },
+  );
+  if (cutout.cutoutStatus === 'pending') {
+    deps.logger.info(
+      `Garment ${id} photo ${photo.fileName} queued for background removal`,
+    );
+    deps.cutouts.wake();
+  }
   if (replaced) {
     await deps.photos.deleteVariants(replaced);
     deps.logger.info(

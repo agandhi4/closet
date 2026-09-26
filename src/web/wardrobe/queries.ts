@@ -1,5 +1,6 @@
 import { and, desc, eq, ilike, lt, or, type SQL, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
+import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
 import type { ImageRef } from '../files/image-url';
@@ -153,12 +154,17 @@ export async function filterOptions(
   };
 }
 
+/** A garment's photo on its page: the cutout's state decides what shows. */
+export interface GarmentPhoto extends ImageRef {
+  cutoutStatus: CutoutStatus;
+}
+
 /** A garment as its page and its forms show it. */
 export interface GarmentDetail extends GarmentFields {
   id: number;
   shareableId: string;
   archived: boolean;
-  photo: ImageRef | null;
+  photo: GarmentPhoto | null;
 }
 
 const detailColumns = {
@@ -173,7 +179,11 @@ const detailColumns = {
   washingDetails: garment.washingDetails,
   acquiredOn: garment.acquiredOn,
   archived: garment.archived,
-  photo: { fileName: file.fileName, version: file.version },
+  photo: {
+    fileName: file.fileName,
+    version: file.version,
+    cutoutStatus: file.cutoutStatus,
+  },
 };
 
 /** The garment in `ownerId`'s wardrobe, or undefined. */

@@ -201,6 +201,7 @@ export async function createApp(
       iconName: config.ICON_NAME,
       timeZone: config.APP_TIMEZONE,
       registrationDisabled: config.DISABLE_REGISTRATION,
+      cutoutMode: config.CUTOUT_MODE,
       // loadConfig requires both keys when PWA_ENABLED; the sender checks
       // them (and SITE_URL as the https subject) at boot.
       vapid: config.PWA_ENABLED
@@ -215,6 +216,7 @@ export async function createApp(
     db,
     tokens,
     photos,
+    cutouts,
   });
 
   return { app, db, photos, cutouts };
