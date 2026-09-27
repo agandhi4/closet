@@ -91,10 +91,21 @@ chore coat, the waffle henley, the Red Wings).
   one garment with that many identical copies, #7).
 - **Archived**: the tees and shoes he replaced (kept in the app, not the closet).
 
-## Next buys (his wishlist; seeds #18 and #34 later)
+## Next buys (his wishlist, #18)
 
-A charcoal merino crewneck to replace the grey one; a navy overshirt in wool for November; white
-Common Projects Achilles when they go on sale (an over-budget splurge he keeps talking himself out of).
+The same grey merino crewneck again, before the old one's elbows go (T21 is `replace_soon`); a padded
+shirt jacket for November; and white Allbirds Couriers, the sensible stand-in for the Common Projects
+Achilles he keeps talking himself out of. Written with status `wishlist` (the seed's own table below):
+not in the closet, the builder, capsules or laundry until "Bought it". Links checked on 2026-09-26
+(`verified` = the brand's page or catalog answered). Price is the listed price; no acquired date.
+
+### Wishlist
+
+| id | Name in the app | Brand | Category / type | Colours | Product | Price | Size | Warmth | Form. | Materials | Pattern | Fit | Sleeve | Replaces | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| W01 | New grey merino crewneck | Uniqlo | tops / sweater | grey | [Uniqlo Merino Sweater (crew), Gray](https://www.uniqlo.com/us/en/products/E450535-000/00) (verified; same page as T20) | $49.90 | M | 3* | 3 | merino | solid | regular | long | T21 | Like for like: the one he has is pilling at the elbows. |
+| W02 | Padded shirt jacket | Uniqlo | outerwear / jacket | brown | [Uniqlo Padded Shirt Jacket, Dark Brown](https://www.uniqlo.com/us/en/products/E489492-000/00) (verified) | $89.90 | M | 3 | 2 | — | — | regular | — | — | November, between the chore coat and the parka. |
+| W03 | White Couriers | Allbirds | footwear / sneakers | white | [Allbirds Men's Courier, Blizzard](https://www.allbirds.com/products/mens-couriers-blizzard) (verified) | $98 | 10 | 2 | 2 | — | — | — | — | — | The sensible pair; the Common Projects stay a fantasy. |
 
 ## What he owns (83 garments: 80 in the closet, 3 archived)
 
@@ -333,7 +344,7 @@ unavailable. Written through the garment form's Condition. Values are the app's 
 
 | Garment | Condition | Note |
 |---|---|---|
-| T21 | replace_soon | Pilling at the elbows; the charcoal one is on the Next buys list |
+| T21 | replace_soon | Pilling at the elbows; a new one is on the wishlist |
 | B02 | needs_repair | Back belt loop tore off; the tailor on DeKalb Av |
 
 ## Away
@@ -408,5 +419,5 @@ rules reach for the merino office outfit, the leather jacket and the hoodie.
 **What later features add** (plan section 10): wears and washes (#7, done: quantities 3 and 6, the
 worn entries as wears, laundry Sundays as washes, the Condition and Away tables), occasions on each entry (#13, done: work days, evenings and nights out, the morning workouts), the conference as a trip
 with a packing list (#10; the Travel capsule is its pool), a generator-avoid pair olive chinos + olive
-chore coat (#21), and the Next buys as wishlist items (#18). The outfit gallery (#9) swipes from the
+chore coat (#21), and the Next buys as wishlist items (#18, done: the Wishlist table, W01 replacing T21). The outfit gallery (#9) swipes from the
 capsules.

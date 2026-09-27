@@ -15,6 +15,7 @@ import {
   photoRowExists,
 } from '../files/queries';
 import type { Logger } from '../../logger';
+import { type EntryStatus, statusOfClone } from '../../wardrobe/status';
 import {
   deleteGarment,
   type GarmentDetail,
@@ -61,13 +62,17 @@ async function commitWithPhoto<T>(
   }
 }
 
-/** A new garment in `ownerId`'s wardrobe (the form has no photo; it comes next). */
+/**
+ * A new garment in `ownerId`'s wardrobe, in the closet or on the wishlist
+ * (the form has no photo; it comes next).
+ */
 export function createGarment(
   { db }: WardrobeDeps,
   ownerId: number,
   fields: GarmentFields,
+  status: EntryStatus,
 ): Promise<number> {
-  return insertGarment(db, ownerId, fields, null);
+  return insertGarment(db, ownerId, fields, null, status);
 }
 
 /**
@@ -90,6 +95,7 @@ export async function createGarmentWithLinkPhoto(
   userId: number,
   fields: GarmentFields,
   fileName: string,
+  status: EntryStatus,
 ): Promise<number | undefined> {
   const id = await db.transaction(async (tx) => {
     await lockPhotoName(tx, fileName);
@@ -102,7 +108,7 @@ export async function createGarmentWithLinkPhoto(
       ...photo,
       ...initialCutoutState('pending'),
     });
-    return insertGarment(tx, ownerId, fields, photoId);
+    return insertGarment(tx, ownerId, fields, photoId, status);
   });
   if (id === undefined) {
     logger.warn(
@@ -151,7 +157,8 @@ export async function discardLinkPhoto(
  * A copy of `source` in the requester's own wardrobe with the posted fields
  * and its own copy of the photo set (bytes and row), owned by the requester.
  * The copy's cutout starts where the source's is (the bytes are the same);
- * a pending one is queued in its own right.
+ * a pending one is queued in its own right. A copy of a wishlist item lands
+ * on the requester's wishlist, anything else in their closet (statusOfClone).
  */
 export async function cloneGarment(
   deps: WardrobeDeps,
@@ -163,16 +170,17 @@ export async function cloneGarment(
   const photo = source.photo
     ? await deps.photos.copy(source.photo.fileName, requesterId)
     : undefined;
+  const entry = statusOfClone(source.status);
   if (!photo || !source.photo) {
-    return insertGarment(deps.db, requesterId, fields, null);
+    return insertGarment(deps.db, requesterId, fields, null, entry);
   }
-  const status = source.photo.cutoutStatus;
+  const cutout = source.photo.cutoutStatus;
   const id = await commitWithPhoto(
     deps,
-    { ...photo, ...initialCutoutState(status) },
-    (tx, photoId) => insertGarment(tx, requesterId, fields, photoId),
+    { ...photo, ...initialCutoutState(cutout) },
+    (tx, photoId) => insertGarment(tx, requesterId, fields, photoId, entry),
   );
-  if (status === 'pending') deps.cutouts.wake();
+  if (cutout === 'pending') deps.cutouts.wake();
   return id;
 }
 

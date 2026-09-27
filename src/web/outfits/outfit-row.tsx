@@ -52,7 +52,7 @@ function ChosenGarment({ garment }: { garment: RowGarment }) {
       <span class="outfit-name text-xs truncate max-w-full text-center">
         {garment.name}
       </span>
-      {garment.archived && (
+      {garment.status === 'archived' && (
         <span class="badge badge-ghost badge-xs">{t('ARCHIVED')}</span>
       )}
     </button>

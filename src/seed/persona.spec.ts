@@ -118,6 +118,47 @@ describe('persona bibles', () => {
     expect(loadPersona('fresh').capsules).toEqual([]);
   });
 
+  it("reads Theo's wishlist: three items, the merino replacing the pilling one", () => {
+    const demo = loadPersona('demo');
+    expect(
+      demo.wishlist.map(({ id, replaces, fields }) => ({
+        id,
+        replaces,
+        category: fields.category,
+        price: fields.price,
+        acquiredOn: fields.acquiredOn,
+      })),
+    ).toEqual([
+      {
+        id: 'W01',
+        replaces: 'T21',
+        category: 'tops',
+        price: '49.90',
+        acquiredOn: null,
+      },
+      {
+        id: 'W02',
+        replaces: null,
+        category: 'outerwear',
+        price: '89.90',
+        acquiredOn: null,
+      },
+      {
+        id: 'W03',
+        replaces: null,
+        category: 'footwear',
+        price: '98.00',
+        acquiredOn: null,
+      },
+    ]);
+    // Owned garments only: a wishlist id is in no other table.
+    expect(demo.garments.map((g) => g.id)).not.toContain('W01');
+    expect(demo.garments.find((g) => g.id === 'T21')!.fields.condition).toBe(
+      'replace_soon',
+    );
+    expect(loadPersona('fresh').wishlist).toEqual([]);
+  });
+
   it('reads Dana: a custom category, four garments without a photo, a share with Theo', () => {
     const sparse = loadPersona('sparse');
     expect(sparse.garments.map((g) => g.fields.category)).toContain('scrubs');
@@ -222,6 +263,16 @@ describe('persona bibles', () => {
       'a capsule without a name',
       `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Capsules\n\n| Capsule | Garments | Notes |\n|---|---|---|\n| — | F01 | — |\n`,
       /CAPSULE_NAME_REQUIRED|Give the capsule a name/,
+    ],
+    [
+      'a wishlist item replacing a garment that is not owned',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Wishlist\n\n| id | Name in the app | Category / type | Colours | Replaces |\n|---|---|---|---|---|\n| W01 | New shoes | footwear / sneakers | white | F02 |\n`,
+      /replaces "F02", not an owned garment/,
+    ],
+    [
+      'an outfit wearing a wishlist item',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Wishlist\n\n| id | Name in the app | Category / type | Colours | Replaces |\n|---|---|---|---|---|\n| W01 | New shoes | footwear / sneakers | white | F01 |\n\n## Saved outfits\n\n| # | Name | Occasion | Bands | Garments |\n|---|---|---|---|---|\n| 1 | Look | weekend | any | F01, W01 |\n`,
+      /unknown garments: W01/,
     ],
   ])('refuses %s', (_, markdown, message) => {
     expect(() => parsePersona('fresh', markdown)).toThrow(BibleError);

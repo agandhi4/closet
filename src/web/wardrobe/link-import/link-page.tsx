@@ -5,13 +5,21 @@ import { Layout } from '../../layout/layout';
 import { Navbar } from '../../layout/navbar';
 import { BackLink } from '../../layout/parts';
 import type { ViewContext } from '../../view-context';
-import { LINK_IMPORT_PATH, wardrobeUrl } from '../urls';
+import {
+  type Destination,
+  destinationParams,
+  LINK_IMPORT_PATH,
+  wardrobeUrl,
+  WISHLIST_PATH,
+} from '../urls';
 import { LINK_INPUT_MAX } from './import';
 
 export interface LinkPageModel {
   /** The link in the field: shared into the app, or as last typed. */
   link: string;
   viewOwner: number | undefined;
+  /** Where the garment lands: carried to the form in the post's URL. */
+  destination: Destination;
   /** Why the last try was refused (a sentence without hosts or addresses). */
   error?: string;
 }
@@ -24,18 +32,32 @@ export interface LinkPageModel {
  */
 export function LinkPage(props: { ctx: ViewContext; model: LinkPageModel }) {
   const { ctx, model } = props;
-  const title = t('linkImport.TITLE');
+  const { viewOwner, destination } = model;
+  const wishlist = destination.to === 'wishlist';
+  const title = t(
+    wishlist ? 'wishlist.ADD_FROM_LINK_TITLE' : 'linkImport.TITLE',
+  );
   return (
     <Layout ctx={ctx} title={title}>
       <Navbar ctx={ctx} />
       <main class="p-4 pt-20 pb-24 max-w-lg mx-auto">
         <div class="flex items-center gap-3 mb-6">
-          <BackLink href={wardrobeUrl(model.viewOwner, {}, '/wardrobe/new')} />
+          <BackLink
+            href={wardrobeUrl(
+              viewOwner,
+              {},
+              wishlist ? WISHLIST_PATH : '/wardrobe/new',
+            )}
+          />
           <h1 class="text-2xl font-bold">{title}</h1>
         </div>
         <p class="text-sm opacity-70 mb-4">{t('linkImport.INTRO')}</p>
         <PostForm
-          action={wardrobeUrl(model.viewOwner, {}, LINK_IMPORT_PATH)}
+          action={wardrobeUrl(
+            viewOwner,
+            destinationParams(destination),
+            LINK_IMPORT_PATH,
+          )}
           class="flex flex-col gap-4"
         >
           <div class="flex flex-col">

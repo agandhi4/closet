@@ -45,6 +45,7 @@ import {
   withPresets,
 } from '../../wardrobe/validation';
 import { wearSummary } from '../../wears/queries';
+import { wishlistItems } from '../../wishlist/queries';
 import { defineTool, type ToolContext, wardrobeFor } from '../tool';
 import { ownerIdInput, rowId } from './common';
 import { addGarmentFromLink } from './link-import';
@@ -67,7 +68,7 @@ export function summaryOut(garment: GarmentSummary) {
     quantity: garment.quantity,
     condition: garment.condition,
     price: garment.price,
-    archived: garment.archived,
+    status: garment.status,
   };
 }
 
@@ -98,7 +99,8 @@ async function garmentOut(
     notes: garment.notes,
     washingDetails: garment.washingDetails,
     acquiredOn: garment.acquiredOn,
-    archived: garment.archived,
+    status: garment.status,
+    replacesGarmentId: garment.replacesGarmentId,
     hasPhoto: garment.photo !== null,
     properties: {
       type: garment.type,
@@ -305,7 +307,12 @@ const SearchInput = z.object({
     .boolean()
     .default(false)
     .describe('Only garments that need repair or replacing soon.'),
-  includeArchived: z.boolean().default(false),
+  includeArchived: z
+    .boolean()
+    .default(false)
+    .describe(
+      'Also garments no longer in the closet (archived). The wishlist is list_wishlist.',
+    ),
   before: rowId().optional().describe('The previous page’s `next`.'),
 });
 type SearchArgs = z.output<typeof SearchInput>;
@@ -327,7 +334,7 @@ function searchFilters(args: SearchArgs): GridFilters {
     formality: args.formality,
     material: args.material,
     capsule: args.capsuleId,
-    archived: args.includeArchived,
+    scope: args.includeArchived ? 'owned' : 'closet',
     needsWash: args.needsWash,
     attention: args.needsAttention,
   };
@@ -362,7 +369,7 @@ export const garmentTools = [
   defineTool({
     name: 'search_garments',
     title: 'Search garments',
-    description: `Searches a wardrobe like its grid: every filter optional, newest first, ${GRID_PAGE_SIZE} a page (pass the answer's \`next\` as \`before\` for the next). Answers each garment's id, name, category, role, type, brand, colours, size, warmth, formality, quantity, condition and price; get_garment has the rest.`,
+    description: `Searches a wardrobe's closet like its grid (never the wishlist: list_wishlist): every filter optional, newest first, ${GRID_PAGE_SIZE} a page (pass the answer's \`next\` as \`before\` for the next). Answers each garment's id, name, category, role, type, brand, colours, size, warmth, formality, quantity, condition, price and status; get_garment has the rest.`,
     input: SearchInput,
     writes: false,
     async run(args, ctx) {
@@ -388,7 +395,7 @@ export const garmentTools = [
     name: 'get_garment',
     title: 'Get a garment',
     description:
-      'One garment in full: its fields, every property, product link and price, quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes. No photo.',
+      'One garment in full: its status (closet, archived, or wishlist: not bought yet) and fields, every property, product link and price, what it replaces (a wishlist item), quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes. No photo.',
     input: z.object({ id: rowId(), ownerId: ownerIdInput }),
     writes: false,
     async run({ id, ownerId }, ctx) {
@@ -453,13 +460,50 @@ export const garmentTools = [
   }),
 
   defineTool({
+    name: 'list_wishlist',
+    title: 'List the wishlist',
+    description:
+      "A wardrobe's wishlist: what its owner is thinking of buying, newest first, each with its brand, category, price, product link and the closet garment it would replace. None of it is in the closet (search_garments never lists it).",
+    input: z.object({ ownerId: ownerIdInput }),
+    writes: false,
+    async run({ ownerId }, ctx) {
+      const access = await wardrobeFor(ctx, ownerId, 'view');
+      const items = await wishlistItems(ctx.db, access.ownerId);
+      return {
+        items: items.map((item) => ({
+          id: item.id,
+          name: item.name,
+          brand: item.brand,
+          category: item.category,
+          price: item.price,
+          sourceUrl: item.sourceUrl,
+          replaces: item.replaces && {
+            id: item.replaces.id,
+            name: item.replaces.name,
+            status: item.replaces.status,
+          },
+        })),
+      };
+    },
+  }),
+
+  defineTool({
     name: 'add_garment_from_link',
     title: 'Add a garment from a product link',
     description:
-      "WRITES: fetches a product page (or an image link), extracts the name, brand, colours, category, type, materials, price and first photo as the app's link import does, and saves the garment straight to the closet (the photo's background removal follows). Give `category` when the page does not make it clear; any field given overrides the extraction. Needs your own wardrobe or a MANAGE share. Rate limited: 10 imports a minute.",
+      'WRITES: fetches a product page (or an image link), extracts the name, brand, colours, category, type, materials, price and first photo as the app\'s link import does, and saves the garment (the photo\'s background removal follows). Lands on the wishlist unless `destination` is `closet`: a product link is usually something being considered, and the owner moves it to the closet with "Bought it" in the app. Say `closet` only for something already owned. Give `category` when the page does not make it clear; any field given overrides the extraction. Needs your own wardrobe or a MANAGE share. Rate limited: 10 imports a minute.',
     input: z.object({
       url: z.url({ protocol: /^https?$/ }).max(2048),
       ownerId: ownerIdInput,
+      destination: z
+        .enum(['wishlist', 'closet'])
+        .default('wishlist')
+        .describe('wishlist (considering it; the default) or closet (owned).'),
+      replacesGarmentId: rowId()
+        .optional()
+        .describe(
+          "A wishlist item's closet garment it would replace (search_garments with needsAttention finds the worn-out ones).",
+        ),
       name: z.string().max(NAME_MAX).optional(),
       category: z.string().max(CATEGORY_MAX).optional(),
       type: z.string().max(40).optional(),

@@ -10,7 +10,7 @@ import { WardrobeTabs } from '../wardrobe/wardrobe-tabs';
 import type { CapsuleCard, StripGarment } from './queries';
 
 export interface CapsulesModel {
-  /** The closet: every unarchived garment, the first and permanent capsule. */
+  /** The closet (inCloset): the first and permanent capsule. */
   closet: { count: number; strip: StripGarment[] };
   capsules: CapsuleCard[];
   /** The shared wardrobe shown; undefined for the requester's own. */

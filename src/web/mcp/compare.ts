@@ -9,7 +9,7 @@ import {
  * wardrobe shared with them (the demo persona's, the owner's target), by
  * role and type, so their Claude can talk through the gaps (what to buy
  * next, #34) and what they have that the other does not. Pure: both sides
- * arrive as rows (unarchived garments), the answer is plain data.
+ * arrive as rows (closet garments, inCloset), the answer is plain data.
  */
 
 /** One garment as the comparison reads it. */

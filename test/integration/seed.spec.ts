@@ -84,7 +84,13 @@ describe('seed personas', () => {
       .digest('hex');
 
   // Differ between runs by design: ids, UUIDs, the photo row's id.
-  const VARYING = ['id', 'shareableId', 'photoId', 'ownerId'] as const;
+  const VARYING = [
+    'id',
+    'shareableId',
+    'photoId',
+    'ownerId',
+    'replacesGarmentId',
+  ] as const;
 
   /**
    * What a persona is, without what differs between runs by design (row
@@ -136,6 +142,11 @@ describe('seed personas', () => {
           for (const key of VARYING) delete fields[key];
           return {
             ...fields,
+            // The replaced garment by name: its id differs between runs.
+            replaces:
+              g.replacesGarmentId === null
+                ? null
+                : ids.get(g.replacesGarmentId),
             cutout,
             nobg: fileName && (await sha(variantFileName(fileName, 'nobg'))),
           };
@@ -176,23 +187,48 @@ describe('seed personas', () => {
     const first = await seedAll();
     expect(first).toMatchObject({ status: 0, stderr: '' });
     expect(first.stdout).toContain(
-      'demo: seeded 83 garments, 83 photos, 26 outfits, 4 capsules',
+      'demo: seeded 83 garments, 3 wishlist items, 86 photos, 26 outfits, 4 capsules',
     );
     expect(first.stdout).toContain(
       `Sign in as demo@closet.invalid with ${PASSWORD}`,
     );
     expect(first.stdout).toContain(
-      'sparse: seeded 12 garments, 8 photos, 1 outfits',
+      'fresh: seeded 0 garments, 0 wishlist items, 0 photos, 0 outfits, 0 capsules',
     );
     expect(first.stdout).toContain(
-      'fresh: seeded 0 garments, 0 photos, 0 outfits, 0 capsules',
-    );
-    expect(first.stdout).toContain(
-      'sparse: seeded 12 garments, 8 photos, 1 outfits, 0 capsules',
+      'sparse: seeded 12 garments, 0 wishlist items, 8 photos, 1 outfits, 0 capsules',
     );
 
     const demo = await snapshot(EMAILS[0]);
-    expect(demo.garments.filter((g) => g.archived)).toHaveLength(3);
+    const withStatus = (status: string) =>
+      demo.garments.filter((g) => g.status === status).map((g) => g.name);
+    expect(withStatus('archived')).toHaveLength(3);
+    expect(withStatus('closet')).toHaveLength(80);
+    // Theo's Next buys (#18): on the wishlist, never worn, in no outfit or
+    // capsule; the new merino replaces the pilling one.
+    expect(withStatus('wishlist')).toEqual([
+      'New grey merino crewneck',
+      'Padded shirt jacket',
+      'White Couriers',
+    ]);
+    const merino = demo.garments.find(
+      (g) => g.name === 'New grey merino crewneck',
+    )!;
+    expect(merino).toMatchObject({
+      replaces: 'Grey merino crewneck',
+      price: '49.90',
+      acquiredOn: null,
+      sourceUrl: 'https://www.uniqlo.com/us/en/products/E450535-000/00',
+    });
+    const wishlisted = new Set(withStatus('wishlist'));
+    expect(demo.wears.some(([name]) => wishlisted.has(name as string))).toBe(
+      false,
+    );
+    expect(
+      demo.outfits.some((o) =>
+        o.slots.some(([, name]) => wishlisted.has(name as string)),
+      ),
+    ).toBe(false);
     // The art is its own cutout: nothing waits in the background-removal queue.
     expect(new Set(demo.garments.map((g) => g.cutout))).toEqual(
       new Set(['ready']),

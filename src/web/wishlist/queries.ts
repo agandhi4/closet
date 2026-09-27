@@ -1,0 +1,160 @@
+import { and, asc, desc, eq, ne, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import type { Db } from '../../db/client';
+import { file, garment } from '../../db/schema';
+import type { Condition } from '../../wardrobe/properties';
+import type { GarmentStatus } from '../../wardrobe/status';
+import type { ImageRef } from '../files/image-url';
+import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
+
+/**
+ * The wishlist's reads (#18): wishlist items are garments with status
+ * 'wishlist' (src/wardrobe/status.ts), so every write is the wardrobe's
+ * (insertGarment, updateGarmentFields, setGarmentStatus). Every query names
+ * the wardrobe it reads, as authorizeWardrobe resolved it.
+ */
+
+/** A garment another one points at: what a link to it shows. */
+export interface GarmentRef {
+  id: number;
+  name: string | null;
+  category: string;
+  status: GarmentStatus;
+}
+
+/** A card on the Wishlist tab. */
+export interface WishlistItem {
+  id: number;
+  name: string | null;
+  brand: string | null;
+  category: string;
+  price: string | null;
+  sourceUrl: string | null;
+  photo: ImageRef | null;
+  /** The garment it would replace; null for none (or deleted since). */
+  replaces: GarmentRef | null;
+}
+
+const replacedGarment = alias(garment, 'replaced');
+
+/**
+ * The wardrobe's wishlist, newest first, each item with the garment it
+ * replaces. One statement, unpaged: a wishlist is a handful of things being
+ * considered, not a closet (the grid's keyset paging is for hundreds).
+ */
+export async function wishlistItems(
+  db: Db,
+  ownerId: number,
+): Promise<WishlistItem[]> {
+  const rows = await db
+    .select({
+      id: garment.id,
+      name: garment.name,
+      brand: garment.brand,
+      category: garment.category,
+      price: garment.price,
+      sourceUrl: garment.sourceUrl,
+      photo: { fileName: file.fileName, version: file.version },
+      replaces: {
+        id: replacedGarment.id,
+        name: replacedGarment.name,
+        category: replacedGarment.category,
+        status: replacedGarment.status,
+      },
+    })
+    .from(garment)
+    .leftJoin(file, eq(file.id, garment.photoId))
+    .leftJoin(
+      replacedGarment,
+      eq(replacedGarment.id, garment.replacesGarmentId),
+    )
+    .where(and(eq(garment.ownerId, ownerId), onWishlist()))
+    .orderBy(desc(garment.id));
+  return rows;
+}
+
+/** How many items the wardrobe's wishlist holds (the tab's count). */
+export function countWishlist(db: Db, ownerId: number): Promise<number> {
+  return db.$count(garment, and(eq(garment.ownerId, ownerId), onWishlist()));
+}
+
+/** The garment `id` of `ownerId`'s wardrobe as a link shows it, or undefined. */
+export async function garmentRef(
+  db: Db,
+  id: number,
+  ownerId: number,
+): Promise<GarmentRef | undefined> {
+  const [row] = await db
+    .select({
+      id: garment.id,
+      name: garment.name,
+      category: garment.category,
+      status: garment.status,
+    })
+    .from(garment)
+    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)));
+  return row;
+}
+
+/** The wishlist items that would replace garment `id` (its page's "On the wishlist"). */
+export function replacementsOf(
+  db: Db,
+  id: number,
+  ownerId: number,
+): Promise<{ id: number; name: string | null; category: string }[]> {
+  return db
+    .select({ id: garment.id, name: garment.name, category: garment.category })
+    .from(garment)
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        eq(garment.replacesGarmentId, id),
+        onWishlist(),
+      ),
+    )
+    .orderBy(desc(garment.id));
+}
+
+/** A choice in a wishlist form's "Replaces". */
+export interface ReplaceableGarment {
+  id: number;
+  name: string | null;
+  category: string;
+  condition: Condition;
+}
+
+/**
+ * What a wishlist item can say it replaces: the closet's garments, those
+ * whose condition is not good first (what "replace soon" is for), then by
+ * category and name; and `chosen`, the one an edited item already names,
+ * when it has left the closet since (archived after the item was added),
+ * so saving the form keeps it.
+ */
+export function replaceableGarments(
+  db: Db,
+  ownerId: number,
+  chosen: number | undefined,
+): Promise<ReplaceableGarment[]> {
+  return db
+    .select({
+      id: garment.id,
+      name: garment.name,
+      category: garment.category,
+      condition: garment.condition,
+    })
+    .from(garment)
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        chosen === undefined
+          ? inCloset()
+          : or(inCloset(), and(eq(garment.id, chosen), ownedGarment())),
+      ),
+    )
+    .orderBy(
+      desc(ne(garment.condition, 'good')),
+      asc(garment.category),
+      asc(sql`lower(${garment.name})`),
+      asc(garment.id),
+    );
+}

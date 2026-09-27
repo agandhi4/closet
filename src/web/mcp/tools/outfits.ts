@@ -90,6 +90,15 @@ export const outfitTools = [
           `Not in your wardrobe: garment ${missing.join(', ')}`,
         );
       }
+      // Wishlist items are not owned yet: an outfit never names one (the
+      // save would drop it; say so instead).
+      const wanted = garments.filter((g) => g!.status === 'wishlist');
+      if (wanted.length > 0) {
+        throw new HttpError(
+          409,
+          `On the wishlist, not bought yet: garment ${wanted.map((g) => g!.id).join(', ')}`,
+        );
+      }
       const plan = scheduleDate
         ? { day: scheduleDate, occasion: occasion ?? DEFAULT_OCCASION }
         : undefined;

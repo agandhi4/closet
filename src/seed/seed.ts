@@ -38,7 +38,8 @@ import {
   declineInvite,
 } from '../web/sharing/queries';
 import { splitColors } from '../web/wardrobe/garment';
-import { insertGarment, toggleArchived } from '../web/wardrobe/queries';
+import { insertGarment } from '../web/wardrobe/queries';
+import { setGarmentStatus } from '../web/wardrobe/status';
 import { garmentSvg } from './art';
 import {
   isPersonaKey,
@@ -47,6 +48,7 @@ import {
   PERSONA_KEYS,
   type PersonaKey,
   type SeedGarment,
+  type SeedWishlistItem,
   slotRank,
 } from './persona';
 import { type SimulatedLife, simulate } from './simulate';
@@ -70,6 +72,7 @@ export interface SeedDeps {
 export interface SeedReport {
   userId: number;
   garments: number;
+  wishlist: number;
   photos: number;
   outfits: number;
   capsules: number;
@@ -111,16 +114,18 @@ export async function seedPersona(
         lastName: persona.account.lastName,
       });
       const ids = new Map<string, number>();
-      for (const garment of persona.garments) {
-        const photo = photos.get(garment.id);
-        const photoId = photo
-          ? await insertPhotoRow(tx, {
+      const photoIdOf = async (bibleId: string) => {
+        const photo = photos.get(bibleId);
+        return photo
+          ? insertPhotoRow(tx, {
               ...photo,
               createdById: userId,
               // The art is its own cutout: nothing to queue.
               ...initialCutoutState('ready'),
             })
           : null;
+      };
+      for (const garment of persona.garments) {
         const acquiredOn = garment.fields.acquiredOn;
         const id = await insertGarment(
           tx,
@@ -129,11 +134,26 @@ export async function seedPersona(
             ...garment.fields,
             acquiredOn: acquiredOn && addDays(acquiredOn, life.shiftDays),
           },
-          photoId,
+          await photoIdOf(garment.id),
+          'closet',
         );
-        if (garment.archivedOn) await toggleArchived(tx, id, userId);
+        if (garment.archivedOn) await archive(tx, id, userId, garment.id);
         if (garment.away) await setAway(tx, userId, id, garment.away);
         ids.set(garment.id, id);
+      }
+      // After the owned garments: an item names the one it replaces.
+      for (const item of persona.wishlist) {
+        await insertGarment(
+          tx,
+          userId,
+          {
+            ...item.fields,
+            replacesGarmentId:
+              item.replaces === null ? null : ids.get(item.replaces)!,
+          },
+          await photoIdOf(item.id),
+          'wishlist',
+        );
       }
       const byId = new Map(persona.garments.map((g) => [g.id, g]));
       const outfitIds: number[] = [];
@@ -176,6 +196,7 @@ export async function seedPersona(
       return {
         userId,
         garments: persona.garments.length,
+        wishlist: persona.wishlist.length,
         photos: photos.size,
         outfits: outfitIds.length,
         capsules: persona.capsules.length,
@@ -187,7 +208,7 @@ export async function seedPersona(
       };
     });
     logger.info(
-      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears), ${report.washes} laundry days in ${report.ms}ms`,
+      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears), ${report.washes} laundry days in ${report.ms}ms`,
     );
     return report;
   } catch (error) {
@@ -199,6 +220,20 @@ export async function seedPersona(
     }
     throw error;
   }
+}
+
+/** An archived garment of the bible, archived as the garment page does. */
+async function archive(
+  tx: Queryable,
+  id: number,
+  userId: number,
+  bibleId: string,
+): Promise<void> {
+  const archived = await setGarmentStatus(tx, id, userId, {
+    event: 'archive',
+  });
+  // Inserted in the closet a moment ago: anything else is a bug.
+  if (!archived.ok) throw new Error(`Could not archive ${bibleId}`);
 }
 
 /**
@@ -264,7 +299,9 @@ async function storeArt(
   persona: Persona,
 ): Promise<Map<string, NewPhotoRow>> {
   const stored = new Map<string, NewPhotoRow>();
-  const pending = persona.garments.filter((g) => g.photo);
+  const pending = [...persona.garments, ...persona.wishlist].filter(
+    (g) => g.photo,
+  );
   const failures: unknown[] = [];
   for (
     let i = 0;
@@ -296,7 +333,7 @@ async function storeArt(
 async function storeGarmentArt(
   photos: Photos,
   persona: Persona,
-  garment: SeedGarment,
+  garment: SeedGarment | SeedWishlistItem,
 ): Promise<NewPhotoRow> {
   const png = await sharp(Buffer.from(svgOf(garment)))
     .png()
@@ -312,7 +349,7 @@ async function storeGarmentArt(
   );
 }
 
-export function svgOf(garment: SeedGarment): string {
+export function svgOf(garment: SeedGarment | SeedWishlistItem): string {
   return garmentSvg({
     category: garment.fields.category,
     type: garment.fields.type ?? null,
@@ -542,7 +579,7 @@ async function seedOne(
   const report = await seedPersona(command, persona, options);
   output.write(
     report
-      ? `${persona.key}: seeded ${report.garments} garments, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries in ${(report.ms / 1000).toFixed(1)} s. Sign in as ${persona.account.email} with ${options.password}\n`
+      ? `${persona.key}: seeded ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries in ${(report.ms / 1000).toFixed(1)} s. Sign in as ${persona.account.email} with ${options.password}\n`
       : `${persona.key}: already seeded, left as it is (--reset rebuilds it)\n`,
   );
   const account = await findUserByEmail(

@@ -20,11 +20,16 @@ import {
   discardLinkPhoto,
   type WardrobeDeps,
 } from '../../wardrobe/writes';
+import type { EntryStatus } from '../../../wardrobe/status';
 import type { ToolContext } from '../tool';
 
 /** What the caller may say instead of the page. */
 export interface LinkOverrides {
   url: string;
+  /** Where it lands (the tool's default is the wishlist). */
+  destination: EntryStatus;
+  /** A wishlist item's replaced garment (stored only if the owner's; replacementOf). */
+  replacesGarmentId?: number;
   name?: string;
   category?: string;
   type?: string;
@@ -44,9 +49,9 @@ export interface LinkOverrides {
  * fetched. The photo choices the page would offer are not: the first is
  * kept, and the garment page changes it.
  *
- * Lands in the closet: the wishlist (#18) does not exist yet. When it does,
- * this takes a destination (closet or wishlist) and the shopping loop
- * (#34) adds candidates to a plan item through it.
+ * Lands where the caller says (add_garment_from_link defaults to the
+ * wishlist, #18). The shopping loop (#34) will add candidates to a plan
+ * item through it.
  */
 export async function addGarmentFromLink(
   ctx: ToolContext,
@@ -96,15 +101,16 @@ export async function addGarmentFromLink(
         ctx.userId,
         read.fields,
         photo,
+        overrides.destination,
       )
-    : await createGarment(deps, ownerId, read.fields);
+    : await createGarment(deps, ownerId, read.fields, overrides.destination);
   if (id === undefined) {
     // Claimed or evicted between the import and the save (the same user's
     // tenth import meanwhile): nothing was written.
     throw new HttpError(409, t('linkImport.PHOTO_GONE'));
   }
   ctx.webLogger.info(
-    `Garment ${id} added from a link by user ${ctx.userId} into wardrobe ${ownerId} (MCP): ${imported.kind}${photo ? `, photo ${photo}` : ', no photo'}`,
+    `Garment ${id} added from a link by user ${ctx.userId} into wardrobe ${ownerId} (${overrides.destination}, MCP): ${imported.kind}${photo ? `, photo ${photo}` : ', no photo'}`,
   );
   return { id, notices: form.link.notices };
 }
@@ -126,6 +132,10 @@ function withOverrides(
     category,
     size: overrides.size ?? values.size,
     notes: overrides.notes ?? values.notes,
+    replaces:
+      overrides.replacesGarmentId === undefined
+        ? values.replaces
+        : String(overrides.replacesGarmentId),
     properties: kindChanged
       ? withPresets({ ...values.properties, type }, category)
       : values.properties,

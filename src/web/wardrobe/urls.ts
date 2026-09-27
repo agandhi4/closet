@@ -10,6 +10,30 @@ export const LINK_IMPORT_PATH = '/wardrobe/new/from-link';
 /** Picking another of the page's photos on the prefilled form. */
 export const LINK_PHOTO_PATH = `${LINK_IMPORT_PATH}/photo`;
 
+/** The Wardrobe's Wishlist tab (src/web/wishlist); under /wardrobe, so the dock marks it. */
+export const WISHLIST_PATH = '/wardrobe/wishlist';
+
+/**
+ * Where a new garment lands, as the new form and the link import carry it
+ * in their URLs (DestinationQuery): the closet adds nothing.
+ */
+export interface Destination {
+  to: 'closet' | 'wishlist';
+  /** A wishlist item's replaced garment (a garment's "Find a replacement"). */
+  replaces?: number;
+}
+
+export const TO_CLOSET: Destination = { to: 'closet' };
+
+/** The destination's query parameters (none for the closet). */
+export function destinationParams(
+  destination: Destination,
+): Record<string, string | number | undefined> {
+  return destination.to === 'closet'
+    ? {}
+    : { to: destination.to, replaces: destination.replaces };
+}
+
 /** `path` with the query `params`, empty values left out. */
 function withQuery(
   path: string,

@@ -236,7 +236,6 @@ describe('garments move to the web layer (0004_garment_web)', () => {
 
     expect(await columnsOf(env, 'garment')).toEqual({
       acquired_on: 'date',
-      archived: 'boolean',
       brand: 'text',
       category: 'text',
       color: 'text',
@@ -270,6 +269,9 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       away_note: 'text',
       condition: 'text',
       condition_note: 'text',
+      // 0014_garment_status: archived became status.
+      status: 'text',
+      replaces_garment_id: 'integer',
     });
     expect(Object.keys(await columnsOf(env, 'user')).sort()).toEqual([
       'email',

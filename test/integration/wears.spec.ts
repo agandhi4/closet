@@ -8,6 +8,7 @@ import {
   wearsSinceWash,
 } from '../../src/wardrobe/availability';
 import type { Occasion } from '../../src/wardrobe/occasions';
+import type { GarmentStatus } from '../../src/wardrobe/status';
 import {
   addDays,
   type IsoDate,
@@ -596,7 +597,7 @@ describe('wears and washes', () => {
       worn: number[];
       washedDaysAgo: number | null;
       away: AwayReason | null;
-      archived: boolean;
+      status: GarmentStatus;
     }
 
     const base: Omit<Case, 'name'> = {
@@ -606,7 +607,7 @@ describe('wears and washes', () => {
       worn: [],
       washedDaysAgo: null,
       away: null,
-      archived: false,
+      status: 'closet',
     };
 
     const CASES: Case[] = [
@@ -638,7 +639,8 @@ describe('wears and washes', () => {
       { ...base, name: 'custom', category: 'scrubs', worn: [1, 2] },
       { ...base, name: 'lent', away: 'lent' },
       { ...base, name: 'at repair', away: 'repair' },
-      { ...base, name: 'archived', archived: true },
+      { ...base, name: 'archived', status: 'archived' },
+      { ...base, name: 'wishlist', status: 'wishlist' },
     ];
 
     it('agrees in SQL (availableGarment, dirtyCopiesSql) and in TypeScript (isAvailable) on every case', async () => {
@@ -659,7 +661,7 @@ describe('wears and washes', () => {
             lastWashedOn:
               c.washedDaysAgo === null ? null : daysAgo(c.washedDaysAgo),
             away: c.away,
-            archived: c.archived,
+            status: c.status,
           })
           .where(eq(garment.id, id));
         // Straight rows: one per wear, repeats standing in for two entries.
@@ -703,7 +705,7 @@ describe('wears and washes', () => {
           name: c.name,
           available: isAvailable({
             ...state,
-            archived: c.archived,
+            status: c.status,
             away: c.away,
           }),
         };
@@ -734,6 +736,7 @@ describe('wears and washes', () => {
         lent: false,
         'at repair': false,
         archived: false,
+        wishlist: false,
       });
     });
   });

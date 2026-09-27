@@ -6,8 +6,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { outfit, outfitCalendar, outfitSlot } from '../../src/db/schema';
 import { createToken } from '../../src/web/auth/personal-tokens';
 import { LOGIN_PATH } from '../../src/web/auth/session-access';
+import { todayIn } from '../../src/web/calendar/calendar-date';
 import {
   createGarment,
+  createWishlistItem,
   garmentRow,
   jpegPhoto,
   pngCutout,
@@ -41,7 +43,10 @@ import { jpeg, type LinkSites, startLinkSites } from './link-sites';
  * wardrobe, anyone else's outfit), so ids reveal nothing; what they can see
  * but may not change is a 403 (a VIEW grantee writing, a grantee archiving).
  * Calendar entries and outfits are never shared, so every refusal there is
- * a 404. Wears, washes and away (#7) are the owner's own records too, but
+ * a 404. The wishlist (#18) is the wardrobe's too: a VIEW grantee reads it,
+ * a MANAGE grantee buys, only the owner restores an archived garment (and
+ * archives what a purchase replaces). Wears, washes and away (#7) are the
+ * owner's own records too, but
  * about a garment a grantee can see: with `?ownerId=` a 403, without it a
  * 404 (the garment is not in their wardrobe); a garment's condition is a
  * property like any other (MANAGE writes it). /laundry is always the
@@ -76,6 +81,12 @@ type Outcome =
 interface Fixture {
   garmentId: number;
   garmentName: string;
+  /** A wishlist item replacing the garment (#18). */
+  wishlistId: number;
+  wishlistName: string;
+  /** An archived garment (Restore). */
+  archivedId: number;
+  archivedName: string;
   /** A capsule holding the garment. */
   capsuleId: number;
   capsuleName: string;
@@ -112,6 +123,8 @@ interface Route {
 
 const BOTH: Via[] = ['own', 'ownerId'];
 const garmentName = (f: Fixture) => f.garmentName;
+const wishlistName = (f: Fixture) => f.wishlistName;
+const archivedName = (f: Fixture) => f.archivedName;
 const capsuleName = (f: Fixture) => f.capsuleName;
 const outfitName = (f: Fixture) => f.outfitName;
 // A calendar chip whose outfit has photos shows thumbnails, not the name,
@@ -119,7 +132,9 @@ const outfitName = (f: Fixture) => f.outfitName;
 // which rules out the /calendar/:id URLs themselves.)
 const calendarEntry = (f: Fixture) =>
   `/outfits/${f.outfitId}/edit?returnTo=/calendar`;
-const today = () => new Date().toISOString().slice(0, 10);
+// The household's day (APP_TIMEZONE, the harness's default), as the app
+// judges "today": the UTC date is already tomorrow there every evening.
+const today = () => todayIn('America/New_York', new Date());
 const OWNER_TOKEN_NAME = 'Owner laptop token';
 
 let photo: Buffer;
@@ -441,6 +456,79 @@ const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  // The wishlist (#18): shared like capsules. Without ?ownerId a grantee
+  // sees their own (empty) wishlist.
+  {
+    name: 'GET /wardrobe/wishlist',
+    kind: 'read',
+    ok: 200,
+    secret: wishlistName,
+    shows: true,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/wardrobe/wishlist${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: ['hidden', 'ok'],
+      viewer: ['hidden', 'ok'],
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
+    name: 'GET /wardrobe/:id/bought',
+    kind: 'read',
+    ok: 200,
+    secret: wishlistName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/${f.wishlistId}/bought${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    // "Bought it" is a garment write (the owner and MANAGE); archiving the
+    // garment it replaces is the owner's (wishlist.spec.ts: a grantee asking
+    // for it is a 403).
+    name: 'POST /wardrobe/:id/bought',
+    kind: 'write',
+    ok: 303,
+    secret: wishlistName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.wishlistId}/bought${q}`,
+      payload: { acquiredOn: today(), price: '10' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/:id/restore',
+    kind: 'write',
+    ok: 200,
+    secret: archivedName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.archivedId}/restore${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'forbidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
   {
     // Archive and delete are owner-only, even for a MANAGE grantee.
     name: 'POST /wardrobe/:id/archive',
@@ -704,7 +792,9 @@ const ROUTES: Route[] = [
   },
   {
     // The picker. A VIEW grantee gets the grid without it, as with
-    // ?select=1; in their own wardrobe the capsule is unknown.
+    // ?select=1; in their own wardrobe the capsule is unknown. Narrowed to
+    // the garment by name: successful writes (clones, purchases, restores)
+    // add newer garments, which would push it off the first page.
     name: 'GET /wardrobe?pick=',
     kind: 'read',
     ok: 200,
@@ -713,7 +803,7 @@ const ROUTES: Route[] = [
     vias: BOTH,
     request: (f, q) => ({
       method: 'GET',
-      url: `/wardrobe${q ? `${q}&` : '?'}pick=${f.capsuleId}`,
+      url: `/wardrobe${q ? `${q}&` : '?'}pick=${f.capsuleId}&keyword=${encodeURIComponent(f.garmentName)}`,
     }),
     expect: {
       owner: 'ok',
@@ -1119,6 +1209,20 @@ describe('authorization matrix', () => {
     const outfitName = `Look ${tag}`;
     const garmentId = await createGarment(t, { name: garmentName, cookie });
     await uploadPhoto(t, garmentId, photo, cookie);
+    const wishlistName = `Wish ${tag}`;
+    const wishlistId = await createWishlistItem(t, {
+      name: wishlistName,
+      replaces: garmentId,
+      cookie,
+    });
+    const archivedName = `Old ${tag}`;
+    const archivedId = await createGarment(t, { name: archivedName, cookie });
+    const archived = await t.inject({
+      method: 'POST',
+      url: `/wardrobe/${archivedId}/archive`,
+      headers: { cookie },
+    });
+    expect(archived.statusCode).toBe(200);
 
     const created = await t.inject({
       method: 'POST',
@@ -1167,6 +1271,10 @@ describe('authorization matrix', () => {
     return {
       garmentId,
       garmentName,
+      wishlistId,
+      wishlistName,
+      archivedId,
+      archivedName,
       capsuleId,
       capsuleName,
       outfitId,

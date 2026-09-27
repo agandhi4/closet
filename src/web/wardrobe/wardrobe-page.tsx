@@ -473,7 +473,7 @@ function Tile(props: {
   return (
     <a
       href={garmentUrl(tile.id, props.viewOwner)}
-      class={`${TILE_CLASS} hover:shadow-md transition-shadow cursor-pointer ${tile.archived ? 'opacity-50' : ''}`}
+      class={`${TILE_CLASS} hover:shadow-md transition-shadow cursor-pointer ${tile.status === 'archived' ? 'opacity-50' : ''}`}
     >
       <TileContent tile={tile} eager={props.eager} />
     </a>
@@ -494,7 +494,7 @@ function SelectTile(props: {
   const { tile } = props;
   return (
     <label
-      class={`${TILE_CLASS} relative cursor-pointer has-[:checked]:ring-2 has-[:checked]:ring-primary ${tile.archived ? 'opacity-50' : ''}`}
+      class={`${TILE_CLASS} relative cursor-pointer has-[:checked]:ring-2 has-[:checked]:ring-primary ${tile.status === 'archived' ? 'opacity-50' : ''}`}
     >
       <input
         type="checkbox"

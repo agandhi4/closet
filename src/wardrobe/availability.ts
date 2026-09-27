@@ -1,4 +1,5 @@
 import { categoryRole, GarmentCategory, type GarmentRole } from './properties';
+import type { GarmentStatus } from './status';
 
 /**
  * Whether a garment can be worn now: the wash rules (wears since the last
@@ -117,15 +118,20 @@ export function needsWash(state: WashState): boolean {
 
 /**
  * The generator-facing rule (the outfit gallery #9, the packing list #10):
- * a garment can be put in an outfit now when it is in the closet (not
- * archived, not away) and a clean copy is left. src/web/wears/queries.ts's
+ * a garment can be put in an outfit now when it is in the closet (its
+ * status, src/wardrobe/status.ts: not a wishlist item, not archived), not
+ * away, and a clean copy is left. src/web/wears/queries.ts's
  * `availableGarment` is the same rule as a query condition; use one of the
  * two, never a third.
  */
 export function isAvailable(
-  garment: WashState & { archived: boolean; away: AwayReason | null },
+  garment: WashState & { status: GarmentStatus; away: AwayReason | null },
 ): boolean {
-  return !garment.archived && garment.away === null && cleanCopies(garment) > 0;
+  return (
+    garment.status === 'closet' &&
+    garment.away === null &&
+    cleanCopies(garment) > 0
+  );
 }
 
 /**

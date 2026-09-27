@@ -116,7 +116,7 @@ describe('multiples', () => {
 describe('isAvailable', () => {
   const garment = {
     ...state(0, 1, 1),
-    archived: false,
+    status: 'closet',
     away: null,
   } as const;
 
@@ -128,11 +128,12 @@ describe('isAvailable', () => {
     expect(isAvailable({ ...garment, ...state(30, null) })).toBe(true);
   });
 
-  it('excludes a dirty garment, one lent or at the repair shop, and an archived one', () => {
+  it('excludes a dirty garment, one lent or at the repair shop, and one not in the closet', () => {
     expect(isAvailable({ ...garment, ...state(1, 1) })).toBe(false);
     expect(isAvailable({ ...garment, ...state(3, 1, 3) })).toBe(false);
     expect(isAvailable({ ...garment, away: 'lent' })).toBe(false);
     expect(isAvailable({ ...garment, away: 'repair' })).toBe(false);
-    expect(isAvailable({ ...garment, archived: true })).toBe(false);
+    expect(isAvailable({ ...garment, status: 'archived' })).toBe(false);
+    expect(isAvailable({ ...garment, status: 'wishlist' })).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import type { GarmentStatus } from '../../wardrobe/status';
 import type { ImageRef } from '../files/image-url';
 import { categoryLabel, orderCategories } from '../wardrobe/garment';
 
@@ -5,7 +6,7 @@ import { categoryLabel, orderCategories } from '../wardrobe/garment';
  * The outfit builder's rows (GET /outfits/new, the edit form, and the
  * prev/next row fragment). A row is a category and at most one garment of
  * it; prev and next step through the category's cycle: position 0 is "no
- * garment", then 1..count are the owner's unarchived garments of that
+ * garment", then 1..count are the owner's closet garments of that
  * category, newest first, and both ends wrap through 0. Pure: the queries
  * (queries.ts) fetch only the garment each row shows plus the counts.
  */
@@ -18,14 +19,14 @@ export interface RowGarment {
   color: string | null;
   size: string | null;
   notes: string | null;
-  archived: boolean;
+  status: GarmentStatus;
   photo: ImageRef | null;
 }
 
 export interface BuilderRow {
   category: string;
   label: string;
-  /** Unarchived garments in the category: the ones prev/next step through. */
+  /** Closet garments in the category: the ones prev/next step through. */
   count: number;
   /**
    * The row's position in the cycle; null when it shows a garment outside
@@ -38,7 +39,7 @@ export interface BuilderRow {
   garment: RowGarment | null;
 }
 
-/** A category of the wardrobe with its newest unarchived garment. */
+/** A category of the wardrobe with its newest closet garment. */
 export interface CategoryHead {
   category: string;
   count: number;
@@ -48,7 +49,7 @@ export interface CategoryHead {
 /** A saved slot with what the edit form needs to place it in its cycle. */
 export interface SavedSlot {
   category: string;
-  /** Unarchived garments in the slot's category. */
+  /** Closet garments in the slot's category. */
   count: number;
   /** How many of those are newer (higher id) than the slot's garment. */
   newer: number;
@@ -119,7 +120,7 @@ export function newOutfitRows(heads: CategoryHead[]): BuilderRow[] {
 export function savedOutfitRows(slots: SavedSlot[]): BuilderRow[] {
   return slots.map(({ category, count, newer, garment }) => {
     if (!garment) return cycleRow(category, count, 0, null);
-    if (garment.archived || garment.category !== category) {
+    if (garment.status !== 'closet' || garment.category !== category) {
       return detachedRow(category, count, newer, garment);
     }
     return cycleRow(category, count, newer + 1, garment);

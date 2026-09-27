@@ -36,9 +36,11 @@ describe('migrations', () => {
         'garment_shareable_id_unique',
         'outfit_shareable_id_unique',
         'file_created_by_id_index',
-        // The wardrobe grid's keyset pages (also the owner_id foreign key)
-        // and its category filter, which the outfit builder shares.
-        'garment_owner_id_archived_id_index',
+        // The wardrobe grid's and the wishlist's keyset pages (also the
+        // owner_id foreign key) and its category filter, which the outfit
+        // builder shares; what a wishlist item replaces (its foreign key).
+        'garment_owner_id_status_id_index',
+        'garment_replaces_garment_id_index',
         'garment_owner_id_category_id_index',
         'garment_photo_id_unique',
         'outfit_owner_id_index',

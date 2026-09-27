@@ -8,9 +8,10 @@ import { renderFragment, renderPage } from '../../render';
 import { LINK_IMPORT_LIMIT } from '../../security/rate-limit';
 import { authorizeWardrobe } from '../../sharing/access';
 import { viewContext } from '../../view-context';
+import { resolveDestination } from '../destination';
 import { renderGarmentForm } from '../render-form';
-import { LINK_IMPORT_PATH, LINK_PHOTO_PATH } from '../urls';
-import { OwnerQuery } from '../validation';
+import { type Destination, LINK_IMPORT_PATH, LINK_PHOTO_PATH } from '../urls';
+import { DestinationQuery, OwnerQuery } from '../validation';
 import { discardLinkPhoto, type WardrobeDeps } from '../writes';
 import {
   fetchLinkPhoto,
@@ -33,7 +34,7 @@ const SHARED_TEXT_MAX = 16_384;
 // (src/web/shell/manifest.ts), which sends `title`, `text` and `url`
 // (Android puts the link in either of the last two). Navigation state.
 const LinkQuery = Type.Object({
-  ...OwnerQuery.properties,
+  ...DestinationQuery.properties,
   url: Type.Optional(Type.String({ maxLength: SHARED_TEXT_MAX })),
   text: Type.Optional(Type.String({ maxLength: SHARED_TEXT_MAX })),
   title: Type.Optional(Type.String({ maxLength: SHARED_TEXT_MAX })),
@@ -78,31 +79,38 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     reason: LinkImportRefusal,
     link: string,
     viewOwner: number | undefined,
+    destination: Destination,
   ): Promise<FastifyReply> {
     const { message, status } = REFUSALS[reason];
     return renderPage(
       reply,
       <LinkPage
         ctx={viewContext(reply)}
-        model={{ link, viewOwner, error: t(message) }}
+        model={{ link, viewOwner, destination, error: t(message) }}
       />,
       { status },
     );
   }
 
-  // The link page, from the new garment form's "Add from a link" or a
-  // share into the installed app. Fetches nothing: the person sees the
-  // link and taps Fetch (a GET never writes, and a pending photo is one).
+  // The link page, from the new garment form's "Add from a link", the
+  // wishlist's (`?to=wishlist`, carried to the form) or a share into the
+  // installed app (the closet). Fetches nothing: the person sees the link
+  // and taps Fetch (a GET never writes, and a pending photo is one).
   app.get(
     LINK_IMPORT_PATH,
     { schema: { querystring: LinkQuery } },
     async (request, reply) => {
-      const { viewOwner } = await authorizeWardrobe(
+      const { access, viewOwner } = await authorizeWardrobe(
         db,
         sessionUserId(request),
         request.query.ownerId,
         'manage',
         'Garment not found',
+      );
+      const { destination } = await resolveDestination(
+        db,
+        request.query,
+        access.ownerId,
       );
       const { url = '', text = '' } = request.query;
       const shared = `${url} ${text}`.trim();
@@ -119,6 +127,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           model={{
             link: link ?? '',
             viewOwner,
+            destination,
             error: shared && !link ? t(REFUSALS['no-link'].message) : undefined,
           }}
         />,
@@ -133,7 +142,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     LINK_IMPORT_PATH,
     {
       config: { rateLimit: LINK_IMPORT_LIMIT },
-      schema: { querystring: OwnerQuery, body: LinkBody },
+      schema: { querystring: DestinationQuery, body: LinkBody },
     },
     async (request, reply) => {
       const { access, viewOwner } = await authorizeWardrobe(
@@ -143,27 +152,38 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
         'Garment not found',
       );
+      const { destination } = await resolveDestination(
+        db,
+        request.query,
+        access.ownerId,
+      );
       const userId = sessionUserId(request);
       const typed = request.body.url;
       const link = linkIn(typed);
-      if (!link) return refuse(reply, 'no-link', typed, viewOwner);
+      if (!link) return refuse(reply, 'no-link', typed, viewOwner, destination);
       try {
         const result = await importLink(importDeps, link, userId);
         const form = importedForm(result, link);
         logger.info(
-          `Link import by user ${userId} into wardrobe ${access.ownerId}: ${result.kind}${form.link.photo ? `, photo ${form.link.photo} pending` : ', no photo'}, ${form.link.choices.length} choices`,
+          `Link import by user ${userId} into wardrobe ${access.ownerId} (${destination.to}): ${result.kind}${form.link.photo ? `, photo ${form.link.photo} pending` : ', no photo'}, ${form.link.choices.length} choices`,
         );
         return await renderGarmentForm(reply, db, {
-          mode: { kind: 'new' },
+          mode: { kind: 'new', destination },
           suggestionsFrom: access.ownerId,
           viewOwner,
-          values: form.values,
+          values: {
+            ...form.values,
+            replaces:
+              destination.replaces === undefined
+                ? ''
+                : String(destination.replaces),
+          },
           link: form.link,
         });
       } catch (error) {
         if (!(error instanceof LinkImportError)) throw error;
         logger.warn(`Link import by user ${userId} refused (${error.reason})`);
-        return refuse(reply, error.reason, typed, viewOwner);
+        return refuse(reply, error.reason, typed, viewOwner, destination);
       }
     },
   );

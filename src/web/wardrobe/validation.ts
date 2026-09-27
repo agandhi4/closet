@@ -146,6 +146,12 @@ const PostedCareFields = {
 export const ConditionBody = Type.Object(PostedConditionFields);
 export type ConditionBody = Static<typeof ConditionBody>;
 
+/** Where a new garment lands (EntryStatus, src/wardrobe/status.ts). */
+export const Destination = Type.Union([
+  Type.Literal('closet'),
+  Type.Literal('wishlist'),
+]);
+
 /**
  * One garment form post (new, edit, clone). The form posts every text field,
  * '' when left empty; `color` is one value per checked box (none when no box
@@ -183,6 +189,14 @@ export const GarmentBody = Type.Object({
   // '1' from every form that renders the care fields: forms cached before
   // them post none, and must not reset a garment to one copy in good shape.
   care: Type.Optional(Type.Literal('1')),
+  // A new garment's destination (the wishlist's "Add" and "Find a
+  // replacement"); absent is the closet, as every form before #18 posts.
+  to: Type.Optional(Destination),
+  // What a wishlist item replaces ('' for nothing), read only beside its
+  // marker `wishlist=1`: the wishlist forms render both, and every other
+  // form (a closet garment's, one cached before #18) must leave it alone.
+  replaces: Type.Optional(Type.Union([Type.Literal(''), RowId])),
+  wishlist: Type.Optional(Type.Literal('1')),
 });
 export type GarmentBody = Static<typeof GarmentBody>;
 
@@ -200,6 +214,8 @@ export interface GarmentFormValues {
   price: string;
   properties: PropertyFormValues;
   care: CareFormValues;
+  /** A wishlist item's replaced garment id, '' for none. */
+  replaces: string;
 }
 
 /** The care fields as the form shows them (strings as posted). */
@@ -264,6 +280,7 @@ export const BLANK_GARMENT_VALUES: GarmentFormValues = {
   price: '',
   properties: BLANK_PROPERTIES,
   care: BLANK_CARE,
+  replaces: '',
 };
 
 export type GarmentField =
@@ -332,6 +349,12 @@ export interface GarmentFields
   notes: string | null;
   washingDetails: string | null;
   acquiredOn: IsoDate | null;
+  /**
+   * The garment a wishlist item replaces (null for none); absent (left as
+   * stored) unless the form was a wishlist form (GarmentBody.wishlist).
+   * Stored only when it is the same owner's (replacementOf, queries.ts).
+   */
+  replacesGarmentId?: number | null;
 }
 
 export type GarmentForm =
@@ -362,6 +385,7 @@ export function formValues(body: GarmentBody): GarmentFormValues {
     price: body.price ?? '',
     properties: propertyFormValues(body),
     care: careFormValues(body),
+    replaces: replacesShown(body.replaces),
   };
 }
 
@@ -400,6 +424,8 @@ export function formPost(values: GarmentFormValues): GarmentBody {
     sourceUrl: values.sourceUrl,
     price: values.price,
     care: '1',
+    wishlist: '1',
+    replaces: values.replaces === '' ? '' : Number(values.replaces),
     quantity: care.quantity,
     washAfterWears: choiceValue(
       [NEVER_WASH, ...WASH_AFTER_CHOICES],
@@ -420,6 +446,11 @@ function choiceValue<T extends string | number>(
 ): `${T}` | '' {
   const found = pick(set, shown);
   return found === null ? '' : (String(found) as `${T}`);
+}
+
+/** A wishlist form's posted "Replaces" as the form shows it ('' for nothing). */
+function replacesShown(posted: GarmentBody['replaces']): string {
+  return posted === undefined ? '' : String(posted);
 }
 
 /** The posted care fields as the form shows them; a new garment's without them. */
@@ -802,6 +833,7 @@ export function readGarmentForm(body: GarmentBody): GarmentForm {
       ...(properties?.ok ? properties.fields : {}),
       ...(product.ok && product.fields),
       ...(care.ok && care.fields),
+      ...readReplaces(body),
       name: line(body.name),
       category,
       brand: line(body.brand),
@@ -812,6 +844,18 @@ export function readGarmentForm(body: GarmentBody): GarmentForm {
       acquiredOn,
     },
   };
+}
+
+/**
+ * What a wishlist item replaces (null for nothing); nothing (left as
+ * stored) unless the form was a wishlist form (GarmentBody.wishlist).
+ */
+function readReplaces(
+  body: Pick<GarmentBody, 'wishlist' | 'replaces'>,
+): Pick<GarmentFields, 'replacesGarmentId'> {
+  return body.wishlist === '1'
+    ? { replacesGarmentId: body.replaces || null }
+    : {};
 }
 
 /** The messages for what a well-formed garment form can still get wrong. */
@@ -910,7 +954,20 @@ export const GarmentPageQuery = Type.Object({
   ...OwnerQuery.properties,
   created: Type.Optional(Type.String()),
   photoSaved: Type.Optional(Type.String()),
+  bought: Type.Optional(Type.String()),
 });
+
+/**
+ * Where a new garment's form and the link import land: `?to=wishlist` from
+ * the wishlist, and `&replaces=<id>` from a garment's "Find a replacement"
+ * (a garment of the addressed wardrobe, else a 404). Absent is the closet.
+ */
+export const DestinationQuery = Type.Object({
+  ...OwnerQuery.properties,
+  to: Type.Optional(Type.Union([Type.Literal(''), Destination])),
+  replaces: Type.Optional(Type.Union([Type.Literal(''), RowId])),
+});
+export type DestinationQuery = Static<typeof DestinationQuery>;
 
 /**
  * GET /wardrobe/properties-fragment: the form's category and property

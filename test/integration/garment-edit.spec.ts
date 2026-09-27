@@ -169,7 +169,7 @@ describe('garment edit, clone and archive', () => {
         size: 'X-Large',
         washingDetails: 'Hand wash cold',
         notes: 'Tailored in May',
-        archived: false,
+        status: 'closet',
       });
       expect(garment.acquiredOn).toBe('2025-01-02');
       expect(garment.ownerId).toBe(alice.id);
@@ -331,7 +331,7 @@ describe('garment edit, clone and archive', () => {
         color: source.color,
         size: source.size,
         notes: source.notes,
-        archived: false,
+        status: 'closet',
       });
       expect(clone.shareableId).not.toBe(source.shareableId);
 
@@ -377,8 +377,8 @@ describe('garment edit, clone and archive', () => {
     });
   });
 
-  describe('POST /wardrobe/:id/archive', () => {
-    it('toggles archived and the list follows', async () => {
+  describe('POST /wardrobe/:id/archive and /restore', () => {
+    it('archives, restores, and the list follows', async () => {
       const id = await createFullGarment({ name: 'Archive me' });
       const listed = async (query: string) =>
         (await get(`/wardrobe?${query}`, alice.cookie)).body.includes(
@@ -388,23 +388,46 @@ describe('garment edit, clone and archive', () => {
       const archive = await post(`/wardrobe/${id}/archive`, {}, alice.cookie);
       expect(archive.statusCode).toBeLessThan(300);
       expect(hxLocationPath(archive)).toBe('/wardrobe');
-      expect((await load(id)).archived).toBe(true);
+      expect((await load(id)).status).toBe('archived');
       expect(await listed('keyword=Archive')).toBe(false);
       expect(await listed('keyword=Archive&archived=true')).toBe(true);
+      const page = await get(`/wardrobe/${id}`, alice.cookie);
+      expect(page.body).toContain(`hx-post="/wardrobe/${id}/restore"`);
+      expect(page.body).not.toContain(`hx-post="/wardrobe/${id}/archive"`);
 
-      await post(`/wardrobe/${id}/archive`, {}, alice.cookie);
-      expect((await load(id)).archived).toBe(false);
+      const restore = await post(`/wardrobe/${id}/restore`, {}, alice.cookie);
+      expect(hxLocationPath(restore)).toBe('/wardrobe');
+      expect((await load(id)).status).toBe('closet');
       expect(await listed('keyword=Archive')).toBe(true);
     });
 
-    it('only the owner may archive', async () => {
-      const res = await post(
-        `/wardrobe/${garmentId}/archive?ownerId=${alice.id}`,
-        {},
-        bob.cookie,
+    // Each names its move: a stale page's second tap is refused, never the
+    // opposite move the old toggle made.
+    it('refuses a move the status does not take, with a 409', async () => {
+      const id = await createFullGarment({ name: 'Stale tab' });
+      expect(
+        (await post(`/wardrobe/${id}/restore`, {}, alice.cookie)).statusCode,
+      ).toBe(409);
+      await post(`/wardrobe/${id}/archive`, {}, alice.cookie);
+      expect(
+        (await post(`/wardrobe/${id}/archive`, {}, alice.cookie)).statusCode,
+      ).toBe(409);
+      expect((await load(id)).status).toBe('archived');
+      expect(t.logs.messages('info', 'Web')).toContain(
+        `Garment ${id} archive refused: it is archived`,
       );
-      expect(res.statusCode).toBe(403);
-      expect((await load(garmentId)).archived).toBe(false);
+    });
+
+    it('only the owner may archive or restore', async () => {
+      for (const move of ['archive', 'restore']) {
+        const res = await post(
+          `/wardrobe/${garmentId}/${move}?ownerId=${alice.id}`,
+          {},
+          bob.cookie,
+        );
+        expect(res.statusCode).toBe(403);
+      }
+      expect((await load(garmentId)).status).toBe('closet');
     });
   });
 });

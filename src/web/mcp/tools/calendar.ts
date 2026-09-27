@@ -139,6 +139,9 @@ export const calendarTools = [
         worn: true,
       });
       if (saved === 'not-found') throw new HttpError(404, 'Garment not found');
+      if (saved === 'wishlist') {
+        throw new HttpError(409, 'On the wishlist: not bought yet');
+      }
       ctx.webLogger.info(
         `Garment ${garmentId} worn on ${today} by user ${ctx.userId} (MCP)`,
       );

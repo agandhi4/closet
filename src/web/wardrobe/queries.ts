@@ -13,15 +13,18 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
 import type { AwayReason } from '../../wardrobe/availability';
+import type { EntryStatus, GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import { dirtyCopiesSql, needsWash } from '../wears/queries';
 import { compareSizes } from './garment';
+import { type GarmentScope, inCloset, inScope, ownedGarment } from './status';
 import {
   type Condition,
   type Formality,
@@ -63,8 +66,11 @@ export interface GridFilters {
   formality?: Formality;
   /** Garments made (partly) of this material. */
   material?: Material;
-  /** Include archived garments (the modal's "Show archived"). */
-  archived: boolean;
+  /**
+   * Which garments: the closet, the closet and the archive (the modal's
+   * "Show archived"), or the wishlist.
+   */
+  scope: GarmentScope;
   /** Members of this capsule only (inCapsule). */
   capsule?: number;
   /** A copy needs a wash (the owner's own wardrobe only; the route decides). */
@@ -78,7 +84,7 @@ export interface GarmentTile {
   id: number;
   name: string | null;
   category: string;
-  archived: boolean;
+  status: GarmentStatus;
   photo: ImageRef | null;
   /** The "x3" badge. */
   quantity: number;
@@ -103,7 +109,7 @@ function gridWhere(ownerId: number, filters: GridFilters): SQL | undefined {
     eq(garment.ownerId, ownerId),
     ...propertyConditions(filters),
   ];
-  if (!filters.archived) conditions.push(eq(garment.archived, false));
+  conditions.push(inScope(filters.scope));
   if (filters.category) {
     conditions.push(eq(garment.category, filters.category));
   }
@@ -150,7 +156,7 @@ const tileColumns = {
   id: garment.id,
   name: garment.name,
   category: garment.category,
-  archived: garment.archived,
+  status: garment.status,
   photo: { fileName: file.fileName, version: file.version },
   quantity: garment.quantity,
   condition: garment.condition,
@@ -160,7 +166,7 @@ const tileColumns = {
  * One page of the grid, newest first: `before` is the id the previous page
  * ended at (keyset, so a page costs the same however deep it is and a
  * garment added meanwhile never shifts one onto the next). One statement,
- * one row per tile, served by garment_owner_id_archived_id_index (or the
+ * one row per tile, served by garment_owner_id_status_id_index (or the
  * category one) in index order. `ownerView` adds the owner's own records to
  * each tile (dirty copies, away), which a share never shows.
  */
@@ -198,9 +204,9 @@ export async function gridPage(
   };
 }
 
-/** No filter: the closet, every unarchived garment. */
+/** No filter: the closet (inCloset). */
 export const CLOSET_FILTERS: GridFilters = {
-  archived: false,
+  scope: 'closet',
   needsWash: false,
   attention: false,
 };
@@ -224,7 +230,7 @@ export interface GarmentSummary {
   condition: Condition;
   price: string | null;
   sourceUrl: string | null;
-  archived: boolean;
+  status: GarmentStatus;
 }
 
 /**
@@ -253,7 +259,7 @@ export async function garmentSummaries(
       condition: garment.condition,
       price: garment.price,
       sourceUrl: garment.sourceUrl,
-      archived: garment.archived,
+      status: garment.status,
     })
     .from(garment)
     .where(
@@ -282,7 +288,8 @@ export function gridCount(
 
 /**
  * The values the filter modal offers: only what the wardrobe holds
- * (archived garments included), so no choice finds nothing.
+ * (archived garments included, wishlist items not: the grid never shows
+ * them), so no choice finds nothing.
  */
 export interface FilterOptions {
   categories: string[];
@@ -326,11 +333,11 @@ export async function filterOptions(
       materials: sql<Material[]>`(
         select coalesce(array_agg(distinct worn.material), '{}')
         from garment owned cross join lateral unnest(owned.materials) as worn(material)
-        where owned.owner_id = ${ownerId}
+        where owned.owner_id = ${ownerId} and owned.status <> 'wishlist'
       )`,
     })
     .from(garment)
-    .where(eq(garment.ownerId, ownerId));
+    .where(and(eq(garment.ownerId, ownerId), ownedGarment()));
   return {
     categories: [...row.categories].sort(),
     sizes: [...row.sizes].sort(compareSizes),
@@ -358,7 +365,9 @@ export interface GarmentDetail
     CareFields {
   id: number;
   shareableId: string;
-  archived: boolean;
+  status: GarmentStatus;
+  /** A wishlist item's (or a bought one's) garment it replaces. */
+  replacesGarmentId: number | null;
   photo: GarmentPhoto | null;
   // The owner's own records (src/web/wears): the page shows them to the
   // owner alone.
@@ -378,7 +387,8 @@ const detailColumns = {
   notes: garment.notes,
   washingDetails: garment.washingDetails,
   acquiredOn: garment.acquiredOn,
-  archived: garment.archived,
+  status: garment.status,
+  replacesGarmentId: garment.replacesGarmentId,
   type: garment.type,
   warmth: garment.warmth,
   formality: garment.formality,
@@ -438,17 +448,69 @@ export async function lockGarment(
   return row;
 }
 
-/** Inserts a garment into `ownerId`'s wardrobe; returns its id. */
+const replaced = alias(garment, 'replaced');
+
+/**
+ * The garment a wishlist item may say it replaces, as the value to store:
+ * `requested` when it is a garment of `ownerId`, owned now or once (not a
+ * wishlist item) and not the garment itself (`selfId`), else null. A
+ * subquery of the statement that stores it, so the rule and the write are
+ * one step: the same-owner rule for replaces_garment_id lives here and
+ * nowhere else (the column's own checks cover only itself).
+ */
+function replacementOf(
+  db: Queryable,
+  ownerId: number,
+  requested: number | null,
+  selfId?: number,
+): SQL<number | null> | null {
+  if (requested === null) return null;
+  const candidate = db
+    .select({ id: replaced.id })
+    .from(replaced)
+    .where(
+      and(
+        eq(replaced.id, requested),
+        eq(replaced.ownerId, ownerId),
+        ne(replaced.status, 'wishlist'),
+        selfId === undefined ? undefined : ne(replaced.id, selfId),
+      ),
+    );
+  return sql<number | null>`(${candidate})`;
+}
+
+/** The fields as stored, the replaced garment through replacementOf. */
+function storedFields(
+  db: Queryable,
+  ownerId: number,
+  { replacesGarmentId, ...fields }: GarmentFields,
+  selfId?: number,
+) {
+  return {
+    ...fields,
+    ...(replacesGarmentId !== undefined && {
+      replacesGarmentId: replacementOf(db, ownerId, replacesGarmentId, selfId),
+    }),
+  };
+}
+
+/**
+ * Inserts a garment into `ownerId`'s wardrobe, in the closet or on the
+ * wishlist (the only statuses a garment starts in; setGarmentStatus moves
+ * it after); returns its id.
+ */
 export async function insertGarment(
   tx: Queryable,
   ownerId: number,
   fields: GarmentFields,
   photoId: number | null,
+  status: EntryStatus,
 ): Promise<number> {
   const [row] = await tx
     .insert(garment)
     .values({
-      ...fields,
+      ...storedFields(tx, ownerId, fields),
+      status,
       // Share links address garments by this (the /share page).
       shareableId: randomUUID(),
       ownerId,
@@ -467,7 +529,7 @@ export async function updateGarmentFields(
 ): Promise<boolean> {
   const updated = await db
     .update(garment)
-    .set(fields)
+    .set(storedFields(db, ownerId, fields, id))
     .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
     .returning({ id: garment.id });
   return updated.length > 0;
@@ -484,23 +546,6 @@ export async function replacePhotoRow(
   if (previousPhotoId !== null) {
     await tx.delete(file).where(eq(file.id, previousPhotoId));
   }
-}
-
-/**
- * Flips archived in one statement; the new value, or undefined when the
- * garment is not in `ownerId`'s wardrobe.
- */
-export async function toggleArchived(
-  db: Queryable,
-  id: number,
-  ownerId: number,
-): Promise<boolean | undefined> {
-  const [row] = await db
-    .update(garment)
-    .set({ archived: sql`not ${garment.archived}` })
-    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
-    .returning({ archived: garment.archived });
-  return row?.archived;
 }
 
 /**
@@ -620,12 +665,13 @@ const NO_WARMTH = BUILT_IN.filter((c) => !propertyApplies('warmth', c));
 /**
  * A garment still missing what the outfit generator and the weather will
  * read: its type (where its category has types), warmth (where its role
- * has one) or formality. Archived garments are left out.
+ * has one) or formality. Closet garments only (inCloset): an archived one
+ * is done with, and a wishlist item is tagged when it is bought.
  */
 function needsTags(ownerId: number): SQL | undefined {
   return and(
     eq(garment.ownerId, ownerId),
-    eq(garment.archived, false),
+    inCloset(),
     or(
       isNull(garment.formality),
       and(isNull(garment.warmth), notInArray(garment.category, NO_WARMTH)),

@@ -29,6 +29,7 @@ import {
   QUANTITY_MAX,
   WASH_AFTER_CHOICES,
 } from '../wardrobe/availability';
+import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
 import {
   ALL_GARMENT_TYPES,
   type Condition,
@@ -267,7 +268,18 @@ export const garment = pgTable(
     // timestamptz at UTC midnight until drizzle/0004_garment_web.sql).
     acquiredOn: date('acquired_on', { mode: 'string' }),
     washingDetails: text('washing_details'),
-    archived: boolean('archived').default(false).notNull(),
+    // Wanted, owned or owned once (src/wardrobe/status.ts, the state
+    // machine): written at insert (closet or wishlist) and changed only by
+    // setGarmentStatus (src/web/wardrobe/status.ts). Every closet read goes
+    // through inCloset there. Was `archived boolean` until
+    // drizzle/0014_garment_status.sql.
+    status: text('status').$type<GarmentStatus>().default('closet').notNull(),
+    // A wishlist item's "this replaces": a garment of the same owner, owned
+    // now or once (never a wishlist item, never itself). The same-owner rule
+    // is the writers' (replacementOf, src/web/wardrobe/queries.ts), in the
+    // statement that stores it; deleting the replaced garment clears it. Kept
+    // after "Bought it" as the record of what the purchase replaced.
+    replacesGarmentId: integer('replaces_garment_id'),
     // The properties (src/wardrobe/properties.ts, which owns every value
     // set these checks list). All optional; a save stores null for one
     // outside the garment's role, and a type only ever belongs to the
@@ -373,16 +385,25 @@ export const garment = pgTable(
       'garment_fabric_weight_check',
       sql`${table.fabricWeight} between ${sql.raw(String(FABRIC_WEIGHT_GSM.min))} and ${sql.raw(String(FABRIC_WEIGHT_GSM.max))}`,
     ),
-    // The wardrobe grid's keyset pages: owner_id = ? AND archived = false
-    // [AND id < cursor] ORDER BY id DESC LIMIT n, read in index order. Also
-    // the index of the owner_id foreign key.
-    index('garment_owner_id_archived_id_index').on(
+    check(
+      'garment_status_check',
+      sql`${table.status} in (${sqlList(GARMENT_STATUSES)})`,
+    ),
+    check(
+      'garment_replaces_garment_id_check',
+      sql`${table.replacesGarmentId} <> ${table.id}`,
+    ),
+    // The wardrobe grid's keyset pages: owner_id = ? AND status = 'closet'
+    // [AND id < cursor] ORDER BY id DESC LIMIT n, read in index order; the
+    // wishlist page the same with 'wishlist'. Also the index of the
+    // owner_id foreign key.
+    index('garment_owner_id_status_id_index').on(
       table.ownerId,
-      table.archived,
+      table.status,
       table.id.desc(),
     ),
     // The grid's category filter and the outfit builder's category cycles
-    // (owner, category, newest first; archived is a filter on top).
+    // (owner, category, newest first; the status is a filter on top).
     index('garment_owner_id_category_id_index').on(
       table.ownerId,
       table.category,
@@ -405,6 +426,16 @@ export const garment = pgTable(
       .onDelete('cascade'),
     // Also the index for the photo_id foreign key.
     unique('garment_photo_id_unique').on(table.photoId),
+    // The garment page's "on the wishlist to replace this" and the foreign
+    // key's own index.
+    index('garment_replaces_garment_id_index').on(table.replacesGarmentId),
+    foreignKey({
+      name: 'garment_replaces_garment_id_foreign',
+      columns: [table.replacesGarmentId],
+      foreignColumns: [table.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
   ],
 );
 

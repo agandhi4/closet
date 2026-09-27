@@ -144,6 +144,29 @@ test('demo: Theo, several outfits a day', async ({ page }) => {
   );
 });
 
+test('demo: Theo, the wishlist', async ({ page }) => {
+  await signInAs(page, 'demo');
+  await shot(page, '30-demo-wishlist', '/wardrobe/wishlist');
+  await page.getByRole('link', { name: 'New grey merino crewneck' }).click();
+  await expect(page.locator('#garment-replacement')).toBeVisible();
+  await shot(page, '31-demo-wishlist-item');
+  await page.getByRole('link', { name: 'Bought it' }).first().click();
+  await expect(
+    page.getByRole('button', { name: 'Move to closet' }),
+  ).toBeVisible();
+  await shot(page, '32-demo-bought-it');
+  // The pilling merino it replaces: "Find a replacement", and the item.
+  await page.goto('/wardrobe?keyword=Grey%20merino');
+  await page
+    .locator('#wardrobe-grid')
+    .getByRole('heading', { name: 'Grey merino crewneck', exact: true })
+    .click();
+  await expect(
+    page.getByRole('link', { name: 'Find a replacement' }),
+  ).toBeVisible();
+  await shot(page, '33-demo-replace-soon');
+});
+
 test('sparse: Dana, untagged and degraded', async ({ page }) => {
   await signInAs(page, 'sparse');
   await shot(page, '12-sparse-wardrobe', '/wardrobe');
@@ -156,6 +179,7 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '15-fresh-outfits', '/outfits');
   await shot(page, '16-fresh-calendar', `/calendar?week=${ANCHOR}`);
   await shot(page, '24-fresh-laundry', '/laundry');
+  await shot(page, '34-fresh-wishlist', '/wardrobe/wishlist');
   await shot(
     page,
     '27-fresh-calendar-plan',

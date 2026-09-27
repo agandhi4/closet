@@ -10,7 +10,12 @@ import {
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
-import { findGarment, gridCount, gridPage } from '../wardrobe/queries';
+import {
+  CLOSET_FILTERS,
+  findGarment,
+  gridCount,
+  gridPage,
+} from '../wardrobe/queries';
 import { capsuleUrl } from '../wardrobe/urls';
 import { GarmentParams, OwnerQuery } from '../wardrobe/validation';
 import { CapsulePage } from './capsule-page';
@@ -178,12 +183,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'view',
       );
       const capsule = await requireCapsule(request.params.id, access.ownerId);
-      const filters = {
-        archived: false,
-        capsule: capsule.id,
-        needsWash: false,
-        attention: false,
-      };
+      const filters = { ...CLOSET_FILTERS, capsule: capsule.id };
       const [page, count] = await Promise.all([
         gridPage(db, access.ownerId, filters, { ownerView: access.isOwner }),
         gridCount(db, access.ownerId, filters),

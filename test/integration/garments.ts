@@ -58,6 +58,52 @@ export async function createGarment(
   return Number(match[1]);
 }
 
+export interface WishlistRequest extends GarmentRequest {
+  /** The garment it would replace. */
+  replaces?: number;
+  price?: string;
+  sourceUrl?: string;
+}
+
+/**
+ * POST /wardrobe as the wishlist's form posts it (`to=wishlist` with the
+ * wishlist marker and the product fields); resolves the new item's id.
+ */
+export async function createWishlistItem(
+  t: TestApp,
+  {
+    name,
+    category = 'tops',
+    cookie,
+    ownerId,
+    replaces,
+    price = '',
+    sourceUrl = '',
+  }: WishlistRequest,
+): Promise<number> {
+  const res = await t.inject({
+    method: 'POST',
+    url: ownerId ? `/wardrobe?ownerId=${ownerId}` : '/wardrobe',
+    payload: {
+      name,
+      category,
+      to: 'wishlist',
+      wishlist: '1',
+      replaces: replaces === undefined ? '' : String(replaces),
+      product: '1',
+      price,
+      sourceUrl,
+    },
+    headers: cookie ? { cookie } : {},
+  });
+  expect(res.statusCode).toBe(302);
+  const match = /^\/wardrobe\/(\d+)\?/.exec(res.headers.location as string);
+  if (!match) {
+    throw new Error(`Unexpected create redirect: ${res.headers.location}`);
+  }
+  return Number(match[1]);
+}
+
 /** POST /wardrobe/:id/photo with a multipart `photo` part. */
 export async function uploadPhoto(
   t: TestApp,

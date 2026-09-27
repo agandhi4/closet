@@ -1,17 +1,21 @@
 import { t } from '../i18n';
-import { capsuleUrl, wardrobeUrl } from './urls';
+import { capsuleUrl, wardrobeUrl, WISHLIST_PATH } from './urls';
+
+export type WardrobeTab = 'garments' | 'capsules' | 'wishlist';
 
 /**
- * The wardrobe page's two views, Garments (the grid) and Capsules (the
- * list, src/web/capsules): plain boosted links, so the dock keeps its size
- * (plan section 2). Both carry `?ownerId=` in a shared wardrobe, so a
- * grantee moves between the grantor's garments and capsules.
+ * The wardrobe page's views, Garments (the grid), Capsules (the list,
+ * src/web/capsules) and Wishlist (src/web/wishlist): plain boosted links,
+ * so the dock keeps its size (plan section 2; the redesign's Wardrobe tabs,
+ * docs/plans/2026-09-26-redesign.md). All carry `?ownerId=` in a shared
+ * wardrobe, so a grantee moves between the grantor's garments, capsules and
+ * wishlist.
  */
 export function WardrobeTabs(props: {
-  active: 'garments' | 'capsules';
+  active: WardrobeTab;
   viewOwner: number | undefined;
 }) {
-  const tab = (name: 'garments' | 'capsules', href: string, label: string) => (
+  const tab = (name: WardrobeTab, href: string, label: string) => (
     <a
       role="tab"
       href={href}
@@ -25,6 +29,11 @@ export function WardrobeTabs(props: {
     <div role="tablist" class="tabs tabs-box tabs-sm mb-4 mx-2">
       {tab('garments', wardrobeUrl(props.viewOwner), t('GARMENTS'))}
       {tab('capsules', capsuleUrl(undefined, props.viewOwner), t('CAPSULES'))}
+      {tab(
+        'wishlist',
+        wardrobeUrl(props.viewOwner, {}, WISHLIST_PATH),
+        t('wishlist.TAB'),
+      )}
     </div>
   );
 }

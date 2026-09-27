@@ -2,7 +2,13 @@ import { eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
 import { outfit as outfitTable } from '../../src/db/schema';
-import { createGarment, garmentRow, jpegPhoto, uploadPhoto } from './garments';
+import {
+  createGarment,
+  createWishlistItem,
+  garmentRow,
+  jpegPhoto,
+  uploadPhoto,
+} from './garments';
 import { TestApp } from './harness';
 
 /**
@@ -18,6 +24,8 @@ export const HX_BOOSTED = { 'hx-request': 'true', 'hx-boosted': 'true' };
 
 export interface PageFixture {
   garmentId: number;
+  /** A wishlist item replacing the garment. */
+  wishlistId: number;
   garmentShareableId: string;
   capsuleId: number;
   outfitId: number;
@@ -40,6 +48,14 @@ export async function createPageFixture(
     cookie,
   });
   await uploadPhoto(t, garmentId, await jpegPhoto(), cookie);
+  const wishlistId = await createWishlistItem(t, {
+    name: 'Charcoal Linen Blazer',
+    category: 'shirt',
+    replaces: garmentId,
+    price: '120',
+    sourceUrl: 'https://shop.example/blazer',
+    cookie,
+  });
 
   const capsule = await t.inject({
     method: 'POST',
@@ -83,6 +99,7 @@ export async function createPageFixture(
     .where(eq(outfitTable.id, outfitId));
   return {
     garmentId,
+    wishlistId,
     garmentShareableId: garment.shareableId,
     capsuleId,
     outfitId,
@@ -109,6 +126,13 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app(`/wardrobe/${f.garmentId}/clone`),
     app(`/wardrobe?capsule=${f.capsuleId}`),
     app(`/wardrobe?pick=${f.capsuleId}`),
+    app('/wardrobe/wishlist'),
+    app('/wardrobe/new?to=wishlist'),
+    app(`/wardrobe/new?to=wishlist&replaces=${f.garmentId}`),
+    app('/wardrobe/new/from-link?to=wishlist'),
+    app(`/wardrobe/${f.wishlistId}`),
+    app(`/wardrobe/${f.wishlistId}/edit`),
+    app(`/wardrobe/${f.wishlistId}/bought`),
     app('/capsules'),
     app('/capsules/new'),
     app(`/capsules/${f.capsuleId}`),

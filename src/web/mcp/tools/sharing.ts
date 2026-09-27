@@ -64,7 +64,7 @@ export const sharingTools = [
     name: 'compare_with_shared_wardrobe',
     title: 'Compare my closet with a shared wardrobe',
     description:
-      "Compares your closet (unarchived garments) with a wardrobe shared with you, by role (top, bottom, layer, footwear...) and type (t-shirt, jeans, overshirt...). Answers the counts per role, the gaps (kinds the shared wardrobe has and you have none of, with its garments' brands, colours, prices and product links), the overlap and what only you have. Use it to talk through what to buy next.",
+      "Compares your closet (garments in it: not archived, not the wishlist) with a wardrobe shared with you, by role (top, bottom, layer, footwear...) and type (t-shirt, jeans, overshirt...). Answers the counts per role, the gaps (kinds the shared wardrobe has and you have none of, with its garments' brands, colours, prices and product links), the overlap and what only you have. Use it to talk through what to buy next.",
     input: z.object({
       ownerId: rowId().describe(
         "The shared wardrobe's owner id, from list_shared_wardrobes.",

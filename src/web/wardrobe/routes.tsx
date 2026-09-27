@@ -50,17 +50,23 @@ import {
   gridPage,
   nextToTag,
   setCondition,
-  toggleArchived,
   updateGarmentFields,
   updateGarmentProperties,
 } from './queries';
+import { garmentRef, replacementsOf } from '../wishlist/queries';
+import { destinationValues, resolveDestination } from './destination';
 import { type GarmentFormRequest, renderGarmentForm } from './render-form';
-import { TagCard, type TagCardModel, TagPage } from './tag-page';
-import { garmentUrl, wardrobeUrl } from './urls';
 import {
-  BLANK_GARMENT_VALUES,
+  type GarmentScope,
+  setGarmentStatus,
+  type StatusChange,
+} from './status';
+import { TagCard, type TagCardModel, TagPage } from './tag-page';
+import { garmentUrl, wardrobeUrl, WISHLIST_PATH } from './urls';
+import {
   BulkBody,
   ConditionBody,
+  DestinationQuery,
   formValues,
   GarmentBody,
   type GarmentField,
@@ -191,11 +197,16 @@ function gridFilters(search: GridSearch): GridFilters {
     warmth: pick(WARMTHS, search.warmth) ?? undefined,
     formality: pick(FORMALITIES, search.formality) ?? undefined,
     material: pick(MATERIALS, search.material) ?? undefined,
-    archived: search.archived === 'true',
+    scope: scopeOf(search),
     capsule: search.capsule ? Number(search.capsule) : undefined,
     needsWash: search.needsWash === 'true',
     attention: search.attention === 'true',
   };
+}
+
+/** The grid's garments: the closet, or with "Show archived" the archive too. */
+function scopeOf(search: GridSearch): GarmentScope {
+  return search.archived === 'true' ? 'owned' : 'closet';
 }
 
 /** What POST /wardrobe/bulk's redirect reports, for its toast. */
@@ -228,8 +239,18 @@ function storedValues(garment: GarmentDetail): GarmentFormValues {
     price: garment.price ?? '',
     properties: storedPropertyValues(garment),
     care: storedCareValues(garment),
+    replaces:
+      garment.replacesGarmentId === null
+        ? ''
+        : String(garment.replacesGarmentId),
   };
 }
+
+/** Archive and Restore's 409 when the garment's status does not take the event. */
+const STATUS_REFUSED: Record<Exclude<StatusChange['event'], 'buy'>, string> = {
+  archive: 'Only a garment in the closet can be archived',
+  restore: 'Only an archived garment can be restored',
+};
 
 /**
  * /wardrobe: the grid (with its fragment and its "load more" pages), the
@@ -403,9 +424,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
+  // The new garment form: the closet's, or the wishlist's (`?to=wishlist`,
+  // prefilled from the garment it replaces with `&replaces=`).
   app.get(
     '/wardrobe/new',
-    { schema: { querystring: OwnerQuery } },
+    { schema: { querystring: DestinationQuery } },
     async (request, reply) => {
       const { access, viewOwner } = await resolve(
         options,
@@ -413,11 +436,16 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'manage',
       );
+      const { destination, replaced } = await resolveDestination(
+        db,
+        request.query,
+        access.ownerId,
+      );
       return renderGarmentForm(reply, db, {
-        mode: { kind: 'new' },
+        mode: { kind: 'new', destination },
         suggestionsFrom: access.ownerId,
         viewOwner,
-        values: BLANK_GARMENT_VALUES,
+        values: destinationValues(destination, replaced),
       });
     },
   );
@@ -455,8 +483,9 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { linkPhoto } = request.body;
+      const status = request.body.to ?? 'closet';
       const again = {
-        mode: { kind: 'new' },
+        mode: { kind: 'new', destination: { to: status } },
         suggestionsFrom: access.ownerId,
         viewOwner,
         link: linkPhoto ? keptLinkPhoto(linkPhoto) : undefined,
@@ -476,8 +505,9 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             sessionUserId(request),
             form.fields,
             linkPhoto,
+            status,
           )
-        : await createGarment(deps, access.ownerId, form.fields);
+        : await createGarment(deps, access.ownerId, form.fields, status);
       if (id === undefined) {
         return refuseForm(reply, {
           ...again,
@@ -487,7 +517,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         });
       }
       logger.info(
-        `Garment ${id} created by user ${sessionUserId(request)} in wardrobe ${access.ownerId}`,
+        `Garment ${id} created (${status}) by user ${sessionUserId(request)} in wardrobe ${access.ownerId}${
+          form.fields.replacesGarmentId
+            ? `, asked to replace garment ${form.fields.replacesGarmentId}`
+            : ''
+        }`,
       );
       return reply.redirect(garmentUrl(id, viewOwner, '', { created: 1 }), 302);
     },
@@ -604,12 +638,23 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
-      const [garment, capsules, wear] = await Promise.all([
-        requireGarment(options, id, access.ownerId),
-        capsulesOfGarment(db, access.ownerId, id),
+      const garment = await requireGarment(options, id, access.ownerId);
+      // What a garment page shows depends on where the garment is: a
+      // wishlist item has no wears, washes or capsules (closet reads), and
+      // says what it replaces; a closet garment lists the wishlist items
+      // that would replace it.
+      const owned = garment.status !== 'wishlist';
+      const [capsules, wear, replaces, replacedBy] = await Promise.all([
+        owned ? capsulesOfGarment(db, access.ownerId, id) : [],
         // Wears and washes are the owner's own records: never read for a
         // grantee (the section is not rendered either).
-        access.isOwner ? wearSummary(db, id, today) : undefined,
+        owned && access.isOwner ? wearSummary(db, id, today) : undefined,
+        garment.replacesGarmentId === null
+          ? undefined
+          : garmentRef(db, garment.replacesGarmentId, access.ownerId),
+        garment.status === 'closet'
+          ? replacementsOf(db, id, access.ownerId)
+          : [],
       ]);
       return renderPage(
         reply,
@@ -620,10 +665,13 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             capsules,
             viewOwner,
             wear: wear && { summary: wear, today },
+            replaces,
+            replacedBy,
             canEdit: access.canManage,
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',
             justSavedPhoto: request.query.photoSaved === '1',
+            justBought: request.query.bought === '1',
           }}
         />,
       );
@@ -744,7 +792,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         access.ownerId,
       );
       return renderGarmentForm(reply, db, {
-        mode: { kind: 'edit', garmentId: garment.id },
+        mode: {
+          kind: 'edit',
+          garmentId: garment.id,
+          wishlist: garment.status === 'wishlist',
+        },
         suggestionsFrom: access.ownerId,
         viewOwner,
         values: storedValues(garment),
@@ -771,11 +823,15 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { id } = request.params;
-      await requireGarment(options, id, access.ownerId);
+      const stored = await requireGarment(options, id, access.ownerId);
       const form = readGarmentForm(request.body);
       if (!form.ok) {
         return refuseForm(reply, {
-          mode: { kind: 'edit', garmentId: id },
+          mode: {
+            kind: 'edit',
+            garmentId: id,
+            wishlist: stored.status === 'wishlist',
+          },
           suggestionsFrom: access.ownerId,
           viewOwner,
           values: form.values,
@@ -915,25 +971,59 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // htmx (hx-post): owner only, even for a MANAGE grantee.
+  /**
+   * Archive and Restore (htmx hx-post): owner only, even for a MANAGE
+   * grantee. Each names its move, so a page that showed another status
+   * (another phone, a stale tab) gets a 409 instead of the opposite move
+   * the old archive toggle made. Through setGarmentStatus, the one writer.
+   */
+  async function changeStatus(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    target: { id: number; ownerId: number | '' | undefined },
+    event: 'archive' | 'restore',
+  ): Promise<FastifyReply> {
+    const { access, viewOwner } = await resolve(
+      options,
+      request,
+      target.ownerId,
+      'own',
+    );
+    const { id } = target;
+    const outcome = await setGarmentStatus(db, id, access.ownerId, { event });
+    if (!outcome.ok) {
+      if (outcome.reason === 'not-found') throw notFound();
+      logger.info(`Garment ${id} ${event} refused: it is ${outcome.status}`);
+      throw new HttpError(409, STATUS_REFUSED[event]);
+    }
+    logger.info(
+      `Garment ${id} ${event}d (${outcome.from} -> ${outcome.to}) by user ${access.ownerId}`,
+    );
+    return navigateTo(reply, wardrobeUrl(viewOwner));
+  }
+
   app.post(
     '/wardrobe/:id/archive',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
-    async (request, reply) => {
-      const { access, viewOwner } = await resolve(
-        options,
+    (request, reply) =>
+      changeStatus(
         request,
-        request.query.ownerId,
-        'own',
-      );
-      const { id } = request.params;
-      const archived = await toggleArchived(db, id, access.ownerId);
-      if (archived === undefined) throw notFound();
-      logger.info(
-        `Garment ${id} ${archived ? 'archived' : 'unarchived'} by user ${access.ownerId}`,
-      );
-      return navigateTo(reply, wardrobeUrl(viewOwner));
-    },
+        reply,
+        { id: request.params.id, ownerId: request.query.ownerId },
+        'archive',
+      ),
+  );
+
+  app.post(
+    '/wardrobe/:id/restore',
+    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    (request, reply) =>
+      changeStatus(
+        request,
+        reply,
+        { id: request.params.id, ownerId: request.query.ownerId },
+        'restore',
+      ),
   );
 
   // htmx (hx-delete): owner only. The photo's bytes go after the rows commit.
@@ -948,9 +1038,16 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'own',
       );
       const { id } = request.params;
+      const garment = await requireGarment(options, id, access.ownerId);
       if (!(await removeGarment(deps, id, access.ownerId))) throw notFound();
-      logger.info(`Garment ${id} deleted by user ${access.ownerId}`);
-      return navigateTo(reply, '/wardrobe');
+      logger.info(
+        `Garment ${id} (${garment.status}) deleted by user ${access.ownerId}`,
+      );
+      // A wishlist item's delete is "not buying it": back to the wishlist.
+      return navigateTo(
+        reply,
+        garment.status === 'wishlist' ? WISHLIST_PATH : '/wardrobe',
+      );
     },
   );
 

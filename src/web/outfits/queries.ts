@@ -19,6 +19,7 @@ import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
+import { inCloset, ownedGarment } from '../wardrobe/status';
 import { detachOutfitWears } from '../wears/queries';
 import {
   type CategoryHead,
@@ -147,25 +148,26 @@ const rowGarment = {
   color: garment.color,
   size: garment.size,
   notes: garment.notes,
-  archived: garment.archived,
+  status: garment.status,
 };
 const rowPhoto = { fileName: file.fileName, version: file.version };
 
 /**
- * The garments prev/next cycle through: the owner's unarchived ones in
- * `category`, only a capsule's members when building from one (`?capsule=`).
+ * The garments prev/next cycle through: the owner's garments in the closet
+ * (inCloset) in `category`, only a capsule's members when building from one
+ * (`?capsule=`).
  */
 function inCycle(ownerId: number, category: string, capsuleId?: number) {
   return and(
     eq(garment.ownerId, ownerId),
     eq(garment.category, category),
-    eq(garment.archived, false),
+    inCloset(),
     capsuleId === undefined ? undefined : inCapsule(capsuleId),
   );
 }
 
 /**
- * The new-outfit builder: for each category of the owner's unarchived
+ * The new-outfit builder: for each category of the owner's closet
  * garments (a capsule's, when given), how many there are and the newest one
  * (the row's default). One statement returning one row per category, never
  * the whole wardrobe.
@@ -192,7 +194,7 @@ export async function categoryHeads(
     .where(
       and(
         eq(garment.ownerId, ownerId),
-        eq(garment.archived, false),
+        inCloset(),
         capsuleId === undefined ? undefined : inCapsule(capsuleId),
       ),
     )
@@ -205,7 +207,7 @@ export async function categoryHeads(
       color: ranked.color,
       size: ranked.size,
       notes: ranked.notes,
-      archived: ranked.archived,
+      status: ranked.status,
       category: ranked.category,
       count: ranked.count,
       photo: rowPhoto,
@@ -248,13 +250,14 @@ export async function garmentAt(
     .orderBy(desc(garment.id))
     .limit(1)
     .offset(index - 1);
-  // A garment archived between the count and this read shortens the cycle.
+  // A garment that left the closet between the count and this read
+  // shortens the cycle.
   return row
     ? { count: total, index, garment: row }
     : { count: total, index: 0, garment: null };
 }
 
-/** The categories of the owner's unarchived garments (the "add row" suggestions). */
+/** The categories of the owner's closet garments (the "add row" suggestions). */
 export async function wardrobeCategories(
   db: Db,
   ownerId: number,
@@ -262,13 +265,13 @@ export async function wardrobeCategories(
   const rows = await db
     .selectDistinct({ category: garment.category })
     .from(garment)
-    .where(and(eq(garment.ownerId, ownerId), eq(garment.archived, false)));
+    .where(and(eq(garment.ownerId, ownerId), inCloset()));
   return rows.map((row) => row.category);
 }
 
 /**
- * The edit form: an outfit's slots in order, each with its garment (archived
- * or not), the size of its category's cycle and the garment's place in it.
+ * The edit form: an outfit's slots in order, each with its garment (in the
+ * closet or archived), the size of its category's cycle and the garment's place in it.
  * One statement; the two counts are correlated subqueries per slot.
  */
 export async function savedSlots(
@@ -280,7 +283,7 @@ export async function savedSlots(
   const peersInCycle = and(
     eq(peer.ownerId, ownerId),
     eq(peer.category, outfitSlot.category),
-    eq(peer.archived, false),
+    inCloset(peer.status),
   );
   const cycleSize = db
     .select({ n: sql<number>`count(*)::int` })
@@ -313,8 +316,9 @@ export async function savedSlots(
  * Writes `slots` as the outfit's positions 0..n-1 (the caller has removed
  * any old ones). A garment id that is not one of the owner's garments (a
  * hand-made request; the form only offers their own) is dropped and its row
- * kept empty, so a slot never names another user's garment. Archived
- * garments are still the owner's and stay. Returns how many ids it dropped.
+ * kept empty, so a slot never names another user's garment, nor a wishlist
+ * item (not owned yet). Archived garments were owned and stay. Returns how
+ * many ids it dropped.
  */
 async function insertSlots(
   tx: Queryable,
@@ -332,7 +336,11 @@ async function insertSlots(
             .select({ id: garment.id })
             .from(garment)
             .where(
-              and(eq(garment.ownerId, ownerId), inArray(garment.id, requested)),
+              and(
+                eq(garment.ownerId, ownerId),
+                inArray(garment.id, requested),
+                ownedGarment(),
+              ),
             )
         ).map((row) => row.id),
   );

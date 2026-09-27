@@ -28,6 +28,7 @@ import {
 import { WearSection } from './wear-section';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
+const NOT_OWNED_YET = 'On the wishlist: not bought yet';
 
 const WoreTodayBody = Type.Object({
   worn: Type.Union([Type.Literal('1'), Type.Literal('0')]),
@@ -69,7 +70,10 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 ) => {
   const today = () => todayIn(config.timeZone, new Date());
 
-  /** The owner's garment `id`, or the refusal (see above). */
+  /**
+   * The owner's garment `id`, or the refusal (see above). A wishlist item
+   * is visible but not owned yet: nothing to wear, wash or lend (409).
+   */
   async function ownGarment(
     request: FastifyRequest,
     id: number,
@@ -84,6 +88,9 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     );
     const garment = await findGarment(db, id, access.ownerId);
     if (!garment) throw new HttpError(404, GARMENT_NOT_FOUND);
+    if (garment.status === 'wishlist') {
+      throw new HttpError(409, NOT_OWNED_YET);
+    }
     return garment;
   }
 

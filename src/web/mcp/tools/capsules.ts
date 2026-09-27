@@ -28,7 +28,7 @@ export const capsuleTools = [
     name: 'list_capsules',
     title: 'List capsules',
     description:
-      "A wardrobe's capsules (named subsets of the closet: office, weekend, a trip's pool) by name, with how many unarchived garments each holds.",
+      "A wardrobe's capsules (named subsets of the closet: office, weekend, a trip's pool) by name, with how many of their garments are in the closet.",
     input: z.object({ ownerId: ownerIdInput }),
     writes: false,
     async run({ ownerId }, ctx) {
@@ -43,7 +43,7 @@ export const capsuleTools = [
   defineTool({
     name: 'get_capsule',
     title: 'Get a capsule',
-    description: `A capsule's name, notes and its unarchived garments, newest first, ${GRID_PAGE_SIZE} a page: pass the answer's \`next\` as \`before\` for the next page.`,
+    description: `A capsule's name, notes and its garments in the closet, newest first, ${GRID_PAGE_SIZE} a page: pass the answer's \`next\` as \`before\` for the next page.`,
     input: z.object({
       id: rowId().describe('The capsule id, from list_capsules.'),
       ownerId: ownerIdInput,

@@ -12,7 +12,7 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { BackLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
-import { GARMENT_COLORS, normalizeCategory } from './garment';
+import { categoryLabel, GARMENT_COLORS, normalizeCategory } from './garment';
 import { valueLabel } from './labels';
 import {
   LinkImportSection,
@@ -23,7 +23,15 @@ import {
   PropertiesMore,
   REFRESH_PROPERTIES,
 } from './property-fields';
-import { garmentUrl, LINK_IMPORT_PATH, wardrobeUrl } from './urls';
+import type { ReplaceableGarment } from '../wishlist/queries';
+import {
+  type Destination,
+  destinationParams,
+  garmentUrl,
+  LINK_IMPORT_PATH,
+  wardrobeUrl,
+  WISHLIST_PATH,
+} from './urls';
 import {
   BRAND_MAX,
   CARE_NOTE_MAX,
@@ -38,11 +46,22 @@ import {
   TEXT_MAX,
 } from './validation';
 
-/** Which form: a new garment, an edit, or a clone of `garmentId`. */
+/**
+ * Which form: a new garment (to the closet or the wishlist), an edit (of a
+ * wishlist item, or not), or a clone of `garmentId`.
+ */
 export type GarmentFormMode =
-  | { kind: 'new' }
-  | { kind: 'edit'; garmentId: number }
+  | { kind: 'new'; destination: Destination }
+  | { kind: 'edit'; garmentId: number; wishlist: boolean }
   | { kind: 'clone'; garmentId: number };
+
+/** A form for a wishlist item: a new one, or an edit of one. */
+export function isWishlistForm(mode: GarmentFormMode): boolean {
+  return (
+    (mode.kind === 'new' && mode.destination.to === 'wishlist') ||
+    (mode.kind === 'edit' && mode.wishlist)
+  );
+}
 
 export interface GarmentFormModel {
   mode: GarmentFormMode;
@@ -54,6 +73,8 @@ export interface GarmentFormModel {
   errors?: FieldErrors<GarmentField>;
   /** A new garment's form prefilled from a link (link-import/routes.tsx). */
   link?: LinkImportView;
+  /** A wishlist form's "Replaces" choices (renderGarmentForm reads them). */
+  replaceable?: ReplaceableGarment[];
 }
 
 const TITLES = {
@@ -61,6 +82,20 @@ const TITLES = {
   edit: 'EDIT_GARMENT',
   clone: 'CLONE_GARMENT',
 } as const;
+
+function formTitle(mode: GarmentFormMode): string {
+  return mode.kind === 'new' && mode.destination.to === 'wishlist'
+    ? t('wishlist.ADD_TITLE')
+    : t(TITLES[mode.kind]);
+}
+
+/** Where Cancel and the back arrow go. */
+function backUrl({ mode, viewOwner }: GarmentFormModel): string {
+  if (mode.kind !== 'new') return garmentUrl(mode.garmentId, viewOwner);
+  return mode.destination.to === 'wishlist'
+    ? wardrobeUrl(viewOwner, {}, WISHLIST_PATH)
+    : wardrobeUrl(viewOwner);
+}
 
 function formAction({ mode, viewOwner }: GarmentFormModel): string {
   switch (mode.kind) {
@@ -86,13 +121,10 @@ export function GarmentFormPage(props: {
 }) {
   const { ctx, model } = props;
   const { mode, values, viewOwner, link, errors = {} } = model;
-  const back =
-    mode.kind === 'new'
-      ? wardrobeUrl(viewOwner)
-      : garmentUrl(mode.garmentId, viewOwner);
-  const title = t(TITLES[mode.kind]);
+  const back = backUrl(model);
+  const wishlist = isWishlistForm(mode);
+  const title = formTitle(mode);
   const category = normalizeCategory(values.category);
-  const moreOpen = moreDetailsOpen(model);
   return (
     <Layout ctx={ctx} title={title}>
       <Navbar ctx={ctx} />
@@ -103,7 +135,11 @@ export function GarmentFormPage(props: {
         </div>
         {mode.kind === 'new' && !link && (
           <a
-            href={wardrobeUrl(viewOwner, {}, LINK_IMPORT_PATH)}
+            href={wardrobeUrl(
+              viewOwner,
+              destinationParams(mode.destination),
+              LINK_IMPORT_PATH,
+            )}
             class="btn btn-outline btn-sm w-full mb-4"
           >
             {t('linkImport.ADD_FROM_LINK')}
@@ -168,67 +204,8 @@ export function GarmentFormPage(props: {
             maxlength={SIZE_MAX}
             placeholder={t('SIZE_PLACEHOLDER')}
           />
-          {/* The save writes the care fields only when this is posted (see GarmentBody.care). */}
-          <input type="hidden" name="care" value="1" />
-          <QuantityField
-            value={values.care.quantity}
-            errors={errors.quantity}
-          />
-          <details class="collapse collapse-arrow bg-base-200" open={moreOpen}>
-            <summary class="collapse-title font-medium">
-              {t('MORE_DETAILS')}
-            </summary>
-            <div class="collapse-content flex flex-col gap-4">
-              <PropertiesMore category={category} values={values.properties} />
-              <WashAfterField value={values.care.washAfterWears} />
-              <TextArea
-                name="washingDetails"
-                label={t('WASHING_DETAILS')}
-                value={values.washingDetails}
-                placeholder={t('WASHING_DETAILS_PLACEHOLDER')}
-              />
-              <ConditionFields care={values.care} />
-              <div class="flex flex-col">
-                <label class="label" for="garment-acquired">
-                  <span class="label-text">{t('DATE_ACQUIRED')}</span>
-                </label>
-                <input
-                  id="garment-acquired"
-                  type="date"
-                  name="dateAquired"
-                  class={`input input-bordered w-full ${errors.dateAquired ? 'input-error' : ''}`}
-                  value={values.dateAquired}
-                />
-                <Messages messages={errors.dateAquired} />
-              </div>
-              {/* The save writes the two below only when this is posted (see GarmentBody.product). */}
-              <input type="hidden" name="product" value="1" />
-              <TextField
-                name="sourceUrl"
-                label={t('PRODUCT_LINK')}
-                value={values.sourceUrl}
-                maxlength={SOURCE_URL_MAX}
-                placeholder={t('PRODUCT_LINK_PLACEHOLDER')}
-                type="url"
-                errors={errors.sourceUrl}
-              />
-              <TextField
-                name="price"
-                label={t('PRICE')}
-                value={values.price}
-                maxlength={PRICE_INPUT_MAX}
-                placeholder={t('PRICE_PLACEHOLDER')}
-                inputmode="decimal"
-                errors={errors.price}
-              />
-              <TextArea
-                name="notes"
-                label={t('NOTES')}
-                value={values.notes}
-                placeholder={t('NOTES_PLACEHOLDER')}
-              />
-            </div>
-          </details>
+          <OwnershipFields model={model} wishlist={wishlist} />
+          <MoreDetails model={model} wishlist={wishlist} category={category} />
           <div class="flex gap-2 mt-2">
             <a href={back} class="btn btn-ghost flex-1">
               {t('CANCEL')}
@@ -245,20 +222,181 @@ export function GarmentFormPage(props: {
 }
 
 /**
+ * What depends on whether the garment is owned: copies for the closet's
+ * form, what it replaces for a wishlist form.
+ */
+function OwnershipFields(props: {
+  model: GarmentFormModel;
+  wishlist: boolean;
+}) {
+  const { model, wishlist } = props;
+  const { values, mode, errors = {} } = model;
+  if (wishlist) {
+    return (
+      <WishlistFields
+        mode={mode}
+        replaces={values.replaces}
+        choices={model.replaceable ?? []}
+      />
+    );
+  }
+  return (
+    <>
+      {/* The save writes the care fields only when this is posted (see GarmentBody.care). */}
+      <input type="hidden" name="care" value="1" />
+      <QuantityField value={values.care.quantity} errors={errors.quantity} />
+    </>
+  );
+}
+
+/**
+ * The collapsed "More details": the other properties, washing, and the
+ * closet's care, condition and acquired date (not on a wishlist form: those
+ * come with "Bought it"), then the product link, price and notes.
+ */
+function MoreDetails(props: {
+  model: GarmentFormModel;
+  wishlist: boolean;
+  category: string;
+}) {
+  const { model, wishlist, category } = props;
+  const { values, errors = {} } = model;
+  return (
+    <details
+      class="collapse collapse-arrow bg-base-200"
+      open={moreDetailsOpen(model, wishlist)}
+    >
+      <summary class="collapse-title font-medium">{t('MORE_DETAILS')}</summary>
+      <div class="collapse-content flex flex-col gap-4">
+        <PropertiesMore category={category} values={values.properties} />
+        {/* A wishlist item is not worn, washed or acquired yet: those
+              fields come with "Bought it" and the closet's form. */}
+        {!wishlist && <WashAfterField value={values.care.washAfterWears} />}
+        <TextArea
+          name="washingDetails"
+          label={t('WASHING_DETAILS')}
+          value={values.washingDetails}
+          placeholder={t('WASHING_DETAILS_PLACEHOLDER')}
+        />
+        {!wishlist && <ConditionFields care={values.care} />}
+        {!wishlist && (
+          <div class="flex flex-col">
+            <label class="label" for="garment-acquired">
+              <span class="label-text">{t('DATE_ACQUIRED')}</span>
+            </label>
+            <input
+              id="garment-acquired"
+              type="date"
+              name="dateAquired"
+              class={`input input-bordered w-full ${errors.dateAquired ? 'input-error' : ''}`}
+              value={values.dateAquired}
+            />
+            <Messages messages={errors.dateAquired} />
+          </div>
+        )}
+        {/* The save writes the two below only when this is posted (see GarmentBody.product). */}
+        <input type="hidden" name="product" value="1" />
+        <TextField
+          name="sourceUrl"
+          label={t('PRODUCT_LINK')}
+          value={values.sourceUrl}
+          maxlength={SOURCE_URL_MAX}
+          placeholder={t('PRODUCT_LINK_PLACEHOLDER')}
+          type="url"
+          errors={errors.sourceUrl}
+        />
+        <TextField
+          name="price"
+          label={t('PRICE')}
+          value={values.price}
+          maxlength={PRICE_INPUT_MAX}
+          placeholder={t('PRICE_PLACEHOLDER')}
+          inputmode="decimal"
+          errors={errors.price}
+        />
+        <TextArea
+          name="notes"
+          label={t('NOTES')}
+          value={values.notes}
+          placeholder={t('NOTES_PLACEHOLDER')}
+        />
+      </div>
+    </details>
+  );
+}
+
+/**
  * "More details" opens by default only when something inside needs
  * attention: a message, or what a link filled in there (materials, the
- * link, the price) for review.
+ * link, the price) for review; and always on a wishlist form, where the
+ * product link and price are what the item is.
  */
-function moreDetailsOpen({
-  errors = {},
-  link,
-  values,
-}: GarmentFormModel): boolean {
+function moreDetailsOpen(
+  { errors = {}, link, values }: GarmentFormModel,
+  wishlist: boolean,
+): boolean {
   return (
+    wishlist ||
     errors.dateAquired !== undefined ||
     errors.sourceUrl !== undefined ||
     errors.price !== undefined ||
     (link !== undefined && values.sourceUrl !== '')
+  );
+}
+
+/**
+ * A wishlist form's own fields: its destination (a new one), and what it
+ * replaces, with the marker the save reads it by (GarmentBody.wishlist).
+ * The choices are the closet's garments, those that need replacing first.
+ */
+function WishlistFields(props: {
+  mode: GarmentFormMode;
+  replaces: string;
+  choices: ReplaceableGarment[];
+}) {
+  const attention = props.choices.filter((g) => g.condition !== 'good');
+  const rest = props.choices.filter((g) => g.condition === 'good');
+  const option = (garment: ReplaceableGarment) => (
+    <option
+      value={String(garment.id)}
+      selected={props.replaces === String(garment.id)}
+    >
+      {garment.name ?? categoryLabel(garment.category)}
+      {garment.condition !== 'good' &&
+        ` (${valueLabel('condition', garment.condition)})`}
+    </option>
+  );
+  return (
+    <>
+      {props.mode.kind === 'new' && (
+        <input type="hidden" name="to" value="wishlist" />
+      )}
+      <input type="hidden" name="wishlist" value="1" />
+      <div class="flex flex-col">
+        <label class="label" for="garment-replaces">
+          <span class="label-text">{t('wishlist.REPLACES_LABEL')}</span>
+        </label>
+        <select
+          id="garment-replaces"
+          name="replaces"
+          class="select select-bordered w-full"
+        >
+          <option value="" selected={props.replaces === ''}>
+            {t('wishlist.REPLACES_NOTHING')}
+          </option>
+          {attention.length > 0 && (
+            <optgroup label={t('wishlist.REPLACES_ATTENTION')}>
+              {attention.map(option)}
+            </optgroup>
+          )}
+          {rest.length > 0 && (
+            <optgroup label={t('wishlist.REPLACES_OTHERS')}>
+              {rest.map(option)}
+            </optgroup>
+          )}
+        </select>
+      </div>
+    </>
   );
 }
 
@@ -410,7 +548,8 @@ function TextArea(props: {
   );
 }
 
-function Messages({ messages }: { messages?: string[] }) {
+/** A field's messages under it (the garment form's and "Bought it"'s). */
+export function Messages({ messages }: { messages?: string[] }) {
   return (
     <>
       {messages?.map((message) => (

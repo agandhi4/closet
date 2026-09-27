@@ -11,11 +11,17 @@ import { BackLink, HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import { ShareLinkButton } from '../share/share-button';
 import type { ViewContext } from '../view-context';
 import { type WearPanel, WearSection } from '../wears/wear-section';
+import type { GarmentRef } from '../wishlist/queries';
 import { categoryLabel, priceLabel, splitColors } from './garment';
 import { GarmentCondition } from './garment-condition';
 import { fabricWeightLabel, valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
-import { garmentUrl, wardrobeUrl } from './urls';
+import {
+  destinationParams,
+  garmentUrl,
+  wardrobeUrl,
+  WISHLIST_PATH,
+} from './urls';
 
 export interface GarmentPageModel {
   garment: GarmentDetail;
@@ -25,12 +31,17 @@ export interface GarmentPageModel {
   viewOwner: number | undefined;
   /** Wears, washes and away: the owner's alone, never a grantee's. */
   wear: WearPanel | undefined;
-  /** Edit, photo, mask and condition: the owner and a MANAGE grantee. */
+  /** The garment this one replaces (a wishlist item's, or a bought one's). */
+  replaces: GarmentRef | undefined;
+  /** Wishlist items that would replace this closet garment. */
+  replacedBy: { id: number; name: string | null; category: string }[];
+  /** Edit, photo, mask, condition and "Bought it": the owner and a MANAGE grantee. */
   canEdit: boolean;
-  /** Archive and delete: the owner only. */
+  /** Archive, restore and delete: the owner only. */
   canDelete: boolean;
   justCreated: boolean;
   justSavedPhoto: boolean;
+  justBought: boolean;
 }
 
 const PHOTO_ACCEPT =
@@ -68,7 +79,7 @@ wireUpEditMask(document.getElementById('garment-photo-slot'));
 wirePhotoUpload();`;
 
 /** The one-shot flags the garment page's toasts read (GarmentPageQuery). */
-const GARMENT_PAGE_FLAGS = ['created', 'photoSaved'] as const;
+const GARMENT_PAGE_FLAGS = ['created', 'photoSaved', 'bought'] as const;
 
 /** GET /wardrobe/:id: the photo (and its upload), the fields, and the actions. */
 export function GarmentPage(props: {
@@ -77,14 +88,12 @@ export function GarmentPage(props: {
 }) {
   const { ctx, model } = props;
   const { garment } = model;
+  const wishlist = garment.status === 'wishlist';
   return (
     <Layout ctx={ctx} title={garment.name ?? categoryLabel(garment.category)}>
       <Navbar ctx={ctx} />
       <main class="p-4 pt-20 pb-24 max-w-lg mx-auto">
-        <div class="flex items-center gap-3 mb-6">
-          <BackLink href={wardrobeUrl(model.viewOwner)} />
-          <h1 class="text-2xl font-bold flex-1">{garment.name}</h1>
-        </div>
+        <GarmentHeading garment={garment} viewOwner={model.viewOwner} />
         <div id="garment-photo-slot">
           <GarmentPhotoView
             garment={garment}
@@ -94,18 +103,27 @@ export function GarmentPage(props: {
         </div>
         {model.canEdit && <PhotoForm model={model} />}
         <GarmentDetails garment={garment} />
-        <GarmentCondition
-          garment={garment}
-          viewOwner={model.viewOwner}
-          canEdit={model.canEdit}
-        />
-        {model.wear && <WearSection garment={garment} panel={model.wear} />}
-        <GarmentCapsules
-          garmentId={garment.id}
-          capsules={model.capsules}
-          viewOwner={model.viewOwner}
-          canEdit={model.canEdit}
-        />
+        <Replacement model={model} />
+        {/* A wishlist item is not in the closet: it has no condition, wears
+            or capsules until "Bought it". #18b's "Goes with my closet" (the
+            generator over inCloset plus this item) goes here, for wishlist
+            items. */}
+        {!wishlist && (
+          <>
+            <GarmentCondition
+              garment={garment}
+              viewOwner={model.viewOwner}
+              canEdit={model.canEdit}
+            />
+            {model.wear && <WearSection garment={garment} panel={model.wear} />}
+            <GarmentCapsules
+              garmentId={garment.id}
+              capsules={model.capsules}
+              viewOwner={model.viewOwner}
+              canEdit={model.canEdit}
+            />
+          </>
+        )}
         <GarmentActions ctx={ctx} model={model} />
         {model.canEdit && garment.photo && <MaskEditorDialog />}
       </main>
@@ -115,9 +133,41 @@ export function GarmentPage(props: {
       {model.justSavedPhoto && (
         <SavedToast id="photo-saved-toast" text={t('PHOTO_SAVED')} />
       )}
+      {model.justBought && (
+        <SavedToast id="bought-toast" text={t('wishlist.BOUGHT_TOAST')} />
+      )}
       <StripFlags names={GARMENT_PAGE_FLAGS} />
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * The back arrow (to the wishlist for a wishlist item, else the grid), the
+ * name, and where the garment is when it is not the closet.
+ */
+function GarmentHeading(props: {
+  garment: GarmentDetail;
+  viewOwner: number | undefined;
+}) {
+  const { garment } = props;
+  const wishlist = garment.status === 'wishlist';
+  return (
+    <div class="flex items-center gap-3 mb-6">
+      <BackLink
+        href={wardrobeUrl(
+          props.viewOwner,
+          {},
+          wishlist ? WISHLIST_PATH : '/wardrobe',
+        )}
+      />
+      <h1 class="text-2xl font-bold flex-1">{garment.name}</h1>
+      {garment.status !== 'closet' && (
+        <span class="badge badge-soft badge-primary">
+          {t(wishlist ? 'wishlist.ON_WISHLIST' : 'ARCHIVED')}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -361,10 +411,69 @@ function GarmentDetails({ garment }: { garment: GarmentDetail }) {
 }
 
 /**
- * What the requester may do, and nothing else: edit and share for the owner
- * and a MANAGE grantee, archive and delete for the owner, and clone for
- * anyone who can see the garment (the copy lands in their own wardrobe and
- * only reads this one).
+ * The replacement links: what this garment replaces, the wishlist items that
+ * would replace it, and on a garment marked "replace soon", for whoever may
+ * add to the wishlist, "Find a replacement" (the wishlist's new form,
+ * prefilled from this garment).
+ */
+function Replacement({ model }: { model: GarmentPageModel }) {
+  const { garment, viewOwner, replaces, replacedBy } = model;
+  const findable =
+    model.canEdit &&
+    garment.status === 'closet' &&
+    garment.condition === 'replace_soon';
+  if (!replaces && replacedBy.length === 0 && !findable) return null;
+  const link = (ref: { id: number; name: string | null; category: string }) => (
+    <a href={garmentUrl(ref.id, viewOwner)} class="link link-primary">
+      {ref.name ?? categoryLabel(ref.category)}
+    </a>
+  );
+  return (
+    <section
+      id="garment-replacement"
+      class="card bg-base-100 shadow-sm mb-4"
+      aria-label={t('wishlist.REPLACEMENT')}
+    >
+      <div class="card-body gap-2 text-sm">
+        {replaces && (
+          <p>
+            {t('wishlist.REPLACEMENT_FOR')} {link(replaces)}
+          </p>
+        )}
+        {replacedBy.length > 0 && (
+          <p>
+            {t('wishlist.ON_WISHLIST_TO_REPLACE')}{' '}
+            {replacedBy.map((item, index) => (
+              <>
+                {index > 0 && ', '}
+                {link(item)}
+              </>
+            ))}
+          </p>
+        )}
+        {findable && (
+          <a
+            href={wardrobeUrl(
+              viewOwner,
+              destinationParams({ to: 'wishlist', replaces: garment.id }),
+              '/wardrobe/new',
+            )}
+            class="btn btn-sm btn-outline self-start"
+          >
+            {t('wishlist.FIND_REPLACEMENT')}
+          </a>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * What the requester may do, and nothing else: edit, share and a wishlist
+ * item's "Bought it" for the owner and a MANAGE grantee; archive (a closet
+ * garment), restore (an archived one) and delete for the owner; and clone
+ * for anyone who can see the garment (the copy lands in their own wardrobe
+ * and only reads this one).
  */
 function GarmentActions({
   ctx,
@@ -377,6 +486,14 @@ function GarmentActions({
   return (
     <>
       <div class="flex flex-col gap-2 mb-6">
+        {model.canEdit && garment.status === 'wishlist' && (
+          <a
+            href={garmentUrl(garment.id, viewOwner, '/bought')}
+            class="btn btn-primary btn-sm"
+          >
+            {t('wishlist.BOUGHT_IT')}
+          </a>
+        )}
         {model.canEdit && (
           <a
             href={garmentUrl(garment.id, viewOwner, '/edit')}
@@ -401,23 +518,37 @@ function GarmentActions({
       </div>
       {model.canDelete && (
         <div class="flex flex-col gap-2">
-          <button
-            type="button"
-            class="btn btn-outline btn-sm w-full"
-            hx-post={garmentUrl(garment.id, viewOwner, '/archive')}
-            hx-confirm={t(
-              garment.archived ? 'CONFIRM_UNARCHIVE' : 'CONFIRM_ARCHIVE',
-            )}
-          >
-            {t(garment.archived ? 'UNARCHIVE' : 'ARCHIVE')}
-          </button>
+          {garment.status === 'closet' && (
+            <button
+              type="button"
+              class="btn btn-outline btn-sm w-full"
+              hx-post={garmentUrl(garment.id, viewOwner, '/archive')}
+              hx-confirm={t('CONFIRM_ARCHIVE')}
+            >
+              {t('ARCHIVE')}
+            </button>
+          )}
+          {garment.status === 'archived' && (
+            <button
+              type="button"
+              class="btn btn-outline btn-sm w-full"
+              hx-post={garmentUrl(garment.id, viewOwner, '/restore')}
+              hx-confirm={t('CONFIRM_RESTORE')}
+            >
+              {t('RESTORE')}
+            </button>
+          )}
           <button
             type="button"
             class="btn btn-error btn-outline btn-sm w-full"
             hx-delete={garmentUrl(garment.id, viewOwner)}
-            hx-confirm={t('CONFIRM_DELETE')}
+            hx-confirm={t(
+              garment.status === 'wishlist'
+                ? 'wishlist.CONFIRM_REMOVE'
+                : 'CONFIRM_DELETE',
+            )}
           >
-            {t('DELETE')}
+            {t(garment.status === 'wishlist' ? 'wishlist.REMOVE' : 'DELETE')}
           </button>
         </div>
       )}

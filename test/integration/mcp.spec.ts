@@ -263,6 +263,7 @@ describe('the MCP endpoint', () => {
           'list_capsules',
           'list_outfits',
           'list_shared_wardrobes',
+          'list_wishlist',
           'mark_washed',
           'mark_worn',
           'schedule_outfit',
@@ -394,17 +395,22 @@ describe('the MCP endpoint', () => {
       });
     });
 
-    it('add_garment_from_link imports and saves straight to the closet', async () => {
+    // A product link is usually something being considered (#18): the
+    // wishlist unless the caller says the closet.
+    it('add_garment_from_link imports to the wishlist, and list_wishlist shows it', async () => {
       const added = await tool<{
         garment: { id: number; name: string; brand: string; price: string };
         notices: string[];
       }>(t, token, 'add_garment_from_link', {
         url: sites.url('/products/tee'),
+        replacesGarmentId: garments.tee.id,
       });
       expect(added.garment).toMatchObject({
         name: 'Heavyweight Pocket Tee',
         brand: 'Studio Knit',
         price: '48.00',
+        status: 'wishlist',
+        replacesGarmentId: garments.tee.id,
         hasPhoto: true,
         properties: expect.objectContaining({ type: 't-shirt' }),
       });
@@ -414,6 +420,43 @@ describe('the MCP endpoint', () => {
         .where(eq(garment.id, added.garment.id));
       expect(row.ownerId).toBe(t.owner.id);
       expect(row.photoId).not.toBeNull();
+
+      const wishlist = await tool<{
+        items: { id: number; price: string; replaces: { id: number } }[];
+      }>(t, token, 'list_wishlist');
+      expect(wishlist.items).toContainEqual(
+        expect.objectContaining({
+          id: added.garment.id,
+          price: '48.00',
+          replaces: expect.objectContaining({ id: garments.tee.id }),
+        }),
+      );
+      // Not in the closet: search_garments never finds it.
+      const search = await tool<{ garments: { id: number }[] }>(
+        t,
+        token,
+        'search_garments',
+        { keyword: 'Pocket Tee', includeArchived: true },
+      );
+      expect(search.garments.map((g) => g.id)).not.toContain(added.garment.id);
+      // Nor can it be worn.
+      const worn = await callTool(t, token, 'mark_worn', {
+        garmentId: added.garment.id,
+      });
+      expect(worn).toEqual({
+        isError: true,
+        value: { error: 'On the wishlist: not bought yet' },
+      });
+    });
+
+    it('add_garment_from_link saves to the closet when asked', async () => {
+      const added = await tool<{ garment: { id: number; status: string } }>(
+        t,
+        token,
+        'add_garment_from_link',
+        { url: sites.url('/products/tee'), destination: 'closet' },
+      );
+      expect(added.garment.status).toBe('closet');
     });
 
     it('add_garment_from_link asks for a category the page does not give, keeping nothing', async () => {
@@ -745,6 +788,7 @@ describe('the MCP endpoint', () => {
     it.each([
       ['viewer', 'get_capsule', undefined],
       ['viewer', 'list_capsules', undefined],
+      ['viewer', 'list_wishlist', undefined],
       ['viewer', 'set_capsule_membership', 'Forbidden'],
       ['manager', 'set_capsule_membership', undefined],
       ['manager', 'mark_washed', 'Forbidden'],
@@ -756,6 +800,7 @@ describe('the MCP endpoint', () => {
         const args: Record<string, Record<string, unknown>> = {
           get_capsule: { id: capsuleId },
           list_capsules: {},
+          list_wishlist: {},
           set_capsule_membership: { id: capsuleId, add: [garments.boots.id] },
           mark_washed: { garmentIds: [garments.tee.id] },
           mark_worn: { garmentId: garments.tee.id },

@@ -3,6 +3,7 @@ import type { Db, Queryable } from '../../db/client';
 import { capsule, capsuleGarment, file, garment } from '../../db/schema';
 import { isUniqueViolation } from '../auth/queries';
 import type { ImageRef } from '../files/image-url';
+import { inCloset, ownedGarment } from '../wardrobe/status';
 
 /**
  * Capsules' reads and writes (plan section 2): a capsule is a named subset
@@ -10,8 +11,9 @@ import type { ImageRef } from '../files/image-url';
  * route resolved through authorizeWardrobe (src/web/sharing/access.ts); a
  * capsule outside it is a miss like a missing one, and the routes answer
  * 404 either way. The closet itself is not a capsule row: it is every
- * unarchived garment, and archived members are left out of every read here
- * while keeping their membership.
+ * garment in the closet (inCloset), and archived members are left out of
+ * every read here while keeping their membership. A wishlist item is never
+ * a member (changeMembership).
  */
 
 export interface CapsuleRef {
@@ -37,9 +39,9 @@ export interface StripGarment {
 }
 
 export interface CapsuleCard extends CapsuleRef {
-  /** Unarchived members. */
+  /** Members in the closet. */
   count: number;
-  /** The newest few unarchived members (CARD_STRIP). */
+  /** The newest few members in the closet (CARD_STRIP). */
   strip: StripGarment[];
 }
 
@@ -84,7 +86,7 @@ export async function findCapsule(
 
 /**
  * The list page: every capsule of the wardrobe by name, with its count of
- * unarchived members and the newest few of them. Two statements, whatever
+ * members in the closet and the newest few of them. Two statements, whatever
  * the number of capsules: the counts (grouped), and the strips (ranked per
  * capsule, only the first CARD_STRIP read).
  */
@@ -103,10 +105,7 @@ export async function listCapsules(
       .leftJoin(capsuleGarment, eq(capsuleGarment.capsuleId, capsule.id))
       .leftJoin(
         garment,
-        and(
-          eq(garment.id, capsuleGarment.garmentId),
-          eq(garment.archived, false),
-        ),
+        and(eq(garment.id, capsuleGarment.garmentId), inCloset()),
       )
       .where(eq(capsule.ownerId, ownerId))
       .groupBy(capsule.id)
@@ -133,7 +132,7 @@ async function capsuleStrips(
     .from(capsuleGarment)
     .innerJoin(capsule, eq(capsule.id, capsuleGarment.capsuleId))
     .innerJoin(garment, eq(garment.id, capsuleGarment.garmentId))
-    .where(and(eq(capsule.ownerId, ownerId), eq(garment.archived, false)))
+    .where(and(eq(capsule.ownerId, ownerId), inCloset()))
     .as('ranked');
   const rows = await db
     .select({
@@ -153,17 +152,14 @@ async function capsuleStrips(
   return strips;
 }
 
-/** The closet's card on the list page: every unarchived garment. */
+/** The closet's card on the list page: every garment in the closet. */
 export async function closetCard(
   db: Db,
   ownerId: number,
 ): Promise<{ count: number; strip: StripGarment[] }> {
-  const inCloset = and(
-    eq(garment.ownerId, ownerId),
-    eq(garment.archived, false),
-  );
+  const closet = and(eq(garment.ownerId, ownerId), inCloset());
   const [count, strip] = await Promise.all([
-    db.$count(garment, inCloset),
+    db.$count(garment, closet),
     db
       .select({
         id: garment.id,
@@ -172,7 +168,7 @@ export async function closetCard(
       })
       .from(garment)
       .leftJoin(file, eq(file.id, garment.photoId))
-      .where(inCloset)
+      .where(closet)
       .orderBy(desc(garment.id))
       .limit(CARD_STRIP),
   ]);
@@ -305,7 +301,8 @@ export interface MembershipChange {
  * then adds every pairing in `add` (one already there is kept), in one
  * transaction. Only capsules and garments of `ownerId`'s wardrobe take
  * part: any other id is dropped, so a capsule never holds another
- * wardrobe's garment. Both sides are locked FOR SHARE, so a capsule or
+ * wardrobe's garment, nor a wishlist item (not in the closet; an archived
+ * garment keeps its membership and may still be listed). Both sides are locked FOR SHARE, so a capsule or
  * garment deleted meanwhile waits for this to commit rather than failing a
  * foreign key halfway. The picker (a capsule and the tiles it showed), the
  * garment page's toggles (a garment and the capsules it listed) and the
@@ -386,7 +383,10 @@ async function ownedCapsules(
   return new Set(rows.map((row) => row.id));
 }
 
-/** Which of `ids` are garments of `ownerId`'s wardrobe, locked FOR SHARE. */
+/**
+ * Which of `ids` are garments of `ownerId`'s wardrobe owned now or once
+ * (not wishlist items), locked FOR SHARE.
+ */
 async function ownedGarments(
   tx: Queryable,
   ownerId: number,
@@ -396,7 +396,13 @@ async function ownedGarments(
   const rows = await tx
     .select({ id: garment.id })
     .from(garment)
-    .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, ids)))
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        inArray(garment.id, ids),
+        ownedGarment(),
+      ),
+    )
     .for('share');
   return new Set(rows.map((row) => row.id));
 }

@@ -7,7 +7,10 @@ import {
   savedOutfitRows,
 } from './builder';
 
-function garment(id: number, archived = false): RowGarment {
+function garment(
+  id: number,
+  status: RowGarment['status'] = 'closet',
+): RowGarment {
   return {
     id,
     name: `Garment ${id}`,
@@ -15,7 +18,7 @@ function garment(id: number, archived = false): RowGarment {
     color: null,
     size: null,
     notes: null,
-    archived,
+    status,
     photo: null,
   };
 }
@@ -73,7 +76,7 @@ describe('outfit builder rows', () => {
             category: 'tops',
             count,
             newer,
-            garment: { ...garment(5, true), category: 'tops' },
+            garment: { ...garment(5, 'archived'), category: 'tops' },
           },
         ])[0],
       );

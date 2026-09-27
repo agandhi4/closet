@@ -94,6 +94,19 @@ export interface SeedGarment {
   away: { reason: AwayReason; note: string | null } | null;
 }
 
+/**
+ * A wishlist item (the bible's Wishlist table, #18): a garment row like the
+ * others, written with status 'wishlist', never worn, in no outfit or
+ * capsule, and optionally the garment it would replace.
+ */
+export interface SeedWishlistItem {
+  id: string;
+  fields: GarmentFields;
+  photo: boolean;
+  /** The owned garment's bible id it would replace; null for none. */
+  replaces: string | null;
+}
+
 export interface SeedOutfit {
   /** null: untitled. */
   name: string | null;
@@ -151,7 +164,10 @@ export interface Persona {
   account: { email: string; firstName: string; lastName: string };
   /** Personas this one shares its wardrobe with, once both exist. */
   sharesWith: { persona: PersonaKey; permission: SharePermission }[];
+  /** What the persona owns (the closet and the archive). */
   garments: SeedGarment[];
+  /** What the persona is thinking of buying. */
+  wishlist: SeedWishlistItem[];
   outfits: SeedOutfit[];
   capsules: SeedCapsule[];
   /** Sunday first; null without a history. */
@@ -177,7 +193,14 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
   const fields = Object.fromEntries(
     account.rows.map((row) => [row.Field, plain(row.Value)]),
   );
-  const garmentTables = find('id', 'Colours');
+  // The garment tables: the Wishlist one holds what is not owned yet, and
+  // its ids are nowhere else (not in outfits, capsules or the care tables).
+  const garmentTables = find('id', 'Colours').filter(
+    (table) => table.heading !== WISHLIST_HEADING,
+  );
+  const wishlistTables = find('id', 'Colours').filter(
+    (table) => table.heading === WISHLIST_HEADING,
+  );
   const ids = new Set(
     garmentTables.flatMap((table) => table.rows.map((row) => row.id)),
   );
@@ -190,6 +213,9 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
   };
   const garments = garmentTables.flatMap((table) =>
     table.rows.map((row) => readGarment(source, table, row, care)),
+  );
+  const wishlist = wishlistTables.flatMap((table) =>
+    table.rows.map((row) => readWishlistItem(source, table, row, ids)),
   );
   const outfits = find('Garments', 'Occasion').flatMap((table) =>
     table.rows.map((row) => readOutfit(source, row, ids)),
@@ -207,6 +233,7 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
       readShare(source, share),
     ),
     garments,
+    wishlist,
     outfits,
     capsules: uniqueNames(
       source,
@@ -219,6 +246,39 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
       table.rows.map((row) => readEvent(source, row, names)),
     ),
   };
+}
+
+/** The heading of the bible's wishlist table (a garment table otherwise). */
+const WISHLIST_HEADING = 'Wishlist';
+
+/** Nothing about care: a wishlist item is not owned, worn or washed. */
+const NO_CARE: GarmentCare = {
+  laundry: [],
+  conditions: new Map(),
+  away: new Map(),
+};
+
+// A Wishlist row: a garment row through the same form (no acquired date:
+// it is not bought), and what it replaces, an owned garment's id.
+function readWishlistItem(
+  source: string,
+  table: BibleTable,
+  row: Record<string, string>,
+  ownedIds: Set<string>,
+): SeedWishlistItem {
+  const where = `${source} ${row.id}`;
+  if (ownedIds.has(row.id)) {
+    throw new BibleError(where, 'a wishlist id is also an owned garment');
+  }
+  const { id, fields, photo } = readGarment(source, table, row, NO_CARE);
+  if (fields.acquiredOn !== null) {
+    throw new BibleError(where, 'a wishlist item has no acquired date');
+  }
+  const replaces = plain(row.Replaces ?? '') || null;
+  if (replaces !== null && !ownedIds.has(replaces)) {
+    throw new BibleError(where, `replaces "${replaces}", not an owned garment`);
+  }
+  return { id, fields, photo, replaces };
 }
 
 /** The tables that add to garments by id: Laundry, Condition, Away. */
@@ -306,6 +366,7 @@ const OTHER_COLUMNS = new Set([
   'Qty',
   'Archived',
   'Photo',
+  'Replaces',
 ]);
 
 function readGarment(

@@ -12,7 +12,7 @@ import type { CapsuleDetail } from './queries';
 
 export interface CapsulePageModel {
   capsule: CapsuleDetail;
-  /** The first page of its unarchived members, newest first. */
+  /** The first page of its members in the closet (inCloset), newest first. */
   page: GridPage;
   count: number;
   /** The shared wardrobe it is in; undefined for the requester's own. */

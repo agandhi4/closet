@@ -14,6 +14,7 @@ import {
 } from '../../wardrobe/availability';
 import type { IsoDate } from '../calendar/calendar-date';
 import type { ImageRef } from '../files/image-url';
+import { inCloset, ownedGarment } from '../wardrobe/status';
 
 /**
  * Wears, washes and away: the owner's own records about their garments
@@ -68,13 +69,13 @@ export function needsWash(): SQL {
 
 /**
  * The generator-facing "available" rule as a query condition (isAvailable in
- * src/wardrobe/availability.ts): in the closet (not archived, not away)
- * with a clean copy left. For the outfit gallery (#9) and the packing list
+ * src/wardrobe/availability.ts): in the closet (inCloset: not a wishlist
+ * item, not archived), not away, with a clean copy left. For the outfit gallery (#9) and the packing list
  * (#10): add it to the pool's where clause. Condition never counts.
  */
 export function availableGarment(): SQL {
   return and(
-    eq(garment.archived, false),
+    inCloset(),
     isNull(garment.away),
     sql`${dirtyCopiesSql()} < ${garment.quantity}`,
   )!;
@@ -128,7 +129,7 @@ export interface LaundryItem {
 
 /**
  * The owner's garments worn since their last wash that can get dirty (a
- * limit), in the closet (not archived, not away): those needing a wash
+ * limit), in the closet (inCloset) and not away: those needing a wash
  * first, most copies first, then those worn but not due yet, newest first.
  */
 export async function laundryList(
@@ -149,7 +150,7 @@ export async function laundryList(
     .where(
       and(
         eq(garment.ownerId, ownerId),
-        eq(garment.archived, false),
+        inCloset(),
         isNull(garment.away),
         sql`${washLimit} is not null`,
         sql`${wearsSinceWashSql()} > 0`,
@@ -164,7 +165,7 @@ export function countNeedingWash(db: Db, ownerId: number): Promise<number> {
     garment,
     and(
       eq(garment.ownerId, ownerId),
-      eq(garment.archived, false),
+      inCloset(),
       isNull(garment.away),
       needsWash(),
     ),
@@ -316,19 +317,21 @@ export async function detachOutfitWears(
  * "Wore today" on the garment page: one wear of the garment alone on `day`,
  * at most one a day (garment_wear_garment_id_day_single_unique), or its
  * undo, which removes only that row (a worn calendar entry's stay).
- * 'not-found' when the garment is not the owner's.
+ * 'not-found' when the garment is not the owner's, 'wishlist' when it is a
+ * wishlist item (not owned yet, so not worn).
  */
 export async function setWoreToday(
   db: Db,
   input: { garmentId: number; ownerId: number; day: IsoDate; worn: boolean },
-): Promise<'saved' | 'not-found'> {
+): Promise<'saved' | 'not-found' | 'wishlist'> {
   const [owned] = await db
-    .select({ id: garment.id })
+    .select({ status: garment.status })
     .from(garment)
     .where(
       and(eq(garment.id, input.garmentId), eq(garment.ownerId, input.ownerId)),
     );
   if (!owned) return 'not-found';
+  if (owned.status === 'wishlist') return 'wishlist';
   if (input.worn) {
     await db
       .insert(garmentWear)
@@ -354,8 +357,8 @@ export async function setWoreToday(
 
 /**
  * Washes the listed garments of the owner on `day` (every copy: laundry
- * day), the ids of others ignored like unknown ones; returns the ids
- * washed. Wears on `day` itself count as before the wash. The garment
+ * day), the ids of others and of wishlist items ignored like unknown ones;
+ * returns the ids washed. Wears on `day` itself count as before the wash. The garment
  * page's Washed, the laundry page's batch and the seed's Sundays.
  */
 export async function markWashed(
@@ -368,7 +371,13 @@ export async function markWashed(
   const washed = await db
     .update(garment)
     .set({ lastWashedOn: day })
-    .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, ids)))
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        inArray(garment.id, ids),
+        ownedGarment(),
+      ),
+    )
     .returning({ id: garment.id });
   return washed.map((row) => row.id);
 }
@@ -376,7 +385,7 @@ export async function markWashed(
 /**
  * Puts the owner's garment away (lent, at the repair shop) with a note, or
  * back in the closet (null, which clears the note). False when it is not
- * the owner's.
+ * the owner's, or a wishlist item (nothing to lend yet).
  */
 export async function setAway(
   db: Queryable,
@@ -387,7 +396,13 @@ export async function setAway(
   const updated = await db
     .update(garment)
     .set({ away: away?.reason ?? null, awayNote: away?.note ?? null })
-    .where(and(eq(garment.id, garmentId), eq(garment.ownerId, ownerId)))
+    .where(
+      and(
+        eq(garment.id, garmentId),
+        eq(garment.ownerId, ownerId),
+        ownedGarment(),
+      ),
+    )
     .returning({ id: garment.id });
   return updated.length > 0;
 }

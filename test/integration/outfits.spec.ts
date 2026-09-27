@@ -848,10 +848,10 @@ describe('outfits', () => {
       });
       expect(archive.statusCode).toBeLessThan(300);
       const [archived] = await t.db
-        .select({ archived: garmentTable.archived })
+        .select({ status: garmentTable.status })
         .from(garmentTable)
         .where(eq(garmentTable.id, coat));
-      expect(archived.archived).toBe(true);
+      expect(archived.status).toBe('archived');
 
       // What the browser does: load the form, change the name, submit it.
       const form = await t.inject({
