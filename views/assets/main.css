@@ -69,6 +69,18 @@ html[data-connectivity='reconnecting'] [data-needs-network] {
   opacity: 0.4;
 }
 
+/* A page's own word on what offline means for it (the outfit gallery: its
+   cached ideas show, picking waits for a connection): hidden online.
+   revert-layer gives the element back its component's display (an alert's
+   grid) rather than naming one here. */
+[data-offline-note] {
+  display: none;
+}
+html[data-connectivity='offline'] [data-offline-note],
+html[data-connectivity='reconnecting'] [data-offline-note] {
+  display: revert-layer;
+}
+
 /* ── Calendar: outfit chip colors (outfit.id % 6) ─────────────────────── */
 .chip-0 { background-color: color-mix(in oklch, var(--color-primary)   20%, transparent); color: var(--color-primary);   }
 .chip-1 { background-color: color-mix(in oklch, var(--color-secondary) 20%, transparent); color: var(--color-secondary); }

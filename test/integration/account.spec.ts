@@ -280,7 +280,7 @@ describe('account', () => {
       expectFullPage(res);
       expect(res.body).toContain('Sign out of Closet on this device?');
       expect(res.body).toMatch(
-        /<form method="post" action="\/auth\/logout" hx-boost="false">/,
+        /<form method="post" action="\/auth\/logout" hx-boost="false" data-submit-once="">/,
       );
       expect(res.headers['set-cookie']).toBeUndefined();
       expect(res.headers['clear-site-data']).toBeUndefined();

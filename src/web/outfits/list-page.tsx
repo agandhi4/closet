@@ -6,6 +6,7 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import type { ViewContext } from '../view-context';
 import { EmptyState, GarmentThumb } from '../layout/parts';
+import { OutfitTabs } from './outfit-tabs';
 import type { OutfitSummary } from './queries';
 
 // After a successful POST /calendar from a card's dropdown: clear the form,
@@ -25,7 +26,7 @@ document.getElementById('outfit-cards').addEventListener('htmx:afterRequest', (e
   hideTimer = setTimeout(() => toast.classList.add('hidden'), 3000);
 });`;
 
-/** GET /outfits: every outfit as a card of its garments, newest first. */
+/** GET /outfits, the Saved tab: every outfit as a card of its garments, newest first. */
 export function OutfitsPage(props: {
   ctx: ViewContext;
   outfits: OutfitSummary[];
@@ -41,6 +42,7 @@ export function OutfitsPage(props: {
             + {t('BUILD_OUTFIT')}
           </a>
         </div>
+        <OutfitTabs active="saved" />
         {outfits.length > 0 ? (
           <>
             <div id="outfit-cards" class="flex flex-wrap gap-4 justify-center">

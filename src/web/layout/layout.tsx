@@ -124,6 +124,8 @@ export function Layout({
         {/* Heartbeat-driven online/offline state and the banner in
             AppStatus; runs everywhere, service worker or not. */}
         <script type="module" src={`/js/connectivity.js${v}`}></script>
+        {/* Every PostForm posts once per tap (double-submit guard). */}
+        <script type="module" src={`/js/submit-once.js${v}`}></script>
         {ctx.pwaEnabled && (
           // Service worker registration, update toast, Web Push, the install
           // dialog, iOS pull to refresh. In the head so hx-boost body swaps

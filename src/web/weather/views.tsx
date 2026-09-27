@@ -32,7 +32,7 @@ const ICONS: Readonly<Record<Condition, string>> = {
   thunderstorm: '⛈️',
 };
 
-const UNIT_SYMBOLS: Readonly<Record<TemperatureUnit, string>> = {
+export const UNIT_SYMBOLS: Readonly<Record<TemperatureUnit, string>> = {
   celsius: '°C',
   fahrenheit: '°F',
 };

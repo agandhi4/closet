@@ -1,3 +1,4 @@
+import { AlreadySavedToast } from '../gallery/already-saved';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -17,7 +18,12 @@ import { OccasionRow } from './occasion-row';
  * (#14; both loaded after the page, src/web/weather/views.tsx).
  * Responsive grid: 1 col, 2 cols from 400px, 4 at lg, all 8 in a row at 2xl.
  */
-export function CalendarPage(props: { ctx: ViewContext; view: CalendarView }) {
+export function CalendarPage(props: {
+  ctx: ViewContext;
+  view: CalendarView;
+  /** The gallery's pick found its outfit already saved (?alreadySaved=1). */
+  alreadySaved?: boolean;
+}) {
   const { ctx, view } = props;
   return (
     <Layout ctx={ctx} title={t('CALENDAR_PAGE_TITLE')}>
@@ -40,6 +46,7 @@ export function CalendarPage(props: { ctx: ViewContext; view: CalendarView }) {
           ))}
         </div>
       </main>
+      <AlreadySavedToast shown={props.alreadySaved === true} />
       <Dock ctx={ctx} />
     </Layout>
   );

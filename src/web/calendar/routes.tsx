@@ -90,6 +90,8 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         querystring: Type.Object({
           week: Type.Optional(Type.String()),
           calMonth: Type.Optional(Type.String()),
+          // The gallery's pick of an outfit already saved (a one-shot flag).
+          alreadySaved: Type.Optional(Type.String()),
         }),
       },
     },
@@ -113,7 +115,11 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       });
       return renderPage(
         reply,
-        <CalendarPage ctx={viewContext(reply)} view={view} />,
+        <CalendarPage
+          ctx={viewContext(reply)}
+          view={view}
+          alreadySaved={request.query.alreadySaved === '1'}
+        />,
       );
     },
   );

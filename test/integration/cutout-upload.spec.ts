@@ -126,7 +126,7 @@ describe('cutouts: upload, page and polling', () => {
     expect(html).not.toContain('hx-trigger');
     expect(html).toContain('The background could not be removed.');
     expect(html).toContain(
-      `<form method="post" action="/wardrobe/${id}/cutout/retry" hx-boost="false">`,
+      `<form method="post" action="/wardrobe/${id}/cutout/retry" hx-boost="false" data-submit-once="">`,
     );
     // The original shows, and the user may still clear it by hand.
     expect(html).toContain('id="editMaskBtn"');

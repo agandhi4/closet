@@ -33,6 +33,7 @@ import {
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
+import { avoidedWith } from '../gallery/queries';
 import { countNeedingWash, wearSummary } from '../wears/queries';
 import { normalizeCategory, normalizeSize, splitColors } from './garment';
 import { GarmentCondition } from './garment-condition';
@@ -662,18 +663,24 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // says what it replaces; a closet garment lists the wishlist items
       // that would replace it.
       const owned = garment.status !== 'wishlist';
-      const [capsules, wear, replaces, replacedBy] = await Promise.all([
-        owned ? capsulesOfGarment(db, access.ownerId, id) : [],
-        // Wears and washes are the owner's own records: never read for a
-        // grantee (the section is not rendered either).
-        owned && access.isOwner ? wearSummary(db, id, today) : undefined,
-        garment.replacesGarmentId === null
-          ? undefined
-          : garmentRef(db, garment.replacesGarmentId, access.ownerId),
-        garment.status === 'closet'
-          ? replacementsOf(db, id, access.ownerId)
-          : [],
-      ]);
+      // The gallery's side (Style this, never paired with) is the owner's,
+      // like outfits: never read for a grantee.
+      const styles = owned && access.isOwner;
+      const [capsules, wear, replaces, replacedBy, avoided] = await Promise.all(
+        [
+          owned ? capsulesOfGarment(db, access.ownerId, id) : [],
+          // Wears and washes are the owner's own records: never read for a
+          // grantee (the section is not rendered either).
+          owned && access.isOwner ? wearSummary(db, id, today) : undefined,
+          garment.replacesGarmentId === null
+            ? undefined
+            : garmentRef(db, garment.replacesGarmentId, access.ownerId),
+          garment.status === 'closet'
+            ? replacementsOf(db, id, access.ownerId)
+            : [],
+          styles ? avoidedWith(db, access.ownerId, id) : [],
+        ],
+      );
       return renderPage(
         reply,
         <GarmentPage
@@ -685,6 +692,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             wear: wear && { summary: wear, today },
             replaces,
             replacedBy,
+            styling: {
+              canStyle: styles && garment.status === 'closet',
+              avoided,
+            },
             canEdit: access.canManage,
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',

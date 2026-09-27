@@ -127,6 +127,13 @@
       "when": 1790472946199,
       "tag": "0017_plan_item_candidate",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790475624669,
+      "tag": "0018_generator_avoid",
+      "breakpoints": true
     }
   ]
 }

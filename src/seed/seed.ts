@@ -30,6 +30,7 @@ import {
 import type { Photos } from '../web/files/photos';
 import { insertPhotoRow, type NewPhotoRow } from '../web/files/queries';
 import { t } from '../web/i18n';
+import { avoidPair } from '../web/gallery/queries';
 import { createOutfit } from '../web/outfits/queries';
 import {
   createPlan,
@@ -89,6 +90,8 @@ export interface SeedReport {
   capsules: number;
   /** Wardrobe plans (#34), with the style profile when the bible has one. */
   plans: number;
+  /** generator_avoid pairs (the bible's Clashes). */
+  avoided: number;
   entries: number;
   worn: number;
   /** garment_wear rows the worn entries wrote. */
@@ -165,6 +168,7 @@ export async function seedPersona(
         });
       }
       await writePlans(tx, userId, persona, wishlistIds);
+      await writeClashes(tx, userId, persona, ids);
       const wears = await writeHistory(tx, life, {
         userId,
         outfitIds,
@@ -180,6 +184,7 @@ export async function seedPersona(
         outfits: outfitIds.length,
         capsules: persona.capsules.length,
         plans: persona.plans.length,
+        avoided: persona.avoid.length,
         entries: life.entries.length,
         worn: life.entries.filter((e) => e.worn).length,
         wears,
@@ -188,7 +193,7 @@ export async function seedPersona(
       };
     });
     logger.info(
-      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears), ${report.washes} laundry days in ${report.ms}ms`,
+      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.avoided} clashes, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears), ${report.washes} laundry days in ${report.ms}ms`,
     );
     return report;
   } catch (error) {
@@ -301,6 +306,22 @@ async function writeGarments(
     wishlist.set(item.id, id);
   }
   return { owned: ids, wishlist };
+}
+
+/**
+ * The Clashes table as the gallery's "Not this" writes it (avoidPair); the
+ * bible checked both garments are owned and never in one saved outfit.
+ */
+async function writeClashes(
+  tx: Queryable,
+  userId: number,
+  persona: Persona,
+  ids: Map<string, number>,
+): Promise<void> {
+  for (const [a, b] of persona.avoid) {
+    const outcome = await avoidPair(tx, userId, ids.get(a)!, ids.get(b)!);
+    if (outcome !== 'added') throw new Error(`Clash ${a} + ${b}: ${outcome}`);
+  }
 }
 
 /** An archived garment of the bible, archived as the garment page does. */

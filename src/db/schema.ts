@@ -971,6 +971,59 @@ export const planItemCandidate = pgTable(
   ],
 );
 
+// Two garments the owner said clash ("Say why not", the outfit gallery #9):
+// the generator never combines them again (src/wardrobe/generator.ts). The
+// owner's own record, like wears: a pair of their own garments (owned now
+// or once), stored once with the smaller id first. Written only by
+// avoidPair and allowPair (src/web/gallery/queries.ts); deleting either
+// garment or the owner deletes the row.
+export const generatorAvoid = pgTable(
+  'generator_avoid',
+  {
+    ownerId: integer('owner_id').notNull(),
+    garmentAId: integer('garment_a_id').notNull(),
+    garmentBId: integer('garment_b_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // Leads with owner_id: the generator reads an owner's pairs, and it is
+    // the owner_id foreign key's index.
+    primaryKey({
+      name: 'generator_avoid_pkey',
+      columns: [table.ownerId, table.garmentAId, table.garmentBId],
+    }),
+    check(
+      'generator_avoid_pair_order_check',
+      sql`${table.garmentAId} < ${table.garmentBId}`,
+    ),
+    index('generator_avoid_garment_a_id_index').on(table.garmentAId),
+    index('generator_avoid_garment_b_id_index').on(table.garmentBId),
+    foreignKey({
+      name: 'generator_avoid_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'generator_avoid_garment_a_id_foreign',
+      columns: [table.garmentAId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'generator_avoid_garment_b_id_foreign',
+      columns: [table.garmentBId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
 /** What a wardrobe share lets the grantee do: read, or read and write. */
 export type SharePermission = 'VIEW' | 'MANAGE';
 

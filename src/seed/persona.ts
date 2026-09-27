@@ -215,6 +215,8 @@ export interface Persona {
   /** The Style profile and Rhythm tables (#34); null without them. */
   styleProfile: StyleProfileFields | null;
   plans: SeedPlan[];
+  /** The Clashes table: garment id pairs the outfit generator never combines (#9). */
+  avoid: [string, string][];
   /** Sunday first; null without a history. */
   week: SeedDay[] | null;
   events: SeedEvent[];
@@ -299,11 +301,48 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
       ),
       new Set(wishlist.map((item) => item.id)),
     ),
+    avoid: readClashes(source, find('Garment', 'Never with'), ids, outfits),
     week: week ? readWeek(source, week, names) : null,
     events: find('From', 'To', 'Wears').flatMap((table) =>
       table.rows.map((row) => readEvent(source, row, names)),
     ),
   };
+}
+
+/**
+ * The Clashes tables: pairs of two owned garments the generator never puts
+ * together. A pair inside a saved outfit contradicts the story (he wears
+ * them together), so it is refused.
+ */
+function readClashes(
+  source: string,
+  tables: BibleTable[],
+  garmentIds: Set<string>,
+  outfits: SeedOutfit[],
+): [string, string][] {
+  return tables.flatMap((table) =>
+    table.rows.map((row): [string, string] => {
+      const a = plain(row.Garment);
+      const b = plain(row['Never with']);
+      if (!garmentIds.has(a) || !garmentIds.has(b) || a === b) {
+        throw new BibleError(
+          source,
+          `Clashes: "${a}" and "${b}" are not two owned garments`,
+        );
+      }
+      if (
+        outfits.some(
+          (o) => o.garmentIds.includes(a) && o.garmentIds.includes(b),
+        )
+      ) {
+        throw new BibleError(
+          source,
+          `Clashes: ${a} and ${b} are together in a saved outfit`,
+        );
+      }
+      return [a, b];
+    }),
+  );
 }
 
 /** The heading of the bible's wishlist table (a garment table otherwise). */

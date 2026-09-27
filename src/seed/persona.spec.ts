@@ -182,6 +182,15 @@ describe('persona bibles', () => {
     });
   });
 
+  it("reads Theo's clashes, the generator's avoided pairs (#9); Dana and Riley have none", () => {
+    expect(loadPersona('demo').avoid).toEqual([
+      ['B06', 'O11'],
+      ['T15', 'O01'],
+    ]);
+    expect(loadPersona('sparse').avoid).toEqual([]);
+    expect(loadPersona('fresh').avoid).toEqual([]);
+  });
+
   it("reads Theo's wishlist: three items, the merino replacing the pilling one", () => {
     const demo = loadPersona('demo');
     expect(
@@ -373,6 +382,16 @@ describe('persona bibles', () => {
       'a rhythm for an occasion the calendar does not have',
       `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Rhythm\n\n| Occasion | Times | Per |\n|---|---|---|\n| brunch | 2 | week |\n`,
       /"brunch" is not an occasion/,
+    ],
+    [
+      'a clash naming a garment that is not there',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Clashes\n\n| Garment | Never with | Why |\n|---|---|---|\n| F01 | F02 | — |\n`,
+      /Clashes: "F01" and "F02" are not two owned garments/,
+    ],
+    [
+      'a clash inside a saved outfit',
+      `${bible('| F01 | Shoes | sneakers | white | — |\n| F02 | Boots | boots | brown | — |')}\n## Saved outfits\n\n| # | Name | Occasion | Bands | Garments |\n|---|---|---|---|---|\n| 1 | Look | weekend | any | F01, F02 |\n\n## Clashes\n\n| Garment | Never with | Why |\n|---|---|---|\n| F02 | F01 | — |\n`,
+      /Clashes: F02 and F01 are together in a saved outfit/,
     ],
   ])('refuses %s', (_, markdown, message) => {
     expect(() => parsePersona('fresh', markdown)).toThrow(BibleError);

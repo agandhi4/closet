@@ -68,6 +68,11 @@ describe('migrations', () => {
         'garment_wear_outfit_calendar_id_garment_id_unique',
         'garment_wear_garment_id_day_single_unique',
         'garment_wear_owner_id_index',
+        // The generator reads an owner's avoided pairs (also the owner_id
+        // foreign key's); each garment's foreign key has its own.
+        'generator_avoid_pkey',
+        'generator_avoid_garment_a_id_index',
+        'generator_avoid_garment_b_id_index',
         // Every MCP call looks its bearer token up by its hash; the profile
         // lists a user's tokens (also the user_id foreign key's).
         'personal_access_token_token_hash_unique',

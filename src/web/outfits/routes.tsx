@@ -74,6 +74,12 @@ const NewQuery = Type.Object({
   capsule: Type.Optional(RowId),
 });
 
+// The gallery's pick lands here with `alreadySaved=1` when the outfit
+// existed (a one-shot flag: anything else is no toast).
+const FlagQuery = Type.Object({
+  alreadySaved: Type.Optional(Type.String()),
+});
+
 const RowQuery = Type.Object({
   category: Category,
   index: Type.Optional(Type.Integer()),
@@ -250,7 +256,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   app.get(
     '/outfits/:id',
-    { schema: { params: OutfitParams } },
+    { schema: { params: OutfitParams, querystring: FlagQuery } },
     async (request, reply) => {
       const outfit = await findOutfit(
         db,
@@ -260,7 +266,11 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (!outfit) throw outfitNotFound();
       return renderPage(
         reply,
-        <OutfitPage ctx={viewContext(reply)} outfit={outfit} />,
+        <OutfitPage
+          ctx={viewContext(reply)}
+          outfit={outfit}
+          alreadySaved={request.query.alreadySaved === '1'}
+        />,
       );
     },
   );

@@ -125,3 +125,21 @@ export async function deleteUserAndFileRows(
     return [...files, ...pending].map((row) => row.fileName);
   });
 }
+
+/**
+ * Serializes one owner's writes that must see each other for the rest of
+ * the transaction: which plan is active (src/web/plans), whether an outfit
+ * with a pick's garments already exists (pickIdea, src/web/gallery). The
+ * lock is on the owner's user row, because what is being decided may have
+ * no row of its own to lock yet (a user's first plan, the outfit a double
+ * tap would save twice). NO KEY UPDATE leaves the row's key alone, so it
+ * never blocks another table's foreign key check against the user (a
+ * garment insert, a wear), only another such write of the same owner.
+ */
+export async function lockOwner(tx: Queryable, ownerId: number): Promise<void> {
+  await tx
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.id, ownerId))
+    .for('no key update');
+}

@@ -204,6 +204,35 @@ test('demo: Theo, his plan and style profile', async ({ page }) => {
   await shot(page, '44-demo-compare-one-plan', '/wardrobe/plans/compare');
 });
 
+test('demo: Theo, the outfit gallery', async ({ page }) => {
+  await signInAs(page, 'demo');
+  // A fixed seed, so the run's cards are the same ideas whatever the day's
+  // seed would be (the weather still follows the test server's today).
+  await page.goto('/outfits/ideas?seed=1');
+  await expect(page.locator('article[data-idea]').first()).toBeVisible();
+  await shot(page, '46-demo-ideas');
+  // From the planned week's "+ Plan": Tuesday evening.
+  await page.goto('/calendar/plan?for=day:2026-09-29&occasion=evening');
+  await page.getByRole('link', { name: 'Choose from ideas' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Plan for Tuesday' }).first(),
+  ).toBeVisible();
+  await shot(page, '47-demo-ideas-for-day');
+  // "Style this" on the olive chinos: every idea holds them, never with the
+  // olive chore coat (his Clashes), whose page lists the pair.
+  await page.goto('/wardrobe?keyword=Olive%20chinos');
+  await page
+    .locator('#wardrobe-grid')
+    .getByRole('heading', { name: 'Olive chinos', exact: true })
+    .click();
+  await expect(page.locator('#garment-avoided')).toContainText(
+    'Olive chore coat',
+  );
+  await page.getByRole('link', { name: 'Style this' }).click();
+  await expect(page.getByText('With Olive chinos')).toBeVisible();
+  await shot(page, '48-demo-style-this');
+});
+
 test('sparse: Dana, untagged and degraded', async ({ page }) => {
   await signInAs(page, 'sparse');
   await shot(page, '12-sparse-wardrobe', '/wardrobe');
@@ -221,6 +250,7 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '34-fresh-wishlist', '/wardrobe/wishlist');
   await shot(page, '41-fresh-plans', '/wardrobe/plans');
   await shot(page, '45-fresh-shopping-list', '/wardrobe/shopping');
+  await shot(page, '49-fresh-ideas', '/outfits/ideas');
   await shot(
     page,
     '27-fresh-calendar-plan',

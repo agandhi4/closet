@@ -6,6 +6,7 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { imageUrl } from '../files/image-url';
 import { BackLink, HangerIcon } from '../layout/parts';
+import { ideasUrl } from '../gallery/urls';
 import { destinationQuery } from '../outfits/destination';
 import type { OutfitSummary } from '../outfits/queries';
 import type { ViewContext } from '../view-context';
@@ -24,19 +25,24 @@ export interface PlanModel {
 /**
  * GET /calendar/plan?for=day:D&occasion=O: plan one more outfit on a day.
  * The occasion first (links, so the choice is the URL's and every way on
- * carries it), then the two ways to an outfit that exist today: build a new
- * one (the builder with the same `?for=`) or pick a saved one (POST
- * /calendar). The redesign's "+ Plan" sheet (R6) is this page's content
- * with Ideas (#9) added; its occasion rows link here with their occasion.
+ * carries it), then the three ways to an outfit: choose a generated idea
+ * (the gallery's Ideas with the same `?for=`, #9), build a new one (the
+ * builder with the same `?for=`) or pick a saved one (POST /calendar). The
+ * redesign's "+ Plan" sheet (R6) is this page's content; its occasion rows
+ * link here with their occasion.
  */
 export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
   const { ctx, model } = props;
   const week = `/calendar?week=${model.day}`;
-  const build = `/outfits/new?${destinationQuery({
+  const destination = destinationQuery({
     kind: 'day',
     day: model.day,
     occasion: model.occasion,
-  })}&returnTo=/calendar`;
+  });
+  const build = `/outfits/new?${destination}&returnTo=/calendar`;
+  const ideas = ideasUrl({
+    destination: { kind: 'day', day: model.day, occasion: model.occasion },
+  });
   return (
     <Layout ctx={ctx} title={t('CALENDAR_PLAN_TITLE')}>
       <Navbar ctx={ctx} />
@@ -71,9 +77,14 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
           </ul>
         </nav>
 
-        <a href={build} class="btn btn-primary w-full">
-          + {t('CALENDAR_PLAN_BUILD')}
-        </a>
+        <div class="flex flex-col gap-2">
+          <a href={ideas} class="btn btn-primary w-full" data-plan-ideas="">
+            {t('gallery.PLAN_IDEAS')}
+          </a>
+          <a href={build} class="btn btn-outline w-full">
+            + {t('CALENDAR_PLAN_BUILD')}
+          </a>
+        </div>
 
         <section>
           <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">

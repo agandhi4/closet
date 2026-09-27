@@ -182,7 +182,7 @@ shopping list shows the merino gap with W01 ($49.90, within its $50) and the jac
 Every garment names a real product on sale on 2026-09-26 (researched and checked that day: `verified`
 = the brand's page was fetched; `search` = found in search results, the site blocks bots). Values are
 the app's own sets: categories and types from `src/wardrobe/properties.ts`, colours from
-`GARMENT_COLORS` (`src/web/wardrobe/garment.ts`), warmth 1-5, formality 1-4, materials, pattern, fit,
+`GARMENT_COLORS` (`src/wardrobe/properties.ts`), warmth 1-5, formality 1-4, materials, pattern, fit,
 sleeve and length from `properties.ts`. Warmth follows the type preset and weight steps unless marked
 `*` (set by hand, as the form allows; the marks differ from the preset on purpose, so "your value is
 kept when the type changes" has real examples). Weight is what Theo typed, in oz. `WR` =
@@ -427,6 +427,18 @@ them. Written by the garment page's "Where it is" (`setAway`). Neither is in an 
 | G04 | lent | Dana has it for her October wedding weekend |
 | F07 | repair | Sent back to L.L.Bean for a resole before winter |
 
+## Clashes
+
+Pairs Theo told the outfit gallery never to put together (#9: "Not this", then the two that clash),
+stored through `avoidPair` as `generator_avoid` rows, so the generator never draws them in one idea
+again; each garment's page lists its pair with "Allow again". Neither pair is in a saved outfit (the
+seed refuses one that is).
+
+| Garment | Never with | Why |
+|---|---|---|
+| B06 | O11 | Olive chinos under the olive chore coat: one olive too many |
+| T15 | O01 | The western denim shirt under the denim jacket: a Canadian tuxedo |
+
 ## Simulation (how the history is generated)
 
 The seed does not store a hand-written calendar: it **simulates** Theo's days (`src/seed/simulate.ts`)
@@ -495,8 +507,9 @@ rules reach for the merino office outfit, the leather jacket and the hoodie.
 **What later features add** (plan section 10): wears and washes (#7, done: quantities 3 and 6, the
 worn entries as wears, laundry Sundays as washes, the Condition and Away tables), occasions on each entry (#13, done: work days, evenings and nights out, the morning workouts), weather (#14, done: his
 Fort Greene home in °F, the simulated days served as forecasts in the tests), the conference as a trip
-with a packing list (#10; the Travel capsule is its pool), a generator-avoid pair olive chinos + olive
-chore coat (#21), and the Next buys as wishlist items (#18, done: the Wishlist table, W01 replacing T21). The outfit gallery (#9) swipes from the
-capsules. Wardrobe plans (#34a, done: the style profile, the rhythm and "NYC minimal" above, whose
-gaps are the replace-soon merino and the padded jacket); the shopping list (#34b, done: the plan
-table's Candidates) pairs those gaps with W01 and W02.
+with a packing list (#10; the Travel capsule is its pool), the gallery's clashes (#9, done: the Clashes
+table, olive chinos + olive chore coat and the double denim), and the Next buys as wishlist items (#18,
+done: the Wishlist table, W01 replacing T21). The outfit gallery (#9, done) draws its ideas from the
+closet or a capsule, rotating what the simulation left unworn. Wardrobe plans (#34a, done: the style
+profile, the rhythm and "NYC minimal" above, whose gaps are the replace-soon merino and the padded
+jacket); the shopping list (#34b, done: the plan table's Candidates) pairs those gaps with W01 and W02.

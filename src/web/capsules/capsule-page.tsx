@@ -1,3 +1,4 @@
+import { ideasUrl } from '../gallery/urls';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -137,9 +138,19 @@ function CapsuleActions({ model }: { model: CapsulePageModel }) {
           {t('BUILD_OUTFIT_FROM_CAPSULE')}
         </a>
       )}
-      {/* The outfit gallery (#9) adds "Swipe outfits" here, into
-          /gallery?capsule=<id>; its pool filters through inCapsule
-          (src/web/capsules/queries.ts). */}
+      {/* The gallery's Ideas drawn from this capsule alone (#9; its pool
+          filters through inCapsule). The owner's: outfits are private. */}
+      {model.isOwner && model.count > 0 && (
+        <a
+          href={ideasUrl({
+            destination: { kind: 'none' },
+            capsuleId: capsule.id,
+          })}
+          class="btn btn-outline btn-sm"
+        >
+          {t('gallery.SWIPE_OUTFITS')}
+        </a>
+      )}
     </div>
   );
 }

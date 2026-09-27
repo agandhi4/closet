@@ -119,6 +119,9 @@ export function ErrorAlert({ message }: { message: string }) {
  * goes through this. test/integration/pages.ts fails any page with a native
  * post that is still boosted. `confirm` asks before submitting; the text
  * travels as a data attribute, so nothing is spliced into the handler.
+ * Every PostForm submits once (`data-submit-once`, public/js/submit-once.js):
+ * its buttons are disabled after the first submit, until the page returns
+ * from the back/forward cache.
  */
 export function PostForm(props: {
   action: string;
@@ -139,6 +142,8 @@ export function PostForm(props: {
       hx-boost="false"
       data-confirm={props.confirm}
       data-needs-network={props.needsNetwork ? '' : undefined}
+      // One post per tap: public/js/submit-once.js (the layout loads it).
+      data-submit-once=""
       onsubmit={
         props.confirm ? 'return confirm(this.dataset.confirm)' : undefined
       }

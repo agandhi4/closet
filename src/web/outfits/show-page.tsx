@@ -1,3 +1,4 @@
+import { AlreadySavedToast } from '../gallery/already-saved';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -11,6 +12,8 @@ import type { OutfitSummary } from './queries';
 export function OutfitPage(props: {
   ctx: ViewContext;
   outfit: OutfitSummary & { shareableId: string };
+  /** The gallery's pick found this outfit already saved (?alreadySaved=1). */
+  alreadySaved?: boolean;
 }) {
   const { ctx, outfit } = props;
   const name = outfit.name || t('UNTITLED_OUTFIT');
@@ -96,6 +99,7 @@ export function OutfitPage(props: {
           </button>
         </div>
       </main>
+      <AlreadySavedToast shown={props.alreadySaved === true} />
       <Dock ctx={ctx} />
     </Layout>
   );

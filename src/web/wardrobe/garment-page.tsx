@@ -3,6 +3,9 @@ import { PostForm } from '../auth/form';
 import { GarmentCapsules } from '../capsules/garment-capsules';
 import type { GarmentCapsule } from '../capsules/queries';
 import { imageUrl } from '../files/image-url';
+import { AvoidedPartners } from '../gallery/avoided';
+import type { AvoidedPartner } from '../gallery/queries';
+import { ideasUrl } from '../gallery/urls';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -35,6 +38,12 @@ export interface GarmentPageModel {
   replaces: GarmentRef | undefined;
   /** Wishlist items that would replace this closet garment. */
   replacedBy: { id: number; name: string | null; category: string }[];
+  /**
+   * The outfit gallery's side of the garment (#9), the owner's alone like
+   * outfits: "Style this" for a closet garment, and the garments it is
+   * never paired with. Nothing for a grantee or a wishlist item.
+   */
+  styling: { canStyle: boolean; avoided: AvoidedPartner[] };
   /** Edit, photo, mask, condition and "Bought it": the owner and a MANAGE grantee. */
   canEdit: boolean;
   /** Archive, restore and delete: the owner only. */
@@ -121,6 +130,10 @@ export function GarmentPage(props: {
               capsules={model.capsules}
               viewOwner={model.viewOwner}
               canEdit={model.canEdit}
+            />
+            <AvoidedPartners
+              garmentId={garment.id}
+              partners={model.styling.avoided}
             />
           </>
         )}
@@ -486,6 +499,7 @@ function GarmentActions({
   return (
     <>
       <div class="flex flex-col gap-2 mb-6">
+        <StyleThis garmentId={garment.id} shown={model.styling.canStyle} />
         {model.canEdit && garment.status === 'wishlist' && (
           <a
             href={garmentUrl(garment.id, viewOwner, '/bought')}
@@ -553,6 +567,25 @@ function GarmentActions({
         </div>
       )}
     </>
+  );
+}
+
+/** The gallery's ideas that all hold this garment (`?with=`). */
+function StyleThis({
+  garmentId,
+  shown,
+}: {
+  garmentId: number;
+  shown: boolean;
+}) {
+  if (!shown) return null;
+  return (
+    <a
+      href={ideasUrl({ destination: { kind: 'none' }, withId: garmentId })}
+      class="btn btn-primary btn-sm"
+    >
+      {t('gallery.STYLE_THIS')}
+    </a>
   );
 }
 

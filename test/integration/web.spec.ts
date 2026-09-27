@@ -124,7 +124,7 @@ describe('web layer', () => {
       expect(res.body).not.toContain('href="/auth/logout"');
       expect(
         res.body.match(
-          /<form id="logout-form" method="post" action="\/auth\/logout" class="hidden" hx-boost="false">/g,
+          /<form id="logout-form" method="post" action="\/auth\/logout" class="hidden" hx-boost="false" data-submit-once="">/g,
         ),
       ).toHaveLength(1);
       expect(

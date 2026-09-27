@@ -7,7 +7,6 @@ import {
   planItem,
   styleProfile,
   styleRhythm,
-  user,
   wardrobePlan,
 } from '../../db/schema';
 import { compareOccasions } from '../../wardrobe/occasions';
@@ -20,6 +19,7 @@ import {
   type Warmth,
 } from '../../wardrobe/properties';
 import { isUniqueViolation } from '../../db/errors';
+import { lockOwner } from '../auth/queries';
 import type { ImageRef } from '../files/image-url';
 import { splitColors } from '../wardrobe/garment';
 import { inCloset } from '../wardrobe/status';
@@ -265,27 +265,9 @@ export async function closetCategories(
 // ---- Plan writes ------------------------------------------------------------
 
 /**
- * Serializes the writes that decide which of `ownerId`'s plans is active
- * (createPlan, setActivePlan) for the rest of the transaction. The lock is
- * on the owner's user row, not the plans: a user's first two plans, made at
- * once (a double tap, two tabs), have no plan row to lock yet, and each would
- * find no active plan and take the one-active index. NO KEY UPDATE leaves
- * the row's key alone, so it never blocks another table's foreign key
- * check against the user (a garment insert, a wear), only another plan
- * write of the same owner.
- */
-async function lockOwnerPlans(tx: Queryable, ownerId: number): Promise<void> {
-  await tx
-    .select({ id: user.id })
-    .from(user)
-    .where(eq(user.id, ownerId))
-    .for('no key update');
-}
-
-/**
  * A new plan of `ownerId`'s, with `items`; active when the owner has no
  * active plan yet (their first, or after deleting the active one), so the
- * gap view always has one to show once any exists; lockOwnerPlans makes
+ * gap view always has one to show once any exists; lockOwner makes
  * that check and the activation one step. 'name-taken' only for the name
  * index (another of their plans has the name in any case); any other
  * violation is a bug and rethrown. A savepoint, so a caller's transaction
@@ -299,7 +281,7 @@ export async function createPlan(
 ): Promise<number | NameTaken> {
   try {
     return await db.transaction(async (tx) => {
-      await lockOwnerPlans(tx, ownerId);
+      await lockOwner(tx, ownerId);
       const [row] = await tx
         .insert(wardrobePlan)
         .values({ ownerId, ...fields })
@@ -357,7 +339,7 @@ export async function deletePlan(
 
 /**
  * Makes plan `id` the owner's active one, and no other: under
- * lockOwnerPlans (so two switches, or a switch and a first plan, queue
+ * lockOwner (so two switches, or a switch and a first plan, queue
  * instead of racing into the one-active index), the old one cleared before
  * the new one is set. False when not the owner's.
  */
@@ -367,7 +349,7 @@ export function setActivePlan(
   ownerId: number,
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
-    await lockOwnerPlans(tx, ownerId);
+    await lockOwner(tx, ownerId);
     if (!(await findPlan(tx, id, ownerId))) return false;
     await tx
       .update(wardrobePlan)

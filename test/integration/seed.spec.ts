@@ -10,6 +10,7 @@ import {
   file,
   garment,
   garmentWear,
+  generatorAvoid,
   outfit,
   outfitCalendar,
   outfitSlot,
@@ -142,6 +143,10 @@ describe('seed personas', () => {
         items: { orderBy: asc(planItem.id), with: { candidates: true } },
       },
     });
+    const avoided = await t.db
+      .select({ a: generatorAvoid.garmentAId, b: generatorAvoid.garmentBId })
+      .from(generatorAvoid)
+      .where(eq(generatorAvoid.ownerId, id));
     const shares = await t.db
       .select({
         grantee: wardrobeShare.granteeId,
@@ -201,6 +206,10 @@ describe('seed personas', () => {
           };
         }),
       })),
+      // By name, each pair and the list sorted: ids differ between runs.
+      avoided: avoided
+        .map(({ a, b }) => [ids.get(a), ids.get(b)].sort())
+        .sort(),
       shares: shares.length,
     };
   };
@@ -259,6 +268,11 @@ describe('seed personas', () => {
         o.slots.some(([, name]) => wishlisted.has(name as string)),
       ),
     ).toBe(false);
+    // His Clashes (#9): the gallery never pairs them.
+    expect(demo.avoided).toEqual([
+      ['Denim jacket', 'Western denim shirt'],
+      ['Olive chinos', 'Olive chore coat'],
+    ]);
     // The art is its own cutout: nothing waits in the background-removal queue.
     expect(new Set(demo.garments.map((g) => g.cutout))).toEqual(
       new Set(['ready']),
@@ -603,6 +617,7 @@ describe('seed personas', () => {
     expect(await t.db.$count(planItem)).toBe(0);
     expect(await t.db.$count(styleProfile)).toBe(0);
     expect(await t.db.$count(styleRhythm)).toBe(0);
+    expect(await t.db.$count(generatorAvoid)).toBe(0);
     const report = await reconcileStorage(
       { db: t.db, photos: t.photos, logger: t.logger },
       { dryRun: true, olderThanMs: 0 },

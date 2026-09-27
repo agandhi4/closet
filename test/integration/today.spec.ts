@@ -276,5 +276,35 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       ).toEqual({ washed: [single], day: today });
       expect(await lastWashedOn(single)).toBe(today);
     });
+
+    it('the gallery dresses for today, and counts a garment worn today as rested 0 days', async () => {
+      const [, , boots] = await Promise.all(
+        (['tops', 'bottoms', 'footwear'] as const).map((category) =>
+          createGarment(t, {
+            name: `Gallery ${category} ${at}`,
+            category,
+            cookie,
+          }),
+        ),
+      );
+      // Boots never need a wash: worn today, still drawn.
+      expect(
+        (await post(`/wardrobe/${boots}/wear`, { worn: '1' })).statusCode,
+      ).toBe(303);
+      const token = await createAccessToken(t, {
+        cookie,
+        name: `Gallery ${at}`,
+      });
+      const ideas = await tool<{
+        day: IsoDate;
+        ideas: { garments: { id: number; daysUnworn: number | null }[] }[];
+      }>(t, token, 'suggest_outfits', { withGarmentId: boots, limit: 12 });
+      expect(ideas.day).toBe(today);
+      const worn = ideas.ideas
+        .flatMap((idea) => idea.garments)
+        .find((g) => g.id === boots);
+      expect(worn?.daysUnworn).toBe(0);
+      expect((await get('/outfits/ideas')).statusCode).toBe(200);
+    });
   });
 });
