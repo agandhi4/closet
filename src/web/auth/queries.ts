@@ -125,14 +125,3 @@ export async function deleteUserAndFileRows(
     return [...files, ...pending].map((row) => row.fileName);
   });
 }
-
-/** Postgres unique_violation: a concurrent write took the value first. */
-export function isUniqueViolation(error: unknown): boolean {
-  let current: unknown = error;
-  // drizzle wraps the driver's error as `cause`.
-  while (current instanceof Error) {
-    if ((current as Error & { code?: unknown }).code === '23505') return true;
-    current = current.cause;
-  }
-  return false;
-}

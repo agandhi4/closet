@@ -1,0 +1,2232 @@
+{
+  "id": "c3902a57-f6f5-40e5-9b8c-2700e55f785b",
+  "prevId": "5ded80e1-152f-4675-9571-01e985afc9a9",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.capsule": {
+      "name": "capsule",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "capsule_owner_id_lower_name_unique": {
+          "name": "capsule_owner_id_lower_name_unique",
+          "columns": [
+            {
+              "expression": "\"owner_id\"",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "capsule_owner_id_foreign": {
+          "name": "capsule_owner_id_foreign",
+          "tableFrom": "capsule",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.capsule_garment": {
+      "name": "capsule_garment",
+      "schema": "",
+      "columns": {
+        "capsule_id": {
+          "name": "capsule_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "garment_id": {
+          "name": "garment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "capsule_garment_garment_id_index": {
+          "name": "capsule_garment_garment_id_index",
+          "columns": [
+            {
+              "expression": "garment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "capsule_garment_capsule_id_foreign": {
+          "name": "capsule_garment_capsule_id_foreign",
+          "tableFrom": "capsule_garment",
+          "tableTo": "capsule",
+          "columnsFrom": [
+            "capsule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "capsule_garment_garment_id_foreign": {
+          "name": "capsule_garment_garment_id_foreign",
+          "tableFrom": "capsule_garment",
+          "tableTo": "garment",
+          "columnsFrom": [
+            "garment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "capsule_garment_pkey": {
+          "name": "capsule_garment_pkey",
+          "columns": [
+            "capsule_id",
+            "garment_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.file": {
+      "name": "file",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "shareable_id": {
+          "name": "shareable_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "file_name": {
+          "name": "file_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_on": {
+          "name": "created_on",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_id": {
+          "name": "created_by_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "cutout_status": {
+          "name": "cutout_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'none'"
+        },
+        "cutout_attempts": {
+          "name": "cutout_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cutout_job_version": {
+          "name": "cutout_job_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cutout_requested_at": {
+          "name": "cutout_requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "file_created_by_id_index": {
+          "name": "file_created_by_id_index",
+          "columns": [
+            {
+              "expression": "created_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "file_shareable_id_unique": {
+          "name": "file_shareable_id_unique",
+          "columns": [
+            {
+              "expression": "shareable_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "file_created_by_id_foreign": {
+          "name": "file_created_by_id_foreign",
+          "tableFrom": "file",
+          "tableTo": "user",
+          "columnsFrom": [
+            "created_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "file_file_name_unique": {
+          "name": "file_file_name_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "file_name"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "file_cutout_status_check": {
+          "name": "file_cutout_status_check",
+          "value": "\"file\".\"cutout_status\" in ('none', 'pending', 'ready', 'failed', 'edited')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.garment": {
+      "name": "garment",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "shareable_id": {
+          "name": "shareable_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "brand": {
+          "name": "brand",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "size": {
+          "name": "size",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "photo_id": {
+          "name": "photo_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "acquired_on": {
+          "name": "acquired_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "washing_details": {
+          "name": "washing_details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'closet'"
+        },
+        "replaces_garment_id": {
+          "name": "replaces_garment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth": {
+          "name": "warmth",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "formality": {
+          "name": "formality",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "materials": {
+          "name": "materials",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pattern": {
+          "name": "pattern",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fit": {
+          "name": "fit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sleeve": {
+          "name": "sleeve",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "length": {
+          "name": "length",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fabric_weight": {
+          "name": "fabric_weight",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "water_resistant": {
+          "name": "water_resistant",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price": {
+          "name": "price",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "wash_after_wears": {
+          "name": "wash_after_wears",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_washed_on": {
+          "name": "last_washed_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "away": {
+          "name": "away",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "away_note": {
+          "name": "away_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "condition": {
+          "name": "condition",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'good'"
+        },
+        "condition_note": {
+          "name": "condition_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "garment_owner_id_status_id_index": {
+          "name": "garment_owner_id_status_id_index",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "garment_owner_id_category_id_index": {
+          "name": "garment_owner_id_category_id_index",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "category",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "garment_shareable_id_unique": {
+          "name": "garment_shareable_id_unique",
+          "columns": [
+            {
+              "expression": "shareable_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "garment_replaces_garment_id_index": {
+          "name": "garment_replaces_garment_id_index",
+          "columns": [
+            {
+              "expression": "replaces_garment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "garment_photo_id_foreign": {
+          "name": "garment_photo_id_foreign",
+          "tableFrom": "garment",
+          "tableTo": "file",
+          "columnsFrom": [
+            "photo_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "cascade"
+        },
+        "garment_owner_id_foreign": {
+          "name": "garment_owner_id_foreign",
+          "tableFrom": "garment",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "garment_replaces_garment_id_foreign": {
+          "name": "garment_replaces_garment_id_foreign",
+          "tableFrom": "garment",
+          "tableTo": "garment",
+          "columnsFrom": [
+            "replaces_garment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "garment_photo_id_unique": {
+          "name": "garment_photo_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "photo_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "garment_type_check": {
+          "name": "garment_type_check",
+          "value": "\"garment\".\"type\" in ('t-shirt', 'long-sleeve-tee', 'shirt', 'polo', 'blouse', 'tank', 'sweater', 'cardigan', 'hoodie', 'sweatshirt', 'turtleneck', 'jeans', 'chinos', 'trousers', 'joggers', 'sweatpants', 'shorts', 'skirt', 'leggings', 'day-dress', 'evening-dress', 'jumpsuit', 'jacket', 'denim-jacket', 'leather-jacket', 'blazer', 'coat', 'parka', 'puffer', 'trench', 'rain-jacket', 'vest', 'fleece', 'sneakers', 'running-shoes', 'boots', 'loafers', 'dress-shoes', 'sandals', 'slides', 'heels', 'hat', 'cap', 'beanie', 'scarf', 'gloves', 'belt', 'sunglasses', 'tie', 'jewelry', 'watch', 'backpack', 'tote', 'crossbody', 'handbag', 'duffel')"
+        },
+        "garment_warmth_check": {
+          "name": "garment_warmth_check",
+          "value": "\"garment\".\"warmth\" in (1, 2, 3, 4, 5)"
+        },
+        "garment_formality_check": {
+          "name": "garment_formality_check",
+          "value": "\"garment\".\"formality\" in (1, 2, 3, 4)"
+        },
+        "garment_materials_check": {
+          "name": "garment_materials_check",
+          "value": "\"garment\".\"materials\" <@ array['cotton', 'linen', 'wool', 'merino', 'cashmere', 'silk', 'denim', 'leather', 'suede', 'polyester', 'nylon', 'fleece', 'down', 'knit', 'synthetic', 'other']::text[] and cardinality(\"garment\".\"materials\") > 0"
+        },
+        "garment_pattern_check": {
+          "name": "garment_pattern_check",
+          "value": "\"garment\".\"pattern\" in ('solid', 'stripes', 'check', 'print', 'graphic', 'floral', 'other')"
+        },
+        "garment_fit_check": {
+          "name": "garment_fit_check",
+          "value": "\"garment\".\"fit\" in ('slim', 'regular', 'relaxed', 'oversized')"
+        },
+        "garment_sleeve_check": {
+          "name": "garment_sleeve_check",
+          "value": "\"garment\".\"sleeve\" in ('sleeveless', 'short', 'three-quarter', 'long')"
+        },
+        "garment_length_check": {
+          "name": "garment_length_check",
+          "value": "\"garment\".\"length\" in ('short', 'knee', 'midi', 'full')"
+        },
+        "garment_source_url_check": {
+          "name": "garment_source_url_check",
+          "value": "\"garment\".\"source_url\" ~* '^https?://'"
+        },
+        "garment_price_check": {
+          "name": "garment_price_check",
+          "value": "\"garment\".\"price\" >= 0"
+        },
+        "garment_quantity_check": {
+          "name": "garment_quantity_check",
+          "value": "\"garment\".\"quantity\" between 1 and 30"
+        },
+        "garment_wash_after_wears_check": {
+          "name": "garment_wash_after_wears_check",
+          "value": "\"garment\".\"wash_after_wears\" between 0 and 20"
+        },
+        "garment_away_check": {
+          "name": "garment_away_check",
+          "value": "\"garment\".\"away\" in ('lent', 'repair')"
+        },
+        "garment_away_note_check": {
+          "name": "garment_away_note_check",
+          "value": "\"garment\".\"away_note\" is null or \"garment\".\"away\" is not null"
+        },
+        "garment_condition_check": {
+          "name": "garment_condition_check",
+          "value": "\"garment\".\"condition\" in ('good', 'needs_repair', 'replace_soon')"
+        },
+        "garment_condition_note_check": {
+          "name": "garment_condition_note_check",
+          "value": "\"garment\".\"condition_note\" is null or \"garment\".\"condition\" <> 'good'"
+        },
+        "garment_fabric_weight_check": {
+          "name": "garment_fabric_weight_check",
+          "value": "\"garment\".\"fabric_weight\" between 20 and 1200"
+        },
+        "garment_status_check": {
+          "name": "garment_status_check",
+          "value": "\"garment\".\"status\" in ('wishlist', 'closet', 'archived')"
+        },
+        "garment_replaces_garment_id_check": {
+          "name": "garment_replaces_garment_id_check",
+          "value": "\"garment\".\"replaces_garment_id\" <> \"garment\".\"id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.garment_wear": {
+      "name": "garment_wear",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "garment_id": {
+          "name": "garment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outfit_calendar_id": {
+          "name": "outfit_calendar_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "garment_wear_garment_id_day_single_unique": {
+          "name": "garment_wear_garment_id_day_single_unique",
+          "columns": [
+            {
+              "expression": "garment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "day",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"garment_wear\".\"outfit_calendar_id\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "garment_wear_garment_id_day_index": {
+          "name": "garment_wear_garment_id_day_index",
+          "columns": [
+            {
+              "expression": "garment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "day",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "garment_wear_owner_id_index": {
+          "name": "garment_wear_owner_id_index",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "garment_wear_garment_id_foreign": {
+          "name": "garment_wear_garment_id_foreign",
+          "tableFrom": "garment_wear",
+          "tableTo": "garment",
+          "columnsFrom": [
+            "garment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "garment_wear_owner_id_foreign": {
+          "name": "garment_wear_owner_id_foreign",
+          "tableFrom": "garment_wear",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "garment_wear_outfit_calendar_id_foreign": {
+          "name": "garment_wear_outfit_calendar_id_foreign",
+          "tableFrom": "garment_wear",
+          "tableTo": "outfit_calendar",
+          "columnsFrom": [
+            "outfit_calendar_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "garment_wear_outfit_calendar_id_garment_id_unique": {
+          "name": "garment_wear_outfit_calendar_id_garment_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "outfit_calendar_id",
+            "garment_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.outfit": {
+      "name": "outfit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "shareable_id": {
+          "name": "shareable_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "outfit_owner_id_index": {
+          "name": "outfit_owner_id_index",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outfit_shareable_id_unique": {
+          "name": "outfit_shareable_id_unique",
+          "columns": [
+            {
+              "expression": "shareable_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "outfit_owner_id_foreign": {
+          "name": "outfit_owner_id_foreign",
+          "tableFrom": "outfit",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.outfit_calendar": {
+      "name": "outfit_calendar",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outfit_id": {
+          "name": "outfit_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "worn_at": {
+          "name": "worn_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occasion": {
+          "name": "occasion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'all-day'"
+        }
+      },
+      "indexes": {
+        "outfit_calendar_outfit_id_index": {
+          "name": "outfit_calendar_outfit_id_index",
+          "columns": [
+            {
+              "expression": "outfit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "outfit_calendar_outfit_id_foreign": {
+          "name": "outfit_calendar_outfit_id_foreign",
+          "tableFrom": "outfit_calendar",
+          "tableTo": "outfit",
+          "columnsFrom": [
+            "outfit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "outfit_calendar_owner_id_foreign": {
+          "name": "outfit_calendar_owner_id_foreign",
+          "tableFrom": "outfit_calendar",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "outfit_calendar_owner_id_day_outfit_id_unique": {
+          "name": "outfit_calendar_owner_id_day_outfit_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "day",
+            "outfit_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "outfit_calendar_occasion_check": {
+          "name": "outfit_calendar_occasion_check",
+          "value": "\"outfit_calendar\".\"occasion\" in ('all-day', 'workout', 'work', 'daytime', 'evening', 'night-out')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.outfit_slot": {
+      "name": "outfit_slot",
+      "schema": "",
+      "columns": {
+        "outfit_id": {
+          "name": "outfit_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "position": {
+          "name": "position",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "garment_id": {
+          "name": "garment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "outfit_slot_garment_id_index": {
+          "name": "outfit_slot_garment_id_index",
+          "columns": [
+            {
+              "expression": "garment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "outfit_slot_outfit_id_foreign": {
+          "name": "outfit_slot_outfit_id_foreign",
+          "tableFrom": "outfit_slot",
+          "tableTo": "outfit",
+          "columnsFrom": [
+            "outfit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "outfit_slot_garment_id_foreign": {
+          "name": "outfit_slot_garment_id_foreign",
+          "tableFrom": "outfit_slot",
+          "tableTo": "garment",
+          "columnsFrom": [
+            "garment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "outfit_slot_pkey": {
+          "name": "outfit_slot_pkey",
+          "columns": [
+            "outfit_id",
+            "position"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.pending_photo": {
+      "name": "pending_photo",
+      "schema": "",
+      "columns": {
+        "file_name": {
+          "name": "file_name",
+          "type": "varchar(255)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "pending_photo_user_id_created_at_index": {
+          "name": "pending_photo_user_id_created_at_index",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "pending_photo_user_id_foreign": {
+          "name": "pending_photo_user_id_foreign",
+          "tableFrom": "pending_photo",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.personal_access_token": {
+      "name": "personal_access_token",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_prefix": {
+          "name": "token_prefix",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "personal_access_token_user_id_index": {
+          "name": "personal_access_token_user_id_index",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "personal_access_token_user_id_foreign": {
+          "name": "personal_access_token_user_id_foreign",
+          "tableFrom": "personal_access_token",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "personal_access_token_token_hash_unique": {
+          "name": "personal_access_token_token_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token_hash"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.plan_item": {
+      "name": "plan_item",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "plan_id": {
+          "name": "plan_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "colors": {
+          "name": "colors",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "materials": {
+          "name": "materials",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_min": {
+          "name": "warmth_min",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "warmth_max": {
+          "name": "warmth_max",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "formality_min": {
+          "name": "formality_min",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "formality_max": {
+          "name": "formality_max",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "priority": {
+          "name": "priority",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'medium'"
+        },
+        "budget": {
+          "name": "budget",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proposed": {
+          "name": "proposed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "plan_item_plan_id_index": {
+          "name": "plan_item_plan_id_index",
+          "columns": [
+            {
+              "expression": "plan_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "plan_item_plan_id_foreign": {
+          "name": "plan_item_plan_id_foreign",
+          "tableFrom": "plan_item",
+          "tableTo": "wardrobe_plan",
+          "columnsFrom": [
+            "plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "plan_item_type_check": {
+          "name": "plan_item_type_check",
+          "value": "\"plan_item\".\"type\" in ('t-shirt', 'long-sleeve-tee', 'shirt', 'polo', 'blouse', 'tank', 'sweater', 'cardigan', 'hoodie', 'sweatshirt', 'turtleneck', 'jeans', 'chinos', 'trousers', 'joggers', 'sweatpants', 'shorts', 'skirt', 'leggings', 'day-dress', 'evening-dress', 'jumpsuit', 'jacket', 'denim-jacket', 'leather-jacket', 'blazer', 'coat', 'parka', 'puffer', 'trench', 'rain-jacket', 'vest', 'fleece', 'sneakers', 'running-shoes', 'boots', 'loafers', 'dress-shoes', 'sandals', 'slides', 'heels', 'hat', 'cap', 'beanie', 'scarf', 'gloves', 'belt', 'sunglasses', 'tie', 'jewelry', 'watch', 'backpack', 'tote', 'crossbody', 'handbag', 'duffel')"
+        },
+        "plan_item_colors_check": {
+          "name": "plan_item_colors_check",
+          "value": "\"plan_item\".\"colors\" <@ array['red', 'pink', 'orange', 'yellow', 'green', 'blue', 'purple', 'black', 'white', 'grey', 'beige', 'brown', 'gold', 'silver', 'pattern', 'other']::text[] and cardinality(\"plan_item\".\"colors\") > 0"
+        },
+        "plan_item_materials_check": {
+          "name": "plan_item_materials_check",
+          "value": "\"plan_item\".\"materials\" <@ array['cotton', 'linen', 'wool', 'merino', 'cashmere', 'silk', 'denim', 'leather', 'suede', 'polyester', 'nylon', 'fleece', 'down', 'knit', 'synthetic', 'other']::text[] and cardinality(\"plan_item\".\"materials\") > 0"
+        },
+        "plan_item_warmth_check": {
+          "name": "plan_item_warmth_check",
+          "value": "(\"plan_item\".\"warmth_min\" is null and \"plan_item\".\"warmth_max\" is null) or (\"plan_item\".\"warmth_min\" in (1, 2, 3, 4, 5) and \"plan_item\".\"warmth_max\" in (1, 2, 3, 4, 5) and \"plan_item\".\"warmth_min\" <= \"plan_item\".\"warmth_max\")"
+        },
+        "plan_item_formality_check": {
+          "name": "plan_item_formality_check",
+          "value": "(\"plan_item\".\"formality_min\" is null and \"plan_item\".\"formality_max\" is null) or (\"plan_item\".\"formality_min\" in (1, 2, 3, 4) and \"plan_item\".\"formality_max\" in (1, 2, 3, 4) and \"plan_item\".\"formality_min\" <= \"plan_item\".\"formality_max\")"
+        },
+        "plan_item_quantity_check": {
+          "name": "plan_item_quantity_check",
+          "value": "\"plan_item\".\"quantity\" between 1 and 30"
+        },
+        "plan_item_priority_check": {
+          "name": "plan_item_priority_check",
+          "value": "\"plan_item\".\"priority\" in ('high', 'medium', 'low')"
+        },
+        "plan_item_budget_check": {
+          "name": "plan_item_budget_check",
+          "value": "\"plan_item\".\"budget\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.style_profile": {
+      "name": "style_profile",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "styles": {
+          "name": "styles",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "budget": {
+          "name": "budget",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "palette": {
+          "name": "palette",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "style_profile_user_id_foreign": {
+          "name": "style_profile_user_id_foreign",
+          "tableFrom": "style_profile",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "style_profile_styles_check": {
+          "name": "style_profile_styles_check",
+          "value": "\"style_profile\".\"styles\" <@ array['elevated-basics', 'smart-casual', 'minimal', 'classic', 'workwear', 'outdoor-technical', 'streetwear', 'athleisure']::text[] and cardinality(\"style_profile\".\"styles\") > 0"
+        },
+        "style_profile_budget_check": {
+          "name": "style_profile_budget_check",
+          "value": "\"style_profile\".\"budget\" in ('budget', 'mid', 'premium', 'luxury')"
+        },
+        "style_profile_palette_check": {
+          "name": "style_profile_palette_check",
+          "value": "\"style_profile\".\"palette\" <@ array['red', 'pink', 'orange', 'yellow', 'green', 'blue', 'purple', 'black', 'white', 'grey', 'beige', 'brown', 'gold', 'silver', 'pattern', 'other']::text[] and cardinality(\"style_profile\".\"palette\") > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.style_rhythm": {
+      "name": "style_rhythm",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occasion": {
+          "name": "occasion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "times": {
+          "name": "times",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "per": {
+          "name": "per",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "style_rhythm_user_id_foreign": {
+          "name": "style_rhythm_user_id_foreign",
+          "tableFrom": "style_rhythm",
+          "tableTo": "style_profile",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "style_rhythm_pkey": {
+          "name": "style_rhythm_pkey",
+          "columns": [
+            "user_id",
+            "occasion"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "style_rhythm_occasion_check": {
+          "name": "style_rhythm_occasion_check",
+          "value": "\"style_rhythm\".\"occasion\" in ('all-day', 'workout', 'work', 'daytime', 'evening', 'night-out')"
+        },
+        "style_rhythm_times_check": {
+          "name": "style_rhythm_times_check",
+          "value": "\"style_rhythm\".\"times\" between 1 and 31"
+        },
+        "style_rhythm_per_check": {
+          "name": "style_rhythm_per_check",
+          "value": "\"style_rhythm\".\"per\" in ('week', 'month')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.user": {
+      "name": "user",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "first_name": {
+          "name": "first_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_name": {
+          "name": "last_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "user_lower_email_unique": {
+          "name": "user_lower_email_unique",
+          "columns": [
+            {
+              "expression": "lower(\"email\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.user_device": {
+      "name": "user_device",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "push_endpoint": {
+          "name": "push_endpoint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_p256dh": {
+          "name": "key_p256dh",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_auth": {
+          "name": "key_auth",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "user_device_user_id_index": {
+          "name": "user_device_user_id_index",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "user_device_user_id_foreign": {
+          "name": "user_device_user_id_foreign",
+          "tableFrom": "user_device",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "user_device_push_endpoint_unique": {
+          "name": "user_device_push_endpoint_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "push_endpoint"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.user_weather": {
+      "name": "user_weather",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "home_name": {
+          "name": "home_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "home_latitude": {
+          "name": "home_latitude",
+          "type": "numeric(4, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "home_longitude": {
+          "name": "home_longitude",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "here_latitude": {
+          "name": "here_latitude",
+          "type": "numeric(4, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "here_longitude": {
+          "name": "here_longitude",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "here_located_at": {
+          "name": "here_located_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "temperature_offset": {
+          "name": "temperature_offset",
+          "type": "numeric(2, 1)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "temperature_unit": {
+          "name": "temperature_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'fahrenheit'"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_weather_user_id_foreign": {
+          "name": "user_weather_user_id_foreign",
+          "tableFrom": "user_weather",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "user_weather_home_check": {
+          "name": "user_weather_home_check",
+          "value": "(\"user_weather\".\"home_name\" is null) = (\"user_weather\".\"home_latitude\" is null) and (\"user_weather\".\"home_latitude\" is null) = (\"user_weather\".\"home_longitude\" is null)"
+        },
+        "user_weather_here_check": {
+          "name": "user_weather_here_check",
+          "value": "(\"user_weather\".\"here_latitude\" is null) = (\"user_weather\".\"here_longitude\" is null) and (\"user_weather\".\"here_latitude\" is null) = (\"user_weather\".\"here_located_at\" is null)"
+        },
+        "user_weather_latitude_check": {
+          "name": "user_weather_latitude_check",
+          "value": "\"user_weather\".\"home_latitude\" between -90 and 90 and \"user_weather\".\"here_latitude\" between -90 and 90"
+        },
+        "user_weather_longitude_check": {
+          "name": "user_weather_longitude_check",
+          "value": "\"user_weather\".\"home_longitude\" between -180 and 180 and \"user_weather\".\"here_longitude\" between -180 and 180"
+        },
+        "user_weather_temperature_offset_check": {
+          "name": "user_weather_temperature_offset_check",
+          "value": "\"user_weather\".\"temperature_offset\" between -5 and 5"
+        },
+        "user_weather_temperature_unit_check": {
+          "name": "user_weather_temperature_unit_check",
+          "value": "\"user_weather\".\"temperature_unit\" in ('celsius', 'fahrenheit')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.wardrobe_plan": {
+      "name": "wardrobe_plan",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "wardrobe_plan_owner_id_lower_name_unique": {
+          "name": "wardrobe_plan_owner_id_lower_name_unique",
+          "columns": [
+            {
+              "expression": "\"owner_id\"",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wardrobe_plan_owner_id_active_unique": {
+          "name": "wardrobe_plan_owner_id_active_unique",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"wardrobe_plan\".\"active\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "wardrobe_plan_owner_id_foreign": {
+          "name": "wardrobe_plan_owner_id_foreign",
+          "tableFrom": "wardrobe_plan",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.wardrobe_share": {
+      "name": "wardrobe_share",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "grantor_id": {
+          "name": "grantor_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grantee_id": {
+          "name": "grantee_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "permission": {
+          "name": "permission",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'VIEW'"
+        },
+        "invite_token": {
+          "name": "invite_token",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "wardrobe_share_grantee_id_index": {
+          "name": "wardrobe_share_grantee_id_index",
+          "columns": [
+            {
+              "expression": "grantee_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wardrobe_share_grantor_id_index": {
+          "name": "wardrobe_share_grantor_id_index",
+          "columns": [
+            {
+              "expression": "grantor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "wardrobe_share_grantor_id_foreign": {
+          "name": "wardrobe_share_grantor_id_foreign",
+          "tableFrom": "wardrobe_share",
+          "tableTo": "user",
+          "columnsFrom": [
+            "grantor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "wardrobe_share_grantee_id_foreign": {
+          "name": "wardrobe_share_grantee_id_foreign",
+          "tableFrom": "wardrobe_share",
+          "tableTo": "user",
+          "columnsFrom": [
+            "grantee_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "wardrobe_share_invite_token_unique": {
+          "name": "wardrobe_share_invite_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "invite_token"
+          ]
+        },
+        "wardrobe_share_grantor_id_grantee_id_unique": {
+          "name": "wardrobe_share_grantor_id_grantee_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "grantor_id",
+            "grantee_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.weather_forecast": {
+      "name": "weather_forecast",
+      "schema": "",
+      "columns": {
+        "latitude": {
+          "name": "latitude",
+          "type": "numeric(4, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "forecast": {
+          "name": "forecast",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempted_at": {
+          "name": "attempted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "weather_forecast_pkey": {
+          "name": "weather_forecast_pkey",
+          "columns": [
+            "latitude",
+            "longitude"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "weather_forecast_fetched_check": {
+          "name": "weather_forecast_fetched_check",
+          "value": "(\"weather_forecast\".\"forecast\" is null) = (\"weather_forecast\".\"fetched_at\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

@@ -6,7 +6,7 @@ import {
   ozToGsm,
   type Warmth,
 } from '../../../wardrobe/properties';
-import type { GarmentColor } from '../garment';
+import type { GarmentColor } from '../../../wardrobe/properties';
 
 /**
  * Guesses at a garment's fields from a product page's words: colour, category

@@ -1,0 +1,132 @@
+import type { Db } from '../../db/client';
+import {
+  type ItemMatch,
+  type ItemStatus,
+  matchPlan,
+  PLAN_PRIORITIES,
+  type PlanTarget,
+  planTally,
+} from '../../wardrobe/plans';
+import {
+  type ClosetGarment,
+  closetPieces,
+  itemsOf,
+  listPlans,
+  type PlanDetail,
+  type PlanItemRow,
+} from './queries';
+
+/**
+ * A plan measured against its owner's closet: the gap view's model, and
+ * get_plan_gaps's and list_plans's (src/web/mcp/tools/plans.ts). Reads the
+ * items and the closet (two statements, whatever the plan's size) and runs
+ * matchPlan (src/wardrobe/plans.ts); nothing is stored.
+ */
+
+/** An accepted item and how the closet answers it. */
+export interface GapItem {
+  item: PlanItemRow;
+  match: ItemMatch;
+}
+
+export interface PlanGaps {
+  plan: PlanDetail;
+  /** Accepted items, each group in priority then age order. */
+  groups: Record<ItemStatus, GapItem[]>;
+  tally: Record<ItemStatus, number>;
+  /** What the owner's agent proposed and the owner has not accepted: not matched. */
+  proposed: PlanItemRow[];
+  /** The closet's garments by id, for the names and photos a match points at. */
+  closet: Map<number, ClosetGarment>;
+}
+
+/** A stored item as matching reads it. */
+export function toTarget(item: PlanItemRow): PlanTarget {
+  return {
+    id: item.id,
+    category: item.category,
+    type: item.type,
+    colors: item.colors ?? [],
+    materials: item.materials ?? [],
+    warmth:
+      item.warmthMin === null || item.warmthMax === null
+        ? null
+        : { min: item.warmthMin, max: item.warmthMax },
+    formality:
+      item.formalityMin === null || item.formalityMax === null
+        ? null
+        : { min: item.formalityMin, max: item.formalityMax },
+    quantity: item.quantity,
+    priority: item.priority,
+  };
+}
+
+const PRIORITY_ORDER: readonly string[] = PLAN_PRIORITIES;
+
+function byPriority(a: PlanItemRow, b: PlanItemRow): number {
+  return (
+    PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority) ||
+    a.id - b.id
+  );
+}
+
+function measure(
+  plan: PlanDetail,
+  items: PlanItemRow[],
+  closet: ClosetGarment[],
+): PlanGaps {
+  const accepted = items.filter((item) => !item.proposed).sort(byPriority);
+  const matches = matchPlan(accepted.map(toTarget), closet);
+  const groups: Record<ItemStatus, GapItem[]> = {
+    owned: [],
+    partly: [],
+    missing: [],
+  };
+  accepted.forEach((item, index) => {
+    const match = matches[index];
+    groups[match.status].push({ item, match });
+  });
+  return {
+    plan,
+    groups,
+    tally: planTally(matches),
+    proposed: items.filter((item) => item.proposed).sort(byPriority),
+    closet: new Map(closet.map((garment) => [garment.id, garment])),
+  };
+}
+
+/** Plan `plan` (the owner's, found by the caller) against `ownerId`'s closet. */
+export async function planGaps(
+  db: Db,
+  plan: PlanDetail,
+  ownerId: number,
+): Promise<PlanGaps> {
+  const [items, closet] = await Promise.all([
+    itemsOf(db, [plan.id]),
+    closetPieces(db, ownerId),
+  ]);
+  return measure(plan, items, closet);
+}
+
+/** Every plan of the owner's, active first, each measured: the list page and list_plans. */
+export async function allPlanGaps(
+  db: Db,
+  ownerId: number,
+): Promise<PlanGaps[]> {
+  const plans = await listPlans(db, ownerId);
+  if (plans.length === 0) return [];
+  const [items, closet] = await Promise.all([
+    itemsOf(
+      db,
+      plans.map((plan) => plan.id),
+    ),
+    closetPieces(db, ownerId),
+  ]);
+  return plans.map((plan) =>
+    measure(
+      plan,
+      items.filter((item) => item.planId === plan.id),
+      closet,
+    ),
+  );
+}

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
-import { outfit as outfitTable } from '../../src/db/schema';
+import { outfit as outfitTable, planItem } from '../../src/db/schema';
 import {
   createGarment,
   createWishlistItem,
@@ -30,6 +30,9 @@ export interface PageFixture {
   capsuleId: number;
   outfitId: number;
   outfitShareableId: string;
+  /** A wardrobe plan (#34) with one item. */
+  planId: number;
+  planItemId: number;
 }
 
 /**
@@ -92,6 +95,28 @@ export async function createPageFixture(
   }
   const outfitId = Number(match[1]);
 
+  const plan = await t.inject({
+    method: 'POST',
+    url: '/wardrobe/plans',
+    payload: { name: 'NYC minimal' },
+    headers,
+  });
+  expect(plan.statusCode).toBe(303);
+  const planId = Number(
+    /^\/wardrobe\/plans\/(\d+)\?/.exec(plan.headers.location as string)?.[1],
+  );
+  const item = await t.inject({
+    method: 'POST',
+    url: `/wardrobe/plans/${planId}/items`,
+    payload: { category: 'shirt', name: 'Linen blazer' },
+    headers,
+  });
+  expect(item.statusCode).toBe(303);
+  const [{ id: planItemId }] = await t.db
+    .select({ id: planItem.id })
+    .from(planItem)
+    .where(eq(planItem.planId, planId));
+
   const garment = (await garmentRow(t, garmentId))!;
   const [outfit] = await t.db
     .select({ shareableId: outfitTable.shareableId })
@@ -104,6 +129,8 @@ export async function createPageFixture(
     capsuleId,
     outfitId,
     outfitShareableId: outfit.shareableId,
+    planId,
+    planItemId,
   };
 }
 
@@ -145,7 +172,14 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app('/calendar'),
     app('/calendar/plan?for=day:2030-10-09&occasion=evening'),
     app('/outfits/new?for=day:2030-10-09&occasion=evening'),
+    app('/wardrobe/plans'),
+    app('/wardrobe/plans/new'),
+    app(`/wardrobe/plans/${f.planId}`),
+    app(`/wardrobe/plans/${f.planId}/edit`),
+    app(`/wardrobe/plans/${f.planId}/items/new`),
+    app(`/wardrobe/plans/${f.planId}/items/${f.planItemId}/edit`),
     app('/auth/profile'),
+    app('/auth/profile/style'),
     app('/auth/update-email'),
     app('/auth/delete-account'),
     app('/auth/change-password'),

@@ -127,6 +127,40 @@ export const CONDITIONS = ['good', 'needs_repair', 'replace_soon'] as const;
 export type Condition = (typeof CONDITIONS)[number];
 
 /**
+ * The only colours a garment may carry (the garment form validates them on the
+ * server; drizzle/0004_garment_web.sql checked stored ones against the same
+ * list). garment.color joins them with commas; a plan item's and a style
+ * profile's colour sets are arrays checked against the list (src/db/schema.ts). No name contains another, so
+ * the grid's membership match cannot confuse two (src/web/wardrobe/queries.ts matches whole
+ * comma-delimited items anyway). Each has a swatch class in
+ * views/assets/main.css (`.ms-swatch--<name>`).
+ */
+export const GARMENT_COLORS = [
+  'red',
+  'pink',
+  'orange',
+  'yellow',
+  'green',
+  'blue',
+  'purple',
+  'black',
+  'white',
+  'grey',
+  'beige',
+  'brown',
+  'gold',
+  'silver',
+  'pattern',
+  'other',
+] as const;
+
+export type GarmentColor = (typeof GARMENT_COLORS)[number];
+
+export function isGarmentColor(value: string): value is GarmentColor {
+  return (GARMENT_COLORS as readonly string[]).includes(value);
+}
+
+/**
  * Fabric weight is stored in grams per square metre (what most product
  * pages give, and an integer), entered and shown in ounces per square yard
  * too: a "6 oz heavyweight tee" is 203 gsm. Bounds reject typos, not

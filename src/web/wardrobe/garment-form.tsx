@@ -12,7 +12,8 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { BackLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
-import { categoryLabel, GARMENT_COLORS, normalizeCategory } from './garment';
+import { GARMENT_COLORS } from '../../wardrobe/properties';
+import { categoryLabel, normalizeCategory } from './garment';
 import { valueLabel } from './labels';
 import {
   LinkImportSection,

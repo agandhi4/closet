@@ -36,7 +36,17 @@ import {
   QUANTITY_MAX,
   WASH_AFTER_CHOICES,
 } from '../wardrobe/availability';
+import { PLAN_PRIORITIES, type PlanPriority } from '../wardrobe/plans';
 import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
+import {
+  type BudgetBand,
+  BUDGET_BANDS,
+  RHYTHM_PERIODS,
+  RHYTHM_TIMES_MAX,
+  type RhythmPeriod,
+  type Style,
+  STYLES,
+} from '../wardrobe/style';
 import {
   ALL_GARMENT_TYPES,
   type Condition,
@@ -46,6 +56,8 @@ import {
   FITS,
   type Formality,
   FORMALITIES,
+  GARMENT_COLORS,
+  type GarmentColor,
   type Length,
   LENGTHS,
   type Material,
@@ -84,6 +96,23 @@ function sqlList(values: readonly string[]) {
   return sql.raw(values.map((value) => `'${value}'`).join(', '));
 }
 
+/**
+ * The unique constraints a writer answers a violation of with a message
+ * (isUniqueViolation, src/db/errors.ts), each named once here and used by
+ * both the index below and the writer that catches it. Only these: a
+ * violation of any other constraint is a bug to surface, never a message.
+ */
+export const USER_EMAIL_UNIQUE = 'user_lower_email_unique';
+export const CAPSULE_NAME_UNIQUE = 'capsule_owner_id_lower_name_unique';
+export const PLAN_NAME_UNIQUE = 'wardrobe_plan_owner_id_lower_name_unique';
+export const SHARE_GRANTEE_UNIQUE =
+  'wardrobe_share_grantor_id_grantee_id_unique';
+export type UniqueConstraint =
+  | typeof USER_EMAIL_UNIQUE
+  | typeof CAPSULE_NAME_UNIQUE
+  | typeof PLAN_NAME_UNIQUE
+  | typeof SHARE_GRANTEE_UNIQUE;
+
 export const user = pgTable(
   'user',
   {
@@ -96,9 +125,7 @@ export const user = pgTable(
     // bcrypt hash.
     password: varchar('password', { length: 255 }).notNull(),
   },
-  (table) => [
-    uniqueIndex('user_lower_email_unique').on(sql`lower(${table.email})`),
-  ],
+  (table) => [uniqueIndex(USER_EMAIL_UNIQUE).on(sql`lower(${table.email})`)],
 );
 
 // One row per browser push subscription (Web Push, src/web/push/). The
@@ -648,7 +675,7 @@ export const capsule = pgTable(
     // owner_id is written as an expression on purpose: drizzle-kit's
     // introspection marks every column of an index with any expression as
     // one, so a plain column here reads back as drift (the drift test).
-    uniqueIndex('capsule_owner_id_lower_name_unique').on(
+    uniqueIndex(CAPSULE_NAME_UNIQUE).on(
       sql`${table.ownerId}`,
       sql`lower(${table.name})`,
     ),
@@ -698,6 +725,208 @@ export const capsuleGarment = pgTable(
   ],
 );
 
+// A person's style profile (#34, slice 34a; src/wardrobe/style.ts): what
+// they dress for and toward, one row per user, written only by
+// saveStyleProfile (src/web/plans/queries.ts) with its rhythm. Private, like
+// outfits: shares never reach it. The home city is the weather's
+// (user_weather, #14): the style page reads it from there, never a copy here.
+export const styleProfile = pgTable(
+  'style_profile',
+  {
+    userId: integer('user_id').primaryKey(),
+    // Sets, no repeats, null for none (never an empty array), like
+    // garment.materials.
+    styles: text('styles').array().$type<Style[]>(),
+    budget: text('budget').$type<BudgetBand>(),
+    palette: text('palette').array().$type<GarmentColor[]>(),
+    notes: text('notes'),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      'style_profile_styles_check',
+      sql`${table.styles} <@ array[${sqlList(STYLES)}]::text[] and cardinality(${table.styles}) > 0`,
+    ),
+    check(
+      'style_profile_budget_check',
+      sql`${table.budget} in (${sqlList(BUDGET_BANDS)})`,
+    ),
+    check(
+      'style_profile_palette_check',
+      sql`${table.palette} <@ array[${sqlList(GARMENT_COLORS)}]::text[] and cardinality(${table.palette}) > 0`,
+    ),
+    foreignKey({
+      name: 'style_profile_user_id_foreign',
+      columns: [table.userId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// The week's rhythm of a style profile: how often each occasion
+// (src/wardrobe/occasions.ts, the calendar's words) comes round, "work 3 a
+// week", "evening 3 a month". One row per occasion that has one; saved with
+// its profile, replaced whole.
+export const styleRhythm = pgTable(
+  'style_rhythm',
+  {
+    userId: integer('user_id').notNull(),
+    occasion: text('occasion').$type<Occasion>().notNull(),
+    times: smallint('times').notNull(),
+    per: text('per').$type<RhythmPeriod>().notNull(),
+  },
+  (table) => [
+    // Also the index of the user_id foreign key.
+    primaryKey({
+      name: 'style_rhythm_pkey',
+      columns: [table.userId, table.occasion],
+    }),
+    check(
+      'style_rhythm_occasion_check',
+      sql`${table.occasion} in (${sqlList(OCCASIONS)})`,
+    ),
+    check(
+      'style_rhythm_times_check',
+      sql`${table.times} between 1 and ${sql.raw(String(RHYTHM_TIMES_MAX))}`,
+    ),
+    check(
+      'style_rhythm_per_check',
+      sql`${table.per} in (${sqlList(RHYTHM_PERIODS)})`,
+    ),
+    foreignKey({
+      name: 'style_rhythm_user_id_foreign',
+      columns: [table.userId],
+      foreignColumns: [styleProfile.userId],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// A wardrobe plan (#34): a named ideal wardrobe its owner builds toward
+// ("NYC minimal", "NYC minimal v2"), made of plan items. Private, like
+// outfits: every route and tool is the signed-in owner's, shares never reach
+// it. At most one is active per owner (the partial unique index; setActivePlan
+// in src/web/plans/queries.ts moves it in one transaction). Names are one per
+// owner whatever the case, as capsules'.
+export const wardrobePlan = pgTable(
+  'wardrobe_plan',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    // Trimmed, never blank; bounded by the route (PLAN_NAME_MAX).
+    name: text('name').notNull(),
+    notes: text('notes'),
+    active: boolean('active').default(false).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // Also the index of the owner_id foreign key and of every plan query.
+    // owner_id as an expression, for drizzle-kit's introspection (see
+    // capsule_owner_id_lower_name_unique).
+    uniqueIndex(PLAN_NAME_UNIQUE).on(
+      sql`${table.ownerId}`,
+      sql`lower(${table.name})`,
+    ),
+    uniqueIndex('wardrobe_plan_owner_id_active_unique')
+      .on(table.ownerId)
+      .where(sql`${table.active}`),
+    foreignKey({
+      name: 'wardrobe_plan_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// One target of a plan, in the garment model's own terms (the value sets of
+// src/wardrobe/properties.ts, checked as garment's are): "white heavyweight
+// tee ×3" is tops / t-shirt, white, warmth 3 to 5, quantity 3. Every
+// constraint but the category is optional (null: any). Which garments
+// fulfil it is never stored: matchPlan (src/wardrobe/plans.ts) derives it on
+// every read. `proposed`: written by the owner's agent (the MCP tools) and
+// not yet accepted in the app, so matching leaves it out.
+export const planItem = pgTable(
+  'plan_item',
+  {
+    id: serial('id').primaryKey(),
+    planId: integer('plan_id').notNull(),
+    // What the owner calls it; null: the view describes it from its values.
+    name: text('name'),
+    // Trimmed and lower case, as garment.category.
+    category: text('category').notNull(),
+    type: text('type'),
+    // Sets, null for none (any), never an empty array.
+    colors: text('colors').array().$type<GarmentColor[]>(),
+    materials: text('materials').array().$type<Material[]>(),
+    // Ranges on the garment scales, both ends inclusive; both ends or neither.
+    warmthMin: smallint('warmth_min').$type<Warmth>(),
+    warmthMax: smallint('warmth_max').$type<Warmth>(),
+    formalityMin: smallint('formality_min').$type<Formality>(),
+    formalityMax: smallint('formality_max').$type<Formality>(),
+    quantity: smallint('quantity').default(1).notNull(),
+    priority: text('priority')
+      .$type<PlanPriority>()
+      .default('medium')
+      .notNull(),
+    // What the owner means to spend on one, in the household's currency.
+    budget: numeric('budget', { precision: 10, scale: 2 }),
+    // Why it is in the plan.
+    note: text('note'),
+    proposed: boolean('proposed').default(false).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('plan_item_plan_id_index').on(table.planId),
+    check(
+      'plan_item_type_check',
+      sql`${table.type} in (${sqlList(ALL_GARMENT_TYPES)})`,
+    ),
+    check(
+      'plan_item_colors_check',
+      sql`${table.colors} <@ array[${sqlList(GARMENT_COLORS)}]::text[] and cardinality(${table.colors}) > 0`,
+    ),
+    check(
+      'plan_item_materials_check',
+      sql`${table.materials} <@ array[${sqlList(MATERIALS)}]::text[] and cardinality(${table.materials}) > 0`,
+    ),
+    check(
+      'plan_item_warmth_check',
+      sql`(${table.warmthMin} is null and ${table.warmthMax} is null) or (${table.warmthMin} in (${sql.raw(WARMTHS.join(', '))}) and ${table.warmthMax} in (${sql.raw(WARMTHS.join(', '))}) and ${table.warmthMin} <= ${table.warmthMax})`,
+    ),
+    check(
+      'plan_item_formality_check',
+      sql`(${table.formalityMin} is null and ${table.formalityMax} is null) or (${table.formalityMin} in (${sql.raw(FORMALITIES.join(', '))}) and ${table.formalityMax} in (${sql.raw(FORMALITIES.join(', '))}) and ${table.formalityMin} <= ${table.formalityMax})`,
+    ),
+    check(
+      'plan_item_quantity_check',
+      sql`${table.quantity} between 1 and ${sql.raw(String(QUANTITY_MAX))}`,
+    ),
+    check(
+      'plan_item_priority_check',
+      sql`${table.priority} in (${sqlList(PLAN_PRIORITIES)})`,
+    ),
+    check('plan_item_budget_check', sql`${table.budget} >= 0`),
+    foreignKey({
+      name: 'plan_item_plan_id_foreign',
+      columns: [table.planId],
+      foreignColumns: [wardrobePlan.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
 /** What a wardrobe share lets the grantee do: read, or read and write. */
 export type SharePermission = 'VIEW' | 'MANAGE';
 
@@ -738,10 +967,7 @@ export const wardrobeShare = pgTable(
       .onDelete('cascade'),
     // Also the acceptInvite lookup index.
     unique('wardrobe_share_invite_token_unique').on(table.inviteToken),
-    unique('wardrobe_share_grantor_id_grantee_id_unique').on(
-      table.grantorId,
-      table.granteeId,
-    ),
+    unique(SHARE_GRANTEE_UNIQUE).on(table.grantorId, table.granteeId),
   ],
 );
 
@@ -879,6 +1105,7 @@ export const userRelations = relations(user, ({ one, many }) => ({
   garments: many(garment),
   outfits: many(outfit),
   capsules: many(capsule),
+  plans: many(wardrobePlan),
   calendarEntries: many(outfitCalendar),
   weather: one(userWeather),
   sharesGranted: many(wardrobeShare, { relationName: 'grantor' }),
@@ -941,6 +1168,21 @@ export const capsuleGarmentRelations = relations(capsuleGarment, ({ one }) => ({
   garment: one(garment, {
     fields: [capsuleGarment.garmentId],
     references: [garment.id],
+  }),
+}));
+
+export const wardrobePlanRelations = relations(
+  wardrobePlan,
+  ({ one, many }) => ({
+    owner: one(user, { fields: [wardrobePlan.ownerId], references: [user.id] }),
+    items: many(planItem),
+  }),
+);
+
+export const planItemRelations = relations(planItem, ({ one }) => ({
+  plan: one(wardrobePlan, {
+    fields: [planItem.planId],
+    references: [wardrobePlan.id],
   }),
 }));
 

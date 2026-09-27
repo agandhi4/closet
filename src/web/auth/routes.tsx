@@ -28,10 +28,11 @@ import {
   findUserByEmail,
   findUserById,
   insertUser,
-  isUniqueViolation,
   normalizeEmail,
   updateEmail,
 } from './queries';
+import { USER_EMAIL_UNIQUE } from '../../db/schema';
+import { isUniqueViolation } from '../../db/errors';
 import { sessionUserId } from './require-session';
 import { endSession, setSessionCookie } from './session';
 import {
@@ -168,7 +169,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       } catch (error) {
         // Registered by someone else between the check and the insert.
-        if (!isUniqueViolation(error)) throw error;
+        if (!isUniqueViolation(error, USER_EMAIL_UNIQUE)) throw error;
         return refuse({ email: [t('EMAIL_IN_USE')] });
       }
       setSessionCookie(reply, tokens.issue(account));
@@ -275,7 +276,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       try {
         await updateEmail(db, id, email);
       } catch (error) {
-        if (!isUniqueViolation(error)) throw error;
+        if (!isUniqueViolation(error, USER_EMAIL_UNIQUE)) throw error;
         return refuse({ email: [t('EMAIL_IN_USE')] });
       }
       logger.info(`User ${id} changed their email`);

@@ -488,6 +488,71 @@ stylist, so section 5 may shrink to what must run without anyone asking.
   say which part of the day it is for). OAuth for Claude's connectors UI is not built: a token
   in a header covers Claude Code and Desktop, and the app is reachable over the tailnet only.
 
+## 15. Wardrobe plans
+
+The owner's idea (#34): the questions that shaped the demo persona (style, budget, how the week is
+spent) become data, so the owner and their Claude (section 14) can say what the wardrobe should be,
+see what it lacks, and iterate. Theo's wardrobe is the owner's target: "start from the demo" copies it
+as a plan.
+
+- **The model.** Private per owner, like outfits: shares never reach it, another user's plan is a 404.
+  - `style_profile` (one row per user): `styles` and `palette` as `text[]` sets (the values of
+    `src/wardrobe/style.ts` and `GARMENT_COLORS`, check constraints as `garment.materials`), a
+    `budget` band (budget, mid, premium, luxury), notes. **`style_rhythm`** (user, occasion, times,
+    `per` week or month): the week's rhythm counted per calendar occasion (#13's `OCCASIONS`: "work 3
+    a week", "evening 3 a month"), the words the week template (#16) will read. **No city**: the
+    home city is the weather's (`user_weather`, #14); the style page shows it read-only, with a
+    link to Profile › Weather, and never copies it.
+  - `wardrobe_plan` (owner, name unique per owner in any case, notes, `active`; a partial unique
+    index keeps one active per owner). A first plan is active; `setActivePlan` moves it.
+  - `plan_item` (plan, optional name, category, type, `colors` and `materials` sets, warmth and
+    formality **ranges** (min and max, both or neither, like `OCCASION_HINTS`' formality), quantity,
+    priority high/medium/low, budget per piece, a note on why, `proposed`). Every constraint but the
+    category is optional: empty is "any". Typed columns with the garment's own check constraints.
+  - **Nothing links items to garments.** The issue sketched `plan_item_garment`; matching is derived
+    on every read instead (counts are derived, never stored), so buying, archiving or retagging a
+    garment moves the gap view with no write to keep in step. 34b's "Bought it fulfils an item" is
+    this: the bought garment enters the closet and matches. An explicit pin can come later if
+    matching ever misses a purchase.
+- **Matching** (`matchPlan`, `src/wardrobe/plans.ts`, pure, unit-tested) against the closet only
+  (`inCloset`: archived and wishlist garments are not owned clothes):
+  - A garment matches an item with the same category, the item's type if it names one, every colour
+    and material the item names (a Breton stripe is a blue top), and warmth and formality inside its
+    ranges (a garment without the value is outside one).
+  - Quantity is copies: a ×3 tee is 3 toward "white tee ×3". **Owned** when the copies reach the
+    quantity, **partly** below it, **missing** with none.
+  - **One garment fulfils one item**, all its copies (a row is one thing on a shelf). Greedy, not an
+    optimal matching, and deterministic: items choose in order of fewest candidates, then priority,
+    then id (a specific "white heavyweight tee" chooses before "any tee" could take its only
+    garment); an item takes its closest candidates (fewest colours and materials beyond its own, good
+    before needs_repair, oldest first) until the quantity is reached.
+  - **Condition** (#7's comment on #34): `replace_soon` never fulfils; it is the gap to refill, and
+    the item says so. `needs_repair` fulfils, flagged: still in the closet and worn (condition is not
+    availability). Away and dirty copies are owned all the same.
+  - **Why** an item is short, the first that applies: replace-soon, too-few-copies (partly),
+    taken-by-other-items (missing, though garments match: each fulfils another item), nothing-matches.
+- **The gap view** (`/wardrobe/plans/:id`, phone-first): the items grouped missing, partly, owned (the
+  gaps first), each with the garments that fulfil it and why it is short; the agent's proposals apart.
+  Plans live in the Wardrobe header's ⋯ menu (redesign plan); the style profile is a section of the
+  Profile (`/auth/profile/style`).
+- **Iterating**: a new plan, **duplicate** (every item, "(copy)", "(copy 2)"), make active, rename,
+  delete. **Start from a wardrobe**: a closet the requester can view (their own, or a share: Theo's)
+  grouped by category, type and colour set, quantities added up, budget the dearest piece, the source
+  garments in the note; warmth, formality and materials left open.
+- **MCP tools** (section 14): read `get_style_profile`, `list_plans` (tallies), `get_plan_gaps` (a
+  plan, the active one by default, as data: status, copies, fulfilling garments, the reason and a
+  sentence why, "only replace_soon copies: Grey merino (garment 12)"); write, each described as
+  WRITES, `propose_plan_item` and `update_plan_item`. **The agent proposes, the owner decides**: an
+  item the agent adds or changes is `proposed`, shown apart and left out of matching until the owner
+  accepts it (Accept, or saving it in the form) or dismisses it.
+- **Seed**: Theo gets a style profile, his rhythm and "NYC minimal" (19 items, active), which his
+  closet mostly fulfils: the replace-soon grey merino and the padded shirt jacket he wants are
+  missing, the third oxford partly. The bible's tables are the data, through the forms' readers.
+- **Slices.** **34a** (this): all of the above. **34b**: the shopping list (a plan's missing and
+  partly items with candidate wishlist garments within budget, adding a candidate by link or photo
+  onto an item), "Bought it" shown against the item it fulfils, and comparing two plans (what each
+  adds or drops). Hooks: the gap view's missing group, `get_plan_gaps`, `tools/plans.ts`.
+
 ## Delivery
 
 Each feature is its own GitHub issue (six) and ships alone. The work for each: its schema and migration

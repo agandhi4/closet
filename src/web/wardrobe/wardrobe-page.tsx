@@ -3,6 +3,7 @@ import {
   CONDITIONS,
   FITS,
   FORMALITIES,
+  GARMENT_COLORS,
   LENGTHS,
   MATERIALS,
   PATTERNS,
@@ -23,10 +24,11 @@ import {
   StripFlags,
 } from '../layout/parts';
 import type { CapsuleRef } from '../capsules/queries';
+import { PLANS_PATH } from '../plans/urls';
 import type { SharedWardrobe } from '../sharing/access';
 import type { ViewContext } from '../view-context';
 import { WeatherSlot } from '../weather/views';
-import { categoryLabel, GARMENT_COLORS } from './garment';
+import { categoryLabel } from './garment';
 import type { FilterOptions, GarmentTile, GridPage } from './queries';
 import { type LabelledProperty, valueLabel } from './labels';
 import { capsuleUrl, garmentUrl, wardrobeUrl } from './urls';
@@ -324,26 +326,51 @@ function Heading({ model }: { model: WardrobeModel }) {
       <h1 class="text-2xl font-bold">
         {selecting ? t('SELECT_GARMENTS') : t('WARDROBE')}
       </h1>
-      {canEdit && (
-        <div class="flex gap-2">
-          {model.page.tiles.length > 0 && (
-            <SelectToggle
-              search={search}
-              viewOwner={viewOwner}
-              selecting={selecting}
-            />
-          )}
-          {!selecting && (
-            <a
-              href={wardrobeUrl(viewOwner, {}, '/wardrobe/new')}
-              class="btn btn-primary btn-sm"
-            >
-              + {t('NEW_GARMENT')}
-            </a>
-          )}
-        </div>
-      )}
+      <div class="flex items-center gap-2">
+        {canEdit && model.page.tiles.length > 0 && (
+          <SelectToggle
+            search={search}
+            viewOwner={viewOwner}
+            selecting={selecting}
+          />
+        )}
+        {canEdit && !selecting && (
+          <a
+            href={wardrobeUrl(viewOwner, {}, '/wardrobe/new')}
+            class="btn btn-primary btn-sm"
+          >
+            + {t('NEW_GARMENT')}
+          </a>
+        )}
+        {!selecting && <WardrobeMenu />}
+      </div>
     </div>
+  );
+}
+
+/**
+ * The Wardrobe header's ⋯ menu (docs/plans/2026-09-26-redesign.md, "Where
+ * every route goes"): the wardrobe's less frequent places. Plans (#34) for
+ * now; the redesign (R3) moves Select and Tag here, and insights (#17)
+ * joins them. Links only: a form inside a daisyUI menu item loses its
+ * styling. Plans are the signed-in user's own, so the link never carries a
+ * shared wardrobe's `?ownerId=`.
+ */
+function WardrobeMenu() {
+  return (
+    <details class="dropdown dropdown-end" id="wardrobe-menu">
+      <summary
+        class="btn btn-ghost btn-sm btn-circle text-xl"
+        aria-label={t('MORE_ACTIONS')}
+      >
+        ⋯
+      </summary>
+      <ul class="menu dropdown-content bg-base-100 rounded-box shadow-lg z-20 w-52 p-2">
+        <li>
+          <a href={PLANS_PATH}>{t('plans.TITLE')}</a>
+        </li>
+      </ul>
+    </details>
   );
 }
 

@@ -74,6 +74,13 @@ describe('migrations', () => {
         'personal_access_token_user_id_index',
         // Login and every email lookup compare lower(email).
         'user_lower_email_unique',
+        // Wardrobe plans (#34): one name per owner, any case (also the
+        // owner_id foreign key's); one active plan per owner; a plan's
+        // items; a profile's rhythm (also its user_id foreign key's).
+        'wardrobe_plan_owner_id_lower_name_unique',
+        'wardrobe_plan_owner_id_active_unique',
+        'plan_item_plan_id_index',
+        'style_rhythm_pkey',
       ]),
     );
   });
@@ -91,6 +98,7 @@ describe('migrations', () => {
             garments: true,
             outfits: true,
             capsules: true,
+            plans: true,
             calendarEntries: true,
             sharesGranted: true,
             sharesReceived: true,
@@ -127,6 +135,10 @@ describe('migrations', () => {
         t.db.query.capsuleGarment.findMany({
           with: { capsule: true, garment: true },
         }),
+        t.db.query.wardrobePlan.findMany({
+          with: { owner: true, items: true },
+        }),
+        t.db.query.planItem.findMany({ with: { plan: true } }),
       ]),
     ).resolves.toBeDefined();
     const owner = await t.db.query.user.findFirst({

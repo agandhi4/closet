@@ -3,12 +3,12 @@ import {
   categoryLabel,
   categorySuggestions,
   compareSizes,
-  isGarmentColor,
   normalizeCategory,
   normalizeSize,
   orderCategories,
   splitColors,
 } from './garment';
+import { isGarmentColor } from '../../wardrobe/properties';
 
 describe('garment fields', () => {
   it('orders built-in categories as the enum does, custom ones after, sorted', () => {

@@ -112,6 +112,69 @@ not in the closet, the builder, capsules or laundry until "Bought it". Links che
 | W02 | Padded shirt jacket | Uniqlo | outerwear / jacket | brown | [Uniqlo Padded Shirt Jacket, Dark Brown](https://www.uniqlo.com/us/en/products/E489492-000/00) (verified) | $89.90 | M | 3 | 2 | — | — | regular | — | — | November, between the chore coat and the parka. |
 | W03 | White Couriers | Allbirds | footwear / sneakers | white | [Allbirds Men's Courier, Blizzard](https://www.allbirds.com/products/mens-couriers-blizzard) (verified) | $98 | 10 | 2 | 2 | — | — | — | — | — | The sensible pair; the Common Projects stay a fantasy. |
 
+## His style profile and plan (#34)
+
+What he dresses for and toward: the style profile (`src/wardrobe/style.ts`'s sets, the palette in
+`GARMENT_COLORS`) and the week's rhythm, counted per calendar occasion (#13), as the week table above
+lives it: three office days, WFH days and weekends as all-day, three workouts (Monday and Thursday
+runs, the Saturday gym), a date night three weeks in four and a night out every third week. His home
+location is the weather's (#14), not the profile's. Posted through the style profile form's own
+validation (`readStyleProfileForm`).
+
+### Style profile
+
+| Setting | Value |
+|---|---|
+| Styles | elevated-basics, smart-casual, outdoor-technical |
+| Budget | mid |
+| Palette | blue, white, grey, black, beige, green, brown |
+| Notes | One pattern at a time, never two. A few investment pieces: the blazer, the boots, the coat. |
+
+### Rhythm
+
+| Occasion | Times | Per |
+|---|---|---|
+| work | 3 | week |
+| all-day | 4 | week |
+| workout | 3 | week |
+| evening | 3 | month |
+| night-out | 1 | month |
+
+**His plan** is the closet he built after the move, written as targets (`src/wardrobe/plans.ts`), not
+products: his wardrobe mostly fulfils it, which is what the gap view shows. Two gaps on purpose: the
+grey merino (T21 is `replace_soon`, so it counts as the gap to refill, not as owned; W01 on the
+wishlist is its candidate, 34b) and the padded shirt jacket he wants for November (nothing brown in
+his jackets; W02 is its candidate). One partly: three oxfords wanted, two owned (T13, T14; the linen
+and denim shirts are not cotton smart-casual). The 501s (B02, `needs_repair`) still count, flagged.
+The white heavyweight tee (warmth 3 and up) matches only T06, so it chooses first and "white tee ×3"
+takes T01's three copies. Each row goes through the plan item form's validation
+(`readPlanItemForm`); `Warmth` and `Form.` are ranges (`3-5`), `—` is any. `(active)` marks the
+active plan.
+
+### Plan: NYC minimal (active)
+
+| Item | Category / type | Colours | Materials | Warmth | Form. | Qty | Priority | Budget | Why |
+|---|---|---|---|---|---|---|---|---|---|
+| White tee | tops / t-shirt | white | — | — | — | 3 | high | $25 | One per office day until Sunday's wash. |
+| White heavyweight tee | tops / t-shirt | white | — | 3-5 | — | 1 | medium | $50 | A tee that holds its shape on its own. |
+| Oxford shirt | tops / shirt | — | cotton | — | 3-4 | 3 | medium | $100 | One for each office day. |
+| Navy merino crewneck | tops / sweater | blue | merino | — | — | 1 | medium | $50 | Over an oxford on meeting days. |
+| Grey merino crewneck | tops / sweater | grey | merino | — | — | 1 | high | $50 | The second knit; the old one is pilling. |
+| Navy blazer | outerwear / blazer | blue | — | — | — | 1 | medium | $400 | Meeting Wednesdays and weddings. |
+| Chinos | bottoms / chinos | — | — | — | — | 2 | medium | $100 | The office uniform's bottom half. |
+| Blue jeans | bottoms / jeans | blue | — | — | — | 2 | medium | $110 | Weekends, and jeans Thursdays. |
+| Black jeans | bottoms / jeans | black | — | — | — | 1 | low | $70 | Nights out. |
+| White sneakers | footwear / sneakers | white | — | — | — | 1 | medium | $175 | Everything casual. |
+| Brown Chelsea boots | footwear / boots | brown | — | — | 3-4 | 1 | medium | $200 | Dates and meeting days, fall to spring. |
+| Loafers | footwear / loafers | — | — | — | — | 1 | low | $195 | Office summers without socks. |
+| Running shoes | footwear / running-shoes | — | — | — | — | 1 | medium | $155 | Fort Greene Park twice a week. |
+| Rain shell | outerwear / rain-jacket | — | — | — | — | 1 | medium | $180 | Summer thunderstorms. |
+| Winter parka | outerwear / parka | — | — | — | — | 1 | high | $600 | January on the Q platform. |
+| Wool coat | outerwear / coat | — | wool | — | — | 1 | medium | $200 | Office winters, over merino. |
+| Black leather jacket | outerwear / leather-jacket | black | — | — | — | 1 | low | $400 | Date nights, October to April. |
+| Brown padded shirt jacket | outerwear / jacket | brown | — | 3-5 | — | 1 | high | $90 | November, between the chore coat and the parka. |
+| Backpack | bags / backpack | — | — | — | — | 1 | medium | $160 | Every office day. |
+
 ## What he owns (83 garments: 80 in the closet, 3 archived)
 
 Every garment names a real product on sale on 2026-09-26 (researched and checked that day: `verified`
@@ -432,4 +495,6 @@ worn entries as wears, laundry Sundays as washes, the Condition and Away tables)
 Fort Greene home in °F, the simulated days served as forecasts in the tests), the conference as a trip
 with a packing list (#10; the Travel capsule is its pool), a generator-avoid pair olive chinos + olive
 chore coat (#21), and the Next buys as wishlist items (#18, done: the Wishlist table, W01 replacing T21). The outfit gallery (#9) swipes from the
-capsules.
+capsules. Wardrobe plans (#34a, done: the style profile, the rhythm and "NYC minimal" above, whose
+gaps are the replace-soon merino and the padded jacket); 34b's shopping list pairs those gaps with
+W01 and W02.

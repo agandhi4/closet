@@ -13,10 +13,15 @@ import {
   outfit,
   outfitCalendar,
   outfitSlot,
+  planItem,
+  styleProfile,
+  styleRhythm,
   user,
   userWeather,
+  wardrobePlan,
   wardrobeShare,
 } from '../../src/db/schema';
+import { findStyleProfile } from '../../src/web/plans/queries';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { loadPersona } from '../../src/seed/persona';
@@ -130,6 +135,11 @@ describe('seed personas', () => {
       .from(garmentWear)
       .where(eq(garmentWear.ownerId, id))
       .orderBy(asc(garmentWear.day), asc(garmentWear.garmentId));
+    const plans = await t.db.query.wardrobePlan.findMany({
+      where: eq(wardrobePlan.ownerId, id),
+      orderBy: asc(wardrobePlan.id),
+      with: { items: { orderBy: asc(planItem.id) } },
+    });
     const shares = await t.db
       .select({
         grantee: wardrobeShare.granteeId,
@@ -173,6 +183,18 @@ describe('seed personas', () => {
         wornAt: c.wornAt?.toISOString() ?? null,
       })),
       wears: wears.map((w) => [ids.get(w.garmentId), w.day]),
+      styleProfile: (await findStyleProfile(t.db, id)) ?? null,
+      plans: plans.map((p) => ({
+        name: p.name,
+        active: p.active,
+        items: p.items.map((item) => {
+          const fields: Partial<typeof item> = { ...item };
+          for (const key of ['id', 'planId', 'createdAt'] as const) {
+            delete fields[key];
+          }
+          return fields;
+        }),
+      })),
       shares: shares.length,
     };
   };
@@ -189,7 +211,7 @@ describe('seed personas', () => {
     const first = await seedAll();
     expect(first).toMatchObject({ status: 0, stderr: '' });
     expect(first.stdout).toContain(
-      'demo: seeded 83 garments, 3 wishlist items, 86 photos, 26 outfits, 4 capsules',
+      'demo: seeded 83 garments, 3 wishlist items, 86 photos, 26 outfits, 4 capsules, 1 plans',
     );
     expect(first.stdout).toContain(
       `Sign in as demo@closet.invalid with ${PASSWORD}`,
@@ -349,6 +371,29 @@ describe('seed personas', () => {
     // Dana's wardrobe is shared with Theo, MANAGE.
     expect((await snapshot(EMAILS[2])).shares).toBe(1);
 
+    // Wardrobe plans (#34): Theo's style profile and his active plan, from
+    // the bible's tables; Riley and Dana have neither.
+    expect(demo.styleProfile).toMatchObject({
+      styles: ['elevated-basics', 'smart-casual', 'outdoor-technical'],
+      budget: 'mid',
+      rhythm: [
+        { occasion: 'all-day', times: 4, per: 'week' },
+        { occasion: 'workout', times: 3, per: 'week' },
+        { occasion: 'work', times: 3, per: 'week' },
+        { occasion: 'evening', times: 3, per: 'month' },
+        { occasion: 'night-out', times: 1, per: 'month' },
+      ],
+    });
+    expect(demo.plans.map((p) => [p.name, p.active, p.items.length])).toEqual([
+      ['NYC minimal', true, 19],
+    ]);
+    for (const email of [EMAILS[1], EMAILS[2]]) {
+      expect(await snapshot(email)).toMatchObject({
+        styleProfile: null,
+        plans: [],
+      });
+    }
+
     const files = await storedFiles();
     const again = await seedAll();
     expect(again.status).toBe(0);
@@ -396,6 +441,37 @@ describe('seed personas', () => {
     expect(
       [...thursday.matchAll(/data-occasion="([a-z-]+)"/g)].map((m) => m[1]),
     ).toEqual(['workout', 'work', 'night-out']);
+
+    // His plan's gap view (#34): mostly owned; the replace-soon merino and
+    // the padded jacket he wants are the gaps, the third oxford the partly.
+    const plans = await t.inject({
+      method: 'GET',
+      url: '/wardrobe/plans',
+      headers: { cookie },
+    });
+    expect(plans.body).toContain('16 owned · 1 partly · 2 missing');
+    const [nyc] = await t.db
+      .select({ id: wardrobePlan.id })
+      .from(wardrobePlan)
+      .where(eq(wardrobePlan.name, 'NYC minimal'));
+    const gaps = unescapeHtml(
+      (
+        await t.inject({
+          method: 'GET',
+          url: `/wardrobe/plans/${nyc.id}`,
+          headers: { cookie },
+        })
+      ).body,
+    );
+    const missing = gaps.slice(
+      gaps.indexOf('id="plan-missing"'),
+      gaps.indexOf('id="plan-partly"'),
+    );
+    expect(missing).toContain('Grey merino crewneck');
+    expect(missing).toContain('Worn out, to replace: Grey merino crewneck');
+    expect(missing).toContain('Brown padded shirt jacket');
+    expect(gaps).toContain('Oxford shirt');
+    expect(gaps).toContain('1 more to go');
 
     // Theo manages his sister's wardrobe through her share: tagging included.
     const sparseId = await userIdOf(t, EMAILS[2]);
@@ -508,6 +584,10 @@ describe('seed personas', () => {
     expect(await t.db.$count(capsule)).toBe(0);
     expect(await t.db.$count(capsuleGarment)).toBe(0);
     expect(await t.db.$count(garmentWear)).toBe(0);
+    expect(await t.db.$count(wardrobePlan)).toBe(0);
+    expect(await t.db.$count(planItem)).toBe(0);
+    expect(await t.db.$count(styleProfile)).toBe(0);
+    expect(await t.db.$count(styleRhythm)).toBe(0);
     const report = await reconcileStorage(
       { db: t.db, photos: t.photos, logger: t.logger },
       { dryRun: true, olderThanMs: 0 },

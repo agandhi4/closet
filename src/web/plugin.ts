@@ -11,6 +11,7 @@ import { fileRoutes } from './files/routes';
 import type { Photos } from './files/photos';
 import type { Logger } from '../logger';
 import { outfitRoutes } from './outfits/routes';
+import { planRoutes } from './plans/routes';
 import { pushRoutes } from './push/routes';
 import type { OutboundFetcher } from './security/outbound-fetch';
 import { createPushSender, type VapidConfig } from './push/sender';
@@ -95,6 +96,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(linkImportRoutes, options);
   await app.register(capsuleRoutes, options);
   await app.register(wishlistRoutes, options);
+  await app.register(planRoutes, options);
   await app.register(wearRoutes, options);
   await app.register(calendarRoutes, options);
   await app.register(outfitRoutes, options);

@@ -1,0 +1,540 @@
+import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import type { Db, Queryable } from '../../db/client';
+import {
+  file,
+  garment,
+  PLAN_NAME_UNIQUE,
+  planItem,
+  styleProfile,
+  styleRhythm,
+  user,
+  wardrobePlan,
+} from '../../db/schema';
+import { compareOccasions } from '../../wardrobe/occasions';
+import {
+  type Condition,
+  type Formality,
+  type GarmentColor,
+  isGarmentColor,
+  type Material,
+  type Warmth,
+} from '../../wardrobe/properties';
+import { isUniqueViolation } from '../../db/errors';
+import type { ImageRef } from '../files/image-url';
+import { splitColors } from '../wardrobe/garment';
+import { inCloset } from '../wardrobe/status';
+import type {
+  PlanFields,
+  PlanItemFields,
+  StyleProfileFields,
+} from './validation';
+
+/**
+ * Wardrobe plans' and the style profile's reads and writes (#34, slice
+ * 34a). Both are the owner's own, like outfits: every query names the
+ * signed-in user as the owner, a plan or item of anyone else's is a miss
+ * like a missing one (the routes answer 404), and shares never reach them.
+ * The one reader of another wardrobe is closetPieces, for "start from a
+ * wardrobe", after the route authorized the view (authorizeWardrobe).
+ *
+ * One writer each: the plan's name and notes (createPlan, updatePlan), which
+ * plan is active (setActivePlan; createPlan activates a first plan), the
+ * items (insertItems, updateItem, acceptItem, deleteItem) and the style
+ * profile with its rhythm (saveStyleProfile).
+ */
+
+export interface PlanDetail {
+  id: number;
+  name: string;
+  notes: string | null;
+  active: boolean;
+}
+
+/** A stored plan item. */
+export interface PlanItemRow extends PlanItemFields {
+  id: number;
+  planId: number;
+  /** Written by the owner's agent and not accepted yet (matching leaves it out). */
+  proposed: boolean;
+}
+
+/** A stored item's fields, as a write takes them (duplicating a plan). */
+export function itemFields(item: PlanItemRow): PlanItemFields {
+  return {
+    name: item.name,
+    category: item.category,
+    type: item.type,
+    colors: item.colors,
+    materials: item.materials,
+    warmthMin: item.warmthMin,
+    warmthMax: item.warmthMax,
+    formalityMin: item.formalityMin,
+    formalityMax: item.formalityMax,
+    quantity: item.quantity,
+    priority: item.priority,
+    budget: item.budget,
+    note: item.note,
+  };
+}
+
+type NameTaken = 'name-taken';
+
+const PLAN_COLUMNS = {
+  id: wardrobePlan.id,
+  name: wardrobePlan.name,
+  notes: wardrobePlan.notes,
+  active: wardrobePlan.active,
+};
+
+/** Active first, then by name: the list page and list_plans. */
+export function listPlans(db: Db, ownerId: number): Promise<PlanDetail[]> {
+  return db
+    .select(PLAN_COLUMNS)
+    .from(wardrobePlan)
+    .where(eq(wardrobePlan.ownerId, ownerId))
+    .orderBy(
+      desc(wardrobePlan.active),
+      asc(sql`lower(${wardrobePlan.name})`),
+      asc(wardrobePlan.id),
+    );
+}
+
+/** The owner's plan `id`, or undefined (someone else's reads the same). */
+export async function findPlan(
+  db: Queryable,
+  id: number,
+  ownerId: number,
+): Promise<PlanDetail | undefined> {
+  const [row] = await db
+    .select(PLAN_COLUMNS)
+    .from(wardrobePlan)
+    .where(and(eq(wardrobePlan.id, id), eq(wardrobePlan.ownerId, ownerId)));
+  return row;
+}
+
+/** The owner's active plan, if one is. */
+export async function findActivePlan(
+  db: Db,
+  ownerId: number,
+): Promise<PlanDetail | undefined> {
+  const [row] = await db
+    .select(PLAN_COLUMNS)
+    .from(wardrobePlan)
+    .where(and(eq(wardrobePlan.ownerId, ownerId), wardrobePlan.active));
+  return row;
+}
+
+const ITEM_COLUMNS = {
+  id: planItem.id,
+  planId: planItem.planId,
+  name: planItem.name,
+  category: planItem.category,
+  type: planItem.type,
+  colors: planItem.colors,
+  materials: planItem.materials,
+  warmthMin: planItem.warmthMin,
+  warmthMax: planItem.warmthMax,
+  formalityMin: planItem.formalityMin,
+  formalityMax: planItem.formalityMax,
+  quantity: planItem.quantity,
+  priority: planItem.priority,
+  budget: planItem.budget,
+  note: planItem.note,
+  proposed: planItem.proposed,
+};
+
+/** The items of the plans `planIds` (the owner's, checked by the caller), oldest first. */
+export function itemsOf(db: Db, planIds: number[]): Promise<PlanItemRow[]> {
+  if (planIds.length === 0) return Promise.resolve([]);
+  return db
+    .select(ITEM_COLUMNS)
+    .from(planItem)
+    .where(inArray(planItem.planId, planIds))
+    .orderBy(asc(planItem.id));
+}
+
+/** Item `itemId` of the owner's plan `planId`, or undefined. */
+export async function findItem(
+  db: Db,
+  itemId: number,
+  planId: number,
+  ownerId: number,
+): Promise<PlanItemRow | undefined> {
+  const [row] = await db
+    .select(ITEM_COLUMNS)
+    .from(planItem)
+    .innerJoin(wardrobePlan, eq(wardrobePlan.id, planItem.planId))
+    .where(
+      and(
+        eq(planItem.id, itemId),
+        eq(planItem.planId, planId),
+        eq(wardrobePlan.ownerId, ownerId),
+      ),
+    );
+  return row;
+}
+
+/**
+ * Item `itemId` of any of the owner's plans, or undefined: the MCP tools
+ * name an item by its id alone.
+ */
+export async function findOwnedItem(
+  db: Db,
+  itemId: number,
+  ownerId: number,
+): Promise<PlanItemRow | undefined> {
+  const [row] = await db
+    .select(ITEM_COLUMNS)
+    .from(planItem)
+    .innerJoin(wardrobePlan, eq(wardrobePlan.id, planItem.planId))
+    .where(and(eq(planItem.id, itemId), eq(wardrobePlan.ownerId, ownerId)));
+  return row;
+}
+
+/** A garment of a closet, as matching and the gap view read it. */
+export interface ClosetGarment {
+  id: number;
+  name: string | null;
+  brand: string | null;
+  category: string;
+  type: string | null;
+  colors: GarmentColor[];
+  materials: Material[];
+  warmth: Warmth | null;
+  formality: Formality | null;
+  quantity: number;
+  condition: Condition;
+  price: string | null;
+  photo: ImageRef | null;
+}
+
+/**
+ * Every garment in `ownerId`'s closet (inCloset: not the wishlist, not the
+ * archive), oldest first: what a plan is matched against, and what "start
+ * from a wardrobe" groups. One statement; a household closet is a few
+ * hundred rows.
+ */
+export async function closetPieces(
+  db: Db,
+  ownerId: number,
+): Promise<ClosetGarment[]> {
+  const rows = await db
+    .select({
+      id: garment.id,
+      name: garment.name,
+      brand: garment.brand,
+      category: garment.category,
+      type: garment.type,
+      color: garment.color,
+      materials: garment.materials,
+      warmth: garment.warmth,
+      formality: garment.formality,
+      quantity: garment.quantity,
+      condition: garment.condition,
+      price: garment.price,
+      photo: { fileName: file.fileName, version: file.version },
+    })
+    .from(garment)
+    .leftJoin(file, eq(file.id, garment.photoId))
+    .where(and(eq(garment.ownerId, ownerId), inCloset()))
+    .orderBy(asc(garment.id));
+  return rows.map(({ color, materials, ...row }) => ({
+    ...row,
+    // Always garment colours (the form writes only those); narrowed here, at
+    // the boundary, so the plan's colour sets are typed as such.
+    colors: splitColors(color).filter(isGarmentColor),
+    materials: materials ?? [],
+  }));
+}
+
+/** The categories of `ownerId`'s closet (the item form offers their custom ones). */
+export async function closetCategories(
+  db: Db,
+  ownerId: number,
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ category: garment.category })
+    .from(garment)
+    .where(and(eq(garment.ownerId, ownerId), inCloset()));
+  return rows.map((row) => row.category);
+}
+
+// ---- Plan writes ------------------------------------------------------------
+
+/**
+ * Serializes the writes that decide which of `ownerId`'s plans is active
+ * (createPlan, setActivePlan) for the rest of the transaction. The lock is
+ * on the owner's user row, not the plans: a user's first two plans, made at
+ * once (a double tap, two tabs), have no plan row to lock yet, and each would
+ * find no active plan and take the one-active index. NO KEY UPDATE leaves
+ * the row's key alone, so it never blocks another table's foreign key
+ * check against the user (a garment insert, a wear), only another plan
+ * write of the same owner.
+ */
+async function lockOwnerPlans(tx: Queryable, ownerId: number): Promise<void> {
+  await tx
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.id, ownerId))
+    .for('no key update');
+}
+
+/**
+ * A new plan of `ownerId`'s, with `items`; active when the owner has no
+ * active plan yet (their first, or after deleting the active one), so the
+ * gap view always has one to show once any exists; lockOwnerPlans makes
+ * that check and the activation one step. 'name-taken' only for the name
+ * index (another of their plans has the name in any case); any other
+ * violation is a bug and rethrown. A savepoint, so a caller's transaction
+ * survives.
+ */
+export async function createPlan(
+  db: Queryable,
+  ownerId: number,
+  fields: PlanFields,
+  items: PlanItemFields[] = [],
+): Promise<number | NameTaken> {
+  try {
+    return await db.transaction(async (tx) => {
+      await lockOwnerPlans(tx, ownerId);
+      const [row] = await tx
+        .insert(wardrobePlan)
+        .values({ ownerId, ...fields })
+        .returning({ id: wardrobePlan.id });
+      await tx
+        .update(wardrobePlan)
+        .set({ active: true })
+        .where(
+          and(
+            eq(wardrobePlan.id, row.id),
+            sql`not exists (select 1 from ${wardrobePlan} where ${wardrobePlan.ownerId} = ${ownerId} and ${wardrobePlan.active})`,
+          ),
+        );
+      await insertItems(tx, row.id, items, { proposed: false });
+      return row.id;
+    });
+  } catch (error) {
+    if (isUniqueViolation(error, PLAN_NAME_UNIQUE)) return 'name-taken';
+    throw error;
+  }
+}
+
+/** Renames it: 'not-found' outside the owner's plans, 'name-taken' for another plan's name. */
+export async function updatePlan(
+  db: Db,
+  id: number,
+  ownerId: number,
+  fields: PlanFields,
+): Promise<'updated' | 'not-found' | NameTaken> {
+  try {
+    const updated = await db
+      .update(wardrobePlan)
+      .set(fields)
+      .where(and(eq(wardrobePlan.id, id), eq(wardrobePlan.ownerId, ownerId)))
+      .returning({ id: wardrobePlan.id });
+    return updated.length > 0 ? 'updated' : 'not-found';
+  } catch (error) {
+    if (isUniqueViolation(error, PLAN_NAME_UNIQUE)) return 'name-taken';
+    throw error;
+  }
+}
+
+/** Deletes it with its items; false when not the owner's. The garments are untouched. */
+export async function deletePlan(
+  db: Db,
+  id: number,
+  ownerId: number,
+): Promise<boolean> {
+  const deleted = await db
+    .delete(wardrobePlan)
+    .where(and(eq(wardrobePlan.id, id), eq(wardrobePlan.ownerId, ownerId)))
+    .returning({ id: wardrobePlan.id });
+  return deleted.length > 0;
+}
+
+/**
+ * Makes plan `id` the owner's active one, and no other: under
+ * lockOwnerPlans (so two switches, or a switch and a first plan, queue
+ * instead of racing into the one-active index), the old one cleared before
+ * the new one is set. False when not the owner's.
+ */
+export function setActivePlan(
+  db: Queryable,
+  id: number,
+  ownerId: number,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    await lockOwnerPlans(tx, ownerId);
+    if (!(await findPlan(tx, id, ownerId))) return false;
+    await tx
+      .update(wardrobePlan)
+      .set({ active: false })
+      .where(
+        and(
+          eq(wardrobePlan.ownerId, ownerId),
+          wardrobePlan.active,
+          ne(wardrobePlan.id, id),
+        ),
+      );
+    await tx
+      .update(wardrobePlan)
+      .set({ active: true })
+      .where(eq(wardrobePlan.id, id));
+    return true;
+  });
+}
+
+/**
+ * The first name `nameFor(n)` gives (n = 1, 2, ...) that none of the
+ * owner's plans has in any case: a duplicate's "NYC minimal (copy 2)", a
+ * wardrobe's "Theo's wardrobe 2". The unique index is still the race's
+ * answer (createPlan's 'name-taken').
+ */
+export async function freePlanName(
+  db: Db,
+  ownerId: number,
+  nameFor: (n: number) => string,
+): Promise<string> {
+  const taken = new Set(
+    (
+      await db
+        .select({ name: sql<string>`lower(${wardrobePlan.name})` })
+        .from(wardrobePlan)
+        .where(eq(wardrobePlan.ownerId, ownerId))
+    ).map((row) => row.name),
+  );
+  let n = 1;
+  while (taken.has(nameFor(n).toLowerCase())) n += 1;
+  return nameFor(n);
+}
+
+// ---- Item writes ------------------------------------------------------------
+
+/** Inserts items into plan `planId` (the caller checked it is the owner's). */
+export async function insertItems(
+  db: Queryable,
+  planId: number,
+  items: PlanItemFields[],
+  { proposed }: { proposed: boolean },
+): Promise<number[]> {
+  if (items.length === 0) return [];
+  const rows = await db
+    .insert(planItem)
+    .values(items.map((item) => ({ ...item, planId, proposed })))
+    .returning({ id: planItem.id });
+  return rows.map((row) => row.id);
+}
+
+/** The owner's plan `planId` exists: the item writers' guard. */
+function ownsPlan(planId: number, ownerId: number) {
+  return sql`${planItem.planId} in (select ${wardrobePlan.id} from ${wardrobePlan} where ${wardrobePlan.id} = ${planId} and ${wardrobePlan.ownerId} = ${ownerId})`;
+}
+
+/**
+ * Rewrites item `itemId` of the owner's plan `planId` whole. `proposed`
+ * says who wrote it: the owner's form accepts it (false), the agent's
+ * update_plan_item leaves it for the owner to accept (true). False when
+ * not the owner's.
+ */
+export async function updateItem(
+  db: Db,
+  itemId: number,
+  planId: number,
+  ownerId: number,
+  fields: PlanItemFields,
+  { proposed }: { proposed: boolean },
+): Promise<boolean> {
+  const updated = await db
+    .update(planItem)
+    .set({ ...fields, proposed })
+    .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
+    .returning({ id: planItem.id });
+  return updated.length > 0;
+}
+
+/** The owner accepts what their agent proposed: it joins the plan's matching. */
+export async function acceptItem(
+  db: Db,
+  itemId: number,
+  planId: number,
+  ownerId: number,
+): Promise<boolean> {
+  const updated = await db
+    .update(planItem)
+    .set({ proposed: false })
+    .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
+    .returning({ id: planItem.id });
+  return updated.length > 0;
+}
+
+/** Deletes it (a proposal dismissed, an item dropped); false when not the owner's. */
+export async function deleteItem(
+  db: Db,
+  itemId: number,
+  planId: number,
+  ownerId: number,
+): Promise<boolean> {
+  const deleted = await db
+    .delete(planItem)
+    .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
+    .returning({ id: planItem.id });
+  return deleted.length > 0;
+}
+
+// ---- The style profile ------------------------------------------------------
+
+/** The user's style profile, or undefined when never saved. */
+export async function findStyleProfile(
+  db: Db,
+  userId: number,
+): Promise<StyleProfileFields | undefined> {
+  const [row] = await db
+    .select({
+      styles: styleProfile.styles,
+      budget: styleProfile.budget,
+      palette: styleProfile.palette,
+      notes: styleProfile.notes,
+    })
+    .from(styleProfile)
+    .where(eq(styleProfile.userId, userId));
+  if (!row) return undefined;
+  const rhythm = await db
+    .select({
+      occasion: styleRhythm.occasion,
+      times: styleRhythm.times,
+      per: styleRhythm.per,
+    })
+    .from(styleRhythm)
+    .where(eq(styleRhythm.userId, userId));
+  return {
+    ...row,
+    rhythm: rhythm.sort((a, b) => compareOccasions(a.occasion, b.occasion)),
+  };
+}
+
+/**
+ * The one writer of a style profile: the row upserted and its rhythm
+ * replaced whole, in one transaction (a savepoint inside the seed's).
+ */
+export function saveStyleProfile(
+  db: Queryable,
+  userId: number,
+  fields: StyleProfileFields,
+): Promise<void> {
+  const { rhythm, ...profile } = fields;
+  return db.transaction(async (tx) => {
+    await tx
+      .insert(styleProfile)
+      .values({ userId, ...profile })
+      .onConflictDoUpdate({
+        target: styleProfile.userId,
+        set: { ...profile, updatedAt: sql`now()` },
+      });
+    await tx.delete(styleRhythm).where(eq(styleRhythm.userId, userId));
+    if (rhythm.length > 0) {
+      await tx
+        .insert(styleRhythm)
+        .values(rhythm.map((entry) => ({ userId, ...entry })));
+    }
+  });
+}

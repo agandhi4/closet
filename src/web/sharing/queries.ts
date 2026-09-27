@@ -2,8 +2,13 @@ import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../../db/client';
-import { type SharePermission, user, wardrobeShare } from '../../db/schema';
-import { isUniqueViolation } from '../auth/queries';
+import { isUniqueViolation } from '../../db/errors';
+import {
+  type SharePermission,
+  SHARE_GRANTEE_UNIQUE,
+  user,
+  wardrobeShare,
+} from '../../db/schema';
 
 /**
  * Wardrobe shares. A row is either an open invite (invite_token set, no
@@ -185,7 +190,7 @@ export async function acceptInvite(
       };
     });
   } catch (error) {
-    if (isUniqueViolation(error)) {
+    if (isUniqueViolation(error, SHARE_GRANTEE_UNIQUE)) {
       return { accepted: false, reason: 'already-shared' };
     }
     throw error;

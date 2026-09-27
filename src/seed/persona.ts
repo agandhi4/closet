@@ -6,6 +6,17 @@ import { PROJECT_ROOT } from '../project-root';
 import { type IsoDate, parseIsoDate } from '../web/calendar/calendar-date';
 import type { CapsuleFields } from '../web/capsules/queries';
 import { CapsuleBody, readCapsuleForm } from '../web/capsules/validation';
+import {
+  type PlanFields,
+  PlanItemBody,
+  type PlanItemFields,
+  readPlanForm,
+  readPlanItemForm,
+  readStyleProfileForm,
+  rhythmFieldNames,
+  StyleProfileBody,
+  type StyleProfileFields,
+} from '../web/plans/validation';
 import { normalizeCategory } from '../web/wardrobe/garment';
 import {
   CARE_NOTE_MAX,
@@ -170,6 +181,17 @@ export interface PersonaWeather {
   unit: TemperatureUnit;
 }
 
+/**
+ * A wardrobe plan of the bible's (a `Plan: <name>` table, #34): its items
+ * through the plan item form's reader; `(active)` after the name marks the
+ * active one.
+ */
+export interface SeedPlan {
+  fields: PlanFields;
+  active: boolean;
+  items: PlanItemFields[];
+}
+
 export interface Persona {
   key: PersonaKey;
   account: { email: string; firstName: string; lastName: string };
@@ -183,6 +205,9 @@ export interface Persona {
   wishlist: SeedWishlistItem[];
   outfits: SeedOutfit[];
   capsules: SeedCapsule[];
+  /** The Style profile and Rhythm tables (#34); null without them. */
+  styleProfile: StyleProfileFields | null;
+  plans: SeedPlan[];
   /** Sunday first; null without a history. */
   week: SeedDay[] | null;
   events: SeedEvent[];
@@ -253,6 +278,17 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
       source,
       find('Capsule', 'Garments').flatMap((table) =>
         table.rows.map((row) => readCapsule(source, row, ids)),
+      ),
+    ),
+    styleProfile: readStyleProfile(
+      source,
+      find('Setting', 'Value')[0],
+      find('Occasion', 'Times', 'Per')[0],
+    ),
+    plans: readPlans(
+      source,
+      find('Item', 'Category / type').filter((table) =>
+        PLAN_HEADING.test(table.heading),
       ),
     ),
     week: week ? readWeek(source, week, names) : null,
@@ -789,4 +825,147 @@ function readLaundryRule(
     return { ...rule, selector: { role: selector as GarmentRole } };
   }
   throw new BibleError(source, `laundry: "${selector}" selects nothing`);
+}
+
+// ---- The style profile and plans (#34) -------------------------------------
+
+// The Style profile table's settings and the form field each fills; the
+// Rhythm table's rows are the per-occasion fields.
+const STYLE_SETTINGS: Record<
+  string,
+  'styles' | 'budget' | 'palette' | 'notes'
+> = {
+  Styles: 'styles',
+  Budget: 'budget',
+  Palette: 'palette',
+  Notes: 'notes',
+};
+
+// Through the style profile form's own two layers: a style or colour the
+// form would refuse, or a count it would not read, fails here.
+function readStyleProfile(
+  source: string,
+  settings: BibleTable | undefined,
+  rhythm: BibleTable | undefined,
+): StyleProfileFields | null {
+  if (!settings && !rhythm) return null;
+  const where = `${source} style profile`;
+  const post = {
+    ...settingsPost(where, settings?.rows ?? []),
+    ...rhythmPost(where, rhythm?.rows ?? []),
+  };
+  let body: StyleProfileBody;
+  try {
+    body = Value.Parse(StyleProfileBody, post);
+  } catch (error) {
+    throw new BibleError(where, `not a style profile post: ${String(error)}`);
+  }
+  const form = readStyleProfileForm(body);
+  if (!form.ok) throw new BibleError(where, JSON.stringify(form.errors));
+  return form.fields;
+}
+
+// The Style profile table as the form posts it: the sets as lists.
+function settingsPost(
+  where: string,
+  rows: Record<string, string>[],
+): Record<string, unknown> {
+  const post: Record<string, unknown> = {};
+  for (const row of rows) {
+    const field = STYLE_SETTINGS[plain(row.Setting)];
+    if (!field) throw new BibleError(where, `unknown setting "${row.Setting}"`);
+    const isSet = field === 'styles' || field === 'palette';
+    post[field] = isSet ? list(row.Value) : plain(row.Value);
+  }
+  return post;
+}
+
+// The Rhythm table as the form posts it: two fields per occasion.
+function rhythmPost(
+  where: string,
+  rows: Record<string, string>[],
+): Record<string, string> {
+  const post: Record<string, string> = {};
+  for (const row of rows) {
+    const occasion = plain(row.Occasion);
+    if (!isOccasion(occasion)) {
+      throw new BibleError(where, `"${occasion}" is not an occasion`);
+    }
+    const names = rhythmFieldNames(occasion);
+    post[names.times] = plain(row.Times);
+    post[names.per] = plain(row.Per);
+  }
+  return post;
+}
+
+/** A plan table's heading: `Plan: NYC minimal`, `(active)` after the active one's name. */
+const PLAN_HEADING = /^Plan: (.+?)( \(active\))?$/;
+
+function readPlans(source: string, tables: BibleTable[]): SeedPlan[] {
+  const plans = tables.map((table) => {
+    const [, name, active] = PLAN_HEADING.exec(table.heading)!;
+    const where = `${source} plan "${name}"`;
+    const plan = readPlanForm({ name, notes: '' });
+    if (!plan.ok) throw new BibleError(where, JSON.stringify(plan.errors));
+    return {
+      fields: plan.fields,
+      active: active !== undefined,
+      items: table.rows.map((row) => readPlanItem(where, row)),
+    };
+  });
+  if (plans.filter((plan) => plan.active).length > 1) {
+    throw new BibleError(source, 'more than one plan is (active)');
+  }
+  const names = plans.map((plan) => plan.fields.name.toLowerCase());
+  if (new Set(names).size !== names.length) {
+    throw new BibleError(source, 'two plans have the same name');
+  }
+  return plans;
+}
+
+/** A range cell (`3-5`, `3`, `—`) as the form's two ends. */
+function rangePost(cell: string): [string, string] {
+  const text = plain(cell);
+  if (!text) return ['', ''];
+  const [min, max = min] = text.split('-').map((end) => end.trim());
+  return [min, max];
+}
+
+// A plan table's row through the plan item form's two layers.
+function readPlanItem(
+  where: string,
+  row: Record<string, string>,
+): PlanItemFields {
+  // A column the table does not have reads as empty (the form's blank).
+  const cell = (column: string) => row[column] ?? '';
+  const [category, type = ''] = plain(cell('Category / type'))
+    .split('/')
+    .map((part) => part.trim());
+  const [warmthMin, warmthMax] = rangePost(cell('Warmth'));
+  const [formalityMin, formalityMax] = rangePost(cell('Form.'));
+  const post = {
+    name: plain(cell('Item')),
+    category,
+    type,
+    colors: list(cell('Colours')),
+    materials: list(cell('Materials')),
+    warmthMin,
+    warmthMax,
+    formalityMin,
+    formalityMax,
+    quantity: plain(cell('Qty')),
+    priority: plain(cell('Priority')) || undefined,
+    budget: plain(cell('Budget')),
+    note: plain(cell('Why')),
+  };
+  const item = `${where} item "${post.name}"`;
+  let body: PlanItemBody;
+  try {
+    body = Value.Parse(PlanItemBody, post);
+  } catch (error) {
+    throw new BibleError(item, `not a plan item post: ${String(error)}`);
+  }
+  const form = readPlanItemForm(body);
+  if (!form.ok) throw new BibleError(item, JSON.stringify(form.errors));
+  return form.fields;
 }

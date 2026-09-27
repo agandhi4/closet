@@ -7,39 +7,6 @@ import { t, type StringKey } from '../i18n';
  * Pure: no database, no request.
  */
 
-/**
- * The only colours a garment may carry (the form validates them on the
- * server; drizzle/0004_garment_web.sql checked stored ones against the same
- * list). garment.color joins them with commas. No name contains another, so
- * the grid's membership match cannot confuse two (queries.ts matches whole
- * comma-delimited items anyway). Each has a swatch class in
- * views/assets/main.css (`.ms-swatch--<name>`).
- */
-export const GARMENT_COLORS = [
-  'red',
-  'pink',
-  'orange',
-  'yellow',
-  'green',
-  'blue',
-  'purple',
-  'black',
-  'white',
-  'grey',
-  'beige',
-  'brown',
-  'gold',
-  'silver',
-  'pattern',
-  'other',
-] as const;
-
-export type GarmentColor = (typeof GARMENT_COLORS)[number];
-
-export function isGarmentColor(value: string): value is GarmentColor {
-  return (GARMENT_COLORS as readonly string[]).includes(value);
-}
-
 // Prices are stored without a currency: one household, one currency, and
 // this household's is the US dollar (en-US like the string catalog).
 const PRICE_FORMAT = new Intl.NumberFormat('en-US', {

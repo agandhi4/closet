@@ -1,7 +1,13 @@
 import { and, asc, desc, eq, inArray, lte, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
-import { capsule, capsuleGarment, file, garment } from '../../db/schema';
-import { isUniqueViolation } from '../auth/queries';
+import { isUniqueViolation } from '../../db/errors';
+import {
+  capsule,
+  CAPSULE_NAME_UNIQUE,
+  capsuleGarment,
+  file,
+  garment,
+} from '../../db/schema';
 import type { ImageRef } from '../files/image-url';
 import { inCloset, ownedGarment } from '../wardrobe/status';
 
@@ -247,7 +253,7 @@ export async function createCapsule(
       return row.id;
     });
   } catch (error) {
-    if (isUniqueViolation(error)) return 'name-taken';
+    if (isUniqueViolation(error, CAPSULE_NAME_UNIQUE)) return 'name-taken';
     throw error;
   }
 }
@@ -267,7 +273,7 @@ export async function updateCapsule(
       .returning({ id: capsule.id });
     return updated.length > 0 ? 'updated' : 'not-found';
   } catch (error) {
-    if (isUniqueViolation(error)) return 'name-taken';
+    if (isUniqueViolation(error, CAPSULE_NAME_UNIQUE)) return 'name-taken';
     throw error;
   }
 }

@@ -18,8 +18,10 @@ import {
   type Formality,
   FORMALITIES,
   findType,
+  GARMENT_COLORS,
   type GarmentProperty,
   gsmToOz,
+  isGarmentColor,
   type Length,
   LENGTHS,
   type Material,
@@ -34,12 +36,7 @@ import {
   type Warmth,
   WARMTHS,
 } from '../../wardrobe/properties';
-import {
-  GARMENT_COLORS,
-  isGarmentColor,
-  normalizeCategory,
-  normalizeSize,
-} from './garment';
+import { normalizeCategory, normalizeSize } from './garment';
 
 /**
  * The wardrobe's request schemas and the garment form's checks. Two layers,
@@ -71,9 +68,10 @@ const ColorValue = Type.String({ maxLength: 40 });
 /**
  * One of a property's values as a form posts it ('' for the reset chip).
  * Only the form's own chips post these, so anything else is a hand-made
- * request: a 400 from the schema, not a message under a field.
+ * request: a 400 from the schema, not a message under a field. Also the
+ * plan item form's scales (src/web/plans/validation.ts).
  */
-function choice(values: readonly (string | number)[]) {
+export function choice(values: readonly (string | number)[]) {
   return Type.Optional(
     Type.Union([
       Type.Literal(''),

@@ -126,6 +126,53 @@ describe('persona bibles', () => {
     expect(loadPersona('fresh').capsules).toEqual([]);
   });
 
+  it("reads Theo's style profile and his plan through their forms (#34)", () => {
+    const demo = loadPersona('demo');
+    expect(demo.styleProfile).toEqual({
+      styles: ['elevated-basics', 'smart-casual', 'outdoor-technical'],
+      budget: 'mid',
+      palette: ['green', 'blue', 'black', 'white', 'grey', 'beige', 'brown'],
+      notes: expect.stringMatching(/One pattern at a time/),
+      rhythm: [
+        { occasion: 'all-day', times: 4, per: 'week' },
+        { occasion: 'workout', times: 3, per: 'week' },
+        { occasion: 'work', times: 3, per: 'week' },
+        { occasion: 'evening', times: 3, per: 'month' },
+        { occasion: 'night-out', times: 1, per: 'month' },
+      ],
+    });
+    const [plan] = demo.plans;
+    expect(demo.plans).toHaveLength(1);
+    expect(plan).toMatchObject({
+      fields: { name: 'NYC minimal', notes: null },
+      active: true,
+    });
+    expect(plan.items).toHaveLength(19);
+    expect(plan.items[1]).toEqual({
+      name: 'White heavyweight tee',
+      category: 'tops',
+      type: 't-shirt',
+      colors: ['white'],
+      materials: null,
+      warmthMin: 3,
+      warmthMax: 5,
+      formalityMin: null,
+      formalityMax: null,
+      quantity: 1,
+      priority: 'medium',
+      budget: '50.00',
+      note: 'A tee that holds its shape on its own.',
+    });
+    expect(loadPersona('fresh')).toMatchObject({
+      styleProfile: null,
+      plans: [],
+    });
+    expect(loadPersona('sparse')).toMatchObject({
+      styleProfile: null,
+      plans: [],
+    });
+  });
+
   it("reads Theo's wishlist: three items, the merino replacing the pilling one", () => {
     const demo = loadPersona('demo');
     expect(
@@ -297,6 +344,21 @@ describe('persona bibles', () => {
       'an outfit wearing a wishlist item',
       `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Wishlist\n\n| id | Name in the app | Category / type | Colours | Replaces |\n|---|---|---|---|---|\n| W01 | New shoes | footwear / sneakers | white | F01 |\n\n## Saved outfits\n\n| # | Name | Occasion | Bands | Garments |\n|---|---|---|---|---|\n| 1 | Look | weekend | any | F01, W01 |\n`,
       /unknown garments: W01/,
+    ],
+    [
+      'a plan item the plan form would refuse',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Plan: Basics\n\n| Item | Category / type | Colours | Warmth |\n|---|---|---|---|\n| Tee | tops / jeans | white | — |\n`,
+      /plan "Basics" item "Tee".*type/,
+    ],
+    [
+      'two active plans',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Plan: A (active)\n\n| Item | Category / type |\n|---|---|\n| Tee | tops |\n\n### Plan: B (active)\n\n| Item | Category / type |\n|---|---|\n| Tee | tops |\n`,
+      /more than one plan is \(active\)/,
+    ],
+    [
+      'a rhythm for an occasion the calendar does not have',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Rhythm\n\n| Occasion | Times | Per |\n|---|---|---|\n| brunch | 2 | week |\n`,
+      /"brunch" is not an occasion/,
     ],
   ])('refuses %s', (_, markdown, message) => {
     expect(() => parsePersona('fresh', markdown)).toThrow(BibleError);

@@ -3,7 +3,7 @@ import type {
   Material,
   Warmth,
 } from '../../../wardrobe/properties';
-import type { GarmentColor } from '../garment';
+import type { GarmentColor } from '../../../wardrobe/properties';
 import { BRAND_MAX, NAME_MAX } from '../validation';
 import {
   guessColors,

@@ -5,6 +5,7 @@ import {
   FITS,
   FORMALITIES,
   findType,
+  GARMENT_COLORS,
   LENGTHS,
   MATERIALS,
   PATTERNS,
@@ -18,7 +19,6 @@ import { todayIn } from '../../calendar/calendar-date';
 import { capsulesOfGarment, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
 import {
-  GARMENT_COLORS,
   normalizeCategory,
   normalizeSize,
   splitColors,

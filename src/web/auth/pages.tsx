@@ -4,6 +4,7 @@ import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
+import { STYLE_PROFILE_PATH } from '../plans/urls';
 import { PushSettings } from '../push/settings';
 import type { ViewContext } from '../view-context';
 import type { WeatherSettings as Settings } from '../weather/queries';
@@ -194,6 +195,9 @@ export function ProfilePage(props: {
       </a>
       <a class="link" href="/auth/change-password">
         {t('CHANGE_PASSWORD')}
+      </a>
+      <a class="link" href={STYLE_PROFILE_PATH}>
+        {t('style.TITLE')}
       </a>
       <a class="link" href="/wardrobe-share/manage">
         {t('WARDROBE_SHARING')}
