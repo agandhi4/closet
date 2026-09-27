@@ -10,15 +10,17 @@ import { planTools } from './plans';
 import { sharingTools } from './sharing';
 import { shoppingTools } from './shopping';
 import { todayTools } from './today';
+import { tripTools } from './trips';
 import { weatherTools } from './weather';
 import { weekPlanTools } from './week-plan';
 
 /**
  * Every MCP tool (#33), in the order clients list them: the weather's
- * (#14) only with WEATHER_ENABLED. Deferred: a trip's forecast (#10:
- * get_weather for the trip's destination and dates). The weekly auto-plan
- * (#16) is tools/week-plan.ts's plan_week, its template in
- * get_style_profile. Wardrobe plans (#34) are tools/plans.ts (34a:
+ * (#14) only with WEATHER_ENABLED. The weekly auto-plan (#16) is
+ * tools/week-plan.ts's plan_week, its template in get_style_profile. Trips
+ * (#10) are tools/trips.ts: list_trips, get_trip (the packing list, and the
+ * destination's forecast with WEATHER_ENABLED) and plan_trip_outfit.
+ * Wardrobe plans (#34) are tools/plans.ts (34a:
  * the style profile, plans, gaps, proposals) and tools/shopping.ts (34b:
  * the shopping list, candidates, comparing plans); "Bought it" stays the
  * owner's, in the app. The outfit gallery (#9) is tools/gallery.ts, with
@@ -37,6 +39,7 @@ export function mcpTools(options: {
     ...todayTools,
     ...calendarTools,
     ...weekPlanTools,
+    ...tripTools,
     ...insightTools,
     ...(options.weather ? weatherTools : []),
     ...sharingTools,

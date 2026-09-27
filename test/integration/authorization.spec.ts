@@ -3,7 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { outfit, outfitCalendar, outfitSlot } from '../../src/db/schema';
+import {
+  outfit,
+  outfitCalendar,
+  outfitSlot,
+  tripItem,
+  tripOutfit,
+} from '../../src/db/schema';
 import { createToken } from '../../src/web/auth/personal-tokens';
 import { changeCandidates } from '../../src/web/plans/candidates';
 import { insertItems, saveStyleProfile } from '../../src/web/plans/queries';
@@ -63,6 +69,8 @@ import { planEntry, takeSelfie } from './selfies';
  * grantee who may buy. Outfit selfies (#19) are the calendar's: taking,
  * removing and seeing one is the owner's alone, and the public /file/**
  * routes refuse a selfie's name and share id to everyone, the owner too.
+ * Trips (#10) are the owner's like outfits: every refusal is a 404 (or the
+ * requester's own list), including a gallery pick for someone else's trip.
  */
 
 type SignedIn = 'owner' | 'manager' | 'viewer' | 'stranger';
@@ -118,6 +126,15 @@ interface Fixture {
   /** An item of it their agent proposed (so accepting it writes). */
   planItemId: number;
   /**
+   * A trip of the owner's (#10) on today and tomorrow: the outfit on it for
+   * today, the garment packed, one extra; and another trip with an extra.
+   */
+  tripId: number;
+  tripName: string;
+  tripOutfitId: number;
+  tripItemId: number;
+  otherTripId: number;
+  /**
    * The app's today (t.today(), APP_TIMEZONE) when the fixture was made:
    * the entry's day, and the day a wishlist item is bought.
    */
@@ -157,6 +174,7 @@ const archivedName = (f: Fixture) => f.archivedName;
 const capsuleName = (f: Fixture) => f.capsuleName;
 const outfitName = (f: Fixture) => f.outfitName;
 const planName = (f: Fixture) => f.planName;
+const tripName = (f: Fixture) => f.tripName;
 // One style profile per user, so one note every fixture saves again.
 const OWNER_STYLE_NOTE = 'Owner style notes, never shared';
 const styleNote = () => OWNER_STYLE_NOTE;
@@ -1555,6 +1573,295 @@ const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  // Trips (#10) are the owner's own, like outfits: never shared, ?ownerId=
+  // ignored, another user's trip, trip outfit or extra a 404 with nothing
+  // written. The fixture's trip is on today, with the outfit on today,
+  // the garment packed and an extra; a second trip holds an extra to copy.
+  {
+    name: 'GET /trips',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/trips${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    name: 'GET /trips/:id',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({ method: 'GET', url: `/trips/${f.tripId}${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /trips/:id/edit',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/trips/${f.tripId}/edit${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /trips/:id/outfits/new',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/trips/${f.tripId}/outfits/new${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /outfits/ideas?for=trip:ID',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/outfits/ideas?for=trip:${f.tripId}${q && `&${q.slice(1)}`}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}${q}`,
+      payload: {
+        name: `Renamed ${f.tripName}`,
+        startsOn: f.today,
+        endsOn: addDays(f.today, 1),
+      },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'DELETE /trips/:id',
+    kind: 'write',
+    ok: 200,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'DELETE',
+      url: `/trips/${f.tripId}${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/outfits',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/outfits${q}`,
+      payload: { outfitId: String(f.outfitId), day: '', occasion: 'evening' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/outfits/:tripOutfitId/delete',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/outfits/${f.tripOutfitId}/delete${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/outfits/:tripOutfitId/wear',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/outfits/${f.tripOutfitId}/wear${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/packed',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/packed${q}`,
+      payload: { shown: String(f.garmentId) },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/items',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/items${q}`,
+      payload: { label: 'Adapter' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/items/packed',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/items/packed${q}`,
+      payload: { packed: String(f.tripItemId), shown: String(f.tripItemId) },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/items/:itemId/delete',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/items/${f.tripItemId}/delete${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/items/copy',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/items/copy${q}`,
+      payload: { from: String(f.otherTripId) },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /outfits/ideas/pick for a trip',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/outfits/ideas/pick${q}`,
+      payload: {
+        garmentId: String(f.garmentId),
+        for: `trip:${f.tripId}:${addDays(f.today, 1)}`,
+      },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
   // Outfit selfies (#19) are the owner's like the calendar: every refusal
   // is a 404 and stores nothing (the upload is refused before its body is
   // read). A new one replaces the fixture's.
@@ -1845,6 +2152,45 @@ describe('authorization matrix', () => {
       ...EMPTY_STYLE_PROFILE,
       notes: OWNER_STYLE_NOTE,
     });
+
+    const tripName = `Trip ${tag}`;
+    const newTrip = async (name: string) => {
+      const created = await t.inject({
+        method: 'POST',
+        url: '/trips',
+        payload: { name, startsOn: today, endsOn: addDays(today, 1) },
+        headers: { cookie },
+      });
+      const id = Number(
+        /^\/trips\/(\d+)\?/.exec(created.headers.location as string)?.[1],
+      );
+      expect(id).toBeGreaterThan(0);
+      return id;
+    };
+    const tripId = await newTrip(tripName);
+    const otherTripId = await newTrip(`Other ${tag}`);
+    for (const [url, payload] of [
+      [`/trips/${tripId}/outfits`, { outfitId: String(outfitId), day: today }],
+      [`/trips/${tripId}/items`, { label: 'Charger' }],
+      [`/trips/${tripId}/packed`, { packed: String(garmentId) }],
+      [`/trips/${otherTripId}/items`, { label: 'Passport' }],
+    ] as const) {
+      const res = await t.inject({
+        method: 'POST',
+        url,
+        payload,
+        headers: { cookie },
+      });
+      expect(res.statusCode, url).toBe(303);
+    }
+    const [{ id: tripOutfitId }] = await t.db
+      .select({ id: tripOutfit.id })
+      .from(tripOutfit)
+      .where(eq(tripOutfit.tripId, tripId));
+    const [{ id: tripItemId }] = await t.db
+      .select({ id: tripItem.id })
+      .from(tripItem)
+      .where(eq(tripItem.tripId, tripId));
     return {
       garmentId,
       garmentName,
@@ -1865,6 +2211,11 @@ describe('authorization matrix', () => {
       planId,
       planName,
       planItemId,
+      tripId,
+      tripName,
+      tripOutfitId,
+      tripItemId,
+      otherTripId,
       ownerToken: async () => {
         const token = await createToken(t.db, t.owner.id, OWNER_TOKEN_NAME);
         if (!token.created) throw new Error('The owner holds too many tokens');
@@ -1898,6 +2249,10 @@ describe('authorization matrix', () => {
       'week_template',
       'week_plan',
       'week_plan_entry',
+      'trip',
+      'trip_outfit',
+      'trip_item',
+      'trip_garment_packed',
     ];
     const rows = await Promise.all(
       tables.map(async (table) => {

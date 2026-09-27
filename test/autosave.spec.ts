@@ -330,6 +330,62 @@ test('"In capsules": three quick toggles are all saved', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("a trip's packing list: three quick checks are all saved", async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await signIn(page, 'autosave-packing');
+  const names = ['Packed tee', 'Packed jeans', 'Packed sneakers'];
+  const ids = [
+    await createGarment(page, names[0], 'tops'),
+    await createGarment(page, names[1], 'bottoms'),
+    await createGarment(page, names[2], 'footwear'),
+  ];
+  const outfit = await page.request.post('/outfits', {
+    headers: {
+      ...SAME_ORIGIN,
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    data: new URLSearchParams([
+      ['name', 'Packed look'],
+      ...ids.flatMap((id, i) => [
+        ['category', ['tops', 'bottoms', 'footwear'][i]],
+        ['garmentId', String(id)],
+      ]),
+    ]).toString(),
+  });
+  const outfitId = new URL(outfit.url()).pathname.split('/').pop()!;
+  const trip = await page.request.post('/trips', {
+    form: { name: 'Packing', startsOn: '2030-10-01', endsOn: '2030-10-02' },
+    headers: SAME_ORIGIN,
+  });
+  const tripPath = new URL(trip.url()).pathname;
+  await page.request.post(`${tripPath}/outfits`, {
+    form: { outfitId },
+    headers: SAME_ORIGIN,
+  });
+  await page.goto(tripPath);
+
+  const saves = await slowSaves(page, /^\/trips\/\d+\/packed$/);
+  for (const name of names) {
+    await page.getByRole('checkbox', { name: new RegExp(name) }).check();
+  }
+  await saves.settled();
+
+  expect(saves.overlapped).toBe(false);
+  expect(saves.bodies.at(-1)!.getAll('packed')).toHaveLength(3);
+  await expect(page.locator('#trip-packed-summary')).toContainText(
+    '3 of 3 packed',
+  );
+  await page.reload();
+  for (const name of names) {
+    await expect(
+      page.getByRole('checkbox', { name: new RegExp(name) }),
+    ).toBeChecked();
+  }
+  expect(errors).toEqual([]);
+});
+
 test('the weather unit: two quick taps end on the second, and the offset reads in it', async ({
   page,
 }) => {

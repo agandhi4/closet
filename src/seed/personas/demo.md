@@ -84,6 +84,50 @@ Shopping bursts are the garments' Acquired dates: the move (2023-10-21), Black F
 reset (2026-05-09), the wedding (2026-08-15: tie and dress shoes), the fall refresh (2026-09-12: the
 chore coat, the waffle henley, the Red Wings).
 
+## Trips (#10)
+
+The Austin conference of the Events table, as the trip he planned before it: a trip is a standalone list
+of outfits for its days and occasions (not the calendar), and its packing list is derived from them. He
+packed the night before and left the office outfit and the rooftop evening's out of the duffel until the
+morning, so the list is partly packed. Dates are reference dates and move with the Events (see
+Simulation); the destination is located (rounded like the weather home) only when the app has weather on.
+Written through the trip form (`readTripForm`, `createTrip`), `setTripDestination`, `addTripOutfit`,
+`addTripItems`, `setItemsPacked` and `setPacked`.
+
+| Trip | From | To | Destination | Location | Notes |
+|---|---|---|---|---|---|
+| Austin conference | 2026-08-19 | 2026-08-21 | Austin, Texas, United States | 30.27, -97.74 | Hot: nothing that wrinkles, one bag. |
+
+### Trip outfits
+
+`Outfit` is a saved outfit's name; `Occasion` the part of the day it is for (`—`: not said).
+
+| Trip | Day | Occasion | Outfit |
+|---|---|---|---|
+| Austin conference | 2026-08-19 | all-day | Conference travel |
+| Austin conference | 2026-08-20 | workout | Run |
+| Austin conference | 2026-08-20 | work | Sweater-polo office |
+| Austin conference | 2026-08-20 | evening | Rooftop drinks |
+| Austin conference | 2026-08-21 | all-day | Conference travel |
+
+### Trip extras
+
+| Trip | Extra | Packed |
+|---|---|---|
+| Austin conference | Laptop and charger | yes |
+| Austin conference | Phone charger | yes |
+| Austin conference | Toiletry kit | yes |
+| Austin conference | Conference badge | no |
+| Austin conference | Sunscreen | no |
+
+### Trip packing
+
+The garments marked packed: the travel outfit and the run's; the office outfit and the rooftop tee not yet.
+
+| Trip | Garments packed |
+|---|---|
+| Austin conference | T08, B06, F02, G04, G03, T09, B13, F04, A01 |
+
 ## His taste (what he buys, and why)
 
 - **Elevated basics**: Uniqlo U and Everlane for the everyday tees; Buck Mason, COS and J.Crew for the
@@ -511,7 +555,7 @@ rules reach for the merino office outfit, the leather jacket and the hoodie.
 **What later features add** (plan section 10): wears and washes (#7, done: quantities 3 and 6, the
 worn entries as wears, laundry Sundays as washes, the Condition and Away tables), occasions on each entry (#13, done: work days, evenings and nights out, the morning workouts), weather (#14, done: his
 Fort Greene home in °F, the simulated days served as forecasts in the tests), the conference as a trip
-with a packing list (#10; the Travel capsule is its pool), the gallery's clashes (#9, done: the Clashes
+with a packing list (#10, done: the Trips tables, partly packed; the Travel capsule is its pool), the gallery's clashes (#9, done: the Clashes
 table, olive chinos + olive chore coat and the double denim), and the Next buys as wishlist items (#18,
 done: the Wishlist table, W01 replacing T21). The outfit gallery (#9, done) draws its ideas from the
 closet or a capsule, rotating what the simulation left unworn. Wardrobe plans (#34a, done: the style

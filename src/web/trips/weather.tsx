@@ -1,0 +1,184 @@
+import { conditionOf, rainFrom } from '../../weather/forecast';
+import {
+  displayTemperature,
+  type TemperatureUnit,
+} from '../../weather/temperature';
+import { PostForm } from '../auth/form';
+import { dayLabel } from '../calendar/labels';
+import { t } from '../i18n';
+import type { Place } from '../weather/open-meteo';
+import {
+  ConditionIcon,
+  fetchedLabel,
+  hourLabel,
+  UNIT_SYMBOLS,
+} from '../weather/views';
+import type { TripForecast, TripWeatherDay } from './forecast';
+import { shortDate } from './labels';
+import { tripIdeasUrl, tripUrl } from './urls';
+
+/**
+ * The trip page's weather fragment (GET /trips/:id/weather): the
+ * destination's forecast for the trip's days the forecast reaches, each day
+ * with its range, rain and what it asks of an outfit, and a link to ideas
+ * for it (the gallery with the destination's forecast); past the forecast,
+ * from when the rest arrives. The page loads it after itself, so a slow
+ * Open-Meteo never holds the trip up.
+ */
+export function TripWeather(props: {
+  tripId: number;
+  forecast: TripForecast;
+  timeZone: string;
+  now: Date;
+}) {
+  const { forecast } = props;
+  switch (forecast.kind) {
+    case 'over':
+      return (
+        <p class="text-sm text-base-content/50">{t('trips.WEATHER_OVER')}</p>
+      );
+    case 'no-location':
+      return (
+        <p class="text-sm text-base-content/50" data-trip-weather="no-location">
+          {t('trips.WEATHER_NO_PLACE')}
+        </p>
+      );
+    case 'unavailable':
+      return (
+        <p class="text-sm text-base-content/50">
+          {t('trips.WEATHER_UNAVAILABLE')}
+        </p>
+      );
+    case 'forecast':
+      return (
+        <div class="flex flex-col gap-1" data-trip-weather="forecast">
+          <ul class="flex flex-col divide-y divide-base-200">
+            {forecast.days.map((day) => (
+              <TripWeatherRow
+                tripId={props.tripId}
+                day={day}
+                unit={forecast.unit}
+              />
+            ))}
+          </ul>
+          {forecast.later && (
+            <p class="text-xs text-base-content/60" data-forecast-from="">
+              {t(
+                forecast.days.length === 0
+                  ? 'trips.FORECAST_FROM'
+                  : 'trips.FORECAST_LATER',
+                {
+                  day: shortDate(forecast.later.day),
+                  from: shortDate(forecast.later.from),
+                },
+              )}
+            </p>
+          )}
+          {forecast.fetchedAt && (
+            <p class="text-xs text-base-content/50">
+              {t('weather.AS_OF', {
+                time: fetchedLabel(
+                  forecast.fetchedAt,
+                  props.timeZone,
+                  props.now,
+                ),
+              })}
+            </p>
+          )}
+        </div>
+      );
+  }
+}
+
+function TripWeatherRow(props: {
+  tripId: number;
+  day: TripWeatherDay;
+  unit: TemperatureUnit;
+}) {
+  const { forecast, needs } = props.day;
+  const { unit } = props;
+  const rain = rainFrom(forecast, 0);
+  const notes = [
+    rain !== null ? t('weather.RAIN_FROM', { hour: hourLabel(rain) }) : null,
+    needs?.layer ? t('weather.TAKE_LAYER') : null,
+  ].filter((note) => note !== null);
+  return (
+    <li class="flex items-center gap-2 py-1.5" data-weather-day={forecast.day}>
+      <ConditionIcon condition={conditionOf(forecast.code)} />
+      <span class="flex flex-col min-w-0 flex-1">
+        <span class="text-sm">
+          <span class="font-medium">{dayLabel(forecast.day)}</span>{' '}
+          {t('weather.RANGE', {
+            low: displayTemperature(forecast.low, unit),
+            high: displayTemperature(forecast.high, unit),
+            unit: UNIT_SYMBOLS[unit],
+          })}
+        </span>
+        {(needs || notes.length > 0) && (
+          <span class="text-xs text-base-content/60">
+            {needs &&
+              t('gallery.FEELS', {
+                range: t('weather.RANGE', {
+                  low: displayTemperature(needs.feelsLike.min, unit),
+                  high: displayTemperature(needs.feelsLike.max, unit),
+                  unit: UNIT_SYMBOLS[unit],
+                }),
+              })}
+            {notes.map((note) => (
+              <span> · {note}</span>
+            ))}
+          </span>
+        )}
+      </span>
+      <a
+        href={tripIdeasUrl(props.tripId, { day: forecast.day })}
+        class="btn btn-ghost btn-xs"
+      >
+        {t('trips.DAY_IDEAS')}
+      </a>
+    </li>
+  );
+}
+
+/**
+ * GET /trips/:id/places's answer: a button per place the geocoding search
+ * found, each a native post setting it as the trip's destination (name and
+ * rounded location), back to the trip.
+ */
+export function TripPlaceResults(
+  props: { tripId: number; places: Place[] } | { failed: true },
+) {
+  if ('failed' in props) {
+    return <p class="text-sm text-error">{t('weather.SEARCH_FAILED')}</p>;
+  }
+  if (props.places.length === 0) {
+    return <p class="text-sm">{t('weather.NO_PLACES')}</p>;
+  }
+  return (
+    <ul class="flex flex-col gap-1">
+      {props.places.map((place) => (
+        <li>
+          <PostForm action={tripUrl(props.tripId, '/destination')} needsNetwork>
+            <input type="hidden" name="name" value={place.label} />
+            <input
+              type="hidden"
+              name="latitude"
+              value={String(place.location.latitude)}
+            />
+            <input
+              type="hidden"
+              name="longitude"
+              value={String(place.location.longitude)}
+            />
+            <button
+              type="submit"
+              class="btn btn-ghost btn-sm justify-start w-full"
+            >
+              {place.label}
+            </button>
+          </PostForm>
+        </li>
+      ))}
+    </ul>
+  );
+}

@@ -49,6 +49,15 @@ import {
 } from '../web/sharing/queries';
 import { insertGarment } from '../web/wardrobe/queries';
 import { setGarmentStatus } from '../web/wardrobe/status';
+import { setPacked } from '../web/trips/packed';
+import {
+  addTripItems,
+  addTripOutfit,
+  createTrip,
+  setItemsPacked,
+  setTripDestination,
+  tripItems,
+} from '../web/trips/queries';
 import { setHome, setTemperatureUnit } from '../web/weather/queries';
 import {
   NO_FORECAST,
@@ -101,6 +110,8 @@ export interface SeedReport {
   plans: number;
   /** generator_avoid pairs (the bible's Clashes). */
   avoided: number;
+  /** Trips (#10), with their outfits, extras and packed marks. */
+  trips: number;
   entries: number;
   worn: number;
   /** garment_wear rows the worn entries wrote. */
@@ -190,6 +201,12 @@ export async function seedPersona(
       }
       await writePlans(tx, userId, persona, wishlistIds);
       await writeClashes(tx, userId, persona, ids);
+      await writeTrips(tx, userId, persona, {
+        outfitIds,
+        garmentIds: ids,
+        shiftDays: life.eventShiftDays,
+        weatherEnabled: deps.weatherEnabled,
+      });
       const wears = await writeHistory(tx, life, {
         userId,
         outfitIds,
@@ -211,6 +228,7 @@ export async function seedPersona(
         capsules: persona.capsules.length,
         plans: persona.plans.length,
         avoided: persona.avoid.length,
+        trips: persona.trips.length,
         entries: life.entries.length,
         worn: life.entries.filter((e) => e.worn).length,
         wears,
@@ -221,7 +239,7 @@ export async function seedPersona(
       };
     });
     logger.info(
-      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.avoided} clashes, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears, ${report.selfies} selfies), ${report.autoPlanned} planned by Plan my week, ${report.washes} laundry days in ${report.ms}ms`,
+      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.avoided} clashes, ${report.trips} trips, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears, ${report.selfies} selfies), ${report.autoPlanned} planned by Plan my week, ${report.washes} laundry days in ${report.ms}ms`,
     );
     return report;
   } catch (error) {
@@ -403,6 +421,83 @@ async function writeClashes(
   for (const [a, b] of persona.avoid) {
     const outcome = await avoidPair(tx, userId, ids.get(a)!, ids.get(b)!);
     if (outcome !== 'added') throw new Error(`Clash ${a} + ${b}: ${outcome}`);
+  }
+}
+
+/**
+ * The bible's trips (#10) through the trip writers, as the pages make them:
+ * the trip form's fields (its dates moved with the Events), the located
+ * destination only when the app has weather (as the weather home), its
+ * outfits for their days and occasions (addTripOutfit), its extras and
+ * which are packed, and its packed garments (setPacked, which keeps only
+ * garments on the list; the bible checked every one is).
+ */
+async function writeTrips(
+  tx: Queryable,
+  userId: number,
+  persona: Persona,
+  ids: {
+    /** By the bible's outfit index. */
+    outfitIds: number[];
+    garmentIds: Map<string, number>;
+    shiftDays: number;
+    weatherEnabled: boolean;
+  },
+): Promise<void> {
+  const outfitIdOf = new Map(
+    persona.outfits.flatMap((outfit, index) =>
+      outfit.name ? [[outfit.name, ids.outfitIds[index]] as const] : [],
+    ),
+  );
+  const shifted = (day: IsoDate) => addDays(day, ids.shiftDays);
+  for (const trip of persona.trips) {
+    const tripId = await createTrip(tx, userId, {
+      ...trip.fields,
+      startsOn: shifted(trip.fields.startsOn),
+      endsOn: shifted(trip.fields.endsOn),
+    });
+    if (ids.weatherEnabled && trip.location && trip.fields.destination) {
+      await setTripDestination(tx, tripId, userId, {
+        name: trip.fields.destination,
+        location: trip.location,
+      });
+    }
+    for (const planned of trip.outfits) {
+      const added = await addTripOutfit(tx, {
+        tripId,
+        ownerId: userId,
+        outfitId: outfitIdOf.get(planned.outfit)!,
+        day: shifted(planned.day),
+        occasion: planned.occasion,
+      });
+      if (added !== 'added') {
+        throw new Error(`Trip ${trip.fields.name}: ${planned.outfit} ${added}`);
+      }
+    }
+    await addTripItems(
+      tx,
+      tripId,
+      userId,
+      trip.extras.map((extra) => extra.label),
+    );
+    const packedLabels = new Set(
+      trip.extras.filter((extra) => extra.packed).map((extra) => extra.label),
+    );
+    const items = await tripItems(tx, tripId);
+    await setItemsPacked(tx, {
+      tripId,
+      ownerId: userId,
+      packed: items
+        .filter((item) => packedLabels.has(item.label))
+        .map((item) => item.id),
+      unpacked: [],
+    });
+    await setPacked(tx, {
+      tripId,
+      ownerId: userId,
+      packed: trip.packed.map((id) => ids.garmentIds.get(id)!),
+      unpacked: [],
+    });
   }
 }
 

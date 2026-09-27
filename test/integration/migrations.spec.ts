@@ -104,6 +104,17 @@ describe('migrations', () => {
         'selfie_outfit_calendar_id_unique',
         'selfie_photo_id_unique',
         'selfie_owner_id_day_index',
+        // Trips (#10): the list (also owner_id's), a trip's outfits once a
+        // day or once undated (also trip_id's), an outfit's trips (the
+        // packed marks' pruning; outfit_id's), extras once per label (also
+        // trip_id's), packed marks (trip_id's) and a garment's (garment_id's).
+        'trip_owner_id_starts_on_index',
+        'trip_outfit_trip_id_outfit_id_day_unique',
+        'trip_outfit_trip_id_outfit_id_undated_unique',
+        'trip_outfit_outfit_id_index',
+        'trip_item_trip_id_lower_label_unique',
+        'trip_garment_packed_pkey',
+        'trip_garment_packed_garment_id_index',
       ]),
     );
   });
@@ -122,6 +133,7 @@ describe('migrations', () => {
             outfits: true,
             capsules: true,
             plans: true,
+            trips: true,
             calendarEntries: true,
             sharesGranted: true,
             sharesReceived: true,
@@ -144,7 +156,12 @@ describe('migrations', () => {
           },
         }),
         t.db.query.outfit.findMany({
-          with: { owner: true, slots: true, calendarEntries: true },
+          with: {
+            owner: true,
+            slots: true,
+            calendarEntries: true,
+            trips: true,
+          },
         }),
         t.db.query.outfitSlot.findMany({
           with: { outfit: true, garment: true },
@@ -173,6 +190,13 @@ describe('migrations', () => {
         t.db.query.planItemCandidate.findMany({
           with: { item: true, garment: true },
         }),
+        t.db.query.trip.findMany({
+          with: { owner: true, outfits: true, items: true },
+        }),
+        t.db.query.tripOutfit.findMany({
+          with: { trip: true, outfit: true },
+        }),
+        t.db.query.tripItem.findMany({ with: { trip: true } }),
       ]),
     ).resolves.toBeDefined();
     const owner = await t.db.query.user.findFirst({

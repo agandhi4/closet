@@ -145,7 +145,8 @@ function newBuildDestination(
   query: Static<typeof PageQuery>,
 ): OutfitDestination {
   const destination = parseDestination(query);
-  if (destination.kind !== 'none') return destination;
+  // Only a day prefills "Add to calendar"; trips add saved outfits (#10).
+  if (destination.kind === 'day') return destination;
   const day = parseIsoDate(query.scheduleDate);
   return day
     ? { kind: 'day', day, occasion: DEFAULT_OCCASION }

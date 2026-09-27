@@ -9,6 +9,7 @@ import { OCCASION_HINTS, type Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
 import { categoryRole } from '../../wardrobe/properties';
 import { FORECAST_DAYS, forecastDay } from '../../weather/forecast';
+import type { Location } from '../../weather/location';
 import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
 import type { TemperatureUnit } from '../../weather/temperature';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
@@ -20,6 +21,7 @@ import { lockOwner } from '../auth/queries';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import { createOutfit } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
+import { findWeatherSettings } from '../weather/queries';
 import { userWeather, type WeatherService } from '../weather/service';
 import {
   goesWith,
@@ -78,6 +80,13 @@ export interface IdeasInput {
   /** The day and occasion dressed for (the weather's window, the formality). */
   day: IsoDate;
   occasion: Occasion;
+  /**
+   * Where the day's weather is: absent for the person's own (home, or the
+   * phone's location while fresh); a trip's located destination (#10); null
+   * for a trip whose destination is not located, which has no weather
+   * rather than home's.
+   */
+  place?: Location | null;
   /** Only this capsule's garments (the owner's own capsule; the route checks). */
   capsuleId?: number;
   /** `?with=`: in every idea (styledGarment). */
@@ -162,7 +171,9 @@ export async function ideasFor(
 /**
  * What the day's forecast asks for the occasion, with the person's offset:
  * only for days the forecast covers (today to FORECAST_DAYS ahead), so a
- * past or far day never makes the request wait on Open-Meteo.
+ * past or far day never makes the request wait on Open-Meteo. The forecast
+ * is the person's own location's, or `input.place`'s (a trip's
+ * destination) through the same cache.
  */
 async function dayWeather(
   deps: { db: Db; weather: WeatherService | undefined },
@@ -177,12 +188,14 @@ async function dayWeather(
   ) {
     return null;
   }
-  const { settings, cached } = await userWeather(
-    deps.db,
-    deps.weather,
-    ownerId,
-    now,
-  );
+  const { place } = input;
+  const { settings, cached } =
+    place === undefined
+      ? await userWeather(deps.db, deps.weather, ownerId, now)
+      : {
+          settings: await findWeatherSettings(deps.db, ownerId),
+          cached: place && (await deps.weather.forecastFor(place)),
+        };
   const forecast = cached && forecastDay(cached.forecast, input.day);
   const needs =
     forecast && weatherNeeds(forecast, input.occasion, settings.offset);

@@ -3,11 +3,10 @@ import type { Db, Queryable } from '../../db/client';
 import { garmentWear, outfitCalendar } from '../../db/schema';
 import { compareOccasions, type Occasion } from '../../wardrobe/occasions';
 import type { IsoDate } from '../calendar/calendar-date';
-import { entryIdOf } from '../calendar/queries';
+import { wearOutfitOn, type WornOutfit } from '../calendar/queries';
 import { pickIdea, type PickResult } from '../gallery/ideas';
 import type { CollageGarment } from '../outfits/collage';
 import { SELFIE_WITH, type SelfieRef } from '../selfies/queries';
-import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
 
 /**
  * Today's reads (#15) and its one write of its own, "Wear this". The
@@ -112,19 +111,18 @@ export async function somethingWornOn(
 export interface WoreIdea {
   outfit: PickResult;
   entryId: number;
-  worn: Exclude<EntryWornOutcome, 'not-found' | 'future'>;
+  worn: WornOutfit['worn'];
 }
 
 /**
- * "Wear this" on one of Today's ideas: the idea becomes an outfit planned
- * today for `occasion` (pickIdea, which reuses an outfit of exactly these
- * garments), and that entry is marked worn (setEntryWorn), in one
- * transaction: a failure in either leaves neither. Idempotent: pickIdea
- * runs under lockOwner, so a double tap's second transaction waits for the
- * first, finds its outfit and its entry, and setEntryWorn finds it worn
- * already (`worn.changed` false). 'not-found' when a garment is not the
- * owner's or not in the closet (a card from before an archive), and
- * nothing is written.
+ * "Wear this" on one of Today's ideas: the idea becomes an outfit (pickIdea,
+ * which reuses an outfit of exactly these garments), planned today for
+ * `occasion` and marked worn (wearOutfitOn), in one transaction: a failure
+ * in either leaves neither. Idempotent: pickIdea runs under lockOwner, so a
+ * double tap's second transaction waits for the first, finds its outfit and
+ * its entry, and setEntryWorn finds it worn already (`worn.changed` false).
+ * 'not-found' when a garment is not the owner's or not in the closet (a card
+ * from before an archive), and nothing is written.
  */
 export function wearIdea(
   db: Queryable,
@@ -140,22 +138,18 @@ export function wearIdea(
   return db.transaction(async (tx) => {
     const outfit = await pickIdea(tx, ownerId, {
       garmentIds: input.garmentIds,
-      plan: { day: today, occasion: input.occasion },
     });
     if (outfit === 'not-found') return 'not-found';
-    // Planned just now or already on today: either way there is one.
-    const entryId = (await entryIdOf(tx, ownerId, today, outfit.id))!;
-    const worn = await setEntryWorn(tx, {
-      entryId,
+    const worn = await wearOutfitOn(tx, {
       ownerId,
-      worn: true,
+      outfitId: outfit.id,
+      day: today,
+      occasion: input.occasion,
       at: input.at,
       today,
     });
-    // Neither can happen: the entry was just found, and it is today's.
-    if (worn === 'not-found' || worn === 'future') {
-      throw new Error(`Entry ${entryId} of today could not be marked worn`);
-    }
-    return { outfit, entryId, worn };
+    // Today is never after today.
+    if (worn === 'future') throw new Error('Today is after today');
+    return { outfit, entryId: worn.entryId, worn: worn.worn };
   });
 }

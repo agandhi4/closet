@@ -217,4 +217,60 @@ describe('MCP over the seed personas', () => {
     );
     expect(Array.isArray(laundry.garments)).toBe(true);
   });
+
+  it('reads Theo’s Austin conference (#10) and its packing list; the owner’s token sees no trip', async () => {
+    const { trips } = await tool<{
+      trips: { id: number; name: string; phase: string; outfits: number }[];
+    }>(t, demoToken, 'list_trips');
+    expect(trips).toEqual([
+      expect.objectContaining({
+        name: 'Austin conference',
+        phase: 'past',
+        outfits: 5,
+      }),
+    ]);
+    const read = await tool<{
+      located: boolean;
+      packing: {
+        garments: number;
+        packed: number;
+        groups: {
+          role: string;
+          garments: {
+            name: string;
+            wears: number;
+            copiesNeeded: number;
+            warnings: unknown[];
+          }[];
+        }[];
+      };
+      extras: { label: string; packed: boolean }[];
+    }>(t, demoToken, 'get_trip', { tripId: trips[0].id });
+    expect(read.located).toBe(true);
+    expect(read.packing).toMatchObject({ garments: 15, packed: 9 });
+    const tops = read.packing.groups.find((g) => g.role === 'top')!;
+    // The travel tee on both flying days: two wears, two copies (k = 1).
+    expect(tops.garments).toContainEqual(
+      expect.objectContaining({
+        name: 'Charcoal heavyweight tee',
+        wears: 2,
+        copiesNeeded: 2,
+      }),
+    );
+    // A finished trip's list is a record: no warnings.
+    expect(
+      read.packing.groups.flatMap((g) => g.garments.flatMap((r) => r.warnings)),
+    ).toEqual([]);
+    expect(read.extras.filter((e) => e.packed)).toHaveLength(3);
+    const owners = await tool<{ trips: unknown[] }>(
+      t,
+      ownerToken,
+      'list_trips',
+    );
+    expect(owners.trips).toEqual([]);
+    const refused = await callTool(t, ownerToken, 'get_trip', {
+      tripId: trips[0].id,
+    });
+    expect(refused.value.error).toBe('Trip not found');
+  });
 });

@@ -30,6 +30,7 @@ import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import type { SelfieRef } from '../selfies/queries';
 import { inCloset, ownedGarment } from '../wardrobe/status';
+import { prunePacked, tripsOfOutfit } from '../trips/packed';
 import { detachOutfitWears } from '../wears/queries';
 import {
   type CategoryHead,
@@ -456,12 +457,13 @@ export function createOutfit(
 
 /**
  * POST /outfits/:id: fields, slots (replaced whole: the form posts every row)
- * and the optional calendar entry, in one transaction. 'not-found' for an
- * outfit that is not the owner's, before anything is written. Editing an
- * outfit is editing the calendar entries that hold it (the calendar chip's
- * edit link is this form), so the week planner's entries of it become the
- * person's (planned_by 'user', #16): its re-plan never swaps an outfit
- * someone changed.
+ * and the optional calendar entry, in one transaction, with the packed marks
+ * of garments the edit took off a trip's list (prunePacked, #10).
+ * 'not-found' for an outfit that is not the owner's, before anything is
+ * written. Editing an outfit is editing the calendar entries that hold it
+ * (the calendar chip's edit link is this form), so the week planner's
+ * entries of it become the person's (planned_by 'user', #16): its re-plan
+ * never swaps an outfit someone changed.
  */
 export function updateOutfit(
   db: Db,
@@ -498,6 +500,8 @@ export function updateOutfit(
         ),
       )
       .returning({ id: outfitCalendar.id });
+    // A garment the edit took out may have left a trip's packing list (#10).
+    await prunePacked(tx, await tripsOfOutfit(tx, id));
     const schedule = input.plan
       ? (await insertEntry(tx, { ownerId, outfitId: id, ...input.plan }))
           .outcome
@@ -520,7 +524,9 @@ export function updateOutfit(
  * outfit_calendar would erase the garments' wear history (CLAUDE.md, Wears
  * and washes). The entries' selfies stay too, by their foreign key
  * (selfie.outfit_calendar_id, ON DELETE SET NULL): each becomes a look kept
- * on its day, with its photo, which the calendar still shows (#19).
+ * on its day, with its photo, which the calendar still shows (#19). Its
+ * trips lose it by trip_outfit's cascade, and their packed marks for the
+ * garments no other trip outfit holds go too (prunePacked, #10).
  * Undefined when the outfit is not the owner's; else the wears kept.
  */
 export function deleteOutfit(
@@ -537,7 +543,10 @@ export function deleteOutfit(
       .for('update');
     if (!found) return undefined;
     const wearsKept = await detachOutfitWears(tx, id, ownerId);
+    // Its trips lose it (trip_outfit cascades) and maybe garments with it.
+    const trips = await tripsOfOutfit(tx, id);
     await tx.delete(outfit).where(eq(outfit.id, id));
+    await prunePacked(tx, trips);
     return { wearsKept };
   });
 }

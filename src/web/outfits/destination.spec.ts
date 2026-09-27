@@ -26,7 +26,11 @@ describe('OutfitDestination (?for=)', () => {
       'day:2026-02-30',
       'day:2026-09-29T00:00:00Z',
       '2026-09-29',
-      'trip:12',
+      'trip:',
+      'trip:x',
+      'trip:0',
+      'trip:99999999999',
+      'trip:12x',
       'week:2026-09-27',
     ]) {
       expect(
@@ -51,5 +55,50 @@ describe('OutfitDestination (?for=)', () => {
       }),
     ).toEqual({ kind: 'day', day: '2026-09-29', occasion: 'night-out' });
     expect(destinationQuery({ kind: 'none' })).toBe('');
+  });
+
+  it('reads a trip, with a day and an occasion when given', () => {
+    expect(parseDestination({ for: 'trip:12' })).toEqual({
+      kind: 'trip',
+      tripId: 12,
+    });
+    expect(
+      parseDestination({ for: 'trip:12:2026-10-06', occasion: 'evening' }),
+    ).toEqual({
+      kind: 'trip',
+      tripId: 12,
+      day: '2026-10-06',
+      occasion: 'evening',
+    });
+    // No occasion is not all day on a trip: the outfit is simply for the trip.
+    expect(parseDestination({ for: 'trip:12', occasion: 'dinner' })).toEqual({
+      kind: 'trip',
+      tripId: 12,
+    });
+    // A malformed day is no day; the trip stays.
+    expect(parseDestination({ for: 'trip:12:2026-02-30' })).toEqual({
+      kind: 'trip',
+      tripId: 12,
+    });
+  });
+
+  it('writes a trip back as the query it was read from', () => {
+    for (const destination of [
+      { kind: 'trip', tripId: 7 },
+      { kind: 'trip', tripId: 7, day: '2026-10-06' },
+      { kind: 'trip', tripId: 7, occasion: 'workout' },
+      { kind: 'trip', tripId: 7, day: '2026-10-06', occasion: 'night-out' },
+    ] as const) {
+      const params = new URLSearchParams(destinationQuery(destination));
+      expect(
+        parseDestination({
+          for: params.get('for') ?? undefined,
+          occasion: params.get('occasion') ?? undefined,
+        }),
+      ).toEqual(destination);
+    }
+    expect(
+      destinationQuery({ kind: 'trip', tripId: 7, day: '2026-10-06' }),
+    ).toBe('for=trip:7:2026-10-06');
   });
 });

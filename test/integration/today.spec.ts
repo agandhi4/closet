@@ -432,5 +432,56 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
         );
       expect(nights).toHaveLength(7);
     });
+
+    it('a trip (#10) that starts today is on: "Wearing this today" wears today, the day after is refused', async () => {
+      const { garmentId, outfitId } = await newOutfit(`Trip ${at}`);
+      const created = await post('/trips', {
+        name: `Trip ${at}`,
+        startsOn: today,
+        endsOn: tomorrow,
+      });
+      expect(created.statusCode).toBe(303);
+      const tripId = Number(
+        /^\/trips\/(\d+)/.exec(String(created.headers.location))![1],
+      );
+      expect(
+        (
+          await post(`/trips/${tripId}/outfits`, {
+            outfitId: String(outfitId),
+            day: today,
+          })
+        ).statusCode,
+      ).toBe(303);
+      const page = unescapeHtml((await get(`/trips/${tripId}`)).body);
+      expect(page).toContain(`data-trip-day="${today}"`);
+      expect(page).toMatch(/\/outfits\/\d+\/wear"/);
+      const [{ tripOutfitId }] = [
+        ...page.matchAll(/data-trip-outfit="(?<tripOutfitId>\d+)"/g),
+      ].map((m) => m.groups!);
+      expect(
+        (await post(`/trips/${tripId}/outfits/${tripOutfitId}/wear`))
+          .statusCode,
+      ).toBe(303);
+      expect(await wearDays(garmentId)).toEqual([{ day: today }]);
+      // A trip that starts tomorrow is not on yet.
+      const later = await post('/trips', {
+        name: `Later ${at}`,
+        startsOn: tomorrow,
+        endsOn: tomorrow,
+      });
+      const laterId = Number(
+        /^\/trips\/(\d+)/.exec(String(later.headers.location))![1],
+      );
+      await post(`/trips/${laterId}/outfits`, { outfitId: String(outfitId) });
+      const laterPage = unescapeHtml((await get(`/trips/${laterId}`)).body);
+      expect(laterPage).not.toMatch(/\/wear"/);
+      const [{ laterOutfit }] = [
+        ...laterPage.matchAll(/data-trip-outfit="(?<laterOutfit>\d+)"/g),
+      ].map((m) => m.groups!);
+      expect(
+        (await post(`/trips/${laterId}/outfits/${laterOutfit}/wear`))
+          .statusCode,
+      ).toBe(409);
+    });
   });
 });

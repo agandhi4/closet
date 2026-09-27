@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
 import { outfit as outfitTable, planItem } from '../../src/db/schema';
+import { addDays } from '../../src/web/calendar/calendar-date';
 import {
   createGarment,
   createWishlistItem,
@@ -36,6 +37,8 @@ export interface PageFixture {
   /** A wardrobe plan (#34) with one item. */
   planId: number;
   planItemId: number;
+  /** A trip (#10) on now, the outfit on today, packed, with an extra. */
+  tripId: number;
 }
 
 /**
@@ -125,6 +128,31 @@ export async function createPageFixture(
     .from(planItem)
     .where(eq(planItem.planId, planId));
 
+  const today = t.today();
+  const trip = await t.inject({
+    method: 'POST',
+    url: '/trips',
+    payload: {
+      name: 'Lisbon',
+      destination: 'Lisbon',
+      startsOn: today,
+      endsOn: addDays(today, 2),
+    },
+    headers,
+  });
+  expect(trip.statusCode).toBe(303);
+  const tripId = Number(
+    /^\/trips\/(\d+)\?/.exec(trip.headers.location as string)?.[1],
+  );
+  for (const [url, payload] of [
+    [`/trips/${tripId}/outfits`, { outfitId: String(outfitId), day: today }],
+    [`/trips/${tripId}/items`, { label: 'Charger' }],
+    [`/trips/${tripId}/packed`, { packed: String(garmentId) }],
+  ] as const) {
+    const res = await t.inject({ method: 'POST', url, payload, headers });
+    expect(res.statusCode, url).toBe(303);
+  }
+
   const garment = (await garmentRow(t, garmentId))!;
   const [outfit] = await t.db
     .select({ shareableId: outfitTable.shareableId })
@@ -140,6 +168,7 @@ export async function createPageFixture(
     selfieFileName,
     planId,
     planItemId,
+    tripId,
   };
 }
 
@@ -192,6 +221,13 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app('/outfits/ideas'),
     app('/outfits/ideas?for=day:2030-10-09&occasion=evening'),
     app(`/outfits/ideas?capsule=${f.capsuleId}&with=${f.garmentId}`),
+    app('/trips'),
+    app('/trips/new'),
+    app(`/trips/${f.tripId}`),
+    app(`/trips/${f.tripId}/edit`),
+    app(`/trips/${f.tripId}/outfits/new`),
+    app(`/trips/${f.tripId}/outfits/new?day=2030-10-09&occasion=evening`),
+    app(`/outfits/ideas?for=trip:${f.tripId}`),
     app('/wardrobe/insights'),
     app('/wardrobe/insights?unworn=30'),
     app('/auth/profile'),

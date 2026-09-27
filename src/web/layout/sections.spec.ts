@@ -22,6 +22,9 @@ describe('sectionOf', () => {
     ['/outfits/7/edit?returnTo=/calendar', 'outfits'],
     ['/calendar', 'calendar'],
     ['/calendar?week=2026-09-20&calMonth=2026-10', 'calendar'],
+    ['/trips', 'calendar'],
+    ['/trips/3', 'calendar'],
+    ['/trips/3/outfits/new?day=2026-10-05', 'calendar'],
     ['/', 'today'],
     ['/?from=push', 'today'],
   ])('puts %s in %s', (path, section) => {
@@ -42,6 +45,7 @@ describe('sectionOf', () => {
     '/wardrobes',
     '/outfitsx',
     '/calendar-old',
+    '/tripsy',
   ])('puts %s in no section', (path) => {
     expect(sectionOf(path)).toBeUndefined();
   });

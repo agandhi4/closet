@@ -5,6 +5,7 @@ import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
 import { imageUrl } from '../files/image-url';
 import { deleteEntrySelfie, SELFIE_WITH } from '../selfies/queries';
+import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
 import type { IsoDate } from './calendar-date';
 import type { CalendarEntry } from './calendar-view';
 
@@ -176,6 +177,64 @@ export async function entryIdOf(
       ),
     );
   return row?.id;
+}
+
+/** What wearOutfitOn did: the entry, whether it was new, and its worn change. */
+export interface WornOutfit {
+  entryId: number;
+  scheduled: ScheduleOutcome;
+  worn: Exclude<EntryWornOutcome, 'not-found' | 'future'>;
+}
+
+/**
+ * "Wearing this" for an outfit the caller found to be the owner's: planned
+ * on `day` for `occasion` (insertEntry: the outfit already on the day keeps
+ * its entry and its occasion) and that entry marked worn (setEntryWorn), in
+ * one transaction, so the calendar stays the one history of which outfit
+ * was worn when (plan section 1). Today's "Wear this" (wearIdea, after
+ * pickIdea) and a trip's "Wearing this today" (#10, src/web/trips). Safe
+ * to repeat: a second call finds the entry (a concurrent one waits on the
+ * unique key, then reads it) and setEntryWorn finds it worn (`changed`
+ * false). 'future' for a day after `today`, before anything is written.
+ */
+export function wearOutfitOn(
+  db: Queryable,
+  input: {
+    ownerId: number;
+    outfitId: number;
+    day: IsoDate;
+    occasion: Occasion;
+    at: Date;
+    today: IsoDate;
+  },
+): Promise<WornOutfit | 'future'> {
+  const { ownerId, outfitId, day, occasion } = input;
+  if (day > input.today) return Promise.resolve('future');
+  return db.transaction(async (tx) => {
+    const scheduled = await insertEntry(tx, {
+      ownerId,
+      outfitId,
+      day,
+      occasion,
+    });
+    // Planned just now or already on the day: either way there is one.
+    const entryId =
+      scheduled.outcome === 'scheduled'
+        ? scheduled.id
+        : (await entryIdOf(tx, ownerId, day, outfitId))!;
+    const worn = await setEntryWorn(tx, {
+      entryId,
+      ownerId,
+      worn: true,
+      at: input.at,
+      today: input.today,
+    });
+    // Neither can happen: the entry was just found, and its day is not ahead.
+    if (worn === 'not-found' || worn === 'future') {
+      throw new Error(`Entry ${entryId} on ${day} could not be marked worn`);
+    }
+    return { entryId, scheduled: scheduled.outcome, worn };
+  });
 }
 
 /** The day of the owner's entry; undefined when it is not theirs. */

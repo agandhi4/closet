@@ -19,7 +19,7 @@ export const IDEAS_PATH = '/outfits/ideas';
 export const ALREADY_SAVED_FLAG = 'alreadySaved';
 
 export interface GalleryState {
-  /** `?for=`: where a pick goes (OutfitDestination; trips #10 later). */
+  /** `?for=`: where a pick goes (OutfitDestination: a day, a trip #10, or none). */
   destination: OutfitDestination;
   /** `?capsule=`: only this capsule's garments. */
   capsuleId?: number;

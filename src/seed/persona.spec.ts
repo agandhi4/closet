@@ -8,6 +8,27 @@ describe('persona bibles', () => {
     expect(() => loadPersona(key)).not.toThrow();
   });
 
+  it('reads Theo’s Austin conference (#10): its days, outfits, extras and packed garments', () => {
+    const [trip] = loadPersona('demo').trips;
+    expect(trip.fields).toMatchObject({
+      name: 'Austin conference',
+      startsOn: '2026-08-19',
+      endsOn: '2026-08-21',
+    });
+    expect(trip.location).toEqual({ latitude: 30.27, longitude: -97.74 });
+    expect(trip.outfits.map((o) => [o.day, o.occasion, o.outfit])).toEqual([
+      ['2026-08-19', 'all-day', 'Conference travel'],
+      ['2026-08-20', 'workout', 'Run'],
+      ['2026-08-20', 'work', 'Sweater-polo office'],
+      ['2026-08-20', 'evening', 'Rooftop drinks'],
+      ['2026-08-21', 'all-day', 'Conference travel'],
+    ]);
+    expect(trip.extras.filter((e) => e.packed)).toHaveLength(3);
+    expect(trip.packed).toHaveLength(9);
+    expect(loadPersona('fresh').trips).toEqual([]);
+    expect(loadPersona('sparse').trips).toEqual([]);
+  });
+
   it('reads Theo whole: 83 garments, 26 outfits, the week, events and laundry', () => {
     const demo = loadPersona('demo');
     expect(demo.account).toEqual({
@@ -278,6 +299,10 @@ describe('persona bibles', () => {
       .map((day) => `| ${day} | weekend | ${day === 'Wed' ? wednesday : '—'} |`)
       .join('\n')}\n`;
 
+  // A trip over a closet of two, its outfit "Look" holding F01 only.
+  const trips = (outfitRow: string, packedRow: string, endsOn = '2026-08-21') =>
+    `${bible('| F01 | Shoes | sneakers | white | — |\n| F02 | Boots | boots | brown | — |')}\n## Saved outfits\n\n| # | Name | Occasion | Bands | Garments |\n|---|---|---|---|---|\n| 1 | Look | travel | any | F01 |\n\n## Trips\n\n| Trip | From | To | Destination | Location | Notes |\n|---|---|---|---|---|---|\n| Trip | 2026-08-19 | ${endsOn} | Austin | 30.27, -97.74 | — |\n\n### Trip outfits\n\n| Trip | Day | Occasion | Outfit |\n|---|---|---|---|\n${outfitRow}\n\n### Trip packing\n\n| Trip | Garments packed |\n|---|---|\n${packedRow}\n`;
+
   it.each([
     [
       'a calendar occasion the app does not have',
@@ -347,6 +372,26 @@ describe('persona bibles', () => {
       'a condition the app does not have',
       `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Condition\n\n| Garment | Condition | Note |\n|---|---|---|\n| F01 | shabby | — |\n`,
       /not a garment form post/,
+    ],
+    [
+      'a trip outfit on a day outside the trip',
+      trips('| Trip | 2026-08-22 | evening | Look |', '| Trip | F01 |'),
+      /trip "Trip" on 2026-08-22: not a day of the trip/,
+    ],
+    [
+      'a trip outfit that is not a saved outfit',
+      trips('| Trip | 2026-08-20 | evening | Nope |', '| Trip | F01 |'),
+      /no saved outfit is called "Nope"/,
+    ],
+    [
+      'a packed garment in no outfit of the trip',
+      trips('| Trip | 2026-08-20 | — | Look |', '| Trip | F01, F02 |'),
+      /Trip packing: F02 is in no outfit of "Trip"/,
+    ],
+    [
+      'a trip ending before it starts',
+      trips('| Trip | 2026-08-20 | — | Look |', '| Trip | F01 |', '2026-08-18'),
+      /ENDS_BEFORE_START|endsOn/,
     ],
     [
       'away for a garment that is not there',

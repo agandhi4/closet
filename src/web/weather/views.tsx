@@ -80,7 +80,8 @@ export function conditionLabel(condition: Condition): string {
   return tKey(`weather.condition.${condition}`);
 }
 
-function Icon({ condition }: { condition: Condition }) {
+/** A condition's icon with its name for screen readers (the line, the chips, a trip's days). */
+export function ConditionIcon({ condition }: { condition: Condition }) {
   return (
     <span role="img" aria-label={conditionLabel(condition)}>
       {ICONS[condition]}
@@ -127,7 +128,7 @@ export function WeatherLine(props: {
       id={WEATHER_LINE_ID}
       class="flex flex-wrap items-baseline gap-x-2 mb-3 px-2 text-sm text-base-content/70"
     >
-      <Icon condition={line.condition} />
+      <ConditionIcon condition={line.condition} />
       <span class="font-medium text-base-content">
         {t('weather.RANGE', {
           low: line.low,
@@ -193,7 +194,7 @@ export function WeatherDay({ chip }: { chip: DayChip }) {
       class="ml-auto flex items-baseline gap-1 text-xs text-base-content/60"
       data-weather-day={chip.day}
     >
-      <Icon condition={chip.condition} />
+      <ConditionIcon condition={chip.condition} />
       {t('weather.DAY_RANGE', { low: chip.low, high: chip.high })}
     </span>
   );

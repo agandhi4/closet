@@ -17,6 +17,10 @@ import {
   planItem,
   selfie,
   styleProfile,
+  trip,
+  tripGarmentPacked,
+  tripItem,
+  tripOutfit,
   user,
   userWeather,
   wardrobePlan,
@@ -164,6 +168,22 @@ describe('seed personas', () => {
       .innerJoin(file, eq(file.id, selfie.photoId))
       .where(eq(selfie.ownerId, id))
       .orderBy(asc(selfie.day), asc(selfie.id));
+    const trips = await t.db.query.trip.findMany({
+      where: eq(trip.ownerId, id),
+      orderBy: asc(trip.id),
+      with: {
+        outfits: { orderBy: [asc(tripOutfit.day), asc(tripOutfit.id)] },
+        items: { orderBy: asc(tripItem.id) },
+      },
+    });
+    const packed = await t.db
+      .select({
+        tripId: tripGarmentPacked.tripId,
+        id: tripGarmentPacked.garmentId,
+      })
+      .from(tripGarmentPacked)
+      .innerJoin(trip, eq(trip.id, tripGarmentPacked.tripId))
+      .where(eq(trip.ownerId, id));
     const shares = await t.db
       .select({
         grantee: wardrobeShare.granteeId,
@@ -238,6 +258,24 @@ describe('seed personas', () => {
       avoided: avoided
         .map(({ a, b }) => [ids.get(a), ids.get(b)].sort())
         .sort(),
+      // Trips (#10): by name, ids differ between runs.
+      trips: trips.map((row) => ({
+        name: row.name,
+        destination: row.destination,
+        located: row.latitude !== null,
+        startsOn: row.startsOn,
+        endsOn: row.endsOn,
+        outfits: row.outfits.map((o) => [
+          names.get(o.outfitId),
+          o.day,
+          o.occasion,
+        ]),
+        extras: row.items.map((item) => [item.label, item.packed]),
+        packed: packed
+          .filter((p) => p.tripId === row.id)
+          .map((p) => ids.get(p.id))
+          .sort(),
+      })),
       shares: shares.length,
     };
   };
@@ -474,8 +512,40 @@ describe('seed personas', () => {
       expect(await snapshot(email)).toMatchObject({
         styleProfile: null,
         plans: [],
+        trips: [],
       });
     }
+    // His Austin conference (#10), from the bible's Trips tables: partly
+    // packed, the destination located (the seed runs with weather on).
+    expect(demo.trips).toEqual([
+      {
+        name: 'Austin conference',
+        destination: 'Austin, Texas, United States',
+        located: true,
+        startsOn: '2026-08-19',
+        endsOn: '2026-08-21',
+        outfits: [
+          ['Conference travel', '2026-08-19', 'all-day'],
+          ['Run', '2026-08-20', 'workout'],
+          ['Sweater-polo office', '2026-08-20', 'work'],
+          ['Rooftop drinks', '2026-08-20', 'evening'],
+          ['Conference travel', '2026-08-21', 'all-day'],
+        ],
+        extras: [
+          ['Laptop and charger', true],
+          ['Phone charger', true],
+          ['Toiletry kit', true],
+          ['Conference badge', false],
+          ['Sunscreen', false],
+        ],
+        packed: expect.arrayContaining([
+          'Charcoal heavyweight tee',
+          'Olive chinos',
+          'Running tee',
+        ]),
+      },
+    ]);
+    expect(demo.trips[0].packed).toHaveLength(9);
 
     const files = await storedFiles();
     const again = await seedAll();

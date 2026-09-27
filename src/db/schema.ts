@@ -1286,6 +1286,176 @@ export const generatorAvoid = pgTable(
   ],
 );
 
+// A trip (#10; docs/plans/2026-09-26-wardrobe-features.md, section 4): a
+// standalone list of outfits for some days away and the packing list derived
+// from them (owner decision: not a date range over the calendar). Private,
+// like outfits: every route and tool is the signed-in owner's, shares never
+// reach it. Written only by src/web/trips/queries.ts. The destination is a
+// name the owner types and, once picked from the weather's geocoding search
+// (#14), its location rounded to 2 decimals like every stored coordinate
+// (src/weather/location.ts), which gives the trip its forecast. A new name
+// clears the location it no longer describes.
+export const trip = pgTable(
+  'trip',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    // Trimmed, never blank; bounded by the route (TRIP_NAME_MAX).
+    name: text('name').notNull(),
+    destination: text('destination'),
+    latitude: numeric('latitude', { precision: 4, scale: 2, mode: 'number' }),
+    longitude: numeric('longitude', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    }),
+    // The first and last day away, both included ('YYYY-MM-DD').
+    startsOn: date('starts_on', { mode: 'string' }).notNull(),
+    endsOn: date('ends_on', { mode: 'string' }).notNull(),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // The list (upcoming first) and the owner_id foreign key's index.
+    index('trip_owner_id_starts_on_index').on(table.ownerId, table.startsOn),
+    check('trip_dates_check', sql`${table.endsOn} >= ${table.startsOn}`),
+    check(
+      'trip_location_check',
+      sql`(${table.latitude} is null) = (${table.longitude} is null) and (${table.latitude} is null or ${table.destination} is not null)`,
+    ),
+    check(
+      'trip_coordinates_check',
+      sql`${table.latitude} between -90 and 90 and ${table.longitude} between -180 and 180`,
+    ),
+    foreignKey({
+      name: 'trip_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// An outfit of the owner's on a trip, optionally for one of its days and an
+// occasion ("Day 2, dinner"; plan section 8). The same outfit is on a trip
+// once per day (the two partial unique indexes: once with a day, once
+// without), so adding it again is idempotent (on conflict do nothing).
+// `day` is always one of the trip's days: addTripOutfit refuses any other,
+// and updateTrip clears the days its new dates leave out, in the same
+// transaction. Deleting the outfit or the trip deletes the row.
+export const tripOutfit = pgTable(
+  'trip_outfit',
+  {
+    id: serial('id').primaryKey(),
+    tripId: integer('trip_id').notNull(),
+    outfitId: integer('outfit_id').notNull(),
+    day: date('day', { mode: 'string' }),
+    // src/wardrobe/occasions.ts OCCASIONS; null: not said.
+    occasion: text('occasion').$type<Occasion>(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // Also the index of the trip_id foreign key (both lead with it).
+    uniqueIndex('trip_outfit_trip_id_outfit_id_day_unique')
+      .on(table.tripId, table.outfitId, table.day)
+      .where(sql`${table.day} is not null`),
+    uniqueIndex('trip_outfit_trip_id_outfit_id_undated_unique')
+      .on(table.tripId, table.outfitId)
+      .where(sql`${table.day} is null`),
+    index('trip_outfit_outfit_id_index').on(table.outfitId),
+    check(
+      'trip_outfit_occasion_check',
+      sql`${table.occasion} in (${sqlList(OCCASIONS)})`,
+    ),
+    foreignKey({
+      name: 'trip_outfit_trip_id_foreign',
+      columns: [table.tripId],
+      foreignColumns: [trip.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'trip_outfit_outfit_id_foreign',
+      columns: [table.outfitId],
+      foreignColumns: [outfit.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// A trip's extras: what goes in the bag that is not a garment (a charger,
+// toiletries, the passport), each packed or not. A label is on a trip once
+// whatever its case, so adding one again, or copying extras from a previous
+// trip twice, adds nothing (on conflict do nothing). In the order added.
+export const tripItem = pgTable(
+  'trip_item',
+  {
+    id: serial('id').primaryKey(),
+    tripId: integer('trip_id').notNull(),
+    // Trimmed, never blank; bounded by the route (TRIP_ITEM_MAX).
+    label: text('label').notNull(),
+    packed: boolean('packed').default(false).notNull(),
+  },
+  (table) => [
+    // Also the index of the trip_id foreign key. trip_id as an expression,
+    // for drizzle-kit's introspection (see capsule_owner_id_lower_name_unique).
+    uniqueIndex('trip_item_trip_id_lower_label_unique').on(
+      sql`${table.tripId}`,
+      sql`lower(${table.label})`,
+    ),
+    foreignKey({
+      name: 'trip_item_trip_id_foreign',
+      columns: [table.tripId],
+      foreignColumns: [trip.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// A garment marked packed for a trip: a row means packed. Keyed by garment,
+// not by trip outfit, so the mark survives any edit that keeps the garment
+// on the trip's packing list (src/wardrobe/packing.ts, derived on every
+// read). A mark whose garment left the list (its outfit was removed from the
+// trip, edited, or deleted) is ignored by the reads and deleted by the
+// writer that removed it (prunePacked, src/web/trips/queries.ts), so the
+// garment comes back unpacked. Deleting the garment or the trip deletes it.
+export const tripGarmentPacked = pgTable(
+  'trip_garment_packed',
+  {
+    tripId: integer('trip_id').notNull(),
+    garmentId: integer('garment_id').notNull(),
+  },
+  (table) => [
+    // Also the index of the trip_id foreign key.
+    primaryKey({
+      name: 'trip_garment_packed_pkey',
+      columns: [table.tripId, table.garmentId],
+    }),
+    index('trip_garment_packed_garment_id_index').on(table.garmentId),
+    foreignKey({
+      name: 'trip_garment_packed_trip_id_foreign',
+      columns: [table.tripId],
+      foreignColumns: [trip.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'trip_garment_packed_garment_id_foreign',
+      columns: [table.garmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
 /** What a wardrobe share lets the grantee do: read, or read and write. */
 export type SharePermission = 'VIEW' | 'MANAGE';
 
@@ -1465,6 +1635,7 @@ export const userRelations = relations(user, ({ one, many }) => ({
   outfits: many(outfit),
   capsules: many(capsule),
   plans: many(wardrobePlan),
+  trips: many(trip),
   calendarEntries: many(outfitCalendar),
   weather: one(userWeather),
   sharesGranted: many(wardrobeShare, { relationName: 'grantor' }),
@@ -1576,6 +1747,7 @@ export const outfitRelations = relations(outfit, ({ one, many }) => ({
   owner: one(user, { fields: [outfit.ownerId], references: [user.id] }),
   slots: many(outfitSlot),
   calendarEntries: many(outfitCalendar),
+  trips: many(tripOutfit),
 }));
 
 export const outfitSlotRelations = relations(outfitSlot, ({ one }) => ({
@@ -1605,6 +1777,24 @@ export const outfitCalendarRelations = relations(
     selfie: one(selfie),
   }),
 );
+
+export const tripRelations = relations(trip, ({ one, many }) => ({
+  owner: one(user, { fields: [trip.ownerId], references: [user.id] }),
+  outfits: many(tripOutfit),
+  items: many(tripItem),
+}));
+
+export const tripOutfitRelations = relations(tripOutfit, ({ one }) => ({
+  trip: one(trip, { fields: [tripOutfit.tripId], references: [trip.id] }),
+  outfit: one(outfit, {
+    fields: [tripOutfit.outfitId],
+    references: [outfit.id],
+  }),
+}));
+
+export const tripItemRelations = relations(tripItem, ({ one }) => ({
+  trip: one(trip, { fields: [tripItem.tripId], references: [trip.id] }),
+}));
 
 export const wardrobeShareRelations = relations(wardrobeShare, ({ one }) => ({
   grantor: one(user, {

@@ -109,6 +109,11 @@ export interface SimulatedLife {
    * whole weeks, so the wardrobe stands where it did relative to the anchor.
    */
   shiftDays: number;
+  /**
+   * Days added to the Events' reference dates (and the trips', #10): whole
+   * 52-week years, so they keep their season.
+   */
+  eventShiftDays: number;
   /** The history's first day and the anchor (its last). */
   first: IsoDate;
   anchor: IsoDate;
@@ -155,6 +160,7 @@ export function simulate(persona: Persona, anchor: IsoDate): SimulatedLife {
   );
   const life: SimulatedLife = {
     shiftDays,
+    eventShiftDays: eventShift,
     first,
     anchor,
     entries: [],

@@ -266,6 +266,22 @@ test('demo: Theo, insights', async ({ page }) => {
   await shot(page, '52-demo-insights-style-this');
 });
 
+test('demo: Theo, his Austin conference (#10)', async ({ page }) => {
+  await signInAs(page, 'demo');
+  await shot(page, '61-demo-trips', '/trips');
+  await page.getByRole('link', { name: /Austin conference/ }).click();
+  // The packing list derived from the trip's outfits, partly packed.
+  await expect(page.locator('#trip-packed-summary')).toContainText(
+    '9 of 15 packed',
+  );
+  await shot(page, '62-demo-trip');
+  await page.locator('[data-add-outfit]').first().click();
+  await expect(
+    page.getByRole('heading', { name: 'Add an outfit' }),
+  ).toBeVisible();
+  await shot(page, '63-demo-trip-add-outfit');
+});
+
 test('sparse: Dana, untagged and degraded', async ({ page }) => {
   await signInAs(page, 'sparse');
   await shot(page, '12-sparse-wardrobe', '/wardrobe');
@@ -289,6 +305,7 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '54-fresh-insights', '/wardrobe/insights');
   // Today with nothing in the closet: what ideas need.
   await shot(page, '57-fresh-today', '/');
+  await shot(page, '64-fresh-trips', '/trips');
   await shot(
     page,
     '27-fresh-calendar-plan',

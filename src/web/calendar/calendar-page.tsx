@@ -8,6 +8,7 @@ import { SelfieView } from '../selfies/views';
 import type { ViewContext } from '../view-context';
 import { WeatherDaySlot, WeatherSlot } from '../weather/views';
 import type { CalendarDayView, CalendarView, MonthLink } from './calendar-view';
+import { CalendarTabs } from './calendar-tabs';
 import { DAY_LETTERS, DAY_NAMES, MONTH_NAMES } from './labels';
 import { OccasionRow } from './occasion-row';
 import type { PlannedBanner } from '../week-plan/plan';
@@ -18,7 +19,8 @@ import {
 } from '../week-plan/views';
 
 /**
- * GET /calendar: the mini month, then one column per day of the week (Sunday
+ * GET /calendar: the Week and Trips tabs (#10), the mini month, then one
+ * column per day of the week (Sunday
  * to Saturday) with its entries stacked in occasion order (OccasionRow), the
  * selfies kept after their outfit was deleted (DayLooks, #19), and a link
  * to plan one more (the plan page, GET /calendar/plan). Today's
@@ -43,6 +45,7 @@ export function CalendarPage(props: {
     <Layout ctx={ctx} title={t('CALENDAR_PAGE_TITLE')}>
       <Navbar ctx={ctx} />
       <main class="p-4 pt-20 pb-24">
+        <CalendarTabs active="week" />
         <WeatherSlot
           ctx={ctx}
           days={{

@@ -4,11 +4,11 @@ import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
-import { imageUrl } from '../files/image-url';
-import { BackLink, HangerIcon } from '../layout/parts';
+import { BackLink } from '../layout/parts';
 import { ideasUrl } from '../gallery/urls';
 import { destinationQuery } from '../outfits/destination';
 import type { OutfitSummary } from '../outfits/queries';
+import { SavedOutfitButton } from '../outfits/saved-outfit-button';
 import type { ViewContext } from '../view-context';
 import type { IsoDate } from './calendar-date';
 import { dayLabel, occasionLabel } from './labels';
@@ -100,9 +100,9 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
               <input type="hidden" name="occasion" value={model.occasion} />
               <input type="hidden" name="week" value={model.day} />
               {model.outfits.map((outfit) => (
-                <SavedOutfit
+                <SavedOutfitButton
                   outfit={outfit}
-                  plannedFor={model.planned.get(outfit.id)}
+                  note={plannedNote(model.planned.get(outfit.id))}
                 />
               ))}
             </PostForm>
@@ -118,59 +118,12 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
   );
 }
 
-/** Garments shown per saved outfit: three fit beside the name at phone width. */
-const THUMBS = 3;
-
 /**
- * One saved outfit as a button that plans it (its id is the submitter's
- * value). Already on the day: disabled, saying for which occasion, since
- * the same outfit is on a day once (outfit_calendar's unique key).
+ * An outfit already on the day is disabled, saying for which occasion: the
+ * same outfit is on a day once (outfit_calendar's unique key).
  */
-function SavedOutfit(props: {
-  outfit: OutfitSummary;
-  plannedFor: Occasion | undefined;
-}) {
-  const { outfit, plannedFor } = props;
+function plannedNote(plannedFor: Occasion | undefined): string | undefined {
   return (
-    <button
-      type="submit"
-      name="outfitId"
-      value={String(outfit.id)}
-      class="card card-side bg-base-100 shadow-sm items-center gap-3 p-2 text-left disabled:opacity-50"
-      disabled={plannedFor !== undefined}
-    >
-      <span class="flex gap-1 shrink-0">
-        {outfit.garments.slice(0, THUMBS).map((garment) =>
-          garment.photo ? (
-            <img
-              src={imageUrl(garment.photo, 'thumb')}
-              alt=""
-              class="size-12 rounded object-cover"
-              width="48"
-              height="48"
-              loading="lazy"
-              decoding="async"
-            />
-          ) : (
-            <span class="size-12 rounded bg-base-200 flex items-center justify-center">
-              <HangerIcon
-                class="size-5 text-base-content/30"
-                strokeWidth="1.5"
-              />
-            </span>
-          ),
-        )}
-      </span>
-      <span class="flex flex-col min-w-0">
-        <span class="font-medium truncate">
-          {outfit.name || t('UNTITLED_OUTFIT')}
-        </span>
-        {plannedFor && (
-          <span class="text-xs text-base-content/60">
-            {t('CALENDAR_PLAN_ON_DAY')} · {occasionLabel(plannedFor)}
-          </span>
-        )}
-      </span>
-    </button>
+    plannedFor && `${t('CALENDAR_PLAN_ON_DAY')} · ${occasionLabel(plannedFor)}`
   );
 }

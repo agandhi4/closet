@@ -11,8 +11,9 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { BackLink, EmptyState } from '../layout/parts';
 import { OutfitCollage } from '../outfits/collage';
-import { destinationQuery } from '../outfits/destination';
+import { destinationQuery, destinationTarget } from '../outfits/destination';
 import { OutfitTabs } from '../outfits/outfit-tabs';
+import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
 import { UNIT_SYMBOLS } from '../weather/views';
 import { ideaName, type IdeasWeather, shuffledSeed } from './ideas';
@@ -26,7 +27,7 @@ import { type GalleryState, ideasUrl } from './urls';
  * child is a sentinel that loads the next page when it scrolls into view
  * and replaces itself (GET /outfits/ideas/more), as the wardrobe grid's
  * does. A card's primary action follows `?for=` (OutfitDestination): plan
- * it on that day, else save it. Every write is data-needs-network: offline
+ * it on that day, add it to that trip (#10), else save it. Every write is data-needs-network: offline
  * the cards the worker cached still show, the writes are disabled and the
  * page says why.
  */
@@ -38,6 +39,8 @@ export interface IdeasPageModel {
   state: SeededState;
   /** The day and occasion the ideas are for (today, all day, without `?for=`). */
   planning: { day: IsoDate; occasion: Occasion };
+  /** The trip a pick goes to (`for=trip:ID`), the owner's. */
+  trip: { id: number; name: string } | undefined;
   capsule: CapsuleRef | undefined;
   /** The owner's capsules, for the scope menu. */
   capsules: CapsuleRef[];
@@ -100,10 +103,24 @@ export function IdeasPage(props: { ctx: ViewContext; model: IdeasPageModel }) {
  * this"'s garment, each removable.
  */
 function Scope({ model }: { model: IdeasPageModel }) {
-  const { state, planning, capsule, capsules, styled } = model;
+  const { state, planning, trip, capsule, capsules, styled } = model;
   const { destination } = state;
   return (
     <div class="flex flex-col gap-2 px-2">
+      {destination.kind === 'trip' && trip && (
+        <div class="flex items-center gap-2" data-ideas-trip={trip.id}>
+          <BackLink href={tripUrl(trip.id)} />
+          <p class="text-sm min-w-0">
+            <span class="font-medium">
+              {t('gallery.FOR_TRIP', { name: trip.name })}
+            </span>{' '}
+            · {dayLabel(planning.day)}
+            {destination.occasion && (
+              <> · {occasionLabel(destination.occasion)}</>
+            )}
+          </p>
+        </div>
+      )}
       {destination.kind === 'day' && (
         <div class="flex items-center gap-2">
           <BackLink href={`/calendar/plan?${destinationQuery(destination)}`} />
@@ -232,11 +249,15 @@ function StateFields({ state }: { state: SeededState }) {
   const { destination } = state;
   return (
     <>
-      {destination.kind === 'day' && (
-        <>
-          <input type="hidden" name="for" value={`day:${destination.day}`} />
-          <input type="hidden" name="occasion" value={destination.occasion} />
-        </>
+      {destination.kind !== 'none' && (
+        <input
+          type="hidden"
+          name="for"
+          value={destinationTarget(destination)}
+        />
+      )}
+      {destination.kind !== 'none' && destination.occasion && (
+        <input type="hidden" name="occasion" value={destination.occasion} />
       )}
       {state.capsuleId !== undefined && (
         <input type="hidden" name="capsule" value={String(state.capsuleId)} />
@@ -282,7 +303,9 @@ function IdeaCard(props: {
                 ? t('gallery.PICK_DAY', {
                     weekday: t(DAY_NAMES[dayOfWeek(destination.day)]),
                   })
-                : t('gallery.PICK_SAVE')}
+                : destination.kind === 'trip'
+                  ? t('gallery.PICK_TRIP')
+                  : t('gallery.PICK_SAVE')}
             </button>
           </PostForm>
           <details class="dropdown dropdown-top dropdown-end">

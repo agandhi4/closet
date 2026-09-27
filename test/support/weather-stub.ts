@@ -52,6 +52,16 @@ export const PLACES: Readonly<Record<string, readonly StubPlace[]>> = {
       country: 'United States',
     },
   ],
+  // A trip's destination (#10: the demo's Austin conference, the specs' trips).
+  austin: [
+    {
+      name: 'Austin',
+      latitude: 30.26715,
+      longitude: -97.74306,
+      admin1: 'Texas',
+      country: 'United States',
+    },
+  ],
   springfield: [
     {
       name: 'Springfield',

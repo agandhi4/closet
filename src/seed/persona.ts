@@ -22,6 +22,8 @@ import {
   weekTemplatePost,
 } from '../web/week-plan/template';
 import type { TemplateSlot, Weekday } from '../wardrobe/week';
+import type { TripFields } from '../web/trips/queries';
+import { readTripForm, TripBody } from '../web/trips/validation';
 import { normalizeCategory } from '../web/wardrobe/garment';
 import {
   CARE_NOTE_MAX,
@@ -198,6 +200,21 @@ export interface SeedPlan {
   items: SeedPlanItem[];
 }
 
+/**
+ * A trip of the bible's (#10, the Trips tables): the trip form's fields
+ * (reference dates, moved with the Events by the seed), its located
+ * destination, its outfits by saved outfit name for a day and occasion, its
+ * extras and which garments are marked packed.
+ */
+export interface SeedTrip {
+  fields: TripFields;
+  location: Location | null;
+  outfits: { day: IsoDate; occasion: Occasion | undefined; outfit: string }[];
+  extras: { label: string; packed: boolean }[];
+  /** Garment ids of the bible's, each in one of the trip's outfits. */
+  packed: string[];
+}
+
 /** A plan table's row: the item, and its candidate products (34b). */
 export interface SeedPlanItem {
   fields: PlanItemFields;
@@ -233,6 +250,7 @@ export interface Persona {
   /** Sunday first; null without a history. */
   week: SeedDay[] | null;
   events: SeedEvent[];
+  trips: SeedTrip[];
 }
 
 /** Where the bibles live, from src/ and dist/ alike (the image copies them). */
@@ -317,7 +335,172 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
     events: find('From', 'To', 'Wears').flatMap((table) =>
       table.rows.map((row) => readEvent(source, row, names)),
     ),
+    trips: readTrips(source, {
+      trips: find('Trip', 'From', 'To', 'Destination'),
+      outfits: find('Trip', 'Day', 'Occasion', 'Outfit'),
+      extras: find('Trip', 'Extra', 'Packed'),
+      packed: find('Trip', 'Garments packed'),
+      outfitsByName: new Map(
+        outfits.flatMap((o) => (o.name ? [[o.name, o] as const] : [])),
+      ),
+    }),
   };
+}
+
+/**
+ * The Trips tables (#10): each trip through the trip form's own two
+ * layers, its outfits (saved outfits by name, on one of its days, a known
+ * occasion or `—`), its extras (`yes`/`no` packed) and its packed garments,
+ * which must be in one of its outfits (the app keeps a mark only for a
+ * garment on the list). A row naming no trip of the table is refused.
+ */
+function readTrips(
+  source: string,
+  tables: {
+    trips: BibleTable[];
+    outfits: BibleTable[];
+    extras: BibleTable[];
+    packed: BibleTable[];
+    outfitsByName: Map<string, SeedOutfit>;
+  },
+): SeedTrip[] {
+  const rows = (of: BibleTable[]) => of.flatMap((table) => table.rows);
+  const trips = new Map<string, SeedTrip>();
+  for (const row of rows(tables.trips)) {
+    const trip = readTrip(source, row);
+    if (trips.has(trip.fields.name)) {
+      throw new BibleError(source, `trip "${trip.fields.name}" listed twice`);
+    }
+    trips.set(trip.fields.name, trip);
+  }
+  const tripOf = (row: Record<string, string>, table: string) => {
+    const found = trips.get(plain(row.Trip));
+    if (!found) {
+      throw new BibleError(source, `${table}: no trip "${plain(row.Trip)}"`);
+    }
+    return found;
+  };
+  for (const row of rows(tables.outfits)) {
+    const trip = tripOf(row, 'Trip outfits');
+    trip.outfits.push(readTripOutfit(source, trip, row, tables.outfitsByName));
+  }
+  for (const row of rows(tables.extras)) {
+    tripOf(row, 'Trip extras').extras.push(readTripExtra(source, row));
+  }
+  for (const row of rows(tables.packed)) {
+    const trip = tripOf(row, 'Trip packing');
+    trip.packed.push(
+      ...readTripPacked(source, trip, row, tables.outfitsByName),
+    );
+  }
+  return [...trips.values()];
+}
+
+// Through the trip form's own two layers, like a capsule.
+function readTrip(source: string, row: Record<string, string>): SeedTrip {
+  const where = `${source} trip "${plain(row.Trip)}"`;
+  const post = {
+    name: plain(row.Trip),
+    destination: plain(row.Destination),
+    startsOn: plain(row.From),
+    endsOn: plain(row.To),
+    notes: plain(row.Notes ?? ''),
+  };
+  if (!Value.Check(TripBody, post)) {
+    throw new BibleError(where, 'not a trip form post');
+  }
+  const form = readTripForm(post);
+  if (!form.ok) throw new BibleError(where, JSON.stringify(form.errors));
+  return {
+    fields: form.fields,
+    location: readLocation(where, 'Location', plain(row.Location ?? '')),
+    outfits: [],
+    extras: [],
+    packed: [],
+  };
+}
+
+// A saved outfit by name, on one of the trip's days, a known occasion or none.
+function readTripOutfit(
+  source: string,
+  trip: SeedTrip,
+  row: Record<string, string>,
+  outfitsByName: Map<string, SeedOutfit>,
+): SeedTrip['outfits'][number] {
+  const where = `${source} trip "${trip.fields.name}" on ${row.Day}`;
+  const day = readDate(where, row.Day);
+  const outfit = plain(row.Outfit);
+  const occasion = plain(row.Occasion);
+  if (!day || day < trip.fields.startsOn || day > trip.fields.endsOn) {
+    throw new BibleError(where, 'not a day of the trip');
+  }
+  if (!outfitsByName.has(outfit)) {
+    throw new BibleError(where, `no saved outfit is called "${outfit}"`);
+  }
+  if (occasion && !isOccasion(occasion)) {
+    throw new BibleError(where, `not an occasion: ${occasion}`);
+  }
+  return {
+    day,
+    occasion: occasion ? (occasion as Occasion) : undefined,
+    outfit,
+  };
+}
+
+function readTripExtra(
+  source: string,
+  row: Record<string, string>,
+): SeedTrip['extras'][number] {
+  const packed = plain(row.Packed);
+  if (packed !== 'yes' && packed !== 'no') {
+    throw new BibleError(source, `Trip extras: "${packed}" is not yes or no`);
+  }
+  return { label: plain(row.Extra), packed: packed === 'yes' };
+}
+
+// Only garments of the trip's outfits: the app keeps no other mark.
+function readTripPacked(
+  source: string,
+  trip: SeedTrip,
+  row: Record<string, string>,
+  outfitsByName: Map<string, SeedOutfit>,
+): string[] {
+  const onList = new Set(
+    trip.outfits.flatMap((o) => outfitsByName.get(o.outfit)!.garmentIds),
+  );
+  const packed = list(row['Garments packed']);
+  const stray = packed.find((id) => !onList.has(id));
+  if (stray) {
+    throw new BibleError(
+      source,
+      `Trip packing: ${stray} is in no outfit of "${trip.fields.name}"`,
+    );
+  }
+  return packed;
+}
+
+/** "30.27, -97.74", already rounded as the app stores it; none for `—`. */
+function readLocation(
+  where: string,
+  label: string,
+  text: string,
+): Location | null {
+  if (!text) return null;
+  const [latitude, longitude] = text
+    .split(',')
+    .map((part) => Number(part.trim()));
+  const location = roundedLocation(latitude, longitude);
+  if (
+    !location ||
+    location.latitude !== latitude ||
+    location.longitude !== longitude
+  ) {
+    throw new BibleError(
+      where,
+      `${label} is not a rounded "latitude, longitude": ${text}`,
+    );
+  }
+  return location;
 }
 
 /**
@@ -433,21 +616,13 @@ function readWeather(
 ): PersonaWeather | null {
   const name = fields['Weather home'];
   if (name === undefined) return null;
-  const [latitude, longitude] = required(source, fields, 'Weather location')
-    .split(',')
-    .map((part) => Number(part.trim()));
-  const location = roundedLocation(latitude, longitude);
+  // Required, so never blank: readLocation answers a location or throws.
+  const location = readLocation(
+    source,
+    'Weather location',
+    required(source, fields, 'Weather location'),
+  )!;
   const unit = required(source, fields, 'Temperature unit');
-  if (
-    !location ||
-    location.latitude !== latitude ||
-    location.longitude !== longitude
-  ) {
-    throw new BibleError(
-      source,
-      `Weather location is not a rounded "latitude, longitude": ${fields['Weather location']}`,
-    );
-  }
   if (!isTemperatureUnit(unit)) {
     throw new BibleError(source, `Temperature unit is not one: ${unit}`);
   }
