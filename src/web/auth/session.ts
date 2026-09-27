@@ -36,8 +36,10 @@ type CookieVerdict = { auth: AuthContext } | { rejected: string };
  * deleted elsewhere (no row), a rotated ACCESS_TOKEN_SECRET or a garbled
  * token (the signature), and expiry. This is the one place such a device is
  * noticed, so it is where it drops the account's HTTP cache (selfies,
- * pages); the session gate's redirect or 401 then carries both headers. A
- * request without the cookie gets neither: nothing was signed in there.
+ * pages); the session gate's redirect or 401 then carries both headers, and
+ * the login page it lands on drops the browser's push subscription
+ * (PushSignedOut, src/web/push/settings.tsx). A request without the cookie
+ * gets neither header: nothing was signed in there.
  */
 export function createSessionResolver(deps: {
   db: Db;

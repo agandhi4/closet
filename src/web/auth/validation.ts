@@ -1,5 +1,6 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { t } from '../i18n';
+import { PUSH_ENDPOINT_FIELD } from '../push/settings';
 import { passwordProblems } from './passwords';
 
 /**
@@ -46,6 +47,11 @@ export const ChangePasswordBody = Type.Object({
   currentPassword: Password,
   newPassword: Password,
   confirmPassword: Password,
+  // This device's push subscription (<push-endpoint>, public/js/push.js):
+  // the one the new password leaves in place. Empty when the browser has
+  // none; absent from pages cached before it. Only ever compared with this
+  // user's own rows, so anything else in it keeps nothing.
+  [PUSH_ENDPOINT_FIELD]: Type.Optional(Type.String({ maxLength: 2048 })),
 });
 export type ChangePasswordBody = Static<typeof ChangePasswordBody>;
 

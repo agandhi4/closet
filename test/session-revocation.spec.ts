@@ -1,12 +1,7 @@
-import { type Browser, expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import sharp from 'sharp';
 import { createGarment, createOutfit } from './support/e2e-data';
-import {
-  E2E_PASSWORD,
-  SAME_ORIGIN,
-  signIn,
-  signUpHeaders,
-} from './support/e2e-session';
+import { changePasswordElsewhere, signIn } from './support/e2e-session';
 import { householdToday } from './support/household-today';
 import {
   cachedPaths,
@@ -45,26 +40,6 @@ test.describe('a session revoked elsewhere', () => {
         return false;
       }
     }, url);
-
-  /** Signs `email` in on a second device and changes the password there. */
-  async function changePasswordElsewhere(browser: Browser, email: string) {
-    const other = await browser.newContext();
-    const login = await other.request.post('/auth/login', {
-      form: { email, password: E2E_PASSWORD },
-      headers: signUpHeaders(),
-    });
-    expect(login.ok()).toBe(true);
-    const changed = await other.request.post('/auth/change-password', {
-      form: {
-        currentPassword: E2E_PASSWORD,
-        newPassword: 'NewPassword456!',
-        confirmPassword: 'NewPassword456!',
-      },
-      headers: SAME_ORIGIN,
-    });
-    expect(new URL(changed.url()).pathname).toBe('/auth/profile');
-    return other;
-  }
 
   test('the next request clears the cookie and the cached selfie; the other device stays signed in', async ({
     page,

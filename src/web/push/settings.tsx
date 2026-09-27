@@ -95,6 +95,40 @@ export function PushSettings() {
   );
 }
 
+/**
+ * The change-password form's field naming this device's push subscription
+ * (ChangePasswordBody): a new password revokes every other device's
+ * subscription (revokeDevices) and keeps this one's, reminders and all.
+ * Only the browser knows its endpoint, so <push-endpoint> (public/js/
+ * push.js) fills the hidden input. Left empty (no subscription, or a submit
+ * before the script ran), this device's row goes with the others and the
+ * next signed-in page sends the subscription again, without its reminders.
+ */
+export const PUSH_ENDPOINT_FIELD = 'pushEndpoint';
+
+export function PushEndpointField() {
+  return (
+    <push-endpoint>
+      <input type="hidden" name={PUSH_ENDPOINT_FIELD} value="" />
+    </push-endpoint>
+  );
+}
+
+/**
+ * On the login page shown signed out: tells push.js this browser has no
+ * session, so it drops its push subscription (a signed-out device receives
+ * nobody's notifications). The sign-out button's POST drops it in the
+ * service worker; this covers a session that ended away from the device (a
+ * password changed elsewhere, `user:set-password`, a rotated secret,
+ * expiry), which the device finds on its next request: the session resolver
+ * clears the cookie and the gate sends it here. An element rather than a
+ * script, so it also acts when a boosted tap lands here (htmx swaps the
+ * body; a custom element upgrades wherever it arrives).
+ */
+export function PushSignedOut() {
+  return <push-signed-out hidden></push-signed-out>;
+}
+
 /** POST /push/test's answer, swapped under the button. */
 export function TestResult({ report }: { report: SendReport }) {
   if (report.devices === 0) return <p>{t('PUSH_TEST_NO_DEVICES')}</p>;

@@ -12,7 +12,7 @@ export interface CliContext {
 
 /**
  * The frame of a maintenance command (reconcile.cli.ts,
- * set-password.cli.ts): the server's configuration and logger, a database
+ * set-password.cli.ts, revoke-push.cli.ts): the server's configuration and logger, a database
  * this build's migrations have fully reached (the CLIs never migrate; see
  * requireCurrentSchema), the command, then the pool closed. The command
  * resolves to the exit status; anything it throws is exit status 1 with the

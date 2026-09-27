@@ -16,6 +16,10 @@
  *    this device's reminders (#15): only the browser knows which device it
  *    is (its subscription's endpoint), so it posts that and htmx swaps the
  *    server's form into the slot.
+ *  - <push-endpoint> (the change-password form) names this device, so the
+ *    new password keeps its subscription; <push-signed-out> (the login page
+ *    shown signed out) drops the browser's subscription. pwa.js also imports
+ *    this module on a signed-out page that carries <push-signed-out>.
  */
 
 const SUBSCRIBE_URL = '/push/subscribe';
@@ -209,6 +213,58 @@ class PushSettingsElement extends HTMLElement {
   }
 }
 
-// Modules run once per document; the element upgrades wherever a boosted
-// navigation later swaps <push-settings> in.
+/**
+ * The change-password form's hidden field (PushEndpointField,
+ * src/web/push/settings.tsx), filled with this browser's subscription so
+ * the new password keeps this device's notifications while revoking every
+ * other device's.
+ */
+class PushEndpointElement extends HTMLElement {
+  connectedCallback() {
+    const input = this.querySelector('input');
+    syncSubscription()
+      .then((subscription) => {
+        if (input && subscription) input.value = subscription.endpoint;
+      })
+      .catch((error) =>
+        console.warn('[push] could not name this device for the form', error),
+      );
+  }
+}
+
+/**
+ * Drops this browser's subscription where the server says nobody is signed
+ * in (<push-signed-out> on the login page, PushSignedOut in
+ * src/web/push/settings.tsx): the session ended away from this device (a
+ * password changed elsewhere, a rotated secret, expiry), so it must stop
+ * receiving the account's notifications. Browser side only: the server
+ * already removed the row with the password change, and otherwise removes it
+ * when the push service answers 410 for the dropped subscription. No
+ * permission check: a subscription is dropped whatever the permission says.
+ * The sign-out button's own drop is the service worker's.
+ */
+async function dropSubscription() {
+  if (!pushSupported()) return;
+  // getRegistration, not ready: without a worker (PWA off, a first visit)
+  // there is no subscription, and ready would never resolve.
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+  synced = Promise.resolve(null);
+  if (!subscription) return;
+  await subscription.unsubscribe();
+  console.info('[push] signed out: this device push subscription dropped');
+}
+
+class PushSignedOutElement extends HTMLElement {
+  connectedCallback() {
+    dropSubscription().catch((error) =>
+      console.warn('[push] could not drop the push subscription', error),
+    );
+  }
+}
+
+// Modules run once per document; the elements upgrade wherever a boosted
+// navigation later swaps them in.
 customElements.define('push-settings', PushSettingsElement);
+customElements.define('push-endpoint', PushEndpointElement);
+customElements.define('push-signed-out', PushSignedOutElement);

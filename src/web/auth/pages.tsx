@@ -5,7 +5,11 @@ import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { STYLE_PROFILE_PATH } from '../plans/urls';
-import { PushSettings } from '../push/settings';
+import {
+  PushEndpointField,
+  PushSettings,
+  PushSignedOut,
+} from '../push/settings';
 import type { ViewContext } from '../view-context';
 import type { TemplateSlot } from '../../wardrobe/week';
 import type { WeatherSettings as Settings } from '../weather/queries';
@@ -81,6 +85,9 @@ export function LoginPage(props: {
   return (
     <AccountShell ctx={ctx} ogTitle={title} ogDescription={description}>
       <WebPageData ctx={ctx} name={title} description={description} />
+      {/* Signed out only: a signed-in visitor opening this page keeps
+          their notifications. */}
+      {ctx.pwaEnabled && !ctx.user && <PushSignedOut />}
       <h1 class="text-2xl font-bold mb-4">{title}</h1>
       {props.failed && <ErrorAlert message={t('LOGIN_FAILED')} />}
       <PostForm action="/auth/login">
@@ -318,6 +325,9 @@ export function ChangePasswordPage(props: {
             autocomplete="new-password"
             errors={errors.confirmPassword}
           />
+          {/* Keeps this device's notifications through the change; every
+              other device's go with its session. */}
+          {props.ctx.pwaEnabled && <PushEndpointField />}
           <SubmitButton label={t('CHANGE_PASSWORD')} />
         </Fieldset>
       </PostForm>

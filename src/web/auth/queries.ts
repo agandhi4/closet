@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { file, pendingPhoto, user } from '../../db/schema';
+import { revokeDevices } from '../push/queries';
 import { revokeAllTokens } from './personal-tokens';
 
 /**
@@ -70,24 +71,36 @@ export async function insertUser(
   return row;
 }
 
+/** What a new password took away, besides every other session. */
+export interface PasswordChange {
+  account: AccountRow;
+  revokedTokens: number;
+  revokedDevices: number;
+}
+
 /**
  * The one writer of a password. The new hash ends every session issued
  * before it (the fingerprint), and the same transaction revokes every
- * personal access token: a new password is how an account is taken back.
+ * personal access token and every push subscription but `keepEndpoint`'s
+ * (the device making the change, if it has one): a new password is how an
+ * account is taken back, and a device signed out by it must stop receiving
+ * the account's notifications at once (revokeDevices).
  */
 export function updatePasswordHash(
   db: Db,
   id: number,
   passwordHash: string,
-): Promise<AccountRow> {
+  keepEndpoint?: string,
+): Promise<PasswordChange> {
   return db.transaction(async (tx) => {
-    const [row] = await tx
+    const [account] = await tx
       .update(user)
       .set({ password: passwordHash })
       .where(eq(user.id, id))
       .returning(accountColumns);
-    await revokeAllTokens(tx, id);
-    return row;
+    const revokedTokens = await revokeAllTokens(tx, id);
+    const revokedDevices = await revokeDevices(tx, id, keepEndpoint);
+    return { account, revokedTokens, revokedDevices };
   });
 }
 

@@ -1,5 +1,5 @@
-import { and, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
-import type { Db } from '../../db/client';
+import { and, eq, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
+import type { Db, Queryable } from '../../db/client';
 import { pushReminder, userDevice } from '../../db/schema';
 import type { IsoDate } from '../calendar/calendar-date';
 import type {
@@ -111,6 +111,47 @@ export async function devicesOf(
       ),
     )
     .orderBy(userDevice.id);
+}
+
+/**
+ * The one remover of an account's devices when its sessions are revoked: a
+ * signed-out device receives nobody's notifications, and a device signed
+ * out away from itself would otherwise keep getting the account's reminders
+ * (which name planned outfits on its lock screen) until its push service
+ * said 410. `keep` is the endpoint of the device making the change (the
+ * change-password form posts it), which stays signed in and keeps its row
+ * and reminders; an endpoint that is not one of this user's keeps nothing.
+ * Callers: updatePasswordHash (the change-password route and
+ * `user:set-password`, in the password's own transaction) and
+ * `push:revoke-all` (after an ACCESS_TOKEN_SECRET rotation). The devices'
+ * reminder claims go with them (push_reminder cascades). Returns how many
+ * were removed.
+ */
+export async function revokeDevices(
+  tx: Queryable,
+  userId: number,
+  keep?: string,
+): Promise<number> {
+  // user_device_user_id_index.
+  const removed = await tx
+    .delete(userDevice)
+    .where(
+      and(
+        eq(userDevice.userId, userId),
+        keep === undefined ? undefined : ne(userDevice.pushEndpoint, keep),
+      ),
+    )
+    .returning({ id: userDevice.id });
+  return removed.length;
+}
+
+/** The users with at least one device: whose `push:revoke-all` revokes. */
+export async function usersWithDevices(tx: Queryable): Promise<number[]> {
+  const rows = await tx
+    .selectDistinct({ userId: userDevice.userId })
+    .from(userDevice)
+    .orderBy(userDevice.userId);
+  return rows.map((row) => row.userId);
 }
 
 /** Drops a device its push service reports gone (404/410). */

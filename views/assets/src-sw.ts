@@ -361,7 +361,10 @@ const sessionBoundaryHandler = async ({
 // with the session. The server's row is removed when its push service next
 // answers 410 (src/web/push/sender.ts), or with the account. Signing in
 // again, the profile page offers to enable them (no new prompt: the
-// permission stays).
+// permission stays). A session ended away from this device (a password
+// changed elsewhere, which also removes the row) never passes through here:
+// the login page it lands on drops the subscription (<push-signed-out>,
+// public/js/push.js).
 async function dropPushSubscription(): Promise<void> {
   try {
     const subscription = await self.registration.pushManager.getSubscription();

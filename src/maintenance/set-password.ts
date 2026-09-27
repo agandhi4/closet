@@ -3,7 +3,11 @@ import { StringDecoder } from 'node:string_decoder';
 import type { Db } from '../db/client';
 import type { Logger } from '../logger';
 import { passwordProblems, setPassword } from '../web/auth/passwords';
-import { findUserByEmail, normalizeEmail } from '../web/auth/queries';
+import {
+  findUserByEmail,
+  normalizeEmail,
+  type PasswordChange,
+} from '../web/auth/queries';
 import { t } from '../web/i18n';
 
 /**
@@ -74,21 +78,21 @@ export async function readSecretLine(
  * Sets the password of the account behind `email` (compared as login does,
  * case-insensitively) after the registration rules, through the same path
  * as the change-password form, so every existing session of that account is
- * signed out. Returns the user id.
+ * signed out. No device is making the change, so every push subscription of
+ * the account goes too.
  */
 export async function setPasswordByEmail(
   db: Db,
   email: string,
   password: string,
-): Promise<number> {
+): Promise<PasswordChange> {
   const problems = passwordProblems(password);
   if (problems.length) {
     throw new SetPasswordRefused(problems.map((key) => t(key)).join('. '));
   }
   const account = await findUserByEmail(db, normalizeEmail(email));
   if (!account) throw new SetPasswordRefused(`No account uses ${email}`);
-  await setPassword(db, account.id, password);
-  return account.id;
+  return setPassword(db, account.id, password);
 }
 
 export interface SetPasswordCommand {
@@ -119,10 +123,16 @@ export async function runSetPassword(
         throw new SetPasswordRefused(t('validation.PASSWORDS_MUST_MATCH'));
       }
     }
-    const userId = await setPasswordByEmail(db, email, password);
-    logger.info(`Password set for user ${userId} via CLI`);
+    const { account, revokedTokens, revokedDevices } = await setPasswordByEmail(
+      db,
+      email,
+      password,
+    );
+    logger.info(
+      `Password set for user ${account.id} via CLI: ${revokedTokens} access tokens and ${revokedDevices} push devices revoked`,
+    );
     output.write(
-      `Password set for user ${userId}; every existing session of that account is signed out and its access tokens are revoked.\n`,
+      `Password set for user ${account.id}; every existing session of that account is signed out, and its access tokens and push subscriptions are revoked.\n`,
     );
     return 0;
   } catch (error) {

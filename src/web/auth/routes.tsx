@@ -322,11 +322,21 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         return refuse({ currentPassword: [t('WRONG_CURRENT_PASSWORD')] });
       }
       // The new hash changes the fingerprint in every token, this session's
-      // included: replace this one so the user stays signed in here.
-      const updated = await setPassword(db, id, body.newPassword);
+      // included: replace this one so the user stays signed in here. Its
+      // push subscription, named by the form, stays too.
+      const {
+        account: updated,
+        revokedTokens,
+        revokedDevices,
+      } = await setPassword(
+        db,
+        id,
+        body.newPassword,
+        body.pushEndpoint || undefined,
+      );
       setSessionCookie(reply, tokens.issue(updated));
       logger.info(
-        `Password changed for user ${id}; other sessions and access tokens revoked`,
+        `Password changed for user ${id}: other sessions, ${revokedTokens} access tokens and ${revokedDevices} other push devices revoked`,
       );
       return reply.redirect(`${PROFILE_PATH}?passwordChanged=1`, 302);
     },

@@ -2,7 +2,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../../db/client';
 import type { StringKey } from '../i18n';
-import { type AccountRow, updatePasswordHash } from './queries';
+import { type PasswordChange, updatePasswordHash } from './queries';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -50,13 +50,22 @@ export function passwordProblems(password: string): StringKey[] {
  * user:set-password` both come through here. The new hash changes the
  * fingerprint every session token carries (tokens.ts), so every session
  * issued before is rejected from the next request on, and every personal
- * access token is revoked with it (updatePasswordHash). Returns the updated
- * row, for a caller that issues this device a fresh token.
+ * access token and push subscription is revoked with it
+ * (updatePasswordHash). `keepEndpoint`: the push subscription of the device
+ * making the change, which stays signed in (the route); the CLI has none,
+ * so every device goes. Returns the updated row, for a caller that issues
+ * this device a fresh token, and what was revoked, for its log line.
  */
 export async function setPassword(
   db: Db,
   userId: number,
   password: string,
-): Promise<AccountRow> {
-  return updatePasswordHash(db, userId, await hashPassword(password));
+  keepEndpoint?: string,
+): Promise<PasswordChange> {
+  return updatePasswordHash(
+    db,
+    userId,
+    await hashPassword(password),
+    keepEndpoint,
+  );
 }

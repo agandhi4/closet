@@ -1,4 +1,9 @@
-import type { Page } from '@playwright/test';
+import {
+  type Browser,
+  type BrowserContext,
+  expect,
+  type Page,
+} from '@playwright/test';
 
 export const E2E_PASSWORD = 'Password123!';
 
@@ -50,4 +55,35 @@ export async function signIn(page: Page, prefix: string): Promise<string> {
     throw new Error(`Registering ${email} failed: ${res.status()}`);
   }
   return email;
+}
+
+/** The password changePasswordElsewhere sets. */
+export const E2E_NEW_PASSWORD = 'NewPassword456!';
+
+/**
+ * Signs `email` in on a second device (a context of its own) and changes the
+ * password there, which ends every other session of the account and
+ * revokes every other device's push subscription (this one posts none).
+ * Returns the second device, still signed in; the caller closes it.
+ */
+export async function changePasswordElsewhere(
+  browser: Browser,
+  email: string,
+): Promise<BrowserContext> {
+  const other = await browser.newContext();
+  const login = await other.request.post('/auth/login', {
+    form: { email, password: E2E_PASSWORD },
+    headers: signUpHeaders(),
+  });
+  expect(login.ok()).toBe(true);
+  const changed = await other.request.post('/auth/change-password', {
+    form: {
+      currentPassword: E2E_PASSWORD,
+      newPassword: E2E_NEW_PASSWORD,
+      confirmPassword: E2E_NEW_PASSWORD,
+    },
+    headers: SAME_ORIGIN,
+  });
+  expect(new URL(changed.url()).pathname).toBe('/auth/profile');
+  return other;
 }

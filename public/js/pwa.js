@@ -77,6 +77,16 @@ function startPush() {
     .catch((error) => console.warn('[pwa] push sync failed', error));
 }
 
+// A signed-out login page carries <push-signed-out>, which push.js defines:
+// the browser's subscription goes once nobody is signed in. A boosted tap
+// that lands there needs nothing from here (the signed-in page it left has
+// push.js already).
+function endPush() {
+  import('push').catch((error) =>
+    console.warn('[pwa] push module failed to load', error),
+  );
+}
+
 // The <pwa-install> dialog (@khmyznikov/pwa-install 0.7, 160 KB, 45 KB
 // compressed) shows itself wherever it is mounted and can install, and
 // mounting it costs the bundle, /manifest.json (once: 0.5 read it again when
@@ -165,6 +175,7 @@ if ('serviceWorker' in navigator) {
 // Also without a service worker (an http: origin): the profile page then
 // says this browser cannot receive notifications.
 if (document.documentElement.hasAttribute('data-signed-in')) startPush();
+else if (document.querySelector('push-signed-out')) endPush();
 if (!standalone) offerInstall();
 if (window.navigator.standalone === true) {
   installPullToRefresh().catch((error) =>
