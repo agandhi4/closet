@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createGarment, createOutfit } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
+import { householdToday } from './support/household-today';
 
 /**
  * Several outfits a day at phone width (#13): a day planned three times
@@ -11,16 +12,6 @@ import { signIn } from './support/e2e-session';
 
 test.use({ viewport: { width: 390, height: 844 } });
 
-/** The household's date, as the server decides "today" (APP_TIMEZONE's default). */
-function today(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
 test('a three-outfit day: planned by occasion, stacked in order, each with its pill', async ({
   page,
 }) => {
@@ -28,7 +19,7 @@ test('a three-outfit day: planned by occasion, stacked in order, each with its p
   page.on('pageerror', (error) => errors.push(error.message));
   await signIn(page, 'occasions');
   const shoes = await createGarment(page, 'Loafers', 'footwear');
-  const day = today();
+  const day = householdToday();
   // Planned in an order the page must not keep: evening, work, workout.
   const plans: [string, string][] = [
     ['Evening', 'Dinner'],

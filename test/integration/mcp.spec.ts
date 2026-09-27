@@ -8,7 +8,6 @@ import {
   outfitCalendar,
   personalAccessToken,
 } from '../../src/db/schema';
-import { todayIn } from '../../src/web/calendar/calendar-date';
 import { createCapsule } from '../../src/web/capsules/queries';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import {
@@ -34,8 +33,6 @@ import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
  * grant it, the per-token rate limit, the same-origin rule for a bearer
  * route, and that no log line carries a token.
  */
-
-const TIME_ZONE = 'America/New_York';
 
 interface Garment {
   id: number;
@@ -545,7 +542,7 @@ describe('the MCP endpoint', () => {
   });
 
   describe('outfits, the calendar and wears', () => {
-    const today = () => todayIn(TIME_ZONE, new Date());
+    const today = () => t.today();
     let outfitId: number;
 
     it('create_outfit saves the garments as slots, planned on a day', async () => {

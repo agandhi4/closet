@@ -1,7 +1,6 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { outfitCalendar } from '../../src/db/schema';
-import { todayIn } from '../../src/web/calendar/calendar-date';
 import { dayColumns } from './calendar-page';
 import { createGarment } from './garments';
 import { createTestApp, hasText, type TestApp, unescapeHtml } from './harness';
@@ -283,9 +282,8 @@ describe('occasions', () => {
       // The clock stands still, so "today" cannot turn at midnight between
       // the request and the expectation (only Date is faked; the session's
       // token stays valid at the real time).
-      const now = new Date();
-      vi.useFakeTimers({ toFake: ['Date'], now });
-      const today = todayIn('America/New_York', now);
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date() });
+      const today = t.today();
       try {
         for (const query of [
           '',

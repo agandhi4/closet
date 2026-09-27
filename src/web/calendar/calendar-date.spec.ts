@@ -5,6 +5,7 @@ import {
   dayOfWeek,
   daysBetween,
   daysInMonth,
+  formatIsoDate,
   formatYearMonth,
   instantAt,
   isValidTimeZone,
@@ -73,7 +74,7 @@ describe('calendar dates', () => {
   describe('todayIn (APP_TIMEZONE)', () => {
     it("at 21:30 on a Friday in New York it is New York's Friday, though UTC is on Saturday", () => {
       const now = new Date('2026-09-25T21:30:00-04:00');
-      expect(now.toISOString().slice(0, 10)).toBe('2026-09-26');
+      expect(now.toISOString()).toBe('2026-09-26T01:30:00.000Z');
       expect(todayIn('America/New_York', now)).toBe('2026-09-25');
     });
 
@@ -161,7 +162,13 @@ describe('calendar dates', () => {
       let day = '1970-01-01';
       for (let t = start; t <= end; t += 86_400_000) {
         const utc = new Date(t);
-        expect(day).toBe(utc.toISOString().slice(0, 10));
+        expect(day).toBe(
+          formatIsoDate(
+            utc.getUTCFullYear(),
+            utc.getUTCMonth() + 1,
+            utc.getUTCDate(),
+          ),
+        );
         expect(dayOfWeek(day)).toBe(utc.getUTCDay());
         day = addDays(day, 1);
       }

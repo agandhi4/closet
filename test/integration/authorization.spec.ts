@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { outfit, outfitCalendar, outfitSlot } from '../../src/db/schema';
 import { createToken } from '../../src/web/auth/personal-tokens';
 import { LOGIN_PATH } from '../../src/web/auth/session-access';
-import { todayIn } from '../../src/web/calendar/calendar-date';
+import type { IsoDate } from '../../src/web/calendar/calendar-date';
 import {
   createGarment,
   createWishlistItem,
@@ -92,7 +92,13 @@ interface Fixture {
   capsuleName: string;
   outfitId: number;
   outfitName: string;
+  /** The calendar entry, planned on `today` (so worn may mark it). */
   entryId: number;
+  /**
+   * The app's today (t.today(), APP_TIMEZONE) when the fixture was made:
+   * the entry's day, and the day a wishlist item is bought.
+   */
+  today: IsoDate;
   /**
    * A new personal access token of the owner's (OWNER_TOKEN_NAME), made
    * when a request asks for it: few routes need one, and the owner may hold
@@ -132,9 +138,6 @@ const outfitName = (f: Fixture) => f.outfitName;
 // which rules out the /calendar/:id URLs themselves.)
 const calendarEntry = (f: Fixture) =>
   `/outfits/${f.outfitId}/edit?returnTo=/calendar`;
-// The household's day (APP_TIMEZONE, the harness's default), as the app
-// judges "today": the UTC date is already tomorrow there every evening.
-const today = () => todayIn('America/New_York', new Date());
 const OWNER_TOKEN_NAME = 'Owner laptop token';
 
 let photo: Buffer;
@@ -503,7 +506,7 @@ const ROUTES: Route[] = [
     request: (f, q) => ({
       method: 'POST',
       url: `/wardrobe/${f.wishlistId}/bought${q}`,
-      payload: { acquiredOn: today(), price: '10' },
+      payload: { acquiredOn: f.today, price: '10' },
     }),
     expect: {
       owner: 'ok',
@@ -978,7 +981,7 @@ const ROUTES: Route[] = [
     ok: 302,
     secret: outfitName,
     vias: BOTH,
-    // Not today(): the fixture already planned the outfit today, and
+    // Not the entry's day: the fixture already planned the outfit then, and
     // scheduling is idempotent, so the same day would change no row.
     request: (f, q) => ({
       method: 'POST',
@@ -1005,7 +1008,7 @@ const ROUTES: Route[] = [
     request: (f, q) => ({
       method: 'POST',
       url: `/calendar/${f.entryId}/delete${q}`,
-      payload: { week: today() },
+      payload: { week: f.today },
     }),
     expect: {
       owner: 'ok',
@@ -1131,7 +1134,7 @@ const ROUTES: Route[] = [
     request: (f, q) => ({
       method: 'POST',
       url: `/calendar/${f.entryId}/worn${q}`,
-      payload: { week: today() },
+      payload: { week: f.today },
     }),
     expect: {
       owner: 'ok',
@@ -1257,10 +1260,11 @@ describe('authorization matrix', () => {
     );
     expect(outfitId).toBeGreaterThan(0);
 
+    const today = t.today();
     const scheduled = await t.inject({
       method: 'POST',
       url: '/calendar',
-      payload: { date: today(), outfitId: String(outfitId) },
+      payload: { date: today, outfitId: String(outfitId) },
       headers: { cookie },
     });
     expect(scheduled.statusCode).toBe(302);
@@ -1280,6 +1284,7 @@ describe('authorization matrix', () => {
       outfitId,
       outfitName,
       entryId: entry.id,
+      today,
       ownerToken: async () => {
         const token = await createToken(t.db, t.owner.id, OWNER_TOKEN_NAME);
         if (!token.created) throw new Error('The owner holds too many tokens');

@@ -18,6 +18,7 @@ import { user } from '../../src/db/schema';
 import { createLogger, createLoggerTo, type Logger } from '../../src/logger';
 import { hashPassword } from '../../src/web/auth/passwords';
 import { insertUser } from '../../src/web/auth/queries';
+import { type IsoDate, todayIn } from '../../src/web/calendar/calendar-date';
 import type { Photos } from '../../src/web/files/photos';
 import { LogCapture } from '../support/log-capture';
 import { createScratchDatabase } from '../support/scratch-database';
@@ -152,6 +153,14 @@ export interface TestApp {
   database: DbConfig;
   /** The app's root logger, for modules a spec builds itself (into t.logs). */
   logger: Logger;
+  /** The app's APP_TIMEZONE. */
+  timeZone: string;
+  /**
+   * The app's "today": todayIn() in its APP_TIMEZONE, as every route asks,
+   * read at the call so a faked Date moves it. The one way a spec names
+   * today: a UTC date (toISOString) is tomorrow every evening in New York.
+   */
+  today: () => IsoDate;
   /**
    * Every line the app logged at LOG_LEVEL and above, parsed; empty when the
    * app writes the real app.log instead (TestAppOptions.appLog).
@@ -296,6 +305,8 @@ export async function createTestApp(
     db,
     database: dbConfig(config),
     logger,
+    timeZone: config.APP_TIMEZONE,
+    today: () => todayIn(config.APP_TIMEZONE, new Date()),
     logs,
     register,
     login,

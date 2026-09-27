@@ -1,0 +1,280 @@
+import { and, eq } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { garment, garmentWear, outfitCalendar } from '../../src/db/schema';
+import {
+  addDays,
+  dateParts,
+  type IsoDate,
+} from '../../src/web/calendar/calendar-date';
+import { dayColumns } from './calendar-page';
+import { createGarment, createWishlistItem } from './garments';
+import {
+  createTestApp,
+  OWNER_EMAIL,
+  type TestApp,
+  unescapeHtml,
+} from './harness';
+import { createAccessToken, callTool, tool } from './mcp';
+
+/**
+ * "Today" at the hours where the household's date and UTC's disagree, with
+ * the clock pinned there: every route and tool that asks what day it is
+ * must answer with APP_TIMEZONE's date. main went red at 00:01 UTC on
+ * Sunday 27 Sep 2026, 20:01 on Saturday in New York, because a spec's
+ * fixture planned its entry on UTC's Sunday: next week's page, and a day
+ * the worn pill refuses (409). These instants fail any UTC "today", in the
+ * app or in a spec, on every run instead of an hour a day.
+ *
+ * Expectations are written out, not computed with todayIn(), so the spec
+ * checks the helper as well as its callers. Only Date is faked (timers,
+ * the database driver and the rate limits keep running); the owner signs
+ * in again under the pinned clock, since a session issued at the real time
+ * may not be valid at a pinned one.
+ */
+
+interface Instant {
+  at: string;
+  why: string;
+  /** The household's date at `at`, and the Sunday its week starts on. */
+  today: IsoDate;
+  week: IsoDate;
+}
+
+const ZONES: { zone: string; instants: Instant[] }[] = [
+  {
+    zone: 'America/New_York',
+    instants: [
+      {
+        at: '2026-09-27T00:30:00Z',
+        why: "Sunday in UTC, Saturday evening in New York (main's red run)",
+        today: '2026-09-26',
+        week: '2026-09-20',
+      },
+      {
+        at: '2026-10-01T00:30:00Z',
+        why: 'UTC midnight on a month boundary: 1 Oct in UTC, 30 Sep in New York',
+        today: '2026-09-30',
+        week: '2026-09-27',
+      },
+      {
+        at: '2026-11-01T03:30:00Z',
+        why: 'a new month and week in UTC, Halloween night in New York, on the day DST ends',
+        today: '2026-10-31',
+        week: '2026-10-25',
+      },
+      {
+        at: '2027-01-01T04:30:00Z',
+        why: "New Year's Day in UTC, New Year's Eve in New York",
+        today: '2026-12-31',
+        week: '2026-12-27',
+      },
+    ],
+  },
+  {
+    // Ahead of UTC: the household is already in a day and week UTC has not
+    // reached, so a UTC today would refuse the household's own today.
+    zone: 'Pacific/Auckland',
+    instants: [
+      {
+        at: '2026-09-26T12:30:00Z',
+        why: 'Saturday in UTC, just past midnight on Sunday in Auckland',
+        today: '2026-09-27',
+        week: '2026-09-27',
+      },
+    ],
+  },
+];
+
+describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp({ APP_TIMEZONE: zone });
+  });
+
+  afterAll(async () => {
+    await t?.cleanup();
+  });
+
+  describe.each(instants)('at $at: $why', ({ at, today, week }) => {
+    let cookie: string;
+    const tomorrow = addDays(today, 1);
+
+    beforeAll(async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date(at) });
+      cookie = await t.login(OWNER_EMAIL);
+    });
+
+    afterAll(() => {
+      vi.useRealTimers();
+    });
+
+    const get = (url: string) =>
+      t.inject({ method: 'GET', url, headers: { cookie } });
+    const post = (
+      url: string,
+      payload: Record<string, string | string[]> = {},
+    ) => t.inject({ method: 'POST', url, payload, headers: { cookie } });
+
+    /** An outfit of one new garment; the ids of both. */
+    const newOutfit = async (name: string) => {
+      const garmentId = await createGarment(t, { name, cookie });
+      const res = await post('/outfits', {
+        name,
+        category: 'shirt',
+        garmentId: String(garmentId),
+      });
+      expect(res.statusCode).toBe(302);
+      const outfitId = Number(
+        /^\/outfits\/(\d+)$/.exec(String(res.headers.location))![1],
+      );
+      return { garmentId, outfitId };
+    };
+
+    /** Plans the outfit on `day` through POST /calendar; the entry's id. */
+    const plan = async (outfitId: number, day: IsoDate) => {
+      const res = await post('/calendar', {
+        date: day,
+        outfitId: String(outfitId),
+      });
+      expect(res.statusCode).toBe(302);
+      const [entry] = await t.db
+        .select({ id: outfitCalendar.id })
+        .from(outfitCalendar)
+        .where(
+          and(
+            eq(outfitCalendar.outfitId, outfitId),
+            eq(outfitCalendar.day, day),
+          ),
+        );
+      return entry.id;
+    };
+
+    const wearDays = (garmentId: number) =>
+      t.db
+        .select({ day: garmentWear.day })
+        .from(garmentWear)
+        .where(eq(garmentWear.garmentId, garmentId));
+
+    const lastWashedOn = async (garmentId: number) => {
+      const [row] = await t.db
+        .select({ day: garment.lastWashedOn })
+        .from(garment)
+        .where(eq(garment.id, garmentId));
+      return row.day;
+    };
+
+    it("the harness's t.today() is the household's date", () => {
+      expect(t.today()).toBe(today);
+    });
+
+    it("/calendar opens today's week, highlights today and offers today's pill", async () => {
+      const { outfitId } = await newOutfit(`Calendar ${at}`);
+      const entry = await plan(outfitId, today);
+
+      const res = await get('/calendar');
+      expect(res.statusCode).toBe(200);
+      const html = unescapeHtml(res.body);
+      const columns = dayColumns(html);
+      expect([...columns.keys()]).toEqual(
+        [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(week, i)),
+      );
+      expect(html).toMatch(
+        new RegExp(`cal-today">\\s*${dateParts(today).day}\\s*<`),
+      );
+      const column = columns.get(today)!;
+      expect(column).toContain(`/outfits/${outfitId}/edit?returnTo=/calendar`);
+      expect(column).toContain(`/calendar/${entry}/worn`);
+    });
+
+    it('the plan page plans today when no day is given', async () => {
+      const res = await get('/calendar/plan');
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toContain(`name="date" value="${today}"`);
+    });
+
+    it('"Bought it" prefills today as the purchase day', async () => {
+      const item = await createWishlistItem(t, {
+        name: `Wishlist ${at}`,
+        cookie,
+      });
+      const res = await get(`/wardrobe/${item}/bought`);
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toMatch(
+        new RegExp(`name="acquiredOn"[^>]*value="${today}"`),
+      );
+    });
+
+    it("today's entry can be marked worn, tomorrow's cannot (409)", async () => {
+      const { garmentId, outfitId } = await newOutfit(`Worn ${at}`);
+      const worn = await post(`/calendar/${await plan(outfitId, today)}/worn`, {
+        worn: '1',
+      });
+      expect(worn.statusCode).toBe(303);
+      expect(await wearDays(garmentId)).toEqual([{ day: today }]);
+
+      const ahead = await post(
+        `/calendar/${await plan(outfitId, tomorrow)}/worn`,
+        { worn: '1' },
+      );
+      expect(ahead.statusCode).toBe(409);
+      expect(await wearDays(garmentId)).toEqual([{ day: today }]);
+    });
+
+    it('Wore today, Washed and the laundry batch record today', async () => {
+      const worn = await createGarment(t, { name: `Wore ${at}`, cookie });
+      expect(
+        (await post(`/wardrobe/${worn}/wear`, { worn: '1' })).statusCode,
+      ).toBe(303);
+      expect(await wearDays(worn)).toEqual([{ day: today }]);
+
+      expect((await post(`/wardrobe/${worn}/washed`)).statusCode).toBe(303);
+      expect(await lastWashedOn(worn)).toBe(today);
+
+      const hamper = await createGarment(t, { name: `Hamper ${at}`, cookie });
+      expect(
+        (await post('/laundry', { ids: [String(hamper)] })).statusCode,
+      ).toBe(303);
+      expect(await lastWashedOn(hamper)).toBe(today);
+    });
+
+    it('MCP: get_calendar starts today; mark_worn and mark_washed record today', async () => {
+      const token = await createAccessToken(t, {
+        cookie,
+        name: `Today ${at}`,
+      });
+      const { garmentId, outfitId } = await newOutfit(`MCP ${at}`);
+      const entry = await plan(outfitId, today);
+      const ahead = await plan(outfitId, tomorrow);
+
+      const calendar = await tool<{
+        today: IsoDate;
+        from: IsoDate;
+        to: IsoDate;
+      }>(t, token, 'get_calendar');
+      expect(calendar).toMatchObject({
+        today,
+        from: today,
+        to: addDays(today, 6),
+      });
+
+      await tool(t, token, 'mark_worn', { entryId: entry });
+      expect(await wearDays(garmentId)).toEqual([{ day: today }]);
+      expect(
+        (await callTool(t, token, 'mark_worn', { entryId: ahead })).isError,
+      ).toBe(true);
+
+      const single = await createGarment(t, { name: `MCP wore ${at}`, cookie });
+      expect(await tool(t, token, 'mark_worn', { garmentId: single })).toEqual({
+        garmentId: single,
+        day: today,
+      });
+      expect(await wearDays(single)).toEqual([{ day: today }]);
+
+      expect(
+        await tool(t, token, 'mark_washed', { garmentIds: [single] }),
+      ).toEqual({ washed: [single], day: today });
+      expect(await lastWashedOn(single)).toBe(today);
+    });
+  });
+});

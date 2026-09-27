@@ -45,6 +45,24 @@ export default tseslint.config(
         'error',
         { assertionStyle: 'as' },
       ],
+      // "Today" and every day from an instant come from todayIn() at
+      // APP_TIMEZONE (src/web/calendar/calendar-date.ts; t.today() in the
+      // integration specs, householdToday() in Playwright's). A UTC date is
+      // tomorrow every evening in New York: main went red at 00:01 UTC.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.property.name=/^(slice|substring|substr|split)$/][callee.object.callee.property.name='toISOString']",
+          message:
+            "A UTC date is not the household's day: use todayIn(APP_TIMEZONE, now) (CLAUDE.md, Gotchas).",
+        },
+        {
+          selector: "CallExpression[callee.property.name='toLocaleDateString']",
+          message:
+            'A day from an instant comes from todayIn(APP_TIMEZONE, now) (CLAUDE.md, Gotchas).',
+        },
+      ],
       // hono/jsx escapes every text child and attribute value. The one way to
       // emit markup as-is is `dangerouslySetInnerHTML` (greppable, reviewed
       // per use; see CLAUDE.md, Web layer). hono's `raw()` would be a second,

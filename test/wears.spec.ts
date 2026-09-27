@@ -1,5 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { householdToday } from './support/household-today';
 
 /**
  * Wears and washes in a browser at phone width (#7): the calendar's worn
@@ -10,16 +11,6 @@ import { SAME_ORIGIN, signIn } from './support/e2e-session';
  */
 
 test.use({ viewport: { width: 390, height: 844 } });
-
-/** The household's date, as the server decides "today" (APP_TIMEZONE's default). */
-function today(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
 
 /** A POST whose redirect names the new row; its id. */
 async function created(
@@ -59,7 +50,7 @@ test('mark an outfit worn, wash it, log a wear alone, and do the laundry', async
     /^\/outfits\/(\d+)$/,
   );
   const scheduled = await page.request.post('/calendar', {
-    form: { date: today(), outfitId: String(outfit) },
+    form: { date: householdToday(), outfitId: String(outfit) },
     headers: SAME_ORIGIN,
   });
   expect(scheduled.ok()).toBe(true);

@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { capsuleGarment, outfitSlot } from '../../src/db/schema';
-import { todayIn } from '../../src/web/calendar/calendar-date';
 import { countToTag } from '../../src/web/wardrobe/queries';
 import { createGarment, createWishlistItem, garmentRow } from './garments';
 import {
@@ -59,7 +58,7 @@ describe('the wishlist', () => {
       headers: cookie ? { cookie } : {},
     });
   const statusOf = async (id: number) => (await garmentRow(t, id))?.status;
-  const today = () => todayIn('America/New_York', new Date());
+  const today = () => t.today();
 
   const share = async (permission: 'VIEW' | 'MANAGE', cookie: string) => {
     const invite = await t.inject({

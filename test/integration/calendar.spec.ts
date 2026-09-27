@@ -1,6 +1,11 @@
 import { count, desc, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { outfit as outfitTable, outfitCalendar } from '../../src/db/schema';
+import {
+  addDays,
+  dayOfWeek,
+  startOfWeek,
+} from '../../src/web/calendar/calendar-date';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
 import {
   createTestApp,
@@ -162,15 +167,13 @@ describe('calendar', () => {
       );
     });
 
-    it('without ?week= renders seven consecutive days starting on a Sunday', async () => {
+    it("without ?week= renders the app's current week, Sunday to Saturday", async () => {
       const dates = [...dayColumns(await weekPage('/calendar')).keys()];
-      expect(dates).toHaveLength(7);
-      expect(new Date(dates[0]).getUTCDay()).toBe(0);
-      dates.forEach((date, i) => {
-        expect(new Date(date).getTime() - new Date(dates[0]).getTime()).toBe(
-          i * 86_400_000,
-        );
-      });
+      const sunday = startOfWeek(t.today());
+      expect(dayOfWeek(sunday)).toBe(0);
+      expect(dates).toEqual(
+        [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(sunday, i)),
+      );
     });
 
     it('an unparseable ?week= falls back to a full week instead of failing', async () => {

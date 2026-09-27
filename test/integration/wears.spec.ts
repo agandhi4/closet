@@ -9,11 +9,7 @@ import {
 } from '../../src/wardrobe/availability';
 import type { Occasion } from '../../src/wardrobe/occasions';
 import type { GarmentStatus } from '../../src/wardrobe/status';
-import {
-  addDays,
-  type IsoDate,
-  todayIn,
-} from '../../src/web/calendar/calendar-date';
+import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
 import { availableGarment, dirtyCopiesSql } from '../../src/web/wears/queries';
 import { createGarment } from './garments';
 import {
@@ -46,8 +42,7 @@ const form = (fields: Record<string, string | string[]>) => {
 
 describe('wears and washes', () => {
   let t: TestApp;
-  // The app's "today": APP_TIMEZONE defaults to New York.
-  const today = () => todayIn('America/New_York', new Date());
+  const today = () => t.today();
   const daysAgo = (days: number) => addDays(today(), -days);
 
   /** POST /wardrobe with the care fields; the new garment's id. */

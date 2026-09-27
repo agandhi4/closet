@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createGarment, createOutfit } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { householdToday } from './support/household-today';
 
 /**
  * Taps that used to reload the whole document (client audit H4) are htmx
@@ -68,9 +69,7 @@ test('tapping a calendar chip opens the outfit editor without a reload', async (
 }) => {
   await signIn(page, 'nav-calendar-chip');
   const garment = await createGarment(page, 'Chip top');
-  const today = await page.evaluate(() =>
-    new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
-  );
+  const today = householdToday();
   const outfit = await createOutfit(page, 'Chip outfit', garment, today);
   await page.goto(`/calendar?week=${today}`);
   await markDocument(page);
