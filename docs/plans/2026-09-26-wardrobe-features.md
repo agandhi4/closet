@@ -16,7 +16,8 @@ is that next step.
 - **The gallery shows generated combinations and saved outfits.** A generated one becomes an outfit
   only when picked.
 - **AI sees metadata only** (category, colours, brand, name, notes, wear counts). No photos, emails
-  or share data leave the homelab. Off unless configured.
+  or share data leave the homelab. Off unless configured. One exception (#90, 2026-09-27): garment
+  thumbnails, pulled by the owner's own authenticated MCP client (section 14, Photos for tagging).
 - **Capsules are carved out of one default closet.** The closet is every unarchived garment; a
   capsule (summer, office, festival) is a subset of it.
 - **Multiples are built in**: three identical white tees are one garment with a quantity of 3.
@@ -503,8 +504,16 @@ stylist, so section 5 may shrink to what must run without anyone asking.
   condition), `set_capsule_membership`, `create_outfit`, `schedule_outfit`, `mark_worn`,
   `mark_washed`. Nothing deletes; there is no delete or archive tool.
 - **Metadata, not photos or emails.** Tools answer with ids, names, categories, properties,
-  colours, prices and counts; never photo bytes or URLs, and a shared wardrobe is named by its
-  owner's first name as the switcher names it.
+  colours, prices and counts; never photo URLs, never a selfie, and a shared wardrobe is named by
+  its owner's first name as the switcher names it.
+- **Photos for tagging: the one exception** (#90, from #11's re-scope, 2026-09-27). The owner's own
+  Claude tags garments from their photos, with no API key in the app: `get_garment_photo` answers a
+  garment's 400px thumbnail (not the original) as an MCP image content block, for the caller's own
+  garments and a wardrobe shared with them (VIEW or more), never a selfie and never another user's
+  unshared garment; `search_garments` takes `needsTagging` (tagging mode's own queue) to find what
+  needs tags, and `update_garment` writes them (MANAGE or owner). So "no photos leave the homelab"
+  now reads: except garment thumbnails, pulled by the owner's own authenticated MCP client. Rate
+  limited and logged like every tool, never the bytes.
 - **Logging** (context `Mcp`): one line per call with the tool, the user, the token's row id,
   the outcome (ok, refused with its status, error) and the time. Never the token, its prefix,
   the arguments or a URL.

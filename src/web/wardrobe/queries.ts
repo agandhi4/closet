@@ -80,6 +80,11 @@ export interface GridFilters {
   needsWash: boolean;
   /** Condition not good: needs repair or replacing soon. */
   attention: boolean;
+  /**
+   * Tagging mode's queue only (needsTags: closet garments missing their
+   * type, warmth or formality); search_garments' needsTagging.
+   */
+  needsTags?: boolean;
 }
 
 /** A grid tile: what the card shows and links to. */
@@ -119,6 +124,7 @@ function gridWhere(ownerId: number, filters: GridFilters): SQL | undefined {
   if (filters.capsule) conditions.push(inCapsule(filters.capsule));
   if (filters.needsWash) conditions.push(needsWash());
   if (filters.attention) conditions.push(ne(garment.condition, 'good'));
+  if (filters.needsTags) conditions.push(needsTags(ownerId));
   if (filters.size) conditions.push(eq(garment.size, filters.size));
   if (filters.color) {
     conditions.push(arrayContains(garment.colors, [filters.color]));
@@ -710,7 +716,9 @@ const NO_WARMTH = BUILT_IN.filter((c) => !propertyApplies('warmth', c));
  * A garment still missing what the outfit generator and the weather will
  * read: its type (where its category has types), warmth (where its role
  * has one) or formality. Closet garments only (inCloset): an archived one
- * is done with, and a wishlist item is tagged when it is bought.
+ * is done with, and a wishlist item is tagged when it is bought. The one
+ * definition: tagging mode's card and count, and search_garments'
+ * needsTagging (GridFilters.needsTags).
  */
 function needsTags(ownerId: number): SQL | undefined {
   return and(

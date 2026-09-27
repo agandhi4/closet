@@ -14,10 +14,11 @@ import type { WeatherService } from '../weather/service';
  * input schema, whether it writes) plus `run`, which calls the same query
  * and write functions the pages use and returns plain data; registerTools
  * turns each into an SDK tool that answers JSON text and logs the call.
- * Refusals are thrown as HttpError, as in a route, and follow the same
- * policy (src/web/sharing/access.ts): a wardrobe, garment, capsule,
- * outfit or entry the caller cannot see is "not found" like an unknown id;
- * one they can see but may not change is "not allowed".
+ * A tool that answers a picture returns an ImageAnswer instead
+ * (get_garment_photo). Refusals are thrown as HttpError, as in a route,
+ * and follow the same policy (src/web/sharing/access.ts): a wardrobe,
+ * garment, capsule, outfit or entry the caller cannot see is "not found"
+ * like an unknown id; one they can see but may not change is "not allowed".
  */
 
 /** What every tool gets: the app's services and who is calling. */
@@ -82,6 +83,19 @@ export async function wardrobeFor(
   return access;
 }
 
+/**
+ * A tool's answer that is a picture: an MCP image content block (base64,
+ * its MIME type), after a text block with `about` (what the picture is of).
+ * The bytes go to the client only, never to a log line.
+ */
+export class ImageAnswer {
+  constructor(
+    readonly about: unknown,
+    readonly data: Buffer,
+    readonly mimeType: string,
+  ) {}
+}
+
 /** Why a call ended, for the log line. */
 type Outcome = 'ok' | `refused ${number}` | 'error';
 
@@ -92,12 +106,26 @@ function textResult(value: unknown, isError = false): CallToolResult {
   };
 }
 
+function toolResult(value: unknown): CallToolResult {
+  if (!(value instanceof ImageAnswer)) return textResult(value);
+  return {
+    content: [
+      { type: 'text', text: JSON.stringify(value.about) },
+      {
+        type: 'image',
+        data: value.data.toString('base64'),
+        mimeType: value.mimeType,
+      },
+    ],
+  };
+}
+
 /**
  * Registers `tools` on this request's server. One log line per call
  * (context Mcp): the tool, the user, the token's row id, the outcome and
- * the time; never the arguments (a link can carry a token of its own) and
- * never the caller's token. A refusal (a 4xx HttpError, as a route would
- * answer) is a tool error with its message; anything else is logged with
+ * the time; never the arguments (a link can carry a token of its own),
+ * never the caller's token and never an answer (an image's bytes
+ * included). A refusal (a 4xx HttpError, as a route would answer) is a tool error with its message; anything else is logged with
  * its stack and answered without detail.
  */
 export function registerTools(
@@ -125,7 +153,7 @@ export function registerTools(
         const started = performance.now();
         let outcome: Outcome = 'ok';
         try {
-          return textResult(await tool.run(args, ctx));
+          return toolResult(await tool.run(args, ctx));
         } catch (error) {
           const { status, message } = describeError(error);
           if (status >= 500) {

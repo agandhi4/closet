@@ -26,7 +26,8 @@ import { weekPlanTools } from './week-plan';
  * owner's, in the app. The outfit gallery (#9) is tools/gallery.ts, with
  * "Goes with my closet" for a wishlist item (#18b, goes_with_closet),
  * insights (#17) tools/insights.ts's wardrobe_stats, Today (#15)
- * tools/today.ts.
+ * tools/today.ts. A garment's photo for tagging (#90) is tools/garments.ts's
+ * get_garment_photo, its queue search_garments' needsTagging.
  */
 export function mcpTools(options: {
   weather: boolean;

@@ -1,3 +1,4 @@
+import { buffer } from 'node:stream/consumers';
 import * as z from 'zod/v4';
 import {
   categoryRole,
@@ -18,6 +19,7 @@ import {
 import { todayIn } from '../../calendar/calendar-date';
 import { capsulesOfGarment, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
+import { isPrivatePhoto } from '../../files/references';
 import { normalizeCategory, normalizeSize } from '../../wardrobe/garment';
 import {
   findGarment,
@@ -42,7 +44,12 @@ import {
 } from '../../wardrobe/validation';
 import { wearSummary } from '../../wears/queries';
 import { wishlistItems } from '../../wishlist/queries';
-import { defineTool, type ToolContext, wardrobeFor } from '../tool';
+import {
+  defineTool,
+  ImageAnswer,
+  type ToolContext,
+  wardrobeFor,
+} from '../tool';
 import { ownerIdInput, rowId } from './common';
 import { addGarmentFromLink } from './link-import';
 
@@ -303,6 +310,12 @@ const SearchInput = z.object({
     .boolean()
     .default(false)
     .describe('Only garments that need repair or replacing soon.'),
+  needsTagging: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Only closet garments still missing their type (where the category has types), warmth (where the role has one) or formality: the app's tagging queue. get_garment_photo shows each; update_garment tags it.",
+    ),
   includeArchived: z
     .boolean()
     .default(false)
@@ -333,6 +346,7 @@ function searchFilters(args: SearchArgs): GridFilters {
     scope: args.includeArchived ? 'owned' : 'closet',
     needsWash: args.needsWash,
     attention: args.needsAttention,
+    needsTags: args.needsTagging,
   };
 }
 
@@ -391,13 +405,44 @@ export const garmentTools = [
     name: 'get_garment',
     title: 'Get a garment',
     description:
-      'One garment in full: its status (closet, archived, or wishlist: not bought yet) and fields, every property, product link and price, what it replaces (a wishlist item), quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes. No photo.',
+      'One garment in full: its status (closet, archived, or wishlist: not bought yet) and fields, every property, product link and price, what it replaces (a wishlist item), quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes. No photo: get_garment_photo has it.',
     input: z.object({ id: rowId(), ownerId: ownerIdInput }),
     writes: false,
     async run({ id, ownerId }, ctx) {
       const access = await wardrobeFor(ctx, ownerId, 'view');
       const garment = await garmentIn(ctx, id, access.ownerId);
       return garmentOut(ctx, garment, access.ownerId, access.isOwner);
+    },
+  }),
+
+  defineTool({
+    name: 'get_garment_photo',
+    title: "Get a garment's photo",
+    description:
+      "A garment's photo as an image: its 400px thumbnail (the background removed when the app has done so), to see what it is and tag it (search_garments with needsTagging lists what needs tags, update_garment writes them). Your own garments and a wardrobe shared with you. A garment without a photo is refused.",
+    input: z.object({ id: rowId(), ownerId: ownerIdInput }),
+    writes: false,
+    async run({ id, ownerId }, ctx) {
+      const access = await wardrobeFor(ctx, ownerId, 'view');
+      const garment = await garmentIn(ctx, id, access.ownerId);
+      if (!garment.photo) throw new HttpError(404, 'Garment has no photo');
+      // A garment's photo is never a selfie (each has its own file row),
+      // but the rule that no selfie leaves through anything but its owner's
+      // session is checked here as on the public /file routes.
+      if (await isPrivatePhoto(ctx.db, garment.photo.fileName)) {
+        ctx.webLogger.warn(
+          `Refused a selfie as garment ${id}'s photo to user ${ctx.userId} (MCP)`,
+        );
+        throw new HttpError(404, GARMENT_NOT_FOUND);
+      }
+      const thumb = await buffer(
+        await ctx.photos.getVariant(garment.photo.fileName, 'thumb'),
+      );
+      return new ImageAnswer(
+        { id: garment.id, name: garment.name, category: garment.category },
+        thumb,
+        'image/webp',
+      );
     },
   }),
 
