@@ -54,7 +54,11 @@ import {
   updateGarmentProperties,
 } from './queries';
 import { garmentRef, replacementsOf } from '../wishlist/queries';
-import { destinationValues, resolveDestination } from './destination';
+import {
+  destinationValues,
+  postedDestination,
+  resolveDestination,
+} from './destination';
 import { type GarmentFormRequest, renderGarmentForm } from './render-form';
 import {
   type GarmentScope,
@@ -425,7 +429,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // The new garment form: the closet's, or the wishlist's (`?to=wishlist`,
-  // prefilled from the garment it replaces with `&replaces=`).
+  // prefilled from the garment it replaces with `&replaces=`, a candidate
+  // for a plan item of the owner's with `&planItem=`).
   app.get(
     '/wardrobe/new',
     { schema: { querystring: DestinationQuery } },
@@ -436,16 +441,17 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'manage',
       );
-      const { destination, replaced } = await resolveDestination(
+      const { destination, replaced, candidateFor } = await resolveDestination(
         db,
         request.query,
-        access.ownerId,
+        access,
       );
       return renderGarmentForm(reply, db, {
         mode: { kind: 'new', destination },
         suggestionsFrom: access.ownerId,
         viewOwner,
         values: destinationValues(destination, replaced),
+        candidateFor,
       });
     },
   );
@@ -483,12 +489,17 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { linkPhoto } = request.body;
-      const status = request.body.to ?? 'closet';
+      // A plan item's "Add a candidate" (34b) is checked before anything is
+      // read or stored, and linked in the garment's transaction.
+      const { destination, candidateFor, linkCandidate } =
+        await postedDestination(db, request.body, access);
+      const status = destination.to;
       const again = {
-        mode: { kind: 'new', destination: { to: status } },
+        mode: { kind: 'new', destination },
         suggestionsFrom: access.ownerId,
         viewOwner,
         link: linkPhoto ? keptLinkPhoto(linkPhoto) : undefined,
+        candidateFor,
       } as const;
       const form = readGarmentForm(request.body);
       if (!form.ok) {
@@ -506,8 +517,15 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             form.fields,
             linkPhoto,
             status,
+            linkCandidate,
           )
-        : await createGarment(deps, access.ownerId, form.fields, status);
+        : await createGarment(
+            deps,
+            access.ownerId,
+            form.fields,
+            status,
+            linkCandidate,
+          );
       if (id === undefined) {
         return refuseForm(reply, {
           ...again,
@@ -521,7 +539,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           form.fields.replacesGarmentId
             ? `, asked to replace garment ${form.fields.replacesGarmentId}`
             : ''
-        }`,
+        }${candidateFor ? `, a candidate for plan item ${candidateFor.id}` : ''}`,
       );
       return reply.redirect(garmentUrl(id, viewOwner, '', { created: 1 }), 302);
     },

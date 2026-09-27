@@ -1,6 +1,10 @@
 import * as z from 'zod/v4';
 import { QUANTITY_MAX } from '../../../wardrobe/availability';
-import { type ItemMatch, PLAN_PRIORITIES } from '../../../wardrobe/plans';
+import {
+  type ItemMatch,
+  PLAN_PRIORITIES,
+  targetDifferences,
+} from '../../../wardrobe/plans';
 import {
   categoryRole,
   FORMALITIES,
@@ -10,10 +14,16 @@ import {
 } from '../../../wardrobe/properties';
 import { HttpError } from '../../errors';
 import {
+  type CandidateGarment,
+  type CandidatesByItem,
+  candidatesOfPlan,
+} from '../../plans/candidates';
+import {
   allPlanGaps,
   type GapItem,
   planGaps,
   type PlanGaps,
+  toTarget,
 } from '../../plans/gaps';
 import {
   findActivePlan,
@@ -54,14 +64,15 @@ import { rowId } from './common';
  * dismisses it. Items go through the plan item form's own reader
  * (readPlanItemForm), so the tools store exactly what the form would.
  *
- * Deferred to 34b, with a hook here: the shopping list (a missing item's
- * candidate wishlist garments within its budget) and comparing two plans.
+ * get_plan_gaps also lists each item's candidate products (34b: wishlist
+ * garments linked to it, each judged against the item); the shopping list,
+ * adding a candidate and comparing plans are tools/shopping.ts's.
  */
 
 const NO_ACTIVE_PLAN = 'No active plan: pass a planId from list_plans';
 
 /** The caller's plan `planId`, or their active one when omitted. */
-async function planFor(
+export async function planFor(
   ctx: ToolContext,
   planId: number | undefined,
 ): Promise<PlanDetail> {
@@ -77,7 +88,7 @@ async function planFor(
   return plan;
 }
 
-const planIdInput = rowId()
+export const planIdInput = rowId()
   .optional()
   .describe('A plan id from list_plans. Omit for your active plan.');
 
@@ -211,7 +222,7 @@ function readItem(post: PlanItemFormValues) {
   return form.fields;
 }
 
-function itemOut(item: PlanItemRow) {
+export function itemOut(item: PlanItemRow) {
   return {
     id: item.id,
     planId: item.planId,
@@ -262,7 +273,33 @@ function why(match: ItemMatch, gaps: PlanGaps): string | null {
   }
 }
 
-function gapItemOut({ item, match }: GapItem, gaps: PlanGaps) {
+/**
+ * A candidate product (34b) as the tools answer it: the wishlist garment,
+ * its price and link, and whether it is the kind of thing `item` asks for
+ * (and if not, how it differs: the property, what it has, what the item
+ * wants).
+ */
+export function candidateOut(candidate: CandidateGarment, item: PlanItemRow) {
+  const differences = targetDifferences(toTarget(item), candidate);
+  return {
+    garmentId: candidate.garmentId,
+    name: candidate.name,
+    brand: candidate.brand,
+    category: candidate.category,
+    type: candidate.type,
+    colors: candidate.colors,
+    price: candidate.price,
+    sourceUrl: candidate.sourceUrl,
+    matches: differences.length === 0,
+    differences,
+  };
+}
+
+function gapItemOut(
+  { item, match }: GapItem,
+  gaps: PlanGaps,
+  candidates: CandidatesByItem,
+) {
   const garment = (id: number) => gaps.closet.get(id)!;
   return {
     ...itemOut(item),
@@ -282,6 +319,9 @@ function gapItemOut({ item, match }: GapItem, gaps: PlanGaps) {
     takenBy: match.takenBy,
     reason: match.reason,
     why: why(match, gaps),
+    candidates: (candidates.get(item.id) ?? []).map((candidate) =>
+      candidateOut(candidate, item),
+    ),
   };
 }
 
@@ -327,18 +367,27 @@ export const planTools = [
     name: 'get_plan_gaps',
     title: 'Get a plan’s gaps',
     description:
-      "A wardrobe plan measured against your closet (garments in it: not archived, not the wishlist): every item with its status (owned, partly, missing), copies had and needed, the garments that fulfil it, and for what is not owned the reason and a sentence why: replace-soon (only worn-out copies, marked replace_soon: the gap to refill), too-few-copies, taken-by-other-items (each garment fulfils one item), nothing-matches. A needs_repair garment still counts, flagged. A garment matches an item when it has the item's category, type if named, every colour and material named, and warmth and formality inside the item's ranges. Items proposed by an agent and not accepted are listed apart and not matched.",
+      "A wardrobe plan measured against your closet (garments in it: not archived, not the wishlist): every item with its status (owned, partly, missing), copies had and needed, the garments that fulfil it, and for what is not owned the reason and a sentence why: replace-soon (only worn-out copies, marked replace_soon: the gap to refill), too-few-copies, taken-by-other-items (each garment fulfils one item), nothing-matches. A needs_repair garment still counts, flagged. A garment matches an item when it has the item's category, type if named, every colour and material named, and warmth and formality inside the item's ranges. Each item lists its candidate products: wishlist garments being considered for it, with price, link and whether each matches the item (and how not). Items proposed by an agent and not accepted are listed apart and not matched.",
     input: z.object({ planId: planIdInput }),
     writes: false,
     async run({ planId }, ctx) {
       const plan = await planFor(ctx, planId);
-      const gaps = await planGaps(ctx.db, plan, ctx.userId);
+      const [gaps, candidates] = await Promise.all([
+        planGaps(ctx.db, plan, ctx.userId),
+        candidatesOfPlan(ctx.db, ctx.userId, plan.id),
+      ]);
+      const out = (entry: GapItem) => gapItemOut(entry, gaps, candidates);
       return {
         plan: planOut(gaps),
-        missing: gaps.groups.missing.map((entry) => gapItemOut(entry, gaps)),
-        partly: gaps.groups.partly.map((entry) => gapItemOut(entry, gaps)),
-        owned: gaps.groups.owned.map((entry) => gapItemOut(entry, gaps)),
-        proposed: gaps.proposed.map(itemOut),
+        missing: gaps.groups.missing.map(out),
+        partly: gaps.groups.partly.map(out),
+        owned: gaps.groups.owned.map(out),
+        proposed: gaps.proposed.map((item) => ({
+          ...itemOut(item),
+          candidates: (candidates.get(item.id) ?? []).map((candidate) =>
+            candidateOut(candidate, item),
+          ),
+        })),
       };
     },
   }),

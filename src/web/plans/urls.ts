@@ -28,3 +28,46 @@ export function itemUrl(
 ): string {
   return `${itemsUrl(planId)}/${itemId}${suffix}`;
 }
+
+/**
+ * The shopping list (34b): the active plan's gaps and their candidates, or
+ * another plan's (`?plan=`). The Wardrobe's ⋯ menu, the plans pages and the
+ * wishlist link it.
+ */
+export const SHOPPING_PATH = '/wardrobe/shopping';
+
+/** The shopping list of plan `planId`; the bare path when it is the active one. */
+export function shoppingUrl(plan: { id: number; active: boolean }): string {
+  return plan.active ? SHOPPING_PATH : `${SHOPPING_PATH}?plan=${plan.id}`;
+}
+
+/** Comparing two plans (34b); `a` preselected when given. */
+export const COMPARE_PATH = `${PLANS_PATH}/compare`;
+
+export function compareUrl(a?: number): string {
+  return a === undefined ? COMPARE_PATH : `${COMPARE_PATH}?a=${a}`;
+}
+
+/**
+ * An item's candidates page (34b), with where to go back to after saving
+ * (the shopping list when it came from there; the plan otherwise).
+ */
+export function candidatesUrl(
+  planId: number,
+  itemId: number,
+  returnTo?: string,
+): string {
+  const path = itemUrl(planId, itemId, '/candidates');
+  return returnTo === undefined
+    ? path
+    : `${path}?${new URLSearchParams({ returnTo }).toString()}`;
+}
+
+/**
+ * A wishlist item's "For plan item…" (34b): which of the owner's plan items
+ * it is a candidate for. Under the garment, so the dock marks Wardrobe;
+ * never with `?ownerId=`: plans are the owner's own.
+ */
+export function garmentPlanItemsUrl(garmentId: number): string {
+  return `/wardrobe/${garmentId}/plan-items`;
+}

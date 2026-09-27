@@ -10,6 +10,8 @@ import { categoryLabel } from '../wardrobe/garment';
 import { Messages } from '../wardrobe/garment-form';
 import { garmentUrl } from '../wardrobe/urls';
 import { PRICE_INPUT_MAX } from '../wardrobe/validation';
+import { differencesText, itemTitle } from '../plans/labels';
+import type { PlanFollowUps, PlanPurchase } from '../plans/purchase';
 import type { GarmentRef } from './queries';
 
 export type BoughtField = 'acquiredOn' | 'price';
@@ -25,6 +27,13 @@ export interface BoughtModel {
    * (a grantee: archiving is the owner's).
    */
   archivable: GarmentRef | undefined;
+  /**
+   * The owner's plan items it is a candidate for, and what buying it does
+   * to each (34b, src/web/plans/purchase.ts); empty for a grantee.
+   */
+  plans: PlanPurchase[];
+  /** The plan follow-ups as posted, on a re-render; the suggestions otherwise. */
+  ticked?: PlanFollowUps;
   errors?: FieldErrors<BoughtField>;
 }
 
@@ -32,8 +41,13 @@ export interface BoughtModel {
  * GET /wardrobe/:id/bought: "Bought it" for a wishlist item. The day it was
  * bought (today) and the price paid (the listed price) prefilled, and, when
  * it replaces a garment still in the closet, a checkbox to archive that one
- * too, unchecked: the old one is never archived without asking. A native
- * post (PostForm): a refusal re-renders this page with a 400.
+ * too, unchecked: the old one is never archived without asking. For the
+ * owner, when it is a candidate for plan items (34b), what buying it does
+ * to each: that it fulfils it, or that it does not match ("blue vs black")
+ * with "Change the item to match" unticked, and the item's other
+ * candidates to remove from the wishlist (ticked only when the item ends
+ * up owned). A native post (PostForm): a refusal re-renders this page with
+ * a 400.
  */
 export function BoughtPage(props: { ctx: ViewContext; model: BoughtModel }) {
   const { ctx, model } = props;
@@ -101,6 +115,9 @@ export function BoughtPage(props: { ctx: ViewContext; model: BoughtModel }) {
               </span>
             </label>
           )}
+          {model.plans.length > 0 && (
+            <PlanSection plans={model.plans} ticked={model.ticked} />
+          )}
           <div class="flex gap-2 mt-2">
             <a
               href={garmentUrl(garment.id, model.viewOwner)}
@@ -117,4 +134,109 @@ export function BoughtPage(props: { ctx: ViewContext; model: BoughtModel }) {
       <Dock ctx={ctx} />
     </Layout>
   );
+}
+
+/** What buying it does to the owner's plan items it is a candidate for. */
+function PlanSection(props: {
+  plans: PlanPurchase[];
+  ticked: PlanFollowUps | undefined;
+}) {
+  const { ticked } = props;
+  return (
+    <section
+      id="bought-plans"
+      class="flex flex-col gap-3"
+      aria-labelledby="bought-plans-title"
+    >
+      <h2
+        id="bought-plans-title"
+        class="text-xs font-semibold uppercase tracking-wide text-base-content/50"
+      >
+        {t('shopping.FOR_YOUR_PLANS')}
+      </h2>
+      {props.plans.map((purchase) => (
+        <div
+          class="card bg-base-100 shadow-sm"
+          id={`bought-item-${purchase.item.id}`}
+          data-matches={String(purchase.differences.length === 0)}
+        >
+          <div class="card-body p-3 gap-2 text-sm">
+            <p class="font-medium">
+              {t('shopping.ITEM_IN_PLAN', {
+                item: itemTitle(purchase.item),
+                plan: purchase.plan.name,
+              })}
+            </p>
+            {purchase.differences.length === 0 ? (
+              <p class="text-success">{fitText(purchase)}</p>
+            ) : (
+              <>
+                <p class="text-warning" data-mismatch>
+                  {t('shopping.MISMATCH', {
+                    differences: differencesText(purchase.differences),
+                  })}
+                </p>
+                <label class="label cursor-pointer justify-start gap-3 whitespace-normal">
+                  <input
+                    type="checkbox"
+                    name="adjustItems"
+                    value={String(purchase.item.id)}
+                    class="checkbox checkbox-sm"
+                    checked={ticked?.adjustItems.includes(purchase.item.id)}
+                  />
+                  <span class="label-text">{t('shopping.ADJUST_ITEM')}</span>
+                </label>
+                <p class="text-xs text-base-content/60">
+                  {t('shopping.KEEP_HINT')}
+                </p>
+              </>
+            )}
+            {purchase.others.length > 0 && (
+              <fieldset class="flex flex-col gap-1">
+                <legend class="text-xs text-base-content/60 mb-1">
+                  {t('shopping.OTHER_CANDIDATES')}
+                </legend>
+                {purchase.others.map(({ candidate, suggested }) => (
+                  <label class="label cursor-pointer justify-start gap-3 whitespace-normal">
+                    <input
+                      type="checkbox"
+                      name="removeCandidates"
+                      value={String(candidate.garmentId)}
+                      class="checkbox checkbox-sm"
+                      checked={
+                        ticked
+                          ? ticked.removeCandidates.includes(
+                              candidate.garmentId,
+                            )
+                          : suggested
+                      }
+                    />
+                    <span class="label-text">
+                      {t('shopping.REMOVE_CANDIDATE', {
+                        name:
+                          candidate.name ?? categoryLabel(candidate.category),
+                      })}
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** What a matching purchase does to its item, in words. */
+function fitText(purchase: PlanPurchase): string {
+  switch (purchase.after) {
+    case 'owned':
+      return t('shopping.FULFILS');
+    case 'partly':
+    case 'missing':
+      return t('shopping.COUNTS_TOWARD');
+    case null:
+      return t('shopping.MATCHES_PROPOSED');
+  }
 }

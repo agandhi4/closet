@@ -927,6 +927,50 @@ export const planItem = pgTable(
   ],
 );
 
+// A candidate product for a plan item (#34, slice 34b): a wishlist garment
+// of the plan's owner being considered to fill it, so the shopping list can
+// show what to buy for each gap. Many to many: one product can be the
+// candidate of the same item in two plans (a duplicated plan keeps them),
+// and an item has several. Written only by changeCandidates
+// (src/web/plans/candidates.ts), which stores a pair only when the item's
+// plan and the garment have the same owner and the garment is on the
+// wishlist; read only through onWishlist, so once "Bought it" moves the
+// garment into the closet its link stops mattering (kept, inert: matching
+// is derived and never reads this table). Private like the plan: nothing a
+// grantee reads joins it.
+export const planItemCandidate = pgTable(
+  'plan_item_candidate',
+  {
+    planItemId: integer('plan_item_id').notNull(),
+    garmentId: integer('garment_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // Also the index of the plan_item_id foreign key.
+    primaryKey({
+      name: 'plan_item_candidate_pkey',
+      columns: [table.planItemId, table.garmentId],
+    }),
+    index('plan_item_candidate_garment_id_index').on(table.garmentId),
+    foreignKey({
+      name: 'plan_item_candidate_plan_item_id_foreign',
+      columns: [table.planItemId],
+      foreignColumns: [planItem.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'plan_item_candidate_garment_id_foreign',
+      columns: [table.garmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
 /** What a wardrobe share lets the grantee do: read, or read and write. */
 export type SharePermission = 'VIEW' | 'MANAGE';
 
@@ -1142,6 +1186,7 @@ export const garmentRelations = relations(garment, ({ one, many }) => ({
   outfitSlots: many(outfitSlot),
   capsuleGarments: many(capsuleGarment),
   wears: many(garmentWear),
+  planCandidacies: many(planItemCandidate),
 }));
 
 export const garmentWearRelations = relations(garmentWear, ({ one }) => ({
@@ -1179,12 +1224,27 @@ export const wardrobePlanRelations = relations(
   }),
 );
 
-export const planItemRelations = relations(planItem, ({ one }) => ({
+export const planItemRelations = relations(planItem, ({ one, many }) => ({
   plan: one(wardrobePlan, {
     fields: [planItem.planId],
     references: [wardrobePlan.id],
   }),
+  candidates: many(planItemCandidate),
 }));
+
+export const planItemCandidateRelations = relations(
+  planItemCandidate,
+  ({ one }) => ({
+    item: one(planItem, {
+      fields: [planItemCandidate.planItemId],
+      references: [planItem.id],
+    }),
+    garment: one(garment, {
+      fields: [planItemCandidate.garmentId],
+      references: [garment.id],
+    }),
+  }),
+);
 
 export const outfitRelations = relations(outfit, ({ one, many }) => ({
   owner: one(user, { fields: [outfit.ownerId], references: [user.id] }),

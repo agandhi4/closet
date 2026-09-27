@@ -149,31 +149,33 @@ and denim shirts are not cotton smart-casual). The 501s (B02, `needs_repair`) st
 The white heavyweight tee (warmth 3 and up) matches only T06, so it chooses first and "white tee ×3"
 takes T01's three copies. Each row goes through the plan item form's validation
 (`readPlanItemForm`); `Warmth` and `Form.` are ranges (`3-5`), `—` is any. `(active)` marks the
-active plan.
+active plan. `Candidates` are Wishlist ids linked to the item as candidate products (34b), so his
+shopping list shows the merino gap with W01 ($49.90, within its $50) and the jacket with W02
+($89.90, within $90); the third oxford has none yet.
 
 ### Plan: NYC minimal (active)
 
-| Item | Category / type | Colours | Materials | Warmth | Form. | Qty | Priority | Budget | Why |
-|---|---|---|---|---|---|---|---|---|---|
-| White tee | tops / t-shirt | white | — | — | — | 3 | high | $25 | One per office day until Sunday's wash. |
-| White heavyweight tee | tops / t-shirt | white | — | 3-5 | — | 1 | medium | $50 | A tee that holds its shape on its own. |
-| Oxford shirt | tops / shirt | — | cotton | — | 3-4 | 3 | medium | $100 | One for each office day. |
-| Navy merino crewneck | tops / sweater | blue | merino | — | — | 1 | medium | $50 | Over an oxford on meeting days. |
-| Grey merino crewneck | tops / sweater | grey | merino | — | — | 1 | high | $50 | The second knit; the old one is pilling. |
-| Navy blazer | outerwear / blazer | blue | — | — | — | 1 | medium | $400 | Meeting Wednesdays and weddings. |
-| Chinos | bottoms / chinos | — | — | — | — | 2 | medium | $100 | The office uniform's bottom half. |
-| Blue jeans | bottoms / jeans | blue | — | — | — | 2 | medium | $110 | Weekends, and jeans Thursdays. |
-| Black jeans | bottoms / jeans | black | — | — | — | 1 | low | $70 | Nights out. |
-| White sneakers | footwear / sneakers | white | — | — | — | 1 | medium | $175 | Everything casual. |
-| Brown Chelsea boots | footwear / boots | brown | — | — | 3-4 | 1 | medium | $200 | Dates and meeting days, fall to spring. |
-| Loafers | footwear / loafers | — | — | — | — | 1 | low | $195 | Office summers without socks. |
-| Running shoes | footwear / running-shoes | — | — | — | — | 1 | medium | $155 | Fort Greene Park twice a week. |
-| Rain shell | outerwear / rain-jacket | — | — | — | — | 1 | medium | $180 | Summer thunderstorms. |
-| Winter parka | outerwear / parka | — | — | — | — | 1 | high | $600 | January on the Q platform. |
-| Wool coat | outerwear / coat | — | wool | — | — | 1 | medium | $200 | Office winters, over merino. |
-| Black leather jacket | outerwear / leather-jacket | black | — | — | — | 1 | low | $400 | Date nights, October to April. |
-| Brown padded shirt jacket | outerwear / jacket | brown | — | 3-5 | — | 1 | high | $90 | November, between the chore coat and the parka. |
-| Backpack | bags / backpack | — | — | — | — | 1 | medium | $160 | Every office day. |
+| Item | Category / type | Colours | Materials | Warmth | Form. | Qty | Priority | Budget | Why | Candidates |
+|---|---|---|---|---|---|---|---|---|---|---|
+| White tee | tops / t-shirt | white | — | — | — | 3 | high | $25 | One per office day until Sunday's wash. | — |
+| White heavyweight tee | tops / t-shirt | white | — | 3-5 | — | 1 | medium | $50 | A tee that holds its shape on its own. | — |
+| Oxford shirt | tops / shirt | — | cotton | — | 3-4 | 3 | medium | $100 | One for each office day. | — |
+| Navy merino crewneck | tops / sweater | blue | merino | — | — | 1 | medium | $50 | Over an oxford on meeting days. | — |
+| Grey merino crewneck | tops / sweater | grey | merino | — | — | 1 | high | $50 | The second knit; the old one is pilling. | W01 |
+| Navy blazer | outerwear / blazer | blue | — | — | — | 1 | medium | $400 | Meeting Wednesdays and weddings. | — |
+| Chinos | bottoms / chinos | — | — | — | — | 2 | medium | $100 | The office uniform's bottom half. | — |
+| Blue jeans | bottoms / jeans | blue | — | — | — | 2 | medium | $110 | Weekends, and jeans Thursdays. | — |
+| Black jeans | bottoms / jeans | black | — | — | — | 1 | low | $70 | Nights out. | — |
+| White sneakers | footwear / sneakers | white | — | — | — | 1 | medium | $175 | Everything casual. | — |
+| Brown Chelsea boots | footwear / boots | brown | — | — | 3-4 | 1 | medium | $200 | Dates and meeting days, fall to spring. | — |
+| Loafers | footwear / loafers | — | — | — | — | 1 | low | $195 | Office summers without socks. | — |
+| Running shoes | footwear / running-shoes | — | — | — | — | 1 | medium | $155 | Fort Greene Park twice a week. | — |
+| Rain shell | outerwear / rain-jacket | — | — | — | — | 1 | medium | $180 | Summer thunderstorms. | — |
+| Winter parka | outerwear / parka | — | — | — | — | 1 | high | $600 | January on the Q platform. | — |
+| Wool coat | outerwear / coat | — | wool | — | — | 1 | medium | $200 | Office winters, over merino. | — |
+| Black leather jacket | outerwear / leather-jacket | black | — | — | — | 1 | low | $400 | Date nights, October to April. | — |
+| Brown padded shirt jacket | outerwear / jacket | brown | — | 3-5 | — | 1 | high | $90 | November, between the chore coat and the parka. | W02 |
+| Backpack | bags / backpack | — | — | — | — | 1 | medium | $160 | Every office day. | — |
 
 ## What he owns (83 garments: 80 in the closet, 3 archived)
 
@@ -496,5 +498,5 @@ Fort Greene home in °F, the simulated days served as forecasts in the tests), t
 with a packing list (#10; the Travel capsule is its pool), a generator-avoid pair olive chinos + olive
 chore coat (#21), and the Next buys as wishlist items (#18, done: the Wishlist table, W01 replacing T21). The outfit gallery (#9) swipes from the
 capsules. Wardrobe plans (#34a, done: the style profile, the rhythm and "NYC minimal" above, whose
-gaps are the replace-soon merino and the padded jacket); 34b's shopping list pairs those gaps with
-W01 and W02.
+gaps are the replace-soon merino and the padded jacket); the shopping list (#34b, done: the plan
+table's Candidates) pairs those gaps with W01 and W02.

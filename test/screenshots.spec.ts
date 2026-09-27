@@ -192,6 +192,16 @@ test('demo: Theo, his plan and style profile', async ({ page }) => {
   await expect(page.locator('#plan-missing')).toBeVisible();
   await shot(page, '39-demo-plan-gaps');
   await shot(page, '40-demo-style-profile', '/auth/profile/style');
+  // The shopping list (#34b): the two gaps with W01 and W02, within budget.
+  await page.goto('/wardrobe/shopping');
+  await expect(page.locator('#shopping-list')).toContainText(
+    'New grey merino crewneck',
+  );
+  await shot(page, '42-demo-shopping-list');
+  await page.getByRole('link', { name: 'Bought it' }).first().click();
+  await expect(page.locator('#bought-plans')).toBeVisible();
+  await shot(page, '43-demo-bought-for-plan');
+  await shot(page, '44-demo-compare-one-plan', '/wardrobe/plans/compare');
 });
 
 test('sparse: Dana, untagged and degraded', async ({ page }) => {
@@ -210,6 +220,7 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '24-fresh-laundry', '/laundry');
   await shot(page, '34-fresh-wishlist', '/wardrobe/wishlist');
   await shot(page, '41-fresh-plans', '/wardrobe/plans');
+  await shot(page, '45-fresh-shopping-list', '/wardrobe/shopping');
   await shot(
     page,
     '27-fresh-calendar-plan',

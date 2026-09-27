@@ -555,7 +555,7 @@ export async function replacePhotoRow(
  * that wore it are emptied by their foreign key.
  */
 export function deleteGarment(
-  db: Db,
+  db: Queryable,
   id: number,
   ownerId: number,
 ): Promise<string | null | undefined> {

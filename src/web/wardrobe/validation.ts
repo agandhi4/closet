@@ -195,6 +195,10 @@ export const GarmentBody = Type.Object({
   // form (a closet garment's, one cached before #18) must leave it alone.
   replaces: Type.Optional(Type.Union([Type.Literal(''), RowId])),
   wishlist: Type.Optional(Type.Literal('1')),
+  // A new wishlist item's plan item (34b): the candidate link written with
+  // it (POST /wardrobe only; the requester's own item in their own
+  // wardrobe, else a 404).
+  planItem: Type.Optional(Type.Union([Type.Literal(''), RowId])),
 });
 export type GarmentBody = Static<typeof GarmentBody>;
 
@@ -958,12 +962,15 @@ export const GarmentPageQuery = Type.Object({
 /**
  * Where a new garment's form and the link import land: `?to=wishlist` from
  * the wishlist, and `&replaces=<id>` from a garment's "Find a replacement"
- * (a garment of the addressed wardrobe, else a 404). Absent is the closet.
+ * (a garment of the addressed wardrobe, else a 404), or `&planItem=<id>`
+ * from a plan item's "Add a candidate" (an item of the requester's own
+ * plans, in their own wardrobe, else a 404). Absent is the closet.
  */
 export const DestinationQuery = Type.Object({
   ...OwnerQuery.properties,
   to: Type.Optional(Type.Union([Type.Literal(''), Destination])),
   replaces: Type.Optional(Type.Union([Type.Literal(''), RowId])),
+  planItem: Type.Optional(Type.Union([Type.Literal(''), RowId])),
 });
 export type DestinationQuery = Static<typeof DestinationQuery>;
 

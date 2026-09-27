@@ -548,10 +548,37 @@ as a plan.
 - **Seed**: Theo gets a style profile, his rhythm and "NYC minimal" (19 items, active), which his
   closet mostly fulfils: the replace-soon grey merino and the padded shirt jacket he wants are
   missing, the third oxford partly. The bible's tables are the data, through the forms' readers.
-- **Slices.** **34a** (this): all of the above. **34b**: the shopping list (a plan's missing and
-  partly items with candidate wishlist garments within budget, adding a candidate by link or photo
-  onto an item), "Bought it" shown against the item it fulfils, and comparing two plans (what each
-  adds or drops). Hooks: the gap view's missing group, `get_plan_gaps`, `tools/plans.ts`.
+- **The shopping loop (34b)**: plan, gaps, shopping list, buy, "Bought it" fulfils the item.
+  - **Candidates** are wishlist garments linked to an item in `plan_item_candidate` (item, garment;
+    both cascade). A link rather than a `plan_item_id` on the garment: one product can stand for the
+    same item in two plans (a duplicate keeps the links), and the wishlist is shared with MANAGE
+    grantees while plans are private, so no garment row a grantee reads or edits carries plan data.
+    One writer (`changeCandidates`) keeps both sides the owner's and adds only wishlist garments;
+    every reader goes through `onWishlist`. Added from the item (by link and by photo through the
+    wishlist's own add carrying `planItem`, linked in the garment's transaction; or ticking what is
+    on the wishlist) and from the wishlist item ("For plan item…"). A candidate link is not a
+    proposal: it changes nothing the plan asks for and counts for nothing.
+  - **The shopping list** (`/wardrobe/shopping`, in the Wardrobe's ⋯ menu beside Plans, per the
+    redesign; also from the gap view and the wishlist): the active plan's missing and partly items,
+    highest priority first, each with the copies to buy, the budget per piece and its candidates
+    (photo, price against the budget, link, "Bought it"), a candidate that is not the kind the item
+    asks for saying how ("blue vs black"), and the totals (pieces, budget, the cheapest matching
+    candidates). Adding a candidate by photo in a store is the wishlist's normal add.
+  - **"Bought it" fulfils**, derived: the wishlist's `buy` moves the candidate into the closet and,
+    when it is the kind the item asks for, matching counts it. When it is not, the owner's Bought it
+    page says so and offers "Change the item to match" (only what differs), unticked: the item stays
+    a gap unless asked. The item's other candidates are offered for removal from the wishlist,
+    ticked only when the purchase leaves the item owned. The bought garment's link is kept and stops
+    mattering. A grantee who buys sees and sends none of the plan part.
+  - **Comparing two plans** (`/wardrobe/plans/compare`): accepted items paired by kind (category,
+    type and colour set), what B adds and drops, what changed (quantity, priority, details), what is
+    the same, each with its status in its own plan.
+  - **MCP**: `get_shopping_list`, `add_candidate` (a wishlist item by id, or a product link imported
+    onto the wishlist), `compare_plans`, and `get_plan_gaps` lists each item's candidates.
+  - **Seed**: Theo's two gaps pair with W01 (the merino, $49.90 of $50) and W02 (the padded shirt
+    jacket, $89.90 of $90): the plan table's `Candidates` column.
+- **Slices.** **34a**: the model, matching, the gap view, the style profile, iterating, the agent's
+  proposals. **34b**: the shopping loop above.
 
 ## Delivery
 

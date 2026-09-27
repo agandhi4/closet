@@ -6,6 +6,7 @@ import { garmentTools } from './garments';
 import { outfitTools } from './outfits';
 import { planTools } from './plans';
 import { sharingTools } from './sharing';
+import { shoppingTools } from './shopping';
 import { weatherTools } from './weather';
 
 /**
@@ -13,11 +14,11 @@ import { weatherTools } from './weather';
  * (#14) only with WEATHER_ENABLED. Deferred, each for its feature:
  * plan_week (#16, the weekly auto-plan), wardrobe_stats (#17, insights),
  * "goes with my closet" for a wishlist item (#18b, the generator over the
- * closet plus the item), the rest of the shopping loop (#34b: a plan's
- * shopping list with candidate wishlist garments, "Bought it" against a
- * plan item, comparing two plans; see tools/plans.ts, which holds 34a's
- * plans and style profile), a trip's forecast (#10: get_weather for the
- * trip's destination and dates).
+ * closet plus the item), a trip's forecast (#10: get_weather for the
+ * trip's destination and dates). Wardrobe plans (#34) are tools/plans.ts
+ * (34a: the style profile, plans, gaps, proposals) and tools/shopping.ts
+ * (34b: the shopping list, candidates, comparing plans); "Bought it" stays
+ * the owner's, in the app.
  */
 export function mcpTools(options: {
   weather: boolean;
@@ -30,5 +31,6 @@ export function mcpTools(options: {
     ...(options.weather ? weatherTools : []),
     ...sharingTools,
     ...planTools,
+    ...shoppingTools,
   ];
 }

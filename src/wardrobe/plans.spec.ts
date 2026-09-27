@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { QUANTITY_MAX } from './availability';
 import {
   type ClosetPiece,
+  comparePlans,
+  fitTargetTo,
   matchesTarget,
   matchPlan,
   planItemsFromWardrobe,
   type PlanTarget,
   planTally,
   type SourceGarment,
+  targetDifferences,
 } from './plans';
 
 let nextId = 1;
@@ -242,6 +245,152 @@ describe('matchPlan', () => {
       [piece(), piece()],
     );
     expect(planTally(matches)).toEqual({ owned: 1, partly: 1, missing: 1 });
+  });
+});
+
+describe('targetDifferences', () => {
+  it('names nothing for a garment the item takes', () => {
+    expect(targetDifferences(target({ colors: ['white'] }), piece())).toEqual(
+      [],
+    );
+  });
+
+  it('names each constraint the garment misses, with what it has and what the item asks', () => {
+    const item = target({
+      type: 'sweater',
+      colors: ['black'],
+      materials: ['merino'],
+      warmth: { min: 3, max: 4 },
+      formality: { min: 2, max: 3 },
+    });
+    const navyCotton = piece({
+      type: 'sweater',
+      colors: ['blue'],
+      warmth: 2,
+      formality: null,
+    });
+    expect(targetDifferences(item, navyCotton)).toEqual([
+      { property: 'colors', have: ['blue'], want: ['black'] },
+      { property: 'materials', have: ['cotton'], want: ['merino'] },
+      { property: 'warmth', have: 2, want: { min: 3, max: 4 } },
+      { property: 'formality', have: null, want: { min: 2, max: 3 } },
+    ]);
+    expect(
+      targetDifferences(target({ type: 'shirt' }), piece({ type: null })),
+    ).toEqual([{ property: 'type', have: null, want: 'shirt' }]);
+  });
+
+  it('names only the category when the garment is another kind of thing', () => {
+    expect(
+      targetDifferences(
+        target({ category: 'outerwear', colors: ['brown'] }),
+        piece(),
+      ),
+    ).toEqual([{ property: 'category', have: 'tops', want: 'outerwear' }]);
+  });
+
+  it('is what matchesTarget answers', () => {
+    const item = target({ colors: ['black'] });
+    expect(matchesTarget(item, piece())).toBe(false);
+    expect(matchesTarget(item, piece({ colors: ['black'] }))).toBe(true);
+  });
+});
+
+describe('fitTargetTo', () => {
+  it('changes only what differs, just enough for the garment to match', () => {
+    const item = target({
+      type: 'sweater',
+      colors: ['black'],
+      materials: ['merino'],
+      warmth: { min: 3, max: 4 },
+      formality: { min: 2, max: 3 },
+    });
+    const navy = piece({
+      type: 'sweater',
+      colors: ['blue', 'white'],
+      materials: ['merino', 'cotton'],
+      warmth: 5,
+      formality: 2,
+    });
+    const fitted = fitTargetTo(item, navy);
+    expect(fitted).toEqual({
+      category: 'tops',
+      type: 'sweater',
+      colors: ['blue', 'white'],
+      materials: ['merino'],
+      warmth: { min: 3, max: 5 },
+      formality: { min: 2, max: 3 },
+    });
+    expect(targetDifferences(fitted, navy)).toEqual([]);
+  });
+
+  it('opens a range the garment has no value for, and takes another kind whole', () => {
+    expect(
+      fitTargetTo(
+        target({ warmth: { min: 3, max: 3 } }),
+        piece({ warmth: null }),
+      ).warmth,
+    ).toBeNull();
+    const jacket = piece({
+      category: 'outerwear',
+      type: 'jacket',
+      colors: ['brown'],
+      warmth: 3,
+    });
+    const fitted = fitTargetTo(
+      target({
+        type: 't-shirt',
+        colors: ['white'],
+        warmth: { min: 1, max: 2 },
+      }),
+      jacket,
+    );
+    expect(fitted).toMatchObject({
+      category: 'outerwear',
+      type: 'jacket',
+      colors: ['brown'],
+      warmth: { min: 1, max: 3 },
+    });
+    expect(matchesTarget(fitted, jacket)).toBe(true);
+  });
+});
+
+describe('comparePlans', () => {
+  const item = (fields: Partial<PlanTarget>) => target(fields);
+
+  it('pairs items of the same kind and names what each plan adds or drops', () => {
+    const tee = item({ type: 't-shirt', colors: ['white'], quantity: 3 });
+    const oxford = item({ type: 'shirt', quantity: 2 });
+    const parka = item({ category: 'outerwear', type: 'parka' });
+    const tee2 = item({ type: 't-shirt', colors: ['white'], quantity: 4 });
+    const oxford2 = item({ type: 'shirt', quantity: 2 });
+    const blazer = item({ category: 'outerwear', type: 'blazer' });
+    const result = comparePlans([tee, oxford, parka], [blazer, oxford2, tee2]);
+    expect(result.both).toEqual([
+      { a: tee, b: tee2, changes: ['quantity'] },
+      { a: oxford, b: oxford2, changes: [] },
+    ]);
+    expect(result.dropped).toEqual([parka]);
+    expect(result.added).toEqual([blazer]);
+  });
+
+  it('reads colours as a set, and pairs two of a kind in order', () => {
+    const a1 = item({ colors: ['white', 'blue'] });
+    const a2 = item({ colors: ['blue', 'white'], priority: 'high' });
+    const b1 = item({ colors: ['blue', 'white'], warmth: { min: 2, max: 3 } });
+    const result = comparePlans([a1, a2], [b1]);
+    expect(result.both).toEqual([{ a: a1, b: b1, changes: ['details'] }]);
+    expect(result.dropped).toEqual([a2]);
+    expect(result.added).toEqual([]);
+  });
+
+  it('notes a changed priority and materials', () => {
+    const a = item({ materials: ['merino'], priority: 'high' });
+    const b = item({ materials: ['wool'] });
+    expect(comparePlans([a], [b]).both[0].changes).toEqual([
+      'priority',
+      'details',
+    ]);
   });
 });
 

@@ -249,7 +249,9 @@ describe('the MCP endpoint', () => {
       }>().result;
       expect(tools.map((listed) => listed.name).sort()).toEqual(
         [
+          'add_candidate',
           'add_garment_from_link',
+          'compare_plans',
           'compare_with_shared_wardrobe',
           'create_outfit',
           'get_calendar',
@@ -257,6 +259,7 @@ describe('the MCP endpoint', () => {
           'get_garment',
           'get_outfit',
           'get_plan_gaps',
+          'get_shopping_list',
           'get_style_profile',
           'laundry_status',
           'list_capsules',

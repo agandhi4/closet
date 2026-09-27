@@ -11,10 +11,20 @@ import { garmentUrl } from '../wardrobe/urls';
 import type { GapItem, PlanGaps } from './gaps';
 import { itemFacts, itemTitle, priorityLabel } from './labels';
 import type { ClosetGarment, PlanItemRow } from './queries';
-import { itemUrl, planUrl, PLANS_PATH } from './urls';
+import type { CandidateGarment, CandidatesByItem } from './candidates';
+import {
+  candidatesUrl,
+  compareUrl,
+  itemUrl,
+  planUrl,
+  PLANS_PATH,
+  shoppingUrl,
+} from './urls';
 
 export interface PlanPageModel {
   gaps: PlanGaps;
+  /** Each item's candidate products (34b): wishlist garments, by item id. */
+  candidates: CandidatesByItem;
   /** The one-shot toast after a write (PlanPageQuery). */
   toast?: 'created' | 'saved';
 }
@@ -37,8 +47,8 @@ const GROUP_TITLES = {
  * (the gaps first: what the page is for), each with what fulfils it and,
  * when it is not owned, why. Items the owner's agent proposed come first,
  * unmatched, with Accept and Dismiss. Private: the signed-in owner's plan
- * and closet only. 34b hangs the shopping list off the missing group
- * (candidate wishlist garments per item, within its budget).
+ * and closet only. A gap shows its candidate products (34b) and links to
+ * adding one; the shopping list is the gaps with their candidates.
  */
 export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
   const { ctx, model } = props;
@@ -67,9 +77,16 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
             {plan.notes}
           </p>
         )}
-        <a href={itemUrl(plan.id, 'new')} class="btn btn-primary w-full">
-          + {t('plans.ADD_ITEM')}
-        </a>
+        <div class="flex gap-2">
+          <a href={itemUrl(plan.id, 'new')} class="btn btn-primary flex-1">
+            + {t('plans.ADD_ITEM')}
+          </a>
+          {tally.missing + tally.partly > 0 && (
+            <a href={shoppingUrl(plan)} class="btn btn-outline flex-1">
+              {t('shopping.TITLE')}
+            </a>
+          )}
+        </div>
 
         {proposed.length > 0 && (
           <section aria-labelledby="group-proposed">
@@ -106,7 +123,11 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
                 </GroupHeading>
                 <ul class="flex flex-col gap-2">
                   {model.gaps.groups[status].map((entry) => (
-                    <ItemCard entry={entry} gaps={model.gaps} />
+                    <ItemCard
+                      entry={entry}
+                      gaps={model.gaps}
+                      candidates={model.candidates.get(entry.item.id) ?? []}
+                    />
                   ))}
                 </ul>
               </section>
@@ -167,6 +188,9 @@ function PlanMenu({ gaps }: { gaps: PlanGaps }) {
         <ul class="menu dropdown-content bg-base-100 rounded-box shadow-lg z-20 w-52 p-2">
           <li>
             <a href={planUrl(plan.id, '/edit')}>{t('plans.EDIT_PLAN')}</a>
+          </li>
+          <li>
+            <a href={compareUrl(plan.id)}>{t('shopping.COMPARE_WITH')}</a>
           </li>
           <li>
             <button type="submit" form="plan-duplicate" data-needs-network>
@@ -252,7 +276,11 @@ function ItemBody({ item }: { item: PlanItemRow }) {
   );
 }
 
-function ItemCard(props: { entry: GapItem; gaps: PlanGaps }) {
+function ItemCard(props: {
+  entry: GapItem;
+  gaps: PlanGaps;
+  candidates: CandidateGarment[];
+}) {
   const { item, match } = props.entry;
   const { plan, closet } = props.gaps;
   const progress =
@@ -306,8 +334,40 @@ function ItemCard(props: { entry: GapItem; gaps: PlanGaps }) {
             {reasonText(match, props.gaps)}
           </p>
         )}
+        {match.status !== 'owned' && (
+          <Candidates item={item} candidates={props.candidates} />
+        )}
       </div>
     </li>
+  );
+}
+
+/**
+ * A gap's candidate products (34b): each by name and price, and the link
+ * to its candidates page ("Add a candidate" while it has none).
+ */
+function Candidates(props: {
+  item: PlanItemRow;
+  candidates: CandidateGarment[];
+}) {
+  const { item, candidates } = props;
+  return (
+    <p class="text-xs flex flex-wrap items-center gap-1 mt-1" data-candidates>
+      {candidates.map((candidate) => (
+        <a
+          href={garmentUrl(candidate.garmentId, undefined)}
+          class="badge badge-ghost badge-sm h-auto py-0.5"
+        >
+          {candidate.name ?? categoryLabel(candidate.category)}
+          {candidate.price && ` · ${priceLabel(candidate.price)}`}
+        </a>
+      ))}
+      <a href={candidatesUrl(item.planId, item.id)} class="link link-primary">
+        {candidates.length === 0
+          ? `+ ${t('shopping.ADD_CANDIDATE')}`
+          : t('shopping.CANDIDATES_COUNT', { count: candidates.length })}
+      </a>
+    </p>
   );
 }
 

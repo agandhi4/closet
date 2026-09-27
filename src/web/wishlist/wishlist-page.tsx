@@ -12,6 +12,9 @@ import {
   wardrobeUrl,
 } from '../wardrobe/urls';
 import { WardrobeTabs } from '../wardrobe/wardrobe-tabs';
+import type { Candidacy } from '../plans/candidates';
+import { CandidacyLinks } from '../plans/candidates-page';
+import { SHOPPING_PATH } from '../plans/urls';
 import type { WishlistItem } from './queries';
 
 export interface WishlistModel {
@@ -20,6 +23,11 @@ export interface WishlistModel {
   viewOwner: number | undefined;
   /** Add and "Bought it": the owner and a MANAGE grantee (a VIEW grantee reads). */
   canEdit: boolean;
+  /**
+   * The plan items each item is a candidate for (34b), by garment id: the
+   * owner's own wishlist only. Undefined on a shared one: plans are private.
+   */
+  candidacies: Map<number, Candidacy[]> | undefined;
 }
 
 const TO_WISHLIST = destinationParams({ to: 'wishlist' });
@@ -29,7 +37,9 @@ const TO_WISHLIST = destinationParams({ to: 'wishlist' });
  * thinking of buying, newest first: each item's photo, name, price, product
  * link and the garment it would replace, and "Bought it". Cards use the
  * stretched-link pattern: the name's link covers the card, the product
- * link and "Bought it" sit above it (relative z-10).
+ * link and "Bought it" sit above it (relative z-10). On the owner's own
+ * wishlist each card also says which plan items it is a candidate for
+ * (34b), with "For plan item…", and the header links the shopping list.
  */
 export function WishlistPage(props: {
   ctx: ViewContext;
@@ -48,6 +58,13 @@ export function WishlistPage(props: {
           )}
         </div>
         <WardrobeTabs active="wishlist" viewOwner={viewOwner} />
+        {model.candidacies && (
+          <div class="max-w-lg mx-auto mb-3 px-2 flex justify-end">
+            <a href={SHOPPING_PATH} class="link link-primary text-sm">
+              {t('shopping.TITLE')}
+            </a>
+          </div>
+        )}
         {model.items.length === 0 ? (
           <EmptyState
             message={t(canEdit ? 'wishlist.EMPTY' : 'wishlist.EMPTY_SHARED')}
@@ -112,6 +129,12 @@ function WishlistCard(props: { item: WishlistItem; model: WishlistModel }) {
               name: item.replaces.name ?? categoryLabel(item.replaces.category),
             })}
           </p>
+        )}
+        {model.candidacies && (
+          <CandidacyLinks
+            garmentId={item.id}
+            candidacies={model.candidacies.get(item.id) ?? []}
+          />
         )}
         <div class="flex flex-wrap items-center gap-2 mt-1">
           {item.price && (

@@ -19,6 +19,7 @@ import {
   createGarmentWithLinkPhoto,
   discardLinkPhoto,
   type WardrobeDeps,
+  type WithGarment,
 } from '../../wardrobe/writes';
 import type { EntryStatus } from '../../../wardrobe/status';
 import type { ToolContext } from '../tool';
@@ -37,6 +38,11 @@ export interface LinkOverrides {
   notes?: string;
 }
 
+/** More rows the save writes with the garment (add_candidate's link, 34b). */
+export interface LinkSaveOptions {
+  withGarment?: WithGarment;
+}
+
 /**
  * add_garment_from_link: the link import (#6) and the garment form's save
  * in one step, with nobody to review the form. importLink fetches through
@@ -50,13 +56,14 @@ export interface LinkOverrides {
  * kept, and the garment page changes it.
  *
  * Lands where the caller says (add_garment_from_link defaults to the
- * wishlist, #18). The shopping loop (#34) will add candidates to a plan
- * item through it.
+ * wishlist, #18). add_candidate (34b) saves through it too, its candidate
+ * link written in the garment's transaction (`withGarment`).
  */
 export async function addGarmentFromLink(
   ctx: ToolContext,
   ownerId: number,
   overrides: LinkOverrides,
+  { withGarment }: LinkSaveOptions = {},
 ): Promise<{ id: number; notices: string[] }> {
   const deps: WardrobeDeps = {
     db: ctx.db,
@@ -102,8 +109,15 @@ export async function addGarmentFromLink(
         read.fields,
         photo,
         overrides.destination,
+        withGarment,
       )
-    : await createGarment(deps, ownerId, read.fields, overrides.destination);
+    : await createGarment(
+        deps,
+        ownerId,
+        read.fields,
+        overrides.destination,
+        withGarment,
+      );
   if (id === undefined) {
     // Claimed or evicted between the import and the save (the same user's
     // tenth import meanwhile): nothing was written.

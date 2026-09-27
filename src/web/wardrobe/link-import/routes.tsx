@@ -110,7 +110,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { destination } = await resolveDestination(
         db,
         request.query,
-        access.ownerId,
+        access,
       );
       const { url = '', text = '' } = request.query;
       const shared = `${url} ${text}`.trim();
@@ -152,10 +152,10 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
         'Garment not found',
       );
-      const { destination } = await resolveDestination(
+      const { destination, candidateFor } = await resolveDestination(
         db,
         request.query,
-        access.ownerId,
+        access,
       );
       const userId = sessionUserId(request);
       const typed = request.body.url;
@@ -179,6 +179,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
                 : String(destination.replaces),
           },
           link: form.link,
+          candidateFor,
         });
       } catch (error) {
         if (!(error instanceof LinkImportError)) throw error;

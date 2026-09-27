@@ -22,7 +22,7 @@ const BEARER = /^Bearer\s+(\S+)\s*$/i;
 const UNAUTHORIZED = { statusCode: 401, message: 'Unauthorized' };
 
 const INSTRUCTIONS =
-  "Closet is the user's self-hosted wardrobe: garments with properties, capsules, outfits, a calendar of planned and worn outfits, and wardrobes shared with them. Every tool acts as the user; a shared wardrobe is addressed by its owner's id (ownerId, from list_shared_wardrobes). Tools that write say so; nothing deletes.";
+  "Closet is the user's self-hosted wardrobe: garments with properties, capsules, outfits, a calendar of planned and worn outfits, wardrobes shared with them, and the user's own wardrobe plans with their gaps and shopping list. Every tool acts as the user; a shared wardrobe is addressed by its owner's id (ownerId, from list_shared_wardrobes). Tools that write say so; nothing deletes.";
 
 /**
  * POST /mcp, the MCP endpoint (#33): Streamable HTTP in stateless mode,

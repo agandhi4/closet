@@ -3,6 +3,8 @@ import { PLAN_PRIORITIES } from '../../wardrobe/plans';
 import { BUDGET_BANDS, RHYTHM_PERIODS, STYLES } from '../../wardrobe/style';
 import {
   budgetLabel,
+  differencesText,
+  differenceText,
   itemFacts,
   itemTitle,
   periodLabel,
@@ -58,5 +60,22 @@ describe('plan and style labels', () => {
       'T-shirt',
       'white',
     ]);
+  });
+
+  it('words how a garment falls outside an item (34b: "blue vs black")', () => {
+    expect(
+      differencesText([
+        { property: 'colors', have: ['blue'], want: ['black'] },
+        { property: 'type', have: 'jacket', want: 'coat' },
+        { property: 'materials', have: [], want: ['merino'] },
+        { property: 'warmth', have: 2, want: { min: 3, max: 5 } },
+        { property: 'formality', have: null, want: { min: 3, max: 3 } },
+      ]),
+    ).toBe(
+      'blue vs black; Jacket vs Coat; none vs Merino; warmth Light vs Medium to Very warm; formality none vs Smart casual',
+    );
+    expect(
+      differenceText({ property: 'category', have: 'outerwear', want: 'tops' }),
+    ).toBe('Outerwear vs Tops');
   });
 });

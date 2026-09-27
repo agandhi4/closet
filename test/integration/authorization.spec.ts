@@ -5,6 +5,7 @@ import { count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { outfit, outfitCalendar, outfitSlot } from '../../src/db/schema';
 import { createToken } from '../../src/web/auth/personal-tokens';
+import { changeCandidates } from '../../src/web/plans/candidates';
 import { insertItems, saveStyleProfile } from '../../src/web/plans/queries';
 import { EMPTY_STYLE_PROFILE } from '../../src/web/plans/validation';
 import { LOGIN_PATH } from '../../src/web/auth/session-access';
@@ -55,7 +56,10 @@ import { jpeg, type LinkSites, startLinkSites } from './link-sites';
  * requester's own: another user's ids are ignored. Wardrobe plans and the
  * style profile (#34) are private like outfits: every refusal is a 404 or
  * the requester's own; starting a plan from the owner's closet needs a view
- * of it and lands in the requester's plans.
+ * of it and lands in the requester's plans. The shopping loop (#34b) is the
+ * plans': the shopping list, comparing, and both sides of a candidate link
+ * are the owner's alone, and "Bought it"'s plan follow-ups are refused to a
+ * grantee who may buy.
  */
 
 type SignedIn = 'owner' | 'manager' | 'viewer' | 'stranger';
@@ -1282,6 +1286,141 @@ const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  // The shopping loop (#34b) is the plans': the owner's own, ?ownerId=
+  // ignored, anyone else's plan, item or wishlist item a 404.
+  {
+    name: 'GET /wardrobe/shopping?plan=',
+    kind: 'read',
+    ok: 200,
+    secret: planName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/shopping${q ? `${q}&` : '?'}plan=${f.planId}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /wardrobe/plans/compare',
+    kind: 'read',
+    ok: 200,
+    secret: planName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/plans/compare${q ? `${q}&` : '?'}a=${f.planId}&b=${f.planId}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /wardrobe/plans/:id/items/:itemId/candidates',
+    kind: 'read',
+    ok: 200,
+    secret: planName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/plans/${f.planId}/items/${f.planItemId}/candidates${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // Unticks the fixture's candidate (the wishlist item), so it writes.
+    name: 'POST /wardrobe/plans/:id/items/:itemId/candidates',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/items/${f.planItemId}/candidates${q}`,
+      payload: { shown: [String(f.wishlistId)] },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /wardrobe/:id/plan-items',
+    kind: 'read',
+    ok: 200,
+    secret: planName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/${f.wishlistId}/plan-items${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/:id/plan-items',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.wishlistId}/plan-items${q}`,
+      payload: { shown: [String(f.planItemId)] },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // "Bought it" with a plan follow-up: the plans are the owner's, so a
+    // MANAGE grantee who may buy may not ask for it.
+    name: 'POST /wardrobe/:id/bought (plan follow-ups)',
+    kind: 'write',
+    ok: 303,
+    secret: wishlistName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.wishlistId}/bought${q}`,
+      payload: {
+        acquiredOn: f.today,
+        price: '10',
+        adjustItems: [String(f.planItemId)],
+      },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'forbidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
   {
     // Everyone's own profile; the owner's notes never reach anyone else.
     name: 'GET /auth/profile/style',
@@ -1553,6 +1692,10 @@ describe('authorization matrix', () => {
       ],
       { proposed: true },
     );
+    // The wishlist item is a candidate for it (#34b).
+    await changeCandidates(t.db, t.owner.id, {
+      add: { itemIds: [planItemId], garmentIds: [wishlistId] },
+    });
     await saveStyleProfile(t.db, t.owner.id, {
       ...EMPTY_STYLE_PROFILE,
       notes: OWNER_STYLE_NOTE,
@@ -1601,6 +1744,7 @@ describe('authorization matrix', () => {
       'personal_access_token',
       'wardrobe_plan',
       'plan_item',
+      'plan_item_candidate',
       'style_profile',
       'style_rhythm',
     ];

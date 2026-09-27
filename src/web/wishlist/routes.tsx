@@ -15,7 +15,7 @@ import {
 } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { findGarment, type GarmentDetail } from '../wardrobe/queries';
-import { buyGarment, type Purchase } from '../wardrobe/status';
+import { type Purchase } from '../wardrobe/status';
 import { garmentUrl } from '../wardrobe/urls';
 import {
   GarmentParams,
@@ -24,20 +24,55 @@ import {
   readPrice,
 } from '../wardrobe/validation';
 import { type BoughtField, type BoughtModel, BoughtPage } from './bought-page';
+import type { WardrobeDeps } from '../wardrobe/writes';
+import { candidaciesByGarment } from '../plans/candidates';
+import {
+  buyCandidate,
+  type PlanFollowUps,
+  type PlanPurchase,
+  pieceOf,
+  planPurchases,
+} from '../plans/purchase';
+import { RowId } from '../schemas';
 import { garmentRef, type GarmentRef, wishlistItems } from './queries';
 import { WishlistPage } from './wishlist-page';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
 
 // "Bought it": the day and the price paid as typed (checked by readPurchase,
-// re-rendered with messages), and the archive of the replaced garment,
-// which only the owner may ask for.
+// re-rendered with messages), and what only the owner may ask for: the
+// archive of the replaced garment, and the plan follow-ups (34b: the plan
+// items to change to match, the other candidates to remove).
+const FOLLOW_UPS_MAX = 100;
 const BoughtBody = Type.Object({
   acquiredOn: Type.Optional(Type.String({ maxLength: 32 })),
   price: Type.Optional(Type.String({ maxLength: PRICE_INPUT_MAX })),
   archiveReplaced: Type.Optional(Type.Literal('1')),
+  adjustItems: Type.Optional(Type.Array(RowId, { maxItems: FOLLOW_UPS_MAX })),
+  removeCandidates: Type.Optional(
+    Type.Array(RowId, { maxItems: FOLLOW_UPS_MAX }),
+  ),
 });
 type BoughtBody = Static<typeof BoughtBody>;
+
+/**
+ * What only the owner may ask of "Bought it": the archive of the replaced
+ * garment and the plan follow-ups (34b). A grantee asking for either is a
+ * 403, before anything is written.
+ */
+function ownersAsks(body: BoughtBody, isOwner: boolean) {
+  const archiveReplaced = body.archiveReplaced === '1';
+  const followUps: PlanFollowUps = {
+    adjustItems: body.adjustItems ?? [],
+    removeCandidates: body.removeCandidates ?? [],
+  };
+  const asked =
+    archiveReplaced ||
+    followUps.adjustItems.length > 0 ||
+    followUps.removeCandidates.length > 0;
+  if (asked && !isOwner) throw new HttpError(403);
+  return { archiveReplaced, followUps };
+}
 
 /** The purchase as stored (a blank field is null), or what is wrong with it. */
 function readPurchase(
@@ -68,7 +103,10 @@ function readPurchase(
  * grantor's wishlist (a gift list; the owner reading a sibling's), a MANAGE
  * grantee also adds, edits and buys, and only the owner archives the
  * garment a purchase replaces or deletes an item. Adding and editing are
- * the garment form's (src/web/wardrobe, `?to=wishlist`).
+ * the garment form's (src/web/wardrobe, `?to=wishlist`). The owner's own
+ * wishlist and "Bought it" also carry their plans' part (34b): which plan
+ * items each item is a candidate for, and what buying one does to them
+ * (src/web/plans/purchase.ts); a grantee never sees or sends it.
  */
 export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -76,6 +114,25 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger, config } = options;
+  const deps: WardrobeDeps = {
+    db,
+    photos: options.photos,
+    logger,
+    cutouts: options.cutouts,
+  };
+
+  /**
+   * What buying `garment` does to the owner's plan items (34b); nothing for
+   * a grantee, whose purchase leaves the owner's plans to the owner.
+   */
+  async function purchasesFor(
+    garment: GarmentDetail,
+    { access }: AuthorizedWardrobe,
+  ): Promise<PlanPurchase[]> {
+    if (!access.isOwner) return [];
+    const piece = await pieceOf(db, garment.id, access.ownerId);
+    return piece ? planPurchases(db, access.ownerId, piece) : [];
+  }
 
   function resolve(
     request: FastifyRequest,
@@ -136,11 +193,23 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'view',
       );
       const items = await wishlistItems(db, access.ownerId);
+      const candidacies = access.isOwner
+        ? await candidaciesByGarment(
+            db,
+            access.ownerId,
+            items.map((item) => item.id),
+          )
+        : undefined;
       return renderPage(
         reply,
         <WishlistPage
           ctx={viewContext(reply)}
-          model={{ items, viewOwner, canEdit: access.canManage }}
+          model={{
+            items,
+            viewOwner,
+            canEdit: access.canManage,
+            candidacies,
+          }}
         />,
       );
     },
@@ -170,14 +239,16 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           price: garment.price ?? '',
         },
         archivable: await archivable(garment, authorized),
+        plans: await purchasesFor(garment, authorized),
       });
     },
   );
 
-  // Into the closet (buyGarment: setGarmentStatus's buy, and the replaced
-  // garment's archive when asked, in one transaction), then its page with
-  // a toast. A grantee asking for the archive is a 403 before anything is
-  // written; an item already bought is a 409.
+  // Into the closet (buyCandidate: buyGarment's buy and, when asked, the
+  // replaced garment's archive, then the owner's plan follow-ups, in one
+  // transaction), then its page with a toast. A grantee asking for the
+  // archive or a plan follow-up is a 403 before anything is written; an
+  // item already bought is a 409.
   app.post(
     '/wardrobe/:id/bought',
     {
@@ -194,8 +265,10 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { access, viewOwner } = authorized;
-      const archiveReplaced = request.body.archiveReplaced === '1';
-      if (archiveReplaced && !access.isOwner) throw new HttpError(403);
+      const { archiveReplaced, followUps } = ownersAsks(
+        request.body,
+        access.isOwner,
+      );
       const garment = await requireGarment(request.params.id, access.ownerId);
       const read = readPurchase(request.body);
       if (!read.ok) {
@@ -212,15 +285,20 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
               price: request.body.price ?? '',
             },
             archivable: await archivable(garment, authorized),
+            plans: await purchasesFor(garment, authorized),
+            ticked: followUps,
             errors: read.errors,
           },
           400,
         );
       }
-      const outcome = await buyGarment(db, garment.id, access.ownerId, {
-        ...read.purchase,
-        archiveReplaced,
-      });
+      const outcome = await buyCandidate(
+        deps,
+        garment.id,
+        access.ownerId,
+        { ...read.purchase, archiveReplaced },
+        followUps,
+      );
       if (!outcome.ok) {
         if (outcome.reason === 'not-found') {
           throw new HttpError(404, GARMENT_NOT_FOUND);

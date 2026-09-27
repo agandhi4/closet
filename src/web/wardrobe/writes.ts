@@ -63,16 +63,31 @@ async function commitWithPhoto<T>(
 }
 
 /**
+ * More rows a new garment's save writes in the garment's own transaction,
+ * given its id: a new wishlist item's plan candidate link (34b), so the
+ * item never exists on the wishlist without the link it was added for.
+ */
+export type WithGarment = (
+  tx: Queryable,
+  garmentId: number,
+) => Promise<unknown>;
+
+/**
  * A new garment in `ownerId`'s wardrobe, in the closet or on the wishlist
- * (the form has no photo; it comes next).
+ * (the form has no photo; it comes next), with `withGarment`'s rows.
  */
 export function createGarment(
   { db }: WardrobeDeps,
   ownerId: number,
   fields: GarmentFields,
   status: EntryStatus,
+  withGarment?: WithGarment,
 ): Promise<number> {
-  return insertGarment(db, ownerId, fields, null, status);
+  return db.transaction(async (tx) => {
+    const id = await insertGarment(tx, ownerId, fields, null, status);
+    await withGarment?.(tx, id);
+    return id;
+  });
 }
 
 /**
@@ -96,6 +111,7 @@ export async function createGarmentWithLinkPhoto(
   fields: GarmentFields,
   fileName: string,
   status: EntryStatus,
+  withGarment?: WithGarment,
 ): Promise<number | undefined> {
   const id = await db.transaction(async (tx) => {
     await lockPhotoName(tx, fileName);
@@ -108,7 +124,9 @@ export async function createGarmentWithLinkPhoto(
       ...photo,
       ...initialCutoutState('pending'),
     });
-    return insertGarment(tx, ownerId, fields, photoId, status);
+    const garmentId = await insertGarment(tx, ownerId, fields, photoId, status);
+    await withGarment?.(tx, garmentId);
+    return garmentId;
   });
   if (id === undefined) {
     logger.warn(

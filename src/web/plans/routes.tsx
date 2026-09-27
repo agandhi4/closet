@@ -7,6 +7,7 @@ import type { WebOptions } from '../plugin';
 import { navigateTo, renderPage } from '../render';
 import { authorizeWardrobe, sharedWardrobesOf } from '../sharing/access';
 import { viewContext } from '../view-context';
+import { candidatesOfPlan, changeCandidates } from './candidates';
 import { itemsFromCloset } from './derive';
 import { allPlanGaps, planGaps } from './gaps';
 import { ItemFormPage, type ItemFormModel } from './item-form-page';
@@ -20,8 +21,6 @@ import {
   createPlan,
   deleteItem,
   deletePlan,
-  findItem,
-  findPlan,
   findStyleProfile,
   freePlanName,
   insertItems,
@@ -35,6 +34,7 @@ import {
 } from './queries';
 import { findWeatherSettings } from '../weather/queries';
 import { StyleProfilePage } from './style-page';
+import { requirePlan as requireOwnPlan, requirePlanItem } from './require';
 import { PLANS_PATH, planUrl, STYLE_PROFILE_PATH } from './urls';
 import {
   BLANK_ITEM_VALUES,
@@ -91,13 +91,11 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     return { name: settings.home?.name ?? null };
   }
 
-  async function requirePlan(
+  function requirePlan(
     request: FastifyRequest,
     id: number,
   ): Promise<PlanDetail> {
-    const plan = await findPlan(db, id, sessionUserId(request));
-    if (!plan) throw planNotFound();
-    return plan;
+    return requireOwnPlan(db, sessionUserId(request), id);
   }
 
   function renderPlanForm(
@@ -276,12 +274,17 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const plan = await requirePlan(request, request.params.id);
       const { created, saved } = request.query;
+      const [gaps, candidates] = await Promise.all([
+        planGaps(db, plan, userId),
+        candidatesOfPlan(db, userId, plan.id),
+      ]);
       return renderPage(
         reply,
         <PlanPage
           ctx={viewContext(reply)}
           model={{
-            gaps: await planGaps(db, plan, userId),
+            gaps,
+            candidates,
             toast:
               created === '1' ? 'created' : saved === '1' ? 'saved' : undefined,
           }}
@@ -348,15 +351,19 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // A copy to iterate on ("NYC minimal (copy)"): every item, proposals
-  // included, as they are. Active only when no plan is (createPlan's rule):
-  // otherwise the original stays the plan until the owner says.
+  // included, as they are, with their candidate products (34b). Active only
+  // when no plan is (createPlan's rule): otherwise the original stays the
+  // plan until the owner says.
   app.post(
     `${PLANS_PATH}/:id/duplicate`,
     { schema: { params: PlanParams } },
     async (request, reply) => {
       const userId = sessionUserId(request);
       const plan = await requirePlan(request, request.params.id);
-      const items = await itemsOf(db, [plan.id]);
+      const [items, candidates] = await Promise.all([
+        itemsOf(db, [plan.id]),
+        candidatesOfPlan(db, userId, plan.id),
+      ]);
       const name = await freePlanName(db, userId, (n) =>
         n === 1
           ? t('plans.COPY_NAME', { name: plan.name })
@@ -371,12 +378,22 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           throw new Error(`Plan name "${name}" taken while duplicating`);
         }
         for (const proposed of [false, true]) {
-          await insertItems(
+          const originals = items.filter((item) => item.proposed === proposed);
+          const copies = await insertItems(
             tx,
             created,
-            items.filter((item) => item.proposed === proposed).map(itemFields),
+            originals.map(itemFields),
             { proposed },
           );
+          for (const [index, original] of originals.entries()) {
+            const garmentIds = (candidates.get(original.id) ?? []).map(
+              (candidate) => candidate.garmentId,
+            );
+            if (garmentIds.length === 0) continue;
+            await changeCandidates(tx, userId, {
+              add: { itemIds: [copies[index]], garmentIds },
+            });
+          }
         }
         return created;
       });
@@ -427,10 +444,10 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     itemId: number,
   ) {
     const userId = sessionUserId(request);
-    const plan = await requirePlan(request, planId);
-    const item = await findItem(db, itemId, plan.id, userId);
-    if (!item) throw itemNotFound();
-    return { plan, item, userId };
+    return {
+      ...(await requirePlanItem(db, userId, planId, itemId)),
+      userId,
+    };
   }
 
   app.get(

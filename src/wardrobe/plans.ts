@@ -119,21 +119,135 @@ function hasAll(have: readonly string[], wanted: readonly string[]): boolean {
   return wanted.every((value) => have.includes(value));
 }
 
+/** The part of a plan item a garment is judged against: its constraints. */
+export type TargetSpec = Pick<
+  PlanTarget,
+  'category' | 'type' | 'colors' | 'materials' | 'warmth' | 'formality'
+>;
+
+/** The part of a garment a plan item judges. */
+export type PieceSpec = Pick<
+  ClosetPiece,
+  'category' | 'type' | 'colors' | 'materials' | 'warmth' | 'formality'
+>;
+
 /**
- * Whether `garment` is the kind of thing `item` asks for, condition aside:
- * the same category, the item's type if it names one, every colour and
- * material it names (a Breton stripe is a blue top), and warmth and
- * formality inside its ranges (a garment without the value is outside one).
+ * One way a garment falls outside a plan item (34b: "This doesn't match the
+ * plan item: blue vs black"), with what the garment has and what the item
+ * asks, so the web layer can word it and fitTargetTo can close it.
  */
-export function matchesTarget(item: PlanTarget, garment: ClosetPiece): boolean {
-  return (
-    garment.category === item.category &&
-    (item.type === null || garment.type === item.type) &&
-    hasAll(garment.colors, item.colors) &&
-    hasAll(garment.materials, item.materials) &&
-    within(garment.warmth, item.warmth) &&
-    within(garment.formality, item.formality)
-  );
+export type TargetDifference =
+  | { property: 'category'; have: string; want: string }
+  | { property: 'type'; have: string | null; want: string }
+  | {
+      property: 'colors' | 'materials';
+      have: readonly string[];
+      want: readonly string[];
+    }
+  | {
+      property: 'warmth' | 'formality';
+      have: number | null;
+      want: Range<number>;
+    };
+
+/**
+ * How `garment` falls outside `item`, condition aside; empty when it is the
+ * kind of thing the item asks for: the same category, the item's type if it
+ * names one, every colour and material it names (a Breton stripe is a blue
+ * top), and warmth and formality inside its ranges (a garment without the
+ * value is outside one). A different category is the only difference named
+ * then: the rest would compare garments of different kinds.
+ */
+export function targetDifferences(
+  item: TargetSpec,
+  garment: PieceSpec,
+): TargetDifference[] {
+  if (garment.category !== item.category) {
+    return [
+      { property: 'category', have: garment.category, want: item.category },
+    ];
+  }
+  const differences: TargetDifference[] = [];
+  if (item.type !== null && garment.type !== item.type) {
+    differences.push({ property: 'type', have: garment.type, want: item.type });
+  }
+  for (const property of ['colors', 'materials'] as const) {
+    if (!hasAll(garment[property], item[property])) {
+      differences.push({
+        property,
+        have: garment[property],
+        want: item[property],
+      });
+    }
+  }
+  for (const property of ['warmth', 'formality'] as const) {
+    const want = item[property];
+    if (want !== null && !within(garment[property], want)) {
+      differences.push({ property, have: garment[property], want });
+    }
+  }
+  return differences;
+}
+
+/** Whether `garment` is the kind of thing `item` asks for: no targetDifferences. */
+export function matchesTarget(item: TargetSpec, garment: PieceSpec): boolean {
+  return targetDifferences(item, garment).length === 0;
+}
+
+/**
+ * `item`'s constraints changed just enough for `garment` to match it:
+ * "Bought it"'s "change the item to match" (34b). Only what differs
+ * changes. Another category takes the garment's category and type; a type,
+ * colour or material set takes the garment's (its colours become the
+ * item's: the narrowest item this garment fulfils); a range widens to take
+ * the garment's value, or opens (any) when the garment has none.
+ */
+export function fitTargetTo(item: TargetSpec, garment: PieceSpec): TargetSpec {
+  const fitted: TargetSpec = {
+    category: item.category,
+    type: item.type,
+    colors: item.colors,
+    materials: item.materials,
+    warmth: item.warmth,
+    formality: item.formality,
+  };
+  for (const difference of targetDifferences(item, garment)) {
+    switch (difference.property) {
+      case 'category':
+        return fitTargetTo(
+          { ...item, category: garment.category, type: garment.type },
+          garment,
+        );
+      case 'type':
+        fitted.type = garment.type;
+        break;
+      case 'colors':
+        fitted.colors = garment.colors;
+        break;
+      case 'materials':
+        fitted.materials = garment.materials;
+        break;
+      case 'warmth':
+        fitted.warmth = widened(item.warmth!, garment.warmth);
+        break;
+      case 'formality':
+        fitted.formality = widened(item.formality!, garment.formality);
+        break;
+    }
+  }
+  return fitted;
+}
+
+/** `range` stretched to take `value`; null (any) when there is no value. */
+function widened<T extends number>(
+  range: Range<T>,
+  value: T | null,
+): Range<T> | null {
+  if (value === null) return null;
+  return {
+    min: Math.min(range.min, value) as T,
+    max: Math.max(range.max, value) as T,
+  };
 }
 
 /** How far a match is from exact: colours and materials beyond the item's. */
@@ -265,6 +379,93 @@ export function planTally(
   const tally = { owned: 0, partly: 0, missing: 0 };
   for (const match of matches) tally[match.status] += 1;
   return tally;
+}
+
+/** A plan item as comparing two plans reads it. */
+export interface ComparedItem extends TargetSpec {
+  id: number;
+  quantity: number;
+  priority: PlanPriority;
+}
+
+/** What differs between an item and its counterpart in the other plan. */
+export type ItemChange = 'quantity' | 'priority' | 'details';
+
+export interface PlanComparison<I extends ComparedItem> {
+  /** Items both plans have (the same kind: category, type, colour set), in A's order. */
+  both: { a: I; b: I; changes: ItemChange[] }[];
+  /** Only in A: what B drops. */
+  dropped: I[];
+  /** Only in B: what B adds. */
+  added: I[];
+}
+
+/** An item's kind, the comparison's key: its category, type and colour set. */
+function kindKey(item: TargetSpec): string {
+  return [
+    item.category,
+    item.type ?? '',
+    [...item.colors].sort().join(','),
+  ].join('\u0000');
+}
+
+function sameRange(a: Range<number> | null, b: Range<number> | null): boolean {
+  return a === null || b === null
+    ? a === b
+    : a.min === b.min && a.max === b.max;
+}
+
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value) => b.includes(value));
+}
+
+/** What differs between two items of the same kind. */
+function changesOf(a: ComparedItem, b: ComparedItem): ItemChange[] {
+  const details =
+    !sameSet(a.materials, b.materials) ||
+    !sameRange(a.warmth, b.warmth) ||
+    !sameRange(a.formality, b.formality);
+  return [
+    ...(a.quantity !== b.quantity ? (['quantity'] as const) : []),
+    ...(a.priority !== b.priority ? (['priority'] as const) : []),
+    ...(details ? (['details'] as const) : []),
+  ];
+}
+
+/**
+ * Two plans side by side, item by item (34b, "compare two plans: what each
+ * adds or drops"): items are the same when they are the same kind of thing
+ * (category, type and colour set; "white t-shirt" in both), paired in the
+ * order each plan lists them when a plan has two of a kind. A pair notes
+ * what changed: the quantity, the priority, or the details (materials,
+ * warmth, formality). Everything else is only in one plan: dropped from A
+ * or added in B. Owned or not is each plan's own matching, the caller's.
+ */
+export function comparePlans<I extends ComparedItem>(
+  a: readonly I[],
+  b: readonly I[],
+): PlanComparison<I> {
+  const unpaired = new Map<string, I[]>();
+  for (const item of b) {
+    const key = kindKey(item);
+    unpaired.set(key, [...(unpaired.get(key) ?? []), item]);
+  }
+  const both: PlanComparison<I>['both'] = [];
+  const dropped: I[] = [];
+  for (const item of a) {
+    const counterpart = unpaired.get(kindKey(item))?.shift();
+    if (!counterpart) {
+      dropped.push(item);
+      continue;
+    }
+    both.push({
+      a: item,
+      b: counterpart,
+      changes: changesOf(item, counterpart),
+    });
+  }
+  const left = new Set([...unpaired.values()].flat());
+  return { both, dropped, added: b.filter((item) => left.has(item)) };
 }
 
 /** A garment of a wardrobe a plan is started from (in its closet). */

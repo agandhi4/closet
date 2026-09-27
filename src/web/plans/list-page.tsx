@@ -6,7 +6,13 @@ import { Navbar } from '../layout/navbar';
 import { BackLink, EmptyState } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import type { PlanGaps } from './gaps';
-import { PLANS_PATH, planUrl, STYLE_PROFILE_PATH } from './urls';
+import {
+  COMPARE_PATH,
+  PLANS_PATH,
+  planUrl,
+  SHOPPING_PATH,
+  STYLE_PROFILE_PATH,
+} from './urls';
 
 /** A wardrobe a plan can start from: the requester's own, or one shared with them. */
 export interface PlanSource {
@@ -55,11 +61,23 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
             </a>
           </EmptyState>
         ) : (
-          <ul class="flex flex-col gap-2" id="plans">
-            {model.plans.map((gaps) => (
-              <PlanCard gaps={gaps} />
-            ))}
-          </ul>
+          <>
+            <ul class="flex flex-col gap-2" id="plans">
+              {model.plans.map((gaps) => (
+                <PlanCard gaps={gaps} />
+              ))}
+            </ul>
+            <div class="flex gap-2">
+              <a href={SHOPPING_PATH} class="btn btn-outline btn-sm flex-1">
+                {t('shopping.TITLE')}
+              </a>
+              {model.plans.length > 1 && (
+                <a href={COMPARE_PATH} class="btn btn-outline btn-sm flex-1">
+                  {t('shopping.COMPARE_TITLE')}
+                </a>
+              )}
+            </div>
+          </>
         )}
 
         <section aria-labelledby="start-from">

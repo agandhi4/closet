@@ -1,4 +1,4 @@
-import type { PlanPriority } from '../../wardrobe/plans';
+import type { PlanPriority, TargetDifference } from '../../wardrobe/plans';
 import type { BudgetBand, RhythmPeriod, Style } from '../../wardrobe/style';
 import { t, tKey } from '../i18n';
 import { categoryLabel } from '../wardrobe/garment';
@@ -84,4 +84,65 @@ export function itemFacts(item: PlanItemFields): string[] {
     );
   }
   return facts;
+}
+
+/** A garment's value as a difference names it: its label, or "none". */
+function haveLabel(
+  property: 'type' | 'warmth' | 'formality',
+  value: string | number | null,
+): string {
+  return value === null ? t('shopping.NONE') : valueLabel(property, value);
+}
+
+/** A set as a difference names it: its values, or "none" when empty. */
+function setLabel(values: readonly string[], label: (v: string) => string) {
+  return values.map(label).join(', ') || t('shopping.NONE');
+}
+
+const VERSUS_KEYS = {
+  warmth: 'shopping.VERSUS_WARMTH',
+  formality: 'shopping.VERSUS_FORMALITY',
+} as const;
+
+/** One way a garment falls outside a plan item, in words: "blue vs black". */
+export function differenceText(difference: TargetDifference): string {
+  switch (difference.property) {
+    case 'category':
+      return t('shopping.VERSUS', {
+        have: categoryLabel(difference.have),
+        want: categoryLabel(difference.want),
+      });
+    case 'type':
+      return t('shopping.VERSUS', {
+        have: haveLabel('type', difference.have),
+        want: valueLabel('type', difference.want),
+      });
+    case 'colors':
+      return t('shopping.VERSUS', {
+        have: setLabel(difference.have, (color) => color),
+        want: setLabel(difference.want, (color) => color),
+      });
+    case 'materials': {
+      const material = (value: string) => valueLabel('materials', value);
+      return t('shopping.VERSUS', {
+        have: setLabel(difference.have, material),
+        want: setLabel(difference.want, material),
+      });
+    }
+    case 'warmth':
+    case 'formality': {
+      const { property, have, want } = difference;
+      return t(VERSUS_KEYS[property], {
+        have: haveLabel(property, have),
+        want: rangeLabel(property, want.min, want.max),
+      });
+    }
+  }
+}
+
+/** Every difference, joined: "blue vs black; Jacket vs Coat". */
+export function differencesText(
+  differences: readonly TargetDifference[],
+): string {
+  return differences.map(differenceText).join('; ');
 }

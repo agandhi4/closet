@@ -138,7 +138,9 @@ describe('seed personas', () => {
     const plans = await t.db.query.wardrobePlan.findMany({
       where: eq(wardrobePlan.ownerId, id),
       orderBy: asc(wardrobePlan.id),
-      with: { items: { orderBy: asc(planItem.id) } },
+      with: {
+        items: { orderBy: asc(planItem.id), with: { candidates: true } },
+      },
     });
     const shares = await t.db
       .select({
@@ -187,12 +189,16 @@ describe('seed personas', () => {
       plans: plans.map((p) => ({
         name: p.name,
         active: p.active,
-        items: p.items.map((item) => {
+        items: p.items.map(({ candidates, ...item }) => {
           const fields: Partial<typeof item> = { ...item };
           for (const key of ['id', 'planId', 'createdAt'] as const) {
             delete fields[key];
           }
-          return fields;
+          // Candidate products (#34b) by name: ids differ between runs.
+          return {
+            ...fields,
+            candidates: candidates.map((c) => ids.get(c.garmentId)).sort(),
+          };
         }),
       })),
       shares: shares.length,
@@ -386,6 +392,15 @@ describe('seed personas', () => {
     });
     expect(demo.plans.map((p) => [p.name, p.active, p.items.length])).toEqual([
       ['NYC minimal', true, 19],
+    ]);
+    // His two gaps pair with the wishlist's merino and padded jacket (#34b).
+    expect(
+      demo.plans[0].items
+        .filter((item) => item.candidates.length > 0)
+        .map((item) => [item.name, item.candidates]),
+    ).toEqual([
+      ['Grey merino crewneck', ['New grey merino crewneck']],
+      ['Brown padded shirt jacket', ['Padded shirt jacket']],
     ]);
     for (const email of [EMAILS[1], EMAILS[2]]) {
       expect(await snapshot(email)).toMatchObject({

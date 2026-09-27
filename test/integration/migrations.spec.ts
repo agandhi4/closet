@@ -81,6 +81,10 @@ describe('migrations', () => {
         'wardrobe_plan_owner_id_active_unique',
         'plan_item_plan_id_index',
         'style_rhythm_pkey',
+        // An item's candidates (also plan_item_id's foreign key), and a
+        // wishlist item's plan items (garment_id's), #34b.
+        'plan_item_candidate_pkey',
+        'plan_item_candidate_garment_id_index',
       ]),
     );
   });
@@ -112,6 +116,7 @@ describe('migrations', () => {
             outfitSlots: true,
             capsuleGarments: true,
             wears: true,
+            planCandidacies: true,
           },
         }),
         t.db.query.outfit.findMany({
@@ -138,7 +143,12 @@ describe('migrations', () => {
         t.db.query.wardrobePlan.findMany({
           with: { owner: true, items: true },
         }),
-        t.db.query.planItem.findMany({ with: { plan: true } }),
+        t.db.query.planItem.findMany({
+          with: { plan: true, candidates: true },
+        }),
+        t.db.query.planItemCandidate.findMany({
+          with: { item: true, garment: true },
+        }),
       ]),
     ).resolves.toBeDefined();
     const owner = await t.db.query.user.findFirst({

@@ -21,6 +21,12 @@ export interface Destination {
   to: 'closet' | 'wishlist';
   /** A wishlist item's replaced garment (a garment's "Find a replacement"). */
   replaces?: number;
+  /**
+   * The owner's plan item the new wishlist item is a candidate for (34b: a
+   * plan item's "Add a candidate", by link or with a photo): linked when
+   * the garment is saved (changeCandidates, src/web/plans/candidates.ts).
+   */
+  planItem?: number;
 }
 
 export const TO_CLOSET: Destination = { to: 'closet' };
@@ -31,7 +37,11 @@ export function destinationParams(
 ): Record<string, string | number | undefined> {
   return destination.to === 'closet'
     ? {}
-    : { to: destination.to, replaces: destination.replaces };
+    : {
+        to: destination.to,
+        replaces: destination.replaces,
+        planItem: destination.planItem,
+      };
 }
 
 /** `path` with the query `params`, empty values left out. */

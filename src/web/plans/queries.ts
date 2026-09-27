@@ -144,7 +144,10 @@ const ITEM_COLUMNS = {
 };
 
 /** The items of the plans `planIds` (the owner's, checked by the caller), oldest first. */
-export function itemsOf(db: Db, planIds: number[]): Promise<PlanItemRow[]> {
+export function itemsOf(
+  db: Queryable,
+  planIds: number[],
+): Promise<PlanItemRow[]> {
   if (planIds.length === 0) return Promise.resolve([]);
   return db
     .select(ITEM_COLUMNS)
@@ -215,7 +218,7 @@ export interface ClosetGarment {
  * hundred rows.
  */
 export async function closetPieces(
-  db: Db,
+  db: Queryable,
   ownerId: number,
 ): Promise<ClosetGarment[]> {
   const rows = await db
@@ -410,7 +413,10 @@ export async function freePlanName(
 
 // ---- Item writes ------------------------------------------------------------
 
-/** Inserts items into plan `planId` (the caller checked it is the owner's). */
+/**
+ * Inserts items into plan `planId` (the caller checked it is the owner's);
+ * their ids in `items`' order (a duplicate maps each original to its copy).
+ */
 export async function insertItems(
   db: Queryable,
   planId: number,
@@ -422,7 +428,9 @@ export async function insertItems(
     .insert(planItem)
     .values(items.map((item) => ({ ...item, planId, proposed })))
     .returning({ id: planItem.id });
-  return rows.map((row) => row.id);
+  // One statement draws its serials in VALUES order; RETURNING's own order
+  // is not promised, so the ids are put back in that order.
+  return rows.map((row) => row.id).sort((a, b) => a - b);
 }
 
 /** The owner's plan `planId` exists: the item writers' guard. */
@@ -437,7 +445,7 @@ function ownsPlan(planId: number, ownerId: number) {
  * not the owner's.
  */
 export async function updateItem(
-  db: Db,
+  db: Queryable,
   itemId: number,
   planId: number,
   ownerId: number,

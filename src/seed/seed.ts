@@ -33,9 +33,11 @@ import { t } from '../web/i18n';
 import { createOutfit } from '../web/outfits/queries';
 import {
   createPlan,
+  insertItems,
   saveStyleProfile,
   setActivePlan,
 } from '../web/plans/queries';
+import { changeCandidates } from '../web/plans/candidates';
 import { markWashed, setAway, setEntryWorn } from '../web/wears/queries';
 import {
   acceptInvite,
@@ -125,10 +127,12 @@ export async function seedPersona(
         lastName: persona.account.lastName,
       });
       if (deps.weatherEnabled) await writeWeather(tx, userId, persona.weather);
-      const ids = await writeGarments(tx, userId, persona, {
-        photos,
-        shiftDays: life.shiftDays,
-      });
+      const { owned: ids, wishlist: wishlistIds } = await writeGarments(
+        tx,
+        userId,
+        persona,
+        { photos, shiftDays: life.shiftDays },
+      );
       const byId = new Map(persona.garments.map((g) => [g.id, g]));
       const outfitIds: number[] = [];
       for (const outfit of persona.outfits) {
@@ -160,7 +164,7 @@ export async function seedPersona(
           },
         });
       }
-      await writePlans(tx, userId, persona);
+      await writePlans(tx, userId, persona, wishlistIds);
       const wears = await writeHistory(tx, life, {
         userId,
         outfitIds,
@@ -200,23 +204,42 @@ export async function seedPersona(
 
 /**
  * The bible's style profile and wardrobe plans (#34), through the app's
- * writers: saveStyleProfile, createPlan with its items (the first plan is
- * active by the app's rule), then setActivePlan for the one marked
- * `(active)`.
+ * writers: saveStyleProfile, createPlan (the first plan is active by the
+ * app's rule), its items (insertItems) with their candidate products
+ * (changeCandidates, 34b: the wishlist's garments by bible id), then
+ * setActivePlan for the one marked `(active)`.
  */
 async function writePlans(
   tx: Queryable,
   userId: number,
   persona: Persona,
+  wishlistIds: Map<string, number>,
 ): Promise<void> {
   if (persona.styleProfile) {
     await saveStyleProfile(tx, userId, persona.styleProfile);
   }
   for (const plan of persona.plans) {
-    const id = await createPlan(tx, userId, plan.fields, plan.items);
+    const id = await createPlan(tx, userId, plan.fields);
     // The bible's names are checked unique (persona.ts): unreachable.
     if (id === 'name-taken')
       throw new Error(`Plan "${plan.fields.name}" twice`);
+    const itemIds = await insertItems(
+      tx,
+      id,
+      plan.items.map((item) => item.fields),
+      { proposed: false },
+    );
+    for (const [index, item] of plan.items.entries()) {
+      if (item.candidates.length === 0) continue;
+      await changeCandidates(tx, userId, {
+        add: {
+          itemIds: [itemIds[index]],
+          garmentIds: item.candidates.map(
+            (bibleId) => wishlistIds.get(bibleId)!,
+          ),
+        },
+      });
+    }
     if (plan.active) await setActivePlan(tx, id, userId);
   }
 }
@@ -224,14 +247,15 @@ async function writePlans(
 /**
  * The persona's garments with their photo rows (the art stored before the
  * transaction), archive and away, then the wishlist, which names the owned
- * garment each item replaces. The garments' ids by bible id.
+ * garment each item replaces. The ids by bible id: the owned garments', and
+ * the wishlist's apart (plan candidates name them; the history must not).
  */
 async function writeGarments(
   tx: Queryable,
   userId: number,
   persona: Persona,
   art: { photos: Map<string, NewPhotoRow>; shiftDays: number },
-): Promise<Map<string, number>> {
+): Promise<{ owned: Map<string, number>; wishlist: Map<string, number> }> {
   const photoIdOf = async (bibleId: string) => {
     const photo = art.photos.get(bibleId);
     return photo
@@ -261,8 +285,9 @@ async function writeGarments(
     ids.set(garment.id, id);
   }
   // After the owned garments: an item names the one it replaces.
+  const wishlist = new Map<string, number>();
   for (const item of persona.wishlist) {
-    await insertGarment(
+    const id = await insertGarment(
       tx,
       userId,
       {
@@ -273,8 +298,9 @@ async function writeGarments(
       await photoIdOf(item.id),
       'wishlist',
     );
+    wishlist.set(item.id, id);
   }
-  return ids;
+  return { owned: ids, wishlist };
 }
 
 /** An archived garment of the bible, archived as the garment page does. */

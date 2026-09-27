@@ -189,7 +189,14 @@ export interface PersonaWeather {
 export interface SeedPlan {
   fields: PlanFields;
   active: boolean;
-  items: PlanItemFields[];
+  items: SeedPlanItem[];
+}
+
+/** A plan table's row: the item, and its candidate products (34b). */
+export interface SeedPlanItem {
+  fields: PlanItemFields;
+  /** Wishlist ids of the bible's linked to the item as candidates. */
+  candidates: string[];
 }
 
 export interface Persona {
@@ -290,6 +297,7 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
       find('Item', 'Category / type').filter((table) =>
         PLAN_HEADING.test(table.heading),
       ),
+      new Set(wishlist.map((item) => item.id)),
     ),
     week: week ? readWeek(source, week, names) : null,
     events: find('From', 'To', 'Wears').flatMap((table) =>
@@ -901,7 +909,11 @@ function rhythmPost(
 /** A plan table's heading: `Plan: NYC minimal`, `(active)` after the active one's name. */
 const PLAN_HEADING = /^Plan: (.+?)( \(active\))?$/;
 
-function readPlans(source: string, tables: BibleTable[]): SeedPlan[] {
+function readPlans(
+  source: string,
+  tables: BibleTable[],
+  wishlistIds: Set<string>,
+): SeedPlan[] {
   const plans = tables.map((table) => {
     const [, name, active] = PLAN_HEADING.exec(table.heading)!;
     const where = `${source} plan "${name}"`;
@@ -910,7 +922,7 @@ function readPlans(source: string, tables: BibleTable[]): SeedPlan[] {
     return {
       fields: plan.fields,
       active: active !== undefined,
-      items: table.rows.map((row) => readPlanItem(where, row)),
+      items: table.rows.map((row) => readPlanItem(where, row, wishlistIds)),
     };
   });
   if (plans.filter((plan) => plan.active).length > 1) {
@@ -931,11 +943,13 @@ function rangePost(cell: string): [string, string] {
   return [min, max];
 }
 
-// A plan table's row through the plan item form's two layers.
+// A plan table's row through the plan item form's two layers, and its
+// Candidates: ids of the bible's Wishlist table.
 function readPlanItem(
   where: string,
   row: Record<string, string>,
-): PlanItemFields {
+  wishlistIds: Set<string>,
+): SeedPlanItem {
   // A column the table does not have reads as empty (the form's blank).
   const cell = (column: string) => row[column] ?? '';
   const [category, type = ''] = plain(cell('Category / type'))
@@ -967,5 +981,11 @@ function readPlanItem(
   }
   const form = readPlanItemForm(body);
   if (!form.ok) throw new BibleError(item, JSON.stringify(form.errors));
-  return form.fields;
+  const candidates = list(cell('Candidates'));
+  for (const id of candidates) {
+    if (!wishlistIds.has(id)) {
+      throw new BibleError(item, `candidate "${id}" is not a wishlist id`);
+    }
+  }
+  return { fields: form.fields, candidates };
 }
