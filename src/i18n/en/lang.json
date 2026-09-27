@@ -1107,10 +1107,39 @@
       "DELETED": "a garment of it was deleted"
     }
   },
+  "calendar": {
+    "TAB_WEEK": "Week",
+    "TAB_MONTH": "Month",
+    "TAB_TRIPS": "Trips",
+    "WEEK_NAV": "Weeks",
+    "PREV_WEEK": "Previous week",
+    "NEXT_WEEK": "Next week",
+    "WEEK_RANGE": "{from} – {to}",
+    "SHORT_DAY": "{month} {day}",
+    "MONTH_NAV": "Months",
+    "PREV_MONTH": "Previous month",
+    "NEXT_MONTH": "Next month",
+    "MONTH_TITLE": "{month} {year}",
+    "MORE": "+{count}",
+    "PLAN_SHEET_TITLE": "Plan {day}",
+    "PLAN_SAVED": "Pick a saved outfit",
+    "month": {
+      "JAN": "January",
+      "FEB": "February",
+      "MAR": "March",
+      "APR": "April",
+      "MAY": "May",
+      "JUN": "June",
+      "JUL": "July",
+      "AUG": "August",
+      "SEP": "September",
+      "OCT": "October",
+      "NOV": "November",
+      "DEC": "December"
+    }
+  },
   "trips": {
     "TITLE": "Trips",
-    "TAB_WEEK": "Week",
-    "TAB_TRIPS": "Trips",
     "NEW": "New trip",
     "EDIT": "Edit trip",
     "EDIT_SHORT": "Edit",

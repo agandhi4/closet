@@ -178,9 +178,9 @@ const tripName = (f: Fixture) => f.tripName;
 // One style profile per user, so one note every fixture saves again.
 const OWNER_STYLE_NOTE = 'Owner style notes, never shared';
 const styleNote = () => OWNER_STYLE_NOTE;
-// A calendar chip whose outfit has photos shows thumbnails, not the name,
-// so the chip's link stands in for it. (Error pages echo the request path,
-// which rules out the /calendar/:id URLs themselves.)
+// A calendar row's edit link: only the entry's owner is shown it. (Error
+// pages echo the request path, which rules out the /calendar/:id URLs
+// themselves.)
 const calendarEntry = (f: Fixture) =>
   `/styling?outfit=${f.outfitId}&amp;returnTo=`;
 const selfieName = (f: Fixture) => f.selfieFileName;
@@ -1062,6 +1062,23 @@ const ROUTES: Route[] = [
     shows: true,
     vias: BOTH,
     request: (_, q) => ({ method: 'GET', url: `/calendar${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    // The month of collages (R6): the entry is planned today, in this month,
+    // and its cell names its outfit.
+    name: 'GET /calendar/month',
+    kind: 'read',
+    ok: 200,
+    secret: outfitName,
+    shows: true,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/calendar/month${q}` }),
     expect: {
       owner: 'ok',
       manager: 'hidden',

@@ -206,8 +206,8 @@ test('nothing on a page draws over the dock', async ({ page }) => {
   const capsule = await createCapsule(page, 'Stack capsule');
 
   // Each page with the positioned content that can reach the dock: the
-  // outfit card's calendar button (relative z-10), the calendar chip's
-  // delete form (relative z-10), select mode's and the capsule picker's
+  // outfit card's calendar button (relative z-10), the calendar row's
+  // delete form, select mode's and the capsule picker's
   // checkboxes (absolute z-10) under their bar above the dock, the grid
   // under the search and filter bar, the garment page's controls.
   const pages: [path: string, content: string][] = [

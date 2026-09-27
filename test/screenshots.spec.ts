@@ -112,6 +112,21 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
   await shot(page, '08b-demo-styling-save');
   await shot(page, '09-demo-calendar-history', '/calendar?week=2026-08-23');
   await shot(page, '10-demo-calendar-planned', '/calendar?week=2026-09-27');
+  // The calendar's month of collages (R6, #86): August's history.
+  await shot(page, '70-demo-calendar-month', '/calendar/month?month=2026-08');
+  // The planned week's "+ Plan" on Tuesday: its sheet, the three ways.
+  // Opened by the day's button or, while the week template leaves it open
+  // slots (from today on), the first of those.
+  await page.goto('/calendar?week=2026-09-27');
+  await page.locator('[data-plan^="plan-2026-09-29-"]').first().click();
+  await expect(
+    page.locator('dialog[data-plan-sheet="2026-09-29"]'),
+  ).toBeVisible();
+  // The viewport alone: a full-page shot stitches the modal mid-page.
+  await page.screenshot({
+    path: `${DIR}/71-demo-calendar-plan-sheet.png`,
+    animations: 'disabled',
+  });
   // Sharing is Profile's section since #82: the old page's link lands there,
   // and the shot is the section (65 is the whole of Profile).
   await page.goto('/wardrobe-share/manage');
@@ -146,7 +161,7 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
 });
 
 // The dark theme (#81, closet-dark follows the system's scheme): the same
-// four pages (and the garment page's photo sheet) as their light twins
+// key pages (and the garment page's photo sheet) as their light twins
 // above, named after them. Before any test re-seeds Theo, so each pair
 // shows the same data.
 test.describe('dark', () => {
@@ -168,6 +183,11 @@ test.describe('dark', () => {
       page,
       '10-demo-calendar-planned-dark',
       '/calendar?week=2026-09-27',
+    );
+    await shot(
+      page,
+      '70-demo-calendar-month-dark',
+      '/calendar/month?month=2026-08',
     );
   });
 });
@@ -369,6 +389,7 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '15-fresh-outfits', '/outfits');
   await shot(page, '65-fresh-styling', '/styling');
   await shot(page, '16-fresh-calendar', `/calendar?week=${ANCHOR}`);
+  await shot(page, '72-fresh-calendar-month', '/calendar/month?month=2026-09');
   await shot(page, '24-fresh-laundry', '/laundry');
   await shot(page, '34-fresh-wishlist', '/wardrobe/wishlist');
   await shot(page, '41-fresh-plans', '/wardrobe/plans');

@@ -185,9 +185,13 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect([...columns.keys()]).toEqual(
         [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(week, i)),
       );
+      // The week strip marks today, and today's block says so.
       expect(html).toMatch(
-        new RegExp(`cal-today">\\s*${dateParts(today).day}\\s*<`),
+        new RegExp(
+          `href="#day-${today}"[^>]*aria-current="date"[^>]*>[\\s\\S]*?>\\s*${dateParts(today).day}\\s*<`,
+        ),
       );
+      expect(html.match(/aria-current="date"/g)).toHaveLength(1);
       const column = columns.get(today)!;
       expect(column).toContain(`/styling?outfit=${outfitId}&returnTo=`);
       expect(column).toContain(`/calendar/${entry}/worn`);

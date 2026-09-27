@@ -1,10 +1,15 @@
 import type { Occasion } from '../../wardrobe/occasions';
 import { t, type StringKey } from '../i18n';
-import { dateParts, dayOfWeek, type IsoDate } from './calendar-date';
+import {
+  dateParts,
+  dayOfWeek,
+  type IsoDate,
+  type YearMonth,
+} from './calendar-date';
 
 /**
- * The calendar's words for days, months and occasions, shared by the week
- * page and the plan page (and Today, #15, when it lands).
+ * The calendar's words for days, months and occasions, shared by the week,
+ * the month, the plan page and its sheet, and Today (#15).
  */
 
 /** Indexed by weekday, 0 = Sunday. */
@@ -44,6 +49,22 @@ export const MONTH_NAMES: StringKey[] = [
   'MONTH_DEC',
 ];
 
+/** Indexed by month - 1: the month page's title. */
+export const MONTH_LONG_NAMES: StringKey[] = [
+  'calendar.month.JAN',
+  'calendar.month.FEB',
+  'calendar.month.MAR',
+  'calendar.month.APR',
+  'calendar.month.MAY',
+  'calendar.month.JUN',
+  'calendar.month.JUL',
+  'calendar.month.AUG',
+  'calendar.month.SEP',
+  'calendar.month.OCT',
+  'calendar.month.NOV',
+  'calendar.month.DEC',
+];
+
 /** "Tuesday, Sep 29". */
 export function dayLabel(date: IsoDate): string {
   const { month, day } = dateParts(date);
@@ -51,6 +72,20 @@ export function dayLabel(date: IsoDate): string {
     weekday: t(DAY_NAMES[dayOfWeek(date)]),
     month: t(MONTH_NAMES[month - 1]),
     day,
+  });
+}
+
+/** "Sep 29". */
+export function shortDayLabel(date: IsoDate): string {
+  const { month, day } = dateParts(date);
+  return t('calendar.SHORT_DAY', { month: t(MONTH_NAMES[month - 1]), day });
+}
+
+/** "September 2026" (a month page's title). */
+export function monthLabel({ year, month }: YearMonth): string {
+  return t('calendar.MONTH_TITLE', {
+    month: t(MONTH_LONG_NAMES[month - 1]),
+    year,
   });
 }
 

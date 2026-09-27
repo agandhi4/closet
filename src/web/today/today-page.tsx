@@ -3,6 +3,7 @@ import type { Idea } from '../../wardrobe/generator';
 import type { Occasion } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
 import type { IsoDate } from '../calendar/calendar-date';
+import type { CalendarEntry } from '../calendar/calendar-view';
 import { dayLabel, occasionLabel } from '../calendar/labels';
 import { ideaName, type IdeasWeather } from '../gallery/ideas';
 import { Reasons } from '../gallery/ideas-page';
@@ -17,7 +18,6 @@ import { EntrySelfie } from '../selfies/views';
 import type { ViewContext } from '../view-context';
 import { WeatherSlot } from '../weather/views';
 import { PlanWeekForm } from '../week-plan/views';
-import type { TodayEntry } from './queries';
 import type { IdeasRow, PlannedRow, TodayModel } from './today';
 import { TODAY_PATH, todayIdeasUrl, WEAR_THIS_PATH } from './urls';
 
@@ -99,7 +99,7 @@ function PlannedRowView(props: { row: PlannedRow; today: IsoDate }) {
 }
 
 function PlannedCard(props: {
-  entry: TodayEntry;
+  entry: CalendarEntry;
   today: IsoDate;
   eager: boolean;
 }) {

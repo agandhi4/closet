@@ -211,6 +211,8 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app(`/styling?outfit=${f.outfitId}&returnTo=%2Fcalendar`),
     app(`/outfits/${f.outfitId}`),
     app('/calendar'),
+    app('/calendar/month'),
+    app('/calendar/month?month=2030-10'),
     app('/calendar/plan?for=day:2030-10-09&occasion=evening'),
     app('/styling?for=day:2030-10-09&occasion=evening'),
     app(`/styling?for=trip:${f.tripId}`),

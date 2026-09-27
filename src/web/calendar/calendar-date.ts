@@ -37,7 +37,7 @@ export function parseIsoDate(value: string | undefined): IsoDate | undefined {
   return value;
 }
 
-/** 'YYYY-MM' (the mini month's ?calMonth=), else undefined. */
+/** 'YYYY-MM' (the month page's ?month=), else undefined. */
 export function parseYearMonth(
   value: string | undefined,
 ): YearMonth | undefined {

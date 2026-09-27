@@ -429,7 +429,7 @@ describe('outfits', () => {
         expect(alts).toEqual(['Order shoes', 'Order pants', 'Order top']);
       });
 
-      it('the calendar shows the garments in the saved order', async () => {
+      it('the calendar lays the garments out top to toe, whatever the saved order', async () => {
         await t.inject({
           method: 'POST',
           url: '/calendar',
@@ -451,7 +451,9 @@ describe('outfits', () => {
         const inOrder = imgTags(card).map(
           (tag) => /src="([^"]*)"/.exec(tag)?.[1],
         );
-        expect(photos).toEqual(inOrder);
+        // Saved shoes, pants, top; the entry's OutfitCollage (R6) stacks
+        // them by role like the clothes on a bed: top, pants, shoes.
+        expect(photos).toEqual([...inOrder].reverse());
       });
 
       it('lists outfits newest first, one statement for them all', async () => {

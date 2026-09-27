@@ -13,9 +13,22 @@ import { detachedLooks } from '../selfies/queries';
 import { viewContext } from '../view-context';
 import { setEntryWorn } from '../wears/queries';
 import { plannedBanner } from '../week-plan/plan';
-import { hourIn, parseIsoDate, parseYearMonth, todayIn } from './calendar-date';
+import { findWeekTemplate } from '../week-plan/template';
+import {
+  hourIn,
+  parseIsoDate,
+  parseYearMonth,
+  todayIn,
+  yearMonthOf,
+} from './calendar-date';
 import { CalendarPage } from './calendar-page';
-import { buildCalendarView, weekOf } from './calendar-view';
+import {
+  buildCalendarView,
+  buildMonthView,
+  monthRange,
+  weekOf,
+} from './calendar-view';
+import { MonthPage } from './month-page';
 import { PlanPage } from './plan-page';
 import { findEntries, type Scheduled, scheduleOutfit } from './queries';
 import {
@@ -24,15 +37,22 @@ import {
   replaceMessage,
   replaceRefusal,
 } from './replace';
+import {
+  CALENDAR_MONTH_PATH,
+  CALENDAR_PATH,
+  CALENDAR_PLAN_PATH,
+  weekUrl,
+} from './urls';
 import { WornButton } from './worn-button';
 import { removeEntry } from './writes';
 
 /**
  * Validation, decided per route:
- * - GET /calendar reads ?week= and ?calMonth= leniently: a missing or
- *   malformed value falls back (the current week, the week's month), since
- *   they are navigation state in a shareable URL and a stale or mangled link
- *   should still open the calendar. parseIsoDate/parseYearMonth decide.
+ * - GET /calendar reads ?week= and GET /calendar/month ?month= leniently: a
+ *   missing or malformed value falls back (the current week, this month),
+ *   since they are navigation state in a shareable URL and a stale or
+ *   mangled link should still open the calendar. parseIsoDate/parseYearMonth
+ *   decide. The mini month's ?calMonth= (before R6) is ignored.
  * - GET /calendar/plan reads ?for=, ?occasion= and ?replace= the same way
  *   (parseDestination): no day is today, an unknown occasion all day, and
  *   a `replace` that is not the user's entry there plans one more outfit.
@@ -108,10 +128,6 @@ function parsePlanned(value: string | undefined): number | 'none' | undefined {
     : undefined;
 }
 
-function weekUrl(week: string | undefined): string {
-  return week ? `/calendar?week=${week}` : '/calendar';
-}
-
 /**
  * The outfit calendar: the week page and its writes. Outfits and entries are
  * the signed-in user's own; wardrobe shares never reach them, and
@@ -123,12 +139,11 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   app.get(
-    '/calendar',
+    CALENDAR_PATH,
     {
       schema: {
         querystring: Type.Object({
           week: Type.Optional(Type.String()),
-          calMonth: Type.Optional(Type.String()),
           // The gallery's pick of an outfit already saved (a one-shot flag).
           alreadySaved: Type.Optional(Type.String()),
           // After "Plan my week" (#16): its batch id, or 'none'; and after
@@ -141,7 +156,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
-      const { week, calMonth } = request.query;
+      const { week } = request.query;
       const today = todayIn(config.timeZone, new Date());
       const anchor = parseIsoDate(week);
       if (week && !anchor) {
@@ -151,9 +166,10 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       }
       const { start, end } = weekOf(anchor ?? today);
       const planned = parsePlanned(request.query.planned);
-      const [entries, looks, banner] = await Promise.all([
+      const [entries, looks, template, banner] = await Promise.all([
         findEntries(db, ownerId, start, end),
         detachedLooks(db, ownerId, start, end),
+        findWeekTemplate(db, ownerId),
         planned === undefined
           ? undefined
           : plannedBanner(db, ownerId, planned, {
@@ -164,10 +180,10 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const undone = request.query.undone;
       const view = buildCalendarView({
         weekStart: start,
-        calMonth: parseYearMonth(calMonth),
         today,
         entries,
         looks,
+        template,
       });
       return renderPage(
         reply,
@@ -186,10 +202,40 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // Plan one more outfit on a day: the occasion, then build one or pick a
-  // saved one (the calendar day's "+ Plan" / "+ Another outfit").
+  // The month of collages (R6): the history, each day linking to its week.
   app.get(
-    '/calendar/plan',
+    CALENDAR_MONTH_PATH,
+    {
+      schema: {
+        querystring: Type.Object({ month: Type.Optional(Type.String()) }),
+      },
+    },
+    async (request, reply) => {
+      const ownerId = sessionUserId(request);
+      const today = todayIn(config.timeZone, new Date());
+      const asked = parseYearMonth(request.query.month);
+      if (request.query.month !== undefined && !asked) {
+        logger.debug(
+          `GET ${CALENDAR_MONTH_PATH}: malformed month ${JSON.stringify(request.query.month)}, showing this month`,
+        );
+      }
+      const month = asked ?? yearMonthOf(today);
+      const { first, last } = monthRange(month);
+      const entries = await findEntries(db, ownerId, first, last);
+      return renderPage(
+        reply,
+        <MonthPage
+          ctx={viewContext(reply)}
+          view={buildMonthView({ month, today, entries })}
+        />,
+      );
+    },
+  );
+
+  // Plan one more outfit on a day: the occasion, then build one or pick a
+  // saved one (the "+ Plan" sheet's "Pick a saved outfit", and Change).
+  app.get(
+    CALENDAR_PLAN_PATH,
     {
       schema: {
         querystring: Type.Object({
@@ -258,7 +304,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // page opened to change an entry, #69) the outfit takes that entry's
   // place instead of joining the day: replaceEntryOutfit.
   app.post(
-    '/calendar',
+    CALENDAR_PATH,
     {
       schema: {
         body: Type.Object({

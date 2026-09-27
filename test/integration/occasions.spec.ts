@@ -1,7 +1,7 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { outfitCalendar } from '../../src/db/schema';
-import { dayColumns } from './calendar-page';
+import { dayColumns, planButtonLabel } from './calendar-page';
 import { createGarment } from './garments';
 import { createTestApp, hasText, type TestApp, unescapeHtml } from './harness';
 import { expectFullPage, expectNativePostForms } from './pages';
@@ -202,15 +202,8 @@ describe('occasions', () => {
       expect(hasText(rows[4], 'Drinks')).toBe(true);
       // One more is "+ Another outfit"; an empty day says "+ Plan".
       const html = await page(WEEK_URL);
-      const planLink = (day: string) =>
-        new RegExp(
-          `href="/calendar/plan\\?for=day:${day}&occasion=all-day"[^>]*>([^<]*)<`,
-        )
-          .exec(html)![1]
-          .replace(/\s+/g, ' ')
-          .trim();
-      expect(planLink(DAY)).toBe('+ Another outfit');
-      expect(planLink('2030-10-10')).toBe('+ Plan');
+      expect(planButtonLabel(html, DAY)).toBe('+ Another outfit');
+      expect(planButtonLabel(html, '2030-10-10')).toBe('+ Plan');
     });
   });
 

@@ -1,15 +1,18 @@
 import type { Db } from '../../db/client';
 import type { Idea } from '../../wardrobe/generator';
 import {
+  compareOccasions,
   DAY_OCCASIONS,
   DEFAULT_OCCASION,
   type Occasion,
 } from '../../wardrobe/occasions';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
+import type { CalendarEntry } from '../calendar/calendar-view';
+import { findEntries } from '../calendar/queries';
 import { dailySeed, ideasFor, type IdeasWeather } from '../gallery/ideas';
 import type { PoolGarment } from '../gallery/queries';
 import type { WeatherService } from '../weather/service';
-import { somethingWornOn, type TodayEntry, todayEntries } from './queries';
+import { somethingWornOn } from './queries';
 
 /**
  * Today (#15; plan section 9): the household's day for one person, as a
@@ -34,7 +37,7 @@ export const MAX_TODAY_PAGE = 20;
 export interface PlannedRow {
   kind: 'planned';
   occasion: Occasion;
-  entries: TodayEntry[];
+  entries: CalendarEntry[];
 }
 
 export interface IdeasRow {
@@ -70,9 +73,11 @@ export async function todayFor(
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
   const [entries, wornToday] = await Promise.all([
-    todayEntries(deps.db, ownerId, today),
+    findEntries(deps.db, ownerId, today, today),
     somethingWornOn(deps.db, ownerId, today),
   ]);
+  // Occasion order, the calendar's; a stable sort keeps the planned first.
+  entries.sort((a, b) => compareOccasions(a.occasion, b.occasion));
   const rows: TodayRow[] = [];
   for (const entry of entries) {
     const last = rows.at(-1);

@@ -3,7 +3,6 @@ import type { Db, Queryable } from '../../db/client';
 import { outfit, outfitCalendar } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
-import { imageUrl } from '../files/image-url';
 import { deleteEntrySelfie, SELFIE_WITH } from '../selfies/queries';
 import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
 import type { IsoDate } from './calendar-date';
@@ -20,8 +19,9 @@ import type { CalendarEntry } from './calendar-view';
 export type EntryMiss = 'not-found';
 
 /**
- * The owner's entries from `first` to `last` (inclusive), by day then id;
- * the page puts a day's entries in occasion order (buildCalendarView).
+ * The owner's entries from `first` to `last` (inclusive), by day then id,
+ * each with its outfit's garments for the collage; the pages put a day's
+ * entries in occasion order (buildCalendarView, Today's todayFor).
  */
 export async function findEntries(
   db: Db,
@@ -56,7 +56,7 @@ export async function findEntries(
             orderBy: (slot, { asc }) => [asc(slot.position)],
             with: {
               garment: {
-                columns: {},
+                columns: { id: true, name: true, category: true },
                 with: { photo: { columns: { fileName: true, version: true } } },
               },
             },
@@ -75,8 +75,8 @@ export async function findEntries(
     outfit: {
       id: row.outfit.id,
       name: row.outfit.name,
-      photoUrls: row.outfit.slots.flatMap(({ garment }) =>
-        garment?.photo ? [imageUrl(garment.photo, 'thumb')] : [],
+      garments: row.outfit.slots.flatMap(({ garment }) =>
+        garment ? [garment] : [],
       ),
     },
   }));

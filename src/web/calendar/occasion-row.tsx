@@ -1,21 +1,25 @@
-import { stylingUrl } from '../styling/urls';
+import type { Occasion } from '../../wardrobe/occasions';
 import { t } from '../i18n';
-import { destinationQuery } from '../outfits/destination';
+import { OutfitCollage } from '../outfits/collage';
 import { EntrySelfie } from '../selfies/views';
+import { stylingUrl } from '../styling/urls';
+import type { IsoDate } from './calendar-date';
 import type { CalendarEntry } from './calendar-view';
 import { occasionLabel } from './labels';
+import { OPEN_PLAN_SHEET, planSheetChoice } from './plan-sheet';
+import { planPageUrl, weekUrl } from './urls';
 import { WornButton } from './worn-button';
 
 /**
- * One calendar entry as a row of its day: the occasion's label, Change
- * (another outfit in its place, #69; not once worn), the outfit (tap to
- * edit it, × to unschedule), the worn pill and its selfie (or the
- * buttons that take one, #19). The one way a day's
- * entries are drawn: the week page stacks them in occasion order, and the
- * redesign's week agenda (R6) and Today (#15) reuse it
- * (docs/plans/2026-09-26-redesign.md, section 5). `data-occasion` is what
- * the specs read the order from. An entry "Plan my week" chose and the
- * person has not touched is marked Auto (#16): its re-plan may swap it.
+ * One calendar entry as a row of its day's agenda: the occasion's label
+ * (Auto while "Plan my week"'s pick stands untouched, #16), Change (another
+ * outfit in its place, #69; not once worn) and × (unschedule); then the
+ * outfit as a small OutfitCollage with its name (tap to edit it in
+ * Styling), its selfie (or the buttons that take one, #19) and the worn
+ * pill. The one way a day's entries are drawn: the week agenda stacks them
+ * in occasion order, and Today (#15) draws the same entries larger through
+ * the same worn route (docs/plans/2026-09-26-redesign.md, section 5).
+ * `data-occasion` is what the specs read the order from.
  */
 export function OccasionRow(props: {
   entry: CalendarEntry;
@@ -23,38 +27,62 @@ export function OccasionRow(props: {
   future: boolean;
 }) {
   const { entry, future } = props;
+  const name = entry.outfit.name || t('UNTITLED_OUTFIT');
+  // Editing the outfit is Styling with it open (#42), back to this week.
+  const editUrl = stylingUrl({
+    outfitId: entry.outfit.id,
+    returnTo: weekUrl(entry.day),
+  });
   return (
-    <div class="flex flex-col gap-0.5 mb-1" data-occasion={entry.occasion}>
-      <div class="flex items-center gap-1">
-        <span class="text-[10px] font-semibold uppercase tracking-wide text-muted">
-          {occasionLabel(entry.occasion)}
-          {entry.plannedBy === 'auto' && (
-            <span
-              class="badge badge-ghost badge-xs ms-1 normal-case tracking-normal"
-              title={t('weekPlan.AUTO_TITLE')}
-              data-auto
-            >
-              {t('weekPlan.AUTO')}
-            </span>
-          )}
-        </span>
-        {/* Another outfit in this entry's place (#69); a worn entry is the
-            record of that day and keeps its outfit. */}
+    <div class="flex flex-col gap-1 py-2" data-occasion={entry.occasion}>
+      <div class="flex items-center gap-1 min-h-6">
+        <OccasionLabel occasion={entry.occasion} />
+        {entry.plannedBy === 'auto' && (
+          <span
+            class="badge badge-ghost badge-xs"
+            title={t('weekPlan.AUTO_TITLE')}
+            data-auto
+          >
+            {t('weekPlan.AUTO')}
+          </span>
+        )}
+        {/* A worn entry is the record of that day and keeps its outfit. */}
         {!entry.worn && (
           <a
-            href={changeEntryUrl(entry)}
-            class="btn btn-ghost btn-xs ms-auto h-6 min-h-6 px-2 font-normal text-muted"
-            aria-label={t('changeEntry.ACTION_LABEL', {
-              name: entry.outfit.name || t('UNTITLED_OUTFIT'),
+            href={planPageUrl({
+              kind: 'day',
+              day: entry.day,
+              occasion: entry.occasion,
+              replace: entry.id,
             })}
+            class="btn btn-ghost btn-xs ms-auto font-normal text-muted"
+            aria-label={t('changeEntry.ACTION_LABEL', { name })}
             data-change-entry={entry.id}
           >
             {t('changeEntry.ACTION')}
           </a>
         )}
+        <DeleteEntry entry={entry} pushRight={entry.worn} />
       </div>
       <div class="flex items-center gap-2">
-        <EntryChip entry={entry} />
+        <a
+          href={editUrl}
+          class="flex items-center gap-3 min-w-0 flex-1"
+          aria-label={name}
+        >
+          <span class="w-16 shrink-0">
+            <OutfitCollage garments={entry.outfit.garments} size="thumb" />
+          </span>
+          <span class="text-sm font-medium line-clamp-2">{name}</span>
+        </a>
+        <EntrySelfie
+          entryId={entry.id}
+          day={entry.day}
+          selfie={entry.selfie}
+          canTake={!future}
+          returnTo={weekUrl(entry.day)}
+          size="row"
+        />
         {/* A planned day has no pill (it cannot be worn yet), unless an
             entry there was marked before that rule, which can still be
             unmarked. */}
@@ -62,87 +90,64 @@ export function OccasionRow(props: {
           <WornButton entryId={entry.id} worn={entry.worn} week={entry.day} />
         )}
       </div>
-      <EntrySelfie
-        entryId={entry.id}
-        day={entry.day}
-        selfie={entry.selfie}
-        canTake={!future}
-        returnTo={`/calendar?week=${entry.day}`}
-        size="row"
-      />
     </div>
   );
 }
 
-/** The plan page opened to change this entry's outfit (#69). */
-function changeEntryUrl(entry: CalendarEntry): string {
-  return `/calendar/plan?${destinationQuery({
-    kind: 'day',
-    day: entry.day,
-    occasion: entry.occasion,
-    replace: entry.id,
-  })}`;
+/**
+ * A template occasion the day has no outfit for yet (#16), as a row that
+ * opens the day's "+ Plan" sheet with the occasion chosen.
+ */
+export function OpenSlotRow(props: { day: IsoDate; occasion: Occasion }) {
+  const { day, occasion } = props;
+  return (
+    <button
+      type="button"
+      class="flex items-center gap-3 w-full py-2 text-start"
+      data-plan={planSheetChoice(day, occasion)}
+      data-open-slot={occasion}
+      onclick={OPEN_PLAN_SHEET}
+    >
+      <span class="w-16 h-12 shrink-0 rounded-field border border-dashed border-base-300"></span>
+      <OccasionLabel occasion={occasion} />
+      <span class="ms-auto text-sm text-muted">+ {t('CALENDAR_PLAN')}</span>
+    </button>
+  );
+}
+
+function OccasionLabel({ occasion }: { occasion: Occasion }) {
+  return (
+    <span class="text-xs font-semibold uppercase tracking-wide text-muted">
+      {occasionLabel(occasion)}
+    </span>
+  );
 }
 
 /**
- * The outfit bar. It is the edit link's (boosted), stretched over it by its
- * ::after; it holds the delete form, which an <a> cannot, so the form sits
- * above it. The garments are its colour: the bar is the plinth, and only a
- * worn entry takes the accent (#81; a hue per entry told apart what the
- * occasion label above it already names).
+ * × to unschedule, confirmed first; htmx swaps in the week it was on. At
+ * the row's end: after Change, or pushed there itself (`pushRight`) when a
+ * worn entry has no Change.
  */
-function EntryChip({ entry }: { entry: CalendarEntry }) {
-  // Editing the outfit is Styling with it open (#42), back to this week.
-  const editUrl = stylingUrl({
-    outfitId: entry.outfit.id,
-    returnTo: `/calendar?week=${entry.day}`,
-  });
-  const deleteUrl = `/calendar/${entry.id}/delete`;
-  const name = entry.outfit.name || t('UNTITLED_OUTFIT');
+function DeleteEntry(props: { entry: CalendarEntry; pushRight: boolean }) {
+  const { entry } = props;
+  const action = `/calendar/${entry.id}/delete`;
   return (
-    <div
-      class={`relative min-w-0 flex-1 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1 leading-tight ${entry.worn ? 'bg-accent/10 border-accent' : 'bg-base-200 border-base-300'}`}
+    <form
+      method="post"
+      action={action}
+      hx-post={action}
+      hx-confirm={t('CALENDAR_DELETE_CONFIRM')}
+      hx-vals={JSON.stringify({ week: entry.day })}
+      class={props.pushRight ? 'ms-auto' : undefined}
     >
-      <a
-        href={editUrl}
-        class="flex items-center min-w-0 flex-1 after:absolute after:inset-0"
-        aria-label={name}
+      <input type="hidden" name="week" value={entry.day} />
+      <button
+        type="submit"
+        class="btn btn-ghost btn-xs btn-square text-muted hover:text-error"
+        aria-label={t('DELETE')}
       >
-        {entry.outfit.photoUrls.length > 0 ? (
-          <span class="flex items-center gap-0.5 min-w-0 overflow-hidden flex-1">
-            {entry.outfit.photoUrls.map((src) => (
-              <img
-                src={src}
-                alt=""
-                class="size-6 rounded object-cover shrink-0"
-                width="24"
-                height="24"
-                loading="lazy"
-                decoding="async"
-              />
-            ))}
-          </span>
-        ) : (
-          <span class="truncate flex-1">{name}</span>
-        )}
-      </a>
-      <form
-        method="post"
-        action={deleteUrl}
-        hx-post={deleteUrl}
-        hx-confirm={t('CALENDAR_DELETE_CONFIRM')}
-        hx-vals={JSON.stringify({ week: entry.day })}
-        class="relative z-10"
-      >
-        <input type="hidden" name="week" value={entry.day} />
-        <button
-          type="submit"
-          class="text-muted hover:text-error w-5 h-5 flex items-center justify-center rounded hover:bg-error/10 shrink-0 transition-colors"
-          aria-label={t('DELETE')}
-        >
-          ×
-        </button>
-      </form>
-    </div>
+        ×
+      </button>
+    </form>
   );
 }

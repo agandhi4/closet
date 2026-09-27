@@ -15,13 +15,14 @@ import {
   TestApp,
   unescapeHtml,
 } from './harness';
-import { dayColumns } from './calendar-page';
+import { dayColumns, planButtonLabel } from './calendar-page';
 import { expectFullPage } from './pages';
 
 /**
- * The calendar page and its writes: the week view renders seven day columns
- * with each entry under its own day, the mini month navigates, and adding,
- * deleting and marking entries worn change exactly the rows they should.
+ * The calendar pages and their writes: the week agenda renders seven day
+ * blocks with each entry under its own day and steps by week, the month
+ * shows each day's collage and links to its week, and adding, deleting and
+ * marking entries worn change exactly the rows they should.
  *
  * Weeks are in 2030 so the real "today" highlight can never land in them;
  * "today" and the default week are pinned down with a fake clock below and
@@ -38,10 +39,10 @@ const form = (fields: Record<string, string>) => ({
   headers: { 'content-type': 'application/x-www-form-urlencoded' },
 });
 
-/** The rendered day number in a column header. */
+/** The day of the month in a day block's heading ("Oct 6"). */
 function dayNumber(column: string): number {
   return Number(
-    /<span class="text-base font-bold[^"]*">\s*(\d+)\s*</.exec(column)?.[1],
+    /<h2[^>]*>[^<]*<span[^>]*>\s*\w{3} (\d+)\s*</.exec(column)?.[1],
   );
 }
 
@@ -124,47 +125,30 @@ describe('calendar', () => {
       expect(hasText(columns.get(WEEK[0])!, 'Sunday')).toBe(true);
       expect(hasText(columns.get(WEEK[6])!, 'Saturday')).toBe(true);
       // No day in 2030 is today.
-      expect(html).not.toContain('cal-today');
-      expect(html).not.toMatch(/text-base font-bold text-primary/);
+      expect(html).not.toContain('aria-current="date"');
+      expect(html).not.toMatch(/<h2[^>]*text-primary/);
     });
 
-    it('renders the mini month for the week, highlighting the week and linking every row', async () => {
+    it('steps a week at a time and strips the days down to their blocks', async () => {
       const html = await weekPage();
-      expect(html).toMatch(/>\s*Oct 2030\s*</);
-      // October 2030 starts on a Tuesday: rows start on Sep 29 and run 5 weeks.
-      const rowLinks = [
-        ...html.matchAll(/href="\/calendar\?week=(\d{4}-\d{2}-\d{2})"/g),
-      ].map((m) => m[1]);
-      expect([...new Set(rowLinks)]).toEqual([
-        '2030-09-29',
-        '2030-10-06',
-        '2030-10-13',
-        '2030-10-20',
-        '2030-10-27',
-      ]);
-      expect(html.match(/cal-in-week/g)).toHaveLength(7);
-      // Sep 29-30 and Nov 1-2 pad the grid.
-      expect(html.match(/cal-out-month/g)).toHaveLength(4);
-
-      expect(html).toContain(
-        'href="/calendar?week=2030-09-01&calMonth=2030-09"',
+      expect(html).toMatch(/>\s*Oct 6 – Oct 12\s*</);
+      expect(html).toContain('href="/calendar?week=2030-09-29"');
+      expect(html).toContain('href="/calendar?week=2030-10-13"');
+      expect(
+        [...html.matchAll(/href="#day-(\d{4}-\d{2}-\d{2})"/g)].map((m) => m[1]),
+      ).toEqual(WEEK);
+      // The tabs: Week (this page), Month and Trips.
+      expect(html).toMatch(
+        /<a role="tab" href="\/calendar" class="tab tab-active"/,
       );
-      expect(html).toContain(
-        'href="/calendar?week=2030-10-27&calMonth=2030-11"',
-      );
+      expect(html).toContain('href="/calendar/month"');
+      expect(html).toContain('href="/trips"');
     });
 
-    it('?calMonth= browses the mini month across a year boundary without moving the week', async () => {
-      const html = await weekPage(`${WEEK_URL}&calMonth=2031-01`);
-      expect(html).toMatch(/>\s*Jan 2031\s*</);
-      expect([...dayColumns(html).keys()]).toEqual(WEEK);
-      // Dec 1 2030 is a Sunday; Feb 1 2031 is a Saturday.
-      expect(html).toContain(
-        'href="/calendar?week=2030-12-01&calMonth=2030-12"',
-      );
-      expect(html).toContain(
-        'href="/calendar?week=2031-01-26&calMonth=2031-02"',
-      );
+    it('a week across the new year is labelled across it', async () => {
+      const html = await weekPage('/calendar?week=2030-12-31');
+      expect(html).toMatch(/>\s*Dec 29 – Jan 4\s*</);
+      expect([...dayColumns(html).keys()].at(-1)).toBe('2031-01-04');
     });
 
     it("without ?week= renders the app's current week, Sunday to Saturday", async () => {
@@ -182,14 +166,13 @@ describe('calendar', () => {
       );
     });
 
-    it('a malformed ?week= or ?calMonth= falls back to the current week and its month', async () => {
+    it("a malformed ?week= falls back to the current week, and the old mini month's ?calMonth= is ignored", async () => {
       const current = [...dayColumns(await weekPage('/calendar')).keys()];
       for (const query of [
         'week=2030-02-30',
         'week=2030-10-09T00:00:00Z',
-        'calMonth=garbage',
         'calMonth=2030-13',
-        'week=garbage&calMonth=2030-00',
+        'week=garbage&calMonth=2030-01',
       ]) {
         const html = await weekPage(`/calendar?${query}`);
         expect({ query, days: [...dayColumns(html).keys()] }).toEqual({
@@ -197,9 +180,6 @@ describe('calendar', () => {
           days: current,
         });
       }
-      // calMonth alone moves only the mini month.
-      const html = await weekPage(`${WEEK_URL}&calMonth=garbage`);
-      expect(html).toMatch(/>\s*Oct 2030\s*</);
     });
 
     describe('today in APP_TIMEZONE (default America/New_York)', () => {
@@ -218,11 +198,11 @@ describe('calendar', () => {
         const html = await at('2026-09-25T21:30:00-04:00');
         const columns = dayColumns(html);
         expect([...columns.keys()][0]).toBe('2026-09-20');
-        expect(columns.get('2026-09-25')).toMatch(
-          /text-base font-bold text-primary">\s*25\s*</,
-        );
-        expect(columns.get('2026-09-26')).not.toContain('text-primary');
-        expect(html).toMatch(/cal-today">\s*25\s*</);
+        expect(columns.get('2026-09-25')).toMatch(/<h2[^>]*text-primary/);
+        expect(hasText(columns.get('2026-09-25')!, 'Today')).toBe(true);
+        expect(columns.get('2026-09-26')).not.toMatch(/<h2[^>]*text-primary/);
+        expect(html).toMatch(/href="#day-2026-09-25"[^>]*aria-current="date"/);
+        expect(html.match(/aria-current="date"/g)).toHaveLength(1);
       });
 
       it('on Saturday evening the default week is still this week', async () => {
@@ -266,7 +246,7 @@ describe('calendar', () => {
       expect(hasText(nextWeek.get('2030-10-13')!, 'Brunch look')).toBe(true);
     });
 
-    it('shows garment thumbnails instead of the name when the outfit has photos', async () => {
+    it("shows the outfit's collage beside its name", async () => {
       const garment = await createGarment(t, {
         name: 'Photo top',
         category: 'tops',
@@ -279,9 +259,196 @@ describe('calendar', () => {
       const thumbs = extractImgSrcs(thursday);
       expect(thumbs).toHaveLength(1);
       expect(thumbs[0]).toMatch(/^\/file\/thumb\/[0-9a-f-]{36}\.webp\?v=1$/);
-      // The name only labels the edit link for screen readers.
-      expect(hasText(thursday, '>Pictured<')).toBe(false);
+      expect(hasText(thursday, '>Pictured<')).toBe(true);
+      // One link edits the outfit, named for it alone (not its garments).
       expect(hasText(thursday, 'aria-label="Pictured"')).toBe(true);
+      expect(thursday.match(/href="\/styling\?outfit=/g)).toHaveLength(1);
+    });
+
+    it("each day's + Plan opens its sheet: the occasion, then Ideas, a saved outfit or Styling, all for that day", async () => {
+      const html = await weekPage();
+      const sheets = [
+        ...html.matchAll(
+          /<dialog[^>]*data-plan-sheet="([\d-]+)"[\s\S]*?<\/dialog>/g,
+        ),
+      ];
+      expect(sheets.map((m) => m[1])).toEqual(WEEK);
+      const wednesday = sheets[3][0];
+      expect(wednesday).toContain('Plan Wednesday, Oct 9');
+      expect(wednesday).toMatch(/<form method="get" action="\/outfits\/ideas"/);
+      expect(wednesday).toContain(
+        '<input type="hidden" name="for" value="day:2030-10-09"/>',
+      );
+      // One radio per occasion, all day chosen until an opener picks another.
+      const radios = [
+        ...wednesday.matchAll(
+          /type="radio" name="occasion" value="([a-z-]+)"/g,
+        ),
+      ].map((m) => m[1]);
+      expect(radios).toEqual([
+        'all-day',
+        'workout',
+        'work',
+        'daytime',
+        'evening',
+        'night-out',
+      ]);
+      expect(wednesday).toMatch(
+        /value="all-day" id="plan-2030-10-09-all-day"[^>]*checked/,
+      );
+      expect(
+        [...wednesday.matchAll(/formaction="([^"]+)"/g)].map((m) => m[1]),
+      ).toEqual(['/outfits/ideas', '/calendar/plan', '/styling']);
+      // The day's button names the radio it checks before opening the sheet.
+      expect(dayColumns(html).get('2030-10-09')).toMatch(
+        /data-plan="plan-2030-10-09-all-day" data-day-plan="2030-10-09"/,
+      );
+    });
+
+    it("lists the week template's occasions a day has no outfit for, from today on (#16)", async () => {
+      vi.useFakeTimers({
+        toFake: ['Date'],
+        now: new Date('2026-09-23T12:00:00-04:00'),
+      });
+      try {
+        // Monday to Friday work, an evening on Friday; nothing at weekends.
+        const body = new URLSearchParams();
+        for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
+          const work = weekday >= 1 && weekday <= 5;
+          body.append(`day-${weekday}`, work ? 'work' : '');
+          if (weekday === 5) body.append(`around-${weekday}`, 'evening');
+        }
+        const saved = await t.inject({
+          method: 'POST',
+          url: '/auth/profile/week',
+          payload: body.toString(),
+          headers: form({}).headers,
+        });
+        expect(saved.statusCode).toBe(303);
+        const friday = await createOutfit('Friday office');
+        await t.inject({
+          method: 'POST',
+          url: '/calendar',
+          ...form({
+            outfitId: String(friday),
+            date: '2026-09-25',
+            occasion: 'work',
+          }),
+        });
+
+        const columns = dayColumns(await weekPage('/calendar'));
+        const open = (day: string) =>
+          [...columns.get(day)!.matchAll(/data-open-slot="([a-z-]+)"/g)].map(
+            (m) => m[1],
+          );
+        // Monday and Tuesday are past; Wednesday is today.
+        expect(open('2026-09-21')).toEqual([]);
+        expect(open('2026-09-23')).toEqual(['work']);
+        expect(open('2026-09-25')).toEqual(['evening']);
+        expect(open('2026-09-26')).toEqual([]);
+        expect(columns.get('2026-09-25')).toContain(
+          'data-plan="plan-2026-09-25-evening"',
+        );
+        // A day with open slots has them as its one way into the sheet,
+        // with or without an outfit already; without any, its "+ Plan".
+        const html = await weekPage('/calendar');
+        expect(planButtonLabel(html, '2026-09-23')).toBeUndefined();
+        expect(planButtonLabel(html, '2026-09-25')).toBeUndefined();
+        expect(planButtonLabel(html, '2026-09-26')).toBe('+ Plan');
+      } finally {
+        vi.useRealTimers();
+        const cleared = new URLSearchParams();
+        for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
+          cleared.append(`day-${weekday}`, '');
+        }
+        await t.inject({
+          method: 'POST',
+          url: '/auth/profile/week',
+          payload: cleared.toString(),
+          headers: form({}).headers,
+        });
+      }
+    });
+  });
+
+  describe('GET /calendar/month', () => {
+    const monthPage = (query = '') => weekPage(`/calendar/month${query}`);
+
+    it('lays the month out Sunday to Saturday, each day linking to its block in its week', async () => {
+      const html = await monthPage('?month=2030-10');
+      expect(html).toMatch(/<h2[^>]*>\s*October 2030\s*</);
+      expect(html).toMatch(
+        /<a role="tab" href="\/calendar\/month" class="tab tab-active"/,
+      );
+      const days = [...html.matchAll(/data-month-day="([\d-]+)"/g)].map(
+        (m) => m[1],
+      );
+      expect(days).toHaveLength(31);
+      expect(days[0]).toBe('2030-10-01');
+      expect(html).toContain('href="/calendar?week=2030-10-09#day-2030-10-09"');
+      // October 2030 starts on a Tuesday: two blank cells before it.
+      expect(html).toMatch(/<tr>(<td class="p-0 align-top"><\/td>){2}<td/);
+      expect(html).toContain('href="/calendar/month?month=2030-09"');
+      expect(html).toContain('href="/calendar/month?month=2030-11"');
+    });
+
+    it("shows a day's first outfit as a collage, how many more, and whether it was worn", async () => {
+      const garment = await createGarment(t, {
+        name: 'Month top',
+        category: 'tops',
+      });
+      await uploadPhoto(t, garment, await jpegPhoto(64, 64));
+      const pictured = await createOutfit('Month pictured', [garment]);
+      const another = await createOutfit('Month another');
+      await t.inject({
+        method: 'POST',
+        url: '/calendar',
+        ...form({
+          outfitId: String(another),
+          date: '2029-03-14',
+          occasion: 'evening',
+        }),
+      });
+      const first = await schedule(pictured, '2029-03-14');
+      await t.db
+        .update(outfitCalendar)
+        .set({ wornAt: new Date() })
+        .where(eq(outfitCalendar.id, first));
+
+      const html = await monthPage('?month=2029-03');
+      const cell = /<a[^>]*data-month-day="2029-03-14"[\s\S]*?<\/a>/.exec(
+        html,
+      )![0];
+      // All day comes before the evening: its collage is the one shown.
+      expect(extractImgSrcs(cell)).toHaveLength(1);
+      expect(cell).toContain('+1');
+      expect(cell).toMatch(/<a[^>]*data-worn=""/);
+      expect(cell).toContain(
+        'aria-label="Wednesday, Mar 14, Month pictured, Month another, Worn"',
+      );
+      const empty = /<a[^>]*data-month-day="2029-03-15"[\s\S]*?<\/a>/.exec(
+        html,
+      )![0];
+      expect(extractImgSrcs(empty)).toEqual([]);
+      expect(empty).not.toContain('data-worn');
+    });
+
+    it('without ?month=, or a malformed one, shows this month with today marked', async () => {
+      vi.useFakeTimers({
+        toFake: ['Date'],
+        now: new Date('2026-09-25T21:30:00-04:00'),
+      });
+      try {
+        for (const query of ['', '?month=2026-13', '?month=garbage']) {
+          const html = await monthPage(query);
+          expect(html, query).toMatch(/>\s*September 2026\s*</);
+          expect(html).toMatch(
+            /aria-current="date" data-month-day="2026-09-25"/,
+          );
+        }
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

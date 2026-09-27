@@ -46,6 +46,7 @@ import {
   unescapeHtml,
   userIdOf,
 } from './harness';
+import { dayColumns } from './calendar-page';
 
 /**
  * `npm run seed`, run as the CLI runs it (runSeed) against the real app's
@@ -587,10 +588,7 @@ describe('seed personas', () => {
       url: '/calendar?week=2026-08-09',
       headers: { cookie },
     });
-    const thursday = threeOutfits.body.slice(
-      threeOutfits.body.indexOf('for=day:2026-08-12'),
-      threeOutfits.body.indexOf('for=day:2026-08-13'),
-    );
+    const thursday = dayColumns(threeOutfits.body).get('2026-08-13')!;
     expect(
       [...thursday.matchAll(/data-occasion="([a-z-]+)"/g)].map((m) => m[1]),
     ).toEqual(['workout', 'work', 'night-out']);

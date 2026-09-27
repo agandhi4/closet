@@ -1,17 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import type { Occasion } from '../../wardrobe/occasions';
-import { parseIsoDate, todayIn, type IsoDate } from './calendar-date';
+import type { TemplateSlot } from '../../wardrobe/week';
+import {
+  dateParts,
+  parseIsoDate,
+  todayIn,
+  type IsoDate,
+  type YearMonth,
+} from './calendar-date';
 import {
   buildCalendarView,
+  buildMonthView,
   type CalendarEntry,
   type CalendarView,
+  monthRange,
+  type MonthView,
   weekOf,
 } from './calendar-view';
 
 /**
  * The calendar page's date logic, as GET /calendar runs it (src/web/calendar/
  * routes.tsx): the week around ?week= (or today), the seven days and where
- * entries land, the mini-month grid, month and year boundaries, leap day,
+ * entries land, the template's open slots, the month grid (GET
+ * /calendar/month), month and year boundaries, leap day,
  * both 2026 DST transitions, and "today" in the household's zone. Runs in
  * America/New_York (the `unit-new-york` project) because a DST zone is where
  * a hidden dependency on the process's zone would show.
@@ -33,37 +44,47 @@ function entryOn(
     worn: false,
     selfie: null,
     plannedBy: 'user',
-    outfit: { id, name: `Outfit ${id}`, photoUrls: [] },
+    outfit: { id, name: `Outfit ${id}`, garments: [] },
   };
 }
 
-/** What the route renders for ?week= and ?calMonth=, given today. */
+/** What the route renders for ?week=, given today. */
 function view(
   week?: string,
   options: {
-    calMonth?: { year: number; month: number };
     entries?: CalendarEntry[];
+    template?: TemplateSlot[];
     today?: IsoDate;
   } = {},
 ): CalendarView {
   const today = options.today ?? TODAY;
   return buildCalendarView({
     weekStart: weekOf(parseIsoDate(week) ?? today).start,
-    calMonth: options.calMonth,
     today,
+    entries: options.entries ?? [],
+    template: options.template,
+  });
+}
+
+/** What GET /calendar/month renders for a month, given today. */
+function month(
+  of: YearMonth,
+  options: { entries?: CalendarEntry[]; today?: IsoDate } = {},
+): MonthView {
+  return buildMonthView({
+    month: of,
+    today: options.today ?? TODAY,
     entries: options.entries ?? [],
   });
 }
 
 const dates = (vm: CalendarView) => vm.days.map((d) => d.date);
-const dayNums = (vm: CalendarView) => vm.days.map((d) => d.dayNum);
+const dayNums = (vm: CalendarView) => vm.days.map((d) => dateParts(d.date).day);
 const entryIdsByDay = (vm: CalendarView) =>
   vm.days.map((d) => d.entries.map((e) => e.id));
-const gridRows = (vm: CalendarView) => vm.miniMonth.weeks.map((w) => w.start);
-const cellsWith = (vm: CalendarView, cssClass: string) =>
-  vm.miniMonth.weeks.flatMap((w) =>
-    w.days.filter((d) => d.cellClass === cssClass).map((d) => d.dayNum),
-  );
+/** A month's rows as day numbers, 0 for a day of another month. */
+const gridDays = (vm: MonthView) =>
+  vm.weeks.map((week) => week.map((day) => day?.dayNum ?? 0));
 
 describe('calendar view (America/New_York)', () => {
   it('runs in New York time (the project env took effect)', () => {
@@ -173,67 +194,115 @@ describe('calendar view (America/New_York)', () => {
     });
   });
 
-  describe('mini-month grid', () => {
-    it('September 2026 (starts on a Tuesday): five rows from Aug 30, the week highlighted', () => {
-      const vm = view('2026-09-09');
-      expect(vm.miniMonth.month).toEqual({ year: 2026, month: 9 });
-      expect(gridRows(vm)).toEqual([
-        '2026-08-30',
-        '2026-09-06',
-        '2026-09-13',
-        '2026-09-20',
-        '2026-09-27',
+  describe('week navigation', () => {
+    it('steps a week back and forward from its Sunday', () => {
+      const vm = view('2026-09-23');
+      expect(vm.prevWeek).toBe('2026-09-13');
+      expect(vm.nextWeek).toBe('2026-09-27');
+    });
+  });
+
+  describe("the template's open slots (#16)", () => {
+    // Weekdays work, with a Monday and Thursday run; Friday an evening;
+    // Saturday daytime.
+    const template: TemplateSlot[] = [
+      { weekday: 1, occasion: 'work' },
+      { weekday: 2, occasion: 'work' },
+      { weekday: 3, occasion: 'work' },
+      { weekday: 4, occasion: 'work' },
+      { weekday: 5, occasion: 'work' },
+      { weekday: 1, occasion: 'workout' },
+      { weekday: 4, occasion: 'workout' },
+      { weekday: 5, occasion: 'evening' },
+      { weekday: 6, occasion: 'daytime' },
+    ];
+    const slots = (vm: CalendarView) => vm.days.map((d) => d.openSlots);
+
+    it('lists what today and the days after it still need, in occasion order', () => {
+      // Today is Friday the 25th: the days before it are history.
+      expect(slots(view('2026-09-23', { template }))).toEqual([
+        [],
+        [],
+        [],
+        [],
+        [],
+        ['work', 'evening'],
+        ['daytime'],
       ]);
-      expect(vm.miniMonth.weeks[0].days.map((d) => d.dayNum)).toEqual([
-        30, 31, 1, 2, 3, 4, 5,
+      expect(slots(view('2026-09-27', { template }))[1]).toEqual([
+        'workout',
+        'work',
       ]);
-      expect(vm.miniMonth.weeks[4].days.map((d) => d.dayNum)).toEqual([
-        27, 28, 29, 30, 1, 2, 3,
+    });
+
+    it("an entry fills its occasion's slot, and any day occasion the day's", () => {
+      const entries = [
+        entryOn('2026-09-25', 1, 'evening'),
+        entryOn('2026-09-26', 2, 'all-day'),
+      ];
+      expect(slots(view('2026-09-23', { template, entries })).slice(5)).toEqual(
+        [['work'], []],
+      );
+    });
+
+    it("keeps all of today's slots whatever the hour: the page is the same all day", () => {
+      const vm = view('2026-09-27', { template, today: '2026-09-28' });
+      expect(vm.days[1].openSlots).toEqual(['workout', 'work']);
+    });
+
+    it('none without a template', () => {
+      expect(slots(view('2026-09-27')).flat()).toEqual([]);
+    });
+  });
+
+  describe('month grid', () => {
+    it('September 2026 (starts on a Tuesday): five rows, the days around it blank', () => {
+      const vm = month({ year: 2026, month: 9 });
+      expect(gridDays(vm)).toEqual([
+        [0, 0, 1, 2, 3, 4, 5],
+        [6, 7, 8, 9, 10, 11, 12],
+        [13, 14, 15, 16, 17, 18, 19],
+        [20, 21, 22, 23, 24, 25, 26],
+        [27, 28, 29, 30, 0, 0, 0],
       ]);
-      expect(cellsWith(vm, 'cal-in-week')).toEqual([6, 7, 8, 9, 10, 11, 12]);
-      expect(cellsWith(vm, 'cal-out-month')).toEqual([30, 31, 1, 2, 3]);
-      expect(vm.miniMonth.prev.calMonth).toBe('2026-08');
-      expect(vm.miniMonth.next.calMonth).toBe('2026-10');
+      expect(vm.prev).toBe('2026-08');
+      expect(vm.next).toBe('2026-10');
+      expect(monthRange(vm.month)).toEqual({
+        first: '2026-09-01',
+        last: '2026-09-30',
+      });
     });
 
     it('February 2026 (Sunday to Saturday, 28 days) is exactly four rows', () => {
-      const vm = view('2026-02-11');
-      expect(gridRows(vm)).toEqual([
-        '2026-02-01',
-        '2026-02-08',
-        '2026-02-15',
-        '2026-02-22',
-      ]);
-      expect(cellsWith(vm, 'cal-out-month')).toEqual([]);
+      const vm = month({ year: 2026, month: 2 });
+      expect(gridDays(vm)).toHaveLength(4);
+      expect(gridDays(vm).flat()).not.toContain(0);
     });
 
     it('August 2026 (Saturday the 1st, 31 days) needs six rows', () => {
-      const vm = view('2026-08-12');
-      expect(gridRows(vm)).toEqual([
-        '2026-07-26',
-        '2026-08-02',
-        '2026-08-09',
-        '2026-08-16',
-        '2026-08-23',
-        '2026-08-30',
-      ]);
-      expect(vm.miniMonth.weeks[5].days.map((d) => d.dayNum)).toEqual([
-        30, 31, 1, 2, 3, 4, 5,
-      ]);
+      const vm = month({ year: 2026, month: 8 });
+      expect(gridDays(vm)).toHaveLength(6);
+      expect(gridDays(vm)[0]).toEqual([0, 0, 0, 0, 0, 0, 1]);
+      expect(gridDays(vm)[5]).toEqual([30, 31, 0, 0, 0, 0, 0]);
     });
 
-    it('month navigation jumps to the current week when it reaches the current month', () => {
-      // Today is 25 Sep 2026; October's "previous month" link is September.
-      const vm = view('2026-10-14');
-      expect(vm.miniMonth.prev).toEqual({
-        calMonth: '2026-09',
-        week: '2026-09-20',
-      });
-      // November 1 2026 is a Sunday: its first row starts on the 1st.
-      expect(vm.miniMonth.next).toEqual({
-        calMonth: '2026-11',
-        week: '2026-11-01',
-      });
+    it('puts entries on their days in occasion order, today marked', () => {
+      const entries = [
+        entryOn('2026-09-03', 1, 'evening'),
+        entryOn('2026-09-03', 2, 'workout'),
+        entryOn('2026-09-25', 3),
+        entryOn('2026-10-01', 4),
+      ];
+      const days = month({ year: 2026, month: 9 }, { entries })
+        .weeks.flat()
+        .filter((day) => day !== null);
+      expect(days).toHaveLength(30);
+      expect(days[2].entries.map((e) => e.id)).toEqual([2, 1]);
+      expect(days[24].entries.map((e) => e.id)).toEqual([3]);
+      expect(days.filter((d) => d.isToday).map((d) => d.date)).toEqual([
+        '2026-09-25',
+      ]);
+      expect(days.flatMap((d) => d.entries.map((e) => e.id))).not.toContain(4);
     });
   });
 
@@ -251,25 +320,16 @@ describe('calendar view (America/New_York)', () => {
       expect(weekOf('2027-01-02').start).toBe('2026-12-27');
     });
 
-    it('the mini month steps from December 2026 to January 2027 and back', () => {
-      const december = view('2026-12-30');
-      expect(december.miniMonth.month).toEqual({ year: 2026, month: 12 });
-      expect(december.miniMonth.prev.calMonth).toBe('2026-11');
-      expect(december.miniMonth.next.calMonth).toBe('2027-01');
-      // Jan 1 2027 is a Friday: its first row starts on Dec 27.
-      expect(december.miniMonth.next.week).toBe('2026-12-27');
-
-      const january = view('2026-12-30', {
-        calMonth: { year: 2027, month: 1 },
-      });
-      expect(january.miniMonth.month).toEqual({ year: 2027, month: 1 });
-      expect(january.miniMonth.prev.calMonth).toBe('2026-12');
-      expect(january.miniMonth.next.calMonth).toBe('2027-02');
-      expect(gridRows(january)[0]).toBe('2026-12-27');
-      // The week shown (Dec 27 - Jan 2) is highlighted across both months.
-      expect(cellsWith(january, 'cal-in-week')).toEqual([
-        27, 28, 29, 30, 31, 1, 2,
-      ]);
+    it('the weeks and months step from December 2026 to January 2027 and back', () => {
+      expect(view('2026-12-30').nextWeek).toBe('2027-01-03');
+      expect(view('2027-01-05').prevWeek).toBe('2026-12-27');
+      const december = month({ year: 2026, month: 12 });
+      expect(december.prev).toBe('2026-11');
+      expect(december.next).toBe('2027-01');
+      const january = month({ year: 2027, month: 1 });
+      expect(january.prev).toBe('2026-12');
+      // Jan 1 2027 is a Friday.
+      expect(gridDays(january)[0]).toEqual([0, 0, 0, 0, 0, 1, 2]);
     });
   });
 
@@ -284,8 +344,8 @@ describe('calendar view (America/New_York)', () => {
         '2028-03-01',
       ]);
       expect(entryIdsByDay(vm)).toEqual([[], [], [1], [2], [], [], []]);
-      expect(vm.miniMonth.weeks.at(-1)!.days.map((d) => d.dayNum)).toEqual([
-        27, 28, 29, 1, 2, 3, 4,
+      expect(gridDays(month({ year: 2028, month: 2 })).at(-1)).toEqual([
+        27, 28, 29, 0, 0, 0, 0,
       ]);
     });
 
@@ -332,7 +392,7 @@ describe('calendar view (America/New_York)', () => {
   });
 
   describe('today', () => {
-    it('highlights today in the week and in the mini month', () => {
+    it('highlights today in the week', () => {
       const vm = view('2026-09-23');
       expect(vm.days.map((d) => d.isToday)).toEqual([
         false,
@@ -343,7 +403,6 @@ describe('calendar view (America/New_York)', () => {
         true,
         false,
       ]);
-      expect(cellsWith(vm, 'cal-today')).toEqual([25]);
     });
 
     it('marks the days after today, which cannot be worn yet', () => {

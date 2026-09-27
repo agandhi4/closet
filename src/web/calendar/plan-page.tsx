@@ -7,11 +7,11 @@ import { Layout } from '../layout/layout';
 import { ideasUrl } from '../gallery/urls';
 import type { OutfitSummary } from '../outfits/queries';
 import { SavedOutfitButton } from '../outfits/saved-outfit-button';
-import { destinationQuery } from '../outfits/destination';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import type { IsoDate } from './calendar-date';
 import { dayLabel, occasionLabel } from './labels';
+import { dayUrl, planPageUrl } from './urls';
 
 export interface PlanModel {
   day: IsoDate;
@@ -34,8 +34,8 @@ export interface PlanModel {
  * carries it), then the three ways to an outfit: choose a generated idea
  * (the gallery's Ideas with the same `?for=`, #9), style a new one
  * (Styling with the same `?for=`, #42) or pick a saved one (POST
- * /calendar). The redesign's "+ Plan" sheet (R6) is this page's content;
- * its occasion rows link here with their occasion.
+ * /calendar). The week's "+ Plan" sheet (plan-sheet.tsx, R6) offers the
+ * same three ways and sends "Pick a saved outfit" here with its occasion.
  *
  * Opened to change an entry (`&replace=`, the calendar row's Change, #69),
  * it is "Change outfit": the occasion is the entry's (no chips), and ideas,
@@ -58,7 +58,7 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
   const title = changing ? t('changeEntry.TITLE') : t('CALENDAR_PLAN_TITLE');
   return (
     <Layout ctx={ctx} title={title}>
-      <AppBar ctx={ctx} title={title} back={`/calendar?week=${model.day}`} />
+      <AppBar ctx={ctx} title={title} back={dayUrl(model.day)} />
       <main class="p-4 pt-20 pb-24 w-full sm:max-w-lg sm:mx-auto flex flex-col gap-5">
         <PlanHeading model={model} changing={changing} />
         {!changing && <OccasionChips day={model.day} chosen={model.occasion} />}
@@ -160,7 +160,7 @@ function OccasionChips(props: { day: IsoDate; chosen: Occasion }) {
           return (
             <li>
               <a
-                href={`/calendar/plan?${destinationQuery({ kind: 'day', day: props.day, occasion })}`}
+                href={planPageUrl({ kind: 'day', day: props.day, occasion })}
                 class={`btn btn-sm rounded-full ${chosen ? 'btn-primary' : 'btn-outline'}`}
                 aria-current={chosen ? 'true' : undefined}
               >
