@@ -7,12 +7,18 @@ import {
   describe,
   expect,
   it,
+  onTestFinished,
   vi,
 } from 'vitest';
 import { createDb, type Db } from '../../src/db/client';
 import {
+  garment,
+  garmentWear,
   outfit,
   outfitCalendar,
+  outfitSlot,
+  pushReminder,
+  userDevice,
   weekPlan,
   weekPlanEntry,
   weekReplan,
@@ -25,9 +31,15 @@ import {
   instantAt,
   type IsoDate,
 } from '../../src/web/calendar/calendar-date';
+import { insertEntry } from '../../src/web/calendar/queries';
 import type { PushPayload } from '../../src/web/push/payload';
+import {
+  type ReminderDeps,
+  sendDueReminders,
+} from '../../src/web/push/reminders';
 import { tripModel } from '../../src/web/trips/model';
 import { addTripOutfit, createTrip } from '../../src/web/trips/queries';
+import { REMINDER_WINDOWS } from '../../src/push/reminders';
 import { saveReminderSettings, upsertDevice } from '../../src/web/push/queries';
 import type { PushSender } from '../../src/web/push/sender';
 import { setHome } from '../../src/web/weather/queries';
@@ -55,11 +67,14 @@ import {
 /**
  * The weekly auto-plan (#16): the Profile's week template, "Plan my week"
  * (its empty slots filled once, auto entries and their batch, the banner
- * and Undo), editing or wearing an auto entry makes it the person's, the
- * daily re-plan (before its hour nothing; once a day per user whatever the
- * minutes, restarts or servers; auto entries only; a swap pushed to the
- * morning reminder's devices; DST days), and plan_week. The clock is pinned
- * to Monday 5 October 2026, 08:00 in New York, so today's slots are open.
+ * and Undo), editing, wearing or planning an auto entry's outfit again
+ * makes it the person's, and picking a planner-made outfit makes the outfit
+ * theirs (#77), the daily re-plan (before its hour nothing; once a day per
+ * user whatever the minutes, restarts or servers; auto entries only; the
+ * weather and what can no longer be worn; a swap pushed to the morning
+ * reminder's devices; DST days), the morning reminder after the re-plan
+ * (#76), and plan_week. The clock is pinned to Monday 5 October 2026, 08:00
+ * in New York, so today's slots are open.
  * The pure rules are src/wardrobe/week-planner.spec.ts's.
  */
 
@@ -222,6 +237,25 @@ describe('the weekly auto-plan', () => {
     expect(model!.undated.map((o) => o.outfitId)).toEqual([outfitId]);
     expect(model!.packing.garments).toBeGreaterThan(0);
   };
+
+  /** The garment ids of outfit `outfitId`, in slot order. */
+  const garmentsOf = async (outfitId: number) =>
+    (
+      await t.db
+        .select({ garmentId: outfitSlot.garmentId })
+        .from(outfitSlot)
+        .where(eq(outfitSlot.outfitId, outfitId))
+        .orderBy(asc(outfitSlot.position))
+    ).map((slot) => slot.garmentId!);
+
+  /** The name of outfit `outfitId`. */
+  const nameOf = async (outfitId: number) =>
+    (
+      await t.db
+        .select({ name: outfit.name })
+        .from(outfit)
+        .where(eq(outfit.id, outfitId))
+    )[0].name!;
 
   /** Every day all day, and an evening on Tuesdays: 8 slots this week. */
   const TEMPLATE: Fields = {
@@ -541,6 +575,110 @@ describe('the weekly auto-plan', () => {
       await expectTripKeeps(tripId, first.outfitId);
     });
 
+    it('when they plan its outfit on its own day again (the card dropdown, POST /calendar); Undo and the re-plan leave it', async () => {
+      const res = await post('/calendar/plan-week');
+      const planId = Number(
+        /planned=(\d+)/.exec(String(res.headers.location))![1],
+      );
+      const thursday = (await weekEntries()).find((e) => e.day === WEEK[3])!;
+      t.logs.clear();
+      const again = await post('/calendar', {
+        date: WEEK[3],
+        outfitId: String(thursday.outfitId),
+        occasion: 'all-day',
+      });
+      expect(again.statusCode).toBe(302);
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        `Outfit ${thursday.outfitId} already scheduled on ${WEEK[3]} for user ${t.owner.id}; all-day not added; the week planner's entry is the user's now`,
+      );
+      const theirs = (await weekEntries()).find((e) => e.id === thursday.id)!;
+      expect(theirs).toMatchObject({
+        plannedBy: 'user',
+        outfitId: thursday.outfitId,
+        occasion: 'all-day',
+      });
+      // The planner's own write never takes it back.
+      expect(
+        await insertEntry(t.db, {
+          ownerId: t.owner.id,
+          outfitId: thursday.outfitId,
+          day: WEEK[3],
+          occasion: 'all-day',
+          plannedBy: 'auto',
+        }),
+      ).toEqual({ outcome: 'already-scheduled', adopted: false });
+      expect(
+        (await weekEntries()).find((e) => e.id === thursday.id)!.plannedBy,
+      ).toBe('user');
+
+      const undo = await post(`/calendar/plan-week/${planId}/undo`);
+      expect(undo.headers.location).toBe('/calendar?undone=7');
+      expect(await weekEntries()).toEqual([theirs]);
+      expect(await t.db.$count(outfit, eq(outfit.id, thursday.outfitId))).toBe(
+        1,
+      );
+    });
+
+    it('when a pick of its garments plans it on its day (the gallery, pick_outfit with a date)', async () => {
+      await post('/calendar/plan-week');
+      const friday = (await weekEntries()).find((e) => e.day === WEEK[4])!;
+      t.logs.clear();
+      const pick = await post('/outfits/ideas/pick', {
+        garmentId: (await garmentsOf(friday.outfitId)).map(String),
+        for: `day:${WEEK[4]}`,
+        occasion: 'all-day',
+      });
+      expect(pick.statusCode).toBe(303);
+      expect(pick.headers.location).toBe(
+        `/calendar?week=${WEEK[4]}&alreadySaved=1`,
+      );
+      expect(
+        (await weekEntries()).find((e) => e.id === friday.id)!.plannedBy,
+      ).toBe('user');
+      expect(
+        t.logs
+          .messages('info', 'Web')
+          .some((m) =>
+            m.endsWith(
+              `already outfit ${friday.outfitId}, already-scheduled ${WEEK[4]} (all-day); nothing created; taken over from the week planner`,
+            ),
+          ),
+      ).toBe(true);
+    });
+
+    it('a pick of a planner-made outfit’s garments with no day keeps the outfit through Undo', async () => {
+      const res = await post('/calendar/plan-week');
+      const planId = Number(
+        /planned=(\d+)/.exec(String(res.headers.location))![1],
+      );
+      const saturday = (await weekEntries()).find((e) => e.day === WEEK[5])!;
+      // An Ideas card rendered before the plan, or pick_outfit: "Already saved".
+      const pick = await post('/outfits/ideas/pick', {
+        garmentId: (await garmentsOf(saturday.outfitId)).map(String),
+      });
+      expect(pick.headers.location).toBe(
+        `/outfits/${saturday.outfitId}?alreadySaved=1`,
+      );
+      const [row] = await t.db
+        .select()
+        .from(weekPlanEntry)
+        .where(eq(weekPlanEntry.entryId, saturday.id));
+      expect(row.outfitCreated).toBe(false);
+      // The entry is still the planner's: Undo takes it, not the outfit.
+      expect(
+        (await weekEntries()).find((e) => e.id === saturday.id)!.plannedBy,
+      ).toBe('auto');
+
+      const outfitsBefore = await t.db.$count(outfit);
+      const undo = await post(`/calendar/plan-week/${planId}/undo`);
+      expect(undo.headers.location).toBe('/calendar?undone=8');
+      expect(await weekEntries()).toEqual([]);
+      expect(await t.db.$count(outfit)).toBe(outfitsBefore - 7);
+      expect(await t.db.$count(outfit, eq(outfit.id, saturday.outfitId))).toBe(
+        1,
+      );
+    });
+
     it("refuses another user's plan", async () => {
       const res = await post('/calendar/plan-week');
       const planId = Number(
@@ -711,6 +849,25 @@ describe('the weekly auto-plan', () => {
       ).toBe(true);
     });
 
+    it('a swap keeps a planner-made outfit the person picked meanwhile (#77)', async () => {
+      await planWarm();
+      const oldThursday = (await weekEntries()).find((e) => e.day === WEEK[3])!;
+      const pick = await post('/outfits/ideas/pick', {
+        garmentId: (await garmentsOf(oldThursday.outfitId)).map(String),
+      });
+      expect(pick.statusCode).toBe(303);
+      forecastDays = weekAt((day) => (day === WEEK[3] ? -2 : 24));
+      const run = await replanWeeks(deps, at(TODAY, 7));
+      expect(run).toMatchObject({ claimed: 1, swapped: 1, failed: 0 });
+      const thursday = (await weekEntries()).filter((e) => e.day === WEEK[3]);
+      expect(thursday).toHaveLength(1);
+      expect(thursday[0].outfitId).not.toBe(oldThursday.outfitId);
+      // The entry was the planner's to swap; the outfit is the person's.
+      expect(
+        await t.db.$count(outfit, eq(outfit.id, oldThursday.outfitId)),
+      ).toBe(1);
+    });
+
     it('a swap keeps the old planner-made outfit when a trip holds it', async () => {
       await planWarm();
       const oldThursday = (await weekEntries()).find((e) => e.day === WEEK[3])!;
@@ -783,21 +940,31 @@ describe('the weekly auto-plan', () => {
     });
 
     it('runs at its wall-clock hour on the days DST ends and starts', async () => {
-      await planWarm();
-      for (const [day, utcHour] of [
-        // 1 Nov 2026: New York falls back; 06:00 is 11:00 UTC.
-        ['2026-11-01', 11],
-        // 14 Mar 2027: springs forward; 06:00 is 10:00 UTC.
-        ['2027-03-14', 10],
+      const { weekPlanId } = await planWarm();
+      for (const [day, utcOffset] of [
+        // 1 Nov 2026: New York falls back, to UTC-5.
+        ['2026-11-01', 5],
+        // 14 Mar 2027: springs forward, to UTC-4.
+        ['2027-03-14', 4],
       ] as const) {
-        await t.db.insert(outfitCalendar).values({
-          ownerId: t.owner.id,
-          outfitId: (
-            await t.db.select({ id: outfit.id }).from(outfit).limit(1)
-          )[0].id,
-          day,
-          occasion: 'evening',
-          plannedBy: 'auto',
+        const utcHour = REPLAN_HOUR + utcOffset;
+        // An evening the planner left there, recorded in its batch.
+        const [entry] = await t.db
+          .insert(outfitCalendar)
+          .values({
+            ownerId: t.owner.id,
+            outfitId: (
+              await t.db.select({ id: outfit.id }).from(outfit).limit(1)
+            )[0].id,
+            day,
+            occasion: 'evening',
+            plannedBy: 'auto',
+          })
+          .returning({ id: outfitCalendar.id });
+        await t.db.insert(weekPlanEntry).values({
+          entryId: entry.id,
+          weekPlanId: weekPlanId!,
+          outfitCreated: false,
         });
         const early = new Date(
           `${day}T${String(utcHour - 1).padStart(2, '0')}:30:00Z`,
@@ -808,6 +975,386 @@ describe('the weekly auto-plan', () => {
         );
         expect((await replanWeeks(deps, onTime)).claimed).toBe(1);
       }
+    });
+
+    it('runs no later than the earliest morning reminder', () => {
+      expect(REPLAN_HOUR * 60).toBeLessThanOrEqual(
+        REMINDER_WINDOWS.morning.from,
+      );
+    });
+
+    describe('an outfit that can no longer be worn', () => {
+      /** The entry on `day` and its outfit's garment of `category`. */
+      const garmentOn = async (day: IsoDate, category: string) => {
+        const entry = (await weekEntries()).find(
+          (e) => e.day === day && e.occasion === 'all-day',
+        )!;
+        const [slot] = await t.db
+          .select({ garmentId: outfitSlot.garmentId })
+          .from(outfitSlot)
+          .where(
+            and(
+              eq(outfitSlot.outfitId, entry.outfitId),
+              eq(outfitSlot.category, category),
+            ),
+          );
+        return { entry, garmentId: slot.garmentId! };
+      };
+
+      /** `garmentId`'s name, as the notice says it. */
+      const garmentName = async (garmentId: number) =>
+        (await t.db.query.garment.findFirst({
+          columns: { name: true },
+          where: (g, { eq: equals }) => equals(g.id, garmentId),
+        }))!.name!;
+
+      it('swaps an auto entry whose garment went to repair, saying so, and never a person’s entry wearing it', async () => {
+        await planWarm();
+        // Shoes: the other pair never needs a wash, so a swap always exists.
+        const { entry, garmentId } = await garmentOn(WEEK[2], 'footwear');
+        const name = await garmentName(garmentId);
+        // The person also plans that outfit for Thursday evening: theirs.
+        await post('/calendar', {
+          date: WEEK[3],
+          outfitId: String(entry.outfitId),
+          occasion: 'evening',
+        });
+        const before = await weekEntries();
+        const theirs = before.find(
+          (e) => e.day === WEEK[3] && e.occasion === 'evening',
+        )!;
+        expect(theirs.plannedBy).toBe('user');
+        const away = await post(`/wardrobe/${garmentId}/away`, {
+          away: 'repair',
+        });
+        expect(away.statusCode).toBe(303);
+        onTestFinished(async () => {
+          await post(`/wardrobe/${garmentId}/away`, { away: '' });
+        });
+
+        t.logs.clear();
+        // The forecast did not change: only availability moves it.
+        const run = await replanWeeks(deps, at(TODAY, 7));
+        expect(run).toMatchObject({ claimed: 1, failed: 0 });
+        const after = await weekEntries();
+        const wednesday = after.find(
+          (e) => e.day === WEEK[2] && e.occasion === 'all-day',
+        )!;
+        expect(wednesday.plannedBy).toBe('auto');
+        expect(wednesday.outfitId).not.toBe(entry.outfitId);
+        expect(await garmentsOf(wednesday.outfitId)).not.toContain(garmentId);
+        // The person's entry and the outfit it holds stay.
+        expect(after).toContainEqual(theirs);
+        expect(await t.db.$count(outfit, eq(outfit.id, entry.outfitId))).toBe(
+          1,
+        );
+        // One notice, a line per entry that wore the shoes.
+        expect(sends).toHaveLength(1);
+        expect(sends[0].payload.body.split('\n')).toContainEqual(
+          expect.stringMatching(
+            new RegExp(`^${name} is at repair: swapped in .+ on Wednesday$`),
+          ),
+        );
+        expect(t.logs.messages('info', 'WeekPlan')).toContainEqual(
+          expect.stringMatching(
+            new RegExp(
+              `^Week re-plan for user ${t.owner.id} on ${TODAY}: ${run.swapped} swapped \\(.*${WEEK[2]} all-day repair garment ${garmentId}.*\\), 0 kept in \\d+ ms$`,
+            ),
+          ),
+        );
+      });
+
+      it('swaps one whose garment was archived or deleted, without weather too', async () => {
+        const noWeather = { ...deps, weather: undefined };
+        await planWarm();
+        const archived = await garmentOn(WEEK[1], 'footwear');
+        const archivedName = await garmentName(archived.garmentId);
+        expect(
+          (await post(`/wardrobe/${archived.garmentId}/archive`)).statusCode,
+        ).toBeLessThan(400);
+        onTestFinished(async () => {
+          await post(`/wardrobe/${archived.garmentId}/restore`);
+        });
+        const run = await replanWeeks(noWeather, at(TODAY, 7));
+        expect(run).toMatchObject({ claimed: 1, failed: 0 });
+        expect(run.swapped).toBeGreaterThanOrEqual(1);
+        expect(sends[0].payload.body).toContain(
+          `${archivedName} is archived: swapped in `,
+        );
+        const tuesday = (await weekEntries()).find(
+          (e) => e.day === WEEK[1] && e.occasion === 'all-day',
+        )!;
+        expect(tuesday.outfitId).not.toBe(archived.entry.outfitId);
+        expect(await garmentsOf(tuesday.outfitId)).not.toContain(
+          archived.garmentId,
+        );
+
+        // The same morning again (its claim cleared): a garment deleted
+        // meanwhile empties its slots.
+        await t.db.delete(weekReplan);
+        sends = [];
+        const deleted = await garmentOn(WEEK[4], 'tops');
+        const [tee] = await t.db
+          .select({ name: garment.name, colors: garment.colors })
+          .from(garment)
+          .where(eq(garment.id, deleted.garmentId));
+        // The closet is every test's: the tee comes back as it was.
+        onTestFinished(async () => {
+          await garmentIn(tee.name!, 'tops', tee.colors![0], {
+            quantity: '3',
+          });
+        });
+        const res = await t.inject({
+          method: 'DELETE',
+          url: `/wardrobe/${deleted.garmentId}`,
+        });
+        expect(res.statusCode).toBeLessThan(400);
+        const next = await replanWeeks(noWeather, at(TODAY, 8));
+        expect(next).toMatchObject({ claimed: 1, failed: 0 });
+        expect(sends[0].payload.body).toContain(
+          "A garment of Friday's outfit was deleted: swapped in ",
+        );
+        const friday = (await weekEntries()).find(
+          (e) => e.day === WEEK[4] && e.occasion === 'all-day',
+        )!;
+        expect(friday.outfitId).not.toBe(deleted.entry.outfitId);
+      });
+
+      it('counts a garment without a clean copy only on its own day', async () => {
+        await planWarm();
+        const monday = await garmentOn(TODAY, 'tops');
+        const later = await garmentOn(WEEK[2], 'tops');
+        const mondayName = await garmentName(monday.garmentId);
+        // Worn the three days before: every copy of each tee is dirty.
+        onTestFinished(async () => {
+          await t.db.delete(garmentWear);
+        });
+        for (const garmentId of new Set([monday.garmentId, later.garmentId])) {
+          for (const back of [1, 2, 3]) {
+            await t.db.insert(garmentWear).values({
+              garmentId,
+              ownerId: t.owner.id,
+              day: addDays(TODAY, -back),
+            });
+          }
+        }
+        const before = await weekEntries();
+        const run = await replanWeeks(deps, at(TODAY, 7));
+        expect(run).toMatchObject({ claimed: 1, swapped: 1, failed: 0 });
+        const after = await weekEntries();
+        const today = after.find((e) => e.day === TODAY)!;
+        expect(today.outfitId).not.toBe(monday.entry.outfitId);
+        expect(await garmentsOf(today.outfitId)).not.toContain(
+          monday.garmentId,
+        );
+        // Every later day is as it was: a wash is expected by then.
+        expect(after.filter((e) => e.day !== TODAY)).toEqual(
+          before.filter((e) => e.day !== TODAY),
+        );
+        expect(sends[0].payload.body).toMatch(
+          new RegExp(`^${mondayName} needs a wash: swapped in .+ on Monday$`),
+        );
+      });
+    });
+
+    describe('before the morning reminder (#76)', () => {
+      let deviceId: number;
+      let reminders: ReminderDeps;
+
+      /** A device of the owner's with the morning reminder at `hour`:00. */
+      const remindAt = async (hour: number) => {
+        const endpoint = `https://fcm.googleapis.com/fcm/send/morning-${hour}`;
+        deviceId = await upsertDevice(
+          t.db,
+          t.owner.id,
+          {
+            endpoint,
+            keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) },
+          },
+          undefined,
+        );
+        await saveReminderSettings(
+          t.db,
+          t.owner.id,
+          endpoint,
+          { morning: hour * 60, evening: null },
+          new Date('2020-01-01T00:00:00Z'),
+        );
+      };
+
+      const reminderTo = () =>
+        sends.filter(
+          (s) =>
+            s.payload.tag === 'today-morning' && s.deviceIds.includes(deviceId),
+        );
+      const swapNotices = () =>
+        sends.filter((s) => s.payload.tag === 'week-replan');
+
+      beforeEach(async () => {
+        await t.db.delete(pushReminder);
+        reminders = {
+          db: t.db,
+          sender: push,
+          weather: undefined,
+          timeZone: t.timeZone,
+          logger: t.logger.child({ context: 'Push' }),
+          replan: deps,
+        };
+      });
+
+      afterEach(async () => {
+        await t.db.delete(userDevice).where(eq(userDevice.id, deviceId));
+      });
+
+      it.each([REPLAN_HOUR, REPLAN_HOUR + 1])(
+        'a reminder at %i:00 names the outfit the day’s re-plan swapped in, not the one it swapped out',
+        async (hour) => {
+          await planWarm();
+          await remindAt(hour);
+          const planned = (await weekEntries()).find((e) => e.day === TODAY)!;
+          const oldName = await nameOf(planned.outfitId);
+          forecastDays = weekAt((day) => (day === TODAY ? -2 : 24));
+
+          // The reminder's minute, before (or without) the re-plan's own run.
+          const run = await sendDueReminders(reminders, at(TODAY, hour));
+          expect(run).toMatchObject({ claimed: 1, sent: 1, failed: 0 });
+          const today = (await weekEntries()).find((e) => e.day === TODAY)!;
+          expect(today.outfitId).not.toBe(planned.outfitId);
+          expect(await garmentsOf(today.outfitId)).toContain(coat);
+          // One push: the reminder says what swapped, then the day's outfit.
+          const [reminder] = reminderTo();
+          expect(reminder.payload.body.split('\n')).toEqual([
+            expect.stringMatching(/^Swapped in .+: it turned cold$/),
+            `All day: ${await nameOf(today.outfitId)}`,
+          ]);
+          expect(reminder.payload.body).not.toContain(`All day: ${oldName}`);
+          expect(sends.map((s) => s.payload.tag)).toEqual(['today-morning']);
+          // The day is claimed: the re-plan's own run finds nothing to do.
+          expect(await replanWeeks(deps, at(TODAY, hour))).toMatchObject({
+            claimed: 0,
+          });
+          expect(swapNotices()).toEqual([]);
+        },
+      );
+
+      it('names today’s swap in the reminder and another day’s in one swap notice', async () => {
+        await planWarm();
+        await remindAt(REPLAN_HOUR);
+        forecastDays = weekAt((day) =>
+          day === TODAY || day === WEEK[3] ? -2 : 24,
+        );
+        const run = await sendDueReminders(reminders, at(TODAY, REPLAN_HOUR));
+        expect(run).toMatchObject({ claimed: 1, sent: 1, failed: 0 });
+        expect(sends.map((s) => s.payload.tag).sort()).toEqual([
+          'today-morning',
+          'week-replan',
+        ]);
+        expect(reminderTo()[0].payload.body).toMatch(
+          /^Swapped in .+: it turned cold\nAll day: /,
+        );
+        const [notice] = swapNotices();
+        expect(notice.payload.body).toMatch(
+          /^Thursday turned cold: swapped in /,
+        );
+        expect(notice.payload.body).not.toContain('Monday');
+      });
+
+      it('two servers running the reminders and the re-plan at the same minute re-plan once and remind once, after the re-plan', async () => {
+        const logger = t.logger.child({ context: 'WeekPlan' });
+        const other: Db = createDb(t.database, logger);
+        const otherDeps: ReplanDeps = { ...deps, db: other };
+        const otherReminders: ReminderDeps = {
+          ...reminders,
+          db: other,
+          replan: otherDeps,
+        };
+        try {
+          await remindAt(REPLAN_HOUR);
+          for (let round = 0; round < 5; round += 1) {
+            await clearWeek();
+            await t.db.delete(pushReminder);
+            sends = [];
+            forecastDays = weekAt(() => 24);
+            await planWarm();
+            const planned = (await weekEntries()).find((e) => e.day === TODAY)!;
+            forecastDays = weekAt((day) => (day === TODAY ? -2 : 24));
+            const now = at(TODAY, REPLAN_HOUR);
+            // Each server's two minute timers, in either order.
+            await Promise.all(
+              round % 2 === 0
+                ? [
+                    sendDueReminders(reminders, now),
+                    replanWeeks(deps, now),
+                    replanWeeks(otherDeps, now),
+                    sendDueReminders(otherReminders, now),
+                  ]
+                : [
+                    replanWeeks(otherDeps, now),
+                    sendDueReminders(otherReminders, now),
+                    sendDueReminders(reminders, now),
+                    replanWeeks(deps, now),
+                  ],
+            );
+            const today = (await weekEntries()).filter((e) => e.day === TODAY);
+            expect(today, `round ${round}`).toHaveLength(1);
+            expect(today[0].outfitId).not.toBe(planned.outfitId);
+            expect(reminderTo(), `round ${round}`).toHaveLength(1);
+            const body = reminderTo()[0].payload.body;
+            expect(
+              body.endsWith(`All day: ${await nameOf(today[0].outfitId)}`),
+            ).toBe(true);
+            // Said once: in the reminder when it ran the re-plan, in a swap
+            // notice when the minutely run did.
+            const inReminder = body.startsWith('Swapped in ') ? 1 : 0;
+            expect(swapNotices().length + inReminder, `round ${round}`).toBe(1);
+            expect(await t.db.$count(weekReplan)).toBe(1);
+            expect((await weekEntries()).map((e) => e.slot).sort()).toEqual(
+              TEMPLATE_SLOTS,
+            );
+          }
+        } finally {
+          await other.$client.end();
+        }
+      });
+
+      it('an entry the person took over is named as they left it, and a failed re-plan still lets the reminder go', async () => {
+        await planWarm();
+        await remindAt(REPLAN_HOUR);
+        const planned = (await weekEntries()).find((e) => e.day === TODAY)!;
+        await post('/calendar', {
+          date: TODAY,
+          outfitId: String(planned.outfitId),
+          occasion: 'all-day',
+        });
+        forecastDays = weekAt(() => -2);
+        const broken: ReminderDeps = {
+          ...reminders,
+          replan: {
+            ...deps,
+            weather: {
+              ...fakeWeather(() => forecastDays),
+              forecastFor: () => Promise.reject(new Error('Open-Meteo down')),
+            },
+          },
+        };
+        t.logs.clear();
+        const run = await sendDueReminders(broken, at(TODAY, REPLAN_HOUR));
+        expect(run).toMatchObject({ claimed: 1, sent: 1, failed: 0 });
+        expect(reminderTo()[0].payload.body).toContain(
+          await nameOf(planned.outfitId),
+        );
+        expect(t.logs.messages('error', 'WeekPlan')).toContain(
+          `Week re-plan for user ${t.owner.id} on ${TODAY} failed`,
+        );
+        // Claimed all the same: tried again tomorrow, not every minute.
+        expect(await t.db.$count(weekReplan)).toBe(1);
+        expect(await replanWeeks(deps, at(TODAY, 7))).toMatchObject({
+          claimed: 0,
+        });
+        expect(
+          (await weekEntries()).find((e) => e.id === planned.id)!.plannedBy,
+        ).toBe('user');
+      });
     });
 
     it('prunes the claims of past days', async () => {

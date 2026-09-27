@@ -980,6 +980,7 @@
       "PLANNED": "{occasion}: {outfit}",
       "IDEA": "Idea: {outfit}",
       "MORNING_NOTHING": "Nothing planned yet. Open Today for ideas.",
+    "SWAPPED": "Swapped in {garments}: {why}",
       "EVENING_PLANNED": "Planned: {outfits}. Tap to mark what you wore.",
       "EVENING_NOTHING": "Tap to note today's outfit."
     },
@@ -1032,7 +1033,27 @@
       "COLDER": "{slot} turned cold: swapped in {garments}",
       "WARMER": "{slot} warmed up: swapped in {garments}",
       "DRY": "{slot} is dry now: swapped in {garments}",
-      "SWING": "{slot} swings warm to cold: swapped in {garments}"
+      "SWING": "{slot} swings warm to cold: swapped in {garments}",
+      "LENT": "{garment} is lent out: swapped in {garments} on {slot}",
+      "REPAIR": "{garment} is at repair: swapped in {garments} on {slot}",
+      "ARCHIVED": "{garment} is archived: swapped in {garments} on {slot}",
+      "WISHLIST": "{garment} is not in your closet: swapped in {garments} on {slot}",
+      "DIRTY": "{garment} needs a wash: swapped in {garments} on {slot}",
+      "DELETED": "A garment of {slot}'s outfit was deleted: swapped in {garments}"
+    },
+    "why": {
+      "FORECAST": "the forecast is in",
+      "RAIN": "rain is on the way",
+      "COLDER": "it turned cold",
+      "WARMER": "it warmed up",
+      "DRY": "it is dry now",
+      "SWING": "it swings warm to cold",
+      "LENT": "{garment} is lent out",
+      "REPAIR": "{garment} is at repair",
+      "ARCHIVED": "{garment} is archived",
+      "WISHLIST": "{garment} is not in your closet",
+      "DIRTY": "{garment} needs a wash",
+      "DELETED": "a garment of it was deleted"
     }
   },
   "trips": {

@@ -162,21 +162,22 @@ export const outfitTools = [
         };
       }
       const planned = occasion ?? DEFAULT_OCCASION;
-      const outcome = await scheduleOutfit(ctx.db, {
+      const scheduled = await scheduleOutfit(ctx.db, {
         ownerId: ctx.userId,
         outfitId,
         day: date,
         occasion: planned,
       });
-      if (outcome === 'no-such-outfit') {
+      if (scheduled === 'no-such-outfit') {
         throw new HttpError(404, OUTFIT_NOT_FOUND);
       }
+      const { outcome } = scheduled;
       // Already there: say which occasion it kept.
       const entry = (await findEntries(ctx.db, ctx.userId, date, date)).find(
         (found) => found.outfit.id === outfitId,
       );
       ctx.webLogger.info(
-        `Outfit ${outfitId} ${outcome} on ${date} (${entry?.occasion}) for user ${ctx.userId} (MCP)`,
+        `Outfit ${outfitId} ${outcome} on ${date} (${entry?.occasion}) for user ${ctx.userId} (MCP)${outcome === 'already-scheduled' && scheduled.adopted ? "; the week planner's entry is the user's now" : ''}`,
       );
       return { outcome, date, occasion: entry?.occasion ?? planned };
     },

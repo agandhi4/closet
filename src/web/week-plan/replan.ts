@@ -1,14 +1,23 @@
-import type { Db } from '../../db/client';
+import type { Db, Queryable } from '../../db/client';
 import type { Logger } from '../../logger';
+import { REMINDER_WINDOWS } from '../../push/reminders';
 import { DAY_OCCASIONS } from '../../wardrobe/occasions';
 import {
   type NeedsChange,
   type Replan,
   replanWeek,
   type Slot,
+  type SwapCause,
+  type Unwearable,
+  unwearableOn,
 } from '../../wardrobe/week-planner';
 import { lockOwner } from '../auth/queries';
-import { dayOfWeek, hourIn, todayIn } from '../calendar/calendar-date';
+import {
+  dayOfWeek,
+  hourIn,
+  type IsoDate,
+  todayIn,
+} from '../calendar/calendar-date';
 import { DAY_NAMES, occasionLabel } from '../calendar/labels';
 import { ideaName } from '../gallery/ideas';
 import type { WeekPoolGarment } from '../gallery/queries';
@@ -20,36 +29,51 @@ import type { WeatherService } from '../weather/service';
 import { readWeek, weekForecast, writeAutoPick } from './plan';
 import {
   autoEntries,
-  claimReplans,
+  type AutoEntryRow,
+  claimReplan,
+  outfitGarmentStates,
   pruneReplanClaims,
   removeAutoEntries,
+  replanCandidates,
+  type SlotGarment,
   updatePlannedNeeds,
 } from './queries';
 
 /**
  * The daily re-plan (#16; plan section 12): each morning the week
  * planner's own entries (planned_by 'auto', not worn, today on) are judged
- * against the day's forecast (replanWeek, src/wardrobe/week-planner.ts):
- * unchanged targets keep them; changed ones keep an outfit that still fits
- * and swap one that no longer does for a better idea; entries a person
- * planned, edited or wore are 'user' and never read here. What swapped is
- * pushed to the person's devices that take the morning reminder.
+ * again (replanWeek, src/wardrobe/week-planner.ts): an outfit that can no
+ * longer be worn on its day (a garment lent, at repair, archived or
+ * deleted, or today without a clean copy: unwearableOn) is swapped for the
+ * slot's best idea; one whose forecast changed is kept while it still fits
+ * and swapped for a better idea when it does not. Entries a person planned,
+ * edited or wore are 'user' and never read here. What swapped is pushed to
+ * the person's devices that take the morning reminder.
  *
- * replanWeeks is one run: server.ts schedules it every minute
- * (scheduleMinutely) with WEATHER_ENABLED, never createApp(), so the
- * integration harness and the CLIs never re-plan on their own (a spec calls
- * it with the instant it wants). A run does nothing before REPLAN_HOUR on
- * the household's wall clock (hourIn, so DST days keep 06:00 at 06:00: the
- * hour exists on every day in US and EU zones); from then on it claims
- * today's re-plan per user (claimReplans: week_replan's primary key, so a
- * user is re-planned once a day across minutes, restarts and two servers
- * overlapping in a deploy; a server down at 06:00 catches up when it
- * starts). The claim comes first: a crash mid-run skips that user until
- * tomorrow rather than pushing twice.
+ * replanToday is one user's re-plan for the day, once: the minutely run
+ * (replanWeeks) calls it for every user due one from REPLAN_HOUR, and the
+ * morning reminder (src/web/push/reminders.ts) calls it for its user
+ * before describing the day, so a reminder always names the plan after
+ * the re-plan, whatever time it is set to (#76). "Once" is week_replan's
+ * primary key, claimed inside the work's own transaction under lockOwner
+ * (claimReplan): a second caller (another minute, the reminder, a second
+ * server in an overlapping deploy) waits on the owner lock and finds the
+ * day claimed and the re-plan committed, never half done. server.ts
+ * schedules the run, never createApp(), so the integration harness and the
+ * CLIs never re-plan on their own (a spec calls it with the instant it
+ * wants).
  */
 
-/** The household's hour from which a day's re-plan runs: before people dress, after the night's forecast runs. */
-export const REPLAN_HOUR = 6;
+/**
+ * The household's hour from which the minutely run re-plans: the earliest
+ * a morning reminder can be set to (REMINDER_WINDOWS), so everyone's day is
+ * re-planned by the time any reminder could go out, and a swap notice comes
+ * before the reminder rather than after it. The reminder does not rely on
+ * it (it re-plans its user first); this is for the people without one.
+ * Derived, not a second constant: moving the window moves it. On the wall
+ * clock (hourIn): the window keeps away from the hours DST skips.
+ */
+export const REPLAN_HOUR = Math.floor(REMINDER_WINDOWS.morning.from / 60);
 
 /** How long a push service keeps an undelivered swap: the day's, not the next's. */
 const SWAP_TTL_SECONDS = 6 * 60 * 60;
@@ -58,7 +82,8 @@ const SWAP_TAG = 'week-replan';
 
 export interface ReplanDeps {
   db: Db;
-  weather: WeatherService;
+  /** Undefined without WEATHER_ENABLED: only availability is judged. */
+  weather: WeatherService | undefined;
   /** Undefined without PWA_ENABLED: swaps are made, nobody is told. */
   push: PushSender | undefined;
   timeZone: string;
@@ -67,7 +92,7 @@ export interface ReplanDeps {
 }
 
 export interface ReplanRun {
-  /** Users this run claimed (re-planned). */
+  /** Users this run re-planned (claimed), failed ones included. */
   claimed: number;
   swapped: number;
   /** Entries whose targets changed and whose outfit was kept. */
@@ -80,10 +105,20 @@ export interface ReplanRun {
 /** One swapped slot, for the notice. */
 export interface Swap {
   slot: Slot;
-  change: NeedsChange;
+  cause: SwapCause;
+  /** The garment the cause names ("Bean Boots"); null for the weather or a deleted garment. */
+  garment: string | null;
   /** The garments the new outfit brought in, top to toe. */
   swappedIn: string;
 }
+
+/** What replanToday did for one user. */
+export type ReplanOutcome =
+  | { kind: 'replanned'; swaps: Swap[]; kept: number; pushed: boolean }
+  /** Nothing to do: re-planned today already (here or elsewhere), or no auto entry. */
+  | { kind: 'skipped' }
+  /** Logged, and the day claimed: not tried again until tomorrow. */
+  | { kind: 'failed' };
 
 /** One minute's re-plan. Never throws for a user: each failure is logged. */
 export async function replanWeeks(
@@ -99,31 +134,17 @@ export async function replanWeeks(
   };
   if (hourIn(deps.timeZone, now) < REPLAN_HOUR) return run;
   const today = todayIn(deps.timeZone, now);
-  const users = await claimReplans(deps.db, today, now);
-  run.claimed = users.length;
-  for (const userId of users) {
-    const started = performance.now();
-    try {
-      const { swaps, kept } = await replanUser(deps, userId, now);
-      run.swapped += swaps.length;
-      run.kept += kept;
-      const swapped = swaps
-        .map((s) => `${s.slot.day} ${s.slot.occasion} ${s.change}`)
-        .join(', ');
-      const ms = Math.round(performance.now() - started);
-      deps.logger.info(
-        `Week re-plan for user ${userId} on ${today}: ${swaps.length} swapped (${swapped}), ${kept} kept in ${ms} ms`,
-      );
-      if (swaps.length > 0 && (await pushSwaps(deps, userId, swaps))) {
-        run.pushed += 1;
-      }
-    } catch (error) {
+  for (const userId of await replanCandidates(deps.db, today)) {
+    const outcome = await replanToday(deps, userId, now);
+    if (outcome.kind === 'skipped') continue;
+    run.claimed += 1;
+    if (outcome.kind === 'failed') {
       run.failed += 1;
-      deps.logger.error(
-        { err: error },
-        `Week re-plan for user ${userId} on ${today} failed`,
-      );
+      continue;
     }
+    run.swapped += outcome.swaps.length;
+    run.kept += outcome.kept;
+    if (outcome.pushed) run.pushed += 1;
   }
   if (run.claimed > 0) {
     deps.logger.info(
@@ -134,71 +155,207 @@ export async function replanWeeks(
 }
 
 /**
- * Judges one user's auto entries and applies the verdicts, in one
- * transaction under lockOwner (a "Plan my week" or an outfit edit takes
- * its turn): a kept entry records its new targets; a swap plans the new
- * idea in the same batch, then removes the old entry (and the outfit the
- * planner made for it, if nothing else holds it). Its forecast is read
- * first, outside the lock.
+ * `userId`'s re-plan for today, once a day whoever asks (see the module
+ * comment): the judgement and its writes in one transaction with the
+ * day's claim, then the swap notice. With `announcesToday` (the morning
+ * reminder, which names today's swaps in its own text) the notice leaves
+ * today's swaps out and goes only for other days': one push per swap,
+ * never two. The returned swaps are all of them, today's included. Never
+ * throws: a failure is logged and the day claimed all the same, so it is
+ * not retried every minute.
  */
-export async function replanUser(
-  deps: Pick<ReplanDeps, 'db' | 'weather' | 'timeZone'>,
+export async function replanToday(
+  deps: ReplanDeps,
   userId: number,
   now: Date,
-): Promise<{ swaps: Swap[]; kept: number }> {
+  { announcesToday = false }: { announcesToday?: boolean } = {},
+): Promise<ReplanOutcome> {
+  const today = todayIn(deps.timeZone, now);
+  const started = performance.now();
+  try {
+    // A cheap look first: the forecast read below is for users with
+    // something to judge. The claim decides.
+    if ((await replanCandidates(deps.db, today, userId)).length === 0) {
+      return { kind: 'skipped' };
+    }
+    const result = await replanUser(deps, userId, now);
+    if (!result) return { kind: 'skipped' };
+    const { swaps, kept } = result;
+    const swapped = swaps
+      .map((s) => `${s.slot.day} ${s.slot.occasion} ${causeText(s.cause)}`)
+      .join(', ');
+    const ms = Math.round(performance.now() - started);
+    deps.logger.info(
+      `Week re-plan for user ${userId} on ${today}: ${swaps.length} swapped (${swapped}), ${kept} kept in ${ms} ms`,
+    );
+    const unannounced = announcesToday
+      ? swaps.filter((s) => s.slot.day !== today)
+      : swaps;
+    const pushed =
+      unannounced.length > 0 && (await pushSwaps(deps, userId, unannounced));
+    return { kind: 'replanned', swaps, kept, pushed };
+  } catch (error) {
+    deps.logger.error(
+      { err: error },
+      `Week re-plan for user ${userId} on ${today} failed`,
+    );
+    await claimAfterFailure(deps, userId, today, now);
+    return { kind: 'failed' };
+  }
+}
+
+// The failed transaction took its claim with it: claim the day on its own.
+async function claimAfterFailure(
+  deps: ReplanDeps,
+  userId: number,
+  today: IsoDate,
+  now: Date,
+): Promise<void> {
+  try {
+    await claimReplan(deps.db, userId, today, now);
+  } catch (error) {
+    deps.logger.error(
+      { err: error },
+      `Week re-plan for user ${userId} on ${today} could not be claimed after its failure: tried again next minute`,
+    );
+  }
+}
+
+/**
+ * Judges one user's auto entries and applies the verdicts, in one
+ * transaction under lockOwner (a "Plan my week", a pick or an outfit edit
+ * takes its turn) that also claims the day: undefined when there is no
+ * auto entry (nothing claimed: a week planned later today is judged by a
+ * later run) or the day was claimed already. A kept entry records its new
+ * targets; a swap plans the new idea in the same batch, then removes the
+ * old entry (and the outfit the planner made for it, if nothing else holds
+ * it). Its forecast is read first, outside the lock.
+ */
+async function replanUser(
+  deps: Pick<ReplanDeps, 'db' | 'weather' | 'timeZone' | 'logger'>,
+  userId: number,
+  now: Date,
+): Promise<{ swaps: Swap[]; kept: number } | undefined> {
   const today = todayIn(deps.timeZone, now);
   const forecast = await weekForecast(deps, userId, now);
   return deps.db.transaction(async (tx) => {
     await lockOwner(tx, userId);
     const auto = await autoEntries(tx, userId, today);
-    if (auto.length === 0) return { swaps: [], kept: 0 };
+    if (auto.length === 0) return undefined;
+    if (!(await claimReplan(tx, userId, today, now))) return undefined;
     const week = await readWeek(tx, userId, today, auto[auto.length - 1].day);
-    const replans: Replan<WeekPoolGarment>[] = replanWeek({
+    const outfits = await outfitGarmentStates(
+      tx,
+      auto.map((a) => a.outfitId),
+      today,
+    );
+    const judged = auto.map((a) => {
+      const slots = outfits.get(a.outfitId) ?? [];
+      const { day, outfitCreated } = a;
+      const unwearable = unwearableOn({ day, outfitCreated, slots }, today);
+      return { ...a, slots, unwearable };
+    });
+    const replans = replanWeek({
       ...week,
       forecast: forecast.days,
       offset: forecast.offset,
-      auto: auto.map(({ entryId, plannedFor }) => ({ entryId, plannedFor })),
+      auto: judged.map(({ entryId, plannedFor, unwearable }) => ({
+        entryId,
+        plannedFor,
+        unwearable,
+      })),
     });
-    const autoById = new Map(auto.map((a) => [a.entryId, a]));
+    const autoById = new Map(judged.map((a) => [a.entryId, a]));
     const entryById = new Map(week.entries.map((e) => [e.id, e]));
     const swaps: Swap[] = [];
     let kept = 0;
     for (const replan of replans) {
-      if (replan.kind === 'unchanged') continue;
-      if (replan.kind === 'kept') {
-        await updatePlannedNeeds(tx, replan.entryId, replan.needs);
-        kept += 1;
-        continue;
-      }
-      // The new outfit first: if it cannot be planned (a garment gone from
-      // the closet meanwhile), the old one stays, under its new targets.
       const old = autoById.get(replan.entryId)!;
-      const written = await writeAutoPick(tx, userId, old.weekPlanId, {
-        ...replan.slot,
-        garments: replan.idea.garments,
-        problems: replan.idea.problems,
-        needs: replan.needs,
-      });
-      if (!written) {
-        await updatePlannedNeeds(tx, replan.entryId, replan.needs);
-        kept += 1;
+      if (replan.kind !== 'swap' && old.unwearable) {
+        deps.logger.info(
+          `Week re-plan for user ${userId}: entry ${old.entryId} on ${old.day} cannot be worn (${unwearableText(old.unwearable)}) and nothing else dresses its slot; kept`,
+        );
+      }
+      if (replan.kind === 'unchanged') continue;
+      const swap =
+        replan.kind === 'swap' &&
+        (await applySwap(tx, userId, replan, {
+          ...old,
+          garments: entryById.get(old.entryId)!.garments,
+        }));
+      if (swap) {
+        swaps.push(swap);
         continue;
       }
-      await removeAutoEntries(tx, userId, [old]);
-      const before = new Set(
-        entryById.get(replan.entryId)!.garments.map((g) => g.id),
-      );
-      const brought = replan.idea.garments.filter((g) => !before.has(g.id));
-      swaps.push({
-        slot: replan.slot,
-        change: replan.change,
-        swappedIn: ideaName(
-          brought.length > 0 ? brought : replan.idea.garments,
-        ),
-      });
+      // Kept (or a swap that could not be written): its new targets are
+      // what it is judged against next.
+      if (replan.needs) {
+        await updatePlannedNeeds(tx, replan.entryId, replan.needs);
+      }
+      kept += 1;
     }
     return { swaps, kept };
   });
+}
+
+/**
+ * Plans the swap's idea in the old entry's batch, then removes the old
+ * entry (and the outfit the planner made for it, if nothing else holds
+ * it). The new outfit first: undefined when it cannot be planned (a garment
+ * gone from the closet meanwhile), and the old entry stays.
+ */
+async function applySwap(
+  tx: Queryable,
+  userId: number,
+  replan: Extract<Replan<WeekPoolGarment>, { kind: 'swap' }>,
+  old: AutoEntryRow & {
+    garments: readonly { id: number }[];
+    slots: readonly (SlotGarment | null)[];
+  },
+): Promise<Swap | undefined> {
+  const written = await writeAutoPick(tx, userId, old.weekPlanId, {
+    ...replan.slot,
+    garments: replan.idea.garments,
+    problems: replan.idea.problems,
+    needs: replan.needs,
+  });
+  if (!written) return undefined;
+  await removeAutoEntries(tx, userId, [old]);
+  const before = new Set(old.garments.map((g) => g.id));
+  const brought = replan.idea.garments.filter((g) => !before.has(g.id));
+  return {
+    slot: replan.slot,
+    cause: replan.cause,
+    garment: causeGarment(replan.cause, old.slots),
+    swappedIn: ideaName(brought.length > 0 ? brought : replan.idea.garments),
+  };
+}
+
+// The garment an unwearable outfit's cause names, by name or category, as
+// the outfit's own name would ("Bean Boots", "Boots").
+function causeGarment(
+  cause: SwapCause,
+  slots: readonly (SlotGarment | null)[],
+): string | null {
+  if (cause.kind !== 'unwearable' || cause.unwearable.reason === 'deleted') {
+    return null;
+  }
+  const { garmentId } = cause.unwearable;
+  const garment = slots.find((g) => g?.id === garmentId);
+  return garment ? ideaName([garment]) : null;
+}
+
+// For the log: "colder", "repair garment 12", "deleted".
+function causeText(cause: SwapCause): string {
+  return cause.kind === 'weather'
+    ? cause.change
+    : unwearableText(cause.unwearable);
+}
+
+function unwearableText(unwearable: Unwearable): string {
+  return unwearable.reason === 'deleted'
+    ? 'deleted'
+    : `${unwearable.reason} garment ${unwearable.garmentId}`;
 }
 
 const CHANGE_LINES: Readonly<Record<NeedsChange, StringKey>> = {
@@ -210,6 +367,49 @@ const CHANGE_LINES: Readonly<Record<NeedsChange, StringKey>> = {
   swing: 'weekPlan.push.SWING',
 };
 
+// Why a swap happened, for a line that names the slot elsewhere: the
+// morning reminder's "Swapped in Chelsea boots: Bean Boots is at repair".
+const CHANGE_WHY: Readonly<Record<NeedsChange, StringKey>> = {
+  forecast: 'weekPlan.why.FORECAST',
+  rain: 'weekPlan.why.RAIN',
+  colder: 'weekPlan.why.COLDER',
+  warmer: 'weekPlan.why.WARMER',
+  dry: 'weekPlan.why.DRY',
+  swing: 'weekPlan.why.SWING',
+};
+
+const UNWEARABLE_WHY: Readonly<Record<Unwearable['reason'], StringKey>> = {
+  lent: 'weekPlan.why.LENT',
+  repair: 'weekPlan.why.REPAIR',
+  archived: 'weekPlan.why.ARCHIVED',
+  wishlist: 'weekPlan.why.WISHLIST',
+  dirty: 'weekPlan.why.DIRTY',
+  deleted: 'weekPlan.why.DELETED',
+};
+
+/**
+ * Today's swap as the morning reminder says it, before the day's outfits
+ * (src/web/push/reminders.ts): "Swapped in Wool coat: it turned cold".
+ */
+export function reminderSwapLine(swap: Swap): string {
+  const why =
+    swap.cause.kind === 'weather'
+      ? t(CHANGE_WHY[swap.cause.change])
+      : t(UNWEARABLE_WHY[swap.cause.unwearable.reason], {
+          garment: swap.garment ?? '',
+        });
+  return t('today.push.SWAPPED', { garments: swap.swappedIn, why });
+}
+
+const UNWEARABLE_LINES: Readonly<Record<Unwearable['reason'], StringKey>> = {
+  lent: 'weekPlan.push.LENT',
+  repair: 'weekPlan.push.REPAIR',
+  archived: 'weekPlan.push.ARCHIVED',
+  wishlist: 'weekPlan.push.WISHLIST',
+  dirty: 'weekPlan.push.DIRTY',
+  deleted: 'weekPlan.push.DELETED',
+};
+
 /** "Thursday", or "Thursday evening" for an occasion around the day's outfit. */
 export function slotLabel(slot: Slot): string {
   const day = t(DAY_NAMES[dayOfWeek(slot.day)]);
@@ -218,21 +418,29 @@ export function slotLabel(slot: Slot): string {
     : t('weekPlan.SLOT', { day, occasion: occasionLabel(slot.occasion) });
 }
 
-/** The notice: one line per swap ("Thursday turned cold: swapped in Wool coat"). */
+/**
+ * The notice: one line per swap, saying why ("Thursday turned cold:
+ * swapped in Wool coat", "Bean Boots is at repair: swapped in Chelsea
+ * boots on Thursday").
+ */
 export function swapPayload(swaps: readonly Swap[]): PushPayload {
   return {
     title: t('weekPlan.push.TITLE'),
-    body: swaps
-      .map((swap) =>
-        t(CHANGE_LINES[swap.change], {
-          slot: slotLabel(swap.slot),
-          garments: swap.swappedIn,
-        }),
-      )
-      .join('\n'),
+    body: swaps.map(swapLine).join('\n'),
     url: '/calendar',
     tag: SWAP_TAG,
   };
+}
+
+function swapLine(swap: Swap): string {
+  const params = { slot: slotLabel(swap.slot), garments: swap.swappedIn };
+  if (swap.cause.kind === 'weather') {
+    return t(CHANGE_LINES[swap.cause.change], params);
+  }
+  return t(UNWEARABLE_LINES[swap.cause.unwearable.reason], {
+    ...params,
+    garment: swap.garment ?? '',
+  });
 }
 
 /**

@@ -184,6 +184,13 @@ describe('push subscriptions revoked with the sessions (PWA_ENABLED=true)', () =
           weather: undefined,
           timeZone: t.timeZone,
           logger: t.logger.child({ context: 'Push' }),
+          replan: {
+            db: t.db,
+            weather: undefined,
+            push: t.push,
+            timeZone: t.timeZone,
+            logger: t.logger.child({ context: 'WeekPlan' }),
+          },
         },
         new Date(instantAt(tomorrow, 7, t.timeZone, 30).getTime() + 1_000),
       );

@@ -24,6 +24,7 @@ import { createOutfit } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
 import { findWeatherSettings } from '../weather/queries';
 import { userWeather, type WeatherService } from '../weather/service';
+import { adoptPlannerOutfit } from '../week-plan/queries';
 import {
   goesWith,
   type GoesWith,
@@ -264,6 +265,12 @@ export interface PickResult {
   name: string | null;
   /** The garments were already an outfit of the owner's: it was reused, nothing was created. */
   alreadySaved: boolean;
+  /**
+   * The person's pick took over what the week planner had made of it: the
+   * reused outfit (no longer the planner's to remove) or the entry on the
+   * destination's day (now `user`). False for the planner's own picks.
+   */
+  adopted: boolean;
   /** With a destination: whether the entry is new or was already on the day. */
   schedule?: ScheduleOutcome;
 }
@@ -276,13 +283,17 @@ export interface PickResult {
  * destination's day when given (an outfit is on a day once, so a second
  * plan changes nothing); otherwise the outfit (named by ideaName unless
  * `name` is given), its slots top to toe and the calendar entry are created
- * (createOutfit). All in one transaction under lockOwner, so a double tap,
- * a retried post or a retried pick_outfit never makes a second outfit: the
- * second pick waits for the first to commit and finds its outfit. Called by
- * the gallery's pick, the MCP tool pick_outfit, Today's "Wear this" and the
- * week planner (#16, src/web/week-plan/plan.ts, inside its own locked
- * transaction); takes a Queryable so a spec can hold a pick's transaction
- * open.
+ * (createOutfit). A person's pick (not `plannedBy: 'auto'`) that reuses an
+ * outfit the week planner created takes it over (adoptPlannerOutfit, #77):
+ * "Already saved" is then true for good, and Undo or the re-plan never
+ * delete it; planning it on a day where the planner has it takes that
+ * entry over too (insertEntry). All in one transaction under lockOwner, so
+ * a double tap, a retried post or a retried pick_outfit never makes a
+ * second outfit: the second pick waits for the first to commit and finds
+ * its outfit. Called by the gallery's pick, the MCP tool pick_outfit,
+ * Today's "Wear this" and the week planner (#16, src/web/week-plan/plan.ts,
+ * inside its own locked transaction); takes a Queryable so a spec can hold
+ * a pick's transaction open.
  */
 export function pickIdea(
   db: Queryable,
@@ -300,18 +311,7 @@ export function pickIdea(
     const found = await pickedGarments(tx, ownerId, wanted);
     if (found.length !== wanted.length) return 'not-found';
     const existing = await outfitOfGarments(tx, ownerId, wanted);
-    if (existing) {
-      const schedule = input.plan
-        ? (
-            await insertEntry(tx, {
-              ownerId,
-              outfitId: existing.id,
-              ...input.plan,
-            })
-          ).outcome
-        : undefined;
-      return { ...existing, alreadySaved: true, schedule };
-    }
+    if (existing) return reusePicked(tx, ownerId, existing, input.plan);
     const byId = new Map(found.map((g) => [g.id, g]));
     const garments = topToToe(wanted.map((id) => byId.get(id)!));
     const name = input.name ?? ideaName(garments);
@@ -325,9 +325,37 @@ export function pickIdea(
       id: saved.id,
       name,
       alreadySaved: false,
+      adopted: false,
       schedule: saved.schedule,
     };
   });
+}
+
+/**
+ * pickIdea's answer when the garments are already an outfit of the owner's:
+ * planned on the destination's day when given, and, for the person's pick,
+ * taken over from the week planner (the outfit and that day's entry, #77).
+ */
+async function reusePicked(
+  tx: Queryable,
+  ownerId: number,
+  existing: { id: number; name: string | null },
+  plan: { day: IsoDate; occasion: Occasion; plannedBy?: PlannedBy } | undefined,
+): Promise<PickResult> {
+  const scheduled =
+    plan &&
+    (await insertEntry(tx, { ownerId, outfitId: existing.id, ...plan }));
+  const outfitAdopted =
+    plan?.plannedBy !== 'auto' &&
+    (await adoptPlannerOutfit(tx, ownerId, existing.id)) > 0;
+  const entryAdopted =
+    scheduled?.outcome === 'already-scheduled' && scheduled.adopted;
+  return {
+    ...existing,
+    alreadySaved: true,
+    adopted: outfitAdopted || entryAdopted,
+    schedule: scheduled?.outcome,
+  };
 }
 
 /** A closet garment near-identical to a wishlist item (nearDuplicates). */

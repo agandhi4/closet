@@ -11,7 +11,12 @@ import {
   type WeatherNeeds,
   weatherNeeds,
 } from '../weather/match';
-import { cleanCopies } from './availability';
+import {
+  type AwayReason,
+  cleanCopies,
+  isAvailable,
+  type WashState,
+} from './availability';
 import {
   generateIdeas,
   type Idea,
@@ -25,6 +30,7 @@ import {
   type Occasion,
 } from './occasions';
 import type { GarmentRole } from './properties';
+import type { GarmentStatus } from './status';
 import { occasionsOn, type TemplateSlot } from './week';
 
 /**
@@ -59,6 +65,10 @@ import { occasionsOn, type TemplateSlot } from './week';
  * - **Rotation**: a garment the week already wears counts as just worn for
  *   later slots, and the rest rest until the slot's day, so the week draws
  *   on the whole closet.
+ * - **The re-plan** judges the entries the planner still owns each morning:
+ *   an outfit that can no longer be worn on its day (unwearableOn) is
+ *   swapped for the slot's best idea; otherwise a changed forecast swaps
+ *   one that no longer fits for an idea that fits better.
  */
 
 /** Bump to replan every slot differently on purpose. */
@@ -189,6 +199,68 @@ function fills(entry: Occasion, slot: Occasion): boolean {
   );
 }
 
+// ---- Whether a planned outfit can still be worn -----------------------------
+
+/** A garment of an auto entry's outfit as it is now: what unwearableOn judges. */
+export interface OutfitGarmentState extends WashState {
+  id: number;
+  status: GarmentStatus;
+  away: AwayReason | null;
+  /**
+   * Worn today already ("Wore today", a worn entry): today's slots may wear
+   * it again for no second wear, as the ledger counts it (canWear).
+   */
+  wornToday: boolean;
+}
+
+/** Why an auto entry's outfit cannot be worn on its day, the garment named where there is one. */
+export type Unwearable =
+  | {
+      reason: AwayReason | Exclude<GarmentStatus, 'closet'> | 'dirty';
+      garmentId: number;
+    }
+  | { reason: 'deleted' };
+
+/**
+ * Why the outfit of an auto entry on `day` cannot be worn as planned, or
+ * null when it can: isAvailable on the planned day's terms. Every day, a
+ * garment out of the closet (archived, a wishlist item) or away (lent, at
+ * repair), and a garment deleted since (its slot emptied; only telling in
+ * an outfit the planner created, whose every slot had a garment: a saved
+ * outfit reused may have a slot left empty on purpose). **Dirty counts only
+ * on the day itself**: today's wash state is a fact, a later day's is a
+ * projection the next load of laundry changes, and the re-plan runs every
+ * morning, so a garment still without a clean copy on its day is caught
+ * then, before the person dresses. A garment already worn today dresses
+ * today's other slots (one wear a day). Garments first, in slot order, so
+ * the notice names one when it can.
+ */
+export function unwearableOn(
+  entry: {
+    day: IsoDate;
+    outfitCreated: boolean;
+    /** The outfit's slots, in order: a garment, or null for an empty slot. */
+    slots: readonly (OutfitGarmentState | null)[];
+  },
+  today: IsoDate,
+): Unwearable | null {
+  for (const garment of entry.slots) {
+    if (garment === null) continue;
+    if (garment.status !== 'closet') {
+      return { reason: garment.status, garmentId: garment.id };
+    }
+    if (garment.away !== null) {
+      return { reason: garment.away, garmentId: garment.id };
+    }
+    if (entry.day === today && !garment.wornToday && !isAvailable(garment)) {
+      return { reason: 'dirty', garmentId: garment.id };
+    }
+  }
+  return entry.outfitCreated && entry.slots.includes(null)
+    ? { reason: 'deleted' }
+    : null;
+}
+
 // ---- Judging planned entries against a newer forecast ----------------------
 
 /** What an auto entry was planned for: the targets the re-plan compares. */
@@ -251,7 +323,14 @@ export interface AutoEntry {
   entryId: number;
   /** Null when it was planned without a forecast. */
   plannedFor: PlannedNeeds | null;
+  /** unwearableOn's verdict on its outfit. */
+  unwearable: Unwearable | null;
 }
+
+/** Why the re-plan swapped an entry: what the swap's push says. */
+export type SwapCause =
+  | { kind: 'weather'; change: NeedsChange }
+  | { kind: 'unwearable'; unwearable: Unwearable };
 
 export type Replan<G extends PlannerGarment> =
   /** The targets did not change (or the day has no forecast now). */
@@ -261,24 +340,30 @@ export type Replan<G extends PlannerGarment> =
    * closet fits better: kept, with the new targets recorded.
    */
   | { entryId: number; kind: 'kept'; needs: PlannedNeeds }
-  /** The outfit no longer fits and `idea` fits better. */
+  /**
+   * `idea` takes the entry's place: its outfit cannot be worn, or no longer
+   * fits the weather and `idea` fits better. `needs` are the slot's targets
+   * now (null without a forecast for its day).
+   */
   | {
       entryId: number;
       kind: 'swap';
       slot: Slot;
       idea: Idea<G>;
-      needs: PlannedNeeds;
-      change: NeedsChange;
+      needs: PlannedNeeds | null;
+      cause: SwapCause;
     };
 
 /**
- * Judges each auto entry against today's forecast, in day and occasion
- * order: unchanged targets keep it as it is; changed ones keep it when its
- * outfit still fits them, else plan the slot again under planWeek's rules
- * (the week's other entries and swaps count toward wash limits and
- * duplicates) and swap only for an idea that answers the weather better.
- * Never judges an entry that is not in `auto`: a person's own are not the
- * planner's to change.
+ * Judges each auto entry, in day and occasion order, planning a slot again
+ * under planWeek's rules where it must (the week's other entries and swaps
+ * count toward wash limits and duplicates). An outfit that cannot be worn
+ * (`unwearable`) is swapped for the slot's best idea, whatever the
+ * forecast; with none, it is judged as any other. Otherwise against today's
+ * forecast: unchanged targets keep the entry as it is; changed ones keep it
+ * when its outfit still fits them, else swap only for an idea that answers
+ * the weather better. Never judges an entry that is not in `auto`: a
+ * person's own are not the planner's to change.
  */
 export function replanWeek<G extends PlannerGarment>(
   input: WeekContext<G> & { auto: readonly AutoEntry[] },
@@ -295,9 +380,27 @@ export function replanWeek<G extends PlannerGarment>(
         a.entry.day.localeCompare(b.entry.day) ||
         compareOccasions(a.entry.occasion, b.entry.occasion),
     );
-  return auto.map(({ entryId, plannedFor, entry }): Replan<G> => {
+  return auto.map(({ entryId, plannedFor, unwearable, entry }): Replan<G> => {
+    const slot = { day: entry.day, occasion: entry.occasion };
     const needs = needsOf(input, entry);
     const now = plannedNeeds(needs);
+    if (unwearable) {
+      ledger.unwear(entry.day, entry.garments);
+      const idea = ideaFor(input, ledger, entry, needs);
+      if (idea) {
+        ledger.wear(entry.day, idea.garments, { asOutfit: true });
+        return {
+          entryId,
+          kind: 'swap',
+          slot,
+          idea,
+          needs: now,
+          cause: { kind: 'unwearable', unwearable },
+        };
+      }
+      // Nothing else dresses the slot: the outfit stays, judged below.
+      ledger.wear(entry.day, entry.garments, { asOutfit: false });
+    }
     if (!needs || !now || sameNeeds(plannedFor, now)) {
       return { entryId, kind: 'unchanged' };
     }
@@ -310,10 +413,10 @@ export function replanWeek<G extends PlannerGarment>(
       return {
         entryId,
         kind: 'swap',
-        slot: { day: entry.day, occasion: entry.occasion },
+        slot,
         idea,
         needs: now,
-        change: needsChange(plannedFor, now),
+        cause: { kind: 'weather', change: needsChange(plannedFor, now) },
       };
     }
     ledger.wear(entry.day, entry.garments, { asOutfit: false });

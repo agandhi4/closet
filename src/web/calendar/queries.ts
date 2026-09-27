@@ -1,4 +1,4 @@
-import { and, between, eq } from 'drizzle-orm';
+import { and, between, eq, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { outfit, outfitCalendar } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
@@ -94,10 +94,14 @@ export interface NewEntry {
   plannedBy?: PlannedBy;
 }
 
-/** What insertEntry did; a new entry's id, for a caller that marks it worn (the seed). */
+/**
+ * What insertEntry did: a new entry's id, for a caller that marks it worn
+ * (the seed); for one already there, whether the person's write took it
+ * over from the week planner (`adopted`).
+ */
 export type Scheduled =
   | { outcome: 'scheduled'; id: number }
-  | { outcome: 'already-scheduled' };
+  | { outcome: 'already-scheduled'; adopted: boolean };
 
 /**
  * Plans the owner's outfit on `day` for an occasion. Idempotent: planning
@@ -108,11 +112,11 @@ export type Scheduled =
 export async function scheduleOutfit(
   db: Db,
   entry: NewEntry,
-): Promise<ScheduleOutcome | 'no-such-outfit'> {
+): Promise<Scheduled | 'no-such-outfit'> {
   if (!(await ownsOutfit(db, entry.ownerId, entry.outfitId))) {
     return 'no-such-outfit';
   }
-  return (await insertEntry(db, entry)).outcome;
+  return insertEntry(db, entry);
 }
 
 /** Whether `outfitId` is the owner's: outfits are private, another's is a miss. */
@@ -142,25 +146,38 @@ export async function ownsOutfit(
  * the occasion picker at its default must not move an evening entry to all
  * day). Different outfits on one day are separate entries; changing the
  * outfit of an entry is setEntryOutfit's, through replaceEntryOutfit (#69).
+ *
+ * **The person planning what the week planner planned takes it over** (#77):
+ * a `user` write that meets an `auto` entry of the same outfit on the day
+ * sets it to `user` (and nothing else), so the re-plan and Undo leave the
+ * choice the person just made; the planner's own `auto` write never
+ * downgrades a person's entry. Both still answer 'already-scheduled'.
  */
 export async function insertEntry(
   db: Queryable,
   entry: NewEntry,
 ): Promise<Scheduled> {
-  const [inserted] = await db
+  const [row] = await db
     .insert(outfitCalendar)
     .values(entry)
-    .onConflictDoNothing({
+    .onConflictDoUpdate({
       target: [
         outfitCalendar.ownerId,
         outfitCalendar.day,
         outfitCalendar.outfitId,
       ],
+      set: { plannedBy: 'user' },
+      setWhere: sql`${outfitCalendar.plannedBy} = 'auto' and excluded.planned_by = 'user'`,
     })
-    .returning({ id: outfitCalendar.id });
-  return inserted
-    ? { outcome: 'scheduled', id: inserted.id }
-    : { outcome: 'already-scheduled' };
+    // xmax is 0 on a row this statement inserted and set on one it updated:
+    // Postgres' way of telling the two apart in one ON CONFLICT statement.
+    // A conflict the WHERE refuses returns no row at all.
+    .returning({
+      id: outfitCalendar.id,
+      inserted: sql<boolean>`(xmax = 0)`,
+    });
+  if (row?.inserted) return { outcome: 'scheduled', id: row.id };
+  return { outcome: 'already-scheduled', adopted: row !== undefined };
 }
 
 /**

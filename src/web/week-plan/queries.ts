@@ -1,7 +1,9 @@
 import {
   and,
+  asc,
   between,
   eq,
+  exists,
   gte,
   inArray,
   isNull,
@@ -11,28 +13,38 @@ import {
 } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import {
+  garment,
+  garmentWear,
   outfit,
   outfitCalendar,
+  outfitSlot,
   weekPlan,
   weekPlanEntry,
   weekReplan,
 } from '../../db/schema';
+import { washLimit } from '../../wardrobe/availability';
 import type { Occasion } from '../../wardrobe/occasions';
 import { categoryRole } from '../../wardrobe/properties';
 import type { PlannedBy } from '../../wardrobe/week';
-import type { PlannedNeeds, WeekEntry } from '../../wardrobe/week-planner';
+import type {
+  OutfitGarmentState,
+  PlannedNeeds,
+  WeekEntry,
+} from '../../wardrobe/week-planner';
 import { matchGarment } from '../../weather/match';
 import type { IsoDate } from '../calendar/calendar-date';
 import { deleteOutfit } from '../outfits/queries';
 import { outfitIsHeld } from '../outfits/references';
+import { wearsSinceWashSql } from '../wears/queries';
 
 /**
  * The weekly auto-plan's rows (#16): the calendar window the planner reads,
  * the batches ("Plan my week" taps) and what each auto entry was planned
  * for, and the daily re-plan's claims. The signed-in owner's own, like the
  * calendar. The writes here run inside plan.ts's and replan.ts's
- * transactions (under lockOwner); calendar entries themselves are only ever
- * written through insertEntry (pickIdea) and removed by removeAutoEntries.
+ * transactions (under lockOwner), and pickIdea's (adoptPlannerOutfit);
+ * calendar entries themselves are only ever written through insertEntry
+ * (pickIdea) and removed by removeAutoEntries.
  */
 
 /** A calendar entry in the planner's window: what week-planner.ts reads, and who planned it. */
@@ -360,6 +372,103 @@ export async function plannerCreatedOutfit(
   return row?.outfitCreated ?? false;
 }
 
+/**
+ * The person picked outfit `outfitId` of garments the planner had already
+ * saved as an outfit (pickIdea's reuse, "Already saved"): it is theirs now,
+ * so no entry of it counts as planner-made any more and Undo, the re-plan's
+ * swap and Change (removeUnheldOutfits) keep it once its entries go. The
+ * entries themselves stay the planner's until the person touches them.
+ * Runs in the pick's transaction, under lockOwner. Returns how many of the
+ * planner's rows it took over (0 for an outfit the planner never made).
+ */
+export async function adoptPlannerOutfit(
+  tx: Queryable,
+  ownerId: number,
+  outfitId: number,
+): Promise<number> {
+  const adopted = await tx
+    .update(weekPlanEntry)
+    .set({ outfitCreated: false })
+    .where(
+      and(
+        eq(weekPlanEntry.outfitCreated, true),
+        inArray(
+          weekPlanEntry.entryId,
+          tx
+            .select({ id: outfitCalendar.id })
+            .from(outfitCalendar)
+            .where(
+              and(
+                eq(outfitCalendar.ownerId, ownerId),
+                eq(outfitCalendar.outfitId, outfitId),
+              ),
+            ),
+        ),
+      ),
+    )
+    .returning({ entryId: weekPlanEntry.entryId });
+  return adopted.length;
+}
+
+/** A garment of an auto entry's outfit, as the re-plan judges and names it. */
+export interface SlotGarment extends OutfitGarmentState {
+  name: string | null;
+  category: string;
+}
+
+/**
+ * The slots of `outfitIds` in order, each its garment's state today (the
+ * garment's status and away, its wash state, whether it was worn today) or
+ * null for an empty slot: what unwearableOn judges an auto entry by. One
+ * statement; the wash counts are wearsSinceWashSql's, the laundry's rule.
+ */
+export async function outfitGarmentStates(
+  db: Queryable,
+  outfitIds: readonly number[],
+  today: IsoDate,
+): Promise<Map<number, (SlotGarment | null)[]>> {
+  const outfits = new Map<number, (SlotGarment | null)[]>();
+  if (outfitIds.length === 0) return outfits;
+  const rows = await db
+    .select({
+      outfitId: outfitSlot.outfitId,
+      id: garment.id,
+      name: garment.name,
+      category: garment.category,
+      status: garment.status,
+      away: garment.away,
+      quantity: garment.quantity,
+      washAfterWears: garment.washAfterWears,
+      wearsSinceWash: wearsSinceWashSql(),
+      // "Wore today" or a worn entry (the ledger's idleDays === 0).
+      wornToday: sql<boolean>`exists (select 1 from ${garmentWear} where ${garmentWear.garmentId} = ${garment.id} and ${garmentWear.day} = ${today})`,
+    })
+    .from(outfitSlot)
+    .leftJoin(garment, eq(garment.id, outfitSlot.garmentId))
+    .where(inArray(outfitSlot.outfitId, [...new Set(outfitIds)]))
+    .orderBy(asc(outfitSlot.outfitId), asc(outfitSlot.position));
+  for (const row of rows) {
+    const slots = outfits.get(row.outfitId) ?? [];
+    slots.push(
+      row.id === null
+        ? null
+        : {
+            id: row.id,
+            name: row.name,
+            category: row.category!,
+            status: row.status!,
+            away: row.away,
+            quantity: row.quantity!,
+            limit: washLimit(row.category!, row.washAfterWears),
+            wearsSinceWash: row.wearsSinceWash,
+            wornToday: row.wornToday,
+          },
+    );
+    outfits.set(row.outfitId, slots);
+  }
+  return outfits;
+}
+
 /** Deletes batch `id` once none of its entries is left (all undone or deleted). */
 export async function deleteEmptyWeekPlan(
   tx: Queryable,
@@ -413,41 +522,67 @@ export async function batchEntries(
 // ---- The daily re-plan's claims ---------------------------------------------
 
 /**
- * Claims today's re-plan for every user with an auto entry from today on,
- * in one statement: a (user, day) row is inserted unless one exists, and
- * only the users inserted come back. Two servers (or two minutes) claiming
- * at once each insert; Postgres makes the second wait on the first's key
- * and skip it, so each user is re-planned once a day (the reminders'
- * claim, src/web/push/queries.ts claimReminders).
+ * Who is due today's re-plan: an auto entry (unworn, recorded in a batch:
+ * what autoEntries reads) from `day` on and no claim for the day. `userId` asks about one user (the morning reminder's
+ * re-plan first); without it, every user (the minutely run). A read only:
+ * the claim itself is claimReplan's, inside the work's transaction, so a
+ * user listed here may still turn out to be re-planned by another run.
  */
-export async function claimReplans(
+export async function replanCandidates(
   db: Queryable,
   day: IsoDate,
-  now: Date,
+  userId?: number,
 ): Promise<number[]> {
   const rows = await db
-    .insert(weekReplan)
-    .select(
-      db
-        .selectDistinct({
-          userId: outfitCalendar.ownerId,
-          day: sql<IsoDate>`${day}::date`.as('day'),
-          claimedAt: sql<Date>`${now.toISOString()}::timestamptz`.as(
-            'claimed_at',
-          ),
-        })
-        .from(outfitCalendar)
-        .where(
-          and(
-            eq(outfitCalendar.plannedBy, 'auto'),
-            isNull(outfitCalendar.wornAt),
-            gte(outfitCalendar.day, day),
+    .selectDistinct({ userId: outfitCalendar.ownerId })
+    .from(outfitCalendar)
+    .innerJoin(weekPlanEntry, eq(weekPlanEntry.entryId, outfitCalendar.id))
+    .where(
+      and(
+        userId === undefined ? undefined : eq(outfitCalendar.ownerId, userId),
+        eq(outfitCalendar.plannedBy, 'auto'),
+        isNull(outfitCalendar.wornAt),
+        gte(outfitCalendar.day, day),
+        not(
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(weekReplan)
+              .where(
+                and(
+                  eq(weekReplan.userId, outfitCalendar.ownerId),
+                  eq(weekReplan.day, day),
+                ),
+              ),
           ),
         ),
+      ),
     )
+    .orderBy(outfitCalendar.ownerId);
+  return rows.map((row) => row.userId);
+}
+
+/**
+ * Claims `userId`'s re-plan for `day`: true when this call inserted the
+ * (user, day) row, false when it was there. Called inside the re-plan's own
+ * transaction, under lockOwner, so the claim commits with the work: whoever
+ * finds it claimed finds the re-plan done, never half done (a second server,
+ * the morning reminder's re-plan first). Also called alone after a failed
+ * re-plan, so a user whose re-plan throws is tried once a day, not every
+ * minute.
+ */
+export async function claimReplan(
+  db: Queryable,
+  userId: number,
+  day: IsoDate,
+  now: Date,
+): Promise<boolean> {
+  const rows = await db
+    .insert(weekReplan)
+    .values({ userId, day, claimedAt: now })
     .onConflictDoNothing({ target: [weekReplan.userId, weekReplan.day] })
     .returning({ userId: weekReplan.userId });
-  return rows.map((row) => row.userId).sort((a, b) => a - b);
+  return rows.length > 0;
 }
 
 /** Removes claims of days before `before`: a claim only ever guards its own day. */

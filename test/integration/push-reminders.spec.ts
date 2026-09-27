@@ -117,6 +117,15 @@ describe('push reminders', () => {
       weather: undefined,
       timeZone: t.timeZone,
       logger: t.logger.child({ context: 'Push' }),
+      // Nobody here has an auto entry: the morning's re-plan first finds
+      // nothing (week-plan.spec.ts covers it).
+      replan: {
+        db: t.db,
+        weather: undefined,
+        push: t.push,
+        timeZone: t.timeZone,
+        logger: t.logger.child({ context: 'WeekPlan' }),
+      },
     };
   });
 
@@ -478,6 +487,7 @@ describe('push reminders', () => {
       const otherDeps: ReminderDeps = {
         ...deps,
         db: other,
+        replan: { ...deps.replan, db: other },
         sender: createPushSender({
           db: other,
           logger,

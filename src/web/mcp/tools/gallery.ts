@@ -211,7 +211,7 @@ export const galleryTools = [
         throw new HttpError(404, 'A garment is not in your closet');
       }
       ctx.webLogger.info(
-        `Idea picked by user ${ctx.userId} (MCP): ${picked.alreadySaved ? `already outfit ${picked.id}, nothing created` : `outfit ${picked.id}`} of garments ${garmentIds.join(', ')}${plan ? `, ${picked.schedule} ${plan.day} (${plan.occasion})` : ''}`,
+        `Idea picked by user ${ctx.userId} (MCP): ${picked.alreadySaved ? `already outfit ${picked.id}, nothing created` : `outfit ${picked.id}`} of garments ${garmentIds.join(', ')}${plan ? `, ${picked.schedule} ${plan.day} (${plan.occasion})` : ''}${picked.adopted ? '; taken over from the week planner' : ''}`,
       );
       return {
         id: picked.id,

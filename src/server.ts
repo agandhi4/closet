@@ -11,8 +11,11 @@ import { type ScheduledJob, stopBeforeClose } from './maintenance/scheduled';
 import { addDays, todayIn } from './web/calendar/calendar-date';
 import { pruneReminders, sendDueReminders } from './web/push/reminders';
 import type { PushSender } from './web/push/sender';
-import type { WeatherService } from './web/weather/service';
-import { pruneReplans, replanWeeks } from './web/week-plan/replan';
+import {
+  pruneReplans,
+  type ReplanDeps,
+  replanWeeks,
+} from './web/week-plan/replan';
 
 // The hour, in APP_TIMEZONE, of the nightly storage reconciliation and the
 // cutout retry.
@@ -20,9 +23,10 @@ const RECONCILE_HOUR = 3;
 
 /**
  * The server process: createApp(), the nightly jobs, the push reminders
- * (with PWA_ENABLED), the week's daily re-plan (with WEATHER_ENABLED: it
- * judges the planner's entries against the forecast), the
- * background-removal queue started with `runner`,
+ * (with PWA_ENABLED), the week's daily re-plan (the planner's entries
+ * judged against the forecast with WEATHER_ENABLED, and always against
+ * what can still be worn), the background-removal queue started with
+ * `runner`,
  * signal handling, listen. main.ts passes the model (ModelRunner);
  * test/support/test-server.ts, which Playwright, the load test and
  * Lighthouse boot on the build, passes a stub, so no test downloads or runs
@@ -63,8 +67,17 @@ export async function serve(
     );
   }
   jobs.push(startCutouts(config, logger, db, cutouts, runner));
-  if (push) jobs.push(...startReminders(config, logger, db, push, weather));
-  if (weather) jobs.push(...startReplans(config, logger, db, weather, push));
+  // One set of re-plan deps: the minutely run and the morning reminder's
+  // re-plan first (src/web/push/reminders.ts) are the same re-plan.
+  const replan: ReplanDeps = {
+    db,
+    weather,
+    push,
+    timeZone: config.APP_TIMEZONE,
+    logger: logger.child({ context: 'WeekPlan' }),
+  };
+  if (push) jobs.push(...startReminders(config, logger, push, replan));
+  jobs.push(...startReplans(config, replan));
   // Before listen(): Fastify takes no hooks once it is ready.
   stopBeforeClose(app, jobs, logger.child({ context: 'Scheduler' }));
 
@@ -107,21 +120,22 @@ function startCutouts(
 }
 
 // The push reminders (src/web/push/reminders.ts): every minute, what is due
-// is claimed and sent; the claims of past days go nightly. Both returned.
+// is claimed and sent (a morning one after its person's re-plan); the claims
+// of past days go nightly. Both returned.
 function startReminders(
   config: Config,
   logger: Logger,
-  db: Db,
   sender: PushSender,
-  weather: WeatherService | undefined,
+  replan: ReplanDeps,
 ): ScheduledJob[] {
   const log = logger.child({ context: 'Push' });
   const deps = {
-    db,
+    db: replan.db,
     sender,
-    weather,
+    weather: replan.weather,
     timeZone: config.APP_TIMEZONE,
     logger: log,
+    replan,
   };
   const reminders = scheduleMinutely({
     name: 'Push reminders',
@@ -143,29 +157,16 @@ function startReminders(
 }
 
 // The week's daily re-plan (src/web/week-plan/replan.ts): every minute a
-// run that does nothing before REPLAN_HOUR and then claims each user's
-// re-plan once for the day (so a restart after the hour catches up); the
-// claims of past days go nightly. Both returned. Without WEATHER_ENABLED
-// there is no forecast to re-plan against, so nothing is scheduled.
-function startReplans(
-  config: Config,
-  logger: Logger,
-  db: Db,
-  weather: WeatherService,
-  push: PushSender | undefined,
-): ScheduledJob[] {
-  const log = logger.child({ context: 'WeekPlan' });
-  const deps = {
-    db,
-    weather,
-    push,
-    timeZone: config.APP_TIMEZONE,
-    logger: log,
-  };
+// run that does nothing before REPLAN_HOUR and then re-plans each user due
+// one, once for the day (so a restart after the hour catches up); the
+// claims of past days go nightly. Both returned. Scheduled with or without
+// WEATHER_ENABLED: without a forecast it still swaps an outfit that can no
+// longer be worn.
+function startReplans(config: Config, deps: ReplanDeps): ScheduledJob[] {
   const replans = scheduleMinutely({
     name: 'Week re-plan',
     run: (now) => replanWeeks(deps, now),
-    logger: log,
+    logger: deps.logger,
   });
   const prune = scheduleNightly({
     name: 'Re-plan claims prune',
@@ -173,7 +174,7 @@ function startReplans(
     timeZone: config.APP_TIMEZONE,
     run: () =>
       pruneReplans(deps, addDays(todayIn(config.APP_TIMEZONE, new Date()), -1)),
-    logger: log,
+    logger: deps.logger,
   });
   return [replans, prune];
 }

@@ -45,6 +45,7 @@ import {
   ideasScope,
   MAX_SEED,
   pickIdea,
+  type PickResult,
 } from './ideas';
 import { IdeaCards, IdeasPage, type SeededState } from './ideas-page';
 import { allowPair, avoidPair } from './queries';
@@ -175,6 +176,24 @@ function garmentNotFound(): HttpError {
   return new HttpError(404, 'Garment not found');
 }
 
+function pickMessage(
+  ownerId: number,
+  garmentIds: readonly number[],
+  picked: PickResult,
+  plan: { day: string; occasion: string } | undefined,
+): string {
+  const garments = garmentIds.join(', ');
+  if (!picked.alreadySaved) {
+    const where = plan ? `, planned ${plan.day} (${plan.occasion})` : ', saved';
+    return `Idea picked by user ${ownerId}: outfit ${picked.id} of garments ${garments}${where}`;
+  }
+  const where = plan
+    ? `, ${picked.schedule} ${plan.day} (${plan.occasion})`
+    : '';
+  const adopted = picked.adopted ? '; taken over from the week planner' : '';
+  return `Idea picked by user ${ownerId}: garments ${garments} already outfit ${picked.id}${where}; nothing created${adopted}`;
+}
+
 export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
   { db, config, logger, weather },
@@ -265,12 +284,7 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         : undefined;
     const picked = await pickIdea(db, ownerId, { garmentIds, plan });
     if (picked === 'not-found') throw garmentNotFound();
-    const garments = garmentIds.join(', ');
-    logger.info(
-      picked.alreadySaved
-        ? `Idea picked by user ${ownerId}: garments ${garments} already outfit ${picked.id}${plan ? `, ${picked.schedule} ${plan.day} (${plan.occasion})` : ''}; nothing created`
-        : `Idea picked by user ${ownerId}: outfit ${picked.id} of garments ${garments}${plan ? `, planned ${plan.day} (${plan.occasion})` : ', saved'}`,
-    );
+    logger.info(pickMessage(ownerId, garmentIds, picked, plan));
     // A pick of an outfit that exists (a double tap, a retried post) is
     // a success too; the page it lands on says so.
     const flag = picked.alreadySaved ? `${ALREADY_SAVED_FLAG}=1` : '';

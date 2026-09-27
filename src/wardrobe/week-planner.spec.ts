@@ -7,12 +7,15 @@ import type { TemplateSlot } from './week';
 import {
   emptySlots,
   needsChange,
+  type OutfitGarmentState,
   PLAN_DAYS,
   type PlannerGarment,
   plannedNeeds,
   planWeek,
   replanWeek,
   sameNeeds,
+  type Unwearable,
+  unwearableOn,
   type WeekEntry,
   type WeekInput,
 } from './week-planner';
@@ -436,6 +439,7 @@ describe('the re-plan', () => {
     const auto = plan.planned.map((slot, i) => ({
       entryId: 100 + i,
       plannedFor: plannedNeeds(slot.needs),
+      unwearable: null as Unwearable | null,
     }));
     return { pool, days, entries, auto, warm };
   }
@@ -459,10 +463,10 @@ describe('the re-plan', () => {
     ]);
     const swap = replans[1];
     if (swap.kind !== 'swap') throw new Error('not a swap');
-    expect(swap.change).toBe('colder');
+    expect(swap.cause).toEqual({ kind: 'weather', change: 'colder' });
     expect(swap.slot).toEqual({ day: WEEK[1], occasion: 'all-day' });
     expect(swap.idea.garments.map((g) => g.role)).toContain('layer');
-    expect(swap.needs.torso).toBeGreaterThan(auto[1].plannedFor!.torso);
+    expect(swap.needs!.torso).toBeGreaterThan(auto[1].plannedFor!.torso);
   });
 
   it('keeps an outfit that still fits new targets, recording them', () => {
@@ -539,6 +543,151 @@ describe('the re-plan', () => {
     expect(free.kind === 'swap' && free.idea.garments.includes(limited)).toBe(
       true,
     );
+  });
+
+  describe('an outfit that can no longer be worn', () => {
+    /** The week planned warm, Monday's entry (the second) unwearable for `unwearable`. */
+    function withUnwearable(unwearable: Unwearable) {
+      const week = plannedWarm();
+      const auto = week.auto.map((a, i) =>
+        i === 1 ? { ...a, unwearable } : a,
+      );
+      return { ...week, auto };
+    }
+
+    it('is swapped for the best idea whatever the forecast, naming why', () => {
+      const { pool, entries, auto, warm } = plannedWarm();
+      const gone = entries[1].garments.find((g) => g.role === 'bottom')!;
+      const unwearable: Unwearable = { reason: 'repair', garmentId: gone.id };
+      // The caller's pool has no garment away (weekPool).
+      const closet = pool.filter((g) => g.id !== gone.id);
+      const replans = replanWeek({
+        ...input({ pool: closet, entries, forecast: warm }),
+        auto: auto.map((a, i) => (i === 1 ? { ...a, unwearable } : a)),
+      });
+      expect(replans.map((r) => r.kind)).toEqual([
+        'unchanged',
+        'swap',
+        'unchanged',
+      ]);
+      const swap = replans[1];
+      if (swap.kind !== 'swap') throw new Error('not a swap');
+      expect(swap.cause).toEqual({ kind: 'unwearable', unwearable });
+      expect(swap.slot).toEqual({ day: WEEK[1], occasion: 'all-day' });
+      expect(swap.idea.garments.map((g) => g.id)).not.toContain(gone.id);
+      // Planned for the slot's targets now: the same warm day's.
+      expect(swap.needs).toEqual(auto[1].plannedFor);
+    });
+
+    it('is swapped without a forecast too, planned for no targets', () => {
+      const { pool, entries, auto } = withUnwearable({ reason: 'deleted' });
+      const [, swap] = replanWeek({ ...input({ pool, entries }), auto });
+      expect(swap).toMatchObject({
+        kind: 'swap',
+        needs: null,
+        cause: { kind: 'unwearable', unwearable: { reason: 'deleted' } },
+      });
+    });
+
+    it('stays when nothing else dresses the slot', () => {
+      const { entries, auto, warm } = withUnwearable({ reason: 'deleted' });
+      // Only the week's own garments, one clean wear each: no idea is left.
+      const worn = new Set(entries.flatMap((e) => e.garments.map((g) => g.id)));
+      const pool = plannedWarm()
+        .pool.filter((g) => worn.has(g.id))
+        .map((g) => ({ ...g, quantity: 1, washLimit: 1, wearsSinceWash: 0 }));
+      const replans = replanWeek({
+        ...input({ pool, entries, forecast: warm }),
+        auto,
+      });
+      expect(replans[1]).toEqual({ entryId: 101, kind: 'unchanged' });
+    });
+
+    it("is never judged on a person's own entry", () => {
+      const { pool, entries, auto, warm } = withUnwearable({
+        reason: 'lent',
+        garmentId: 1,
+      });
+      const replans = replanWeek({
+        ...input({ pool, entries, forecast: warm }),
+        auto: [auto[0], auto[2]],
+      });
+      expect(replans.map((r) => r.kind)).toEqual(['unchanged', 'unchanged']);
+    });
+  });
+});
+
+describe('unwearableOn', () => {
+  function state(
+    overrides: Partial<OutfitGarmentState> = {},
+  ): OutfitGarmentState {
+    return {
+      id: nextId++,
+      status: 'closet',
+      away: null,
+      quantity: 1,
+      limit: 1,
+      wearsSinceWash: 0,
+      wornToday: false,
+      ...overrides,
+    };
+  }
+  const tomorrow = addDays(TODAY, 1);
+  const on = (
+    day: IsoDate,
+    slots: (OutfitGarmentState | null)[],
+    outfitCreated = true,
+  ) => unwearableOn({ day, outfitCreated, slots }, TODAY);
+
+  it('wears an outfit whose garments are all in the closet, home and clean', () => {
+    expect(
+      on(TODAY, [state(), state({ limit: null, wearsSinceWash: 40 })]),
+    ).toBe(null);
+  });
+
+  it('names a garment away or out of the closet, on any day', () => {
+    for (const [overrides, reason] of [
+      [{ away: 'lent' }, 'lent'],
+      [{ away: 'repair' }, 'repair'],
+      [{ status: 'archived' }, 'archived'],
+      [{ status: 'wishlist' }, 'wishlist'],
+    ] as const) {
+      const out = state(overrides);
+      for (const day of [TODAY, tomorrow]) {
+        expect(on(day, [state(), out]), `${reason} on ${day}`).toEqual({
+          reason,
+          garmentId: out.id,
+        });
+      }
+    }
+  });
+
+  it('counts dirty only on the day itself, and never a garment already worn today', () => {
+    const dirty = state({ wearsSinceWash: 1 });
+    expect(on(TODAY, [state(), dirty])).toEqual({
+      reason: 'dirty',
+      garmentId: dirty.id,
+    });
+    // A later day: the laundry may well be done by then.
+    expect(on(tomorrow, [state(), dirty])).toBe(null);
+    // Worn today already: today's other slots wear it for no second wear.
+    expect(on(TODAY, [state({ wearsSinceWash: 1, wornToday: true })])).toBe(
+      null,
+    );
+    // One clean copy of three is enough.
+    expect(on(TODAY, [state({ quantity: 3, wearsSinceWash: 2 })])).toBe(null);
+  });
+
+  it('reads an empty slot as a deleted garment only in an outfit the planner created', () => {
+    expect(on(tomorrow, [state(), null])).toEqual({ reason: 'deleted' });
+    // A saved outfit it reused may have a slot left empty on purpose.
+    expect(on(tomorrow, [state(), null], false)).toBe(null);
+    // A garment it can name comes first.
+    const lent = state({ away: 'lent' });
+    expect(on(tomorrow, [null, lent])).toEqual({
+      reason: 'lent',
+      garmentId: lent.id,
+    });
   });
 });
 

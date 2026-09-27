@@ -17,7 +17,7 @@ import { hourIn, parseIsoDate, parseYearMonth, todayIn } from './calendar-date';
 import { CalendarPage } from './calendar-page';
 import { buildCalendarView, weekOf } from './calendar-view';
 import { PlanPage } from './plan-page';
-import { findEntries, scheduleOutfit } from './queries';
+import { findEntries, type Scheduled, scheduleOutfit } from './queries';
 import {
   isRefused,
   replaceEntryOutfit,
@@ -83,6 +83,21 @@ function wornMessage(
   }
   const wears = `${outcome.wears} wears ${outcome.worn ? 'logged' : 'removed'}`;
   return `Calendar entry ${id} marked ${state} by user ${ownerId} (${wears})`;
+}
+
+function scheduleMessage(
+  ownerId: number,
+  entry: { outfitId: number; day: string; occasion: string },
+  scheduled: Scheduled,
+): string {
+  const { outfitId, day, occasion } = entry;
+  if (scheduled.outcome === 'scheduled') {
+    return `Outfit ${outfitId} scheduled on ${day} (${occasion}) by user ${ownerId}`;
+  }
+  const adopted = scheduled.adopted
+    ? "; the week planner's entry is the user's now"
+    : '';
+  return `Outfit ${outfitId} already scheduled on ${day} for user ${ownerId}; ${occasion} not added${adopted}`;
 }
 
 /** `?planned=`: a batch id or 'none'; anything else is no banner. */
@@ -271,19 +286,17 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         }
         return reply.redirect(weekUrl(week ?? date), 302);
       }
-      const outcome = await scheduleOutfit(db, {
+      const scheduled = await scheduleOutfit(db, {
         ownerId,
         outfitId,
         day: date,
         occasion,
       });
-      if (outcome === 'no-such-outfit') {
+      if (scheduled === 'no-such-outfit') {
         throw new HttpError(404, 'Outfit not found');
       }
       logger.info(
-        outcome === 'scheduled'
-          ? `Outfit ${outfitId} scheduled on ${date} (${occasion}) by user ${ownerId}`
-          : `Outfit ${outfitId} already scheduled on ${date} for user ${ownerId}; ${occasion} not added`,
+        scheduleMessage(ownerId, { outfitId, day: date, occasion }, scheduled),
       );
       if (request.headers['hx-request'] === 'true') {
         return reply.status(204).send();
