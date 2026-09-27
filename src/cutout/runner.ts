@@ -22,6 +22,13 @@ export interface CutoutMask {
 export interface CutoutRunner {
   /** The square side, in pixels, of the RGB image mask() takes. */
   readonly inputSize: number;
+  /**
+   * Resolves once mask() has nothing unbounded left to wait for (the model
+   * file verified, or downloaded on a first boot). The queue waits for it
+   * before claiming a job, so a job's lease (CUTOUT_LEASE_MS) only counts
+   * bounded work. Rejects while that cannot be done; cheap once resolved.
+   */
+  ready(): Promise<void>;
   /** `rgb`: inputSize x inputSize RGB, 3 bytes a pixel. One call at a time. */
   mask(rgb: Buffer): Promise<CutoutMask>;
   /** Stops whatever the runner holds (the model process). */
@@ -101,6 +108,10 @@ export class ModelRunner implements CutoutRunner {
 
   get inputSize(): number {
     return this.options.model.spec.inputSize;
+  }
+
+  async ready(): Promise<void> {
+    await this.options.model.ready();
   }
 
   async mask(rgb: Buffer): Promise<CutoutMask> {

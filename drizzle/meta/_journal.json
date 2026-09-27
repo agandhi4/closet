@@ -148,6 +148,13 @@
       "when": 1790480599351,
       "tag": "0020_outfit_selfies",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790484773504,
+      "tag": "0021_cutout_lease",
+      "breakpoints": true
     }
   ]
 }

@@ -1,9 +1,17 @@
 import { eq, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { settlesWithin } from '../../src/cutout/deadline';
+import { CUTOUT_LEASE_MS } from '../../src/cutout/queries';
 import { retryFailedCutouts } from '../../src/cutout/queue';
 import { file } from '../../src/db/schema';
-import { alphaAt, fakeRunner, halfMask, storedCutout } from './cutouts';
+import {
+  alphaAt,
+  eventually,
+  fakeRunner,
+  halfMask,
+  storedCutout,
+} from './cutouts';
 import {
   createGarment,
   jpegPhoto,
@@ -19,8 +27,12 @@ import { silentLogger } from './logger';
  * The background-removal queue (src/cutout/queue.ts) against the real
  * database, Photos and state machine, with the model replaced by a fake
  * runner: every job ends in exactly one allowed state, and no result lands
- * on a photo that was edited, replaced or changed while the job ran.
+ * on a photo that was edited, replaced or changed while the job ran. A job
+ * leases its row while it runs (#45) and every ending clears the lease.
  */
+
+/** The lease columns of a row no job holds. */
+const NO_LEASE = { cutoutWorker: null, cutoutStartedAt: null };
 describe('cutout queue', () => {
   let t: TestApp;
 
@@ -54,6 +66,7 @@ describe('cutout queue', () => {
       version: 2,
       cutoutAttempts: 1,
       cutoutJobVersion: null,
+      ...NO_LEASE,
     });
     const cutout = await storedCutout(t, fileName);
     expect(cutout).toBeDefined();
@@ -102,6 +115,7 @@ describe('cutout queue', () => {
       cutoutStatus: 'failed',
       version: 1,
       cutoutAttempts: 1,
+      ...NO_LEASE,
     });
     expect(await storedCutout(t, fileName)).toBeUndefined();
     expect(t.logs.messages('error', 'Cutout')).toContainEqual(
@@ -134,7 +148,9 @@ describe('cutout queue', () => {
     await t.cutouts.whenIdle();
 
     expect(t.logs.messages('info', 'Cutout')).toContainEqual(
-      expect.stringMatching(/^Cutout discarded \(stale\): /),
+      // The row stays pending for the new version: its lease is given back
+      // at once, rather than left to lapse.
+      expect.stringMatching(/^Cutout discarded \(stale\): .*; lease released$/),
     );
     expect(runner.calls).toBe(2);
     expect(await photoRow(t, fileName)).toMatchObject({
@@ -178,6 +194,7 @@ describe('cutout queue', () => {
     expect(await photoRow(t, fileName)).toMatchObject({
       cutoutStatus: 'edited',
       version: 2,
+      ...NO_LEASE,
     });
     expect(edited).toBeDefined();
     expect((await storedCutout(t, fileName))!.equals(edited!)).toBe(true);
@@ -232,7 +249,7 @@ describe('cutout queue', () => {
     });
   });
 
-  it('leaves the job pending when the server stops mid-run', async () => {
+  it('leases the row while the job runs, and releases it when the server stops mid-run', async () => {
     const { fileName } = await queuedPhoto('Shutdown shirt');
     let started!: () => void;
     const running = new Promise<void>((resolve) => (started = resolve));
@@ -251,15 +268,175 @@ describe('cutout queue', () => {
 
     t.cutouts.start(runner);
     await running;
+    const leased = await photoRow(t, fileName);
+    expect(leased).toMatchObject({
+      cutoutStatus: 'pending',
+      cutoutJobVersion: 1,
+    });
+    expect(leased!.cutoutWorker).toMatch(/^.+:\d+:[0-9a-f]{8}$/);
+    expect(leased!.cutoutStartedAt).toBeInstanceOf(Date);
+    expect(t.logs.messages('info', 'Cutout')).toContainEqual(
+      expect.stringContaining(`started as worker ${leased!.cutoutWorker};`),
+    );
+
     await t.cutouts.stop();
 
+    // Released rather than left to lapse: the job has ended here, so the
+    // next server runs the photo at once instead of in five minutes.
     expect(await photoRow(t, fileName)).toMatchObject({
       cutoutStatus: 'pending',
       cutoutAttempts: 1,
+      cutoutJobVersion: null,
+      ...NO_LEASE,
     });
     expect(t.logs.messages('info', 'Cutout')).toContainEqual(
-      expect.stringMatching(/interrupted by shutdown: .*; stays pending$/),
+      expect.stringMatching(
+        /interrupted by shutdown: .*; stays pending, lease released$/,
+      ),
     );
+
+    const next = fakeRunner();
+    t.cutouts.start(next);
+    await t.cutouts.whenIdle();
+    expect(next.calls).toBe(1);
+    expect(await photoRow(t, fileName)).toMatchObject({
+      cutoutStatus: 'ready',
+      cutoutAttempts: 2,
+      ...NO_LEASE,
+    });
+  });
+
+  /** A pending row as another server's job leaves it: started, leased `ageMs` ago. */
+  async function leasedElsewhere(fileName: string, ageMs: number) {
+    await t.db
+      .update(file)
+      .set({
+        cutoutAttempts: 1,
+        cutoutJobVersion: 1,
+        cutoutWorker: 'other-box:1:0badf00d',
+        cutoutStartedAt: sql`now() - make_interval(secs => ${ageMs / 1000})`,
+      })
+      .where(eq(file.fileName, fileName));
+  }
+
+  it("never runs a photo another server's live job holds", async () => {
+    const { fileName } = await queuedPhoto('Leased shirt');
+    await leasedElsewhere(fileName, CUTOUT_LEASE_MS - 60_000);
+    const runner = fakeRunner();
+
+    t.cutouts.start(runner);
+    await t.cutouts.whenIdle();
+
+    expect(runner.calls).toBe(0);
+    expect(await photoRow(t, fileName)).toMatchObject({
+      cutoutStatus: 'pending',
+      cutoutAttempts: 1,
+      cutoutWorker: 'other-box:1:0badf00d',
+    });
+    // The other server "crashes": later tests find nothing left pending.
+    await leasedElsewhere(fileName, CUTOUT_LEASE_MS + 1_000);
+    await t.cutouts.whenIdle();
+    expect(runner.calls).toBe(1);
+  });
+
+  it('never claims or leases an unwanted photo (an outfit selfie)', async () => {
+    const { fileName } = await queuedPhoto('Selfie-like shirt');
+    await t.db
+      .update(file)
+      .set({ cutoutStatus: 'unwanted', cutoutRequestedAt: null })
+      .where(eq(file.fileName, fileName));
+    const runner = fakeRunner();
+
+    t.cutouts.start(runner);
+    await t.cutouts.whenIdle();
+
+    expect(runner.calls).toBe(0);
+    expect(await photoRow(t, fileName)).toMatchObject({
+      cutoutStatus: 'unwanted',
+      cutoutAttempts: 0,
+      ...NO_LEASE,
+    });
+  });
+
+  it("runs a crashed server's job once its lease has lapsed", async () => {
+    const { fileName } = await queuedPhoto('Orphaned shirt');
+    await leasedElsewhere(fileName, CUTOUT_LEASE_MS + 1_000);
+    const runner = fakeRunner();
+
+    t.cutouts.start(runner);
+    await t.cutouts.whenIdle();
+
+    expect(runner.calls).toBe(1);
+    expect(await photoRow(t, fileName)).toMatchObject({
+      cutoutStatus: 'ready',
+      cutoutAttempts: 2,
+      ...NO_LEASE,
+    });
+    expect(t.logs.messages('warn', 'Cutout')).toContainEqual(
+      expect.stringMatching(
+        new RegExp(
+          `^Cutout lease of worker other-box:1:0badf00d lapsed after 5 min; running garment \\d+ photo \\d+ \\(${fileName.slice(0, 8)}\\) again$`,
+        ),
+      ),
+    );
+  });
+
+  it('ignores "Try again" on a photo whose job is running, and keeps its result', async () => {
+    const { garmentId, fileName } = await queuedPhoto('Impatient shirt');
+    const runner = fakeRunner(async () => {
+      const retry = await t.inject({
+        method: 'POST',
+        url: `/wardrobe/${garmentId}/cutout/retry`,
+      });
+      expect(retry.statusCode).toBe(303);
+      return halfMask();
+    });
+
+    t.cutouts.start(runner);
+    await t.cutouts.whenIdle();
+
+    expect(runner.calls).toBe(1);
+    expect(await photoRow(t, fileName)).toMatchObject({
+      cutoutStatus: 'ready',
+      version: 2,
+      cutoutAttempts: 1,
+      ...NO_LEASE,
+    });
+    expect(t.logs.messages('info', 'Web')).toContain(
+      `Garment ${garmentId} cutout retry ignored (not-allowed)`,
+    );
+  });
+
+  it('claims nothing while the runner cannot ready its model, and still stops promptly', async () => {
+    const { fileName } = await queuedPhoto('Modelless shirt');
+    const runner = fakeRunner();
+    runner.ready = () => Promise.reject(new Error('Model download failed'));
+
+    t.cutouts.start(runner);
+    await eventually('the queue to give up on the model', () =>
+      Promise.resolve(
+        t.logs
+          .messages('warn', 'Cutout')
+          .includes(
+            'Cutout queue cannot run the model (Model download failed); pending cutouts wait, trying again in 5 min',
+          ),
+      ),
+    );
+    // Its five-minute wait ends with the queue.
+    expect(await settlesWithin(t.cutouts.stop(), 2_000)).toBe(true);
+
+    expect(runner.calls).toBe(0);
+    expect(await photoRow(t, fileName)).toMatchObject({
+      cutoutStatus: 'pending',
+      cutoutAttempts: 0,
+      ...NO_LEASE,
+    });
+    // With the model back, the photo runs.
+    t.cutouts.start(fakeRunner());
+    await t.cutouts.whenIdle();
+    expect(await photoRow(t, fileName)).toMatchObject({
+      cutoutStatus: 'ready',
+    });
   });
 
   it('the nightly retry requeues failed cutouts under three attempts only', async () => {

@@ -8,6 +8,8 @@ import {
   transition,
 } from './state';
 
+const WORKER = 'linux-box:1:0a1b2c3d';
+
 const at = (
   status: CutoutStatus,
   overrides: Partial<CutoutState> = {},
@@ -16,6 +18,7 @@ const at = (
   version: 3,
   attempts: 1,
   jobVersion: status === 'pending' ? 3 : null,
+  worker: status === 'pending' ? WORKER : null,
   ...overrides,
 });
 
@@ -34,7 +37,13 @@ describe('cutout state machine', () => {
       ).toEqual({
         ok: true,
         queued: true,
-        state: { status: 'pending', version: 3, attempts: 0, jobVersion: null },
+        state: {
+          status: 'pending',
+          version: 3,
+          attempts: 0,
+          jobVersion: null,
+          worker: null,
+        },
       });
     });
 
@@ -56,19 +65,19 @@ describe('cutout state machine', () => {
       ).toEqual({
         ok: true,
         queued: true,
-        state: { status: 'pending', version: 3, attempts: 2, jobVersion: null },
+        state: {
+          status: 'pending',
+          version: 3,
+          attempts: 2,
+          jobVersion: null,
+          worker: null,
+        },
       });
     });
 
-    it('requeues a pending one, detaching the job that may be running', () => {
-      expect(transition(at('pending'), { type: 'retry' })).toEqual({
-        ok: true,
-        queued: true,
-        state: { status: 'pending', version: 3, attempts: 1, jobVersion: null },
-      });
-    });
-
-    it.each(refusedFrom({ type: 'retry' }, ['pending', 'failed']))(
+    // A pending row is queued or running already: requeueing a running job
+    // would discard its result and run the model a second time.
+    it.each(refusedFrom({ type: 'retry' }, ['failed']))(
       'is refused from %s',
       (status, event) => {
         expect(transition(at(status), event)).toEqual({
@@ -80,19 +89,72 @@ describe('cutout state machine', () => {
   });
 
   describe('start', () => {
-    it('counts the attempt and records the photo version the job runs for', () => {
+    it('counts the attempt, records the photo version and leases the row', () => {
       expect(
-        transition(at('pending', { attempts: 0, jobVersion: null }), {
-          type: 'start',
-        }),
+        transition(
+          at('pending', { attempts: 0, jobVersion: null, worker: null }),
+          { type: 'start', worker: WORKER },
+        ),
       ).toEqual({
         ok: true,
         queued: false,
-        state: { status: 'pending', version: 3, attempts: 1, jobVersion: 3 },
+        state: {
+          status: 'pending',
+          version: 3,
+          attempts: 1,
+          jobVersion: 3,
+          worker: WORKER,
+        },
       });
     });
 
-    it.each(refusedFrom({ type: 'start' }, ['pending']))(
+    it('takes over a lapsed lease (the claim offers only those)', () => {
+      expect(
+        transition(at('pending', { worker: 'crashed:1:ffffffff' }), {
+          type: 'start',
+          worker: WORKER,
+        }),
+      ).toMatchObject({ ok: true, state: { attempts: 2, worker: WORKER } });
+    });
+
+    it.each(refusedFrom({ type: 'start', worker: WORKER }, ['pending']))(
+      'is refused from %s',
+      (status, event) => {
+        expect(transition(at(status), event)).toEqual({
+          ok: false,
+          reason: 'not-allowed',
+        });
+      },
+    );
+  });
+
+  describe('release', () => {
+    it("frees its own lease, keeping the attempt and the queue's place", () => {
+      expect(
+        transition(at('pending'), { type: 'release', worker: WORKER }),
+      ).toEqual({
+        ok: true,
+        queued: false,
+        state: {
+          status: 'pending',
+          version: 3,
+          attempts: 1,
+          jobVersion: null,
+          worker: null,
+        },
+      });
+    });
+
+    it('leaves a lease another worker took since alone', () => {
+      expect(
+        transition(at('pending', { worker: 'other:2:12345678' }), {
+          type: 'release',
+          worker: WORKER,
+        }),
+      ).toEqual({ ok: false, reason: 'stale' });
+    });
+
+    it.each(refusedFrom({ type: 'release', worker: WORKER }, ['pending']))(
       'is refused from %s',
       (status, event) => {
         expect(transition(at(status), event)).toEqual({
@@ -110,7 +172,13 @@ describe('cutout state machine', () => {
       ).toEqual({
         ok: true,
         queued: false,
-        state: { status: 'ready', version: 4, attempts: 1, jobVersion: null },
+        state: {
+          status: 'ready',
+          version: 4,
+          attempts: 1,
+          jobVersion: null,
+          worker: null,
+        },
       });
     });
 
@@ -125,7 +193,7 @@ describe('cutout state machine', () => {
 
     it('discards a result for a job that was requeued meanwhile', () => {
       expect(
-        transition(at('pending', { jobVersion: null }), {
+        transition(at('pending', { jobVersion: null, worker: null }), {
           type: 'succeed',
           jobVersion: 3,
         }),
@@ -153,7 +221,13 @@ describe('cutout state machine', () => {
       ).toEqual({
         ok: true,
         queued: false,
-        state: { status: 'failed', version: 3, attempts: 2, jobVersion: null },
+        state: {
+          status: 'failed',
+          version: 3,
+          attempts: 2,
+          jobVersion: null,
+          worker: null,
+        },
       });
     });
 
@@ -191,6 +265,7 @@ describe('cutout state machine', () => {
             version: 4,
             attempts: 1,
             jobVersion: null,
+            worker: null,
           },
         });
       },
@@ -207,10 +282,29 @@ describe('cutout state machine', () => {
     );
   });
 
-  it('a job cannot land on an edit made while it ran', () => {
-    const started = transition(at('pending', { jobVersion: null }), {
-      type: 'start',
+  // A selfie is never queued, so never claimed: no event, the lease's
+  // start and release included, applies to it (file_cutout_lease_check
+  // also allows a lease only on a pending row).
+  it.each<CutoutEvent>([
+    { type: 'request' },
+    { type: 'retry' },
+    { type: 'start', worker: WORKER },
+    { type: 'release', worker: WORKER },
+    { type: 'succeed', jobVersion: 3 },
+    { type: 'fail', jobVersion: 3 },
+    { type: 'edit' },
+  ])('leaves an unwanted cutout alone: $type', (event) => {
+    expect(transition(at('unwanted'), event)).toEqual({
+      ok: false,
+      reason: 'not-allowed',
     });
+  });
+
+  it('a job cannot land on an edit made while it ran', () => {
+    const started = transition(
+      at('pending', { jobVersion: null, worker: null }),
+      { type: 'start', worker: WORKER },
+    );
     if (!started.ok) throw new Error('start refused');
     const edited = transition(started.state, { type: 'edit' });
     if (!edited.ok) throw new Error('edit refused');

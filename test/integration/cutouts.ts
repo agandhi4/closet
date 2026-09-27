@@ -40,6 +40,7 @@ export function fakeRunner(
     inputSize: MASK_SIZE,
     calls: 0,
     closed: false,
+    ready: () => Promise.resolve(),
     async mask(rgb: Buffer): Promise<CutoutMask> {
       if (rgb.length !== MASK_SIZE * MASK_SIZE * 3) {
         throw new Error(`Expected ${MASK_SIZE}px RGB, got ${rgb.length} bytes`);

@@ -1,6 +1,7 @@
-import { and, asc, eq, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../db/client';
 import { file, garment } from '../db/schema';
+import { CUTOUT_TIMEOUT_MS } from './runner';
 import {
   type CutoutEvent,
   type CutoutState,
@@ -14,6 +15,18 @@ import {
  * the state it answers. Photos (the cutout bytes), the queue, the retry
  * route and the nightly retry all go through applyCutoutEvent.
  */
+
+/**
+ * How long a started job holds its row before another server may claim it
+ * again (#45). Longer than the longest job: the queue waits for the model
+ * file before claiming (CutoutRunner.ready), so a job is the photo's decode,
+ * one model run the runner kills at CUTOUT_TIMEOUT_MS (the model load
+ * included) and the cutout's write, a few seconds beside it. Five times the
+ * model's limit leaves room for a loaded CPU. Its only cost is how late a
+ * crashed server's job runs again: a job cut short by a shutdown releases
+ * its lease, and every result clears it.
+ */
+export const CUTOUT_LEASE_MS = 5 * CUTOUT_TIMEOUT_MS;
 
 export interface CutoutRow extends CutoutState {
   id: number;
@@ -32,9 +45,9 @@ export const CUTOUT_QUEUED_CHANNEL = 'closet_cutout_queued';
  * server during an overlapping deploy), that a row became pending. Inside a
  * transaction Postgres delivers it only on commit, so a listener never looks
  * before the row is visible, and a rollback sends nothing. Called by the
- * two writes that make a row pending: applyCutoutEvent (request, retry) and
- * insertPhotoRow (a new pending photo). The payload is empty so Postgres
- * folds a transaction's repeats into one.
+ * two writes that make a row claimable: applyCutoutEvent (request, retry,
+ * release) and insertPhotoRow (a new pending photo). The payload is empty
+ * so Postgres folds a transaction's repeats into one.
  */
 export async function notifyCutoutQueued(q: Queryable): Promise<void> {
   await q.execute(sql`select pg_notify(${CUTOUT_QUEUED_CHANNEL}, '')`);
@@ -50,6 +63,7 @@ const stateColumns = {
   version: file.version,
   attempts: file.cutoutAttempts,
   jobVersion: file.cutoutJobVersion,
+  worker: file.cutoutWorker,
 };
 
 /** The photo's cutout state, its row locked until the transaction ends. */
@@ -88,10 +102,15 @@ export async function applyCutoutEvent(
       version: next.state.version,
       cutoutAttempts: next.state.attempts,
       cutoutJobVersion: next.state.jobVersion,
+      // Only start leases (nextState): a lease is always taken now.
+      cutoutWorker: next.state.worker,
+      cutoutStartedAt: next.state.worker === null ? null : sql`now()`,
       ...(next.queued && { cutoutRequestedAt: new Date() }),
     })
     .where(eq(file.id, row.id));
-  if (next.queued) await notifyCutoutQueued(tx);
+  // A released row is claimable again: tell the other servers, rather than
+  // leave it to their poll.
+  if (next.queued || event.type === 'release') await notifyCutoutQueued(tx);
   return next;
 }
 
@@ -119,16 +138,25 @@ export interface CutoutJob {
   requestedAt: Date | null;
   /** The garment showing the photo; null when none does (any more). */
   garmentId: number | null;
+  /** The worker whose lapsed lease this claim took over: it crashed or hung. */
+  lapsedWorker: string | null;
 }
 
 /**
- * Starts the oldest pending cutout: `start` counts the attempt and records
- * the photo version. The row stays pending while the job runs. SKIP LOCKED
- * lets a second server on the database (an overlapping deploy) take another
- * row instead of waiting; a row both run anyway is written once, the
- * other's result being refused by the machine.
+ * Starts the oldest pending cutout no live job holds, for `worker`: `start`
+ * counts the attempt, records the photo version and leases the row, all in
+ * this transaction. The row stays pending while the job runs, so a crashed
+ * server's job is claimed again once its lease is older than
+ * CUTOUT_LEASE_MS. Two servers on one database (an overlapping deploy)
+ * never run one photo together: SKIP LOCKED makes the second skip a row the
+ * first is claiming, and the lease makes it skip one the first has started.
+ * The lease's age is the database's clock, so the servers' clocks never
+ * matter.
  */
-export function claimNextCutout(db: Db): Promise<CutoutJob | undefined> {
+export function claimNextCutout(
+  db: Db,
+  worker: string,
+): Promise<CutoutJob | undefined> {
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select({
@@ -138,12 +166,23 @@ export function claimNextCutout(db: Db): Promise<CutoutJob | undefined> {
       })
       .from(file)
       .leftJoin(garment, eq(garment.photoId, file.id))
-      .where(eq(file.cutoutStatus, 'pending'))
+      .where(
+        and(
+          eq(file.cutoutStatus, 'pending'),
+          or(
+            isNull(file.cutoutStartedAt),
+            lt(
+              file.cutoutStartedAt,
+              sql`now() - make_interval(secs => ${CUTOUT_LEASE_MS / 1000})`,
+            ),
+          ),
+        ),
+      )
       .orderBy(asc(file.cutoutRequestedAt), asc(file.id))
       .limit(1)
       .for('update', { of: file, skipLocked: true });
     if (!row) return undefined;
-    const started = await applyCutoutEvent(tx, row, { type: 'start' });
+    const started = await applyCutoutEvent(tx, row, { type: 'start', worker });
     if (!started.ok) {
       throw new Error(`Pending cutout ${row.fileName} refused start`);
     }
@@ -154,6 +193,7 @@ export function claimNextCutout(db: Db): Promise<CutoutJob | undefined> {
       attempts: started.state.attempts,
       requestedAt: row.requestedAt,
       garmentId: row.garmentId,
+      lapsedWorker: row.worker,
     };
   });
 }

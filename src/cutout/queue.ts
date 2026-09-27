@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
 import type { Db, DbConfig } from '../db/client';
 import type { Logger } from '../logger';
 import type { Photos } from '../web/files/photos';
@@ -5,6 +7,7 @@ import { settlesWithin } from './deadline';
 import { CutoutListener } from './listener';
 import {
   claimNextCutout,
+  CUTOUT_LEASE_MS,
   type CutoutJob,
   recordCutoutEvent,
   retryableCutouts,
@@ -15,6 +18,10 @@ import { MAX_CUTOUT_ATTEMPTS } from './state';
 // After the queue itself could not be read (the database away), look again
 // this much later rather than spin.
 const CLAIM_RETRY_MS = 30_000;
+// After the runner could not ready the model (a download that failed, a
+// file that fails its checksum), try again this much later: each try may
+// download 940 MB or hash it.
+const MODEL_RETRY_MS = 5 * 60_000;
 // How long stop() waits for the runner to close and the job loop to end
 // (after the listener's own bounded close). The loop ends within a query
 // once stopped; a runner closes in well under a second. Past this, stop()
@@ -44,10 +51,10 @@ export interface CutoutQueueDeps {
  * listener, one connection of its own while started); after the listener
  * reconnects (notifications sent meanwhile are lost); and every `pollMs`
  * while idle, the backstop for anything those missed. Two queues on one
- * database (an overlapping deploy) both hear every notification; the claim
- * skips rows locked by the other's claim, but a job stays pending while it
- * runs, so both may run one photo and the state machine keeps one result
- * (claimNextCutout).
+ * database (an overlapping deploy) both hear every notification, but each
+ * job holds a lease on its row, so the model runs once per photo across
+ * servers (claimNextCutout). Each start() is a worker of its own, named in
+ * the lease (cutout_worker: host, pid and a random suffix).
  */
 export class CutoutQueue {
   private runner: CutoutRunner | undefined;
@@ -70,8 +77,11 @@ export class CutoutQueue {
     this.runner = runner;
     const halt = new AbortController();
     this.halt = halt;
+    // Per start, not per process: a job a previous start() gave up on may
+    // still hold a lease, which this start must not release as its own.
+    const worker = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
     this.deps.logger.info(
-      `Cutout queue started; resuming pending cutouts, polling every ${this.deps.pollMs / 1000} s while idle`,
+      `Cutout queue started as worker ${worker}; resuming pending cutouts, polling every ${this.deps.pollMs / 1000} s while idle`,
     );
     this.listener = new CutoutListener({
       database: this.deps.database,
@@ -79,7 +89,7 @@ export class CutoutQueue {
       wake: () => this.wake(),
     });
     this.listener.start();
-    this.loop = this.run(runner, halt.signal);
+    this.loop = this.run(runner, worker, halt.signal);
   }
 
   /**
@@ -91,7 +101,11 @@ export class CutoutQueue {
     this.wakeUp?.();
   }
 
-  /** Resolves once the queue has looked and found nothing pending (tests). */
+  /**
+   * Resolves once the queue has looked, starting after this call, and found
+   * nothing it may claim (tests). A look already in flight does not count:
+   * it may have started before the spec's last write.
+   */
   whenIdle(): Promise<void> {
     const idle = new Promise<void>((resolve) => this.idleWaiters.push(resolve));
     this.wake();
@@ -101,8 +115,11 @@ export class CutoutQueue {
   /**
    * Stops the listener, the loop and the runner. Always resolves, within the
    * listener's close timeout plus STOP_TIMEOUT_MS however they hang, and
-   * never rejects. A job cut short stays pending, so the next start runs it
-   * again.
+   * never rejects. A job cut short stays pending and releases its lease, so
+   * the next start, or another server, runs it at once. One still running
+   * when stop() gives up keeps its lease until it lapses (CUTOUT_LEASE_MS):
+   * it may yet finish, and releasing it could let a second run start beside
+   * it.
    */
   async stop(): Promise<void> {
     const runner = this.runner;
@@ -127,22 +144,29 @@ export class CutoutQueue {
     );
     if (!ended) {
       logger.warn(
-        `Cutout queue gave up waiting for its runner and job loop after ${STOP_TIMEOUT_MS / 1000} s; a job still running stays pending`,
+        `Cutout queue gave up waiting for its runner and job loop after ${STOP_TIMEOUT_MS / 1000} s; a job still running stays pending, leased for up to ${CUTOUT_LEASE_MS / 60_000} min`,
       );
     }
     this.runner = undefined;
     logger.info(`Cutout queue stopped in ${Date.now() - startedAt} ms`);
   }
 
-  private async run(runner: CutoutRunner, halt: AbortSignal): Promise<void> {
+  private async run(
+    runner: CutoutRunner,
+    worker: string,
+    halt: AbortSignal,
+  ): Promise<void> {
     const { db, logger, pollMs } = this.deps;
     // Whether this look is the idle poll's rather than a wake's.
     let polling = false;
     while (!halt.aborted) {
       this.woken = false;
+      if (!(await this.runnerReady(runner, halt))) continue;
+      // The whenIdle() callers this look answers: those who asked before it.
+      const asked = this.idleWaiters.length;
       let job: CutoutJob | undefined;
       try {
-        job = await claimNextCutout(db);
+        job = await claimNextCutout(db, worker);
       } catch (error) {
         logger.error(
           { err: error },
@@ -160,18 +184,46 @@ export class CutoutQueue {
           );
         }
         polling = false;
-        await this.process(job, runner, halt);
+        await this.process(job, runner, worker, halt);
         continue;
       }
-      this.settleIdle();
+      this.settleIdle(asked);
       polling = !this.woken && (await this.sleep(pollMs, halt)) === 'timeout';
     }
-    this.settleIdle();
+    this.settleIdle(this.idleWaiters.length);
+  }
+
+  // Waits for the runner's model before any claim, so no lease is held
+  // through a download. False when halted, or when it failed (after waiting
+  // MODEL_RETRY_MS): pending rows wait for the model rather than fail
+  // without it. The model logs why; this logs that the queue waits.
+  private async runnerReady(
+    runner: CutoutRunner,
+    halt: AbortSignal,
+  ): Promise<boolean> {
+    if (halt.aborted) return false;
+    let onHalt!: () => void;
+    const halted = new Promise<'halted'>((resolve) => {
+      onHalt = () => resolve('halted');
+      halt.addEventListener('abort', onHalt);
+    });
+    try {
+      return (await Promise.race([runner.ready(), halted])) !== 'halted';
+    } catch (error) {
+      this.deps.logger.warn(
+        `Cutout queue cannot run the model (${error instanceof Error ? error.message : String(error)}); pending cutouts wait, trying again in ${MODEL_RETRY_MS / 60_000} min`,
+      );
+    } finally {
+      halt.removeEventListener('abort', onHalt);
+    }
+    await this.sleep(MODEL_RETRY_MS, halt);
+    return false;
   }
 
   private async process(
     job: CutoutJob,
     runner: CutoutRunner,
+    worker: string,
     halt: AbortSignal,
   ): Promise<void> {
     const { photos, logger } = this.deps;
@@ -179,6 +231,12 @@ export class CutoutQueue {
     const queuedMs =
       job.requestedAt === null ? 0 : startedAt - job.requestedAt.getTime();
     const label = `garment ${job.garmentId ?? '-'} photo ${job.fileId} (${job.fileName.slice(0, 8)})`;
+    if (job.lapsedWorker !== null) {
+      // Its server crashed or hung mid-job: that photo waited a whole lease.
+      logger.warn(
+        `Cutout lease of worker ${job.lapsedWorker} lapsed after ${CUTOUT_LEASE_MS / 60_000} min; running ${label} again`,
+      );
+    }
     logger.info(
       `Cutout started: ${label}, attempt ${job.attempts}, queued ${queuedMs} ms`,
     );
@@ -202,16 +260,59 @@ export class CutoutQueue {
         );
       } else {
         // The photo was edited, replaced or requeued while the job ran.
+        const lease =
+          outcome.reason === 'stale'
+            ? `; ${await this.release(job, label, worker)}`
+            : '';
         logger.info(
-          `Cutout discarded (${outcome.reason}): ${label}; ${timing}`,
+          `Cutout discarded (${outcome.reason}): ${label}; ${timing}${lease}`,
         );
       }
     } catch (error) {
       if (halt.aborted) {
-        logger.info(`Cutout interrupted by shutdown: ${label}; stays pending`);
+        logger.info(
+          `Cutout interrupted by shutdown: ${label}; stays pending, ${await this.release(job, label, worker)}`,
+        );
         return;
       }
-      await this.fail(job, label, startedAt, error);
+      await this.fail(job, label, worker, startedAt, error);
+    }
+  }
+
+  // Gives the row back when a job ends without a result that clears its
+  // lease: cut short by stop() (it has ended here, so no second run can
+  // start beside it, and the next server need not wait out the lease), or
+  // refused as stale while the row stays pending (it would sit leased for
+  // nothing). Every other ending already cleared it. The machine releases
+  // only this worker's own lease. Answers what happened, for the caller's
+  // log line. During stop() the pool is still open: the app ends it after.
+  private async release(
+    job: CutoutJob,
+    label: string,
+    worker: string,
+  ): Promise<string> {
+    const { db, logger } = this.deps;
+    const lapses = `its lease lapses in ${CUTOUT_LEASE_MS / 60_000} min`;
+    try {
+      const outcome = await recordCutoutEvent(db, job.fileName, {
+        type: 'release',
+        worker,
+      });
+      if (outcome.ok) return 'lease released';
+      switch (outcome.reason) {
+        case 'stale':
+          return "its lease is another worker's now";
+        case 'not-allowed':
+          return 'no lease left to release';
+        case 'gone':
+          return 'the photo is gone';
+      }
+    } catch (error) {
+      logger.error(
+        { err: error },
+        `Could not release the lease on ${label}; ${lapses}`,
+      );
+      return lapses;
     }
   }
 
@@ -221,6 +322,7 @@ export class CutoutQueue {
   private async fail(
     job: CutoutJob,
     label: string,
+    worker: string,
     startedAt: number,
     error: unknown,
   ): Promise<void> {
@@ -235,12 +337,20 @@ export class CutoutQueue {
         logger.info(`Cutout discarded (gone): ${label}, ${elapsed}`);
         return;
       }
+      let recorded = '';
+      if (!outcome.ok) {
+        const lease =
+          outcome.reason === 'stale'
+            ? `; ${await this.release(job, label, worker)}`
+            : '';
+        recorded = ` (not recorded: ${outcome.reason}${lease})`;
+      }
       logger.error(
         { err: error },
-        `Cutout failed: ${label}, attempt ${job.attempts}, ${elapsed}${outcome.ok ? '' : ` (not recorded: ${outcome.reason})`}`,
+        `Cutout failed: ${label}, attempt ${job.attempts}, ${elapsed}${recorded}`,
       );
     } catch (recordError) {
-      // The row stays pending and runs again on the next look or start.
+      // The row stays pending, leased: it runs again once the lease lapses.
       logger.error(
         { err: error },
         `Cutout failed: ${label}, attempt ${job.attempts}, ${elapsed}`,
@@ -277,10 +387,10 @@ export class CutoutQueue {
     });
   }
 
-  private settleIdle(): void {
-    const waiters = this.idleWaiters;
-    this.idleWaiters = [];
-    for (const resolve of waiters) resolve();
+  // Resolves the first `count` whenIdle() callers. Later ones asked while
+  // the look was in flight; their wake() makes the loop look again for them.
+  private settleIdle(count: number): void {
+    for (const resolve of this.idleWaiters.splice(0, count)) resolve();
   }
 }
 

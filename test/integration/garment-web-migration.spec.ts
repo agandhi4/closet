@@ -287,7 +287,10 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       'cutout_attempts',
       'cutout_job_version',
       'cutout_requested_at',
+      // 0021_cutout_lease.
+      'cutout_started_at',
       'cutout_status',
+      'cutout_worker',
       'file_name',
       'id',
       'shareable_id',

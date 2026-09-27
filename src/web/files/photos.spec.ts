@@ -48,6 +48,7 @@ const cutoutRow = (overrides: Partial<CutoutRow> = {}): CutoutRow => ({
   version: 1,
   attempts: 1,
   jobVersion: null,
+  worker: null,
   ...overrides,
 });
 

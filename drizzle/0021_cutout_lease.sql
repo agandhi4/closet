@@ -1,0 +1,3 @@
+ALTER TABLE "file" ADD COLUMN "cutout_worker" text;--> statement-breakpoint
+ALTER TABLE "file" ADD COLUMN "cutout_started_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "file" ADD CONSTRAINT "file_cutout_lease_check" CHECK (("file"."cutout_worker" is null and "file"."cutout_started_at" is null) or ("file"."cutout_status" = 'pending' and "file"."cutout_worker" is not null and "file"."cutout_started_at" is not null));

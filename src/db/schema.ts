@@ -295,12 +295,24 @@ export const file = pgTable(
     cutoutRequestedAt: timestamp('cutout_requested_at', {
       withTimezone: true,
     }),
+    // The running job's lease (#45): which queue worker holds it and since
+    // when (the database's clock). Set by start, cleared by every event
+    // that ends the job; another server claims the row only once it is
+    // older than CUTOUT_LEASE_MS (src/cutout/queries.ts).
+    cutoutWorker: text('cutout_worker'),
+    cutoutStartedAt: timestamp('cutout_started_at', { withTimezone: true }),
   },
   (table) => [
     index('file_created_by_id_index').on(table.createdById),
     check(
       'file_cutout_status_check',
       sql`${table.cutoutStatus} in (${sqlList(CUTOUT_STATUSES)})`,
+    ),
+    // Both lease columns or neither, and only on a pending row: a finished
+    // or failed job cannot leave a lease behind.
+    check(
+      'file_cutout_lease_check',
+      sql`(${table.cutoutWorker} is null and ${table.cutoutStartedAt} is null) or (${table.cutoutStatus} = 'pending' and ${table.cutoutWorker} is not null and ${table.cutoutStartedAt} is not null)`,
     ),
     uniqueIndex('file_shareable_id_unique').on(table.shareableId),
     foreignKey({

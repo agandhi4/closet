@@ -40,6 +40,7 @@ function ellipseMask(): Buffer {
 
 const stubRunner: CutoutRunner = {
   inputSize: SIZE,
+  ready: () => Promise.resolve(),
   async mask() {
     await new Promise((done) => setTimeout(done, STUB_DELAY_MS));
     return { mask: ellipseMask(), inferenceMs: STUB_DELAY_MS };

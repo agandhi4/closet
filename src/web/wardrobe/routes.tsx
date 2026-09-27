@@ -822,7 +822,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // "Try again" on a failed cutout: a native post (PostForm), answered
   // with the garment page, which shows it pending. Idempotent: a cutout
-  // that is no longer failed or pending is left alone.
+  // that is no longer failed is left alone, a pending one included (its
+  // job may be running: src/cutout/state.ts).
   app.post(
     '/wardrobe/:id/cutout/retry',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },

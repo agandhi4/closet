@@ -423,20 +423,58 @@ describe('cutout queue: the idle poll', () => {
     );
   });
 
-  it('writes each photo once when two servers hear the same notifications and poll', async () => {
-    // Two servers on one database (an overlapping deploy): the app's queue,
-    // and a second one on its own pool with its own listener. SKIP LOCKED
-    // covers the claim's transaction only: a started job stays pending
-    // (a crashed server's job must stay claimable), so the other server may
-    // claim and run it again. The state machine writes one result per row
-    // and discards the rest: run at least once, written exactly once.
-    const second = new CutoutQueue({
+  /**
+   * A second server on one database (an overlapping deploy): a queue on its
+   * own pool with its own listener, beside the app's. Both hear every
+   * notification and poll every second.
+   */
+  function secondServer() {
+    return new CutoutQueue({
       db: other,
       database: t.database,
       photos: t.photos,
       logger: t.logger.child({ context: 'Cutout' }),
       pollMs: 1_000,
     });
+  }
+
+  it('runs one pending photo once when two servers hear its notification (#45)', async () => {
+    // Slow enough that both servers look while the job runs: without the
+    // lease the second claimed the started (still pending) row and ran it too.
+    const slower = () =>
+      new Promise<Buffer>((resolve) =>
+        setTimeout(() => resolve(halfMask()), 300),
+      );
+    const second = secondServer();
+    const first = fakeRunner(slower);
+    const secondRunner = fakeRunner(slower);
+    t.cutouts.start(first);
+    second.start(secondRunner);
+    try {
+      await t.cutouts.whenIdle();
+      await second.whenIdle();
+
+      const [fileName] = await queueMany(1);
+      await allReady([fileName]);
+
+      expect(first.calls + secondRunner.calls).toBe(1);
+      expect((await rowsOf([fileName]))[0]).toEqual({
+        status: 'ready',
+        version: 2,
+        attempts: 1,
+      });
+      expect(linesAbout([fileName], /^Cutout started/)).toHaveLength(1);
+      expect(linesAbout([fileName], /^Cutout discarded/)).toHaveLength(0);
+    } finally {
+      await second.stop();
+    }
+  });
+
+  it('runs each photo once when two servers hear the same notifications and poll', async () => {
+    // SKIP LOCKED keeps the servers apart during a claim, the lease while
+    // the job runs: every photo is run by one server, once, and written
+    // once.
+    const second = secondServer();
     const first = fakeRunner(slowly);
     const secondRunner = fakeRunner(slowly);
     t.cutouts.start(first);
@@ -446,18 +484,22 @@ describe('cutout queue: the idle poll', () => {
       await allReady(fileNames);
 
       expect(
-        (await rowsOf(fileNames)).map(({ status, version }) => ({
+        (await rowsOf(fileNames)).map(({ status, version, attempts }) => ({
           status,
           version,
+          attempts,
         })),
-      ).toEqual(fileNames.map(() => ({ status: 'ready', version: 2 })));
+      ).toEqual(
+        fileNames.map(() => ({ status: 'ready', version: 2, attempts: 1 })),
+      );
+      expect(first.calls + secondRunner.calls).toBe(fileNames.length);
+      expect(linesAbout(fileNames, /^Cutout started/)).toHaveLength(
+        fileNames.length,
+      );
       expect(linesAbout(fileNames, /^Cutout ready/)).toHaveLength(
         fileNames.length,
       );
-      const runs = first.calls + secondRunner.calls;
-      expect(
-        linesAbout(fileNames, /^Cutout discarded \((not-allowed|stale)\)/),
-      ).toHaveLength(runs - fileNames.length);
+      expect(linesAbout(fileNames, /^Cutout discarded/)).toHaveLength(0);
     } finally {
       await second.stop();
     }
