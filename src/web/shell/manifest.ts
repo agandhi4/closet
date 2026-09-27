@@ -1,3 +1,4 @@
+import { APP_ICON_SIZES, appIconFile } from '../app-icon';
 import { LINK_IMPORT_PATH } from '../wardrobe/urls';
 
 /**
@@ -14,14 +15,14 @@ export function webManifest(config: {
   return {
     short_name: appName,
     name: appName,
-    icons: [
-      {
-        src: `/assets/${iconName}`,
-        sizes: '1000x1000',
-        type: 'image/png',
-        purpose: 'maskable any',
-      },
-    ],
+    // Smallest first: <pwa-install> shows icons[0] (at 48 px) and fetches
+    // nothing else. The 1000 px ICON_NAME is left to link previews.
+    icons: APP_ICON_SIZES.map((size) => ({
+      src: `/assets/${appIconFile(iconName, size)}`,
+      sizes: `${size}x${size}`,
+      type: 'image/png',
+      purpose: 'maskable any',
+    })),
     id: '/wardrobe',
     start_url: '/wardrobe',
     theme_color: '#222428',

@@ -70,8 +70,10 @@ export const ConfigSchema = Type.Object({
   // Also the VAPID subject of Web Push (src/web/push/sender.ts), which
   // web-push requires to be https: when PWA_ENABLED is true.
   SITE_URL: NonEmpty({ default: 'http://localhost:3000' }),
-  // File under public/assets/ used for apple-touch-icon, Open Graph previews
-  // and the share-link watermark.
+  // Full-size PNG under public/assets/ for Open Graph previews and the
+  // share-link watermark. The manifest and apple-touch-icon use its
+  // <stem>-192.png and <stem>-512.png siblings, which must exist beside it
+  // (src/web/app-icon.ts).
   ICON_NAME: NonEmpty({ default: 'icon.png' }),
   // Composite the app icon onto share-link Open Graph images.
   WATERMARK_ENABLED: Type.Boolean({ default: false }),

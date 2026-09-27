@@ -2,8 +2,12 @@ import type { Page } from '@playwright/test';
 
 export const E2E_PASSWORD = 'Password123!';
 
-/** playwright.config.ts `baseURL`: the origin every page is served from. */
-export const APP_ORIGIN = 'http://localhost:3000';
+/**
+ * playwright.config.ts `baseURL`: the origin every page is served from. The
+ * port is the server's own `PORT` (src/config.ts; the webServer inherits the
+ * environment), so a worktree can run the specs beside another on :3000.
+ */
+export const APP_ORIGIN = `http://localhost:${process.env.PORT ?? '3000'}`;
 
 /**
  * Headers for a POST made through `page.request` (the API context), which,

@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import { appIconFile } from '../app-icon';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
 import type { ViewContext } from '../view-context';
@@ -103,7 +104,12 @@ export function Layout({
         <meta property="og:site_name" content={ctx.appName} />
 
         <link rel="icon" href={`/favicon.ico${v}`} sizes="48x48" />
-        <link rel="apple-touch-icon" href={`/assets/${ctx.iconName}${v}`} />
+        {/* iOS scales it to 180 px; Firefox also reads it as the site icon
+            on every cold load, so never the 1000 px ICON_NAME. */}
+        <link
+          rel="apple-touch-icon"
+          href={`/assets/${appIconFile(ctx.iconName, 192)}${v}`}
+        />
 
         <meta name="htmx-config" content={JSON.stringify(HTMX_CONFIG)} />
 

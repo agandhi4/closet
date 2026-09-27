@@ -71,14 +71,16 @@ function startPush() {
     .catch((error) => console.warn('[pwa] push sync failed', error));
 }
 
-// The <pwa-install> dialog (@khmyznikov/pwa-install, 100 KB) shows itself
-// wherever it is mounted and can install, and mounting it costs the bundle,
-// /manifest.json and the 45 KB icon. So only a load that can offer an
-// install pays for it: never the installed app (the caller checks), in
-// Chromium only once the browser offers installing (beforeinstallprompt:
-// installable and not installed yet), and elsewhere only where the element
-// has instructions to give (manualInstallPlatform). No screenshots in the
-// dialog (issue #4: the household's phones already have the app).
+// The <pwa-install> dialog (@khmyznikov/pwa-install 0.7, 160 KB, 45 KB
+// compressed) shows itself wherever it is mounted and can install, and
+// mounting it costs the bundle, /manifest.json (once: 0.5 read it again when
+// handed the prompt event) and the manifest's first icon (192 px, 5 KB). So
+// only a load that can offer an install pays for it: never the installed app
+// (the caller checks), in Chromium only once the browser offers installing
+// (beforeinstallprompt: installable and not installed yet), and elsewhere
+// only where the element has instructions to give (manualInstallPlatform).
+// No screenshots in the dialog (issue #4: the household's phones already
+// have the app).
 // Mounted once per document on <html>, outside the body htmx swaps: in the
 // body every navigation re-mounted it, and every mount fetched the manifest.
 function offerInstall() {

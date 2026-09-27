@@ -85,7 +85,7 @@ The token acts as you, shares included: a wardrobe shared with you read-only sta
 | ---------------------------------- | ------------------------------------------------------------------------------------ | ----------------------- | ----------------------------------------------------------------------------------------- |
 | `APP_NAME`                         | Display name shown in the UI and navbar                                              | `Closet`                | `My awesome Closet manager`                                                               |
 | `APP_TIMEZONE`                     | The household's IANA time zone: what "today" is on the calendar and which week opens by default | `America/New_York` | `Europe/Berlin`                                                                   |
-| `ICON_NAME`                        | Icon file under `public/assets/` used for the manifest, the home-screen icon, share previews and the photo watermark | `icon.png`               | `my-icon.png`                                                                             |
+| `ICON_NAME`                        | Icon file under `public/assets/` used for share previews and the photo watermark; the manifest, the install dialog and the home-screen icon use its `<name>-192.png` and `<name>-512.png` siblings, which must be there too | `icon.png`               | `my-icon.png`                                                                             |
 | `SITE_URL`                         | Public origin, used for absolute links in share previews and as the Web Push (VAPID) contact, which must be `https:` when `PWA_ENABLED=true` | `http://localhost:3000` | `https://closet.example.com`                                                              |
 | `DATA_PATH`                        | Directory for uploaded files and `app.log`                                           | `./data`                | `./closet-data`                                                                           |
 | `DISABLE_REGISTRATION`             | Disallows user sign ups when true                                                    | `false`                 | `true`                                                                                    |
@@ -167,7 +167,7 @@ npm run test:all        # both Vitest tiers in one run
 npm run test:e2e        # build, then Playwright end-to-end
 npm run test:cov        # both Vitest tiers with v8 coverage (coverage/)
 npm run test:load       # autocannon load test, see below
-npm run generate:icons  # regenerate public/assets/icon.png and favicon.ico from icon.svg
+npm run generate:icons  # regenerate public/assets/icon.png, icon-192.png, icon-512.png and favicon.ico from icon.svg
 npm run check           # format, lint, types, unit + integration in parallel (the pre-commit hook)
 npm run verify:push     # build + Chromium Playwright (the pre-push hook, for a push to main; PRs are verified by CI)
 npm run maintenance:reconcile [-- --dry-run] [--force]

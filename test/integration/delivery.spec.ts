@@ -133,6 +133,14 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(imports.sortablejs).toMatch(/^\/vendor\/sortable\.min\.js\?v=/);
     });
 
+    // Issue #48: Firefox fetches it as the site icon on every cold load,
+    // and iOS shows it at 180 px, so it is never the 1000 px icon.png.
+    it('names the 192 px icon as the apple-touch-icon', () => {
+      expect(html).toMatch(
+        /<link rel="apple-touch-icon" href="\/assets\/icon-192\.png\?v=[^"]+"/,
+      );
+    });
+
     it('has one htmx-config meta and no viewport-fit', () => {
       const metas: string[] =
         html.match(/<meta\s+name="htmx-config"[^>]*>/g) ?? [];

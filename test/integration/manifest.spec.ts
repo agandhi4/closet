@@ -20,7 +20,17 @@ describe('GET /manifest.json', () => {
     const manifest = res.json();
     expect(manifest.name).toBe('Household Closet');
     expect(manifest.short_name).toBe('Household Closet');
-    expect(manifest.icons[0].src).toBe('/assets/icon.png');
+    // Issue #48: the small rasters, smallest first (<pwa-install> shows the
+    // first); the 1000 px icon.png is for link previews only.
+    expect(
+      manifest.icons.map((icon: { src: string; sizes: string }) => [
+        icon.src,
+        icon.sizes,
+      ]),
+    ).toEqual([
+      ['/assets/icon-192.png', '192x192'],
+      ['/assets/icon-512.png', '512x512'],
+    ]);
     expect(manifest.start_url).toBe('/wardrobe');
     // Issue #4: the install dialogs show none, so none are fetched.
     expect(manifest).not.toHaveProperty('screenshots');

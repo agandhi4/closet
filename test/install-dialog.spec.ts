@@ -36,13 +36,21 @@ test.describe('install dialog', () => {
   const PIXEL = devices['Pixel 5'];
   const DESKTOP_FIREFOX = devices['Desktop Firefox'];
 
-  /** Safari on iPhone: no beforeinstallprompt; `standalone` as iOS sets it. */
+  /**
+   * Safari on iPhone: no beforeinstallprompt; `standalone` as iOS sets it.
+   * pwa-install 0.7 tells an Apple phone by "Mac" in the user agent plus
+   * more than two touch points (a real iPhone reports 5); Chromium's touch
+   * emulation reports 1.
+   */
   async function actAsIPhoneSafari(page: Page, standalone: boolean) {
     await page.addInitScript((standalone) => {
       delete (window as { BeforeInstallPromptEvent?: unknown })
         .BeforeInstallPromptEvent;
       Object.defineProperty(Navigator.prototype, 'platform', {
         get: () => 'iPhone',
+      });
+      Object.defineProperty(Navigator.prototype, 'maxTouchPoints', {
+        get: () => 5,
       });
       Object.defineProperty(Navigator.prototype, 'standalone', {
         get: () => standalone,
@@ -80,6 +88,20 @@ test.describe('install dialog', () => {
   }
 
   /**
+   * How each read of /manifest.json was made: `fetch` by a script (the
+   * dialog), `manifest` by the browser itself.
+   */
+  function recordManifestReads(context: BrowserContext): string[] {
+    const types: string[] = [];
+    context.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/manifest.json') {
+        types.push(request.resourceType());
+      }
+    });
+    return types;
+  }
+
+  /**
    * A cold load of /wardrobe: nothing cached, the worker installing (and
    * precaching) during it. Returns once the worker is active and a lazy
    * import would have had time to start.
@@ -94,7 +116,7 @@ test.describe('install dialog', () => {
     expect(paths.filter((path) => path.startsWith('/assets/'))).toEqual([]);
     expect(paths.filter((path) => path.includes('pwa-install'))).toEqual([]);
     // The browser may read the manifest itself; the dialog would read it
-    // again (twice, in fact).
+    // again.
     expect(
       paths.filter((path) => path === '/manifest.json').length,
     ).toBeLessThanOrEqual(1);
@@ -174,6 +196,7 @@ test.describe('install dialog', () => {
     }) => {
       await signIn(page, 'install-chrome');
       const paths = recordPaths(context);
+      const manifestReads = recordManifestReads(context);
       await page.goto('/wardrobe');
       await page.evaluate(() => navigator.serviceWorker.ready);
       // Nothing is loaded until Chrome says the app can be installed.
@@ -207,6 +230,18 @@ test.describe('install dialog', () => {
         'yes',
       );
       expect(paths.filter((path) => path.includes('screenshots'))).toEqual([]);
+      // Issue #48: 0.5.8 initialized again when handed the prompt event and
+      // fetched the manifest twice. The browser's own read is apart: the
+      // element's getInstalledRelatedApps() makes headless Chromium read it
+      // (Chrome offering the install has read it already).
+      expect(manifestReads.filter((type) => type === 'fetch')).toHaveLength(1);
+      expect(
+        manifestReads.filter((type) => type === 'manifest').length,
+      ).toBeLessThanOrEqual(1);
+      // The manifest's first icon, never the 1000 px one.
+      expect(paths.filter((path) => path.startsWith('/assets/'))).toEqual([
+        '/assets/icon-192.png',
+      ]);
     });
   });
 

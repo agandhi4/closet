@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseEnv } from 'node:util';
+import { APP_ORIGIN } from './test/support/e2e-session';
 
 // The committed .env's public defaults (APP_NAME) for the specs, under
 // whatever the environment sets, as the server reads them (src/config.ts).
@@ -36,8 +37,9 @@ export default defineConfig({
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    /* Base URL to use in actions like `await page.goto('')`. */
-    baseURL: 'http://localhost:3000',
+    /* Base URL to use in actions like `await page.goto('')`: :3000 unless
+     * PORT names another, which the webServer then listens on. */
+    baseURL: APP_ORIGIN,
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -81,14 +83,14 @@ export default defineConfig({
     // },
   ],
 
-  /* Outside CI a server already listening on :3000 is reused instead (a
+  /* Outside CI a server already listening on the port is reused instead (a
    * start:dev or start:prod one runs the real model on uploads). */
   webServer: {
     // Serves the existing build (the npm scripts test:e2e and verify:push,
     // and CI, build first) with background removal stubbed: an upload's
     // cutout arrives 3 s later without the model (test/support/test-server.ts).
     command: 'npm run start:test',
-    url: 'http://localhost:3000/healthz',
+    url: `${APP_ORIGIN}/healthz`,
     reuseExistingServer: !process.env.CI,
     stderr: 'pipe',
   },

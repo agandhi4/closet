@@ -1,6 +1,11 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
-import { E2E_PASSWORD, signIn, signUpHeaders } from './support/e2e-session';
+import {
+  APP_ORIGIN,
+  E2E_PASSWORD,
+  signIn,
+  signUpHeaders,
+} from './support/e2e-session';
 import {
   ageCachedPage,
   cachedPaths,
@@ -125,7 +130,7 @@ test.describe('stale-while-revalidate tab roots', () => {
 
     // The second account, registered outside this browser.
     const api = await playwright.request.newContext({
-      baseURL: 'http://localhost:3000',
+      baseURL: APP_ORIGIN,
     });
     const second = `swr-second-${Date.now()}@example.com`;
     const registered = await api.post('/auth/register', {
