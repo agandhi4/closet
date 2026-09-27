@@ -1,6 +1,13 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
-import { userDevice } from '../../db/schema';
+import { pushReminder, userDevice } from '../../db/schema';
+import type { IsoDate } from '../calendar/calendar-date';
+import type {
+  DueReminder,
+  MinuteOfDay,
+  ReminderDevice,
+  ReminderKind,
+} from '../../push/reminders';
 
 /**
  * user_device: one row per browser push subscription, keyed by its endpoint
@@ -24,7 +31,9 @@ export interface DeviceRow {
  * Stores the subscription for this user, keyed by its endpoint: a browser
  * sending it again (every signed-in app start), with renewed keys, or signed
  * in as another account updates the one row instead of colliding with it.
- * The endpoint belongs to whoever is signed in on that browser now.
+ * The endpoint belongs to whoever is signed in on that browser now; its
+ * reminders were the previous account's choice, so a move turns them off
+ * (reminders are opt-in per device and per person).
  */
 export async function upsertDevice(
   db: Db,
@@ -50,6 +59,9 @@ export async function upsertDevice(
         keyAuth: values.keyAuth,
         userAgent: values.userAgent,
         updatedAt: sql`now()`,
+        morningReminder: sql`case when ${userDevice.userId} = excluded.user_id then ${userDevice.morningReminder} end`,
+        eveningReminder: sql`case when ${userDevice.userId} = excluded.user_id then ${userDevice.eveningReminder} end`,
+        remindersSetAt: sql`case when ${userDevice.userId} = excluded.user_id then ${userDevice.remindersSetAt} end`,
       },
     })
     .returning({ id: userDevice.id });
@@ -74,8 +86,15 @@ export async function deleteDevice(
   return rows.length > 0;
 }
 
-/** Every device the user receives notifications on. */
-export async function devicesOf(db: Db, userId: number): Promise<DeviceRow[]> {
+/**
+ * Every device the user receives notifications on, or only those of `ids`
+ * among them (a reminder goes to the devices that chose its time).
+ */
+export async function devicesOf(
+  db: Db,
+  userId: number,
+  ids?: readonly number[],
+): Promise<DeviceRow[]> {
   // user_device_user_id_index.
   return db
     .select({
@@ -85,11 +104,137 @@ export async function devicesOf(db: Db, userId: number): Promise<DeviceRow[]> {
       keyAuth: userDevice.keyAuth,
     })
     .from(userDevice)
-    .where(eq(userDevice.userId, userId))
+    .where(
+      and(
+        eq(userDevice.userId, userId),
+        ids ? inArray(userDevice.id, [...ids]) : undefined,
+      ),
+    )
     .orderBy(userDevice.id);
 }
 
 /** Drops a device its push service reports gone (404/410). */
 export async function deleteDeviceById(db: Db, id: number): Promise<void> {
   await db.delete(userDevice).where(eq(userDevice.id, id));
+}
+
+/** A device's reminder times; null when off. */
+export interface ReminderSettings {
+  morning: MinuteOfDay | null;
+  evening: MinuteOfDay | null;
+}
+
+/**
+ * The reminders of this user's device at `endpoint` (the browser names its
+ * own subscription), or undefined when the endpoint is not one of theirs:
+ * never registered, removed, or signed in as someone else since.
+ */
+export async function findReminderSettings(
+  db: Db,
+  userId: number,
+  endpoint: string,
+): Promise<ReminderSettings | undefined> {
+  const [row] = await db
+    .select({
+      morning: userDevice.morningReminder,
+      evening: userDevice.eveningReminder,
+    })
+    .from(userDevice)
+    .where(
+      and(eq(userDevice.userId, userId), eq(userDevice.pushEndpoint, endpoint)),
+    );
+  return row;
+}
+
+/**
+ * The one writer of a device's reminders: saves both times (null turns one
+ * off) on this user's device at `endpoint`, stamped `now`, so a reminder
+ * whose time has passed today first goes out tomorrow (dueReminders). The
+ * device id when saved; undefined when the endpoint is not one of theirs.
+ */
+export async function saveReminderSettings(
+  db: Db,
+  userId: number,
+  endpoint: string,
+  settings: ReminderSettings,
+  now: Date,
+): Promise<number | undefined> {
+  const [row] = await db
+    .update(userDevice)
+    .set({
+      morningReminder: settings.morning,
+      eveningReminder: settings.evening,
+      remindersSetAt: now,
+    })
+    .where(
+      and(eq(userDevice.userId, userId), eq(userDevice.pushEndpoint, endpoint)),
+    )
+    .returning({ id: userDevice.id });
+  return row?.id;
+}
+
+/** Every device with a reminder on, for the scheduler (a household's handful: no index). */
+export function reminderDevices(db: Db): Promise<ReminderDevice[]> {
+  return db
+    .select({
+      id: userDevice.id,
+      userId: userDevice.userId,
+      morning: userDevice.morningReminder,
+      evening: userDevice.eveningReminder,
+      setAt: userDevice.remindersSetAt,
+    })
+    .from(userDevice)
+    .where(
+      or(
+        isNotNull(userDevice.morningReminder),
+        isNotNull(userDevice.eveningReminder),
+      ),
+    );
+}
+
+/**
+ * Claims the due reminders for this process to send, in one statement:
+ * each is inserted into push_reminder unless a row for its device, kind and
+ * day exists, and only the inserted ones come back. Two servers claiming
+ * the same reminder at once (an overlapping deploy) each insert; Postgres
+ * makes the second wait on the first's primary key and then skip it, so
+ * exactly one of them sends. A device deleted meanwhile fails the foreign
+ * key and takes the whole claim with it: the next minute claims the rest.
+ */
+export async function claimReminders(
+  db: Db,
+  due: readonly DueReminder[],
+  now: Date,
+): Promise<{ deviceId: number; kind: ReminderKind; day: IsoDate }[]> {
+  if (due.length === 0) return [];
+  return db
+    .insert(pushReminder)
+    .values(
+      due.map(({ deviceId, kind, day }) => ({
+        deviceId,
+        kind,
+        day,
+        claimedAt: now,
+      })),
+    )
+    .onConflictDoNothing({
+      target: [pushReminder.deviceId, pushReminder.kind, pushReminder.day],
+    })
+    .returning({
+      deviceId: pushReminder.deviceId,
+      kind: pushReminder.kind,
+      day: pushReminder.day,
+    });
+}
+
+/** Removes claims for days before `before`: they only ever guard today. */
+export async function pruneReminderClaims(
+  db: Db,
+  before: IsoDate,
+): Promise<number> {
+  const deleted = await db
+    .delete(pushReminder)
+    .where(lt(pushReminder.day, before))
+    .returning({ deviceId: pushReminder.deviceId });
+  return deleted.length;
 }

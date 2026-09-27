@@ -61,6 +61,15 @@ describe('servesStaleWhileRevalidate', () => {
     ).toBe(false);
   });
 
+  it('opens Today (/), a dock tab, network first: all of it is the day’s (#15)', () => {
+    expect(
+      servesStaleWhileRevalidate(
+        { mode: 'navigate', url: `${ORIGIN}/` },
+        ORIGIN,
+      ),
+    ).toBe(false);
+  });
+
   it('never serves another origin', () => {
     expect(
       servesStaleWhileRevalidate(

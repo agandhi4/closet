@@ -8,6 +8,7 @@ import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import { parseDestination } from '../outfits/destination';
 import { listOutfits } from '../outfits/queries';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
+import { safeReturnTo } from '../security/return-to';
 import { viewContext } from '../view-context';
 import { setEntryWorn } from '../wears/queries';
 import { parseIsoDate, parseYearMonth, todayIn } from './calendar-date';
@@ -45,6 +46,9 @@ const WornBody = Type.Union([
   Type.Object({
     week: Type.Optional(IsoDateSchema),
     worn: Type.Optional(Type.Union([Type.Literal('1'), Type.Literal('0')])),
+    // Where a plain post goes back to (Today's "Wore it"), through
+    // safeReturnTo; else the posted week.
+    returnTo: Type.Optional(Type.String({ maxLength: 2048 })),
   }),
   Type.Null(),
 ]);
@@ -227,9 +231,11 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The chip's worn pill: the entry and its wears change together
-  // (setEntryWorn). A day after today is refused (409): its chip has no
-  // pill, so only a page the installed app cached before that rule posts it.
+  // The chip's worn pill, and Today's "Wore it" and its undo (plain posts
+  // back to Today through `returnTo`): the entry and its wears change
+  // together (setEntryWorn). A day after today is refused (409): its chip
+  // has no pill, so only a page the installed app cached before that rule
+  // posts it.
   app.post(
     '/calendar/:id/worn',
     { schema: { params: EntryParams, body: WornBody } },
@@ -258,7 +264,10 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           <WornButton entryId={id} worn={outcome.worn} week={week} />,
         );
       }
-      return reply.redirect(weekUrl(week), 303);
+      return reply.redirect(
+        safeReturnTo(request.body?.returnTo, weekUrl(week)),
+        303,
+      );
     },
   );
 

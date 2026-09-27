@@ -8,7 +8,7 @@
  * from the worker (public/js/freshness.js), and says so.
  */
 
-import { SECTION_HOME } from './layout/sections';
+import { type Section, SECTION_HOME } from './layout/sections';
 
 /**
  * The account a rendered page belongs to: the signed-in user's id, absent on
@@ -41,12 +41,26 @@ export function bypassesWorker(url: { pathname: string }): boolean {
 }
 
 /**
- * The dock's tabs, where the installed app opens (the manifest's start_url is
- * /wardrobe). Exact paths without a query: a filtered wardrobe or another
- * calendar week is a place the user navigated to, and goes to the network
- * first like every other page.
+ * The sections whose home opens stale-while-revalidate: every one but
+ * Today. Today (`/`, the manifest's start_url) is all of the day's own
+ * data (the plan, the suggestions, what was worn, the weather through
+ * them), so it could only be byte-stable by loading all of it as
+ * fragments, leaving a shell with a date; and a copy opened first would
+ * put yesterday's plan and "Wear this" on screen. It is NetworkFirst like
+ * any page (the navigation preload races a cold worker), and offline the
+ * worker's last copy shows with its age (freshness.js) and its writes
+ * disabled. #15 decided it.
  */
-const TAB_ROOTS: ReadonlySet<string> = new Set(Object.values(SECTION_HOME));
+const OPENS_STALE: readonly Section[] = ['wardrobe', 'outfits', 'calendar'];
+
+/**
+ * The tab roots the worker opens from its cache. Exact paths without a
+ * query: a filtered wardrobe or another calendar week is a place the user
+ * navigated to, and goes to the network first like every other page.
+ */
+const TAB_ROOTS: ReadonlySet<string> = new Set(
+  OPENS_STALE.map((section) => SECTION_HOME[section]),
+);
 
 /**
  * Whether the worker answers this request from its cache before asking the

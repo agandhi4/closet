@@ -1,22 +1,52 @@
 import type { Child } from 'hono/jsx';
 import { t } from '../i18n';
 import type { ViewContext } from '../view-context';
-import { type Section, SECTION_HOME, sectionOf } from './sections';
+import { DOCK_TABS, type Section, SECTION_HOME, sectionOf } from './sections';
 
 /**
- * Bottom navigation (daisyUI dock). A tab is active on every page of its
- * section (sections.ts), so a garment, a filtered grid, a capsule or an
- * outfit page keeps its tab lit. Rendered by the server into the body, so a
- * boosted navigation, an htmx history restore and the service worker's
- * cached tab roots all carry the dock of the page they show. Its z-index
- * (above page content) is in main.css.
+ * Bottom navigation (daisyUI dock): a tab per section in DOCK_TABS
+ * (sections.ts). A tab is active on every page of its section, so a
+ * garment, a filtered grid, a capsule or an outfit page keeps its tab lit.
+ * Rendered by the server into the body, so a boosted navigation, an htmx
+ * history restore and the service worker's cached tab roots all carry the
+ * dock of the page they show. Its z-index (above page content) is in
+ * main.css.
  */
 export function Dock({ ctx }: { ctx: ViewContext }) {
   const active = sectionOf(ctx.path);
   return (
     <div class="dock">
-      <DockLink active={active} section="wardrobe" label={t('WARDROBE')}>
-        {/* https://cdn.hugeicons.com/icons/hanger-stroke-rounded.svg */}
+      {DOCK_TABS.map((section) => (
+        <DockLink
+          active={active}
+          section={section}
+          label={TABS[section].label()}
+        >
+          {TABS[section].icon}
+        </DockLink>
+      ))}
+    </div>
+  );
+}
+
+/** Each tab's label (read at render, from the catalog) and its icon's SVG paths. */
+const TABS: Readonly<Record<Section, { label: () => string; icon: Child }>> = {
+  today: {
+    label: () => t('today.TITLE'),
+    // Heroicons' sun, outline.
+    icon: (
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"
+      />
+    ),
+  },
+  wardrobe: {
+    label: () => t('WARDROBE'),
+    // https://cdn.hugeicons.com/icons/hanger-stroke-rounded.svg
+    icon: (
+      <>
         <path
           d="M4.12572 15.3668L10.1284 11.9903C10.7234 11.6556 11.3252 11.5 12 11.5C12.6748 11.5 13.2766 11.6556 13.8716 11.9903L19.8743 15.3668C20.5697 15.7579 21 16.4937 21 17.2916C21 18.5113 20.0113 19.5 18.7916 19.5H5.20841C3.98874 19.5 3 18.5113 3 17.2916C3 16.4937 3.43034 15.7579 4.12572 15.3668Z"
           stroke-width="1.5"
@@ -28,24 +58,30 @@ export function Dock({ ctx }: { ctx: ViewContext }) {
           stroke-width="1.5"
           stroke-linecap="round"
         ></path>
-      </DockLink>
-      <DockLink active={active} section="outfits" label={t('OUTFITS')}>
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"
-        />
-      </DockLink>
-      <DockLink active={active} section="calendar" label={t('CALENDAR')}>
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z"
-        />
-      </DockLink>
-    </div>
-  );
-}
+      </>
+    ),
+  },
+  outfits: {
+    label: () => t('OUTFITS'),
+    icon: (
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"
+      />
+    ),
+  },
+  calendar: {
+    label: () => t('CALENDAR'),
+    icon: (
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z"
+      />
+    ),
+  },
+};
 
 function DockLink(props: {
   /** The section of the page on screen, if any. */

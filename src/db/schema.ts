@@ -19,6 +19,13 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { CUTOUT_STATUSES } from '../cutout/state';
+import {
+  type MinuteOfDay,
+  REMINDER_KINDS,
+  REMINDER_STEP_MINUTES,
+  REMINDER_WINDOWS,
+  type ReminderKind,
+} from '../push/reminders';
 import type { Forecast } from '../weather/forecast';
 import {
   DEFAULT_TEMPERATURE_UNIT,
@@ -154,9 +161,30 @@ export const userDevice = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    // This device's push reminders (#15, src/push/reminders.ts): the minute
+    // of the day in APP_TIMEZONE each is sent at, null when off (opt-in,
+    // per device). `reminders_set_at` is when they were last saved: a
+    // reminder whose time today came before it waits for tomorrow.
+    // Cleared when the device moves to another account (upsertDevice).
+    morningReminder: smallint('morning_reminder').$type<MinuteOfDay>(),
+    eveningReminder: smallint('evening_reminder').$type<MinuteOfDay>(),
+    remindersSetAt: timestamp('reminders_set_at', { withTimezone: true }),
   },
   (table) => [
     index('user_device_user_id_index').on(table.userId),
+    ...REMINDER_KINDS.map((kind) => {
+      const column =
+        kind === 'morning' ? table.morningReminder : table.eveningReminder;
+      const { from, to } = REMINDER_WINDOWS[kind];
+      return check(
+        `user_device_${kind}_reminder_check`,
+        sql`${column} between ${sql.raw(String(from))} and ${sql.raw(String(to))} and ${column} % ${sql.raw(String(REMINDER_STEP_MINUTES))} = 0`,
+      );
+    }),
+    check(
+      'user_device_reminders_set_at_check',
+      sql`(${table.morningReminder} is null and ${table.eveningReminder} is null) or ${table.remindersSetAt} is not null`,
+    ),
     foreignKey({
       name: 'user_device_user_id_foreign',
       columns: [table.userId],
@@ -165,6 +193,43 @@ export const userDevice = pgTable(
       .onUpdate('cascade')
       .onDelete('cascade'),
     unique('user_device_push_endpoint_unique').on(table.pushEndpoint),
+  ],
+);
+
+// A push reminder claimed for sending (#15): one row per device, kind and
+// household day, inserted by the scheduler before it sends
+// (claimReminders, src/web/push/queries.ts). The primary key is what makes
+// a reminder go out once: two servers overlapping during a deploy both find
+// it due, both insert, and only the insert that lands (ON CONFLICT DO
+// NOTHING) sends. Claims of days before yesterday are pruned nightly
+// (server.ts); the device's deletion takes its rows.
+export const pushReminder = pgTable(
+  'push_reminder',
+  {
+    deviceId: integer('device_id').notNull(),
+    kind: text('kind').$type<ReminderKind>().notNull(),
+    day: date('day', { mode: 'string' }).notNull(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // Leads with device_id: also the device foreign key's index.
+    primaryKey({
+      name: 'push_reminder_pkey',
+      columns: [table.deviceId, table.kind, table.day],
+    }),
+    check(
+      'push_reminder_kind_check',
+      sql`${table.kind} in (${sqlList(REMINDER_KINDS)})`,
+    ),
+    foreignKey({
+      name: 'push_reminder_device_id_foreign',
+      columns: [table.deviceId],
+      foreignColumns: [userDevice.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
   ],
 );
 

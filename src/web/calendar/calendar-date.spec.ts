@@ -147,6 +147,19 @@ describe('calendar dates', () => {
         ).toBe(day);
       }
     });
+
+    it('takes minutes (the push reminders), and a skipped wall time comes out an hour off', () => {
+      expect(
+        instantAt('2026-07-01', 7, 'America/New_York', 30).toISOString(),
+      ).toBe('2026-07-01T11:30:00.000Z');
+      expect(
+        instantAt('2026-03-08', 7, 'America/New_York', 45).toISOString(),
+      ).toBe('2026-03-08T11:45:00.000Z');
+      // 02:30 does not exist on 8 March 2026 in New York (02:00 -> 03:00).
+      expect(
+        instantAt('2026-03-08', 2, 'America/New_York', 30).toISOString(),
+      ).toBe('2026-03-08T06:30:00.000Z');
+    });
   });
 
   describe('arithmetic', () => {

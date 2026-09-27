@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
-import { createECDH, randomBytes, randomUUID } from 'node:crypto';
 import { signIn } from './support/e2e-session';
+import { fakeSubscription, stubPushManager } from './support/push-stub';
 
 /**
  * The profile page's notification controls (<push-settings>, public/js/
@@ -9,8 +9,8 @@ import { signIn } from './support/e2e-session';
  *
  * Headless Chromium has no push service to subscribe with, so where a
  * subscription is needed the page's PushManager is replaced by a stand-in
- * holding a subscription with real key sizes; everything after it (the
- * server's upsert, the sender, web-push's encryption) is real. The test
+ * (test/support/push-stub.ts); everything after it (the server's upsert,
+ * the reminders, the sender, web-push's encryption) is real. The test
  * send's endpoint is an unresolvable name under push.apple.com (subscribe
  * only accepts push-service hosts), so delivery fails at DNS and the answer
  * says so. A real delivery is out of scope.
@@ -18,53 +18,6 @@ import { signIn } from './support/e2e-session';
  * Needs a server started with PWA_ENABLED=true (and VAPID keys), as
  * test/pwa.spec.ts does; Chromium only.
  */
-
-interface FakeSubscription {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-}
-
-function fakeSubscription(): FakeSubscription {
-  return {
-    // Nothing listens on port 1: the server's send fails at connect.
-    // Allowed by the push-service list (*.push.apple.com) but a name that does
-    // not resolve: the server's send fails at DNS, so nothing reaches Apple.
-    endpoint: `https://closet-e2e-${randomUUID().slice(0, 8)}.invalid-test.push.apple.com/push/${randomUUID()}`,
-    keys: {
-      p256dh: createECDH('prime256v1').generateKeys().toString('base64url'),
-      auth: randomBytes(16).toString('base64url'),
-    },
-  };
-}
-
-/** Replaces PushManager with a stand-in, before any page script runs. */
-async function stubPushManager(
-  page: Page,
-  subscription: FakeSubscription,
-  subscribed: boolean,
-) {
-  await page.addInitScript(
-    ({ subscription, subscribed }) => {
-      const make = () => ({
-        endpoint: subscription.endpoint,
-        toJSON: () => subscription,
-        unsubscribe: () => {
-          current = null;
-          return Promise.resolve(true);
-        },
-      });
-      let current: ReturnType<typeof make> | null = subscribed ? make() : null;
-      PushManager.prototype.getSubscription = function () {
-        return Promise.resolve(current as unknown as PushSubscription | null);
-      };
-      PushManager.prototype.subscribe = function () {
-        current = make();
-        return Promise.resolve(current as unknown as PushSubscription);
-      };
-    },
-    { subscription, subscribed },
-  );
-}
 
 // The full Chromium build in its new headless mode, not the default headless
 // shell: the shell answers Notification.permission 'denied' whatever
@@ -139,6 +92,62 @@ test.describe('notification settings on the profile page', () => {
     await expect(page.locator('#push-test-result')).toContainText(
       'No device has notifications on.',
     );
+  });
+
+  test("once on, sets this device's reminders, saved on every change (#15)", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['notifications']);
+    // Subscribed already: the stand-in's state lives in the document, so a
+    // subscription made by a tap would be gone after the reload below.
+    await stubPushManager(page, fakeSubscription(), true);
+    await page.goto('/auth/profile');
+    await expect(shown(page, 'on')).toBeVisible();
+
+    const reminders = page.locator('form#push-reminders');
+    await expect(reminders).toBeVisible();
+    const morning = reminders.getByRole('checkbox', {
+      name: "Morning: today's outfit",
+    });
+    await expect(morning).not.toBeChecked();
+    const save = () =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/push/reminders' &&
+          response.request().method() === 'POST',
+      );
+    let saved = save();
+    await morning.check();
+    expect((await saved).status()).toBe(200);
+    await expect(reminders.getByText('Saved.')).toBeVisible();
+    saved = save();
+    await reminders
+      .getByLabel('Evening: what did you wear?: Time')
+      .selectOption('22:00');
+    await saved;
+    saved = save();
+    await reminders
+      .getByRole('checkbox', { name: 'Evening: what did you wear?' })
+      .check();
+    await saved;
+
+    // A reload asks the server again: the device's reminders are kept.
+    await page.reload();
+    const again = page.locator('form#push-reminders');
+    await expect(
+      again.getByRole('checkbox', { name: "Morning: today's outfit" }),
+    ).toBeChecked();
+    await expect(
+      again.getByRole('checkbox', { name: 'Evening: what did you wear?' }),
+    ).toBeChecked();
+    await expect(again.locator('select[name="evening"]')).toHaveValue(
+      String(22 * 60),
+    );
+
+    // Turned off, the reminders go with the device.
+    await page.getByRole('button', { name: 'Turn off on this device' }).click();
+    await expect(page.locator('form#push-reminders')).toBeHidden();
   });
 
   test('shows an existing subscription as on after confirming it with the server', async ({

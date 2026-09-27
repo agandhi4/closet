@@ -145,6 +145,7 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
   const app = (url: string): PageRoute => ({ url, public: false });
   const open = (url: string): PageRoute => ({ url, public: true });
   return [
+    app('/'),
     app('/wardrobe'),
     app('/wardrobe?archived=true'),
     app('/wardrobe/new'),

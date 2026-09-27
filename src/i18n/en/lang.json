@@ -947,5 +947,37 @@
       "none": "Other"
     },
     "COUNTING": "Counting outfits…"
+  },
+  "today": {
+    "TITLE": "Today",
+    "OFFLINE": "Offline: this is Today from your last visit. Wearing an outfit needs a connection.",
+    "REFRESH": "Refresh",
+    "REFRESH_LABEL": "Show other ideas",
+    "STRIP_LABEL": "Ideas for today, swipe for more",
+    "MORE_IDEAS": "More ideas",
+    "WEAR_THIS": "Wear this",
+    "WORE_IT": "Wore it",
+    "WORN_TODAY": "Worn today",
+    "UNDO": "Undo",
+    "CHANGE": "Change",
+    "PLAN_ANOTHER": "Plan another outfit",
+    "push": {
+      "MORNING_TITLE": "Today's outfit",
+      "EVENING_TITLE": "What did you wear?",
+      "PLANNED": "{occasion}: {outfit}",
+      "IDEA": "Idea: {outfit}",
+      "MORNING_NOTHING": "Nothing planned yet. Open Today for ideas.",
+      "EVENING_PLANNED": "Planned: {outfits}. Tap to mark what you wore.",
+      "EVENING_NOTHING": "Tap to note today's outfit."
+    },
+    "reminders": {
+      "HEADING": "Reminders on this device",
+      "MORNING": "Morning: today's outfit",
+      "EVENING": "Evening: what did you wear?",
+      "EVENING_HINT": "Not sent once something is marked worn that day.",
+      "TIME": "Time",
+      "SAVED": "Saved. A time already past today starts tomorrow.",
+      "NOT_REGISTERED": "Turn notifications on for this device to choose reminders."
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { addDays, todayIn } from '../web/calendar/calendar-date';
+import { addDays, instantAt, todayIn } from '../web/calendar/calendar-date';
 import type { Logger } from '../logger';
 
 /**
@@ -65,47 +65,11 @@ export function scheduleNightly({
 /** The first instant after `now` at `hour`:00 on a wall clock in `timeZone`. */
 export function nextRunAt(now: Date, timeZone: string, hour: number): Date {
   const today = todayIn(timeZone, now);
-  const candidate = zonedTime(today, hour, timeZone);
+  // An hour a DST change skips comes out an hour off (instantAt); 03:00
+  // exists on every day in the US and EU zones (their changes skip
+  // 02:00-03:00).
+  const candidate = instantAt(today, hour, timeZone);
   return candidate > now
     ? candidate
-    : zonedTime(addDays(today, 1), hour, timeZone);
-}
-
-// `date` at `hour`:00 in `timeZone`. The offset is read at the UTC guess and
-// again at the result, which settles it on either side of a DST change. An
-// hour a change skips has no answer and comes out an hour off; 03:00 exists
-// on every day in the US and EU zones (their changes skip 02:00-03:00).
-function zonedTime(date: string, hour: number, timeZone: string): Date {
-  const [year, month, day] = date.split('-').map(Number);
-  const guess = Date.UTC(year, month - 1, day, hour);
-  const first = guess - offsetMs(timeZone, guess);
-  const offset = offsetMs(timeZone, first);
-  return new Date(guess - offset);
-}
-
-// How far `timeZone`'s wall clock is ahead of UTC at `instant`.
-function offsetMs(timeZone: string, instant: number): number {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      hourCycle: 'h23',
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-      second: 'numeric',
-    })
-      .formatToParts(instant)
-      .map(({ type, value }) => [type, Number(value)]),
-  ) as Record<Intl.DateTimeFormatPartTypes, number>;
-  const wall = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  );
-  return wall - (instant - (instant % 1000));
+    : instantAt(addDays(today, 1), hour, timeZone);
 }

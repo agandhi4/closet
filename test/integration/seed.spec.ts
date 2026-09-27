@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   capsule,
   capsuleGarment,
@@ -510,6 +510,32 @@ describe('seed personas', () => {
       headers: { cookie },
     });
     expect(tag.statusCode).toBe(200);
+  });
+
+  it("opens Theo's Today at the anchor half lived: the date planned tonight, ideas for the day (#15)", async () => {
+    // The anchor's afternoon, as the seed ran it.
+    vi.useFakeTimers({
+      toFake: ['Date'],
+      now: new Date('2026-09-26T16:00:00Z'),
+    });
+    try {
+      const cookie = await t.login(EMAILS[0], PASSWORD);
+      const today = unescapeHtml(
+        (await t.inject({ method: 'GET', url: '/', headers: { cookie } })).body,
+      );
+      expect(
+        [
+          ...today.matchAll(/data-today-row="(\w+)" data-occasion="([\w-]+)"/g),
+        ].map((m) => [m[1], m[2]]),
+      ).toEqual([
+        ['ideas', 'all-day'],
+        ['planned', 'evening'],
+      ]);
+      expect(today).toContain('Summer date');
+      expect(today.match(/data-idea="/g)).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('--reset rebuilds the same persona', async () => {

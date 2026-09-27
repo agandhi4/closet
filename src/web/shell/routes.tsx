@@ -7,20 +7,17 @@ import { webManifest } from './manifest';
 import { OfflinePage } from './offline-page';
 
 /**
- * The app shell outside any feature: the entry redirect, the PWA's manifest,
- * heartbeat and offline fallback, the about page. Every route but `/` is
- * public: the browser fetches the manifest without credentials, the heartbeat
- * must answer anyone, and the service worker may install before sign-in.
+ * The app shell outside any feature: the PWA's manifest, heartbeat and
+ * offline fallback, the about page. Every route is public: the browser
+ * fetches the manifest without credentials, the heartbeat must answer
+ * anyone, and the service worker may install before sign-in. `/` is Today
+ * (src/web/today).
  */
 export const shellRoutes: FastifyPluginCallback<WebOptions> = (
   app,
   { config },
   done,
 ) => {
-  // There is no landing page: the wardrobe is the app. Protected, so a
-  // signed-out visitor goes straight to the login page.
-  app.get('/', async (_request, reply) => reply.redirect('/wardrobe', 302));
-
   // no-cache (revalidate, like sw.js): the installed app must pick up
   // APP_NAME/ICON_NAME changes on its next check. A static path
   // (static-prefixes.ts): no session, no page context.

@@ -19,6 +19,7 @@ import { createErrorHandler, HttpError } from './web/errors';
 import { createPhotos, type Photos, photosConfig } from './web/files/photos';
 import { loggableUrl } from './web/loggable-url';
 import { webPlugin } from './web/plugin';
+import { createPushSender, type PushSender } from './web/push/sender';
 import {
   createOutboundFetcher,
   type OutboundFetcherOptions,
@@ -54,6 +55,14 @@ export interface ClosetApp {
    * the app stops it.
    */
   cutouts: CutoutQueue;
+  /**
+   * The Web Push sender, when PWA_ENABLED: the profile's test send, and the
+   * reminders server.ts schedules (createApp never does, so the harness and
+   * the CLIs send nothing on their own).
+   */
+  push: PushSender | undefined;
+  /** The weather, when WEATHER_ENABLED: the reminders' forecast line. */
+  weather: WeatherService | undefined;
 }
 
 export interface AppOptions {
@@ -127,6 +136,18 @@ export async function createApp(
     ...options.outboundFetch,
   });
   const weather = createWeather(config, logger, db, options.weather);
+  // loadConfig requires both keys when PWA_ENABLED; the sender checks them
+  // (and SITE_URL as the https subject) here, so a bad pair fails the boot.
+  const vapid = config.PWA_ENABLED
+    ? {
+        subject: config.SITE_URL,
+        publicKey: config.PUBLIC_VAPID_KEY!,
+        privateKey: config.PRIVATE_VAPID_KEY!,
+      }
+    : undefined;
+  const push =
+    vapid &&
+    createPushSender({ db, logger: logger.child({ context: 'Push' }), vapid });
 
   const app = Fastify({
     trustProxy,
@@ -242,15 +263,7 @@ export async function createApp(
       iconName: config.ICON_NAME,
       timeZone: config.APP_TIMEZONE,
       registrationDisabled: config.DISABLE_REGISTRATION,
-      // loadConfig requires both keys when PWA_ENABLED; the sender checks
-      // them (and SITE_URL as the https subject) at boot.
-      vapid: config.PWA_ENABLED
-        ? {
-            subject: config.SITE_URL,
-            publicKey: config.PUBLIC_VAPID_KEY!,
-            privateKey: config.PRIVATE_VAPID_KEY!,
-          }
-        : undefined,
+      vapid,
     },
     logger: web,
     db,
@@ -260,9 +273,10 @@ export async function createApp(
     fetcher,
     weather,
     mcpLogger: logger.child({ context: 'Mcp' }),
+    push,
   });
 
-  return { app, db, photos, cutouts };
+  return { app, db, photos, cutouts, push, weather };
 }
 
 /**

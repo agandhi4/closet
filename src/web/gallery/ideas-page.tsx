@@ -368,8 +368,11 @@ function IdeaCard(props: {
   );
 }
 
-/** Why this idea: how it meets the weather and the occasion, and what the rotation brought back. */
-function Reasons({
+/**
+ * Why this idea: how it meets the weather and the occasion, and what the
+ * rotation brought back. Today's cards show it too (src/web/today).
+ */
+export function Reasons({
   idea,
   weather,
 }: {

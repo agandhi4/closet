@@ -19,8 +19,9 @@ describe('web layer', () => {
   describe('session hook on a protected route (GET /)', () => {
     it('lets a signed-in request through to the handler', async () => {
       const res = await t.inject({ method: 'GET', url: '/' });
-      expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe('/wardrobe');
+      // Today (#15).
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toMatch(/^text\/html/);
     });
 
     it('redirects an anonymous page navigation to the login page, without warn logs', async () => {

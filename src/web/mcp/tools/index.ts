@@ -9,6 +9,7 @@ import { outfitTools } from './outfits';
 import { planTools } from './plans';
 import { sharingTools } from './sharing';
 import { shoppingTools } from './shopping';
+import { todayTools } from './today';
 import { weatherTools } from './weather';
 
 /**
@@ -21,7 +22,8 @@ import { weatherTools } from './weather';
  * the shopping list, candidates, comparing plans); "Bought it" stays the
  * owner's, in the app. The outfit gallery (#9) is tools/gallery.ts, with
  * "Goes with my closet" for a wishlist item (#18b, goes_with_closet),
- * insights (#17) tools/insights.ts's wardrobe_stats.
+ * insights (#17) tools/insights.ts's wardrobe_stats, Today (#15)
+ * tools/today.ts.
  */
 export function mcpTools(options: {
   weather: boolean;
@@ -31,6 +33,7 @@ export function mcpTools(options: {
     ...capsuleTools,
     ...outfitTools,
     ...galleryTools,
+    ...todayTools,
     ...calendarTools,
     ...insightTools,
     ...(options.weather ? weatherTools : []),

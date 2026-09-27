@@ -326,5 +326,38 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(worn?.daysUnworn).toBe(0);
       expect((await get('/outfits/ideas')).statusCode).toBe(200);
     });
+
+    it('Today (#15) is today: its plan, and "Wear this" plans and wears today', async () => {
+      const { outfitId } = await newOutfit(`Today ${at}`);
+      const entry = await plan(outfitId, today);
+      await plan(outfitId, tomorrow);
+      const page = unescapeHtml((await get('/')).body);
+      expect(page).toContain(`data-entry="${entry}"`);
+      expect(page).toContain(`/calendar/plan?for=day:${today}`);
+
+      const [top, bottom] = await Promise.all(
+        (['tops', 'bottoms'] as const).map((category) =>
+          createGarment(t, {
+            name: `Wear ${category} ${at}`,
+            category,
+            cookie,
+          }),
+        ),
+      );
+      const wear = await post('/today/wear', {
+        garmentId: [String(top), String(bottom)],
+        occasion: 'evening',
+      });
+      expect(wear.statusCode).toBe(303);
+      expect(await wearDays(top)).toEqual([{ day: today }]);
+
+      const token = await createAccessToken(t, {
+        cookie,
+        name: `Today tool ${at}`,
+      });
+      expect(
+        await tool<{ day: IsoDate; wornToday: boolean }>(t, token, 'get_today'),
+      ).toMatchObject({ day: today, wornToday: true });
+    });
   });
 });

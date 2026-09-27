@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SECTION_HOME, sectionOf } from './sections';
+import { DOCK_TABS, SECTION_HOME, sectionOf } from './sections';
 
 describe('sectionOf', () => {
   it.each([
@@ -22,13 +22,16 @@ describe('sectionOf', () => {
     ['/outfits/7/edit?returnTo=/calendar', 'outfits'],
     ['/calendar', 'calendar'],
     ['/calendar?week=2026-09-20&calMonth=2026-10', 'calendar'],
+    ['/', 'today'],
+    ['/?from=push', 'today'],
   ])('puts %s in %s', (path, section) => {
     expect(sectionOf(path)).toBe(section);
   });
 
   it.each([
-    '/',
     '',
+    '//',
+    '/today/ideas',
     '/auth/profile',
     '/auth/login',
     '/wardrobe-share/manage',
@@ -52,5 +55,11 @@ describe('sectionOf', () => {
     for (const [section, home] of Object.entries(SECTION_HOME)) {
       expect(sectionOf(home)).toBe(section);
     }
+  });
+
+  it('docks sections once each, every one with a home', () => {
+    expect(new Set(DOCK_TABS).size).toBe(DOCK_TABS.length);
+    for (const section of DOCK_TABS)
+      expect(SECTION_HOME[section]).toMatch(/^\//);
   });
 });

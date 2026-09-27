@@ -96,10 +96,18 @@ describe('user_device keys become columns (0003_user_device_push)', () => {
     );
     expect(columns).toEqual([
       { name: 'created_at', type: 'timestamp with time zone', nullable: 'NO' },
+      // The reminders (#15, 0019_push_reminders).
+      { name: 'evening_reminder', type: 'smallint', nullable: 'YES' },
       { name: 'id', type: 'integer', nullable: 'NO' },
       { name: 'key_auth', type: 'text', nullable: 'NO' },
       { name: 'key_p256dh', type: 'text', nullable: 'NO' },
+      { name: 'morning_reminder', type: 'smallint', nullable: 'YES' },
       { name: 'push_endpoint', type: 'text', nullable: 'NO' },
+      {
+        name: 'reminders_set_at',
+        type: 'timestamp with time zone',
+        nullable: 'YES',
+      },
       { name: 'updated_at', type: 'timestamp with time zone', nullable: 'NO' },
       { name: 'user_agent', type: 'text', nullable: 'YES' },
       { name: 'user_id', type: 'integer', nullable: 'NO' },

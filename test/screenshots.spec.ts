@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { expect, type Page, test } from '@playwright/test';
 import { signUpHeaders } from './support/e2e-session';
+import { fakeSubscription, stubPushManager } from './support/push-stub';
 
 /**
  * Phone-width (390 px) screenshots of the key pages with the seed personas
@@ -114,7 +115,7 @@ test('demo: Theo, capsules', async ({ page }) => {
 
 test('demo: Theo, wears and washes', async ({ page }) => {
   await signInAs(page, 'demo');
-  // Saturday night's hamper: the week's wears since Sunday's laundry.
+  // Saturday's hamper: the week's wears since Sunday's laundry.
   await shot(page, '20-demo-laundry', '/laundry');
   await expect(page.getByText('Needs a wash').first()).toBeVisible();
   // The x3 white tees: worn this week (a search also finds shirts whose
@@ -284,9 +285,47 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '45-fresh-shopping-list', '/wardrobe/shopping');
   await shot(page, '49-fresh-ideas', '/outfits/ideas');
   await shot(page, '54-fresh-insights', '/wardrobe/insights');
+  // Today with nothing in the closet: what ideas need.
+  await shot(page, '57-fresh-today', '/');
   await shot(
     page,
     '27-fresh-calendar-plan',
     `/calendar/plan?for=day:${ANCHOR}`,
   );
+});
+
+// Last: it re-seeds Theo. Today is the server's real today, so his history
+// is re-drawn with today as its anchor (--reset, no --anchor), which the
+// simulation leaves half lived: the morning's workout worn, the evening
+// planned, ideas for the day (demo.md, step 7). What exactly is planned
+// depends on the weekday.
+test('demo: Theo, Today and his reminders (#15)', async ({ page }) => {
+  execFileSync(
+    'node',
+    [
+      'dist/seed/seed.cli.js',
+      '--persona',
+      'demo',
+      '--reset',
+      '--password-stdin',
+    ],
+    { input: `${PASSWORD}\n`, stdio: ['pipe', 'inherit', 'inherit'] },
+  );
+  await signInAs(page, 'demo');
+  await shot(page, '55-demo-today', '/');
+  await expect(page.locator('[data-today-row]').first()).toBeVisible();
+
+  // The profile's notifications, on, with this device's reminders: the
+  // headless shell has no push service or permission, so both are stubbed
+  // (test/support/push-stub.ts); the server's side is real.
+  await stubPushManager(page, fakeSubscription(), true, { granted: true });
+  await page.goto('/auth/profile');
+  const reminders = page.locator('form#push-reminders');
+  await expect(reminders).toBeVisible();
+  await reminders
+    .getByRole('checkbox', { name: "Morning: today's outfit" })
+    .check();
+  await expect(reminders.getByText('Saved.')).toBeVisible();
+  await page.locator('push-settings').scrollIntoViewIfNeeded();
+  await shot(page, '56-demo-push-settings');
 });

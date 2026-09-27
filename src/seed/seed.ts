@@ -6,6 +6,7 @@ import { initialCutoutState } from '../cutout/state';
 import type { Db, Queryable } from '../db/client';
 import type { SharePermission } from '../db/schema';
 import type { Logger } from '../logger';
+import { OCCASION_HINTS } from '../wardrobe/occasions';
 import {
   readSecretLine,
   type TerminalInput,
@@ -101,7 +102,9 @@ export interface SeedReport {
   ms: number;
 }
 
-// A worn day was worn by the evening.
+// A worn day was worn by the evening. The anchor is today, half lived:
+// what is worn on it (the morning's workout) was worn by the end of its
+// occasion's window (OCCASION_HINTS), not tonight.
 const WORN_HOUR = 21;
 
 /**
@@ -353,7 +356,8 @@ async function writeWeather(
  * The simulated history through the app's writers: every calendar entry
  * (insertEntry, with its occasion), the worn ones marked as the pill does
  * (setEntryWorn, which logs their wears; a day's workout and evening count
- * as the one wear the day is) at 21:00 that day, when he logs it, then the laundry Sundays in order
+ * as the one wear the day is) at 21:00 that day, when he logs it (the
+ * anchor's morning workout by the end of its window), then the laundry Sundays in order
  * (markWashed), so each garment ends on its last one. Returns the wear rows
  * written.
  */
@@ -385,7 +389,13 @@ async function writeHistory(
       entryId: scheduled.id,
       ownerId: userId,
       worn: true,
-      at: instantAt(entry.day, WORN_HOUR, ids.timeZone),
+      at: instantAt(
+        entry.day,
+        entry.day === ids.anchor
+          ? OCCASION_HINTS[entry.occasion].window.to
+          : WORN_HOUR,
+        ids.timeZone,
+      ),
       today: ids.anchor,
     });
     if (typeof worn !== 'string') wears += worn.wears;

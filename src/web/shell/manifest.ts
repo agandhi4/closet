@@ -23,13 +23,22 @@ export function webManifest(config: {
       type: 'image/png',
       purpose: 'maskable any',
     })),
+    // The app's identity since it was first installed: never changes, or
+    // every installed app becomes another one (the Web Install API reads it
+    // too). Where it opens can (#15).
     id: '/wardrobe',
-    start_url: '/wardrobe',
+    start_url: '/',
     theme_color: '#222428',
     background_color: '#fafafa',
     display: 'standalone',
     scope: '/',
     shortcuts: [
+      {
+        name: 'Today',
+        short_name: 'Today',
+        description: "Today's outfit",
+        url: '/',
+      },
       {
         name: 'My Wardrobe',
         short_name: 'Wardrobe',

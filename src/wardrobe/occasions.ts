@@ -56,6 +56,18 @@ export const OCCASION_HINTS: Readonly<Record<Occasion, OccasionHints>> = {
   'night-out': { window: { from: 21, to: 24 }, formality: { min: 2, max: 4 } },
 };
 
+/**
+ * The occasions whose outfit is the one worn through the day. The others
+ * (a morning workout, an evening, a night out) come around it. Today (#15)
+ * suggests an all-day outfit while none of these is planned: a day with
+ * only a run and a dinner on it still needs something to wear in between.
+ */
+export const DAY_OCCASIONS: readonly Occasion[] = [
+  'all-day',
+  'work',
+  'daytime',
+];
+
 export function isOccasion(value: string): value is Occasion {
   return (OCCASIONS as readonly string[]).includes(value);
 }

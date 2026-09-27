@@ -6,10 +6,16 @@ import { t } from '../i18n';
 import type { Logger } from '../../logger';
 import { renderFragment } from '../render';
 import { HttpError } from '../errors';
+import { isReminderChoice, type ReminderKind } from '../../push/reminders';
 import { isPushServiceEndpoint } from './endpoint';
-import { deleteDevice, upsertDevice } from './queries';
+import {
+  deleteDevice,
+  findReminderSettings,
+  saveReminderSettings,
+  upsertDevice,
+} from './queries';
 import type { PushSender, VapidConfig } from './sender';
-import { TestResult } from './settings';
+import { ReminderSettingsForm, ReminderStatus, TestResult } from './settings';
 
 /**
  * The browser's PushSubscription.toJSON(), as public/js/push.js posts it.
@@ -33,6 +39,30 @@ const SubscribeBody = Type.Object({
 });
 const UnsubscribeBody = Type.Object({ endpoint: Endpoint });
 
+// This device's reminders (#15): the endpoint names the device; a time is
+// read only with its toggle on, and must be one of the choices (else 400:
+// the form offers nothing else).
+const RemindersFormBody = Type.Object({ endpoint: Endpoint });
+const RemindersBody = Type.Object({
+  endpoint: Endpoint,
+  morningOn: Type.Optional(Type.Literal('1')),
+  morning: Type.Optional(Type.Integer()),
+  eveningOn: Type.Optional(Type.Literal('1')),
+  evening: Type.Optional(Type.Integer()),
+});
+
+function reminderTime(
+  kind: ReminderKind,
+  on: '1' | undefined,
+  minute: number | undefined,
+): number | null {
+  if (on === undefined) return null;
+  if (minute === undefined || !isReminderChoice(kind, minute)) {
+    throw new HttpError(400, `body/${kind} must be one of the reminder times`);
+  }
+  return minute;
+}
+
 // Stored for telling devices apart; the header is the client's to fill.
 const USER_AGENT_LIMIT = 512;
 // A test that has not arrived in ten minutes is no longer a useful answer.
@@ -47,8 +77,9 @@ export interface PushRouteOptions {
 }
 
 /**
- * /push: Web Push subscriptions of the signed-in user's browsers, and the
- * test send on the profile page (src/web/push/settings.tsx). Registered only
+ * /push: Web Push subscriptions of the signed-in user's browsers, each
+ * device's reminders (#15) and the test send on the profile page
+ * (src/web/push/settings.tsx). Registered only
  * when PWA_ENABLED (there is no service worker to receive anything
  * otherwise). Every route needs a session; the writes are fetches and htmx
  * posts, so a signed-out caller gets a 401, and the same-origin check
@@ -103,6 +134,69 @@ export const pushRoutes: FastifyPluginCallbackTypebox<PushRouteOptions> = (
         logger.info(`User ${userId} turned off push on a device`);
       }
       return reply.status(204).send();
+    },
+  );
+
+  // The profile's reminders for the device the browser names (push.js,
+  // once its state is on). A POST though it reads: the endpoint is a
+  // capability URL, which must never sit in a URL the request log names.
+  // Always a 200 fragment: an endpoint that is not the caller's device
+  // says to turn notifications on.
+  app.post(
+    '/push/reminders/form',
+    { schema: { body: RemindersFormBody } },
+    async (request, reply) => {
+      const { endpoint } = request.body;
+      const settings = await findReminderSettings(
+        db,
+        sessionUserId(request),
+        endpoint,
+      );
+      return renderFragment(
+        reply,
+        <ReminderSettingsForm endpoint={endpoint} settings={settings} />,
+      );
+    },
+  );
+
+  // Every change of the reminders form (htmx): both times saved, stamped
+  // now (a time already past today first sends tomorrow). Answers only the
+  // form's status line (ReminderStatus): the controls stay the person's.
+  app.post(
+    '/push/reminders',
+    { schema: { body: RemindersBody } },
+    async (request, reply) => {
+      const userId = sessionUserId(request);
+      const { endpoint } = request.body;
+      const settings = {
+        morning: reminderTime(
+          'morning',
+          request.body.morningOn,
+          request.body.morning,
+        ),
+        evening: reminderTime(
+          'evening',
+          request.body.eveningOn,
+          request.body.evening,
+        ),
+      };
+      const deviceId = await saveReminderSettings(
+        db,
+        userId,
+        endpoint,
+        settings,
+        new Date(),
+      );
+      if (deviceId === undefined) {
+        logger.info(`User ${userId} set reminders on a device not theirs`);
+        return renderFragment(reply, <ReminderStatus saved={false} />);
+      }
+      const time = (minute: number | null) =>
+        minute === null ? 'off' : String(minute);
+      logger.info(
+        `User ${userId} set reminders on push device ${deviceId}: morning ${time(settings.morning)}, evening ${time(settings.evening)} (minutes after midnight)`,
+      );
+      return renderFragment(reply, <ReminderStatus saved />);
     },
   );
 

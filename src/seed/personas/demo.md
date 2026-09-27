@@ -490,10 +490,15 @@ the planned week's weather on the calendar is the weather it was drawn for):
 7. **Planned week**: the seven days after the anchor, drawn by the same rules from the weather's
    normals, planned and not worn (a meeting Wednesday, the workouts and a date night if the week has
    them).
+   **The anchor is today, half lived** (Today, #15): the morning's workout is done and worn (by the
+   end of its window, 9:00), the evening planned and not worn yet, and the day's own outfit not
+   chosen, so Today suggests one; an Event's outfit is decided already and planned. At the reference
+   anchor that is Saturday's date night, "Summer date", with three ideas for the day. The day's
+   outfit is still drawn, unrecorded, so the planned week is the one it always was.
 8. **Laundry Sundays** wash everything worn since the last wash that ever gets washed (the rules in
    Laundry): each garment's `last_washed_on` is its last Sunday up to the anchor. A day's wears are
    counted once, however many outfits that day used the garment, as the app counts them. The anchor is a
-   Saturday, so the week's wears are still in the hamper: the demo's laundry page is Saturday night's.
+   Saturday, so the week's wears are still in the hamper: the demo's laundry page is Saturday afternoon's.
 9. **Wears**: every worn entry is marked through the app's own `setEntryWorn`, so each garment's wear
    log is the outfits' garments on those days.
 
@@ -513,3 +518,5 @@ done: the Wishlist table, W01 replacing T21). The outfit gallery (#9, done) draw
 closet or a capsule, rotating what the simulation left unworn. Wardrobe plans (#34a, done: the style
 profile, the rhythm and "NYC minimal" above, whose gaps are the replace-soon merino and the padded
 jacket); the shopping list (#34b, done: the plan table's Candidates) pairs those gaps with W01 and W02.
+Today (#15, done): the anchor is today, half lived (step 7), so his home screen shows the evening's
+plan and ideas for the day.

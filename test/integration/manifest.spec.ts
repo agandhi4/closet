@@ -31,7 +31,9 @@ describe('GET /manifest.json', () => {
       ['/assets/icon-192.png', '192x192'],
       ['/assets/icon-512.png', '512x512'],
     ]);
-    expect(manifest.start_url).toBe('/wardrobe');
+    // The installed app opens to Today (#15); its identity never moves.
+    expect(manifest.start_url).toBe('/');
+    expect(manifest.id).toBe('/wardrobe');
     // Issue #4: the install dialogs show none, so none are fetched.
     expect(manifest).not.toHaveProperty('screenshots');
   });

@@ -20,6 +20,7 @@ import { hashPassword } from '../../src/web/auth/passwords';
 import { insertUser } from '../../src/web/auth/queries';
 import { type IsoDate, todayIn } from '../../src/web/calendar/calendar-date';
 import type { Photos } from '../../src/web/files/photos';
+import type { PushSender } from '../../src/web/push/sender';
 import { LogCapture } from '../support/log-capture';
 import { createScratchDatabase } from '../support/scratch-database';
 
@@ -145,6 +146,12 @@ export interface TestApp {
    * fake runner (test/integration/cutouts.ts); cleanup() stops it.
    */
   cutouts: CutoutQueue;
+  /**
+   * The app's Web Push sender (PWA_ENV only): what the reminders send
+   * through when a spec runs them (sendDueReminders); nothing schedules
+   * them in the harness.
+   */
+  push: PushSender | undefined;
   /** The user registered at boot, whose session t.inject() sends by default. */
   owner: TestUser;
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
@@ -231,9 +238,10 @@ export async function createTestApp(
   let db: Db;
   let photos: Photos;
   let cutouts: CutoutQueue;
+  let push: PushSender | undefined;
   try {
     await options.beforeBoot?.(database.env);
-    ({ app, db, photos, cutouts } = await createApp(config, logger, {
+    ({ app, db, photos, cutouts, push } = await createApp(config, logger, {
       outboundFetch: options.outboundFetch,
       weather: options.weather,
     }));
@@ -317,6 +325,7 @@ export async function createTestApp(
     dataPath,
     photos,
     cutouts,
+    push,
     owner,
     inject,
     db,

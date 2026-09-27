@@ -123,6 +123,21 @@ describe('simulate', () => {
     ).toBeGreaterThan(0);
   });
 
+  it('leaves the anchor half lived for Today (#15): the morning worn, the evening planned, the day’s outfit not chosen', () => {
+    const on = (entries: typeof life.entries, day: string) =>
+      entries
+        .filter((e) => e.day === day)
+        .map((e) => [e.occasion, outfit(e.outfit).name, e.worn]);
+    expect(on(life.entries, '2026-09-26')).toEqual([
+      ['evening', 'Summer date', false],
+    ]);
+    // Anchored on the next Saturday: the gym is done, the date is tonight.
+    expect(on(simulate(demo, '2026-10-03').entries, '2026-10-03')).toEqual([
+      ['workout', 'Gym', true],
+      ['evening', 'Date night: leather', false],
+    ]);
+  });
+
   it('shifts to another anchor by whole weeks and dresses for that season', () => {
     const winter = simulate(demo, '2027-01-16');
     expect(winter.shiftDays % 7).toBe(0);

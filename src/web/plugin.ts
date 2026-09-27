@@ -17,10 +17,11 @@ import { planRoutes } from './plans/routes';
 import { shoppingRoutes } from './plans/shopping-routes';
 import { pushRoutes } from './push/routes';
 import type { OutboundFetcher } from './security/outbound-fetch';
-import { createPushSender, type VapidConfig } from './push/sender';
+import type { PushSender, VapidConfig } from './push/sender';
 import { shareRoutes } from './share/routes';
 import { shellRoutes } from './shell/routes';
 import { sharingRoutes } from './sharing/routes';
+import { todayRoutes } from './today/routes';
 import { linkImportRoutes } from './wardrobe/link-import/routes';
 import { wardrobeRoutes } from './wardrobe/routes';
 import type { WeatherService } from './weather/service';
@@ -66,6 +67,12 @@ export interface WebOptions {
   weather: WeatherService | undefined;
   /** Context `Mcp`: one line per MCP tool call (src/web/mcp). */
   mcpLogger: Logger;
+  /**
+   * The process's one Web Push sender (src/web/push/sender.ts), built by
+   * createApp() exactly when PWA_ENABLED (with `config.vapid`): the
+   * profile's test send uses it, and server.ts's reminders.
+   */
+  push: PushSender | undefined;
 }
 
 /**
@@ -95,6 +102,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   app.addHook('preValidation', createSessionHook(logger));
 
   await app.register(shellRoutes, options);
+  await app.register(todayRoutes, options);
   await app.register(wardrobeRoutes, options);
   await app.register(linkImportRoutes, options);
   await app.register(capsuleRoutes, options);
@@ -115,13 +123,13 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   // Bearer-authenticated (config.bearer): the session gate above passes it.
   await app.register(mcpRoutes, options);
   const { vapid } = options.config;
-  if (vapid) {
+  if (vapid && options.push) {
     await app.register(pushRoutes, {
       db: options.db,
       logger,
       appName: options.config.appName,
       vapid,
-      sender: createPushSender({ db: options.db, logger, vapid }),
+      sender: options.push,
     });
   }
   await app.register(fileRoutes, options);

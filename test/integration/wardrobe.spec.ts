@@ -21,12 +21,6 @@ describe('wardrobe', () => {
 
   afterAll(() => t?.cleanup());
 
-  it('GET / redirects to the wardrobe', async () => {
-    const res = await t.inject({ method: 'GET', url: '/' });
-    expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe('/wardrobe');
-  });
-
   describe('garment photo lifecycle', () => {
     // Sequential: each step builds on the garment the previous one made.
     let garmentId: number;

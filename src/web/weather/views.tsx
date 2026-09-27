@@ -118,14 +118,7 @@ export function WeatherLine(props: {
   now: Date;
 }) {
   const { line } = props;
-  const notes = [
-    line.rainNow
-      ? t('weather.RAIN_NOW')
-      : line.rainFrom !== null
-        ? t('weather.RAIN_FROM', { hour: hourLabel(line.rainFrom) })
-        : null,
-    line.layer ? t('weather.TAKE_LAYER') : null,
-  ].filter((note) => note !== null);
+  const notes = lineNotes(line);
   const asOf = t('weather.AS_OF', {
     time: fetchedLabel(line.fetchedAt, props.timeZone, props.now),
   });
@@ -150,6 +143,31 @@ export function WeatherLine(props: {
       </span>
     </p>
   );
+}
+
+// "rain from 3 pm", "take a layer": what the line adds to the range.
+function lineNotes(line: TodayLine): string[] {
+  return [
+    line.rainNow
+      ? t('weather.RAIN_NOW')
+      : line.rainFrom !== null
+        ? t('weather.RAIN_FROM', { hour: hourLabel(line.rainFrom) })
+        : null,
+    line.layer ? t('weather.TAKE_LAYER') : null,
+  ].filter((note) => note !== null);
+}
+
+/**
+ * The line as plain text, "☀️ 12–18 °C · rain from 3 pm · take a layer",
+ * for the morning push reminder (src/web/push/reminders.ts).
+ */
+export function weatherLineText(line: TodayLine): string {
+  const range = t('weather.RANGE', {
+    low: line.low,
+    high: line.high,
+    unit: UNIT_SYMBOLS[line.unit],
+  });
+  return [`${ICONS[line.condition]} ${range}`, ...lineNotes(line)].join(' · ');
 }
 
 /** No location yet: the line is the way to set one. */

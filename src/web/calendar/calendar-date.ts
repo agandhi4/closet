@@ -88,14 +88,23 @@ export function hourIn(timeZone: string, now: Date): number {
 }
 
 /**
- * The instant `day` reaches `hour`:00 in `timeZone`: todayIn's inverse,
- * for the seed's history (a day worn "that evening"). The zone's offset is
- * read from Intl at the first guess and again at the result, which settles
- * on a DST switch day.
+ * The instant `day` reaches `hour`:`minute` in `timeZone`: todayIn's
+ * inverse, for the seed's history (a day worn "that evening"), the nightly
+ * timers (src/maintenance/nightly.ts) and the push reminders
+ * (src/web/push/reminders.ts). The zone's offset is read from Intl at the
+ * first guess and again at the result, which settles on a DST switch day.
+ * A wall time the switch skips (02:30 on a spring-forward night in New
+ * York) has no instant and comes out an hour off; one it repeats (01:30 on
+ * the fall-back night) is one of its two.
  */
-export function instantAt(day: IsoDate, hour: number, timeZone: string): Date {
+export function instantAt(
+  day: IsoDate,
+  hour: number,
+  timeZone: string,
+  minute = 0,
+): Date {
   const { year, month, day: date } = dateParts(day);
-  const wall = Date.UTC(year, month - 1, date, hour);
+  const wall = Date.UTC(year, month - 1, date, hour, minute);
   const first = wall - zoneOffsetMs(timeZone, wall);
   return new Date(wall - zoneOffsetMs(timeZone, first));
 }

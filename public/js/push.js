@@ -12,10 +12,14 @@
  *  - <push-settings> (the profile page, src/web/push/settings.tsx): shows
  *    this browser's state and turns notifications on or off. The permission
  *    prompt only comes from a tap on its enable button: browsers penalize
- *    prompts without a gesture, and iOS refuses them.
+ *    prompts without a gesture, and iOS refuses them. Once on, it asks for
+ *    this device's reminders (#15): only the browser knows which device it
+ *    is (its subscription's endpoint), so it posts that and htmx swaps the
+ *    server's form into the slot.
  */
 
 const SUBSCRIBE_URL = '/push/subscribe';
+const REMINDERS_FORM_URL = '/push/reminders/form';
 const UNSUBSCRIBE_URL = '/push/unsubscribe';
 const PUBLIC_KEY_URL = '/push/vapid-public-key';
 
@@ -107,10 +111,32 @@ class PushSettingsElement extends HTMLElement {
 
   async #refresh() {
     try {
-      this.#show(await this.#currentState());
+      this.#showState(await this.#currentState());
     } catch (error) {
       console.warn('[push] could not read this device state', error);
       this.#show('error');
+    }
+  }
+
+  #showState(state) {
+    this.#show(state);
+    if (state === 'on') void this.#loadReminders();
+  }
+
+  // This device's reminders, from the server, into their slot (the form it
+  // answers keeps the slot's id, so a later load replaces it again).
+  async #loadReminders() {
+    const slot = this.querySelector('#push-reminders');
+    try {
+      const subscription = await syncSubscription();
+      if (!slot || !subscription) return;
+      await window.htmx.ajax('POST', REMINDERS_FORM_URL, {
+        target: slot,
+        swap: 'outerHTML',
+        values: { endpoint: subscription.endpoint },
+      });
+    } catch (error) {
+      console.warn('[push] could not load this device reminders', error);
     }
   }
 
@@ -137,7 +163,7 @@ class PushSettingsElement extends HTMLElement {
     const buttons = this.querySelectorAll('button');
     for (const button of buttons) button.disabled = true;
     try {
-      this.#show(await change());
+      this.#showState(await change());
     } catch (error) {
       console.warn('[push] change failed', error);
       this.#show(this.#stateAfterFailure());

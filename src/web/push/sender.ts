@@ -40,6 +40,17 @@ export interface PushSender {
     payload: PushPayload,
     options: SendOptions,
   ): Promise<SendReport>;
+  /**
+   * The same, to those of the user's devices in `deviceIds` only (a
+   * reminder goes to the devices that chose its time); ids that are not
+   * the user's are ignored.
+   */
+  sendToDevices(
+    userId: number,
+    deviceIds: readonly number[],
+    payload: PushPayload,
+    options: SendOptions,
+  ): Promise<SendReport>;
 }
 
 type Outcome = 'delivered' | 'pruned' | 'failed';
@@ -48,7 +59,7 @@ type Outcome = 'delivered' | 'pruned' | 'failed';
 // the user revoked permission, or it expired. It will never work again.
 const GONE_STATUSES = new Set([404, 410]);
 // A socket timeout per request, so one unresponsive push service cannot hold
-// the test route (or a future reminder run) open.
+// the test route (or a reminder run) open.
 const REQUEST_TIMEOUT_MS = 10_000;
 const ERROR_BODY_LOG_LIMIT = 200;
 
@@ -123,35 +134,47 @@ export function createPushSender(options: {
     }
   }
 
+  async function send(
+    userId: number,
+    devices: DeviceRow[],
+    payload: PushPayload,
+    sendOptions: SendOptions,
+  ): Promise<SendReport> {
+    const body = JSON.stringify(payload);
+    const settled = await Promise.allSettled(
+      devices.map((device) => deliver(userId, device, body, sendOptions)),
+    );
+    const report: SendReport = {
+      devices: devices.length,
+      delivered: 0,
+      pruned: 0,
+      failed: 0,
+    };
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        report[result.value] += 1;
+        return;
+      }
+      // Only the prune can get here (a database error deleting the row).
+      report.failed += 1;
+      logger.error(
+        { err: result.reason },
+        `Push to device ${devices[index].id} of user ${userId}: could not remove the gone device`,
+      );
+    });
+    logger.info(
+      `Push "${payload.tag ?? payload.title}" to user ${userId}: ${report.delivered}/${report.devices} delivered, ${report.pruned} removed, ${report.failed} failed`,
+    );
+    return report;
+  }
+
   return {
     async sendToUser(userId, payload, sendOptions) {
-      const devices = await devicesOf(db, userId);
-      const body = JSON.stringify(payload);
-      const settled = await Promise.allSettled(
-        devices.map((device) => deliver(userId, device, body, sendOptions)),
-      );
-      const report: SendReport = {
-        devices: devices.length,
-        delivered: 0,
-        pruned: 0,
-        failed: 0,
-      };
-      settled.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          report[result.value] += 1;
-          return;
-        }
-        // Only the prune can get here (a database error deleting the row).
-        report.failed += 1;
-        logger.error(
-          { err: result.reason },
-          `Push to device ${devices[index].id} of user ${userId}: could not remove the gone device`,
-        );
-      });
-      logger.info(
-        `Push "${payload.tag ?? payload.title}" to user ${userId}: ${report.delivered}/${report.devices} delivered, ${report.pruned} removed, ${report.failed} failed`,
-      );
-      return report;
+      return send(userId, await devicesOf(db, userId), payload, sendOptions);
+    },
+    async sendToDevices(userId, deviceIds, payload, sendOptions) {
+      const devices = await devicesOf(db, userId, deviceIds);
+      return send(userId, devices, payload, sendOptions);
     },
   };
 }

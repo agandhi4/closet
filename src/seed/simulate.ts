@@ -71,9 +71,21 @@ export interface SimulatedEntry {
   outfit: number;
   /** The part of the day it is for. */
   occasion: Occasion;
-  /** Worn that day (a past entry he logged); false for a planned one. */
+  /**
+   * Worn that day (a past entry he logged, or the anchor's morning
+   * workout); false for a planned one.
+   */
   worn: boolean;
 }
+
+/**
+ * Where a day stands from the anchor: history, the anchor itself (today,
+ * half lived), or the planned week.
+ */
+type DayKind = 'past' | 'today' | 'planned';
+
+/** Records an outfit of the day for an occasion (nothing for NONE). */
+type Plan = (outfit: number, occasion: Occasion, worn: boolean) => void;
 
 /** A laundry Sunday: the garments washed that day (every one worn since the last). */
 export interface SimulatedWash {
@@ -144,11 +156,12 @@ export function simulate(persona: Persona, anchor: IsoDate): SimulatedLife {
 
   const day = new Days(persona, shifted);
   for (const today of weather) {
-    const planned = today.day > anchor;
-    day.live(today, planned, eventOn(today.day), life.entries);
+    const kind: DayKind =
+      today.day < anchor ? 'past' : today.day === anchor ? 'today' : 'planned';
+    day.live(today, kind, eventOn(today.day), life.entries);
     if (dayOfWeek(today.day) === SUNDAY) {
       const washed = day.laundry();
-      if (!planned && washed.length > 0) {
+      if (kind !== 'planned' && washed.length > 0) {
         life.washes.push({ day: today.day, garmentIds: washed });
       }
     }
@@ -171,9 +184,16 @@ class Days {
     this.garments = new Map(persona.garments.map((g) => [g.id, g]));
   }
 
+  /**
+   * One day. The anchor is today, half lived (#15, Today): the morning's
+   * workout is done and worn, the evening planned, and the day's own outfit
+   * not chosen yet, which is what Today suggests (an Event's outfit is
+   * decided already: planned). The rotation still draws the day's outfit,
+   * so the planned week after it is the one it always was.
+   */
   live(
     weather: Weather,
-    planned: boolean,
+    kind: DayKind,
     event: SeedEvent | undefined,
     entries: SimulatedEntry[],
   ): void {
@@ -185,19 +205,34 @@ class Days {
     // Worn whether or not he logs it: the laundry does not care.
     this.wear(workout, day);
     this.wear(main, day);
-    if (!this.logged(day, planned, event)) return;
-    const plan = (outfit: number, occasion: Occasion, worn = !planned) => {
+    if (!this.logged(day, kind, event)) return;
+    const plan: Plan = (outfit, occasion, worn) => {
       if (outfit !== NONE) entries.push({ day, outfit, occasion, worn });
     };
-    plan(workout, 'workout');
-    const occasion = this.dayOccasion(day, main);
-    plan(planned ? NONE : this.changeOfMind(weather, main), occasion, false);
-    plan(main, occasion);
+    plan(workout, 'workout', kind !== 'planned');
+    this.planDay(weather, kind, event, main, plan);
     const evening = event ? undefined : this.eveningOn(day);
     if (!evening) return;
     const outfit = this.choose([evening], weather, 'evening', main);
     this.wear(outfit, day);
-    plan(outfit, EVENING_OCCASIONS[evening]);
+    plan(outfit, EVENING_OCCASIONS[evening], kind === 'past');
+  }
+
+  // The day's own outfit: a past day's as worn (with, some office days, the
+  // one planned and left for the rain), the planned week's as planned, and
+  // on the anchor none unless an Event decided it (Today suggests one).
+  private planDay(
+    weather: Weather,
+    kind: DayKind,
+    event: SeedEvent | undefined,
+    main: number,
+    plan: Plan,
+  ): void {
+    const occasion = this.dayOccasion(weather.day, main);
+    if (kind === 'past') {
+      plan(this.changeOfMind(weather, main), occasion, false);
+    }
+    if (kind !== 'today' || event) plan(main, occasion, kind === 'past');
   }
 
   // The week row's calendar occasion for an outfit the day draws from; an
@@ -239,11 +274,11 @@ class Days {
   // An event is a day he remembers; an ordinary one he logs most days.
   private logged(
     day: IsoDate,
-    planned: boolean,
+    kind: DayKind,
     event: SeedEvent | undefined,
   ): boolean {
     return (
-      planned ||
+      kind !== 'past' ||
       event !== undefined ||
       stream(this.persona.key, 'logged', day).chance(LOGGED)
     );

@@ -138,6 +138,32 @@ export async function insertEntry(
     : { outcome: 'already-scheduled' };
 }
 
+/**
+ * The id of the owner's entry for `outfitId` on `day` (an outfit is on a
+ * day once, so there is at most one), for a caller that planned it through
+ * insertEntry and must act on the entry whether it was new or already there
+ * (Today's "Wear this", src/web/today/queries.ts). Served by the unique
+ * (owner_id, day, outfit_id) index.
+ */
+export async function entryIdOf(
+  db: Queryable,
+  ownerId: number,
+  day: IsoDate,
+  outfitId: number,
+): Promise<number | undefined> {
+  const [row] = await db
+    .select({ id: outfitCalendar.id })
+    .from(outfitCalendar)
+    .where(
+      and(
+        eq(outfitCalendar.ownerId, ownerId),
+        eq(outfitCalendar.day, day),
+        eq(outfitCalendar.outfitId, outfitId),
+      ),
+    );
+  return row?.id;
+}
+
 /** Deletes the owner's entry; its wears go with it (garment_wear's foreign key). */
 export async function deleteEntry(
   db: Db,
