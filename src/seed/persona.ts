@@ -20,6 +20,11 @@ import {
   NEVER_WASH,
 } from '../wardrobe/availability';
 import {
+  DEFAULT_OCCASION,
+  isOccasion,
+  type Occasion,
+} from '../wardrobe/occasions';
+import {
   categoryRole,
   GARMENT_ROLES,
   GarmentCategory,
@@ -51,8 +56,13 @@ export function isPersonaKey(value: string): value is PersonaKey {
   return (PERSONA_KEYS as readonly string[]).includes(value);
 }
 
-/** What a saved outfit is for; a day draws from some of these (its week row). */
-export const OCCASIONS = [
+/**
+ * What a saved outfit is for, in the bible's own words (its Occasion
+ * column); a day draws from some of these (its week row). Not the calendar
+ * entry's occasion (src/wardrobe/occasions.ts, the part of the day), which
+ * the week row's Calendar column and the simulation's evenings decide.
+ */
+export const BIBLE_OCCASIONS = [
   'office',
   'meeting',
   'rain',
@@ -65,7 +75,7 @@ export const OCCASIONS = [
   'travel',
   'beach',
 ] as const;
-export type Occasion = (typeof OCCASIONS)[number];
+export type BibleOccasion = (typeof BIBLE_OCCASIONS)[number];
 
 export interface SeedGarment {
   /** The bible's id (T01), which outfits and events refer to. */
@@ -89,7 +99,7 @@ export interface SeedOutfit {
   name: string | null;
   favourite: boolean;
   /** None: saved, never drawn. */
-  occasions: Occasion[];
+  occasions: BibleOccasion[];
   bands: Band[];
   /** Garment ids in builder order (outfitSlotOrder). */
   garmentIds: string[];
@@ -100,6 +110,16 @@ export interface SeedCapsule {
   fields: CapsuleFields;
   /** Garment ids (archived ones too: they keep their membership). */
   garmentIds: string[];
+}
+
+/** A row of the week table: one weekday's rules. */
+export interface SeedDay {
+  /** The occasions the day's outfit is drawn from. */
+  draws: BibleOccasion[];
+  /** The calendar occasion of the day's outfit (all day, work). */
+  occasion: Occasion;
+  /** The saved outfit of a morning workout (by name), before the day's outfit. */
+  workout: string | undefined;
 }
 
 export interface SeedEvent {
@@ -134,8 +154,8 @@ export interface Persona {
   garments: SeedGarment[];
   outfits: SeedOutfit[];
   capsules: SeedCapsule[];
-  /** Sunday first: the occasions each weekday draws from; null without a history. */
-  week: Occasion[][] | null;
+  /** Sunday first; null without a history. */
+  week: SeedDay[] | null;
   events: SeedEvent[];
 }
 
@@ -194,7 +214,7 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
         table.rows.map((row) => readCapsule(source, row, ids)),
       ),
     ),
-    week: week ? readWeek(source, week) : null,
+    week: week ? readWeek(source, week, names) : null,
     events: find('From', 'To', 'Wears').flatMap((table) =>
       table.rows.map((row) => readEvent(source, row, names)),
     ),
@@ -505,7 +525,7 @@ function readOutfit(
   }
   const occasions = list(row.Occasion);
   const wrong = occasions.filter(
-    (o) => !(OCCASIONS as readonly string[]).includes(o),
+    (o) => !(BIBLE_OCCASIONS as readonly string[]).includes(o),
   );
   if (wrong.length > 0) {
     throw new BibleError(where, `unknown occasions: ${wrong.join(', ')}`);
@@ -513,7 +533,7 @@ function readOutfit(
   return {
     name: name || null,
     favourite,
-    occasions: occasions as Occasion[],
+    occasions: occasions as BibleOccasion[],
     bands: readBands(where, plain(row.Bands)),
     garmentIds: garments,
   };
@@ -567,19 +587,57 @@ function readBands(where: string, text: string): Band[] {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-function readWeek(source: string, table: BibleTable): Occasion[][] {
+// The Calendar and Workout columns are optional: a week without them plans
+// all-day outfits and no workouts.
+function readWeek(
+  source: string,
+  table: BibleTable,
+  outfitNames: Set<string>,
+): SeedDay[] {
   return WEEKDAYS.map((day) => {
     const row = table.rows.find((r) => r.Day === day);
     if (!row) throw new BibleError(source, `the week has no ${day}`);
     const draws = list(row['Draws from']);
     const wrong = draws.filter(
-      (o) => !(OCCASIONS as readonly string[]).includes(o),
+      (o) => !(BIBLE_OCCASIONS as readonly string[]).includes(o),
     );
     if (wrong.length > 0 || draws.length === 0) {
       throw new BibleError(source, `${day} draws from ${row['Draws from']}`);
     }
-    return draws as Occasion[];
+    return {
+      draws: draws as BibleOccasion[],
+      occasion: readCalendarOccasion(source, day, row),
+      workout: readWorkout(source, day, row, outfitNames),
+    };
   });
+}
+
+function readCalendarOccasion(
+  source: string,
+  day: string,
+  row: Record<string, string>,
+): Occasion {
+  const occasion = plain(row.Calendar ?? '') || DEFAULT_OCCASION;
+  if (!isOccasion(occasion)) {
+    throw new BibleError(source, `${day}'s calendar occasion ${occasion}`);
+  }
+  return occasion;
+}
+
+function readWorkout(
+  source: string,
+  day: string,
+  row: Record<string, string>,
+  outfitNames: Set<string>,
+): string | undefined {
+  const workout = plain(row.Workout ?? '') || undefined;
+  if (workout && !outfitNames.has(workout)) {
+    throw new BibleError(
+      source,
+      `${day}'s workout: no saved outfit is called "${workout}"`,
+    );
+  }
+  return workout;
 }
 
 function readEvent(

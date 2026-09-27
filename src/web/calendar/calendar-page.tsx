@@ -1,56 +1,17 @@
-import { t, type StringKey } from '../i18n';
+import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
+import { destinationQuery } from '../outfits/destination';
 import type { ViewContext } from '../view-context';
-import type { MonthLink } from './calendar-view';
-import type {
-  CalendarDayView,
-  CalendarEntryView,
-  CalendarView,
-} from './calendar-view';
-import { WornButton } from './worn-button';
-
-/** Indexed by weekday, 0 = Sunday. */
-const DAY_NAMES: StringKey[] = [
-  'CALENDAR_DAY_SUN',
-  'CALENDAR_DAY_MON',
-  'CALENDAR_DAY_TUE',
-  'CALENDAR_DAY_WED',
-  'CALENDAR_DAY_THU',
-  'CALENDAR_DAY_FRI',
-  'CALENDAR_DAY_SAT',
-];
-
-const DAY_LETTERS: StringKey[] = [
-  'CALENDAR_CAL_SUN_LETTER',
-  'CALENDAR_CAL_MON_LETTER',
-  'CALENDAR_CAL_TUE_LETTER',
-  'CALENDAR_CAL_WED_LETTER',
-  'CALENDAR_CAL_THU_LETTER',
-  'CALENDAR_CAL_FRI_LETTER',
-  'CALENDAR_CAL_SAT_LETTER',
-];
-
-/** Indexed by month - 1. */
-const MONTH_NAMES: StringKey[] = [
-  'MONTH_JAN',
-  'MONTH_FEB',
-  'MONTH_MAR',
-  'MONTH_APR',
-  'MONTH_MAY',
-  'MONTH_JUN',
-  'MONTH_JUL',
-  'MONTH_AUG',
-  'MONTH_SEP',
-  'MONTH_OCT',
-  'MONTH_NOV',
-  'MONTH_DEC',
-];
+import type { CalendarDayView, CalendarView, MonthLink } from './calendar-view';
+import { DAY_LETTERS, DAY_NAMES, MONTH_NAMES } from './labels';
+import { OccasionRow } from './occasion-row';
 
 /**
  * GET /calendar: the mini month, then one column per day of the week (Sunday
- * to Saturday) with its outfit chips and a "+ Build outfit" link.
+ * to Saturday) with its entries stacked in occasion order (OccasionRow) and
+ * a link to plan one more (the plan page, GET /calendar/plan).
  * Responsive grid: 1 col, 2 cols from 400px, 4 at lg, all 8 in a row at 2xl.
  */
 export function CalendarPage(props: { ctx: ViewContext; view: CalendarView }) {
@@ -135,6 +96,11 @@ function MiniMonth({ view }: { view: CalendarView }) {
 }
 
 function DayColumn({ day }: { day: CalendarDayView }) {
+  const plan = `/calendar/plan?${destinationQuery({
+    kind: 'day',
+    day: day.date,
+    occasion: 'all-day',
+  })}`;
   return (
     <div class="bg-base-200 rounded-xl overflow-hidden min-h-48 flex flex-col">
       <div class="flex items-baseline gap-1.5 px-3 py-2 bg-base-300 border-b border-base-300">
@@ -151,94 +117,19 @@ function DayColumn({ day }: { day: CalendarDayView }) {
       </div>
       <div class="flex flex-col gap-1 p-3 flex-1">
         {day.entries.map((entry) => (
-          <EntryChip entry={entry} future={day.isFuture} />
+          <OccasionRow entry={entry} future={day.isFuture} />
         ))}
         {/* Also the marker the integration specs split day columns on. */}
         <a
-          href={`/outfits/new?scheduleDate=${day.date}&returnTo=/calendar`}
-          class="mt-auto pt-2 text-xs text-base-content/30 hover:text-base-content/60 select-none"
+          href={plan}
+          class="mt-auto pt-2 text-xs text-base-content/40 hover:text-base-content/70 select-none"
         >
-          + {t('BUILD_OUTFIT')}
+          +{' '}
+          {day.entries.length > 0
+            ? t('CALENDAR_ANOTHER_OUTFIT')
+            : t('CALENDAR_PLAN')}
         </a>
       </div>
-    </div>
-  );
-}
-
-// Inline hues per entry so chips on one day differ; a worn chip is stronger.
-function chipStyle(hue: number, worn: boolean): string {
-  return worn
-    ? `background:hsl(${hue} 65% 55% / 0.22);border-color:hsl(${hue} 65% 60% / 0.45);color:hsl(${hue} 80% 75%)`
-    : `background:hsl(${hue} 55% 50% / 0.08);border-color:hsl(${hue} 55% 55% / 0.22);color:hsl(${hue} 50% 65%)`;
-}
-
-/**
- * The outfit bar (tap to edit the outfit, × to unschedule) and the worn pill.
- * The bar is the edit link's (boosted), stretched over it by its ::after; it
- * holds the delete form, which an <a> cannot, so the form sits above it. A
- * planned day has no pill (it cannot be worn yet), unless an entry there
- * was marked before that rule, which can still be unmarked.
- */
-function EntryChip({
-  entry,
-  future,
-}: {
-  entry: CalendarEntryView;
-  future: boolean;
-}) {
-  const editUrl = `/outfits/${entry.outfit.id}/edit?returnTo=/calendar&returnToWeek=${entry.day}`;
-  const deleteUrl = `/calendar/${entry.id}/delete`;
-  const name = entry.outfit.name || t('UNTITLED_OUTFIT');
-  return (
-    <div class="flex items-center gap-2 mb-1">
-      <div
-        class="relative min-w-0 flex-1 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1 leading-tight"
-        style={chipStyle(entry.chipHue, entry.worn)}
-      >
-        <a
-          href={editUrl}
-          class="flex items-center min-w-0 flex-1 after:absolute after:inset-0"
-          aria-label={name}
-        >
-          {entry.outfit.photoUrls.length > 0 ? (
-            <span class="flex items-center gap-0.5 min-w-0 overflow-hidden flex-1">
-              {entry.outfit.photoUrls.map((src) => (
-                <img
-                  src={src}
-                  alt=""
-                  class="size-6 rounded object-cover shrink-0"
-                  width="24"
-                  height="24"
-                  loading="lazy"
-                  decoding="async"
-                />
-              ))}
-            </span>
-          ) : (
-            <span class="truncate flex-1">{name}</span>
-          )}
-        </a>
-        <form
-          method="post"
-          action={deleteUrl}
-          hx-post={deleteUrl}
-          hx-confirm={t('CALENDAR_DELETE_CONFIRM')}
-          hx-vals={JSON.stringify({ week: entry.day })}
-          class="relative z-10"
-        >
-          <input type="hidden" name="week" value={entry.day} />
-          <button
-            type="submit"
-            class="text-base-content/30 hover:text-error w-5 h-5 flex items-center justify-center rounded hover:bg-error/10 shrink-0 transition-colors"
-            aria-label={t('DELETE')}
-          >
-            ×
-          </button>
-        </form>
-      </div>
-      {(!future || entry.worn) && (
-        <WornButton entryId={entry.id} worn={entry.worn} week={entry.day} />
-      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import * as z from 'zod/v4';
-import type { IsoDate } from '../../calendar/calendar-date';
+import { DEFAULT_OCCASION } from '../../../wardrobe/occasions';
 import { findEntries, scheduleOutfit } from '../../calendar/queries';
 import { HttpError } from '../../errors';
 import {
@@ -10,8 +10,8 @@ import {
 } from '../../outfits/queries';
 import { OUTFIT_NAME_MAX, OUTFIT_NOTES_MAX } from '../../outfits/form-page';
 import { findGarment } from '../../wardrobe/queries';
-import { defineTool, type ToolContext } from '../tool';
-import { isoDate, rowId } from './common';
+import { defineTool } from '../tool';
+import { isoDate, occasionInput, rowId } from './common';
 
 const OUTFIT_NOT_FOUND = 'Outfit not found';
 
@@ -72,10 +72,11 @@ export const outfitTools = [
       scheduleDate: isoDate()
         .optional()
         .describe('Also plan it on this day (YYYY-MM-DD).'),
+      occasion: occasionInput,
     }),
     writes: true,
     idempotent: false,
-    async run({ garmentIds, name, notes, scheduleDate }, ctx) {
+    async run({ garmentIds, name, notes, scheduleDate, occasion }, ctx) {
       // Each slot is its garment's category, as the builder's rows are. A
       // garment that is not the caller's is refused here rather than
       // saved as an empty slot (the form's rule for a stale page).
@@ -89,7 +90,9 @@ export const outfitTools = [
           `Not in your wardrobe: garment ${missing.join(', ')}`,
         );
       }
-      if (scheduleDate) await refuseTakenDay(ctx, scheduleDate, undefined);
+      const plan = scheduleDate
+        ? { day: scheduleDate, occasion: occasion ?? DEFAULT_OCCASION }
+        : undefined;
       const saved = await createOutfit(ctx.db, ctx.userId, {
         name: name || null,
         notes: notes?.trim() ? notes : null,
@@ -97,12 +100,12 @@ export const outfitTools = [
           category: garment!.category,
           garmentId: garment!.id,
         })),
-        scheduleDate,
+        plan,
       });
       ctx.webLogger.info(
-        `Outfit ${saved.id} created by user ${ctx.userId} (MCP): ${saved.slots} slots${scheduleDate ? `, planned ${scheduleDate}` : ''}`,
+        `Outfit ${saved.id} created by user ${ctx.userId} (MCP): ${saved.slots} slots${plan ? `, planned ${plan.day} (${plan.occasion})` : ''}`,
       );
-      return { id: saved.id, scheduled: scheduleDate ?? null };
+      return { id: saved.id, scheduled: plan ?? null };
     },
   }),
 
@@ -110,49 +113,32 @@ export const outfitTools = [
     name: 'schedule_outfit',
     title: 'Plan an outfit on a day',
     description:
-      'WRITES: plans one of your outfits on a calendar day. One outfit a day: a day that already has another outfit is refused (say which to keep in the app). Planning the same outfit again changes nothing.',
+      'WRITES: plans one of your outfits on a calendar day, for an occasion (the part of the day). A day can hold several outfits (office, then dinner); the same outfit is on a day once, so planning it again changes nothing and it keeps the occasion it has (returned).',
     input: z.object({
       outfitId: rowId(),
       date: isoDate().describe('The day, YYYY-MM-DD.'),
+      occasion: occasionInput,
     }),
     writes: true,
     idempotent: true,
-    async run({ outfitId, date }, ctx) {
-      await refuseTakenDay(ctx, date, outfitId);
+    async run({ outfitId, date, occasion = DEFAULT_OCCASION }, ctx) {
       const outcome = await scheduleOutfit(ctx.db, {
         ownerId: ctx.userId,
         outfitId,
         day: date,
+        occasion,
       });
       if (outcome === 'no-such-outfit') {
         throw new HttpError(404, OUTFIT_NOT_FOUND);
       }
-      ctx.webLogger.info(
-        `Outfit ${outfitId} ${outcome} on ${date} for user ${ctx.userId} (MCP)`,
+      // Already there: say which occasion it kept.
+      const entry = (await findEntries(ctx.db, ctx.userId, date, date)).find(
+        (found) => found.outfit.id === outfitId,
       );
-      return { outcome, date };
+      ctx.webLogger.info(
+        `Outfit ${outfitId} ${outcome} on ${date} (${entry?.occasion}) for user ${ctx.userId} (MCP)`,
+      );
+      return { outcome, date, occasion: entry?.occasion ?? occasion };
     },
   }),
 ];
-
-/**
- * One outfit a day until occasions (#13) let an entry say which part of the
- * day it is for: then this becomes "one per occasion", and schedule_outfit
- * and create_outfit take the occasion. The calendar itself allows several
- * (its key is owner, day, outfit); an agent adding a second without an
- * occasion would only make the day ambiguous.
- */
-async function refuseTakenDay(
-  ctx: ToolContext,
-  day: IsoDate,
-  outfitId: number | undefined,
-): Promise<void> {
-  const entries = await findEntries(ctx.db, ctx.userId, day, day);
-  const other = entries.find((entry) => entry.outfit.id !== outfitId);
-  if (other) {
-    throw new HttpError(
-      409,
-      `${day} already has outfit ${other.outfit.id} (${other.outfit.name ?? 'untitled'}) planned`,
-    );
-  }
-}

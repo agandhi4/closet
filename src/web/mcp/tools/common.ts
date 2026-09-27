@@ -1,4 +1,5 @@
 import * as z from 'zod/v4';
+import { OCCASIONS } from '../../../wardrobe/occasions';
 
 /**
  * Input pieces the tools share. Ids are Postgres serials (32-bit), as the
@@ -16,3 +17,11 @@ export const ownerIdInput = rowId()
 
 /** A calendar day, 'YYYY-MM-DD' (a real date, like the routes' IsoDateSchema). */
 export const isoDate = () => z.iso.date();
+
+/** A calendar entry's occasion (src/wardrobe/occasions.ts); all day when omitted. */
+export const occasionInput = z
+  .enum(OCCASIONS)
+  .optional()
+  .describe(
+    `The part of the day it is for: ${OCCASIONS.join(', ')}. Omit for all-day.`,
+  );

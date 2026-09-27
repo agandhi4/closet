@@ -7,12 +7,14 @@ import { capsuleNotFound } from '../capsules/validation';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
-import { IsoDateSchema, RowId } from '../schemas';
+import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
+import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import { viewContext } from '../view-context';
 import { orderCategories } from '../wardrobe/garment';
 import { cycleRow, newOutfitRows, savedOutfitRows } from './builder';
 import { OUTFIT_NAME_MAX, OUTFIT_NOTES_MAX, OutfitFormPage } from './form-page';
+import { type OutfitDestination, parseDestination } from './destination';
 import { OutfitsPage } from './list-page';
 import { OutfitRow } from './outfit-row';
 import {
@@ -35,14 +37,16 @@ import { OutfitPage } from './show-page';
  * Validation, decided per route:
  * - The page queries are navigation state and fall back rather than fail:
  *   `?returnTo=` goes through safeReturnTo (same-site paths only, else the
- *   page's default); `?scheduleDate=` and `?returnToWeek=` through
- *   parseIsoDate (a malformed one is dropped).
+ *   page's default); `?for=day:D&occasion=O` (the calendar's plan page)
+ *   through parseDestination, `?scheduleDate=` (links cached before #13)
+ *   and `?returnToWeek=` through parseIsoDate (a malformed one is dropped).
  * - The row fragment needs a category (400 without one: there is no row to
  *   render); its `index` is clamped into the category's cycle.
  * - `?capsule=` (a new build from a capsule, and its rows) names data: not
  *   an id is a 400, a capsule that is not the user's own a 404.
  * - The outfit form's post is data the write stores: anything malformed is
- *   a 400 and writes nothing. An empty date input posts '' (no schedule).
+ *   a 400 and writes nothing. An empty date input posts '' (no schedule);
+ *   no occasion (a form cached before #13) is all day.
  */
 
 const OutfitParams = Type.Object({ id: RowId });
@@ -58,6 +62,8 @@ const OptionalDay = Type.Union([Type.Literal(''), IsoDateSchema]);
 
 const PageQuery = Type.Object({
   returnTo: Type.Optional(Type.String()),
+  for: Type.Optional(Type.String()),
+  occasion: Type.Optional(Type.String()),
   scheduleDate: Type.Optional(Type.String()),
   returnToWeek: Type.Optional(Type.String()),
 });
@@ -87,6 +93,7 @@ const OutfitBody = Type.Object({
     Type.Array(Type.Union([Type.Literal(''), RowId]), { maxItems: MAX_ROWS }),
   ),
   scheduleDate: Type.Optional(OptionalDay),
+  scheduleOccasion: Type.Optional(OccasionSchema),
   returnTo: Type.Optional(Type.String()),
   returnToWeek: Type.Optional(OptionalDay),
 });
@@ -114,8 +121,28 @@ function outfitInput(body: OutfitForm): OutfitInput {
       category,
       garmentId: garmentIds[i] === '' ? null : garmentIds[i],
     })),
-    scheduleDate: body.scheduleDate || undefined,
+    plan: body.scheduleDate
+      ? {
+          day: body.scheduleDate,
+          occasion: body.scheduleOccasion ?? DEFAULT_OCCASION,
+        }
+      : undefined,
   };
+}
+
+/**
+ * Where a new build will be planned: `?for=`, else a `?scheduleDate=` from
+ * a calendar page cached before #13 (all day).
+ */
+function newBuildDestination(
+  query: Static<typeof PageQuery>,
+): OutfitDestination {
+  const destination = parseDestination(query);
+  if (destination.kind !== 'none') return destination;
+  const day = parseIsoDate(query.scheduleDate);
+  return day
+    ? { kind: 'day', day, occasion: DEFAULT_OCCASION }
+    : { kind: 'none' };
 }
 
 /** Where a saved form goes: back to the calendar week it came from, else the outfit. */
@@ -127,14 +154,16 @@ function afterSave(body: OutfitForm, id: number): string {
   return `/outfits/${id}`;
 }
 
-function describeSave(result: SaveResult, day: string | undefined): string {
+function describeSave(result: SaveResult, plan: OutfitInput['plan']): string {
   const parts = [`${result.slots} row(s)`];
   if (result.refused > 0) {
     parts.push(`${result.refused} garment id(s) not in the wardrobe ignored`);
   }
-  if (result.schedule === 'scheduled') parts.push(`scheduled on ${day}`);
-  if (result.schedule === 'already-scheduled') {
-    parts.push(`already scheduled on ${day}`);
+  if (plan && result.schedule === 'scheduled') {
+    parts.push(`scheduled on ${plan.day} (${plan.occasion})`);
+  }
+  if (plan && result.schedule === 'already-scheduled') {
+    parts.push(`already scheduled on ${plan.day}`);
   }
   return parts.join(', ');
 }
@@ -169,7 +198,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { querystring: NewQuery } },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
-      const { returnTo, scheduleDate } = request.query;
+      const { returnTo } = request.query;
       const capsule =
         request.query.capsule === undefined
           ? undefined
@@ -187,7 +216,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             rows: newOutfitRows(heads),
             categories: orderCategories(heads.map((head) => head.category)),
             returnTo: safeReturnTo(returnTo, '/outfits'),
-            scheduleDate: parseIsoDate(scheduleDate),
+            destination: newBuildDestination(request.query),
           }}
         />,
       );
@@ -278,7 +307,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const input = outfitInput(request.body);
       const result = await createOutfit(db, ownerId, input);
       logger.info(
-        `Outfit ${result.id} created by user ${ownerId}: ${describeSave(result, input.scheduleDate)}`,
+        `Outfit ${result.id} created by user ${ownerId}: ${describeSave(result, input.plan)}`,
       );
       return reply.redirect(afterSave(request.body, result.id), 302);
     },
@@ -294,7 +323,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const result = await updateOutfit(db, id, ownerId, input);
       if (result === 'not-found') throw outfitNotFound();
       logger.info(
-        `Outfit ${id} updated by user ${ownerId}: ${describeSave(result, input.scheduleDate)}`,
+        `Outfit ${id} updated by user ${ownerId}: ${describeSave(result, input.plan)}`,
       );
       return reply.redirect(afterSave(request.body, id), 302);
     },

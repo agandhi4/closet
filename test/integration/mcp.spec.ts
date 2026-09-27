@@ -535,30 +535,67 @@ describe('the MCP endpoint', () => {
       expect(await t.db.$count(outfit, eq(outfit.ownerId, viewer.id))).toBe(0);
     });
 
-    it('get_calendar shows the day; schedule_outfit keeps one outfit a day', async () => {
+    it('get_calendar shows the day; schedule_outfit adds outfits by occasion, each once a day', async () => {
       const calendar = await tool<{
         entries: { id: number; day: string; outfit: { id: number } }[];
       }>(t, token, 'get_calendar', { from: today(), to: today() });
       expect(calendar.entries).toEqual([
         expect.objectContaining({
           day: today(),
+          occasion: 'all-day',
           outfit: expect.objectContaining({ id: outfitId }),
         }),
       ]);
+      // The same outfit again, for another occasion: kept as it was.
       const again = await tool(t, token, 'schedule_outfit', {
         outfitId,
         date: today(),
+        occasion: 'evening',
       });
-      expect(again).toMatchObject({ outcome: 'already-scheduled' });
+      expect(again).toMatchObject({
+        outcome: 'already-scheduled',
+        occasion: 'all-day',
+      });
+      // Another outfit on the day, for the evening (#13).
       const other = await tool<{ id: number }>(t, token, 'create_outfit', {
         garmentIds: [garments.tee.id],
       });
-      const taken = await callTool(t, token, 'schedule_outfit', {
+      const evening = await tool(t, token, 'schedule_outfit', {
         outfitId: other.id,
         date: today(),
+        occasion: 'evening',
       });
-      expect(taken.isError).toBe(true);
-      expect(taken.value.error).toMatch(/already has outfit/);
+      expect(evening).toMatchObject({
+        outcome: 'scheduled',
+        occasion: 'evening',
+      });
+      const workout = await tool<{ id: number; scheduled: unknown }>(
+        t,
+        token,
+        'create_outfit',
+        {
+          garmentIds: [garments.tee.id],
+          scheduleDate: today(),
+          occasion: 'workout',
+        },
+      );
+      expect(workout.scheduled).toEqual({ day: today(), occasion: 'workout' });
+      const day = await tool<{
+        entries: { occasion: string; outfit: { id: number } }[];
+      }>(t, token, 'get_calendar', { from: today(), to: today() });
+      expect(
+        day.entries.map((entry) => [entry.occasion, entry.outfit.id]),
+      ).toEqual([
+        ['all-day', outfitId],
+        ['workout', workout.id],
+        ['evening', other.id],
+      ]);
+      const unknown = await callTool(t, token, 'schedule_outfit', {
+        outfitId: other.id,
+        date: today(),
+        occasion: 'brunch',
+      });
+      expect(unknown.isError).toBe(true);
     });
 
     it('get_calendar refuses a range past two months', async () => {

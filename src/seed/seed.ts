@@ -203,8 +203,9 @@ export async function seedPersona(
 
 /**
  * The simulated history through the app's writers: every calendar entry
- * (insertEntry), the worn ones marked as the pill does (setEntryWorn, which
- * logs their wears) at 21:00 that day, then the laundry Sundays in order
+ * (insertEntry, with its occasion), the worn ones marked as the pill does
+ * (setEntryWorn, which logs their wears; a day's workout and evening count
+ * as the one wear the day is) at 21:00 that day, when he logs it, then the laundry Sundays in order
  * (markWashed), so each garment ends on its last one. Returns the wear rows
  * written.
  */
@@ -228,6 +229,7 @@ async function writeHistory(
       ownerId: userId,
       outfitId: ids.outfitIds[entry.outfit],
       day: entry.day,
+      occasion: entry.occasion,
     });
     // The simulation plans each (day, outfit) once: always a new entry.
     if (!entry.worn || scheduled.outcome !== 'scheduled') continue;

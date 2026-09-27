@@ -92,6 +92,13 @@
       "when": 1790464047543,
       "tag": "0012_personal_access_token",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790466728533,
+      "tag": "0013_outfit_calendar_occasion",
+      "breakpoints": true
     }
   ]
 }

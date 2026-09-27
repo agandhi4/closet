@@ -19,6 +19,11 @@ import {
 } from 'drizzle-orm/pg-core';
 import { CUTOUT_STATUSES } from '../cutout/state';
 import {
+  DEFAULT_OCCASION,
+  type Occasion,
+  OCCASIONS,
+} from '../wardrobe/occasions';
+import {
   AWAY_REASONS,
   type AwayReason,
   QUANTITY_MAX,
@@ -465,9 +470,11 @@ export const outfitSlot = pgTable(
   ],
 );
 
-// An outfit planned for a day. One row per (owner, day, outfit): scheduling
-// is idempotent (POST /calendar and the outfit form insert ... on conflict do
-// nothing).
+// An outfit planned for a day and an occasion (the part of the day, #13).
+// One row per (owner, day, outfit): scheduling is idempotent (POST /calendar
+// and the outfit form insert ... on conflict do nothing), and the same
+// outfit is never on one day twice, even for two occasions; different
+// outfits on one day are fine.
 export const outfitCalendar = pgTable(
   'outfit_calendar',
   {
@@ -480,8 +487,17 @@ export const outfitCalendar = pgTable(
     ownerId: integer('owner_id').notNull(),
     // Null until the entry is marked worn.
     wornAt: timestamp('worn_at', { withTimezone: true }),
+    // src/wardrobe/occasions.ts OCCASIONS; entries from before #13 are all day.
+    occasion: text('occasion')
+      .$type<Occasion>()
+      .default(DEFAULT_OCCASION)
+      .notNull(),
   },
   (table) => [
+    check(
+      'outfit_calendar_occasion_check',
+      sql`${table.occasion} in (${sqlList(OCCASIONS)})`,
+    ),
     // Leads with owner_id and day, so it is also the index of the week and
     // month range queries and of the owner_id foreign key.
     unique('outfit_calendar_owner_id_day_outfit_id_unique').on(

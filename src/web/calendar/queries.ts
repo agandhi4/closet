@@ -1,6 +1,7 @@
 import { and, between, eq } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { outfit, outfitCalendar } from '../../db/schema';
+import type { Occasion } from '../../wardrobe/occasions';
 import { imageUrl } from '../files/image-url';
 import type { IsoDate } from './calendar-date';
 import type { CalendarEntry } from './calendar-view';
@@ -15,7 +16,10 @@ import type { CalendarEntry } from './calendar-view';
 
 export type EntryMiss = 'not-found';
 
-/** The owner's entries from `first` to `last` (inclusive), by day then id. */
+/**
+ * The owner's entries from `first` to `last` (inclusive), by day then id;
+ * the page puts a day's entries in occasion order (buildCalendarView).
+ */
 export async function findEntries(
   db: Db,
   ownerId: number,
@@ -24,7 +28,7 @@ export async function findEntries(
 ): Promise<CalendarEntry[]> {
   // Served by outfit_calendar_owner_id_day_outfit_id_unique (owner_id, day).
   const rows = await db.query.outfitCalendar.findMany({
-    columns: { id: true, day: true, wornAt: true },
+    columns: { id: true, day: true, occasion: true, wornAt: true },
     where: and(
       eq(outfitCalendar.ownerId, ownerId),
       between(outfitCalendar.day, first, last),
@@ -54,6 +58,7 @@ export async function findEntries(
   return rows.map((row) => ({
     id: row.id,
     day: row.day,
+    occasion: row.occasion,
     worn: row.wornAt !== null,
     outfit: {
       id: row.outfit.id,
@@ -67,20 +72,28 @@ export async function findEntries(
 
 export type ScheduleOutcome = 'scheduled' | 'already-scheduled';
 
+/** An entry to plan: the owner's outfit on a day, for an occasion. */
+export interface NewEntry {
+  ownerId: number;
+  outfitId: number;
+  day: IsoDate;
+  occasion: Occasion;
+}
+
 /** What insertEntry did; a new entry's id, for a caller that marks it worn (the seed). */
 export type Scheduled =
   | { outcome: 'scheduled'; id: number }
   | { outcome: 'already-scheduled' };
 
 /**
- * Plans the owner's outfit on `day`. Idempotent: planning the same outfit on
- * the same day again inserts nothing (the unique (owner, day, outfit)
- * constraint) and reports 'already-scheduled', so a double tap or a replayed
- * form is not an error.
+ * Plans the owner's outfit on `day` for an occasion. Idempotent: planning
+ * the same outfit on the same day again inserts nothing (the unique
+ * (owner, day, outfit) constraint), whatever the occasion, and reports
+ * 'already-scheduled', so a double tap or a replayed form is not an error.
  */
 export async function scheduleOutfit(
   db: Db,
-  entry: { ownerId: number; outfitId: number; day: IsoDate },
+  entry: NewEntry,
 ): Promise<ScheduleOutcome | 'no-such-outfit'> {
   const [owned] = await db
     .select({ id: outfit.id })
@@ -99,10 +112,15 @@ export async function scheduleOutfit(
  * (src/web/outfits/queries.ts), and the seed's simulated history. An entry
  * starts unworn: setEntryWorn (src/web/wears/queries.ts) is the only way to
  * mark one, because its wear rows change with it.
+ *
+ * The outfit already on that day keeps its entry and its occasion: planning
+ * it again for another occasion changes nothing (an edit form re-saved with
+ * the occasion picker at its default must not move an evening entry to all
+ * day). Different outfits on one day are separate entries.
  */
 export async function insertEntry(
   db: Queryable,
-  entry: { ownerId: number; outfitId: number; day: IsoDate },
+  entry: NewEntry,
 ): Promise<Scheduled> {
   const [inserted] = await db
     .insert(outfitCalendar)

@@ -7,6 +7,7 @@ import {
   washLimit,
   wearsSinceWash,
 } from '../../src/wardrobe/availability';
+import type { Occasion } from '../../src/wardrobe/occasions';
 import {
   addDays,
   type IsoDate,
@@ -105,12 +106,20 @@ describe('wears and washes', () => {
     expect(res.statusCode).toBe(302);
   };
 
-  /** Plans the outfit on `day` and returns the entry's id. */
-  const schedule = async (outfitId: number, day: IsoDate) => {
+  /** Plans the outfit on `day` (all day unless said) and returns the entry's id. */
+  const schedule = async (
+    outfitId: number,
+    day: IsoDate,
+    occasion?: Occasion,
+  ) => {
     const res = await t.inject({
       method: 'POST',
       url: '/calendar',
-      ...form({ outfitId: String(outfitId), date: day }),
+      ...form({
+        outfitId: String(outfitId),
+        date: day,
+        ...(occasion && { occasion }),
+      }),
     });
     expect(res.statusCode).toBe(302);
     const [entry] = await t.db
@@ -239,6 +248,53 @@ describe('wears and washes', () => {
       const page = await garmentPage(tee);
       expect(hasText(page.body, 'Worn once')).toBe(true);
       expect(hasText(page.body, 'last worn yesterday')).toBe(true);
+    });
+
+    // #13: several outfits a day, each for an occasion. Wears still count
+    // days: each entry keeps its own rows (so unmarking one takes exactly
+    // them), and the counts and the wash rules count the day once.
+    it('office then dinner, same shoes: one wear', async () => {
+      const shoes = await newGarment('Loafers', 'footwear');
+      const tees = await newGarment('Day and night tees', 'tops', {
+        quantity: 2,
+      });
+      const oxford = await newGarment('Office oxford', 'tops');
+      const office = await newOutfit('Office', [oxford, tees, shoes]);
+      const dinner = await newOutfit('Dinner', [tees, shoes]);
+      const work = await schedule(office, daysAgo(1), 'work');
+      const evening = await schedule(dinner, daysAgo(1), 'evening');
+      await markWorn(work);
+      await markWorn(evening);
+
+      // One row per entry and garment, one wear by the count.
+      expect(await wearsOf(shoes)).toEqual([
+        { day: daysAgo(1), entry: work },
+        { day: daysAgo(1), entry: evening },
+      ]);
+      expect(hasText((await garmentPage(shoes)).body, 'Worn once')).toBe(true);
+      // Two copies at one wear each: one day dirties one copy, not both.
+      const dirty = async () =>
+        (
+          await t.db
+            .select({ dirty: dirtyCopiesSql() })
+            .from(garment)
+            .where(eq(garment.id, tees))
+        )[0].dirty;
+      expect(await dirty()).toBe(1);
+      expect(
+        hasText((await garmentPage(tees)).body, '1 of 2 need a wash'),
+      ).toBe(true);
+
+      // Unmarking the office outfit leaves the dinner's wear: still once.
+      await markWorn(work, '0');
+      expect(await wearsOf(shoes)).toEqual([
+        { day: daysAgo(1), entry: evening },
+      ]);
+      expect(hasText((await garmentPage(shoes)).body, 'Worn once')).toBe(true);
+      expect(await dirty()).toBe(1);
+      await markWorn(evening, '0');
+      expect(await wearsOf(shoes)).toEqual([]);
+      expect(await dirty()).toBe(0);
     });
 
     it('counts a garment held in two slots of one outfit once', async () => {

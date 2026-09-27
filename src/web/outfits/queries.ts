@@ -14,6 +14,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment, outfit, outfitSlot } from '../../db/schema';
+import type { Occasion } from '../../wardrobe/occasions';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
@@ -60,8 +61,8 @@ export interface OutfitInput {
   name?: string | null;
   notes?: string | null;
   slots: SlotInput[];
-  /** "Add to calendar": plan the outfit on this day in the same transaction. */
-  scheduleDate?: IsoDate;
+  /** "Add to calendar": plan the outfit on this day, for this occasion, in the same transaction. */
+  plan?: { day: IsoDate; occasion: Occasion };
 }
 
 export interface SaveResult {
@@ -373,12 +374,12 @@ export function createOutfit(
       })
       .returning({ id: outfit.id });
     const refused = await insertSlots(tx, created.id, ownerId, input.slots);
-    const schedule = input.scheduleDate
+    const schedule = input.plan
       ? (
           await insertEntry(tx, {
             ownerId,
             outfitId: created.id,
-            day: input.scheduleDate,
+            ...input.plan,
           })
         ).outcome
       : undefined;
@@ -416,14 +417,9 @@ export function updateOutfit(
     }
     await tx.delete(outfitSlot).where(eq(outfitSlot.outfitId, id));
     const refused = await insertSlots(tx, id, ownerId, input.slots);
-    const schedule = input.scheduleDate
-      ? (
-          await insertEntry(tx, {
-            ownerId,
-            outfitId: id,
-            day: input.scheduleDate,
-          })
-        ).outcome
+    const schedule = input.plan
+      ? (await insertEntry(tx, { ownerId, outfitId: id, ...input.plan }))
+          .outcome
       : undefined;
     return { id, slots: input.slots.length, refused, schedule };
   });

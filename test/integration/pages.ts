@@ -119,6 +119,8 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app(`/outfits/${f.outfitId}`),
     app(`/outfits/${f.outfitId}/edit`),
     app('/calendar'),
+    app('/calendar/plan?for=day:2030-10-09&occasion=evening'),
+    app('/outfits/new?for=day:2030-10-09&occasion=evening'),
     app('/auth/profile'),
     app('/auth/update-email'),
     app('/auth/delete-account'),

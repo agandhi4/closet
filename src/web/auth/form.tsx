@@ -126,6 +126,8 @@ export function PostForm(props: {
   class?: string;
   /** For buttons outside the form that submit it through their `form` attribute. */
   id?: string;
+  /** Disabled while offline (data-needs-network, public/js/connectivity.js). */
+  needsNetwork?: boolean;
   children?: Child;
 }) {
   return (
@@ -136,6 +138,7 @@ export function PostForm(props: {
       class={props.class}
       hx-boost="false"
       data-confirm={props.confirm}
+      data-needs-network={props.needsNetwork ? '' : undefined}
       onsubmit={
         props.confirm ? 'return confirm(this.dataset.confirm)' : undefined
       }

@@ -864,6 +864,25 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // The plan page lists the requester's own outfits to plan (#13).
+    name: 'GET /calendar/plan',
+    kind: 'read',
+    ok: 200,
+    secret: outfitName,
+    shows: true,
+    vias: BOTH,
+    request: (_, q) => ({
+      method: 'GET',
+      url: `/calendar/plan${q ? `${q}&` : '?'}for=day:2030-10-09&occasion=evening`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
     name: 'POST /calendar',
     kind: 'write',
     ok: 302,
@@ -874,7 +893,11 @@ const ROUTES: Route[] = [
     request: (f, q) => ({
       method: 'POST',
       url: `/calendar${q}`,
-      payload: { date: '2030-10-09', outfitId: String(f.outfitId) },
+      payload: {
+        date: '2030-10-09',
+        outfitId: String(f.outfitId),
+        occasion: 'evening',
+      },
     }),
     expect: {
       owner: 'ok',

@@ -1,4 +1,5 @@
 import * as z from 'zod/v4';
+import { compareOccasions } from '../../../wardrobe/occasions';
 import { addDays, daysBetween, todayIn } from '../../calendar/calendar-date';
 import { findEntries } from '../../calendar/queries';
 import { HttpError } from '../../errors';
@@ -24,7 +25,7 @@ export const calendarTools = [
   defineTool({
     name: 'get_calendar',
     title: 'Get my calendar',
-    description: `Your calendar from one day to another (inclusive, at most ${MAX_CALENDAR_DAYS} days): each entry's id, day, outfit and whether it was worn. Without dates: this week, from today. Days are the household's (its time zone).`,
+    description: `Your calendar from one day to another (inclusive, at most ${MAX_CALENDAR_DAYS} days): each entry's id, day, occasion (the part of the day: a day can hold several outfits, listed in occasion order), outfit and whether it was worn. Without dates: this week, from today. Days are the household's (its time zone).`,
     input: z.object({
       from: isoDate().optional().describe('First day, YYYY-MM-DD.'),
       to: isoDate().optional().describe('Last day, YYYY-MM-DD.'),
@@ -46,12 +47,20 @@ export const calendarTools = [
         today,
         from: first,
         to: last,
-        entries: entries.map((entry) => ({
-          id: entry.id,
-          day: entry.day,
-          worn: entry.worn,
-          outfit: { id: entry.outfit.id, name: entry.outfit.name },
-        })),
+        // By day (as read), then occasion, as the calendar page stacks them.
+        entries: entries
+          .sort(
+            (a, b) =>
+              a.day.localeCompare(b.day) ||
+              compareOccasions(a.occasion, b.occasion),
+          )
+          .map((entry) => ({
+            id: entry.id,
+            day: entry.day,
+            occasion: entry.occasion,
+            worn: entry.worn,
+            outfit: { id: entry.outfit.id, name: entry.outfit.name },
+          })),
       };
     },
   }),

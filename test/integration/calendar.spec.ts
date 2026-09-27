@@ -10,6 +10,7 @@ import {
   TestApp,
   unescapeHtml,
 } from './harness';
+import { dayColumns } from './calendar-page';
 import { expectFullPage } from './pages';
 
 /**
@@ -31,23 +32,6 @@ const form = (fields: Record<string, string>) => ({
   payload: new URLSearchParams(fields).toString(),
   headers: { 'content-type': 'application/x-www-form-urlencoded' },
 });
-
-/**
- * Each day column's HTML keyed by its YYYY-MM-DD date, in page order. A
- * column ends with its "+ Build outfit" link, which carries the date; the
- * first column starts after the mini month's table.
- */
-function dayColumns(html: string): Map<string, string> {
-  const columns = new Map<string, string>();
-  let start = html.indexOf('</table>');
-  for (const match of html.matchAll(
-    /href="\/outfits\/new\?scheduleDate=(\d{4}-\d{2}-\d{2})&returnTo=\/calendar"/g,
-  )) {
-    columns.set(match[1], html.slice(start, match.index));
-    start = match.index + match[0].length;
-  }
-  return columns;
-}
 
 /** The rendered day number in a column header. */
 function dayNumber(column: string): number {

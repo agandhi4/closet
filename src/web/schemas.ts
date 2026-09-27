@@ -1,4 +1,5 @@
 import { Type } from '@sinclair/typebox';
+import { OCCASIONS } from '../wardrobe/occasions';
 
 /**
  * Request schema pieces more than one feature validates with (TypeBox, see
@@ -17,3 +18,12 @@ export const RowId = Type.Integer({ minimum: 1, maximum: 2_147_483_647 });
  * calendar-date.ts) applies to query parameters that fall back instead.
  */
 export const IsoDateSchema = Type.String({ format: 'date' });
+
+/**
+ * A calendar entry's occasion (src/wardrobe/occasions.ts) in a form: POST
+ * /calendar and the outfit form. Anything else is a 400: it is data a write
+ * stores (a `?occasion=` in a URL is navigation state, parseDestination's).
+ */
+export const OccasionSchema = Type.Union(
+  OCCASIONS.map((occasion) => Type.Literal(occasion)),
+);

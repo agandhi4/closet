@@ -1,0 +1,101 @@
+import { t } from '../i18n';
+import type { CalendarEntryView } from './calendar-view';
+import { occasionLabel } from './labels';
+import { WornButton } from './worn-button';
+
+/**
+ * One calendar entry as a row of its day: the occasion's label, the outfit
+ * (tap to edit it, × to unschedule) and the worn pill. The one way a day's
+ * entries are drawn: the week page stacks them in occasion order, and the
+ * redesign's week agenda (R6) and Today (#15) reuse it
+ * (docs/plans/2026-09-26-redesign.md, section 5). `data-occasion` is what
+ * the specs read the order from.
+ */
+export function OccasionRow(props: {
+  entry: CalendarEntryView;
+  /** The day is after today: no worn pill (setEntryWorn refuses it). */
+  future: boolean;
+}) {
+  const { entry, future } = props;
+  return (
+    <div class="flex flex-col gap-0.5 mb-1" data-occasion={entry.occasion}>
+      <span class="text-[10px] font-semibold uppercase tracking-wide text-base-content/50">
+        {occasionLabel(entry.occasion)}
+      </span>
+      <div class="flex items-center gap-2">
+        <EntryChip entry={entry} />
+        {/* A planned day has no pill (it cannot be worn yet), unless an
+            entry there was marked before that rule, which can still be
+            unmarked. */}
+        {(!future || entry.worn) && (
+          <WornButton entryId={entry.id} worn={entry.worn} week={entry.day} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Inline hues per entry so chips on one day differ; a worn chip is stronger.
+function chipStyle(hue: number, worn: boolean): string {
+  return worn
+    ? `background:hsl(${hue} 65% 55% / 0.22);border-color:hsl(${hue} 65% 60% / 0.45);color:hsl(${hue} 80% 75%)`
+    : `background:hsl(${hue} 55% 50% / 0.08);border-color:hsl(${hue} 55% 55% / 0.22);color:hsl(${hue} 50% 65%)`;
+}
+
+/**
+ * The outfit bar. It is the edit link's (boosted), stretched over it by its
+ * ::after; it holds the delete form, which an <a> cannot, so the form sits
+ * above it.
+ */
+function EntryChip({ entry }: { entry: CalendarEntryView }) {
+  const editUrl = `/outfits/${entry.outfit.id}/edit?returnTo=/calendar&returnToWeek=${entry.day}`;
+  const deleteUrl = `/calendar/${entry.id}/delete`;
+  const name = entry.outfit.name || t('UNTITLED_OUTFIT');
+  return (
+    <div
+      class="relative min-w-0 flex-1 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1 leading-tight"
+      style={chipStyle(entry.chipHue, entry.worn)}
+    >
+      <a
+        href={editUrl}
+        class="flex items-center min-w-0 flex-1 after:absolute after:inset-0"
+        aria-label={name}
+      >
+        {entry.outfit.photoUrls.length > 0 ? (
+          <span class="flex items-center gap-0.5 min-w-0 overflow-hidden flex-1">
+            {entry.outfit.photoUrls.map((src) => (
+              <img
+                src={src}
+                alt=""
+                class="size-6 rounded object-cover shrink-0"
+                width="24"
+                height="24"
+                loading="lazy"
+                decoding="async"
+              />
+            ))}
+          </span>
+        ) : (
+          <span class="truncate flex-1">{name}</span>
+        )}
+      </a>
+      <form
+        method="post"
+        action={deleteUrl}
+        hx-post={deleteUrl}
+        hx-confirm={t('CALENDAR_DELETE_CONFIRM')}
+        hx-vals={JSON.stringify({ week: entry.day })}
+        class="relative z-10"
+      >
+        <input type="hidden" name="week" value={entry.day} />
+        <button
+          type="submit"
+          class="text-base-content/30 hover:text-error w-5 h-5 flex items-center justify-center rounded hover:bg-error/10 shrink-0 transition-colors"
+          aria-label={t('DELETE')}
+        >
+          ×
+        </button>
+      </form>
+    </div>
+  );
+}

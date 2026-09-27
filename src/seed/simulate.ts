@@ -6,8 +6,9 @@ import {
   startOfWeek,
 } from '../web/calendar/calendar-date';
 import { cleanCopies, washLimit } from '../wardrobe/availability';
+import { DEFAULT_OCCASION, type Occasion } from '../wardrobe/occasions';
 import type {
-  Occasion,
+  BibleOccasion,
   Persona,
   SeedEvent,
   SeedGarment,
@@ -23,7 +24,9 @@ import { BANDS, type Band, type Weather, weatherFor } from './weather';
  * the same persona and anchor give the same entries (random.ts). Later
  * features extend this rather than writing rows beside it (CLAUDE.md, Seed
  * personas): wears and washes (#7) are its worn entries and its Sundays,
- * judged by the app's own wash rules (src/wardrobe/availability.ts).
+ * judged by the app's own wash rules (src/wardrobe/availability.ts);
+ * occasions (#13) are each entry's part of the day, with the week's morning
+ * workouts as entries of their own.
  */
 
 /** The bibles' dates are written for this Saturday; seeding shifts them by whole weeks. */
@@ -45,6 +48,15 @@ const WORN_YESTERDAY = 0.2;
 const WORN_RECENTLY = 0.5;
 const RECENT_DAYS = 3;
 const RAIN_OUTFIT_WEIGHT = 4;
+const WORKOUT_SKIPPED = 0.2;
+/** An outfit index for "none": no outfit fits, no workout, no evening. */
+const NONE = -1;
+
+// The evening's calendar occasion, by what the evening is.
+const EVENING_OCCASIONS: Record<'date' | 'night-out', Occasion> = {
+  date: 'evening',
+  'night-out': 'night-out',
+};
 
 const SUNDAY = 0;
 const WEDNESDAY = 3;
@@ -57,6 +69,8 @@ export interface SimulatedEntry {
   day: IsoDate;
   /** Index into persona.outfits. */
   outfit: number;
+  /** The part of the day it is for. */
+  occasion: Occasion;
   /** Worn that day (a past entry he logged); false for a planned one. */
   worn: boolean;
 }
@@ -166,17 +180,53 @@ class Days {
     const { day } = weather;
     if (event && !event.recorded) return;
     const main = this.mainOutfit(weather, event);
-    if (main === -1) return;
+    if (main === NONE) return;
+    const workout = event ? NONE : this.workout(weather);
     // Worn whether or not he logs it: the laundry does not care.
+    this.wear(workout, day);
     this.wear(main, day);
     if (!this.logged(day, planned, event)) return;
-    const skipped = planned ? -1 : this.changeOfMind(weather, main);
-    if (skipped !== -1) entries.push({ day, outfit: skipped, worn: false });
-    entries.push({ day, outfit: main, worn: !planned });
-    const evening = event ? -1 : this.evening(weather, main);
-    if (evening === -1) return;
-    this.wear(evening, day);
-    entries.push({ day, outfit: evening, worn: !planned });
+    const plan = (outfit: number, occasion: Occasion, worn = !planned) => {
+      if (outfit !== NONE) entries.push({ day, outfit, occasion, worn });
+    };
+    plan(workout, 'workout');
+    const occasion = this.dayOccasion(day, main);
+    plan(planned ? NONE : this.changeOfMind(weather, main), occasion, false);
+    plan(main, occasion);
+    const evening = event ? undefined : this.eveningOn(day);
+    if (!evening) return;
+    const outfit = this.choose([evening], weather, 'evening', main);
+    this.wear(outfit, day);
+    plan(outfit, EVENING_OCCASIONS[evening]);
+  }
+
+  // The week row's calendar occasion for an outfit the day draws from; an
+  // Event's outfit from outside them (the wedding, the beach, the travel
+  // day) is all day. The first cool Thursday's chore coat is still work.
+  private dayOccasion(day: IsoDate, outfit: number): Occasion {
+    const draws = this.occasionsOn(day);
+    const drawn = this.persona.outfits[outfit].occasions.some((o) =>
+      draws.includes(o),
+    );
+    return drawn ? this.weekday(day).occasion : DEFAULT_OCCASION;
+  }
+
+  // The week's morning workout (a run, the gym), before the day's outfit;
+  // NONE when the day has none, he skipped it (one in five), or the weather
+  // is outside the outfit's bands (no run in freezing weather).
+  private workout(weather: Weather): number {
+    const name = this.weekday(weather.day).workout;
+    if (!name) return NONE;
+    const index = this.persona.outfits.findIndex((o) => o.name === name);
+    const outfit = this.persona.outfits[index];
+    const skipped = stream(this.persona.key, 'workout', weather.day).chance(
+      WORKOUT_SKIPPED,
+    );
+    return skipped ||
+      bandDistance(outfit.bands, weather.band) > 0 ||
+      !this.available(outfit, weather.day)
+      ? NONE
+      : index;
   }
 
   // The event's outfit, else the day's draw.
@@ -210,12 +260,6 @@ class Days {
     return changed ? this.choose(['office'], weather, 'skipped', worn) : -1;
   }
 
-  // The evening's second outfit (a date, a night out); -1 on most days.
-  private evening(weather: Weather, main: number): number {
-    const occasion = this.eveningOn(weather.day);
-    return occasion ? this.choose([occasion], weather, 'evening', main) : -1;
-  }
-
   /**
    * Sunday: everything worn since the last wash that ever gets washed comes
    * back clean (shoes and bags are not laundered; the raw denim is never
@@ -234,17 +278,22 @@ class Days {
     return washed;
   }
 
+  private weekday(day: IsoDate) {
+    return this.persona.week![dayOfWeek(day)];
+  }
+
   // The week's row, with a meeting Wednesday's office day made a meeting.
-  private occasionsOn(day: IsoDate): Occasion[] {
-    const draws = this.persona.week![dayOfWeek(day)];
+  private occasionsOn(day: IsoDate): BibleOccasion[] {
+    const { draws } = this.weekday(day);
     const weeks = daysBetween(this.shifted(REFERENCE_MEETING_WEDNESDAY), day);
     const meeting = dayOfWeek(day) === WEDNESDAY && mod(weeks / 7, 2) === 0;
     return meeting ? draws.map((o) => (o === 'office' ? 'meeting' : o)) : draws;
   }
 
-  // Date night (most weeks, Friday or Saturday) and a night out with
-  // friends every third week (Thursday, or Saturday when that is free).
-  private eveningOn(day: IsoDate): Occasion | undefined {
+  // The evening's second outfit, on most days none: date night (most
+  // weeks, Friday or Saturday) and a night out with friends every third
+  // week (Thursday, or Saturday when that is free).
+  private eveningOn(day: IsoDate): 'date' | 'night-out' | undefined {
     const weekday = dayOfWeek(day);
     const sunday = addDays(day, -weekday);
     const random = stream(this.persona.key, 'evenings', sunday);
@@ -273,7 +322,7 @@ class Days {
    * clothes, are tried.
    */
   private choose(
-    occasions: Occasion[],
+    occasions: BibleOccasion[],
     weather: Weather,
     slot: string,
     except = -1,
@@ -346,7 +395,9 @@ class Days {
     });
   }
 
+  // Nothing for NONE (no workout, no evening outfit that day).
   private wear(outfit: number, day: IsoDate): void {
+    if (outfit === NONE) return;
     this.lastWorn.set(outfit, day);
     for (const id of this.persona.outfits[outfit].garmentIds) {
       const days = this.wornSinceWash.get(id) ?? new Set<IsoDate>();

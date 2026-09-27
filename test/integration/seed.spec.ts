@@ -155,6 +155,7 @@ describe('seed personas', () => {
       })),
       calendar: calendar.map((c) => ({
         day: c.day,
+        occasion: c.occasion,
         outfit: names.get(c.outfitId),
         wornAt: c.wornAt?.toISOString() ?? null,
       })),
@@ -211,9 +212,24 @@ describe('seed personas', () => {
     // Worn that evening in New York; the planned week after the anchor is not.
     expect(worn.find((entry) => entry.day === '2026-08-29')).toEqual({
       day: '2026-08-29',
+      occasion: 'all-day',
       outfit: 'Wedding',
       wornAt: '2026-08-30T01:00:00.000Z',
     });
+    // Occasions (#13): a Thursday of a morning run, the office and drinks
+    // after, stacked on the calendar in occasion order.
+    expect(
+      demo.calendar
+        .filter((entry) => entry.day === '2026-08-13')
+        .map((entry) => [entry.occasion, entry.outfit]),
+    ).toEqual([
+      ['workout', 'Run'],
+      ['work', 'Sweater-polo office'],
+      ['night-out', 'Rooftop drinks'],
+    ]);
+    expect(
+      demo.calendar.filter((entry) => entry.occasion === 'workout').length,
+    ).toBeGreaterThan(20);
     expect(
       demo.calendar
         .filter((entry) => entry.day > ANCHOR)
@@ -309,6 +325,18 @@ describe('seed personas', () => {
       headers: { cookie },
     });
     expect(week.body).toContain('Wedding');
+    const threeOutfits = await t.inject({
+      method: 'GET',
+      url: '/calendar?week=2026-08-09',
+      headers: { cookie },
+    });
+    const thursday = threeOutfits.body.slice(
+      threeOutfits.body.indexOf('for=day:2026-08-12'),
+      threeOutfits.body.indexOf('for=day:2026-08-13'),
+    );
+    expect(
+      [...thursday.matchAll(/data-occasion="([a-z-]+)"/g)].map((m) => m[1]),
+    ).toEqual(['workout', 'work', 'night-out']);
 
     // Theo manages his sister's wardrobe through her share: tagging included.
     const sparseId = await userIdOf(t, EMAILS[2]);

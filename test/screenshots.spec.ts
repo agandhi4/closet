@@ -130,6 +130,20 @@ test('demo: Theo, wears and washes', async ({ page }) => {
   await shot(page, '23-demo-needs-attention', '/wardrobe?attention=true');
 });
 
+test('demo: Theo, several outfits a day', async ({ page }) => {
+  await signInAs(page, 'demo');
+  // Thursday Aug 13: a morning run, the office, then rooftop drinks.
+  await page.goto('/calendar?week=2026-08-09');
+  await expect(page.locator('[data-occasion="night-out"]')).not.toHaveCount(0);
+  await shot(page, '25-demo-calendar-three-outfits');
+  // Planning one more on the planned Saturday (gym, the day, a date).
+  await shot(
+    page,
+    '26-demo-calendar-plan',
+    '/calendar/plan?for=day:2026-10-03&occasion=night-out',
+  );
+});
+
 test('sparse: Dana, untagged and degraded', async ({ page }) => {
   await signInAs(page, 'sparse');
   await shot(page, '12-sparse-wardrobe', '/wardrobe');
@@ -142,4 +156,9 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '15-fresh-outfits', '/outfits');
   await shot(page, '16-fresh-calendar', `/calendar?week=${ANCHOR}`);
   await shot(page, '24-fresh-laundry', '/laundry');
+  await shot(
+    page,
+    '27-fresh-calendar-plan',
+    `/calendar/plan?for=day:${ANCHOR}`,
+  );
 });

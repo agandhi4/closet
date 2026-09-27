@@ -150,6 +150,8 @@ describe('calendar days become dates (0001_calendar_day)', () => {
     expect(await columnsOf(env)).toEqual({
       day: 'date',
       id: 'integer',
+      // Added by a later migration (#13): this spec migrates to the newest.
+      occasion: 'text',
       outfit_id: 'integer',
       owner_id: 'integer',
       worn_at: 'timestamp with time zone',

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Occasion } from '../../wardrobe/occasions';
 import { parseIsoDate, todayIn, type IsoDate } from './calendar-date';
 import {
   buildCalendarView,
@@ -20,10 +21,15 @@ const ZONE = 'America/New_York';
 /** Friday 25 Sep 2026 in New York. */
 const TODAY = '2026-09-25';
 
-function entryOn(day: IsoDate, id: number): CalendarEntry {
+function entryOn(
+  day: IsoDate,
+  id: number,
+  occasion: Occasion = 'all-day',
+): CalendarEntry {
   return {
     id,
     day,
+    occasion,
     worn: false,
     outfit: { id, name: `Outfit ${id}`, photoUrls: [] },
   };
@@ -108,6 +114,32 @@ describe('calendar view (America/New_York)', () => {
         [],
         [],
         [4],
+      ]);
+    });
+
+    it("stacks a day's entries in occasion order, keeping the read order within one", () => {
+      const entries = [
+        entryOn('2026-09-23', 1, 'evening'),
+        entryOn('2026-09-23', 2, 'work'),
+        entryOn('2026-09-23', 3, 'night-out'),
+        entryOn('2026-09-23', 4, 'workout'),
+        entryOn('2026-09-23', 5, 'evening'),
+        entryOn('2026-09-23', 6),
+        entryOn('2026-09-24', 7, 'evening'),
+        entryOn('2026-09-24', 8, 'daytime'),
+      ];
+      const vm = view('2026-09-23', { entries });
+      expect(entryIdsByDay(vm).slice(3, 5)).toEqual([
+        [6, 4, 2, 1, 5, 3],
+        [8, 7],
+      ]);
+      expect(vm.days[3].entries.map((e) => e.occasion)).toEqual([
+        'all-day',
+        'workout',
+        'work',
+        'evening',
+        'evening',
+        'night-out',
       ]);
     });
 

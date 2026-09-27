@@ -1,3 +1,5 @@
+import { DEFAULT_OCCASION, OCCASIONS } from '../../wardrobe/occasions';
+import { occasionLabel } from '../calendar/labels';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -164,6 +166,21 @@ function OutfitCard({ outfit }: { outfit: OutfitSummary }) {
                   class="flex flex-col gap-2"
                 >
                   <input type="hidden" name="outfitId" value={outfit.id} />
+                  {/* Before the date: its onblur hands focus to Save. */}
+                  <select
+                    name="occasion"
+                    class="select select-sm select-bordered w-full"
+                    aria-label={t('OCCASION')}
+                  >
+                    {OCCASIONS.map((occasion) => (
+                      <option
+                        value={occasion}
+                        selected={occasion === DEFAULT_OCCASION}
+                      >
+                        {occasionLabel(occasion)}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     type="date"
                     name="date"

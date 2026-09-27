@@ -1,3 +1,4 @@
+import { compareOccasions, type Occasion } from '../../wardrobe/occasions';
 import {
   addDays,
   addMonths,
@@ -19,10 +20,11 @@ import {
  * (calendar-view.spec.ts); the route supplies "today" in APP_TIMEZONE.
  */
 
-/** A scheduled outfit as findWeekEntries() reads it. */
+/** A scheduled outfit as findEntries() reads it. */
 export interface CalendarEntry {
   id: number;
   day: IsoDate;
+  occasion: Occasion;
   worn: boolean;
   outfit: {
     id: number;
@@ -45,6 +47,7 @@ export interface CalendarDayView {
   isToday: boolean;
   /** After today: nothing on it can be marked worn yet (setEntryWorn). */
   isFuture: boolean;
+  /** In occasion order (src/wardrobe/occasions.ts), then as read. */
   entries: CalendarEntryView[];
 }
 
@@ -92,7 +95,7 @@ export function buildCalendarView(input: {
   /** The mini month to show; the week's month when absent. */
   calMonth?: YearMonth;
   today: IsoDate;
-  /** Entries in the week, in display order; others are ignored. */
+  /** Entries in the week, by day then id; others are ignored. */
   entries: CalendarEntry[];
 }): CalendarView {
   const { weekStart, today, entries } = input;
@@ -107,6 +110,7 @@ export function buildCalendarView(input: {
       isFuture: date > today,
       entries: entries
         .filter((entry) => entry.day === date)
+        .sort((a, b) => compareOccasions(a.occasion, b.occasion))
         .map((entry, index) => ({
           ...entry,
           chipHue: CHIP_HUES[index % CHIP_HUES.length],

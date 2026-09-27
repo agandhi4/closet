@@ -18,7 +18,31 @@ describe('persona bibles', () => {
     expect(demo.garments).toHaveLength(83);
     expect(demo.garments.filter((g) => g.archivedOn)).toHaveLength(3);
     expect(demo.outfits).toHaveLength(26);
-    expect(demo.week?.[3]).toEqual(['office']);
+    expect(demo.week?.[3]).toEqual({
+      draws: ['office'],
+      occasion: 'work',
+      workout: undefined,
+    });
+    // The morning workouts (#13): runs on Monday and Thursday, the gym on
+    // Saturday; weekends and home days are all day.
+    expect(demo.week?.map((day) => day.workout)).toEqual([
+      undefined,
+      'Run',
+      undefined,
+      undefined,
+      'Run',
+      undefined,
+      'Gym',
+    ]);
+    expect(demo.week?.map((day) => day.occasion)).toEqual([
+      'all-day',
+      'all-day',
+      'work',
+      'work',
+      'work',
+      'all-day',
+      'all-day',
+    ]);
     expect(demo.events.find((e) => e.wears === 'Wedding')?.from).toBe(
       '2026-08-29',
     );
@@ -116,7 +140,31 @@ describe('persona bibles', () => {
   ) =>
     `## Account\n\n| Field | Value |\n|---|---|\n| Email | x@closet.invalid |\n| First name | X |\n| Last name | Y |\n\n### Footwear\n\n${header}\n|---|---|---|---|---|\n${garmentRow}\n`;
 
+  // A week whose Wednesday says `wednesday` in the given column.
+  const week = (column: 'Calendar' | 'Workout', wednesday: string) =>
+    `${bible('| F01 | Shoes | sneakers | white | — |')}\n## His week\n\n| Day | Draws from | ${column} |\n|---|---|---|\n${[
+      'Sun',
+      'Mon',
+      'Tue',
+      'Wed',
+      'Thu',
+      'Fri',
+      'Sat',
+    ]
+      .map((day) => `| ${day} | weekend | ${day === 'Wed' ? wednesday : '—'} |`)
+      .join('\n')}\n`;
+
   it.each([
+    [
+      'a calendar occasion the app does not have',
+      week('Calendar', 'office'),
+      /Wed's calendar occasion office/,
+    ],
+    [
+      'a workout that is not a saved outfit',
+      week('Workout', 'Yoga'),
+      /Wed's workout: no saved outfit is called "Yoga"/,
+    ],
     [
       'a sleeve on shoes (the form would drop it)',
       bible('| F01 | Shoes | sneakers | white | long |'),

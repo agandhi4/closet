@@ -42,16 +42,19 @@ household account.
 ## His week
 
 `Draws from` is the occasions a day's outfit comes from (the Occasion column of Saved outfits).
+`Calendar` is the part of the day that outfit is planned for on the calendar (#13: `all-day` or
+`work`), and `Workout` the saved outfit of the morning's workout, a calendar entry of its own
+(`workout`) before it.
 
-| Day | Draws from | Where | What he wears | Notes |
-|---|---|---|---|---|
-| Sun | weekend, wfh | home | lounge, brunch nearby | **laundry** (wash-and-fold on DeKalb Av, 10 am drop-off, 6 pm pick-up) |
-| Mon | wfh | home | lounge: tee or hoodie, joggers or sweatpants, slides | 7 am run |
-| Tue | office | office | smart casual: oxford or knit polo, chinos, loafers or white sneakers | team day |
-| Wed | office | office | smart casual; **the blazer on meeting days** (every other Wednesday: architecture review) | |
-| Thu | office | office | the most relaxed office day (tee + chore coat or merino, jeans allowed) | 7 am run |
-| Fri | wfh | home | casual; **date night** some weeks (Fri or Sat) | |
-| Sat | weekend | out | gym in the morning, errands and the greenmarket, sometimes dinner or drinks | |
+| Day | Draws from | Calendar | Workout | Where | What he wears | Notes |
+|---|---|---|---|---|---|---|
+| Sun | weekend, wfh | all-day | — | home | lounge, brunch nearby | **laundry** (wash-and-fold on DeKalb Av, 10 am drop-off, 6 pm pick-up) |
+| Mon | wfh | all-day | Run | home | lounge: tee or hoodie, joggers or sweatpants, slides | 7 am run |
+| Tue | office | work | — | office | smart casual: oxford or knit polo, chinos, loafers or white sneakers | team day |
+| Wed | office | work | — | office | smart casual; **the blazer on meeting days** (every other Wednesday: architecture review) | |
+| Thu | office | work | Run | office | the most relaxed office day (tee + chore coat or merino, jeans allowed) | 7 am run |
+| Fri | wfh | all-day | — | home | casual; **date night** some weeks (Fri or Sat) | |
+| Sat | weekend | all-day | Gym | out | gym in the morning, errands and the greenmarket, sometimes dinner or drinks | |
 
 ## Events
 
@@ -284,8 +287,8 @@ is never drawn. Bands are the day's feels-like high (see Simulation); `any` is e
 | 25 | Rockaway | beach | hot | T05, B14 swim trunks, F11, A12 bucket hat, A07, G02 |
 | 26 | Old weekend jeans | — | — | T15 western shirt, Z03 old 511s (archived), F03 |
 
-"Old weekend jeans" was saved in 2025 and is never worn in the window. The workouts (17, 18) are
-saved but not scheduled until occasions (#13) can label a second outfit that day as a workout.
+"Old weekend jeans" was saved in 2025 and is never worn in the window. The workouts (17, 18) are never
+drawn: they are the week's `Workout` column, a morning entry before the day's outfit.
 
 ## Capsules
 
@@ -375,17 +378,24 @@ keep their meaning, and the weather follows the real dates of the window.
    × 4 for a `rain` outfit on a rainy day.
 4. **Evenings**: a `date` outfit in three weeks out of four (probability 0.75), on Friday (60 %) or
    Saturday; a `night-out` every third week on Thursday or Saturday. The evening is a second calendar
-   entry that day.
-5. **Logging**: Theo records a past day on 85 % of days; a recorded past entry is worn (that evening,
+   entry that day, planned for the `evening` (a date) or the `night-out`.
+5. **Workouts**: the week's `Workout` outfit in the morning (the Monday and Thursday runs, the Saturday
+   gym), a calendar entry for the `workout` before the day's own; skipped one time in five, when the
+   day's band is not one of the outfit's (no run in freezing weather), and on Event days. The day's
+   outfit is planned for its week row's `Calendar` occasion (an Event's outfit the weekday does not draw
+   from, the wedding or the beach, is `all-day`). A day of a run, the office and a night out is three
+   entries; a garment in two of a day's entries is one wear.
+6. **Logging**: Theo records a past day on 85 % of days; a recorded past entry is worn (that evening,
    21:00). On 4 % of office days the planned outfit stayed unworn (rain changed his mind) and the one he
    wore is a second, worn entry.
-6. **Planned week**: the seven days after the anchor, drawn by the same rules from the weather's
-   normals, planned and not worn (a meeting Wednesday and a date night if the week has them).
-7. **Laundry Sundays** wash everything worn since the last wash that ever gets washed (the rules in
+7. **Planned week**: the seven days after the anchor, drawn by the same rules from the weather's
+   normals, planned and not worn (a meeting Wednesday, the workouts and a date night if the week has
+   them).
+8. **Laundry Sundays** wash everything worn since the last wash that ever gets washed (the rules in
    Laundry): each garment's `last_washed_on` is its last Sunday up to the anchor. A day's wears are
    counted once, however many outfits that day used the garment, as the app counts them. The anchor is a
    Saturday, so the week's wears are still in the hamper: the demo's laundry page is Saturday night's.
-8. **Wears**: every worn entry is marked through the app's own `setEntryWorn`, so each garment's wear
+9. **Wears**: every worn entry is marked through the app's own `setEntryWorn`, so each garment's wear
    log is the outfits' garments on those days.
 
 **Seasonal drift**: the rules choose by band, not by month. At the reference anchor the window is a
@@ -396,7 +406,7 @@ the window, which is what an "unworn in 90 days" insight (#17) should flag. Seed
 rules reach for the merino office outfit, the leather jacket and the hoodie.
 
 **What later features add** (plan section 10): wears and washes (#7, done: quantities 3 and 6, the
-worn entries as wears, laundry Sundays as washes, the Condition and Away tables), occasions on each entry (#13: the workouts get written), the conference as a trip
+worn entries as wears, laundry Sundays as washes, the Condition and Away tables), occasions on each entry (#13, done: work days, evenings and nights out, the morning workouts), the conference as a trip
 with a packing list (#10; the Travel capsule is its pool), a generator-avoid pair olive chinos + olive
 chore coat (#21), and the Next buys as wishlist items (#18). The outfit gallery (#9) swipes from the
 capsules.

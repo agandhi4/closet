@@ -1,4 +1,6 @@
+import { DEFAULT_OCCASION, OCCASIONS } from '../../wardrobe/occasions';
 import type { IsoDate } from '../calendar/calendar-date';
+import { occasionLabel } from '../calendar/labels';
 import type { CapsuleRef } from '../capsules/queries';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
@@ -6,6 +8,7 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import type { ViewContext } from '../view-context';
 import type { BuilderRow } from './builder';
+import type { OutfitDestination } from './destination';
 import { BackLink, EmptyState, HangerIcon } from '../layout/parts';
 import { OutfitRow } from './outfit-row';
 
@@ -19,8 +22,8 @@ export interface OutfitFormModel {
   returnTo: string;
   /** The calendar week to return to (from a calendar chip's edit link). */
   returnToWeek?: IsoDate;
-  /** "Add to calendar" prefilled (from a calendar day's "+ Build outfit"). */
-  scheduleDate?: IsoDate;
+  /** "Add to calendar" prefilled: the calendar's plan page (`?for=`). */
+  destination?: OutfitDestination;
   /** A new build from a capsule (`?capsule=`): every row cycles only its garments. */
   capsule?: CapsuleRef;
 }
@@ -183,18 +186,7 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
         </textarea>
       </div>
 
-      <div class="flex flex-col">
-        <label class="label" for="outfit-schedule-date">
-          <span class="label-text">{t('ADD_TO_CALENDAR')}</span>
-        </label>
-        <input
-          type="date"
-          id="outfit-schedule-date"
-          name="scheduleDate"
-          class="input input-bordered w-full"
-          value={model.scheduleDate}
-        />
-      </div>
+      <ScheduleFields destination={model.destination} />
 
       <div class="flex gap-2 mt-2">
         <button type="submit" class="btn btn-primary flex-1">
@@ -217,6 +209,48 @@ function OutfitForm({ model }: { model: OutfitFormModel }) {
         </a>
       </div>
     </form>
+  );
+}
+
+/**
+ * "Add to calendar": a day (empty: not planned) and the occasion it is for.
+ * An outfit already on that day keeps its entry and occasion (insertEntry).
+ */
+function ScheduleFields(props: { destination?: OutfitDestination }) {
+  const planned =
+    props.destination?.kind === 'day' ? props.destination : undefined;
+  const occasion = planned?.occasion ?? DEFAULT_OCCASION;
+  return (
+    <div class="grid grid-cols-2 gap-3">
+      <div class="flex flex-col">
+        <label class="label" for="outfit-schedule-date">
+          <span class="label-text">{t('ADD_TO_CALENDAR')}</span>
+        </label>
+        <input
+          type="date"
+          id="outfit-schedule-date"
+          name="scheduleDate"
+          class="input input-bordered w-full"
+          value={planned?.day}
+        />
+      </div>
+      <div class="flex flex-col">
+        <label class="label" for="outfit-schedule-occasion">
+          <span class="label-text">{t('OCCASION')}</span>
+        </label>
+        <select
+          id="outfit-schedule-occasion"
+          name="scheduleOccasion"
+          class="select select-bordered w-full"
+        >
+          {OCCASIONS.map((value) => (
+            <option value={value} selected={value === occasion}>
+              {occasionLabel(value)}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
   );
 }
 

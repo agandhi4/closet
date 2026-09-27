@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addDays, dayOfWeek } from '../web/calendar/calendar-date';
-import { loadPersona } from './persona';
+import { type BibleOccasion, loadPersona } from './persona';
 import { HISTORY_DAYS, simulate } from './simulate';
 
 /** Theo's simulated history: deterministic, and it reads like a life. */
@@ -66,15 +66,61 @@ describe('simulate', () => {
   });
 
   it('repeats favourites, as real closets do', () => {
+    // The drawn outfits: the workouts are the week's, not a draw.
+    const drawn = life.entries.filter((e) => e.occasion !== 'workout');
     const counts = new Map<number, number>();
-    for (const e of life.entries)
+    for (const e of drawn)
       counts.set(e.outfit, (counts.get(e.outfit) ?? 0) + 1);
     const top3 = [...counts.values()]
       .sort((a, b) => b - a)
       .slice(0, 3)
       .reduce((a, b) => a + b, 0);
-    expect(top3 / life.entries.length).toBeGreaterThan(0.25);
-    expect(top3 / life.entries.length).toBeLessThan(0.45);
+    expect(top3 / drawn.length).toBeGreaterThan(0.25);
+    expect(top3 / drawn.length).toBeLessThan(0.45);
+  });
+
+  it('plans each entry for its part of the day (#13)', () => {
+    const occasionsOf = (use: BibleOccasion) =>
+      new Set(
+        life.entries
+          .filter((e) => outfit(e.outfit).occasions.includes(use))
+          .map((e) => e.occasion),
+      );
+    expect(occasionsOf('office')).toEqual(new Set(['work']));
+    expect(occasionsOf('meeting')).toEqual(new Set(['work']));
+    expect(occasionsOf('date')).toEqual(new Set(['evening']));
+    expect(occasionsOf('night-out')).toEqual(new Set(['night-out']));
+    expect(occasionsOf('wfh')).toEqual(new Set(['all-day']));
+    expect(occasionsOf('formal')).toEqual(new Set(['all-day']));
+  });
+
+  it('runs on Monday and Thursday mornings and goes to the gym on Saturday, most weeks', () => {
+    const workouts = life.entries.filter((e) => e.occasion === 'workout');
+    expect(workouts.length).toBeGreaterThan(20);
+    for (const e of workouts) {
+      expect([1, 4, 6]).toContain(dayOfWeek(e.day));
+      expect(outfit(e.outfit).name).toBe(
+        dayOfWeek(e.day) === 6 ? 'Gym' : 'Run',
+      );
+    }
+    // Never on an event day (the wedding and the beach were Saturdays).
+    const days = workouts.map((e) => e.day);
+    expect(days).not.toContain('2026-08-29');
+    expect(days).not.toContain('2026-07-18');
+    // Skipped some mornings: fewer than every one in the 13 weeks.
+    expect(days.filter((day) => day <= '2026-09-26').length).toBeLessThan(
+      13 * 3,
+    );
+  });
+
+  it('has days of three outfits: a workout, the day, the evening', () => {
+    const byDay = new Map<string, Set<string>>();
+    for (const e of life.entries) {
+      byDay.set(e.day, (byDay.get(e.day) ?? new Set()).add(e.occasion));
+    }
+    expect(
+      [...byDay.values()].filter((occasions) => occasions.size === 3).length,
+    ).toBeGreaterThan(0);
   });
 
   it('shifts to another anchor by whole weeks and dresses for that season', () => {
