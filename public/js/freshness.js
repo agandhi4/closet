@@ -46,6 +46,13 @@ function newDisplay() {
     interacted: false,
     /** @type {{ dismiss: () => void } | null} */
     offer: null,
+    /**
+     * A fragment that pushed its URL (the wardrobe's filters): where it was
+     * swapped and how, so a revalidation asks for the fragment again and
+     * swaps the server's in the same way. Null for a whole page.
+     * @type {{ targetId: string, swapStyle: string } | null}
+     */
+    fragment: null,
   };
 }
 
@@ -90,6 +97,20 @@ function fromResponse(xhr) {
     : { fetchedAt: Date.now(), fromCache: false };
 }
 
+/**
+ * A URL-pushing fragment's display: its target and the swap its requesting
+ * element named. The layout turns htmx's inheritance off, so the element's
+ * own hx-swap is the one htmx used; the element is read after the swap,
+ * detached by an outerHTML swap, which keeps its attributes.
+ */
+function fragmentOf(target, requester) {
+  const swap = requester.getAttribute('hx-swap');
+  return {
+    targetId: target.id,
+    swapStyle: swap?.split(' ')[0] || window.htmx.config.defaultSwapStyle,
+  };
+}
+
 const untouched = () =>
   !display.interacted &&
   window.scrollY === 0 &&
@@ -98,16 +119,21 @@ const untouched = () =>
 /**
  * The server's page in place of the cached one, as a boosted navigation
  * would (htmx processes it; the target in the event detail tells pwa.js and
- * connectivity.js the body was swapped).
+ * connectivity.js the body was swapped). A fragment goes back into its
+ * target the way its request swapped it, out-of-band parts included.
  */
 function swapIn(html, fields) {
+  const { fragment } = display;
+  const target = fragment
+    ? document.getElementById(fragment.targetId)
+    : document.body;
   window.htmx.swap(
-    document.body,
+    target,
     html,
-    { swapStyle: 'innerHTML' },
-    { eventInfo: { target: document.body } },
+    { swapStyle: fragment ? fragment.swapStyle : 'innerHTML' },
+    { eventInfo: { target } },
   );
-  startDisplay(fields);
+  startDisplay({ ...fields, fragment });
 }
 
 function onRevalidated(id, { outcome, html, fetchedAt }) {
@@ -187,14 +213,18 @@ export function watchFreshness() {
   }
 
   // A boosted navigation swaps the body; a fragment that pushes a URL (the
-  // wardrobe's filters) is a new display too. Other fragments are parts of
-  // this one. htmx's history swaps and swapIn carry no xhr: handled below
-  // and in swapIn.
+  // wardrobe's filters, whose target has an id) is a new display too. Other
+  // fragments are parts of this one. htmx's history swaps and swapIn carry
+  // no xhr: handled below and in swapIn.
   document.addEventListener('htmx:afterSettle', (event) => {
-    const { xhr, target } = event.detail;
+    const { xhr, target, requestConfig } = event.detail;
     if (!xhr) return;
-    if (target !== document.body && pageUrl() === display.url) return;
-    startDisplay(fromResponse(xhr));
+    const page = target === document.body;
+    if (!page && pageUrl() === display.url) return;
+    startDisplay({
+      ...fromResponse(xhr),
+      fragment: page ? null : fragmentOf(target, requestConfig.elt),
+    });
   });
 
   // Back (or forward): htmx restores its snapshot of the page, which kept
@@ -221,12 +251,18 @@ export function watchFreshness() {
     }
   });
 
-  // Back online (connectivity.js): a cached copy asks for the server's.
+  // Back online (connectivity.js): a cached copy asks for the server's, a
+  // fragment for the fragment (the worker keys it apart from the page).
   document.addEventListener('connectivity:change', (event) => {
     if (event.detail.state !== 'online' || !display.fromCache) return;
     const id = display.id;
-    ask({ type: 'REVALIDATE_PAGE', url: display.url }, (answer) =>
-      onRevalidated(id, answer),
+    ask(
+      {
+        type: 'REVALIDATE_PAGE',
+        url: display.url,
+        fragment: display.fragment !== null,
+      },
+      (answer) => onRevalidated(id, answer),
     );
   });
 

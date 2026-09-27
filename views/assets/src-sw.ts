@@ -51,7 +51,8 @@ import {
  *    while a cold worker boots.
  *  - The page cache holds one account's pages (src/web/page-cache.ts): it is
  *    dropped when a session starts or ends here, and when a page rendered
- *    for another account arrives.
+ *    for another account arrives. Every drop starts a new generation, and an
+ *    answer to a request started in an older one is never stored.
  *  - Versioned scripts and styles are StaleWhileRevalidate; garment images
  *    are CacheFirst so recently viewed items render offline.
  *  - Anything unmatched (other POSTs, /healthz) goes straight to the network.
@@ -120,37 +121,91 @@ interface ServedFromCache {
   revalidation?: Promise<RevalidationResult>;
 }
 
-// The documents this worker answered from its cache, by URL, for the page's
-// question (PAGE_FRESHNESS below). A page asks as soon as its script runs,
-// so a short list is plenty; a document the network answered has no entry
-// and is told it is fresh. htmx requests read the stamp from their own
-// response instead.
+// The documents this worker answered from its cache, for the page's
+// question (PAGE_FRESHNESS below), keyed by the document each navigation
+// creates (servedKey): two tabs opening the same tab root each get their own
+// answer. A page asks as soon as its script runs, so a short list is plenty;
+// a document the network answered has no entry and is told it is fresh.
+// htmx requests read the stamp from their own response instead.
 const SERVED_PAGES_KEPT = 20;
 const servedPages = new Map<string, ServedFromCache>();
 
-function noteServed(url: string, served: ServedFromCache | undefined): void {
-  servedPages.delete(url);
+/**
+ * The key a navigation's answer is noted under: the id of the client
+ * (document) it creates, which is the client its PAGE_FRESHNESS comes from.
+ * A browser without FetchEvent.resultingClientId gets the URL, and with it
+ * the old limit: two tabs opening one URL at the same moment share an entry.
+ */
+function servedKey(event: ExtendableEvent, url: string): string {
+  return (event instanceof FetchEvent && event.resultingClientId) || url;
+}
+
+function noteServed(key: string, served: ServedFromCache | undefined): void {
+  servedPages.delete(key);
   if (!served) return;
-  servedPages.set(url, served);
+  servedPages.set(key, served);
   const oldest = servedPages.keys().next().value;
   if (servedPages.size > SERVED_PAGES_KEPT && oldest !== undefined) {
     servedPages.delete(oldest);
   }
 }
 
+/** A document's entry, removed: each document's question is answered once. */
+function takeServed(
+  clientId: string | undefined,
+  url: string,
+): ServedFromCache | undefined {
+  const key =
+    clientId !== undefined && servedPages.has(clientId) ? clientId : url;
+  const served = servedPages.get(key);
+  servedPages.delete(key);
+  return served;
+}
+
+/**
+ * The page cache's generation (#121). Every drop starts a new one; a page
+ * request records the one it started in (pageStore's handlerWillStart), and
+ * its answer is stored, or claims the cache, only while that generation is
+ * still current. So a slow answer rendered for the account before a
+ * sign-out, a sign-in or an account switch never lands in the next session's
+ * cache. In memory on purpose: a stopped worker takes its in-flight requests
+ * with it, so a new one has nothing older to refuse.
+ */
+let generation = 0;
+
+// Serializes the drops and the owner claims, so a claim's generation check
+// and its owner write never straddle a drop. The chain swallows a failure so
+// the next step still runs; the caller still receives it through `run`.
+let ownership: Promise<unknown> = Promise.resolve();
+
+function serialized<T>(work: () => Promise<T>): Promise<T> {
+  const run = ownership.then(work);
+  ownership = run.catch(() => undefined);
+  return run;
+}
+
 /**
  * Empties the page cache, whoever's pages it held, and warms the offline
  * page again for whoever is signed in now (it is a rendered view, with the
- * signed-in chrome).
+ * signed-in chrome). The new generation starts at once, before the drop
+ * waits its turn: a request that starts from here on is the new session's.
  */
-async function dropPages(
+function dropPages(event: ExtendableEvent, reason: string): Promise<void> {
+  generation += 1;
+  return serialized(() => emptyPageCache(event, reason));
+}
+
+/** Holds the ownership lock; the caller has started the new generation. */
+async function emptyPageCache(
   event: ExtendableEvent,
   reason: string,
 ): Promise<void> {
   // servedPages stays: a page served a moment ago may not have asked yet,
   // and its answer (the revalidation) is what makes it reload.
   await self.caches.delete(PAGES_CACHE);
-  console.info(`[sw] ${reason}: cached pages dropped`);
+  console.info(
+    `[sw] ${reason}: cached pages dropped (generation ${generation})`,
+  );
   event.waitUntil(rewarmOfflinePage(event));
 }
 
@@ -172,39 +227,75 @@ async function rewarmOfflinePage(event: ExtendableEvent): Promise<void> {
  * before it is written. With the drops when a session starts or ends
  * (sessionBoundaryHandler), a cached page is only ever served to the session
  * it was rendered for.
+ *
+ * False, with nothing written, when the request started in an older
+ * generation: the cache has been dropped since, and the answer belongs to a
+ * session that may no longer be this device's (a slow page for account A
+ * that lands after signing out and in as B, #121).
  */
-async function claimPageCache(
+function claimPageCache(
   account: string,
+  since: number,
+  path: string,
   event: ExtendableEvent,
-): Promise<void> {
-  const owner = await readRecord(OWNER_KEY);
-  if (owner === account) return;
-  if (owner !== undefined) {
-    await dropPages(
-      event,
-      account === ''
-        ? 'a signed-out page arrived'
-        : 'a page for another account arrived',
-    );
-  }
-  await writeRecord(OWNER_KEY, account);
+): Promise<boolean> {
+  return serialized(async () => {
+    if (since !== generation) {
+      console.info(
+        `[sw] ${path} answered from generation ${since}, now ${generation}: not stored`,
+      );
+      return false;
+    }
+    const owner = await readRecord(OWNER_KEY);
+    if (owner === account) return true;
+    if (owner !== undefined) {
+      // This answer is the new session's first word and keeps its place;
+      // every other request of the old generation is refused.
+      generation += 1;
+      await emptyPageCache(
+        event,
+        account === ''
+          ? 'a signed-out page arrived'
+          : 'a page for another account arrived',
+      );
+    }
+    await writeRecord(OWNER_KEY, account);
+    return true;
+  });
 }
 
-// Every page either strategy stores, after the 200 filter: owner-checked and
-// stamped with when it arrived. A followed redirect is not stored under the
-// URL that redirected: the body is another page's. One that landed on the
-// login page (a boosted tap after the session ended elsewhere: a password
-// changed on another device, the account deleted) still tells who is signed
-// in here, nobody, so the cache is claimed for nobody and another account's
-// pages go. A document load sees the same through the login page it lands
-// on, which is stored like any page.
+// Every page either strategy stores, after the 200 filter: answering a
+// request of the current generation, owner-checked and stamped with when it
+// arrived. A followed redirect is not stored under the URL that redirected:
+// the body is another page's. One that landed on the login page (a boosted
+// tap after the session ended elsewhere: a password changed on another
+// device, the account deleted) still tells who is signed in here, nobody, so
+// the cache is claimed for nobody and another account's pages go. A document
+// load sees the same through the login page it lands on, which is stored
+// like any page.
+//
+// The generation is taken in handlerWillStart, before the request (the
+// navigation preload included, which skips requestWillFetch), into the state
+// Workbox keeps per plugin and request; a StrategyHandler built by hand
+// (revalidateForPage) must run handlerWillStart itself.
 const pageStore: WorkboxPlugin = {
-  cacheWillUpdate: async ({ response, event }) => {
+  handlerWillStart: async ({ state }) => {
+    if (state) state.generation = generation;
+  },
+  cacheWillUpdate: async ({ request, response, event, state }) => {
+    const since = Number(state?.generation ?? -1);
+    const path = new URL(request.url).pathname;
     if (response.redirected) {
-      if (sentToLogin(response)) await claimPageCache('', event);
+      if (sentToLogin(response)) await claimPageCache('', since, path, event);
       return null;
     }
-    await claimPageCache(pageAccount(response.headers), event);
+    const claimed = await claimPageCache(
+      pageAccount(response.headers),
+      since,
+      path,
+      event,
+    );
+    if (!claimed) return null;
     return copyResponse(response, (init) => {
       const headers = new Headers(init.headers);
       headers.set(CACHED_AT_HEADER, String(Date.now()));
@@ -213,14 +304,37 @@ const pageStore: WorkboxPlugin = {
   },
 };
 
+// A copy is only read back for the account that owns the cache. Workbox
+// writes an answer after cacheWillUpdate has claimed for it, so a drop can
+// still fall between the two: the copy then lands in the emptied cache,
+// rendered for an account that no longer (or not yet) owns it, and this is
+// what keeps it from ever being served.
+const ownedCopies: WorkboxPlugin = {
+  cachedResponseWillBeUsed: async ({ request, cachedResponse }) =>
+    cachedResponse &&
+    (await isOwned(cachedResponse, new URL(request.url).pathname))
+      ? cachedResponse
+      : null,
+};
+
+async function isOwned(copy: Response, path: string): Promise<boolean> {
+  const owner = await readRecord(OWNER_KEY);
+  if (pageAccount(copy.headers) === owner) return true;
+  console.warn(`[sw] ${path}: cached for another account, not served`);
+  return false;
+}
+
 // A document NetworkFirst answered from its cache (the network timed out or
 // failed) is noted for the page's question; one from the network clears the
 // note.
 const noteNavigations: WorkboxPlugin = {
-  handlerWillRespond: async ({ request, response }) => {
+  handlerWillRespond: async ({ request, response, event }) => {
     if (request.mode === 'navigate') {
       const stamp = cachedAt(response.headers);
-      noteServed(request.url, stamp ? { cachedAt: stamp } : undefined);
+      noteServed(
+        servedKey(event, request.url),
+        stamp ? { cachedAt: stamp } : undefined,
+      );
     }
     return response;
   },
@@ -228,7 +342,7 @@ const noteNavigations: WorkboxPlugin = {
 
 // Shared by both page strategies, which share the cache: the key rule (a
 // fragment `|hx` never answers a page and the other way round), the store
-// rules and one expiration.
+// and read rules and one expiration.
 const pagePlugins: WorkboxPlugin[] = [
   {
     cacheKeyWillBeUsed: async ({ request }) =>
@@ -236,6 +350,7 @@ const pagePlugins: WorkboxPlugin[] = [
   },
   new CacheableResponsePlugin({ statuses: [200] }),
   pageStore,
+  ownedCopies,
   new ExpirationPlugin({ maxEntries: 50, purgeOnQuotaError: true }),
 ];
 
@@ -290,8 +405,10 @@ async function revalidate(
  * The tab roots on a document load (servesStaleWhileRevalidate): the cached
  * copy at once and the server's behind it, through the navigation preload.
  * Without a copy it is NetworkFirst. So is a copy stored before this worker
- * activated: an older build rendered it, and its <head> (the importmap, the
- * asset URLs) must not meet this build's precached scripts.
+ * activated, once deleted: an older build rendered it, and its <head> (the
+ * importmap, the asset URLs) must not meet this build's precached scripts,
+ * not even as NetworkFirst's answer when the network is slow or gone (the
+ * offline page answers then).
  */
 class StaleTabRoot extends Strategy {
   protected async _handle(
@@ -299,18 +416,24 @@ class StaleTabRoot extends Strategy {
     handler: StrategyHandler,
   ): Promise<Response> {
     const cached = await handler.cacheMatch(request);
-    const stamp = cached ? cachedAt(cached.headers) : 0;
+    if (!cached) return pages.handle({ event: handler.event, request });
+    const stamp = cachedAt(cached.headers);
     const activatedAt = Number((await readRecord(ACTIVATED_AT_KEY)) ?? 0);
-    if (!cached || stamp <= activatedAt) {
+    const path = new URL(request.url).pathname;
+    if (stamp <= activatedAt) {
+      const cache = await self.caches.open(PAGES_CACHE);
+      await cache.delete(pageCacheKey(request.url, request.headers));
+      console.info(`[sw] ${path}: copy from before activation deleted`);
       return pages.handle({ event: handler.event, request });
     }
     const revalidation = revalidate(handler, request, cached.clone());
     void handler.waitUntil(revalidation);
-    noteServed(request.url, { cachedAt: stamp, revalidation });
+    noteServed(servedKey(handler.event, request.url), {
+      cachedAt: stamp,
+      revalidation,
+    });
     const ageSeconds = Math.round((Date.now() - stamp) / 1000);
-    console.info(
-      `[sw] ${new URL(request.url).pathname} opened from the cache (${ageSeconds} s old)`,
-    );
+    console.info(`[sw] ${path} opened from the cache (${ageSeconds} s old)`);
     return cached;
   }
 }
@@ -465,7 +588,9 @@ setCatchHandler(async ({ request }) => {
   if (wantsPage) {
     const cache = await self.caches.open(PAGES_CACHE);
     const fallback = await cache.match(FALLBACK_HTML_URL);
-    if (fallback) return fallback;
+    if (fallback && (await isOwned(fallback, FALLBACK_HTML_URL))) {
+      return fallback;
+    }
   }
   return Response.error();
 });
@@ -475,9 +600,12 @@ setCatchHandler(async ({ request }) => {
  * `cached` with the stamp and then, for a tab root, `revalidated` with the
  * outcome (and the server's page when it differs).
  */
-async function answerFreshness(url: string, port: MessagePort): Promise<void> {
-  const served = servedPages.get(url);
-  servedPages.delete(url);
+async function answerFreshness(
+  clientId: string | undefined,
+  url: string,
+  port: MessagePort,
+): Promise<void> {
+  const served = takeServed(clientId, url);
   if (!served) {
     port.postMessage({ state: 'fresh' });
     return;
@@ -504,22 +632,32 @@ function isOwnUrl(value: string): boolean {
 /**
  * REVALIDATE_PAGE: a page showing a cached copy is back online (frontend-
  * pwa.md: refetch on reconnect) and asks for the server's, compared with the
- * cached copy like a tab root's revalidation.
+ * cached copy like a tab root's revalidation. A display that is a fragment
+ * (the wardrobe's filters, which push their URL) asks for the fragment: the
+ * same request htmx made, so it meets its `|hx` copy and the server answers
+ * with the fragment the page swaps back into its target.
  */
 async function revalidateForPage(
   event: ExtendableMessageEvent,
   url: string,
+  fragment: boolean,
   port: MessagePort,
 ): Promise<void> {
   if (!isOwnUrl(url)) {
     console.warn('[sw] REVALIDATE_PAGE for another origin, ignored');
     return;
   }
-  const request = new Request(url);
+  const request = new Request(
+    url,
+    fragment ? { headers: { 'HX-Request': 'true' } } : undefined,
+  );
   // A strategy's handler outside a fetch event: it applies the page cache's
-  // plugins (key, store rules) and holds the event open until destroyed.
+  // plugins (key, store and read rules) and holds the event open until
+  // destroyed. Strategy.handle runs handlerWillStart; here it is ours to run
+  // (pageStore takes the generation in it).
   const handler = new StrategyHandler(tabRoots, { event, request });
   try {
+    await handler.runCallbacks('handlerWillStart', { event, request });
     const cached = await handler.cacheMatch(request);
     const result: RevalidationResult = cached
       ? await revalidate(handler, request, cached)
@@ -546,9 +684,18 @@ self.addEventListener('message', (event) => {
     console.log('[sw] SKIP_WAITING received');
     void self.skipWaiting();
   } else if (type === 'PAGE_FRESHNESS' && port) {
-    event.waitUntil(answerFreshness(String(event.data.url), port));
+    const clientId =
+      event.source instanceof Client ? event.source.id : undefined;
+    event.waitUntil(answerFreshness(clientId, String(event.data.url), port));
   } else if (type === 'REVALIDATE_PAGE' && port) {
-    event.waitUntil(revalidateForPage(event, String(event.data.url), port));
+    event.waitUntil(
+      revalidateForPage(
+        event,
+        String(event.data.url),
+        event.data.fragment === true,
+        port,
+      ),
+    );
   }
 });
 
