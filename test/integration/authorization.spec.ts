@@ -182,7 +182,7 @@ const styleNote = () => OWNER_STYLE_NOTE;
 // so the chip's link stands in for it. (Error pages echo the request path,
 // which rules out the /calendar/:id URLs themselves.)
 const calendarEntry = (f: Fixture) =>
-  `/outfits/${f.outfitId}/edit?returnTo=/calendar`;
+  `/styling?outfit=${f.outfitId}&amp;returnTo=`;
 const selfieName = (f: Fixture) => f.selfieFileName;
 const OWNER_TOKEN_NAME = 'Owner laptop token';
 
@@ -880,9 +880,10 @@ const ROUTES: Route[] = [
     },
   },
   {
-    // Building from a capsule: the requester's own capsules only, whatever
-    // the share (outfits hold only their owner's garments).
-    name: 'GET /outfits/new?capsule=',
+    // Styling (#42) from a capsule: the addressed wardrobe's capsule. A
+    // grantee styles the owner's through `?ownerId=` (browsing only); by
+    // itself the capsule is not in their wardrobe.
+    name: 'GET /styling?capsule=',
     kind: 'read',
     ok: 200,
     secret: garmentName,
@@ -890,33 +891,76 @@ const ROUTES: Route[] = [
     vias: BOTH,
     request: (f, q) => ({
       method: 'GET',
-      url: `/outfits/new${q ? `${q}&` : '?'}capsule=${f.capsuleId}`,
+      url: `/styling${q ? `${q}&` : '?'}capsule=${f.capsuleId}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    // A strip's next page within a capsule: someone else's capsule matches
+    // none of the requester's garments (an empty page, nothing revealed).
+    name: 'GET /styling/garments?capsule=',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/styling/garments${q ? `${q}&` : '?'}role=none&before=2147483647&capsule=${f.capsuleId}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['hidden', 'ok'],
+      viewer: ['hidden', 'ok'],
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
+    // "Style this": Styling over a shared wardrobe browses it (a view is
+    // enough); Save never takes its garments (POST /styling below). By
+    // itself the garment is not in a grantee's wardrobe.
+    name: 'GET /styling?with=',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/styling${q ? `${q}&` : '?'}with=${f.garmentId}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    // Save: the requester's own garments only, whatever the share.
+    name: 'POST /styling',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/styling${q}`,
+      payload: {
+        garmentId: String(f.garmentId),
+        scheduleDate: addDays(f.today, 2),
+      },
     }),
     expect: {
       owner: 'ok',
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
-    },
-  },
-  {
-    // The builder's row within a capsule: someone else's capsule cycles
-    // none of the requester's garments (an empty row, nothing revealed).
-    name: 'GET /outfits/row-fragment?capsule=',
-    kind: 'read',
-    ok: 200,
-    secret: garmentName,
-    shows: true,
-    vias: BOTH,
-    request: (f, q) => ({
-      method: 'GET',
-      url: `/outfits/row-fragment${q ? `${q}&` : '?'}category=shirt&capsule=${f.capsuleId}`,
-    }),
-    expect: {
-      owner: 'ok',
-      manager: 'hidden',
-      viewer: 'hidden',
-      stranger: 'hidden',
     },
   },
   {
@@ -935,7 +979,8 @@ const ROUTES: Route[] = [
     },
   },
   {
-    name: 'GET /outfits/:id/edit',
+    // An outfit opened in Styling (#42; /outfits/:id/edit redirects here).
+    name: 'GET /styling?outfit=',
     kind: 'read',
     ok: 200,
     secret: outfitName,
@@ -943,7 +988,29 @@ const ROUTES: Route[] = [
     vias: BOTH,
     request: (f, q) => ({
       method: 'GET',
-      url: `/outfits/${f.outfitId}/edit${q}`,
+      url: `/styling${q ? `${q}&` : '?'}outfit=${f.outfitId}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /styling (an outfit)',
+    kind: 'write',
+    ok: 303,
+    secret: outfitName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/styling${q}`,
+      payload: {
+        outfit: String(f.outfitId),
+        garmentId: String(f.garmentId),
+        name: 'Styled again',
+      },
     }),
     expect: {
       owner: 'ok',

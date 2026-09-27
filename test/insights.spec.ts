@@ -29,7 +29,7 @@ test('insights on the phone, from the Wardrobe’s ⋯ menu', async ({ page }) =
     price: '24.90',
     quantity: '3',
   });
-  await createGarment(
+  const jacket = await createGarment(
     page,
     'A jacket with a rather long name to wrap',
     'outerwear',
@@ -81,7 +81,15 @@ test('insights on the phone, from the Wardrobe’s ⋯ menu', async ({ page }) =
   const unworn = page.locator('#insights-unworn');
   await expect(unworn).toContainText('A jacket with a rather long name');
   await unworn.getByRole('link', { name: 'Style this' }).click();
-  await expect(page).toHaveURL(/\/outfits\/ideas\?with=\d+$/);
-  await expect(page.getByText('With A jacket')).toBeVisible();
+  // Styling (#42) with the jacket chosen and locked in its row (outerwear
+  // is the Layer role).
+  await expect(page).toHaveURL(new RegExp(`/styling\\?with=${jacket}$`));
+  const layer = page.locator('[data-styling-row="layer"]').first();
+  await expect(layer.locator('input[name="garmentId"]')).toHaveValue(
+    String(jacket),
+  );
+  await expect(
+    layer.getByRole('checkbox', { name: 'Lock Layer' }),
+  ).toBeChecked();
   expect(errors).toEqual([]);
 });

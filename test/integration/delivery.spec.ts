@@ -130,7 +130,7 @@ describe('delivery (PWA_ENABLED=true)', () => {
       for (const url of Object.values(imports)) {
         expect(url).toMatch(/\?v=[^&"]+$/);
       }
-      expect(imports.sortablejs).toMatch(/^\/vendor\/sortable\.min\.js\?v=/);
+      expect(imports.styling).toMatch(/^\/js\/styling\.js\?v=/);
     });
 
     // Issue #48: Firefox fetches it as the site icon on every cold load,
@@ -202,8 +202,8 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(html).toContain('/js/pwa.js?v=');
       expect(html).not.toContain('src="/modules/pwa-install');
       expect(html).not.toContain('<pwa-install');
-      // sortablejs is only mapped here; the outfit form imports it.
-      expect(html).not.toMatch(/<script\b[^>]*\ssrc="[^"]*sortable/i);
+      // Styling's module is only mapped here; its page imports it.
+      expect(html).not.toMatch(/<script\b[^>]*\ssrc="[^"]*styling/i);
       expect(html).not.toMatch(/onnxruntime|background-removal/);
       expect(html).not.toContain('rel="preload"');
       expect(html).toContain('id="request-indicator"');
@@ -287,7 +287,7 @@ describe('delivery (PWA_ENABLED=true)', () => {
 
     // The worker tells "changed" from "the same" by comparing bodies, so a
     // tab root must render byte for byte the same while nothing changes.
-    it.each(['/wardrobe', '/outfits', '/calendar'])(
+    it.each(['/wardrobe', '/styling', '/outfits', '/calendar'])(
       'renders %s identically twice',
       async (url) => {
         const first = await t.inject({ method: 'GET', url });

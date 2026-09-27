@@ -3,7 +3,7 @@ import { tripPhase } from '../../../wardrobe/packing';
 import { NORMAL_YEARS } from '../../../weather/normals';
 import { todayIn } from '../../calendar/calendar-date';
 import { HttpError } from '../../errors';
-import { OUTFIT_NAME_MAX } from '../../outfits/form-page';
+import { OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { tripForecast } from '../../trips/forecast';
 import { tripModel, type TripOutfitView } from '../../trips/model';
 import {

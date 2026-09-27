@@ -49,10 +49,14 @@ import {
  * nothing ('unchanged').
  */
 
-/** What the entry gets: a saved outfit of the owner's, or an idea's garments (through pickIdea). */
+/**
+ * What the entry gets: a saved outfit of the owner's, or garments (an
+ * idea's, Styling's rows) through pickIdea, named `name` when they are not
+ * an outfit yet.
+ */
 export type ReplacementChoice =
   | { outfitId: number }
-  | { garmentIds: readonly number[] };
+  | { garmentIds: readonly number[]; name?: string };
 
 export interface EntryTarget {
   entryId: number;
@@ -151,7 +155,10 @@ async function chosenOutfit(
       : undefined;
   }
   // No plan: the entry is changed below, not added.
-  const picked = await pickIdea(tx, ownerId, { garmentIds: choice.garmentIds });
+  const picked = await pickIdea(tx, ownerId, {
+    garmentIds: choice.garmentIds,
+    name: choice.name,
+  });
   return picked === 'not-found' ? undefined : picked;
 }
 

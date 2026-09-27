@@ -56,7 +56,7 @@ export const CARD_STRIP = 4;
 
 /**
  * "The garment is in capsule `capsuleId`", for a query over `garment`: the
- * wardrobe grid's `?capsule=`, the outfit builder's cycles, and the outfit
+ * wardrobe grid's `?capsule=`, Styling's strips, and the outfit
  * gallery's pool (#9) when it comes. Safe on any wardrobe without checking
  * whose capsule it is: a capsule only ever holds its owner's garments
  * (changeMembership), so on another wardrobe it matches nothing. A route

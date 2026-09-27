@@ -158,17 +158,17 @@ describe('the wishlist', () => {
       expect((await get('/wardrobe')).body).toContain('2 results');
     });
 
-    it('the outfit builder and its row fragment', async () => {
-      const builder = await get('/outfits/new');
-      expect(builder.body).toContain('data-garment-name="Grey merino"');
-      expect(builder.body).not.toContain('Charcoal merino');
-      expect(builder.body).not.toContain('Wool beanie');
-      const row = await get('/outfits/row-fragment?category=tops&index=2');
-      // One top in the closet: index 2 clamps to it.
-      expect(row.body).toContain('data-garment-name="Grey merino"');
-      expect(row.body).not.toContain('Charcoal merino');
-      const hats = await get('/outfits/row-fragment?category=hats&index=1');
-      expect(hats.body).not.toContain('Wool beanie');
+    it('Styling and its strips', async () => {
+      const styling = await get('/styling');
+      expect(styling.body).toContain('Grey merino');
+      expect(styling.body).not.toContain('Charcoal merino');
+      expect(styling.body).not.toContain('Wool beanie');
+      const tops = await get('/styling/garments?role=top&before=2147483647');
+      expect(tops.body).toContain('Grey merino');
+      expect(tops.body).not.toContain('Charcoal merino');
+      // Hats are uncategorised (`none`): the beanie is in no strip.
+      const other = await get('/styling/garments?role=none&before=2147483647');
+      expect(other.body).not.toContain('Wool beanie');
     });
 
     it('capsules: the list, the closet card, a capsule page, and membership', async () => {

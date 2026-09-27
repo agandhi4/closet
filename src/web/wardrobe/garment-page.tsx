@@ -7,7 +7,7 @@ import { AvoidedPartners } from '../gallery/avoided';
 import { GoesWithSection } from '../gallery/goes-with';
 import type { GoesWithCloset } from '../gallery/ideas';
 import type { AvoidedPartner } from '../gallery/queries';
-import { ideasUrl } from '../gallery/urls';
+import { styleThisUrl } from '../styling/urls';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -514,7 +514,11 @@ function GarmentActions({
   return (
     <>
       <div class="flex flex-col gap-2 mb-6">
-        <StyleThis garmentId={garment.id} shown={model.styling.canStyle} />
+        <StyleThis
+          garmentId={garment.id}
+          viewOwner={viewOwner}
+          shown={model.styling.canStyle}
+        />
         {model.canEdit && garment.status === 'wishlist' && (
           <a
             href={garmentUrl(garment.id, viewOwner, '/bought')}
@@ -585,20 +589,22 @@ function GarmentActions({
   );
 }
 
-/** The gallery's ideas that all hold this garment (`?with=`). */
+/**
+ * Styling with this garment chosen and locked in its row (`?with=`, #42),
+ * opened on an idea around it; in a shared wardrobe, browsing only.
+ */
 function StyleThis({
   garmentId,
+  viewOwner,
   shown,
 }: {
   garmentId: number;
+  viewOwner: number | undefined;
   shown: boolean;
 }) {
   if (!shown) return null;
   return (
-    <a
-      href={ideasUrl({ destination: { kind: 'none' }, withId: garmentId })}
-      class="btn btn-primary btn-sm"
-    >
+    <a href={styleThisUrl(garmentId, viewOwner)} class="btn btn-primary btn-sm">
       {t('gallery.STYLE_THIS')}
     </a>
   );

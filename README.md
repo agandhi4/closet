@@ -249,7 +249,7 @@ browser until 2026-09-26) keep the cutouts the browser made.
 `npm run test:load` builds the app, starts it on a scratch Postgres database
 and a temporary `DATA_PATH`, registers a user and seeds one garment with a
 photo through the real endpoints, and runs autocannon against `/wardrobe`
-(full page and htmx fragment) and `/outfits/new` with that user's session, and
+(full page and htmx fragment) and `/styling` with that user's session, and
 against the seeded `/file/thumb/...` image. Results
 land in `scripts/results/load-test-results.json`, one entry per target.
 

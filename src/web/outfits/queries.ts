@@ -1,17 +1,13 @@
 import {
   and,
   asc,
-  count,
   desc,
   eq,
-  gt,
   inArray,
   isNotNull,
   or,
   type SQL,
-  sql,
 } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
 import {
@@ -24,20 +20,13 @@ import {
 } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
-import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import type { SelfieRef } from '../selfies/queries';
-import { inCloset, ownedGarment } from '../wardrobe/status';
+import { ownedGarment } from '../wardrobe/status';
 import { prunePacked, tripsOfOutfit } from '../trips/packed';
 import { detachOutfitWears } from '../wears/queries';
-import {
-  type CategoryHead,
-  clampIndex,
-  type RowGarment,
-  type SavedSlot,
-} from './builder';
 
 /**
  * Outfits' reads and writes. Outfits are private: every query is scoped to
@@ -62,7 +51,15 @@ export interface OutfitSummary {
   garments: OutfitGarment[];
 }
 
-/** One builder row as the form posts it. */
+// Caps on what a person types, shared by the inputs' maxlength and the
+// routes' schemas (a longer post is a 400): Styling's Save sheet, the
+// outfit form old cached pages still post, and pickIdea's generated names.
+// The columns are text since drizzle/0005; the name stays at the 255 it has
+// always been, so no saved outfit fails its own edit.
+export const OUTFIT_NAME_MAX = 255;
+export const OUTFIT_NOTES_MAX = 4000;
+
+/** One slot as a write takes it: a category and its garment (or none). */
 export interface SlotInput {
   category: string;
   garmentId: number | null;
@@ -198,178 +195,6 @@ export async function findOutfitFields(
     .from(outfit)
     .where(and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)));
   return row;
-}
-
-// The garment columns a builder row shows; `file` is left-joined.
-const rowGarment = {
-  id: garment.id,
-  name: garment.name,
-  brand: garment.brand,
-  colors: garment.colors,
-  size: garment.size,
-  notes: garment.notes,
-  status: garment.status,
-};
-const rowPhoto = { fileName: file.fileName, version: file.version };
-
-/**
- * The garments prev/next cycle through: the owner's garments in the closet
- * (inCloset) in `category`, only a capsule's members when building from one
- * (`?capsule=`).
- */
-function inCycle(ownerId: number, category: string, capsuleId?: number) {
-  return and(
-    eq(garment.ownerId, ownerId),
-    eq(garment.category, category),
-    inCloset(),
-    capsuleId === undefined ? undefined : inCapsule(capsuleId),
-  );
-}
-
-/**
- * The new-outfit builder: for each category of the owner's closet
- * garments (a capsule's, when given), how many there are and the newest one
- * (the row's default). One statement returning one row per category, never
- * the whole wardrobe.
- */
-export async function categoryHeads(
-  db: Db,
-  ownerId: number,
-  capsuleId?: number,
-): Promise<CategoryHead[]> {
-  const ranked = db
-    .select({
-      ...rowGarment,
-      category: garment.category,
-      photoId: garment.photoId,
-      rank: sql<number>`(row_number() over (partition by ${garment.category} order by ${garment.id} desc))::int`.as(
-        'rank',
-      ),
-      count:
-        sql<number>`(count(*) over (partition by ${garment.category}))::int`.as(
-          'count',
-        ),
-    })
-    .from(garment)
-    .where(
-      and(
-        eq(garment.ownerId, ownerId),
-        inCloset(),
-        capsuleId === undefined ? undefined : inCapsule(capsuleId),
-      ),
-    )
-    .as('ranked');
-  const rows = await db
-    .select({
-      id: ranked.id,
-      name: ranked.name,
-      brand: ranked.brand,
-      colors: ranked.colors,
-      size: ranked.size,
-      notes: ranked.notes,
-      status: ranked.status,
-      category: ranked.category,
-      count: ranked.count,
-      photo: rowPhoto,
-    })
-    .from(ranked)
-    .leftJoin(file, eq(file.id, ranked.photoId))
-    .where(eq(ranked.rank, 1));
-  return rows.map(({ category, count, ...shown }) => ({
-    category,
-    count,
-    garment: shown,
-  }));
-}
-
-/**
- * The row fragment's garment: the one at cycle position `index` (clamped;
- * 1 = newest) in `category` (within the capsule, when given), with the
- * cycle's count. Two small statements (the count bounds the position), one
- * garment row.
- */
-export async function garmentAt(
-  db: Db,
-  ownerId: number,
-  category: string,
-  requested: number | undefined,
-  capsuleId?: number,
-): Promise<{ count: number; index: number; garment: RowGarment | null }> {
-  const cycle = inCycle(ownerId, category, capsuleId);
-  const [{ total }] = await db
-    .select({ total: count() })
-    .from(garment)
-    .where(cycle);
-  const index = clampIndex(requested, total);
-  if (index === 0) return { count: total, index, garment: null };
-  const [row] = await db
-    .select({ ...rowGarment, photo: rowPhoto })
-    .from(garment)
-    .leftJoin(file, eq(file.id, garment.photoId))
-    .where(cycle)
-    .orderBy(desc(garment.id))
-    .limit(1)
-    .offset(index - 1);
-  // A garment that left the closet between the count and this read
-  // shortens the cycle.
-  return row
-    ? { count: total, index, garment: row }
-    : { count: total, index: 0, garment: null };
-}
-
-/** The categories of the owner's closet garments (the "add row" suggestions). */
-export async function wardrobeCategories(
-  db: Db,
-  ownerId: number,
-): Promise<string[]> {
-  const rows = await db
-    .selectDistinct({ category: garment.category })
-    .from(garment)
-    .where(and(eq(garment.ownerId, ownerId), inCloset()));
-  return rows.map((row) => row.category);
-}
-
-/**
- * The edit form: an outfit's slots in order, each with its garment (in the
- * closet or archived), the size of its category's cycle and the garment's place in it.
- * One statement; the two counts are correlated subqueries per slot.
- */
-export async function savedSlots(
-  db: Db,
-  outfitId: number,
-  ownerId: number,
-): Promise<SavedSlot[]> {
-  const peer = alias(garment, 'peer');
-  const peersInCycle = and(
-    eq(peer.ownerId, ownerId),
-    eq(peer.category, outfitSlot.category),
-    inCloset(peer.status),
-  );
-  const cycleSize = db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(peer)
-    .where(peersInCycle);
-  const newerInCycle = db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(peer)
-    .where(and(peersInCycle, gt(peer.id, outfitSlot.garmentId)));
-  const rows = await db
-    .select({
-      category: outfitSlot.category,
-      count: sql<number>`(${cycleSize})`,
-      newer: sql<number>`(${newerInCycle})`,
-      garment: { ...rowGarment, category: garment.category },
-      photo: rowPhoto,
-    })
-    .from(outfitSlot)
-    .leftJoin(garment, eq(garment.id, outfitSlot.garmentId))
-    .leftJoin(file, eq(file.id, garment.photoId))
-    .where(eq(outfitSlot.outfitId, outfitId))
-    .orderBy(asc(outfitSlot.position));
-  return rows.map(({ garment: chosen, photo, ...slot }) => ({
-    ...slot,
-    garment: chosen ? { ...chosen, photo } : null,
-  }));
 }
 
 /**

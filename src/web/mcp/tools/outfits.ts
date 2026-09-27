@@ -12,9 +12,10 @@ import {
   createOutfit,
   findOutfit,
   listOutfits,
+  OUTFIT_NAME_MAX,
+  OUTFIT_NOTES_MAX,
   type OutfitSummary,
 } from '../../outfits/queries';
-import { OUTFIT_NAME_MAX, OUTFIT_NOTES_MAX } from '../../outfits/form-page';
 import { findGarment } from '../../wardrobe/queries';
 import { defineTool } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
@@ -83,7 +84,7 @@ export const outfitTools = [
     writes: true,
     idempotent: false,
     async run({ garmentIds, name, notes, scheduleDate, occasion }, ctx) {
-      // Each slot is its garment's category, as the builder's rows are. A
+      // Each slot is its garment's category, as Styling saves them. A
       // garment that is not the caller's is refused here rather than
       // saved as an empty slot (the form's rule for a stale page).
       const garments = await Promise.all(

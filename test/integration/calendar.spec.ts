@@ -244,8 +244,9 @@ describe('calendar', () => {
 
       expect(hasText(tuesday, 'Brunch look')).toBe(true);
       expect(tuesday).toContain(`action="/calendar/${brunchEntry}/delete"`);
-      expect(tuesday).toContain(
-        `/outfits/${brunch}/edit?returnTo=/calendar&returnToWeek=2030-10-08`,
+      // The chip edits the outfit in Styling (#42), back to this week.
+      expect(unescapeHtml(tuesday)).toContain(
+        `/styling?outfit=${brunch}&returnTo=%2Fcalendar%3Fweek%3D2030-10-08`,
       );
       expect(hasText(saturday, 'Untitled Outfit')).toBe(true);
       expect(saturday).toContain(`action="/calendar/${untitledEntry}/delete"`);

@@ -93,12 +93,16 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
   );
   await shot(page, '05-demo-select', '/wardrobe?select=1');
   await shot(page, '06-demo-outfits', '/outfits');
-  await page
-    .locator('a[href^="/outfits/"]:not([href="/outfits/new"])')
-    .first()
-    .click();
+  await page.locator('#outfit-cards a[href^="/outfits/"]').first().click();
   await shot(page, '07-demo-outfit');
-  await shot(page, '08-demo-outfit-builder', '/outfits/new');
+  // Styling (#42) replaced the outfit builder: the fresh stack, then its
+  // Save sheet.
+  await page.goto('/styling');
+  await expect(page.locator('[data-styling-row]').first()).toBeVisible();
+  await shot(page, '08-demo-styling');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('#styling-save')).toBeVisible();
+  await shot(page, '08b-demo-styling-save');
   await shot(page, '09-demo-calendar-history', '/calendar?week=2026-08-23');
   await shot(page, '10-demo-calendar-planned', '/calendar?week=2026-09-27');
   await shot(page, '11-demo-shares', '/wardrobe-share/manage');
@@ -117,7 +121,9 @@ test.describe('dark', () => {
     await page.locator('#wardrobe-grid a').first().click();
     await expect(page.getByText('Raw selvedge jeans').first()).toBeVisible();
     await shot(page, '03-demo-garment-dark');
-    await shot(page, '08-demo-outfit-builder-dark', '/outfits/new');
+    await page.goto('/styling');
+    await expect(page.locator('[data-styling-row]').first()).toBeVisible();
+    await shot(page, '08-demo-styling-dark');
     await shot(
       page,
       '10-demo-calendar-planned-dark',
@@ -251,8 +257,9 @@ test('demo: Theo, the outfit gallery', async ({ page }) => {
     page.getByRole('button', { name: 'Plan for Tuesday' }).first(),
   ).toBeVisible();
   await shot(page, '47-demo-ideas-for-day');
-  // "Style this" on the olive chinos: every idea holds them, never with the
-  // olive chore coat (his Clashes), whose page lists the pair.
+  // "Style this" on the olive chinos: Styling locked on them, opened on the
+  // day's idea around them (never with the olive chore coat, his Clashes,
+  // whose page lists the pair).
   await page.goto('/wardrobe?keyword=Olive%20chinos');
   await page
     .locator('#wardrobe-grid')
@@ -262,7 +269,9 @@ test('demo: Theo, the outfit gallery', async ({ page }) => {
     'Olive chore coat',
   );
   await page.getByRole('link', { name: 'Style this' }).click();
-  await expect(page.getByText('With Olive chinos')).toBeVisible();
+  await expect(
+    page.locator('[data-styling-row="bottom"] input.styling-lock'),
+  ).toBeChecked();
   await shot(page, '48-demo-style-this');
 });
 
@@ -278,13 +287,13 @@ test('demo: Theo, insights', async ({ page }) => {
     '51-demo-insights-unworn-30',
     '/wardrobe/insights?unworn=30',
   );
-  // "Style this" on an unworn garment opens the gallery holding it.
+  // "Style this" on an unworn garment opens Styling locked on it.
   await page
     .locator('#insights-unworn')
     .getByRole('link', { name: 'Style this' })
     .first()
     .click();
-  await expect(page.getByText(/^With /).first()).toBeVisible();
+  await expect(page.locator('input.styling-lock:checked')).toHaveCount(1);
   await shot(page, '52-demo-insights-style-this');
 });
 
@@ -318,6 +327,7 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   // No city yet: the header's weather line asks for one.
   await expect(page.getByText('Add your city for the weather')).toBeVisible();
   await shot(page, '15-fresh-outfits', '/outfits');
+  await shot(page, '65-fresh-styling', '/styling');
   await shot(page, '16-fresh-calendar', `/calendar?week=${ANCHOR}`);
   await shot(page, '24-fresh-laundry', '/laundry');
   await shot(page, '34-fresh-wishlist', '/wardrobe/wishlist');
@@ -410,8 +420,10 @@ test('demo: Theo, outfit selfies (#19)', async ({ page }) => {
   await expect(page.locator('dialog[open] img')).toBeVisible();
   await shot(page, '59-demo-selfie');
   // The outfit's Worn strip: every day it was worn, with its looks.
-  const edit = await row.locator('a[href^="/outfits/"]').getAttribute('href');
-  const outfit = /^\/outfits\/(\d+)\//.exec(edit ?? '')?.[1];
+  const edit = await row
+    .locator('a[href^="/styling?outfit="]')
+    .getAttribute('href');
+  const outfit = /[?&]outfit=(\d+)/.exec(edit ?? '')?.[1];
   await shot(page, '60-demo-outfit-worn', `/outfits/${outfit}`);
   await expect(page.locator('[data-worn-strip] img').first()).toBeVisible();
 });

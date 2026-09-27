@@ -26,7 +26,7 @@ describe('bypassesWorker', () => {
 });
 
 describe('servesStaleWhileRevalidate', () => {
-  it.each(['/wardrobe', '/outfits', '/calendar'])(
+  it.each(['/wardrobe', '/styling', '/outfits', '/calendar'])(
     'opens the tab root %s from the cache',
     (path) => {
       expect(
@@ -51,6 +51,7 @@ describe('servesStaleWhileRevalidate', () => {
     '/wardrobe?category=tops',
     '/calendar?week=2026-09-20',
     '/wardrobe/12',
+    '/styling?with=12',
     '/',
     '/auth/login',
   ])('leaves %s to the network', (path) => {

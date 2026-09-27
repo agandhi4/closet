@@ -154,22 +154,38 @@ export async function weekPool(
 }
 
 /**
- * `?with=`'s garment: the owner's, in the closet, whether or not it is
- * clean (the person asked to style it). Undefined otherwise: archived,
- * a wishlist item (only "Goes with my closet" locks one: wishlistGarments),
- * someone else's, or no such garment.
+ * Garments locked into every idea, whether or not they are clean (the
+ * person chose them): `?with=`'s garment, Styling's locked rows (#42). The
+ * owner's, in the closet; fewer than asked for any that is not (archived,
+ * a wishlist item, someone else's, gone). A wishlist item is only ever
+ * locked by "Goes with my closet" (wishlistGarments).
  */
+export function styledGarments(
+  db: Db,
+  ownerId: number,
+  garmentIds: readonly number[],
+  today: IsoDate,
+): Promise<PoolGarment[]> {
+  if (garmentIds.length === 0) return Promise.resolve([]);
+  return selectPool(
+    db,
+    today,
+    and(
+      inArray(garment.id, [...garmentIds]),
+      eq(garment.ownerId, ownerId),
+      inCloset(),
+    ),
+  );
+}
+
+/** `?with=`'s garment (styledGarments), or undefined. */
 export async function styledGarment(
   db: Db,
   ownerId: number,
   garmentId: number,
   today: IsoDate,
 ): Promise<PoolGarment | undefined> {
-  const [found] = await selectPool(
-    db,
-    today,
-    and(eq(garment.id, garmentId), eq(garment.ownerId, ownerId), inCloset()),
-  );
+  const [found] = await styledGarments(db, ownerId, [garmentId], today);
   return found;
 }
 
@@ -184,20 +200,28 @@ export interface WishlistGarment extends ClosetGarment {
 }
 
 /**
- * The owner's whole closet (inCloset), dirty and away included: "Goes with
- * my closet" judges a purchase against what the owner has, not against
- * what is clean today, so the answer does not move on laundry day. Never a
- * gallery pool: ideas draw from ideaPool. One statement.
+ * The owner's whole closet (inCloset), dirty and away included, within a
+ * capsule when given: "Goes with my closet" judges a purchase against what
+ * the owner has, not against what is clean today, so the answer does not
+ * move on laundry day; Styling's Shuffle over a shared wardrobe (#42,
+ * browseIdea) draws from it because a grantee never learns the owner's
+ * wash and away state. Never the owner's own gallery pool: ideas draw from
+ * ideaPool. One statement.
  */
 export async function closetGarments(
   db: Db,
   ownerId: number,
   today: IsoDate,
+  capsuleId?: number,
 ): Promise<ClosetGarment[]> {
   const rows = await poolQuery(
     db,
     today,
-    and(eq(garment.ownerId, ownerId), inCloset()),
+    and(
+      eq(garment.ownerId, ownerId),
+      inCloset(),
+      capsuleId === undefined ? undefined : inCapsule(capsuleId),
+    ),
   );
   return rows.map((row) => ({ ...poolGarment(row), type: row.type }));
 }

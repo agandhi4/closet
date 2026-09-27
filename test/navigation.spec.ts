@@ -64,7 +64,7 @@ test('tapping an outfit card opens the outfit without a reload', async ({
   await expectSameDocument(page);
 });
 
-test('tapping a calendar chip opens the outfit editor without a reload', async ({
+test('tapping a calendar chip opens the outfit in Styling without a reload', async ({
   page,
 }) => {
   await signIn(page, 'nav-calendar-chip');
@@ -76,12 +76,13 @@ test('tapping a calendar chip opens the outfit editor without a reload', async (
 
   await page.getByRole('link', { name: 'Chip outfit', exact: true }).click();
 
+  // Editing an outfit is Styling with it open (#42), back to this week.
   await expect(page).toHaveURL(
-    new RegExp(`/outfits/${outfit}/edit\\?returnTo=/calendar`),
+    new RegExp(
+      `/styling\\?outfit=${outfit}&returnTo=%2Fcalendar%3Fweek%3D${today}$`,
+    ),
   );
-  await expect(
-    page.getByRole('heading', { level: 1, name: 'Edit Outfit' }),
-  ).toBeVisible();
+  await expect(page.getByText('Changing Chip outfit')).toBeVisible();
   await expectSameDocument(page);
 });
 

@@ -11,7 +11,7 @@ import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
  * `?for=trip:12[:YYYY-MM-DD][&occasion=evening]`
  * (docs/plans/2026-09-26-redesign.md, section 1, "The destination travels
  * with the user"). The one parser of `?for=`: the calendar's plan page,
- * the builder, the outfit gallery's Ideas (#9), Today (#15) and the trip
+ * Styling (#42), the outfit gallery's Ideas (#9), Today (#15) and the trip
  * page (#10) read or write it here rather than each parsing the parameter
  * again.
  *
@@ -19,10 +19,9 @@ import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
  *   without one). With `replace` (#69) it is a change of that entry's
  *   outfit rather than one more entry: Today's "Change", the calendar row's
  *   Change and the plan page carry it, and the writes that plan (POST
- *   /calendar, the gallery's pick) hand it to replaceEntryOutfit
- *   (src/web/calendar/replace.ts), which checks that the entry is the
- *   requester's, on that day and for that occasion. The builder ignores
- *   it: a new build adds.
+ *   /calendar, the gallery's pick, Styling's Save) hand it to
+ *   replaceEntryOutfit (src/web/calendar/replace.ts), which checks that the
+ *   entry is the requester's, on that day and for that occasion.
  * - `trip`: added to the trip (#10), optionally for one of its days and an
  *   occasion ("Day 2, dinner"). Both are optional on a trip outfit, so a
  *   trip without either stays without: no occasion is not all day there.

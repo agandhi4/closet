@@ -4,6 +4,7 @@ import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { BackLink, EmptyState, SavedToast, StripFlags } from '../layout/parts';
+import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import type { GridPage } from '../wardrobe/queries';
 import { capsuleUrl, wardrobeUrl } from '../wardrobe/urls';
@@ -34,8 +35,8 @@ const CAPSULE_PAGE_FLAGS = ['created', 'added', 'removed'] as const;
  * GET /capsules/:id: the capsule's garments as the wardrobe grid shows them
  * (the same tiles and keyset pages: the sentinel asks /wardrobe/tiles with
  * `capsule`), archived members left out; what the requester may do with
- * it; and where it leads: the grid filtered to it, the picker, and the
- * outfit builder cycling only its garments.
+ * it; and where it leads: the grid filtered to it, the picker, and
+ * Styling (#42) cycling only its garments.
  */
 export function CapsulePage(props: {
   ctx: ViewContext;
@@ -130,9 +131,11 @@ function CapsuleActions({ model }: { model: CapsulePageModel }) {
           {t('FILTER_WARDROBE_BY_CAPSULE')}
         </a>
       )}
-      {model.isOwner && model.count > 0 && (
+      {/* Styling from the capsule (#42): every row cycles its garments.
+          A grantee styles the shared wardrobe too, browsing only. */}
+      {model.count > 0 && (
         <a
-          href={`/outfits/new?capsule=${capsule.id}`}
+          href={stylingUrl({ capsuleId: capsule.id, ownerId: viewOwner })}
           class="btn btn-outline btn-sm"
         >
           {t('BUILD_OUTFIT_FROM_CAPSULE')}

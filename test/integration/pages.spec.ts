@@ -91,10 +91,10 @@ describe('pages', () => {
     expect(res.body).not.toContain("class='dock'");
   });
 
-  it('GET /outfits/row-fragment is a bare outfit row', async () => {
+  it('GET /styling/garments is a bare page of a strip', async () => {
     const res = await t.inject({
       method: 'GET',
-      url: '/outfits/row-fragment?category=shirt&index=1',
+      url: '/styling/garments?role=none&before=2147483647',
       headers: HX_FRAGMENT,
     });
     expect(res.statusCode).toBe(200);

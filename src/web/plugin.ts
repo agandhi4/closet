@@ -21,6 +21,7 @@ import type { PushSender, VapidConfig } from './push/sender';
 import { selfieRoutes } from './selfies/routes';
 import { shareRoutes } from './share/routes';
 import { shellRoutes } from './shell/routes';
+import { stylingRoutes } from './styling/routes';
 import { sharingRoutes } from './sharing/routes';
 import { todayRoutes } from './today/routes';
 import { tripRoutes } from './trips/routes';
@@ -119,6 +120,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(selfieRoutes, options);
   await app.register(weekPlanRoutes, options);
   await app.register(outfitRoutes, options);
+  await app.register(stylingRoutes, options);
   await app.register(galleryRoutes, options);
   await app.register(authRoutes, options);
   await app.register(tokenRoutes, options);

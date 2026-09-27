@@ -468,7 +468,7 @@ describe('capsules', () => {
       expect(tileNames(html)).toEqual(['Boots', 'White tee']);
       expect(html).toContain(`href="/wardrobe?pick=${travel}"`);
       expect(html).toContain(`href="/wardrobe?capsule=${travel}"`);
-      expect(html).toContain(`href="/outfits/new?capsule=${travel}"`);
+      expect(html).toContain(`href="/styling?capsule=${travel}"`);
       expect(html).toContain(`href="/capsules/${travel}/edit"`);
     });
 
@@ -507,7 +507,8 @@ describe('capsules', () => {
       expect(html).toContain(`href="/wardrobe/${ids.shirt}?${q}"`);
       expect(html).not.toContain('pick=');
       expect(html).not.toContain('/edit');
-      expect(html).not.toContain('/outfits/new');
+      // Styling browses the shared capsule; nothing it composes is saved.
+      expect(html).toContain(`href="/styling?capsule=${shared}&${q}"`);
 
       const grid = await get(`/wardrobe?capsule=${shared}&${q}`, {
         cookie: viewer,
@@ -575,7 +576,7 @@ describe('capsules', () => {
     });
   });
 
-  describe('the outfit builder', () => {
+  describe('Styling from a capsule (#42)', () => {
     let capsuleId: number;
 
     beforeAll(async () => {
@@ -585,40 +586,35 @@ describe('capsules', () => {
       });
     });
 
-    it('builds from a capsule: every row cycles only its garments', async () => {
-      const res = await get(`/outfits/new?capsule=${capsuleId}`);
+    it('stacks only its garments: a row per role it holds', async () => {
+      const res = await get(`/styling?capsule=${capsuleId}`);
       expect(res.statusCode).toBe(200);
       expectFullPage(res);
       const html = unescapeHtml(res.body);
-      expect(html).toContain('From Builder');
-      // Tops: the oxford alone (the tee is newer but not in the capsule).
-      expect(html).toContain('data-category="tops"');
-      expect(html).toMatch(
-        /data-category="tops" data-capsule="\d+" data-index="1" data-count="1"/,
-      );
-      expect(html).toContain('Oxford');
-      expect(html).not.toContain('White tee');
-      // No bottoms in the capsule: no bottoms row.
-      expect(html).not.toContain('data-category="bottoms"');
-      expect(html).toContain(
-        `/outfits/row-fragment?category=tops&index=0&capsule=${capsuleId}`,
-      );
-      expect(html).toMatch(new RegExp(`name="capsule" value="${capsuleId}"`));
+      // The scope menu names it; the rows post it back.
+      expect(html).toContain('Builder');
+      expect(html).toContain(`name="capsule" value="${capsuleId}"`);
+      // Tops: the oxford alone (the tee is newer but not in the capsule);
+      // no bottoms in the capsule, so no bottoms row.
+      expect(html).toContain('data-styling-row="top"');
+      expect(html).toContain(`data-garment-id="${ids.shirt}"`);
+      expect(html).not.toContain(`data-garment-id="${ids.tee}"`);
+      expect(html).not.toContain('data-styling-row="bottom"');
     });
 
-    it('steps a row within the capsule', async () => {
+    it('pages a strip within the capsule', async () => {
       const inside = await get(
-        `/outfits/row-fragment?category=tops&index=1&capsule=${capsuleId}`,
+        `/styling/garments?role=top&before=2147483647&capsule=${capsuleId}`,
         { 'hx-request': 'true' },
       );
       expect(inside.statusCode).toBe(200);
       expectFragment(inside);
-      expect(inside.body).toContain('Oxford');
-      expect(inside.body).toContain('data-count="1"');
-      const closet = await get('/outfits/row-fragment?category=tops&index=1', {
+      expect(inside.body).toContain(`data-garment-id="${ids.shirt}"`);
+      expect(inside.body).not.toContain(`data-garment-id="${ids.tee}"`);
+      const closet = await get('/styling/garments?role=top&before=2147483647', {
         'hx-request': 'true',
       });
-      expect(closet.body).not.toContain('data-count="1"');
+      expect(closet.body).toContain(`data-garment-id="${ids.tee}"`);
     });
 
     it('refuses someone else’s capsule and a malformed one', async () => {
@@ -626,10 +622,8 @@ describe('capsules', () => {
         .select({ id: capsule.id })
         .from(capsule)
         .where(and(eq(capsule.name, 'Stranger capsule')));
-      expect((await get(`/outfits/new?capsule=${theirs.id}`)).statusCode).toBe(
-        404,
-      );
-      expect((await get('/outfits/new?capsule=abc')).statusCode).toBe(400);
+      expect((await get(`/styling?capsule=${theirs.id}`)).statusCode).toBe(404);
+      expect((await get('/styling?capsule=abc')).statusCode).toBe(400);
     });
   });
 });

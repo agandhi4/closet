@@ -307,11 +307,11 @@ describe('insights', () => {
     expect(idsIn(html, 'insights-unworn')).toEqual(names.map((n) => g[n]));
   });
 
-  it('offers "Style this" (the gallery holding it) on every unworn garment', async () => {
+  it('offers "Style this" (Styling locked on it, #42) on every unworn garment', async () => {
     const { html } = await page();
     const unworn = section(html, 'insights-unworn');
     expect(unworn.match(/>Style this</g)).toHaveLength(3);
-    expect(unworn).toContain(`href="/outfits/ideas?with=${g.sandals}"`);
+    expect(unworn).toContain(`href="/styling?with=${g.sandals}"`);
     expect(unworn).toContain('Never worn');
     expect(unworn).toContain(`Last worn ${daysAgo(200)}`);
   });

@@ -139,31 +139,42 @@ describe('request security', () => {
     });
   });
 
-  describe('returnTo on the outfit form', () => {
+  describe('returnTo on Styling (the outfit form it replaced)', () => {
     it.each([
       "javascript:alert('x')",
       '//evil.test',
       '/\\evil.test',
       'https://evil.test',
-    ])('replaces %s with the default', async (value) => {
+    ])('drops %s', async (value) => {
       const res = await t.inject({
         method: 'GET',
-        url: `/outfits/new?returnTo=${encodeURIComponent(value)}`,
+        url: `/styling?returnTo=${encodeURIComponent(value)}`,
       });
       expect(res.statusCode).toBe(200);
       expect(res.body).not.toContain('evil.test');
       expect(res.body).not.toContain('javascript:');
-      expect(res.body).toContain('href="/outfits"');
-      expect(res.body).toContain('name="returnTo" value="/outfits"');
+      expect(res.body).not.toContain('name="returnTo"');
     });
 
     it('keeps a path on this site', async () => {
       const res = await t.inject({
         method: 'GET',
-        url: '/outfits/new?returnTo=/calendar',
+        url: '/styling?returnTo=/calendar',
       });
       expect(res.body).toContain('href="/calendar"');
-      expect(res.body).toContain('name="returnTo" value="/calendar"');
+    });
+
+    it('a saved edit goes nowhere else', async () => {
+      const res = await t.inject({
+        method: 'POST',
+        url: '/styling',
+        payload: {
+          outfit: '999999',
+          garmentId: '1',
+          returnTo: 'https://evil.test',
+        },
+      });
+      expect(res.headers.location ?? '').not.toContain('evil.test');
     });
   });
 

@@ -22,9 +22,9 @@ import type {
  * - the MCP tool suggest_outfits (src/web/mcp/tools/gallery.ts);
  * - "Goes with my closet" (#18b, src/wardrobe/goes-with.ts): the whole
  *   closet as the pool and one wishlist item `locked`;
- * - later, with the same API: Styling's Shuffle (#42: its locked rows are
- *   `locked`, the rest is filled) and Today's suggestions (#15: a day's
- *   occasion, a page of 3).
+ * - Styling's Shuffle (#42, src/web/styling): its locked rows are
+ *   `locked`, the unlocked rows take the first idea; Today's suggestions
+ *   (#15: a day's occasion, a page of 3).
  *
  * The caller decides the pool: garments in the closet and available
  * (isAvailable / availableGarment, src/wardrobe/availability.ts: not
@@ -93,8 +93,11 @@ export const REST_DAYS = 21;
 const ROTATION_CAP = 60;
 const ROTATION_STEP = 10;
 
-/** The roles the generator draws. Others only arrive locked. */
-const DRAWN_ROLES: readonly GarmentRole[] = [
+/**
+ * The roles the generator draws. Others only arrive locked, so Styling's
+ * Shuffle (#42) leaves its unlocked accessory and bag rows as they are.
+ */
+export const DRAWN_ROLES: readonly GarmentRole[] = [
   'layer',
   'one-piece',
   'top',

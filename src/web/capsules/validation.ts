@@ -19,7 +19,7 @@ export const CAPSULE_NOT_FOUND = 'Capsule not found';
 /**
  * A capsule outside the addressed wardrobe, whether it exists or not: the
  * same 404 as an unknown id (the capsule routes, the grid's `?capsule=` and
- * `?pick=`, the outfit builder's `?capsule=`).
+ * `?pick=`, Styling's `?capsule=`).
  */
 export function capsuleNotFound(): HttpError {
   return new HttpError(404, CAPSULE_NOT_FOUND);

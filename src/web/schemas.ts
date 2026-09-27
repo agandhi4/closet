@@ -27,3 +27,21 @@ export const IsoDateSchema = Type.String({ format: 'date' });
 export const OccasionSchema = Type.Union(
   OCCASIONS.map((occasion) => Type.Literal(occasion)),
 );
+
+/**
+ * Where a write plans what it saves (OutfitDestination, src/web/outfits/
+ * destination.ts), as a form posts it back: `for` (`day:D` or
+ * `trip:ID[:D]`), its occasion and the entry it replaces (#69, a day's
+ * only). The gallery's pick and Styling's Save; postedDestination
+ * (src/web/gallery/pick.ts) checks that `for` reads back as posted.
+ */
+export const DestinationFields = {
+  for: Type.Optional(
+    Type.String({
+      pattern:
+        '^(day:\\d{4}-\\d{2}-\\d{2}|trip:\\d{1,10}(:\\d{4}-\\d{2}-\\d{2})?)$',
+    }),
+  ),
+  occasion: Type.Optional(OccasionSchema),
+  replace: Type.Optional(RowId),
+};

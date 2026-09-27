@@ -100,9 +100,11 @@ async function main() {
         url: `${BASE_URL}/wardrobe`,
         headers: { cookie, 'HX-Request': 'true' },
       },
+      // Styling (#42), the composer that replaced the builder's
+      // /outfits/new: its strips' windows are one statement.
       {
-        name: 'outfits-new',
-        url: `${BASE_URL}/outfits/new`,
+        name: 'styling',
+        url: `${BASE_URL}/styling`,
         headers: { cookie },
       },
       // Images are public and skip the session hook: no cookie, as a browser

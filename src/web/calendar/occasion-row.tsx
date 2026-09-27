@@ -1,3 +1,4 @@
+import { stylingUrl } from '../styling/urls';
 import { t } from '../i18n';
 import { destinationQuery } from '../outfits/destination';
 import { EntrySelfie } from '../selfies/views';
@@ -91,7 +92,11 @@ function changeEntryUrl(entry: CalendarEntry): string {
  * occasion label above it already names).
  */
 function EntryChip({ entry }: { entry: CalendarEntry }) {
-  const editUrl = `/outfits/${entry.outfit.id}/edit?returnTo=/calendar&returnToWeek=${entry.day}`;
+  // Editing the outfit is Styling with it open (#42), back to this week.
+  const editUrl = stylingUrl({
+    outfitId: entry.outfit.id,
+    returnTo: `/calendar?week=${entry.day}`,
+  });
   const deleteUrl = `/calendar/${entry.id}/delete`;
   const name = entry.outfit.name || t('UNTITLED_OUTFIT');
   return (

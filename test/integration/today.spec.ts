@@ -189,7 +189,7 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
         new RegExp(`cal-today">\\s*${dateParts(today).day}\\s*<`),
       );
       const column = columns.get(today)!;
-      expect(column).toContain(`/outfits/${outfitId}/edit?returnTo=/calendar`);
+      expect(column).toContain(`/styling?outfit=${outfitId}&returnTo=`);
       expect(column).toContain(`/calendar/${entry}/worn`);
     });
 

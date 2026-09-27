@@ -43,7 +43,13 @@ export function bypassesWorker(url: { pathname: string }): boolean {
 
 /**
  * The sections whose home opens stale-while-revalidate: every one but
- * Today. Today (`/`, the manifest's start_url) is all of the day's own
+ * Today. Styling's `/styling` (#42) qualifies: the bare page is the fresh
+ * stack, a function of the wardrobe alone (freshStates: the newest garment
+ * of each worn role, never the day's seed, the forecast, rotation or what
+ * is clean), so it renders byte for byte the same until the wardrobe
+ * changes; Shuffle's seed only appears once Shuffle answers. Its other
+ * addresses (`?with=`, `?for=`, `?outfit=`, `?ownerId=`) carry a query and
+ * go to the network like every navigation. Today (`/`, the manifest's start_url) is all of the day's own
  * data (the plan, the suggestions, what was worn, the weather through
  * them), so it could only be byte-stable by loading all of it as
  * fragments, leaving a shell with a date; and a copy opened first would
@@ -52,7 +58,12 @@ export function bypassesWorker(url: { pathname: string }): boolean {
  * worker's last copy shows with its age (freshness.js) and its writes
  * disabled. #15 decided it.
  */
-const OPENS_STALE: readonly Section[] = ['wardrobe', 'outfits', 'calendar'];
+const OPENS_STALE: readonly Section[] = [
+  'wardrobe',
+  'styling',
+  'outfits',
+  'calendar',
+];
 
 /**
  * The tab roots the worker opens from its cache. Exact paths without a

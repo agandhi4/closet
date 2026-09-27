@@ -19,7 +19,7 @@ import type { IsoDate } from '../calendar/calendar-date';
  * "In the closet": owned and in use. The one predicate for every closet
  * read, so a wishlist item or an archived garment never shows up where
  * clothes one can wear do: the grid (without "Show archived"), the outfit
- * builder's cycles, capsules' counts and pages, tagging mode, laundry and
+ * Styling's strips, capsules' counts and pages, tagging mode, laundry and
  * the wash counts, availableGarment (src/web/wears/queries.ts), the MCP
  * tools' closet reads, the outfit generator (#9, through availableGarment),
  * insights (src/web/insights/queries.ts) and "Goes with my closet" (#18b:

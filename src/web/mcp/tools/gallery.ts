@@ -13,7 +13,7 @@ import {
   MAX_SEED,
   pickIdea,
 } from '../../gallery/ideas';
-import { OUTFIT_NAME_MAX } from '../../outfits/form-page';
+import { OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { defineTool } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
 
@@ -92,7 +92,7 @@ export const galleryTools = [
           day,
           occasion,
           capsuleId: capsule?.id,
-          styled,
+          locked: styled ? [styled] : [],
           seed: usedSeed,
           offset: (page - 1) * limit,
           limit,

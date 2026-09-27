@@ -17,10 +17,9 @@ import { addDays, type IsoDate } from '../calendar/calendar-date';
 import { type CapsuleDetail, findCapsule } from '../capsules/queries';
 import { capsuleNotFound } from '../capsules/validation';
 import { HttpError } from '../errors';
-import { OUTFIT_NAME_MAX } from '../outfits/form-page';
 import { lockOwner } from '../auth/queries';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
-import { createOutfit } from '../outfits/queries';
+import { createOutfit, OUTFIT_NAME_MAX } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
 import { findWeatherSettings } from '../weather/queries';
 import { userWeather, type WeatherService } from '../weather/service';
@@ -42,6 +41,7 @@ import {
   type PoolGarment,
   savedOutfits,
   styledGarment,
+  styledGarments,
   type WishlistGarment,
   wishlistGarments,
 } from './queries';
@@ -51,13 +51,13 @@ import {
  * (src/wardrobe/generator.ts) fed from the database and the forecast. The
  * one entry point every surface calls, so none grows its own suggestion
  * logic (docs/plans/2026-09-26-redesign.md, section 1): the gallery's Ideas
- * (routes.tsx), the MCP tool suggest_outfits, and next Today (#15: its
- * occasions, a page of 3) and Styling's Shuffle (#42: `styled` becomes its
- * locked rows). "Goes with my closet" (#18b) is its sibling below,
- * goesWithCloset: the whole closet with a wishlist item locked the way
- * `styled` locks a closet garment, never in a pool, so ideasFor, Today and
- * pickIdea never see one. And pickIdea, the one way an idea becomes an
- * outfit.
+ * (routes.tsx), the MCP tool suggest_outfits, Today (#15: its occasions, a
+ * page of 3) and Styling's Shuffle (#42: its locked rows are `locked`, the
+ * first idea fills the rest). Two siblings below draw from another pool:
+ * goesWithCloset ("Goes with my closet", #18b: the whole closet with a
+ * wishlist item locked, never in a pool, so ideasFor, Today and pickIdea
+ * never see one) and browseIdea (Styling's Shuffle over a shared
+ * wardrobe). And pickIdea, the one way an idea becomes an outfit.
  */
 
 /** Cards a gallery page holds: one on screen at phone width, the next few ready. */
@@ -65,6 +65,13 @@ export const IDEAS_PAGE_SIZE = 6;
 
 /** Seeds are non-negative 31-bit integers (they travel in URLs). */
 export const MAX_SEED = 2_147_483_647;
+
+/** A seed from a URL or a form (navigation state): undefined when it is not one. */
+export function parseSeed(value: string | undefined): number | undefined {
+  if (value === undefined || !/^\d{1,10}$/.test(value)) return undefined;
+  const seed = Number(value);
+  return seed <= MAX_SEED ? seed : undefined;
+}
 
 /** The seed a gallery opens with: one a day, so the ideas change daily and a reload keeps them. */
 export function dailySeed(today: IsoDate): number {
@@ -91,8 +98,8 @@ export interface IdeasInput {
   place?: Location | null;
   /** Only this capsule's garments (the owner's own capsule; the route checks). */
   capsuleId?: number;
-  /** `?with=`: in every idea (styledGarment). */
-  styled?: PoolGarment;
+  /** In every idea: `?with=`'s garment, Styling's locked rows (styledGarments). */
+  locked?: readonly PoolGarment[];
   seed: number;
   offset: number;
   limit: number;
@@ -161,7 +168,7 @@ export async function ideasFor(
   const page = generateIdeas({
     seed: input.seed,
     pool,
-    locked: input.styled ? [input.styled] : [],
+    locked: input.locked ?? [],
     needs: weather?.needs ?? null,
     formality: OCCASION_HINTS[input.occasion].formality,
     avoid,
@@ -236,6 +243,40 @@ async function typicalWeather(
       settings.offset,
     );
   return needs ? { needs, unit: settings.unit, typical: true } : null;
+}
+
+/**
+ * Styling's Shuffle over a wardrobe shared with the requester (#42): one
+ * idea from the owner's closet with `locked` in it, for nobody's day. Only
+ * what the share shows goes in: the closet (closetGarments, so no wash or
+ * away state, which are the owner's own records), no rotation (idle days
+ * nulled: when a garment was last worn is a wear), and none of the owner's
+ * saved outfits, clashes or weather, which are theirs alone. Undefined when
+ * nothing fits the locks.
+ */
+export async function browseIdea(
+  db: Db,
+  wardrobeOwnerId: number,
+  input: {
+    today: IsoDate;
+    capsuleId?: number;
+    lockedIds: readonly number[];
+    seed: number;
+  },
+): Promise<Idea<PoolGarment> | undefined> {
+  const [closet, locked] = await Promise.all([
+    closetGarments(db, wardrobeOwnerId, input.today, input.capsuleId),
+    styledGarments(db, wardrobeOwnerId, input.lockedIds, input.today),
+  ]);
+  const unworn = (g: PoolGarment): PoolGarment => ({ ...g, idleDays: null });
+  const [idea] = generateIdeas({
+    seed: input.seed,
+    pool: closet.map(unworn),
+    locked: locked.map(unworn),
+    offset: 0,
+    limit: 1,
+  }).ideas;
+  return idea;
 }
 
 /** Garments as an outfit's slots and name list them: top to toe (OUTFIT_ORDER), the given order among equals. */

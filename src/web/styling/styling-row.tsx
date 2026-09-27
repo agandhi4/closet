@@ -1,0 +1,289 @@
+import type { GarmentRole } from '../../wardrobe/properties';
+import { imageUrl } from '../files/image-url';
+import { t, type StringKey } from '../i18n';
+import { HangerIcon } from '../layout/parts';
+import { categoryLabel } from '../wardrobe/garment';
+import { garmentUrl } from '../wardrobe/urls';
+import type { RowGarment, StylingRow } from './rows';
+import { STYLING_GARMENTS_PATH, type StylingState, stylingUrl } from './urls';
+
+/**
+ * A Styling row (#42): a role's strip of garments, scroll-snap with the
+ * neighbours peeking, "No garment" first; the centred garment is the row's
+ * choice. Swiping is the browser's own scrolling (no touch handlers): the
+ * page's module (public/js/styling.js) watches which item crosses the
+ * strip's centre line and writes it into the row's `garmentId`, which is
+ * what Save and Shuffle post, with `role` and `lock`, one of each per row
+ * in document order. The server marks the chosen item `data-selected`; the
+ * module centres it on load, after a swap and after a history restore.
+ */
+
+const ROLE_LABELS: Record<GarmentRole, StringKey> = {
+  layer: 'styling.role.layer',
+  'one-piece': 'styling.role.one-piece',
+  top: 'styling.role.top',
+  bottom: 'styling.role.bottom',
+  footwear: 'styling.role.footwear',
+  accessory: 'styling.role.accessory',
+  bag: 'styling.role.bag',
+  none: 'styling.role.none',
+};
+
+export function roleLabel(role: GarmentRole): string {
+  return t(ROLE_LABELS[role]);
+}
+
+/** Accessories, bags and the rest ride along: smaller items, so the outfit leads. */
+const SMALL: readonly GarmentRole[] = ['accessory', 'bag', 'none'];
+
+/**
+ * An item's width and the strip's side padding go together: the padding is
+ * half the strip less half an item, so the first and last items can be
+ * centred and the neighbours peek in what is left. The width is fixed, not
+ * a percentage: a flex item's percentage resolves against the strip's box
+ * inside that padding, which shrank the items to a sliver.
+ */
+function sizing(role: GarmentRole): { item: string; strip: string } {
+  return SMALL.includes(role)
+    ? { item: 'w-20', strip: 'px-[calc(50%-2.5rem)]' }
+    : { item: 'w-28', strip: 'px-[calc(50%-3.5rem)]' };
+}
+
+/** What a row's links and sentinel need of the page. */
+export interface RowContext {
+  state: StylingState;
+  /** The shared wardrobe shown (garment links carry it), undefined for one's own. */
+  viewOwner: number | undefined;
+}
+
+export function StylingRowView(props: {
+  row: StylingRow;
+  context: RowContext;
+}) {
+  const { row, context } = props;
+  const label = roleLabel(row.role);
+  const { strip } = sizing(row.role);
+  return (
+    <section
+      class="flex flex-col gap-1"
+      data-styling-row={row.role}
+      aria-label={label}
+    >
+      <div class="flex items-center justify-between px-4">
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+          {label}
+        </h2>
+        <LockToggle locked={row.locked} label={label} />
+      </div>
+      <div
+        class={`styling-strip relative flex gap-3 overflow-x-auto snap-x snap-mandatory overscroll-x-contain ${strip}`}
+        role="listbox"
+        aria-label={t('styling.STRIP_LABEL', { role: label })}
+      >
+        <NoGarment role={row.role} selected={row.garmentId === null} />
+        {row.garments.map((garment) => (
+          <GarmentItem
+            garment={garment}
+            role={row.role}
+            selected={garment.id === row.garmentId}
+            detached={garment.id === row.detachedId}
+            viewOwner={context.viewOwner}
+          />
+        ))}
+        {row.moreBefore !== undefined && (
+          <StripSentinel
+            role={row.role}
+            before={row.moreBefore}
+            context={context}
+          />
+        )}
+      </div>
+      <input type="hidden" name="role" value={row.role} />
+      <input type="hidden" name="garmentId" value={row.garmentId ?? ''} />
+      <input type="hidden" name="lock" value={row.locked ? '1' : ''} />
+    </section>
+  );
+}
+
+/**
+ * Lock: Shuffle leaves the row as it is. The checkbox has no name: it
+ * writes the row's `lock` field, which posts in step with its `role` and
+ * `garmentId` (an unchecked box would post nothing and shift the lists).
+ */
+function LockToggle(props: { locked: boolean; label: string }) {
+  return (
+    // daisyUI's swap: the label is the control (its input has no box), so
+    // it shows the keyboard focus its checkbox has.
+    <label class="swap btn btn-ghost btn-xs btn-circle has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2">
+      <input
+        type="checkbox"
+        class="styling-lock"
+        checked={props.locked}
+        aria-label={t('styling.LOCK', { role: props.label })}
+        onchange="this.closest('[data-styling-row]').querySelector('input[name=lock]').value = this.checked ? '1' : ''"
+      />
+      {/* Heroicons' lock-closed and lock-open, outline. */}
+      <svg
+        class="swap-on size-4 text-accent"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="1.5"
+        stroke="currentColor"
+        aria-hidden="true"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+        />
+      </svg>
+      <svg
+        class="swap-off size-4 text-base-content/40"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="1.5"
+        stroke="currentColor"
+        aria-hidden="true"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+        />
+      </svg>
+    </label>
+  );
+}
+
+/** The builder's position 0: the row adds nothing to the outfit. */
+function NoGarment(props: { role: GarmentRole; selected: boolean }) {
+  const { item } = sizing(props.role);
+  return (
+    <button
+      type="button"
+      class={`styling-item snap-center shrink-0 ${item} flex flex-col gap-1`}
+      role="option"
+      data-garment-id=""
+      data-selected={props.selected ? '' : undefined}
+      aria-selected={props.selected ? 'true' : 'false'}
+    >
+      <span class="aspect-square w-full rounded-box border border-dashed border-base-300 flex items-center justify-center text-base-content/40 text-2xl">
+        —
+      </span>
+      <span class="text-xs text-base-content/50 truncate">
+        {t('styling.NO_GARMENT')}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * A garment on the plinth, its cutout contained (never cropped). A tap on
+ * the centred one opens its page; a tap on a neighbour centres it
+ * (styling.js). The strips show the 400 px thumb, made from the cutout.
+ */
+function GarmentItem(props: {
+  garment: RowGarment;
+  role: GarmentRole;
+  selected: boolean;
+  detached: boolean;
+  viewOwner: number | undefined;
+}) {
+  const { garment } = props;
+  const { item } = sizing(props.role);
+  return (
+    <a
+      href={garmentUrl(garment.id, props.viewOwner)}
+      class={`styling-item snap-center shrink-0 ${item} flex flex-col gap-1 no-underline`}
+      role="option"
+      data-garment-id={garment.id}
+      data-selected={props.selected ? '' : undefined}
+      aria-selected={props.selected ? 'true' : 'false'}
+    >
+      <span class="aspect-square w-full rounded-box bg-base-200 flex items-center justify-center p-2">
+        {garment.photo ? (
+          <img
+            src={imageUrl(garment.photo, 'thumb')}
+            alt=""
+            class="max-h-full max-w-full object-contain"
+            width="200"
+            height="200"
+            loading={props.selected ? 'eager' : 'lazy'}
+            decoding="async"
+          />
+        ) : (
+          <HangerIcon class="size-10 text-base-content/30" strokeWidth="1" />
+        )}
+      </span>
+      <span class="text-xs truncate">
+        {garment.name ?? categoryLabel(garment.category)}
+      </span>
+      {props.detached && (
+        <span class="badge badge-ghost badge-xs">{t('ARCHIVED')}</span>
+      )}
+    </a>
+  );
+}
+
+/**
+ * The end of the strip's window: fetches the next page of the role's cycle
+ * when it scrolls into view and is replaced by it (and its own sentinel).
+ * `intersect`, not `revealed`: that one watches the window's scroll, never
+ * a horizontal strip's (CLAUDE.md, Gotchas).
+ */
+function StripSentinel(props: {
+  role: GarmentRole;
+  before: number;
+  context: RowContext;
+}) {
+  const url = stylingUrl(props.context.state, STYLING_GARMENTS_PATH, [
+    `role=${props.role}`,
+    `before=${props.before}`,
+  ]);
+  return (
+    <span
+      class="snap-center shrink-0 w-12 flex items-center justify-center"
+      hx-get={url}
+      hx-trigger="intersect once"
+      hx-swap="outerHTML"
+      data-strip-more=""
+    >
+      <span
+        class="loading loading-dots loading-sm text-base-content/40"
+        aria-label={t('LOADING_MORE')}
+      ></span>
+    </span>
+  );
+}
+
+/** GET /styling/garments: the next page of a strip, and its sentinel when more follow. */
+export function StripPage(props: {
+  role: GarmentRole;
+  garments: RowGarment[];
+  more: boolean;
+  context: RowContext;
+}) {
+  const last = props.garments.at(-1);
+  return (
+    <>
+      {props.garments.map((garment) => (
+        <GarmentItem
+          garment={garment}
+          role={props.role}
+          selected={false}
+          detached={false}
+          viewOwner={props.context.viewOwner}
+        />
+      ))}
+      {props.more && last && (
+        <StripSentinel
+          role={props.role}
+          before={last.id}
+          context={props.context}
+        />
+      )}
+    </>
+  );
+}

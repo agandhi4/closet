@@ -2,89 +2,71 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { type Static, Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
 import { parseIsoDate } from '../calendar/calendar-date';
-import { findCapsule } from '../capsules/queries';
-import { capsuleNotFound } from '../capsules/validation';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
-import { navigateTo, renderFragment, renderPage } from '../render';
+import { navigateTo, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
-import { safeReturnTo } from '../security/return-to';
+import { stylingUrl } from '../styling/urls';
 import { viewContext } from '../view-context';
-import { orderCategories } from '../wardrobe/garment';
-import { cycleRow, newOutfitRows, savedOutfitRows } from './builder';
-import { OUTFIT_NAME_MAX, OUTFIT_NOTES_MAX, OutfitFormPage } from './form-page';
 import { type OutfitDestination, parseDestination } from './destination';
 import { OutfitsPage } from './list-page';
-import { OutfitRow } from './outfit-row';
 import {
-  categoryHeads,
   createOutfit,
   deleteOutfit,
   findOutfit,
-  findOutfitFields,
-  garmentAt,
   listOutfits,
+  OUTFIT_NAME_MAX,
+  OUTFIT_NOTES_MAX,
   type OutfitInput,
   type SaveResult,
-  savedSlots,
   updateOutfit,
-  wardrobeCategories,
   wornDays,
 } from './queries';
 import { OutfitPage } from './show-page';
 
 /**
  * Validation, decided per route:
- * - The page queries are navigation state and fall back rather than fail:
- *   `?returnTo=` goes through safeReturnTo (same-site paths only, else the
- *   page's default); `?for=day:D&occasion=O` (the calendar's plan page)
- *   through parseDestination, `?scheduleDate=` (links cached before #13)
- *   and `?returnToWeek=` through parseIsoDate (a malformed one is dropped).
- * - The row fragment needs a category (400 without one: there is no row to
- *   render); its `index` is clamped into the category's cycle.
- * - `?capsule=` (a new build from a capsule, and its rows) names data: not
- *   an id is a 400, a capsule that is not the user's own a 404.
- * - The outfit form's post is data the write stores: anything malformed is
- *   a 400 and writes nothing. An empty date input posts '' (no schedule);
- *   no occasion (a form cached before #13) is all day.
+ * - The builder's old addresses (`/outfits/new`, `/outfits/:id/edit`) only
+ *   redirect into Styling, carrying what they meant: navigation state, so
+ *   anything malformed is dropped rather than refused (`?for=` through
+ *   parseDestination, `?scheduleDate=` from calendar pages cached before
+ *   #13 through parseIsoDate, `?capsule=` and `?returnTo=` passed on for
+ *   Styling to judge).
+ * - The outfit form's post (POST /outfits, /outfits/:id: pages the
+ *   installed app cached before Styling, and the specs' fixtures) is data
+ *   the write stores: anything malformed is a 400 and writes nothing. An
+ *   empty date input posts '' (no schedule); no occasion (a form cached
+ *   before #13) is all day.
  */
 
 const OutfitParams = Type.Object({ id: RowId });
 
-/** Rows in one outfit: position is a smallint, and no builder needs more. */
+/** Rows in one outfit: position is a smallint, and no form needs more. */
 const MAX_ROWS = 100;
 
-// What a builder row's category may be; the same rule for the fragment.
+// What an outfit row's category may be.
 const Category = Type.String({ minLength: 1, maxLength: 255, pattern: '\\S' });
 
 // A date input left empty posts ''.
 const OptionalDay = Type.Union([Type.Literal(''), IsoDateSchema]);
 
-const PageQuery = Type.Object({
+// The builder's links: the calendar's plan page (`?for=`), calendar pages
+// cached before #13 (`?scheduleDate=`), a capsule's "Build an outfit", and
+// the edit links (`?returnTo=/calendar&returnToWeek=`).
+const BuilderLinkQuery = Type.Object({
   returnTo: Type.Optional(Type.String()),
   for: Type.Optional(Type.String()),
   occasion: Type.Optional(Type.String()),
   scheduleDate: Type.Optional(Type.String()),
   returnToWeek: Type.Optional(Type.String()),
-});
-
-// A new build from a capsule cycles only its garments (src/web/capsules).
-const NewQuery = Type.Object({
-  ...PageQuery.properties,
-  capsule: Type.Optional(RowId),
+  capsule: Type.Optional(Type.String()),
 });
 
 // The gallery's pick lands here with `alreadySaved=1` when the outfit
 // existed (a one-shot flag: anything else is no toast).
 const FlagQuery = Type.Object({
   alreadySaved: Type.Optional(Type.String()),
-});
-
-const RowQuery = Type.Object({
-  category: Category,
-  index: Type.Optional(Type.Integer()),
-  capsule: Type.Optional(RowId),
 });
 
 // The form posts one category + garmentId pair per row, in row order (a
@@ -138,19 +120,31 @@ function outfitInput(body: OutfitForm): OutfitInput {
 }
 
 /**
- * Where a new build will be planned: `?for=`, else a `?scheduleDate=` from
- * a calendar page cached before #13 (all day).
+ * Where an old builder link meant a new outfit to go: `?for=`, else a
+ * `?scheduleDate=` from a calendar page cached before #13 (all day).
  */
-function newBuildDestination(
-  query: Static<typeof PageQuery>,
+function linkedDestination(
+  query: Static<typeof BuilderLinkQuery>,
 ): OutfitDestination {
   const destination = parseDestination(query);
-  // Only a day prefills "Add to calendar"; trips add saved outfits (#10).
-  if (destination.kind === 'day') return destination;
+  if (destination.kind !== 'none') return destination;
   const day = parseIsoDate(query.scheduleDate);
   return day
     ? { kind: 'day', day, occasion: DEFAULT_OCCASION }
     : { kind: 'none' };
+}
+
+/**
+ * The edit links' way back: the calendar week they came from
+ * (`returnTo=/calendar&returnToWeek=`), else `returnTo` as it was.
+ */
+function linkedReturnTo(
+  query: Static<typeof BuilderLinkQuery>,
+): string | undefined {
+  const week = parseIsoDate(query.returnToWeek);
+  return query.returnTo === '/calendar' && week
+    ? `/calendar?week=${week}`
+    : query.returnTo;
 }
 
 /** Where a saved form goes: back to the calendar week it came from, else the outfit. */
@@ -184,8 +178,8 @@ function outfitNotFound(): HttpError {
 }
 
 /**
- * /outfits: the list, the detail page, the builder (new and edit) with its
- * row fragment, and the writes. Outfits are the signed-in user's own:
+ * /outfits: the list, the detail page, the writes, and the builder's old
+ * addresses, now redirects into Styling (src/web/styling). Outfits are the signed-in user's own:
  * wardrobe shares never reach them, `?ownerId=` is ignored, and anyone
  * else's outfit id is a 404 like an unknown one.
  */
@@ -202,59 +196,25 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     );
   });
 
-  // `?capsule=`: the rows cycle only that capsule's garments. The user's
-  // own capsule (outfits are private; a grantee builds from their own).
+  // The builder became Styling (#42): its links (the manifest's and
+  // pages the installed app cached, the calendar's, a capsule's) land there
+  // with what they meant; Styling judges the capsule (404 if not the
+  // wardrobe's), and one that is not even an id is dropped.
   app.get(
     '/outfits/new',
-    { schema: { querystring: NewQuery } },
+    { schema: { querystring: BuilderLinkQuery } },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
-      const { returnTo } = request.query;
-      const capsule =
-        request.query.capsule === undefined
-          ? undefined
-          : await findCapsule(db, request.query.capsule, ownerId);
-      if (request.query.capsule !== undefined && !capsule) {
-        throw capsuleNotFound();
-      }
-      const heads = await categoryHeads(db, ownerId, capsule?.id);
-      return renderPage(
-        reply,
-        <OutfitFormPage
-          ctx={viewContext(reply)}
-          model={{
-            capsule,
-            rows: newOutfitRows(heads),
-            categories: orderCategories(heads.map((head) => head.category)),
-            returnTo: safeReturnTo(returnTo, '/outfits'),
-            destination: newBuildDestination(request.query),
-          }}
-        />,
-      );
-    },
-  );
-
-  // Prev/next, swipes and "Add row": one row, swapped in by htmx. A
-  // capsule's cycle needs no lookup: inCapsule matches none of the user's
-  // garments for a capsule that is not theirs, so the row is empty.
-  app.get(
-    '/outfits/row-fragment',
-    { schema: { querystring: RowQuery } },
-    async (request, reply) => {
-      const { category, index, capsule } = request.query;
-      const at = await garmentAt(
-        db,
-        sessionUserId(request),
-        category,
-        index,
-        capsule,
-      );
-      return renderFragment(
-        reply,
-        <OutfitRow
-          row={cycleRow(category, at.count, at.index, at.garment)}
-          capsuleId={capsule}
-        />,
+      const { query } = request;
+      const capsule = /^\d{1,10}$/.test(query.capsule ?? '')
+        ? Number(query.capsule)
+        : undefined;
+      return reply.redirect(
+        stylingUrl({
+          destination: linkedDestination(query),
+          capsuleId: capsule,
+          returnTo: query.returnTo,
+        }),
+        302,
       );
     },
   );
@@ -282,38 +242,19 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
+  // Editing an outfit is Styling with it open (`?outfit=`), which checks
+  // it is the requester's.
   app.get(
     '/outfits/:id/edit',
-    { schema: { params: OutfitParams, querystring: PageQuery } },
-    async (request, reply) => {
-      const ownerId = sessionUserId(request);
-      const { id } = request.params;
-      const { returnTo, returnToWeek } = request.query;
-      const outfit = await findOutfitFields(db, id, ownerId);
-      if (!outfit) throw outfitNotFound();
-      const [slots, categories] = await Promise.all([
-        savedSlots(db, id, ownerId),
-        wardrobeCategories(db, ownerId),
-      ]);
-      // An outfit saved with no rows opens like a new build.
-      const rows =
-        slots.length > 0
-          ? savedOutfitRows(slots)
-          : newOutfitRows(await categoryHeads(db, ownerId));
-      return renderPage(
-        reply,
-        <OutfitFormPage
-          ctx={viewContext(reply)}
-          model={{
-            outfit,
-            rows,
-            categories: orderCategories(categories),
-            returnTo: safeReturnTo(returnTo, `/outfits/${id}`),
-            returnToWeek: parseIsoDate(returnToWeek),
-          }}
-        />,
-      );
-    },
+    { schema: { params: OutfitParams, querystring: BuilderLinkQuery } },
+    async (request, reply) =>
+      reply.redirect(
+        stylingUrl({
+          outfitId: request.params.id,
+          returnTo: linkedReturnTo(request.query),
+        }),
+        302,
+      ),
   );
 
   app.post(

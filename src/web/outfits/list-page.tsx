@@ -4,6 +4,7 @@ import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
+import { STYLING_PATH } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { EmptyState, GarmentThumb } from '../layout/parts';
 import { OutfitTabs } from './outfit-tabs';
@@ -38,8 +39,8 @@ export function OutfitsPage(props: {
       <main class="p-4 pt-20 pb-24">
         <div class="flex items-center justify-between mb-6 px-2">
           <h1 class="text-2xl font-bold">{t('OUTFITS')}</h1>
-          <a href="/outfits/new" class="btn btn-primary btn-sm">
-            + {t('BUILD_OUTFIT')}
+          <a href={STYLING_PATH} class="btn btn-primary btn-sm">
+            + {t('styling.NEW')}
           </a>
         </div>
         <OutfitTabs active="saved" />
@@ -75,7 +76,7 @@ export function OutfitsPage(props: {
               </svg>
             }
           >
-            <a href="/outfits/new" class="btn btn-primary btn-sm">
+            <a href={STYLING_PATH} class="btn btn-primary btn-sm">
               {t('ADD_FIRST_OUTFIT')}
             </a>
           </EmptyState>

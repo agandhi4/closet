@@ -624,9 +624,8 @@ describe('outfit gallery', () => {
       const page = await get(`/wardrobe/${a}`);
       expect(page.body).toContain('Never paired with');
       expect(page.body).toContain('Khaki chinos');
-      expect(unescapeHtml(page.body)).toContain(
-        `href="/outfits/ideas?with=${a}"`,
-      );
+      // "Style this" opens Styling on it (#42).
+      expect(unescapeHtml(page.body)).toContain(`href="/styling?with=${a}"`);
       const undo = await t.inject({
         method: 'POST',
         url: '/outfits/ideas/allow',
@@ -643,7 +642,7 @@ describe('outfit gallery', () => {
       expect(gone.statusCode).toBe(404);
       // A wishlist item has nothing to style.
       expect((await get(`/wardrobe/${wishlistTee}`)).body).not.toContain(
-        '/outfits/ideas?with=',
+        '/styling?with=',
       );
     });
 

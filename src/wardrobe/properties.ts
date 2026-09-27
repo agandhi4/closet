@@ -63,6 +63,18 @@ export function categoryRole(category: string): GarmentRole {
   return isBuiltInCategory(category) ? CATEGORY_ROLES[category] : 'none';
 }
 
+/**
+ * The built-in categories whose garments play `role`: the inverse of
+ * categoryRole, for queries that select a role (Styling's rows, #42). Every
+ * custom category is `none` too, so a query for `none` is the categories
+ * *not* built in for another role, not this list alone.
+ */
+export function builtInCategoriesOf(role: GarmentRole): GarmentCategory[] {
+  return (Object.values(GarmentCategory) as GarmentCategory[]).filter(
+    (category) => CATEGORY_ROLES[category] === role,
+  );
+}
+
 // The value sets. Warmth and formality are ordered scales (smallint);
 // the rest are words, stored as they are here.
 export const WARMTHS = [1, 2, 3, 4, 5] as const;

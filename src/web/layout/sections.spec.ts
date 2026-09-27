@@ -16,10 +16,12 @@ describe('sectionOf', () => {
     ['/capsules/new', 'wardrobe'],
     ['/capsules/4', 'wardrobe'],
     ['/capsules/4/edit?ownerId=2', 'wardrobe'],
+    ['/styling', 'styling'],
+    ['/styling?with=12&ownerId=2', 'styling'],
+    ['/styling/garments?role=top&before=9', 'styling'],
     ['/outfits', 'outfits'],
-    ['/outfits/new?capsule=4', 'outfits'],
+    ['/outfits/ideas?for=day:2026-10-05', 'outfits'],
     ['/outfits/7', 'outfits'],
-    ['/outfits/7/edit?returnTo=/calendar', 'outfits'],
     ['/calendar', 'calendar'],
     ['/calendar?week=2026-09-20&calMonth=2026-10', 'calendar'],
     ['/trips', 'calendar'],
@@ -46,6 +48,7 @@ describe('sectionOf', () => {
     '/outfitsx',
     '/calendar-old',
     '/tripsy',
+    '/stylingx',
   ])('puts %s in no section', (path) => {
     expect(sectionOf(path)).toBeUndefined();
   });
@@ -59,6 +62,16 @@ describe('sectionOf', () => {
     for (const [section, home] of Object.entries(SECTION_HOME)) {
       expect(sectionOf(home)).toBe(section);
     }
+  });
+
+  it('docks Today, Wardrobe, Style, Outfits and Calendar (#43)', () => {
+    expect(DOCK_TABS).toEqual([
+      'today',
+      'wardrobe',
+      'styling',
+      'outfits',
+      'calendar',
+    ]);
   });
 
   it('docks sections once each, every one with a home', () => {

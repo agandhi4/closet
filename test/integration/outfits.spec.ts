@@ -18,10 +18,12 @@ import {
 } from './harness';
 
 /**
- * Outfits end to end: the list, the builder and its prev/next row fragment,
- * create/edit/delete as the builder form posts them (urlencoded, one
- * category + garmentId pair per row), and scheduling from the form. Proves
- * the rendered HTML and the outfit_slot rows agree with what the user built.
+ * Outfits end to end: the list, the detail page, create/edit/delete as the
+ * outfit form posts them (urlencoded, one category + garmentId pair per
+ * row: pages the installed app cached before Styling replaced the builder,
+ * #42, and the fixtures other specs build through it), and scheduling from
+ * the form. Proves the rendered HTML and the outfit_slot rows agree. The
+ * composer itself is Styling's (test/integration/styling.spec.ts).
  */
 
 /** A saved outfit_slot row, as the tests compare them. */
@@ -58,25 +60,12 @@ function outfitForm(fields: OutfitFields, slots: Slot[]) {
 }
 
 const byId = (a: number, b: number) => a - b;
-const ascending = (ids: number[]) => [...ids].sort(byId);
 
 function outfitIdFrom(location: unknown): number {
   const target = String(location);
   const match = /^\/outfits\/(\d+)$/.exec(target);
   if (!match) throw new Error(`Unexpected outfit redirect: ${target}`);
   return Number(match[1]);
-}
-
-/** Builder rows in document order: `[category, selected garment id]`. */
-function formRows(html: string): Slot[] {
-  const categories = [...html.matchAll(/name="category" value="([^"]*)"/g)].map(
-    (m) => m[1],
-  );
-  const garmentIds = [
-    ...html.matchAll(/name="garmentId"\s+value="([^"]*)"/g),
-  ].map((m) => (m[1] ? Number(m[1]) : null));
-  expect(garmentIds).toHaveLength(categories.length);
-  return categories.map((category, i) => [category, garmentIds[i]]);
 }
 
 /** Garment links on the show page, in rendered order. */
@@ -160,203 +149,11 @@ describe('outfits', () => {
   afterAll(() => t?.cleanup());
 
   // Runs first, while the wardrobe is still empty.
-  it('GET /outfits and /outfits/new show their empty states before any garment exists', async () => {
+  it('GET /outfits shows its empty state before any outfit exists', async () => {
     const list = await t.inject({ method: 'GET', url: '/outfits' });
     expect(list.statusCode).toBe(200);
     expect(hasText(list.body, 'No outfits yet.')).toBe(true);
-
-    const builder = await t.inject({ method: 'GET', url: '/outfits/new' });
-    expect(builder.statusCode).toBe(200);
-    expect(
-      hasText(
-        builder.body,
-        'Add some garments to your wardrobe to start building outfits.',
-      ),
-    ).toBe(true);
-    expect(builder.body).not.toContain('action="/outfits"');
-  });
-
-  describe('GET /outfits/new (builder)', () => {
-    it('renders one row per category in enum order, custom categories last, newest garment preselected', async () => {
-      const olderTop = await createGarment(t, {
-        name: 'Older top',
-        category: 'tops',
-      });
-      const newerTop = await createGarment(t, {
-        name: 'Newer top',
-        category: 'tops',
-      });
-      const jeans = await createGarment(t, {
-        name: 'Jeans',
-        category: 'bottoms',
-      });
-      const boots = await createGarment(t, {
-        name: 'Boots',
-        category: 'footwear',
-      });
-      const parka = await createGarment(t, {
-        name: 'Parka',
-        category: 'outerwear',
-      });
-      const beanie = await createGarment(t, {
-        name: 'Beanie',
-        category: 'hats',
-      });
-
-      const res = await t.inject({ method: 'GET', url: '/outfits/new' });
-      expect(res.statusCode).toBe(200);
-      expect(res.body).toContain('action="/outfits"');
-      expect(hasText(res.body, 'Build an Outfit')).toBe(true);
-
-      expect(formRows(res.body)).toEqual([
-        ['outerwear', parka],
-        ['tops', newerTop],
-        ['bottoms', jeans],
-        ['footwear', boots],
-        ['hats', beanie],
-      ]);
-      expect(olderTop).toBeLessThan(newerTop);
-      // Every category is offered as an "add row" suggestion.
-      for (const category of ['outerwear', 'tops', 'bottoms', 'footwear']) {
-        expect(res.body).toContain(`<option value="${category}">`);
-      }
-    });
-
-    it('prefills the schedule date and the return target from the calendar link', async () => {
-      const res = await t.inject({
-        method: 'GET',
-        url: '/outfits/new?scheduleDate=2026-10-14&returnTo=/calendar',
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.body).toMatch(/name="scheduleDate"[^>]*value="2026-10-14"/);
-      expect(res.body).toContain(
-        '<input type="hidden" name="returnTo" value="/calendar"/>',
-      );
-    });
-
-    it('ignores a malformed schedule date in the link', async () => {
-      const res = await t.inject({
-        method: 'GET',
-        url: '/outfits/new?scheduleDate=2026-02-30',
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.body).not.toContain('2026-02-30');
-    });
-
-    it('shows each row as the 400px thumb, the cutout only in the detail modal', async () => {
-      const coat = await createGarment(t, {
-        name: 'Photo coat',
-        category: 'coats',
-      });
-      await uploadPhoto(t, coat, await jpegPhoto(64, 64));
-
-      const res = await t.inject({ method: 'GET', url: '/outfits/new' });
-      const html = unescapeHtml(res.body);
-      const row = html.slice(html.indexOf('data-category="coats"'));
-      const img = imgTags(row)[0];
-      expect(img).toMatch(/src="\/file\/thumb\/[0-9a-f-]+\.webp\?v=1"/);
-      expect(img).toMatch(/width="56"/);
-      expect(row).toMatch(/data-garment-photo="\/file\/nobg\/[0-9a-f-]+\.webp/);
-      // No row loads an original or a cutout as an image.
-      for (const src of imgTags(html).map((tag) => /src="([^"]*)"/.exec(tag))) {
-        expect(src?.[1] ?? '').not.toMatch(
-          /^\/file\/(nobg\/)?[0-9a-f-]+\.webp/,
-        );
-      }
-    });
-
-    // The server audit: the builder loaded every garment to show one per
-    // category. Adding garments to a category must change neither the
-    // statements the page sends nor the rows they return.
-    it('reads one garment per category however many the wardrobe holds', async () => {
-      const load = () => t.inject({ method: 'GET', url: '/outfits/new' });
-      await load();
-      const before = await recordQueries(load);
-      const rows = formRows((await load()).body).length;
-
-      for (let i = 0; i < 12; i++) {
-        await createGarment(t, { name: `Sock ${i}`, category: 'tops' });
-      }
-      const after = await recordQueries(load);
-
-      expect(after).toEqual(before);
-      // The session's user row plus one row per category shown.
-      expect(after.rows).toBeLessThanOrEqual(rows + 1);
-      expect(after.statements).toBeLessThanOrEqual(2);
-    });
-  });
-
-  describe('GET /outfits/row-fragment (prev/next swap)', () => {
-    // A category's cycle is newest first, so index 1 is the newest.
-    let scarves: number[];
-
-    beforeAll(async () => {
-      scarves = [];
-      for (const name of ['Scarf 1', 'Scarf 2', 'Scarf 3']) {
-        scarves.push(await createGarment(t, { name, category: 'scarves' }));
-      }
-    });
-
-    const fragment = (query: string) =>
-      t.inject({ method: 'GET', url: `/outfits/row-fragment?${query}` });
-
-    const rowState = (html: string) => ({
-      index: Number(/data-index="(\d+)"/.exec(html)?.[1]),
-      count: Number(/data-count="(\d+)"/.exec(html)?.[1]),
-      garmentId: formRows(html)[0][1],
-      /** The prev and next buttons' swap URLs, as the browser reads them. */
-      links: [...unescapeHtml(html).matchAll(/hx-get="([^"]*)"/g)].map(
-        (m) => m[1],
-      ),
-    });
-
-    it('returns only the row partial with the garment at the requested index', async () => {
-      const res = await fragment('category=scarves&index=2');
-      expect(res.statusCode).toBe(200);
-      expect(res.body).not.toContain('<html');
-      expect(res.body.match(/class="outfit-row /g)).toHaveLength(1);
-
-      const row = rowState(res.body);
-      expect(row).toMatchObject({ index: 2, count: 3, garmentId: scarves[1] });
-      expect(res.body).toContain('data-garment-name="Scarf 2"');
-      expect(row.links).toEqual([
-        '/outfits/row-fragment?category=scarves&index=1',
-        '/outfits/row-fragment?category=scarves&index=3',
-      ]);
-    });
-
-    it('defaults to the newest garment and wraps past either end through an empty slot', async () => {
-      const first = rowState((await fragment('category=scarves')).body);
-      expect(first).toMatchObject({ index: 1, garmentId: scarves[2] });
-      expect(first.links[0]).toContain('index=0');
-
-      const last = rowState((await fragment('category=scarves&index=3')).body);
-      expect(last).toMatchObject({ index: 3, garmentId: scarves[0] });
-      expect(last.links[1]).toContain('index=0');
-
-      const empty = rowState((await fragment('category=scarves&index=0')).body);
-      expect(empty).toMatchObject({ index: 0, garmentId: null });
-      expect(empty.links).toEqual([
-        '/outfits/row-fragment?category=scarves&index=3',
-        '/outfits/row-fragment?category=scarves&index=1',
-      ]);
-    });
-
-    it('clamps an out-of-range index', async () => {
-      const high = rowState((await fragment('category=scarves&index=99')).body);
-      expect(high).toMatchObject({ index: 3, garmentId: scarves[0] });
-
-      const low = rowState((await fragment('category=scarves&index=-4')).body);
-      expect(low).toMatchObject({ index: 0, garmentId: null });
-    });
-
-    it('renders an empty row for a category with no garments and 400s without one', async () => {
-      const unknown = rowState((await fragment('category=capes&index=1')).body);
-      expect(unknown).toMatchObject({ index: 0, count: 0, garmentId: null });
-
-      expect((await fragment('index=1')).statusCode).toBe(400);
-      expect((await fragment('category=%20&index=1')).statusCode).toBe(400);
-    });
+    expect(list.body).toContain('href="/styling"');
   });
 
   describe('POST /outfits', () => {
@@ -569,8 +366,9 @@ describe('outfits', () => {
       expect(hasText(res.body, 'Black tie')).toBe(true);
       expect(shownGarmentIds(res.body)).toEqual([top]);
       expect(hasText(res.body, 'Silk top')).toBe(true);
-      expect(res.body).toContain(
-        `href="/outfits/${id}/edit?returnTo=/outfits/${id}"`,
+      // Edit is Styling with the outfit open (#42).
+      expect(unescapeHtml(res.body)).toContain(
+        `href="/styling?outfit=${id}&returnTo=%2Foutfits%2F${id}"`,
       );
       expect(res.body).toContain(`hx-delete="/outfits/${id}"`);
     });
@@ -611,18 +409,6 @@ describe('outfits', () => {
           ['footwear', shoes],
           ['bottoms', pants],
           ['tops', top],
-        ]);
-      });
-
-      it('the edit form restores the saved row order', async () => {
-        const res = await t.inject({
-          method: 'GET',
-          url: `/outfits/${outfitId}/edit`,
-        });
-        expect(formRows(res.body)).toEqual([
-          ['footwear', saved[0]],
-          ['bottoms', saved[1]],
-          ['tops', saved[2]],
         ]);
       });
 
@@ -682,39 +468,10 @@ describe('outfits', () => {
     });
   });
 
-  describe('GET /outfits/:id/edit and POST /outfits/:id', () => {
-    it('renders the edit form with the saved values and every row selected', async () => {
-      const top = await createGarment(t, { name: 'Knit', category: 'tops' });
-      const id = await createOutfit({ name: 'Cosy', notes: 'Fireside' }, [
-        ['tops', top],
-      ]);
-
-      const res = await t.inject({ method: 'GET', url: `/outfits/${id}/edit` });
-      expect(res.statusCode).toBe(200);
-      expect(hasText(res.body, 'Edit Outfit')).toBe(true);
-      expect(res.body).toContain(`action="/outfits/${id}"`);
-      expect(res.body).toMatch(/name="name"[^>]*value="Cosy"/);
-      expect(res.body).toMatch(/<textarea[^>]*name="notes"[\s\S]*?Fireside/);
-      expect(formRows(res.body)).toEqual([['tops', top]]);
-      expect(res.body).toContain(
-        `<input type="hidden" name="returnTo" value="/outfits/${id}"/>`,
-      );
-    });
-
-    it('carries the calendar return target through the edit form', async () => {
-      const id = await createOutfit({ name: 'From calendar' }, []);
-      const res = await t.inject({
-        method: 'GET',
-        url: `/outfits/${id}/edit?returnTo=/calendar&returnToWeek=2026-10-11`,
-      });
-      expect(res.body).toContain(
-        '<input type="hidden" name="returnTo" value="/calendar"/>',
-      );
-      expect(res.body).toContain(
-        '<input type="hidden" name="returnToWeek" value="2026-10-11"/>',
-      );
-    });
-
+  // POST /outfits/:id: the outfit form pages cached before Styling (#42)
+  // still post; Styling saves an edit through the same writer
+  // (test/integration/styling.spec.ts).
+  describe('POST /outfits/:id', () => {
     it('replaces membership and order, and updates name and notes', async () => {
       const top = await createGarment(t, { name: 'Tank', category: 'tops' });
       const shorts = await createGarment(t, {
@@ -745,15 +502,6 @@ describe('outfits', () => {
         { category: 'tops', garmentId: top },
       ]);
       expect(await calendarEntries(id)).toHaveLength(0);
-
-      const form = await t.inject({
-        method: 'GET',
-        url: `/outfits/${id}/edit`,
-      });
-      expect(formRows(form.body)).toEqual([
-        ['footwear', sandals],
-        ['tops', top],
-      ]);
     });
 
     it('removing every row empties the outfit', async () => {
@@ -827,92 +575,6 @@ describe('outfits', () => {
         expect(res.statusCode).toBe(302);
       }
       expect(await calendarEntries(id)).toHaveLength(1);
-    });
-
-    it('an edit round trip keeps an archived garment in the outfit', async () => {
-      const coat = await createGarment(t, {
-        name: 'Archived coat',
-        category: 'coats',
-      });
-      const top = await createGarment(t, {
-        name: 'Kept top',
-        category: 'tops',
-      });
-      const id = await createOutfit({ name: 'Winter' }, [
-        ['coats', coat],
-        ['tops', top],
-      ]);
-      const archive = await t.inject({
-        method: 'POST',
-        url: `/wardrobe/${coat}/archive`,
-      });
-      expect(archive.statusCode).toBeLessThan(300);
-      const [archived] = await t.db
-        .select({ status: garmentTable.status })
-        .from(garmentTable)
-        .where(eq(garmentTable.id, coat));
-      expect(archived.status).toBe('archived');
-
-      // What the browser does: load the form, change the name, submit it.
-      const form = await t.inject({
-        method: 'GET',
-        url: `/outfits/${id}/edit`,
-      });
-      // The archived garment is shown, and marked.
-      expect(form.body).toContain('data-garment-name="Archived coat"');
-      expect(hasText(form.body, 'Archived</span>')).toBe(true);
-      const res = await updateOutfit(
-        id,
-        { name: 'Winter (renamed)' },
-        formRows(form.body),
-      );
-      expect(res.statusCode).toBe(302);
-
-      expect(await slotGarmentIds(id)).toEqual(ascending([coat, top]));
-      expect(await savedSlots(id)).toEqual([
-        { category: 'coats', garmentId: coat },
-        { category: 'tops', garmentId: top },
-      ]);
-    });
-
-    // An archived garment is not in its category's cycle: its row steps to
-    // the neighbours it would have by age, and never back to it.
-    it('prev/next from an archived garment go to its unarchived neighbours', async () => {
-      const [older, archivedOne, newer] = [
-        await createGarment(t, { name: 'Belt 1', category: 'belts' }),
-        await createGarment(t, { name: 'Belt 2', category: 'belts' }),
-        await createGarment(t, { name: 'Belt 3', category: 'belts' }),
-      ];
-      const id = await createOutfit({ name: 'Belted' }, [
-        ['belts', archivedOne],
-      ]);
-      await t.inject({
-        method: 'POST',
-        url: `/wardrobe/${archivedOne}/archive`,
-      });
-
-      const form = await t.inject({
-        method: 'GET',
-        url: `/outfits/${id}/edit`,
-      });
-      const row = unescapeHtml(form.body);
-      expect(formRows(row)).toEqual([['belts', archivedOne]]);
-      expect(row).toContain('data-count="2"');
-      expect(row).not.toContain('data-index=');
-      // The row's arrows (the page's other hx-get is "Add row").
-      const links = [
-        ...row.matchAll(
-          /hx-get="(\/outfits\/row-fragment\?[^"]*index=[^"]*)"/g,
-        ),
-      ].map((m) => m[1]);
-      expect(links).toEqual([
-        '/outfits/row-fragment?category=belts&index=1',
-        '/outfits/row-fragment?category=belts&index=2',
-      ]);
-      const next = await t.inject({ method: 'GET', url: links[1] });
-      expect(formRows(next.body)).toEqual([['belts', older]]);
-      const prev = await t.inject({ method: 'GET', url: links[0] });
-      expect(formRows(prev.body)).toEqual([['belts', newer]]);
     });
 
     it('404s an update to an unknown outfit', async () => {

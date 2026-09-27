@@ -136,8 +136,9 @@ test.describe('Trips', () => {
     await page.getByRole('button', { name: 'Wearing this today' }).click();
     await expect(page.getByText('Worn today')).toBeVisible();
     await page.goto(`/calendar?week=${today}`);
+    // The calendar's chip opens the outfit in Styling (#42).
     await expect(
-      page.locator(`a[href^="/outfits/${outfit}/edit"]`),
+      page.locator(`a[href^="/styling?outfit=${outfit}&"]`),
     ).toHaveCount(1);
   });
 

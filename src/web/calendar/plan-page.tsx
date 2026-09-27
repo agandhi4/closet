@@ -6,9 +6,10 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { BackLink } from '../layout/parts';
 import { ideasUrl } from '../gallery/urls';
-import { destinationQuery } from '../outfits/destination';
 import type { OutfitSummary } from '../outfits/queries';
 import { SavedOutfitButton } from '../outfits/saved-outfit-button';
+import { destinationQuery } from '../outfits/destination';
+import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import type { IsoDate } from './calendar-date';
 import { dayLabel, occasionLabel } from './labels';
@@ -32,16 +33,15 @@ export interface PlanModel {
  * GET /calendar/plan?for=day:D&occasion=O: plan one more outfit on a day.
  * The occasion first (links, so the choice is the URL's and every way on
  * carries it), then the three ways to an outfit: choose a generated idea
- * (the gallery's Ideas with the same `?for=`, #9), build a new one (the
- * builder with the same `?for=`) or pick a saved one (POST /calendar). The
- * redesign's "+ Plan" sheet (R6) is this page's content; its occasion rows
- * link here with their occasion.
+ * (the gallery's Ideas with the same `?for=`, #9), style a new one
+ * (Styling with the same `?for=`, #42) or pick a saved one (POST
+ * /calendar). The redesign's "+ Plan" sheet (R6) is this page's content;
+ * its occasion rows link here with their occasion.
  *
  * Opened to change an entry (`&replace=`, the calendar row's Change, #69),
- * it is "Change outfit": the occasion is the entry's (no chips), ideas and
- * saved outfits carry `replace` so the choice takes the entry's place
- * (replaceEntryOutfit), and there is no "Build a new outfit" (the builder
- * adds; its day and occasion are the person's to edit).
+ * it is "Change outfit": the occasion is the entry's (no chips), and ideas,
+ * Styling and saved outfits all carry `replace`, so the choice takes the
+ * entry's place (replaceEntryOutfit).
  */
 export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
   const { ctx, model } = props;
@@ -53,10 +53,9 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
   // A worn entry keeps its outfit: the page plans one more beside it.
   const changing =
     model.replacing?.worn === false ? model.replacing : undefined;
-  const build = `/outfits/new?${destinationQuery(day)}&returnTo=/calendar`;
-  const ideas = ideasUrl({
-    destination: changing ? { ...day, replace: changing.entryId } : day,
-  });
+  const destination = changing ? { ...day, replace: changing.entryId } : day;
+  const build = stylingUrl({ destination });
+  const ideas = ideasUrl({ destination });
   const title = changing ? t('changeEntry.TITLE') : t('CALENDAR_PLAN_TITLE');
   return (
     <Layout ctx={ctx} title={title}>
@@ -69,11 +68,9 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
           <a href={ideas} class="btn btn-primary w-full" data-plan-ideas="">
             {t('gallery.PLAN_IDEAS')}
           </a>
-          {!changing && (
-            <a href={build} class="btn btn-outline w-full">
-              + {t('CALENDAR_PLAN_BUILD')}
-            </a>
-          )}
+          <a href={build} class="btn btn-outline w-full" data-plan-styling="">
+            + {t('CALENDAR_PLAN_BUILD')}
+          </a>
         </div>
 
         <section>

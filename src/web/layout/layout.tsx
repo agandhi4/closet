@@ -26,15 +26,13 @@ import { AppStatus } from './app-status';
 const HTMX_CONFIG = { disableInheritance: true, historyCacheSize: 3 };
 
 // Bare specifiers for every ES module the pages import, so the versioned URL
-// lives here once. Page-specific modules (sortablejs, the garment page's
-// mask-editor and photo-input) are only fetched by the page that imports
-// them. sortablejs is the minified build `npm run generate:vendor` makes
-// (views/assets/sortable.js), not the package's unminified ESM.
+// lives here once. Page-specific modules (Styling's styling, the garment
+// page's mask-editor and photo-input) are only fetched by the page that
+// imports them.
 function importMap(version: string) {
   const v = `?v=${version}`;
   return {
     imports: {
-      sortablejs: `/vendor/sortable.min.js${v}`,
       'workbox-window': `/modules/workbox-window.prod.mjs${v}`,
       // pwa.js imports these two only where they do something.
       'pwa-install': `/modules/pwa-install.bundle.js${v}`,
@@ -42,7 +40,7 @@ function importMap(version: string) {
       toast: `/js/toast.js${v}`,
       'mask-editor': `/js/mask-editor.js${v}`,
       'photo-input': `/js/photo-input.js${v}`,
-      'outfit-builder': `/js/outfit-builder.js${v}`,
+      styling: `/js/styling.js${v}`,
       locate: `/js/locate.js${v}`,
       push: `/js/push.js${v}`,
       freshness: `/js/freshness.js${v}`,

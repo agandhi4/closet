@@ -6,6 +6,7 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { EntrySelfie, SelfieView } from '../selfies/views';
 import { ShareLinkButton } from '../share/share-button';
+import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { BackLink, GarmentThumb } from '../layout/parts';
 import type { OutfitSummary, WornDay } from './queries';
@@ -63,7 +64,10 @@ export function OutfitPage(props: {
         <div class="divider"></div>
         <div class="flex gap-3 justify-between items-center">
           <a
-            href={`/outfits/${outfit.id}/edit?returnTo=/outfits/${outfit.id}`}
+            href={stylingUrl({
+              outfitId: outfit.id,
+              returnTo: `/outfits/${outfit.id}`,
+            })}
             class="btn btn-outline btn-sm"
           >
             <svg

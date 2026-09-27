@@ -688,9 +688,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // says what it replaces; a closet garment lists the wishlist items
       // that would replace it.
       const owned = garment.status !== 'wishlist';
-      // The gallery's side (Style this, never paired with, and a wishlist
-      // item's "Goes with my closet") is the owner's, like outfits: never
-      // read for a grantee.
+      // The gallery's side (never paired with, and a wishlist item's "Goes
+      // with my closet") is the owner's, like outfits: never read for a
+      // grantee. "Style this" is anyone's who sees a closet garment:
+      // Styling browses a shared wardrobe (#42) and saves only one's own.
       const styles = owned && access.isOwner;
       const [capsules, wear, replaces, replacedBy, avoided, goesWith] =
         await Promise.all([
@@ -719,7 +720,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             replaces,
             replacedBy,
             styling: {
-              canStyle: styles && garment.status === 'closet',
+              canStyle: garment.status === 'closet',
               avoided,
             },
             goesWith,

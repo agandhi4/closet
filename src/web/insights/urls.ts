@@ -1,5 +1,4 @@
 import { DEFAULT_UNWORN_DAYS, type UnwornDays } from '../../wardrobe/insights';
-import { ideasUrl } from '../gallery/urls';
 import { wardrobeUrl } from '../wardrobe/urls';
 
 /**
@@ -16,15 +15,6 @@ export function insightsUrl(days: UnwornDays): string {
   return days === DEFAULT_UNWORN_DAYS
     ? INSIGHTS_PATH
     : `${INSIGHTS_PATH}?unworn=${days}`;
-}
-
-/**
- * "Style this" on an unworn garment: the outfit gallery's ideas that all
- * hold it (`/outfits/ideas?with=<id>`, #9), for no day in particular, as
- * the garment page's own "Style this".
- */
-export function styleThisUrl(garmentId: number): string {
-  return ideasUrl({ destination: { kind: 'none' }, withId: garmentId });
 }
 
 /** The grid's "Needs attention" filter (condition not good). */

@@ -3,12 +3,11 @@ import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
- * What _hyperscript used to do, done by htmx attributes, inline handlers,
- * CSS and public/js/outfit-builder.js since it left the app: the wardrobe
- * filter form, the builder's swipe and detail dialog, the outfit list's
- * "add to calendar" toast, the share link's copy button and the garment
- * page's self-hiding toast. The outfit builder spec covers the arrows,
- * remove and "Add row".
+ * What _hyperscript used to do, done by htmx attributes, inline handlers
+ * and CSS since it left the app: the wardrobe filter form, the outfit
+ * list's "add to calendar" toast, the share link's copy button and the
+ * garment page's self-hiding toast. The outfit builder's swipe and dialog
+ * went with the builder: Styling's strips are test/styling.spec.ts's.
  */
 
 function collectErrors(page: Page): string[] {
@@ -50,50 +49,6 @@ test('the filter modal applies and clears filters, keeping the keyword', async (
   await expect(page).not.toHaveURL(/color=/);
   await expect(tiles).toHaveCount(2);
   expect(errors).toEqual([]);
-});
-
-test('the builder: a swipe steps a row, a tap opens the garment dialog', async ({
-  browser,
-}) => {
-  const context = await browser.newContext({ hasTouch: true });
-  const page = await context.newPage();
-  const errors = collectErrors(page);
-  await signIn(page, 'client-builder');
-  await createGarment(page, 'Old tee', 'tops', { brand: 'Acme' });
-  await createGarment(page, 'New tee', 'tops');
-  await page.goto('/outfits/new');
-  const row = page.locator('.outfit-row[data-category="tops"]');
-  await expect(row.locator('.outfit-name')).toHaveText('New tee');
-
-  // A leftward swipe is "next" (older).
-  await row.evaluate((el) => {
-    const touch = (x: number) =>
-      new Touch({ identifier: 1, target: el, clientX: x, clientY: 100 });
-    el.dispatchEvent(
-      new TouchEvent('touchstart', {
-        bubbles: true,
-        touches: [touch(200)],
-        changedTouches: [touch(200)],
-      }),
-    );
-    el.dispatchEvent(
-      new TouchEvent('touchend', {
-        bubbles: true,
-        touches: [],
-        changedTouches: [touch(120)],
-      }),
-    );
-  });
-  await expect(row.locator('.outfit-name')).toHaveText('Old tee');
-
-  await row.locator('button[data-garment-href]').click();
-  const dialog = page.locator('#garment-modal');
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator('#modal-garment-name')).toHaveText('Old tee');
-  await expect(dialog.locator('#modal-brand')).toHaveText('Acme');
-  await expect(dialog.locator('#modal-size')).toBeHidden();
-  expect(errors).toEqual([]);
-  await context.close();
 });
 
 test('scheduling from an outfit card closes the dropdown and shows the toast', async ({

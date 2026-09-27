@@ -19,7 +19,8 @@ import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
 import { relativeDay } from '../wears/wear-section';
-import { insightsUrl, NEEDS_ATTENTION_URL, styleThisUrl } from './urls';
+import { styleThisUrl } from '../styling/urls';
+import { insightsUrl, NEEDS_ATTENTION_URL } from './urls';
 
 export interface InsightsPageModel {
   insights: WardrobeInsights;

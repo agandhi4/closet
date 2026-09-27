@@ -49,10 +49,12 @@ export function webManifest(config: {
         url: '/wardrobe',
       },
       {
-        name: 'My Outfits',
-        short_name: 'Outfits',
-        description: 'Browse your saved outfits',
-        url: '/outfits',
+        // Styling (#42), the dock's Style: composing an outfit is the
+        // shortcut; Outfits is a tap away in the dock.
+        name: 'Style an outfit',
+        short_name: 'Style',
+        description: 'Compose an outfit from your wardrobe',
+        url: '/styling',
       },
       {
         name: 'Add Garment',

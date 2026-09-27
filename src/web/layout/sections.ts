@@ -3,28 +3,29 @@
  * that says which section a page belongs to (docs/plans/2026-09-26-redesign.md,
  * "Where every route goes"). A section owns its whole subtree: a garment, a
  * filtered grid and a capsule are Wardrobe, an outfit page Outfits, any week
- * Calendar; Today is `/` alone. Used by the dock (dock.tsx) for its tabs and
+ * Calendar, Styling (#42) Style; Today is `/` alone. Used by the dock (dock.tsx) for its tabs and
  * the active one, and by page-cache.ts for the tab roots the service worker
  * opens stale (the worker bundles this file: keep it free of Node and DOM).
  */
-export type Section = 'today' | 'wardrobe' | 'outfits' | 'calendar';
+export type Section = 'today' | 'wardrobe' | 'styling' | 'outfits' | 'calendar';
 
 /** Each section's root page: its dock tab's link. */
 export const SECTION_HOME: Readonly<Record<Section, string>> = {
   today: '/',
   wardrobe: '/wardrobe',
+  styling: '/styling',
   outfits: '/outfits',
   calendar: '/calendar',
 };
 
 /**
- * The dock's tabs, in order: the redesign's recommendation (Today first,
- * #15), which the owner has not confirmed yet (#43, decision 2). Taking
- * Today out of the dock is taking it out of this list; `/` stays Today.
+ * The dock's tabs, in order: Today · Wardrobe · Style · Outfits · Calendar,
+ * the owner's decision on #43 (2026-09-27; no centre "+").
  */
 export const DOCK_TABS: readonly Section[] = [
   'today',
   'wardrobe',
+  'styling',
   'outfits',
   'calendar',
 ];
@@ -39,6 +40,7 @@ export const DOCK_TABS: readonly Section[] = [
 const SECTION_ROOTS: readonly (readonly [root: string, section: Section])[] = [
   ['/wardrobe', 'wardrobe'],
   ['/capsules', 'wardrobe'],
+  ['/styling', 'styling'],
   ['/outfits', 'outfits'],
   ['/calendar', 'calendar'],
   ['/trips', 'calendar'],

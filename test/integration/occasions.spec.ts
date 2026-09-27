@@ -245,10 +245,8 @@ describe('occasions', () => {
       expect(html).toMatch(
         /occasion=evening"\s+class="[^"]*btn-primary[^"]*"\s+aria-current="true"/,
       );
-      // Build one: the builder with the same destination.
-      expect(html).toContain(
-        `href="/outfits/new?for=day:${day}&occasion=evening&returnTo=/calendar"`,
-      );
+      // Style one: Styling with the same destination (#42).
+      expect(html).toContain(`href="/styling?for=day:${day}&occasion=evening"`);
       // Or pick one: POST /calendar with the day and the occasion.
       expect(html).toContain('action="/calendar"');
       expect(html).toContain(`name="date" value="${day}"`);
@@ -312,7 +310,7 @@ describe('occasions', () => {
       }
     });
 
-    it('tells a user without outfits there are none yet, and still offers the builder', async () => {
+    it('tells a user without outfits there are none yet, and still offers Styling', async () => {
       const cookie = await t.register('no-outfits@example.com');
       const res = await t.inject({
         method: 'GET',
@@ -322,31 +320,34 @@ describe('occasions', () => {
       expect(res.statusCode).toBe(200);
       expect(hasText(res.body, 'No saved outfits yet.')).toBe(true);
       expect(unescapeHtml(res.body)).toContain(
-        `/outfits/new?for=day:${DAY}&occasion=all-day&returnTo=/calendar`,
+        `/styling?for=day:${DAY}&occasion=all-day`,
       );
     });
   });
 
   describe('the outfit form', () => {
-    it('opens from the plan page with the day and the occasion chosen', async () => {
-      const html = await page(
+    /** The builder's link, followed into Styling (#42). */
+    const styled = async (url: string) => {
+      const res = await t.inject({ method: 'GET', url });
+      expect(res.statusCode).toBe(302);
+      return page(String(res.headers.location));
+    };
+
+    it('opens Styling from the plan page with the day and the occasion chosen', async () => {
+      const html = await styled(
         `/outfits/new?for=day:${DAY}&occasion=night-out&returnTo=/calendar`,
       );
-      expect(html).toMatch(
-        new RegExp(`name="scheduleDate"[^>]*value="${DAY}"`),
-      );
-      expect(html).toMatch(/<option value="night-out" selected="">/);
-      expect(html).not.toMatch(/<option value="all-day" selected="">/);
+      expect(html).toContain(`name="for" value="day:${DAY}"`);
+      expect(html).toContain('name="occasion" value="night-out"');
+      expect(html).toContain('data-styling-for="day"');
     });
 
     it('reads a calendar link cached before #13 (?scheduleDate=) as all day', async () => {
-      const html = await page(
+      const html = await styled(
         `/outfits/new?scheduleDate=${DAY}&returnTo=/calendar`,
       );
-      expect(html).toMatch(
-        new RegExp(`name="scheduleDate"[^>]*value="${DAY}"`),
-      );
-      expect(html).toMatch(/<option value="all-day" selected="">/);
+      expect(html).toContain(`name="for" value="day:${DAY}"`);
+      expect(html).toContain('name="occasion" value="all-day"');
     });
 
     it('plans the saved outfit for the chosen occasion, all day without one', async () => {

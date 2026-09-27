@@ -1,40 +1,18 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { type Static, Type } from '@sinclair/typebox';
-import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
-import type { Location } from '../../weather/location';
-import type { FastifyReply } from 'fastify';
 import { FEELINGS } from '../../weather/temperature';
 import { sessionUserId } from '../auth/require-session';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
-import {
-  type EntryTarget,
-  isRefused,
-  replaceEntryOutfit,
-  replaceMessage,
-  replaceRefusal,
-} from '../calendar/replace';
 import { capsuleNames } from '../capsules/queries';
 import { HttpError } from '../errors';
-import {
-  destinationTarget,
-  type OutfitDestination,
-  parseDestination,
-  type TripDestination,
-} from '../outfits/destination';
+import { parseDestination } from '../outfits/destination';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
-import { OccasionSchema, RowId } from '../schemas';
-import {
-  findTrip,
-  ideasDayOf,
-  pickForTrip,
-  type TripRow,
-} from '../trips/queries';
-import { tripUrl } from '../trips/urls';
-import { tripNotFound } from '../trips/validation';
+import { DestinationFields, RowId } from '../schemas';
 import { viewContext } from '../view-context';
 import { nudgeTemperatureOffset } from '../weather/queries';
 import { GarmentParams } from '../wardrobe/validation';
+import { aimIdeas } from './aim';
 import { OutfitCountLink } from './goes-with';
 import {
   dailySeed,
@@ -43,18 +21,12 @@ import {
   ideasFor,
   type IdeasWeather,
   ideasScope,
-  MAX_SEED,
-  pickIdea,
-  type PickResult,
+  parseSeed,
 } from './ideas';
 import { IdeaCards, IdeasPage, type SeededState } from './ideas-page';
+import { pickTo, postedDestination } from './pick';
 import { allowPair, avoidPair } from './queries';
-import {
-  ALREADY_SAVED_FLAG,
-  type GalleryState,
-  IDEAS_PATH,
-  ideasUrl,
-} from './urls';
+import { type GalleryState, IDEAS_PATH, ideasUrl } from './urls';
 
 /**
  * The outfit gallery (#9): the Outfits page's Ideas tab and its writes.
@@ -67,7 +39,7 @@ import {
  *   (malformed is no destination: ideas for today, a pick just saves). A
  *   write's `for` is data it stores: a malformed one is a 400.
  * - `?capsule=` and `?with=` name data: not an id is a 400, not the user's
- *   own capsule (or closet garment) a 404, as the builder's `?capsule=`.
+ *   own capsule (or closet garment) a 404, as Styling's `?capsule=`.
  * - `?seed=` and `?page=` are navigation state: anything malformed is the
  *   day's seed and page 1.
  * - `for=trip:ID[:day]` (#10) names a trip: not the user's own a 404 like
@@ -93,15 +65,7 @@ const GalleryQuery = Type.Object({
 
 // What every write posts back so its redirect lands on the same ideas.
 const StateFields = {
-  for: Type.Optional(
-    Type.String({
-      pattern:
-        '^(day:\\d{4}-\\d{2}-\\d{2}|trip:\\d{1,10}(:\\d{4}-\\d{2}-\\d{2})?)$',
-    }),
-  ),
-  occasion: Type.Optional(OccasionSchema),
-  // The entry a pick changes (#69): only with a day (postedDestination).
-  replace: Type.Optional(RowId),
+  ...DestinationFields,
   capsule: Type.Optional(RowId),
   with: Type.Optional(RowId),
   seed: Type.Optional(Type.String()),
@@ -125,39 +89,10 @@ const PairBody = Type.Object({
   ...StateFields,
 });
 
-function parseSeed(value: string | undefined): number | undefined {
-  if (value === undefined || !/^\d{1,10}$/.test(value)) return undefined;
-  const seed = Number(value);
-  return seed <= MAX_SEED ? seed : undefined;
-}
-
 function parsePage(value: string | undefined): number {
   const page =
     value !== undefined && /^\d{1,3}$/.test(value) ? Number(value) : 1;
   return page >= 1 && page <= MAX_PAGE ? page : 1;
-}
-
-/**
- * A write's destination: its `for` must read back as posted (the schema
- * checked the shape; parseDestination the dates), so a trip's malformed day
- * is a 400, not a pick for no day.
- */
-function postedDestination(body: {
-  for?: string;
-  occasion?: string;
-  replace?: number;
-}): OutfitDestination {
-  const destination = parseDestination(body);
-  if (
-    body.for !== undefined &&
-    (destination.kind === 'none' || destinationTarget(destination) !== body.for)
-  ) {
-    throw new HttpError(400, 'body/for must be a real day or trip');
-  }
-  if (body.replace !== undefined && destination.kind !== 'day') {
-    throw new HttpError(400, 'body/replace needs a day');
-  }
-  return destination;
 }
 
 /** The gallery a write came from, for its redirect back. */
@@ -176,155 +111,11 @@ function garmentNotFound(): HttpError {
   return new HttpError(404, 'Garment not found');
 }
 
-function pickMessage(
-  ownerId: number,
-  garmentIds: readonly number[],
-  picked: PickResult,
-  plan: { day: string; occasion: string } | undefined,
-): string {
-  const garments = garmentIds.join(', ');
-  if (!picked.alreadySaved) {
-    const where = plan ? `, planned ${plan.day} (${plan.occasion})` : ', saved';
-    return `Idea picked by user ${ownerId}: outfit ${picked.id} of garments ${garments}${where}`;
-  }
-  const where = plan
-    ? `, ${picked.schedule} ${plan.day} (${plan.occasion})`
-    : '';
-  const adopted = picked.adopted ? '; taken over from the week planner' : '';
-  return `Idea picked by user ${ownerId}: garments ${garments} already outfit ${picked.id}${where}; nothing created${adopted}`;
-}
-
 export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
   { db, config, logger, weather },
   done,
 ) => {
-  /**
-   * Where the ideas are aimed: the destination as the page carries it on,
-   * the day and occasion they are for (today, all day, without one), and
-   * the trip for `for=trip:ID` (the owner's, else a 404; a day that is not
-   * one of its days is dropped, and the trip's day stands in: today while
-   * it is on, else its first).
-   */
-  async function aimOf(
-    ownerId: number,
-    parsed: OutfitDestination,
-    today: IsoDate,
-  ): Promise<{
-    destination: OutfitDestination;
-    planning: { day: IsoDate; occasion: Occasion };
-    trip?: TripRow;
-    /** Where the day's weather is (IdeasInput.place): absent for the person's own. */
-    weatherAt: { place?: Location | null };
-  }> {
-    if (parsed.kind === 'day') {
-      return {
-        destination: parsed,
-        planning: { day: parsed.day, occasion: parsed.occasion },
-        weatherAt: {},
-      };
-    }
-    if (parsed.kind === 'none') {
-      return {
-        destination: parsed,
-        planning: { day: today, occasion: DEFAULT_OCCASION },
-        weatherAt: {},
-      };
-    }
-    const trip = await findTrip(db, parsed.tripId, ownerId);
-    if (!trip) throw tripNotFound();
-    const day = ideasDayOf(trip, parsed.day, today);
-    return {
-      destination:
-        parsed.day === undefined || parsed.day === day
-          ? parsed
-          : { kind: 'trip', tripId: parsed.tripId, occasion: parsed.occasion },
-      planning: { day, occasion: parsed.occasion ?? DEFAULT_OCCASION },
-      trip,
-      // A trip's weather is its destination's, or none (never home's).
-      weatherAt: { place: trip.location },
-    };
-  }
-
-  /**
-   * A pick into an entry's place (#69): replaceEntryOutfit, which picks the
-   * idea as pickIdea does, in its transaction. To the week, saying (as a
-   * pick does) when the outfit already existed: a double tap's second
-   * request finds the entry changed already. A refusal throws.
-   */
-  async function pickInPlace(
-    reply: FastifyReply,
-    ownerId: number,
-    target: EntryTarget,
-    garmentIds: number[],
-  ) {
-    const replaced = await replaceEntryOutfit(db, ownerId, target, {
-      garmentIds,
-    });
-    logger.info(replaceMessage(ownerId, target, replaced));
-    if (isRefused(replaced)) throw replaceRefusal(replaced);
-    const flag = replaced.alreadySaved ? `&${ALREADY_SAVED_FLAG}=1` : '';
-    return reply.redirect(`/calendar?week=${target.day}${flag}`, 303);
-  }
-
-  /**
-   * A pick for a day (planned on it in the same transaction) or for
-   * nothing (saved): pickIdea, once; to the week or the outfit, saying when
-   * the outfit already existed.
-   */
-  async function pickToDayOrSave(
-    reply: FastifyReply,
-    ownerId: number,
-    destination: Exclude<OutfitDestination, TripDestination>,
-    garmentIds: number[],
-  ) {
-    const plan =
-      destination.kind === 'day'
-        ? { day: destination.day, occasion: destination.occasion }
-        : undefined;
-    const picked = await pickIdea(db, ownerId, { garmentIds, plan });
-    if (picked === 'not-found') throw garmentNotFound();
-    logger.info(pickMessage(ownerId, garmentIds, picked, plan));
-    // A pick of an outfit that exists (a double tap, a retried post) is
-    // a success too; the page it lands on says so.
-    const flag = picked.alreadySaved ? `${ALREADY_SAVED_FLAG}=1` : '';
-    return reply.redirect(
-      plan
-        ? `/calendar?week=${plan.day}${flag && `&${flag}`}`
-        : `/outfits/${picked.id}${flag && `?${flag}`}`,
-      303,
-    );
-  }
-
-  /**
-   * A pick for a trip: the idea becomes an outfit (reused when one of these
-   * garments exists) on the trip, for its day and occasion when given
-   * (pickForTrip, one transaction); back to the trip.
-   */
-  async function pickToTrip(
-    reply: FastifyReply,
-    ownerId: number,
-    destination: TripDestination,
-    garmentIds: number[],
-  ) {
-    const { tripId, day, occasion } = destination;
-    const outcome = await pickForTrip(db, ownerId, {
-      tripId,
-      day,
-      occasion,
-      garmentIds,
-    });
-    if (outcome === 'no-trip') throw tripNotFound();
-    if (outcome === 'not-a-trip-day') {
-      throw new HttpError(400, 'body/for must name a day of the trip');
-    }
-    if (outcome === 'not-found') throw garmentNotFound();
-    logger.info(
-      `Idea picked by user ${ownerId} for trip ${tripId}: ${outcome.outfit.alreadySaved ? 'existing ' : ''}outfit ${outcome.outfit.id} of garments ${garmentIds.join(', ')}, ${outcome.added === 'added' ? 'added' : 'already on the trip'} (${day ?? 'any day'}${occasion ? `, ${occasion}` : ''})`,
-    );
-    return reply.redirect(tripUrl(tripId, '?picked=1'), 303);
-  }
-
   /** The page's and the sentinel's shared reading of the query, and the ideas for it. */
   async function galleryFor(
     ownerId: number,
@@ -339,7 +130,7 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           withId: query.with,
           today,
         }),
-        aimOf(ownerId, parseDestination(query), today),
+        aimIdeas(db, ownerId, parseDestination(query), today),
       ]);
     const state: SeededState = {
       destination,
@@ -356,7 +147,7 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         today,
         ...planning,
         capsuleId: capsule?.id,
-        styled,
+        locked: styled ? [styled] : [],
         ...weatherAt,
         seed: state.seed,
         offset: (page - 1) * IDEAS_PAGE_SIZE,
@@ -421,21 +212,14 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${IDEAS_PATH}/pick`,
     { schema: { body: PickBody } },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
-      const destination = postedDestination(request.body);
-      const { garmentId } = request.body;
-      if (destination.kind === 'day' && destination.replace !== undefined) {
-        const { replace: entryId, day, occasion } = destination;
-        return pickInPlace(
-          reply,
-          ownerId,
-          { entryId, day, occasion },
-          garmentId,
-        );
-      }
-      return destination.kind === 'trip'
-        ? pickToTrip(reply, ownerId, destination, garmentId)
-        : pickToDayOrSave(reply, ownerId, destination, garmentId);
+      return pickTo(
+        { db, logger },
+        reply,
+        sessionUserId(request),
+        postedDestination(request.body),
+        request.body.garmentId,
+        { source: 'idea' },
+      );
     },
   );
 
