@@ -3,6 +3,7 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AWAY_REASONS } from '../../wardrobe/availability';
 import { sessionUserId } from '../auth/require-session';
+import { AutosaveSaved } from '../autosave';
 import { todayIn } from '../calendar/calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
@@ -25,7 +26,7 @@ import {
   setWoreToday,
   wearSummary,
 } from './queries';
-import { WearSection } from './wear-section';
+import { WearStatus } from './wear-section';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
 const NOT_OWNED_YET = 'On the wishlist: not bought yet';
@@ -94,7 +95,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     return garment;
   }
 
-  /** This section again to htmx; the garment page to a plain post. */
+  /** The wear status again to htmx; the garment page to a plain post. */
   async function answer(
     request: FastifyRequest,
     reply: FastifyReply,
@@ -111,7 +112,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     if (!garment) throw new HttpError(404, GARMENT_NOT_FOUND);
     return renderFragment(
       reply,
-      <WearSection garment={garment} panel={{ summary, today: day }} />,
+      <WearStatus garment={garment} panel={{ summary, today: day }} />,
     );
   }
 
@@ -180,7 +181,11 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `Garment ${id} ${away === '' ? 'back in the closet' : `away (${away})`} for user ${sessionUserId(request)}`,
       );
-      return answer(request, reply, id);
+      // "Where it is" is an AutosaveForm: its status line, never the form.
+      if (!request.headers['hx-request']) {
+        return reply.redirect(garmentUrl(id, undefined), 303);
+      }
+      return renderFragment(reply, <AutosaveSaved />);
     },
   );
 

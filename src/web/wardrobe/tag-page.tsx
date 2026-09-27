@@ -4,6 +4,7 @@ import {
   typesOf,
   WARMTHS,
 } from '../../wardrobe/properties';
+import { AutosaveForm } from '../autosave';
 import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
@@ -18,15 +19,20 @@ import { garmentUrl, wardrobeUrl } from './urls';
 
 /**
  * GET /wardrobe/tag: one garment at a time that still needs its type,
- * warmth or formality (queries.ts, needsTags), newest first. Every chip tap
- * posts the card's form (POST /wardrobe/:id/tag) and the answer is the
- * same card, saved, with the type's presets filled where nothing was set;
- * Next asks for the card after this garment (`?before=`), so a garment
- * left alone waits for the next pass. Minutes for a wardrobe, not a
- * form visit per garment.
+ * warmth or formality (queries.ts, needsTags), newest first. The card's
+ * chips are an `AutosaveForm`: every tap posts the whole card to
+ * POST /wardrobe/:id/tag, which saves it and answers the chips as saved
+ * (the type's presets filled where nothing was set) and the count left.
+ * Next is the same form's submit button: it saves what is on the card (its
+ * last taps may still be waiting in the queue, and ride along) and answers
+ * the card after this garment, so a garment left alone waits for the next
+ * pass. Minutes for a wardrobe, not a form visit per garment.
  */
 
 export const TAG_CARD_ID = 'tag-card';
+/** What a tap's answer redraws: the chips, never the form that posts them. */
+const TAG_FIELDS_ID = 'tag-fields';
+const TAG_LEFT_ID = 'tag-left';
 
 export interface TagCardModel {
   /** The garment on the card; undefined when nothing is left to tag. */
@@ -53,7 +59,7 @@ export function TagPage(props: { ctx: ViewContext; model: TagCardModel }) {
   );
 }
 
-/** The card: swapped whole by every tap and by Next/Skip. */
+/** The card: swapped whole by Next. */
 export function TagCard({ model }: { model: TagCardModel }) {
   const { garment, viewOwner } = model;
   if (!garment) {
@@ -67,16 +73,9 @@ export function TagCard({ model }: { model: TagCardModel }) {
       </div>
     );
   }
-  const next = wardrobeUrl(viewOwner, { before: garment.id }, '/wardrobe/tag');
-  const swap = {
-    'hx-target': `#${TAG_CARD_ID}`,
-    'hx-swap': 'outerHTML',
-  } as const;
   return (
     <div id={TAG_CARD_ID} class="flex flex-col gap-4">
-      <p class="text-sm text-base-content/60">
-        {t('TAG_LEFT', { count: model.left })}
-      </p>
+      <TagLeft left={model.left} />
       <a
         href={garmentUrl(garment.id, viewOwner)}
         class="card bg-base-100 shadow-sm"
@@ -102,44 +101,76 @@ export function TagCard({ model }: { model: TagCardModel }) {
           </p>
         </div>
       </a>
-      {/* Posted whole on every tap; the answer replaces this card. Not a
-          native form: nothing here can be refused with a 4xx a person could
-          cause (the chips are the only values). */}
-      <form
-        hx-post={wardrobeUrl(viewOwner, {}, `/wardrobe/${garment.id}/tag`)}
-        hx-trigger="change"
-        {...swap}
+      {/* Not a native form: nothing here can be refused with a 4xx a person
+          could cause (the chips are the only values). */}
+      <AutosaveForm
+        action={wardrobeUrl(viewOwner, {}, `/wardrobe/${garment.id}/tag`)}
+        region={`#${TAG_FIELDS_ID}`}
         class="flex flex-col gap-5"
       >
-        <TagChips
-          name="type"
-          property="type"
-          label={t('PROPERTY_TYPE')}
-          options={typesOf(garment.category).map((type) => type.value)}
-          selected={garment.type}
-        />
-        {propertyApplies('warmth', garment.category) && (
-          <TagChips
-            name="warmth"
-            property="warmth"
-            label={t('PROPERTY_WARMTH')}
-            options={WARMTHS}
-            selected={garment.warmth}
-          />
-        )}
-        <TagChips
-          name="formality"
-          property="formality"
-          label={t('PROPERTY_FORMALITY')}
-          options={FORMALITIES}
-          selected={garment.formality}
-        />
-      </form>
-      {/* Saved already: Next only moves on (and skips a garment left alone). */}
-      <a href={next} hx-get={next} {...swap} class="btn btn-primary">
-        {t('TAG_NEXT')}
-      </a>
+        <div id={TAG_FIELDS_ID} class="flex flex-col gap-5">
+          <TagFields garment={garment} />
+        </div>
+        {/* Outside the chips the answers redraw, so a tap on it survives a
+            save landing before its own request leaves the queue (htmx reads
+            the clicked button then). */}
+        <button type="submit" name="next" value="1" class="btn btn-primary">
+          {t('TAG_NEXT')}
+        </button>
+      </AutosaveForm>
     </div>
+  );
+}
+
+/** A tap's answer: the chips as saved, and the count left out of band. */
+export function TagSaved(props: { garment: GarmentDetail; left: number }) {
+  return (
+    <>
+      <TagFields garment={props.garment} />
+      <TagLeft left={props.left} oob />
+    </>
+  );
+}
+
+function TagLeft(props: { left: number; oob?: boolean }) {
+  return (
+    <p
+      id={TAG_LEFT_ID}
+      class="text-sm text-base-content/60"
+      hx-swap-oob={props.oob ? 'true' : undefined}
+    >
+      {t('TAG_LEFT', { count: props.left })}
+    </p>
+  );
+}
+
+function TagFields({ garment }: { garment: GarmentDetail }) {
+  return (
+    <>
+      <TagChips
+        name="type"
+        property="type"
+        label={t('PROPERTY_TYPE')}
+        options={typesOf(garment.category).map((type) => type.value)}
+        selected={garment.type}
+      />
+      {propertyApplies('warmth', garment.category) && (
+        <TagChips
+          name="warmth"
+          property="warmth"
+          label={t('PROPERTY_WARMTH')}
+          options={WARMTHS}
+          selected={garment.warmth}
+        />
+      )}
+      <TagChips
+        name="formality"
+        property="formality"
+        label={t('PROPERTY_FORMALITY')}
+        options={FORMALITIES}
+        selected={garment.formality}
+      />
+    </>
   );
 }
 

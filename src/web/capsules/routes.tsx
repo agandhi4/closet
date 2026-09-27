@@ -1,6 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
+import { AutosaveSaved } from '../autosave';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
@@ -20,11 +21,9 @@ import { capsuleUrl } from '../wardrobe/urls';
 import { GarmentParams, OwnerQuery } from '../wardrobe/validation';
 import { CapsulePage } from './capsule-page';
 import { CapsuleFormPage, type CapsuleFormModel } from './form-page';
-import { GarmentCapsules } from './garment-capsules';
 import { CapsulesPage } from './list-page';
 import {
   type CapsuleDetail,
-  capsulesOfGarment,
   changeMembership,
   closetCard,
   createCapsule,
@@ -298,9 +297,10 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The garment page's "In capsules" toggles (htmx, on every change): the
-  // capsules the section listed hold the garment exactly when checked. The
-  // answer is the section again.
+  // The garment page's "In capsules" toggles (an AutosaveForm, on every
+  // change): the capsules the section listed hold the garment exactly when
+  // checked. The answer is the form's status line, never the toggles (see
+  // src/web/autosave.tsx).
   app.post(
     '/wardrobe/:id/capsules',
     {
@@ -311,7 +311,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await resolve(
+      const { access } = await resolve(
         request,
         request.query.ownerId,
         'manage',
@@ -328,15 +328,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `Garment ${id} capsules set by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${result.added} added, ${result.removed} removed`,
       );
-      return renderFragment(
-        reply,
-        <GarmentCapsules
-          garmentId={id}
-          capsules={await capsulesOfGarment(db, access.ownerId, id)}
-          viewOwner={viewOwner}
-          canEdit
-        />,
-      );
+      return renderFragment(reply, <AutosaveSaved />);
     },
   );
 

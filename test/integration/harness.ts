@@ -440,6 +440,8 @@ export interface QueryRecord {
   statements: number;
   /** Rows they returned, all together. */
   rows: number;
+  /** Each statement's SQL text, in order. */
+  sql: string[];
 }
 
 type QueryCallback = (error: Error | null, result?: QueryResult) => void;
@@ -455,7 +457,7 @@ type QueryCallback = (error: Error | null, result?: QueryResult) => void;
 export async function recordQueries(
   work: () => Promise<unknown>,
 ): Promise<QueryRecord> {
-  const record: QueryRecord = { statements: 0, rows: 0 };
+  const record: QueryRecord = { statements: 0, rows: 0, sql: [] };
   const tally = (result: QueryResult | undefined) => {
     record.rows += result?.rows.length ?? 0;
   };
@@ -468,6 +470,13 @@ export async function recordQueries(
     // wrapper forwards whatever it is given, so it is typed as the original.
     .mockImplementation(function (this: Client, ...args: unknown[]) {
       record.statements += 1;
+      // A query is a string or a config object ({ text, values }: Drizzle's).
+      const [config] = args;
+      const text =
+        typeof config === 'string'
+          ? config
+          : (config as { text?: unknown } | undefined)?.text;
+      record.sql.push(typeof text === 'string' ? text : '');
       const callback = args.at(-1);
       if (typeof callback === 'function') {
         args[args.length - 1] = ((error, result) => {

@@ -15,6 +15,7 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { sessionUserId } from '../auth/require-session';
+import { AutosaveSaved } from '../autosave';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
@@ -37,7 +38,6 @@ import { type GoesWithCloset, goesWithCloset } from '../gallery/ideas';
 import { avoidedWith } from '../gallery/queries';
 import { countNeedingWash, wearSummary } from '../wears/queries';
 import { normalizeCategory, normalizeSize, splitColors } from './garment';
-import { GarmentCondition } from './garment-condition';
 import { GarmentPage, GarmentPhotoView } from './garment-page';
 import { keptLinkPhoto } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
@@ -67,7 +67,13 @@ import {
   setGarmentStatus,
   type StatusChange,
 } from './status';
-import { TagCard, type TagCardModel, TagPage } from './tag-page';
+import {
+  TAG_CARD_ID,
+  TagCard,
+  type TagCardModel,
+  TagPage,
+  TagSaved,
+} from './tag-page';
 import { garmentUrl, wardrobeUrl, WISHLIST_PATH } from './urls';
 import {
   BulkBody,
@@ -584,8 +590,9 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // Tagging mode (src/web/wardrobe/tag-page.tsx): the next garment still
-  // needing its type, warmth or formality, after `?before=` (Next). A
-  // fragment request (Next's swap) gets the card alone.
+  // needing its type, warmth or formality, after `?before=`. A fragment
+  // request gets the card alone: Next was a link here before it became the
+  // card's submit button, and pages the installed app cached still ask.
   app.get(
     '/wardrobe/tag',
     { schema: { querystring: TagQuery } },
@@ -611,8 +618,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // A tap on the tagging card: the card's chips, saved, then the same card
-  // (the type's presets filled where nothing was set; readTags).
+  // The tagging card's AutosaveForm (tag-page.tsx): a tap saves the chips
+  // and answers them as saved (a new type's presets filled where nothing was
+  // set; readTags) with the count left; Next (`next=1`) saves the same way
+  // and answers the card after this garment instead. A post that changes
+  // nothing writes nothing: Next on a card left alone only moves on.
   app.post(
     '/wardrobe/:id/tag',
     {
@@ -626,23 +636,38 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { id } = request.params;
+      const { next, ...tags } = request.body;
       const garment = await requireGarment(options, id, access.ownerId);
-      const fields = readTags(request.body, garment);
-      if (!fields) throw new HttpError(400, 'Not a type of this category');
-      if (!(await updateGarmentProperties(db, id, access.ownerId, fields))) {
-        throw notFound();
+      // Only what differs from the stored garment: the card posts its
+      // checked chips every time, Next included.
+      const changes = readTags(tags, garment);
+      if (!changes) throw new HttpError(400, 'Not a type of this category');
+      const changed = Object.keys(changes);
+      if (changed.length > 0) {
+        if (!(await updateGarmentProperties(db, id, access.ownerId, changes))) {
+          throw notFound();
+        }
+        logger.info(
+          `Garment ${id} tagged by user ${sessionUserId(request)}: ${changed.join(', ')}`,
+        );
       }
-      logger.info(
-        `Garment ${id} tagged by user ${sessionUserId(request)}: ${Object.keys(request.body).join(', ')}`,
-      );
+      if (next) {
+        logger.info(
+          `Tagging: user ${sessionUserId(request)} moved on from garment ${id}`,
+        );
+        // The whole card, not the chips the form targets: the next garment's.
+        reply.header('HX-Retarget', `#${TAG_CARD_ID}`);
+        reply.header('HX-Reswap', 'outerHTML');
+        return renderFragment(
+          reply,
+          <TagCard model={await tagCardModel(access.ownerId, viewOwner, id)} />,
+        );
+      }
       const [saved, left] = await Promise.all([
         requireGarment(options, id, access.ownerId),
         countToTag(db, access.ownerId),
       ]);
-      return renderFragment(
-        reply,
-        <TagCard model={{ garment: saved, left, viewOwner }} />,
-      );
+      return renderFragment(reply, <TagSaved garment={saved} left={left} />);
     },
   );
 
@@ -731,9 +756,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The garment page's condition control (garment-condition.tsx): posted
-  // on every change, answered with the section (a plain post gets the page
-  // again). A garment property: the owner and a MANAGE grantee.
+  // The garment page's condition control (garment-condition.tsx, an
+  // AutosaveForm): posted on every change, answered with the form's status
+  // line, never the chips (a plain post gets the page again). A garment
+  // property: the owner and a MANAGE grantee.
   app.post(
     '/wardrobe/:id/condition',
     {
@@ -761,11 +787,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (!request.headers['hx-request']) {
         return reply.redirect(garmentUrl(id, viewOwner), 303);
       }
-      const garment = await requireGarment(options, id, access.ownerId);
-      return renderFragment(
-        reply,
-        <GarmentCondition garment={garment} viewOwner={viewOwner} canEdit />,
-      );
+      return renderFragment(reply, <AutosaveSaved />);
     },
   );
 

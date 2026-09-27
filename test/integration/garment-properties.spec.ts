@@ -257,14 +257,18 @@ describe('garment properties', () => {
         headers: { 'hx-request': 'true' },
       });
 
-    it('answers both blocks, the second out of band', async () => {
+    it('answers both blocks’ contents, the second out of band, never the blocks', async () => {
       const res = await fragment({ category: 'tops' });
       expect(res.statusCode).toBe(200);
       expectFragment(res);
-      expect(res.body).toContain('id="garment-props-main"');
+      // The blocks carry the triggers and their queue (src/web/autosave.tsx):
+      // only their contents are replaced.
+      expect(res.body).not.toContain('id="garment-props-main"');
+      expect(res.body).not.toContain('hx-post');
       expect(res.body).toMatch(
-        /id="garment-props-more"[^>]*hx-swap-oob="true"/,
+        /id="garment-props-more" hx-swap-oob="innerHTML"/,
       );
+      expect(res.body).toContain('name="warmth"');
       expect(res.body).toContain('name="sleeve"');
     });
 

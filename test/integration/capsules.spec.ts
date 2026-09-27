@@ -374,7 +374,9 @@ describe('capsules', () => {
       });
       expect(res.statusCode).toBe(200);
       expectFragment(res);
-      expect(res.body).toContain('id="garment-capsules"');
+      // The form's status line only: the toggles are what the person set
+      // (src/web/autosave.tsx).
+      expect(res.body).toBe('<span class="text-success">Saved</span>');
       expect(await members(office)).not.toContain(ids.jeans);
       expect(await members(weekend)).toEqual([ids.jeans]);
       expect(await members(later)).toEqual([ids.jeans]);

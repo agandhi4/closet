@@ -181,9 +181,13 @@ describe('push reminders', () => {
       const endpoint = await subscribe();
       const blank = unescapeHtml((await form(endpoint)).body);
       expect(blank).toContain('hx-post="/push/reminders"');
-      // Saves go out in order and answer the status line only.
-      expect(blank).toContain('hx-sync="this:queue last"');
-      expect(blank).toContain('hx-target="find [data-reminders-status]"');
+      // An AutosaveForm: saves go out in order and answer the status line
+      // only (src/web/autosave.tsx).
+      expect(blank).toContain('hx-sync="closest form:queue last"');
+      expect(blank).toContain('hx-target="find [data-autosave-status]"');
+      expect(blank).toContain('data-autosave=""');
+      // In the slot push.js loads it into, which keeps its id.
+      expect(blank).toContain('<div id="push-reminders" data-show="on"');
       expect(blank).toContain(`name="endpoint" value="${endpoint}"`);
       expect(blank).not.toMatch(/name="(morning|evening)On" value="1" checked/);
       // The defaults are selected, ready for the toggle.

@@ -159,9 +159,10 @@ export const pushRoutes: FastifyPluginCallbackTypebox<PushRouteOptions> = (
     },
   );
 
-  // Every change of the reminders form (htmx): both times saved, stamped
-  // now (a time already past today first sends tomorrow). Answers only the
-  // form's status line (ReminderStatus): the controls stay the person's.
+  // Every change of the reminders form (an AutosaveForm): both times saved,
+  // stamped now (a time already past today first sends tomorrow). Answers
+  // only the form's status line (ReminderStatus): the controls stay the
+  // person's.
   app.post(
     '/push/reminders',
     { schema: { body: RemindersBody } },

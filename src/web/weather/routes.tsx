@@ -1,7 +1,9 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { JSX } from 'hono/jsx/jsx-runtime';
 import { sessionUserId } from '../auth/require-session';
+import { AutosaveSaved } from '../autosave';
 import {
   addDays,
   daysBetween,
@@ -20,6 +22,7 @@ import {
   clearHere,
   clearHome,
   findWeatherSettings,
+  type WeatherSettings as WeatherSettingsRow,
   nudgeTemperatureOffset,
   resetTemperatureOffset,
   setHere,
@@ -27,7 +30,12 @@ import {
   setTemperatureUnit,
 } from './queries';
 import { userWeather, type WeatherService } from './service';
-import { PlaceResults, WEATHER_SETTINGS_ID, WeatherSettings } from './settings';
+import {
+  OffsetControls,
+  PlaceResults,
+  WEATHER_SETTINGS_ID,
+  WeatherLocation,
+} from './settings';
 import { dayChips, todayLine } from './summary';
 import { WeatherDay, WeatherLine, WeatherPrompt } from './views';
 
@@ -81,28 +89,48 @@ export interface WeatherRouteOptions extends WebOptions {
  *   the server), WEATHER_SEARCH_LIMIT. `secretPath`: the request log shows
  *   the route, never the typed city.
  * - POST /weather/home, /home/clear, /here, /here/clear, /unit, /feedback,
- *   /offset/reset: the profile's settings, each answering the section
- *   (htmx) or a 303 to the profile. Coordinates are rounded before they are
- *   stored; the logs name the user, never a location.
+ *   /offset/reset: the profile's settings, each answering to htmx the part
+ *   of the section it changed (the location, the offset; the unit its status
+ *   line and the offset) or a 303 to the profile. Coordinates are rounded
+ *   before they are stored; the logs name the user, never a location.
  */
 export const weatherRoutes: FastifyPluginCallbackTypebox<
   WeatherRouteOptions
 > = (app, { db, config, logger, weather }, done) => {
-  /** The settings section again to htmx; the profile to a plain post. */
-  async function answer(request: FastifyRequest, reply: FastifyReply) {
+  /**
+   * To htmx, the part of the settings section a write changed (`part`, from
+   * the user's settings); to a plain post, the profile. Never the whole
+   * section: it holds the unit's AutosaveForm (src/web/weather/settings.tsx).
+   */
+  async function answer(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    part: (settings: WeatherSettingsRow) => JSX.Element,
+  ) {
     if (!request.headers['hx-request']) {
       return reply.redirect(`/auth/profile#${WEATHER_SETTINGS_ID}`, 303);
     }
     const settings = await findWeatherSettings(db, sessionUserId(request));
-    return renderFragment(
-      reply,
-      <WeatherSettings
-        settings={settings}
-        timeZone={config.timeZone}
-        now={new Date()}
-      />,
-    );
+    return renderFragment(reply, part(settings));
   }
+  const locationPart = (settings: WeatherSettingsRow) => (
+    <WeatherLocation
+      settings={settings}
+      timeZone={config.timeZone}
+      now={new Date()}
+    />
+  );
+  const offsetPart = (settings: WeatherSettingsRow) => (
+    <OffsetControls settings={settings} />
+  );
+  // The unit's AutosaveForm: its status line, and the offset, which reads in
+  // the unit, out of band.
+  const unitSaved = (settings: WeatherSettingsRow) => (
+    <>
+      <AutosaveSaved />
+      <OffsetControls settings={settings} oob />
+    </>
+  );
 
   app.get(
     '/weather/summary',
@@ -180,7 +208,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
         location: roundedLocation(latitude, longitude)!,
       });
       logger.info(`Weather home set by user ${userId}`);
-      return answer(request, reply);
+      return answer(request, reply, locationPart);
     },
   );
 
@@ -188,7 +216,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
     const userId = sessionUserId(request);
     await clearHome(db, userId);
     logger.info(`Weather home removed by user ${userId}`);
-    return answer(request, reply);
+    return answer(request, reply, locationPart);
   });
 
   app.post(
@@ -208,7 +236,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
         new Date(),
       );
       logger.info(`Weather location (this phone's) set by user ${userId}`);
-      return answer(request, reply);
+      return answer(request, reply, locationPart);
     },
   );
 
@@ -216,7 +244,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
     const userId = sessionUserId(request);
     await clearHere(db, userId);
     logger.info(`Weather location (this phone's) removed by user ${userId}`);
-    return answer(request, reply);
+    return answer(request, reply, locationPart);
   });
 
   app.post(
@@ -229,8 +257,12 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
       },
     },
     async (request, reply) => {
-      await setTemperatureUnit(db, sessionUserId(request), request.body.unit);
-      return answer(request, reply);
+      const userId = sessionUserId(request);
+      await setTemperatureUnit(db, userId, request.body.unit);
+      logger.info(
+        `Temperature unit set to ${request.body.unit} by user ${userId}`,
+      );
+      return answer(request, reply, unitSaved);
     },
   );
 
@@ -253,7 +285,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
       logger.info(
         `Temperature feedback from user ${userId}: ${request.body.feeling}, offset now ${offset}`,
       );
-      return answer(request, reply);
+      return answer(request, reply, offsetPart);
     },
   );
 
@@ -261,7 +293,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
     const userId = sessionUserId(request);
     await resetTemperatureOffset(db, userId);
     logger.info(`Temperature offset reset by user ${userId}`);
-    return answer(request, reply);
+    return answer(request, reply, offsetPart);
   });
 
   done();

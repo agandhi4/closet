@@ -4,6 +4,7 @@ import {
   type ReminderKind,
   reminderChoices,
 } from '../../push/reminders';
+import { AutosaveForm } from '../autosave';
 import { t } from '../i18n';
 import type { ReminderSettings } from './queries';
 import type { SendReport } from './sender';
@@ -117,16 +118,14 @@ export function TestResult({ report }: { report: SendReport }) {
 }
 
 /**
- * This device's reminders (#15): a toggle and a time for each, saved on
- * every change. The controls are the person's: a save answers only the
- * status line under them (ReminderStatus), never the form, so an answer
- * landing between two quick changes cannot put back what was just changed;
- * each save posts the whole form, in order (`queue last`: a change made
- * while a save is in flight is sent after it, where htmx's default would
- * drop it), so the last one holds everything. The endpoint names the
- * device: the browser's own subscription, sent by push.js and carried here
- * for the saves; it never reaches a log or a URL. Shown only while
- * notifications are on (data-show, push.js).
+ * This device's reminders (#15): a toggle and a time for each, an
+ * `AutosaveForm` saved on every change (src/web/autosave.tsx: in order, the
+ * whole form each time, answered by the status line alone, ReminderStatus,
+ * never the controls). The endpoint names the device: the browser's own
+ * subscription, sent by push.js and carried here for the saves; it never
+ * reaches a log or a URL. Shown only while notifications are on
+ * (data-show, push.js), in the slot push.js loads it into, which keeps its
+ * id so a later load replaces it again.
  */
 export function ReminderSettingsForm(props: {
   endpoint: string;
@@ -141,36 +140,23 @@ export function ReminderSettingsForm(props: {
     );
   }
   return (
-    <form
-      id={REMINDERS_ID}
-      data-show="on"
-      class="flex flex-col gap-3 border-t border-base-300 pt-3"
-      hx-post="/push/reminders"
-      hx-trigger="change"
-      hx-sync="this:queue last"
-      hx-target="find [data-reminders-status]"
-      hx-swap="innerHTML"
-      data-needs-network=""
-    >
-      <h3 class="font-semibold text-sm">{t('today.reminders.HEADING')}</h3>
-      <input type="hidden" name="endpoint" value={endpoint} />
-      <ReminderField
-        kind="morning"
-        label={t('today.reminders.MORNING')}
-        minute={settings.morning}
-      />
-      <ReminderField
-        kind="evening"
-        label={t('today.reminders.EVENING')}
-        hint={t('today.reminders.EVENING_HINT')}
-        minute={settings.evening}
-      />
-      <p
-        class="text-xs min-h-4"
-        aria-live="polite"
-        data-reminders-status=""
-      ></p>
-    </form>
+    <div id={REMINDERS_ID} data-show="on" class="border-t border-base-300 pt-3">
+      <AutosaveForm action="/push/reminders" class="flex flex-col gap-3">
+        <h3 class="font-semibold text-sm">{t('today.reminders.HEADING')}</h3>
+        <input type="hidden" name="endpoint" value={endpoint} />
+        <ReminderField
+          kind="morning"
+          label={t('today.reminders.MORNING')}
+          minute={settings.morning}
+        />
+        <ReminderField
+          kind="evening"
+          label={t('today.reminders.EVENING')}
+          hint={t('today.reminders.EVENING_HINT')}
+          minute={settings.evening}
+        />
+      </AutosaveForm>
+    </div>
   );
 }
 

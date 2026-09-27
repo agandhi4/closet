@@ -320,7 +320,7 @@ test('demo: Theo, Today and his reminders (#15)', async ({ page }) => {
   // (test/support/push-stub.ts); the server's side is real.
   await stubPushManager(page, fakeSubscription(), true, { granted: true });
   await page.goto('/auth/profile');
-  const reminders = page.locator('form#push-reminders');
+  const reminders = page.locator('#push-reminders');
   await expect(reminders).toBeVisible();
   await reminders
     .getByRole('checkbox', { name: "Morning: today's outfit" })

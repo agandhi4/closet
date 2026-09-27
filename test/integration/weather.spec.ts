@@ -13,7 +13,7 @@ import { user, userWeather, weatherForecast } from '../../src/db/schema';
 import { forecastDayOf, weatherFor } from '../../src/seed/weather';
 import { displayTemperature } from '../../src/weather/temperature';
 import { createOutfit } from '../../src/web/outfits/queries';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import { createTestApp, hasText, type TestApp, unescapeHtml } from './harness';
 import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
 import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
@@ -369,7 +369,13 @@ describe('weather', () => {
         ...form({ unit: 'fahrenheit' }),
       });
       expect(res.statusCode).toBe(200);
-      expect(res.body).toMatch(/value="fahrenheit"[^>]*\schecked/);
+      // The unit's status line and the offset, which reads in the unit, out
+      // of band; never the unit's own form (src/web/autosave.tsx).
+      expect(hasText(res.body, 'Saved')).toBe(true);
+      expect(res.body).toMatch(/id="weather-offset"[^>]*hx-swap-oob="true"/);
+      expect(res.body).not.toContain('name="unit"');
+      const profile = await t.inject({ method: 'GET', url: '/auth/profile' });
+      expect(profile.body).toMatch(/value="fahrenheit"[^>]*\schecked/);
       const day = forecastDayOf('demo', weatherFor('demo', TODAY, 1)[0]);
       expect(unescapeHtml((await summary()).body)).toContain(
         `${displayTemperature(day.low, 'fahrenheit')}–${displayTemperature(day.high, 'fahrenheit')} °F`,
@@ -391,6 +397,10 @@ describe('weather', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.body).toContain('Using your location from 8:30 PM');
+      // The location part only: the section holds the unit's autosave form,
+      // which no other answer may replace (src/web/autosave.tsx).
+      expect(res.body).toContain('id="weather-location"');
+      expect(res.body).not.toContain('name="unit"');
       const [row] = await t.db
         .select()
         .from(userWeather)
@@ -460,9 +470,13 @@ describe('weather', () => {
       )[0].temperatureOffset;
 
     it('moves half a degree per feedback, capped at ±5', async () => {
-      expect((await feedback('too-cold')).body).toContain(
+      const cold = await feedback('too-cold');
+      expect(cold.body).toContain(
         'You run cold: outfits are matched as if it were 0.5° colder.',
       );
+      // The offset part only, never the unit's autosave form.
+      expect(cold.body).toContain('id="weather-offset"');
+      expect(cold.body).not.toContain('name="unit"');
       expect(await offset()).toBe(-0.5);
       await Promise.all(Array.from({ length: 12 }, () => feedback('too-warm')));
       expect(await offset()).toBe(5);

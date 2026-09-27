@@ -105,7 +105,7 @@ test.describe('notification settings on the profile page', () => {
     await page.goto('/auth/profile');
     await expect(shown(page, 'on')).toBeVisible();
 
-    const reminders = page.locator('form#push-reminders');
+    const reminders = page.locator('#push-reminders');
     await expect(reminders).toBeVisible();
     const morning = reminders.getByRole('checkbox', {
       name: "Morning: today's outfit",
@@ -134,7 +134,7 @@ test.describe('notification settings on the profile page', () => {
 
     // A reload asks the server again: the device's reminders are kept.
     await page.reload();
-    const again = page.locator('form#push-reminders');
+    const again = page.locator('#push-reminders');
     await expect(
       again.getByRole('checkbox', { name: "Morning: today's outfit" }),
     ).toBeChecked();
@@ -147,7 +147,7 @@ test.describe('notification settings on the profile page', () => {
 
     // Turned off, the reminders go with the device.
     await page.getByRole('button', { name: 'Turn off on this device' }).click();
-    await expect(page.locator('form#push-reminders')).toBeHidden();
+    await expect(page.locator('#push-reminders')).toBeHidden();
   });
 
   test('shows an existing subscription as on after confirming it with the server', async ({

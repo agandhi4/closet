@@ -389,7 +389,10 @@ describe('wears and washes', () => {
 
       const first = await post(`/wardrobe/${tee}/wear`, { worn: '1' });
       expectFragment(first);
-      expect(first.body).toContain('id="garment-wear"');
+      // The wear status, not the section: "where it is" is an autosave form
+      // beside it, which no other answer may replace.
+      expect(first.body).toContain('id="garment-wear-status"');
+      expect(first.body).not.toContain('name="away"');
       expect(hasText(first.body, 'Worn once')).toBe(true);
       expect(hasText(first.body, 'Undo “Wore today”')).toBe(true);
       await post(`/wardrobe/${tee}/wear`, { worn: '1' });
@@ -538,7 +541,10 @@ describe('wears and washes', () => {
         awayNote: '  Dana has it  ',
       });
       expectFragment(lent);
-      expect(lent.body).toContain('value="Dana has it"');
+      // The form's status line, never the choices (src/web/autosave.tsx).
+      expect(hasText(lent.body, 'Saved')).toBe(true);
+      expect(lent.body).not.toContain('name="away"');
+      expect((await garmentPage(jacket)).body).toContain('value="Dana has it"');
       const [row] = await t.db
         .select({ away: garment.away, awayNote: garment.awayNote })
         .from(garment)
@@ -854,8 +860,14 @@ describe('wears and washes', () => {
         conditionNote: 'Collar gone',
       });
       expectFragment(res);
-      expect(res.body).toContain('id="garment-condition"');
-      expect(res.body).toContain('value="Collar gone"');
+      // The form's status line, never the chips (src/web/autosave.tsx).
+      expect(hasText(res.body, 'Saved')).toBe(true);
+      expect(res.body).not.toContain('name="condition"');
+      const page = await garmentPage(tee);
+      expect(page.body).toContain('value="Collar gone"');
+      expect(page.body).toMatch(
+        /value="replace_soon" class="[^"]*" aria-label="Replace soon" checked/,
+      );
       expect(await available(tee)).toBe(true);
 
       const grid = await t.inject({

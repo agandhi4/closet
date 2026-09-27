@@ -58,7 +58,13 @@ function registerServiceWorker() {
     if (updateWaiting && !toast?.element.isConnected) showUpdateToast();
   });
 
-  wb.register().then(() => console.info('[pwa] service worker registered'));
+  // A browser that refuses workers (a policy, some private modes, a test
+  // that blocks them) rejects here: the app works on without one.
+  wb.register()
+    .then(() => console.info('[pwa] service worker registered'))
+    .catch((error) =>
+      console.warn('[pwa] service worker registration failed', error),
+    );
 }
 
 // The session cookie is httpOnly, so the layout says whether this page is

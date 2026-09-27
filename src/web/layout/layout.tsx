@@ -132,6 +132,9 @@ export function Layout({
         <script type="module" src={`/js/connectivity.js${v}`}></script>
         {/* Every PostForm posts once per tap (double-submit guard). */}
         <script type="module" src={`/js/submit-once.js${v}`}></script>
+        {/* Save-on-change forms drop answers a newer edit overtook
+            (src/web/autosave.tsx). */}
+        <script type="module" src={`/js/autosave.js${v}`}></script>
         {ctx.pwaEnabled && (
           // Service worker registration, update toast, Web Push, the install
           // dialog, iOS pull to refresh. In the head so hx-boost body swaps

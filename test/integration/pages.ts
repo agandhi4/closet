@@ -161,6 +161,7 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app(`/wardrobe/${f.garmentId}`),
     app(`/wardrobe/${f.garmentId}/edit`),
     app(`/wardrobe/${f.garmentId}/clone`),
+    app('/wardrobe/tag'),
     app(`/wardrobe?capsule=${f.capsuleId}`),
     app(`/wardrobe?pick=${f.capsuleId}`),
     app('/wardrobe/wishlist'),
@@ -224,6 +225,7 @@ export function expectFullPage(res: LightMyRequestResponse): void {
   expect(res.body.match(/<meta\s+name="htmx-config"/g)).toHaveLength(1);
   expectNoRawI18nKeys(res);
   expectNativePostForms(res);
+  expectAutosaveControls(res);
   expectNoScriptNavigation(res);
   // _hyperscript left the app (2026-09-26): an `_=` attribute would do
   // nothing at all.
@@ -254,6 +256,28 @@ export function expectNativePostForms(res: LightMyRequestResponse): void {
       /\bmethod=["']?post\b/i.test(tag) &&
       !/\bhx-post=/i.test(tag) &&
       !/\bhx-boost=["']?false\b/i.test(tag),
+  );
+  expect(offenders).toEqual([]);
+}
+
+/**
+ * Every control that posts on `change` is built by src/web/autosave.tsx
+ * (`AutosaveForm`, `autosaveAttributes`): queued per form, latest last, and
+ * marked for public/js/autosave.js, which drops answers a newer edit
+ * overtook. One built by hand loses quick edits (found on #62). The auth
+ * forms' inline check is exempt: it swaps nothing of its own
+ * (`hx-swap="none"`, messages out of band), so it cannot redraw a field.
+ */
+export function expectAutosaveControls(res: LightMyRequestResponse): void {
+  const offenders = (res.body.match(/<[a-z-]+\b[^>]*>/gi) ?? []).filter(
+    (tag) =>
+      /\bhx-post=/i.test(tag) &&
+      /\bhx-trigger="[^"]*\bchange\b/i.test(tag) &&
+      !/\bhx-swap="none"/i.test(tag) &&
+      !(
+        /\bhx-sync="closest form:queue last"/i.test(tag) &&
+        /\bdata-autosave=""/i.test(tag)
+      ),
   );
   expect(offenders).toEqual([]);
 }
