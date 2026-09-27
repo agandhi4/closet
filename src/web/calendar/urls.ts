@@ -11,7 +11,7 @@ import type { IsoDate } from './calendar-date';
 export const CALENDAR_PATH = '/calendar';
 /** The month of collages (R6): `?month=YYYY-MM`, this month without. */
 export const CALENDAR_MONTH_PATH = `${CALENDAR_PATH}/month`;
-/** The plan page: the "+ Plan" sheet's "Pick a saved outfit", and Change (#69). */
+/** The plan page: Change (#69), Today's "+ Plan another outfit" and links cached before R6. */
 export const CALENDAR_PLAN_PATH = `${CALENDAR_PATH}/plan`;
 
 /** The week holding `day`; the current week without one. */

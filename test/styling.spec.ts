@@ -160,7 +160,7 @@ test('an outfit opened in Styling saves its changes in place', async ({
   const outfit = await createOutfit(page, 'Monday', g.oldTee);
 
   await page.goto(`/outfits/${outfit}`);
-  await page.getByRole('link', { name: 'Edit Outfit' }).click();
+  await page.getByRole('link', { name: 'Edit in Styling' }).click();
   await expect(page).toHaveURL(new RegExp(`/styling\\?outfit=${outfit}`));
   await expect(page.getByText('Changing Monday')).toBeVisible();
   await expect(chosen(row(page, 'top'))).toHaveValue(String(g.oldTee));

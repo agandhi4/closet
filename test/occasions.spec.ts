@@ -6,7 +6,7 @@ import { householdToday } from './support/household-today';
 /**
  * Several outfits a day at phone width (#13): a day planned three times
  * through its "+ Plan" sheet (the occasion, then "Pick a saved outfit" on
- * the plan page, R6), shown back
+ * the Saved tab, R5/R6), shown back
  * stacked in occasion order with a worn pill each, and nothing wider than
  * the screen. The server side is test/integration/occasions.spec.ts.
  */
@@ -31,7 +31,7 @@ test('a three-outfit day: planned by occasion, stacked in order, each with its p
 
   await page.goto(`/calendar?week=${day}`);
   // The day's "+ Plan" sheet (R6): the occasion, then "Pick a saved outfit"
-  // lands on the plan page with it chosen.
+  // lands on the Saved tab picking for that day and occasion (R5).
   const sheet = page.locator(`dialog[data-plan-sheet="${day}"]`);
   for (const [occasion, outfit] of plans) {
     await page.locator(`[data-day-plan="${day}"]`).click();
@@ -41,13 +41,15 @@ test('a three-outfit day: planned by occasion, stacked in order, each with its p
     ).toBeChecked();
     await sheet.getByRole('radio', { name: occasion, exact: true }).check();
     await sheet.getByRole('button', { name: 'Pick a saved outfit' }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Plan an outfit' }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole('link', { name: occasion, exact: true }),
-    ).toHaveAttribute('aria-current', 'true');
-    await page.getByRole('button', { name: outfit }).click();
+    // The Saved tab picking for the day (R5), with the occasion chosen.
+    // A GET form encodes the colon: for=day%3A<day>.
+    await expect(page).toHaveURL(
+      new RegExp(`/outfits\\?for=day(:|%3A)${day}&occasion=`),
+    );
+    await expect(page.locator(`[data-destination-day="${day}"]`)).toContainText(
+      `· ${occasion}`,
+    );
+    await page.getByRole('button', { name: outfit, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/calendar\\?week=${day}$`));
   }
 
@@ -80,10 +82,12 @@ test('a three-outfit day: planned by occasion, stacked in order, each with its p
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Worn?' })).toHaveCount(2);
 
-  // The plan page marks what is already on the day.
+  // The Saved tab marks what is already on the day.
   await page.locator(`[data-day-plan="${day}"]`).click();
   await sheet.getByRole('button', { name: 'Pick a saved outfit' }).click();
-  await expect(page.getByRole('button', { name: /Office/ })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Office', exact: true }),
+  ).toBeDisabled();
   await expect(
     page.getByText('On this day · Work', { exact: true }),
   ).toBeVisible();

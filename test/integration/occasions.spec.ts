@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { outfitCalendar } from '../../src/db/schema';
+import { OCCASIONS } from '../../src/wardrobe/occasions';
 import { dayColumns, planButtonLabel } from './calendar-page';
 import { createGarment } from './garments';
 import { createTestApp, hasText, type TestApp, unescapeHtml } from './harness';
@@ -120,9 +121,8 @@ describe('occasions', () => {
         method: 'POST',
         url: '/calendar',
         ...form({ outfitId: String(outfit), date: day, occasion: 'evening' }),
-        headers: { ...form({}).headers, 'hx-request': 'true' },
       });
-      expect(again.statusCode).toBe(204);
+      expect(again.statusCode).toBe(302);
       expect(await entriesOn(day)).toEqual([
         { outfitId: outfit, occasion: 'work' },
       ]);
@@ -395,13 +395,17 @@ describe('occasions', () => {
     });
   });
 
-  describe('the outfit list', () => {
-    it('offers the occasion beside the date in each card’s calendar form', async () => {
-      await newOutfit('Listed');
-      const html = await page('/outfits');
-      const card = html.slice(html.indexOf('data-schedule'));
-      expect(card).toMatch(/<select name="occasion"/);
-      expect(card).toMatch(/<option value="all-day" selected="">All day</);
+  describe('the outfit page', () => {
+    it('offers every occasion beside the day in its Plan sheet, all day first chosen', async () => {
+      const outfit = await newOutfit('Listed');
+      const html = await page(`/outfits/${outfit}`);
+      const sheet = html.slice(html.indexOf('id="outfit-plan-sheet"'));
+      for (const occasion of OCCASIONS) {
+        expect(sheet).toContain(
+          `type="radio" name="occasion" value="${occasion}"`,
+        );
+      }
+      expect(sheet).toMatch(/value="all-day"[^>]*checked=""/);
     });
   });
 });

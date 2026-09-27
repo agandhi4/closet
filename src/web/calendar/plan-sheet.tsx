@@ -6,16 +6,16 @@ import {
 import { IDEAS_PATH } from '../gallery/urls';
 import { t } from '../i18n';
 import { destinationTarget } from '../outfits/destination';
+import { SAVED_PATH } from '../outfits/urls';
 import { STYLING_PATH } from '../styling/urls';
 import type { IsoDate } from './calendar-date';
 import { dayLabel, occasionLabel } from './labels';
-import { CALENDAR_PLAN_PATH } from './urls';
 
 /**
  * A day's "+ Plan" sheet (R6; docs/plans/2026-09-26-redesign.md, Calendar):
  * the occasion, then the three ways to an outfit (section 1): choose from
- * Ideas (#9), pick a saved outfit (the plan page, which lists them) or style
- * a new one (Styling, #42). One GET form whose buttons each name their page
+ * Ideas (#9), pick a saved outfit (the Outfits page's Saved tab picking for
+ * the day, R5) or style a new one (Styling, #42). One GET form whose buttons each name their page
  * (`formaction`), so every way carries `?for=day:D&occasion=O` and comes
  * back to the day, and the occasion needs no script: the form posts the
  * checked radio. Static per day, so `/calendar` stays byte-stable.
@@ -85,7 +85,7 @@ export function PlanSheet({ day }: { day: IsoDate }) {
             </button>
             <button
               type="submit"
-              formaction={CALENDAR_PLAN_PATH}
+              formaction={SAVED_PATH}
               class="btn btn-outline"
               data-plan-saved=""
             >

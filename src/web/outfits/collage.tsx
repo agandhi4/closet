@@ -7,9 +7,10 @@ import { HangerIcon } from '../layout/parts';
  * by side, the bottom under them, the shoes at the foot, accessories and
  * bags down the side; cutouts contained (never cropped) on the plinth
  * colour, sized by height so a whole card (collage, name, pick) fits a
- * phone screen above the dock. The redesign's one OutfitCollage (docs/plans/2026-09-26-redesign.md,
- * sections 3 and 5): the gallery's Ideas cards today; the Saved grid, the
- * outfit page, calendar entries and Today (R5, R6, #15) at other sizes.
+ * phone screen above the dock. The redesign's one OutfitCollage
+ * (docs/plans/2026-09-26-redesign.md, sections 3 and 5): the gallery's
+ * Ideas cards, the outfit page and Today (`card`), the Saved grid
+ * (`tile`), the garment page's "In N outfits" and the calendar (`thumb`).
  */
 
 export interface CollageGarment {
@@ -23,20 +24,32 @@ const UPPER: readonly GarmentRole[] = ['layer', 'one-piece', 'top'];
 const SIDE: readonly GarmentRole[] = ['accessory', 'bag', 'none'];
 
 /**
- * Each size's box and piece heights: `card` for a card a phone screen holds
- * whole, `thumb` for a strip of small tiles (the garment page's "In N
- * outfits", about 96 px wide).
+ * Each size's box, garment column and piece heights: `card` for a card a
+ * phone screen holds whole, `tile` for the Saved grid's two columns (about
+ * 170 px wide at 390 px: a 4:5 frame so the grid's rows line up, the
+ * garments centred in it), `thumb` for a strip of small tiles (the garment
+ * page's "In N outfits", about 96 px wide).
  */
 const SIZES = {
   card: {
     box: 'rounded-box p-3 gap-2',
+    column: '',
     upper: 'h-24',
     lower: 'h-28',
     feet: 'h-16',
     side: 'h-12',
   },
+  tile: {
+    box: 'rounded-box p-2 gap-1.5 aspect-[4/5]',
+    column: 'justify-center',
+    upper: 'h-12',
+    lower: 'h-20',
+    feet: 'h-10',
+    side: 'h-9',
+  },
   thumb: {
     box: 'rounded-field p-1.5 gap-1',
+    column: '',
     upper: 'h-8',
     lower: 'h-10',
     feet: 'h-6',
@@ -70,7 +83,11 @@ export function OutfitCollage(props: {
   );
   return (
     <div class={`bg-base-200 flex ${sizes.box}`}>
-      <div class="flex-1 flex flex-col items-center gap-1 min-w-0">
+      <div
+        class={['flex-1 flex flex-col items-center gap-1 min-w-0', sizes.column]
+          .filter(Boolean)
+          .join(' ')}
+      >
         {upper.length > 0 && (
           <div class="flex justify-center gap-1 w-full">
             {upper.map((g) => piece(g, sizes.upper))}

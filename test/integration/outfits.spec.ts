@@ -68,6 +68,14 @@ function outfitIdFrom(location: unknown): number {
   return Number(match[1]);
 }
 
+/** A Saved tile's markup, from its data-outfit-id to the next tile's. */
+function tileOf(html: string, outfitId: number): string {
+  const start = html.indexOf(`data-outfit-id="${outfitId}"`);
+  if (start === -1) throw new Error(`No tile for outfit ${outfitId}`);
+  const end = html.indexOf('data-outfit-id="', start + 1);
+  return html.slice(start, end === -1 ? undefined : end);
+}
+
 /** Garment links on the show page, in rendered order. */
 function shownGarmentIds(html: string): number[] {
   return [...html.matchAll(/href="\/wardrobe\/(\d+)"/g)].map((m) =>
@@ -328,7 +336,7 @@ describe('outfits', () => {
   });
 
   describe('GET /outfits and GET /outfits/:id', () => {
-    it('lists every outfit with its name, notes and a link to it', async () => {
+    it('lists every outfit as a tile linking to it, with no calendar form (R5)', async () => {
       const a = await createOutfit({ name: 'Office', notes: 'Mondays' }, []);
       const b = await createOutfit({ name: 'Gym' }, []);
 
@@ -338,15 +346,17 @@ describe('outfits', () => {
         [a, 'Office'],
         [b, 'Gym'],
       ] as const) {
-        expect(res.body).toContain(
-          `<a href="/outfits/${id}" class="card-title text-sm hover:underline truncate after:absolute after:inset-0">${name}</a>`,
+        expect(res.body).toMatch(
+          new RegExp(`<a href="/outfits/${id}"[^>]*data-outfit-id="${id}"`),
         );
-        // The per-card "add to calendar" form schedules this outfit.
-        expect(res.body).toContain(
-          `<input type="hidden" name="outfitId" value="${id}"/>`,
-        );
+        expect(hasText(tileOf(res.body, id), name)).toBe(true);
       }
-      expect(hasText(res.body, 'Mondays')).toBe(true);
+      // The per-card "add to calendar" dropdown is gone: Plan is the
+      // outfit page's, and the grid posts nothing without ?for=.
+      expect(res.body).not.toContain('action="/calendar"');
+      expect(res.body).not.toContain('hx-post="/calendar"');
+      // Notes are the outfit page's.
+      expect(hasText(res.body, 'Mondays')).toBe(false);
       expect(hasText(res.body, 'No outfits yet.')).toBe(false);
     });
 
@@ -420,13 +430,13 @@ describe('outfits', () => {
         expect(shownGarmentIds(res.body)).toEqual(saved);
       });
 
-      it('the list renders garments in the saved order', async () => {
+      it('the list lays the garments out top to toe, whatever the saved order', async () => {
         const res = await t.inject({ method: 'GET', url: '/outfits' });
-        const start = res.body.indexOf(`data-outfit-id="${outfitId}"`);
-        const end = res.body.indexOf('data-outfit-id="', start + 1);
-        const card = res.body.slice(start, end === -1 ? undefined : end);
-        const alts = imgTags(card).map((tag) => /alt="([^"]*)"/.exec(tag)?.[1]);
-        expect(alts).toEqual(['Order shoes', 'Order pants', 'Order top']);
+        const alts = imgTags(tileOf(res.body, outfitId)).map(
+          (tag) => /alt="([^"]*)"/.exec(tag)?.[1],
+        );
+        // The Saved tile is an OutfitCollage (R5): clothes as they lie on a bed.
+        expect(alts).toEqual(['Order top', 'Order pants', 'Order shoes']);
       });
 
       it('the calendar lays the garments out top to toe, whatever the saved order', async () => {
@@ -439,24 +449,16 @@ describe('outfits', () => {
           method: 'GET',
           url: '/calendar?week=2030-11-05',
         });
-        const photos = imgTags(res.body).map(
-          (tag) => /src="([^"]*)"/.exec(tag)?.[1],
+        // The entry is an OutfitCollage (R6): every garment of the outfit,
+        // laid out by role (top, pants, shoes) whatever order it was saved in
+        // (shoes, pants, top); the saved order is the outfit page's list.
+        const alts = imgTags(res.body).map(
+          (tag) => /alt="([^"]*)"/.exec(tag)?.[1],
         );
-        const listed = await t.inject({ method: 'GET', url: '/outfits' });
-        const start = listed.body.indexOf(`data-outfit-id="${outfitId}"`);
-        const card = listed.body.slice(
-          start,
-          listed.body.indexOf('data-outfit-id="', start + 1),
-        );
-        const inOrder = imgTags(card).map(
-          (tag) => /src="([^"]*)"/.exec(tag)?.[1],
-        );
-        // Saved shoes, pants, top; the entry's OutfitCollage (R6) stacks
-        // them by role like the clothes on a bed: top, pants, shoes.
-        expect(photos).toEqual([...inOrder].reverse());
+        expect(alts).toEqual(['Order top', 'Order pants', 'Order shoes']);
       });
 
-      it('lists outfits newest first, one statement for them all', async () => {
+      it('lists outfits newest first, one statement for them all and one for their entries', async () => {
         const load = () => t.inject({ method: 'GET', url: '/outfits' });
         const res = await load();
         const ids = [...res.body.matchAll(/data-outfit-id="(\d+)"/g)].map((m) =>
@@ -464,8 +466,9 @@ describe('outfits', () => {
         );
         expect(ids.length).toBeGreaterThan(3);
         expect(ids).toEqual([...ids].sort((a, b) => b - a));
-        // The session's user row, then every outfit with its garments.
-        expect((await recordQueries(load)).statements).toBe(2);
+        // The session's user row, every outfit with its garments, and the
+        // entries' activity (worn counts, next plans) grouped by outfit.
+        expect((await recordQueries(load)).statements).toBe(3);
       });
     });
   });

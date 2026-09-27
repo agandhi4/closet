@@ -3,10 +3,12 @@ import {
   asc,
   desc,
   eq,
+  gte,
   inArray,
   isNotNull,
   or,
   type SQL,
+  sql,
 } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
@@ -180,21 +182,42 @@ export interface WornDay {
   selfie: SelfieRef | null;
 }
 
+/** A day the outfit is planned for and not worn yet: the outfit page's "Planned". */
+export interface PlannedDay {
+  entryId: number;
+  day: IsoDate;
+  occasion: Occasion;
+}
+
 /**
- * The owner's outfit's calendar entries that were worn or have a selfie
- * (one taken and the entry unmarked later still shows), newest first: the
- * outfit page's Worn strip. Served by outfit_calendar_outfit_id_index and
- * the selfie's unique entry key.
+ * The outfit page's entries (redesign plan section 1: "an outfit is a
+ * record, not an event"; the page reads its entries rather than holding a
+ * state of its own). `worn`: the entries worn or with a selfie (one taken
+ * and the entry unmarked later still shows), newest first, the Worn strip;
+ * `planned`: the rest from `today` on, soonest first. Past entries never
+ * worn are neither: the plan passed.
  */
-export async function wornDays(
+export interface OutfitEntries {
+  worn: WornDay[];
+  planned: PlannedDay[];
+}
+
+/**
+ * The owner's outfit's entries (OutfitEntries), in one statement served by
+ * outfit_calendar_outfit_id_index and the selfie's unique entry key.
+ */
+export async function outfitEntries(
   db: Db,
   outfitId: number,
   ownerId: number,
-): Promise<WornDay[]> {
+  today: IsoDate,
+): Promise<OutfitEntries> {
   const rows = await db
     .select({
       entryId: outfitCalendar.id,
       day: outfitCalendar.day,
+      occasion: outfitCalendar.occasion,
+      wornAt: outfitCalendar.wornAt,
       selfieId: selfie.id,
       fileName: file.fileName,
       version: file.version,
@@ -206,18 +229,65 @@ export async function wornDays(
       and(
         eq(outfitCalendar.outfitId, outfitId),
         eq(outfitCalendar.ownerId, ownerId),
-        or(isNotNull(outfitCalendar.wornAt), isNotNull(selfie.id)),
+        or(
+          isNotNull(outfitCalendar.wornAt),
+          isNotNull(selfie.id),
+          gte(outfitCalendar.day, today),
+        ),
       ),
     )
     .orderBy(desc(outfitCalendar.day), desc(outfitCalendar.id));
-  return rows.map(({ entryId, day, selfieId, fileName, version }) => ({
-    entryId,
-    day,
-    selfie:
-      selfieId !== null && fileName !== null && version !== null
-        ? { id: selfieId, photo: { fileName, version } }
-        : null,
-  }));
+  const entries: OutfitEntries = { worn: [], planned: [] };
+  for (const row of rows) {
+    const { entryId, day, selfieId, fileName, version } = row;
+    if (row.wornAt === null && selfieId === null) {
+      entries.planned.unshift({ entryId, day, occasion: row.occasion });
+      continue;
+    }
+    entries.worn.push({
+      entryId,
+      day,
+      selfie:
+        selfieId !== null && fileName !== null && version !== null
+          ? { id: selfieId, photo: { fileName, version } }
+          : null,
+    });
+  }
+  return entries;
+}
+
+/**
+ * What the Saved grid says under an outfit (redesign plan, "Outfits"):
+ * how often it was worn and the next day it is planned for.
+ */
+export interface OutfitActivity {
+  wornCount: number;
+  /** The soonest entry from `today` on not worn yet; null when none. */
+  nextPlanned: IsoDate | null;
+}
+
+/**
+ * Every outfit of the owner's that has a calendar entry, with its
+ * OutfitActivity: one grouped statement over the owner's entries (served
+ * by outfit_calendar_owner_id_day_outfit_id_unique). An outfit never
+ * planned is absent. Depends on the day, never the hour, so the Saved tab
+ * (a stale-while-revalidate tab root) stays byte-stable within a day.
+ */
+export async function outfitActivity(
+  db: Db,
+  ownerId: number,
+  today: IsoDate,
+): Promise<Map<number, OutfitActivity>> {
+  const rows = await db
+    .select({
+      outfitId: outfitCalendar.outfitId,
+      wornCount: sql<number>`(count(*) filter (where ${outfitCalendar.wornAt} is not null))::int`,
+      nextPlanned: sql<IsoDate | null>`(min(${outfitCalendar.day}) filter (where ${outfitCalendar.wornAt} is null and ${outfitCalendar.day} >= ${today}))::text`,
+    })
+    .from(outfitCalendar)
+    .where(eq(outfitCalendar.ownerId, ownerId))
+    .groupBy(outfitCalendar.outfitId);
+  return new Map(rows.map(({ outfitId, ...activity }) => [outfitId, activity]));
 }
 
 /** The edit form's fields, or undefined when the outfit is not the owner's. */

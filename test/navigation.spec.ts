@@ -54,10 +54,9 @@ test('tapping an outfit card opens the outfit without a reload', async ({
   await page.goto('/outfits');
   await markDocument(page);
 
-  // Anywhere on the card, not only the name: here, its thumbnails row.
+  // Anywhere on the tile, not only the name: here, its collage.
   const card = page.locator(`[data-outfit-id="${outfit}"]`);
-  const box = (await card.boundingBox())!;
-  await card.click({ position: { x: 30, y: box.height - 20 } });
+  await card.click({ position: { x: 30, y: 30 } });
 
   await expect(page).toHaveURL(new RegExp(`/outfits/${outfit}$`));
   await expect(

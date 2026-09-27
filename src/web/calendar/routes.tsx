@@ -5,7 +5,7 @@ import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
-import { parseDestination } from '../outfits/destination';
+import { type DayDestination, parseDestination } from '../outfits/destination';
 import { listOutfits } from '../outfits/queries';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
@@ -30,6 +30,7 @@ import {
 } from './calendar-view';
 import { MonthPage } from './month-page';
 import { PlanPage } from './plan-page';
+import { dayChoice } from './day-choice';
 import { findEntries, type Scheduled, scheduleOutfit } from './queries';
 import {
   isRefused,
@@ -233,7 +234,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // Plan one more outfit on a day: the occasion, then build one or pick a
-  // saved one (the "+ Plan" sheet's "Pick a saved outfit", and Change).
+  // saved one (Change, #69; the "+ Plan" sheet picks saved ones on /outfits).
   app.get(
     CALENDAR_PLAN_PATH,
     {
@@ -248,10 +249,11 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const parsed = parseDestination(request.query);
-      const destination =
+      const destination: DayDestination =
         parsed.kind === 'day'
           ? parsed
           : {
+              kind: 'day',
               day: todayIn(config.timeZone, new Date()),
               occasion: DEFAULT_OCCASION,
             };
@@ -260,21 +262,13 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           `GET /calendar/plan: no day in ${JSON.stringify(request.query.for)}, planning today`,
         );
       }
-      const [outfits, entries] = await Promise.all([
+      const [outfits, choice] = await Promise.all([
         listOutfits(db, ownerId),
-        findEntries(db, ownerId, destination.day, destination.day),
+        dayChoice(db, ownerId, destination),
       ]);
-      // Changing an entry (#69): it must be the owner's, on the day and for
-      // the occasion; otherwise the page plans one more (navigation state,
-      // never a 404), and the write checks again.
-      const replace = parsed.kind === 'day' ? parsed.replace : undefined;
-      const replacing = entries.find(
-        (entry) =>
-          entry.id === replace && entry.occasion === destination.occasion,
-      );
-      if (replace !== undefined && !replacing) {
+      if (destination.replace !== undefined && !choice.replacing) {
         logger.debug(
-          `GET /calendar/plan: entry ${replace} is not user ${ownerId}'s on ${destination.day} (${destination.occasion}), planning another`,
+          `GET /calendar/plan: entry ${destination.replace} is not user ${ownerId}'s on ${destination.day} (${destination.occasion}), planning another`,
         );
       }
       return renderPage(
@@ -285,24 +279,19 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             day: destination.day,
             occasion: destination.occasion,
             outfits,
-            planned: new Map(
-              entries.map((entry) => [entry.outfit.id, entry.occasion]),
-            ),
-            replacing: replacing && {
-              entryId: replacing.id,
-              outfitName: replacing.outfit.name,
-              worn: replacing.worn,
-            },
+            ...choice,
           }}
         />,
       );
     },
   );
 
-  // From the plan page (a native post, 302 back to the week), the outfit
-  // list's "Add to Calendar" dropdown (htmx, 204). With `replace` (the plan
-  // page opened to change an entry, #69) the outfit takes that entry's
-  // place instead of joining the day: replaceEntryOutfit.
+  // A native post, 302 to the day's week: the plan page's and the Saved
+  // tab's pick (?for=day:), and the outfit page's Plan sheet. With `replace`
+  // (changing an entry, #69) the outfit takes that entry's place instead of
+  // joining the day: replaceEntryOutfit. The outfit list's htmx dropdown
+  // (answered 204) went with R5; a page cached before it still posts here
+  // and its request follows the redirect, which it does not swap.
   app.post(
     CALENDAR_PATH,
     {
@@ -327,9 +316,6 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         });
         logger.info(replaceMessage(ownerId, target, replaced));
         if (isRefused(replaced)) throw replaceRefusal(replaced);
-        if (request.headers['hx-request'] === 'true') {
-          return reply.status(204).send();
-        }
         return reply.redirect(weekUrl(week ?? date), 302);
       }
       const scheduled = await scheduleOutfit(db, {
@@ -344,9 +330,6 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         scheduleMessage(ownerId, { outfitId, day: date, occasion }, scheduled),
       );
-      if (request.headers['hx-request'] === 'true') {
-        return reply.status(204).send();
-      }
       return reply.redirect(weekUrl(week ?? date), 302);
     },
   );

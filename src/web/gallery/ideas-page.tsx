@@ -12,10 +12,10 @@ import { Layout } from '../layout/layout';
 import { BackLink, EmptyState } from '../layout/parts';
 import { OutfitCollage } from '../outfits/collage';
 import {
-  destinationQuery,
   destinationTarget,
   type OutfitDestination,
 } from '../outfits/destination';
+import { DayDestinationLine } from '../outfits/day-destination';
 import { OutfitTabs } from '../outfits/outfit-tabs';
 import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
@@ -69,7 +69,12 @@ export function IdeasPage(props: { ctx: ViewContext; model: IdeasPageModel }) {
         }
       />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-3">
-        <OutfitTabs active="ideas" />
+        <OutfitTabs
+          active="ideas"
+          destination={
+            state.destination.kind === 'day' ? state.destination : undefined
+          }
+        />
         <Scope model={model} />
         {cards.weather && <WeatherNote weather={cards.weather} />}
         <p
@@ -129,17 +134,7 @@ function Scope({ model }: { model: IdeasPageModel }) {
         </div>
       )}
       {destination.kind === 'day' && (
-        <div class="flex items-center gap-2">
-          <BackLink href={`/calendar/plan?${destinationQuery(destination)}`} />
-          <p class="text-sm">
-            <span class="font-medium">
-              {destination.replace === undefined
-                ? t('gallery.FOR_DAY', { day: dayLabel(planning.day) })
-                : t('changeEntry.FOR_DAY', { day: dayLabel(planning.day) })}
-            </span>{' '}
-            · {occasionLabel(planning.occasion)}
-          </p>
-        </div>
+        <DayDestinationLine destination={destination} />
       )}
       <div class="flex flex-wrap items-center gap-2">
         {capsules.length > 0 && (

@@ -68,7 +68,6 @@
   "NO_GARMENTS": "No garments yet.",
   "ADD_FIRST_GARMENT": "Add your first garment",
   "NEW_OUTFIT": "New Outfit",
-  "EDIT_OUTFIT": "Edit Outfit",
   "NO_OUTFITS": "No outfits yet.",
   "ADD_FIRST_OUTFIT": "Build your first outfit",
   "GARMENTS_IN_OUTFIT": "Garments in this outfit",
@@ -172,8 +171,6 @@
   "BACK": "Back",
   "OUTFIT_NO_GARMENTS": "No garments added yet.",
   "ADD_TO_CALENDAR": "Add to Calendar",
-  "CALENDAR_ADD_OUTFIT_PROMPT": "Add outfit to Calendar?",
-  "CALENDAR_OUTFIT_ADDED": "Outfit added to calendar!",
   "CALENDAR_PLAN": "Plan",
   "CALENDAR_ANOTHER_OUTFIT": "Another outfit",
   "CALENDAR_PLAN_TITLE": "Plan an outfit",
@@ -901,6 +898,18 @@
     "ALREADY_SAVED": "Already saved: this outfit was picked before.",
     "FOR_TRIP": "For {name}",
     "PICK_TRIP": "Add to the trip"
+  },
+  "outfits": {
+    "PLANNED_ON": "Planned {day}",
+    "WORN_TIMES": "Worn {count}×",
+    "PICK_PROMPT": "Tap an outfit to plan it.",
+    "OFFLINE_PICK": "Offline: planning an outfit needs a connection.",
+    "EDIT": "Edit in Styling",
+    "PLAN": "Plan",
+    "PLAN_TITLE": "Plan this outfit",
+    "PLAN_DAY": "Day",
+    "PLAN_SUBMIT": "Plan it",
+    "PLANNED_HEADING": "Planned"
   },
   "insights": {
     "TITLE": "Insights",

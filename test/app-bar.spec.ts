@@ -143,11 +143,11 @@ test('nothing scrolled under the bar draws over it', async ({ page }) => {
     await createOutfit(page, `Under outfit ${i + 1}`, garments[i]);
   }
 
-  // The positioned content that could reach the bar: the outfit card's
-  // calendar button (relative z-10), the grid's tiles, select mode's
-  // checkboxes (absolute z-10), Profile's sections.
+  // The positioned content that could reach the bar: the Saved grid's
+  // tiles, the wardrobe grid's tiles, select mode's checkboxes (absolute
+  // z-10), Profile's sections.
   const pages: [path: string, content: string][] = [
-    ['/outfits', '[data-outfit-id]:nth-of-type(3) .dropdown'],
+    ['/outfits', '#saved-outfits > li:nth-of-type(3)'],
     ['/wardrobe', '#wardrobe-grid > a:nth-of-type(6)'],
     [
       '/wardrobe?select=1',

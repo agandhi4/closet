@@ -54,27 +54,28 @@ test('the filter modal applies and clears filters, keeping the keyword', async (
   expect(errors).toEqual([]);
 });
 
-test('scheduling from an outfit card closes the dropdown and shows the toast', async ({
+test('the outfit page plans the outfit from its sheet and lands on that week', async ({
   page,
 }) => {
   const errors = collectErrors(page);
-  await signIn(page, 'client-schedule');
-  const garment = await createGarment(page, 'Toast tee', 'tops');
+  await signIn(page, 'client-plan-sheet');
+  const garment = await createGarment(page, 'Sheet tee', 'tops');
   const res = await page.request.post('/outfits', {
-    form: { name: 'Toast outfit', category: 'tops', garmentId: `${garment}` },
+    form: { name: 'Sheet outfit', category: 'tops', garmentId: `${garment}` },
     headers: SAME_ORIGIN,
   });
   expect(res.ok()).toBe(true);
-  await page.goto('/outfits');
+  await page.goto(res.url());
 
-  await page.getByTitle('Add to Calendar').click();
-  const form = page.locator('form[data-schedule]');
-  await form.locator('input[name="date"]').fill('2030-10-10');
-  await form.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  const sheet = page.locator('#outfit-plan-sheet');
+  await expect(sheet).toBeVisible();
+  await sheet.locator('input[name="date"]').fill('2030-10-10');
+  await sheet.getByRole('radio', { name: 'Evening' }).check();
+  await sheet.getByRole('button', { name: 'Plan it' }).click();
 
-  await expect(page.locator('#calendar-toast')).toBeVisible();
-  await expect(form.locator('input[name="date"]')).toHaveValue('');
-  await expect(page.locator('#calendar-toast')).toBeHidden({ timeout: 5000 });
+  await expect(page).toHaveURL(/\/calendar\?week=2030-10-10/);
+  await expect(page.getByText('Sheet outfit').first()).toBeVisible();
   expect(errors).toEqual([]);
 });
 

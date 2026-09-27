@@ -10,22 +10,16 @@ import { SavedOutfitButton } from '../outfits/saved-outfit-button';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import type { IsoDate } from './calendar-date';
+import { type DayChoice, plannedNote } from './day-choice';
 import { dayLabel, occasionLabel } from './labels';
 import { dayUrl, planPageUrl } from './urls';
 
-export interface PlanModel {
+/** The day's DayChoice (what is on it, the entry `replace` names). */
+export interface PlanModel extends DayChoice {
   day: IsoDate;
   occasion: Occasion;
   /** Every outfit of the owner's, newest first. */
   outfits: OutfitSummary[];
-  /** The outfits already on the day, with their occasion: an outfit is on a day once. */
-  planned: Map<number, Occasion>;
-  /**
-   * `?replace=`: the entry of this day and occasion whose outfit a choice
-   * takes the place of (#69). A worn one cannot change: the page plans
-   * another outfit beside it and says why.
-   */
-  replacing?: { entryId: number; outfitName: string | null; worn: boolean };
 }
 
 /**
@@ -35,7 +29,8 @@ export interface PlanModel {
  * (the gallery's Ideas with the same `?for=`, #9), style a new one
  * (Styling with the same `?for=`, #42) or pick a saved one (POST
  * /calendar). The week's "+ Plan" sheet (plan-sheet.tsx, R6) offers the
- * same three ways and sends "Pick a saved outfit" here with its occasion.
+ * same three ways; its "Pick a saved outfit" is the Saved tab with `?for=`
+ * (R5). This page is Change's (#69) and the links cached before R6.
  *
  * Opened to change an entry (`&replace=`, the calendar row's Change, #69),
  * it is "Change outfit": the occasion is the entry's (no chips), and ideas,
@@ -95,7 +90,7 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
               {model.outfits.map((outfit) => (
                 <SavedOutfitButton
                   outfit={outfit}
-                  note={plannedNote(model.planned.get(outfit.id))}
+                  note={plannedNote(model, outfit.id)}
                 />
               ))}
             </PostForm>
@@ -171,15 +166,5 @@ function OccasionChips(props: { day: IsoDate; chosen: Occasion }) {
         })}
       </ul>
     </nav>
-  );
-}
-
-/**
- * An outfit already on the day is disabled, saying for which occasion: the
- * same outfit is on a day once (outfit_calendar's unique key).
- */
-function plannedNote(plannedFor: Occasion | undefined): string | undefined {
-  return (
-    plannedFor && `${t('CALENDAR_PLAN_ON_DAY')} · ${occasionLabel(plannedFor)}`
   );
 }

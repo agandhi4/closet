@@ -100,8 +100,18 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
   );
   await shot(page, '05-demo-select', '/wardrobe?select=1');
   await shot(page, '06-demo-outfits', '/outfits');
-  await page.locator('#outfit-cards a[href^="/outfits/"]').first().click();
+  await page.locator('#saved-outfits a[href^="/outfits/"]').first().click();
   await shot(page, '07-demo-outfit');
+  // The outfit page's Plan sheet, and the Saved tab picking for a day as
+  // the calendar's "Pick a saved outfit" opens it (R5).
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  await expect(page.locator('#outfit-plan-sheet')).toBeVisible();
+  await shot(page, '73-demo-outfit-plan-sheet');
+  await shot(
+    page,
+    '74-demo-saved-for-day',
+    '/outfits?for=day:2026-09-29&occasion=evening',
+  );
   // Styling (#42) replaced the outfit builder: the fresh stack, then its
   // Save sheet.
   await page.goto('/styling');
@@ -176,6 +186,9 @@ test.describe('dark', () => {
     await shot(page, '03-demo-garment-dark');
     await openPhotoSheet(page);
     await shot(page, '03b-demo-garment-photo-sheet-dark');
+    await shot(page, '06-demo-outfits-dark', '/outfits');
+    await page.locator('#saved-outfits a[href^="/outfits/"]').first().click();
+    await shot(page, '07-demo-outfit-dark');
     await page.goto('/styling');
     await expect(page.locator('[data-styling-row]').first()).toBeVisible();
     await shot(page, '08-demo-styling-dark');

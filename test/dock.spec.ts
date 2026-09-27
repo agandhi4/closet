@@ -206,12 +206,12 @@ test('nothing on a page draws over the dock', async ({ page }) => {
   const capsule = await createCapsule(page, 'Stack capsule');
 
   // Each page with the positioned content that can reach the dock: the
-  // outfit card's calendar button (relative z-10), the calendar row's
-  // delete form, select mode's and the capsule picker's
-  // checkboxes (absolute z-10) under their bar above the dock, the grid
-  // under the search and filter bar, the garment page's controls.
+  // Saved grid's tiles, the calendar row's delete form, select mode's and
+  // the capsule picker's checkboxes (absolute z-10) under their bar above
+  // the dock, the grid under the search and filter bar, the garment page's
+  // controls.
   const pages: [path: string, content: string][] = [
-    ['/outfits', '[data-outfit-id] .dropdown'],
+    ['/outfits', '#saved-outfits > li'],
     [`/calendar?week=${WEEK[0]}`, 'form[hx-confirm]'],
     ['/wardrobe', '#wardrobe-grid > a'],
     ['/wardrobe?select=1', '#wardrobe-grid input[type="checkbox"]'],
@@ -227,31 +227,6 @@ test('nothing on a page draws over the dock', async ({ page }) => {
     await scrollToBottom(page);
     await expectDockOnTop(page, `${path}, scrolled to the bottom`);
   }
-
-  // A card's calendar button just above the dock, its dropdown opened: the
-  // dropdown reaches down over the dock and stays under it.
-  await page.goto('/outfits');
-  const opened = await page.evaluate(() => {
-    const dockTop = document
-      .querySelector('.dock')!
-      .getBoundingClientRect().top;
-    const labels = document.querySelectorAll<HTMLElement>(
-      '[data-outfit-id] .dropdown > label',
-    );
-    for (const label of labels) {
-      const bottom = label.getBoundingClientRect().bottom + window.scrollY;
-      if (bottom < dockTop) continue;
-      window.scrollTo({ top: bottom - dockTop + 8, behavior: 'instant' });
-      label.focus();
-      return true;
-    }
-    return false;
-  });
-  expect(opened, 'a calendar button below the fold').toBe(true);
-  await expect(
-    page.locator('.dropdown:focus-within .dropdown-content'),
-  ).toBeVisible();
-  await expectDockOnTop(page, '/outfits, a calendar dropdown open over it');
 
   // Toasts stand above the dock, never on it. An inline module, as the
   // pages import toast.js: through the importmap (layout.tsx).

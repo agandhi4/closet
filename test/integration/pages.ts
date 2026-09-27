@@ -205,6 +205,7 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app(`/capsules/${f.capsuleId}`),
     app(`/capsules/${f.capsuleId}/edit`),
     app('/outfits'),
+    app('/outfits?for=day:2030-10-09&occasion=evening'),
     app('/styling'),
     app(`/styling?capsule=${f.capsuleId}`),
     app(`/styling?with=${f.garmentId}`),

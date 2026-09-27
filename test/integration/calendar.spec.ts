@@ -65,18 +65,14 @@ describe('calendar', () => {
     return Number(/^\/outfits\/(\d+)$/.exec(String(res.headers.location))![1]);
   };
 
-  /** POST /calendar as the list page's dropdown form sends it (htmx). */
+  /** POST /calendar as the outfit page's Plan sheet sends it (a native post). */
   const schedule = async (outfitId: number, date: string) => {
     const res = await t.inject({
       method: 'POST',
       url: '/calendar',
       ...form({ outfitId: String(outfitId), date }),
-      headers: {
-        ...form({}).headers,
-        'hx-request': 'true',
-      },
     });
-    expect(res.statusCode).toBe(204);
+    expect(res.statusCode).toBe(302);
     const [entry] = await t.db
       .select({ id: outfitCalendar.id })
       .from(outfitCalendar)
@@ -298,7 +294,7 @@ describe('calendar', () => {
       );
       expect(
         [...wednesday.matchAll(/formaction="([^"]+)"/g)].map((m) => m[1]),
-      ).toEqual(['/outfits/ideas', '/calendar/plan', '/styling']);
+      ).toEqual(['/outfits/ideas', '/outfits', '/styling']);
       // The day's button names the radio it checks before opening the sheet.
       expect(dayColumns(html).get('2030-10-09')).toMatch(
         /data-plan="plan-2030-10-09-all-day" data-day-plan="2030-10-09"/,
@@ -533,22 +529,14 @@ describe('calendar', () => {
 
     it('is idempotent: scheduling the same outfit on the same day twice answers the same and keeps one entry', async () => {
       const outfit = await createOutfit('Scheduled twice');
-      for (const htmx of [true, false]) {
-        for (let i = 0; i < 2; i++) {
-          const res = await t.inject({
-            method: 'POST',
-            url: '/calendar',
-            ...form({ outfitId: String(outfit), date: '2030-10-10' }),
-            headers: {
-              ...form({}).headers,
-              ...(htmx ? { 'hx-request': 'true' } : {}),
-            },
-          });
-          expect(res.statusCode).toBe(htmx ? 204 : 302);
-          if (!htmx) {
-            expect(res.headers.location).toBe('/calendar?week=2030-10-10');
-          }
-        }
+      for (let i = 0; i < 2; i++) {
+        const res = await t.inject({
+          method: 'POST',
+          url: '/calendar',
+          ...form({ outfitId: String(outfit), date: '2030-10-10' }),
+        });
+        expect(res.statusCode).toBe(302);
+        expect(res.headers.location).toBe('/calendar?week=2030-10-10');
       }
       expect((await entriesOf(outfit)).map((entry) => entry.day)).toEqual([
         '2030-10-10',

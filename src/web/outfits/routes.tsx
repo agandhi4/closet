@@ -1,7 +1,8 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { type Static, Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
-import { parseIsoDate } from '../calendar/calendar-date';
+import { parseIsoDate, todayIn } from '../calendar/calendar-date';
+import { dayChoice, pickDestination } from '../calendar/day-choice';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderPage } from '../render';
@@ -20,8 +21,9 @@ import {
   OUTFIT_NOTES_MAX,
   type OutfitInput,
   type SaveResult,
+  outfitActivity,
+  outfitEntries,
   updateOutfit,
-  wornDays,
 } from './queries';
 import { OutfitPage } from './show-page';
 
@@ -38,6 +40,10 @@ import { OutfitPage } from './show-page';
  *   the write stores: anything malformed is a 400 and writes nothing. An
  *   empty date input posts '' (no schedule); no occasion (a form cached
  *   before #13) is all day.
+ * - GET /outfits reads ?for=, ?occasion= and ?replace= as navigation state
+ *   (parseDestination, as the plan page does): no day is the plain grid, an
+ *   unknown occasion all day, and a `replace` that is not the user's
+ *   unworn entry there picks one more outfit. POST /calendar checks again.
  */
 
 const OutfitParams = Type.Object({ id: RowId });
@@ -61,6 +67,15 @@ const BuilderLinkQuery = Type.Object({
   scheduleDate: Type.Optional(Type.String()),
   returnToWeek: Type.Optional(Type.String()),
   capsule: Type.Optional(Type.String()),
+});
+
+// The Saved tab picking for a day (`?for=day:D&occasion=O[&replace=E]`,
+// R5): navigation state, read by parseDestination (anything malformed is
+// the plain grid, a trip too: trips add outfits on their own page).
+const DestinationQuery = Type.Object({
+  for: Type.Optional(Type.String()),
+  occasion: Type.Optional(Type.String()),
+  replace: Type.Optional(Type.String()),
 });
 
 // The gallery's pick lands here with `alreadySaved=1` when the outfit
@@ -185,16 +200,48 @@ function outfitNotFound(): HttpError {
  */
 export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
-  { db, logger },
+  { config, db, logger },
   done,
 ) => {
-  app.get('/outfits', async (request, reply) => {
-    const outfits = await listOutfits(db, sessionUserId(request));
-    return renderPage(
-      reply,
-      <OutfitsPage ctx={viewContext(reply)} outfits={outfits} />,
-    );
-  });
+  app.get(
+    '/outfits',
+    { schema: { querystring: DestinationQuery } },
+    async (request, reply) => {
+      const ownerId = sessionUserId(request);
+      const today = todayIn(config.timeZone, new Date());
+      const destination = parseDestination(request.query);
+      if (destination.kind === 'trip') {
+        logger.debug(
+          `GET /outfits: a trip is not picked for here (user ${ownerId}), showing Saved`,
+        );
+      }
+      const day = destination.kind === 'day' ? destination : undefined;
+      const [outfits, activity, choice] = await Promise.all([
+        listOutfits(db, ownerId),
+        outfitActivity(db, ownerId, today),
+        day && dayChoice(db, ownerId, day),
+      ]);
+      if (day?.replace !== undefined && !choice?.replacing) {
+        logger.debug(
+          `GET /outfits: entry ${day.replace} is not user ${ownerId}'s on ${day.day} (${day.occasion}), picking another`,
+        );
+      }
+      return renderPage(
+        reply,
+        <OutfitsPage
+          ctx={viewContext(reply)}
+          model={{
+            outfits,
+            activity,
+            picking:
+              day && choice
+                ? { destination: pickDestination(day, choice), choice }
+                : undefined,
+          }}
+        />,
+      );
+    },
+  );
 
   // The builder became Styling (#42): its links (the manifest's and
   // pages the installed app cached, the calendar's, a capsule's) land there
@@ -225,9 +272,10 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const { id } = request.params;
-      const [outfit, worn] = await Promise.all([
+      const today = todayIn(config.timeZone, new Date());
+      const [outfit, entries] = await Promise.all([
         findOutfit(db, id, ownerId),
-        wornDays(db, id, ownerId),
+        outfitEntries(db, id, ownerId, today),
       ]);
       if (!outfit) throw outfitNotFound();
       return renderPage(
@@ -235,7 +283,8 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         <OutfitPage
           ctx={viewContext(reply)}
           outfit={outfit}
-          worn={worn}
+          entries={entries}
+          today={today}
           alreadySaved={request.query.alreadySaved === '1'}
         />,
       );
