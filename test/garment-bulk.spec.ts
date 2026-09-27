@@ -28,10 +28,16 @@ test('select two tees, set them warm, and land back on the grid', async ({
     expect(res.ok()).toBe(true);
   }
 
+  // Select is in the header's ⋯ menu (R3); select mode is a task with its
+  // own bar.
   await page.goto('/wardrobe');
-  await page.getByRole('link', { name: 'Select', exact: true }).click();
+  await page.locator('#wardrobe-menu summary').click();
+  await page
+    .locator('#wardrobe-menu')
+    .getByRole('link', { name: 'Select', exact: true })
+    .click();
   await expect(
-    page.getByRole('heading', { name: 'Select garments' }),
+    page.getByRole('heading', { level: 1, name: 'Select garments' }),
   ).toBeVisible();
 
   await page.getByRole('checkbox', { name: 'Tee one' }).check();
@@ -57,6 +63,6 @@ test('select two tees, set them warm, and land back on the grid', async ({
   await expect(page).not.toHaveURL(/bulkUpdated/);
   // Out of select mode: tiles are links again, filtering by warmth finds both.
   await page.goto('/wardrobe?warmth=4');
-  await expect(page.locator('#wardrobe-grid > a.card')).toHaveCount(2);
+  await expect(page.locator('#wardrobe-grid > a')).toHaveCount(2);
   expect(errors).toEqual([]);
 });

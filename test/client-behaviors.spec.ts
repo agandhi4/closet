@@ -29,11 +29,13 @@ test('the filter modal applies and clears filters, keeping the keyword', async (
   await createGarment(page, 'Blue tee', 'tops', { color: 'blue' });
   await createGarment(page, 'Red scarf', 'scarves', { color: 'red' });
   await page.goto('/wardrobe');
-  const tiles = page.locator('#wardrobe-grid > a.card');
+  const tiles = page.locator('#wardrobe-grid > a');
   await expect(tiles).toHaveCount(3);
 
+  // Search is its icon until tapped (the scope row, R3); typed, not yet sent.
+  await page.locator('#search-form label').click();
   await page.getByRole('textbox', { name: 'Search' }).fill('tee');
-  await page.getByRole('button', { name: 'Filter Search' }).click();
+  await page.getByRole('button', { name: 'Filters' }).click();
   const modal = page.locator('#filter-modal');
   await expect(modal).toBeVisible();
   await modal.getByText('red', { exact: true }).click();
@@ -45,7 +47,7 @@ test('the filter modal applies and clears filters, keeping the keyword', async (
   await expect(tiles.first()).toContainText('Red tee');
   await expect(modal).toBeHidden();
 
-  await page.getByRole('button', { name: 'Filter Search' }).click();
+  await page.getByRole('button', { name: 'Filters' }).click();
   await modal.getByRole('button', { name: 'Clear Filters' }).click();
   await expect(page).not.toHaveURL(/color=/);
   await expect(tiles).toHaveCount(2);

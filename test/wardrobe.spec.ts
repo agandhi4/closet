@@ -26,9 +26,9 @@ test('scrolling the grid loads the next page into it', async ({ page }) => {
   }
 
   await page.goto('/wardrobe');
-  const tiles = page.locator('#wardrobe-grid > a.card');
+  const tiles = page.locator('#wardrobe-grid > a');
   await expect(tiles).toHaveCount(PAGE);
-  await expect(page.getByText(`${TOTAL} results`)).toBeVisible();
+  await expect(page.locator('#scope-row')).toContainText(`${TOTAL} results`);
   // Newest first.
   await expect(tiles.first()).toContainText(`Scroll ${TOTAL}`);
 

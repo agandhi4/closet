@@ -5,6 +5,7 @@ import {
   type CutoutState,
   type CutoutStatus,
   initialCutoutState,
+  showsCutout,
   transition,
 } from './state';
 
@@ -333,5 +334,12 @@ describe('initialCutoutState', () => {
       cutoutJobVersion: null,
       cutoutRequestedAt: null,
     });
+  });
+});
+
+describe('showsCutout', () => {
+  it('is the cut-out statuses, never the photo as taken', () => {
+    const shown = CUTOUT_STATUSES.filter(showsCutout);
+    expect(shown).toEqual(['none', 'ready', 'edited']);
   });
 });

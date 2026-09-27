@@ -31,8 +31,8 @@ describe('wardrobe grid', () => {
 
   /** Garment ids of the tiles, in page order. */
   const tileIds = (html: string) =>
-    [...html.matchAll(/<a href="\/wardrobe\/(\d+)" class="card/g)].map((m) =>
-      Number(m[1]),
+    [...html.matchAll(/<a href="\/wardrobe\/(\d+)"[^>]*data-tile=""/g)].map(
+      (m) => Number(m[1]),
     );
 
   const sentinelUrl = (html: string) =>

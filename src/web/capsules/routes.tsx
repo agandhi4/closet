@@ -8,6 +8,7 @@ import { navigateTo, renderFragment, renderPage } from '../render';
 import {
   type AuthorizedWardrobe,
   authorizeWardrobe,
+  sharedWardrobesOf,
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
@@ -133,15 +134,23 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'view',
       );
-      const [closet, capsules] = await Promise.all([
+      const [closet, capsules, sharedWardrobes] = await Promise.all([
         closetCard(db, access.ownerId),
         listCapsules(db, access.ownerId),
+        sharedWardrobesOf(db, sessionUserId(request)),
       ]);
       return renderPage(
         reply,
         <CapsulesPage
           ctx={viewContext(reply)}
-          model={{ closet, capsules, viewOwner, isOwner: access.isOwner }}
+          model={{
+            closet,
+            capsules,
+            viewOwner,
+            sharedWardrobes,
+            canEdit: access.canManage,
+            isOwner: access.isOwner,
+          }}
         />,
       );
     },

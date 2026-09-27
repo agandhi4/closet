@@ -188,8 +188,9 @@ async function scrollToBottom(page: Page): Promise<void> {
 
 test('nothing on a page draws over the dock', async ({ page }) => {
   await signIn(page, 'dock-overlap');
+  // Three tiles a row (R3's grid): six rows run the grid past the fold.
   const garments: number[] = [];
-  for (let i = 1; i <= 12; i++) {
+  for (let i = 1; i <= 18; i++) {
     garments.push(await createGarment(page, `Stack tee ${i}`));
   }
   // One outfit a day of WEEK (a chip, with its delete form, per day) and a

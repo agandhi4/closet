@@ -21,7 +21,8 @@ import { file, garment } from '../../db/schema';
 import type { AwayReason } from '../../wardrobe/availability';
 import type { EntryStatus, GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
-import type { ImageRef } from '../files/image-url';
+import type { ImageRef, PlinthPhoto } from '../files/image-url';
+import { PLINTH_PHOTO_COLUMNS, plinthPhoto } from '../files/queries';
 import { dirtyCopiesSql, needsWash } from '../wears/queries';
 import { compareSizes } from './garment';
 import { type GarmentScope, inCloset, inScope, ownedGarment } from './status';
@@ -93,7 +94,7 @@ export interface GarmentTile {
   name: string | null;
   category: string;
   status: GarmentStatus;
-  photo: ImageRef | null;
+  photo: PlinthPhoto | null;
   /** The "x3" badge. */
   quantity: number;
   condition: Condition;
@@ -163,7 +164,7 @@ const tileColumns = {
   name: garment.name,
   category: garment.category,
   status: garment.status,
-  photo: { fileName: file.fileName, version: file.version },
+  photo: PLINTH_PHOTO_COLUMNS,
   quantity: garment.quantity,
   condition: garment.condition,
 };
@@ -201,9 +202,10 @@ export async function gridPage(
     .limit(GRID_PAGE_SIZE + 1);
   const tiles = rows
     .slice(0, GRID_PAGE_SIZE)
-    .map(({ dirty, away, ...tile }) =>
-      ownerView ? { ...tile, care: { dirty, away } } : tile,
-    );
+    .map(({ dirty, away, photo, ...row }) => {
+      const tile = { ...row, photo: plinthPhoto(photo) };
+      return ownerView ? { ...tile, care: { dirty, away } } : tile;
+    });
   return {
     tiles,
     before: rows.length > GRID_PAGE_SIZE ? tiles.at(-1)!.id : undefined,

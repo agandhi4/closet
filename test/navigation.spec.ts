@@ -88,7 +88,7 @@ test('tapping a calendar chip opens the outfit in Styling without a reload', asy
   await expectSameDocument(page);
 });
 
-test('switching to a shared wardrobe swaps the grid in place', async ({
+test('switching to a shared wardrobe from the title is a boosted swap', async ({
   page,
   browser,
 }) => {
@@ -114,11 +114,18 @@ test('switching to a shared wardrobe swaps the grid in place', async ({
 
   await grantee.goto('/wardrobe');
   await markDocument(grantee);
-  const switcher = grantee.getByRole('combobox', { name: 'My Wardrobe' });
-  await switcher.selectOption({ index: 1 });
+  // The switcher is the title's menu (R3, #83).
+  await grantee.locator('#title-menu summary').click();
+  await grantee
+    .locator('#title-menu')
+    .getByRole('link', { name: /Can edit|View only/ })
+    .click();
 
   await expect(grantee).toHaveURL(/\/wardrobe\?ownerId=\d+$/);
   await expect(grantee.getByText('Shared coat')).toBeVisible();
+  await expect(
+    grantee.getByRole('heading', { level: 1, name: /’s wardrobe$/ }),
+  ).toBeVisible();
   await expectSameDocument(grantee);
   await granteeContext.close();
 });
@@ -141,7 +148,7 @@ test.describe('tap feedback', () => {
       await route.continue();
     });
 
-    const card = page.locator(`#wardrobe-grid a.card[href="/wardrobe/${id}"]`);
+    const card = page.locator(`#wardrobe-grid a[href="/wardrobe/${id}"]`);
     await card.click();
     await expect(card).toHaveClass(/\bhtmx-request\b/);
     await expect(page.locator('#loading')).toHaveClass(/\bhtmx-request\b/);

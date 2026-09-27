@@ -11,6 +11,7 @@ import { renderPage } from '../render';
 import {
   type AuthorizedWardrobe,
   authorizeWardrobe,
+  sharedWardrobesOf,
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
@@ -192,7 +193,10 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'view',
       );
-      const items = await wishlistItems(db, access.ownerId);
+      const [items, sharedWardrobes] = await Promise.all([
+        wishlistItems(db, access.ownerId),
+        sharedWardrobesOf(db, sessionUserId(request)),
+      ]);
       const candidacies = access.isOwner
         ? await candidaciesByGarment(
             db,
@@ -207,6 +211,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           model={{
             items,
             viewOwner,
+            sharedWardrobes,
             canEdit: access.canManage,
             candidacies,
           }}

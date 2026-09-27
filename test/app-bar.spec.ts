@@ -134,8 +134,9 @@ test('every section carries the bar with its own title, fitting the phone', asyn
 
 test('nothing scrolled under the bar draws over it', async ({ page }) => {
   await signIn(page, 'app-bar-overlap');
+  // Three tiles a row (R3's grid): six rows, so the grid scrolls.
   const garments: number[] = [];
-  for (let i = 1; i <= 9; i++) {
+  for (let i = 1; i <= 18; i++) {
     garments.push(await createGarment(page, `Under tee ${i}`));
   }
   for (let i = 0; i < 6; i++) {

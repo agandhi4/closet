@@ -138,8 +138,8 @@ and response bandwidth/latency. */
 }
 
 /* The dock's height, the safe area included, as daisyUI sizes .dock: what a
-   bar fixed above the dock sits on (`bottom-dock`, the wardrobe's filter
-   and select bars). */
+   bar fixed above the dock sits on (`bottom-dock`: the wardrobe's select
+   bar, Laundry's and Styling's). */
 @theme {
   --spacing-dock: calc(4rem + env(safe-area-inset-bottom, 0px));
 }
@@ -151,7 +151,8 @@ and response bandwidth/latency. */
    button) drew over it. The two bars never meet, so they share a level; a
    menu opening from the bar (a scope or ⋯ dropdown) draws over the content
    from inside it. The toasts (z 999) sit above both. Pages leave the bar's
-   4rem with pt-20. */
+   4rem with pt-20 (the bar and a 1rem gutter), or pt-16 when their first
+   row sits flush under it (the Wardrobe tabs). */
 .app-bar {
   position: fixed;
   top: 0;
@@ -191,8 +192,10 @@ and response bandwidth/latency. */
 /* Tap feedback: pressed while touched, dimmed while the tapped link's
    request is in flight (the body's hx-indicator marks it htmx-request,
    src/web/layout/layout.tsx), so a slow network never looks like a dead
-   tap. An outfit card's link is its title stretched over the card. */
+   tap. An outfit card's link is its title stretched over the card; a
+   wardrobe tile (data-tile) has no card chrome. */
 a.card:active,
+a[data-tile]:active,
 .dock > a:active,
 .card:has(a:active) {
   opacity: 0.8;

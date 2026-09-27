@@ -8,7 +8,8 @@ import {
   file,
   garment,
 } from '../../db/schema';
-import type { ImageRef } from '../files/image-url';
+import type { PlinthPhoto } from '../files/image-url';
+import { PLINTH_PHOTO_COLUMNS, plinthPhoto } from '../files/queries';
 import { inCloset, ownedGarment } from '../wardrobe/status';
 
 /**
@@ -41,7 +42,7 @@ export interface CapsuleFields {
 export interface StripGarment {
   id: number;
   name: string | null;
-  photo: ImageRef | null;
+  photo: PlinthPhoto | null;
 }
 
 export interface CapsuleCard extends CapsuleRef {
@@ -145,15 +146,18 @@ async function capsuleStrips(
       capsuleId: ranked.capsuleId,
       id: ranked.id,
       name: ranked.name,
-      photo: { fileName: file.fileName, version: file.version },
+      photo: PLINTH_PHOTO_COLUMNS,
     })
     .from(ranked)
     .leftJoin(file, eq(file.id, ranked.photoId))
     .where(lte(ranked.rank, CARD_STRIP))
     .orderBy(asc(ranked.capsuleId), asc(ranked.rank));
   const strips = new Map<number, StripGarment[]>();
-  for (const { capsuleId, ...shown } of rows) {
-    strips.set(capsuleId, [...(strips.get(capsuleId) ?? []), shown]);
+  for (const { capsuleId, photo, ...shown } of rows) {
+    strips.set(capsuleId, [
+      ...(strips.get(capsuleId) ?? []),
+      { ...shown, photo: plinthPhoto(photo) },
+    ]);
   }
   return strips;
 }
@@ -170,7 +174,7 @@ export async function closetCard(
       .select({
         id: garment.id,
         name: garment.name,
-        photo: { fileName: file.fileName, version: file.version },
+        photo: PLINTH_PHOTO_COLUMNS,
       })
       .from(garment)
       .leftJoin(file, eq(file.id, garment.photoId))
@@ -178,7 +182,13 @@ export async function closetCard(
       .orderBy(desc(garment.id))
       .limit(CARD_STRIP),
   ]);
-  return { count, strip };
+  return {
+    count,
+    strip: strip.map((shown) => ({
+      ...shown,
+      photo: plinthPhoto(shown.photo),
+    })),
+  };
 }
 
 /**

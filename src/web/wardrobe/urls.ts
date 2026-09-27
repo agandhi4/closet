@@ -14,6 +14,13 @@ export const LINK_PHOTO_PATH = `${LINK_IMPORT_PATH}/photo`;
 export const WISHLIST_PATH = '/wardrobe/wishlist';
 
 /**
+ * The Wardrobe's Laundry tab (src/web/wears): the signed-in user's own
+ * hamper, outside /wardrobe (it takes no `?ownerId=`), so layout/sections.ts
+ * names it Wardrobe on its own.
+ */
+export const LAUNDRY_PATH = '/laundry';
+
+/**
  * Where a new garment lands, as the new form and the link import carry it
  * in their URLs (DestinationQuery): the closet adds nothing.
  */

@@ -1,5 +1,4 @@
 import { t } from '../i18n';
-import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { EmptyState, GarmentThumb } from '../layout/parts';
@@ -11,7 +10,8 @@ import {
   LINK_IMPORT_PATH,
   wardrobeUrl,
 } from '../wardrobe/urls';
-import { WardrobeTabs } from '../wardrobe/wardrobe-tabs';
+import { WardrobeHeader, WardrobeTabs } from '../wardrobe/wardrobe-header';
+import type { SharedWardrobe } from '../sharing/access';
 import type { Candidacy } from '../plans/candidates';
 import { CandidacyLinks } from '../plans/candidates-page';
 import { SHOPPING_PATH } from '../plans/urls';
@@ -21,6 +21,8 @@ export interface WishlistModel {
   items: WishlistItem[];
   /** The shared wardrobe shown; undefined for the requester's own. */
   viewOwner: number | undefined;
+  /** The wardrobes shared with the requester: the header's switcher. */
+  sharedWardrobes: SharedWardrobe[];
   /** Add and "Bought it": the owner and a MANAGE grantee (a VIEW grantee reads). */
   canEdit: boolean;
   /**
@@ -49,43 +51,47 @@ export function WishlistPage(props: {
   const { viewOwner, canEdit } = model;
   return (
     <Layout ctx={ctx} title={t('wishlist.TITLE')}>
-      <AppBar ctx={ctx} title={t('WARDROBE')} />
-      <main class="p-4 pt-20 pb-24">
+      <WardrobeHeader
+        ctx={ctx}
+        tab="wishlist"
+        viewOwner={viewOwner}
+        sharedWardrobes={model.sharedWardrobes}
+        canEdit={canEdit}
+      />
+      <div class="pt-16">
         <WardrobeTabs active="wishlist" viewOwner={viewOwner} />
-        {/* Two labelled buttons: wider than the app bar's actions have room
-            for on a phone (R3's add sheet takes them into the bar). */}
-        {canEdit && model.items.length > 0 && (
-          <div class="max-w-lg mx-auto mb-3 px-2 flex justify-end">
-            <AddButtons viewOwner={viewOwner} />
-          </div>
-        )}
-        {model.candidacies && (
-          <div class="max-w-lg mx-auto mb-3 px-2 flex justify-end">
-            <a href={SHOPPING_PATH} class="link link-primary text-sm">
-              {t('shopping.TITLE')}
-            </a>
-          </div>
-        )}
-        {model.items.length === 0 ? (
-          <EmptyState
-            message={t(canEdit ? 'wishlist.EMPTY' : 'wishlist.EMPTY_SHARED')}
-          >
-            {canEdit && <AddButtons viewOwner={viewOwner} />}
-          </EmptyState>
-        ) : (
-          <ul class="flex flex-col gap-3 max-w-lg mx-auto" id="wishlist">
-            {model.items.map((item) => (
-              <WishlistCard item={item} model={model} />
-            ))}
-          </ul>
-        )}
-      </main>
+        <main class="p-4 pb-24">
+          {model.candidacies && (
+            <div class="max-w-lg mx-auto mb-3 px-2 flex justify-end">
+              <a href={SHOPPING_PATH} class="link link-primary text-sm">
+                {t('shopping.TITLE')}
+              </a>
+            </div>
+          )}
+          {model.items.length === 0 ? (
+            <EmptyState
+              message={t(canEdit ? 'wishlist.EMPTY' : 'wishlist.EMPTY_SHARED')}
+            >
+              {canEdit && <AddButtons viewOwner={viewOwner} />}
+            </EmptyState>
+          ) : (
+            <ul class="flex flex-col gap-3 max-w-lg mx-auto" id="wishlist">
+              {model.items.map((item) => (
+                <WishlistCard item={item} model={model} />
+              ))}
+            </ul>
+          )}
+        </main>
+      </div>
       <Dock ctx={ctx} />
     </Layout>
   );
 }
 
-/** Add by hand, or from a product link; both land on the wishlist. */
+/**
+ * The empty wishlist's way to its first item: by hand, or from a product
+ * link. Once it has items, the header's add sheet adds more.
+ */
 function AddButtons({ viewOwner }: { viewOwner: number | undefined }) {
   return (
     <div class="flex gap-2">

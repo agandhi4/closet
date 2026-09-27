@@ -12,29 +12,26 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { PostForm } from '../auth/form';
-import { imageUrl } from '../files/image-url';
+import type { CapsuleRef } from '../capsules/queries';
 import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import {
   EmptyState,
-  HangerIcon,
+  PlinthImage,
   SavedToast,
   StripFlags,
 } from '../layout/parts';
-import type { CapsuleRef } from '../capsules/queries';
-import { INSIGHTS_PATH } from '../insights/urls';
-import { PLANS_PATH, SHOPPING_PATH } from '../plans/urls';
 import type { SharedWardrobe } from '../sharing/access';
 import type { ViewContext } from '../view-context';
 import { WeatherSlot } from '../weather/views';
 import { categoryLabel } from './garment';
-import type { FilterOptions, GarmentTile, GridPage } from './queries';
 import { type LabelledProperty, valueLabel } from './labels';
-import { capsuleUrl, garmentUrl, wardrobeUrl } from './urls';
+import type { FilterOptions, GarmentTile, GridPage } from './queries';
+import { capsuleUrl, garmentUrl, LAUNDRY_PATH, wardrobeUrl } from './urls';
 import { BULK_PROPERTIES, type BulkProperty } from './validation';
-import { WardrobeTabs } from './wardrobe-tabs';
+import { WardrobeHeader, WardrobeMenu, WardrobeTabs } from './wardrobe-header';
 
 /**
  * The grid's filters as the page echoes them into its links and forms. The
@@ -105,9 +102,9 @@ export interface WardrobeModel {
   toWash: number;
   /** Select mode (?select=1, or the picker): tiles are checkboxes. */
   selecting: boolean;
-  /** Select mode as the capsule picker; the capsule's name for the heading. */
+  /** Select mode as the capsule picker; the capsule's name for the bar's title. */
   picking?: Picking & { name: string };
-  /** The wardrobe's capsules: the filter's choices and its pill's name. */
+  /** The wardrobe's capsules: the scope row's choices. */
   capsules: CapsuleRef[];
   /** After POST /wardrobe/bulk: its toast. */
   bulkResult?: { updated: number; skipped: number };
@@ -137,60 +134,168 @@ export function searchParams(search: GridSearch): Record<string, string> {
 }
 
 /**
- * GET /wardrobe: the shell around the swappable main, and above it today's
- * weather (#14), outside #wardrobe-main so filtering never reloads it. Not
- * in select mode or the capsule picker, which are tasks, not the closet.
+ * GET /wardrobe: the Closet tab (docs/plans/2026-09-26-redesign.md, section
+ * 3, "Wardrobe"). Browsing, it is the Wardrobe's header (the switcher in
+ * the title, ⋯ and ＋), the tabs, today's weather (#14; outside
+ * #wardrobe-main, so filtering never reloads it) and the swappable main.
+ * Select mode and the capsule picker are tasks, not the closet: their own
+ * bar (the task's title and Cancel) over the checkbox grid, no tabs.
  */
 export function WardrobePage(props: {
   ctx: ViewContext;
   model: WardrobeModel;
 }) {
-  const { model } = props;
+  const { ctx, model } = props;
   return (
-    <Layout ctx={props.ctx} title={t('WARDROBE')}>
-      <AppBar ctx={props.ctx} title={t('WARDROBE')} />
-      <div class="px-4 pt-20">
-        {!model.selecting && !model.picking && <WeatherSlot ctx={props.ctx} />}
+    <Layout ctx={ctx} title={t('WARDROBE')}>
+      {model.selecting ? (
+        <TaskBar ctx={ctx} model={model} />
+      ) : (
+        <WardrobeHeader
+          ctx={ctx}
+          tab="closet"
+          viewOwner={model.viewOwner}
+          sharedWardrobes={model.sharedWardrobes}
+          canEdit={model.canEdit}
+          selectUrl={selectUrl(model)}
+        />
+      )}
+      <div class="pt-16">
+        {!model.selecting && (
+          <>
+            <WardrobeTabs active="closet" viewOwner={model.viewOwner} />
+            <div class="px-2 pt-3">
+              <WeatherSlot ctx={ctx} />
+            </div>
+          </>
+        )}
+        <WardrobeMain model={model} />
       </div>
-      <WardrobeMain model={model} />
-      <Dock ctx={props.ctx} />
+      <Dock ctx={ctx} />
     </Layout>
   );
 }
 
 /**
- * The swappable part of the wardrobe page: heading, wardrobe switcher,
- * result count, the first page of the grid, the fixed search and filter bar
- * and the filter modal. GET /wardrobe answers htmx fragment requests with
- * this element alone, so filtering and searching never re-render the app
- * bar and the dock, and always start again from the first page.
+ * GET /wardrobe's answer to a fragment request (the scope row's search,
+ * chips and scope menu, the filter modal): the main, and the ⋯ menu out
+ * of band, so its Select keeps the filters the grid now shows.
+ */
+export function WardrobeFragment({ model }: { model: WardrobeModel }) {
+  return (
+    <>
+      <WardrobeMain model={model} />
+      {!model.selecting && (
+        <WardrobeMenu
+          viewOwner={model.viewOwner}
+          canEdit={model.canEdit}
+          selectUrl={selectUrl(model)}
+          oob
+        />
+      )}
+    </>
+  );
+}
+
+/** The ⋯ menu's Select: into select mode on the grid as filtered. */
+function selectUrl(model: WardrobeModel): string | undefined {
+  if (!model.canEdit || model.page.tiles.length === 0) return undefined;
+  return wardrobeUrl(model.viewOwner, {
+    ...searchParams(model.search),
+    select: '1',
+  });
+}
+
+/**
+ * Select mode's and the picker's bar: what the task is, and Cancel back
+ * to where it began (the grid as filtered, or the picker's capsule).
+ */
+function TaskBar(props: { ctx: ViewContext; model: WardrobeModel }) {
+  const { search, viewOwner, picking } = props.model;
+  const cancel = picking
+    ? capsuleUrl(picking.capsuleId, viewOwner)
+    : wardrobeUrl(viewOwner, searchParams(search));
+  return (
+    <AppBar
+      ctx={props.ctx}
+      title={
+        picking
+          ? t('PICK_GARMENTS_FOR', { name: picking.name })
+          : t('SELECT_GARMENTS')
+      }
+      actions={
+        <a href={cancel} class="btn btn-ghost btn-sm">
+          {t('CANCEL')}
+        </a>
+      }
+    />
+  );
+}
+
+/**
+ * The swappable part of the Closet tab: the sticky scope row (the capsule
+ * scope, the active filters, search, the filter sheet and the count), the
+ * slim prompts, the first page of the grid and the filter modal; in select
+ * mode the checkbox grid and its bar. GET /wardrobe answers htmx fragment
+ * requests with this element (WardrobeFragment), so filtering and searching
+ * never re-render the app bar, the tabs and the dock, and always start
+ * again from the first page.
  */
 export function WardrobeMain({ model }: { model: WardrobeModel }) {
   const { viewOwner, selecting } = model;
   return (
-    <main id="wardrobe-main" class="p-4 pt-0 pb-40">
-      <Heading model={model} />
+    <main id="wardrobe-main" class="pb-24">
+      {!selecting && <ScopeRow model={model} />}
+      <div class="px-4 pt-3">
+        {!selecting && <Prompts model={model} />}
+        <Tiles model={model} />
+      </div>
+      {model.selecting && !model.picking && <BulkDialog />}
       {!selecting && (
-        <>
-          <WardrobeTabs active="garments" viewOwner={viewOwner} />
-          {model.toTag > 0 && (
-            <TagPrompt count={model.toTag} viewOwner={viewOwner} />
-          )}
-          {model.toWash > 0 && <LaundryPrompt count={model.toWash} />}
-          {model.sharedWardrobes.length > 0 && (
-            <WardrobeSwitcher model={model} />
-          )}
-        </>
+        <FilterModal
+          search={model.search}
+          options={model.options}
+          viewOwner={viewOwner}
+          ownerView={model.ownerView}
+        />
       )}
-
-      <p class="text-sm text-muted mb-4 px-2">
-        {model.count} {t('RESULTS')}
-      </p>
-
-      <Tiles model={model} />
-      <Controls model={model} />
       {model.bulkResult && <BulkToast result={model.bulkResult} />}
     </main>
+  );
+}
+
+/**
+ * The slim prompts above the grid (the plan's "slim banner"): "12 garments
+ * need details · Tag them" for someone who can tag, "3 garments need a wash
+ * · Laundry" for the owner.
+ */
+function Prompts({ model }: { model: WardrobeModel }) {
+  const { toTag, toWash } = model;
+  return (
+    <>
+      {toTag > 0 && (
+        <Prompt
+          text={
+            toTag === 1
+              ? t('TAG_PROMPT_ONE')
+              : t('TAG_PROMPT', { count: toTag })
+          }
+          href={wardrobeUrl(model.viewOwner, {}, '/wardrobe/tag')}
+          action={t('TAG_PROMPT_ACTION')}
+        />
+      )}
+      {toWash > 0 && (
+        <Prompt
+          text={
+            toWash === 1
+              ? t('wear.LAUNDRY_PROMPT_ONE')
+              : t('wear.LAUNDRY_PROMPT', { count: toWash })
+          }
+          href={LAUNDRY_PATH}
+          action={t('wear.LAUNDRY')}
+        />
+      )}
+    </>
   );
 }
 
@@ -215,41 +320,22 @@ function Tiles({ model }: { model: WardrobeModel }) {
   return <Grid model={model} />;
 }
 
-/**
- * What sits under the grid: the filter bar and modal while browsing, the
- * bulk dialog in select mode (the picker needs neither).
- */
-function Controls({ model }: { model: WardrobeModel }) {
-  const { search, viewOwner } = model;
-  if (model.picking) return null;
-  if (model.selecting) return <BulkDialog />;
-  return (
-    <>
-      <FilterBar
-        search={search}
-        viewOwner={viewOwner}
-        capsules={model.capsules}
-      />
-      <FilterModal
-        search={search}
-        options={model.options}
-        capsules={model.capsules}
-        viewOwner={viewOwner}
-        ownerView={model.ownerView}
-      />
-    </>
+/** Whether anything but the capsule scope narrows the grid. */
+function filtered(search: GridSearch): boolean {
+  return Object.entries(searchParams(search)).some(
+    ([name, value]) => name !== 'capsule' && value !== '',
   );
 }
 
 /**
- * No tiles: nothing matches the filters (say so, offer to clear them), or
- * the wardrobe is empty (offer the first garment).
+ * No tiles: nothing matches the filters (say so, offer to clear them and
+ * keep the capsule scope), or the wardrobe (or the capsule) is empty:
+ * offer the first garment.
  */
 function NoTiles({ model }: { model: WardrobeModel }) {
   const { search, viewOwner } = model;
-  const filtered = Object.values(searchParams(search)).some((value) => value);
-  if (filtered) {
-    const clear = wardrobeUrl(viewOwner);
+  if (filtered(search)) {
+    const clear = wardrobeUrl(viewOwner, { capsule: search.capsule });
     return (
       <EmptyState message={t('NO_GARMENTS_MATCH')}>
         <a href={clear} hx-get={clear} {...SWAP_MAIN} class="btn btn-sm">
@@ -272,152 +358,39 @@ function NoTiles({ model }: { model: WardrobeModel }) {
   );
 }
 
-/** "12 garments need details: Tag them", into tagging mode. */
-function TagPrompt(props: { count: number; viewOwner: number | undefined }) {
+/** One prompt: what needs doing, and the link that does it. */
+function Prompt(props: { text: string; href: string; action: string }) {
   return (
-    <div role="status" class="alert alert-info alert-soft mb-4 mx-2 py-2">
-      <span class="text-sm">{t('TAG_PROMPT', { count: props.count })}</span>
-      <a
-        href={wardrobeUrl(props.viewOwner, {}, '/wardrobe/tag')}
-        class="btn btn-sm btn-info"
-      >
-        {t('TAG_PROMPT_ACTION')}
+    <p
+      role="status"
+      class="mb-3 flex items-center justify-between gap-3 rounded-box bg-base-200 px-3 py-2 text-sm"
+    >
+      <span>{props.text}</span>
+      <a href={props.href} class="link font-medium shrink-0">
+        {props.action}
       </a>
-    </div>
-  );
-}
-
-/** "3 garments need a wash: Laundry", to the owner. */
-function LaundryPrompt(props: { count: number }) {
-  return (
-    <div role="status" class="alert alert-soft mb-4 mx-2 py-2">
-      <span class="text-sm">
-        {t('wear.LAUNDRY_PROMPT', { count: props.count })}
-      </span>
-      <a href="/laundry" class="btn btn-sm">
-        {t('wear.LAUNDRY')}
-      </a>
-    </div>
+    </p>
   );
 }
 
 /**
- * The mode and, for someone who may edit, Select (or Cancel) and New. The
- * picker's Cancel goes back to its capsule. Inside #wardrobe-main, which
- * select mode and filtering swap, so it follows them; the app bar's title
- * is the page's and stays "Wardrobe" (R3 moves these actions into it).
+ * The tile grid: three columns on a phone (the plan's density), more on a
+ * wider screen. The capsule page draws its members in the same grid.
  */
-function Heading({ model }: { model: WardrobeModel }) {
-  const { search, viewOwner, canEdit, selecting, picking } = model;
-  if (picking) {
-    return (
-      <div class="flex items-center justify-between gap-2 mb-6 px-2">
-        <h2 class="text-xl font-semibold">
-          {t('PICK_GARMENTS_FOR', { name: picking.name })}
-        </h2>
-        <a
-          href={capsuleUrl(picking.capsuleId, viewOwner)}
-          class="btn btn-ghost btn-sm"
-        >
-          {t('CANCEL')}
-        </a>
-      </div>
-    );
-  }
+export function GarmentGrid(props: { id: string; children: Child }) {
   return (
-    <div class="flex items-center justify-end gap-2 mb-6 px-2">
-      {selecting && (
-        <h2 class="text-xl font-semibold mr-auto">{t('SELECT_GARMENTS')}</h2>
-      )}
-      <div class="flex items-center gap-2">
-        {canEdit && model.page.tiles.length > 0 && (
-          <SelectToggle
-            search={search}
-            viewOwner={viewOwner}
-            selecting={selecting}
-          />
-        )}
-        {canEdit && !selecting && (
-          <a
-            href={wardrobeUrl(viewOwner, {}, '/wardrobe/new')}
-            class="btn btn-primary btn-sm"
-          >
-            + {t('NEW_GARMENT')}
-          </a>
-        )}
-        {!selecting && <WardrobeMenu />}
-      </div>
-    </div>
-  );
-}
-
-/**
- * The Wardrobe header's ⋯ menu (docs/plans/2026-09-26-redesign.md, "Where
- * every route goes"): the wardrobe's less frequent places. Plans, the
- * shopping list (#34) and insights (#17); the redesign (R3) moves Select
- * and Tag here. Links only: a form inside a daisyUI menu item loses its
- * styling. All three are the signed-in user's own, so the links never
- * carry a shared wardrobe's `?ownerId=`.
- */
-function WardrobeMenu() {
-  return (
-    <details class="dropdown dropdown-end" id="wardrobe-menu">
-      <summary
-        class="btn btn-ghost btn-sm btn-circle text-xl"
-        aria-label={t('MORE_ACTIONS')}
-      >
-        ⋯
-      </summary>
-      <ul class="menu dropdown-content bg-base-100 rounded-box shadow-lg z-20 w-52 p-2">
-        <li>
-          <a href={PLANS_PATH}>{t('plans.TITLE')}</a>
-        </li>
-        <li>
-          <a href={SHOPPING_PATH}>{t('shopping.TITLE')}</a>
-        </li>
-        <li>
-          <a href={INSIGHTS_PATH}>{t('insights.TITLE')}</a>
-        </li>
-      </ul>
-    </details>
-  );
-}
-
-/**
- * A grantee's wardrobe switcher: swaps this main like a filter does
- * (unfiltered, ?ownerId= the only parameter; '' is the requester's own).
- */
-function WardrobeSwitcher({ model }: { model: WardrobeModel }) {
-  const { viewOwner } = model;
-  return (
-    <div class="mb-4 px-2">
-      <select
-        name="ownerId"
-        class="select select-bordered select-sm w-full"
-        aria-label={t('MY_WARDROBE')}
-        hx-get="/wardrobe"
-        hx-trigger="change"
-        {...SWAP_MAIN}
-      >
-        <option value="" selected={viewOwner === undefined}>
-          {t('MY_WARDROBE')}
-        </option>
-        {model.sharedWardrobes.map((shared) => (
-          <option
-            value={shared.grantorId}
-            selected={viewOwner === shared.grantorId}
-          >
-            {shared.grantorName} ({shared.permission})
-          </option>
-        ))}
-      </select>
+    <div
+      id={props.id}
+      class="grid grid-cols-3 gap-x-3 gap-y-4 sm:grid-cols-4 lg:grid-cols-6"
+    >
+      {props.children}
     </div>
   );
 }
 
 function Grid({ model }: { model: WardrobeModel }) {
   return (
-    <div id="wardrobe-grid" class="flex flex-wrap gap-4 justify-center">
+    <GarmentGrid id="wardrobe-grid">
       <GarmentTiles
         page={model.page}
         search={model.search}
@@ -426,24 +399,7 @@ function Grid({ model }: { model: WardrobeModel }) {
         picking={model.picking}
         firstPage
       />
-    </div>
-  );
-}
-
-/** "Select" into select mode, "Cancel" out of it; the filters stay. */
-function SelectToggle(props: {
-  search: GridSearch;
-  viewOwner: number | undefined;
-  selecting: boolean;
-}) {
-  const href = wardrobeUrl(props.viewOwner, {
-    ...searchParams(props.search),
-    select: props.selecting ? undefined : '1',
-  });
-  return (
-    <a href={href} hx-get={href} {...SWAP_MAIN} class="btn btn-ghost btn-sm">
-      {props.selecting ? t('CANCEL') : t('SELECT')}
-    </a>
+    </GarmentGrid>
   );
 }
 
@@ -482,7 +438,7 @@ export function GarmentTiles(props: {
       })}
       {page.before !== undefined && (
         <div
-          class="w-full flex justify-center py-6"
+          class="col-span-full flex justify-center py-6"
           hx-get={wardrobeUrl(
             viewOwner,
             {
@@ -507,8 +463,16 @@ export function GarmentTiles(props: {
   );
 }
 
-const TILE_CLASS = 'card bg-base-100 w-40 sm:w-44 shadow-sm';
+/** A tile's one line: its name, else its category. */
+function tileName(tile: GarmentTile): string {
+  return tile.name ?? categoryLabel(tile.category);
+}
 
+/**
+ * A tile: the garment on the plinth, 4:5, no card chrome, its marks small
+ * over the corners, and one line of name under it. The name is the link's
+ * text, so the photo's alt is empty rather than said twice.
+ */
 function Tile(props: {
   tile: GarmentTile;
   viewOwner: number | undefined;
@@ -518,17 +482,19 @@ function Tile(props: {
   return (
     <a
       href={garmentUrl(tile.id, props.viewOwner)}
-      class={`${TILE_CLASS} hover:shadow-md transition-shadow cursor-pointer`}
+      class="block min-w-0"
+      data-tile=""
     >
-      <TileContent tile={tile} eager={props.eager} />
+      <TileContent tile={tile} eager={props.eager} class="" />
     </a>
   );
 }
 
 /**
  * A tile in select mode: a checkbox of the bulk form or the picker
- * (`ids`), the whole card its label, ringed while checked. No link: a tap
- * selects. In the picker a hidden `shown` says the tile was on screen.
+ * (`ids`), the whole tile its label, the plinth ringed while checked. No
+ * link: a tap selects. In the picker a hidden `shown` says the tile was on
+ * screen.
  */
 function SelectTile(props: {
   tile: GarmentTile;
@@ -538,86 +504,74 @@ function SelectTile(props: {
 }) {
   const { tile } = props;
   return (
-    <label
-      class={`${TILE_CLASS} relative cursor-pointer has-[:checked]:ring-2 has-[:checked]:ring-primary`}
-    >
+    <label class="group relative block min-w-0 cursor-pointer" data-tile="">
       <input
         type="checkbox"
         name="ids"
         value={String(tile.id)}
         checked={props.checked}
-        class="checkbox checkbox-primary checkbox-sm absolute top-2 left-2 z-10 not-checked:bg-base-100"
-        aria-label={tile.name ?? categoryLabel(tile.category)}
+        class="checkbox checkbox-primary checkbox-sm absolute top-1.5 left-1.5 z-10 not-checked:bg-base-100"
+        aria-label={tileName(tile)}
       />
       {props.shown && (
         <input type="hidden" name="shown" value={String(tile.id)} />
       )}
-      <TileContent tile={tile} eager={props.eager} />
+      <TileContent
+        tile={tile}
+        eager={props.eager}
+        class="group-has-[:checked]:ring-2 group-has-[:checked]:ring-primary"
+      />
     </label>
   );
 }
 
-// An archived garment's photo is dimmed and badged; its name and category
-// keep their contrast (#88: dimming the whole card took the text below AA).
-function TileContent(props: { tile: GarmentTile; eager: boolean }) {
+function TileContent(props: {
+  tile: GarmentTile;
+  eager: boolean;
+  /** The plinth's extra classes (select mode's ring). */
+  class: string;
+}) {
   const { tile } = props;
-  const dimmed = tile.status === 'archived' ? 'opacity-50' : '';
+  // An archived garment's photo (or placeholder, the plinth's first child)
+  // is dimmed and badged; its name keeps its contrast (#88: dimming the
+  // whole tile took the text below AA).
+  const archived = tile.status === 'archived';
   return (
     <>
-      <figure class="relative aspect-square bg-base-200">
-        <TileBadges tile={tile} />
-        {tile.photo ? (
-          <img
-            src={imageUrl(tile.photo, 'thumb')}
-            alt={tile.name ?? ''}
-            class={`object-cover w-full h-full ${dimmed}`}
-            width="400"
-            height="400"
-            decoding="async"
-            loading={props.eager ? undefined : 'lazy'}
-          />
-        ) : (
-          <div
-            class={`flex items-center justify-center w-full h-full text-faint ${dimmed}`}
-          >
-            <HangerIcon class="size-12" strokeWidth="1" />
-          </div>
-        )}
-      </figure>
-      <div class="card-body p-3">
-        <h2 class="card-title text-sm">{tile.name}</h2>
-        <p class="text-xs text-muted capitalize">
-          {categoryLabel(tile.category)}
-        </p>
-      </div>
+      <PlinthImage
+        photo={tile.photo}
+        alt=""
+        eager={props.eager}
+        class={`aspect-[4/5] rounded-box ${archived ? '[&>:first-child]:opacity-50' : ''} ${props.class}`}
+      >
+        <TileMarks tile={tile} />
+      </PlinthImage>
+      <p class="mt-1 truncate text-xs" data-tile-name="">
+        {tileName(tile)}
+      </p>
     </>
   );
 }
 
 /**
- * What a tile says over its photo: "x3" for identical copies, the
- * condition when it is not good, and to the owner alone, the wash state
- * ("Wash", "2/3" of a multiple) and whether it is away.
+ * What a tile says over its photo, small: "×3" for identical copies in the
+ * bottom corner; in the top one the condition when it is not good,
+ * archived, and to the owner alone the wash state ("Wash", "2/3" of a
+ * multiple) and whether it is away.
  */
-function TileBadges({ tile }: { tile: GarmentTile }) {
-  const badges: { text: string; class: string }[] = [];
+function TileMarks({ tile }: { tile: GarmentTile }) {
+  const marks: { text: string; class: string }[] = [];
   if (tile.status === 'archived') {
-    badges.push({ text: t('ARCHIVED'), class: 'badge-neutral' });
-  }
-  if (tile.quantity > 1) {
-    badges.push({
-      text: t('QUANTITY_BADGE', { quantity: tile.quantity }),
-      class: 'badge-neutral',
-    });
+    marks.push({ text: t('ARCHIVED'), class: 'badge-neutral' });
   }
   if (tile.care?.away) {
-    badges.push({
+    marks.push({
       text: t(`wear.away.${tile.care.away}`),
       class: 'badge-warning',
     });
   }
   if (tile.care && tile.care.dirty > 0) {
-    badges.push({
+    marks.push({
       text:
         tile.quantity > 1
           ? t('wear.BADGE_WASH_COPIES', {
@@ -629,18 +583,26 @@ function TileBadges({ tile }: { tile: GarmentTile }) {
     });
   }
   if (tile.condition !== 'good') {
-    badges.push({
+    marks.push({
       text: valueLabel('condition', tile.condition),
       class: 'badge-warning badge-outline bg-base-100',
     });
   }
-  if (badges.length === 0) return null;
   return (
-    <div class="absolute top-2 right-2 flex flex-col items-end gap-1">
-      {badges.map((badge) => (
-        <span class={`badge badge-sm ${badge.class}`}>{badge.text}</span>
-      ))}
-    </div>
+    <>
+      {marks.length > 0 && (
+        <div class="absolute top-1.5 right-1.5 flex flex-col items-end gap-1">
+          {marks.map((mark) => (
+            <span class={`badge badge-xs ${mark.class}`}>{mark.text}</span>
+          ))}
+        </div>
+      )}
+      {tile.quantity > 1 && (
+        <span class="badge badge-xs badge-neutral absolute bottom-1.5 left-1.5">
+          {t('QUANTITY_BADGE', { quantity: tile.quantity })}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -661,7 +623,7 @@ function FilterPill(props: {
       href={href}
       hx-get={href}
       {...SWAP_MAIN}
-      class={`badge badge-sm gap-1 cursor-pointer no-underline ${props.class}`}
+      class={`badge badge-sm shrink-0 gap-1 whitespace-nowrap cursor-pointer no-underline ${props.class}`}
     >
       {props.label} &times;
     </a>
@@ -716,120 +678,234 @@ function PropertyPills(props: {
 const INCLUDE_KEYWORD = "#search-form [name='keyword']";
 
 /**
- * The fixed bar above the dock: the filter button, active filters, search.
- * Every filter's pill is one tone (primary, as its checked choice in the
- * modal); only the care filters keep the colour of the tile badge they
- * find (wash, attention) and archived its warning.
+ * The scope row, sticky under the app bar (the plan's replacement for the
+ * fixed bar above the dock): the capsule scope, the active filters as
+ * chips (each drops itself), search, the filter sheet and the count.
+ * Search expands in place over the chips while it has the focus, and stays
+ * open while it holds a keyword. Every filter's chip is one tone (primary,
+ * as its checked choice in the modal); only the care filters keep the
+ * colour of the tile mark they find (wash, attention) and archived its
+ * warning.
  */
-function FilterBar(props: {
+function ScopeRow({ model }: { model: WardrobeModel }) {
+  const { search, viewOwner } = model;
+  return (
+    <div
+      id="scope-row"
+      class="group/scope sticky top-16 z-10 flex items-center gap-2 border-b border-base-300 bg-base-100 px-4 py-2"
+    >
+      {model.capsules.length > 0 && (
+        <CapsuleScope
+          search={search}
+          viewOwner={viewOwner}
+          capsules={model.capsules}
+        />
+      )}
+      <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto group-has-[#search-form:focus-within]/scope:hidden">
+        <FilterChips search={search} viewOwner={viewOwner} />
+      </div>
+      <SearchForm search={search} viewOwner={viewOwner} />
+      <button
+        type="button"
+        onclick="document.getElementById('filter-modal').showModal()"
+        class="btn btn-ghost btn-sm btn-square shrink-0"
+        aria-label={t('FILTERS')}
+        aria-haspopup="dialog"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="1.5"
+          stroke="currentColor"
+          class="size-5"
+          aria-hidden="true"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75"
+          />
+        </svg>
+      </button>
+      {/* The number alone on screen; "64 results" to a screen reader. */}
+      <span class="shrink-0 text-sm tabular-nums text-muted">
+        <span aria-hidden="true">{model.count}</span>
+        <span class="sr-only">
+          {model.count} {t('RESULTS')}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The capsule scope (plan section 1: "a capsule is a scope, not a place";
+ * one control): the closet or one capsule, each swapping the grid with the
+ * other filters kept, and the Capsules tab to manage them. Outside the
+ * chips' scroller, which would clip its menu.
+ */
+function CapsuleScope(props: {
   search: GridSearch;
   viewOwner: number | undefined;
   capsules: CapsuleRef[];
 }) {
   const { search, viewOwner } = props;
-  const pill = { search, viewOwner };
-  const capsule = props.capsules.find(
-    (candidate) => String(candidate.id) === search.capsule,
+  const current = props.capsules.find(
+    (capsule) => String(capsule.id) === search.capsule,
   );
+  const scoped = (capsule: string) => {
+    const href = wardrobeUrl(viewOwner, {
+      ...searchParams(search),
+      capsule,
+    });
+    return { href, 'hx-get': href, ...SWAP_MAIN };
+  };
   return (
-    <div class="fixed bottom-dock left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 pt-2 pb-2">
-      <div class="flex flex-wrap items-center gap-2 mb-2">
-        <button
-          type="button"
-          onclick="document.getElementById('filter-modal').showModal()"
-          class="btn btn-ghost btn-xs gap-1"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke-width="1.5"
-            stroke="currentColor"
-            class="size-4"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z"
-            />
-          </svg>
-          {t('FILTER_SEARCH')}
-        </button>
-        {capsule && (
-          <FilterPill
-            {...pill}
-            drop="capsule"
-            class="badge-primary"
-            label={capsule.name}
-          />
-        )}
-        {search.category && (
-          <FilterPill
-            {...pill}
-            drop="category"
-            class="badge-primary capitalize"
-            label={categoryLabel(search.category)}
-          />
-        )}
-        {search.color && (
-          <FilterPill
-            {...pill}
-            drop="color"
-            class="badge-primary capitalize"
-            label={search.color}
-          />
-        )}
-        {search.size && (
-          <FilterPill
-            {...pill}
-            drop="size"
-            class="badge-primary"
-            label={search.size}
-          />
-        )}
-        <PropertyPills {...pill} />
-        {search.needsWash && (
-          <FilterPill
-            {...pill}
-            drop="needsWash"
-            class="badge-info"
-            label={t('wear.FILTER_NEEDS_WASH')}
-          />
-        )}
-        {search.attention && (
-          <FilterPill
-            {...pill}
-            drop="attention"
-            class="badge-warning"
-            label={t('FILTER_ATTENTION')}
-          />
-        )}
-        {search.archived && (
-          <FilterPill
-            {...pill}
-            drop="archived"
-            class="badge-warning"
-            label={t('ARCHIVED')}
-          />
-        )}
-      </div>
-      <form
-        method="get"
-        action="/wardrobe"
-        hx-get="/wardrobe"
-        {...SWAP_MAIN}
-        id="search-form"
-        class="flex gap-2"
+    <details class="dropdown shrink-0" id="capsule-scope">
+      <summary
+        class={`btn btn-sm rounded-full max-w-32 flex-nowrap ${current ? 'btn-primary' : 'btn-outline'}`}
+        aria-label={t('CAPSULE')}
       >
-        {/* Every other filter rides along with the keyword. */}
-        {Object.entries(searchParams(search))
-          .filter(([name, value]) => name !== 'keyword' && value !== '')
-          .map(([name, value]) => (
-            <input type="hidden" name={name} value={value} />
-          ))}
-        {viewOwner !== undefined && (
-          <input type="hidden" name="ownerId" value={viewOwner} />
-        )}
+        <span class="truncate">{current ? current.name : t('CLOSET')}</span>
+        <span aria-hidden="true">▾</span>
+      </summary>
+      <ul class="dropdown-content menu bg-base-100 rounded-box border border-base-300 z-20 w-56 mt-1 p-2">
+        <li>
+          <a
+            {...scoped('')}
+            aria-current={current ? undefined : 'true'}
+            class={current ? undefined : 'menu-active'}
+          >
+            {t('CLOSET')}
+          </a>
+        </li>
+        {props.capsules.map((capsule) => (
+          <li>
+            <a
+              {...scoped(String(capsule.id))}
+              aria-current={capsule === current ? 'true' : undefined}
+              class={capsule === current ? 'menu-active' : undefined}
+            >
+              {capsule.name}
+            </a>
+          </li>
+        ))}
+        <li class="mt-1 border-t border-base-300 pt-1">
+          <a href={capsuleUrl(undefined, viewOwner)}>{t('MANAGE_CAPSULES')}</a>
+        </li>
+      </ul>
+    </details>
+  );
+}
+
+/** The active filters (the capsule is the scope's), each a chip that drops itself. */
+function FilterChips(props: {
+  search: GridSearch;
+  viewOwner: number | undefined;
+}) {
+  const { search } = props;
+  const pill = props;
+  return (
+    <>
+      {search.category && (
+        <FilterPill
+          {...pill}
+          drop="category"
+          class="badge-primary capitalize"
+          label={categoryLabel(search.category)}
+        />
+      )}
+      {search.color && (
+        <FilterPill
+          {...pill}
+          drop="color"
+          class="badge-primary capitalize"
+          label={search.color}
+        />
+      )}
+      {search.size && (
+        <FilterPill
+          {...pill}
+          drop="size"
+          class="badge-primary"
+          label={search.size}
+        />
+      )}
+      <PropertyPills {...pill} />
+      {search.needsWash && (
+        <FilterPill
+          {...pill}
+          drop="needsWash"
+          class="badge-info"
+          label={t('wear.FILTER_NEEDS_WASH')}
+        />
+      )}
+      {search.attention && (
+        <FilterPill
+          {...pill}
+          drop="attention"
+          class="badge-warning"
+          label={t('FILTER_ATTENTION')}
+        />
+      )}
+      {search.archived && (
+        <FilterPill
+          {...pill}
+          drop="archived"
+          class="badge-warning"
+          label={t('ARCHIVED')}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * Search, collapsed to its icon until tapped: the field grows over the
+ * chips while it has the focus (the row's group-has rule hides them) and
+ * keeps some width while it holds a keyword. Enter submits; every other
+ * filter rides along as a hidden field.
+ */
+function SearchForm(props: {
+  search: GridSearch;
+  viewOwner: number | undefined;
+}) {
+  const { search, viewOwner } = props;
+  return (
+    <form
+      method="get"
+      action="/wardrobe"
+      hx-get="/wardrobe"
+      {...SWAP_MAIN}
+      id="search-form"
+      role="search"
+      class="flex shrink-0 justify-end focus-within:flex-1"
+    >
+      {Object.entries(searchParams(search))
+        .filter(([name, value]) => name !== 'keyword' && value !== '')
+        .map(([name, value]) => (
+          <input type="hidden" name={name} value={value} />
+        ))}
+      {viewOwner !== undefined && (
+        <input type="hidden" name="ownerId" value={viewOwner} />
+      )}
+      <label class="input input-sm w-9 gap-1 px-2 transition-[width] duration-150 focus-within:w-full has-[input:not(:placeholder-shown)]:w-32 motion-reduce:transition-none">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="1.5"
+          stroke="currentColor"
+          class="size-4 shrink-0"
+          aria-hidden="true"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+          />
+        </svg>
         <input
           type="text"
           name="keyword"
@@ -837,13 +913,11 @@ function FilterBar(props: {
           maxlength={200}
           placeholder={t('SEARCH_PLACEHOLDER')}
           aria-label={t('SEARCH')}
-          class="input input-bordered input-sm flex-1"
+          enterkeyhint="search"
+          class="min-w-0 grow"
         />
-        <button type="submit" class="btn btn-primary btn-sm">
-          {t('SEARCH')}
-        </button>
-      </form>
-    </div>
+      </label>
+    </form>
   );
 }
 
@@ -851,16 +925,16 @@ function FilterBar(props: {
  * The filters as a GET form of their own: applying submits it into
  * #wardrobe-main like the search form (the swap takes the open dialog with
  * it), with the search box's keyword; "Clear" asks for the grid with only
- * the keyword. Without JavaScript it is a plain GET to /wardrobe.
+ * the keyword and the capsule scope. Without JavaScript it is a plain GET
+ * to /wardrobe.
  */
 function FilterModal(props: {
   search: GridSearch;
   options: FilterOptions;
-  capsules: CapsuleRef[];
   viewOwner: number | undefined;
   ownerView: boolean;
 }) {
-  const { search, options, capsules, viewOwner } = props;
+  const { search, options, viewOwner } = props;
   return (
     <dialog id="filter-modal" class="modal modal-bottom sm:modal-middle">
       <form
@@ -875,18 +949,9 @@ function FilterModal(props: {
         {viewOwner !== undefined && (
           <input type="hidden" name="ownerId" value={viewOwner} />
         )}
-        {capsules.length > 0 && (
-          <FilterGroup title={t('CAPSULE')}>
-            {capsules.map((capsule) => (
-              <Choice
-                name="capsule"
-                value={String(capsule.id)}
-                checked={String(capsule.id) === search.capsule}
-                class="peer-checked:badge-primary"
-                label={capsule.name}
-              />
-            ))}
-          </FilterGroup>
+        {/* The capsule is the scope row's: it rides along, kept by Clear too. */}
+        {search.capsule && (
+          <input type="hidden" name="capsule" value={search.capsule} />
         )}
         <FilterGroup title={t('CATEGORY')}>
           {options.categories.map((category) => (
@@ -950,7 +1015,7 @@ function FilterModal(props: {
           <button
             type="button"
             class="btn btn-ghost btn-sm"
-            hx-get={wardrobeUrl(viewOwner)}
+            hx-get={wardrobeUrl(viewOwner, { capsule: search.capsule })}
             hx-include={INCLUDE_KEYWORD}
             {...SWAP_MAIN}
           >

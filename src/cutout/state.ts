@@ -203,3 +203,14 @@ export function initialCutoutState(status: CutoutStatus): InitialCutoutColumns {
     cutoutRequestedAt: status === 'pending' ? new Date() : null,
   };
 }
+
+/**
+ * Whether a photo's variants show the garment cut out (drawn contained on
+ * the plinth, never cropped) rather than the photo as taken (drawn to cover
+ * its frame): the wardrobe grid's tiles and the capsule strips. `none` is a
+ * photo from before 2026-09-26, whose cutout the browser made; one without
+ * is drawn whole, letterboxed on the plinth, which still crops nothing.
+ */
+export function showsCutout(status: CutoutStatus): boolean {
+  return status === 'ready' || status === 'edited' || status === 'none';
+}

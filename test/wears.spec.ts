@@ -81,8 +81,14 @@ test('mark an outfit worn, wash it, log a wear alone, and do the laundry', async
 
   // The wardrobe prompts the laundry; Mark washed empties the hamper.
   await page.goto('/wardrobe');
-  await expect(page.getByText('1 garments need a wash')).toBeVisible();
-  await page.getByRole('link', { name: 'Laundry' }).click();
+  await expect(page.getByText('1 garment needs a wash')).toBeVisible();
+  await page
+    .locator('#wardrobe-main')
+    .getByRole('link', { name: 'Laundry' })
+    .click();
+  await expect(
+    page.getByRole('tab', { name: 'Laundry', selected: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole('checkbox', { name: 'White tees' }),
   ).toBeChecked();

@@ -1,8 +1,36 @@
 import { eq, sql } from 'drizzle-orm';
 import { notifyCutoutQueued } from '../../cutout/queries';
-import type { InitialCutoutColumns } from '../../cutout/state';
+import {
+  type CutoutStatus,
+  type InitialCutoutColumns,
+  showsCutout,
+} from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
+import type { PlinthPhoto } from './image-url';
+
+/**
+ * A left-joined `file` row's columns for a photo the plinth draws (the
+ * wardrobe grid's tiles, the capsule strips): select them as the row's
+ * `photo`, then map it through plinthPhoto.
+ */
+export const PLINTH_PHOTO_COLUMNS = {
+  fileName: file.fileName,
+  version: file.version,
+  cutoutStatus: file.cutoutStatus,
+};
+
+export function plinthPhoto(
+  photo: {
+    fileName: string;
+    version: number;
+    cutoutStatus: CutoutStatus;
+  } | null,
+): PlinthPhoto | null {
+  if (!photo) return null;
+  const { cutoutStatus, ...ref } = photo;
+  return { ...ref, cutout: showsCutout(cutoutStatus) };
+}
 
 /**
  * A photo's `file` row as Photos returns it after writing the bytes, not yet

@@ -16,6 +16,8 @@ describe('sectionOf', () => {
     ['/capsules/new', 'wardrobe'],
     ['/capsules/4', 'wardrobe'],
     ['/capsules/4/edit?ownerId=2', 'wardrobe'],
+    ['/laundry', 'wardrobe'],
+    ['/laundry?washed=2', 'wardrobe'],
     ['/styling', 'styling'],
     ['/styling?with=12&ownerId=2', 'styling'],
     ['/styling/garments?role=top&before=9', 'styling'],

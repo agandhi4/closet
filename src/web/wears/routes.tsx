@@ -9,10 +9,10 @@ import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { RowId } from '../schemas';
-import { authorizeWardrobe } from '../sharing/access';
+import { authorizeWardrobe, sharedWardrobesOf } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { findGarment } from '../wardrobe/queries';
-import { garmentUrl } from '../wardrobe/urls';
+import { garmentUrl, LAUNDRY_PATH } from '../wardrobe/urls';
 import {
   CARE_NOTE_MAX,
   GarmentParams,
@@ -189,18 +189,24 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The laundry page: what needs a wash (checked) and what was worn but is
-  // not due yet, as one native form (PostForm).
+  // The laundry page, the Wardrobe's Laundry tab: what needs a wash
+  // (checked) and what was worn but is not due yet, as one native form
+  // (PostForm).
   app.get(
-    '/laundry',
+    LAUNDRY_PATH,
     { schema: { querystring: LaundryQuery } },
     async (request, reply) => {
-      const items = await laundryList(db, sessionUserId(request));
+      const userId = sessionUserId(request);
+      const [items, sharedWardrobes] = await Promise.all([
+        laundryList(db, userId),
+        sharedWardrobesOf(db, userId),
+      ]);
       return renderPage(
         reply,
         <LaundryPage
           ctx={viewContext(reply)}
           items={items}
+          sharedWardrobes={sharedWardrobes}
           washed={request.query.washed}
         />,
       );
@@ -210,7 +216,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // "Mark washed": every checked garment of the user's, today; other ids
   // are ignored like unknown ones. Back to the page with the count.
   app.post(
-    '/laundry',
+    LAUNDRY_PATH,
     { schema: { body: LaundryBody } },
     async (request, reply) => {
       const userId = sessionUserId(request);
@@ -220,7 +226,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `Laundry by user ${userId} on ${day}: ${washed.length} washed of ${ids.length} checked`,
       );
-      return reply.redirect(`/laundry?washed=${washed.length}`, 303);
+      return reply.redirect(`${LAUNDRY_PATH}?washed=${washed.length}`, 303);
     },
   );
 

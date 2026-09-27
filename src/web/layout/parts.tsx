@@ -1,5 +1,5 @@
 import type { Child } from 'hono/jsx';
-import { type ImageRef, imageUrl } from '../files/image-url';
+import { type ImageRef, imageUrl, type PlinthPhoto } from '../files/image-url';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
 
@@ -110,6 +110,45 @@ export function GarmentThumb(props: {
     >
       <HangerIcon class="size-6 text-faint" strokeWidth="1.5" />
     </div>
+  );
+}
+
+/**
+ * A garment's photo on the plinth (base-200), as the redesign draws a
+ * garment in a frame (docs/plans/2026-09-26-redesign.md, section 4,
+ * "Imagery"): its cutout contained, never cropped, or, until it has one,
+ * the photo as taken covering the frame. The frame's shape (aspect,
+ * rounding) is the caller's `class`; `children` draw over it (the grid's
+ * marks). Used by the wardrobe grid's tiles and the Capsules tab's strips.
+ */
+export function PlinthImage(props: {
+  photo: PlinthPhoto | null;
+  alt: string;
+  class: string;
+  /** Above the fold on a phone: loaded at once, not when scrolled near. */
+  eager?: boolean;
+  children?: Child;
+}) {
+  const { photo } = props;
+  return (
+    <figure class={`relative overflow-hidden bg-base-200 ${props.class}`}>
+      {photo ? (
+        <img
+          src={imageUrl(photo, 'thumb')}
+          alt={props.alt}
+          class={`size-full ${photo.cutout ? 'object-contain p-1' : 'object-cover'}`}
+          width="400"
+          height="400"
+          decoding="async"
+          loading={props.eager ? undefined : 'lazy'}
+        />
+      ) : (
+        <div class="flex size-full items-center justify-center text-faint">
+          <HangerIcon class="size-1/3" strokeWidth="1" />
+        </div>
+      )}
+      {props.children}
+    </figure>
   );
 }
 

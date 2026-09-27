@@ -5,6 +5,14 @@ export interface ImageRef {
   version?: number;
 }
 
+/**
+ * A garment's photo as the plinth draws it (PlinthImage, layout/parts.tsx):
+ * `cutout` is showsCutout of its cutout status (src/cutout/state.ts).
+ */
+export interface PlinthPhoto extends ImageRef {
+  cutout: boolean;
+}
+
 // The single source of truth for photo paths (/file/** and /selfies/*), for
 // JSX views and view-models that pre-build URLs. The routes are in
 // routes.ts beside this file and src/web/selfies/routes.ts, and must stay

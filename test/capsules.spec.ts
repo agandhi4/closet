@@ -51,7 +51,7 @@ test('make a capsule, choose its garments, and toggle one from its page', async 
 
   await expect(page).toHaveURL(/\/capsules\/\d+(\?|$)/);
   await expect(page.getByText('2 added · 0 removed')).toBeVisible();
-  await expect(page.locator('#capsule-grid > a.card')).toHaveCount(2);
+  await expect(page.locator('#capsule-grid > a')).toHaveCount(2);
 
   // Back in the picker, the members start checked; unchecking one removes it.
   await page.getByRole('link', { name: 'Choose garments' }).click();
@@ -60,10 +60,10 @@ test('make a capsule, choose its garments, and toggle one from its page', async 
   await page.getByRole('checkbox', { name: 'Chinos' }).uncheck();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('0 added · 1 removed')).toBeVisible();
-  await expect(page.locator('#capsule-grid > a.card')).toHaveCount(1);
+  await expect(page.locator('#capsule-grid > a')).toHaveCount(1);
 
   // The garment page's toggle saves on tap and comes back checked.
-  await page.locator('#capsule-grid > a.card').first().click();
+  await page.locator('#capsule-grid > a').first().click();
   const toggle = page.getByRole('checkbox', { name: 'Office' });
   await expect(toggle).toBeChecked();
   const saved = page.waitForResponse(

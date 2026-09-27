@@ -59,9 +59,7 @@ describe('capsules', () => {
     ).map((row) => row.id);
 
   const tileNames = (html: string) =>
-    [...html.matchAll(/<h2 class="card-title text-sm">([^<]*)</g)].map(
-      (match) => match[1],
-    );
+    [...html.matchAll(/data-tile-name="">([^<]*)</g)].map((match) => match[1]);
 
   const share = async (permission: 'VIEW' | 'MANAGE', cookie: string) => {
     const invite = await t.inject({
@@ -412,24 +410,39 @@ describe('capsules', () => {
       });
     });
 
-    it('filters the grid to a capsule, with a pill naming it and the filter in every link', async () => {
+    it('scopes the grid to a capsule, the scope row naming it and the filter in every link', async () => {
       const res = await get(`/wardrobe?capsule=${travel}`);
       expect(res.statusCode).toBe(200);
       expectNoRawI18nKeys(res);
-      expect(tileNames(res.body)).toEqual(['Boots', 'White tee']);
-      expect(res.body).toContain('Travel ×');
-      const form = res.body.slice(res.body.indexOf('id="search-form"'));
+      const html = unescapeHtml(res.body);
+      expect(tileNames(html)).toEqual(['Boots', 'White tee']);
+      // The scope row's capsule menu names it and offers the closet, every
+      // capsule and the Capsules tab.
+      const scope =
+        /<details class="dropdown shrink-0" id="capsule-scope">[\s\S]*?<\/details>/.exec(
+          html,
+        )![0];
+      expect(scope).toMatch(/<summary[^>]*>\s*<span class="truncate">Travel</);
+      expect(scope).toContain('href="/wardrobe" hx-get="/wardrobe"');
+      expect(scope).toMatch(
+        new RegExp(
+          `href="/wardrobe\\?capsule=${travel}"[^>]*aria-current="true"`,
+        ),
+      );
+      expect(scope).toContain('href="/capsules"');
+      const form = html.slice(html.indexOf('id="search-form"'));
       expect(form).toMatch(
         new RegExp(`type="hidden" name="capsule" value="${travel}"`),
       );
-      // The modal offers every capsule of the wardrobe.
-      const modal = res.body.slice(res.body.indexOf('id="filter-modal"'));
+      // The modal carries the scope along, and so does its Clear.
+      const modal = /<dialog id="filter-modal"[\s\S]*?<\/dialog>/.exec(
+        html,
+      )![0];
       expect(modal).toMatch(
-        new RegExp(
-          `name="capsule" value="${travel}" class="hidden peer" checked`,
-        ),
+        new RegExp(`type="hidden" name="capsule" value="${travel}"`),
       );
-      expect(res.body).toContain('2 results');
+      expect(modal).toContain(`hx-get="/wardrobe?capsule=${travel}"`);
+      expect(html).toContain('2 results');
     });
 
     it('refuses a capsule that is not an id (400) or not the wardrobe’s (404)', async () => {
@@ -444,19 +457,23 @@ describe('capsules', () => {
       expectFullPage(res);
       const html = unescapeHtml(res.body);
       const cards = [
-        ...html.matchAll(/<h2 class="card-title text-base">([^<]*)</g),
+        ...html.matchAll(
+          /<h2 class="text-lg font-semibold truncate">([^<]*)</g,
+        ),
       ].map((match) => match[1]);
       expect(cards[0]).toBe('Closet');
       expect(cards.slice(1)).toEqual([...cards.slice(1)].sort());
       expect(cards).toContain('Travel');
-      expect(html).toContain('href="/capsules/new"');
+      // "New capsule" is the add sheet's, for the owner.
+      const sheet = /<dialog id="add-sheet"[\s\S]*?<\/dialog>/.exec(html)![0];
+      expect(sheet).toContain('href="/capsules/new"');
       expect(html).toContain('role="tablist"');
       expect(html).toMatch(/class="tab tab-active"[^>]*>Capsules</);
     });
 
     it('shows the tabs on the wardrobe grid too', async () => {
       const html = unescapeHtml((await get('/wardrobe')).body);
-      expect(html).toMatch(/class="tab tab-active"[^>]*>Garments</);
+      expect(html).toMatch(/class="tab tab-active"[^>]*>Closet</);
       expect(html).toContain('href="/capsules"');
     });
 

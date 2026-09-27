@@ -1,6 +1,5 @@
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
-import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import {
@@ -9,22 +8,29 @@ import {
   SavedToast,
   StripFlags,
 } from '../layout/parts';
+import type { SharedWardrobe } from '../sharing/access';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
+import { LAUNDRY_PATH } from '../wardrobe/urls';
+import { WardrobeHeader, WardrobeTabs } from '../wardrobe/wardrobe-header';
 import type { LaundryItem } from './queries';
 
 /** The one-shot flag POST /laundry's redirect carries. */
 const LAUNDRY_FLAGS = ['washed'] as const;
 
 /**
- * GET /laundry: the owner's hamper as one native form (PostForm; the answer
- * is this page again): what needs a wash, checked, then what was worn but
- * is not due yet (jeans after one wear), unchecked. "Mark washed" posts the
- * checked ones to POST /laundry, which washes every copy today.
+ * GET /laundry, the Wardrobe's Laundry tab: the signed-in user's own hamper
+ * as one native form (PostForm; the answer is this page again): what needs
+ * a wash, checked, then what was worn but is not due yet (jeans after one
+ * wear), unchecked. "Mark washed" posts the checked ones to POST /laundry,
+ * which washes every copy today. Always the user's own wardrobe, so the
+ * header is theirs (a shared one's closet is a switch away).
  */
 export function LaundryPage(props: {
   ctx: ViewContext;
   items: LaundryItem[];
+  /** The wardrobes shared with the user: the header's switcher. */
+  sharedWardrobes: SharedWardrobe[];
   /** After POST /laundry: how many were washed (the toast). */
   washed: number | undefined;
 }) {
@@ -33,34 +39,43 @@ export function LaundryPage(props: {
   const worn = items.filter((item) => item.dirty === 0);
   return (
     <Layout ctx={ctx} title={t('wear.LAUNDRY')}>
-      <AppBar ctx={ctx} title={t('wear.LAUNDRY')} back="/wardrobe" />
-      <main class="p-4 pt-20 pb-40 w-full max-w-lg mx-auto">
-        {items.length === 0 ? (
-          <EmptyState message={t('wear.LAUNDRY_EMPTY')}>
-            <a href="/wardrobe" class="btn btn-sm">
-              {t('WARDROBE')}
-            </a>
-          </EmptyState>
-        ) : (
-          <PostForm action="/laundry" class="flex flex-col gap-6">
-            {due.length > 0 && (
-              <LaundryGroup title={t('wear.LAUNDRY_DUE')} items={due} />
-            )}
-            {worn.length > 0 && (
-              <LaundryGroup title={t('wear.LAUNDRY_WORN')} items={worn} />
-            )}
-            <div class="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex justify-end">
-              <button
-                type="submit"
-                class="btn btn-primary btn-sm"
-                data-needs-network=""
-              >
-                {t('wear.MARK_WASHED')}
-              </button>
-            </div>
-          </PostForm>
-        )}
-      </main>
+      <WardrobeHeader
+        ctx={ctx}
+        tab="laundry"
+        viewOwner={undefined}
+        sharedWardrobes={props.sharedWardrobes}
+        canEdit
+      />
+      <div class="pt-16">
+        <WardrobeTabs active="laundry" viewOwner={undefined} />
+        <main class="p-4 pb-40 w-full max-w-lg mx-auto">
+          {items.length === 0 ? (
+            <EmptyState message={t('wear.LAUNDRY_EMPTY')}>
+              <a href="/wardrobe" class="btn btn-sm">
+                {t('WARDROBE')}
+              </a>
+            </EmptyState>
+          ) : (
+            <PostForm action={LAUNDRY_PATH} class="flex flex-col gap-6">
+              {due.length > 0 && (
+                <LaundryGroup title={t('wear.LAUNDRY_DUE')} items={due} />
+              )}
+              {worn.length > 0 && (
+                <LaundryGroup title={t('wear.LAUNDRY_WORN')} items={worn} />
+              )}
+              <div class="fixed bottom-dock left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex justify-end">
+                <button
+                  type="submit"
+                  class="btn btn-primary btn-sm"
+                  data-needs-network=""
+                >
+                  {t('wear.MARK_WASHED')}
+                </button>
+              </div>
+            </PostForm>
+          )}
+        </main>
+      </div>
       {props.washed !== undefined && (
         <>
           <SavedToast

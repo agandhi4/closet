@@ -48,9 +48,7 @@ describe('property filters, select mode and bulk edit', () => {
       .where(inArray(garment.id, garmentIds))
       .orderBy(garment.id);
   const names = (html: string) =>
-    [...html.matchAll(/<h2 class="card-title text-sm">([^<]*)</g)].map(
-      (match) => match[1],
-    );
+    [...html.matchAll(/data-tile-name="">([^<]*)</g)].map((match) => match[1]);
 
   beforeAll(async () => {
     t = await createTestApp();

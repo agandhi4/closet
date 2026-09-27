@@ -37,7 +37,7 @@ function permissionLabel(permission: SharePermission): string {
   return t(permission === 'VIEW' ? 'PERMISSION_VIEW' : 'PERMISSION_MANAGE');
 }
 
-function PermissionBadge(props: {
+export function PermissionBadge(props: {
   permission: SharePermission;
   class?: string;
 }) {

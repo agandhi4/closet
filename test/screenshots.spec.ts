@@ -122,6 +122,27 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
     animations: 'disabled',
   });
   await shot(page, '65-demo-profile', '/auth/profile');
+  // The Wardrobe's header (R3, #83): the switcher in the title (Dana's
+  // wardrobe is shared with Theo), the ⋯ menu, the add sheet, and the grid
+  // scoped to a capsule from the scope row.
+  await page.goto('/wardrobe');
+  await page.locator('#title-menu summary').click();
+  await shot(page, '66-demo-wardrobe-switcher');
+  await page.goto('/wardrobe');
+  await page.locator('#wardrobe-menu summary').click();
+  await shot(page, '67-demo-wardrobe-menu');
+  await page.goto('/wardrobe');
+  await page.getByRole('button', { name: 'Add' }).click();
+  await expect(page.locator('#add-sheet')).toBeVisible();
+  await shot(page, '68-demo-wardrobe-add');
+  await page.goto('/wardrobe?category=tops');
+  await page.locator('#capsule-scope summary').click();
+  await page
+    .locator('#capsule-scope')
+    .getByRole('link', { name: 'Office' })
+    .click();
+  await expect(page).toHaveURL(/capsule=\d+/);
+  await shot(page, '69-demo-wardrobe-capsule');
 });
 
 // The dark theme (#81, closet-dark follows the system's scheme): the same
@@ -172,7 +193,7 @@ test('demo: Theo, wears and washes', async ({ page }) => {
   await page.goto('/wardrobe?keyword=White%20tee');
   await page
     .locator('#wardrobe-grid')
-    .getByRole('heading', { name: 'White tee', exact: true })
+    .getByText('White tee', { exact: true })
     .click();
   await expect(page.locator('#garment-wear')).toContainText('Worn');
   await shot(page, '21-demo-garment-wears');
@@ -209,7 +230,7 @@ test('demo: Theo, the wishlist', async ({ page }) => {
   await page.goto('/wardrobe?keyword=Grey%20merino');
   await page
     .locator('#wardrobe-grid')
-    .getByRole('heading', { name: 'Grey merino crewneck', exact: true })
+    .getByText('Grey merino crewneck', { exact: true })
     .click();
   await expect(
     page.getByRole('link', { name: 'Find a replacement' }),
@@ -282,7 +303,7 @@ test('demo: Theo, the outfit gallery', async ({ page }) => {
   await page.goto('/wardrobe?keyword=Olive%20chinos');
   await page
     .locator('#wardrobe-grid')
-    .getByRole('heading', { name: 'Olive chinos', exact: true })
+    .getByText('Olive chinos', { exact: true })
     .click();
   await expect(page.locator('#garment-avoided')).toContainText(
     'Olive chore coat',

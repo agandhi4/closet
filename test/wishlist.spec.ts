@@ -87,11 +87,9 @@ test('find a replacement, see it on the wishlist, and buy it', async ({
   await page.goto('/wardrobe');
   const grid = page.locator('#wardrobe-grid');
   await expect(
-    grid.getByRole('heading', { name: 'Charcoal merino' }),
+    grid.getByText('Charcoal merino', { exact: true }),
   ).toBeVisible();
-  await expect(grid.getByRole('heading', { name: 'Grey merino' })).toHaveCount(
-    0,
-  );
+  await expect(grid.getByText('Grey merino', { exact: true })).toHaveCount(0);
   await page.goto('/wardrobe/wishlist');
   await expect(page.getByText('Nothing on the wishlist yet')).toBeVisible();
 

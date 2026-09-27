@@ -8,7 +8,11 @@ import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import type { GridPage } from '../wardrobe/queries';
 import { capsuleUrl, wardrobeUrl } from '../wardrobe/urls';
-import { EMPTY_SEARCH, GarmentTiles } from '../wardrobe/wardrobe-page';
+import {
+  EMPTY_SEARCH,
+  GarmentGrid,
+  GarmentTiles,
+} from '../wardrobe/wardrobe-page';
 import { garmentCount } from './list-page';
 import type { CapsuleDetail } from './queries';
 
@@ -79,7 +83,7 @@ export function CapsulePage(props: {
             )}
           </EmptyState>
         ) : (
-          <div id="capsule-grid" class="flex flex-wrap gap-4 justify-center">
+          <GarmentGrid id="capsule-grid">
             <GarmentTiles
               page={model.page}
               search={search}
@@ -87,7 +91,7 @@ export function CapsulePage(props: {
               selecting={false}
               firstPage
             />
-          </div>
+          </GarmentGrid>
         )}
       </main>
       {model.created && (

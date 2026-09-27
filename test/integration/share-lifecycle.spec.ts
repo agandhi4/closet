@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type SharePermission, wardrobeShare } from '../../src/db/schema';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { createGarment, garmentRow, garmentsNamed } from './garments';
-import { createTestApp, TestApp, userIdOf } from './harness';
+import { createTestApp, TestApp, unescapeHtml, userIdOf } from './harness';
 
 /**
  * A wardrobe share after it is created (share.spec.ts covers creating and
@@ -185,7 +185,7 @@ describe('wardrobe share lifecycle', () => {
 
   afterAll(() => t?.cleanup());
 
-  it('the wardrobe switcher swaps the grid in place, never reloading the page', async () => {
+  it('the wardrobe switcher is the title’s menu: each wardrobe a page of its own, and Manage sharing', async () => {
     const grantee = await signUp('switcher');
     await acceptOk(await createInvite(owner, 'VIEW'), grantee);
     const page = await t.inject({
@@ -193,14 +193,32 @@ describe('wardrobe share lifecycle', () => {
       url: '/wardrobe',
       headers: { cookie: grantee.cookie },
     });
-    const select = /<select\b[^>]*name="ownerId"[^>]*>/.exec(page.body)?.[0];
-    expect(select).toBeDefined();
-    expect(select).toContain('hx-get="/wardrobe"');
-    expect(select).toContain('hx-target="#wardrobe-main"');
-    expect(select).toContain('hx-push-url="true"');
-    expect(page.body).toContain(`<option value="${owner.id}">`);
+    const menu =
+      /<details class="dropdown min-w-0" id="title-menu">[\s\S]*?<\/details>/.exec(
+        unescapeHtml(page.body),
+      )?.[0];
+    expect(menu).toBeDefined();
+    // The page's one h1 is the menu's summary.
+    expect(menu).toMatch(/<summary[^>]*><h1[^>]*>Wardrobe<\/h1>/);
+    expect(menu).toMatch(/href="\/wardrobe" aria-current="true"/);
+    // Plain boosted links, whole pages: the title and the tabs change too.
+    expect(menu).toContain(`href="/wardrobe?ownerId=${owner.id}"`);
+    expect(menu).not.toContain('hx-target');
+    expect(menu).toContain('View only');
+    expect(menu).toContain('href="/auth/profile#sharing"');
 
-    // What htmx sends for the owner's option: the grid fragment alone.
+    const shared = await t.inject({
+      method: 'GET',
+      url: `/wardrobe?ownerId=${owner.id}`,
+      headers: { cookie: grantee.cookie },
+    });
+    expect(shared.statusCode).toBe(200);
+    expect(shared.body).toMatch(/<h1[^>]*>[^<]*’s wardrobe<\/h1>/);
+    expect(shared.body).toContain(`/wardrobe/${garmentId}?ownerId=${owner.id}`);
+
+    // Pages the installed app cached before still swap the grid with the
+    // old <select>: the fragment answers it, the empty value the grantee's
+    // own wardrobe.
     const swapped = await t.inject({
       method: 'GET',
       url: `/wardrobe?ownerId=${owner.id}`,
@@ -211,7 +229,6 @@ describe('wardrobe share lifecycle', () => {
     expect(swapped.body).toContain(
       `/wardrobe/${garmentId}?ownerId=${owner.id}`,
     );
-    // And the empty value is the grantee's own wardrobe.
     const own = await t.inject({
       method: 'GET',
       url: '/wardrobe?ownerId=',

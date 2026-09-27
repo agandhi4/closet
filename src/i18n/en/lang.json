@@ -466,6 +466,16 @@
   "CAPSULES": "Capsules",
   "CAPSULE": "Capsule",
   "CLOSET": "Closet",
+  "WARDROBE_OF": "{name}’s wardrobe",
+  "MANAGE_SHARING": "Manage sharing",
+  "MANAGE_CAPSULES": "Manage capsules",
+  "add": {
+    "TITLE": "Add",
+    "TO_CLOSET": "To the closet",
+    "TO_WISHLIST": "To the wishlist",
+    "FROM_LINK": "From a link",
+    "BY_HAND": "Enter details"
+  },
   "NEW_CAPSULE": "New capsule",
   "EDIT_CAPSULE": "Edit capsule",
   "DELETE_CAPSULE": "Delete capsule",
@@ -489,6 +499,7 @@
   "TAG_LEFT": "{count} left to tag",
   "TAG_NEXT": "Next",
   "TAG_PROMPT": "{count} garments need details",
+  "TAG_PROMPT_ONE": "1 garment needs details",
   "TAG_PROMPT_ACTION": "Tag them",
   "PRODUCT_LINK": "Product link",
   "PRODUCT_LINK_PLACEHOLDER": "https://… the page you bought it from",
@@ -578,6 +589,7 @@
     "LAUNDRY_WORN": "Worn since the last wash",
     "LAUNDRY_EMPTY": "Nothing needs a wash.",
     "LAUNDRY_PROMPT": "{count} garments need a wash",
+    "LAUNDRY_PROMPT_ONE": "1 garment needs a wash",
     "LAUNDRY_WASHED": "{count} washed",
     "MARK_WASHED": "Mark washed"
   },
