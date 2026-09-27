@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { decideSessionAccess, LOGIN_PATH } from './session-access';
+import { LOGIN_PATH } from './login-path';
+import { decideSessionAccess } from './session-access';
 import { loggableUrl } from '../loggable-url';
 import type { Logger } from '../../logger';
 
@@ -29,7 +30,10 @@ declare module 'fastify' {
  * told its body is malformed. It answers as decideSessionAccess decides: a
  * page navigation without a session is a 302 to the login page, an htmx
  * fragment or fetch a bodiless 401 with `HX-Redirect`. Both are routine, so
- * they log at debug.
+ * they log at debug. When the request's cookie was rejected, the resolver
+ * has already set the cleared cookie and Clear-Site-Data on this reply
+ * (endSession, session.ts), and both answers keep them: never reset the
+ * reply's headers here.
  */
 export function createSessionHook(logger: Logger) {
   return async function requireSession(

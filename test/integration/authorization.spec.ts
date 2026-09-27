@@ -14,7 +14,7 @@ import { createToken } from '../../src/web/auth/personal-tokens';
 import { changeCandidates } from '../../src/web/plans/candidates';
 import { insertItems, saveStyleProfile } from '../../src/web/plans/queries';
 import { EMPTY_STYLE_PROFILE } from '../../src/web/plans/validation';
-import { LOGIN_PATH } from '../../src/web/auth/session-access';
+import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
 import {
   createGarment,

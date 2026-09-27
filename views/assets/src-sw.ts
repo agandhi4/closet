@@ -25,6 +25,7 @@ import {
   pageAccount,
   type Revalidation,
   revalidationOutcome,
+  sentToLogin,
   servesStaleWhileRevalidate,
 } from '../../src/web/page-cache';
 import {
@@ -179,17 +180,30 @@ async function claimPageCache(
   const owner = await readRecord(OWNER_KEY);
   if (owner === account) return;
   if (owner !== undefined) {
-    await dropPages(event, 'a page for another account arrived');
+    await dropPages(
+      event,
+      account === ''
+        ? 'a signed-out page arrived'
+        : 'a page for another account arrived',
+    );
   }
   await writeRecord(OWNER_KEY, account);
 }
 
 // Every page either strategy stores, after the 200 filter: owner-checked and
 // stamped with when it arrived. A followed redirect is not stored under the
-// URL that redirected: the body is another page's.
+// URL that redirected: the body is another page's. One that landed on the
+// login page (a boosted tap after the session ended elsewhere: a password
+// changed on another device, the account deleted) still tells who is signed
+// in here, nobody, so the cache is claimed for nobody and another account's
+// pages go. A document load sees the same through the login page it lands
+// on, which is stored like any page.
 const pageStore: WorkboxPlugin = {
   cacheWillUpdate: async ({ response, event }) => {
-    if (response.redirected) return null;
+    if (response.redirected) {
+      if (sentToLogin(response)) await claimPageCache('', event);
+      return null;
+    }
     await claimPageCache(pageAccount(response.headers), event);
     return copyResponse(response, (init) => {
       const headers = new Headers(init.headers);

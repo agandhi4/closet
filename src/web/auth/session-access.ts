@@ -1,8 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import { isFragmentRequest } from '../../htmx/fragment-request';
 
-export const LOGIN_PATH = '/auth/login';
-
 /**
  * What a request gets from the session gate:
  *  - `allow`: the route is public or the request has a session;

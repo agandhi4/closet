@@ -8,6 +8,7 @@
  * from the worker (public/js/freshness.js), and says so.
  */
 
+import { LOGIN_PATH } from './auth/login-path';
 import { type Section, SECTION_HOME } from './layout/sections';
 
 /**
@@ -86,6 +87,21 @@ export function cachedAt(headers: {
 }): number {
   const value = Number(headers.get(CACHED_AT_HEADER));
   return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * A page request the server redirected to the login page (a followed
+ * redirect: htmx's boosted XHR, a revalidation): nobody is signed in any
+ * more. The session gate is what sends a page there, so it is how the worker
+ * learns of a session ended away from this device (a password changed
+ * elsewhere, the account deleted, a rotated secret, expiry), which no
+ * sign-out POST announced.
+ */
+export function sentToLogin(response: {
+  redirected: boolean;
+  url: string;
+}): boolean {
+  return response.redirected && new URL(response.url).pathname === LOGIN_PATH;
 }
 
 /** The account a response says it was rendered for; '' when signed out. */

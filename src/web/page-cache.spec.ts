@@ -6,6 +6,7 @@ import {
   PAGE_ACCOUNT_HEADER,
   pageAccount,
   revalidationOutcome,
+  sentToLogin,
   servesStaleWhileRevalidate,
 } from './page-cache';
 
@@ -94,6 +95,26 @@ describe('cachedAt and pageAccount', () => {
     expect(cachedAt(new Headers())).toBe(0);
     expect(cachedAt(new Headers({ [CACHED_AT_HEADER]: 'soon' }))).toBe(0);
     expect(pageAccount(new Headers())).toBe('');
+  });
+});
+
+describe('sentToLogin', () => {
+  it('is a page request redirected to the login page', () => {
+    expect(sentToLogin({ redirected: true, url: `${ORIGIN}/auth/login` })).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ['not redirected (the login page opened itself)', false, '/auth/login'],
+    [
+      'redirected elsewhere (an archive landing on the grid)',
+      true,
+      '/wardrobe',
+    ],
+    ['redirected to a page under the login path', true, '/auth/login/x'],
+  ])('is not a page %s', (_label, redirected, path) => {
+    expect(sentToLogin({ redirected, url: `${ORIGIN}${path}` })).toBe(false);
   });
 });
 

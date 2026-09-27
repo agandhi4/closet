@@ -20,11 +20,24 @@ export interface AuthContext {
 
 export const SESSION_COOKIE = 'access_token';
 
+/** A session cookie's verdict: its session, or why it no longer opens one. */
+type CookieVerdict = { auth: AuthContext } | { rejected: string };
+
 /**
  * Resolves a request's session once: cookie -> JWT -> user row -> password
  * fingerprint. The root preValidation hook in app.ts calls it for every
  * non-static request and stores the result as `request.auth`;
  * requireSession, sessionUserId() and the page context only read that.
+ *
+ * A cookie that no longer opens a session is ended here, on whatever route
+ * it arrives (endSession: the cookie cleared, Clear-Site-Data sent). That
+ * covers every way a session ends away from this device: a password changed
+ * on another one or by `user:set-password` (the fingerprint), the account
+ * deleted elsewhere (no row), a rotated ACCESS_TOKEN_SECRET or a garbled
+ * token (the signature), and expiry. This is the one place such a device is
+ * noticed, so it is where it drops the account's HTTP cache (selfies,
+ * pages); the session gate's redirect or 401 then carries both headers. A
+ * request without the cookie gets neither: nothing was signed in there.
  */
 export function createSessionResolver(deps: {
   db: Db;
@@ -32,27 +45,32 @@ export function createSessionResolver(deps: {
   logger: Logger;
 }) {
   const { db, tokens, logger } = deps;
+
+  const judge = async (token: string): Promise<CookieVerdict> => {
+    const claims = tokens.verify(token);
+    if (!claims) return { rejected: 'invalid signature, claims or expiry' };
+    const user = await findUserById(db, claims.userId);
+    if (!user) return { rejected: `unknown user ${claims.userId}` };
+    if (passwordFingerprint(user.password) !== claims.pwf) {
+      return { rejected: `password fingerprint mismatch for user ${user.id}` };
+    }
+    return { auth: { user: { id: user.id, email: user.email } } };
+  };
+
   return async function resolveSession(
     request: FastifyRequest,
+    reply: FastifyReply,
   ): Promise<AuthContext | undefined> {
     const token = request.cookies?.[SESSION_COOKIE];
     if (!token) return undefined;
 
-    const claims = tokens.verify(token);
-    if (!claims) {
-      logger.info('Rejected access token: invalid signature, claims or expiry');
-      return undefined;
-    }
-    const user = await findUserById(db, claims.userId);
-    if (!user) {
-      logger.info(`Access token for unknown user ${claims.userId}`);
-      return undefined;
-    }
-    if (passwordFingerprint(user.password) !== claims.pwf) {
-      logger.info(`Password fingerprint mismatch for user ${user.id}`);
-      return undefined;
-    }
-    return { user: { id: user.id, email: user.email } };
+    const verdict = await judge(token);
+    if ('auth' in verdict) return verdict.auth;
+    endSession(reply);
+    logger.info(
+      `Rejected access token (${verdict.rejected}): cookie cleared, Clear-Site-Data sent`,
+    );
+    return undefined;
   };
 }
 
@@ -76,9 +94,16 @@ export function setSessionCookie(reply: FastifyReply, token: string): void {
 /**
  * Ends the session in this browser, and tells it to drop its HTTP cache so
  * the next person on the device cannot page back through this user's
- * wardrobe. The service worker's page cache is cleared by the worker itself
- * (views/assets/src-sw.ts, on the logout navigation): Clear-Site-Data
- * "cache" does not reach Cache Storage everywhere.
+ * wardrobe or its selfies (`private, immutable` for a year). Used by sign-out,
+ * account deletion and the session resolver (a cookie that no longer opens a
+ * session); every way a session ends on a device goes through here.
+ *
+ * "cache", not "storage": "storage" also unregisters the service worker and
+ * empties its precache, so the installed app would lose its offline shell
+ * (and its push subscription) until a page loaded online registered it
+ * again. The worker's page cache, the one private thing in Cache Storage,
+ * is dropped by the worker itself (views/assets/src-sw.ts: the sign-out
+ * navigation, and the signed-out page a revoked session lands on).
  */
 export function endSession(reply: FastifyReply): void {
   reply.clearCookie(SESSION_COOKIE, {

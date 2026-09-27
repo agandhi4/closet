@@ -177,6 +177,8 @@ export async function createApp(
 
   // One session resolution per request: the JWT is verified and the user
   // loaded here and nowhere else (the session gate and views read req.auth).
+  // A cookie that no longer opens a session is ended on this reply
+  // (cleared, Clear-Site-Data), whatever the route answers.
   // Static paths skip everything, so asset requests never touch the database.
   const tokens = createSessionTokens(config.ACCESS_TOKEN_SECRET);
   const resolveSession = createSessionResolver({
@@ -207,7 +209,7 @@ export async function createApp(
     if (isStaticPath(request.url) || request.routeOptions.config.bearer) {
       return;
     }
-    request.auth = await resolveSession(request);
+    request.auth = await resolveSession(request, reply);
     reply.locals = buildViewContext(request, request.auth);
   });
 
