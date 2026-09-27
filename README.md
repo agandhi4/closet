@@ -168,7 +168,7 @@ npm run test:e2e        # build, then Playwright end-to-end
 npm run test:cov        # both Vitest tiers with v8 coverage (coverage/)
 npm run test:load       # autocannon load test, see below
 npm run generate:icons  # regenerate public/assets/icon.png, icon-192.png, icon-512.png and favicon.ico from icon.svg
-npm run check           # format, lint, types, unit + integration in parallel (the pre-commit hook)
+npm run check           # format, lint, types, unit + integration in parallel (the pre-commit hook; check:static is the first four)
 npm run verify:push     # build + Chromium Playwright (the pre-push hook, for a push to main; PRs are verified by CI)
 npm run maintenance:reconcile [-- --dry-run] [--force]
                         # one storage reconciliation pass (needs `npm run build`; see below)

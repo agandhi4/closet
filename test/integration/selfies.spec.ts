@@ -32,7 +32,7 @@ import {
  * (never the public /file/**); replacing, removing and deleting the entry
  * unlink its files after commit; deleting the outfit keeps it as a look on
  * its day; deleting the account takes every one. Refusals by other users
- * are in authorization.spec.ts, reconciliation's in reconcile.spec.ts.
+ * are in authorization-outfits.spec.ts, reconciliation's in reconcile.spec.ts.
  */
 describe('outfit selfies', () => {
   let t: TestApp;

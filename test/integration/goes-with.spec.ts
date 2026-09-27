@@ -14,7 +14,7 @@ import { expectFragment, HX_FRAGMENT } from './pages';
  * near-duplicates; the same through the MCP tool goes_with_closet and as a
  * count on the shopping list's candidate cards. And the other side of the
  * rule: the item never reaches ordinary ideas, `?with=` or a pick. The
- * grantee rows are in authorization.spec.ts.
+ * grantee rows are in authorization-wardrobe.spec.ts.
  */
 
 type Fields = Record<string, string | string[]>;

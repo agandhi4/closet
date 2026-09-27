@@ -26,7 +26,7 @@ import { expectFragment, expectFullPage } from './pages';
  * cannot rewrite, counted by distinct day; Wore today; Washed and the
  * laundry page; multiples; away; and the "available" rule, in SQL and in
  * TypeScript, agreeing. The owner's own records throughout: a grantee sees
- * none of it (the refusals are in authorization.spec.ts).
+ * none of it (the refusals are in authorization-wardrobe.spec.ts).
  */
 
 const form = (fields: Record<string, string | string[]>) => {

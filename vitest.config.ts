@@ -9,10 +9,13 @@ export default defineConfig({
   test: {
     // Global, inherited by every project (extends: true). The budget covers
     // an integration spec's beforeAll: scratch database, migrations and app
-    // boot, slower on CI's 2-core runner.
+    // boot, slower on CI's 4-vCPU runner.
     testTimeout: 30000,
     hookTimeout: 30000,
-    maxWorkers: '50%',
+    // Half the cores where `npm run check` runs the tests beside ESLint and
+    // tsc (the pre-commit hook); all of them in CI, whose test job runs
+    // nothing else (.github/workflows/ci.yml).
+    maxWorkers: process.env.CI ? '100%' : '50%',
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],

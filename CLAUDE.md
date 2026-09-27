@@ -161,7 +161,7 @@ The detail of each rule, its code and its spec: `src/web/security/CLAUDE.md`. Wh
 
 - **CSRF**: the root same-origin hook refuses a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site with a 403, before the body is read. Nothing changes state on a GET. Tools send an Origin: the harness does by default, Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
 - **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `MCP_LIMIT`.
-- **Refusals do not reveal ids**: what the requester cannot see is a 404 like an unknown id; what they can see but may not change is a 403 (`WardrobeAccess`; `test/integration/authorization.spec.ts` is the matrix).
+- **Refusals do not reveal ids**: what the requester cannot see is a 404 like an unknown id; what they can see but may not change is a 403 (`WardrobeAccess`; `test/integration/authorization-*.spec.ts` is the matrix).
 - **Outbound fetches** of a user-supplied URL or a third-party API go only through `createOutboundFetcher`.
 - **Redirect targets** from the user go through `safeReturnTo`; a path carrying a secret sets `config: { secretPath: true }` and every log line names requests through `loggableUrl()`; public pages never show an email.
 - **Sessions**: signing out is `POST /auth/logout`; a new password ends every other session, personal access token and push subscription.
@@ -230,8 +230,9 @@ npm run lighthouse            # lhci autorun
 
 npm run test:all              # every Vitest project in one run (vitest.config.ts); test:cov adds v8 coverage in coverage/
 npm run typecheck             # tsc: app + tests + scripts, then the service worker (~3 s cold)
-npm run check                 # docs:check, format:check, lint:check, typecheck and test:all in parallel (~12 s).
-                              # The pre-commit hook. `precommit` is an alias.
+npm run check                 # check:static (docs:check, format:check, lint:check, typecheck) and test:all in
+                              # parallel (~80 s on 16 cores). The pre-commit hook. `precommit` is an alias.
+                              # CI runs the halves as two jobs: `format, lint, types` and `unit + integration`.
 npm run verify:push           # build + Chromium Playwright against the fresh build. The pre-push hook, only
                               # for a push to main (branches are verified by CI on their PR)
 npm run precommit:full        # check + verify:push + load test + lighthouse (minutes)
@@ -291,8 +292,8 @@ Production runs on linux-box (the homelab) and merging to `main` deploys it: CI 
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
 - Behavior assertions go in `test/integration/` first: a spec that boots the real app and checks the HTML, headers, rows and files is the default proof that a change works, and it runs in seconds without a build or a browser. Playwright is the full gate for what only a browser can show (service worker, htmx swaps, layout).
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
-- **Changes land through pull requests** (owner decision, 2026-09-26). `main` is protected: the `format, lint, types, unit + integration` and `browser (production config)` checks must pass, and the branch must be up to date with `main` (strict), which is what catches two parallel branches that each pass alone (a duplicate migration number, conflicting edits). Merges are squash only, so one PR is one commit on `main` (an upstream-worthy fix gets its own PR), and merged branches are deleted.
-- **The flow per issue slice:** a branch (`<issue>-<slug>`, e.g. `12b-bulk-edit`), in its own git worktree when agents work in parallel; the fast loop locally (the spec being worked on, and the pre-commit `npm run check`, ~20 s); push and open a PR that links the issue (`Part of #12` / `Closes #12`); CI does the full verification (fix failures from `gh run view --log-failed`); an independent review of the PR diff; then `gh pr merge --auto --squash`, which merges once the checks pass. Merging deploys (publish, then the hourly autoupdater). The owner watches the Roadmap and can stop any PR by commenting or closing it.
+- **Changes land through pull requests** (owner decision, 2026-09-26). `main` is protected: the `format, lint, types`, `unit + integration` and `browser (production config)` checks must pass, and the branch must be up to date with `main` (strict), which is what catches two parallel branches that each pass alone (a duplicate migration number, conflicting edits). Merges are squash only, so one PR is one commit on `main` (an upstream-worthy fix gets its own PR), and merged branches are deleted.
+- **The flow per issue slice:** a branch (`<issue>-<slug>`, e.g. `12b-bulk-edit`), in its own git worktree when agents work in parallel; the fast loop locally (the spec being worked on, and the pre-commit `npm run check`, ~80 s); push and open a PR that links the issue (`Part of #12` / `Closes #12`); CI does the full verification (fix failures from `gh run view --log-failed`); an independent review of the PR diff; then `gh pr merge --auto --squash`, which merges once the checks pass. Merging deploys (publish, then the hourly autoupdater). The owner watches the Roadmap and can stop any PR by commenting or closing it.
 - **Phone-width checks** still happen before a feature is called done: Playwright at 390 px, run locally in the one worktree that is not racing another for `:3000`, or from CI's uploaded artifacts.
 - **Migrations and parallel branches:** two branches that each generate `NNNN` collide in `drizzle/meta/_journal.json`. The later branch rebases on `main`, deletes its migration and snapshot, and regenerates (`npx drizzle-kit generate`); the drift test in CI proves the result. Never hand-merge a journal.
 - The pre-commit hook runs `npm run check`; never bypass it with `--no-verify` to get a commit through. If a hook fails, fix and create a new commit, never amend. The pre-push hook runs the browser suite only for a push to `main` (a docs fix the owner pushes directly; admins can still push, the checks are not enforced on them).

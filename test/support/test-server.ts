@@ -65,7 +65,15 @@ async function main(): Promise<void> {
   logger.info(
     `Test server: background removal stubbed (${STUB_DELAY_MS} ms a photo), weather from ${weather.options.endpoints.forecast}`,
   );
-  await serve(config, logger, stubRunner, { weather: weather.options });
+  const app = await serve(config, logger, stubRunner, {
+    weather: weather.options,
+  });
+  // serve() closes the app on SIGTERM; the stub's own server would keep the
+  // process alive after it (the load test waited forever, #112). Its HTTP
+  // server closes after the timers have stopped, so nothing asks for weather.
+  app.server.once('close', () => {
+    void weather.close();
+  });
 }
 
 main().catch((error: unknown) => {

@@ -30,6 +30,40 @@ const chosen = (rowLocator: Locator) =>
   rowLocator.locator('input[name="garmentId"]');
 
 /**
+ * A thumb's tap on `role`'s garment where it shows in its strip, once the
+ * strip has stopped scrolling. Not locator.click(): Playwright first scrolls
+ * an element it judges out of view, and in a snapping strip that can centre
+ * a peeking neighbour, make it the choice, and turn the tap into opening its
+ * page (a CI flake under load, #113).
+ */
+async function tap(page: Page, rowLocator: Locator, garmentId: string) {
+  const strip = rowLocator.locator('.styling-strip');
+  await strip.scrollIntoViewIfNeeded();
+  await strip.evaluate(
+    (el) =>
+      new Promise<void>((resolve) => {
+        let last = el.scrollLeft;
+        let still = 0;
+        const tick = () => {
+          if (el.scrollLeft === last) still += 1;
+          else [last, still] = [el.scrollLeft, 0];
+          if (still >= 3) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+  const box = (await strip.boundingBox())!;
+  const item = (await strip
+    .locator(`[data-garment-id="${garmentId}"]`)
+    .boundingBox())!;
+  const left = Math.max(box.x, item.x);
+  const right = Math.min(box.x + box.width, item.x + item.width);
+  expect(right - left, 'the garment shows in its strip').toBeGreaterThan(8);
+  await page.mouse.click((left + right) / 2, item.y + item.height / 2);
+}
+
+/**
  * The app's touch and wheel listeners that are not passive, on the window
  * and anywhere in the document: each would make the browser wait on script
  * before it scrolls a strip. Listeners from the page's own origin only
@@ -108,9 +142,9 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
   // A tap on the neighbour peeking at the left ("No garment") centres it;
   // a tap on the jeans brings them back.
   const bottoms = row(page, 'bottom');
-  await bottoms.locator('[data-garment-id=""]').click();
+  await tap(page, bottoms, '');
   await expect(chosen(bottoms)).toHaveValue('');
-  await bottoms.locator(`[data-garment-id="${g.jeans}"]`).click();
+  await tap(page, bottoms, String(g.jeans));
   await expect(chosen(bottoms)).toHaveValue(String(g.jeans));
   // Tapping the centred garment would open its page: the URL stays here.
   await expect(page).toHaveURL(/\/styling$/);
@@ -202,7 +236,7 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
   expect(await scrollLeft(strip)).toBe(frozenAt);
   await expect(chosen(tops)).toHaveValue(String(g.newTee));
   // A tap on a neighbour neither centres it nor opens its page.
-  await tops.locator(`[data-garment-id="${g.oldTee}"]`).click();
+  await tap(page, tops, String(g.oldTee));
   await expect(page).toHaveURL(/\/styling$/);
   expect(await scrollLeft(strip)).toBe(frozenAt);
   await expect(chosen(tops)).toHaveValue(String(g.newTee));
@@ -249,7 +283,7 @@ test('an outfit opened in Styling saves its changes in place', async ({
   await expect(chosen(row(page, 'top'))).toHaveValue(String(g.oldTee));
   // Its other roles open empty, ready to add.
   await expect(chosen(row(page, 'bottom'))).toHaveValue('');
-  await row(page, 'bottom').locator(`[data-garment-id="${g.jeans}"]`).click();
+  await tap(page, row(page, 'bottom'), String(g.jeans));
   await expect(chosen(row(page, 'bottom'))).toHaveValue(String(g.jeans));
 
   await page.getByRole('button', { name: 'Save changes' }).click();

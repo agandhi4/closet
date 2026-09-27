@@ -27,7 +27,7 @@ import { expectFullPage } from './pages';
  * removal) and comparing two plans. Private like plans: another user's
  * item is a 404, a grantee sees and sends none of it. The pure rules are
  * src/wardrobe/shopping.spec.ts's and plans.spec.ts's; the matrix rows are
- * authorization.spec.ts's.
+ * authorization-plans.spec.ts's.
  */
 describe('the shopping loop', () => {
   let t: TestApp;

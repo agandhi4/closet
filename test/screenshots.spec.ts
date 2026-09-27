@@ -19,6 +19,14 @@ import { fakeSubscription, stubPushManager } from './support/push-stub';
  * the build has not migrated, and the server Playwright starts is what
  * migrates it. A fixed anchor makes every run's history the same, and the
  * calendar is addressed by week, whatever today is.
+ *
+ * Every test owns the personas it shows (#103). The file is serial, so a
+ * failure retries the whole file in a fresh worker, and beforeAll rewrites
+ * all three personas at the anchor (--reset) every time it runs: neither a
+ * retry nor a later run on the same database inherits a Theo that an earlier
+ * attempt re-seeded at the real today or added a garment to. The tests that
+ * change Theo come last in the file. Pages are reached by exact name, never
+ * as "the first tile" of a search, whose order follows the seed's inserts.
  */
 
 const PASSWORD = 'Closet-demo-1';
@@ -29,21 +37,17 @@ test.skip(!process.env.SEED_SCREENSHOTS, 'SEED_SCREENSHOTS is not set');
 test.describe.configure({ mode: 'serial' });
 test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
-test.beforeAll(() => {
-  mkdirSync(DIR, { recursive: true });
-  // Idempotent: a retry finds the personas seeded and leaves them.
+function seed(...args: string[]): void {
   execFileSync(
     'node',
-    [
-      'dist/seed/seed.cli.js',
-      '--persona',
-      'all',
-      '--anchor',
-      ANCHOR,
-      '--password-stdin',
-    ],
+    ['dist/seed/seed.cli.js', ...args, '--reset', '--password-stdin'],
     { input: `${PASSWORD}\n`, stdio: ['pipe', 'inherit', 'inherit'] },
   );
+}
+
+test.beforeAll(() => {
+  mkdirSync(DIR, { recursive: true });
+  seed('--persona', 'all', '--anchor', ANCHOR);
 });
 
 async function signInAs(page: Page, persona: string): Promise<void> {
@@ -65,6 +69,22 @@ async function shot(page: Page, name: string, url?: string): Promise<void> {
   });
 }
 
+/**
+ * The raw selvedge jeans' page. Searched by more than "raw": the Iron Rangers'
+ * notes say "with the raw denim", and as the newer garment they are the first
+ * tile of `?keyword=raw` (#103).
+ */
+async function openRawSelvedgeJeans(page: Page): Promise<void> {
+  await page.goto('/wardrobe?keyword=Raw%20selvedge');
+  await page
+    .locator('#wardrobe-grid')
+    .getByText('Raw selvedge jeans', { exact: true })
+    .click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    'Raw selvedge jeans',
+  );
+}
+
 /** Styling with its top row locked: frozen, ringed in the accent (#106). */
 async function lockTopRow(page: Page): Promise<void> {
   const top = page.locator('[data-styling-row="top"]');
@@ -81,9 +101,7 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
     .locator('#filter-modal')
     .evaluate((d: HTMLDialogElement) => d.showModal());
   await shot(page, '02-demo-filters');
-  await page.goto('/wardrobe?keyword=raw');
-  await page.locator('#wardrobe-grid a').first().click();
-  await expect(page.getByText('Raw selvedge jeans').first()).toBeVisible();
+  await openRawSelvedgeJeans(page);
   await shot(page, '03-demo-garment');
   // The garment page's ⋯ menu and its photo sheet (#84).
   await openGarmentMenu(page);
@@ -190,9 +208,7 @@ test.describe('dark', () => {
   test('demo: Theo, the key pages in the dark theme', async ({ page }) => {
     await signInAs(page, 'demo');
     await shot(page, '01-demo-wardrobe-dark', '/wardrobe');
-    await page.goto('/wardrobe?keyword=raw');
-    await page.locator('#wardrobe-grid a').first().click();
-    await expect(page.getByText('Raw selvedge jeans').first()).toBeVisible();
+    await openRawSelvedgeJeans(page);
     await shot(page, '03-demo-garment-dark');
     await openPhotoSheet(page);
     await shot(page, '03b-demo-garment-photo-sheet-dark');
@@ -455,58 +471,11 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   );
 });
 
-// Last: it re-seeds Theo. Today is the server's real today, so his history
-// is re-drawn with today as its anchor (--reset, no --anchor), which the
-// simulation leaves half lived: the morning's workout worn, the evening
-// planned, ideas for the day (demo.md, step 7). What exactly is planned
-// depends on the weekday.
-test('demo: Theo, Today and his reminders (#15)', async ({ page }) => {
-  execFileSync(
-    'node',
-    [
-      'dist/seed/seed.cli.js',
-      '--persona',
-      'demo',
-      '--reset',
-      '--password-stdin',
-    ],
-    { input: `${PASSWORD}\n`, stdio: ['pipe', 'inherit', 'inherit'] },
-  );
-  await signInAs(page, 'demo');
-  await shot(page, '55-demo-today', '/');
-  await expect(page.locator('[data-today-row]').first()).toBeVisible();
-
-  // The profile's notifications, on, with this device's reminders: the
-  // headless shell has no push service or permission, so both are stubbed
-  // (test/support/push-stub.ts); the server's side is real.
-  await stubPushManager(page, fakeSubscription(), true, { granted: true });
-  await page.goto('/auth/profile');
-  const reminders = page.locator('#push-reminders');
-  await expect(reminders).toBeVisible();
-  await reminders
-    .getByRole('checkbox', { name: "Morning: today's outfit" })
-    .check();
-  await expect(reminders.getByText('Saved.')).toBeVisible();
-  await page.locator('push-settings').scrollIntoViewIfNeeded();
-  await shot(page, '56-demo-push-settings');
-
-  // The weekly auto-plan (#16): his week template on the Profile, and the
-  // days after today that "Plan my week" filled (the seed's, demo.md step
-  // 7), marked Auto on the calendar: tomorrow's week has some.
-  await page.locator('#week').scrollIntoViewIfNeeded();
-  await shot(page, '58-demo-week-template');
-  await shot(
-    page,
-    '59-demo-week-planned',
-    `/calendar?week=${addDays(householdToday(), 1)}`,
-  );
-  await expect(page.locator('[data-auto]').first()).toBeVisible();
-});
-
 test('demo: Theo, outfit selfies (#19)', async ({ page }) => {
   await signInAs(page, 'demo');
-  // His evenings out of the last four weeks carry a mirror selfie: the
-  // latest week that has one.
+  // His evenings out of the four weeks before the anchor carry a mirror
+  // selfie: the latest week that has one. Before Theo is re-seeded at the
+  // real today, which would move them.
   let week = '';
   for (const start of [
     '2026-09-20',
@@ -536,6 +505,44 @@ test('demo: Theo, outfit selfies (#19)', async ({ page }) => {
   const outfit = /[?&]outfit=(\d+)/.exec(edit ?? '')?.[1];
   await shot(page, '60-demo-outfit-worn', `/outfits/${outfit}`);
   await expect(page.locator('[data-worn-strip] img').first()).toBeVisible();
+});
+
+// Last but for the photo adds: it re-seeds Theo. Today is the server's
+// real today, so his history is re-drawn with today as its anchor (no
+// --anchor), which the simulation leaves half lived: the morning's workout worn, the evening
+// planned, ideas for the day (demo.md, step 7). What exactly is planned
+// depends on the weekday.
+test('demo: Theo, Today and his reminders (#15)', async ({ page }) => {
+  seed('--persona', 'demo');
+  await signInAs(page, 'demo');
+  await shot(page, '55-demo-today', '/');
+  await expect(page.locator('[data-today-row]').first()).toBeVisible();
+
+  // The profile's notifications, on, with this device's reminders: the
+  // headless shell has no push service or permission, so both are stubbed
+  // (test/support/push-stub.ts); the server's side is real.
+  await stubPushManager(page, fakeSubscription(), true, { granted: true });
+  await page.goto('/auth/profile');
+  const reminders = page.locator('#push-reminders');
+  await expect(reminders).toBeVisible();
+  await reminders
+    .getByRole('checkbox', { name: "Morning: today's outfit" })
+    .check();
+  await expect(reminders.getByText('Saved.')).toBeVisible();
+  await page.locator('push-settings').scrollIntoViewIfNeeded();
+  await shot(page, '56-demo-push-settings');
+
+  // The weekly auto-plan (#16): his week template on the Profile, and the
+  // days after today that "Plan my week" filled (the seed's, demo.md step
+  // 7), marked Auto on the calendar: tomorrow's week has some.
+  await page.locator('#week').scrollIntoViewIfNeeded();
+  await shot(page, '58-demo-week-template');
+  await shot(
+    page,
+    '59-demo-week-planned',
+    `/calendar?week=${addDays(householdToday(), 1)}`,
+  );
+  await expect(page.locator('[data-auto]').first()).toBeVisible();
 });
 
 // Adding from a photo (#97): the add sheet's camera, the new garment form

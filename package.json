@@ -54,7 +54,8 @@
     "test:all": "vitest run",
     "lint:check": "eslint --cache --cache-location node_modules/.cache/closet/eslint \"{src,test,scripts}/**/*.{ts,tsx}\"",
     "docs:check": "node -r ts-node/register/transpile-only scripts/check-claude-md.ts",
-    "check": "concurrently --group --kill-others-on-fail --names docs,format,lint,types,tests \"npm:docs:check\" \"npm:format:check\" \"npm:lint:check\" \"npm:typecheck\" \"npm:test:all\"",
+    "check": "concurrently --group --kill-others-on-fail --names static,tests \"npm:check:static\" \"npm:test:all\"",
+    "check:static": "concurrently --group --kill-others-on-fail --names docs,format,lint,types \"npm:docs:check\" \"npm:format:check\" \"npm:lint:check\" \"npm:typecheck\"",
     "prepare": "node -e \"require('fs').existsSync('.git') && require('child_process').execSync('git config core.hooksPath .githooks')\"",
     "verify:push": "npm run build && playwright test --project=chromium"
   },

@@ -32,7 +32,7 @@ import { expectFullPage } from './pages';
  * proposals from the owner's agent (accept, dismiss), and "start from a
  * wardrobe" through a share. Both are private, like outfits: another user's
  * plan is a 404 and nobody else reads the profile. The matching rules
- * themselves are src/wardrobe/plans.spec.ts's; authorization.spec.ts holds
+ * themselves are src/wardrobe/plans.spec.ts's; authorization-plans.spec.ts holds
  * the matrix rows.
  */
 describe('wardrobe plans', () => {

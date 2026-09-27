@@ -68,7 +68,7 @@ import { TripPlaceResults, TripWeather } from './weather';
  * Trips (#10; plan section 4): the Calendar's Trips tab and every trip
  * write. The owner's own, like outfits: `?ownerId=` is not read, another
  * user's trip, trip outfit or extra is a 404 like an unknown id, and shares
- * never reach them (matrix rows in test/integration/authorization.spec.ts).
+ * never reach them (matrix rows in test/integration/authorization-trips.spec.ts).
  *
  * Validation, decided per parameter:
  * - The trip form's fields are data it stores: past their caps a 400 page,

@@ -1,0 +1,302 @@
+import { addDays } from '../../src/web/calendar/calendar-date';
+import {
+  describeMatrix,
+  type Route,
+  BOTH,
+  tripName,
+} from './authorization-matrix';
+
+// The authorization matrix (authorization-matrix.ts): trips.
+const ROUTES: Route[] = [
+  // Trips (#10) are the owner's own, like outfits: never shared, ?ownerId=
+  // ignored, another user's trip, trip outfit or extra a 404 with nothing
+  // written. The fixture's trip is on today, with the outfit on today,
+  // the garment packed and an extra; a second trip holds an extra to copy.
+  {
+    name: 'GET /trips',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/trips${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    name: 'GET /trips/:id',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({ method: 'GET', url: `/trips/${f.tripId}${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /trips/:id/edit',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/trips/${f.tripId}/edit${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /trips/:id/outfits/new',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/trips/${f.tripId}/outfits/new${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /outfits/ideas?for=trip:ID',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/outfits/ideas?for=trip:${f.tripId}${q && `&${q.slice(1)}`}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}${q}`,
+      payload: {
+        name: `Renamed ${f.tripName}`,
+        startsOn: f.today,
+        endsOn: addDays(f.today, 1),
+      },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'DELETE /trips/:id',
+    kind: 'write',
+    ok: 200,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'DELETE',
+      url: `/trips/${f.tripId}${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/outfits',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/outfits${q}`,
+      payload: { outfitId: String(f.outfitId), day: '', occasion: 'evening' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/outfits/:tripOutfitId/delete',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/outfits/${f.tripOutfitId}/delete${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/outfits/:tripOutfitId/wear',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/outfits/${f.tripOutfitId}/wear${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/packed',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/packed${q}`,
+      payload: { shown: String(f.garmentId) },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/items',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/items${q}`,
+      payload: { label: 'Adapter' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/items/packed',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/items/packed${q}`,
+      payload: { packed: String(f.tripItemId), shown: String(f.tripItemId) },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/items/:itemId/delete',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/items/${f.tripItemId}/delete${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/items/copy',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/items/copy${q}`,
+      payload: { from: String(f.otherTripId) },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /outfits/ideas/pick for a trip',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/outfits/ideas/pick${q}`,
+      payload: {
+        garmentId: String(f.garmentId),
+        for: `trip:${f.tripId}:${addDays(f.today, 1)}`,
+      },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+];
+
+describeMatrix('trips', ROUTES);

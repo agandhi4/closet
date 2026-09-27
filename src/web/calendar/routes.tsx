@@ -87,7 +87,7 @@ const WornBody = Type.Union([
 ]);
 
 // Someone else's entry is not found, like a missing one: ids reveal nothing
-// (test/integration/authorization.spec.ts).
+// (test/integration/authorization-outfits.spec.ts).
 function entryNotFound(): HttpError {
   return new HttpError(404, 'Calendar entry not found');
 }

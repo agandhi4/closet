@@ -1,3 +1,4 @@
+import type { FastifyInstance } from 'fastify';
 import { type AppOptions, createApp } from './app';
 import type { Config } from './config';
 import { type CutoutQueue, retryFailedCutouts } from './cutout/queue';
@@ -33,14 +34,16 @@ const RECONCILE_HOUR = 3;
  * the 940 MB model. createApp() itself never starts the queue or a timer:
  * the integration harness and the CLIs never run jobs or send anything.
  * `options` are createApp's test-only ones (the test server's stand-in for
- * Open-Meteo); main.ts passes none.
+ * Open-Meteo); main.ts passes none. Returns the listening app, so a caller
+ * that started something beside it (the test server's stub) can stop it
+ * when the app's server closes.
  */
 export async function serve(
   config: Config,
   logger: Logger,
   runner: CutoutRunner,
   options: AppOptions = {},
-): Promise<void> {
+): Promise<FastifyInstance> {
   const { app, db, photos, cutouts, push, weather } = await createApp(
     config,
     logger,
@@ -95,6 +98,7 @@ export async function serve(
   }
 
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
+  return app;
 }
 
 // The queue (pending cutouts from before a restart first; createApp stops
