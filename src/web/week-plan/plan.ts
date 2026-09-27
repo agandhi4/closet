@@ -13,7 +13,7 @@ import {
 import type { DayForecast } from '../../weather/forecast';
 import { lockOwner } from '../auth/queries';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
-import { entryIdOf } from '../calendar/queries';
+import { entryOf } from '../calendar/queries';
 import { pickIdea } from '../gallery/ideas';
 import {
   avoidedPairs,
@@ -223,7 +223,7 @@ export async function writeAutoPick(
     return undefined;
   }
   // Just planned: its entry is there.
-  const entryId = (await entryIdOf(tx, ownerId, pick.day, picked.id))!;
+  const entryId = (await entryOf(tx, ownerId, pick.day, picked.id))!.id;
   await recordAutoEntry(tx, {
     entryId,
     weekPlanId,

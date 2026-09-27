@@ -16,6 +16,7 @@ import {
   weekPlan,
   weekPlanEntry,
   weekReplan,
+  tripOutfit,
   weekTemplate,
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
@@ -25,6 +26,8 @@ import {
   type IsoDate,
 } from '../../src/web/calendar/calendar-date';
 import type { PushPayload } from '../../src/web/push/payload';
+import { tripModel } from '../../src/web/trips/model';
+import { addTripOutfit, createTrip } from '../../src/web/trips/queries';
 import { saveReminderSettings, upsertDevice } from '../../src/web/push/queries';
 import type { PushSender } from '../../src/web/push/sender';
 import { setHome } from '../../src/web/weather/queries';
@@ -180,6 +183,39 @@ describe('the weekly auto-plan', () => {
     await t.db.delete(outfit);
     await t.db.delete(weekPlan);
     await t.db.delete(weekReplan);
+  };
+
+  /**
+   * `outfitId` put on a new trip of the owner's, as the trip page adds a
+   * saved outfit; the trip's id. What a planner-made outfit's clean-up must
+   * never cascade away (outfitIsHeld).
+   */
+  const onTrip = async (outfitId: number) => {
+    const tripId = await createTrip(t.db, t.owner.id, {
+      name: 'Austin',
+      destination: null,
+      startsOn: WEEK[4],
+      endsOn: WEEK[6],
+      notes: null,
+    });
+    expect(
+      await addTripOutfit(t.db, { tripId, ownerId: t.owner.id, outfitId }),
+    ).toBe('added');
+    return tripId;
+  };
+
+  /** The trip still holds the outfit, and its garments are on the packing list. */
+  const expectTripKeeps = async (tripId: number, outfitId: number) => {
+    expect(await t.db.$count(outfit, eq(outfit.id, outfitId))).toBe(1);
+    expect(
+      await t.db.$count(
+        tripOutfit,
+        and(eq(tripOutfit.tripId, tripId), eq(tripOutfit.outfitId, outfitId)),
+      ),
+    ).toBe(1);
+    const model = await tripModel(t.db, t.owner.id, tripId, TODAY);
+    expect(model!.undated.map((o) => o.outfitId)).toEqual([outfitId]);
+    expect(model!.packing.garments).toBeGreaterThan(0);
   };
 
   /** Every day all day, and an evening on Tuesdays: 8 slots this week. */
@@ -483,6 +519,23 @@ describe('the weekly auto-plan', () => {
       );
     });
 
+    it('Undo keeps a planner-made outfit a trip holds, with the trip’s packing list', async () => {
+      const res = await post('/calendar/plan-week');
+      const planId = Number(
+        /planned=(\d+)/.exec(String(res.headers.location))![1],
+      );
+      const [first] = await weekEntries();
+      const tripId = await onTrip(first.outfitId);
+      const outfitsBefore = await t.db.$count(outfit);
+
+      const undo = await post(`/calendar/plan-week/${planId}/undo`);
+      expect(undo.headers.location).toBe('/calendar?undone=8');
+      expect(await weekEntries()).toEqual([]);
+      // Every other outfit it made went; the trip's stayed, on the trip.
+      expect(await t.db.$count(outfit)).toBe(outfitsBefore - 7);
+      await expectTripKeeps(tripId, first.outfitId);
+    });
+
     it("refuses another user's plan", async () => {
       const res = await post('/calendar/plan-week');
       const planId = Number(
@@ -651,6 +704,19 @@ describe('the weekly auto-plan', () => {
             ),
           ),
       ).toBe(true);
+    });
+
+    it('a swap keeps the old planner-made outfit when a trip holds it', async () => {
+      await planWarm();
+      const oldThursday = (await weekEntries()).find((e) => e.day === WEEK[3])!;
+      const tripId = await onTrip(oldThursday.outfitId);
+      forecastDays = weekAt((day) => (day === WEEK[3] ? -2 : 24));
+      const run = await replanWeeks(deps, at(TODAY, 7));
+      expect(run).toMatchObject({ claimed: 1, swapped: 1, failed: 0 });
+      const thursday = (await weekEntries()).filter((e) => e.day === WEEK[3]);
+      expect(thursday).toHaveLength(1);
+      expect(thursday[0].outfitId).not.toBe(oldThursday.outfitId);
+      await expectTripKeeps(tripId, oldThursday.outfitId);
     });
 
     it("is idempotent: once a day per user, whatever the minutes, and never touches the person's entries", async () => {

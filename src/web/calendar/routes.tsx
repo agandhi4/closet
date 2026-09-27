@@ -18,6 +18,12 @@ import { CalendarPage } from './calendar-page';
 import { buildCalendarView, weekOf } from './calendar-view';
 import { PlanPage } from './plan-page';
 import { findEntries, scheduleOutfit } from './queries';
+import {
+  isRefused,
+  replaceEntryOutfit,
+  replaceMessage,
+  replaceRefusal,
+} from './replace';
 import { WornButton } from './worn-button';
 import { removeEntry } from './writes';
 
@@ -27,8 +33,11 @@ import { removeEntry } from './writes';
  *   malformed value falls back (the current week, the week's month), since
  *   they are navigation state in a shareable URL and a stale or mangled link
  *   should still open the calendar. parseIsoDate/parseYearMonth decide.
- * - GET /calendar/plan reads ?for= and ?occasion= the same way
- *   (parseDestination): no day is today, an unknown occasion all day.
+ * - GET /calendar/plan reads ?for=, ?occasion= and ?replace= the same way
+ *   (parseDestination): no day is today, an unknown occasion all day, and
+ *   a `replace` that is not the user's entry there plans one more outfit.
+ * - POST /calendar's `replace` is data (RowId, else a 400); the entry must
+ *   be the user's on `date` for `occasion` (else a 404, replaceRefusal).
  * - The writes validate their bodies strictly through the route schema: a
  *   malformed date, outfit id, occasion or week is a 400 error page and
  *   writes nothing (IsoDateSchema: the rule parseIsoDate also applies). A
@@ -171,6 +180,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         querystring: Type.Object({
           for: Type.Optional(Type.String()),
           occasion: Type.Optional(Type.String()),
+          replace: Type.Optional(Type.String()),
         }),
       },
     },
@@ -193,16 +203,35 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         listOutfits(db, ownerId),
         findEntries(db, ownerId, destination.day, destination.day),
       ]);
+      // Changing an entry (#69): it must be the owner's, on the day and for
+      // the occasion; otherwise the page plans one more (navigation state,
+      // never a 404), and the write checks again.
+      const replace = parsed.kind === 'day' ? parsed.replace : undefined;
+      const replacing = entries.find(
+        (entry) =>
+          entry.id === replace && entry.occasion === destination.occasion,
+      );
+      if (replace !== undefined && !replacing) {
+        logger.debug(
+          `GET /calendar/plan: entry ${replace} is not user ${ownerId}'s on ${destination.day} (${destination.occasion}), planning another`,
+        );
+      }
       return renderPage(
         reply,
         <PlanPage
           ctx={viewContext(reply)}
           model={{
-            ...destination,
+            day: destination.day,
+            occasion: destination.occasion,
             outfits,
             planned: new Map(
               entries.map((entry) => [entry.outfit.id, entry.occasion]),
             ),
+            replacing: replacing && {
+              entryId: replacing.id,
+              outfitName: replacing.outfit.name,
+              worn: replacing.worn,
+            },
           }}
         />,
       );
@@ -210,7 +239,9 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // From the plan page (a native post, 302 back to the week), the outfit
-  // list's "Add to Calendar" dropdown (htmx, 204).
+  // list's "Add to Calendar" dropdown (htmx, 204). With `replace` (the plan
+  // page opened to change an entry, #69) the outfit takes that entry's
+  // place instead of joining the day: replaceEntryOutfit.
   app.post(
     '/calendar',
     {
@@ -220,13 +251,26 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           outfitId: RowId,
           occasion: Type.Optional(OccasionSchema),
           week: Type.Optional(IsoDateSchema),
+          replace: Type.Optional(RowId),
         }),
       },
     },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
-      const { date, outfitId, week } = request.body;
+      const { date, outfitId, week, replace } = request.body;
       const occasion = request.body.occasion ?? DEFAULT_OCCASION;
+      if (replace !== undefined) {
+        const target = { entryId: replace, day: date, occasion };
+        const replaced = await replaceEntryOutfit(db, ownerId, target, {
+          outfitId,
+        });
+        logger.info(replaceMessage(ownerId, target, replaced));
+        if (isRefused(replaced)) throw replaceRefusal(replaced);
+        if (request.headers['hx-request'] === 'true') {
+          return reply.status(204).send();
+        }
+        return reply.redirect(weekUrl(week ?? date), 302);
+      }
       const outcome = await scheduleOutfit(db, {
         ownerId,
         outfitId,

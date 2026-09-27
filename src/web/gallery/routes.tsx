@@ -6,6 +6,13 @@ import type { FastifyReply } from 'fastify';
 import { FEELINGS } from '../../weather/temperature';
 import { sessionUserId } from '../auth/require-session';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
+import {
+  type EntryTarget,
+  isRefused,
+  replaceEntryOutfit,
+  replaceMessage,
+  replaceRefusal,
+} from '../calendar/replace';
 import { capsuleNames } from '../capsules/queries';
 import { HttpError } from '../errors';
 import {
@@ -75,6 +82,7 @@ const MAX_PAGE = 50;
 const GalleryQuery = Type.Object({
   for: Type.Optional(Type.String()),
   occasion: Type.Optional(Type.String()),
+  replace: Type.Optional(Type.String()),
   capsule: Type.Optional(RowId),
   with: Type.Optional(RowId),
   seed: Type.Optional(Type.String()),
@@ -90,6 +98,8 @@ const StateFields = {
     }),
   ),
   occasion: Type.Optional(OccasionSchema),
+  // The entry a pick changes (#69): only with a day (postedDestination).
+  replace: Type.Optional(RowId),
   capsule: Type.Optional(RowId),
   with: Type.Optional(RowId),
   seed: Type.Optional(Type.String()),
@@ -133,6 +143,7 @@ function parsePage(value: string | undefined): number {
 function postedDestination(body: {
   for?: string;
   occasion?: string;
+  replace?: number;
 }): OutfitDestination {
   const destination = parseDestination(body);
   if (
@@ -140,6 +151,9 @@ function postedDestination(body: {
     (destination.kind === 'none' || destinationTarget(destination) !== body.for)
   ) {
     throw new HttpError(400, 'body/for must be a real day or trip');
+  }
+  if (body.replace !== undefined && destination.kind !== 'day') {
+    throw new HttpError(400, 'body/replace needs a day');
   }
   return destination;
 }
@@ -210,6 +224,27 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // A trip's weather is its destination's, or none (never home's).
       weatherAt: { place: trip.location },
     };
+  }
+
+  /**
+   * A pick into an entry's place (#69): replaceEntryOutfit, which picks the
+   * idea as pickIdea does, in its transaction. To the week, saying (as a
+   * pick does) when the outfit already existed: a double tap's second
+   * request finds the entry changed already. A refusal throws.
+   */
+  async function pickInPlace(
+    reply: FastifyReply,
+    ownerId: number,
+    target: EntryTarget,
+    garmentIds: number[],
+  ) {
+    const replaced = await replaceEntryOutfit(db, ownerId, target, {
+      garmentIds,
+    });
+    logger.info(replaceMessage(ownerId, target, replaced));
+    if (isRefused(replaced)) throw replaceRefusal(replaced);
+    const flag = replaced.alreadySaved ? `&${ALREADY_SAVED_FLAG}=1` : '';
+    return reply.redirect(`/calendar?week=${target.day}${flag}`, 303);
   }
 
   /**
@@ -365,7 +400,8 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // A card's primary action (a native post): the idea becomes an outfit,
   // planned on the destination's day or added to its trip when there is
-  // one, in one transaction.
+  // one, in one transaction; with `replace` (Today's Change, the plan
+  // page's, #69) it takes that entry's place instead.
   app.post(
     `${IDEAS_PATH}/pick`,
     { schema: { body: PickBody } },
@@ -373,6 +409,15 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const destination = postedDestination(request.body);
       const { garmentId } = request.body;
+      if (destination.kind === 'day' && destination.replace !== undefined) {
+        const { replace: entryId, day, occasion } = destination;
+        return pickInPlace(
+          reply,
+          ownerId,
+          { entryId, day, occasion },
+          garmentId,
+        );
+      }
       return destination.kind === 'trip'
         ? pickToTrip(reply, ownerId, destination, garmentId)
         : pickToDayOrSave(reply, ownerId, destination, garmentId);

@@ -109,14 +109,23 @@ export async function scheduleOutfit(
   db: Db,
   entry: NewEntry,
 ): Promise<ScheduleOutcome | 'no-such-outfit'> {
+  if (!(await ownsOutfit(db, entry.ownerId, entry.outfitId))) {
+    return 'no-such-outfit';
+  }
+  return (await insertEntry(db, entry)).outcome;
+}
+
+/** Whether `outfitId` is the owner's: outfits are private, another's is a miss. */
+export async function ownsOutfit(
+  db: Queryable,
+  ownerId: number,
+  outfitId: number,
+): Promise<boolean> {
   const [owned] = await db
     .select({ id: outfit.id })
     .from(outfit)
-    .where(
-      and(eq(outfit.id, entry.outfitId), eq(outfit.ownerId, entry.ownerId)),
-    );
-  if (!owned) return 'no-such-outfit';
-  return (await insertEntry(db, entry)).outcome;
+    .where(and(eq(outfit.id, outfitId), eq(outfit.ownerId, ownerId)));
+  return owned !== undefined;
 }
 
 /**
@@ -131,7 +140,8 @@ export async function scheduleOutfit(
  * The outfit already on that day keeps its entry and its occasion: planning
  * it again for another occasion changes nothing (an edit form re-saved with
  * the occasion picker at its default must not move an evening entry to all
- * day). Different outfits on one day are separate entries.
+ * day). Different outfits on one day are separate entries; changing the
+ * outfit of an entry is setEntryOutfit's, through replaceEntryOutfit (#69).
  */
 export async function insertEntry(
   db: Queryable,
@@ -154,20 +164,21 @@ export async function insertEntry(
 }
 
 /**
- * The id of the owner's entry for `outfitId` on `day` (an outfit is on a
- * day once, so there is at most one), for a caller that planned it through
- * insertEntry and must act on the entry whether it was new or already there
- * (Today's "Wear this", src/web/today/queries.ts). Served by the unique
- * (owner_id, day, outfit_id) index.
+ * The owner's entry for `outfitId` on `day` (an outfit is on a day once, so
+ * there is at most one), for a caller that planned it through insertEntry
+ * and must act on the entry whether it was new or already there
+ * (wearOutfitOn; the week planner), or that must
+ * not plan it twice (replaceEntryOutfit, which names the occasion it is
+ * on). Served by the unique (owner_id, day, outfit_id) index.
  */
-export async function entryIdOf(
+export async function entryOf(
   db: Queryable,
   ownerId: number,
   day: IsoDate,
   outfitId: number,
-): Promise<number | undefined> {
+): Promise<{ id: number; occasion: Occasion } | undefined> {
   const [row] = await db
-    .select({ id: outfitCalendar.id })
+    .select({ id: outfitCalendar.id, occasion: outfitCalendar.occasion })
     .from(outfitCalendar)
     .where(
       and(
@@ -176,7 +187,71 @@ export async function entryIdOf(
         eq(outfitCalendar.outfitId, outfitId),
       ),
     );
-  return row?.id;
+  return row;
+}
+
+/** An entry replaceEntryOutfit is about to change, locked. */
+export interface EntryToReplace {
+  id: number;
+  occasion: Occasion;
+  outfitId: number;
+  worn: boolean;
+  plannedBy: PlannedBy;
+}
+
+/**
+ * Locks the owner's entry `entryId` if it is on `day` and, when given, for
+ * `occasion` (FOR UPDATE: setEntryWorn and setEntrySelfie lock it too, so a
+ * wear marked meanwhile is seen here). Undefined for another's entry, a
+ * missing one, or one elsewhere: a `replace=` naming an entry of another
+ * day or occasion is a link that does not say what it would change.
+ */
+export async function lockEntryToReplace(
+  tx: Queryable,
+  ownerId: number,
+  target: { entryId: number; day: IsoDate; occasion?: Occasion },
+): Promise<EntryToReplace | undefined> {
+  const [row] = await tx
+    .select({
+      id: outfitCalendar.id,
+      occasion: outfitCalendar.occasion,
+      outfitId: outfitCalendar.outfitId,
+      wornAt: outfitCalendar.wornAt,
+      plannedBy: outfitCalendar.plannedBy,
+    })
+    .from(outfitCalendar)
+    .where(
+      and(
+        eq(outfitCalendar.id, target.entryId),
+        eq(outfitCalendar.ownerId, ownerId),
+        eq(outfitCalendar.day, target.day),
+        target.occasion === undefined
+          ? undefined
+          : eq(outfitCalendar.occasion, target.occasion),
+      ),
+    )
+    .for('update');
+  if (!row) return undefined;
+  const { wornAt, ...entry } = row;
+  return { ...entry, worn: wornAt !== null };
+}
+
+/**
+ * Puts another outfit on an entry, keeping its day and occasion. Only
+ * replaceEntryOutfit (src/web/calendar/replace.ts) calls it, having locked
+ * the entry, refused a worn one and checked the outfit is not on the day
+ * already (the unique key). The choice is the person's from now on
+ * (planned_by 'user'), so the week's re-plan and Undo leave it alone (#16).
+ */
+export async function setEntryOutfit(
+  tx: Queryable,
+  entryId: number,
+  outfitId: number,
+): Promise<void> {
+  await tx
+    .update(outfitCalendar)
+    .set({ outfitId, plannedBy: 'user' })
+    .where(eq(outfitCalendar.id, entryId));
 }
 
 /** What wearOutfitOn did: the entry, whether it was new, and its worn change. */
@@ -221,7 +296,7 @@ export function wearOutfitOn(
     const entryId =
       scheduled.outcome === 'scheduled'
         ? scheduled.id
-        : (await entryIdOf(tx, ownerId, day, outfitId))!;
+        : (await entryOf(tx, ownerId, day, outfitId))!.id;
     const worn = await setEntryWorn(tx, {
       entryId,
       ownerId,

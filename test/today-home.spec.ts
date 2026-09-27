@@ -1,12 +1,14 @@
 import { expect, type Page, test } from '@playwright/test';
-import { createGarment } from './support/e2e-data';
+import { createGarment, createOutfit } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
+import { householdToday } from './support/household-today';
 import { waitForServiceWorker } from './support/service-worker';
 
 /**
  * Today (#15) at phone width, what only a browser shows: the home screen
  * with its ideas strip above the dock, "Wear this" landing back on Today
- * worn, Refresh swapping the row in place, and, installed, Today offline
+ * worn, Refresh swapping the row in place, a planned outfit's Change
+ * putting an idea in its place (#69), and, installed, Today offline
  * from the worker's last copy with its writes disabled
  * (test/integration/today-home.spec.ts has the behavior; a push arriving on
  * an installed phone is the PR's manual check).
@@ -65,6 +67,44 @@ test.describe('Today', () => {
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByText('Worn today')).toBeVisible();
     await expect(page.locator('[data-today-row="ideas"]')).toHaveCount(0);
+  });
+
+  test('Change puts an idea in the planned outfit’s place: still one outfit for the occasion', async ({
+    page,
+  }) => {
+    const day = householdToday();
+    const shirt = await createGarment(page, 'Linen shirt', 'tops', {
+      props: '1',
+      formality: '2',
+      pattern: 'solid',
+      color: 'white',
+    });
+    await createOutfit(page, 'Planned look', shirt, day);
+    await page.goto('/');
+    const planned = page.locator('[data-today-row="planned"] article');
+    await expect(planned).toHaveCount(1);
+    await expect(planned.locator('h3')).toHaveText('Planned look');
+
+    // At phone width the card and its actions fit the screen.
+    const change = planned.getByRole('link', { name: 'Change' });
+    const box = (await change.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(390);
+
+    await change.click();
+    await expect(page).toHaveURL(/\/outfits\/ideas\?for=day:.*&replace=\d+/);
+    await page
+      .getByRole('button', { name: 'Wear this instead' })
+      .first()
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/calendar\\?week=${day}$`));
+    await expect(page.locator('[data-occasion="all-day"]')).toHaveCount(1);
+
+    await page.goto('/');
+    await expect(planned).toHaveCount(1);
+    await expect(planned.locator('h3')).not.toHaveText('Planned look');
   });
 
   test('Refresh swaps the ideas in place', async ({ page }) => {

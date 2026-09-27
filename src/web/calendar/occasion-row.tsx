@@ -1,12 +1,14 @@
 import { t } from '../i18n';
+import { destinationQuery } from '../outfits/destination';
 import { EntrySelfie } from '../selfies/views';
 import type { CalendarEntryView } from './calendar-view';
 import { occasionLabel } from './labels';
 import { WornButton } from './worn-button';
 
 /**
- * One calendar entry as a row of its day: the occasion's label, the outfit
- * (tap to edit it, × to unschedule), the worn pill and its selfie (or the
+ * One calendar entry as a row of its day: the occasion's label, Change
+ * (another outfit in its place, #69; not once worn), the outfit (tap to
+ * edit it, × to unschedule), the worn pill and its selfie (or the
  * buttons that take one, #19). The one way a day's
  * entries are drawn: the week page stacks them in occasion order, and the
  * redesign's week agenda (R6) and Today (#15) reuse it
@@ -22,18 +24,34 @@ export function OccasionRow(props: {
   const { entry, future } = props;
   return (
     <div class="flex flex-col gap-0.5 mb-1" data-occasion={entry.occasion}>
-      <span class="text-[10px] font-semibold uppercase tracking-wide text-base-content/50">
-        {occasionLabel(entry.occasion)}
-        {entry.plannedBy === 'auto' && (
-          <span
-            class="badge badge-ghost badge-xs ms-1 normal-case tracking-normal"
-            title={t('weekPlan.AUTO_TITLE')}
-            data-auto
+      <div class="flex items-center gap-1">
+        <span class="text-[10px] font-semibold uppercase tracking-wide text-base-content/50">
+          {occasionLabel(entry.occasion)}
+          {entry.plannedBy === 'auto' && (
+            <span
+              class="badge badge-ghost badge-xs ms-1 normal-case tracking-normal"
+              title={t('weekPlan.AUTO_TITLE')}
+              data-auto
+            >
+              {t('weekPlan.AUTO')}
+            </span>
+          )}
+        </span>
+        {/* Another outfit in this entry's place (#69); a worn entry is the
+            record of that day and keeps its outfit. */}
+        {!entry.worn && (
+          <a
+            href={changeEntryUrl(entry)}
+            class="btn btn-ghost btn-xs ms-auto h-6 min-h-6 px-2 font-normal text-base-content/60"
+            aria-label={t('changeEntry.ACTION_LABEL', {
+              name: entry.outfit.name || t('UNTITLED_OUTFIT'),
+            })}
+            data-change-entry={entry.id}
           >
-            {t('weekPlan.AUTO')}
-          </span>
+            {t('changeEntry.ACTION')}
+          </a>
         )}
-      </span>
+      </div>
       <div class="flex items-center gap-2">
         <EntryChip entry={entry} />
         {/* A planned day has no pill (it cannot be worn yet), unless an
@@ -53,6 +71,16 @@ export function OccasionRow(props: {
       />
     </div>
   );
+}
+
+/** The plan page opened to change this entry's outfit (#69). */
+function changeEntryUrl(entry: CalendarEntryView): string {
+  return `/calendar/plan?${destinationQuery({
+    kind: 'day',
+    day: entry.day,
+    occasion: entry.occasion,
+    replace: entry.id,
+  })}`;
 }
 
 // Inline hues per entry so chips on one day differ; a worn chip is stronger.

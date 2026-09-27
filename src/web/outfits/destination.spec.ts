@@ -101,4 +101,39 @@ describe('OutfitDestination (?for=)', () => {
       destinationQuery({ kind: 'trip', tripId: 7, day: '2026-10-06' }),
     ).toBe('for=trip:7:2026-10-06');
   });
+
+  it('carries the entry a pick replaces (#69), from a URL or a parsed body', () => {
+    for (const replace of ['42', 42]) {
+      expect(
+        parseDestination({ for: 'day:2026-09-29', occasion: 'work', replace }),
+      ).toEqual({
+        kind: 'day',
+        day: '2026-09-29',
+        occasion: 'work',
+        replace: 42,
+      });
+    }
+    const query = destinationQuery({
+      kind: 'day',
+      day: '2026-09-29',
+      occasion: 'work',
+      replace: 42,
+    });
+    expect(query).toBe('for=day:2026-09-29&occasion=work&replace=42');
+  });
+
+  it('drops a malformed replace, and never reads one without a day', () => {
+    for (const replace of ['', '0', '-1', '4.2', 'abc', '2147483648', '1e3']) {
+      expect(
+        parseDestination({ for: 'day:2026-09-29', replace }),
+        replace,
+      ).toEqual({ kind: 'day', day: '2026-09-29', occasion: 'all-day' });
+    }
+    expect(parseDestination({ replace: '42' })).toEqual({ kind: 'none' });
+    // A trip outfit replaces nothing on the calendar.
+    expect(parseDestination({ for: 'trip:12', replace: '42' })).toEqual({
+      kind: 'trip',
+      tripId: 12,
+    });
+  });
 });

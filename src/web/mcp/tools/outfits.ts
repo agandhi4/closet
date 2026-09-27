@@ -1,6 +1,12 @@
 import * as z from 'zod/v4';
 import { DEFAULT_OCCASION } from '../../../wardrobe/occasions';
 import { findEntries, scheduleOutfit } from '../../calendar/queries';
+import {
+  isRefused,
+  replaceEntryOutfit,
+  replaceMessage,
+  replaceRefusal,
+} from '../../calendar/replace';
 import { HttpError } from '../../errors';
 import {
   createOutfit,
@@ -122,20 +128,45 @@ export const outfitTools = [
     name: 'schedule_outfit',
     title: 'Plan an outfit on a day',
     description:
-      'WRITES: plans one of your outfits on a calendar day, for an occasion (the part of the day). A day can hold several outfits (office, then dinner); the same outfit is on a day once, so planning it again changes nothing and it keeps the occasion it has (returned).',
+      "WRITES: plans one of your outfits on a calendar day, for an occasion (the part of the day). A day can hold several outfits (office, then dinner); the same outfit is on a day once, so planning it again changes nothing and it keeps the occasion it has (returned). With replaceEntryId (an entry id from get_calendar or get_today, on that date): changes that entry's outfit instead of adding one, keeping its day and occasion (occasion, if given, must be the entry's); it becomes your choice (plannedBy user), an outfit Plan my week created for it and nothing else uses is removed, and a selfie of it stays on the day as a look. Refused, with nothing changed, when the entry is marked worn (it is the record of that day: add another outfit instead) or the outfit is already on that day. To put an idea from suggest_outfits there, save it first with pick_outfit (no date). Safe to retry.",
     input: z.object({
       outfitId: rowId(),
       date: isoDate().describe('The day, YYYY-MM-DD.'),
       occasion: occasionInput,
+      replaceEntryId: rowId()
+        .optional()
+        .describe(
+          'A calendar entry of yours on that date whose outfit this one replaces.',
+        ),
     }),
     writes: true,
     idempotent: true,
-    async run({ outfitId, date, occasion = DEFAULT_OCCASION }, ctx) {
+    async run({ outfitId, date, occasion, replaceEntryId }, ctx) {
+      if (replaceEntryId !== undefined) {
+        const target = { entryId: replaceEntryId, day: date, occasion };
+        const replaced = await replaceEntryOutfit(ctx.db, ctx.userId, target, {
+          outfitId,
+        });
+        ctx.webLogger.info(
+          replaceMessage(ctx.userId, target, replaced, ' (MCP)'),
+        );
+        if (isRefused(replaced)) throw replaceRefusal(replaced);
+        return {
+          outcome: replaced.outcome,
+          date,
+          occasion: replaced.occasion,
+          entryId: replaced.entryId,
+          previousOutfitId: replaced.previousOutfitId,
+          selfieKeptAsLook: replaced.selfieDetached !== undefined,
+          plannerOutfitRemoved: replaced.outfitsRemoved > 0,
+        };
+      }
+      const planned = occasion ?? DEFAULT_OCCASION;
       const outcome = await scheduleOutfit(ctx.db, {
         ownerId: ctx.userId,
         outfitId,
         day: date,
-        occasion,
+        occasion: planned,
       });
       if (outcome === 'no-such-outfit') {
         throw new HttpError(404, OUTFIT_NOT_FOUND);
@@ -147,7 +178,7 @@ export const outfitTools = [
       ctx.webLogger.info(
         `Outfit ${outfitId} ${outcome} on ${date} (${entry?.occasion}) for user ${ctx.userId} (MCP)`,
       );
-      return { outcome, date, occasion: entry?.occasion ?? occasion };
+      return { outcome, date, occasion: entry?.occasion ?? planned };
     },
   }),
 ];

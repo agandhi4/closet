@@ -133,7 +133,8 @@ function MiniMonth({ view }: { view: CalendarView }) {
 }
 
 /**
- * The day's selfies whose outfit was deleted (#19): kept as the record of
+ * The day's selfies no entry holds any more, their outfit deleted (#19) or
+ * the entry changed to another (#69): kept as the record of
  * what was worn, like the day's wears, with nothing left to edit but the
  * photo itself.
  */

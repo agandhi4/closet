@@ -74,7 +74,7 @@ test('tapping a calendar chip opens the outfit editor without a reload', async (
   await page.goto(`/calendar?week=${today}`);
   await markDocument(page);
 
-  await page.getByRole('link', { name: 'Chip outfit' }).click();
+  await page.getByRole('link', { name: 'Chip outfit', exact: true }).click();
 
   await expect(page).toHaveURL(
     new RegExp(`/outfits/${outfit}/edit\\?returnTo=/calendar`),

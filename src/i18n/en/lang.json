@@ -189,6 +189,17 @@
   "CALENDAR_PLAN_SAVED": "Or pick a saved outfit",
   "CALENDAR_PLAN_ON_DAY": "On this day",
   "CALENDAR_PLAN_NO_OUTFITS": "No saved outfits yet.",
+  "changeEntry": {
+    "TITLE": "Change outfit",
+    "INSTEAD_OF": "Instead of {name}",
+    "ACTION": "Change",
+    "ACTION_LABEL": "Change {name}",
+    "FOR_DAY": "Changing {day}",
+    "PICK": "Wear this instead",
+    "WORN_NOTE": "{name} is marked worn, so it stays as the record of that day. Add another outfit instead.",
+    "REFUSED_WORN": "This outfit is marked worn, so it stays as the record of that day. Add another outfit to the day instead.",
+    "REFUSED_ON_DAY": "That outfit is already planned on this day ({occasion})."
+  },
   "OCCASION": "Occasion",
   "occasion": {
     "all-day": "All day",
@@ -988,7 +999,7 @@
     "REMOVE": "Remove photo",
     "REMOVE_CONFIRM": "Remove this selfie? The outfit stays marked worn.",
     "CLOSE": "Close",
-    "DETACHED": "Worn (outfit deleted)",
+    "DETACHED": "Worn (outfit no longer on the day)",
     "WORN_HEADING": "Worn ({count})"
   },
   "weekPlan": {

@@ -148,15 +148,19 @@ function PlannedCard(props: {
                 {t('today.WORE_IT')}
               </button>
             </PostForm>
+            {/* The gallery for this entry's place: a pick changes its
+                outfit rather than adding one (#69). */}
             <a
               href={ideasUrl({
                 destination: {
                   kind: 'day',
                   day: today,
                   occasion: entry.occasion,
+                  replace: entry.id,
                 },
               })}
               class="btn btn-ghost btn-sm"
+              data-change-entry={entry.id}
             >
               {t('today.CHANGE')}
             </a>

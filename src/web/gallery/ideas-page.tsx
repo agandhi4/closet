@@ -11,7 +11,11 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { BackLink, EmptyState } from '../layout/parts';
 import { OutfitCollage } from '../outfits/collage';
-import { destinationQuery, destinationTarget } from '../outfits/destination';
+import {
+  destinationQuery,
+  destinationTarget,
+  type OutfitDestination,
+} from '../outfits/destination';
 import { OutfitTabs } from '../outfits/outfit-tabs';
 import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
@@ -27,7 +31,8 @@ import { type GalleryState, ideasUrl } from './urls';
  * child is a sentinel that loads the next page when it scrolls into view
  * and replaces itself (GET /outfits/ideas/more), as the wardrobe grid's
  * does. A card's primary action follows `?for=` (OutfitDestination): plan
- * it on that day, add it to that trip (#10), else save it. Every write is data-needs-network: offline
+ * it on that day (or, with `&replace=`, put it in that entry's place, #69),
+ * add it to that trip (#10), else save it. Every write is data-needs-network: offline
  * the cards the worker cached still show, the writes are disabled and the
  * page says why.
  */
@@ -126,7 +131,9 @@ function Scope({ model }: { model: IdeasPageModel }) {
           <BackLink href={`/calendar/plan?${destinationQuery(destination)}`} />
           <p class="text-sm">
             <span class="font-medium">
-              {t('gallery.FOR_DAY', { day: dayLabel(planning.day) })}
+              {destination.replace === undefined
+                ? t('gallery.FOR_DAY', { day: dayLabel(planning.day) })
+                : t('changeEntry.FOR_DAY', { day: dayLabel(planning.day) })}
             </span>{' '}
             · {occasionLabel(planning.occasion)}
           </p>
@@ -259,6 +266,13 @@ function StateFields({ state }: { state: SeededState }) {
       {destination.kind !== 'none' && destination.occasion && (
         <input type="hidden" name="occasion" value={destination.occasion} />
       )}
+      {destination.kind === 'day' && destination.replace !== undefined && (
+        <input
+          type="hidden"
+          name="replace"
+          value={String(destination.replace)}
+        />
+      )}
       {state.capsuleId !== undefined && (
         <input type="hidden" name="capsule" value={String(state.capsuleId)} />
       )}
@@ -268,6 +282,22 @@ function StateFields({ state }: { state: SeededState }) {
       <input type="hidden" name="seed" value={String(state.seed)} />
     </>
   );
+}
+
+/** A card's primary action, by where the idea goes. */
+function pickLabel(destination: OutfitDestination): string {
+  switch (destination.kind) {
+    case 'none':
+      return t('gallery.PICK_SAVE');
+    case 'trip':
+      return t('gallery.PICK_TRIP');
+    case 'day':
+      return destination.replace === undefined
+        ? t('gallery.PICK_DAY', {
+            weekday: t(DAY_NAMES[dayOfWeek(destination.day)]),
+          })
+        : t('changeEntry.PICK');
+  }
 }
 
 function IdeaCard(props: {
@@ -299,13 +329,7 @@ function IdeaCard(props: {
             ))}
             <StateFields state={model.state} />
             <button type="submit" class="btn btn-primary btn-sm w-full">
-              {destination.kind === 'day'
-                ? t('gallery.PICK_DAY', {
-                    weekday: t(DAY_NAMES[dayOfWeek(destination.day)]),
-                  })
-                : destination.kind === 'trip'
-                  ? t('gallery.PICK_TRIP')
-                  : t('gallery.PICK_SAVE')}
+              {pickLabel(destination)}
             </button>
           </PostForm>
           <details class="dropdown dropdown-top dropdown-end">

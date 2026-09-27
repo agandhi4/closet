@@ -166,6 +166,27 @@ export async function deleteEntrySelfie(
 }
 
 /**
+ * Keeps the selfie of an entry whose outfit is being replaced as a look on
+ * its day (replaceEntryOutfit, src/web/calendar/replace.ts, in its
+ * transaction): the photo shows the outfit that was on the entry, so it
+ * must not go on to picture the new one, and it stays the record of that
+ * day, as when the outfit is deleted. Answers the selfie's id, or
+ * undefined when the entry had none. The caller has locked the owner's
+ * entry.
+ */
+export async function detachEntrySelfie(
+  tx: Queryable,
+  entryId: number,
+): Promise<number | undefined> {
+  const [detached] = await tx
+    .update(selfie)
+    .set({ outfitCalendarId: null })
+    .where(eq(selfie.outfitCalendarId, entryId))
+    .returning({ id: selfie.id });
+  return detached?.id;
+}
+
+/**
  * Whether `fileName` is a selfie of the owner's: the one question
  * GET /selfies/* asks before streaming it (anyone else's is a 404, like a
  * missing photo).

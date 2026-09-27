@@ -1,4 +1,14 @@
-import { and, between, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import {
+  and,
+  between,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  not,
+  sql,
+} from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import {
   outfit,
@@ -14,6 +24,7 @@ import type { PlannedNeeds, WeekEntry } from '../../wardrobe/week-planner';
 import { matchGarment } from '../../weather/match';
 import type { IsoDate } from '../calendar/calendar-date';
 import { deleteOutfit } from '../outfits/queries';
+import { outfitIsHeld } from '../outfits/references';
 
 /**
  * The weekly auto-plan's rows (#16): the calendar window the planner reads,
@@ -278,24 +289,75 @@ export async function removeAutoEntries(
       ),
     )
     .returning({ id: outfitCalendar.id });
-  const created = [
-    ...new Set(entries.filter((e) => e.outfitCreated).map((e) => e.outfitId)),
-  ];
-  const unused =
-    created.length === 0
-      ? []
-      : await tx
-          .select({ id: outfit.id })
-          .from(outfit)
-          .where(
-            and(
-              inArray(outfit.id, created),
-              eq(outfit.ownerId, ownerId),
-              sql`not exists (select 1 from ${outfitCalendar} where ${outfitCalendar.outfitId} = ${outfit.id})`,
-            ),
-          );
-  for (const { id } of unused) await deleteOutfit(tx, id, ownerId);
-  return { entries: deleted.length, outfits: unused.length };
+  const outfits = await removeUnheldOutfits(
+    tx,
+    ownerId,
+    entries.filter((e) => e.outfitCreated).map((e) => e.outfitId),
+  );
+  return { entries: deleted.length, outfits };
+}
+
+/**
+ * Deletes each of `outfitIds` (outfits the planner created, which the
+ * caller has just taken off their entries) that nothing holds any more
+ * (outfitIsHeld: no calendar entry, no trip), through deleteOutfit (its
+ * wears rule). One held elsewhere, or one the planner found already saved
+ * (never passed here), is the person's and stays. The one rule for Undo,
+ * the re-plan's swap (removeAutoEntries) and changing an auto entry's
+ * outfit (replaceEntryOutfit, #69). Returns how many went.
+ *
+ * The outfits are locked (FOR UPDATE, in id order) before the question is
+ * asked: a trip or calendar row being added for one meanwhile needs the
+ * outfit's key lock for its foreign key, so it either committed before the
+ * lock (and is seen here) or waits and then fails on the deleted outfit,
+ * never silently cascaded away.
+ */
+export async function removeUnheldOutfits(
+  tx: Queryable,
+  ownerId: number,
+  outfitIds: readonly number[],
+): Promise<number> {
+  const candidates = [...new Set(outfitIds)];
+  if (candidates.length === 0) return 0;
+  const locked = await tx
+    .select({ id: outfit.id })
+    .from(outfit)
+    .where(and(inArray(outfit.id, candidates), eq(outfit.ownerId, ownerId)))
+    .orderBy(outfit.id)
+    .for('update');
+  if (locked.length === 0) return 0;
+  const unheld = await tx
+    .select({ id: outfit.id })
+    .from(outfit)
+    .where(
+      and(
+        inArray(
+          outfit.id,
+          locked.map((row) => row.id),
+        ),
+        not(outfitIsHeld(outfit.id)),
+      ),
+    );
+  for (const { id } of unheld) await deleteOutfit(tx, id, ownerId);
+  return unheld.length;
+}
+
+/**
+ * Whether the planner created the outfit of auto entry `entryId` ("Plan my
+ * week" found none saved of those garments): what makes it the planner's
+ * to remove once nothing holds it. Asked only of an entry still 'auto'
+ * (CLAUDE.md Gotchas: a taken-over entry's week_plan_entry row is
+ * provenance, not ownership); false for an entry the planner never wrote.
+ */
+export async function plannerCreatedOutfit(
+  tx: Queryable,
+  entryId: number,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ outfitCreated: weekPlanEntry.outfitCreated })
+    .from(weekPlanEntry)
+    .where(eq(weekPlanEntry.entryId, entryId));
+  return row?.outfitCreated ?? false;
 }
 
 /** Deletes batch `id` once none of its entries is left (all undone or deleted). */

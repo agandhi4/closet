@@ -7,7 +7,7 @@ import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
 
 /**
  * Where a new outfit goes once chosen, carried in URLs as
- * `?for=day:YYYY-MM-DD&occasion=evening` or
+ * `?for=day:YYYY-MM-DD&occasion=evening[&replace=<entry id>]` or
  * `?for=trip:12[:YYYY-MM-DD][&occasion=evening]`
  * (docs/plans/2026-09-26-redesign.md, section 1, "The destination travels
  * with the user"). The one parser of `?for=`: the calendar's plan page,
@@ -16,7 +16,13 @@ import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
  * again.
  *
  * - `day`: planned on the calendar for that day and occasion (all day
- *   without one).
+ *   without one). With `replace` (#69) it is a change of that entry's
+ *   outfit rather than one more entry: Today's "Change", the calendar row's
+ *   Change and the plan page carry it, and the writes that plan (POST
+ *   /calendar, the gallery's pick) hand it to replaceEntryOutfit
+ *   (src/web/calendar/replace.ts), which checks that the entry is the
+ *   requester's, on that day and for that occasion. The builder ignores
+ *   it: a new build adds.
  * - `trip`: added to the trip (#10), optionally for one of its days and an
  *   occasion ("Day 2, dinner"). Both are optional on a trip outfit, so a
  *   trip without either stays without: no occasion is not all day there.
@@ -25,12 +31,21 @@ import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
  *
  * Navigation state, so lenient: anything malformed is `none` (the page
  * opens without a destination), never a 400; a trip's malformed day is no
- * day. The write that finally plans the outfit validates its own body.
+ * day, and a malformed `replace` is dropped. The write that finally plans
+ * the outfit validates its own body.
  */
 export type OutfitDestination =
   | { kind: 'none' }
-  | { kind: 'day'; day: IsoDate; occasion: Occasion }
+  | DayDestination
   | TripDestination;
+
+export interface DayDestination {
+  kind: 'day';
+  day: IsoDate;
+  occasion: Occasion;
+  /** The entry of that day and occasion whose outfit a pick replaces (#69). */
+  replace?: number;
+}
 
 export interface TripDestination {
   kind: 'trip';
@@ -43,11 +58,14 @@ const DAY_PREFIX = 'day:';
 const TRIP_PREFIX = 'trip:';
 // A serial id (32-bit, as RowId), then optionally one of the trip's days.
 const TRIP_TARGET = /^trip:(\d{1,10})(?::(.+))?$/;
+const ENTRY_ID = /^[1-9]\d{0,9}$/;
 const MAX_ID = 2_147_483_647;
 
 export function parseDestination(query: {
   for?: string;
   occasion?: string;
+  /** A string in a URL; a number from a write's schema (RowId coerces). */
+  replace?: string | number;
 }): OutfitDestination {
   const target = query.for;
   const occasion =
@@ -57,11 +75,24 @@ export function parseDestination(query: {
   if (target?.startsWith(DAY_PREFIX)) {
     const day = parseIsoDate(target.slice(DAY_PREFIX.length));
     if (!day) return { kind: 'none' };
-    return { kind: 'day', day, occasion: occasion ?? DEFAULT_OCCASION };
+    const destination = {
+      kind: 'day',
+      day,
+      occasion: occasion ?? DEFAULT_OCCASION,
+    } as const;
+    const replace = parseEntryId(query.replace);
+    return replace === undefined ? destination : { ...destination, replace };
   }
   const trip =
     target === undefined ? undefined : parseTripTarget(target, occasion);
   return trip ?? { kind: 'none' };
+}
+
+/** A calendar entry id, as RowId; undefined when it is not one. */
+function parseEntryId(value: string | number | undefined): number | undefined {
+  if (value === undefined || !ENTRY_ID.test(String(value))) return undefined;
+  const id = Number(value);
+  return id <= MAX_ID ? id : undefined;
 }
 
 /** `trip:ID[:YYYY-MM-DD]`, or undefined when it is not one. */
@@ -89,9 +120,12 @@ function parseTripTarget(
 export function destinationQuery(destination: OutfitDestination): string {
   if (destination.kind === 'none') return '';
   const target = `for=${destinationTarget(destination)}`;
-  return destination.occasion
+  const query = destination.occasion
     ? `${target}&occasion=${destination.occasion}`
     : target;
+  return destination.kind === 'day' && destination.replace !== undefined
+    ? `${query}&replace=${destination.replace}`
+    : query;
 }
 
 /** The `for` value alone, as a write's hidden field posts it back. */
