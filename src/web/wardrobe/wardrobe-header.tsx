@@ -20,6 +20,7 @@ import {
   LAUNDRY_PATH,
   LINK_IMPORT_PATH,
   PHOTO_ADD_PATH,
+  TAG_PATH,
   wardrobeUrl,
   WISHLIST_PATH,
 } from './urls';
@@ -200,7 +201,7 @@ export function WardrobeMenu(props: {
         )}
         {canEdit && (
           <li>
-            <a href={wardrobeUrl(viewOwner, {}, '/wardrobe/tag')}>
+            <a href={wardrobeUrl(viewOwner, {}, TAG_PATH)}>
               {t('TAG_GARMENTS')}
             </a>
           </li>

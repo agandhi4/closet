@@ -16,6 +16,9 @@ export const LINK_PHOTO_PATH = `${LINK_IMPORT_PATH}/photo`;
  */
 export const PHOTO_ADD_PATH = '/wardrobe/new/photo';
 
+/** Tagging mode (tag-page.tsx): one card at a time, from the newest. */
+export const TAG_PATH = '/wardrobe/tag';
+
 /** The Wardrobe's Wishlist tab (src/web/wishlist); under /wardrobe, so the dock marks it. */
 export const WISHLIST_PATH = '/wardrobe/wishlist';
 

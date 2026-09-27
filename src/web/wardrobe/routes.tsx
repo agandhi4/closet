@@ -70,6 +70,7 @@ import {
   postedDestination,
   resolveDestination,
 } from './destination';
+import { formAudience } from './garment-form';
 import { type GarmentFormRequest, renderGarmentForm } from './render-form';
 import {
   type GarmentScope,
@@ -83,7 +84,13 @@ import {
   TagPage,
   TagSaved,
 } from './tag-page';
-import { garmentUrl, PHOTO_ADD_PATH, wardrobeUrl, WISHLIST_PATH } from './urls';
+import {
+  garmentUrl,
+  PHOTO_ADD_PATH,
+  TAG_PATH,
+  wardrobeUrl,
+  WISHLIST_PATH,
+} from './urls';
 import {
   BulkBody,
   ConditionBody,
@@ -538,7 +545,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         link: linkPhoto ? pendingPhotoView(linkPhoto) : undefined,
         candidateFor,
       } as const;
-      const form = readGarmentForm(request.body);
+      const form = readGarmentForm(
+        request.body,
+        formAudience(again.mode, viewOwner),
+      );
       if (!form.ok) {
         return refuseForm(reply, {
           ...again,
@@ -623,7 +633,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // request gets the card alone: Next was a link here before it became the
   // card's submit button, and pages the installed app cached still ask.
   app.get(
-    '/wardrobe/tag',
+    TAG_PATH,
     { schema: { querystring: TagQuery } },
     async (request, reply) => {
       const { access, viewOwner } = await resolve(
@@ -934,7 +944,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         },
         suggestionsFrom: access.ownerId,
         viewOwner,
-        values: storedFormValues(garment),
+        values: storedFormValues(garment, { owner: access.isOwner }),
       });
     },
   );
@@ -959,14 +969,16 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const { id } = request.params;
       const stored = await requireGarment(options, id, access.ownerId);
-      const form = readGarmentForm(request.body);
+      const mode = {
+        kind: 'edit',
+        garmentId: id,
+        wishlist: stored.status === 'wishlist',
+      } as const;
+      // A MANAGE grantee's post leaves the owner-only fields as stored.
+      const form = readGarmentForm(request.body, formAudience(mode, viewOwner));
       if (!form.ok) {
         return refuseForm(reply, {
-          mode: {
-            kind: 'edit',
-            garmentId: id,
-            wishlist: stored.status === 'wishlist',
-          },
+          mode,
           suggestionsFrom: access.ownerId,
           viewOwner,
           values: form.values,
@@ -983,6 +995,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // The clone form, prefilled from the source; it posts to the route below.
   // Suggestions come from the requester's own wardrobe, where it will land.
+  // A shared source's owner-only fields are not copied (FormAudience): the
+  // clone starts at its role's wash limit.
   app.get(
     '/wardrobe/:id/clone',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
@@ -998,7 +1012,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.params.id,
         access.ownerId,
       );
-      const values = storedFormValues(source);
+      const values = storedFormValues(source, { owner: access.isOwner });
       return renderGarmentForm(reply, db, {
         mode: { kind: 'clone', garmentId: source.id },
         suggestionsFrom: sessionUserId(request),
@@ -1033,10 +1047,12 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.params.id,
         access.ownerId,
       );
-      const form = readGarmentForm(request.body);
+      const mode = { kind: 'clone', garmentId: source.id } as const;
+      // The clone is the requester's own garment, whoever owns the source.
+      const form = readGarmentForm(request.body, formAudience(mode, viewOwner));
       if (!form.ok) {
         return refuseForm(reply, {
-          mode: { kind: 'clone', garmentId: source.id },
+          mode,
           suggestionsFrom: userId,
           viewOwner,
           values: form.values,

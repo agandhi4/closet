@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createCapsule, createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
@@ -78,5 +79,48 @@ test('make a capsule, choose its garments, and toggle one from its page', async 
 
   await page.goto('/capsules');
   await expect(page.getByText('0 garments').last()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+// The picker's count after the sentinel appends the grid's next page (#125):
+// a member past the first GRID_PAGE_SIZE (48) tiles arrives checked without
+// a change event, and Save posts it, so the count must include it
+// (public/js/select-count.js).
+test('the picker counts members on a page the grid appends', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await signIn(page, 'capsule-count');
+  // Created first, so newest-first it lands on the grid's second page.
+  const old = await createGarment(page, 'Old member');
+  let newest = old;
+  for (let i = 1; i <= 48; i += 1) {
+    newest = await createGarment(page, `Filler ${i}`);
+  }
+  const capsule = await createCapsule(page, 'Two pages');
+  const members = new URLSearchParams([
+    ['ids', String(old)],
+    ['ids', String(newest)],
+  ]);
+  const res = await page.request.post(`/capsules/${capsule}/garments`, {
+    data: members.toString(),
+    headers: {
+      ...SAME_ORIGIN,
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+  });
+  expect(res.ok()).toBe(true);
+
+  await page.goto(`/wardrobe?pick=${capsule}`);
+  await expect(page.locator('#selected-count')).toHaveText('1');
+  // The last tile reveals the sentinel, which appends the next page.
+  await page.locator('[data-tile]').last().scrollIntoViewIfNeeded();
+  const appended = page.getByRole('checkbox', { name: 'Old member' });
+  await expect(appended).toBeChecked();
+  await expect(page.locator('#selected-count')).toHaveText('2');
+  // Toggling still counts.
+  await appended.uncheck();
+  await expect(page.locator('#selected-count')).toHaveText('1');
   expect(errors).toEqual([]);
 });

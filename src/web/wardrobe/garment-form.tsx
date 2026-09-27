@@ -41,6 +41,7 @@ import {
   CARE_NOTE_MAX,
   type CareFormValues,
   CATEGORY_MAX,
+  type FormAudience,
   type GarmentField,
   type GarmentFormValues,
   NAME_MAX,
@@ -65,6 +66,20 @@ export function isWishlistForm(mode: GarmentFormMode): boolean {
     (mode.kind === 'new' && mode.destination.to === 'wishlist') ||
     (mode.kind === 'edit' && mode.wishlist)
   );
+}
+
+/**
+ * Who owns the garment a form saves: the requester in their own wardrobe
+ * (`viewOwner` undefined: authorizeWardrobe's isOwner), and always for a
+ * clone, which lands there. The one rule for both sides of the owner-only
+ * fields (FormAudience, validation.ts): the form renders them only for the
+ * owner, and the routes read them from the post only for the owner.
+ */
+export function formAudience(
+  mode: GarmentFormMode,
+  viewOwner: number | undefined,
+): FormAudience {
+  return { owner: mode.kind === 'clone' || viewOwner === undefined };
 }
 
 export interface GarmentFormModel {
@@ -274,6 +289,7 @@ function MoreDetails(props: {
 }) {
   const { model, wishlist, category } = props;
   const { values, errors = {} } = model;
+  const { owner } = formAudience(model.mode, model.viewOwner);
   return (
     <details
       class="collapse collapse-arrow bg-base-200"
@@ -283,8 +299,11 @@ function MoreDetails(props: {
       <div class="collapse-content flex flex-col gap-4">
         <PropertiesMore category={category} values={values.properties} />
         {/* A wishlist item is not worn, washed or acquired yet: those
-              fields come with "Bought it" and the closet's form. */}
-        {!wishlist && <WashAfterField value={values.care.washAfterWears} />}
+              fields come with "Bought it" and the closet's form. The wash
+              limit is the owner's own record (formAudience). */}
+        {!wishlist && owner && (
+          <WashAfterField value={values.care.washAfterWears} />
+        )}
         <TextArea
           name="washingDetails"
           label={t('WASHING_DETAILS')}

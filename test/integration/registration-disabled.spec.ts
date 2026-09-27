@@ -1,6 +1,7 @@
 import { count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { user } from '../../src/db/schema';
+import { PAGE_ACCOUNT_HEADER } from '../../src/web/page-cache';
 import { createTestApp, TEST_PASSWORD, TestApp, uniqueClient } from './harness';
 
 /**
@@ -43,6 +44,22 @@ describe('registration disabled', () => {
     expect(res.headers.location).toBe('/auth/login');
     expect(res.cookies).toHaveLength(0);
     expect(await accounts()).toBe(0);
+  });
+
+  // What keeps the service worker's sentToLogin (src/web/page-cache.ts) from
+  // reading this redirect as a session ended elsewhere: the session stays,
+  // and the login page it lands on is rendered for the signed-in account.
+  it('a signed-in visitor keeps the session, and the login page names the account', async () => {
+    const res = await t.inject({ method: 'GET', url: '/auth/register' });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/auth/login');
+    expect(res.cookies).toHaveLength(0);
+
+    const landing = await t.inject({ method: 'GET', url: '/auth/login' });
+    expect(landing.statusCode).toBe(200);
+    expect(landing.headers[PAGE_ACCOUNT_HEADER.toLowerCase()]).toBe(
+      String(t.owner.id),
+    );
   });
 
   it('the login page offers no registration', async () => {

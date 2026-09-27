@@ -854,7 +854,8 @@ function storedFields(
   } catch (error) {
     throw new BibleError(where, `not a garment form post: ${String(error)}`);
   }
-  const form = readGarmentForm(body);
+  // Each persona posts its own wardrobe.
+  const form = readGarmentForm(body, { owner: true });
   if (!form.ok) {
     throw new BibleError(where, JSON.stringify(form.errors));
   }

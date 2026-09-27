@@ -101,18 +101,26 @@ export function cachedAt(headers: {
 }
 
 /**
- * A page request the server redirected to the login page (a followed
- * redirect: htmx's boosted XHR, a revalidation): nobody is signed in any
- * more. The session gate is what sends a page there, so it is how the worker
- * learns of a session ended away from this device (a password changed
- * elsewhere, the account deleted, a rotated secret, expiry), which no
- * sign-out POST announced.
+ * A page request the server redirected to the login page, which then
+ * rendered for nobody (a followed redirect: htmx's boosted XHR, a
+ * revalidation): nobody is signed in any more. The session gate is what
+ * sends a page there, so it is how the worker learns of a session ended away
+ * from this device (a password changed elsewhere, the account deleted, a
+ * rotated secret, expiry), which no sign-out POST announced. The landing
+ * page's account is what tells it apart from a redirect that keeps the
+ * session: DISABLE_REGISTRATION sends a signed-in user from /auth/register to
+ * the login page too, rendered for that user.
  */
 export function sentToLogin(response: {
   redirected: boolean;
   url: string;
+  headers: { get(name: string): string | null };
 }): boolean {
-  return response.redirected && new URL(response.url).pathname === LOGIN_PATH;
+  return (
+    response.redirected &&
+    new URL(response.url).pathname === LOGIN_PATH &&
+    pageAccount(response.headers) === ''
+  );
 }
 
 /** The account a response says it was rendered for; '' when signed out. */

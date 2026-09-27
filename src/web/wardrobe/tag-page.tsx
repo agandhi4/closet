@@ -15,7 +15,7 @@ import type { ViewContext } from '../view-context';
 import { categoryLabel } from './garment';
 import { type LabelledProperty, valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
-import { garmentUrl, wardrobeUrl } from './urls';
+import { garmentUrl, TAG_PATH, wardrobeUrl } from './urls';
 
 /**
  * GET /wardrobe/tag: one garment at a time that still needs its type,
@@ -61,15 +61,19 @@ export function TagPage(props: { ctx: ViewContext; model: TagCardModel }) {
 
 /** The card: swapped whole by Next. */
 export function TagCard({ model }: { model: TagCardModel }) {
-  const { garment, viewOwner } = model;
+  const { garment, viewOwner, left } = model;
   if (!garment) {
     return (
       <div id={TAG_CARD_ID}>
-        <EmptyState message={t('TAG_ALL_DONE')}>
-          <a href={wardrobeUrl(viewOwner)} class="btn btn-primary btn-sm">
-            {t('WARDROBE')}
-          </a>
-        </EmptyState>
+        {left > 0 ? (
+          <PassDone left={left} viewOwner={viewOwner} />
+        ) : (
+          <EmptyState message={t('TAG_ALL_DONE')}>
+            <a href={wardrobeUrl(viewOwner)} class="btn btn-primary btn-sm">
+              {t('WARDROBE')}
+            </a>
+          </EmptyState>
+        )}
       </div>
     );
   }
@@ -119,6 +123,36 @@ export function TagCard({ model }: { model: TagCardModel }) {
         </button>
       </AutosaveForm>
     </div>
+  );
+}
+
+/**
+ * The end of a pass that left garments behind: Next past the oldest one
+ * still needing tags while some it skipped still do. Never "all done" then
+ * (the wardrobe's prompt still counts them); Start over opens the newest.
+ */
+function PassDone(props: { left: number; viewOwner: number | undefined }) {
+  const { left, viewOwner } = props;
+  return (
+    <EmptyState
+      message={
+        left === 1
+          ? t('TAG_PASS_DONE_ONE')
+          : t('TAG_PASS_DONE', { count: left })
+      }
+    >
+      <div class="flex gap-2">
+        <a href={wardrobeUrl(viewOwner)} class="btn btn-ghost btn-sm">
+          {t('WARDROBE')}
+        </a>
+        <a
+          href={wardrobeUrl(viewOwner, {}, TAG_PATH)}
+          class="btn btn-primary btn-sm"
+        >
+          {t('TAG_START_OVER')}
+        </a>
+      </div>
+    </EmptyState>
   );
 }
 

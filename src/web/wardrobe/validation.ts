@@ -469,11 +469,28 @@ function careFormValues(body: GarmentBody): CareFormValues {
   };
 }
 
-/** A stored garment's care fields as the form shows them. */
-export function storedCareValues(stored: CareFields): CareFormValues {
+/**
+ * Who a garment form is read or written for. `owner`: the requester owns the
+ * garment (resolveWardrobeAccess's isOwner, the predicate the garment page's
+ * ownerRecords reads the wears by). The wash limit is the owner's own record,
+ * like the wears and washes it counts (src/web/wears/CLAUDE.md): a MANAGE
+ * grantee edits the garment's properties, quantity and condition, never the
+ * owner's laundry, so for anyone else the form is not given the stored limit
+ * (storedFormValues) and a posted one is ignored, left as stored
+ * (readGarmentForm).
+ */
+export interface FormAudience {
+  owner: boolean;
+}
+
+/** A stored garment's care fields as the form shows them to `audience`. */
+function storedCareValues(
+  stored: CareFields,
+  audience: FormAudience,
+): CareFormValues {
   return {
     quantity: String(stored.quantity),
-    washAfterWears: asText(stored.washAfterWears),
+    washAfterWears: audience.owner ? asText(stored.washAfterWears) : '',
     condition: stored.condition,
     conditionNote: orEmpty(stored.conditionNote),
   };
@@ -497,13 +514,14 @@ export function readCondition(posted: {
 /**
  * The care fields as stored, or the quantity's message; none (left as
  * stored) when the posting form predates them (GarmentBody.care). A blank
- * quantity is one copy.
+ * quantity is one copy. The wash limit only from the owner (FormAudience).
  */
-export function readCareFields(
+function readCareFields(
   posted: Pick<
     GarmentBody,
     'care' | 'quantity' | 'washAfterWears' | 'condition' | 'conditionNote'
   >,
+  audience: FormAudience,
 ): { ok: true; fields: Partial<CareFields> } | { ok: false; error: string } {
   if (posted.care !== '1') return { ok: true, fields: {} };
   const typed = posted.quantity?.trim() || '1';
@@ -518,10 +536,12 @@ export function readCareFields(
     ok: true,
     fields: {
       quantity,
-      washAfterWears: pick(
-        [NEVER_WASH, ...WASH_AFTER_CHOICES],
-        posted.washAfterWears ?? '',
-      ),
+      ...(audience.owner && {
+        washAfterWears: pick(
+          [NEVER_WASH, ...WASH_AFTER_CHOICES],
+          posted.washAfterWears ?? '',
+        ),
+      }),
       ...readCondition(posted),
     },
   };
@@ -577,9 +597,10 @@ export function storedPropertyValues(
   };
 }
 
-/** A stored garment as its edit and clone forms show it. */
+/** A stored garment as its edit and clone forms show it to `audience`. */
 export function storedFormValues(
   stored: Required<GarmentFields>,
+  audience: FormAudience,
 ): GarmentFormValues {
   return {
     name: orEmpty(stored.name),
@@ -593,7 +614,7 @@ export function storedFormValues(
     sourceUrl: orEmpty(stored.sourceUrl),
     price: orEmpty(stored.price),
     properties: storedPropertyValues(stored),
-    care: storedCareValues(stored),
+    care: storedCareValues(stored, audience),
     replaces: asText(stored.replacesGarmentId),
   };
 }
@@ -833,14 +854,20 @@ function readPostedProperties(
     : undefined;
 }
 
-/** The posted form as the garment to store, or what to show the person. */
-export function readGarmentForm(body: GarmentBody): GarmentForm {
+/**
+ * The posted form as the garment to store, or what to show the person. The
+ * owner-only fields are read only for the owner (FormAudience).
+ */
+export function readGarmentForm(
+  body: GarmentBody,
+  audience: FormAudience,
+): GarmentForm {
   const category = normalizeCategory(body.category);
   const colors = readColors(body.color);
   const acquiredOn = readDay(body.dateAquired);
   const properties = readPostedProperties(body, category);
   const product = readProductFields(body);
-  const care = readCareFields(body);
+  const care = readCareFields(body, audience);
   const errors = formErrors({
     category,
     colors,

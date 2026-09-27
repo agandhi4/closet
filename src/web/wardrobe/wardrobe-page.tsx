@@ -29,7 +29,13 @@ import { WeatherSlot } from '../weather/views';
 import { categoryLabel } from './garment';
 import { type LabelledProperty, valueLabel } from './labels';
 import type { FilterOptions, GarmentTile, GridPage } from './queries';
-import { capsuleUrl, garmentUrl, LAUNDRY_PATH, wardrobeUrl } from './urls';
+import {
+  capsuleUrl,
+  garmentUrl,
+  LAUNDRY_PATH,
+  TAG_PATH,
+  wardrobeUrl,
+} from './urls';
 import { BULK_PROPERTIES, type BulkProperty } from './validation';
 import { WardrobeHeader, WardrobeMenu, WardrobeTabs } from './wardrobe-header';
 
@@ -280,7 +286,7 @@ function Prompts({ model }: { model: WardrobeModel }) {
               ? t('TAG_PROMPT_ONE')
               : t('TAG_PROMPT', { count: toTag })
           }
-          href={wardrobeUrl(model.viewOwner, {}, '/wardrobe/tag')}
+          href={wardrobeUrl(model.viewOwner, {}, TAG_PATH)}
           action={t('TAG_PROMPT_ACTION')}
         />
       )}
@@ -1162,6 +1168,8 @@ const BULK_FORM_ID = 'bulk-form';
  * query. The count is the one line of script: it re-counts the checked
  * boxes on every change.
  */
+const SELECT_COUNT_IMPORT = "import 'select-count';";
+
 function SelectForm(props: {
   id: string;
   action: string;
@@ -1172,11 +1180,22 @@ function SelectForm(props: {
 }) {
   return (
     <PostForm id={props.id} action={props.action}>
-      <div onchange="document.getElementById('selected-count').textContent = this.querySelectorAll('input[name=ids]:checked').length">
+      {/* The count follows toggles and the pages the sentinel appends
+          (public/js/select-count.js, through the importmap for its versioned
+          URL). A fixed string with nothing interpolated. */}
+      <script
+        type="module"
+        dangerouslySetInnerHTML={{ __html: SELECT_COUNT_IMPORT }}
+      />
+      <div data-select-count>
         {props.children}
         <div class="fixed bottom-dock left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex items-center justify-between gap-2">
           <span class="text-sm">
-            <span id="selected-count" class="font-semibold">
+            <span
+              id="selected-count"
+              class="font-semibold"
+              data-select-count-value
+            >
               {props.checked}
             </span>{' '}
             {t('SELECTED')}

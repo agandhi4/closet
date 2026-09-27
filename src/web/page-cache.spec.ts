@@ -100,10 +100,16 @@ describe('cachedAt and pageAccount', () => {
 });
 
 describe('sentToLogin', () => {
-  it('is a page request redirected to the login page', () => {
-    expect(sentToLogin({ redirected: true, url: `${ORIGIN}/auth/login` })).toBe(
-      true,
-    );
+  const signedOut = new Headers();
+
+  it('is a page request redirected to the login page, rendered for nobody', () => {
+    expect(
+      sentToLogin({
+        redirected: true,
+        url: `${ORIGIN}/auth/login`,
+        headers: signedOut,
+      }),
+    ).toBe(true);
   });
 
   it.each([
@@ -115,7 +121,19 @@ describe('sentToLogin', () => {
     ],
     ['redirected to a page under the login path', true, '/auth/login/x'],
   ])('is not a page %s', (_label, redirected, path) => {
-    expect(sentToLogin({ redirected, url: `${ORIGIN}${path}` })).toBe(false);
+    expect(
+      sentToLogin({ redirected, url: `${ORIGIN}${path}`, headers: signedOut }),
+    ).toBe(false);
+  });
+
+  it('is not a redirect to a login page rendered for a signed-in account (DISABLE_REGISTRATION)', () => {
+    expect(
+      sentToLogin({
+        redirected: true,
+        url: `${ORIGIN}/auth/login`,
+        headers: new Headers({ [PAGE_ACCOUNT_HEADER]: '7' }),
+      }),
+    ).toBe(false);
   });
 });
 

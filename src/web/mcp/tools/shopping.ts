@@ -185,7 +185,7 @@ async function importCandidate(
   }
   const saved = await addGarmentFromLink(
     ctx,
-    access.ownerId,
+    access,
     {
       url: args.url,
       destination: 'wishlist',

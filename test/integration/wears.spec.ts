@@ -974,5 +974,144 @@ describe('wears and washes', () => {
       expect(own.body).toContain('id="garment-wear"');
       expect(own.body).toContain('value="Sam"');
     });
+
+    // The wash limit is the owner's record like the wears it counts
+    // (FormAudience, validation.ts): a MANAGE grantee edits the garment's
+    // properties, quantity and condition, and neither sees nor sets it.
+    describe('the wash limit on the garment form', () => {
+      let manager: string;
+      const q = () => `?ownerId=${t.owner.id}`;
+      const WASH_SELECT = 'name="washAfterWears"';
+
+      const washLimitOf = async (id: number) =>
+        (
+          await t.db
+            .select({ washAfterWears: garment.washAfterWears })
+            .from(garment)
+            .where(eq(garment.id, id))
+        )[0].washAfterWears;
+
+      const getAs = (cookie: string, url: string) =>
+        t.inject({ method: 'GET', url, headers: { cookie } });
+
+      const postAs = (
+        cookie: string,
+        url: string,
+        fields: Record<string, string>,
+      ) =>
+        t.inject({
+          method: 'POST',
+          url,
+          ...form(fields),
+          headers: { ...form({}).headers, cookie },
+        });
+
+      beforeAll(async () => {
+        manager = await t.register('wash-manager@example.com');
+        const invite = await t.inject({
+          method: 'POST',
+          url: '/wardrobe-share/create-invite-link',
+          payload: { permission: 'MANAGE' },
+          headers: { 'hx-request': 'true' },
+        });
+        const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(
+          invite.body,
+        )![1];
+        await t.inject({
+          method: 'POST',
+          url: `/wardrobe-share/invite/${token}/accept`,
+          headers: { cookie: manager },
+        });
+      });
+
+      it('is not in a MANAGE grantee’s edit or new form, and the owner’s is', async () => {
+        const jeans = await newGarment('Raw denim', 'bottoms', {
+          washAfterWears: '0',
+        });
+        const edit = await getAs(manager, `/wardrobe/${jeans}/edit${q()}`);
+        expect(edit.statusCode).toBe(200);
+        expect(edit.body).not.toContain(WASH_SELECT);
+        expect(edit.body).not.toContain('>Never</option>');
+        // The shareable care fields stay.
+        expect(edit.body).toContain('name="quantity"');
+        expect(edit.body).toContain('name="condition"');
+
+        const fresh = await getAs(manager, `/wardrobe/new${q()}`);
+        expect(fresh.statusCode).toBe(200);
+        expect(fresh.body).not.toContain(WASH_SELECT);
+
+        const own = await t.inject({
+          method: 'GET',
+          url: `/wardrobe/${jeans}/edit`,
+        });
+        expect(own.body).toMatch(
+          /<option value="0" selected="">Never<\/option>/,
+        );
+      });
+
+      it('is left as stored when a MANAGE grantee posts one, and the rest is saved', async () => {
+        const jeans = await newGarment('Selvedge', 'bottoms', {
+          washAfterWears: '0',
+        });
+        const res = await postAs(manager, `/wardrobe/${jeans}${q()}`, {
+          name: 'Selvedge',
+          category: 'bottoms',
+          care: '1',
+          quantity: '2',
+          washAfterWears: '1',
+        });
+        expect(res.statusCode).toBe(302);
+        const [row] = await t.db
+          .select({
+            quantity: garment.quantity,
+            washAfterWears: garment.washAfterWears,
+          })
+          .from(garment)
+          .where(eq(garment.id, jeans));
+        expect(row).toEqual({ quantity: 2, washAfterWears: 0 });
+      });
+
+      it('is the role’s default on a garment a MANAGE grantee adds', async () => {
+        const res = await postAs(manager, `/wardrobe${q()}`, {
+          name: 'Added for them',
+          category: 'tops',
+          care: '1',
+          quantity: '1',
+          washAfterWears: '20',
+        });
+        expect(res.statusCode).toBe(302);
+        const id = Number(
+          /^\/wardrobe\/(\d+)\?/.exec(String(res.headers.location))![1],
+        );
+        expect(await washLimitOf(id)).toBeNull();
+      });
+
+      it('is not copied into a grantee’s clone, which sets its own', async () => {
+        const jeans = await newGarment('Clone me', 'bottoms', {
+          washAfterWears: '0',
+        });
+        const cloneForm = await getAs(viewer, `/wardrobe/${jeans}/clone${q()}`);
+        expect(cloneForm.statusCode).toBe(200);
+        // Their clone's own field, at the default: never the owner's value.
+        expect(cloneForm.body).toContain(WASH_SELECT);
+        expect(cloneForm.body).not.toMatch(/<option value="0" selected="">/);
+        expect(cloneForm.body).toMatch(/<option value="" selected="">/);
+
+        const res = await postAs(viewer, `/wardrobe/${jeans}/clone${q()}`, {
+          name: 'My copy',
+          category: 'bottoms',
+          care: '1',
+          quantity: '1',
+          washAfterWears: '5',
+        });
+        expect(res.statusCode).toBe(302);
+        const id = Number(
+          /^\/wardrobe\/(\d+)/.exec(String(res.headers.location))![1],
+        );
+        expect(id).not.toBe(jeans);
+        expect(await washLimitOf(id)).toBe(5);
+        expect(await washLimitOf(jeans)).toBe(0);
+      });
+    });
   });
 });

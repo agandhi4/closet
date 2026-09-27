@@ -130,6 +130,21 @@ describe('tagging mode', () => {
     expect(res.body).not.toContain('Blank tee');
   });
 
+  it('ends a pass that skipped garments with how many are left, never "all done"', async () => {
+    // Past the tote, the oldest still needing details: nothing older left,
+    // but the three skipped on the way still need them.
+    const res = await card(`?before=${ids.bag}`);
+    expectFragment(res);
+    expectNoRawI18nKeys(res);
+    expect(res.body).toContain('id="tag-card"');
+    expect(res.body).not.toContain('Every garment has its details.');
+    expect(res.body).toContain(
+      'End of this pass. 3 garments you skipped still need details.',
+    );
+    expect(res.body).toContain('href="/wardrobe/tag"');
+    expect(res.body).toContain('>Start over</a>');
+  });
+
   it('asks a bag only what a bag has', async () => {
     const res = await card(`?before=${ids.heavy}`);
     expect(res.body).toContain('Tote');

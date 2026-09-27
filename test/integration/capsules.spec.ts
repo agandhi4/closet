@@ -264,8 +264,11 @@ describe('capsules', () => {
       expect(html).not.toContain('id="bulk-dialog"');
       expect(html).not.toContain('id="search-form"');
       expect(html).toContain(`href="/capsules/${office}"`);
-      // One member on screen, counted.
-      expect(html).toMatch(/id="selected-count" class="font-semibold">1</);
+      // One member on screen, counted; later pages' are counted as they
+      // arrive by the page's module (test/capsules.spec.ts).
+      expect(html).toMatch(/id="selected-count"[^>]*>1</);
+      expect(html).toContain('<div data-select-count');
+      expect(html).toContain(`import 'select-count';`);
     });
 
     it('asks for later pages as picker tiles', async () => {

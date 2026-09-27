@@ -562,7 +562,7 @@ export const garmentTools = [
           'Too many link imports: try again in a minute',
         );
       }
-      const saved = await addGarmentFromLink(ctx, access.ownerId, args);
+      const saved = await addGarmentFromLink(ctx, access, args);
       const garment = await garmentIn(ctx, saved.id, access.ownerId);
       return {
         garment: await garmentOut(ctx, garment, access.ownerId, access.isOwner),

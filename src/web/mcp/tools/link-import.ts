@@ -22,6 +22,7 @@ import {
   type WithGarment,
 } from '../../wardrobe/writes';
 import type { EntryStatus } from '../../../wardrobe/status';
+import type { WardrobeAccess } from '../../sharing/access';
 import type { ToolContext } from '../tool';
 
 /** What the caller may say instead of the page. */
@@ -61,7 +62,7 @@ export interface LinkSaveOptions {
  */
 export async function addGarmentFromLink(
   ctx: ToolContext,
-  ownerId: number,
+  { ownerId, isOwner }: Pick<WardrobeAccess, 'ownerId' | 'isOwner'>,
   overrides: LinkOverrides,
   { withGarment }: LinkSaveOptions = {},
 ): Promise<{ id: number; notices: string[] }> {
@@ -93,7 +94,7 @@ export async function addGarmentFromLink(
   const form = importedForm(imported, overrides.url);
   const photo = form.link.photo;
   const posted = formPost(withOverrides(form.values, overrides));
-  const read = readGarmentForm(posted);
+  const read = readGarmentForm(posted, { owner: isOwner });
   if (!read.ok) {
     if (photo) await discardPendingPhoto(deps, photo, ctx.userId);
     const messages = Object.entries(read.errors).map(
