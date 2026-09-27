@@ -13,6 +13,7 @@ import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { OutfitCollage } from '../outfits/collage';
+import { EntrySelfie } from '../selfies/views';
 import type { ViewContext } from '../view-context';
 import { WeatherSlot } from '../weather/views';
 import type { TodayEntry } from './queries';
@@ -107,7 +108,19 @@ function PlannedCard(props: {
         <a href={`/outfits/${entry.outfit.id}`} aria-label={name}>
           <OutfitCollage garments={entry.outfit.garments} eager={props.eager} />
         </a>
-        <h3 class="font-semibold text-sm line-clamp-2">{name}</h3>
+        <div class="flex items-center gap-2">
+          <h3 class="font-semibold text-sm line-clamp-2 flex-1">{name}</h3>
+          {/* The mirror photo, or the camera to take it: taking one marks
+              the entry worn (#19). */}
+          <EntrySelfie
+            entryId={entry.id}
+            day={today}
+            selfie={entry.selfie}
+            canTake
+            returnTo={TODAY_PATH}
+            size="card"
+          />
+        </div>
         {entry.worn ? (
           <div class="flex items-center gap-2">
             <span class="badge badge-success gap-1" data-worn="">

@@ -131,6 +131,8 @@ export function PostForm(props: {
   id?: string;
   /** Disabled while offline (data-needs-network, public/js/connectivity.js). */
   needsNetwork?: boolean;
+  /** Posts a file (multipart/form-data): the outfit selfie's photo. */
+  multipart?: boolean;
   children?: Child;
 }) {
   return (
@@ -138,6 +140,7 @@ export function PostForm(props: {
       id={props.id}
       method="post"
       action={props.action}
+      enctype={props.multipart ? 'multipart/form-data' : undefined}
       class={props.class}
       hx-boost="false"
       data-confirm={props.confirm}

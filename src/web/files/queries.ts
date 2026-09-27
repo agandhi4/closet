@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { notifyCutoutQueued } from '../../cutout/queries';
 import type { InitialCutoutColumns } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
-import { file } from '../../db/schema';
+import { file, garment } from '../../db/schema';
 
 /**
  * A photo's `file` row as Photos returns it after writing the bytes, not yet
@@ -63,7 +63,11 @@ export async function photoRowExists(
   return row !== undefined;
 }
 
-/** The stored name behind a share link's image (the watermark route). */
+/**
+ * The stored name behind a share link's image (the watermark route): a
+ * garment's photo, the only kind a share page shows. Any other row (an
+ * outfit selfie, #19, whose share id is never rendered) is not found.
+ */
 export async function findPhotoByShareableId(
   db: Db,
   shareableId: string,
@@ -71,6 +75,7 @@ export async function findPhotoByShareableId(
   const [row] = await db
     .select({ fileName: file.fileName })
     .from(file)
+    .innerJoin(garment, eq(garment.photoId, file.id))
     .where(eq(file.shareableId, shareableId))
     .limit(1);
   return row?.fileName;

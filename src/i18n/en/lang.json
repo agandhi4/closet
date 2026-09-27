@@ -979,5 +979,16 @@
       "SAVED": "Saved. A time already past today starts tomorrow.",
       "NOT_REGISTERED": "Turn notifications on for this device to choose reminders."
     }
+  },
+  "selfie": {
+    "TAKE": "Take a selfie",
+    "CHOOSE": "Choose a photo",
+    "ALT": "Outfit selfie, {day}",
+    "VIEW": "Open the outfit selfie of {day}",
+    "REMOVE": "Remove photo",
+    "REMOVE_CONFIRM": "Remove this selfie? The outfit stays marked worn.",
+    "CLOSE": "Close",
+    "DETACHED": "Worn (outfit deleted)",
+    "WORN_HEADING": "Worn ({count})"
   }
 }

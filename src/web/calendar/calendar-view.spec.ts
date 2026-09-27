@@ -31,6 +31,7 @@ function entryOn(
     day,
     occasion,
     worn: false,
+    selfie: null,
     outfit: { id, name: `Outfit ${id}`, photoUrls: [] },
   };
 }
@@ -148,6 +149,33 @@ describe('calendar view (America/New_York)', () => {
       const wednesday = view('2026-09-23', { entries }).days[3];
       expect(wednesday.entries.map((e) => e.chipHue)).toEqual([
         220, 240, 260, 220,
+      ]);
+    });
+
+    it('puts each selfie kept after its outfit was deleted on its own day', () => {
+      const look = (id: number, day: IsoDate) => ({
+        id,
+        day,
+        photo: { fileName: `${id}.webp`, version: 1 },
+      });
+      const vm = buildCalendarView({
+        weekStart: '2026-09-20',
+        today: TODAY,
+        entries: [],
+        looks: [
+          look(1, '2026-09-22'),
+          look(2, '2026-09-22'),
+          look(3, '2026-09-26'),
+        ],
+      });
+      expect(vm.days.map((d) => d.looks.map((l) => l.id))).toEqual([
+        [],
+        [],
+        [1, 2],
+        [],
+        [],
+        [],
+        [3],
       ]);
     });
   });

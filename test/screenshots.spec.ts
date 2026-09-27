@@ -329,3 +329,36 @@ test('demo: Theo, Today and his reminders (#15)', async ({ page }) => {
   await page.locator('push-settings').scrollIntoViewIfNeeded();
   await shot(page, '56-demo-push-settings');
 });
+
+test('demo: Theo, outfit selfies (#19)', async ({ page }) => {
+  await signInAs(page, 'demo');
+  // His evenings out of the last four weeks carry a mirror selfie: the
+  // latest week that has one.
+  let week = '';
+  for (const start of [
+    '2026-09-20',
+    '2026-09-13',
+    '2026-09-06',
+    '2026-08-30',
+  ]) {
+    await page.goto(`/calendar?week=${start}`);
+    if ((await page.locator('button[data-selfie]').count()) > 0) {
+      week = start;
+      break;
+    }
+  }
+  expect(week).not.toBe('');
+  const row = page
+    .locator('[data-occasion]', { has: page.locator('button[data-selfie]') })
+    .first();
+  await row.scrollIntoViewIfNeeded();
+  await shot(page, '58-demo-calendar-selfies');
+  await row.locator('button[data-selfie]').click();
+  await expect(page.locator('dialog[open] img')).toBeVisible();
+  await shot(page, '59-demo-selfie');
+  // The outfit's Worn strip: every day it was worn, with its looks.
+  const edit = await row.locator('a[href^="/outfits/"]').getAttribute('href');
+  const outfit = /^\/outfits\/(\d+)\//.exec(edit ?? '')?.[1];
+  await shot(page, '60-demo-outfit-worn', `/outfits/${outfit}`);
+  await expect(page.locator('[data-worn-strip] img').first()).toBeVisible();
+});

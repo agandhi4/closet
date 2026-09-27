@@ -159,6 +159,24 @@ describe('simulate', () => {
     expect([...washed].some((id) => id.startsWith('F'))).toBe(false);
   });
 
+  it('takes a mirror selfie before each evening out of the last four weeks (#19)', () => {
+    const selfies = life.entries.filter((e) => e.selfie);
+    expect(selfies.length).toBeGreaterThanOrEqual(3);
+    for (const entry of selfies) {
+      expect(entry.worn).toBe(true);
+      expect(['evening', 'night-out']).toContain(entry.occasion);
+      expect(entry.day > addDays('2026-09-26', -28)).toBe(true);
+    }
+    // Every worn evening out in that window has one; nothing else does.
+    const evenings = life.entries.filter(
+      (e) =>
+        e.worn &&
+        (e.occasion === 'evening' || e.occasion === 'night-out') &&
+        e.day > addDays('2026-09-26', -28),
+    );
+    expect(selfies).toEqual(evenings);
+  });
+
   it('writes no history for personas without a week', () => {
     expect(simulate(loadPersona('sparse'), '2026-09-26').entries).toEqual([]);
   });

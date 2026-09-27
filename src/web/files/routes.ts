@@ -5,6 +5,7 @@ import type { Readable } from 'node:stream';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { type ImageVariant, parseStoredName } from './image-variant';
+import { isPrivatePhoto } from './references';
 
 // Variant URLs carry `?v=<file.version>` (imageUrl()), which is what makes a
 // year of immutable caching safe: rewritten bytes are only ever reached
@@ -24,12 +25,15 @@ const ShareParams = Type.Object({ shareableId: Type.String() });
  * is under the /file/ static prefix (static-prefixes.ts), so the root hook
  * resolves no session and builds no page context, and a page added here
  * would render without one. Photos are addressed by unguessable UUID names;
- * share previews and Open Graph images must load for anyone. Failures answer
- * the error handler's bare `{ statusCode, message }` (no page context).
+ * share previews and Open Graph images must load for anyone. Outfit selfies
+ * are the exception: only their owner sees them (GET /selfies/*, session
+ * checked, src/web/selfies/routes.ts), so here their names are a 404 like
+ * a missing photo, and knowing one is not a way in. Failures answer the
+ * error handler's bare `{ statusCode, message }` (no page context).
  */
 export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
-  { photos, logger },
+  { db, photos, logger },
   done,
 ) => {
   // The segment must be a photo's base name, `<uuid>.webp`, as defined once
@@ -43,6 +47,10 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     reply: FastifyReply,
   ) => {
     if (parseStoredName(fileName)?.variant !== 'original') {
+      throw new HttpError(404);
+    }
+    if (await isPrivatePhoto(db, fileName)) {
+      logger.warn(`Refused a selfie on the public /file route: ${fileName}`);
       throw new HttpError(404);
     }
     const stream = await photos.getVariant(fileName, variant);

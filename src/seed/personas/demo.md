@@ -486,7 +486,10 @@ the planned week's weather on the calendar is the weather it was drawn for):
    entries; a garment in two of a day's entries is one wear.
 6. **Logging**: Theo records a past day on 85 % of days; a recorded past entry is worn (that evening,
    21:00). On 4 % of office days the planned outfit stayed unworn (rain changed his mind) and the one he
-   wore is a second, worn entry.
+   wore is a second, worn entry. Before a date or a night out he takes a mirror selfie: every worn
+   `evening` and `night-out` entry of the last 28 days has one (#19; a drawing of the outfit's garments
+   on him in the hall mirror, `src/seed/selfie-art.ts`), stored through the selfie's own writer, which
+   marks the entry worn.
 7. **Planned week**: the seven days after the anchor, drawn by the same rules from the weather's
    normals, planned and not worn (a meeting Wednesday, the workouts and a date night if the week has
    them).
@@ -519,4 +522,5 @@ closet or a capsule, rotating what the simulation left unworn. Wardrobe plans (#
 profile, the rhythm and "NYC minimal" above, whose gaps are the replace-soon merino and the padded
 jacket); the shopping list (#34b, done: the plan table's Candidates) pairs those gaps with W01 and W02.
 Today (#15, done): the anchor is today, half lived (step 7), so his home screen shows the evening's
-plan and ideas for the day.
+plan and ideas for the day. Outfit selfies (#19, done): his recent evenings carry a mirror selfie (step
+6), so the calendar's history weeks and his date-night outfits' Worn strips show the looks.

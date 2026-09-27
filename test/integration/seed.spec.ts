@@ -15,6 +15,7 @@ import {
   outfitCalendar,
   outfitSlot,
   planItem,
+  selfie,
   styleProfile,
   styleRhythm,
   user,
@@ -147,6 +148,18 @@ describe('seed personas', () => {
       .select({ a: generatorAvoid.garmentAId, b: generatorAvoid.garmentBId })
       .from(generatorAvoid)
       .where(eq(generatorAvoid.ownerId, id));
+    const selfies = await t.db
+      .select({
+        day: selfie.day,
+        outfitId: outfitCalendar.outfitId,
+        fileName: file.fileName,
+        cutout: file.cutoutStatus,
+      })
+      .from(selfie)
+      .innerJoin(outfitCalendar, eq(outfitCalendar.id, selfie.outfitCalendarId))
+      .innerJoin(file, eq(file.id, selfie.photoId))
+      .where(eq(selfie.ownerId, id))
+      .orderBy(asc(selfie.day), asc(selfie.id));
     const shares = await t.db
       .select({
         grantee: wardrobeShare.granteeId,
@@ -190,6 +203,15 @@ describe('seed personas', () => {
         wornAt: c.wornAt?.toISOString() ?? null,
       })),
       wears: wears.map((w) => [ids.get(w.garmentId), w.day]),
+      // Outfit selfies (#19): the day, the outfit and the photo's bytes.
+      selfies: await Promise.all(
+        selfies.map(async (s) => ({
+          day: s.day,
+          outfit: names.get(s.outfitId),
+          cutout: s.cutout,
+          photo: await sha(s.fileName),
+        })),
+      ),
       styleProfile: (await findStyleProfile(t.db, id)) ?? null,
       plans: plans.map((p) => ({
         name: p.name,
@@ -471,6 +493,39 @@ describe('seed personas', () => {
       [...thursday.matchAll(/data-occasion="([a-z-]+)"/g)].map((m) => m[1]),
     ).toEqual(['workout', 'work', 'night-out']);
 
+    // His recent evenings out carry a mirror selfie (#19): on the week, on
+    // the outfit's Worn strip, served to him through /selfies/ only.
+    const [look] = await t.db
+      .select({ day: selfie.day, outfitId: outfitCalendar.outfitId })
+      .from(selfie)
+      .innerJoin(outfitCalendar, eq(outfitCalendar.id, selfie.outfitCalendarId))
+      .where(eq(selfie.ownerId, await userIdOf(t, EMAILS[0])))
+      .orderBy(asc(selfie.day))
+      .limit(1);
+    const selfieThumb = (html: string) =>
+      extractImgSrcs(unescapeHtml(html)).find((src) =>
+        src.startsWith('/selfies/thumb/'),
+      );
+    const lookWeek = await t.inject({
+      method: 'GET',
+      url: `/calendar?week=${look.day}`,
+      headers: { cookie },
+    });
+    expect(selfieThumb(lookWeek.body)).toBeDefined();
+    const lookOutfit = await t.inject({
+      method: 'GET',
+      url: `/outfits/${look.outfitId}`,
+      headers: { cookie },
+    });
+    expect(lookOutfit.body).toContain('data-worn-strip');
+    const lookImage = await t.inject({
+      method: 'GET',
+      url: selfieThumb(lookOutfit.body)!,
+      headers: { cookie },
+    });
+    expect(lookImage.statusCode).toBe(200);
+    expect(lookImage.headers['content-type']).toBe('image/webp');
+
     // His plan's gap view (#34): mostly owned; the replace-soon merino and
     // the padded jacket he wants are the gaps, the third oxford the partly.
     const plans = await t.inject({
@@ -644,6 +699,7 @@ describe('seed personas', () => {
     expect(await t.db.$count(styleProfile)).toBe(0);
     expect(await t.db.$count(styleRhythm)).toBe(0);
     expect(await t.db.$count(generatorAvoid)).toBe(0);
+    expect(await t.db.$count(selfie)).toBe(0);
     const report = await reconcileStorage(
       { db: t.db, photos: t.photos, logger: t.logger },
       { dryRun: true, olderThanMs: 0 },

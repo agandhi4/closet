@@ -1,6 +1,6 @@
-import { and, eq, isNotNull, notExists } from 'drizzle-orm';
+import { and, eq, not } from 'drizzle-orm';
 import type { Db } from '../db/client';
-import { file, garment } from '../db/schema';
+import { file } from '../db/schema';
 import { parseStoredName } from '../web/files/image-variant';
 import {
   deletePendingPhotoRow,
@@ -8,6 +8,7 @@ import {
   takeAgedPendingPhotos,
 } from '../web/files/pending-photos';
 import { photoRowExists } from '../web/files/queries';
+import { photoIsReferenced } from '../web/files/references';
 import type { Photos } from '../web/files/photos';
 import type { Logger } from '../logger';
 
@@ -44,7 +45,7 @@ export interface ReconciliationReport {
   storedPhotoSets: number;
   /** Photo sets in storage with no `file` row. */
   orphanedObjectsDeleted: number;
-  /** `file` rows no garment points at, deleted with their photo sets. */
+  /** `file` rows nothing references (photoIsReferenced), deleted with their photo sets. */
   orphanedRowsDeleted: number;
   /** `file` rows whose original is gone from storage; reported, never deleted. */
   missingOriginals: number;
@@ -80,12 +81,12 @@ interface FileRow {
 /**
  * Keeps storage and the file table describing each other. Three findings,
  * each bounded by `olderThan`:
- *   storage -> rows   photo sets whose base name has no `file` row
- *   rows -> garments  `file` rows no garment.photo_id references
- *   rows -> storage   `file` rows whose original is missing (reported only)
- * garment.photo_id is the only reference to a `file` row, so an
- * unreferenced row is an orphan by definition. Everything is planned first
- * and checked by the guard; only then are the orphans deleted.
+ *   storage -> rows      photo sets whose base name has no `file` row
+ *   rows -> references   `file` rows nothing references: no garment's photo,
+ *                        no outfit selfie (photoIsReferenced, the one list)
+ *   rows -> storage      `file` rows whose original is missing (reported only)
+ * An unreferenced row is an orphan by definition. Everything is planned
+ * first and checked by the guard; only then are the orphans deleted.
  *
  * Link imports' pending photos (`pending_photo`, bytes without a `file`
  * row) are not unexplained orphans: day-old ones go with their rows in a
@@ -219,7 +220,7 @@ interface ReconciliationPlan {
   storedObjects: number;
   photoSets: Map<string, StoredPhotoSet>;
   rowCount: number;
-  /** Rows older than the cutoff that no garment references. */
+  /** Rows older than the cutoff that nothing references. */
   orphanedRows: FileRow[];
   /** Photo sets older than the cutoff with no row, by base name. */
   orphanedSets: [string, StoredPhotoSet][];
@@ -249,19 +250,16 @@ async function planReconciliation(
       !agedPending.has(name) && !photoSets.get(name)?.names.includes(name),
   );
   const rows = await db
-    .select({ id: file.id, fileName: file.fileName, createdOn: file.createdOn })
+    .select({
+      id: file.id,
+      fileName: file.fileName,
+      createdOn: file.createdOn,
+      referenced: photoIsReferenced(file.id),
+    })
     .from(file);
-  const referenced = new Set(
-    (
-      await db
-        .select({ photoId: garment.photoId })
-        .from(garment)
-        .where(isNotNull(garment.photoId))
-    ).map((row) => row.photoId),
-  );
 
   const orphanedRows = rows.filter(
-    (row) => !referenced.has(row.id) && row.createdOn < cutoffIso,
+    (row) => !row.referenced && row.createdOn < cutoffIso,
   );
   const knownNames = new Set(rows.map((row) => row.fileName));
   const orphanedSets = [...photoSets].filter(([baseName, set]) => {
@@ -367,9 +365,9 @@ async function scanStorage(photos: Photos): Promise<{
   return { photoSets, storedObjects };
 }
 
-// Each row goes in one statement that re-checks the reference, so a garment
-// attached since the scan keeps its photo. Bytes go after the delete; an
-// unlink cannot be rolled back.
+// Each row goes in one statement that re-checks the references, so a garment
+// or selfie attached since the scan keeps its photo. Bytes go after the
+// delete; an unlink cannot be rolled back.
 async function removeOrphanedRows(
   { db, photos, logger }: ReconcileDeps,
   candidates: FileRow[],
@@ -390,17 +388,7 @@ async function removeOrphanedRows(
     try {
       const [deleted] = await db
         .delete(file)
-        .where(
-          and(
-            eq(file.id, candidate.id),
-            notExists(
-              db
-                .select({ id: garment.id })
-                .from(garment)
-                .where(eq(garment.photoId, candidate.id)),
-            ),
-          ),
-        )
+        .where(and(eq(file.id, candidate.id), not(photoIsReferenced(file.id))))
         .returning({ fileName: file.fileName });
       if (!deleted) continue;
       logger.debug(

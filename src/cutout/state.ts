@@ -10,11 +10,16 @@
  *                      ▲  │  └──fail─────▶ failed
  *                      │  └─start (a job begins: attempts + 1)
  *                      └──retry── pending | failed
- *   any ──edit──▶ edited        (the user saved a mask: always wins)
+ *   any but unwanted ──edit──▶ edited   (the user saved a mask: always wins)
+ *   unwanted                            (terminal: no event applies)
  *
  * - none: no server cutout was asked for: a photo stored before
  *   background removal moved to the server (its cutout, if any, was made
  *   in the browser).
+ * - unwanted: the photo keeps its background on purpose (an outfit selfie,
+ *   #19, src/web/selfies): stored so, and never queued, retried or edited,
+ *   so no job, backfill or mask can ever cut the person out of the room.
+ *   (none, by contrast, still takes request.)
  * - pending: queued (the database is the queue, src/cutout/queue.ts); a
  *   running job is still pending, with cutout_job_version set by start.
  * - ready / failed: the job's result. failed shows the original and a
@@ -32,6 +37,7 @@ export const CUTOUT_STATUSES = [
   'ready',
   'failed',
   'edited',
+  'unwanted',
 ] as const;
 
 export type CutoutStatus = (typeof CUTOUT_STATUSES)[number];
@@ -88,7 +94,7 @@ const ACCEPTED_FROM: Record<CutoutEventType, readonly CutoutStatus[]> = {
   start: ['pending'],
   succeed: ['pending'],
   fail: ['pending'],
-  edit: CUTOUT_STATUSES,
+  edit: CUTOUT_STATUSES.filter((status) => status !== 'unwanted'),
 };
 
 /** The state after `event`, or why the event does not apply. Pure. */
@@ -148,7 +154,7 @@ function nextState(state: CutoutState, event: CutoutEvent): CutoutState {
  * The cutout columns of a photo row about to be inserted: `status` is what
  * the new row starts as (none, or the result of `request`; a copied photo
  * takes its source's status, and a pending copy is queued in its own
- * right).
+ * right; a selfie is unwanted).
  */
 export interface InitialCutoutColumns {
   cutoutStatus: CutoutStatus;

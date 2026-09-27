@@ -9,7 +9,7 @@ import { changeCandidates } from '../../src/web/plans/candidates';
 import { insertItems, saveStyleProfile } from '../../src/web/plans/queries';
 import { EMPTY_STYLE_PROFILE } from '../../src/web/plans/validation';
 import { LOGIN_PATH } from '../../src/web/auth/session-access';
-import type { IsoDate } from '../../src/web/calendar/calendar-date';
+import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
 import {
   createGarment,
   createWishlistItem,
@@ -26,6 +26,7 @@ import {
   userIdOf,
 } from './harness';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
+import { planEntry, takeSelfie } from './selfies';
 
 /**
  * The object-level authorization matrix. One owner (the harness's default
@@ -59,7 +60,9 @@ import { jpeg, type LinkSites, startLinkSites } from './link-sites';
  * of it and lands in the requester's plans. The shopping loop (#34b) is the
  * plans': the shopping list, comparing, and both sides of a candidate link
  * are the owner's alone, and "Bought it"'s plan follow-ups are refused to a
- * grantee who may buy.
+ * grantee who may buy. Outfit selfies (#19) are the calendar's: taking,
+ * removing and seeing one is the owner's alone, and the public /file/**
+ * routes refuse a selfie's name and share id to everyone, the owner too.
  */
 
 type SignedIn = 'owner' | 'manager' | 'viewer' | 'stranger';
@@ -103,6 +106,10 @@ interface Fixture {
   outfitName: string;
   /** The calendar entry, planned on `today` (so worn may mark it). */
   entryId: number;
+  /** The entry's outfit selfie (#19), and its photo's names. */
+  selfieId: number;
+  selfieFileName: string;
+  selfieShareableId: string;
   /** The owner's id (the wardrobe a plan is started from). */
   ownerId: number;
   /** A wardrobe plan of the owner's (#34), not active past the first fixture. */
@@ -158,6 +165,7 @@ const styleNote = () => OWNER_STYLE_NOTE;
 // which rules out the /calendar/:id URLs themselves.)
 const calendarEntry = (f: Fixture) =>
   `/outfits/${f.outfitId}/edit?returnTo=/calendar`;
+const selfieName = (f: Fixture) => f.selfieFileName;
 const OWNER_TOKEN_NAME = 'Owner laptop token';
 
 let photo: Buffer;
@@ -1547,6 +1555,117 @@ const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  // Outfit selfies (#19) are the owner's like the calendar: every refusal
+  // is a 404 and stores nothing (the upload is refused before its body is
+  // read). A new one replaces the fixture's.
+  {
+    name: 'POST /calendar/:id/selfie',
+    kind: 'write',
+    ok: 303,
+    secret: selfieName,
+    vias: BOTH,
+    request: async (f, q) => {
+      const body = await multipart(
+        {},
+        {
+          photo: {
+            data: photo,
+            filename: 'selfie.jpg',
+            contentType: 'image/jpeg',
+          },
+        },
+      );
+      return {
+        method: 'POST',
+        url: `/calendar/${f.entryId}/selfie${q}`,
+        ...body,
+      };
+    },
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /selfies/:id/delete',
+    kind: 'write',
+    ok: 303,
+    secret: selfieName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/selfies/${f.selfieId}/delete${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  // The images: the owner's session only, never by name alone.
+  ...(['', 'thumb/'] as const).map(
+    (variant): Route => ({
+      name: `GET /selfies/${variant}:fileName`,
+      kind: 'read',
+      ok: 200,
+      secret: selfieName,
+      vias: ['own'],
+      request: (f) => ({
+        method: 'GET',
+        url: `/selfies/${variant}${f.selfieFileName}?v=1`,
+      }),
+      expect: {
+        owner: 'ok',
+        manager: 'notFound',
+        viewer: 'notFound',
+        stranger: 'notFound',
+      },
+    }),
+  ),
+  // The public image routes serve garment photos by unguessable name to
+  // anyone; a selfie's name or share id is a 404 to everyone, its owner
+  // included (their pages use /selfies/).
+  ...(['', 'thumb/', 'nobg/'] as const).map(
+    (variant): Route => ({
+      name: `GET /file/${variant}:fileName of a selfie`,
+      kind: 'read',
+      ok: 200,
+      secret: selfieName,
+      vias: ['own'],
+      request: (f) => ({
+        method: 'GET',
+        url: `/file/${variant}${f.selfieFileName}?v=1`,
+      }),
+      expect: {
+        owner: 'notFound',
+        manager: 'notFound',
+        viewer: 'notFound',
+        stranger: 'notFound',
+      },
+      anonymous: 'notFound',
+    }),
+  ),
+  {
+    name: 'GET /file/watermark/:shareableId of a selfie',
+    kind: 'read',
+    ok: 200,
+    secret: selfieName,
+    vias: ['own'],
+    request: (f) => ({
+      method: 'GET',
+      url: `/file/watermark/${f.selfieShareableId}`,
+    }),
+    expect: {
+      owner: 'notFound',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+    anonymous: 'notFound',
+  },
 ];
 
 interface Case {
@@ -1676,6 +1795,14 @@ describe('authorization matrix', () => {
       .select({ id: outfitCalendar.id })
       .from(outfitCalendar)
       .where(eq(outfitCalendar.outfitId, outfitId));
+    // The owner's mirror photo (#19) of the same outfit yesterday, which
+    // marks that entry worn (today's stays unworn for the pages' wear
+    // controls and the worn pill).
+    const ownSelfie = await takeSelfie(
+      t,
+      await planEntry(t, outfitId, addDays(today, -1), cookie),
+      cookie,
+    );
 
     const planName = `Plan ${tag}`;
     const plan = await t.inject({
@@ -1730,6 +1857,9 @@ describe('authorization matrix', () => {
       outfitId,
       outfitName,
       entryId: entry.id,
+      selfieId: ownSelfie.id,
+      selfieFileName: ownSelfie.fileName,
+      selfieShareableId: ownSelfie.shareableId,
       today,
       ownerId: t.owner.id,
       planId,
@@ -1758,6 +1888,7 @@ describe('authorization matrix', () => {
       'outfit',
       'outfit_slot',
       'outfit_calendar',
+      'selfie',
       'wardrobe_share',
       'personal_access_token',
       'wardrobe_plan',

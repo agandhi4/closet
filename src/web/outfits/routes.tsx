@@ -30,6 +30,7 @@ import {
   savedSlots,
   updateOutfit,
   wardrobeCategories,
+  wornDays,
 } from './queries';
 import { OutfitPage } from './show-page';
 
@@ -258,17 +259,19 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/outfits/:id',
     { schema: { params: OutfitParams, querystring: FlagQuery } },
     async (request, reply) => {
-      const outfit = await findOutfit(
-        db,
-        request.params.id,
-        sessionUserId(request),
-      );
+      const ownerId = sessionUserId(request);
+      const { id } = request.params;
+      const [outfit, worn] = await Promise.all([
+        findOutfit(db, id, ownerId),
+        wornDays(db, id, ownerId),
+      ]);
       if (!outfit) throw outfitNotFound();
       return renderPage(
         reply,
         <OutfitPage
           ctx={viewContext(reply)}
           outfit={outfit}
+          worn={worn}
           alreadySaved={request.query.alreadySaved === '1'}
         />,
       );

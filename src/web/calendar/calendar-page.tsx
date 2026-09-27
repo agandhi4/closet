@@ -4,6 +4,7 @@ import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { destinationQuery } from '../outfits/destination';
+import { SelfieView } from '../selfies/views';
 import type { ViewContext } from '../view-context';
 import { WeatherDaySlot, WeatherSlot } from '../weather/views';
 import type { CalendarDayView, CalendarView, MonthLink } from './calendar-view';
@@ -12,8 +13,9 @@ import { OccasionRow } from './occasion-row';
 
 /**
  * GET /calendar: the mini month, then one column per day of the week (Sunday
- * to Saturday) with its entries stacked in occasion order (OccasionRow) and
- * a link to plan one more (the plan page, GET /calendar/plan). Today's
+ * to Saturday) with its entries stacked in occasion order (OccasionRow), the
+ * selfies kept after their outfit was deleted (DayLooks, #19), and a link
+ * to plan one more (the plan page, GET /calendar/plan). Today's
  * weather heads the page and each day within the forecast gets its chip
  * (#14; both loaded after the page, src/web/weather/views.tsx).
  * Responsive grid: 1 col, 2 cols from 400px, 4 at lg, all 8 in a row at 2xl.
@@ -112,6 +114,32 @@ function MiniMonth({ view }: { view: CalendarView }) {
   );
 }
 
+/**
+ * The day's selfies whose outfit was deleted (#19): kept as the record of
+ * what was worn, like the day's wears, with nothing left to edit but the
+ * photo itself.
+ */
+function DayLooks({ day }: { day: CalendarDayView }) {
+  return (
+    <div class="flex flex-col gap-0.5 mb-1" data-looks={day.date}>
+      <span class="text-[10px] font-semibold uppercase tracking-wide text-base-content/50">
+        {t('selfie.DETACHED')}
+      </span>
+      <div class="flex flex-wrap gap-1">
+        {day.looks.map((look) => (
+          <SelfieView
+            selfie={look}
+            day={look.day}
+            entryId={null}
+            returnTo={`/calendar?week=${day.date}`}
+            size="row"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DayColumn({ ctx, day }: { ctx: ViewContext; day: CalendarDayView }) {
   const plan = `/calendar/plan?${destinationQuery({
     kind: 'day',
@@ -137,6 +165,7 @@ function DayColumn({ ctx, day }: { ctx: ViewContext; day: CalendarDayView }) {
         {day.entries.map((entry) => (
           <OccasionRow entry={entry} future={day.isFuture} />
         ))}
+        {day.looks.length > 0 && <DayLooks day={day} />}
         {/* Also the marker the integration specs split day columns on. */}
         <a
           href={plan}

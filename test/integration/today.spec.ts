@@ -15,6 +15,7 @@ import {
   unescapeHtml,
 } from './harness';
 import { createAccessToken, callTool, tool } from './mcp';
+import { mirrorPhoto, postSelfie } from './selfies';
 
 /**
  * "Today" at the hours where the household's date and UTC's disagree, with
@@ -217,6 +218,23 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
         `/calendar/${await plan(outfitId, tomorrow)}/worn`,
         { worn: '1' },
       );
+      expect(ahead.statusCode).toBe(409);
+      expect(await wearDays(garmentId)).toEqual([{ day: today }]);
+    });
+
+    it("a selfie can be taken for today's entry, not tomorrow's (409), and wears today (#19)", async () => {
+      const { garmentId, outfitId } = await newOutfit(`Selfie ${at}`);
+      const photo = { data: await mirrorPhoto() };
+      const taken = await postSelfie(t, await plan(outfitId, today), photo, {
+        cookie,
+      });
+      expect(taken.statusCode).toBe(303);
+      expect(taken.headers.location).toBe(`/calendar?week=${today}`);
+      expect(await wearDays(garmentId)).toEqual([{ day: today }]);
+
+      const ahead = await postSelfie(t, await plan(outfitId, tomorrow), photo, {
+        cookie,
+      });
       expect(ahead.statusCode).toBe(409);
       expect(await wearDays(garmentId)).toEqual([{ day: today }]);
     });

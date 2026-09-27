@@ -843,6 +843,19 @@ export const ART_SHAPES: readonly string[] = Object.keys(SHAPES);
 
 /** The garment as an SVG document on a transparent ART_SIZE square. */
 export function garmentSvg(subject: ArtSubject): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${ART_SIZE}" height="${ART_SIZE}" viewBox="0 0 ${ART_SIZE} ${ART_SIZE}">` +
+    `${garmentMarkup(subject, 'pattern')}</svg>`
+  );
+}
+
+/**
+ * The garment's drawing on the ART_SIZE square, without the document: its
+ * pattern's definition (under `patternId`, which must be unique in the
+ * document) and its parts. garmentSvg's content, and each garment of an
+ * outfit selfie's composition (selfie-art.ts).
+ */
+export function garmentMarkup(subject: ArtSubject, patternId: string): string {
   const base = mainColor(subject);
   const second = subject.colors[1] ? COLORS[subject.colors[1]] : undefined;
   // Pale garments need a darker line to read on white.
@@ -854,9 +867,9 @@ export function garmentSvg(subject: ArtSubject): string {
     sole: '#f1eee6',
     metal: '#b9b3a4',
   };
-  const pattern = patternDef(subject.pattern, base, second);
+  const pattern = patternDef(patternId, subject.pattern, base, second);
   const colours: PartColours = {
-    body: pattern ? 'url(#pattern)' : base,
+    body: pattern ? `url(#${patternId})` : base,
     fills,
     outline,
     seam: shade(base, luminance(base) > 0.5 ? 0.25 : -0.25),
@@ -865,9 +878,8 @@ export function garmentSvg(subject: ArtSubject): string {
     partSvg(part, colours),
   );
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${ART_SIZE}" height="${ART_SIZE}" viewBox="0 0 ${ART_SIZE} ${ART_SIZE}">` +
     `<defs>${pattern ?? ''}</defs>` +
-    `<g stroke-linejoin="round" stroke-linecap="round">${parts.join('')}</g></svg>`
+    `<g stroke-linejoin="round" stroke-linecap="round">${parts.join('')}</g>`
   );
 }
 
@@ -901,6 +913,7 @@ function fillOf(part: Part, colours: PartColours): string {
 }
 
 function patternDef(
+  id: string,
   pattern: string | null,
   base: string,
   second: string | undefined,
@@ -909,12 +922,12 @@ function patternDef(
   switch (pattern) {
     case 'stripes':
       return (
-        `<pattern id="pattern" width="40" height="40" patternUnits="userSpaceOnUse">` +
+        `<pattern id="${id}" width="40" height="40" patternUnits="userSpaceOnUse">` +
         `<rect width="40" height="40" fill="${base}"/><rect y="24" width="40" height="12" fill="${other}"/></pattern>`
       );
     case 'check':
       return (
-        `<pattern id="pattern" width="80" height="80" patternUnits="userSpaceOnUse">` +
+        `<pattern id="${id}" width="80" height="80" patternUnits="userSpaceOnUse">` +
         `<rect width="80" height="80" fill="${base}"/>` +
         `<rect x="0" y="30" width="80" height="22" fill="${other}" opacity="0.6"/>` +
         `<rect x="30" y="0" width="22" height="80" fill="${other}" opacity="0.6"/>` +
@@ -925,7 +938,7 @@ function patternDef(
     case 'graphic':
     case 'other':
       return (
-        `<pattern id="pattern" width="60" height="60" patternUnits="userSpaceOnUse">` +
+        `<pattern id="${id}" width="60" height="60" patternUnits="userSpaceOnUse">` +
         `<rect width="60" height="60" fill="${base}"/><circle cx="15" cy="15" r="7" fill="${other}"/>` +
         `<circle cx="45" cy="45" r="7" fill="${other}"/></pattern>`
       );

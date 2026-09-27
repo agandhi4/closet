@@ -10,6 +10,7 @@ import {
   uploadPhoto,
 } from './garments';
 import { TestApp } from './harness';
+import { planEntry, takeSelfie } from './selfies';
 
 /**
  * Used by pages.spec.ts: the fixture every page renders against, the route
@@ -30,6 +31,8 @@ export interface PageFixture {
   capsuleId: number;
   outfitId: number;
   outfitShareableId: string;
+  /** The outfit's selfie (#19) of today's entry: Today, the week, the outfit page. */
+  selfieFileName: string;
   /** A wardrobe plan (#34) with one item. */
   planId: number;
   planItemId: number;
@@ -37,8 +40,8 @@ export interface PageFixture {
 
 /**
  * One garment with a photo, a capsule holding it and one outfit wearing it,
- * created through the same requests the UI makes, so detail, edit, clone
- * and share pages have something real to render.
+ * worn today with a selfie, created through the same requests the UI makes,
+ * so detail, edit, clone and share pages have something real to render.
  */
 export async function createPageFixture(
   t: TestApp,
@@ -94,6 +97,11 @@ export async function createPageFixture(
     throw new Error(`Unexpected outfit redirect: ${res.headers.location}`);
   }
   const outfitId = Number(match[1]);
+  const { fileName: selfieFileName } = await takeSelfie(
+    t,
+    await planEntry(t, outfitId, t.today(), cookie),
+    cookie,
+  );
 
   const plan = await t.inject({
     method: 'POST',
@@ -129,6 +137,7 @@ export async function createPageFixture(
     capsuleId,
     outfitId,
     outfitShareableId: outfit.shareableId,
+    selfieFileName,
     planId,
     planItemId,
   };

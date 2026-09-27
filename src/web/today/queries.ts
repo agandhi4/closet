@@ -6,6 +6,7 @@ import type { IsoDate } from '../calendar/calendar-date';
 import { entryIdOf } from '../calendar/queries';
 import { pickIdea, type PickResult } from '../gallery/ideas';
 import type { CollageGarment } from '../outfits/collage';
+import { SELFIE_WITH, type SelfieRef } from '../selfies/queries';
 import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
 
 /**
@@ -18,6 +19,8 @@ export interface TodayEntry {
   id: number;
   occasion: Occasion;
   worn: boolean;
+  /** The outfit selfie taken for it (#19), if any. */
+  selfie: SelfieRef | null;
   outfit: { id: number; name: string | null; garments: CollageGarment[] };
 }
 
@@ -39,6 +42,7 @@ export async function todayEntries(
     ),
     orderBy: (entry, { asc }) => [asc(entry.id)],
     with: {
+      selfie: SELFIE_WITH,
       outfit: {
         columns: { id: true, name: true },
         with: {
@@ -62,6 +66,7 @@ export async function todayEntries(
       id: row.id,
       occasion: row.occasion,
       worn: row.wornAt !== null,
+      selfie: row.selfie,
       outfit: {
         id: row.outfit.id,
         name: row.outfit.name,

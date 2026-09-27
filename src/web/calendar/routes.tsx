@@ -9,14 +9,16 @@ import { parseDestination } from '../outfits/destination';
 import { listOutfits } from '../outfits/queries';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
+import { detachedLooks } from '../selfies/queries';
 import { viewContext } from '../view-context';
 import { setEntryWorn } from '../wears/queries';
 import { parseIsoDate, parseYearMonth, todayIn } from './calendar-date';
 import { CalendarPage } from './calendar-page';
 import { buildCalendarView, weekOf } from './calendar-view';
 import { PlanPage } from './plan-page';
-import { deleteEntry, findEntries, scheduleOutfit } from './queries';
+import { findEntries, scheduleOutfit } from './queries';
 import { WornButton } from './worn-button';
+import { removeEntry } from './writes';
 
 /**
  * Validation, decided per route:
@@ -84,7 +86,7 @@ function weekUrl(week: string | undefined): string {
  */
 export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
-  { db, config, logger },
+  { db, config, logger, photos },
   done,
 ) => {
   app.get(
@@ -110,12 +112,16 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const { start, end } = weekOf(anchor ?? today);
-      const entries = await findEntries(db, ownerId, start, end);
+      const [entries, looks] = await Promise.all([
+        findEntries(db, ownerId, start, end),
+        detachedLooks(db, ownerId, start, end),
+      ]);
       const view = buildCalendarView({
         weekStart: start,
         calMonth: parseYearMonth(calMonth),
         today,
         entries,
+        looks,
       });
       return renderPage(
         reply,
@@ -222,9 +228,9 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const { id } = request.params;
-      const outcome = await deleteEntry(db, id, ownerId);
-      if (outcome !== 'deleted') throw entryNotFound();
-      logger.info(`Calendar entry ${id} deleted by user ${ownerId}`);
+      if (!(await removeEntry({ db, photos, logger }, id, ownerId))) {
+        throw entryNotFound();
+      }
       const target = weekUrl(request.body?.week);
       if (request.headers['hx-request']) return navigateTo(reply, target);
       return reply.redirect(target, 303);

@@ -178,7 +178,9 @@ describe('cutout state machine', () => {
   });
 
   describe('edit', () => {
-    it.each(CUTOUT_STATUSES)(
+    const EDITABLE = CUTOUT_STATUSES.filter((status) => status !== 'unwanted');
+
+    it.each(EDITABLE)(
       'takes the user mask from %s under a new version',
       (status) => {
         expect(transition(at(status), { type: 'edit' })).toEqual({
@@ -190,6 +192,16 @@ describe('cutout state machine', () => {
             attempts: 1,
             jobVersion: null,
           },
+        });
+      },
+    );
+
+    it.each(refusedFrom({ type: 'edit' }, EDITABLE))(
+      'is refused from %s (a selfie keeps its background)',
+      (status, event) => {
+        expect(transition(at(status), event)).toEqual({
+          ok: false,
+          reason: 'not-allowed',
         });
       },
     );

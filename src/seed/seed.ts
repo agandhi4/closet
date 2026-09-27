@@ -40,6 +40,7 @@ import {
   setActivePlan,
 } from '../web/plans/queries';
 import { changeCandidates } from '../web/plans/candidates';
+import { setEntrySelfie } from '../web/selfies/queries';
 import { markWashed, setAway, setEntryWorn } from '../web/wears/queries';
 import {
   acceptInvite,
@@ -50,7 +51,7 @@ import { splitColors } from '../web/wardrobe/garment';
 import { insertGarment } from '../web/wardrobe/queries';
 import { setGarmentStatus } from '../web/wardrobe/status';
 import { setHome, setTemperatureUnit } from '../web/weather/queries';
-import { garmentSvg } from './art';
+import { type ArtSubject, garmentSvg } from './art';
 import {
   isPersonaKey,
   loadPersona,
@@ -62,6 +63,7 @@ import {
   type SeedWishlistItem,
   slotRank,
 } from './persona';
+import { mirrorSelfieSvg, SELFIE_ROOMS } from './selfie-art';
 import { type SimulatedLife, simulate } from './simulate';
 
 /**
@@ -97,6 +99,8 @@ export interface SeedReport {
   worn: number;
   /** garment_wear rows the worn entries wrote. */
   wears: number;
+  /** Outfit selfies taken (#19). */
+  selfies: number;
   /** Laundry Sundays written (last_washed_on). */
   washes: number;
   ms: number;
@@ -126,6 +130,12 @@ export async function seedPersona(
   const life = simulate(persona, options.anchor);
   const passwordHash = await hashPassword(options.password);
   const photos = await storeArt(deps, persona);
+  const selfies = await storeSelfies(deps, persona, life).catch(
+    async (error: unknown) => {
+      await removeStored(deps, photos.values());
+      throw error;
+    },
+  );
   try {
     const report = await db.transaction(async (tx) => {
       const { id: userId } = await insertUser(tx, email, passwordHash, {
@@ -176,6 +186,7 @@ export async function seedPersona(
         userId,
         outfitIds,
         garmentIds: ids,
+        selfies,
         anchor: options.anchor,
         timeZone: deps.timeZone,
       });
@@ -191,23 +202,31 @@ export async function seedPersona(
         entries: life.entries.length,
         worn: life.entries.filter((e) => e.worn).length,
         wears,
+        selfies: selfies.size,
         washes: life.washes.length,
         ms: Date.now() - startedAt,
       };
     });
     logger.info(
-      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.avoided} clashes, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears), ${report.washes} laundry days in ${report.ms}ms`,
+      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.avoided} clashes, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears, ${report.selfies} selfies), ${report.washes} laundry days in ${report.ms}ms`,
     );
     return report;
   } catch (error) {
     logger.warn(
-      `Seeding ${persona.key} failed; removing its ${photos.size} photos`,
+      `Seeding ${persona.key} failed; removing its ${photos.size} photos and ${selfies.size} selfies`,
     );
-    for (const photo of photos.values()) {
-      await deps.photos.deleteVariants(photo.fileName);
-    }
+    await removeStored(deps, [...photos.values(), ...selfies.values()]);
     throw error;
   }
+}
+
+// Bytes stored ahead of a transaction that did not commit (the commit
+// contract): nothing references them.
+async function removeStored(
+  { photos }: SeedDeps,
+  stored: Iterable<NewPhotoRow>,
+): Promise<void> {
+  for (const photo of stored) await photos.deleteVariants(photo.fileName);
 }
 
 /**
@@ -357,9 +376,11 @@ async function writeWeather(
  * (insertEntry, with its occasion), the worn ones marked as the pill does
  * (setEntryWorn, which logs their wears; a day's workout and evening count
  * as the one wear the day is) at 21:00 that day, when he logs it (the
- * anchor's morning workout by the end of its window), then the laundry Sundays in order
- * (markWashed), so each garment ends on its last one. Returns the wear rows
- * written.
+ * anchor's morning workout by the end of its window), an entry with a
+ * selfie through the selfie's own writer instead (setEntrySelfie, which
+ * marks it worn the same way: the photo stored before the transaction by
+ * storeSelfies), then the laundry Sundays in order (markWashed), so each
+ * garment ends on its last one. Returns the wear rows written.
  */
 async function writeHistory(
   tx: Queryable,
@@ -370,13 +391,15 @@ async function writeHistory(
     outfitIds: number[];
     /** By the bible's garment id. */
     garmentIds: Map<string, number>;
+    /** The selfies' stored photos, by index into life.entries. */
+    selfies: Map<number, NewPhotoRow>;
     anchor: IsoDate;
     timeZone: string;
   },
 ): Promise<number> {
   const { userId } = ids;
   let wears = 0;
-  for (const entry of life.entries) {
+  for (const [index, entry] of life.entries.entries()) {
     const scheduled = await insertEntry(tx, {
       ownerId: userId,
       outfitId: ids.outfitIds[entry.outfit],
@@ -385,10 +408,9 @@ async function writeHistory(
     });
     // The simulation plans each (day, outfit) once: always a new entry.
     if (!entry.worn || scheduled.outcome !== 'scheduled') continue;
-    const worn = await setEntryWorn(tx, {
+    const worn = {
       entryId: scheduled.id,
       ownerId: userId,
-      worn: true,
       at: instantAt(
         entry.day,
         entry.day === ids.anchor
@@ -397,8 +419,18 @@ async function writeHistory(
         ids.timeZone,
       ),
       today: ids.anchor,
-    });
-    if (typeof worn !== 'string') wears += worn.wears;
+    };
+    const photo = ids.selfies.get(index);
+    const outcome = photo
+      ? await setEntrySelfie(tx, {
+          ...worn,
+          photo: { ...photo, createdById: userId },
+        })
+      : await setEntryWorn(tx, { ...worn, worn: true });
+    if (typeof outcome === 'string') {
+      throw new Error(`Entry ${scheduled.id} on ${entry.day}: ${outcome}`);
+    }
+    wears += 'selfieId' in outcome ? outcome.worn.wears : outcome.wears;
   }
   for (const wash of life.washes) {
     await markWashed(
@@ -473,13 +505,62 @@ async function storeGarmentArt(
 }
 
 export function svgOf(garment: SeedGarment | SeedWishlistItem): string {
-  return garmentSvg({
+  return garmentSvg(artSubject(garment));
+}
+
+function artSubject(garment: SeedGarment | SeedWishlistItem): ArtSubject {
+  return {
     category: garment.fields.category,
     type: garment.fields.type ?? null,
     name: garment.fields.name,
     colors: splitColors(garment.fields.color),
     pattern: garment.fields.pattern ?? null,
-  });
+  };
+}
+
+/**
+ * The simulation's outfit selfies (#19), drawn and stored before any row
+ * exists, like the garment art: each a mirror photo of the entry's outfit
+ * (selfie-art.ts), stored as a photo (no cutout: it keeps its background),
+ * by index into life.entries. Their rooms take turns. On a failure the ones
+ * stored are removed.
+ */
+async function storeSelfies(
+  { photos, logger }: SeedDeps,
+  persona: Persona,
+  life: SimulatedLife,
+): Promise<Map<number, NewPhotoRow>> {
+  const byId = new Map(persona.garments.map((g) => [g.id, g]));
+  const stored = new Map<number, NewPhotoRow>();
+  try {
+    for (const [index, entry] of life.entries.entries()) {
+      if (!entry.selfie) continue;
+      const garments = persona.outfits[entry.outfit].garmentIds.map((id) =>
+        artSubject(byId.get(id)!),
+      );
+      const png = await sharp(
+        Buffer.from(mirrorSelfieSvg(garments, stored.size % SELFIE_ROOMS)),
+      )
+        .png()
+        .toBuffer();
+      const photo = await photos.storeImage(
+        {
+          stream: Readable.from(png),
+          mimetype: 'image/png',
+          filename: `${persona.key}-selfie-${entry.day}.png`,
+        },
+        0,
+      );
+      stored.set(index, photo);
+    }
+  } catch (error) {
+    logger.warn(`Drawing ${persona.key}'s selfies failed; removing them`);
+    for (const photo of stored.values()) {
+      await photos.deleteVariants(photo.fileName);
+    }
+    throw error;
+  }
+  return stored;
 }
 
 /**

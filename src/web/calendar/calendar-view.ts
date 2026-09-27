@@ -1,4 +1,5 @@
 import { compareOccasions, type Occasion } from '../../wardrobe/occasions';
+import type { DetachedLook, SelfieRef } from '../selfies/queries';
 import {
   addDays,
   addMonths,
@@ -26,6 +27,8 @@ export interface CalendarEntry {
   day: IsoDate;
   occasion: Occasion;
   worn: boolean;
+  /** The outfit selfie taken for it (#19), if any. */
+  selfie: SelfieRef | null;
   outfit: {
     id: number;
     name: string | null;
@@ -49,6 +52,8 @@ export interface CalendarDayView {
   isFuture: boolean;
   /** In occasion order (src/wardrobe/occasions.ts), then as read. */
   entries: CalendarEntryView[];
+  /** Selfies kept after their outfit was deleted (#19), as taken. */
+  looks: DetachedLook[];
 }
 
 export type MiniMonthCellClass =
@@ -97,8 +102,10 @@ export function buildCalendarView(input: {
   today: IsoDate;
   /** Entries in the week, by day then id; others are ignored. */
   entries: CalendarEntry[];
+  /** Detached looks in the week (detachedLooks); none when absent. */
+  looks?: DetachedLook[];
 }): CalendarView {
-  const { weekStart, today, entries } = input;
+  const { weekStart, today, entries, looks = [] } = input;
   const days = Array.from({ length: 7 }, (_, i): CalendarDayView => {
     const date = addDays(weekStart, i);
     return {
@@ -115,6 +122,7 @@ export function buildCalendarView(input: {
           ...entry,
           chipHue: CHIP_HUES[index % CHIP_HUES.length],
         })),
+      looks: looks.filter((look) => look.day === date),
     };
   });
   const month = input.calMonth ?? yearMonthOf(weekStart);

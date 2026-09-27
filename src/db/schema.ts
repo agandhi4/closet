@@ -714,6 +714,67 @@ export const garmentWear = pgTable(
   ],
 );
 
+// An outfit selfie (#19, src/web/selfies): a mirror photo as the record of
+// what was worn on a day. Written only by src/web/selfies/queries.ts
+// (setEntrySelfie, which marks the entry worn in the same transaction;
+// deleteSelfie) and taken by deleteEntry with its entry. The owner's own,
+// like the calendar: never shown to a grantee, the share page or another
+// user's MCP tools, and served only to its owner (GET /selfies/*, never
+// the public /file/**).
+//
+// A row of its own rather than a photo column on outfit_calendar, because a
+// selfie outlives its entry when the outfit is deleted: like the entry's
+// wears (detachOutfitWears), the photo stays the record of the day, so the
+// entry reference goes null (ON DELETE SET NULL) and `day` and `owner_id`
+// keep the look on the calendar. The photo's `file` row is the selfie's
+// alone: reconciliation counts photo_id as a reference
+// (src/web/files/references.ts), and deleting the file row takes this one.
+export const selfie = pgTable(
+  'selfie',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    // The entry's day ('YYYY-MM-DD'), kept when the entry goes with its outfit.
+    day: date('day', { mode: 'string' }).notNull(),
+    // Null once its outfit was deleted: a look kept on its own.
+    outfitCalendarId: integer('outfit_calendar_id'),
+    photoId: integer('photo_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // One selfie per entry (a new one replaces it); detached looks, null
+    // here, are distinct. Also the outfit_calendar_id foreign key's index.
+    unique('selfie_outfit_calendar_id_unique').on(table.outfitCalendarId),
+    // A photo is one selfie's. Also the photo_id foreign key's index.
+    unique('selfie_photo_id_unique').on(table.photoId),
+    // A week's looks without an entry, and the owner_id foreign key's.
+    index('selfie_owner_id_day_index').on(table.ownerId, table.day),
+    foreignKey({
+      name: 'selfie_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'selfie_outfit_calendar_id_foreign',
+      columns: [table.outfitCalendarId],
+      foreignColumns: [outfitCalendar.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
+    foreignKey({
+      name: 'selfie_photo_id_foreign',
+      columns: [table.photoId],
+      foreignColumns: [file.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
 // A named subset of one owner's garments (office, weekend, a trip's pool;
 // src/web/capsules). The closet itself is never a row: it is every
 // unarchived garment, what every page shows without a capsule. Part of the
@@ -1296,6 +1357,17 @@ export const fileRelations = relations(file, ({ one }) => ({
   createdBy: one(user, { fields: [file.createdById], references: [user.id] }),
   // At most one: garment.photo_id is unique.
   garment: one(garment),
+  // At most one: selfie.photo_id is unique.
+  selfie: one(selfie),
+}));
+
+export const selfieRelations = relations(selfie, ({ one }) => ({
+  owner: one(user, { fields: [selfie.ownerId], references: [user.id] }),
+  entry: one(outfitCalendar, {
+    fields: [selfie.outfitCalendarId],
+    references: [outfitCalendar.id],
+  }),
+  photo: one(file, { fields: [selfie.photoId], references: [file.id] }),
 }));
 
 export const garmentRelations = relations(garment, ({ one, many }) => ({
@@ -1393,6 +1465,8 @@ export const outfitCalendarRelations = relations(
       references: [user.id],
     }),
     wears: many(garmentWear),
+    // At most one: selfie.outfit_calendar_id is unique.
+    selfie: one(selfie),
   }),
 );
 

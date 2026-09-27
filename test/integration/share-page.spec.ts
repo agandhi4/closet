@@ -66,6 +66,9 @@ describe('share page', () => {
     expect(res.body).not.toContain(OWNER_EMAIL);
     expect(res.body).toContain('Office look');
     expect(res.body).toContain('/file/thumb/');
+    // The owner's selfie of it (#19) is theirs alone: not on the public page.
+    expect(res.body).not.toContain(f.selfieFileName);
+    expect(res.body).not.toContain('/selfies/');
     expect(meta(res.body, 'og:title')).toBe('Office look');
     expect(meta(res.body, 'og:image')).toBe(
       `http://localhost/file/watermark/${photoShareId}`,

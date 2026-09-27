@@ -7,18 +7,27 @@ import {
   gt,
   inArray,
   isNotNull,
+  or,
   type SQL,
   sql,
 } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
-import { file, garment, outfit, outfitSlot } from '../../db/schema';
+import {
+  file,
+  garment,
+  outfit,
+  outfitCalendar,
+  outfitSlot,
+  selfie,
+} from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
+import type { SelfieRef } from '../selfies/queries';
 import { inCloset, ownedGarment } from '../wardrobe/status';
 import { detachOutfitWears } from '../wears/queries';
 import {
@@ -123,6 +132,53 @@ export async function findOutfit(
     and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)),
   );
   return found;
+}
+
+/** A day the outfit was worn, with its selfie (#19): the Worn strip's. */
+export interface WornDay {
+  entryId: number;
+  day: IsoDate;
+  selfie: SelfieRef | null;
+}
+
+/**
+ * The owner's outfit's calendar entries that were worn or have a selfie
+ * (one taken and the entry unmarked later still shows), newest first: the
+ * outfit page's Worn strip. Served by outfit_calendar_outfit_id_index and
+ * the selfie's unique entry key.
+ */
+export async function wornDays(
+  db: Db,
+  outfitId: number,
+  ownerId: number,
+): Promise<WornDay[]> {
+  const rows = await db
+    .select({
+      entryId: outfitCalendar.id,
+      day: outfitCalendar.day,
+      selfieId: selfie.id,
+      fileName: file.fileName,
+      version: file.version,
+    })
+    .from(outfitCalendar)
+    .leftJoin(selfie, eq(selfie.outfitCalendarId, outfitCalendar.id))
+    .leftJoin(file, eq(file.id, selfie.photoId))
+    .where(
+      and(
+        eq(outfitCalendar.outfitId, outfitId),
+        eq(outfitCalendar.ownerId, ownerId),
+        or(isNotNull(outfitCalendar.wornAt), isNotNull(selfie.id)),
+      ),
+    )
+    .orderBy(desc(outfitCalendar.day), desc(outfitCalendar.id));
+  return rows.map(({ entryId, day, selfieId, fileName, version }) => ({
+    entryId,
+    day,
+    selfie:
+      selfieId !== null && fileName !== null && version !== null
+        ? { id: selfieId, photo: { fileName, version } }
+        : null,
+  }));
 }
 
 /** The edit form's fields, or undefined when the outfit is not the owner's. */
@@ -439,8 +495,10 @@ export function updateOutfit(
  * turns its entries' wears into day-level wears first, in the same
  * transaction. Never replace this with a plain delete: the cascade through
  * outfit_calendar would erase the garments' wear history (CLAUDE.md, Wears
- * and washes). Undefined when the outfit is not the owner's; else the wears
- * kept.
+ * and washes). The entries' selfies stay too, by their foreign key
+ * (selfie.outfit_calendar_id, ON DELETE SET NULL): each becomes a look kept
+ * on its day, with its photo, which the calendar still shows (#19).
+ * Undefined when the outfit is not the owner's; else the wears kept.
  */
 export function deleteOutfit(
   db: Db,

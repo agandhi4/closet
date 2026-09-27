@@ -61,11 +61,13 @@ const downscalePhoto = async (file) => {
 /**
  * Replaces the input's chosen file with its downscaled copy (setting
  * `files` fires no change event) and returns the file that will be
- * uploaded; undefined when none is chosen.
+ * uploaded; undefined when none is chosen. Also the outfit selfie forms'
+ * (src/web/selfies/views.tsx), whose inputs import it on change and then
+ * submit.
  * @param {HTMLInputElement} input
  * @returns {Promise<File | undefined>}
  */
-const preparePhoto = async (input) => {
+export const preparePhoto = async (input) => {
   const file = input.files?.[0];
   if (!file) return undefined;
   const prepared = await downscalePhoto(file);

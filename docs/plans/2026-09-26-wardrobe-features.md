@@ -439,6 +439,10 @@ against what you own.
   and `reconcileStorage` must count `outfit_calendar.photo_id` as a reference, or the nightly run
   would delete every selfie as an orphan. Both are specified and tested with the feature, and the
   gotcha is updated in CLAUDE.md.
+- **Built (#19)** as a `selfie` table rather than the column: deleting an outfit detaches its wears
+  (#7), and a selfie is the record of the same day, so it is kept as a look on its day
+  (`outfit_calendar_id` set null) instead of going with the entry. Selfies are served to their owner
+  only (`/selfies/*`), never by name on the public `/file/**`. CLAUDE.md, Outfit selfies.
 
 ## 14. MCP server
 

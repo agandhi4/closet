@@ -90,6 +90,12 @@ describe('migrations', () => {
         // wishlist item's plan items (garment_id's), #34b.
         'plan_item_candidate_pkey',
         'plan_item_candidate_garment_id_index',
+        // Outfit selfies (#19): an entry's selfie (also outfit_calendar_id's
+        // foreign key), a photo's selfie (the public /file route's refusal,
+        // photo_id's), a week's detached looks (also owner_id's).
+        'selfie_outfit_calendar_id_unique',
+        'selfie_photo_id_unique',
+        'selfie_owner_id_day_index',
       ]),
     );
   });
@@ -113,7 +119,12 @@ describe('migrations', () => {
             sharesReceived: true,
           },
         }),
-        t.db.query.file.findMany({ with: { createdBy: true, garment: true } }),
+        t.db.query.file.findMany({
+          with: { createdBy: true, garment: true, selfie: true },
+        }),
+        t.db.query.selfie.findMany({
+          with: { owner: true, entry: true, photo: true },
+        }),
         t.db.query.garment.findMany({
           with: {
             photo: true,
@@ -131,7 +142,7 @@ describe('migrations', () => {
           with: { outfit: true, garment: true },
         }),
         t.db.query.outfitCalendar.findMany({
-          with: { outfit: true, owner: true, wears: true },
+          with: { outfit: true, owner: true, wears: true, selfie: true },
         }),
         t.db.query.garmentWear.findMany({
           with: { garment: true, entry: true },

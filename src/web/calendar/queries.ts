@@ -3,6 +3,7 @@ import type { Db, Queryable } from '../../db/client';
 import { outfit, outfitCalendar } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
 import { imageUrl } from '../files/image-url';
+import { deleteEntrySelfie, SELFIE_WITH } from '../selfies/queries';
 import type { IsoDate } from './calendar-date';
 import type { CalendarEntry } from './calendar-view';
 
@@ -35,6 +36,7 @@ export async function findEntries(
     ),
     orderBy: (entry, { asc }) => [asc(entry.day), asc(entry.id)],
     with: {
+      selfie: SELFIE_WITH,
       outfit: {
         columns: { id: true, name: true },
         with: {
@@ -60,6 +62,7 @@ export async function findEntries(
     day: row.day,
     occasion: row.occasion,
     worn: row.wornAt !== null,
+    selfie: row.selfie,
     outfit: {
       id: row.outfit.id,
       name: row.outfit.name,
@@ -164,15 +167,43 @@ export async function entryIdOf(
   return row?.id;
 }
 
-/** Deletes the owner's entry; its wears go with it (garment_wear's foreign key). */
-export async function deleteEntry(
+/** The day of the owner's entry; undefined when it is not theirs. */
+export async function ownEntryDay(
   db: Db,
   id: number,
   ownerId: number,
-): Promise<'deleted' | EntryMiss> {
-  const deleted = await db
-    .delete(outfitCalendar)
-    .where(and(eq(outfitCalendar.id, id), eq(outfitCalendar.ownerId, ownerId)))
-    .returning({ id: outfitCalendar.id });
-  return deleted.length > 0 ? 'deleted' : 'not-found';
+): Promise<IsoDate | undefined> {
+  const [row] = await db
+    .select({ day: outfitCalendar.day })
+    .from(outfitCalendar)
+    .where(and(eq(outfitCalendar.id, id), eq(outfitCalendar.ownerId, ownerId)));
+  return row?.day;
+}
+
+/**
+ * Deletes the owner's entry, the user saying it was wrong: its wears go
+ * with it (garment_wear's foreign key) and so does its selfie, row here
+ * (deleteEntrySelfie) and bytes after commit: the answer is the photo
+ * names for the caller to unlink (removeEntry, writes.ts). Deleting the
+ * outfit is different: its entries' wears and selfies are kept
+ * (deleteOutfit, src/web/outfits/queries.ts).
+ */
+export function deleteEntry(
+  db: Db,
+  id: number,
+  ownerId: number,
+): Promise<{ selfies: string[] } | EntryMiss> {
+  return db.transaction(async (tx) => {
+    const [entry] = await tx
+      .select({ id: outfitCalendar.id })
+      .from(outfitCalendar)
+      .where(
+        and(eq(outfitCalendar.id, id), eq(outfitCalendar.ownerId, ownerId)),
+      )
+      .for('update');
+    if (!entry) return 'not-found';
+    const selfies = await deleteEntrySelfie(tx, id);
+    await tx.delete(outfitCalendar).where(eq(outfitCalendar.id, id));
+    return { selfies };
+  });
 }

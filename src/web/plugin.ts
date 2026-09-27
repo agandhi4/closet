@@ -18,6 +18,7 @@ import { shoppingRoutes } from './plans/shopping-routes';
 import { pushRoutes } from './push/routes';
 import type { OutboundFetcher } from './security/outbound-fetch';
 import type { PushSender, VapidConfig } from './push/sender';
+import { selfieRoutes } from './selfies/routes';
 import { shareRoutes } from './share/routes';
 import { shellRoutes } from './shell/routes';
 import { sharingRoutes } from './sharing/routes';
@@ -112,6 +113,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(insightsRoutes, options);
   await app.register(wearRoutes, options);
   await app.register(calendarRoutes, options);
+  await app.register(selfieRoutes, options);
   await app.register(outfitRoutes, options);
   await app.register(galleryRoutes, options);
   await app.register(authRoutes, options);

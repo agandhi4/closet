@@ -1,17 +1,26 @@
+import { dayLabel } from '../calendar/labels';
 import { AlreadySavedToast } from '../gallery/already-saved';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
+import { EntrySelfie, SelfieView } from '../selfies/views';
 import { ShareLinkButton } from '../share/share-button';
 import type { ViewContext } from '../view-context';
 import { BackLink, GarmentThumb } from '../layout/parts';
-import type { OutfitSummary } from './queries';
+import type { OutfitSummary, WornDay } from './queries';
 
-/** GET /outfits/:id: the outfit's garments in order, and edit, share, delete. */
+/**
+ * GET /outfits/:id: the outfit's garments in order, the days it was worn
+ * with their selfies (#19), and edit, share, delete. The owner's own page
+ * (outfits are private); the public share page (src/web/share) shows the
+ * garments only, never the Worn strip.
+ */
 export function OutfitPage(props: {
   ctx: ViewContext;
   outfit: OutfitSummary & { shareableId: string };
+  /** Worn entries, newest first (wornDays). */
+  worn: WornDay[];
   /** The gallery's pick found this outfit already saved (?alreadySaved=1). */
   alreadySaved?: boolean;
 }) {
@@ -47,6 +56,9 @@ export function OutfitPage(props: {
           <p class="text-base-content/40 text-sm italic mb-8">
             {t('OUTFIT_NO_GARMENTS')}
           </p>
+        )}
+        {props.worn.length > 0 && (
+          <WornStrip outfitId={outfit.id} worn={props.worn} />
         )}
         <div class="divider"></div>
         <div class="flex gap-3 justify-between items-center">
@@ -102,5 +114,56 @@ export function OutfitPage(props: {
       <AlreadySavedToast shown={props.alreadySaved === true} />
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * "Worn": every day the outfit was worn, newest first, as the looks were
+ * actually worn: its selfie, or a tile with the camera to add one (taken
+ * later from the phone's library, most likely). Each day links its week.
+ */
+function WornStrip(props: { outfitId: number; worn: WornDay[] }) {
+  const returnTo = `/outfits/${props.outfitId}`;
+  return (
+    <section class="mb-8" data-worn-strip="">
+      <h2 class="font-semibold mb-3">
+        {t('selfie.WORN_HEADING', { count: props.worn.length })}
+      </h2>
+      <div class="flex overflow-x-auto overscroll-x-contain gap-3 pb-2">
+        {props.worn.map(({ entryId, day, selfie }) => (
+          <div
+            class="flex flex-col items-center gap-1 shrink-0 w-28"
+            data-worn-day={day}
+          >
+            {selfie ? (
+              <SelfieView
+                selfie={selfie}
+                day={day}
+                entryId={entryId}
+                returnTo={returnTo}
+                size="strip"
+              />
+            ) : (
+              <div class="h-36 aspect-[3/4] rounded-box bg-base-200 flex items-center justify-center">
+                <EntrySelfie
+                  entryId={entryId}
+                  day={day}
+                  selfie={null}
+                  canTake
+                  returnTo={returnTo}
+                  size="strip"
+                />
+              </div>
+            )}
+            <a
+              href={`/calendar?week=${day}`}
+              class="text-xs text-center link link-hover leading-tight"
+            >
+              {dayLabel(day)}
+            </a>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

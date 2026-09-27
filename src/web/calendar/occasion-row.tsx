@@ -1,11 +1,13 @@
 import { t } from '../i18n';
+import { EntrySelfie } from '../selfies/views';
 import type { CalendarEntryView } from './calendar-view';
 import { occasionLabel } from './labels';
 import { WornButton } from './worn-button';
 
 /**
  * One calendar entry as a row of its day: the occasion's label, the outfit
- * (tap to edit it, × to unschedule) and the worn pill. The one way a day's
+ * (tap to edit it, × to unschedule), the worn pill and its selfie (or the
+ * buttons that take one, #19). The one way a day's
  * entries are drawn: the week page stacks them in occasion order, and the
  * redesign's week agenda (R6) and Today (#15) reuse it
  * (docs/plans/2026-09-26-redesign.md, section 5). `data-occasion` is what
@@ -31,6 +33,14 @@ export function OccasionRow(props: {
           <WornButton entryId={entry.id} worn={entry.worn} week={entry.day} />
         )}
       </div>
+      <EntrySelfie
+        entryId={entry.id}
+        day={entry.day}
+        selfie={entry.selfie}
+        canTake={!future}
+        returnTo={`/calendar?week=${entry.day}`}
+        size="row"
+      />
     </div>
   );
 }

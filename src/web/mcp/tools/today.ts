@@ -38,6 +38,8 @@ export const todayTools = [
                   outfitId: entry.outfit.id,
                   name: entry.outfit.name,
                   worn: entry.worn,
+                  // As get_calendar: whether a selfie was taken (#19), never the image.
+                  selfie: entry.selfie !== null,
                   garments: entry.outfit.garments.map((g) => ({
                     id: g.id,
                     name: g.name,

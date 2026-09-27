@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
-import { file } from '../../src/db/schema';
+import { eq, inArray } from 'drizzle-orm';
+import { file, selfie } from '../../src/db/schema';
 import {
   reconcileStorage,
   type ReconcileOptions,
   type ReconciliationReport,
 } from '../../src/maintenance/reconcile';
+import { addDays } from '../../src/web/calendar/calendar-date';
 import { variantFileName } from '../../src/web/files/image-variant';
 import {
   createGarment,
@@ -20,6 +21,7 @@ import {
 } from './garments';
 import { createTestApp, TestApp } from './harness';
 import { silentLogger } from './logger';
+import { planEntry, takeSelfie } from './selfies';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -154,5 +156,106 @@ describe('storage reconciliation', () => {
       orphanedRowsDeleted: 0,
       missingOriginals: 1,
     });
+  });
+});
+
+/**
+ * Outfit selfies (#19) are photos no garment points at: before
+ * photoIsReferenced counted them, every one was an unreferenced `file` row
+ * and the night after it was taken reconciliation deleted it, row and
+ * bytes. An entry's selfie and a look kept after its outfit was deleted
+ * (no entry any more) must both survive, a day old and older, beside a
+ * real orphan the same run deletes.
+ */
+describe('storage reconciliation and outfit selfies', () => {
+  let t: TestApp;
+
+  const age = async (fileName: string, ageMs: number) => {
+    const then = new Date(Date.now() - ageMs);
+    await t.db
+      .update(file)
+      .set({ createdOn: then.toISOString() })
+      .where(eq(file.fileName, fileName));
+    const stored = await readdir(t.dataPath);
+    for (const variant of ['original', 'nobg', 'thumb'] as const) {
+      const name = variantFileName(fileName, variant);
+      if (stored.includes(name))
+        await utimes(join(t.dataPath, name), then, then);
+    }
+  };
+
+  /** An outfit planned on `day` with a selfie taken; its ids and photo. */
+  const selfieOn = async (name: string, day: string) => {
+    const garmentId = await createGarment(t, { name: `${name} shirt` });
+    const res = await t.inject({
+      method: 'POST',
+      url: '/outfits',
+      payload: { name, category: 'shirt', garmentId: String(garmentId) },
+    });
+    const outfitId = Number(
+      /^\/outfits\/(\d+)$/.exec(res.headers.location as string)![1],
+    );
+    const entryId = await planEntry(t, outfitId, day);
+    return { outfitId, ...(await takeSelfie(t, entryId)) };
+  };
+
+  beforeAll(async () => {
+    t = await createTestApp();
+  });
+
+  afterAll(() => t?.cleanup());
+
+  it('never deletes a selfie as an orphan, an entry’s or a look kept after its outfit', async () => {
+    const day = addDays(t.today(), -3);
+    const entrySelfie = await selfieOn('Date night', day);
+    const kept = await selfieOn('Deleted later', day);
+    const deleted = await t.inject({
+      method: 'DELETE',
+      url: `/outfits/${kept.outfitId}`,
+      headers: { 'hx-request': 'true' },
+    });
+    expect(deleted.statusCode).toBe(200);
+    const [look] = await t.db
+      .select({ entry: selfie.outfitCalendarId })
+      .from(selfie)
+      .where(eq(selfie.id, kept.id));
+    expect(look.entry).toBeNull();
+
+    // A real orphan: a `file` row nothing references, with its bytes.
+    const orphan = `${randomUUID()}.webp`;
+    await t.db.insert(file).values({
+      fileName: orphan,
+      shareableId: randomUUID(),
+      createdOn: new Date().toISOString(),
+      createdById: t.owner.id,
+    });
+    await writeFile(join(t.dataPath, orphan), 'bytes of an orphan');
+    for (const name of [entrySelfie.fileName, kept.fileName, orphan]) {
+      await age(name, 3 * DAY_MS);
+    }
+
+    const report = await reconcileStorage({
+      db: t.db,
+      photos: t.photos,
+      logger: silentLogger,
+    });
+
+    expect(report.refused).toBeUndefined();
+    expect(report).toMatchObject({
+      orphanedRowsDeleted: 1,
+      orphanedObjectsDeleted: 0,
+      missingOriginals: 0,
+    });
+    const files = await readdir(t.dataPath);
+    for (const { fileName } of [entrySelfie, kept]) {
+      expect(await photoRow(t, fileName)).toBeDefined();
+      expect(files).toContain(fileName);
+      expect(files).toContain(variantFileName(fileName, 'thumb'));
+    }
+    expect(
+      await t.db.$count(selfie, inArray(selfie.id, [entrySelfie.id, kept.id])),
+    ).toBe(2);
+    expect(await photoRow(t, orphan)).toBeUndefined();
+    expect(files).not.toContain(orphan);
   });
 });

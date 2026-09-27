@@ -49,6 +49,10 @@ const WORN_RECENTLY = 0.5;
 const RECENT_DAYS = 3;
 const RAIN_OUTFIT_WEIGHT = 4;
 const WORKOUT_SKIPPED = 0.2;
+// Before a date or a night out he takes a mirror selfie (#19); the last
+// four weeks of them are still on his phone's camera roll.
+const SELFIE_OCCASIONS: readonly Occasion[] = ['evening', 'night-out'];
+const SELFIE_DAYS = 28;
 /** An outfit index for "none": no outfit fits, no workout, no evening. */
 const NONE = -1;
 
@@ -76,6 +80,8 @@ export interface SimulatedEntry {
    * workout); false for a planned one.
    */
   worn: boolean;
+  /** He took an outfit selfie of it (#19): worn evenings, the last four weeks. */
+  selfie: boolean;
 }
 
 /**
@@ -154,7 +160,7 @@ export function simulate(persona: Persona, anchor: IsoDate): SimulatedLife {
   };
   if (!persona.week) return life;
 
-  const day = new Days(persona, shifted);
+  const day = new Days(persona, shifted, anchor);
   for (const today of weather) {
     const kind: DayKind =
       today.day < anchor ? 'past' : today.day === anchor ? 'today' : 'planned';
@@ -180,6 +186,7 @@ class Days {
   constructor(
     private readonly persona: Persona,
     private readonly shifted: (day: IsoDate) => IsoDate,
+    private readonly anchor: IsoDate,
   ) {
     this.garments = new Map(persona.garments.map((g) => [g.id, g]));
   }
@@ -207,7 +214,12 @@ class Days {
     this.wear(main, day);
     if (!this.logged(day, kind, event)) return;
     const plan: Plan = (outfit, occasion, worn) => {
-      if (outfit !== NONE) entries.push({ day, outfit, occasion, worn });
+      if (outfit === NONE) return;
+      const selfie =
+        worn &&
+        SELFIE_OCCASIONS.includes(occasion) &&
+        daysBetween(day, this.anchor) < SELFIE_DAYS;
+      entries.push({ day, outfit, occasion, worn, selfie });
     };
     plan(workout, 'workout', kind !== 'planned');
     this.planDay(weather, kind, event, main, plan);
