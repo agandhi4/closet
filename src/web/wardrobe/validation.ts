@@ -19,6 +19,7 @@ import {
   FORMALITIES,
   findType,
   GARMENT_COLORS,
+  type GarmentColor,
   type GarmentProperty,
   gsmToOz,
   isGarmentColor,
@@ -346,8 +347,8 @@ export interface GarmentFields
   name: string | null;
   category: string;
   brand: string | null;
-  /** Comma-joined GARMENT_COLORS, in the form's order; null for none. */
-  color: string | null;
+  /** A set in GARMENT_COLORS order; null for none. */
+  colors: GarmentColor[] | null;
   size: string | null;
   notes: string | null;
   washingDetails: string | null;
@@ -575,6 +576,27 @@ export function storedPropertyValues(
   };
 }
 
+/** A stored garment as its edit and clone forms show it. */
+export function storedFormValues(
+  stored: Required<GarmentFields>,
+): GarmentFormValues {
+  return {
+    name: orEmpty(stored.name),
+    category: stored.category,
+    brand: orEmpty(stored.brand),
+    colors: stored.colors ?? [],
+    size: orEmpty(stored.size),
+    washingDetails: orEmpty(stored.washingDetails),
+    dateAquired: orEmpty(stored.acquiredOn),
+    notes: orEmpty(stored.notes),
+    sourceUrl: orEmpty(stored.sourceUrl),
+    price: orEmpty(stored.price),
+    properties: storedPropertyValues(stored),
+    care: storedCareValues(stored),
+    replaces: asText(stored.replacesGarmentId),
+  };
+}
+
 /** A form field's text for an optional value: '' for none. */
 function orEmpty(value: string | null | undefined): string {
   return value ?? '';
@@ -713,15 +735,18 @@ export function pick<T extends string | number>(
   return set.find((value) => String(value) === posted) ?? null;
 }
 
-/** The posted colours without repeats, and the messages for any not built in. */
+/**
+ * The posted colours as stored (a set in GARMENT_COLORS order, null for
+ * none), and a message for each posted value not built in.
+ */
 function readColors(posted: string[] = []): {
-  colors: string[];
+  colors: GarmentColor[] | null;
   errors: string[];
 } {
-  const colors = [...new Set(posted)];
+  const colors = GARMENT_COLORS.filter((color) => posted.includes(color));
   return {
-    colors,
-    errors: colors
+    colors: colors.length > 0 ? colors : null,
+    errors: [...new Set(posted)]
       .filter((color) => !isGarmentColor(color))
       .map((color) => t('validation.UNKNOWN_COLOR', { color })),
   };
@@ -840,7 +865,7 @@ export function readGarmentForm(body: GarmentBody): GarmentForm {
       name: line(body.name),
       category,
       brand: line(body.brand),
-      color: colors.colors.length > 0 ? colors.colors.join(',') : null,
+      colors: colors.colors,
       size: normalizeSize(body.size ?? '') ?? null,
       notes: text(body.notes),
       washingDetails: text(body.washingDetails),
@@ -897,8 +922,8 @@ export const OwnerQuery = Type.Object({
 export const GarmentParams = Type.Object({ id: RowId });
 
 // The grid's filters are navigation state from its own links, the search
-// form and the filter modal. A colour outside GARMENT_COLORS is a 400: it is
-// matched inside the stored list and must be one of its items.
+// form and the filter modal. A colour outside GARMENT_COLORS is a 400: no
+// garment can hold one.
 const GridFilters = {
   keyword: Type.Optional(Type.String({ maxLength: 200 })),
   category: Type.Optional(Type.String({ maxLength: CATEGORY_MAX })),

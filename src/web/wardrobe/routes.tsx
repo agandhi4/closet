@@ -11,6 +11,7 @@ import { capsuleNotFound } from '../capsules/validation';
 import {
   findType,
   FORMALITIES,
+  GARMENT_COLORS,
   MATERIALS,
   WARMTHS,
 } from '../../wardrobe/properties';
@@ -37,7 +38,7 @@ import { viewContext } from '../view-context';
 import { type GoesWithCloset, goesWithCloset } from '../gallery/ideas';
 import { avoidedWith } from '../gallery/queries';
 import { countNeedingWash, wearSummary } from '../wears/queries';
-import { normalizeCategory, normalizeSize, splitColors } from './garment';
+import { normalizeCategory, normalizeSize } from './garment';
 import { GarmentPage, GarmentPhotoView } from './garment-page';
 import { keptLinkPhoto } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
@@ -82,7 +83,6 @@ import {
   formValues,
   GarmentBody,
   type GarmentField,
-  type GarmentFormValues,
   GarmentPageQuery,
   GarmentParams,
   GridQuery,
@@ -94,8 +94,7 @@ import {
   readCondition,
   readGarmentForm,
   readTags,
-  storedCareValues,
-  storedPropertyValues,
+  storedFormValues,
   TagBody,
   TagQuery,
   TilesQuery,
@@ -203,7 +202,7 @@ function gridFilters(search: GridSearch): GridFilters {
   return {
     keyword: search.keyword || undefined,
     category: search.category || undefined,
-    color: search.color || undefined,
+    color: pick(GARMENT_COLORS, search.color) ?? undefined,
     size: search.size || undefined,
     type: search.type || undefined,
     warmth: pick(WARMTHS, search.warmth) ?? undefined,
@@ -235,27 +234,6 @@ function listedCapsule(capsules: CapsuleRef[], id: number): CapsuleRef {
   const found = capsules.find((capsule) => capsule.id === id);
   if (!found) throw capsuleNotFound();
   return found;
-}
-
-function storedValues(garment: GarmentDetail): GarmentFormValues {
-  return {
-    name: garment.name ?? '',
-    category: garment.category,
-    brand: garment.brand ?? '',
-    colors: splitColors(garment.color),
-    size: garment.size ?? '',
-    washingDetails: garment.washingDetails ?? '',
-    dateAquired: garment.acquiredOn ?? '',
-    notes: garment.notes ?? '',
-    sourceUrl: garment.sourceUrl ?? '',
-    price: garment.price ?? '',
-    properties: storedPropertyValues(garment),
-    care: storedCareValues(garment),
-    replaces:
-      garment.replacesGarmentId === null
-        ? ''
-        : String(garment.replacesGarmentId),
-  };
 }
 
 /** Archive and Restore's 409 when the garment's status does not take the event. */
@@ -875,7 +853,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         },
         suggestionsFrom: access.ownerId,
         viewOwner,
-        values: storedValues(garment),
+        values: storedFormValues(garment),
       });
     },
   );
@@ -939,7 +917,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.params.id,
         access.ownerId,
       );
-      const values = storedValues(source);
+      const values = storedFormValues(source);
       return renderGarmentForm(reply, db, {
         mode: { kind: 'clone', garmentId: source.id },
         suggestionsFrom: sessionUserId(request),

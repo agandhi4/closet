@@ -38,7 +38,7 @@ export function insightGarments(
       name: garment.name,
       category: garment.category,
       brand: garment.brand,
-      color: garment.color,
+      colors: garment.colors,
       quantity: garment.quantity,
       price: garment.price,
       condition: garment.condition,

@@ -15,7 +15,13 @@ import {
   rotationWeight,
 } from './generator';
 import { OCCASION_HINTS } from './occasions';
-import type { Formality, GarmentRole, Pattern, Warmth } from './properties';
+import type {
+  Formality,
+  GarmentColor,
+  GarmentRole,
+  Pattern,
+  Warmth,
+} from './properties';
 
 /**
  * The outfit generator (#9): templates, the pool as given, the hard rules
@@ -28,7 +34,7 @@ let nextId = 1;
 function garment(
   role: GarmentRole,
   options: {
-    colors?: string[];
+    colors?: GarmentColor[];
     pattern?: Pattern | null;
     formality?: Formality | null;
     warmth?: Warmth;
@@ -261,10 +267,11 @@ describe('generateIdeas', () => {
     expect(neutralFor('top', 'grey')).toBe(true);
     expect(neutralFor('bottom', 'green')).toBe(false);
     // A red tee under a green jacket, with jeans: two colours, fine.
-    const jeans = { role: 'bottom' as const, colors: ['blue'], pattern: null };
-    const redTee = { role: 'top' as const, colors: ['red'], pattern: null };
-    const greenJacket = {
-      role: 'layer' as const,
+    type Worn = Parameters<typeof colorsGoTogether>[0][number];
+    const jeans: Worn = { role: 'bottom', colors: ['blue'], pattern: null };
+    const redTee: Worn = { role: 'top', colors: ['red'], pattern: null };
+    const greenJacket: Worn = {
+      role: 'layer',
       colors: ['green'],
       pattern: null,
     };

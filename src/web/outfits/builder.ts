@@ -1,3 +1,4 @@
+import type { GarmentColor } from '../../wardrobe/properties';
 import type { GarmentStatus } from '../../wardrobe/status';
 import type { ImageRef } from '../files/image-url';
 import { categoryLabel, orderCategories } from '../wardrobe/garment';
@@ -16,7 +17,7 @@ export interface RowGarment {
   id: number;
   name: string | null;
   brand: string | null;
-  color: string | null;
+  colors: GarmentColor[] | null;
   size: string | null;
   notes: string | null;
   status: GarmentStatus;

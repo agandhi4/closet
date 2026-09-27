@@ -33,7 +33,7 @@ function ChosenGarment({ garment }: { garment: RowGarment }) {
       data-garment-name={garment.name ?? ''}
       data-garment-photo={photo ? imageUrl(photo, 'nobg') : ''}
       data-garment-brand={garment.brand ?? ''}
-      data-garment-color={garment.color ?? ''}
+      data-garment-color={garment.colors?.join(', ')}
       data-garment-size={garment.size ?? ''}
       data-garment-notes={garment.notes ?? ''}
     >

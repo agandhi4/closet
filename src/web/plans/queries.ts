@@ -12,14 +12,12 @@ import {
   type Condition,
   type Formality,
   type GarmentColor,
-  isGarmentColor,
   type Material,
   type Warmth,
 } from '../../wardrobe/properties';
 import { isUniqueViolation } from '../../db/errors';
 import { lockOwner } from '../auth/queries';
 import type { ImageRef } from '../files/image-url';
-import { splitColors } from '../wardrobe/garment';
 import { inCloset } from '../wardrobe/status';
 import type {
   PlanFields,
@@ -227,7 +225,7 @@ export async function closetPieces(
       brand: garment.brand,
       category: garment.category,
       type: garment.type,
-      color: garment.color,
+      colors: garment.colors,
       materials: garment.materials,
       warmth: garment.warmth,
       formality: garment.formality,
@@ -240,11 +238,9 @@ export async function closetPieces(
     .leftJoin(file, eq(file.id, garment.photoId))
     .where(and(eq(garment.ownerId, ownerId), inCloset()))
     .orderBy(asc(garment.id));
-  return rows.map(({ color, materials, ...row }) => ({
+  return rows.map(({ colors, materials, ...row }) => ({
     ...row,
-    // Always garment colours (the form writes only those); narrowed here, at
-    // the boundary, so the plan's colour sets are typed as such.
-    colors: splitColors(color).filter(isGarmentColor),
+    colors: colors ?? [],
     materials: materials ?? [],
   }));
 }

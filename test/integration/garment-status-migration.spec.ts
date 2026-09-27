@@ -148,14 +148,17 @@ describe('garment status (the garment_status migration)', () => {
       { id: kept, status: 'closet', replaces_garment_id: null },
       { id: archived, status: 'archived', replaces_garment_id: null },
     ]);
-    // Every other column as it was.
+    // Every other column as it was (the colours are a later migration's:
+    // garment-colors-migration.spec.ts).
     const without = (row: Record<string, unknown>, columns: string[]) =>
       Object.fromEntries(
         Object.entries(row).filter(([column]) => !columns.includes(column)),
       );
     expect(
-      after.rows.map((row) => without(row, ['status', 'replaces_garment_id'])),
-    ).toEqual(before.rows.map((row) => without(row, ['archived'])));
+      after.rows.map((row) =>
+        without(row, ['status', 'replaces_garment_id', 'colors']),
+      ),
+    ).toEqual(before.rows.map((row) => without(row, ['archived', 'color'])));
   });
 
   it('rebuilds the grid index on the status and drops the old column', async () => {

@@ -1,7 +1,6 @@
 import * as z from 'zod/v4';
 import { HttpError } from '../../errors';
 import { sharedWardrobesOf } from '../../sharing/access';
-import { splitColors } from '../../wardrobe/garment';
 import {
   CLOSET_FILTERS,
   type GarmentSummary,
@@ -32,7 +31,7 @@ async function closet(
       category: garment.category,
       type: garment.type,
       brand: garment.brand,
-      colors: splitColors(garment.color),
+      colors: garment.colors ?? [],
       price: garment.price,
       sourceUrl: garment.sourceUrl,
     })),

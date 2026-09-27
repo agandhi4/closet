@@ -18,11 +18,7 @@ import {
 import { todayIn } from '../../calendar/calendar-date';
 import { capsulesOfGarment, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
-import {
-  normalizeCategory,
-  normalizeSize,
-  splitColors,
-} from '../../wardrobe/garment';
+import { normalizeCategory, normalizeSize } from '../../wardrobe/garment';
 import {
   findGarment,
   type GarmentDetail,
@@ -61,7 +57,7 @@ export function summaryOut(garment: GarmentSummary) {
     role: categoryRole(garment.category),
     type: garment.type,
     brand: garment.brand,
-    colors: splitColors(garment.color),
+    colors: garment.colors ?? [],
     size: garment.size,
     warmth: garment.warmth,
     formality: garment.formality,
@@ -94,7 +90,7 @@ async function garmentOut(
     category: garment.category,
     role: categoryRole(garment.category),
     brand: garment.brand,
-    colors: splitColors(garment.color),
+    colors: garment.colors ?? [],
     size: garment.size,
     notes: garment.notes,
     washingDetails: garment.washingDetails,

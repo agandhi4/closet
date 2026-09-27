@@ -1,4 +1,4 @@
-import type { Condition } from './properties';
+import type { Condition, GarmentColor } from './properties';
 import { fromCents, toCents } from './shopping';
 
 /**
@@ -68,8 +68,8 @@ export interface InsightGarment {
   name: string | null;
   category: string;
   brand: string | null;
-  /** The stored comma-joined colour list, null for none. */
-  color: string | null;
+  /** A set, null for none (garment.colors). */
+  colors: readonly GarmentColor[] | null;
   quantity: number;
   /** Per piece, the price paid ("Bought it" records it over the listed one). */
   price: string | null;
@@ -112,7 +112,7 @@ export interface CostPerWear {
 }
 
 export interface ColourShare {
-  colour: string;
+  colour: GarmentColor;
   /** Percent of the closet's garments (a two-colour garment is half of each). */
   closet: number;
   /** Percent of the recent wear days, split the same way. */
@@ -246,11 +246,11 @@ function colourShares(garments: InsightGarment[]): {
   colours: ColourShare[];
   uncoloured: number;
 } {
-  const shares = new Map<string, { closet: number; worn: number }>();
+  const shares = new Map<GarmentColor, { closet: number; worn: number }>();
   let coloured = 0;
   let wornDays = 0;
   for (const garment of garments) {
-    const colours = garment.color ? garment.color.split(',') : [];
+    const colours = garment.colors ?? [];
     if (colours.length === 0) continue;
     coloured += 1;
     wornDays += garment.recentWearDays;

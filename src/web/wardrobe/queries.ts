@@ -29,6 +29,7 @@ import {
   type Condition,
   type Formality,
   GarmentCategory,
+  type GarmentColor,
   type Material,
   propertyApplies,
   typesOf,
@@ -58,7 +59,7 @@ export const GRID_PAGE_SIZE = 48;
 export interface GridFilters {
   keyword?: string;
   category?: string;
-  color?: string;
+  color?: GarmentColor;
   size?: string;
   /** A type of `category` (the route drops one that is not). */
   type?: string;
@@ -118,10 +119,7 @@ function gridWhere(ownerId: number, filters: GridFilters): SQL | undefined {
   if (filters.attention) conditions.push(ne(garment.condition, 'good'));
   if (filters.size) conditions.push(eq(garment.size, filters.size));
   if (filters.color) {
-    // A whole item of the comma-joined list, never a substring of one.
-    conditions.push(
-      sql`(',' || ${garment.color} || ',') like ${containsPattern(`,${filters.color},`)}`,
-    );
+    conditions.push(arrayContains(garment.colors, [filters.color]));
   }
   if (filters.keyword) {
     // Case-insensitive; the keyword's % and _ are matched as themselves
@@ -221,8 +219,8 @@ export interface GarmentSummary {
   category: string;
   type: string | null;
   brand: string | null;
-  /** Comma-joined GARMENT_COLORS (splitColors). */
-  color: string | null;
+  /** A set in GARMENT_COLORS order; null for none. */
+  colors: GarmentColor[] | null;
   size: string | null;
   warmth: Warmth | null;
   formality: Formality | null;
@@ -251,7 +249,7 @@ export async function garmentSummaries(
       category: garment.category,
       type: garment.type,
       brand: garment.brand,
-      color: garment.color,
+      colors: garment.colors,
       size: garment.size,
       warmth: garment.warmth,
       formality: garment.formality,
@@ -382,7 +380,7 @@ const detailColumns = {
   name: garment.name,
   category: garment.category,
   brand: garment.brand,
-  color: garment.color,
+  colors: garment.colors,
   size: garment.size,
   notes: garment.notes,
   washingDetails: garment.washingDetails,

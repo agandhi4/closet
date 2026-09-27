@@ -70,7 +70,7 @@ describe('persona bibles', () => {
       category: 'tops',
       type: 't-shirt',
       size: 'Medium',
-      color: 'white',
+      colors: ['white'],
       price: '24.90',
       sleeve: 'short',
     });

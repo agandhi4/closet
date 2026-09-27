@@ -377,9 +377,10 @@ export const garment = pgTable(
     notes: text('notes'),
     photoId: integer('photo_id'),
     ownerId: integer('owner_id').notNull(),
-    // Comma-joined GarmentColor values ("red,blue"), only ever enum names
-    // (the garment form validates them); null for none.
-    color: text('color'),
+    // A set in GARMENT_COLORS order, no repeats, null for none (never an
+    // empty array), like materials and plan_item.colors. Was comma-joined
+    // text (color) until drizzle/0023_garment_colors.sql.
+    colors: text('colors').array().$type<GarmentColor[]>(),
     // The day the garment was acquired, not an instant (was date_aquired
     // timestamptz at UTC midnight until drizzle/0004_garment_web.sql).
     acquiredOn: date('acquired_on', { mode: 'string' }),
@@ -453,6 +454,10 @@ export const garment = pgTable(
     check(
       'garment_formality_check',
       sql`${table.formality} in (${sql.raw(FORMALITIES.join(', '))})`,
+    ),
+    check(
+      'garment_colors_check',
+      sql`${table.colors} <@ array[${sqlList(GARMENT_COLORS)}]::text[] and cardinality(${table.colors}) > 0`,
     ),
     check(
       'garment_materials_check',

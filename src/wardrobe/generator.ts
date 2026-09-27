@@ -5,7 +5,12 @@ import {
   type MatchGarment,
   type WeatherNeeds,
 } from '../weather/match';
-import type { Formality, GarmentRole, Pattern } from './properties';
+import type {
+  Formality,
+  GarmentColor,
+  GarmentRole,
+  Pattern,
+} from './properties';
 
 /**
  * The outfit generator (#9; docs/plans/2026-09-26-wardrobe-features.md,
@@ -57,8 +62,8 @@ export const GENERATOR_VERSION = 1;
 /** Draws per page request: bounds the work on a closet with few combinations. */
 export const MAX_DRAWS = 2000;
 
-/** Colours that go with anything, on any garment (GARMENT_COLORS names). */
-export const NEUTRAL_COLORS: readonly string[] = [
+/** Colours that go with anything, on any garment. */
+export const NEUTRAL_COLORS: readonly GarmentColor[] = [
   'black',
   'white',
   'grey',
@@ -73,7 +78,7 @@ export const NEUTRAL_COLORS: readonly string[] = [
  * the two colour slots on nearly every casual outfit). A blue top or layer
  * still counts as a colour. The one place this is decided.
  */
-export function neutralFor(role: GarmentRole, color: string): boolean {
+export function neutralFor(role: GarmentRole, color: GarmentColor): boolean {
   return (
     NEUTRAL_COLORS.includes(color) || (role === 'bottom' && color === 'blue')
   );
@@ -112,8 +117,8 @@ export const OUTFIT_ORDER: readonly GarmentRole[] = [
 export interface IdeaGarment {
   id: number;
   role: GarmentRole;
-  /** GARMENT_COLORS names ('pattern' marks a patterned garment). */
-  colors: readonly string[];
+  /** 'pattern' marks a patterned garment. */
+  colors: readonly GarmentColor[];
   pattern: Pattern | null;
   formality: Formality | null;
   /** How it counts for the weather (matchGarment, src/weather/match.ts). */

@@ -11,7 +11,6 @@ import type { PieceSpec } from '../../wardrobe/plans';
 import {
   type Formality,
   type GarmentColor,
-  isGarmentColor,
   type Material,
   type Warmth,
 } from '../../wardrobe/properties';
@@ -19,7 +18,6 @@ import { lockOwner } from '../auth/queries';
 import { HttpError } from '../errors';
 import type { ImageRef } from '../files/image-url';
 import { t } from '../i18n';
-import { splitColors } from '../wardrobe/garment';
 import { onWishlist } from '../wardrobe/status';
 
 /**
@@ -288,7 +286,7 @@ function candidateRows(db: Queryable, ownerId: number, which: SQL) {
       brand: garment.brand,
       category: garment.category,
       type: garment.type,
-      color: garment.color,
+      colors: garment.colors,
       materials: garment.materials,
       warmth: garment.warmth,
       formality: garment.formality,
@@ -312,9 +310,9 @@ function candidateRows(db: Queryable, ownerId: number, which: SQL) {
     )
     .orderBy(asc(planItemCandidate.createdAt), asc(garment.id))
     .then((rows) =>
-      rows.map(({ color, materials, ...row }) => ({
+      rows.map(({ colors, materials, ...row }) => ({
         ...row,
-        colors: splitColors(color).filter(isGarmentColor),
+        colors: colors ?? [],
         materials: materials ?? [],
       })),
     );

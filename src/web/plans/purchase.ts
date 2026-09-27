@@ -9,8 +9,7 @@ import {
   type TargetDifference,
   targetDifferences,
 } from '../../wardrobe/plans';
-import { isGarmentColor, isMaterial } from '../../wardrobe/properties';
-import { splitColors } from '../wardrobe/garment';
+import { isMaterial } from '../../wardrobe/properties';
 import { deleteGarment } from '../wardrobe/queries';
 import { buyGarment, type BuyOutcome, type Purchase } from '../wardrobe/status';
 import type { WardrobeDeps } from '../wardrobe/writes';
@@ -83,7 +82,7 @@ export async function pieceOf(
       id: garment.id,
       category: garment.category,
       type: garment.type,
-      color: garment.color,
+      colors: garment.colors,
       materials: garment.materials,
       warmth: garment.warmth,
       formality: garment.formality,
@@ -92,10 +91,10 @@ export async function pieceOf(
     .from(garment)
     .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)));
   if (!row) return undefined;
-  const { color, materials, ...rest } = row;
+  const { colors, materials, ...rest } = row;
   return {
     ...rest,
-    colors: splitColors(color).filter(isGarmentColor),
+    colors: colors ?? [],
     materials: materials ?? [],
   };
 }
@@ -175,7 +174,7 @@ export function fittedItem(
     ...itemFields(item),
     category: fitted.category,
     type: fitted.type,
-    colors: set(fitted.colors.filter(isGarmentColor)),
+    colors: set([...fitted.colors]),
     materials: set(fitted.materials.filter(isMaterial)),
     warmthMin: fitted.warmth?.min ?? null,
     warmthMax: fitted.warmth?.max ?? null,

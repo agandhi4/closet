@@ -48,7 +48,7 @@ export interface PlanTarget {
   category: string;
   type: string | null;
   /** The garment must have every one of these (and may have others). */
-  colors: readonly string[];
+  colors: readonly GarmentColor[];
   /** The same rule as colours. */
   materials: readonly string[];
   warmth: Range<Warmth> | null;
@@ -63,7 +63,7 @@ export interface ClosetPiece {
   id: number;
   category: string;
   type: string | null;
-  colors: readonly string[];
+  colors: readonly GarmentColor[];
   materials: readonly string[];
   warmth: Warmth | null;
   formality: Formality | null;
@@ -475,6 +475,7 @@ export interface SourceGarment {
   brand: string | null;
   category: string;
   type: string | null;
+  /** A set in GARMENT_COLORS order, as garment.colors stores it. */
   colors: readonly GarmentColor[];
   quantity: number;
   /** '49.90'; null when unknown. */
@@ -539,9 +540,7 @@ export function planItemsFromWardrobe(
 ): DerivedItem[] {
   const groups = new Map<string, DerivedItem>();
   for (const garment of garments) {
-    const colors = [...new Set(garment.colors)].sort(
-      (a, b) => COLOR_ORDER.get(a)! - COLOR_ORDER.get(b)!,
-    );
+    const colors = [...garment.colors];
     const key = [garment.category, garment.type ?? '', colors.join(',')].join(
       '\u0000',
     );

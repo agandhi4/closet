@@ -165,7 +165,7 @@ describe('garment edit, clone and archive', () => {
         category: 'coat',
         // A cleared field is no value, not an empty string.
         brand: null,
-        color: 'blue',
+        colors: ['blue'],
         size: 'X-Large',
         washingDetails: 'Hand wash cold',
         notes: 'Tailored in May',
@@ -328,7 +328,7 @@ describe('garment edit, clone and archive', () => {
         name: 'Black Linen Blazer (cloned)',
         category: source.category,
         brand: source.brand,
-        color: source.color,
+        colors: source.colors,
         size: source.size,
         notes: source.notes,
         status: 'closet',

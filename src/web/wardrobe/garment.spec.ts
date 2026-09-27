@@ -6,7 +6,6 @@ import {
   normalizeCategory,
   normalizeSize,
   orderCategories,
-  splitColors,
 } from './garment';
 import { isGarmentColor } from '../../wardrobe/properties';
 
@@ -67,7 +66,5 @@ describe('garment fields', () => {
     for (const value of ['Red', 'crimson', '<img src=x>', '', 'red,blue']) {
       expect(isGarmentColor(value)).toBe(false);
     }
-    expect(splitColors('red,blue')).toEqual(['red', 'blue']);
-    expect(splitColors(null)).toEqual([]);
   });
 });

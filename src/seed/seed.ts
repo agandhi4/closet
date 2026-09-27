@@ -47,7 +47,6 @@ import {
   createInvite,
   declineInvite,
 } from '../web/sharing/queries';
-import { splitColors } from '../web/wardrobe/garment';
 import { insertGarment } from '../web/wardrobe/queries';
 import { setGarmentStatus } from '../web/wardrobe/status';
 import { setHome, setTemperatureUnit } from '../web/weather/queries';
@@ -574,7 +573,7 @@ function artSubject(garment: SeedGarment | SeedWishlistItem): ArtSubject {
     category: garment.fields.category,
     type: garment.fields.type ?? null,
     name: garment.fields.name,
-    colors: splitColors(garment.fields.color),
+    colors: garment.fields.colors ?? [],
     pattern: garment.fields.pattern ?? null,
   };
 }

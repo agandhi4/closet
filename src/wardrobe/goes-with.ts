@@ -5,7 +5,7 @@ import {
   MAX_DRAWS,
   OUTFIT_ORDER,
 } from './generator';
-import type { GarmentRole } from './properties';
+import type { GarmentColor, GarmentRole } from './properties';
 
 /**
  * "Goes with my closet" (#18b; docs/plans/2026-09-26-wardrobe-features.md,
@@ -228,8 +228,7 @@ export interface Lookalike {
   id: number;
   category: string;
   type: string | null;
-  /** GARMENT_COLORS names. */
-  colors: readonly string[];
+  colors: readonly GarmentColor[];
 }
 
 /**

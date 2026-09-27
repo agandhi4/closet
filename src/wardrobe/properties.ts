@@ -131,13 +131,11 @@ export const CONDITIONS = ['good', 'needs_repair', 'replace_soon'] as const;
 export type Condition = (typeof CONDITIONS)[number];
 
 /**
- * The only colours a garment may carry (the garment form validates them on the
- * server; drizzle/0004_garment_web.sql checked stored ones against the same
- * list). garment.color joins them with commas; a plan item's and a style
- * profile's colour sets are arrays checked against the list (src/db/schema.ts). No name contains another, so
- * the grid's membership match cannot confuse two (src/web/wardrobe/queries.ts matches whole
- * comma-delimited items anyway). Each has a swatch class in
- * views/assets/main.css (`.ms-swatch--<name>`).
+ * The only colours a garment may carry, in the order a colour set is stored
+ * and shown. A garment's, a plan item's and a style profile's colours are
+ * all text[] sets checked against this list (src/db/schema.ts), so adding
+ * one is a migration. Each has a swatch class in views/assets/main.css
+ * (`.ms-swatch--<name>`).
  */
 export const GARMENT_COLORS = [
   'red',

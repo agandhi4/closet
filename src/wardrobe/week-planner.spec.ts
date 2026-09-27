@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { addDays, type IsoDate } from '../web/calendar/calendar-date';
 import type { DayForecast } from '../weather/forecast';
 import { keyOf } from './generator';
-import type { GarmentRole, Warmth } from './properties';
+import type { GarmentColor, GarmentRole, Warmth } from './properties';
 import type { TemplateSlot } from './week';
 import {
   emptySlots,
@@ -32,7 +32,7 @@ let nextId = 1;
 function garment(
   role: GarmentRole,
   options: {
-    colors?: string[];
+    colors?: GarmentColor[];
     warmth?: Warmth;
     quantity?: number;
     washLimit?: number | null;
@@ -62,10 +62,10 @@ function garment(
 /** Plenty of everything: tops, bottoms, shoes that never run out. */
 function roomyCloset(): PlannerGarment[] {
   return [
-    ...['white', 'grey', 'black', 'beige', 'brown'].map((color) =>
+    ...(['white', 'grey', 'black', 'beige', 'brown'] as const).map((color) =>
       garment('top', { colors: [color], quantity: 3, washLimit: 1 }),
     ),
-    ...['blue', 'black', 'beige'].map((color) =>
+    ...(['blue', 'black', 'beige'] as const).map((color) =>
       garment('bottom', { colors: [color], washLimit: 3 }),
     ),
     garment('footwear', { colors: ['white'] }),
@@ -284,7 +284,7 @@ describe('planWeek', () => {
         input({
           pool: [
             tee,
-            ...['blue', 'black', 'beige', 'grey'].map((color) =>
+            ...(['blue', 'black', 'beige', 'grey'] as const).map((color) =>
               garment('bottom', { colors: [color] }),
             ),
           ],
@@ -302,7 +302,7 @@ describe('planWeek', () => {
       const plan = planWeek(
         input({
           pool: [
-            ...['white', 'grey', 'black'].map((color) =>
+            ...(['white', 'grey', 'black'] as const).map((color) =>
               garment('top', { colors: [color], quantity: 3, washLimit: 1 }),
             ),
             jeans,
@@ -319,7 +319,7 @@ describe('planWeek', () => {
         washLimit: 3,
         wearsSinceWash: 2,
       });
-      const tops = ['white', 'grey', 'black'].map((color) =>
+      const tops = (['white', 'grey', 'black'] as const).map((color) =>
         garment('top', { colors: [color], quantity: 3, washLimit: 1 }),
       );
       const friday = entry(1, '2026-10-02', 'evening', [tops[0], jeans]);
@@ -370,15 +370,17 @@ describe('planWeek', () => {
       const plan = planWeek(
         input({
           pool: [
-            ...[
-              'white',
-              'grey',
-              'black',
-              'beige',
-              'brown',
-              'blue',
-              'green',
-            ].map((color) => garment('top', { colors: [color], washLimit: 1 })),
+            ...(
+              [
+                'white',
+                'grey',
+                'black',
+                'beige',
+                'brown',
+                'blue',
+                'green',
+              ] as const
+            ).map((color) => garment('top', { colors: [color], washLimit: 1 })),
             garment('bottom', { colors: ['blue'], washLimit: null }),
           ],
         }),

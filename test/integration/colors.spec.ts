@@ -1,14 +1,16 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment } from '../../src/db/schema';
 import { createTestApp, TestApp } from './harness';
 
 /**
- * garment.color is a comma-joined list of GARMENT_COLORS names
- * (src/web/wardrobe/garment.ts); the form posts one `color` per checked box,
- * the grid filters on whole items of the list. Only built-in colours are
- * stored: a posted value was once rendered by the colour picker's script as
- * markup, a stored XSS (audit2-correctness H5).
+ * garment.colors is a text[] set of GARMENT_COLORS names (#28), stored in
+ * the list's order, null for none, like materials and plan_item.colors; the
+ * form posts one `color` per checked box (the field's name since before the
+ * array, so cached forms post what they always did), and the grid filters
+ * with @>. Only built-in colours are stored, by the form and by
+ * garment_colors_check: a posted value was once rendered by the colour
+ * picker's script as markup, a stored XSS (audit2-correctness H5).
  */
 describe('garment colours', () => {
   let t: TestApp;
@@ -20,53 +22,84 @@ describe('garment colours', () => {
     return res.body;
   };
 
-  const storedColor = async (id: number) =>
+  const storedColors = async (id: number) =>
     (
       await t.db.query.garment.findFirst({
-        columns: { color: true },
+        columns: { colors: true },
         where: eq(garment.id, id),
       })
-    )?.color;
+    )?.colors;
 
   const post = (url: string, payload: Record<string, unknown>) =>
     t.inject({ method: 'POST', url, payload });
 
-  beforeAll(async () => {
-    t = await createTestApp();
-    const res = await post('/wardrobe', {
-      name: 'Two-tone scarf',
-      category: 'accessories',
-      color: ['red', 'blue'],
-    });
+  const created = async (payload: Record<string, unknown>) => {
+    const res = await post('/wardrobe', payload);
     expect(res.statusCode).toBe(302);
-    garmentId = Number(
+    return Number(
       /^\/wardrobe\/(\d+)\?/.exec(res.headers.location as string)![1],
     );
-    const plain = await post('/wardrobe', {
+  };
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    // Out of the list's order and repeated, as a client other than the
+    // form's checkboxes may post them.
+    garmentId = await created({
+      name: 'Two-tone scarf',
+      category: 'accessories',
+      color: ['blue', 'red', 'blue'],
+    });
+    // One colour arrives as a scalar (a single checked box).
+    await created({
       name: 'Plain green tee',
       category: 'tops',
       color: 'green',
     });
-    expect(plain.statusCode).toBe(302);
+    await created({ name: 'Colourless belt', category: 'accessories' });
   });
 
   afterAll(() => t?.cleanup());
 
-  it('stores the selection as a comma-joined list', async () => {
-    expect(await storedColor(garmentId)).toBe('red,blue');
+  it('stores the selection as a set in the list’s order', async () => {
+    expect(await storedColors(garmentId)).toEqual(['red', 'blue']);
   });
 
-  it('shows both colours on the garment page', async () => {
-    const res = await t.inject({
+  it('stores none as null, never an empty array', async () => {
+    const id = await created({ name: 'Undyed', category: 'tops', color: [] });
+    expect(await storedColors(id)).toBeNull();
+
+    const edited = await post(`/wardrobe/${id}`, {
+      name: 'Undyed',
+      category: 'tops',
+      color: 'white',
+    });
+    expect(edited.statusCode).toBe(302);
+    expect(await storedColors(id)).toEqual(['white']);
+    // An edit with every box unchecked posts no `color` and clears them.
+    await post(`/wardrobe/${id}`, { name: 'Undyed', category: 'tops' });
+    expect(await storedColors(id)).toBeNull();
+  });
+
+  it('shows both colours on the garment page and checks both on its form', async () => {
+    const page = await t.inject({
       method: 'GET',
       url: `/wardrobe/${garmentId}`,
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toContain('red, blue');
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toContain('red, blue');
+
+    const form = await t.inject({
+      method: 'GET',
+      url: `/wardrobe/${garmentId}/edit`,
+    });
+    expect(form.body).toMatch(/name="color" value="red"\s+checked/);
+    expect(form.body).toMatch(/name="color" value="blue"\s+checked/);
+    expect(form.body).not.toMatch(/name="color" value="green"\s+checked/);
   });
 
-  it('rejects a colour filter that is not a built-in name, so LIKE wildcards never reach the query', async () => {
-    for (const value of ['%', '%25', 'red%', 'crimson', 'red,blue']) {
+  it('rejects a colour filter that is not a built-in name', async () => {
+    for (const value of ['%', '%25', 'red%', 'crimson', 'red,blue', 'Red']) {
       const res = await t.inject({
         method: 'GET',
         url: `/wardrobe?color=${encodeURIComponent(value)}`,
@@ -76,11 +109,31 @@ describe('garment colours', () => {
   });
 
   it('is found by either colour and not by another', async () => {
-    expect(await listedNames('?color=red')).toContain('Two-tone scarf');
+    const red = await listedNames('?color=red');
+    expect(red).toContain('Two-tone scarf');
+    expect(red).not.toContain('Colourless belt');
     expect(await listedNames('?color=blue')).toContain('Two-tone scarf');
     const green = await listedNames('?color=green');
     expect(green).toContain('Plain green tee');
     expect(green).not.toContain('Two-tone scarf');
+    expect(green).not.toContain('Colourless belt');
+    // No filter: every garment, coloured or not.
+    expect(await listedNames('')).toContain('Colourless belt');
+  });
+
+  it('is enforced by the database: built-in names only, and never empty', async () => {
+    const violation = {
+      cause: { code: '23514', constraint: 'garment_colors_check' },
+    };
+    for (const colors of [sql`array['red', 'teal']`, sql`'{}'::text[]`]) {
+      // Drizzle wraps the driver's error; the violation is its cause.
+      await expect(
+        t.db.execute(
+          sql`update garment set colors = ${colors} where id = ${garmentId}`,
+        ),
+      ).rejects.toMatchObject(violation);
+    }
+    expect(await storedColors(garmentId)).toEqual(['red', 'blue']);
   });
 
   describe('a colour outside the built-in set', () => {
@@ -111,7 +164,7 @@ describe('garment colours', () => {
         // The valid choice stays checked for the next try.
         expect(res.body).toMatch(/name="color" value="red"\s+checked/);
         expect(await t.db.$count(garment)).toBe(before);
-        expect(await storedColor(garmentId)).toBe('red,blue');
+        expect(await storedColors(garmentId)).toEqual(['red', 'blue']);
       },
     );
   });

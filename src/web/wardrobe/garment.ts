@@ -19,11 +19,6 @@ export function priceLabel(price: string): string {
   return PRICE_FORMAT.format(Number(price));
 }
 
-/** The stored list as its colours ('' and null are none). */
-export function splitColors(color: string | null): string[] {
-  return color ? color.split(',') : [];
-}
-
 const CATEGORY_LABELS: Record<GarmentCategory, StringKey> = {
   [GarmentCategory.ACCESSORIES]: 'CATEGORY_ACCESSORIES',
   [GarmentCategory.BAGS]: 'CATEGORY_BAGS',

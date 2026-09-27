@@ -23,7 +23,7 @@ import { ShareLinkButton } from '../share/share-button';
 import type { ViewContext } from '../view-context';
 import { type WearPanel, WearSection } from '../wears/wear-section';
 import type { GarmentRef } from '../wishlist/queries';
-import { categoryLabel, priceLabel, splitColors } from './garment';
+import { categoryLabel, priceLabel } from './garment';
 import { GarmentCondition } from './garment-condition';
 import { fabricWeightLabel, valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
@@ -370,7 +370,6 @@ function PropertyChips({ garment }: { garment: GarmentDetail }) {
 
 /** The fields: category always, the rest when set. */
 function GarmentDetails({ garment }: { garment: GarmentDetail }) {
-  const colors = splitColors(garment.color);
   return (
     <div class="card bg-base-100 shadow-sm mb-4">
       <div class="card-body gap-3">
@@ -394,9 +393,11 @@ function GarmentDetails({ garment }: { garment: GarmentDetail }) {
           </Detail>
         )}
         <QuantityDetail quantity={garment.quantity} />
-        {colors.length > 0 && (
+        {garment.colors && (
           <Detail label={t('COLOR')}>
-            <span class="capitalize font-medium">{colors.join(', ')}</span>
+            <span class="capitalize font-medium">
+              {garment.colors.join(', ')}
+            </span>
           </Detail>
         )}
         {garment.washingDetails && (

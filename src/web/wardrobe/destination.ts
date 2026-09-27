@@ -17,7 +17,6 @@ import {
   type GarmentFormValues,
   storedPropertyValues,
 } from './validation';
-import { splitColors } from './garment';
 
 /** The plan item a new wishlist item is a candidate for, as the form names it. */
 export interface CandidateFor {
@@ -129,7 +128,7 @@ export function destinationValues(
     ...BLANK_GARMENT_VALUES,
     category: replaced.category,
     brand: replaced.brand ?? '',
-    colors: splitColors(replaced.color),
+    colors: replaced.colors ?? [],
     size: replaced.size ?? '',
     properties: storedPropertyValues(replaced),
     care: BLANK_CARE,

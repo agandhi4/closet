@@ -428,13 +428,16 @@ describe('planItemsFromWardrobe', () => {
     ]);
   });
 
-  it('reads colours as a set, in the palette’s order', () => {
+  it('groups by colour set: the same set is one item, another set another', () => {
     const items = planItemsFromWardrobe([
-      source({ colors: ['white', 'blue'] }),
       source({ colors: ['blue', 'white'] }),
+      source({ colors: ['blue', 'white'] }),
+      source({ colors: ['white'] }),
     ]);
-    expect(items).toHaveLength(1);
-    expect(items[0].colors).toEqual(['blue', 'white']);
+    expect(items.map((i) => [i.colors, i.quantity])).toEqual([
+      [['blue', 'white'], 2],
+      [['white'], 1],
+    ]);
   });
 
   it('orders items as the wardrobe lists categories and types, untyped last', () => {

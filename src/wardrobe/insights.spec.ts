@@ -22,7 +22,7 @@ function garment(fields: Partial<InsightGarment> = {}): InsightGarment {
     name: `Garment ${id}`,
     category: 'tops',
     brand: null,
-    color: null,
+    colors: null,
     quantity: 1,
     price: null,
     condition: 'good',
@@ -58,7 +58,7 @@ describe('wardrobeInsights', () => {
 
   it('a closet nobody wore: 0 % worn, no worn share, costs not divided', () => {
     const insights = wardrobeInsights(
-      [garment({ price: '10', color: 'red' })],
+      [garment({ price: '10', colors: ['red'] })],
       [],
       90,
     );

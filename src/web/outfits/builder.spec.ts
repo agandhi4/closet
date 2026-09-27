@@ -15,7 +15,7 @@ function garment(
     id,
     name: `Garment ${id}`,
     brand: null,
-    color: null,
+    colors: null,
     size: null,
     notes: null,
     status,

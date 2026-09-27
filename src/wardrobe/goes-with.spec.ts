@@ -9,7 +9,12 @@ import {
   outfitCount,
   PARTNERS_PER_ROLE,
 } from './goes-with';
-import type { Formality, GarmentRole, Pattern } from './properties';
+import type {
+  Formality,
+  GarmentColor,
+  GarmentRole,
+  Pattern,
+} from './properties';
 
 /**
  * "Goes with my closet" (#18b): the count and its bound, the item locked
@@ -24,7 +29,7 @@ let nextId = 1;
 function garment(
   role: GarmentRole,
   options: {
-    colors?: string[];
+    colors?: GarmentColor[];
     pattern?: Pattern | null;
     formality?: Formality | null;
     idleDays?: number | null;
@@ -41,7 +46,11 @@ function garment(
   };
 }
 
-function many(role: GarmentRole, n: number, colors = ['black']) {
+function many(
+  role: GarmentRole,
+  n: number,
+  colors: GarmentColor[] = ['black'],
+) {
   return Array.from({ length: n }, () => garment(role, { colors }));
 }
 
@@ -275,7 +284,7 @@ describe('nearDuplicates', () => {
     id: number,
     category: string,
     type: string | null,
-    colors: string[],
+    colors: GarmentColor[],
   ) => ({ id, category, type, colors });
   const item = lookalike(1, 'tops', 'sweater', ['grey', 'blue']);
 

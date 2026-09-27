@@ -162,6 +162,13 @@
       "when": 1790485942874,
       "tag": "0022_week_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790487390190,
+      "tag": "0023_garment_colors",
+      "breakpoints": true
     }
   ]
 }

@@ -25,7 +25,6 @@ import { matchGarment } from '../../weather/match';
 import type { IsoDate } from '../calendar/calendar-date';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
-import { splitColors } from '../wardrobe/garment';
 import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
 import { availableGarment, wearsSinceWashSql } from '../wears/queries';
 
@@ -47,7 +46,7 @@ const poolColumns = (today: IsoDate) => ({
   id: garment.id,
   name: garment.name,
   category: garment.category,
-  color: garment.color,
+  colors: garment.colors,
   pattern: garment.pattern,
   formality: garment.formality,
   warmth: garment.warmth,
@@ -78,7 +77,7 @@ function poolGarment(row: PoolRow): PoolGarment {
     category: row.category,
     photo: row.photo,
     role: categoryRole(row.category),
-    colors: splitColors(row.color),
+    colors: row.colors ?? [],
     pattern: row.pattern,
     formality: row.formality,
     weather: matchGarment(row),

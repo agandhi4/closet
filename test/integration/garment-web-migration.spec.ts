@@ -143,7 +143,7 @@ const garmentRows = (env: Record<string, string>) =>
   withClient(env, async (client) => {
     const { rows } = await client.query<Record<string, unknown>>(
       // to_char: node-postgres would parse a date into a local-time Date.
-      `select id, name, category, brand, size, notes, washing_details, color,
+      `select id, name, category, brand, size, notes, washing_details, colors,
               to_char(acquired_on, 'YYYY-MM-DD') as acquired_on
          from garment order by id`,
     );
@@ -205,17 +205,18 @@ describe('garments move to the web layer (0004_garment_web)', () => {
         size: null,
         notes: null,
         washing_details: null,
-        color: 'red,blue',
+        // 0004 joined them 'red,blue'; 0023_garment_colors made the set.
+        colors: ['red', 'blue'],
         acquired_on: '2024-03-15',
       },
       expect.objectContaining({
         id: ids[1],
-        color: null,
+        colors: null,
         acquired_on: '2026-03-08',
       }),
       expect.objectContaining({
         id: ids[2],
-        color: 'green',
+        colors: ['green'],
         acquired_on: '2028-02-29',
       }),
       expect.objectContaining({
@@ -238,7 +239,6 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       acquired_on: 'date',
       brand: 'text',
       category: 'text',
-      color: 'text',
       id: 'integer',
       name: 'text',
       notes: 'text',
@@ -272,6 +272,8 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       // 0014_garment_status: archived became status.
       status: 'text',
       replaces_garment_id: 'integer',
+      // 0023_garment_colors: the comma-joined color became a set.
+      colors: 'ARRAY',
     });
     expect(Object.keys(await columnsOf(env, 'user')).sort()).toEqual([
       'email',
