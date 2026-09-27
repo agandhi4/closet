@@ -3,11 +3,13 @@ import type { Db, Queryable } from '../../db/client';
 import { pendingPhoto } from '../../db/schema';
 
 /**
- * Link import's pending photos (issue #6): bytes stored when a link was
- * fetched, before the garment form is saved, and the `pending_photo` row
- * that explains them. The row names the user who fetched the photo; only
- * that user may claim it (the save, src/web/wardrobe/writes.ts) or discard
- * it (another pick). Reconciliation removes the ones left a day
+ * Pending photos: bytes stored before the garment form that will own them
+ * is saved, and the `pending_photo` row that explains them. Two sources
+ * store them (keepPendingPhoto, src/web/wardrobe/writes.ts): link import's
+ * fetched photo (issue #6) and the add sheet's camera or library upload
+ * (#97). The row names the user who stored the photo; only that user may
+ * claim it (the save, src/web/wardrobe/writes.ts) or discard it (another
+ * pick). Reconciliation removes the ones left a day
  * (src/maintenance/reconcile.ts), counted apart from its deletion guard:
  * an abandoned import is routine, not the database and the disk
  * disagreeing. Account deletion removes a user's with their photos.
@@ -73,6 +75,25 @@ export async function takePendingPhoto(
     )
     .returning({ fileName: pendingPhoto.fileName });
   return taken.length > 0;
+}
+
+/**
+ * Whether `fileName` is still `userId`'s pending photo: the new garment
+ * form started from an upload shows it only then (GET /wardrobe/new?photo=).
+ * Only a hint for the page; the save's claim is the check that counts.
+ */
+export async function isPendingPhotoOf(
+  db: Db,
+  fileName: string,
+  userId: number,
+): Promise<boolean> {
+  const rows = await db
+    .select({ fileName: pendingPhoto.fileName })
+    .from(pendingPhoto)
+    .where(
+      and(eq(pendingPhoto.fileName, fileName), eq(pendingPhoto.userId, userId)),
+    );
+  return rows.length > 0;
 }
 
 /** Deletes the pending rows created before `cutoff`; their names (reconciliation). */

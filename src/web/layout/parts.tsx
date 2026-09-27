@@ -56,6 +56,14 @@ export function CameraIcon(props: { class: string }) {
 }
 
 /**
+ * What a garment photo input offers (the garment page's photo sheet, the
+ * add sheet's camera and library): what Photos decodes, HEIC named by its
+ * extension too (some pickers send it as application/octet-stream).
+ */
+export const PHOTO_ACCEPT =
+  'image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif';
+
+/**
  * The `onchange` of a file input that uploads as soon as a photo is chosen
  * (the garment page's photo sheet, outfit selfies): the photo is prepared
  * on the phone first (photo-input.js: a 24 MP photo becomes a 1600 px JPEG

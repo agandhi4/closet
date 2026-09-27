@@ -294,6 +294,35 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // The add sheet's camera and library (#97): the wardrobe is checked
+    // before the body is read, so a refusal stores nothing (the snapshot
+    // includes DATA_PATH); a success stores the pending photo.
+    name: 'POST /wardrobe/new/photo',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: ['ownerId'],
+    request: async (_, q) => {
+      const body = await multipart(
+        {},
+        {
+          photo: {
+            data: photo,
+            filename: 'photo.jpg',
+            contentType: 'image/jpeg',
+          },
+        },
+      );
+      return { method: 'POST', url: `/wardrobe/new/photo${q}`, ...body };
+    },
+    expect: {
+      owner: 'ok',
+      manager: 'ok',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
+  {
     // Not `shows`: the card is the wardrobe's newest untagged garment, and
     // other cases add garments to the owner's wardrobe, so which one it is
     // depends on order. Refusals must still leak no name. Without ?ownerId
@@ -448,7 +477,7 @@ const ROUTES: Route[] = [
     // stores nothing; the snapshot includes DATA_PATH, which proves it.
     name: 'POST /wardrobe/:id/photo',
     kind: 'write',
-    ok: 200,
+    ok: 303,
     secret: garmentName,
     vias: BOTH,
     request: async (f, q) => {

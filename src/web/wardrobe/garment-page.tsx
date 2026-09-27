@@ -15,6 +15,7 @@ import {
   CameraIcon,
   HangerIcon,
   PhotoLibraryIcon,
+  PHOTO_ACCEPT,
   PREPARE_AND_SUBMIT_PHOTO,
   SavedToast,
   StripFlags,
@@ -78,9 +79,6 @@ export interface GarmentPageModel {
   justSavedPhoto: boolean;
   justBought: boolean;
 }
-
-const PHOTO_ACCEPT =
-  'image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif';
 
 const PHOTO_SHEET_ID = 'garment-photo-sheet';
 
@@ -726,11 +724,16 @@ function Replacement({ model }: { model: GarmentPageModel }) {
 /**
  * The photo sheet (the ⋯ menu's Photo): take one with the camera or choose
  * one from the library. Choosing uploads at once: the photo is prepared on
- * the phone (PREPARE_AND_SUBMIT_PHOTO), posted as multipart to POST
- * /wardrobe/:id/photo, and the answer's HX-Redirect reloads this page with
- * ?photoSaved=1, its cutout pending. The camera has an input of its own:
- * some Chrome/Android versions drop the Camera option from the library
- * input's chooser depending on its accept value (upstream issue 99).
+ * the phone (PREPARE_AND_SUBMIT_PHOTO), posted as a native multipart post
+ * to POST /wardrobe/:id/photo, and its 303 reloads this page with
+ * ?photoSaved=1, its cutout pending. Native, as the add sheet's and the
+ * selfies': a refused photo (too large, not an image) is the error page,
+ * where an htmx post dropped the 4xx and the sheet failed silently.
+ * "Uploading…" shows while one is submitting (submit-once marks it
+ * `data-submitting`; the modal box is the `group`). The camera has an
+ * input of its own: some Chrome/Android versions drop the Camera option
+ * from the library input's chooser depending on its accept value
+ * (upstream issue 99).
  */
 function PhotoSheet(props: {
   garment: GarmentDetail;
@@ -743,7 +746,7 @@ function PhotoSheet(props: {
       class="modal modal-bottom sm:modal-middle"
       aria-labelledby="garment-photo-sheet-title"
     >
-      <div class="modal-box flex flex-col gap-3 pb-8">
+      <div class="modal-box group flex flex-col gap-3 pb-8">
         <h2 id="garment-photo-sheet-title" class="font-bold text-lg">
           {t(
             props.garment.photo ? 'garment.CHANGE_PHOTO' : 'garment.ADD_PHOTO',
@@ -753,8 +756,7 @@ function PhotoSheet(props: {
         <PhotoSource action={action} source="camera" />
         <PhotoSource action={action} source="library" />
         <p
-          id="photo-uploading"
-          class="htmx-indicator flex items-center gap-2 text-sm"
+          class="hidden items-center gap-2 text-sm group-has-[form[data-submitting]]:flex"
           role="status"
         >
           <span class="loading loading-spinner loading-sm"></span>
@@ -780,19 +782,14 @@ function PhotoSheet(props: {
 /**
  * One way in to the sheet: a button-styled label over its file input
  * (`relative`: the sr-only input must not escape the sheet, see Gotchas),
- * in an htmx form of its own. Disabled offline (data-needs-network).
+ * in a form of its own, so an empty input never posts beside the chosen
+ * one. Disabled offline (needsNetwork).
  */
 function PhotoSource(props: { action: string; source: 'camera' | 'library' }) {
   const camera = props.source === 'camera';
   const Icon = camera ? CameraIcon : PhotoLibraryIcon;
   return (
-    <form
-      hx-post={props.action}
-      hx-encoding="multipart/form-data"
-      hx-indicator="#photo-uploading"
-      hx-swap="none"
-      data-needs-network=""
-    >
+    <PostForm action={props.action} multipart needsNetwork>
       <label
         class="relative btn btn-outline w-full justify-start gap-3"
         data-photo-source={props.source}
@@ -809,7 +806,7 @@ function PhotoSource(props: { action: string; source: 'camera' | 'library' }) {
           onchange={PREPARE_AND_SUBMIT_PHOTO}
         />
       </label>
-    </form>
+    </PostForm>
   );
 }
 

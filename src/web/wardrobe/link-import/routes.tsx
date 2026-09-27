@@ -12,7 +12,7 @@ import { resolveDestination } from '../destination';
 import { renderGarmentForm } from '../render-form';
 import { type Destination, LINK_IMPORT_PATH, LINK_PHOTO_PATH } from '../urls';
 import { DestinationQuery, OwnerQuery } from '../validation';
-import { discardLinkPhoto, type WardrobeDeps } from '../writes';
+import { discardPendingPhoto, type WardrobeDeps } from '../writes';
 import {
   fetchLinkPhoto,
   importLink,
@@ -230,7 +230,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           );
         }
       }
-      if (current) await discardLinkPhoto(writeDeps, current, userId);
+      if (current) await discardPendingPhoto(writeDeps, current, userId);
       logger.info(
         `Link photo choice by user ${userId}: ${photo ?? 'no photo'}${current ? ` instead of ${current}` : ''}`,
       );

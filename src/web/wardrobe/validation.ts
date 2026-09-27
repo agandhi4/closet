@@ -999,6 +999,17 @@ export const DestinationQuery = Type.Object({
 export type DestinationQuery = Static<typeof DestinationQuery>;
 
 /**
+ * GET /wardrobe/new: the destination, and `photo`, the pending photo an
+ * add-sheet upload stored (POST /wardrobe/new/photo redirects here with
+ * it). Navigation state: a name that is not the requester's pending photo
+ * opens the form without it, saying so; never a 400.
+ */
+export const NewGarmentQuery = Type.Object({
+  ...DestinationQuery.properties,
+  photo: Type.Optional(Type.String({ maxLength: 64 })),
+});
+
+/**
  * GET /wardrobe/properties-fragment: the form's category and property
  * fields, as the category input, a type chip or the weight sends them
  * (hx-include). Malformed values are a 400 like the form's own.

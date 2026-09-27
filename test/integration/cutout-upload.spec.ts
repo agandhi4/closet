@@ -88,6 +88,30 @@ describe('cutouts: upload, page and polling', () => {
     expectNoRawI18nKeys(res);
   });
 
+  it('answers a refused photo with the error page, storing nothing', async () => {
+    const id = await createGarment(t, { name: 'Refused photo shirt' });
+    const body = await multipart(
+      {},
+      {
+        photo: {
+          data: Buffer.from('plain words'),
+          filename: 'notes.txt',
+          contentType: 'text/plain',
+        },
+      },
+    );
+    const res = await t.inject({
+      method: 'POST',
+      url: `/wardrobe/${id}/photo`,
+      payload: body.payload,
+      headers: body.headers,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.headers['content-type']).toMatch(/^text\/html/);
+    expect(res.body).toContain('Wrong filetype');
+    expect((await garmentRow(t, id))!.photoId).toBeNull();
+  });
+
   it('swaps the cutout in once the queue has made it, and stops polling', async () => {
     const id = await createGarment(t, { name: 'Ready shirt' });
     await uploadPhoto(t, id, await jpegPhoto());
@@ -177,11 +201,12 @@ describe('cutouts: upload, page and polling', () => {
         {},
         Object.fromEntries(fields.map((field) => [field, parts[field]])),
       );
+      // Those pages hx-post, and wait for the HX-Redirect.
       const res = await t.inject({
         method: 'POST',
         url: `/wardrobe/${id}/photo`,
         payload: body.payload,
-        headers: body.headers,
+        headers: { ...body.headers, ...HX_FRAGMENT },
       });
       expect(res.statusCode).toBe(200);
       expect(res.headers['hx-redirect']).toBe(`/wardrobe/${id}?photoSaved=1`);

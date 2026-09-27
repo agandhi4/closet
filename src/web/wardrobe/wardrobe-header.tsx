@@ -1,7 +1,14 @@
 import type { Child } from 'hono/jsx';
+import { PostForm } from '../auth/form';
 import { t } from '../i18n';
 import { INSIGHTS_PATH } from '../insights/urls';
 import { AppBar } from '../layout/app-bar';
+import {
+  CameraIcon,
+  PHOTO_ACCEPT,
+  PhotoLibraryIcon,
+  PREPARE_AND_SUBMIT_PHOTO,
+} from '../layout/parts';
 import { PLANS_PATH, SHOPPING_PATH } from '../plans/urls';
 import type { SharedWardrobe } from '../sharing/access';
 import { PermissionBadge } from '../sharing/pages';
@@ -12,6 +19,7 @@ import {
   destinationParams,
   LAUNDRY_PATH,
   LINK_IMPORT_PATH,
+  PHOTO_ADD_PATH,
   wardrobeUrl,
   WISHLIST_PATH,
 } from './urls';
@@ -215,10 +223,9 @@ const TO_WISHLIST = destinationParams({ to: 'wishlist' });
 
 /**
  * The add sheet (plan: "+" in the Wardrobe header): a garment for the
- * closet or the wishlist, from a product link or entered by hand, and on
- * the owner's Capsules tab a new capsule. The Wishlist tab lists its own
- * first. The camera and photo library the plan names need a photo-first
- * add (the photo is added on the garment's page after it is saved today).
+ * closet from the camera, the photo library, a product link or entered by
+ * hand; for the wishlist from a link or by hand; and on the owner's
+ * Capsules tab a new capsule. The Wishlist tab lists its own first.
  */
 function AddSheet(props: {
   tab: WardrobeTab;
@@ -229,6 +236,8 @@ function AddSheet(props: {
   const { viewOwner } = props;
   const closet = (
     <AddGroup title={t('add.TO_CLOSET')}>
+      <PhotoItem source="camera" />
+      <PhotoItem source="library" />
       <AddItem
         href={wardrobeUrl(viewOwner, {}, LINK_IMPORT_PATH)}
         icon={LINK_ICON}
@@ -265,7 +274,7 @@ function AddSheet(props: {
       class="modal modal-bottom sm:modal-middle"
       aria-labelledby="add-sheet-title"
     >
-      <div class="modal-box flex flex-col gap-4">
+      <div class="modal-box group flex flex-col gap-4">
         <h2 id="add-sheet-title" class="font-bold text-lg">
           {t('add.TITLE')}
         </h2>
@@ -288,6 +297,7 @@ function AddSheet(props: {
               {wishlist}
             </>
           ))}
+        {props.canEdit && <PhotoForms viewOwner={viewOwner} />}
       </div>
       <form method="dialog" class="modal-backdrop">
         <button>{t('CLOSE')}</button>
@@ -302,6 +312,66 @@ function AddGroup(props: { title: string; children: Child }) {
       <h3 class="text-sm text-muted mb-1">{props.title}</h3>
       <ul class="menu w-full p-0">{props.children}</ul>
     </section>
+  );
+}
+
+/**
+ * The sheet's camera or library row: its file input's label, joined to its
+ * own form (PhotoForms) through the `form` attribute, since a form inside
+ * a daisyUI menu item loses the item's styling. Choosing a photo prepares
+ * it on the phone and submits (PREPARE_AND_SUBMIT_PHOTO). The camera has
+ * an input of its own, as on the garment page's photo sheet: some
+ * Chrome/Android versions drop the Camera option from a library input's
+ * chooser. `relative`: the sr-only input must not escape the sheet
+ * (Gotchas). Disabled offline (data-needs-network on the row).
+ */
+function PhotoItem(props: { source: 'camera' | 'library' }) {
+  const camera = props.source === 'camera';
+  const Icon = camera ? CameraIcon : PhotoLibraryIcon;
+  return (
+    <li data-needs-network="">
+      <label class="relative py-3 gap-3" data-photo-source={props.source}>
+        <Icon class="size-5" />
+        {t(camera ? 'garment.PHOTO_CAMERA' : 'garment.PHOTO_LIBRARY')}
+        <input
+          type="file"
+          name="photo"
+          form={photoFormId(props.source)}
+          accept={PHOTO_ACCEPT}
+          capture={camera ? 'environment' : undefined}
+          class="sr-only"
+          onchange={PREPARE_AND_SUBMIT_PHOTO}
+        />
+      </label>
+    </li>
+  );
+}
+
+function photoFormId(source: 'camera' | 'library'): string {
+  return `add-photo-${source}`;
+}
+
+/**
+ * The camera's and the library's forms, one each so an empty input never
+ * posts beside the chosen one: native multipart posts (PostForm) to POST
+ * /wardrobe/new/photo, answered with a 303 to the new garment form holding
+ * the photo. "Uploading…" shows while one is submitting (submit-once marks
+ * it `data-submitting`; the sheet is the `group`).
+ */
+function PhotoForms(props: { viewOwner: number | undefined }) {
+  const action = wardrobeUrl(props.viewOwner, {}, PHOTO_ADD_PATH);
+  return (
+    <>
+      <PostForm id={photoFormId('camera')} action={action} multipart />
+      <PostForm id={photoFormId('library')} action={action} multipart />
+      <p
+        class="hidden items-center gap-2 text-sm group-has-[form[data-submitting]]:flex"
+        role="status"
+      >
+        <span class="loading loading-spinner loading-sm"></span>
+        {t('garment.PHOTO_UPLOADING')}
+      </p>
+    </>
   );
 }
 

@@ -113,7 +113,7 @@ export async function updateEmail(
 }
 
 /**
- * Deletes the user, their File rows and their pending link photos' rows in
+ * Deletes the user, their File rows and their pending photos' rows in
  * one transaction and returns the stored names, which the caller unlinks
  * after commit: the database cascade
  * drops rows (garments, outfits, calendar entries, shares), never the photo

@@ -236,8 +236,9 @@ export class Photos {
 
   /**
    * The row to insert for a photo whose bytes are already stored but which
-   * has no row yet: a link import's fetched photo, held until its garment
-   * form is saved (createGarmentWithLinkPhoto, src/web/wardrobe/writes.ts).
+   * has no row yet: a pending photo (a link import's fetch, an add-sheet
+   * upload), held until its garment form is saved
+   * (createGarmentWithPendingPhoto, src/web/wardrobe/writes.ts).
    * Undefined when `fileName` is not a stored original's name or its bytes
    * are gone (reconciliation removes such photos after a day). Whether a
    * row already exists is the caller's check, under its lock.

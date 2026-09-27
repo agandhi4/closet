@@ -3,7 +3,10 @@ import { t } from '../../i18n';
 import { LINK_PHOTO_PATH, wardrobeUrl } from '../urls';
 import type { PhotoChoice } from './import';
 
-/** What a garment form prefilled from a link shows above its fields. */
+/**
+ * What a new garment form with a pending photo (from a link, or an upload)
+ * shows above its fields.
+ */
 export interface LinkImportView {
   /** The pending photo's stored name (the hidden `linkPhoto`), if any. */
   photo: string | undefined;
@@ -13,8 +16,12 @@ export interface LinkImportView {
   notices: string[];
 }
 
-/** A refused save's form: the photo it posted kept, nothing else to say. */
-export function keptLinkPhoto(photo: string | undefined): LinkImportView {
+/**
+ * A form with a pending photo and nothing else to say: a refused save's
+ * (the photo it posted kept), or one started from an upload (the add
+ * sheet's camera or library, GET /wardrobe/new?photo=).
+ */
+export function pendingPhotoView(photo: string | undefined): LinkImportView {
   return { photo, choices: [], notices: [] };
 }
 
@@ -61,12 +68,12 @@ export function LinkPhotoSlot(props: { photo?: string; errors?: string[] }) {
           <input type="hidden" name="linkPhoto" value={photo} />
           <img
             src={imageUrl({ fileName: photo }, 'thumb')}
-            alt={t('linkImport.PHOTO_ALT')}
+            alt={t('add.PHOTO_ALT')}
             width="112"
             height="112"
             class="w-28 h-28 object-contain rounded-box bg-base-200"
           />
-          <p class="text-sm text-muted">{t('linkImport.PHOTO_CUTOUT_HINT')}</p>
+          <p class="text-sm text-muted">{t('add.PHOTO_CUTOUT_HINT')}</p>
         </>
       )}
       {props.errors?.map((message) => (

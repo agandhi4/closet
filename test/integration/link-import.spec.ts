@@ -382,7 +382,7 @@ describe('adding a garment from a link', () => {
         again = await save({ name: 'Twice', linkPhoto: photo }, { cookie });
       });
       expect(again.statusCode).toBe(400);
-      expect(again.body).toContain(text('linkImport.PHOTO_GONE'));
+      expect(again.body).toContain(text('add.PHOTO_GONE'));
       expect(linkPhotoIn(again.body)).toBeUndefined();
       expect(again.body).toContain('value="Twice"');
     });
@@ -400,7 +400,7 @@ describe('adding a garment from a link', () => {
         await expectNothingWritten(async () => {
           const res = await save({ name: 'Borrowed', linkPhoto }, { cookie });
           expect(res.statusCode).toBe(400);
-          expect(res.body).toContain(text('linkImport.PHOTO_GONE'));
+          expect(res.body).toContain(text('add.PHOTO_GONE'));
         });
       }
       expect(await storedOriginals()).toContain(saved);
@@ -443,7 +443,7 @@ describe('adding a garment from a link', () => {
           { cookie: other.cookie },
         );
         expect(claim.statusCode).toBe(400);
-        expect(claim.body).toContain(text('linkImport.PHOTO_GONE'));
+        expect(claim.body).toContain(text('add.PHOTO_GONE'));
       });
       const discard = await t.inject({
         method: 'POST',

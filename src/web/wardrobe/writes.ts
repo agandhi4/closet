@@ -6,7 +6,11 @@ import {
 import type { Db, Queryable } from '../../db/client';
 import { HttpError } from '../errors';
 import { parseStoredName } from '../files/image-variant';
-import { takePendingPhoto } from '../files/pending-photos';
+import {
+  MAX_PENDING_PER_USER,
+  recordPendingPhoto,
+  takePendingPhoto,
+} from '../files/pending-photos';
 import type { Photos } from '../files/photos';
 import {
   insertPhotoRow,
@@ -91,20 +95,68 @@ export function createGarment(
 }
 
 /**
- * A new garment whose photo came from a link (link import, #6). The photo's
- * bytes were stored when the link was fetched, with a `pending_photo` row
- * naming who fetched it (src/web/files/pending-photos.ts); the form carries
- * the name as its hidden `linkPhoto`. Here, in one transaction, the pending
- * row goes, the `file` row is inserted (queued for its cutout) and the
- * garment with it, so nothing reaches `garment` or `file` until the form is
- * saved.
+ * Keeps `fileName`, just stored by this request, as `userId`'s pending
+ * photo (src/web/files/pending-photos.ts): its row, which evicts their
+ * oldest past MAX_PENDING_PER_USER, bytes included. The one way a pending
+ * photo is kept, whichever source stored it (link import's fetch, the add
+ * sheet's upload). The bytes are this request's own, so a failed row insert
+ * deletes them.
+ */
+export async function keepPendingPhoto(
+  { db, photos, logger }: Pick<WardrobeDeps, 'db' | 'photos' | 'logger'>,
+  fileName: string,
+  userId: number,
+): Promise<void> {
+  let evicted: string[];
+  try {
+    evicted = await recordPendingPhoto(db, fileName, userId);
+  } catch (error) {
+    await photos.deleteVariants(fileName);
+    throw error;
+  }
+  for (const name of evicted) await photos.deleteVariants(name);
+  if (evicted.length > 0) {
+    logger.info(
+      `User ${userId} is over ${MAX_PENDING_PER_USER} pending photos: evicted ${evicted.join(', ')}`,
+    );
+  }
+}
+
+/**
+ * POST /wardrobe/new/photo (the add sheet's camera and library, #97): the
+ * multipart photo stored as storeUploadParts stores any garment photo, kept
+ * as `userId`'s pending photo for the new garment form to claim. Its name;
+ * a 400 without a photo.
+ */
+export async function stagePhotoUpload(
+  deps: Pick<WardrobeDeps, 'db' | 'photos' | 'logger'>,
+  parts: AsyncIterable<MultipartFile>,
+  userId: number,
+): Promise<string> {
+  const photo = await deps.photos.storeUploadParts(parts, userId);
+  if (!photo) throw new HttpError(400, 'No file uploaded');
+  await keepPendingPhoto(deps, photo.fileName, userId);
+  deps.logger.info(
+    `Photo ${photo.fileName} uploaded by user ${userId}, pending its garment form`,
+  );
+  return photo.fileName;
+}
+
+/**
+ * A new garment whose photo was stored before its form was saved: a
+ * pending photo (keepPendingPhoto), fetched from a link or uploaded from
+ * the add sheet. The form carries the name as its hidden `linkPhoto` (the
+ * field's name since link import; cached forms still post it). Here, in
+ * one transaction, the pending row goes, the `file` row is inserted (queued
+ * for its cutout) and the garment with it, so nothing reaches `garment` or
+ * `file` until the form is saved.
  *
  * Undefined when `userId` cannot claim the name: no pending row of theirs
- * (someone else's import, or claimed, discarded, evicted or reconciled
- * already), its bytes gone, or already a `file` row. Nothing is written
- * then, and no bytes are ever deleted here: the name came from the client.
+ * (someone else's, or claimed, discarded, evicted or reconciled already),
+ * its bytes gone, or already a `file` row. Nothing is written then, and no
+ * bytes are ever deleted here: the name came from the client.
  */
-export async function createGarmentWithLinkPhoto(
+export async function createGarmentWithPendingPhoto(
   { db, photos, logger, cutouts }: WardrobeDeps,
   ownerId: number,
   userId: number,
@@ -130,26 +182,26 @@ export async function createGarmentWithLinkPhoto(
   });
   if (id === undefined) {
     logger.warn(
-      `Link photo ${fileName} could not be claimed by user ${userId}`,
+      `Pending photo ${fileName} could not be claimed by user ${userId}`,
     );
     return undefined;
   }
   logger.info(
-    `Garment ${id} photo ${fileName} (from a link) queued for background removal`,
+    `Garment ${id} photo ${fileName} (a pending photo) queued for background removal`,
   );
   cutouts.wake();
   return id;
 }
 
 /**
- * Deletes a pending link photo the form no longer shows (another photo was
- * picked, or none). False, deleting nothing, unless `userId` fetched it and
+ * Deletes a pending photo the form no longer shows (link import: another
+ * photo was picked, or none). False, deleting nothing, unless `userId` fetched it and
  * it is still pending (no `file` row): only an import of theirs that no
  * garment was saved with goes. Under the name's lock, so a save claiming it
  * at the same moment either wins (nothing is deleted) or finds it gone. The
  * bytes go after the commit.
  */
-export async function discardLinkPhoto(
+export async function discardPendingPhoto(
   { db, photos, logger }: WardrobeDeps,
   fileName: string,
   userId: number,
@@ -162,12 +214,12 @@ export async function discardLinkPhoto(
   });
   if (!discarded) {
     logger.warn(
-      `Link photo ${fileName} not discarded: not pending for user ${userId}`,
+      `Pending photo ${fileName} not discarded: not pending for user ${userId}`,
     );
     return false;
   }
   await photos.deleteVariants(fileName);
-  logger.info(`Discarded link photo ${fileName} of user ${userId}`);
+  logger.info(`Discarded pending photo ${fileName} of user ${userId}`);
   return true;
 }
 

@@ -72,7 +72,11 @@ export interface GarmentFormModel {
   /** The shared wardrobe the form was opened in; undefined for one's own. */
   viewOwner: number | undefined;
   errors?: FieldErrors<GarmentField>;
-  /** A new garment's form prefilled from a link (link-import/routes.tsx). */
+  /**
+   * A new garment form with a pending photo: prefilled from a link
+   * (link-import/routes.tsx), or started from an upload (GET
+   * /wardrobe/new?photo=).
+   */
   link?: LinkImportView;
   /** A wishlist form's "Replaces" choices (renderGarmentForm reads them). */
   replaceable?: ReplaceableGarment[];

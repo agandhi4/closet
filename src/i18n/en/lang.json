@@ -471,7 +471,10 @@
     "TO_CLOSET": "To the closet",
     "TO_WISHLIST": "To the wishlist",
     "FROM_LINK": "From a link",
-    "BY_HAND": "Enter details"
+    "BY_HAND": "Enter details",
+    "PHOTO_ALT": "The garment's photo",
+    "PHOTO_CUTOUT_HINT": "The background is removed once you save.",
+    "PHOTO_GONE": "That photo is no longer available. Save without it and add a photo on the garment page, or add it again."
   },
   "NEW_CAPSULE": "New capsule",
   "EDIT_CAPSULE": "Edit capsule",
@@ -530,8 +533,6 @@
     "NO_PHOTO": "No photo could be fetched from the page. Add one after saving.",
     "PHOTO_ONLY": "Photo added from the link. Fill in the details.",
     "PRICE_CURRENCY": "The page's price is in {currency}; enter what you paid in dollars.",
-    "PHOTO_ALT": "The photo from the link",
-    "PHOTO_CUTOUT_HINT": "The background is removed once you save.",
     "CHOOSE_PHOTO": "Or choose another photo",
     "CHOICE_ALT": "Photo {number} from the page",
     "NO_PHOTO_CHOICE": "No photo",

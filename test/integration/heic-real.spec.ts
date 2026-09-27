@@ -42,7 +42,7 @@ describe('a real HEIC upload', () => {
       payload: body.payload,
       headers: body.headers,
     });
-    expect(res.statusCode).toBeLessThan(300);
+    expect(res.statusCode).toBe(303);
 
     const garment = (await garmentRow(t, garmentId))!;
     const name = garment.photo!.fileName;

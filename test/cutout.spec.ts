@@ -74,3 +74,33 @@ test('an uploaded photo shows "Removing background", then its cutout, which the 
   );
   expect(cspViolations).toEqual([]);
 });
+
+/**
+ * A photo the server refuses is shown, not swallowed: the sheet posts
+ * natively, so the refusal is the error page. It used to be an htmx post,
+ * whose 4xx htmx dropped: the sheet sat there as if nothing had happened.
+ */
+test.describe('at phone width', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('a file that is not a photo shows the refusal', async ({ page }) => {
+    await signIn(page, 'cutout-refused');
+    const created = await page.request.post('/wardrobe', {
+      form: { name: 'Refused shirt', category: 'shirt' },
+      headers: SAME_ORIGIN,
+    });
+    expect(created.ok()).toBe(true);
+    const garmentId = new URL(created.url()).pathname.split('/').pop();
+
+    await page.goto(`/wardrobe/${garmentId}`);
+    await openPhotoSheet(page);
+    await page.locator('#photoInput').setInputFiles({
+      name: 'notes.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('not a photo'),
+    });
+
+    await expect(page.getByText('Wrong filetype')).toBeVisible();
+    await expect(page.locator('.app-bar')).toContainText('Error 400');
+  });
+});

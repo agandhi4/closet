@@ -168,11 +168,16 @@ describe('the garment page', () => {
   it('takes the photo in a sheet: the camera and the library, each its own upload', async () => {
     const html = await page(boots);
     const sheet = sectionOf(html, 'garment-photo-sheet', 'dialog');
-    const forms = sheet.match(/<form hx-post="[^"]*"/g) ?? [];
-    expect(forms).toEqual([
-      `<form hx-post="/wardrobe/${boots}/photo"`,
-      `<form hx-post="/wardrobe/${boots}/photo"`,
-    ]);
+    // Native multipart posts, so a refused photo is shown (htmx drops a 4xx).
+    const forms = sheet.match(/<form method="post"[^>]*>/g) ?? [];
+    expect(forms).toHaveLength(2);
+    for (const form of forms) {
+      expect(form).toContain(
+        `method="post" action="/wardrobe/${boots}/photo" enctype="multipart/form-data"`,
+      );
+      expect(form).toContain('data-needs-network=""');
+      expect(form).not.toContain('hx-post');
+    }
     expect(sheet).toMatch(
       /id="photoCaptureInput" name="photo"[^>]*capture="environment"/,
     );

@@ -123,11 +123,9 @@ export async function uploadPhoto(
     payload: body.payload,
     headers: { ...body.headers, ...(cookie ? { cookie } : {}) },
   });
-  // The redirect header is the contract the form relies on.
-  expect(res.statusCode).toBeLessThan(300);
-  expect(res.headers['hx-redirect']).toBe(
-    `/wardrobe/${garmentId}?photoSaved=1`,
-  );
+  // The photo sheet's native post lands on the garment, its photo saved.
+  expect(res.statusCode).toBe(303);
+  expect(res.headers.location).toBe(`/wardrobe/${garmentId}?photoSaved=1`);
 }
 
 /** The `file` row of a stored photo, undefined when there is none. */

@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { expect, type Page, test } from '@playwright/test';
+import sharp from 'sharp';
 import { addDays } from '../src/web/calendar/calendar-date';
 import { signUpHeaders } from './support/e2e-session';
 import { openGarmentMenu, openPhotoSheet } from './support/garment-page';
@@ -501,3 +502,56 @@ test('demo: Theo, outfit selfies (#19)', async ({ page }) => {
   await shot(page, '60-demo-outfit-worn', `/outfits/${outfit}`);
   await expect(page.locator('[data-worn-strip] img').first()).toBeVisible();
 });
+
+// Adding from a photo (#97): the add sheet's camera, the new garment form
+// holding the photo, and the garment it saves with its cutout under way.
+// Last in the file, in both themes: saving adds a garment to Theo's
+// wardrobe, which no earlier shot may show.
+for (const colorScheme of ['light', 'dark'] as const) {
+  test.describe(`add from a photo, ${colorScheme}`, () => {
+    test.use({ colorScheme });
+    const suffix = colorScheme === 'dark' ? '-dark' : '';
+
+    test(`demo: Theo adds a garment from a photo (${colorScheme})`, async ({
+      page,
+    }) => {
+      await signInAs(page, 'demo');
+      await page.goto('/wardrobe');
+      await page.getByRole('button', { name: 'Add' }).click();
+      const [chooser] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.locator('#add-sheet [data-photo-source="camera"]').click(),
+      ]);
+      await chooser.setFiles({
+        name: 'IMG_0042.jpg',
+        mimeType: 'image/jpeg',
+        buffer: await sharp({
+          create: {
+            width: 900,
+            height: 1200,
+            channels: 3,
+            background: '#6b4f3a',
+          },
+        })
+          .jpeg()
+          .toBuffer(),
+      });
+      await expect(page).toHaveURL(/\/wardrobe\/new\?photo=/);
+      await expect(page.locator('#link-photo img')).toBeVisible();
+      await shot(page, `75-demo-add-from-photo${suffix}`);
+      await page.locator('input[name="name"]').fill('Suede overshirt');
+      await page.locator('#garment-category').fill('jacket');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(page.locator('#garment-photo-status')).toHaveText(
+        /Removing background/,
+      );
+      // At once, not through shot(): waiting for the network to settle
+      // could outlast the stub's 3 s, and this shot is the cutout pending.
+      await page.screenshot({
+        path: `${DIR}/76-demo-add-from-photo-saved${suffix}.png`,
+        fullPage: true,
+        animations: 'disabled',
+      });
+    });
+  });
+}

@@ -131,7 +131,7 @@ export function PostForm(props: {
   id?: string;
   /** Disabled while offline (data-needs-network, public/js/connectivity.js). */
   needsNetwork?: boolean;
-  /** Posts a file (multipart/form-data): the outfit selfie's photo. */
+  /** Posts a file (multipart/form-data): selfies, garment photos, the add sheet. */
   multipart?: boolean;
   children?: Child;
 }) {

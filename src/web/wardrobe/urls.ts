@@ -10,6 +10,12 @@ export const LINK_IMPORT_PATH = '/wardrobe/new/from-link';
 /** Picking another of the page's photos on the prefilled form. */
 export const LINK_PHOTO_PATH = `${LINK_IMPORT_PATH}/photo`;
 
+/**
+ * The add sheet's camera and library (#97): the photo is stored as a
+ * pending photo, then the new garment form opens with it.
+ */
+export const PHOTO_ADD_PATH = '/wardrobe/new/photo';
+
 /** The Wardrobe's Wishlist tab (src/web/wishlist); under /wardrobe, so the dock marks it. */
 export const WISHLIST_PATH = '/wardrobe/wishlist';
 

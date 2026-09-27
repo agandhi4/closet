@@ -16,8 +16,8 @@ import {
 } from '../../wardrobe/validation';
 import {
   createGarment,
-  createGarmentWithLinkPhoto,
-  discardLinkPhoto,
+  createGarmentWithPendingPhoto,
+  discardPendingPhoto,
   type WardrobeDeps,
   type WithGarment,
 } from '../../wardrobe/writes';
@@ -51,7 +51,7 @@ export interface LinkSaveOptions {
  * caller's overrides replace fields (a new category or type brings its
  * presets, as the form's chips do); then the form's own post goes through
  * readGarmentForm and the save that claims the photo
- * (createGarmentWithLinkPhoto). A refused form discards the photo it
+ * (createGarmentWithPendingPhoto). A refused form discards the photo it
  * fetched. The photo choices the page would offer are not: the first is
  * kept, and the garment page changes it.
  *
@@ -95,14 +95,14 @@ export async function addGarmentFromLink(
   const posted = formPost(withOverrides(form.values, overrides));
   const read = readGarmentForm(posted);
   if (!read.ok) {
-    if (photo) await discardLinkPhoto(deps, photo, ctx.userId);
+    if (photo) await discardPendingPhoto(deps, photo, ctx.userId);
     const messages = Object.entries(read.errors).map(
       ([field, errors]) => `${field}: ${errors?.join(' ')}`,
     );
     throw new HttpError(400, messages.join('; '));
   }
   const id = photo
-    ? await createGarmentWithLinkPhoto(
+    ? await createGarmentWithPendingPhoto(
         deps,
         ownerId,
         ctx.userId,

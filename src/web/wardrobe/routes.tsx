@@ -20,6 +20,7 @@ import { AutosaveSaved } from '../autosave';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
+import { isPendingPhotoOf } from '../files/pending-photos';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import {
@@ -46,7 +47,7 @@ import {
   type GarmentPageModel,
   GarmentPhotoView,
 } from './garment-page';
-import { keptLinkPhoto } from './link-import/photo-choice';
+import { pendingPhotoView } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
 import {
   bulkSetProperty,
@@ -81,17 +82,17 @@ import {
   TagPage,
   TagSaved,
 } from './tag-page';
-import { garmentUrl, wardrobeUrl, WISHLIST_PATH } from './urls';
+import { garmentUrl, PHOTO_ADD_PATH, wardrobeUrl, WISHLIST_PATH } from './urls';
 import {
   BulkBody,
   ConditionBody,
-  DestinationQuery,
   formValues,
   GarmentBody,
   type GarmentField,
   GarmentPageQuery,
   GarmentParams,
   GridQuery,
+  NewGarmentQuery,
   OwnerQuery,
   pick,
   PropertiesFragmentQuery,
@@ -116,9 +117,10 @@ import {
 import {
   cloneGarment,
   createGarment,
-  createGarmentWithLinkPhoto,
+  createGarmentWithPendingPhoto,
   removeGarment,
   replacePhoto,
+  stagePhotoUpload,
   type WardrobeDeps,
 } from './writes';
 
@@ -422,10 +424,13 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // The new garment form: the closet's, or the wishlist's (`?to=wishlist`,
   // prefilled from the garment it replaces with `&replaces=`, a candidate
-  // for a plan item of the owner's with `&planItem=`).
+  // for a plan item of the owner's with `&planItem=`). `?photo=` is an
+  // add-sheet upload's pending photo, shown only while it is still the
+  // requester's (the save's claim is the real check); otherwise the form
+  // says it is gone (a back navigation after saving lands here).
   app.get(
     '/wardrobe/new',
-    { schema: { querystring: DestinationQuery } },
+    { schema: { querystring: NewGarmentQuery } },
     async (request, reply) => {
       const { access, viewOwner } = await resolve(
         options,
@@ -438,13 +443,51 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query,
         access,
       );
+      const { photo } = request.query;
+      const pending = photo
+        ? await isPendingPhotoOf(db, photo, sessionUserId(request))
+        : false;
       return renderGarmentForm(reply, db, {
         mode: { kind: 'new', destination },
         suggestionsFrom: access.ownerId,
         viewOwner,
         values: destinationValues(destination, replaced),
+        link: photo ? pendingPhotoView(pending ? photo : undefined) : undefined,
+        errors:
+          photo && !pending ? { linkPhoto: [t('add.PHOTO_GONE')] } : undefined,
         candidateFor,
       });
+    },
+  );
+
+  // The add sheet's camera and library (#97): the photo, stored as the
+  // requester's pending photo (stagePhotoUpload: the upload path every
+  // garment photo takes, then the pending row), and a 303 to the new
+  // garment form carrying it, whose save claims it and queues its cutout.
+  // Adding is a write: the wardrobe is checked before the body is read, so
+  // a refused upload stores nothing. A native post (PostForm): a refused
+  // photo is the error page, which htmx would not swap.
+  app.post(
+    PHOTO_ADD_PATH,
+    { schema: { querystring: OwnerQuery } },
+    async (request, reply) => {
+      const { viewOwner } = await resolve(
+        options,
+        request,
+        request.query.ownerId,
+        'manage',
+      );
+      // Parts past the first photo are drained unread (storeUploadParts),
+      // never an error mid-stream that could strand the photo's bytes.
+      const photo = await stagePhotoUpload(
+        deps,
+        request.files(),
+        sessionUserId(request),
+      );
+      return reply.redirect(
+        wardrobeUrl(viewOwner, { photo }, '/wardrobe/new'),
+        303,
+      );
     },
   );
 
@@ -467,9 +510,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // A new garment. A form prefilled from a link also posts `linkPhoto`, the
-  // photo fetched with it (stored, no row yet), which is claimed here with
-  // the garment (createGarmentWithLinkPhoto); a refused form keeps it.
+  // A new garment. A form holding a pending photo (prefilled from a link, or
+  // started from an add-sheet upload) also posts it as `linkPhoto` (stored,
+  // no row yet), which is claimed here with the garment
+  // (createGarmentWithPendingPhoto); a refused form keeps it.
   app.post(
     '/wardrobe',
     { schema: { querystring: OwnerQuery, body: GarmentBody } },
@@ -490,7 +534,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         mode: { kind: 'new', destination },
         suggestionsFrom: access.ownerId,
         viewOwner,
-        link: linkPhoto ? keptLinkPhoto(linkPhoto) : undefined,
+        link: linkPhoto ? pendingPhotoView(linkPhoto) : undefined,
         candidateFor,
       } as const;
       const form = readGarmentForm(request.body);
@@ -502,7 +546,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         });
       }
       const id = linkPhoto
-        ? await createGarmentWithLinkPhoto(
+        ? await createGarmentWithPendingPhoto(
             deps,
             access.ownerId,
             sessionUserId(request),
@@ -521,9 +565,9 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (id === undefined) {
         return refuseForm(reply, {
           ...again,
-          link: keptLinkPhoto(undefined),
+          link: pendingPhotoView(undefined),
           values: formValues(request.body),
-          errors: { linkPhoto: [t('linkImport.PHOTO_GONE')] },
+          errors: { linkPhoto: [t('add.PHOTO_GONE')] },
         });
       }
       logger.info(
@@ -999,11 +1043,13 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // htmx (hx-post, multipart): the photo; its cutout is queued. The garment
-  // is checked before the body is read, so a refused upload stores nothing.
-  // Two files: pages cached before server-side removal also send the
-  // browser's cutout (nobgPhoto), which storeUploadParts drains and ignores;
-  // a third file would be a 413.
+  // The photo sheet's native multipart post: the photo; its cutout is
+  // queued; 303 to the garment. The garment is checked before the body is
+  // read, so a refused upload stores nothing, and a refusal is the error
+  // page (htmx dropped it). Pages cached before 2026-09-27 still hx-post:
+  // they get the HX-Redirect they wait for. Two files: pages cached before
+  // server-side removal also send the browser's cutout (nobgPhoto), which
+  // storeUploadParts drains and ignores; a third file would be a 413.
   app.post(
     '/wardrobe/:id/photo',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
@@ -1022,10 +1068,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         access.ownerId,
         request.files({ limits: { files: 2 } }),
       );
-      return reply
-        .header('HX-Redirect', garmentUrl(id, viewOwner, '', { photoSaved: 1 }))
-        .status(200)
-        .send();
+      const saved = garmentUrl(id, viewOwner, '', { photoSaved: 1 });
+      if (request.headers['hx-request']) {
+        return reply.header('HX-Redirect', saved).status(200).send();
+      }
+      return reply.redirect(saved, 303);
     },
   );
 

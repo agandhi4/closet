@@ -1,10 +1,6 @@
 import { Readable } from 'node:stream';
 import type { Db } from '../../../db/client';
 import { HttpError } from '../../errors';
-import {
-  MAX_PENDING_PER_USER,
-  recordPendingPhoto,
-} from '../../files/pending-photos';
 import type { ImageSource, Photos } from '../../files/photos';
 import type { StringKey } from '../../i18n';
 import type { Logger } from '../../../logger';
@@ -14,6 +10,7 @@ import {
   OutboundFetchError,
   type OutboundFetchRefusal,
 } from '../../security/outbound-fetch';
+import { keepPendingPhoto } from '../writes';
 import { type ExtractedProduct, extractProduct } from './extract';
 
 /**
@@ -23,7 +20,7 @@ import { type ExtractedProduct, extractProduct } from './extract';
  * the garment form needs. Nothing here writes a `garment` or `file` row. A
  * photo it keeps is a pending photo: bytes plus a `pending_photo` row bound
  * to the user who fetched it (src/web/files/pending-photos.ts), which the
- * form's save claims (createGarmentWithLinkPhoto, ../writes.ts) or
+ * form's save claims (createGarmentWithPendingPhoto, ../writes.ts) or
  * reconciliation removes a day later.
  *
  * Memory: one import holds up to MAX_PHOTO_CHOICES images of up to 15 MB
@@ -212,19 +209,20 @@ async function fetchOrRefuse(
 }
 
 /**
- * Stores the image as `userId`'s pending photo: the bytes, then its
- * `pending_photo` row, which evicts their oldest past
- * MAX_PENDING_PER_USER (those bytes go here too). The bytes are this
- * request's own, so a failed row insert deletes them.
+ * Stores the image as `userId`'s pending photo (keepPendingPhoto: the row,
+ * the per-user cap).
  */
 async function storePhoto(
-  { db, photos, logger }: LinkImportDeps,
+  deps: LinkImportDeps,
   resource: FetchedResource,
   userId: number,
 ): Promise<string> {
   let fileName: string;
   try {
-    ({ fileName } = await photos.storeImage(imageSource(resource), userId));
+    ({ fileName } = await deps.photos.storeImage(
+      imageSource(resource),
+      userId,
+    ));
   } catch (error) {
     // Photos' refusals of the bytes themselves (unreadable, too many pixels).
     if (error instanceof HttpError && error.statusCode < 500) {
@@ -232,19 +230,7 @@ async function storePhoto(
     }
     throw error;
   }
-  let evicted: string[];
-  try {
-    evicted = await recordPendingPhoto(db, fileName, userId);
-  } catch (error) {
-    await photos.deleteVariants(fileName);
-    throw error;
-  }
-  for (const name of evicted) await photos.deleteVariants(name);
-  if (evicted.length > 0) {
-    logger.info(
-      `User ${userId} is over ${MAX_PENDING_PER_USER} pending link photos: evicted ${evicted.join(', ')}`,
-    );
-  }
+  await keepPendingPhoto(deps, fileName, userId);
   return fileName;
 }
 
