@@ -34,6 +34,7 @@ import {
 import { USER_EMAIL_UNIQUE } from '../../db/schema';
 import { isUniqueViolation } from '../../db/errors';
 import { sessionUserId } from './require-session';
+import { findWeekTemplate } from '../week-plan/template';
 import { endSession, setSessionCookie } from './session';
 import {
   ChangePasswordBody,
@@ -53,6 +54,8 @@ const PROFILE_PATH = '/auth/profile';
 
 const ProfileQuery = Type.Object({
   passwordChanged: Type.Optional(Type.String()),
+  // The week template's saved toast (#16, src/web/week-plan).
+  weekSaved: Type.Optional(Type.String()),
 });
 
 /**
@@ -206,6 +209,10 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         <ProfilePage
           ctx={viewContext(reply)}
           passwordChanged={request.query.passwordChanged === '1'}
+          week={{
+            slots: await findWeekTemplate(db, sessionUserId(request)),
+            saved: request.query.weekSaved === '1',
+          }}
           weather={
             weather && {
               settings: await findWeatherSettings(db, sessionUserId(request)),

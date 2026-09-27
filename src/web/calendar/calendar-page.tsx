@@ -10,6 +10,12 @@ import { WeatherDaySlot, WeatherSlot } from '../weather/views';
 import type { CalendarDayView, CalendarView, MonthLink } from './calendar-view';
 import { DAY_LETTERS, DAY_NAMES, MONTH_NAMES } from './labels';
 import { OccasionRow } from './occasion-row';
+import type { PlannedBanner } from '../week-plan/plan';
+import {
+  PlannedWeekBanner,
+  PlanWeekForm,
+  UndoneToast,
+} from '../week-plan/views';
 
 /**
  * GET /calendar: the mini month, then one column per day of the week (Sunday
@@ -17,7 +23,9 @@ import { OccasionRow } from './occasion-row';
  * selfies kept after their outfit was deleted (DayLooks, #19), and a link
  * to plan one more (the plan page, GET /calendar/plan). Today's
  * weather heads the page and each day within the forecast gets its chip
- * (#14; both loaded after the page, src/web/weather/views.tsx).
+ * (#14; both loaded after the page, src/web/weather/views.tsx). "Plan my
+ * week" (#16) sits above the week; after it, the banner says what it
+ * planned, with Undo.
  * Responsive grid: 1 col, 2 cols from 400px, 4 at lg, all 8 in a row at 2xl.
  */
 export function CalendarPage(props: {
@@ -25,6 +33,10 @@ export function CalendarPage(props: {
   view: CalendarView;
   /** The gallery's pick found its outfit already saved (?alreadySaved=1). */
   alreadySaved?: boolean;
+  /** After "Plan my week" (#16, ?planned=). */
+  banner?: PlannedBanner;
+  /** After its Undo (?undone=N): the entries removed. */
+  undone?: number;
 }) {
   const { ctx, view } = props;
   return (
@@ -38,6 +50,8 @@ export function CalendarPage(props: {
             to: view.days[view.days.length - 1].date,
           }}
         />
+        {props.banner && <PlannedWeekBanner banner={props.banner} />}
+        <PlanWeekForm class="mb-3" small />
         <div
           id="week-grid"
           class="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8 gap-3"
@@ -49,6 +63,7 @@ export function CalendarPage(props: {
         </div>
       </main>
       <AlreadySavedToast shown={props.alreadySaved === true} />
+      <UndoneToast removed={props.undone} />
       <Dock ctx={ctx} />
     </Layout>
   );

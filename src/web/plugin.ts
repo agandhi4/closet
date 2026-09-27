@@ -28,6 +28,7 @@ import { wardrobeRoutes } from './wardrobe/routes';
 import type { WeatherService } from './weather/service';
 import { weatherRoutes } from './weather/routes';
 import { wearRoutes } from './wears/routes';
+import { weekPlanRoutes } from './week-plan/routes';
 import { wishlistRoutes } from './wishlist/routes';
 
 /** Config the routes read, resolved once by createApp(). */
@@ -114,6 +115,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(wearRoutes, options);
   await app.register(calendarRoutes, options);
   await app.register(selfieRoutes, options);
+  await app.register(weekPlanRoutes, options);
   await app.register(outfitRoutes, options);
   await app.register(galleryRoutes, options);
   await app.register(authRoutes, options);

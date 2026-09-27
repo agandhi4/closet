@@ -1,6 +1,5 @@
 import { type Static, Type } from '@sinclair/typebox';
 import { QUANTITY_MAX } from '../../wardrobe/availability';
-import { type Occasion, OCCASIONS } from '../../wardrobe/occasions';
 import { PLAN_PRIORITIES, type PlanPriority } from '../../wardrobe/plans';
 import {
   findType,
@@ -17,9 +16,6 @@ import {
 import {
   type BudgetBand,
   BUDGET_BANDS,
-  RHYTHM_PERIODS,
-  RHYTHM_TIMES_MAX,
-  type RhythmPeriod,
   type Style,
   STYLES,
 } from '../../wardrobe/style';
@@ -384,35 +380,12 @@ export const StyleProfileQuery = Type.Object({
   saved: Type.Optional(Type.String({ maxLength: 5 })),
 });
 
-/** The rhythm's two fields of an occasion, as the form names them. */
-export function rhythmFieldNames(occasion: Occasion) {
-  return { times: `times-${occasion}`, per: `per-${occasion}` } as const;
-}
-
-// Room for a typo ("three") to reach its message, as the quantity's.
-const RhythmTimes = Type.Optional(Type.String({ maxLength: 6 }));
-const RhythmPer = choice(RHYTHM_PERIODS);
-
-/**
- * Each occasion's two rhythm fields. Object.fromEntries cannot keep the
- * keys' types, so they are stated: `times-work`, `per-work`, one pair per
- * OCCASIONS value (the entries built right here).
- */
-const RhythmFields = Object.fromEntries(
-  OCCASIONS.flatMap((occasion) => {
-    const names = rhythmFieldNames(occasion);
-    return [
-      [names.times, RhythmTimes],
-      [names.per, RhythmPer],
-    ];
-  }),
-) as Record<`times-${Occasion}`, typeof RhythmTimes> &
-  Record<`per-${Occasion}`, typeof RhythmPer>;
-
 /**
  * The style profile form: the chips of each set (one value per checked
- * chip), the budget band ('' for none), and per occasion how many times
- * ('' for never said) a week or a month.
+ * chip), the budget band ('' for none) and notes. The week's rhythm is not
+ * posted here any more: it is the week template's (#16, Profile › Your
+ * week), and a page cached before that still posting `times-*`/`per-*`
+ * fields has them stripped by the schema, unread.
  */
 export const StyleProfileBody = Type.Object({
   styles: Type.Optional(
@@ -427,15 +400,8 @@ export const StyleProfileBody = Type.Object({
     }),
   ),
   notes: Type.Optional(Type.String({ maxLength: STYLE_NOTES_MAX })),
-  ...RhythmFields,
 });
 export type StyleProfileBody = Static<typeof StyleProfileBody>;
-
-export interface RhythmEntry {
-  occasion: Occasion;
-  times: number;
-  per: RhythmPeriod;
-}
 
 /** A style profile as stored (a set with nothing chosen is null). */
 export interface StyleProfileFields {
@@ -443,8 +409,6 @@ export interface StyleProfileFields {
   budget: BudgetBand | null;
   palette: GarmentColor[] | null;
   notes: string | null;
-  /** In OCCASIONS order; an occasion without a count has no entry. */
-  rhythm: RhythmEntry[];
 }
 
 export const EMPTY_STYLE_PROFILE: StyleProfileFields = {
@@ -452,83 +416,31 @@ export const EMPTY_STYLE_PROFILE: StyleProfileFields = {
   budget: null,
   palette: null,
   notes: null,
-  rhythm: [],
 };
 
-export type StyleProfileForm =
-  | { ok: true; fields: StyleProfileFields }
-  | {
-      ok: false;
-      values: StyleProfileBody;
-      /** Keyed by occasion: its count is not a whole number in range. */
-      errors: Partial<Record<Occasion, string[]>>;
-    };
-
 /**
- * A posted style profile as stored, or the form again: a count is a whole
- * number from 1 to RHYTHM_TIMES_MAX (0 or blank is "not part of my week"),
- * a week when the period is not said.
+ * A posted style profile as stored: every value the schema let through is
+ * one of its set's, so nothing is refused here; repeats and order go.
  */
-export function readStyleProfileForm(body: StyleProfileBody): StyleProfileForm {
-  const reads = OCCASIONS.map((occasion) => readRhythm(body, occasion));
-  const errors: Partial<Record<Occasion, string[]>> = {};
-  for (const read of reads) {
-    if (read && 'error' in read) errors[read.occasion] = [read.error];
-  }
-  if (Object.keys(errors).length > 0) {
-    return { ok: false, values: body, errors };
-  }
-  return {
-    ok: true,
-    fields: {
-      styles: readSet(STYLES, body.styles ?? []),
-      budget: pick(BUDGET_BANDS, body.budget ?? ''),
-      palette: readSet(GARMENT_COLORS, body.palette ?? []),
-      notes: body.notes?.trim() || null,
-      rhythm: reads.filter(
-        (read): read is RhythmEntry => read !== null && !('error' in read),
-      ),
-    },
-  };
-}
-
-/**
- * One occasion's rhythm: null when not part of the week (blank or 0), a
- * message when the count is not a whole number in range, a week when the
- * period is not said.
- */
-function readRhythm(
+export function readStyleProfileForm(
   body: StyleProfileBody,
-  occasion: Occasion,
-): RhythmEntry | { occasion: Occasion; error: string } | null {
-  const names = rhythmFieldNames(occasion);
-  const typed = (body[names.times] ?? '').trim();
-  if (!typed || typed === '0') return null;
-  const times = Number(typed);
-  if (!/^\d+$/.test(typed) || times > RHYTHM_TIMES_MAX) {
-    return {
-      occasion,
-      error: t('validation.RHYTHM_TIMES', { max: RHYTHM_TIMES_MAX }),
-    };
-  }
-  const per = pick(RHYTHM_PERIODS, body[names.per] ?? '') ?? 'week';
-  return { occasion, times, per };
+): StyleProfileFields {
+  return {
+    styles: readSet(STYLES, body.styles ?? []),
+    budget: pick(BUDGET_BANDS, body.budget ?? ''),
+    palette: readSet(GARMENT_COLORS, body.palette ?? []),
+    notes: body.notes?.trim() || null,
+  };
 }
 
 /** A stored profile as the form posts it (the form's initial values). */
 export function styleProfilePost(
   profile: StyleProfileFields,
 ): StyleProfileBody {
-  const post: StyleProfileBody = {
+  return {
     styles: profile.styles ?? [],
     budget: profile.budget ?? '',
     palette: profile.palette ?? [],
     notes: profile.notes ?? '',
   };
-  for (const entry of profile.rhythm) {
-    const names = rhythmFieldNames(entry.occasion);
-    post[names.times] = String(entry.times);
-    post[names.per] = entry.per;
-  }
-  return post;
 }

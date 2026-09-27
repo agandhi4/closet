@@ -1,4 +1,13 @@
-import { and, eq, inArray, isNotNull, or, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import {
   file,
@@ -8,15 +17,17 @@ import {
   outfit,
   outfitSlot,
 } from '../../db/schema';
+import { washLimit } from '../../wardrobe/availability';
 import type { IdeaGarment, SavedOutfit } from '../../wardrobe/generator';
 import { categoryRole } from '../../wardrobe/properties';
+import type { PlannerGarment } from '../../wardrobe/week-planner';
 import { matchGarment } from '../../weather/match';
 import type { IsoDate } from '../calendar/calendar-date';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import { splitColors } from '../wardrobe/garment';
 import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
-import { availableGarment } from '../wears/queries';
+import { availableGarment, wearsSinceWashSql } from '../wears/queries';
 
 /**
  * The outfit gallery's rows (#9): the generator's pool and what it must
@@ -50,7 +61,7 @@ const poolColumns = (today: IsoDate) => ({
   >`(select (${today}::date - max(${garmentWear.day}))::int from ${garmentWear} where ${garmentWear.garmentId} = ${garment.id})`,
 });
 
-function poolQuery(db: Db, today: IsoDate, where: SQL | undefined) {
+function poolQuery(db: Queryable, today: IsoDate, where: SQL | undefined) {
   return db
     .select(poolColumns(today))
     .from(garment)
@@ -106,6 +117,41 @@ export function ideaPool(
         : inCapsule(options.capsuleId),
     ),
   );
+}
+
+/** A garment as the week planner (#16) draws it: the pool's, with its wash state today. */
+export type WeekPoolGarment = PoolGarment & PlannerGarment;
+
+/**
+ * The week planner's pool (src/wardrobe/week-planner.ts): the owner's
+ * garments in the closet and not away, **dirty ones included**, each with
+ * what the wash rule needs (quantity, washLimit, wears since the wash as
+ * wearsSinceWashSql counts them). The planner applies availability.ts's
+ * cleanCopies per day, counting the week's own future wears, so a garment
+ * clean today may be out by Thursday; filtering by availableGarment here
+ * would decide as of today only. One statement.
+ */
+export async function weekPool(
+  db: Queryable,
+  ownerId: number,
+  today: IsoDate,
+): Promise<WeekPoolGarment[]> {
+  const rows = await db
+    .select({
+      ...poolColumns(today),
+      quantity: garment.quantity,
+      washAfterWears: garment.washAfterWears,
+      wearsSinceWash: wearsSinceWashSql(),
+    })
+    .from(garment)
+    .leftJoin(file, eq(file.id, garment.photoId))
+    .where(and(eq(garment.ownerId, ownerId), inCloset(), isNull(garment.away)));
+  return rows.map((row) => ({
+    ...poolGarment(row),
+    quantity: row.quantity,
+    washLimit: washLimit(row.category, row.washAfterWears),
+    wearsSinceWash: row.wearsSinceWash,
+  }));
 }
 
 /**
@@ -194,7 +240,7 @@ export async function wishlistGarments(
  * each outfit's chosen garments with their roles. One statement.
  */
 export async function savedOutfits(
-  db: Db,
+  db: Queryable,
   ownerId: number,
 ): Promise<SavedOutfit[]> {
   const rows = await db
@@ -221,7 +267,7 @@ export async function savedOutfits(
 
 /** The owner's avoided pairs, for the generator. */
 export async function avoidedPairs(
-  db: Db,
+  db: Queryable,
   ownerId: number,
 ): Promise<[number, number][]> {
   const rows = await db

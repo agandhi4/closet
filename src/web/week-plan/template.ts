@@ -1,0 +1,128 @@
+import { type Static, type TSchema, Type } from '@sinclair/typebox';
+import { eq } from 'drizzle-orm';
+import type { Queryable } from '../../db/client';
+import { weekTemplate } from '../../db/schema';
+import {
+  compareOccasions,
+  DAY_OCCASIONS,
+  type Occasion,
+} from '../../wardrobe/occasions';
+import {
+  AROUND_OCCASIONS,
+  type TemplateDay,
+  templateSlots,
+  type TemplateSlot,
+  WEEKDAYS,
+  type Weekday,
+} from '../../wardrobe/week';
+import { choice } from '../wardrobe/validation';
+
+/**
+ * The week template's reads, its one writer and its form (#16; the pure
+ * model is src/wardrobe/week.ts). The signed-in user's own, like the style
+ * profile: shares never reach it. Edited on the Profile (views.tsx,
+ * WeekTemplateSettings), read by "Plan my week" (plan.ts), the style page's
+ * rhythm and get_style_profile, written by the seed through the same form.
+ */
+
+/** The user's template, weekday then occasion order; empty when never set. */
+export async function findWeekTemplate(
+  db: Queryable,
+  userId: number,
+): Promise<TemplateSlot[]> {
+  // week_template_pkey (user_id, weekday, occasion).
+  const rows = await db
+    .select({ weekday: weekTemplate.weekday, occasion: weekTemplate.occasion })
+    .from(weekTemplate)
+    .where(eq(weekTemplate.userId, userId));
+  return rows.sort(
+    (a, b) => a.weekday - b.weekday || compareOccasions(a.occasion, b.occasion),
+  );
+}
+
+/**
+ * The one writer of a template: replaced whole in one transaction (a
+ * savepoint inside the seed's). Returns the slots saved.
+ */
+export function saveWeekTemplate(
+  db: Queryable,
+  userId: number,
+  slots: readonly TemplateSlot[],
+): Promise<number> {
+  return db.transaction(async (tx) => {
+    await tx.delete(weekTemplate).where(eq(weekTemplate.userId, userId));
+    if (slots.length > 0) {
+      await tx
+        .insert(weekTemplate)
+        .values(slots.map((slot) => ({ userId, ...slot })));
+    }
+    return slots.length;
+  });
+}
+
+// ---- The form ---------------------------------------------------------------
+
+/** A weekday's two fields, as the form names them. */
+export function weekdayFieldNames(weekday: Weekday) {
+  return { day: `day-${weekday}`, around: `around-${weekday}` } as const;
+}
+
+const DayField = choice(DAY_OCCASIONS);
+const AroundField = Type.Optional(
+  Type.Array(Type.Union(AROUND_OCCASIONS.map((o) => Type.Literal(o))), {
+    maxItems: AROUND_OCCASIONS.length * 2,
+  }),
+);
+
+/**
+ * Per weekday: the day's outfit ('' for none, else one of DAY_OCCASIONS: a
+ * select, so never two) and the occasions around it (checkboxes; one
+ * arrives as a scalar, which ajv's coerceTypes 'array' makes a list).
+ * Anything else is a 400 from the schema. Object.fromEntries cannot keep the
+ * keys' types, so they are stated.
+ */
+export const WeekTemplateBody = Type.Object(
+  Object.fromEntries(
+    WEEKDAYS.flatMap((weekday) => {
+      const names = weekdayFieldNames(weekday);
+      return [
+        [names.day, DayField],
+        [names.around, AroundField],
+      ] satisfies [string, TSchema][];
+    }),
+  ) as Record<`day-${Weekday}`, typeof DayField> &
+    Record<`around-${Weekday}`, typeof AroundField>,
+);
+export type WeekTemplateBody = Static<typeof WeekTemplateBody>;
+
+/** A posted template as its slots (repeats gone, occasion order). */
+export function readWeekTemplateForm(body: WeekTemplateBody): TemplateSlot[] {
+  return templateSlots(
+    WEEKDAYS.map((weekday): TemplateDay => {
+      const names = weekdayFieldNames(weekday);
+      const day = body[names.day];
+      return {
+        weekday,
+        day: day ? (day as Occasion) : null,
+        around: body[names.around] ?? [],
+      };
+    }),
+  );
+}
+
+/** Slots as the form posts them: the seed writes a template through it. */
+export function weekTemplatePost(
+  slots: readonly TemplateSlot[],
+): WeekTemplateBody {
+  const post: Record<string, string | string[]> = {};
+  for (const weekday of WEEKDAYS) {
+    const names = weekdayFieldNames(weekday);
+    const on = slots.filter((slot) => slot.weekday === weekday);
+    post[names.day] =
+      on.find((slot) => DAY_OCCASIONS.includes(slot.occasion))?.occasion ?? '';
+    post[names.around] = on
+      .map((slot) => slot.occasion)
+      .filter((o) => AROUND_OCCASIONS.includes(o));
+  }
+  return post;
+}

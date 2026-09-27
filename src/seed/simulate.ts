@@ -26,7 +26,10 @@ import { BANDS, type Band, type Weather, weatherFor } from './weather';
  * personas): wears and washes (#7) are its worn entries and its Sundays,
  * judged by the app's own wash rules (src/wardrobe/availability.ts);
  * occasions (#13) are each entry's part of the day, with the week's morning
- * workouts as entries of their own.
+ * workouts as entries of their own; the weekly auto-plan (#16) fills the
+ * planned week's template slots (the day's outfit, the workout), so the
+ * simulation plans only what comes some weeks (a date night, a night out)
+ * and an Event's outfit there (seed.ts writePlannedWeek).
  */
 
 /** The bibles' dates are written for this Saturday; seeding shifts them by whole weeks. */
@@ -196,7 +199,10 @@ class Days {
    * workout is done and worn, the evening planned, and the day's own outfit
    * not chosen yet, which is what Today suggests (an Event's outfit is
    * decided already: planned). The rotation still draws the day's outfit,
-   * so the planned week after it is the one it always was.
+   * so the planned week after it is the one it always was. On a planned
+   * day the template's slots (the day's outfit, the workout) are left to
+   * "Plan my week" (#16): drawn and counted as worn here all the same, so
+   * the draws and the evenings after them stay as they were.
    */
   live(
     weather: Weather,
@@ -221,7 +227,7 @@ class Days {
         daysBetween(day, this.anchor) < SELFIE_DAYS;
       entries.push({ day, outfit, occasion, worn, selfie });
     };
-    plan(workout, 'workout', kind !== 'planned');
+    if (kind !== 'planned') plan(workout, 'workout', true);
     this.planDay(weather, kind, event, main, plan);
     const evening = event ? undefined : this.eveningOn(day);
     if (!evening) return;
@@ -231,8 +237,9 @@ class Days {
   }
 
   // The day's own outfit: a past day's as worn (with, some office days, the
-  // one planned and left for the rain), the planned week's as planned, and
-  // on the anchor none unless an Event decided it (Today suggests one).
+  // one planned and left for the rain); on the anchor and the planned week
+  // none unless an Event decided it (Today suggests one; "Plan my week"
+  // fills the planned week, #16).
   private planDay(
     weather: Weather,
     kind: DayKind,
@@ -244,7 +251,7 @@ class Days {
     if (kind === 'past') {
       plan(this.changeOfMind(weather, main), occasion, false);
     }
-    if (kind !== 'today' || event) plan(main, occasion, kind === 'past');
+    if (kind === 'past' || event) plan(main, occasion, kind === 'past');
   }
 
   // The week row's calendar occasion for an outfit the day draws from; an

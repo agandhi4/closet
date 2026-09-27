@@ -114,11 +114,13 @@ test('the style profile saves from the Profile', async ({ page }) => {
   await expectNoSidewaysScroll(page);
   await page.getByRole('checkbox', { name: 'Smart casual' }).check();
   await page.getByRole('radio', { name: 'Mid' }).check();
-  await page.getByLabel('Work', { exact: true }).fill('3');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Style profile saved')).toBeVisible();
   await expect(
     page.getByRole('checkbox', { name: 'Smart casual' }),
   ).toBeChecked();
-  await expect(page.getByLabel('Work', { exact: true })).toHaveValue('3');
+  // The week's rhythm is the week template's (#16): read here, set on the
+  // Profile.
+  await page.getByRole('link', { name: 'Set your week' }).click();
+  await expect(page).toHaveURL(/\/auth\/profile#week$/);
 });

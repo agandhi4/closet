@@ -33,6 +33,7 @@ import {
   TEMPERATURE_UNITS,
 } from '../weather/temperature';
 import {
+  DAY_OCCASIONS,
   DEFAULT_OCCASION,
   type Occasion,
   OCCASIONS,
@@ -48,12 +49,16 @@ import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
 import {
   type BudgetBand,
   BUDGET_BANDS,
-  RHYTHM_PERIODS,
-  RHYTHM_TIMES_MAX,
-  type RhythmPeriod,
   type Style,
   STYLES,
 } from '../wardrobe/style';
+import {
+  DEFAULT_PLANNED_BY,
+  PLANNED_BY,
+  type PlannedBy,
+  WEEKDAYS,
+  type Weekday,
+} from '../wardrobe/week';
 import {
   ALL_GARMENT_TYPES,
   type Condition,
@@ -634,11 +639,24 @@ export const outfitCalendar = pgTable(
       .$type<Occasion>()
       .default(DEFAULT_OCCASION)
       .notNull(),
+    // Who owns the choice (#16, src/wardrobe/week.ts): 'auto' while the
+    // week planner's pick stands untouched, so its daily re-plan may swap
+    // it; 'user' for everything a person planned, and for an auto entry
+    // once they edit its outfit or mark it worn. Every entry before #16 is
+    // the user's.
+    plannedBy: text('planned_by')
+      .$type<PlannedBy>()
+      .default(DEFAULT_PLANNED_BY)
+      .notNull(),
   },
   (table) => [
     check(
       'outfit_calendar_occasion_check',
       sql`${table.occasion} in (${sqlList(OCCASIONS)})`,
+    ),
+    check(
+      'outfit_calendar_planned_by_check',
+      sql`${table.plannedBy} in (${sqlList(PLANNED_BY)})`,
     ),
     // Leads with owner_id and day, so it is also the index of the week and
     // month range queries and of the owner_id foreign key.
@@ -865,7 +883,8 @@ export const capsuleGarment = pgTable(
 
 // A person's style profile (#34, slice 34a; src/wardrobe/style.ts): what
 // they dress for and toward, one row per user, written only by
-// saveStyleProfile (src/web/plans/queries.ts) with its rhythm. Private, like
+// saveStyleProfile (src/web/plans/queries.ts). Its rhythm is derived from
+// the week template (week_template, #16), never stored here. Private, like
 // outfits: shares never reach it. The home city is the weather's
 // (user_weather, #14): the style page reads it from there, never a copy here.
 export const styleProfile = pgTable(
@@ -905,40 +924,140 @@ export const styleProfile = pgTable(
   ],
 );
 
-// The week's rhythm of a style profile: how often each occasion
-// (src/wardrobe/occasions.ts, the calendar's words) comes round, "work 3 a
-// week", "evening 3 a month". One row per occasion that has one; saved with
-// its profile, replaced whole.
-export const styleRhythm = pgTable(
-  'style_rhythm',
+// The week template (#16; src/wardrobe/week.ts): the occasions each
+// weekday holds, the one model of how a person's week is shaped ("Plan my
+// week" fills it; the style profile's rhythm is derived from it). One row
+// per (weekday, occasion); written only by saveWeekTemplate
+// (src/web/week-plan/template.ts), replaced whole. A weekday holds at most
+// one of DAY_OCCASIONS (the outfit worn through the day): the partial
+// unique index. Replaced #34a's style_rhythm (occasion counts), whose weekly
+// rows drizzle/0022_week_plan.sql spread onto weekdays. Private, like the
+// style profile.
+export const weekTemplate = pgTable(
+  'week_template',
   {
     userId: integer('user_id').notNull(),
+    // 0 = Sunday ... 6 = Saturday (calendar-date.ts's dayOfWeek).
+    weekday: smallint('weekday').$type<Weekday>().notNull(),
     occasion: text('occasion').$type<Occasion>().notNull(),
-    times: smallint('times').notNull(),
-    per: text('per').$type<RhythmPeriod>().notNull(),
   },
   (table) => [
     // Also the index of the user_id foreign key.
     primaryKey({
-      name: 'style_rhythm_pkey',
-      columns: [table.userId, table.occasion],
+      name: 'week_template_pkey',
+      columns: [table.userId, table.weekday, table.occasion],
     }),
+    uniqueIndex('week_template_user_id_weekday_day_unique')
+      .on(table.userId, table.weekday)
+      .where(sql`${table.occasion} in (${sqlList(DAY_OCCASIONS)})`),
     check(
-      'style_rhythm_occasion_check',
+      'week_template_weekday_check',
+      sql`${table.weekday} between ${sql.raw(String(WEEKDAYS[0]))} and ${sql.raw(String(WEEKDAYS[WEEKDAYS.length - 1]))}`,
+    ),
+    check(
+      'week_template_occasion_check',
       sql`${table.occasion} in (${sqlList(OCCASIONS)})`,
     ),
+    foreignKey({
+      name: 'week_template_user_id_foreign',
+      columns: [table.userId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// One "Plan my week" (#16): the batch of entries the planner wrote in one
+// tap, what the calendar shows as just planned and what Undo removes
+// (src/web/week-plan/plan.ts). Private, like the calendar.
+export const weekPlan = pgTable(
+  'week_plan',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('week_plan_owner_id_index').on(table.ownerId),
+    foreignKey({
+      name: 'week_plan_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// A calendar entry the week planner wrote: its batch, whether the planner
+// created its outfit (so Undo and a swap can take an outfit nobody else
+// uses away with it), and the targets it was planned for
+// (src/wardrobe/week-planner.ts PlannedNeeds; all null when it was planned
+// without a forecast), which the daily re-plan compares with the newer
+// forecast. Kept when the entry becomes the user's: planned_by says who owns
+// the choice now, this row where it came from.
+export const weekPlanEntry = pgTable(
+  'week_plan_entry',
+  {
+    entryId: integer('entry_id').primaryKey(),
+    weekPlanId: integer('week_plan_id').notNull(),
+    outfitCreated: boolean('outfit_created').notNull(),
+    torso: smallint('torso'),
+    limbs: smallint('limbs'),
+    layer: boolean('layer'),
+    rain: boolean('rain'),
+  },
+  (table) => [
+    index('week_plan_entry_week_plan_id_index').on(table.weekPlanId),
     check(
-      'style_rhythm_times_check',
-      sql`${table.times} between 1 and ${sql.raw(String(RHYTHM_TIMES_MAX))}`,
-    ),
-    check(
-      'style_rhythm_per_check',
-      sql`${table.per} in (${sqlList(RHYTHM_PERIODS)})`,
+      'week_plan_entry_needs_check',
+      sql`num_nulls(${table.torso}, ${table.limbs}, ${table.layer}, ${table.rain}) in (0, 4)`,
     ),
     foreignKey({
-      name: 'style_rhythm_user_id_foreign',
+      name: 'week_plan_entry_entry_id_foreign',
+      columns: [table.entryId],
+      foreignColumns: [outfitCalendar.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'week_plan_entry_week_plan_id_foreign',
+      columns: [table.weekPlanId],
+      foreignColumns: [weekPlan.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// The daily re-plan's claim (#16): one row per (user, household day),
+// inserted before that user's auto entries are judged
+// (src/web/week-plan/replan.ts). The primary key is what runs a user's
+// re-plan once a day: two servers overlapping in a deploy, or every minute
+// after the hour on one, both try and only the insert that lands (ON
+// CONFLICT DO NOTHING) re-plans and pushes. Past days are pruned nightly.
+export const weekReplan = pgTable(
+  'week_replan',
+  {
+    userId: integer('user_id').notNull(),
+    day: date('day', { mode: 'string' }).notNull(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // Leads with user_id: also the user foreign key's index.
+    primaryKey({
+      name: 'week_replan_pkey',
+      columns: [table.userId, table.day],
+    }),
+    foreignKey({
+      name: 'week_replan_user_id_foreign',
       columns: [table.userId],
-      foreignColumns: [styleProfile.userId],
+      foreignColumns: [user.id],
     })
       .onUpdate('cascade')
       .onDelete('cascade'),

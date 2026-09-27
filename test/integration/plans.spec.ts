@@ -3,10 +3,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   planItem,
   styleProfile,
-  styleRhythm,
   user,
   wardrobePlan,
 } from '../../src/db/schema';
+import { saveWeekTemplate } from '../../src/web/week-plan/template';
 import {
   createPlan as insertPlan,
   insertItems,
@@ -134,12 +134,9 @@ describe('wardrobe plans', () => {
         budget: 'mid',
         palette: ['blue', 'white', 'grey'],
         notes: '  Office three days  ',
+        // A page cached before #16 still posts the rhythm: stripped, unread.
         'times-work': '3',
         'per-work': 'week',
-        'times-evening': '3',
-        'per-evening': 'month',
-        'times-daytime': '0',
-        'times-workout': '',
       });
       expect(res.statusCode, res.body).toBe(303);
       expect(res.headers.location).toBe('/auth/profile/style?saved=1');
@@ -154,35 +151,42 @@ describe('wardrobe plans', () => {
         palette: ['blue', 'white', 'grey'],
         notes: 'Office three days',
       });
-      const rhythm = await t.db
-        .select({
-          occasion: styleRhythm.occasion,
-          times: styleRhythm.times,
-          per: styleRhythm.per,
-        })
-        .from(styleRhythm)
-        .where(eq(styleRhythm.userId, ownerId))
-        .orderBy(styleRhythm.occasion);
-      expect(rhythm).toEqual([
-        { occasion: 'evening', times: 3, per: 'month' },
-        { occasion: 'work', times: 3, per: 'week' },
-      ]);
       expect(t.logs.messages('info', 'Web')).toContainEqual(
-        `Style profile saved by user ${ownerId}: 2 styles, 2 rhythm entries`,
+        `Style profile saved by user ${ownerId}: 2 styles, 3 colours`,
       );
 
       const page = await get('/auth/profile/style?saved=1');
       expectFullPage(page);
       expect(page.body).toContain('Style profile saved');
       expect(page.body).toMatch(/value="smart-casual"[^>]*checked/);
-      expect(page.body).toMatch(/name="times-work"[^>]*value="3"/);
+      expect(page.body).not.toContain('name="times-work"');
     });
 
-    it('replaces the rhythm whole on the next save, and clears the sets', async () => {
-      const res = await post('/auth/profile/style', {
-        budget: '',
-        'times-workout': '2',
-      });
+    it("shows the week's rhythm read-only, derived from the week template (#16)", async () => {
+      const unset = await get('/auth/profile/style');
+      expect(unset.body).toContain('Not set yet');
+      expect(unset.body).toContain('href="/auth/profile#week"');
+      await saveWeekTemplate(t.db, ownerId, [
+        { weekday: 1, occasion: 'work' },
+        { weekday: 2, occasion: 'work' },
+        { weekday: 2, occasion: 'workout' },
+        { weekday: 6, occasion: 'daytime' },
+      ]);
+      const page = unescapeHtml((await get('/auth/profile/style')).body);
+      expect(
+        [...page.matchAll(/<li data-occasion="([\w-]+)">([^<]+)</g)].map(
+          ([, occasion, text]) => [occasion, text],
+        ),
+      ).toEqual([
+        ['workout', 'Workout 1× a week'],
+        ['work', 'Work 2× a week'],
+        ['daytime', 'Daytime 1× a week'],
+      ]);
+      await saveWeekTemplate(t.db, ownerId, []);
+    });
+
+    it('clears the sets on the next save', async () => {
+      const res = await post('/auth/profile/style', { budget: '' });
       expect(res.statusCode).toBe(303);
       const [row] = await t.db
         .select()
@@ -194,22 +198,9 @@ describe('wardrobe plans', () => {
         palette: null,
         notes: null,
       });
-      const rhythm = await t.db
-        .select({ occasion: styleRhythm.occasion, per: styleRhythm.per })
-        .from(styleRhythm)
-        .where(eq(styleRhythm.userId, ownerId));
-      expect(rhythm).toEqual([{ occasion: 'workout', per: 'week' }]);
     });
 
-    it('re-renders a count that is not one with its message, and refuses a style outside the set', async () => {
-      const typo = await post('/auth/profile/style', {
-        styles: ['minimal'],
-        'times-work': 'three',
-      });
-      expect(typo.statusCode).toBe(400);
-      expectFullPage(typo);
-      expect(typo.body).toContain('Enter a whole number from 0 to 31');
-      expect(typo.body).toMatch(/value="minimal"[^>]*checked/);
+    it('refuses a style outside the set', async () => {
       const outside = await post('/auth/profile/style', { styles: ['goth'] });
       expect(outside.statusCode).toBe(400);
       const [row] = await t.db
@@ -222,7 +213,7 @@ describe('wardrobe plans', () => {
     it('is the user’s own: another user sees theirs, empty', async () => {
       const theirs = await get('/auth/profile/style', { cookie: stranger });
       expect(theirs.statusCode).toBe(200);
-      expect(theirs.body).not.toMatch(/name="times-workout"[^>]*value="2"/);
+      expect(theirs.body).not.toMatch(/value="smart-casual"[^>]*checked/);
     });
 
     it('is linked from the profile', async () => {

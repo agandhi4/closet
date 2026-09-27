@@ -12,7 +12,8 @@ import { safeReturnTo } from '../security/return-to';
 import { detachedLooks } from '../selfies/queries';
 import { viewContext } from '../view-context';
 import { setEntryWorn } from '../wears/queries';
-import { parseIsoDate, parseYearMonth, todayIn } from './calendar-date';
+import { plannedBanner } from '../week-plan/plan';
+import { hourIn, parseIsoDate, parseYearMonth, todayIn } from './calendar-date';
 import { CalendarPage } from './calendar-page';
 import { buildCalendarView, weekOf } from './calendar-view';
 import { PlanPage } from './plan-page';
@@ -75,6 +76,14 @@ function wornMessage(
   return `Calendar entry ${id} marked ${state} by user ${ownerId} (${wears})`;
 }
 
+/** `?planned=`: a batch id or 'none'; anything else is no banner. */
+function parsePlanned(value: string | undefined): number | 'none' | undefined {
+  if (value === 'none') return 'none';
+  return value !== undefined && /^[1-9]\d{0,9}$/.test(value)
+    ? Number(value)
+    : undefined;
+}
+
 function weekUrl(week: string | undefined): string {
   return week ? `/calendar?week=${week}` : '/calendar';
 }
@@ -98,6 +107,11 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           calMonth: Type.Optional(Type.String()),
           // The gallery's pick of an outfit already saved (a one-shot flag).
           alreadySaved: Type.Optional(Type.String()),
+          // After "Plan my week" (#16): its batch id, or 'none'; and after
+          // its Undo, how many entries went. Navigation state: anything
+          // malformed, or another's batch, shows nothing.
+          planned: Type.Optional(Type.String({ maxLength: 12 })),
+          undone: Type.Optional(Type.String({ maxLength: 6 })),
         }),
       },
     },
@@ -112,10 +126,18 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const { start, end } = weekOf(anchor ?? today);
-      const [entries, looks] = await Promise.all([
+      const planned = parsePlanned(request.query.planned);
+      const [entries, looks, banner] = await Promise.all([
         findEntries(db, ownerId, start, end),
         detachedLooks(db, ownerId, start, end),
+        planned === undefined
+          ? undefined
+          : plannedBanner(db, ownerId, planned, {
+              today,
+              hour: hourIn(config.timeZone, new Date()),
+            }),
       ]);
+      const undone = request.query.undone;
       const view = buildCalendarView({
         weekStart: start,
         calMonth: parseYearMonth(calMonth),
@@ -129,6 +151,12 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ctx={viewContext(reply)}
           view={view}
           alreadySaved={request.query.alreadySaved === '1'}
+          banner={banner}
+          undone={
+            undone !== undefined && /^\d+$/.test(undone)
+              ? Number(undone)
+              : undefined
+          }
         />,
       );
     },

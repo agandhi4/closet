@@ -1,6 +1,11 @@
-import { and, eq } from 'drizzle-orm';
+import { and, between, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { garment, garmentWear, outfitCalendar } from '../../src/db/schema';
+import {
+  garment,
+  garmentWear,
+  outfitCalendar,
+  weekPlanEntry,
+} from '../../src/db/schema';
 import {
   addDays,
   dateParts,
@@ -376,6 +381,56 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(
         await tool<{ day: IsoDate; wornToday: boolean }>(t, token, 'get_today'),
       ).toMatchObject({ day: today, wornToday: true });
+    });
+
+    it('"Plan my week" (#16) plans today and the six days after it', async () => {
+      // A night out every day: its window (21 to 24) is still open at each
+      // instant, so today is planned too.
+      const aroundAll = Object.fromEntries(
+        [0, 1, 2, 3, 4, 5, 6].map((weekday) => [
+          `around-${weekday}`,
+          'night-out',
+        ]),
+      );
+      expect((await post('/auth/profile/week', aroundAll)).statusCode).toBe(
+        303,
+      );
+      for (const [category, count] of [
+        ['tops', 7],
+        ['bottoms', 3],
+      ] as const) {
+        for (let i = 0; i < count; i += 1) {
+          await createGarment(t, {
+            name: `Week ${category} ${i} ${at}`,
+            category,
+            cookie,
+          });
+        }
+      }
+      const res = await post('/calendar/plan-week');
+      expect(res.statusCode).toBe(303);
+      const planId = Number(
+        /planned=(\d+)/.exec(String(res.headers.location))![1],
+      );
+      const planned = await t.db
+        .select({ day: outfitCalendar.day })
+        .from(weekPlanEntry)
+        .innerJoin(outfitCalendar, eq(outfitCalendar.id, weekPlanEntry.entryId))
+        .where(eq(weekPlanEntry.weekPlanId, planId));
+      const last = addDays(today, 6);
+      expect(planned.every(({ day }) => day >= today && day <= last)).toBe(
+        true,
+      );
+      const nights = await t.db
+        .selectDistinct({ day: outfitCalendar.day })
+        .from(outfitCalendar)
+        .where(
+          and(
+            eq(outfitCalendar.occasion, 'night-out'),
+            between(outfitCalendar.day, today, last),
+          ),
+        );
+      expect(nights).toHaveLength(7);
     });
   });
 });

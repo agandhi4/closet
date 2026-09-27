@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { expect, type Page, test } from '@playwright/test';
+import { addDays } from '../src/web/calendar/calendar-date';
 import { signUpHeaders } from './support/e2e-session';
+import { householdToday } from './support/household-today';
 import { fakeSubscription, stubPushManager } from './support/push-stub';
 
 /**
@@ -328,6 +330,18 @@ test('demo: Theo, Today and his reminders (#15)', async ({ page }) => {
   await expect(reminders.getByText('Saved.')).toBeVisible();
   await page.locator('push-settings').scrollIntoViewIfNeeded();
   await shot(page, '56-demo-push-settings');
+
+  // The weekly auto-plan (#16): his week template on the Profile, and the
+  // days after today that "Plan my week" filled (the seed's, demo.md step
+  // 7), marked Auto on the calendar: tomorrow's week has some.
+  await page.locator('#week').scrollIntoViewIfNeeded();
+  await shot(page, '58-demo-week-template');
+  await shot(
+    page,
+    '59-demo-week-planned',
+    `/calendar?week=${addDays(householdToday(), 1)}`,
+  );
+  await expect(page.locator('[data-auto]').first()).toBeVisible();
 });
 
 test('demo: Theo, outfit selfies (#19)', async ({ page }) => {

@@ -1895,7 +1895,9 @@ describe('authorization matrix', () => {
       'plan_item',
       'plan_item_candidate',
       'style_profile',
-      'style_rhythm',
+      'week_template',
+      'week_plan',
+      'week_plan_entry',
     ];
     const rows = await Promise.all(
       tables.map(async (table) => {

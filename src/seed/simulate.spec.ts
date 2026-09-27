@@ -20,8 +20,13 @@ describe('simulate', () => {
     const planned = life.entries.filter((e) => e.day > '2026-09-26');
     expect(past.length).toBeGreaterThan(75);
     expect(past.filter((e) => e.worn).length).toBeGreaterThan(70);
-    expect(new Set(planned.map((e) => e.day)).size).toBe(7);
     expect(planned.every((e) => !e.worn)).toBe(true);
+    // The week's template slots are "Plan my week"'s (#16, seed.ts): the
+    // simulation plans only the evenings that come some weeks.
+    expect(planned.length).toBeGreaterThan(0);
+    expect(
+      planned.every((e) => ['evening', 'night-out'].includes(e.occasion)),
+    ).toBe(true);
   });
 
   it('keeps the events: the wedding, the beach, the conference day he forgot', () => {

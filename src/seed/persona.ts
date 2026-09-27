@@ -13,10 +13,15 @@ import {
   readPlanForm,
   readPlanItemForm,
   readStyleProfileForm,
-  rhythmFieldNames,
   StyleProfileBody,
   type StyleProfileFields,
 } from '../web/plans/validation';
+import {
+  readWeekTemplateForm,
+  WeekTemplateBody,
+  weekTemplatePost,
+} from '../web/week-plan/template';
+import type { TemplateSlot, Weekday } from '../wardrobe/week';
 import { normalizeCategory } from '../web/wardrobe/garment';
 import {
   CARE_NOTE_MAX,
@@ -31,6 +36,7 @@ import {
   NEVER_WASH,
 } from '../wardrobe/availability';
 import {
+  DAY_OCCASIONS,
   DEFAULT_OCCASION,
   isOccasion,
   type Occasion,
@@ -212,8 +218,15 @@ export interface Persona {
   wishlist: SeedWishlistItem[];
   outfits: SeedOutfit[];
   capsules: SeedCapsule[];
-  /** The Style profile and Rhythm tables (#34); null without them. */
+  /** The Style profile table (#34); null without it. */
   styleProfile: StyleProfileFields | null;
+  /**
+   * The week template (#16), the week table as a template: each day's
+   * `Calendar` occasion, and a workout where it has a `Workout`. Null
+   * without a week. Evenings and nights out come some weeks, not on a
+   * weekday: they stay out of it, planned by hand.
+   */
+  weekTemplate: TemplateSlot[] | null;
   plans: SeedPlan[];
   /** The Clashes table: garment id pairs the outfit generator never combines (#9). */
   avoid: [string, string][];
@@ -269,6 +282,7 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
   );
   const names = new Set(outfits.flatMap((o) => o.name ?? []));
   const week = find('Day', 'Draws from')[0];
+  const seedWeek = week ? readWeek(source, week, names) : null;
   return {
     key,
     account: {
@@ -289,11 +303,7 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
         table.rows.map((row) => readCapsule(source, row, ids)),
       ),
     ),
-    styleProfile: readStyleProfile(
-      source,
-      find('Setting', 'Value')[0],
-      find('Occasion', 'Times', 'Per')[0],
-    ),
+    styleProfile: readStyleProfile(source, find('Setting', 'Value')[0]),
     plans: readPlans(
       source,
       find('Item', 'Category / type').filter((table) =>
@@ -302,7 +312,8 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
       new Set(wishlist.map((item) => item.id)),
     ),
     avoid: readClashes(source, find('Garment', 'Never with'), ids, outfits),
-    week: week ? readWeek(source, week, names) : null,
+    week: seedWeek,
+    weekTemplate: seedWeek ? readWeekTemplate(source, seedWeek) : null,
     events: find('From', 'To', 'Wears').flatMap((table) =>
       table.rows.map((row) => readEvent(source, row, names)),
     ),
@@ -876,8 +887,7 @@ function readLaundryRule(
 
 // ---- The style profile and plans (#34) -------------------------------------
 
-// The Style profile table's settings and the form field each fills; the
-// Rhythm table's rows are the per-occasion fields.
+// The Style profile table's settings and the form field each fills.
 const STYLE_SETTINGS: Record<
   string,
   'styles' | 'budget' | 'palette' | 'notes'
@@ -889,27 +899,47 @@ const STYLE_SETTINGS: Record<
 };
 
 // Through the style profile form's own two layers: a style or colour the
-// form would refuse, or a count it would not read, fails here.
+// form would refuse fails here.
 function readStyleProfile(
   source: string,
   settings: BibleTable | undefined,
-  rhythm: BibleTable | undefined,
 ): StyleProfileFields | null {
-  if (!settings && !rhythm) return null;
+  if (!settings) return null;
   const where = `${source} style profile`;
-  const post = {
-    ...settingsPost(where, settings?.rows ?? []),
-    ...rhythmPost(where, rhythm?.rows ?? []),
-  };
   let body: StyleProfileBody;
   try {
-    body = Value.Parse(StyleProfileBody, post);
+    body = Value.Parse(StyleProfileBody, settingsPost(where, settings.rows));
   } catch (error) {
     throw new BibleError(where, `not a style profile post: ${String(error)}`);
   }
-  const form = readStyleProfileForm(body);
-  if (!form.ok) throw new BibleError(where, JSON.stringify(form.errors));
-  return form.fields;
+  return readStyleProfileForm(body);
+}
+
+// The week table as the template form posts it (#16): a day's Calendar
+// occasion that is not the outfit of the day, or anything the form would
+// refuse, fails here.
+function readWeekTemplate(source: string, week: SeedDay[]): TemplateSlot[] {
+  const where = `${source} week template`;
+  const notDay = week.find((day) => !DAY_OCCASIONS.includes(day.occasion));
+  if (notDay) {
+    throw new BibleError(
+      where,
+      `${notDay.occasion} is not an outfit for the day`,
+    );
+  }
+  const slots = week.flatMap((day, weekday): TemplateSlot[] => [
+    { weekday: weekday as Weekday, occasion: day.occasion },
+    ...(day.workout
+      ? [{ weekday: weekday as Weekday, occasion: 'workout' as const }]
+      : []),
+  ]);
+  let body: WeekTemplateBody;
+  try {
+    body = Value.Parse(WeekTemplateBody, weekTemplatePost(slots));
+  } catch (error) {
+    throw new BibleError(where, `not a week template post: ${String(error)}`);
+  }
+  return readWeekTemplateForm(body);
 }
 
 // The Style profile table as the form posts it: the sets as lists.
@@ -923,24 +953,6 @@ function settingsPost(
     if (!field) throw new BibleError(where, `unknown setting "${row.Setting}"`);
     const isSet = field === 'styles' || field === 'palette';
     post[field] = isSet ? list(row.Value) : plain(row.Value);
-  }
-  return post;
-}
-
-// The Rhythm table as the form posts it: two fields per occasion.
-function rhythmPost(
-  where: string,
-  rows: Record<string, string>[],
-): Record<string, string> {
-  const post: Record<string, string> = {};
-  for (const row of rows) {
-    const occasion = plain(row.Occasion);
-    if (!isOccasion(occasion)) {
-      throw new BibleError(where, `"${occasion}" is not an occasion`);
-    }
-    const names = rhythmFieldNames(occasion);
-    post[names.times] = plain(row.Times);
-    post[names.per] = plain(row.Per);
   }
   return post;
 }

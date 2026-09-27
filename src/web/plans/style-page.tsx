@@ -1,12 +1,7 @@
 import type { Child } from 'hono/jsx';
-import { OCCASIONS, type Occasion } from '../../wardrobe/occasions';
 import { GARMENT_COLORS } from '../../wardrobe/properties';
-import {
-  BUDGET_BANDS,
-  RHYTHM_PERIODS,
-  RHYTHM_TIMES_MAX,
-  STYLES,
-} from '../../wardrobe/style';
+import { BUDGET_BANDS, STYLES } from '../../wardrobe/style';
+import type { RhythmEntry } from '../../wardrobe/week';
 import { PostForm } from '../auth/form';
 import { occasionLabel } from '../calendar/labels';
 import { t } from '../i18n';
@@ -15,19 +10,20 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { BackLink, SavedToast, StripFlags } from '../layout/parts';
 import type { ViewContext } from '../view-context';
-import { budgetLabel, periodLabel, styleLabel } from './labels';
+import { WEEK_SETTINGS_PATH } from '../week-plan/urls';
+import { budgetLabel, styleLabel } from './labels';
 import { PLANS_PATH, STYLE_PROFILE_PATH, WEATHER_SETTINGS_PATH } from './urls';
-import {
-  rhythmFieldNames,
-  STYLE_NOTES_MAX,
-  type StyleProfileBody,
-} from './validation';
+import { STYLE_NOTES_MAX, type StyleProfileBody } from './validation';
 
 export interface StyleProfileModel {
-  /** The form's values: the stored profile's (styleProfilePost), or what was posted. */
+  /** The form's values: the stored profile's (styleProfilePost). */
   values: StyleProfileBody;
-  errors?: Partial<Record<Occasion, string[]>>;
   saved?: boolean;
+  /**
+   * The week's rhythm, derived from the week template (#16, weeklyRhythm):
+   * shown read-only, set in Profile › Your week, never stored here.
+   */
+  rhythm: RhythmEntry[];
   /**
    * The weather's home city (#14), shown read-only: set and changed in
    * Profile › Weather, never stored here. Undefined with the weather off.
@@ -40,17 +36,18 @@ const FLAGS = ['saved'] as const;
 /**
  * GET /auth/profile/style: the signed-in user's style profile (#34, slice
  * 34a), a section of the Profile (docs/plans/2026-09-26-redesign.md):
- * styles, the budget band, the palette and the week's rhythm, counted per
- * calendar occasion (#13's words; the week template #16 will read them).
- * Private: nobody else ever sees it. The home city belongs to the weather
- * (#14): shown here read-only, linking to Profile › Weather to change it.
+ * styles, the budget band, the palette, and the week's rhythm read-only:
+ * it is the week template's (#16, Profile › Your week), counted per
+ * calendar occasion. Private: nobody else ever sees it. The home city
+ * belongs to the weather (#14): shown here read-only too, linking to
+ * Profile › Weather to change it.
  */
 export function StyleProfilePage(props: {
   ctx: ViewContext;
   model: StyleProfileModel;
 }) {
   const { ctx, model } = props;
-  const { values, errors = {} } = model;
+  const { values } = model;
   return (
     <Layout ctx={ctx} title={t('style.TITLE')}>
       <Navbar ctx={ctx} />
@@ -115,17 +112,7 @@ export function StyleProfilePage(props: {
               />
             ))}
           </ChipGroup>
-          <fieldset class="flex flex-col gap-2" id="style-rhythm">
-            <legend class="label-text mb-1">{t('style.RHYTHM')}</legend>
-            <p class="text-xs text-base-content/60">{t('style.RHYTHM_HINT')}</p>
-            {OCCASIONS.map((occasion) => (
-              <RhythmRow
-                occasion={occasion}
-                values={values}
-                errors={errors[occasion]}
-              />
-            ))}
-          </fieldset>
+          <WeekRhythm rhythm={model.rhythm} />
           <div class="flex flex-col">
             <label class="label" for="style-notes">
               <span class="label-text">{t('NOTES')}</span>
@@ -187,47 +174,40 @@ function ChipGroup(props: { label: string; hint?: string; children: Child }) {
   );
 }
 
-/** One occasion's count and period: "Work 3 a week". */
-function RhythmRow(props: {
-  occasion: Occasion;
-  values: StyleProfileBody;
-  errors?: string[];
-}) {
-  const names = rhythmFieldNames(props.occasion);
-  const label = occasionLabel(props.occasion);
-  const per = props.values[names.per] || 'week';
+/**
+ * The week's rhythm ("Work 3× a week"), derived from the week template, and
+ * where to change it: the Profile's Your week (#16).
+ */
+function WeekRhythm({ rhythm }: { rhythm: RhythmEntry[] }) {
   return (
-    <div class="flex flex-col">
-      <div class="grid grid-cols-[1fr_5rem_7rem] items-center gap-2">
-        <label for={names.times} class="text-sm">
-          {label}
-        </label>
-        <input
-          id={names.times}
-          type="number"
-          name={names.times}
-          min="0"
-          max={String(RHYTHM_TIMES_MAX)}
-          inputmode="numeric"
-          class={`input input-bordered input-sm w-full ${props.errors ? 'input-error' : ''}`}
-          value={props.values[names.times] ?? ''}
-          aria-invalid={props.errors ? 'true' : undefined}
-        />
-        <select
-          name={names.per}
-          class="select select-bordered select-sm w-full"
-          aria-label={`${label}: ${t('style.PER')}`}
-        >
-          {RHYTHM_PERIODS.map((period) => (
-            <option value={period} selected={per === period}>
-              {periodLabel(period)}
-            </option>
-          ))}
-        </select>
-      </div>
-      {props.errors?.map((message) => (
-        <p class="text-error text-sm mt-1">{message}</p>
-      ))}
+    <div class="flex flex-col" id="style-rhythm">
+      <span class="label">
+        <span class="label-text">{t('style.WEEK')}</span>
+      </span>
+      {rhythm.length === 0 ? (
+        <p class="text-sm">
+          {t('style.WEEK_NONE')}{' '}
+          <a class="link link-primary" href={WEEK_SETTINGS_PATH}>
+            {t('style.WEEK_EDIT')}
+          </a>
+        </p>
+      ) : (
+        <>
+          <ul class="text-sm flex flex-wrap gap-x-3 gap-y-1">
+            {rhythm.map(({ occasion, perWeek }) => (
+              <li data-occasion={occasion}>
+                {t('style.WEEK_RHYTHM', {
+                  occasion: occasionLabel(occasion),
+                  count: perWeek,
+                })}
+              </li>
+            ))}
+          </ul>
+          <a class="link link-primary text-sm mt-1" href={WEEK_SETTINGS_PATH}>
+            {t('style.WEEK_CHANGE')}
+          </a>
+        </>
+      )}
     </div>
   );
 }

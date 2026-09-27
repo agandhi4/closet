@@ -6,10 +6,8 @@ import {
   PLAN_NAME_UNIQUE,
   planItem,
   styleProfile,
-  styleRhythm,
   wardrobePlan,
 } from '../../db/schema';
-import { compareOccasions } from '../../wardrobe/occasions';
 import {
   type Condition,
   type Formality,
@@ -40,7 +38,8 @@ import type {
  * One writer each: the plan's name and notes (createPlan, updatePlan), which
  * plan is active (setActivePlan; createPlan activates a first plan), the
  * items (insertItems, updateItem, acceptItem, deleteItem) and the style
- * profile with its rhythm (saveStyleProfile).
+ * profile (saveStyleProfile; its rhythm is the week template's, #16,
+ * src/web/week-plan/template.ts).
  */
 
 export interface PlanDetail {
@@ -487,44 +486,20 @@ export async function findStyleProfile(
     })
     .from(styleProfile)
     .where(eq(styleProfile.userId, userId));
-  if (!row) return undefined;
-  const rhythm = await db
-    .select({
-      occasion: styleRhythm.occasion,
-      times: styleRhythm.times,
-      per: styleRhythm.per,
-    })
-    .from(styleRhythm)
-    .where(eq(styleRhythm.userId, userId));
-  return {
-    ...row,
-    rhythm: rhythm.sort((a, b) => compareOccasions(a.occasion, b.occasion)),
-  };
+  return row;
 }
 
-/**
- * The one writer of a style profile: the row upserted and its rhythm
- * replaced whole, in one transaction (a savepoint inside the seed's).
- */
-export function saveStyleProfile(
+/** The one writer of a style profile: the row upserted. */
+export async function saveStyleProfile(
   db: Queryable,
   userId: number,
   fields: StyleProfileFields,
 ): Promise<void> {
-  const { rhythm, ...profile } = fields;
-  return db.transaction(async (tx) => {
-    await tx
-      .insert(styleProfile)
-      .values({ userId, ...profile })
-      .onConflictDoUpdate({
-        target: styleProfile.userId,
-        set: { ...profile, updatedAt: sql`now()` },
-      });
-    await tx.delete(styleRhythm).where(eq(styleRhythm.userId, userId));
-    if (rhythm.length > 0) {
-      await tx
-        .insert(styleRhythm)
-        .values(rhythm.map((entry) => ({ userId, ...entry })));
-    }
-  });
+  await db
+    .insert(styleProfile)
+    .values({ userId, ...fields })
+    .onConflictDoUpdate({
+      target: styleProfile.userId,
+      set: { ...fields, updatedAt: sql`now()` },
+    });
 }

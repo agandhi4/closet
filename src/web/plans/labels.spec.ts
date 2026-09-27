@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { PLAN_PRIORITIES } from '../../wardrobe/plans';
-import { BUDGET_BANDS, RHYTHM_PERIODS, STYLES } from '../../wardrobe/style';
+import { BUDGET_BANDS, STYLES } from '../../wardrobe/style';
 import {
   budgetLabel,
   differencesText,
   differenceText,
   itemFacts,
   itemTitle,
-  periodLabel,
   priorityLabel,
   styleLabel,
 } from './labels';
@@ -19,9 +18,6 @@ describe('plan and style labels', () => {
   it('has a string for every value of every set', () => {
     for (const style of STYLES) expect(styleLabel(style)).toMatch(/\S/);
     for (const band of BUDGET_BANDS) expect(budgetLabel(band)).toMatch(/\S/);
-    for (const period of RHYTHM_PERIODS) {
-      expect(periodLabel(period)).toMatch(/\S/);
-    }
     for (const priority of PLAN_PRIORITIES) {
       expect(priorityLabel(priority)).toMatch(/\S/);
     }

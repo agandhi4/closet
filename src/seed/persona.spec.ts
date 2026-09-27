@@ -133,14 +133,24 @@ describe('persona bibles', () => {
       budget: 'mid',
       palette: ['green', 'blue', 'black', 'white', 'grey', 'beige', 'brown'],
       notes: expect.stringMatching(/One pattern at a time/),
-      rhythm: [
-        { occasion: 'all-day', times: 4, per: 'week' },
-        { occasion: 'workout', times: 3, per: 'week' },
-        { occasion: 'work', times: 3, per: 'week' },
-        { occasion: 'evening', times: 3, per: 'month' },
-        { occasion: 'night-out', times: 1, per: 'month' },
-      ],
     });
+    // His week template (#16) is his week table: the day's Calendar
+    // occasion, and the runs and the gym as workouts.
+    expect(
+      demo.weekTemplate?.map((slot) => `${slot.weekday} ${slot.occasion}`),
+    ).toEqual([
+      '0 all-day',
+      '1 all-day',
+      '1 workout',
+      '2 work',
+      '3 work',
+      '4 workout',
+      '4 work',
+      '5 all-day',
+      '6 all-day',
+      '6 workout',
+    ]);
+    expect(loadPersona('fresh').weekTemplate).toBeNull();
     const [plan] = demo.plans;
     expect(demo.plans).toHaveLength(1);
     expect(plan).toMatchObject({
@@ -379,9 +389,9 @@ describe('persona bibles', () => {
       /more than one plan is \(active\)/,
     ],
     [
-      'a rhythm for an occasion the calendar does not have',
-      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Rhythm\n\n| Occasion | Times | Per |\n|---|---|---|\n| brunch | 2 | week |\n`,
-      /"brunch" is not an occasion/,
+      'a week whose day is dressed for an evening',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n## His week\n\n| Day | Draws from | Calendar |\n|---|---|---|\n| Sun | weekend | all-day |\n| Mon | weekend | all-day |\n| Tue | weekend | all-day |\n| Wed | weekend | all-day |\n| Thu | weekend | all-day |\n| Fri | weekend | evening |\n| Sat | weekend | all-day |\n`,
+      /week template: evening is not an outfit for the day/,
     ],
     [
       'a clash naming a garment that is not there',

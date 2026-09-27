@@ -416,16 +416,27 @@ against what you own.
 
 ## 12. Weekly auto-plan
 
+Built in #16 (CLAUDE.md, Weekly auto-plan, has the rules in full).
+
 - **A week template** per user (`week_template`: weekday, occasion; for example Monday to Friday
-  work, Saturday daytime and evening). Set once in the profile.
-- **"Plan my week"** on the calendar fills every template slot of the next 7 days that has no entry,
-  using the forecast for each slot. It never repeats a garment beyond its wash limit across the week
-  (the plan counts its own future wears) and never reuses a whole outfit within the week.
+  work, Saturday daytime and evening). Set once in the profile (its "Your week" section): per weekday
+  one outfit for the day (all day, work or daytime) and any occasions around it (a workout, an
+  evening, a night out). **It is the one model of the week**: #34a's rhythm counts ("work 3 a week",
+  section 15) are derived from it, not stored, and the migration spread the stored weekly counts onto
+  weekdays (monthly ones, which no weekday holds, were dropped: occasional evenings are planned by
+  hand).
+- **"Plan my week"** on the calendar (and Today) fills every template slot of the next 7 days that has
+  no entry, using the forecast for each slot. It never repeats a garment beyond its wash limit across
+  the week (the plan counts its own future wears, and those of entries already planned) and never
+  reuses a whole outfit within the week. It shows what it planned, with Undo for the batch.
 - **Auto entries are marked** (`outfit_calendar.planned_by`: `user` or `auto`). A daily job
-  compares each future auto entry's forecast with the one it was planned for. When the target warmth
-  or the rain need changed, it re-plans that entry and sends a push ("Thursday turned cold: swapped
-  in the wool coat"). Entries you placed or edited are `user` and never touched.
-- Generated outfits it picks are saved like gallery picks.
+  (06:00, once per user per day by a claim) compares each future auto entry's forecast with the one it
+  was planned for. When the target warmth or the rain need changed and its outfit no longer fits, it
+  re-plans that entry and sends a push ("Thursday turned cold: swapped in the wool coat") to the
+  devices with the morning reminder on. Entries you placed, edited or wore are `user` and never
+  touched.
+- Generated outfits it picks are saved like gallery picks; Undo, and a swap, remove the ones it made
+  that nothing else uses.
 
 ## 13. Outfit selfies
 
@@ -502,9 +513,9 @@ as a plan.
 - **The model.** Private per owner, like outfits: shares never reach it, another user's plan is a 404.
   - `style_profile` (one row per user): `styles` and `palette` as `text[]` sets (the values of
     `src/wardrobe/style.ts` and `GARMENT_COLORS`, check constraints as `garment.materials`), a
-    `budget` band (budget, mid, premium, luxury), notes. **`style_rhythm`** (user, occasion, times,
-    `per` week or month): the week's rhythm counted per calendar occasion (#13's `OCCASIONS`: "work 3
-    a week", "evening 3 a month"), the words the week template (#16) will read. **No city**: the
+    `budget` band (budget, mid, premium, luxury), notes. The week's rhythm per calendar occasion
+    ("work 3 a week") was a `style_rhythm` table here in 34a; since #16 it is derived from the week
+    template (section 12), the one model of the week, and shown read-only. **No city**: the
     home city is the weather's (`user_weather`, #14); the style page shows it read-only, with a
     link to Profile › Weather, and never copies it.
   - `wardrobe_plan` (owner, name unique per owner in any case, notes, `active`; a partial unique
@@ -549,7 +560,7 @@ as a plan.
   WRITES, `propose_plan_item` and `update_plan_item`. **The agent proposes, the owner decides**: an
   item the agent adds or changes is `proposed`, shown apart and left out of matching until the owner
   accepts it (Accept, or saving it in the form) or dismisses it.
-- **Seed**: Theo gets a style profile, his rhythm and "NYC minimal" (19 items, active), which his
+- **Seed**: Theo gets a style profile, his week (the week table, since #16) and "NYC minimal" (19 items, active), which his
   closet mostly fulfils: the replace-soon grey merino and the padded shirt jacket he wants are
   missing, the third oxford partly. The bible's tables are the data, through the forms' readers.
 - **The shopping loop (34b)**: plan, gaps, shopping list, buy, "Bought it" fulfils the item.

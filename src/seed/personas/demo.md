@@ -49,7 +49,10 @@ fresh account's header asks for a city, and Dana has never opened the profile.
 `Draws from` is the occasions a day's outfit comes from (the Occasion column of Saved outfits).
 `Calendar` is the part of the day that outfit is planned for on the calendar (#13: `all-day` or
 `work`), and `Workout` the saved outfit of the morning's workout, a calendar entry of its own
-(`workout`) before it.
+(`workout`) before it. The table is also his **week template** (#16, Profile › Your week): each
+day's `Calendar` occasion, plus a workout where the day has one (Monday and Thursday runs, the
+Saturday gym), which "Plan my week" fills; date nights and nights out come some weeks, not on a
+weekday, so they are not in it and he plans them himself.
 
 | Day | Draws from | Calendar | Workout | Where | What he wears | Notes |
 |---|---|---|---|---|---|---|
@@ -115,11 +118,10 @@ not in the closet, the builder, capsules or laundry until "Bought it". Links che
 ## His style profile and plan (#34)
 
 What he dresses for and toward: the style profile (`src/wardrobe/style.ts`'s sets, the palette in
-`GARMENT_COLORS`) and the week's rhythm, counted per calendar occasion (#13), as the week table above
-lives it: three office days, WFH days and weekends as all-day, three workouts (Monday and Thursday
-runs, the Saturday gym), a date night three weeks in four and a night out every third week. His home
-location is the weather's (#14), not the profile's. Posted through the style profile form's own
-validation (`readStyleProfileForm`).
+`GARMENT_COLORS`). The week's rhythm it shows (work 3× a week, all day 4×, workouts 3×) is derived
+from his week template, the week table above (#16), not stored with the profile. His home location
+is the weather's (#14), not the profile's. Posted through the style profile form's own validation
+(`readStyleProfileForm`).
 
 ### Style profile
 
@@ -129,16 +131,6 @@ validation (`readStyleProfileForm`).
 | Budget | mid |
 | Palette | blue, white, grey, black, beige, green, brown |
 | Notes | One pattern at a time, never two. A few investment pieces: the blazer, the boots, the coat. |
-
-### Rhythm
-
-| Occasion | Times | Per |
-|---|---|---|
-| work | 3 | week |
-| all-day | 4 | week |
-| workout | 3 | week |
-| evening | 3 | month |
-| night-out | 1 | month |
 
 **His plan** is the closet he built after the move, written as targets (`src/wardrobe/plans.ts`), not
 products: his wardrobe mostly fulfils it, which is what the gap view shows. Two gaps on purpose: the
@@ -490,9 +482,13 @@ the planned week's weather on the calendar is the weather it was drawn for):
    `evening` and `night-out` entry of the last 28 days has one (#19; a drawing of the outfit's garments
    on him in the hall mirror, `src/seed/selfie-art.ts`), stored through the selfie's own writer, which
    marks the entry worn.
-7. **Planned week**: the seven days after the anchor, drawn by the same rules from the weather's
-   normals, planned and not worn (a meeting Wednesday, the workouts and a date night if the week has
-   them).
+7. **Planned week**: the seven days after the anchor, planned and not worn. He plans by hand only
+   what comes some weeks (a date night, a night out, drawn by the same rules) and an Event's outfit;
+   the rest, his week template's slots (the day's outfit, the workouts), is **"Plan my week"** (#16):
+   the app's own planner over his closet as the anchor leaves it (the week's wears still in the
+   hamper), with the forecast the tests' Open-Meteo stand-in serves for those days, each entry
+   marked Auto. The rules still draw every day's outfit, so the evenings are the ones they always
+   were.
    **The anchor is today, half lived** (Today, #15): the morning's workout is done and worn (by the
    end of its window, 9:00), the evening planned and not worn yet, and the day's own outfit not
    chosen, so Today suggests one; an Event's outfit is decided already and planned. At the reference
@@ -519,8 +515,9 @@ with a packing list (#10; the Travel capsule is its pool), the gallery's clashes
 table, olive chinos + olive chore coat and the double denim), and the Next buys as wishlist items (#18,
 done: the Wishlist table, W01 replacing T21). The outfit gallery (#9, done) draws its ideas from the
 closet or a capsule, rotating what the simulation left unworn. Wardrobe plans (#34a, done: the style
-profile, the rhythm and "NYC minimal" above, whose gaps are the replace-soon merino and the padded
+profile and "NYC minimal" above, whose gaps are the replace-soon merino and the padded
 jacket); the shopping list (#34b, done: the plan table's Candidates) pairs those gaps with W01 and W02.
 Today (#15, done): the anchor is today, half lived (step 7), so his home screen shows the evening's
 plan and ideas for the day. Outfit selfies (#19, done): his recent evenings carry a mirror selfie (step
 6), so the calendar's history weeks and his date-night outfits' Worn strips show the looks.
+The weekly auto-plan (#16, done): his week template is the week table, and the planned week is "Plan my week"'s (step 7).

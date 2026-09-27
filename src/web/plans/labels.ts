@@ -1,5 +1,5 @@
 import type { PlanPriority, TargetDifference } from '../../wardrobe/plans';
-import type { BudgetBand, RhythmPeriod, Style } from '../../wardrobe/style';
+import type { BudgetBand, Style } from '../../wardrobe/style';
 import { t, tKey } from '../i18n';
 import { categoryLabel } from '../wardrobe/garment';
 import { valueLabel } from '../wardrobe/labels';
@@ -17,10 +17,6 @@ export function styleLabel(style: Style): string {
 
 export function budgetLabel(band: BudgetBand): string {
   return tKey(`style.budget.${band}`);
-}
-
-export function periodLabel(period: RhythmPeriod): string {
-  return tKey(`style.per.${period}`);
 }
 
 export function priorityLabel(priority: PlanPriority): string {

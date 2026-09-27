@@ -272,6 +272,7 @@ describe('the MCP endpoint', () => {
           'mark_washed',
           'mark_worn',
           'pick_outfit',
+          'plan_week',
           'propose_plan_item',
           'schedule_outfit',
           'search_garments',

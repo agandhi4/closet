@@ -2,6 +2,7 @@ import { and, between, eq } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { outfit, outfitCalendar } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
+import type { PlannedBy } from '../../wardrobe/week';
 import { imageUrl } from '../files/image-url';
 import { deleteEntrySelfie, SELFIE_WITH } from '../selfies/queries';
 import type { IsoDate } from './calendar-date';
@@ -29,7 +30,13 @@ export async function findEntries(
 ): Promise<CalendarEntry[]> {
   // Served by outfit_calendar_owner_id_day_outfit_id_unique (owner_id, day).
   const rows = await db.query.outfitCalendar.findMany({
-    columns: { id: true, day: true, occasion: true, wornAt: true },
+    columns: {
+      id: true,
+      day: true,
+      occasion: true,
+      wornAt: true,
+      plannedBy: true,
+    },
     where: and(
       eq(outfitCalendar.ownerId, ownerId),
       between(outfitCalendar.day, first, last),
@@ -63,6 +70,7 @@ export async function findEntries(
     occasion: row.occasion,
     worn: row.wornAt !== null,
     selfie: row.selfie,
+    plannedBy: row.plannedBy,
     outfit: {
       id: row.outfit.id,
       name: row.outfit.name,
@@ -81,6 +89,8 @@ export interface NewEntry {
   outfitId: number;
   day: IsoDate;
   occasion: Occasion;
+  /** The week planner's entries are 'auto' (#16); everything else is the person's (the default). */
+  plannedBy?: PlannedBy;
 }
 
 /** What insertEntry did; a new entry's id, for a caller that marks it worn (the seed). */
@@ -112,7 +122,8 @@ export async function scheduleOutfit(
  * The one writer of calendar entries, for an outfit the caller has already
  * found to be the owner's: POST /calendar (scheduleOutfit), the outfit
  * form's "Add to calendar", inside its save transaction
- * (src/web/outfits/queries.ts), and the seed's simulated history. An entry
+ * (src/web/outfits/queries.ts), the gallery's pick (which the week planner,
+ * #16, calls with plannedBy 'auto') and the seed's simulated history. An entry
  * starts unworn: setEntryWorn (src/web/wears/queries.ts) is the only way to
  * mark one, because its wear rows change with it.
  *

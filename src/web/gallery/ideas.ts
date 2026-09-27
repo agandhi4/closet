@@ -6,6 +6,7 @@ import {
   OUTFIT_ORDER,
 } from '../../wardrobe/generator';
 import { OCCASION_HINTS, type Occasion } from '../../wardrobe/occasions';
+import type { PlannedBy } from '../../wardrobe/week';
 import { categoryRole } from '../../wardrobe/properties';
 import { FORECAST_DAYS, forecastDay } from '../../weather/forecast';
 import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
@@ -230,15 +231,18 @@ export interface PickResult {
  * (createOutfit). All in one transaction under lockOwner, so a double tap,
  * a retried post or a retried pick_outfit never makes a second outfit: the
  * second pick waits for the first to commit and finds its outfit. Called by
- * the gallery's pick and the MCP tool pick_outfit; takes a Queryable so a
- * spec can hold a pick's transaction open.
+ * the gallery's pick, the MCP tool pick_outfit, Today's "Wear this" and the
+ * week planner (#16, src/web/week-plan/plan.ts, inside its own locked
+ * transaction); takes a Queryable so a spec can hold a pick's transaction
+ * open.
  */
 export function pickIdea(
   db: Queryable,
   ownerId: number,
   input: {
     garmentIds: readonly number[];
-    plan?: { day: IsoDate; occasion: Occasion };
+    /** plannedBy 'auto': the week planner's pick (#16); the person's otherwise. */
+    plan?: { day: IsoDate; occasion: Occasion; plannedBy?: PlannedBy };
     name?: string;
   },
 ): Promise<PickResult | 'not-found'> {

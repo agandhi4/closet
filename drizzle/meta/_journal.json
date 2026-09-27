@@ -155,6 +155,13 @@
       "when": 1790484773504,
       "tag": "0021_cutout_lease",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790485942874,
+      "tag": "0022_week_plan",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 import { compareOccasions, type Occasion } from '../../wardrobe/occasions';
 import type { DetachedLook, SelfieRef } from '../selfies/queries';
+import type { PlannedBy } from '../../wardrobe/week';
 import {
   addDays,
   addMonths,
@@ -29,6 +30,8 @@ export interface CalendarEntry {
   worn: boolean;
   /** The outfit selfie taken for it (#19), if any. */
   selfie: SelfieRef | null;
+  /** 'auto': the week planner's pick, still its to swap (#16). */
+  plannedBy: PlannedBy;
   outfit: {
     id: number;
     name: string | null;

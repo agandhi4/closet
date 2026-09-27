@@ -185,6 +185,8 @@ export type EntryWornOutcome =
  * changes this history; unmarking deletes exactly the entry's rows
  * (deleting the entry does the same, by its foreign key). `worn` undefined
  * toggles (the pill posted by a page cached before it said which).
+ * Either way a week planner's entry becomes the person's (planned_by
+ * 'user', #16): they have acted on it, so its re-plan never swaps it.
  * Idempotent: an entry already so is left alone. A day after `today` is
  * never marked worn ('future'). `at` is when it was worn (the tap; the seed's
  * evening). Used by POST /calendar/:id/worn and the seed.
@@ -222,7 +224,7 @@ export function setEntryWorn(
     if (!worn) {
       await tx
         .update(outfitCalendar)
-        .set({ wornAt: null })
+        .set({ wornAt: null, plannedBy: 'user' })
         .where(eq(outfitCalendar.id, entry.id));
       const deleted = await tx
         .delete(garmentWear)
@@ -233,7 +235,7 @@ export function setEntryWorn(
     if (entry.day > input.today) return 'future';
     await tx
       .update(outfitCalendar)
-      .set({ wornAt: input.at })
+      .set({ wornAt: input.at, plannedBy: 'user' })
       .where(eq(outfitCalendar.id, entry.id));
     // A slot only ever names a garment of the outfit's owner (the outfit
     // form's rule); the join keeps it so here too.

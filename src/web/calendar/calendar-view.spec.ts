@@ -32,6 +32,7 @@ function entryOn(
     occasion,
     worn: false,
     selfie: null,
+    plannedBy: 'user',
     outfit: { id, name: `Outfit ${id}`, photoUrls: [] },
   };
 }

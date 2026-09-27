@@ -23,6 +23,7 @@ import {
   selfie,
 } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
+import type { PlannedBy } from '../../wardrobe/week';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
@@ -72,7 +73,7 @@ export interface OutfitInput {
   notes?: string | null;
   slots: SlotInput[];
   /** "Add to calendar": plan the outfit on this day, for this occasion, in the same transaction. */
-  plan?: { day: IsoDate; occasion: Occasion };
+  plan?: { day: IsoDate; occasion: Occasion; plannedBy?: PlannedBy };
 }
 
 export interface SaveResult {
@@ -81,6 +82,8 @@ export interface SaveResult {
   /** Posted garment ids that are not the owner's, stored as empty slots. */
   refused: number;
   schedule?: ScheduleOutcome;
+  /** An update: the week planner's entries of the outfit that became the person's. */
+  entriesClaimed?: number;
 }
 
 /**
@@ -454,7 +457,11 @@ export function createOutfit(
 /**
  * POST /outfits/:id: fields, slots (replaced whole: the form posts every row)
  * and the optional calendar entry, in one transaction. 'not-found' for an
- * outfit that is not the owner's, before anything is written.
+ * outfit that is not the owner's, before anything is written. Editing an
+ * outfit is editing the calendar entries that hold it (the calendar chip's
+ * edit link is this form), so the week planner's entries of it become the
+ * person's (planned_by 'user', #16): its re-plan never swaps an outfit
+ * someone changed.
  */
 export function updateOutfit(
   db: Db,
@@ -481,11 +488,27 @@ export function updateOutfit(
     }
     await tx.delete(outfitSlot).where(eq(outfitSlot.outfitId, id));
     const refused = await insertSlots(tx, id, ownerId, input.slots);
+    const claimed = await tx
+      .update(outfitCalendar)
+      .set({ plannedBy: 'user' })
+      .where(
+        and(
+          eq(outfitCalendar.outfitId, id),
+          eq(outfitCalendar.plannedBy, 'auto'),
+        ),
+      )
+      .returning({ id: outfitCalendar.id });
     const schedule = input.plan
       ? (await insertEntry(tx, { ownerId, outfitId: id, ...input.plan }))
           .outcome
       : undefined;
-    return { id, slots: input.slots.length, refused, schedule };
+    return {
+      id,
+      slots: input.slots.length,
+      refused,
+      schedule,
+      entriesClaimed: claimed.length,
+    };
   });
 }
 
@@ -501,7 +524,7 @@ export function updateOutfit(
  * Undefined when the outfit is not the owner's; else the wears kept.
  */
 export function deleteOutfit(
-  db: Db,
+  db: Queryable,
   id: number,
   ownerId: number,
 ): Promise<{ wearsKept: number } | undefined> {

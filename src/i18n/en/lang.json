@@ -219,8 +219,7 @@
     "PLAN_CATEGORY_REQUIRED": "Choose a category",
     "PLAN_TYPE_OF_CATEGORY": "Choose a type of this category, or any type",
     "PLAN_TYPE_NONE": "This category has no types: choose any type",
-    "PLAN_RANGE_ORDER": "The first end must not be above the second",
-    "RHYTHM_TIMES": "Enter a whole number from 0 to {max}, or leave it empty"
+    "PLAN_RANGE_ORDER": "The first end must not be above the second"
   },
   "WARDROBE_SHARING": "Wardrobe Sharing",
   "agentAccess": {
@@ -733,9 +732,11 @@
     "BUDGET": "Budget per piece",
     "BUDGET_HINT": "Budget under $50 · Mid $50–150 · Premium $150–400 · Luxury above",
     "PALETTE": "Palette",
-    "RHYTHM": "Your week",
-    "RHYTHM_HINT": "How often each occasion comes round. Leave empty what is not part of your life.",
-    "PER": "per",
+    "WEEK": "Your week",
+    "WEEK_NONE": "Not set yet: say what each day holds, and Plan my week fills it.",
+    "WEEK_RHYTHM": "{occasion} {count}× a week",
+    "WEEK_EDIT": "Set your week",
+    "WEEK_CHANGE": "Change it in Your week",
     "NOTES_PLACEHOLDER": "Anything else: dress codes, a climate, what you never wear",
     "SAVED": "Style profile saved",
     "CHANGE_HOME": "Change it in Weather",
@@ -754,10 +755,6 @@
       "mid": "Mid",
       "premium": "Premium",
       "luxury": "Luxury"
-    },
-    "per": {
-      "week": "a week",
-      "month": "a month"
     }
   },
   "shopping": {
@@ -991,5 +988,36 @@
     "CLOSE": "Close",
     "DETACHED": "Worn (outfit deleted)",
     "WORN_HEADING": "Worn ({count})"
+  },
+  "weekPlan": {
+    "PLAN_MY_WEEK": "Plan my week",
+    "PLANNED_ONE": "Planned 1 outfit for your week",
+    "PLANNED_MANY": "Planned {count} outfits for your week",
+    "NOTHING_PLANNED": "Nothing new to plan: every slot of your week has an outfit or nothing clean fits it.",
+    "STILL_EMPTY": "Still empty: {slots}",
+    "YOURS_NOW": "yours now",
+    "UNDO": "Undo",
+    "UNDO_CONFIRM": "Remove the outfits this plan added? Anything you edited or wore stays.",
+    "UNDONE": "Plan undone: {count} removed",
+    "AUTO": "Auto",
+    "AUTO_TITLE": "Planned by Plan my week. It may be swapped for the weather until you edit or wear it.",
+    "SLOT": "{day} {occasion}",
+    "template": {
+      "HEADING": "Your week",
+      "HINT": "What each day holds. Plan my week, on the calendar, fills it with outfits for the next 7 days.",
+      "DAY_LABEL": "{weekday}: the outfit for the day",
+      "AROUND_LABEL": "{weekday}: also",
+      "NO_DAY": "No outfit for the day",
+      "SAVED": "Week saved"
+    },
+    "push": {
+      "TITLE": "Your week changed",
+      "FORECAST": "{slot}'s forecast is in: swapped in {garments}",
+      "RAIN": "Rain on {slot}: swapped in {garments}",
+      "COLDER": "{slot} turned cold: swapped in {garments}",
+      "WARMER": "{slot} warmed up: swapped in {garments}",
+      "DRY": "{slot} is dry now: swapped in {garments}",
+      "SWING": "{slot} swings warm to cold: swapped in {garments}"
+    }
   }
 }

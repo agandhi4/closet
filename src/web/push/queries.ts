@@ -193,6 +193,24 @@ export function reminderDevices(db: Db): Promise<ReminderDevice[]> {
 }
 
 /**
+ * The user's devices with the morning reminder on: the week re-plan's
+ * swap notice goes to them (src/web/week-plan/replan.ts). user_device_user_id_index.
+ */
+export async function morningReminderDevices(
+  db: Db,
+  userId: number,
+): Promise<number[]> {
+  const rows = await db
+    .select({ id: userDevice.id })
+    .from(userDevice)
+    .where(
+      and(eq(userDevice.userId, userId), isNotNull(userDevice.morningReminder)),
+    )
+    .orderBy(userDevice.id);
+  return rows.map((row) => row.id);
+}
+
+/**
  * Claims the due reminders for this process to send, in one statement:
  * each is inserted into push_reminder unless a row for its device, kind and
  * day exists, and only the inserted ones come back. Two servers claiming

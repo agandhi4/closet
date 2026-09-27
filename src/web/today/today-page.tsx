@@ -16,6 +16,7 @@ import { OutfitCollage } from '../outfits/collage';
 import { EntrySelfie } from '../selfies/views';
 import type { ViewContext } from '../view-context';
 import { WeatherSlot } from '../weather/views';
+import { PlanWeekForm } from '../week-plan/views';
 import type { TodayEntry } from './queries';
 import type { IdeasRow, PlannedRow, TodayModel } from './today';
 import { TODAY_PATH, todayIdeasUrl, WEAR_THIS_PATH } from './urls';
@@ -55,12 +56,16 @@ export function TodayPage(props: { ctx: ViewContext; model: TodayModel }) {
             <IdeasRowView row={row} today={model.today} />
           ),
         )}
-        <a
-          href={`/calendar/plan?for=day:${model.today}`}
-          class="btn btn-ghost btn-sm self-start"
-        >
-          + {t('today.PLAN_ANOTHER')}
-        </a>
+        <div class="flex flex-wrap items-center gap-2">
+          <a
+            href={`/calendar/plan?for=day:${model.today}`}
+            class="btn btn-ghost btn-sm"
+          >
+            + {t('today.PLAN_ANOTHER')}
+          </a>
+          {/* The week ahead (#16): lands on the calendar with what it planned. */}
+          <PlanWeekForm small />
+        </div>
       </main>
       <Dock ctx={ctx} />
     </Layout>

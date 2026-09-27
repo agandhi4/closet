@@ -81,11 +81,19 @@ describe('migrations', () => {
         'user_lower_email_unique',
         // Wardrobe plans (#34): one name per owner, any case (also the
         // owner_id foreign key's); one active plan per owner; a plan's
-        // items; a profile's rhythm (also its user_id foreign key's).
+        // items.
         'wardrobe_plan_owner_id_lower_name_unique',
         'wardrobe_plan_owner_id_active_unique',
         'plan_item_plan_id_index',
-        'style_rhythm_pkey',
+        // The week template (#16): a user's (also its user_id foreign
+        // key's), one outfit for the day per weekday; a user's plans and a
+        // plan's entries (their foreign keys); the re-plan's claims (also
+        // the user_id foreign key's).
+        'week_template_pkey',
+        'week_template_user_id_weekday_day_unique',
+        'week_plan_owner_id_index',
+        'week_plan_entry_week_plan_id_index',
+        'week_replan_pkey',
         // An item's candidates (also plan_item_id's foreign key), and a
         // wishlist item's plan items (garment_id's), #34b.
         'plan_item_candidate_pkey',

@@ -12,6 +12,7 @@ import { addDays, todayIn } from './web/calendar/calendar-date';
 import { pruneReminders, sendDueReminders } from './web/push/reminders';
 import type { PushSender } from './web/push/sender';
 import type { WeatherService } from './web/weather/service';
+import { pruneReplans, replanWeeks } from './web/week-plan/replan';
 
 // The hour, in APP_TIMEZONE, of the nightly storage reconciliation and the
 // cutout retry.
@@ -19,7 +20,9 @@ const RECONCILE_HOUR = 3;
 
 /**
  * The server process: createApp(), the nightly jobs, the push reminders
- * (with PWA_ENABLED), the background-removal queue started with `runner`,
+ * (with PWA_ENABLED), the week's daily re-plan (with WEATHER_ENABLED: it
+ * judges the planner's entries against the forecast), the
+ * background-removal queue started with `runner`,
  * signal handling, listen. main.ts passes the model (ModelRunner);
  * test/support/test-server.ts, which Playwright, the load test and
  * Lighthouse boot on the build, passes a stub, so no test downloads or runs
@@ -62,6 +65,7 @@ export async function serve(
   // Before listen() too (hooks).
   startCutouts(config, logger, app, db, cutouts, runner);
   if (push) startReminders(config, logger, app, db, push, weather);
+  if (weather) startReplans(config, logger, app, db, weather, push);
 
   // `docker stop` sends SIGTERM: stop accepting, let in-flight requests
   // finish, then onClose ends the queue, the pool and the timers and the
@@ -144,5 +148,46 @@ function startReminders(
   app.addHook('preClose', async () => {
     prune.stop();
     await reminders.stop();
+  });
+}
+
+// The week's daily re-plan (src/web/week-plan/replan.ts): every minute a
+// run that does nothing before REPLAN_HOUR and then claims each user's
+// re-plan once for the day (so a restart after the hour catches up); the
+// claims of past days go nightly. Stopped before the server closes, waiting
+// for a run in flight (it uses the pool). Without WEATHER_ENABLED there is
+// no forecast to re-plan against, so nothing is scheduled.
+function startReplans(
+  config: Config,
+  logger: Logger,
+  app: FastifyInstance,
+  db: Db,
+  weather: WeatherService,
+  push: PushSender | undefined,
+): void {
+  const log = logger.child({ context: 'WeekPlan' });
+  const deps = {
+    db,
+    weather,
+    push,
+    timeZone: config.APP_TIMEZONE,
+    logger: log,
+  };
+  const replans = scheduleMinutely({
+    name: 'Week re-plan',
+    run: (now) => replanWeeks(deps, now),
+    logger: log,
+  });
+  const prune = scheduleNightly({
+    name: 'Re-plan claims prune',
+    hour: RECONCILE_HOUR,
+    timeZone: config.APP_TIMEZONE,
+    run: () =>
+      pruneReplans(deps, addDays(todayIn(config.APP_TIMEZONE, new Date()), -1)),
+    logger: log,
+  });
+  app.addHook('preClose', async () => {
+    prune.stop();
+    await replans.stop();
   });
 }

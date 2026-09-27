@@ -7,8 +7,10 @@ import { Navbar } from '../layout/navbar';
 import { STYLE_PROFILE_PATH } from '../plans/urls';
 import { PushSettings } from '../push/settings';
 import type { ViewContext } from '../view-context';
+import type { TemplateSlot } from '../../wardrobe/week';
 import type { WeatherSettings as Settings } from '../weather/queries';
 import { WeatherSettings } from '../weather/settings';
+import { WeekTemplateSettings } from '../week-plan/views';
 import { ErrorAlert, Field, Fieldset, PostForm, SubmitButton } from './form';
 import { LOGOUT_PATH } from './logout';
 import type {
@@ -179,6 +181,8 @@ export function RegisterPage(props: { ctx: ViewContext } & RegisterFormState) {
 export function ProfilePage(props: {
   ctx: ViewContext;
   passwordChanged: boolean;
+  /** The week template section (#16): the stored slots, and whether it was just saved. */
+  week: { slots: readonly TemplateSlot[]; saved: boolean };
   /** The weather section's state; absent with WEATHER_ENABLED=false. */
   weather?: { settings: Settings; timeZone: string; now: Date };
 }) {
@@ -210,6 +214,7 @@ export function ProfilePage(props: {
       </a>
       {/* Web Push needs the service worker, which only PWA_ENABLED serves. */}
       {props.ctx.pwaEnabled && <PushSettings />}
+      <WeekTemplateSettings {...props.week} />
       {props.weather && <WeatherSettings {...props.weather} />}
     </AccountShell>
   );

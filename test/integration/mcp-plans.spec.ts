@@ -79,30 +79,53 @@ describe('MCP: wardrobe plans', () => {
 
   afterAll(() => t?.cleanup());
 
-  it('reads the style profile: null until saved, then every part', async () => {
+  it('reads the style profile: null until saved, then every part, and the week template with its rhythm (#16)', async () => {
+    const emptyWeek = Array.from({ length: 7 }, (_, weekday) => ({
+      weekday,
+      day: null,
+      around: [],
+    }));
     expect(await tool(t, token, 'get_style_profile')).toEqual({
       profile: null,
+      week: { template: emptyWeek, rhythm: [] },
     });
     await post('/auth/profile/style', {
       styles: ['minimal'],
       budget: 'premium',
       palette: ['black'],
-      'times-work': '4',
-      'per-work': 'week',
-      'times-night-out': '2',
-      'per-night-out': 'month',
     });
-    expect(await tool(t, token, 'get_style_profile')).toEqual({
+    await post('/auth/profile/week', {
+      'day-1': 'work',
+      'day-2': 'work',
+      'around-2': ['workout', 'night-out'],
+      'day-6': 'daytime',
+    });
+    const answer = await tool<{ week: { template: unknown[] } }>(
+      t,
+      token,
+      'get_style_profile',
+    );
+    expect(answer).toEqual({
       profile: {
         styles: ['minimal'],
         budget: 'premium',
         palette: ['black'],
         notes: null,
+      },
+      week: {
+        template: expect.any(Array),
         rhythm: [
-          { occasion: 'work', times: 4, per: 'week' },
-          { occasion: 'night-out', times: 2, per: 'month' },
+          { occasion: 'workout', perWeek: 1 },
+          { occasion: 'work', perWeek: 2 },
+          { occasion: 'daytime', perWeek: 1 },
+          { occasion: 'night-out', perWeek: 1 },
         ],
       },
+    });
+    expect(answer.week.template[2]).toEqual({
+      weekday: 2,
+      day: 'work',
+      around: ['workout', 'night-out'],
     });
   });
 
@@ -283,8 +306,9 @@ describe('MCP: wardrobe plans', () => {
     });
     expect(propose.value.error).toBe('Plan not found');
     expect(await tool(t, strangerToken, 'list_plans')).toEqual({ plans: [] });
-    expect(await tool(t, strangerToken, 'get_style_profile')).toEqual({
+    expect(await tool(t, strangerToken, 'get_style_profile')).toMatchObject({
       profile: null,
+      week: { rhythm: [] },
     });
   });
 });

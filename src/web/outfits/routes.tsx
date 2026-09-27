@@ -172,6 +172,9 @@ function describeSave(result: SaveResult, plan: OutfitInput['plan']): string {
   if (plan && result.schedule === 'already-scheduled') {
     parts.push(`already scheduled on ${plan.day}`);
   }
+  if (result.entriesClaimed) {
+    parts.push(`${result.entriesClaimed} planned entry(ies) now the user's`);
+  }
   return parts.join(', ');
 }
 

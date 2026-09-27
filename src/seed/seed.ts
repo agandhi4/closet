@@ -51,6 +51,12 @@ import { splitColors } from '../web/wardrobe/garment';
 import { insertGarment } from '../web/wardrobe/queries';
 import { setGarmentStatus } from '../web/wardrobe/status';
 import { setHome, setTemperatureUnit } from '../web/weather/queries';
+import {
+  NO_FORECAST,
+  planMyWeek,
+  type WeekForecast,
+} from '../web/week-plan/plan';
+import { saveWeekTemplate } from '../web/week-plan/template';
 import { type ArtSubject, garmentSvg } from './art';
 import {
   isPersonaKey,
@@ -64,7 +70,8 @@ import {
   slotRank,
 } from './persona';
 import { mirrorSelfieSvg, SELFIE_ROOMS } from './selfie-art';
-import { type SimulatedLife, simulate } from './simulate';
+import { PLANNED_DAYS, type SimulatedLife, simulate } from './simulate';
+import { forecastDayOf } from './weather';
 
 /**
  * `npm run seed`: writes the personas (src/seed/personas/*.md) through the
@@ -103,6 +110,8 @@ export interface SeedReport {
   selfies: number;
   /** Laundry Sundays written (last_washed_on). */
   washes: number;
+  /** The planned week's outfits "Plan my week" wrote (#16). */
+  autoPlanned: number;
   ms: number;
 }
 
@@ -190,6 +199,10 @@ export async function seedPersona(
         anchor: options.anchor,
         timeZone: deps.timeZone,
       });
+      const autoPlanned = await writePlannedWeek(tx, userId, persona, life, {
+        anchor: options.anchor,
+        weatherEnabled: deps.weatherEnabled,
+      });
       return {
         userId,
         garments: persona.garments.length,
@@ -204,11 +217,12 @@ export async function seedPersona(
         wears,
         selfies: selfies.size,
         washes: life.washes.length,
+        autoPlanned,
         ms: Date.now() - startedAt,
       };
     });
     logger.info(
-      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.avoided} clashes, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears, ${report.selfies} selfies), ${report.washes} laundry days in ${report.ms}ms`,
+      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.avoided} clashes, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears, ${report.selfies} selfies), ${report.autoPlanned} planned by Plan my week, ${report.washes} laundry days in ${report.ms}ms`,
     );
     return report;
   } catch (error) {
@@ -227,6 +241,53 @@ async function removeStored(
   stored: Iterable<NewPhotoRow>,
 ): Promise<void> {
   for (const photo of stored) await photos.deleteVariants(photo.fileName);
+}
+
+/**
+ * The planned week (#16): the persona's week template (the week table's
+ * Calendar and Workout columns, through the template form) and "Plan my
+ * week" (planMyWeek, the app's own planner and writes) over the seven days
+ * after the anchor, with the forecast the tests' Open-Meteo stand-in
+ * serves for them (forecastDayOf) when the weather is on. The simulation
+ * planned only what the template does not hold (date nights, nights out,
+ * an Event's outfit), so the planner fills the rest, marked Auto, as it
+ * would for Theo on a Saturday evening. Its wash state is the anchor's (the
+ * Sunday laundry is not written yet), which it respects. Returns the
+ * entries it planned.
+ */
+async function writePlannedWeek(
+  tx: Queryable,
+  userId: number,
+  persona: Persona,
+  life: SimulatedLife,
+  options: { anchor: IsoDate; weatherEnabled: boolean },
+): Promise<number> {
+  if (!persona.weekTemplate) return 0;
+  await saveWeekTemplate(tx, userId, persona.weekTemplate);
+  const days = Array.from({ length: PLANNED_DAYS }, (_, i) =>
+    addDays(options.anchor, i + 1),
+  );
+  const forecast: WeekForecast = options.weatherEnabled
+    ? {
+        days: new Map(
+          life.weather
+            .filter((weather) => days.includes(weather.day))
+            .map((weather) => [
+              weather.day,
+              forecastDayOf(persona.key, weather),
+            ]),
+        ),
+        offset: 0,
+      }
+    : NO_FORECAST;
+  const planned = await planMyWeek(tx, userId, {
+    today: options.anchor,
+    // Only today's slots read the hour, and the anchor is not planned.
+    hour: 0,
+    days,
+    forecast,
+  });
+  return planned.planned.length;
 }
 
 /**

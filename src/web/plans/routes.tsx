@@ -33,6 +33,8 @@ import {
   updatePlan,
 } from './queries';
 import { findWeatherSettings } from '../weather/queries';
+import { weeklyRhythm } from '../../wardrobe/week';
+import { findWeekTemplate } from '../week-plan/template';
 import { StyleProfilePage } from './style-page';
 import { requirePlan as requireOwnPlan, requirePlanItem } from './require';
 import { PLANS_PATH, planUrl, STYLE_PROFILE_PATH } from './urls';
@@ -549,6 +551,9 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ctx={viewContext(reply)}
           model={{
             values: styleProfilePost(profile),
+            rhythm: weeklyRhythm(
+              await findWeekTemplate(db, sessionUserId(request)),
+            ),
             home: await homeCity(sessionUserId(request)),
             saved: request.query.saved === '1',
           }}
@@ -562,27 +567,10 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { body: StyleProfileBody } },
     async (request, reply) => {
       const userId = sessionUserId(request);
-      const form = readStyleProfileForm(request.body);
-      if (!form.ok) {
-        logger.warn(
-          `Style profile refused for user ${userId}: ${Object.keys(form.errors).join(', ')}`,
-        );
-        return renderPage(
-          reply,
-          <StyleProfilePage
-            ctx={viewContext(reply)}
-            model={{
-              values: form.values,
-              errors: form.errors,
-              home: await homeCity(userId),
-            }}
-          />,
-          { status: 400 },
-        );
-      }
-      await saveStyleProfile(db, userId, form.fields);
+      const fields = readStyleProfileForm(request.body);
+      await saveStyleProfile(db, userId, fields);
       logger.info(
-        `Style profile saved by user ${userId}: ${form.fields.styles?.length ?? 0} styles, ${form.fields.rhythm.length} rhythm entries`,
+        `Style profile saved by user ${userId}: ${fields.styles?.length ?? 0} styles, ${fields.palette?.length ?? 0} colours`,
       );
       return reply.redirect(`${STYLE_PROFILE_PATH}?saved=1`, 303);
     },

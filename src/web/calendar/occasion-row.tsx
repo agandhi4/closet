@@ -11,7 +11,8 @@ import { WornButton } from './worn-button';
  * entries are drawn: the week page stacks them in occasion order, and the
  * redesign's week agenda (R6) and Today (#15) reuse it
  * (docs/plans/2026-09-26-redesign.md, section 5). `data-occasion` is what
- * the specs read the order from.
+ * the specs read the order from. An entry "Plan my week" chose and the
+ * person has not touched is marked Auto (#16): its re-plan may swap it.
  */
 export function OccasionRow(props: {
   entry: CalendarEntryView;
@@ -23,6 +24,15 @@ export function OccasionRow(props: {
     <div class="flex flex-col gap-0.5 mb-1" data-occasion={entry.occasion}>
       <span class="text-[10px] font-semibold uppercase tracking-wide text-base-content/50">
         {occasionLabel(entry.occasion)}
+        {entry.plannedBy === 'auto' && (
+          <span
+            class="badge badge-ghost badge-xs ms-1 normal-case tracking-normal"
+            title={t('weekPlan.AUTO_TITLE')}
+            data-auto
+          >
+            {t('weekPlan.AUTO')}
+          </span>
+        )}
       </span>
       <div class="flex items-center gap-2">
         <EntryChip entry={entry} />

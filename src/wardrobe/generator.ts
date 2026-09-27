@@ -220,14 +220,22 @@ function layersOf<G extends IdeaGarment>(byRole: Map<GarmentRole, G[]>): G[] {
   return byRole.get('layer') ?? [];
 }
 
-/** The pool by role: only the roles drawn, and never a locked garment twice. */
+/**
+ * The pool by role: only the roles drawn, and never a locked garment twice.
+ * Each role's garments in id order, whatever order the pool came in: the
+ * draws pick by position, and a pool is a query's rows, whose order
+ * Postgres does not promise without ORDER BY (it follows the heap and the
+ * plan, which a reseed, an update or an index choice changes). Ordered
+ * here, the ideas are a function of the pool as a set; ids keep their
+ * relative order across a reseed, which inserts in the same order.
+ */
 function drawableByRole<G extends IdeaGarment>(
   pool: readonly G[],
   locked: readonly G[],
 ): Map<GarmentRole, G[]> {
   const lockedIds = new Set(locked.map((g) => g.id));
   const byRole = new Map<GarmentRole, G[]>();
-  for (const garment of pool) {
+  for (const garment of [...pool].sort((a, b) => a.id - b.id)) {
     if (lockedIds.has(garment.id) || !DRAWN_ROLES.includes(garment.role)) {
       continue;
     }

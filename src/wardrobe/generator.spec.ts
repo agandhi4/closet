@@ -113,6 +113,18 @@ describe('generateIdeas', () => {
     expect(new Set(ideas.map((idea) => keyOf(idea.garments))).size).toBe(24);
   });
 
+  it('is a function of the pool as a set: the rows in another order give the same ideas', () => {
+    const pool = closet();
+    const shuffled = [...pool.slice(4), ...pool.slice(0, 4)].reverse();
+    expect(
+      generateIdeas({ seed: 7, pool: shuffled, offset: 0, limit: 8 }).ideas.map(
+        ids,
+      ),
+    ).toEqual(
+      generateIdeas({ seed: 7, pool, offset: 0, limit: 8 }).ideas.map(ids),
+    );
+  });
+
   it('pages are stable for a seed and differ across seeds', () => {
     const pool = closet();
     const whole = generateIdeas({ seed: 7, pool, offset: 0, limit: 12 });

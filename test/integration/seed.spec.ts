@@ -17,12 +17,16 @@ import {
   planItem,
   selfie,
   styleProfile,
-  styleRhythm,
   user,
   userWeather,
   wardrobePlan,
   wardrobeShare,
+  weekPlan,
+  weekTemplate,
 } from '../../src/db/schema';
+import { dayOfWeek } from '../../src/web/calendar/calendar-date';
+import { weeklyRhythm } from '../../src/wardrobe/week';
+import { findWeekTemplate } from '../../src/web/week-plan/template';
 import { findStyleProfile } from '../../src/web/plans/queries';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
 import { variantFileName } from '../../src/web/files/image-variant';
@@ -201,7 +205,9 @@ describe('seed personas', () => {
         occasion: c.occasion,
         outfit: names.get(c.outfitId),
         wornAt: c.wornAt?.toISOString() ?? null,
+        plannedBy: c.plannedBy,
       })),
+      weekTemplate: await findWeekTemplate(t.db, id),
       wears: wears.map((w) => [ids.get(w.garmentId), w.day]),
       // Outfit selfies (#19): the day, the outfit and the photo's bytes.
       selfies: await Promise.all(
@@ -338,6 +344,7 @@ describe('seed personas', () => {
       occasion: 'all-day',
       outfit: 'Wedding',
       wornAt: '2026-08-30T01:00:00.000Z',
+      plannedBy: 'user',
     });
     // Occasions (#13): a Thursday of a morning run, the office and drinks
     // after, stacked on the calendar in occasion order.
@@ -418,14 +425,39 @@ describe('seed personas', () => {
     expect(demo.styleProfile).toMatchObject({
       styles: ['elevated-basics', 'smart-casual', 'outdoor-technical'],
       budget: 'mid',
-      rhythm: [
-        { occasion: 'all-day', times: 4, per: 'week' },
-        { occasion: 'workout', times: 3, per: 'week' },
-        { occasion: 'work', times: 3, per: 'week' },
-        { occasion: 'evening', times: 3, per: 'month' },
-        { occasion: 'night-out', times: 1, per: 'month' },
-      ],
     });
+    // His week template (#16) is the bible's week table, and "Plan my week"
+    // planned the week after the anchor: the template's slots are auto,
+    // the evenings he plans himself are his.
+    expect(weeklyRhythm(demo.weekTemplate)).toEqual([
+      { occasion: 'all-day', perWeek: 4 },
+      { occasion: 'workout', perWeek: 3 },
+      { occasion: 'work', perWeek: 3 },
+    ]);
+    const plannedWeek = demo.calendar.filter((entry) => entry.day > ANCHOR);
+    const auto = plannedWeek.filter((entry) => entry.plannedBy === 'auto');
+    expect(auto.length).toBeGreaterThanOrEqual(8);
+    expect(
+      auto.every((entry) =>
+        demo.weekTemplate.some(
+          (slot) =>
+            slot.weekday === dayOfWeek(entry.day) &&
+            slot.occasion === entry.occasion,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      plannedWeek
+        .filter((entry) => entry.plannedBy === 'user')
+        .every((entry) => ['evening', 'night-out'].includes(entry.occasion)),
+    ).toBe(true);
+    // No outfit twice in the planned week.
+    expect(new Set(auto.map((entry) => entry.outfit)).size).toBe(auto.length);
+    expect(
+      demo.calendar
+        .filter((entry) => entry.day <= ANCHOR)
+        .every((entry) => entry.plannedBy === 'user'),
+    ).toBe(true);
     expect(demo.plans.map((p) => [p.name, p.active, p.items.length])).toEqual([
       ['NYC minimal', true, 19],
     ]);
@@ -697,7 +729,8 @@ describe('seed personas', () => {
     expect(await t.db.$count(wardrobePlan)).toBe(0);
     expect(await t.db.$count(planItem)).toBe(0);
     expect(await t.db.$count(styleProfile)).toBe(0);
-    expect(await t.db.$count(styleRhythm)).toBe(0);
+    expect(await t.db.$count(weekTemplate)).toBe(0);
+    expect(await t.db.$count(weekPlan)).toBe(0);
     expect(await t.db.$count(generatorAvoid)).toBe(0);
     expect(await t.db.$count(selfie)).toBe(0);
     const report = await reconcileStorage(
