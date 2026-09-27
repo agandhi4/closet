@@ -11,6 +11,7 @@ import { viewContext } from '../view-context';
 import { parseRefusal } from '../sharing/pages';
 import { sharesOf } from '../sharing/queries';
 import { SHARE_ERROR_PARAM } from '../sharing/urls';
+import { brandSizesOf, findMeasurements } from '../sizes/queries';
 import { findWeatherSettings } from '../weather/queries';
 import { deleteAccount } from './account';
 import { InlineErrors } from './form';
@@ -216,12 +217,15 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const id = sessionUserId(request);
       const { query } = request;
-      const [slots, weatherSettings, shares, tokenList] = await Promise.all([
-        findWeekTemplate(db, id),
-        weather && findWeatherSettings(db, id),
-        sharesOf(db, id),
-        listTokens(db, id),
-      ]);
+      const [slots, weatherSettings, shares, tokenList, measurements, brands] =
+        await Promise.all([
+          findWeekTemplate(db, id),
+          weather && findWeatherSettings(db, id),
+          sharesOf(db, id),
+          listTokens(db, id),
+          findMeasurements(db, id),
+          brandSizesOf(db, id),
+        ]);
       return renderPage(
         reply,
         <ProfilePage
@@ -241,6 +245,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             refusal: parseRefusal(query[SHARE_ERROR_PARAM]),
           }}
           tokens={tokenList}
+          sizes={{ measurements, brands }}
         />,
       );
     },

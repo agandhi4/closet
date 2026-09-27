@@ -237,6 +237,7 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app('/wardrobe/insights?unworn=30'),
     app('/auth/profile'),
     app('/auth/profile/style'),
+    app('/auth/profile/sizes'),
     app('/auth/update-email'),
     app('/auth/delete-account'),
     app('/auth/change-password'),

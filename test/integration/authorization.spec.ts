@@ -15,6 +15,7 @@ import { changeCandidates } from '../../src/web/plans/candidates';
 import { insertItems, saveStyleProfile } from '../../src/web/plans/queries';
 import { EMPTY_STYLE_PROFILE } from '../../src/web/plans/validation';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
+import { addBrandSize } from '../../src/web/sizes/queries';
 import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
 import {
   createGarment,
@@ -145,6 +146,12 @@ interface Fixture {
    * only MAX_ACTIVE_TOKENS.
    */
   ownerToken: () => Promise<number>;
+  /**
+   * The owner's size note (#24) for the wishlist item's brand, which only
+   * the owner's own pages show (OWNER_SIZE_NOTE).
+   */
+  brandSizeId: number;
+  brand: string;
 }
 
 interface Route {
@@ -178,6 +185,10 @@ const tripName = (f: Fixture) => f.tripName;
 // One style profile per user, so one note every fixture saves again.
 const OWNER_STYLE_NOTE = 'Owner style notes, never shared';
 const styleNote = () => OWNER_STYLE_NOTE;
+// The owner's note on the wishlist item's brand (#24): the owner's body,
+// never shown to anyone else, a shared wardrobe's pages included.
+const OWNER_SIZE_NOTE = 'Owner size note, never shared';
+const sizeNote = () => OWNER_SIZE_NOTE;
 // A calendar row's edit link: only the entry's owner is shown it. (Error
 // pages echo the request path, which rules out the /calendar/:id URLs
 // themselves.)
@@ -1594,6 +1605,131 @@ const ROUTES: Route[] = [
       stranger: 'hidden',
     },
   },
+  // Sizes (#24): everyone's own, like the style profile; the owner's note
+  // never reaches a grantee, on the editor, the hint or a shared page.
+  {
+    name: 'GET /auth/profile/sizes',
+    kind: 'read',
+    ok: 200,
+    secret: sizeNote,
+    shows: true,
+    vias: BOTH,
+    request: (_f, q) => ({ method: 'GET', url: `/auth/profile/sizes${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    name: 'GET /auth/profile/sizes/hint',
+    kind: 'read',
+    ok: 200,
+    secret: sizeNote,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/auth/profile/sizes/hint?brand=${encodeURIComponent(f.brand)}${q.replace('?', '&')}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    name: 'POST /auth/profile/sizes/brands/:id',
+    kind: 'write',
+    ok: 303,
+    secret: sizeNote,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/auth/profile/sizes/brands/${f.brandSizeId}${q}`,
+      payload: { brand: f.brand, size: 'L', note: OWNER_SIZE_NOTE },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /auth/profile/sizes/brands/:id/delete',
+    kind: 'write',
+    ok: 303,
+    secret: sizeNote,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/auth/profile/sizes/brands/${f.brandSizeId}/delete${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // A wishlist item's page shows the owner's size in its brand to the
+    // owner alone: a grantee reads the item, never the note.
+    name: 'GET /wardrobe/:id (a wishlist item’s size note)',
+    kind: 'read',
+    ok: 200,
+    secret: sizeNote,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/${f.wishlistId}${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'hidden'],
+      viewer: ['notFound', 'hidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /wardrobe/wishlist (size notes)',
+    kind: 'read',
+    ok: 200,
+    secret: sizeNote,
+    shows: true,
+    vias: BOTH,
+    request: (_f, q) => ({ method: 'GET', url: `/wardrobe/wishlist${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
+    // The garment form (a MANAGE grantee edits the owner's wishlist item):
+    // no hint, not the owner's and not the grantee's own.
+    name: 'GET /wardrobe/:id/edit (a wishlist item’s size note)',
+    kind: 'read',
+    ok: 200,
+    secret: sizeNote,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/${f.wishlistId}/edit${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'hidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
   // Agent access (#33): a user's own tokens only. Not object-level through
   // a share: tokens are the account's, like its password.
   {
@@ -2156,11 +2292,19 @@ describe('authorization matrix', () => {
     const garmentId = await createGarment(t, { name: garmentName, cookie });
     await uploadPhoto(t, garmentId, photo, cookie);
     const wishlistName = `Wish ${tag}`;
+    const brand = `Brand ${tag}`;
     const wishlistId = await createWishlistItem(t, {
       name: wishlistName,
+      brand,
       replaces: garmentId,
       cookie,
     });
+    const brandSizeId = await addBrandSize(t.db, t.owner.id, {
+      brand,
+      size: 'M',
+      note: OWNER_SIZE_NOTE,
+    });
+    if (brandSizeId === 'brand-taken') throw new Error(`${brand} is taken`);
     const archivedName = `Old ${tag}`;
     const archivedId = await createGarment(t, { name: archivedName, cookie });
     const archived = await t.inject({
@@ -2329,6 +2473,8 @@ describe('authorization matrix', () => {
       tripOutfitId,
       tripItemId,
       otherTripId,
+      brand,
+      brandSizeId,
       ownerToken: async () => {
         const token = await createToken(t.db, t.owner.id, OWNER_TOKEN_NAME);
         if (!token.created) throw new Error('The owner holds too many tokens');
@@ -2366,6 +2512,8 @@ describe('authorization matrix', () => {
       'trip_outfit',
       'trip_item',
       'trip_garment_packed',
+      'brand_size',
+      'body_measurements',
     ];
     const rows = await Promise.all(
       tables.map(async (table) => {

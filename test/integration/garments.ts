@@ -35,6 +35,7 @@ export function pngCutout(width = 600, height = 400): Promise<Buffer> {
 export interface GarmentRequest {
   name: string;
   category?: string;
+  brand?: string;
   cookie?: string;
   ownerId?: number;
 }
@@ -42,12 +43,12 @@ export interface GarmentRequest {
 /** POST /wardrobe; resolves the new garment's id from the redirect. */
 export async function createGarment(
   t: TestApp,
-  { name, category = 'shirt', cookie, ownerId }: GarmentRequest,
+  { name, category = 'shirt', brand, cookie, ownerId }: GarmentRequest,
 ): Promise<number> {
   const res = await t.inject({
     method: 'POST',
     url: ownerId ? `/wardrobe?ownerId=${ownerId}` : '/wardrobe',
-    payload: { name, category },
+    payload: { name, category, brand },
     headers: cookie ? { cookie } : {},
   });
   expect(res.statusCode).toBe(302);
@@ -74,6 +75,7 @@ export async function createWishlistItem(
   {
     name,
     category = 'tops',
+    brand,
     cookie,
     ownerId,
     replaces,
@@ -87,6 +89,7 @@ export async function createWishlistItem(
     payload: {
       name,
       category,
+      brand,
       to: 'wishlist',
       wishlist: '1',
       replaces: replaces === undefined ? '' : String(replaces),

@@ -9,6 +9,7 @@ import { outfitTools } from './outfits';
 import { planTools } from './plans';
 import { sharingTools } from './sharing';
 import { shoppingTools } from './shopping';
+import { sizeTools } from './sizes';
 import { todayTools } from './today';
 import { tripTools } from './trips';
 import { weatherTools } from './weather';
@@ -27,7 +28,8 @@ import { weekPlanTools } from './week-plan';
  * "Goes with my closet" for a wishlist item (#18b, goes_with_closet),
  * insights (#17) tools/insights.ts's wardrobe_stats, Today (#15)
  * tools/today.ts. A garment's photo for tagging (#90) is tools/garments.ts's
- * get_garment_photo, its queue search_garments' needsTagging.
+ * get_garment_photo, its queue search_garments' needsTagging. Sizes (#24)
+ * are tools/sizes.ts's get_sizes, read only.
  */
 export function mcpTools(options: {
   weather: boolean;
@@ -45,6 +47,7 @@ export function mcpTools(options: {
     ...(options.weather ? weatherTools : []),
     ...sharingTools,
     ...planTools,
+    ...sizeTools,
     ...shoppingTools,
   ];
 }

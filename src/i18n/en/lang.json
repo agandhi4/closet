@@ -1238,5 +1238,54 @@
     "REMOVE_EXTRA": "Remove {label}",
     "COPY_FROM": "Copy extras",
     "COPY_OPTION": "From {name} ({count})"
+  },
+  "sizes": {
+    "TITLE": "Sizes",
+    "HINT": "Your measurements and the size you wear in each brand. Only you see them: the garment form and your wishlist show a brand's note.",
+    "EDIT": "Edit sizes",
+    "MEASUREMENTS": "Measurements",
+    "NO_MEASUREMENTS": "No measurements yet.",
+    "BRANDS": "Brand sizes",
+    "BRANDS_HINT": "The size you wear in a brand, and how it runs.",
+    "NO_BRANDS": "No brand notes yet.",
+    "LENGTH": "{value} {unit}",
+    "unit": {
+      "in": "in",
+      "cm": "cm"
+    },
+    "unitName": {
+      "in": "Inches",
+      "cm": "Centimeters"
+    },
+    "measurement": {
+      "height": "Height",
+      "neck": "Neck",
+      "shoulders": "Shoulders",
+      "chest": "Chest",
+      "sleeve": "Sleeve",
+      "waist": "Waist",
+      "hips": "Hips",
+      "inseam": "Inseam"
+    },
+    "SAVE_MEASUREMENTS": "Save measurements",
+    "LENGTH_INVALID": "Enter a number, like 32 or 32.5.",
+    "LENGTH_RANGE": "Enter a length from {min} to {max} {unit}.",
+    "NOTE": "Note",
+    "NOTE_PLACEHOLDER": "Runs small, size up",
+    "SIZE_PLACEHOLDER": "M, 32x32, 10",
+    "ADD_BRAND": "Add a brand",
+    "ADD": "Add",
+    "REMOVE_BRAND": "Remove",
+    "REMOVE_BRAND_LABEL": "Remove {brand}",
+    "BRAND_REQUIRED": "Name the brand.",
+    "SIZE_OR_NOTE": "Add the size you wear there, a note, or both.",
+    "BRAND_TAKEN": "You have a row for this brand already: change that one.",
+    "YOUR_SIZE": "Your size in {brand}: {size}",
+    "BRAND_NOTE": "{brand}: {note}",
+    "saved": {
+      "measurements": "Measurements saved",
+      "brand": "Brand saved",
+      "removed": "Brand removed"
+    }
   }
 }

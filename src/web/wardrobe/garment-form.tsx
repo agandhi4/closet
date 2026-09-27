@@ -10,6 +10,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
+import { Messages } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { GARMENT_COLORS } from '../../wardrobe/properties';
 import { categoryLabel, normalizeCategory } from './garment';
@@ -24,6 +25,8 @@ import {
   REFRESH_PROPERTIES,
 } from './property-fields';
 import type { ReplaceableGarment } from '../wishlist/queries';
+import type { BrandSize } from '../sizes/queries';
+import { BRAND_SIZE_HINT_TRIGGER, BrandSizeHint } from '../sizes/views';
 import type { CandidateFor } from './destination';
 import {
   type Destination,
@@ -82,6 +85,12 @@ export interface GarmentFormModel {
   replaceable?: ReplaceableGarment[];
   /** The owner's plan item a new wishlist item is a candidate for (34b; its destination's planItem). */
   candidateFor?: CandidateFor;
+  /**
+   * The requester's note on the form's brand (#24), under Size; read, and
+   * the brand field refreshing it, only on the requester's own wardrobe
+   * (renderGarmentForm).
+   */
+  brandSize?: BrandSize;
 }
 
 const TITLES = {
@@ -199,6 +208,7 @@ export function GarmentFormPage(props: {
             value={values.brand}
             maxlength={BRAND_MAX}
             placeholder={t('BRAND_PLACEHOLDER')}
+            refresh={viewOwner === undefined ? BRAND_SIZE_HINT_TRIGGER : {}}
           />
           <TextField
             name="size"
@@ -207,6 +217,7 @@ export function GarmentFormPage(props: {
             maxlength={SIZE_MAX}
             placeholder={t('SIZE_PLACEHOLDER')}
           />
+          {viewOwner === undefined && <BrandSizeHint note={model.brandSize} />}
           <OwnershipFields model={model} wishlist={wishlist} />
           <MoreDetails model={model} wishlist={wishlist} category={category} />
           <div class="flex gap-2 mt-2">
@@ -431,6 +442,8 @@ function TextField(props: {
   type?: 'text' | 'url';
   inputmode?: 'decimal';
   errors?: string[];
+  /** htmx attributes a typed value sends somewhere (the brand's size hint). */
+  refresh?: Record<string, string>;
 }) {
   const id = `garment-${props.name}`;
   return (
@@ -447,6 +460,7 @@ function TextField(props: {
         value={props.value}
         maxlength={props.maxlength}
         placeholder={props.placeholder}
+        {...props.refresh}
       />
       <Messages messages={props.errors} />
     </div>
@@ -565,19 +579,6 @@ function TextArea(props: {
         {props.value}
       </textarea>
     </div>
-  );
-}
-
-/** A field's messages under it (the garment form's and "Bought it"'s). */
-export function Messages({ messages }: { messages?: string[] }) {
-  return (
-    <>
-      {messages?.map((message) => (
-        <p class="text-error text-sm mt-1" role="alert">
-          {message}
-        </p>
-      ))}
-    </>
   );
 }
 

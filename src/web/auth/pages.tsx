@@ -14,6 +14,9 @@ import {
 } from '../push/settings';
 import { SharingSection, type SharingModel } from '../sharing/pages';
 import { SHARING_SECTION_ID } from '../sharing/urls';
+import type { BodyMeasurements, BrandSize } from '../sizes/queries';
+import { SIZES_SECTION_ID } from '../sizes/urls';
+import { SizesSection } from '../sizes/views';
 import type { ViewContext } from '../view-context';
 import type { TemplateSlot } from '../../wardrobe/week';
 import type { WeatherSettings as Settings } from '../weather/queries';
@@ -224,6 +227,8 @@ export interface ProfileProps {
   sharing: SharingModel;
   /** Agent access: the personal access tokens in force. */
   tokens: TokenListing[];
+  /** Sizes (#24): the measurements and the brand notes. */
+  sizes: { measurements: BodyMeasurements; brands: BrandSize[] };
 }
 
 /**
@@ -249,6 +254,7 @@ export function ProfilePage(props: ProfileProps) {
       : []),
     { id: WEEK_SETTINGS_ID, label: t('weekPlan.template.HEADING') },
     { id: STYLE_SECTION_ID, label: t('style.TITLE') },
+    { id: SIZES_SECTION_ID, label: t('sizes.TITLE') },
     { id: AGENT_ACCESS_SECTION_ID, label: t('agentAccess.TITLE') },
     { id: SIGN_OUT_SECTION_ID, label: t('profile.SIGN_OUT') },
   ];
@@ -280,19 +286,18 @@ export function ProfilePage(props: ProfileProps) {
         {props.weather && <WeatherSettings {...props.weather} />}
         <WeekTemplateSettings {...props.week} />
         <ProfileSection id={STYLE_SECTION_ID} heading={t('style.TITLE')}>
-          <p class="text-sm text-base-content/70">{t('profile.STYLE_HINT')}</p>
+          <p class="text-sm text-muted">{t('profile.STYLE_HINT')}</p>
           <a href={STYLE_PROFILE_PATH} class="btn btn-sm self-start">
             {t('profile.EDIT_STYLE')}
           </a>
         </ProfileSection>
+        <SizesSection {...props.sizes} />
         <AgentAccessSection tokens={props.tokens} />
         <ProfileSection
           id={SIGN_OUT_SECTION_ID}
           heading={t('profile.SIGN_OUT')}
         >
-          <p class="text-sm text-base-content/70">
-            {t('profile.SIGN_OUT_HINT')}
-          </p>
+          <p class="text-sm text-muted">{t('profile.SIGN_OUT_HINT')}</p>
           <SignOutForm />
         </ProfileSection>
         <a href="/about" class="link link-hover text-sm self-center">
@@ -340,7 +345,7 @@ function AgentAccessSection(props: { tokens: TokenListing[] }) {
       heading={t('agentAccess.TITLE')}
     >
       {props.tokens.length === 0 ? (
-        <p class="text-sm text-base-content/70">{t('agentAccess.NONE')}</p>
+        <p class="text-sm text-muted">{t('agentAccess.NONE')}</p>
       ) : (
         <ul class="text-sm flex flex-col gap-1">
           {props.tokens.map((token) => (

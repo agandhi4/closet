@@ -213,6 +213,42 @@ shopping list shows the merino gap with W01 ($49.90, within its $50) and the jac
 | Brown padded shirt jacket | outerwear / jacket | brown | — | 3-5 | — | 1 | high | $90 | November, between the chore coat and the parka. | W02 |
 | Backpack | bags / backpack | — | — | — | — | 1 | medium | $160 | Every office day. | — |
 
+## His sizes (#24)
+
+What fits him, in Profile › Sizes: his measurements (a tailor took them for the blazer) and the size
+he wears in the brands he buys, with how each runs. Private to him; the garment form and his wishlist
+show a brand's note, so the two Uniqlo items and the Allbirds on his Wishlist say "Your size in ...".
+He reads lengths in inches (`Unit`). Posted through the Sizes editor's own readers
+(`readMeasurementsForm`, `readBrandSizeForm`): a length out of range, or a brand with neither a size
+nor a note, fails the seed.
+
+### Measurements
+
+| Measurement | Value |
+|---|---|
+| Unit | in |
+| Height | 70 |
+| Neck | 15.5 |
+| Shoulders | 18 |
+| Chest | 39 |
+| Sleeve | 34 |
+| Waist | 32 |
+| Hips | 38 |
+| Inseam | 32 |
+
+### Brand sizes
+
+| Brand | Size | Note |
+|---|---|---|
+| Uniqlo | M | Uniqlo U runs big and boxy: M, never L. Trousers 32. |
+| Allbirds | 10 | Whole sizes only; true to size. |
+| Red Wing | 9 | Runs large: a full size down from his sneakers. |
+| L.L.Bean | 9 | Bean Boots run large: size down. |
+| G.H. Bass | 9.5 | Weejuns run half a size large. |
+| Suitsupply | 40R | Trousers 32 (EU 48). |
+| J.Crew | M | Slim fit in shirts; chinos 32x32. |
+| Everlane | M | Runs small, but he likes the tees fitted. |
+
 ## What he owns (83 garments: 80 in the closet, 3 archived)
 
 Every garment names a real product on sale on 2026-09-26 (researched and checked that day: `verified`
@@ -565,3 +601,4 @@ Today (#15, done): the anchor is today, half lived (step 7), so his home screen 
 plan and ideas for the day. Outfit selfies (#19, done): his recent evenings carry a mirror selfie (step
 6), so the calendar's history weeks and his date-night outfits' Worn strips show the looks.
 The weekly auto-plan (#16, done): his week template is the week table, and the planned week is "Plan my week"'s (step 7).
+Sizes (#24, done): his measurements and brand notes are the His sizes tables, so the wishlist shows his size in Uniqlo and Allbirds.

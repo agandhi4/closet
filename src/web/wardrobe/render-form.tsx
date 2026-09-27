@@ -1,6 +1,7 @@
 import type { FastifyReply } from 'fastify';
 import type { Db } from '../../db/client';
 import { renderPage } from '../render';
+import { brandSizeFor } from '../sizes/queries';
 import { viewContext } from '../view-context';
 import { replaceableGarments } from '../wishlist/queries';
 import { categoryLabel, categorySuggestions } from './garment';
@@ -14,7 +15,7 @@ import { filterOptions } from './queries';
 /** A garment form to render: the model without what is read here, and where from. */
 export interface GarmentFormRequest extends Omit<
   GarmentFormModel,
-  'categories' | 'replaceable'
+  'categories' | 'replaceable' | 'brandSize'
 > {
   /** The wardrobe whose categories are suggested: where the garment lands. */
   suggestionsFrom: number;
@@ -23,7 +24,9 @@ export interface GarmentFormRequest extends Omit<
 /**
  * The garment form page (new, edit, clone, and a new one prefilled from a
  * link): the wardrobe routes and the link import's (link-import/routes.tsx)
- * both end here. A wishlist form also gets its "Replaces" choices.
+ * both end here. A wishlist form also gets its "Replaces" choices, and a
+ * form for the requester's own wardrobe the note of the brand it names
+ * (#24; never on a shared wardrobe: the notes are the requester's body).
  */
 export async function renderGarmentForm(
   reply: FastifyReply,
@@ -31,7 +34,7 @@ export async function renderGarmentForm(
   { suggestionsFrom, ...model }: GarmentFormRequest,
   status = 200,
 ): Promise<FastifyReply> {
-  const [{ categories }, replaceable] = await Promise.all([
+  const [{ categories }, replaceable, brandSize] = await Promise.all([
     filterOptions(db, suggestionsFrom),
     isWishlistForm(model.mode)
       ? replaceableGarments(
@@ -39,6 +42,10 @@ export async function renderGarmentForm(
           suggestionsFrom,
           Number(model.values.replaces) || undefined,
         )
+      : undefined,
+    // The requester's own wardrobe: suggestionsFrom is the requester.
+    model.viewOwner === undefined
+      ? brandSizeFor(db, suggestionsFrom, model.values.brand)
       : undefined,
   ]);
   return renderPage(
@@ -48,6 +55,7 @@ export async function renderGarmentForm(
       model={{
         ...model,
         replaceable,
+        brandSize,
         categories: categorySuggestions(categories).map((value) => ({
           value,
           label: categoryLabel(value),

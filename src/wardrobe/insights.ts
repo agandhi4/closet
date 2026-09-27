@@ -1,3 +1,4 @@
+import { brandKey, brandSpelling } from './brands';
 import type { Condition, GarmentColor } from './properties';
 import { fromCents, toCents } from './shopping';
 
@@ -325,7 +326,7 @@ function breakdown(
 }
 
 /**
- * Brands grouped regardless of case and surrounding spaces ("UNIQLO" is
+ * Brands grouped by brandKey, regardless of case and spaces ("UNIQLO" is
  * Uniqlo), under the spelling of the first garment added; the first
  * BRANDS_LIMIT by name, the rest summed as one row with a null key.
  */
@@ -335,8 +336,8 @@ function brands(garments: InsightGarment[]): {
 } {
   const oldestFirst = [...garments].sort(byId);
   const all = breakdown(oldestFirst, (g) => {
-    const label = g.brand?.trim();
-    return label ? { group: label.toLowerCase(), label } : null;
+    const label = brandSpelling(g.brand ?? '');
+    return label ? { group: brandKey(label), label } : null;
   });
   const named = all.slice(0, BRANDS_LIMIT);
   const rest = all.slice(BRANDS_LIMIT);

@@ -35,6 +35,7 @@ import {
   planPurchases,
 } from '../plans/purchase';
 import { RowId } from '../schemas';
+import { brandSizeLookup, brandSizesOf } from '../sizes/queries';
 import { garmentRef, type GarmentRef, wishlistItems } from './queries';
 import { WishlistPage } from './wishlist-page';
 
@@ -193,9 +194,12 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'view',
       );
-      const [items, sharedWardrobes] = await Promise.all([
+      // The brand notes (#24) are the owner's body: read for their own
+      // wishlist only.
+      const [items, sharedWardrobes, brandSizes] = await Promise.all([
         wishlistItems(db, access.ownerId),
         sharedWardrobesOf(db, sessionUserId(request)),
+        access.isOwner ? brandSizesOf(db, access.ownerId) : undefined,
       ]);
       const candidacies = access.isOwner
         ? await candidaciesByGarment(
@@ -214,6 +218,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             sharedWardrobes,
             canEdit: access.canManage,
             candidacies,
+            brandSizes: brandSizes && brandSizeLookup(brandSizes),
           }}
         />,
       );

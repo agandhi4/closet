@@ -24,5 +24,5 @@ below and nothing else.
 Every empty state (wardrobe grid, filters with no options, capsules, outfits, the outfit builder with
 no categories, calendar, shares), first-run hints, and that nothing fails or divides by zero on an empty
 closet (insights #17, the gallery #9, Today #15 all need an empty answer; the laundry page's "Nothing
-needs a wash", #7). For every feature: what does
+needs a wash", #7; Profile › Sizes with no measurements or brands, #24). For every feature: what does
 Riley see first, and what one tap gets them started?

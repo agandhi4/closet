@@ -3,6 +3,7 @@ import type { Db } from '../db/client';
 import { createSessionHook } from './auth/require-session';
 import { authRoutes } from './auth/routes';
 import { tokenRoutes } from './auth/token-routes';
+import { sizesRoutes } from './sizes/routes';
 import { mcpRoutes } from './mcp/routes';
 import type { SessionTokens } from './auth/tokens';
 import { calendarRoutes } from './calendar/routes';
@@ -124,6 +125,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(galleryRoutes, options);
   await app.register(authRoutes, options);
   await app.register(tokenRoutes, options);
+  await app.register(sizesRoutes, options);
   await app.register(sharingRoutes, options);
   // WEATHER_ENABLED=false: no /weather route, so nothing stores a location.
   const { weather } = options;

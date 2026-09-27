@@ -615,6 +615,54 @@ as a plan.
 - **Slices.** **34a**: the model, matching, the gap view, the style profile, iterating, the agent's
   proposals. **34b**: the shopping loop above.
 
+## 16. Measurements and per-brand sizes (#24)
+
+Stylebook's idea, from "Later" below: what fits you, kept beside the wardrobe so a product link or a
+wishlist item can say "your size in Uniqlo: M, runs big" at the moment you choose a size. Small on
+purpose: one table of numbers, one of notes, and the places a brand is already on screen.
+
+- **Stored.** Private per user, like the style profile: no route takes `?ownerId=`.
+  - `body_measurements` (one row per user): height, neck, shoulders, chest, sleeve, waist, hips,
+    inseam, each optional, **stored in centimetres** (numeric, two decimals, 1 to 300 by a check
+    constraint), and the `unit` the person reads and types them in (`in` or `cm`; `in` by default,
+    for the NYC household). The weather's temperature pattern (`src/weather/temperature.ts`): one
+    canonical unit stored, the unit only how it is read (`src/wardrobe/measurements.ts`, pure). Its
+    own preference, not the temperature's: that one exists only with the weather on, and a person
+    may read °F and measure in cm. No weight: nothing here needs it, and it is the most sensitive
+    number a profile could hold.
+  - `brand_size` (user, brand, size, note): **one row per brand** (unique per user whatever the
+    case, the capsules' `lower(name)` rule), the size worn there (normalized like a garment's:
+    `XL` is `X-Large`) and a note ("runs small, size up"; "shirts M, jackets L"), at least one of the
+    two. The brand is stored as typed, trimmed and with runs of spaces made one.
+- **Brand matching** is one pure function, `brandKey` (`src/wardrobe/brands.ts`: trimmed, spaces
+  collapsed, lower case), which insights' brand breakdown already did inline and now shares: "UNIQLO",
+  "Uniqlo " and "uniqlo" are one brand everywhere.
+- **Where it shows.**
+  - **Profile › Sizes** (`#sizes`): the measurements in the person's unit and the brand notes,
+    read-only, with "Edit sizes" to `/auth/profile/sizes` (the style profile's shape: a section that
+    links its editor). The editor: the unit (two buttons, a native post), the measurements (one
+    form, one Save, the numbers in the unit shown; a number saved unchanged keeps its stored value,
+    so switching units never drifts it), each brand's row (Save, Remove) and "Add a brand". Native
+    posts, 303 back; a refusal re-renders the editor 400 with the field's message.
+  - **The garment form** (new, edit, clone, the wishlist's, and the link import's prefilled form,
+    which is the same form): under Size, the brand's note for the brand in the field, rendered with
+    the page and refreshed as the brand is typed (`GET /auth/profile/sizes/hint?brand=`, a fragment).
+  - **The wishlist**: each item's card on the Wishlist tab and the item's page.
+  - **MCP**: `get_sizes` (read): the measurements in both units and the brand notes, or one brand's;
+    the owner's Claude reads it when shopping. No write tool: sizes are edited in the app.
+- **Privacy.** The owner's own, everywhere: shown only on the owner's own wardrobe (on a shared
+  wardrobe's form, wishlist and item page there is no hint at all, neither the owner's nor the
+  grantee's own, which would describe the wrong body), never on the share page, the hint route
+  answers the requester's own notes only, and `get_sizes` is the token's user's. A grantee posting
+  to another's brand row gets a 404. Account deletion cascades.
+- **Seed.** Theo's bible gets a Measurements table and a Brand sizes table (Uniqlo, Allbirds and the
+  brands of his closet), posted through the editor's own readers, so his Wishlist (two Uniqlo items,
+  the Allbirds) shows notes. Dana has never opened the profile and Riley just signed up: both empty.
+- **Out of scope.** Recommending a size from the measurements or a brand's size chart; a note per
+  category within a brand (the note says it); measurement history; sharing sizes with a grantee (a
+  gift-giver's use: later, if asked); notes on closet garments' pages and the shopping list; MCP
+  writes.
+
 ## Delivery
 
 Each feature is its own GitHub issue (six) and ships alone. The work for each: its schema and migration
@@ -660,7 +708,7 @@ auto-plan and outfit selfies. The summaries below were the proposals; the sectio
 
 **Later** (worth doing, not yet): duplicate detection with image embeddings (Wardrowbe); generator rules ("never X with
 Y"); an inspiration library with "recreate this look"; care label and repair log (Save Your
-Wardrobe); measurements and per-brand sizes (Stylebook); order email import.
+Wardrobe); order email import. (Measurements and per-brand sizes, from Stylebook, became section 16.)
 
 **Skipped:** avatar try-on (a gimmick at household scale), and social feeds, polls and resale
 marketplaces (they need a user base).

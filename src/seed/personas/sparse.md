@@ -69,3 +69,6 @@ Wears and washes (#7): she has logged nothing, so nothing is dirty and her laund
 garment is one copy in good shape, washed by the app's defaults. Theo, managing her wardrobe, sees her
 garments' quantity and condition (garment properties, which he may set) but never a wash state, a wear
 count or whether something is away: those are her own records, like her calendar.
+
+Sizes (#24): she has never opened the profile, so she has none. Theo, managing her wardrobe, sees no
+size note on her garment forms or wishlist, not even his own: his notes describe him, not her.

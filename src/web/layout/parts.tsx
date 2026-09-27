@@ -6,8 +6,21 @@ import { t } from '../i18n';
 /**
  * Small pieces the garment, outfit and share pages have in common: the
  * placeholder for a garment without a photo, a garment thumbnail, the back
- * link and an empty-list state.
+ * link and an empty-list state; and a form field's messages.
  */
+
+/** A field's messages under it (the garment form's, "Bought it"'s, the Sizes editor's). */
+export function Messages({ messages }: { messages?: string[] }) {
+  return (
+    <>
+      {messages?.map((message) => (
+        <p class="text-error text-sm mt-1" role="alert">
+          {message}
+        </p>
+      ))}
+    </>
+  );
+}
 
 /** The stand-in for a garment without a photo. */
 export function HangerIcon(props: { class: string; strokeWidth: string }) {

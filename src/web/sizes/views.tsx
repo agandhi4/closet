@@ -1,0 +1,401 @@
+import {
+  LENGTH_UNITS,
+  lengthText,
+  type LengthUnit,
+  type Measurement,
+  MEASUREMENTS,
+} from '../../wardrobe/measurements';
+import { PostForm } from '../auth/form';
+import type { FieldErrors } from '../auth/validation';
+import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
+import { Dock } from '../layout/dock';
+import { Layout } from '../layout/layout';
+import {
+  Messages,
+  ProfileSection,
+  SavedToast,
+  StripFlags,
+} from '../layout/parts';
+import type { ViewContext } from '../view-context';
+import { BRAND_MAX, SIZE_MAX } from '../wardrobe/validation';
+import type { BodyMeasurements, BrandSize } from './queries';
+import {
+  BRAND_SIZE_HINT_PATH,
+  BRAND_SIZES_PATH,
+  brandSizeUrl,
+  SIZES_MEASUREMENTS_PATH,
+  SIZES_PATH,
+  SIZES_SAVED_FLAG,
+  SIZES_SECTION_ID,
+  SIZES_SECTION_PATH,
+  SIZES_UNIT_PATH,
+  type SizesSaved,
+} from './urls';
+import {
+  BRAND_NOTE_MAX,
+  type BrandSizeBody,
+  type BrandSizeField,
+  LENGTH_INPUT_MAX,
+} from './validation';
+
+/**
+ * Sizes (#24; plan section 16): the Profile's section, its editor, and the
+ * brand note other pages show. The signed-in user's own: the garment form
+ * and the wishlist render a note only on the user's own wardrobe (never on a
+ * shared one, where it would describe the wrong body).
+ */
+
+const HINT_ID = 'brand-size-hint';
+
+/** "Your size in Uniqlo: M · Runs big, never L"; "Uniqlo: Runs big" without a size. */
+export function brandSizeText(row: BrandSize): string {
+  if (row.size === null) {
+    return t('sizes.BRAND_NOTE', { brand: row.brand, note: row.note ?? '' });
+  }
+  const size = t('sizes.YOUR_SIZE', { brand: row.brand, size: row.size });
+  return row.note === null ? size : `${size} · ${row.note}`;
+}
+
+/** The brand's note as a line of a card or a page (the wishlist). */
+export function BrandSizeNote(props: {
+  note: BrandSize | undefined;
+  /** Its text size: the card's lines are text-xs. */
+  size?: 'text-xs' | 'text-sm';
+}) {
+  if (!props.note) return null;
+  return (
+    <p class={`${props.size ?? 'text-sm'} text-muted`} data-brand-size="">
+      {brandSizeText(props.note)}
+    </p>
+  );
+}
+
+/**
+ * Under the garment form's Size: the note of the brand in the field, and
+ * the slot the brand field refreshes (GET BRAND_SIZE_HINT_PATH answers
+ * this, whole) as it is typed.
+ */
+export function BrandSizeHint(props: { note: BrandSize | undefined }) {
+  return (
+    <div id={HINT_ID} aria-live="polite">
+      <BrandSizeNote note={props.note} />
+    </div>
+  );
+}
+
+/**
+ * The brand field's refresh of the hint: a read (hx-get sends the field's
+ * own value as `brand`), so not an autosave. Its own indicator keeps the
+ * app bar's spinner still while typing.
+ */
+export const BRAND_SIZE_HINT_TRIGGER = {
+  'hx-get': BRAND_SIZE_HINT_PATH,
+  'hx-trigger': 'input changed delay:400ms',
+  'hx-target': `#${HINT_ID}`,
+  'hx-swap': 'outerHTML',
+  'hx-indicator': `#${HINT_ID}`,
+} as const;
+
+function lengthLabel(cm: number, unit: LengthUnit): string {
+  return t('sizes.LENGTH', {
+    value: lengthText(cm, unit),
+    unit: t(`sizes.unit.${unit}`),
+  });
+}
+
+/** Profile › Sizes: what is stored, read-only, and the editor's link. */
+export function SizesSection(props: {
+  measurements: BodyMeasurements;
+  brands: BrandSize[];
+}) {
+  const { unit, lengths } = props.measurements;
+  const set = MEASUREMENTS.filter((m) => lengths[m] !== null);
+  return (
+    <ProfileSection id={SIZES_SECTION_ID} heading={t('sizes.TITLE')}>
+      <p class="text-sm text-muted">{t('sizes.HINT')}</p>
+      {set.length === 0 ? (
+        <p class="text-sm">{t('sizes.NO_MEASUREMENTS')}</p>
+      ) : (
+        <dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          {set.map((m) => (
+            <div class="flex justify-between gap-2">
+              <dt class="text-muted">{t(`sizes.measurement.${m}`)}</dt>
+              <dd>{lengthLabel(lengths[m]!, unit)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {props.brands.length === 0 ? (
+        <p class="text-sm">{t('sizes.NO_BRANDS')}</p>
+      ) : (
+        <ul class="text-sm flex flex-col gap-1" aria-label={t('sizes.BRANDS')}>
+          {props.brands.map((brand) => (
+            <li>{brandSizeText(brand)}</li>
+          ))}
+        </ul>
+      )}
+      <a href={SIZES_PATH} class="btn btn-sm self-start">
+        {t('sizes.EDIT')}
+      </a>
+    </ProfileSection>
+  );
+}
+
+export interface SizesPageModel {
+  unit: LengthUnit;
+  /** The measurement fields as shown: the stored ones, or what was posted. */
+  measurements: Record<Measurement, string>;
+  measurementErrors?: FieldErrors<Measurement>;
+  brands: BrandSize[];
+  /** A refused brand form: which (a row's id, or the new one), what was posted and why. */
+  refusedBrand?: {
+    target: number | 'new';
+    values: BrandSizeBody;
+    errors: FieldErrors<BrandSizeField>;
+  };
+  saved?: SizesSaved;
+}
+
+const SAVED_TOASTS = {
+  measurements: 'sizes.saved.measurements',
+  brand: 'sizes.saved.brand',
+  removed: 'sizes.saved.removed',
+} as const satisfies Record<SizesSaved, string>;
+
+/**
+ * GET /auth/profile/sizes, and its re-render with a refusal (400): the
+ * unit, the measurements (one form, one Save: the numbers in the unit
+ * shown), each brand's row and a new one. Native posts (PostForm): a
+ * refusal re-renders with a 4xx, which htmx would not swap.
+ */
+export function SizesPage(props: { ctx: ViewContext; model: SizesPageModel }) {
+  const { ctx, model } = props;
+  const refused = model.refusedBrand;
+  return (
+    <Layout ctx={ctx} title={t('sizes.TITLE')}>
+      <AppBar ctx={ctx} title={t('sizes.TITLE')} back={SIZES_SECTION_PATH} />
+      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-6">
+        <p class="text-sm text-muted">{t('sizes.HINT')}</p>
+        <section
+          class="flex flex-col gap-3"
+          aria-labelledby="sizes-measurements-heading"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <h2 id="sizes-measurements-heading" class="text-lg font-semibold">
+              {t('sizes.MEASUREMENTS')}
+            </h2>
+            <UnitSwitch unit={model.unit} />
+          </div>
+          <MeasurementsForm model={model} />
+        </section>
+        <section
+          class="flex flex-col gap-3"
+          aria-labelledby="sizes-brands-heading"
+        >
+          <h2 id="sizes-brands-heading" class="text-lg font-semibold">
+            {t('sizes.BRANDS')}
+          </h2>
+          <p class="text-sm text-muted">{t('sizes.BRANDS_HINT')}</p>
+          {model.brands.map((brand) =>
+            refused?.target === brand.id ? (
+              <BrandForm
+                id={brand.id}
+                values={refused.values}
+                errors={refused.errors}
+              />
+            ) : (
+              <BrandForm
+                id={brand.id}
+                values={{
+                  brand: brand.brand,
+                  size: brand.size ?? '',
+                  note: brand.note ?? '',
+                }}
+              />
+            ),
+          )}
+          <h3 class="font-medium">{t('sizes.ADD_BRAND')}</h3>
+          <BrandForm
+            values={
+              refused?.target === 'new'
+                ? refused.values
+                : { brand: '', size: '', note: '' }
+            }
+            errors={refused?.target === 'new' ? refused.errors : undefined}
+          />
+        </section>
+      </main>
+      {model.saved && (
+        <SavedToast id="sizes-toast" text={t(SAVED_TOASTS[model.saved])} />
+      )}
+      <StripFlags names={[SIZES_SAVED_FLAG]} />
+      <Dock ctx={ctx} />
+    </Layout>
+  );
+}
+
+/**
+ * The unit, apart from the measurements' form: switching it shows the same
+ * lengths converted, so a number typed in one unit is never read in the
+ * other.
+ */
+function UnitSwitch({ unit }: { unit: LengthUnit }) {
+  return (
+    <PostForm action={SIZES_UNIT_PATH} class="join" needsNetwork>
+      {LENGTH_UNITS.map((choice) => (
+        <button
+          type="submit"
+          name="unit"
+          value={choice}
+          class={`btn btn-sm join-item ${choice === unit ? 'btn-active' : ''}`}
+          aria-pressed={choice === unit ? 'true' : 'false'}
+          aria-label={t(`sizes.unitName.${choice}`)}
+        >
+          {t(`sizes.unit.${choice}`)}
+        </button>
+      ))}
+    </PostForm>
+  );
+}
+
+function MeasurementsForm({ model }: { model: SizesPageModel }) {
+  const errors = model.measurementErrors ?? {};
+  const unit = t(`sizes.unit.${model.unit}`);
+  return (
+    <PostForm
+      action={SIZES_MEASUREMENTS_PATH}
+      class="flex flex-col gap-3"
+      needsNetwork
+    >
+      {/* The unit the numbers are shown in, which is how they are read. */}
+      <input type="hidden" name="unit" value={model.unit} />
+      <div class="grid grid-cols-2 gap-3">
+        {MEASUREMENTS.map((m) => {
+          const id = `measurement-${m}`;
+          return (
+            <div class="flex flex-col">
+              <label class="label" for={id}>
+                <span class="label-text">{t(`sizes.measurement.${m}`)}</span>
+              </label>
+              <label
+                class={`input input-bordered w-full ${errors[m] ? 'input-error' : ''}`}
+              >
+                <input
+                  id={id}
+                  type="text"
+                  inputmode="decimal"
+                  name={m}
+                  value={model.measurements[m]}
+                  maxlength={LENGTH_INPUT_MAX}
+                  aria-invalid={errors[m] ? 'true' : undefined}
+                />
+                <span class="text-muted">{unit}</span>
+              </label>
+              <Messages messages={errors[m]} />
+            </div>
+          );
+        })}
+      </div>
+      <button type="submit" class="btn btn-primary">
+        {t('sizes.SAVE_MEASUREMENTS')}
+      </button>
+    </PostForm>
+  );
+}
+
+/** A brand's row (with `id`) or the new one: brand, size, note, Save and Remove. */
+function BrandForm(props: {
+  id?: number;
+  values: BrandSizeBody;
+  errors?: FieldErrors<BrandSizeField>;
+}) {
+  const { id, values, errors = {} } = props;
+  const prefix = `brand-size-${id ?? 'new'}`;
+  return (
+    <PostForm
+      action={id === undefined ? BRAND_SIZES_PATH : brandSizeUrl(id)}
+      class="card bg-base-200 card-body p-3 gap-2"
+      needsNetwork
+    >
+      <div class="grid grid-cols-[2fr_1fr] gap-2">
+        <BrandInput
+          id={`${prefix}-brand`}
+          name="brand"
+          label={t('BRAND')}
+          value={values.brand}
+          maxlength={BRAND_MAX}
+          placeholder={t('BRAND_PLACEHOLDER')}
+          errors={errors.brand}
+          required
+        />
+        <BrandInput
+          id={`${prefix}-size`}
+          name="size"
+          label={t('SIZE')}
+          value={values.size ?? ''}
+          maxlength={SIZE_MAX}
+          placeholder={t('sizes.SIZE_PLACEHOLDER')}
+          errors={errors.size}
+        />
+      </div>
+      <BrandInput
+        id={`${prefix}-note`}
+        name="note"
+        label={t('sizes.NOTE')}
+        value={values.note ?? ''}
+        maxlength={BRAND_NOTE_MAX}
+        placeholder={t('sizes.NOTE_PLACEHOLDER')}
+        errors={errors.note}
+      />
+      <div class="flex gap-2 justify-end">
+        {id !== undefined && (
+          // The same native form, posted to the delete route instead.
+          <button
+            type="submit"
+            class="btn btn-ghost btn-sm"
+            formaction={brandSizeUrl(id, 'delete')}
+            formnovalidate
+            aria-label={t('sizes.REMOVE_BRAND_LABEL', { brand: values.brand })}
+          >
+            {t('sizes.REMOVE_BRAND')}
+          </button>
+        )}
+        <button type="submit" class="btn btn-primary btn-sm">
+          {id === undefined ? t('sizes.ADD') : t('SAVE')}
+        </button>
+      </div>
+    </PostForm>
+  );
+}
+
+function BrandInput(props: {
+  id: string;
+  name: BrandSizeField;
+  label: string;
+  value: string;
+  maxlength: number;
+  placeholder: string;
+  errors?: string[];
+  required?: boolean;
+}) {
+  return (
+    <div class="flex flex-col">
+      <label class="label" for={props.id}>
+        <span class="label-text">{props.label}</span>
+      </label>
+      <input
+        id={props.id}
+        type="text"
+        name={props.name}
+        class={`input input-bordered input-sm w-full ${props.errors ? 'input-error' : ''}`}
+        value={props.value}
+        maxlength={props.maxlength}
+        placeholder={props.placeholder}
+        required={props.required}
+        aria-invalid={props.errors ? 'true' : undefined}
+      />
+      <Messages messages={props.errors} />
+    </div>
+  );
+}

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  bodyMeasurements,
+  brandSize,
   capsule,
   capsuleGarment,
   file,
@@ -32,6 +34,7 @@ import { dayOfWeek } from '../../src/web/calendar/calendar-date';
 import { weeklyRhythm } from '../../src/wardrobe/week';
 import { findWeekTemplate } from '../../src/web/week-plan/template';
 import { findStyleProfile } from '../../src/web/plans/queries';
+import { brandSizesOf, findMeasurements } from '../../src/web/sizes/queries';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { loadPersona } from '../../src/seed/persona';
@@ -240,6 +243,15 @@ describe('seed personas', () => {
         })),
       ),
       styleProfile: (await findStyleProfile(t.db, id)) ?? null,
+      // Sizes (#24): the brands without their ids, which differ between runs.
+      sizes: {
+        ...(await findMeasurements(t.db, id)),
+        brands: (await brandSizesOf(t.db, id)).map(({ brand, size, note }) => ({
+          brand,
+          size,
+          note,
+        })),
+      },
       plans: plans.map((p) => ({
         name: p.name,
         active: p.active,
@@ -509,11 +521,23 @@ describe('seed personas', () => {
       ['Grey merino crewneck', ['New grey merino crewneck']],
       ['Brown padded shirt jacket', ['Padded shirt jacket']],
     ]);
+    // His sizes (#24): the His sizes tables, in inches.
+    expect(demo.sizes).toMatchObject({
+      unit: 'in',
+      lengths: { waist: 81.28, inseam: 81.28, height: 177.8 },
+    });
+    expect(demo.sizes.brands).toHaveLength(8);
+    expect(demo.sizes.brands).toContainEqual({
+      brand: 'Allbirds',
+      size: '10',
+      note: 'Whole sizes only; true to size.',
+    });
     for (const email of [EMAILS[1], EMAILS[2]]) {
       expect(await snapshot(email)).toMatchObject({
         styleProfile: null,
         plans: [],
         trips: [],
+        sizes: { unit: 'in', lengths: { waist: null }, brands: [] },
       });
     }
     // His Austin conference (#10), from the bible's Trips tables: partly
@@ -667,6 +691,32 @@ describe('seed personas', () => {
     expect(tag.statusCode).toBe(200);
   });
 
+  it("shows Theo's size in each wishlist item's brand, and his sizes on the profile (#24)", async () => {
+    const cookie = await t.login(EMAILS[0], PASSWORD);
+    const wishlist = await t.inject({
+      method: 'GET',
+      url: '/wardrobe/wishlist',
+      headers: { cookie },
+    });
+    expect(wishlist.body).toContain('Your size in Uniqlo: Medium');
+    expect(wishlist.body).toContain('Your size in Allbirds: 10');
+    const profile = await t.inject({
+      method: 'GET',
+      url: '/auth/profile',
+      headers: { cookie },
+    });
+    expect(profile.body).toContain('32 in');
+    // Dana's wardrobe, which he manages: no note of his.
+    const dana = await userIdOf(t, EMAILS[2]);
+    const danaForm = await t.inject({
+      method: 'GET',
+      url: `/wardrobe/new?ownerId=${dana}`,
+      headers: { cookie },
+    });
+    expect(danaForm.statusCode).toBe(200);
+    expect(danaForm.body).not.toContain('brand-size-hint');
+  });
+
   it("opens Theo's Today at the anchor half lived: the date planned tonight, ideas for the day (#15)", async () => {
     // The anchor's afternoon, as the seed ran it.
     vi.useFakeTimers({
@@ -797,6 +847,8 @@ describe('seed personas', () => {
     expect(await t.db.$count(wardrobePlan)).toBe(0);
     expect(await t.db.$count(planItem)).toBe(0);
     expect(await t.db.$count(styleProfile)).toBe(0);
+    expect(await t.db.$count(brandSize)).toBe(0);
+    expect(await t.db.$count(bodyMeasurements)).toBe(0);
     expect(await t.db.$count(weekTemplate)).toBe(0);
     expect(await t.db.$count(weekPlan)).toBe(0);
     expect(await t.db.$count(generatorAvoid)).toBe(0);

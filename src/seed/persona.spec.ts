@@ -213,6 +213,21 @@ describe('persona bibles', () => {
     });
   });
 
+  it("reads Theo's sizes through the Sizes editor's readers (#24); Dana and Riley have none", () => {
+    const { sizes } = loadPersona('demo');
+    expect(sizes?.unit).toBe('in');
+    // 32 in, stored in cm.
+    expect(sizes?.lengths).toMatchObject({ waist: 81.28, neck: 39.37 });
+    expect(sizes?.brands).toContainEqual({
+      brand: 'Uniqlo',
+      size: 'Medium',
+      note: 'Uniqlo U runs big and boxy: M, never L. Trousers 32.',
+    });
+    expect(sizes?.brands.map((b) => b.brand)).toContain('Allbirds');
+    expect(loadPersona('sparse').sizes).toBeNull();
+    expect(loadPersona('fresh').sizes).toBeNull();
+  });
+
   it("reads Theo's clashes, the generator's avoided pairs (#9); Dana and Riley have none", () => {
     expect(loadPersona('demo').avoid).toEqual([
       ['B06', 'O11'],
@@ -437,6 +452,21 @@ describe('persona bibles', () => {
       'a week whose day is dressed for an evening',
       `${bible('| F01 | Shoes | sneakers | white | — |')}\n## His week\n\n| Day | Draws from | Calendar |\n|---|---|---|\n| Sun | weekend | all-day |\n| Mon | weekend | all-day |\n| Tue | weekend | all-day |\n| Wed | weekend | all-day |\n| Thu | weekend | all-day |\n| Fri | weekend | evening |\n| Sat | weekend | all-day |\n`,
       /week template: evening is not an outfit for the day/,
+    ],
+    [
+      'a measurement out of range',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Measurements\n\n| Measurement | Value |\n|---|---|\n| Unit | in |\n| Waist | 900 |\n`,
+      /sizes: .*Enter a length from 1 to 118 in/,
+    ],
+    [
+      'a brand twice, in another case',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Brand sizes\n\n| Brand | Size | Note |\n|---|---|---|\n| Uniqlo | M | — |\n| UNIQLO | L | — |\n`,
+      /sizes: a brand is listed twice/,
+    ],
+    [
+      'a brand without a size or a note',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Brand sizes\n\n| Brand | Size | Note |\n|---|---|---|\n| Uniqlo | — | — |\n`,
+      /sizes brand "Uniqlo"/,
     ],
     [
       'a clash naming a garment that is not there',

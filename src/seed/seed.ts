@@ -58,6 +58,11 @@ import {
   setTripDestination,
   tripItems,
 } from '../web/trips/queries';
+import {
+  addBrandSize,
+  saveMeasurements,
+  setLengthUnit,
+} from '../web/sizes/queries';
 import { setHome, setTemperatureUnit } from '../web/weather/queries';
 import {
   NO_FORECAST,
@@ -74,6 +79,7 @@ import {
   type PersonaKey,
   type PersonaWeather,
   type SeedGarment,
+  type SeedSizes,
   type SeedWishlistItem,
   slotRank,
 } from './persona';
@@ -110,6 +116,8 @@ export interface SeedReport {
   plans: number;
   /** generator_avoid pairs (the bible's Clashes). */
   avoided: number;
+  /** Brand size notes (#24), with the measurements when the bible has them. */
+  brandSizes: number;
   /** Trips (#10), with their outfits, extras and packed marks. */
   trips: number;
   entries: number;
@@ -200,6 +208,7 @@ export async function seedPersona(
         });
       }
       await writePlans(tx, userId, persona, wishlistIds);
+      await writeSizes(tx, userId, persona.sizes);
       await writeClashes(tx, userId, persona, ids);
       await writeTrips(tx, userId, persona, {
         outfitIds,
@@ -228,6 +237,7 @@ export async function seedPersona(
         capsules: persona.capsules.length,
         plans: persona.plans.length,
         avoided: persona.avoid.length,
+        brandSizes: persona.sizes?.brands.length ?? 0,
         trips: persona.trips.length,
         entries: life.entries.length,
         worn: life.entries.filter((e) => e.worn).length,
@@ -239,7 +249,7 @@ export async function seedPersona(
       };
     });
     logger.info(
-      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.avoided} clashes, ${report.trips} trips, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears, ${report.selfies} selfies), ${report.autoPlanned} planned by Plan my week, ${report.washes} laundry days in ${report.ms}ms`,
+      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.brandSizes} brand sizes, ${report.avoided} clashes, ${report.trips} trips, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears, ${report.selfies} selfies), ${report.autoPlanned} planned by Plan my week, ${report.washes} laundry days in ${report.ms}ms`,
     );
     return report;
   } catch (error) {
@@ -513,6 +523,26 @@ async function archive(
   });
   // Inserted in the closet a moment ago: anything else is a bug.
   if (!archived.ok) throw new Error(`Could not archive ${bibleId}`);
+}
+
+/**
+ * The Measurements and Brand sizes tables (#24) through Profile › Sizes'
+ * writers: the unit, the lengths, then each brand (read unique by
+ * persona.ts, so a refusal here is a bug).
+ */
+async function writeSizes(
+  tx: Queryable,
+  userId: number,
+  sizes: SeedSizes | null,
+): Promise<void> {
+  if (!sizes) return;
+  await setLengthUnit(tx, userId, sizes.unit);
+  await saveMeasurements(tx, userId, sizes.lengths);
+  for (const brand of sizes.brands) {
+    if ((await addBrandSize(tx, userId, brand)) === 'brand-taken') {
+      throw new Error(`Brand size "${brand.brand}" twice`);
+    }
+  }
 }
 
 /** The Account table's weather rows through the profile's writers (#14). */

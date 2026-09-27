@@ -24,6 +24,13 @@ import {
 import type { TemplateSlot, Weekday } from '../wardrobe/week';
 import type { TripFields } from '../web/trips/queries';
 import { readTripForm, TripBody } from '../web/trips/validation';
+import {
+  BrandSizeBody,
+  type BrandSizeFields,
+  MeasurementsBody,
+  readBrandSizeForm,
+  readMeasurementsForm,
+} from '../web/sizes/validation';
 import { normalizeCategory } from '../web/wardrobe/garment';
 import {
   CARE_NOTE_MAX,
@@ -43,6 +50,14 @@ import {
   isOccasion,
   type Occasion,
 } from '../wardrobe/occasions';
+import { brandKey } from '../wardrobe/brands';
+import {
+  type LengthUnit,
+  type Measurement,
+  type Measurements,
+  MEASUREMENTS,
+  NO_MEASUREMENTS,
+} from '../wardrobe/measurements';
 import {
   categoryRole,
   GARMENT_ROLES,
@@ -215,6 +230,17 @@ export interface SeedTrip {
   packed: string[];
 }
 
+/**
+ * The persona's sizes (#24, Profile › Sizes): the Measurements table
+ * (its `Unit` row the unit, the rest in that unit) and the Brand sizes
+ * table, each through the editor's own readers.
+ */
+export interface SeedSizes {
+  unit: LengthUnit;
+  lengths: Measurements;
+  brands: BrandSizeFields[];
+}
+
 /** A plan table's row: the item, and its candidate products (34b). */
 export interface SeedPlanItem {
   fields: PlanItemFields;
@@ -237,6 +263,8 @@ export interface Persona {
   capsules: SeedCapsule[];
   /** The Style profile table (#34); null without it. */
   styleProfile: StyleProfileFields | null;
+  /** The Measurements and Brand sizes tables (#24); null without either. */
+  sizes: SeedSizes | null;
   /**
    * The week template (#16), the week table as a template: each day's
    * `Calendar` occasion, and a workout where it has a `Workout`. Null
@@ -322,6 +350,12 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
       ),
     ),
     styleProfile: readStyleProfile(source, find('Setting', 'Value')[0]),
+    sizes: readSizes(source, {
+      measurements: find('Measurement', 'Value')[0],
+      brands: find('Brand', 'Size', 'Note').filter(
+        (table) => table.heading === BRAND_SIZES_HEADING,
+      )[0],
+    }),
     plans: readPlans(
       source,
       find('Item', 'Category / type').filter((table) =>
@@ -1130,6 +1164,84 @@ function settingsPost(
     post[field] = isSet ? list(row.Value) : plain(row.Value);
   }
   return post;
+}
+
+// ---- Sizes (#24) --------------------------------------------------------------
+
+const BRAND_SIZES_HEADING = 'Brand sizes';
+
+// The Measurements table's rows by name: `Unit`, then a label per measurement.
+const MEASUREMENT_ROWS: Record<string, Measurement> = Object.fromEntries(
+  MEASUREMENTS.map((m) => [m[0].toUpperCase() + m.slice(1), m]),
+);
+
+// Both tables through the Sizes editor's readers: a length out of range or
+// a brand row without a size or a note fails here, as the form would
+// refuse it; a brand twice (in any case) is refused like the unique index.
+function readSizes(
+  source: string,
+  tables: { measurements?: BibleTable; brands?: BibleTable },
+): SeedSizes | null {
+  if (!tables.measurements && !tables.brands) return null;
+  const where = `${source} sizes`;
+  return {
+    ...readMeasurementsTable(where, tables.measurements?.rows ?? []),
+    brands: readBrandSizesTable(where, tables.brands?.rows ?? []),
+  };
+}
+
+function readMeasurementsTable(
+  where: string,
+  rows: Record<string, string>[],
+): Pick<SeedSizes, 'unit' | 'lengths'> {
+  const post: Record<string, string> = { unit: 'in' };
+  for (const row of rows) {
+    const label = plain(row.Measurement);
+    const field = label === 'Unit' ? 'unit' : MEASUREMENT_ROWS[label];
+    if (!field) throw new BibleError(where, `unknown measurement "${label}"`);
+    post[field] = plain(row.Value);
+  }
+  let body: MeasurementsBody;
+  try {
+    body = Value.Parse(MeasurementsBody, post);
+  } catch (error) {
+    throw new BibleError(where, `not a measurements post: ${String(error)}`);
+  }
+  const form = readMeasurementsForm(body, NO_MEASUREMENTS);
+  if (!form.ok) throw new BibleError(where, JSON.stringify(form.errors));
+  return { unit: body.unit, lengths: form.lengths };
+}
+
+function readBrandSizesTable(
+  where: string,
+  rows: Record<string, string>[],
+): BrandSizeFields[] {
+  const brands = rows.map((row) => {
+    const post = {
+      brand: plain(row.Brand),
+      size: plain(row.Size),
+      note: plain(row.Note),
+    };
+    let body: BrandSizeBody;
+    try {
+      body = Value.Parse(BrandSizeBody, post);
+    } catch (error) {
+      throw new BibleError(where, `not a brand size post: ${String(error)}`);
+    }
+    const read = readBrandSizeForm(body);
+    if (!read.ok) {
+      throw new BibleError(
+        `${where} brand "${post.brand}"`,
+        JSON.stringify(read.errors),
+      );
+    }
+    return read.fields;
+  });
+  const keys = brands.map((b) => brandKey(b.brand));
+  if (new Set(keys).size !== keys.length) {
+    throw new BibleError(where, 'a brand is listed twice');
+  }
+  return brands;
 }
 
 /** A plan table's heading: `Plan: NYC minimal`, `(active)` after the active one's name. */

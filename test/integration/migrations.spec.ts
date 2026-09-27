@@ -98,6 +98,9 @@ describe('migrations', () => {
         // wishlist item's plan items (garment_id's), #34b.
         'plan_item_candidate_pkey',
         'plan_item_candidate_garment_id_index',
+        // Sizes (#24): one row per brand per user, any case (also the
+        // user_id foreign key's and the hint's lookup).
+        'brand_size_user_id_brand_key_unique',
         // Outfit selfies (#19): an entry's selfie (also outfit_calendar_id's
         // foreign key), a photo's selfie (the public /file route's refusal,
         // photo_id's), a week's detached looks (also owner_id's).

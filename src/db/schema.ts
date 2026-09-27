@@ -45,6 +45,12 @@ import {
   QUANTITY_MAX,
   WASH_AFTER_CHOICES,
 } from '../wardrobe/availability';
+import {
+  DEFAULT_LENGTH_UNIT,
+  LENGTH_MAX_CM,
+  LENGTH_MIN_CM,
+  LENGTH_UNITS,
+} from '../wardrobe/measurements';
 import { PLAN_PRIORITIES, type PlanPriority } from '../wardrobe/plans';
 import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
 import {
@@ -120,11 +126,13 @@ export const CAPSULE_NAME_UNIQUE = 'capsule_owner_id_lower_name_unique';
 export const PLAN_NAME_UNIQUE = 'wardrobe_plan_owner_id_lower_name_unique';
 export const SHARE_GRANTEE_UNIQUE =
   'wardrobe_share_grantor_id_grantee_id_unique';
+export const BRAND_SIZE_UNIQUE = 'brand_size_user_id_brand_key_unique';
 export type UniqueConstraint =
   | typeof USER_EMAIL_UNIQUE
   | typeof CAPSULE_NAME_UNIQUE
   | typeof PLAN_NAME_UNIQUE
-  | typeof SHARE_GRANTEE_UNIQUE;
+  | typeof SHARE_GRANTEE_UNIQUE
+  | typeof BRAND_SIZE_UNIQUE;
 
 export const user = pgTable(
   'user',
@@ -927,6 +935,107 @@ export const styleProfile = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
+  ],
+);
+
+// Body measurements (#24; src/wardrobe/measurements.ts, src/web/sizes/):
+// one row per user once they save any, every length in cm (two decimals)
+// and the unit they read and type them in, the weather's temperature
+// pattern. Private, like the style profile: no route takes another user's.
+// Written only by saveMeasurements and setLengthUnit (src/web/sizes/queries.ts).
+const lengthCm = (name: string) =>
+  numeric(name, { precision: 5, scale: 2, mode: 'number' });
+
+export const bodyMeasurements = pgTable(
+  'body_measurements',
+  {
+    userId: integer('user_id').primaryKey(),
+    unit: text('unit', { enum: LENGTH_UNITS })
+      .default(DEFAULT_LENGTH_UNIT)
+      .notNull(),
+    heightCm: lengthCm('height_cm'),
+    neckCm: lengthCm('neck_cm'),
+    shouldersCm: lengthCm('shoulders_cm'),
+    chestCm: lengthCm('chest_cm'),
+    sleeveCm: lengthCm('sleeve_cm'),
+    waistCm: lengthCm('waist_cm'),
+    hipsCm: lengthCm('hips_cm'),
+    inseamCm: lengthCm('inseam_cm'),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'body_measurements_user_id_foreign',
+      columns: [table.userId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    check(
+      'body_measurements_unit_check',
+      sql`${table.unit} in (${sqlList(LENGTH_UNITS)})`,
+    ),
+    // A null length passes (between is unknown), a set one is a body's.
+    check(
+      'body_measurements_length_check',
+      sql.join(
+        [
+          table.heightCm,
+          table.neckCm,
+          table.shouldersCm,
+          table.chestCm,
+          table.sleeveCm,
+          table.waistCm,
+          table.hipsCm,
+          table.inseamCm,
+        ].map(
+          (column) =>
+            sql`${column} between ${sql.raw(String(LENGTH_MIN_CM))} and ${sql.raw(String(LENGTH_MAX_CM))}`,
+        ),
+        sql` and `,
+      ),
+    ),
+  ],
+);
+
+// Per-brand sizes (#24; src/web/sizes/): the size a user wears in a brand
+// and a note on how it runs ("runs small, size up"), shown wherever that
+// brand is on the user's own screen (the garment form, the wishlist). One
+// row per brand whatever the case: brand is the spelling shown (brandSpelling,
+// src/wardrobe/brands.ts) and brand_key its brandKey, the one rule every brand
+// comparison uses, computed in JS (never SQL's lower(), which is the
+// collation's and disagrees on non-ASCII). Private, like the style profile.
+// Written only by the writers in src/web/sizes/queries.ts.
+export const brandSize = pgTable(
+  'brand_size',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').notNull(),
+    brand: text('brand').notNull(),
+    brandKey: text('brand_key').notNull(),
+    size: text('size'),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // Also the index of the user_id foreign key and of every read (user
+    // first).
+    uniqueIndex(BRAND_SIZE_UNIQUE).on(table.userId, table.brandKey),
+    foreignKey({
+      name: 'brand_size_user_id_foreign',
+      columns: [table.userId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    check(
+      'brand_size_size_or_note_check',
+      sql`${table.size} is not null or ${table.note} is not null`,
+    ),
   ],
 );
 

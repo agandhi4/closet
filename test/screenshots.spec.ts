@@ -317,6 +317,31 @@ test('demo: Theo, his plan and style profile', async ({ page }) => {
   await shot(page, '44-demo-compare-one-plan', '/wardrobe/plans/compare');
 });
 
+test('demo: Theo, his sizes (#24)', async ({ page }) => {
+  await signInAs(page, 'demo');
+  // Profile › Sizes (the section alone; 65 is the whole of Profile), its
+  // editor, and a brand's note where he shops: a wishlist item's page and
+  // its form.
+  await page.goto('/auth/profile#sizes');
+  await expect(page.locator('#sizes')).toContainText('Your size in Uniqlo');
+  await page.waitForLoadState('networkidle');
+  await page.locator('#sizes').screenshot({
+    path: `${DIR}/75-demo-profile-sizes.png`,
+    animations: 'disabled',
+  });
+  await shot(page, '76-demo-sizes-editor', '/auth/profile/sizes');
+  await page.goto('/wardrobe/wishlist');
+  await page.getByRole('link', { name: 'White Couriers' }).click();
+  await expect(page).toHaveURL(/\/wardrobe\/\d+$/);
+  await expect(page.locator('main [data-brand-size]')).toContainText(
+    'Your size in Allbirds: 10',
+  );
+  await shot(page, '77-demo-wishlist-item-size');
+  await page.goto(`${page.url().split('?')[0]}/edit`);
+  await expect(page.locator('#brand-size-hint')).toContainText('Allbirds');
+  await shot(page, '78-demo-garment-form-size-hint');
+});
+
 test('demo: Theo, the outfit gallery', async ({ page }) => {
   await signInAs(page, 'demo');
   // A fixed seed, so the run's cards are the same ideas whatever the day's
@@ -413,6 +438,7 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   // Today with nothing in the closet: what ideas need.
   await shot(page, '57-fresh-today', '/');
   await shot(page, '64-fresh-trips', '/trips');
+  await shot(page, '79-fresh-sizes', '/auth/profile/sizes');
   await shot(
     page,
     '27-fresh-calendar-plan',

@@ -15,6 +15,8 @@ import type { SharedWardrobe } from '../sharing/access';
 import type { Candidacy } from '../plans/candidates';
 import { CandidacyLinks } from '../plans/candidates-page';
 import { SHOPPING_PATH } from '../plans/urls';
+import type { BrandSizeLookup } from '../sizes/queries';
+import { BrandSizeNote } from '../sizes/views';
 import type { WishlistItem } from './queries';
 
 export interface WishlistModel {
@@ -30,6 +32,8 @@ export interface WishlistModel {
    * owner's own wishlist only. Undefined on a shared one: plans are private.
    */
   candidacies: Map<number, Candidacy[]> | undefined;
+  /** The owner's size in each item's brand (#24): their own wishlist only. */
+  brandSizes: BrandSizeLookup | undefined;
 }
 
 const TO_WISHLIST = destinationParams({ to: 'wishlist' });
@@ -130,6 +134,9 @@ function WishlistCard(props: { item: WishlistItem; model: WishlistModel }) {
             .filter(Boolean)
             .join(' · ')}
         </p>
+        {model.brandSizes && (
+          <BrandSizeNote note={model.brandSizes(item.brand)} size="text-xs" />
+        )}
         {item.replaces && (
           <p class="text-xs">
             {t('wishlist.REPLACES', {

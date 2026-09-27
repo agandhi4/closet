@@ -183,6 +183,13 @@
       "when": 1790489880981,
       "tag": "0025_weather_normals",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790533108992,
+      "tag": "0026_sizes",
+      "breakpoints": true
     }
   ]
 }
