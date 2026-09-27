@@ -38,6 +38,25 @@ describe('GET /manifest.json', () => {
     expect(manifest).not.toHaveProperty('screenshots');
   });
 
+  // Issue #81: the title bar and splash take the light theme's page colour
+  // (THEME_BASE_100, checked against main.css by theme-colors.spec.ts).
+  it('colours the installed app from the theme', async () => {
+    const res = await t.inject({ method: 'GET', url: '/manifest.json' });
+    const manifest = res.json();
+    expect(manifest.theme_color).toBe('#faf8f4');
+    expect(manifest.background_color).toBe('#faf8f4');
+  });
+
+  it('gives the page a theme colour per colour scheme', async () => {
+    const res = await t.inject({ method: 'GET', url: '/about' });
+    expect(res.body).toContain(
+      '<meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf8f4"/>',
+    );
+    expect(res.body).toContain(
+      '<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#191512"/>',
+    );
+  });
+
   // Android's share sheet: a shared product page opens the link import,
   // whose GET takes the link from `url` or from inside `text`
   // (link-import.spec.ts).

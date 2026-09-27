@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import { destinationQuery } from '../outfits/destination';
 import { EntrySelfie } from '../selfies/views';
-import type { CalendarEntryView } from './calendar-view';
+import type { CalendarEntry } from './calendar-view';
 import { occasionLabel } from './labels';
 import { WornButton } from './worn-button';
 
@@ -17,7 +17,7 @@ import { WornButton } from './worn-button';
  * person has not touched is marked Auto (#16): its re-plan may swap it.
  */
 export function OccasionRow(props: {
-  entry: CalendarEntryView;
+  entry: CalendarEntry;
   /** The day is after today: no worn pill (setEntryWorn refuses it). */
   future: boolean;
 }) {
@@ -74,7 +74,7 @@ export function OccasionRow(props: {
 }
 
 /** The plan page opened to change this entry's outfit (#69). */
-function changeEntryUrl(entry: CalendarEntryView): string {
+function changeEntryUrl(entry: CalendarEntry): string {
   return `/calendar/plan?${destinationQuery({
     kind: 'day',
     day: entry.day,
@@ -83,26 +83,20 @@ function changeEntryUrl(entry: CalendarEntryView): string {
   })}`;
 }
 
-// Inline hues per entry so chips on one day differ; a worn chip is stronger.
-function chipStyle(hue: number, worn: boolean): string {
-  return worn
-    ? `background:hsl(${hue} 65% 55% / 0.22);border-color:hsl(${hue} 65% 60% / 0.45);color:hsl(${hue} 80% 75%)`
-    : `background:hsl(${hue} 55% 50% / 0.08);border-color:hsl(${hue} 55% 55% / 0.22);color:hsl(${hue} 50% 65%)`;
-}
-
 /**
  * The outfit bar. It is the edit link's (boosted), stretched over it by its
  * ::after; it holds the delete form, which an <a> cannot, so the form sits
- * above it.
+ * above it. The garments are its colour: the bar is the plinth, and only a
+ * worn entry takes the accent (#81; a hue per entry told apart what the
+ * occasion label above it already names).
  */
-function EntryChip({ entry }: { entry: CalendarEntryView }) {
+function EntryChip({ entry }: { entry: CalendarEntry }) {
   const editUrl = `/outfits/${entry.outfit.id}/edit?returnTo=/calendar&returnToWeek=${entry.day}`;
   const deleteUrl = `/calendar/${entry.id}/delete`;
   const name = entry.outfit.name || t('UNTITLED_OUTFIT');
   return (
     <div
-      class="relative min-w-0 flex-1 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1 leading-tight"
-      style={chipStyle(entry.chipHue, entry.worn)}
+      class={`relative min-w-0 flex-1 text-left px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1 leading-tight ${entry.worn ? 'bg-accent/10 border-accent' : 'bg-base-200 border-base-300'}`}
     >
       <a
         href={editUrl}

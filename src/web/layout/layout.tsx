@@ -2,6 +2,7 @@ import type { Child } from 'hono/jsx';
 import { appIconFile } from '../app-icon';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
+import { THEME_BASE_100 } from '../theme-colors';
 import type { ViewContext } from '../view-context';
 import { AppStatus } from './app-status';
 
@@ -84,6 +85,18 @@ export function Layout({
         {/* No viewport-fit=cover: iOS standalone handles the safe areas
             itself, and cover puts content under the home indicator. */}
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        {/* The browser's and the installed app's bars match the page in
+            either scheme (main.css's themes follow the system's). */}
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: light)"
+          content={THEME_BASE_100.light}
+        />
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: dark)"
+          content={THEME_BASE_100.dark}
+        />
         <meta name="description" content={ogDescription} />
         <link rel="canonical" href={ctx.canonicalUrl} />
         {/* https://ogp.me/ */}

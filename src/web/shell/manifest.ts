@@ -1,4 +1,5 @@
 import { APP_ICON_SIZES, appIconFile } from '../app-icon';
+import { THEME_BASE_100 } from '../theme-colors';
 import { LINK_IMPORT_PATH } from '../wardrobe/urls';
 
 /**
@@ -28,8 +29,10 @@ export function webManifest(config: {
     // too). Where it opens can (#15).
     id: '/wardrobe',
     start_url: '/',
-    theme_color: '#222428',
-    background_color: '#fafafa',
+    // One value each, so the light theme's page colour: the navbar's
+    // (the title bar blends into it) and the splash screen's.
+    theme_color: THEME_BASE_100.light,
+    background_color: THEME_BASE_100.light,
     display: 'standalone',
     scope: '/',
     shortcuts: [

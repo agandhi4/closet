@@ -682,15 +682,6 @@ function PhotoForm({ model }: { model: GarmentPageModel }) {
   );
 }
 
-// The canvas's checkerboard shows through erased pixels; its colours are
-// the editor's, not the theme's.
-const CHECKERBOARD = [
-  'background-image: linear-gradient(45deg, #cccccc 25%, transparent 25%), linear-gradient(-45deg, #cccccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #cccccc 75%), linear-gradient(-45deg, transparent 75%, #cccccc 75%)',
-  'background-size: 16px 16px',
-  'background-position: 0 0, 0 8px, 8px -8px, -8px 0px',
-  'background-color: #ffffff',
-].join('; ');
-
 /** The mask editor (public/js/mask-editor.js), opened by the pencil on the photo. */
 function MaskEditorDialog() {
   return (
@@ -723,8 +714,7 @@ function MaskEditorDialog() {
         <div class="overflow-auto rounded-box border border-base-300 bg-base-200">
           <canvas
             id="maskEditorCanvas"
-            class="block max-w-full mx-auto cursor-crosshair"
-            style={CHECKERBOARD}
+            class="mask-checkerboard block max-w-full mx-auto cursor-crosshair"
           ></canvas>
         </div>
         <div class="modal-action mt-0">

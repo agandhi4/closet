@@ -2,7 +2,114 @@
 that only contains the relivant tailwind code used in the application source. This is to minimize the bundle size
 and response bandwidth/latency. */
 @import "tailwindcss";
-@plugin "daisyui";
+/* The two webfonts' @font-face rules, built from node_modules by
+   `npm run generate:fonts` (views/assets/fonts.css says how). */
+@import "../../public/vendor/fonts/fonts.css";
+
+/* The redesign's direction A, "Atelier" (docs/plans/2026-09-26-redesign.md,
+   section 4): warm paper and ink, one clay accent used sparingly (a worn
+   day, a locked row), hairlines instead of shadows, small radii. The
+   garments are the only strong colour. daisyUI's own themes are off; these
+   two follow the system's scheme (prefersdark), with no toggle.
+
+   Every text pair here passes WCAG AA (4.5:1) on base-100 and base-200,
+   the plinth: the status colours are mid-dark in light and mid-light in
+   dark, so each works both as a text colour on the page and as a fill
+   under its -content. Markup uses these tokens only (the eslint rule in
+   eslint.config.mjs refuses palette classes and inline colours).
+   src/web/theme-colors.ts carries both base-100s as hex for the manifest
+   and <meta name="theme-color">; its spec fails when they drift apart. */
+@plugin "daisyui" {
+  themes: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "closet-light";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+  --color-base-100: oklch(98% 0.006 85);
+  --color-base-200: oklch(94% 0.01 80); /* the plinth behind every cutout */
+  --color-base-300: oklch(89% 0.012 75);
+  /* Darker than the plan's sketch (24%, still primary's ink), so the
+     pages' muted text, text-base-content/60, passes AA on the plinth. */
+  --color-base-content: oklch(18% 0.01 60);
+  --color-primary: oklch(24% 0.01 60);
+  --color-primary-content: oklch(98% 0.006 85);
+  --color-secondary: oklch(45% 0.02 60);
+  --color-secondary-content: oklch(98% 0.006 85);
+  --color-accent: oklch(52% 0.12 45);
+  --color-accent-content: oklch(98% 0.006 85);
+  --color-neutral: oklch(32% 0.01 60);
+  --color-neutral-content: oklch(98% 0.006 85);
+  --color-info: oklch(48% 0.07 240);
+  --color-info-content: oklch(98% 0.006 85);
+  --color-success: oklch(48% 0.08 145);
+  --color-success-content: oklch(98% 0.006 85);
+  --color-warning: oklch(52% 0.1 70);
+  --color-warning-content: oklch(98% 0.006 85);
+  --color-error: oklch(50% 0.16 28);
+  --color-error-content: oklch(98% 0.006 85);
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* The same design at night: warm charcoal, the plinth lighter than the
+   page so dark garments stay visible, ink turned to paper. */
+@plugin "daisyui/theme" {
+  name: "closet-dark";
+  default: false;
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: oklch(20% 0.008 60);
+  --color-base-200: oklch(30% 0.01 60); /* the plinth behind every cutout */
+  --color-base-300: oklch(36% 0.012 60);
+  --color-base-content: oklch(93% 0.01 80);
+  --color-primary: oklch(93% 0.01 80);
+  --color-primary-content: oklch(20% 0.008 60);
+  --color-secondary: oklch(80% 0.02 70);
+  --color-secondary-content: oklch(20% 0.008 60);
+  --color-accent: oklch(74% 0.11 45);
+  --color-accent-content: oklch(20% 0.008 60);
+  --color-neutral: oklch(40% 0.012 60);
+  --color-neutral-content: oklch(93% 0.01 80);
+  --color-info: oklch(78% 0.07 240);
+  --color-info-content: oklch(20% 0.008 60);
+  --color-success: oklch(78% 0.09 145);
+  --color-success-content: oklch(20% 0.008 60);
+  --color-warning: oklch(80% 0.11 75);
+  --color-warning-content: oklch(20% 0.008 60);
+  --color-error: oklch(74% 0.14 28);
+  --color-error-content: oklch(20% 0.008 60);
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* Inter for everything, Fraunces for headings only (a page's h1, a card's
+   title, the app's name in the navbar): the plan's one risk for this
+   direction is the serif spreading into the UI. */
+@theme {
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-serif: "Fraunces Variable", Georgia, serif;
+}
+@layer base {
+  h1,
+  .card-title {
+    font-family: var(--font-serif);
+  }
+}
 
 /* https://stackoverflow.com/questions/2989263/disable-auto-zoom-in-input-text-tag-safari-on-iphone */
 @supports (-webkit-overflow-scrolling: touch) {
@@ -45,6 +152,20 @@ and response bandwidth/latency. */
   }
 }
 
+/* The mask editor's canvas (garment-page.tsx): the checkerboard shows
+   through erased pixels. Its colours are the editors' convention for
+   transparency, not the theme's, so the same in both schemes. */
+.mask-checkerboard {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #ccc 25%, transparent 25%),
+    linear-gradient(-45deg, #ccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ccc 75%),
+    linear-gradient(-45deg, transparent 75%, #ccc 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
 /* Tap feedback: pressed while touched, dimmed while the tapped link's
    request is in flight (the body's hx-indicator marks it htmx-request,
    src/web/layout/layout.tsx), so a slow network never looks like a dead
@@ -80,14 +201,6 @@ html[data-connectivity='offline'] [data-offline-note],
 html[data-connectivity='reconnecting'] [data-offline-note] {
   display: revert-layer;
 }
-
-/* ── Calendar: outfit chip colors (outfit.id % 6) ─────────────────────── */
-.chip-0 { background-color: color-mix(in oklch, var(--color-primary)   20%, transparent); color: var(--color-primary);   }
-.chip-1 { background-color: color-mix(in oklch, var(--color-secondary) 20%, transparent); color: var(--color-secondary); }
-.chip-2 { background-color: color-mix(in oklch, var(--color-accent)    20%, transparent); color: var(--color-accent);    }
-.chip-3 { background-color: color-mix(in oklch, var(--color-info)      20%, transparent); color: var(--color-info);      }
-.chip-4 { background-color: color-mix(in oklch, var(--color-success)   20%, transparent); color: var(--color-success);   }
-.chip-5 { background-color: color-mix(in oklch, var(--color-warning)   20%, transparent); color: var(--color-warning);   }
 
 /* ── Calendar: mini calendar cell states ──────────────────────────────── */
 .cal-today    { background-color: var(--color-primary); color: var(--color-primary-content); font-weight: 700; }

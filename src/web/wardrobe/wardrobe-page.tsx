@@ -693,7 +693,7 @@ function PropertyPills(props: {
           search={search}
           viewOwner={props.viewOwner}
           drop={pill.drop}
-          class="badge-info"
+          class="badge-primary"
           label={pill.label}
         />
       ))}
@@ -705,7 +705,12 @@ function PropertyPills(props: {
 // along, typed or not yet searched.
 const INCLUDE_KEYWORD = "#search-form [name='keyword']";
 
-/** The fixed bar above the dock: the filter button, active filters, search. */
+/**
+ * The fixed bar above the dock: the filter button, active filters, search.
+ * Every filter's pill is one tone (primary, as its checked choice in the
+ * modal); only the care filters keep the colour of the tile badge they
+ * find (wash, attention) and archived its warning.
+ */
 function FilterBar(props: {
   search: GridSearch;
   viewOwner: number | undefined;
@@ -744,7 +749,7 @@ function FilterBar(props: {
           <FilterPill
             {...pill}
             drop="capsule"
-            class="badge-neutral"
+            class="badge-primary"
             label={capsule.name}
           />
         )}
@@ -760,7 +765,7 @@ function FilterBar(props: {
           <FilterPill
             {...pill}
             drop="color"
-            class="badge-secondary capitalize"
+            class="badge-primary capitalize"
             label={search.color}
           />
         )}
@@ -768,7 +773,7 @@ function FilterBar(props: {
           <FilterPill
             {...pill}
             drop="size"
-            class="badge-accent"
+            class="badge-primary"
             label={search.size}
           />
         )}
@@ -867,7 +872,7 @@ function FilterModal(props: {
                 name="capsule"
                 value={String(capsule.id)}
                 checked={String(capsule.id) === search.capsule}
-                class="peer-checked:badge-neutral"
+                class="peer-checked:badge-primary"
                 label={capsule.name}
               />
             ))}
@@ -890,7 +895,7 @@ function FilterModal(props: {
               name="color"
               value={color}
               checked={color === search.color}
-              class="peer-checked:badge-secondary capitalize"
+              class="peer-checked:badge-primary capitalize"
               label={color}
             />
           ))}
@@ -902,7 +907,7 @@ function FilterModal(props: {
                 name="size"
                 value={size}
                 checked={size === search.size}
-                class="peer-checked:badge-accent"
+                class="peer-checked:badge-primary"
                 label={size}
               />
             ))}
@@ -1008,7 +1013,7 @@ function PropertyFilterGroups(props: {
                 name={group.name}
                 value={String(value)}
                 checked={String(value) === search[group.name]}
-                class="peer-checked:badge-info"
+                class="peer-checked:badge-primary"
                 label={valueLabel(group.property, value)}
               />
             ))}

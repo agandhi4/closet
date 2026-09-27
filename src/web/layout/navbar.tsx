@@ -12,7 +12,7 @@ export function Navbar({ ctx }: { ctx: ViewContext }) {
     <div class="drawer navbar">
       <input id="my-drawer-2" type="checkbox" class="drawer-toggle" />
       <div class="drawer-content flex flex-col">
-        <div class="navbar bg-base-300 w-full">
+        <div class="navbar bg-base-100 border-b border-base-300 w-full">
           <div class="flex-none lg:hidden">
             <label
               for="my-drawer-2"
@@ -34,9 +34,9 @@ export function Navbar({ ctx }: { ctx: ViewContext }) {
               </svg>
             </label>
           </div>
-          {/* The wardrobe, not /: that is a redirect to it. */}
+          {/* The app name opens the wardrobe (/ is Today, the dock's first tab). */}
           <a class="mx-2 flex flex-row gap-2 pt-1" href="/wardrobe">
-            <span class="text-lg font-semibold">{ctx.appName}</span>
+            <span class="font-serif text-lg font-semibold">{ctx.appName}</span>
             {/* In-flight htmx request spinner: every request's indicator (the
                 body's hx-indicator, layout.tsx). Connectivity is a separate
                 concern: AppStatus. */}

@@ -13,7 +13,8 @@
     "build": "npm run clean && tsc -p tsconfig.build.json && npm run generate",
     "generate": "npm run generate:build-info && npm run generate:vendor && npm run generate:tailwind && npm run generate:sw",
     "generate:build-info": "ts-node scripts/write-build-info.ts",
-    "generate:vendor": "esbuild --outfile=public/vendor/sortable.min.js --bundle --minify --format=esm --log-level=warning views/assets/sortable.js",
+    "generate:vendor": "esbuild --outfile=public/vendor/sortable.min.js --bundle --minify --format=esm --log-level=warning views/assets/sortable.js && npm run generate:fonts",
+    "generate:fonts": "node -e \"require('fs').rmSync('public/vendor/fonts', { recursive: true, force: true })\" && esbuild --outfile=public/vendor/fonts/fonts.css --bundle --minify --log-level=warning --loader:.woff2=file --asset-names=[name]-[hash] --public-path=/vendor/fonts views/assets/fonts.css",
     "generate:sw": "esbuild --outfile=views/assets/src-sw.js --bundle --minify --define:process.env.NODE_ENV=\\\"production\\\" views/assets/src-sw.ts && npx workbox injectManifest",
     "generate:sw:watch": "npx workbox injectManifest --watch",
     "generate:tailwind": "npx @tailwindcss/cli -i ./views/assets/main.css -o ./public/bundle.css --minify",
@@ -88,6 +89,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/inter": "^5.3.0",
     "@lhci/cli": "^0.15.1",
     "@mikro-orm/core": "^6.6.14",
     "@mikro-orm/migrations": "^6.5.8",

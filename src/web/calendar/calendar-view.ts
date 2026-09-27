@@ -40,11 +40,6 @@ export interface CalendarEntry {
   };
 }
 
-export interface CalendarEntryView extends CalendarEntry {
-  /** Hue of the entry's chip, cycling within a day so neighbours differ. */
-  chipHue: number;
-}
-
 export interface CalendarDayView {
   date: IsoDate;
   /** 0 = Sunday ... 6 = Saturday. */
@@ -54,7 +49,7 @@ export interface CalendarDayView {
   /** After today: nothing on it can be marked worn yet (setEntryWorn). */
   isFuture: boolean;
   /** In occasion order (src/wardrobe/occasions.ts), then as read. */
-  entries: CalendarEntryView[];
+  entries: CalendarEntry[];
   /** Selfies kept after their outfit was deleted (#19), as taken. */
   looks: DetachedLook[];
 }
@@ -87,7 +82,6 @@ export interface CalendarView {
   miniMonth: MiniMonthView;
 }
 
-const CHIP_HUES = [220, 240, 260];
 /** Enough rows for any month: 31 days starting on a Saturday span six weeks. */
 const MAX_GRID_ROWS = 6;
 
@@ -120,11 +114,7 @@ export function buildCalendarView(input: {
       isFuture: date > today,
       entries: entries
         .filter((entry) => entry.day === date)
-        .sort((a, b) => compareOccasions(a.occasion, b.occasion))
-        .map((entry, index) => ({
-          ...entry,
-          chipHue: CHIP_HUES[index % CHIP_HUES.length],
-        })),
+        .sort((a, b) => compareOccasions(a.occasion, b.occasion)),
       looks: looks.filter((look) => look.day === date),
     };
   });

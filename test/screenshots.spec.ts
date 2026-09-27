@@ -104,6 +104,28 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
   await shot(page, '11-demo-shares', '/wardrobe-share/manage');
 });
 
+// The dark theme (#81, closet-dark follows the system's scheme): the same
+// four pages as their light twins above, named after them. Before any test
+// re-seeds Theo, so each pair shows the same data.
+test.describe('dark', () => {
+  test.use({ colorScheme: 'dark' });
+
+  test('demo: Theo, the key pages in the dark theme', async ({ page }) => {
+    await signInAs(page, 'demo');
+    await shot(page, '01-demo-wardrobe-dark', '/wardrobe');
+    await page.goto('/wardrobe?keyword=raw');
+    await page.locator('#wardrobe-grid a').first().click();
+    await expect(page.getByText('Raw selvedge jeans').first()).toBeVisible();
+    await shot(page, '03-demo-garment-dark');
+    await shot(page, '08-demo-outfit-builder-dark', '/outfits/new');
+    await shot(
+      page,
+      '10-demo-calendar-planned-dark',
+      '/calendar?week=2026-09-27',
+    );
+  });
+});
+
 test('demo: Theo, capsules', async ({ page }) => {
   await signInAs(page, 'demo');
   await shot(page, '17-demo-capsules', '/capsules');

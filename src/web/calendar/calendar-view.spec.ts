@@ -145,14 +145,6 @@ describe('calendar view (America/New_York)', () => {
       ]);
     });
 
-    it('gives entries on the same day different chip hues', () => {
-      const entries = [1, 2, 3, 4].map((id) => entryOn('2026-09-23', id));
-      const wednesday = view('2026-09-23', { entries }).days[3];
-      expect(wednesday.entries.map((e) => e.chipHue)).toEqual([
-        220, 240, 260, 220,
-      ]);
-    });
-
     it('puts each selfie kept after its outfit was deleted on its own day', () => {
       const look = (id: number, day: IsoDate) => ({
         id,
