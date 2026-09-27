@@ -6,7 +6,7 @@ describe('isStaticPath', () => {
     '/modules/htmx.min.js',
     '/assets/icon.png',
     '/js/mask-editor.js',
-    '/vendor/sortable.min.js?v=0.5.1',
+    '/vendor/fonts/fonts.css',
     '/file/8d755fce.webp?v=3',
     '/file/nobg/8d755fce.webp',
     '/file/thumb/8d755fce.webp?v=1',

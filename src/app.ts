@@ -360,10 +360,7 @@ async function registerStaticAssets(app: FastifyInstance, config: Config) {
 
   /** Serve htmx and other libraries from node_modules
    * https://htmx.org/docs/#installing
-   * https://blog.wesleyac.com/posts/why-not-javascript-cdn
-   * sortablejs is not among them: its ESM build is unminified, so
-   * `npm run generate:vendor` minifies it into public/vendor/, served by the
-   * public/ root above (views/assets/sortable.js says why). */
+   * https://blog.wesleyac.com/posts/why-not-javascript-cdn */
   await app.register(fastifyStatic, {
     root: [
       nodeModule('htmx.org/dist'),

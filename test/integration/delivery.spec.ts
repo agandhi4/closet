@@ -53,28 +53,6 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(res.headers['cache-control']).toBe('no-cache');
     });
 
-    // The package's ESM build is unminified (modular/sortable.esm.js,
-    // 119 KB); the importmap points at the build's minified bundle
-    // (views/assets/sortable.js) and the package directory is not served.
-    it('serves sortablejs minified and immutable', async () => {
-      const res = await t.inject({
-        method: 'GET',
-        url: '/vendor/sortable.min.js',
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.headers['content-type']).toMatch(/javascript/);
-      expect(res.headers['cache-control']).toBe(
-        'public, max-age=31536000, immutable',
-      );
-      expect(res.body).toMatch(/export\s*\{[^}]*\bas default\b/);
-      expect(res.rawPayload.byteLength).toBeLessThan(45_000);
-      const unminified = await t.inject({
-        method: 'GET',
-        url: '/modules/modular/sortable.esm.js',
-      });
-      expect(unminified.statusCode).toBe(404);
-    });
-
     // The server removes backgrounds: the in-browser model, its runtime and
     // its WASM are no longer served.
     it.each([

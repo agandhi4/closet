@@ -57,12 +57,8 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['test/integration/**/*.spec.{ts,tsx}'],
-          // Drops scratch databases that killed runs left on the server, and
-          // builds public/vendor/ (build output the app serves).
-          globalSetup: [
-            'test/support/sweep-scratch-databases.ts',
-            'test/support/generate-vendor.ts',
-          ],
+          // Drops scratch databases that killed runs left on the server.
+          globalSetup: ['test/support/sweep-scratch-databases.ts'],
         },
       },
     ],
