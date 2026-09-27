@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import sharp from 'sharp';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { cachedPaths, waitForServiceWorker } from './support/service-worker';
+import { openPhotoSheet } from './support/garment-page';
 
 /**
  * What only a browser can show about the installed app: the service worker
@@ -178,6 +179,7 @@ test.describe('installed app delivery', () => {
     await waitForServiceWorker(page);
     await page.goto(`/wardrobe/${garmentId}`);
     // What used to start the in-browser model's download.
+    await openPhotoSheet(page);
     await page.locator('#photoInput').focus();
     await page.locator('#photoInput').setInputFiles({
       name: 'shirt.jpg',
@@ -188,8 +190,6 @@ test.describe('installed app delivery', () => {
         .jpeg()
         .toBuffer(),
     });
-    await expect(page.locator('#photoBtn')).toBeEnabled();
-    await page.locator('#photoBtn').click();
     await expect(page.locator('#garment-photo img')).toHaveAttribute(
       'src',
       /\?v=2$/,

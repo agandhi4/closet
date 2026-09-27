@@ -37,9 +37,15 @@ import {
 import { viewContext } from '../view-context';
 import { type GoesWithCloset, goesWithCloset } from '../gallery/ideas';
 import { avoidedWith } from '../gallery/queries';
+import { GARMENT_OUTFITS_SHOWN } from '../outfits/garment-outfits';
+import { outfitsWithGarment } from '../outfits/queries';
 import { countNeedingWash, wearSummary } from '../wears/queries';
 import { normalizeCategory, normalizeSize } from './garment';
-import { GarmentPage, GarmentPhotoView } from './garment-page';
+import {
+  GarmentPage,
+  type GarmentPageModel,
+  GarmentPhotoView,
+} from './garment-page';
 import { keptLinkPhoto } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
 import {
@@ -670,6 +676,33 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     return judged;
   }
 
+  /**
+   * The garment page's reads of the owner's own records: its wears and
+   * washes, the outfits that hold it ("In N outfits", #84) and the garments
+   * the gallery never pairs it with. Like outfits and the calendar, never
+   * read for a grantee (the page renders none of them), nor for a wishlist
+   * item, which is not in the closet.
+   */
+  async function ownerRecords(
+    garment: GarmentDetail,
+    access: { isOwner: boolean; ownerId: number },
+    today: IsoDate,
+  ): Promise<
+    Pick<GarmentPageModel, 'wear' | 'outfits'> & {
+      avoided: GarmentPageModel['styling']['avoided'];
+    }
+  > {
+    if (garment.status === 'wishlist' || !access.isOwner) {
+      return { wear: undefined, outfits: undefined, avoided: [] };
+    }
+    const [summary, outfits, avoided] = await Promise.all([
+      wearSummary(db, garment.id, today),
+      outfitsWithGarment(db, access.ownerId, garment.id, GARMENT_OUTFITS_SHOWN),
+      avoidedWith(db, access.ownerId, garment.id),
+    ]);
+    return { wear: { summary, today }, outfits, avoided };
+  }
+
   app.get(
     '/wardrobe/:id',
     { schema: { params: GarmentParams, querystring: GarmentPageQuery } },
@@ -687,27 +720,21 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // wishlist item has no wears, washes or capsules (closet reads), and
       // says what it replaces; a closet garment lists the wishlist items
       // that would replace it.
-      const owned = garment.status !== 'wishlist';
-      // The gallery's side (never paired with, and a wishlist item's "Goes
-      // with my closet") is the owner's, like outfits: never read for a
-      // grantee. "Style this" is anyone's who sees a closet garment:
-      // Styling browses a shared wardrobe (#42) and saves only one's own.
-      const styles = owned && access.isOwner;
-      const [capsules, wear, replaces, replacedBy, avoided, goesWith] =
-        await Promise.all([
-          owned ? capsulesOfGarment(db, access.ownerId, id) : [],
-          // Wears and washes are the owner's own records: never read for a
-          // grantee (the section is not rendered either).
-          owned && access.isOwner ? wearSummary(db, id, today) : undefined,
+      const [capsules, replaces, replacedBy, own, goesWith] = await Promise.all(
+        [
+          garment.status === 'wishlist'
+            ? []
+            : capsulesOfGarment(db, access.ownerId, id),
           garment.replacesGarmentId === null
             ? undefined
             : garmentRef(db, garment.replacesGarmentId, access.ownerId),
           garment.status === 'closet'
             ? replacementsOf(db, id, access.ownerId)
             : [],
-          styles ? avoidedWith(db, access.ownerId, id) : [],
+          ownerRecords(garment, access, today),
           judgeWishlistItem(garment, access, today),
-        ]);
+        ],
+      );
       return renderPage(
         reply,
         <GarmentPage
@@ -716,14 +743,17 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             garment,
             capsules,
             viewOwner,
-            wear: wear && { summary: wear, today },
+            wear: own.wear,
             replaces,
             replacedBy,
+            // "Style this" is anyone's who sees a closet garment: Styling
+            // browses a shared wardrobe (#42) and saves only one's own.
             styling: {
               canStyle: garment.status === 'closet',
-              avoided,
+              avoided: own.avoided,
             },
             goesWith,
+            outfits: own.outfits,
             canEdit: access.canManage,
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',

@@ -297,7 +297,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The garment page's "In capsules" toggles (an AutosaveForm, on every
+  // The garment page's capsules row toggles (an AutosaveForm, on every
   // change): the capsules the section listed hold the garment exactly when
   // checked. The answer is the form's status line, never the toggles (see
   // src/web/autosave.tsx).

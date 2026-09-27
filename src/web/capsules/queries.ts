@@ -203,7 +203,7 @@ export interface GarmentCapsule extends CapsuleRef {
   member: boolean;
 }
 
-/** The garment page's "In capsules": every capsule of the wardrobe, by name, and whether the garment is in it. */
+/** The garment page's capsules row: every capsule of the wardrobe, by name, and whether the garment is in it. */
 export function capsulesOfGarment(
   db: Db,
   ownerId: number,

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { openPhotoSheet } from './support/garment-page';
 
 /**
  * Regression test for https://github.com/lazztech/Libre-Closet/issues/99 —
@@ -7,6 +8,8 @@ import { SAME_ORIGIN, signIn } from './support/e2e-session';
  * file-input's chooser sheet. The fix adds a dedicated "Take Photo" button
  * wired to a hidden input with capture="environment", which launches the
  * camera directly instead of depending on Chromium's merged chooser sheet.
+ * Since #84 both live in the garment page's photo sheet (the ⋯ menu's
+ * photo item).
  */
 test('garment photo upload offers a direct camera capture entry point', async ({
   page,
@@ -23,7 +26,8 @@ test('garment photo upload offers a direct camera capture entry point', async ({
 
   await page.goto(`/wardrobe/${garmentId}`);
 
-  const captureButton = page.locator('#photoCaptureBtn');
+  const sheet = await openPhotoSheet(page);
+  const captureButton = sheet.locator('[data-photo-source="camera"]');
   await expect(captureButton).toBeVisible();
 
   const [fileChooser] = await Promise.all([

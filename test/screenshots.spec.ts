@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { expect, type Page, test } from '@playwright/test';
 import { addDays } from '../src/web/calendar/calendar-date';
 import { signUpHeaders } from './support/e2e-session';
+import { openGarmentMenu, openPhotoSheet } from './support/garment-page';
 import { householdToday } from './support/household-today';
 import { fakeSubscription, stubPushManager } from './support/push-stub';
 
@@ -75,6 +76,12 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
   await page.locator('#wardrobe-grid a').first().click();
   await expect(page.getByText('Raw selvedge jeans').first()).toBeVisible();
   await shot(page, '03-demo-garment');
+  // The garment page's ⋯ menu and its photo sheet (#84).
+  await openGarmentMenu(page);
+  await shot(page, '03c-demo-garment-menu');
+  await page.locator('#garment-menu summary').click();
+  await openPhotoSheet(page);
+  await shot(page, '03b-demo-garment-photo-sheet');
   await page.goto(`${page.url().split('?')[0]}/edit`);
   await page
     .locator('details.collapse')
@@ -118,8 +125,9 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
 });
 
 // The dark theme (#81, closet-dark follows the system's scheme): the same
-// four pages as their light twins above, named after them. Before any test
-// re-seeds Theo, so each pair shows the same data.
+// four pages (and the garment page's photo sheet) as their light twins
+// above, named after them. Before any test re-seeds Theo, so each pair
+// shows the same data.
 test.describe('dark', () => {
   test.use({ colorScheme: 'dark' });
 
@@ -130,6 +138,8 @@ test.describe('dark', () => {
     await page.locator('#wardrobe-grid a').first().click();
     await expect(page.getByText('Raw selvedge jeans').first()).toBeVisible();
     await shot(page, '03-demo-garment-dark');
+    await openPhotoSheet(page);
+    await shot(page, '03b-demo-garment-photo-sheet-dark');
     await page.goto('/styling');
     await expect(page.locator('[data-styling-row]').first()).toBeVisible();
     await shot(page, '08-demo-styling-dark');

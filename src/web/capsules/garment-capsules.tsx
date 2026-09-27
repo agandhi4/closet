@@ -6,7 +6,7 @@ import type { GarmentCapsule } from './queries';
 const SECTION_ID = 'garment-capsules';
 
 /**
- * The garment page's "In capsules" (src/web/wardrobe/garment-page.tsx):
+ * The garment page's capsules row (src/web/wardrobe/garment-page.tsx):
  * for the owner and a MANAGE grantee a toggle per capsule of the wardrobe,
  * an `AutosaveForm` posted on every change to POST /wardrobe/:id/capsules,
  * which saves at once and answers only the status line: the toggles are
@@ -27,11 +27,17 @@ export function GarmentCapsules(props: {
   if (capsules.length === 0 || (!props.canEdit && members.length === 0)) {
     return <section id={SECTION_ID}></section>;
   }
+  // A row (redesign plan, "Garment page"): the label, then the chips.
   return (
-    <section id={SECTION_ID} class="mb-6">
-      <h2 class="text-sm text-muted mb-2">{t('IN_CAPSULES')}</h2>
+    <section id={SECTION_ID} class="flex items-start gap-3">
+      <h2 class="text-sm text-muted w-20 shrink-0 pt-1.5">
+        {t('garment.CAPSULES')}
+      </h2>
       {props.canEdit ? (
-        <AutosaveForm action={garmentUrl(garmentId, viewOwner, '/capsules')}>
+        <AutosaveForm
+          action={garmentUrl(garmentId, viewOwner, '/capsules')}
+          class="flex flex-col gap-1 flex-1 min-w-0"
+        >
           <div class="flex flex-wrap gap-2">
             {capsules.map((capsule) => (
               <>
@@ -50,7 +56,7 @@ export function GarmentCapsules(props: {
           </div>
         </AutosaveForm>
       ) : (
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2 flex-1 min-w-0">
           {members.map((capsule) => (
             <a
               href={capsuleUrl(capsule.id, viewOwner)}

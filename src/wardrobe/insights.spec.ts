@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BRANDS_LIMIT,
+  perWearCost,
   type InsightGarment,
   RANKED_LIMIT,
   wardrobeInsights,
@@ -118,5 +119,16 @@ describe('wardrobeInsights', () => {
     const a = worn(3);
     const { pairs } = wardrobeInsights([a], [{ a: a.id, b: 999, days: 3 }], 90);
     expect(pairs).toEqual([]);
+  });
+});
+
+describe('perWearCost', () => {
+  it('divides what the garment cost, every copy, by its wear days, to the cent', () => {
+    expect(perWearCost('350.00', 1, 12)).toBe('29.17');
+    expect(perWearCost('12.50', 3, 5)).toBe('7.50');
+  });
+
+  it('never divides by no wears', () => {
+    expect(perWearCost('80.00', 1, 0)).toBeNull();
   });
 });

@@ -1,7 +1,8 @@
 /**
- * The garment photo form's file, prepared on the phone before upload
- * (wirePhotoUpload, called by the garment page's inline module); the
- * server removes its background.
+ * A chosen photo, prepared on the phone before upload (preparePhoto, which
+ * the photo inputs' onchange imports: PREPARE_AND_SUBMIT_PHOTO in
+ * src/web/layout/parts.tsx, used by the garment page's photo sheet and the
+ * outfit selfies); the server removes a garment photo's background.
  */
 
 // The server stores photos at 1080 px (src/web/files/photos.ts); 1600
@@ -61,9 +62,7 @@ const downscalePhoto = async (file) => {
 /**
  * Replaces the input's chosen file with its downscaled copy (setting
  * `files` fires no change event) and returns the file that will be
- * uploaded; undefined when none is chosen. Also the outfit selfie forms'
- * (src/web/selfies/views.tsx), whose inputs import it on change and then
- * submit.
+ * uploaded; undefined when none is chosen.
  * @param {HTMLInputElement} input
  * @returns {Promise<File | undefined>}
  */
@@ -77,17 +76,4 @@ export const preparePhoto = async (input) => {
     input.files = dt.files;
   }
   return prepared;
-};
-
-/** The submit button waits for the prepared photo. */
-export const wirePhotoUpload = () => {
-  const photoInput = document.getElementById('photoInput');
-  const submitBtn = document.getElementById('photoBtn');
-  if (!photoInput || !submitBtn) return;
-
-  photoInput.addEventListener('change', async () => {
-    submitBtn.disabled = true;
-    const file = await preparePhoto(photoInput);
-    submitBtn.disabled = !file;
-  });
 };

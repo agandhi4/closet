@@ -29,7 +29,7 @@ export function GarmentCondition(props: {
     if (garment.condition === 'good')
       return <section id={SECTION_ID}></section>;
     return (
-      <section id={SECTION_ID} class="mb-4 flex flex-col gap-1">
+      <section id={SECTION_ID} class="flex flex-col gap-1">
         <span class="badge badge-warning">
           {valueLabel('condition', garment.condition)}
         </span>
@@ -40,7 +40,7 @@ export function GarmentCondition(props: {
     );
   }
   return (
-    <section id={SECTION_ID} class="mb-4">
+    <section id={SECTION_ID}>
       <h2 class="text-sm text-muted mb-2">{t('CONDITION')}</h2>
       <AutosaveForm
         action={garmentUrl(garment.id, viewOwner, '/condition')}

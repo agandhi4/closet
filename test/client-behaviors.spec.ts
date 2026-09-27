@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { openGarmentMenu } from './support/garment-page';
 
 /**
  * What _hyperscript used to do, done by htmx attributes, inline handlers
@@ -84,13 +85,15 @@ test('the share button copies the link and flashes', async ({
   const id = await createGarment(page, 'Shared tee', 'tops');
   await page.goto(`/wardrobe/${id}`);
 
-  const share = page.getByRole('button', { name: 'Share' });
+  // The garment page's Share is an item of its ⋯ menu (#84).
+  const menu = await openGarmentMenu(page);
+  const share = menu.getByRole('button', { name: 'Share' });
   await share.click();
-  await expect(share).toHaveClass(/\bbtn-success\b/);
+  await expect(share).toHaveClass(/\btext-success\b/);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(
     /\/share\?shareableId=[^&]+&type=garment$/,
   );
-  await expect(share).toHaveClass(/\bbtn-outline\b/);
+  await expect(share).toHaveClass(/\btext-base-content\b/);
 });
 
 test('the "saved" toast hides itself', async ({ page }) => {

@@ -2,12 +2,18 @@ import { t } from '../i18n';
 
 /**
  * An inline click handler: copies the button's `data-copy` to the clipboard
- * and flashes the button green for a second. `resting` is the class it wears
- * otherwise. The copied text reaches the handler as a data attribute, never
- * spliced into its source. Also the wardrobe-share invite link's copy button.
+ * and flashes the button green for a second: `resting`, the class it wears
+ * otherwise, becomes its success twin (a button's `btn-success`, a menu
+ * item's `text-success`). The copied text reaches the handler as a data
+ * attribute, never spliced into its source. Also the wardrobe-share invite
+ * link's copy button.
  */
-export function copyAndFlash(resting: 'btn-outline' | 'btn-ghost'): string {
-  return `navigator.clipboard.writeText(this.dataset.copy).then(() => { this.classList.replace('${resting}', 'btn-success'); setTimeout(() => this.classList.replace('btn-success', '${resting}'), 1000); })`;
+export function copyAndFlash(
+  resting: 'btn-outline' | 'btn-ghost' | 'text-base-content',
+): string {
+  const flashed =
+    resting === 'text-base-content' ? 'text-success' : 'btn-success';
+  return `navigator.clipboard.writeText(this.dataset.copy).then(() => { this.classList.replace('${resting}', '${flashed}'); setTimeout(() => this.classList.replace('${flashed}', '${resting}'), 1000); })`;
 }
 
 /**
@@ -43,24 +49,27 @@ export function CopyableText(props: {
 
 /**
  * Copies the public share link of a garment or outfit (the /share page,
- * src/web/share/routes.tsx) on SITE_URL, and flashes to say so.
+ * src/web/share/routes.tsx) on SITE_URL, and flashes to say so. A `menu`
+ * item is a plain button for a daisyUI menu (the garment page's ⋯ menu).
  */
 export function ShareLinkButton(props: {
   siteUrl: string;
   type: 'garment' | 'outfit';
   shareableId: string;
-  class?: string;
+  variant?: 'button' | 'menu';
 }) {
   const params = new URLSearchParams({
     shareableId: props.shareableId,
     type: props.type,
   });
+  const resting =
+    props.variant === 'menu' ? 'text-base-content' : 'btn-outline';
   return (
     <button
       type="button"
-      class={`btn btn-outline btn-sm ${props.class ?? ''}`}
+      class={props.variant === 'menu' ? resting : `btn btn-sm ${resting}`}
       data-copy={`${props.siteUrl}/share?${params}`}
-      onclick={copyAndFlash('btn-outline')}
+      onclick={copyAndFlash(resting)}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"

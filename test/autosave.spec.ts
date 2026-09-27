@@ -303,7 +303,9 @@ test('where it is: two quick choices and a note are all saved', async ({
   expect(errors).toEqual([]);
 });
 
-test('"In capsules": three quick toggles are all saved', async ({ page }) => {
+test('the capsules row: three quick toggles are all saved', async ({
+  page,
+}) => {
   const errors = collectErrors(page);
   await signIn(page, 'autosave-capsules');
   const tee = await createGarment(page, 'Capsule tee');

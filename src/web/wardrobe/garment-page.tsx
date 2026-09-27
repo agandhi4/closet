@@ -7,7 +7,6 @@ import { AvoidedPartners } from '../gallery/avoided';
 import { GoesWithSection } from '../gallery/goes-with';
 import type { GoesWithCloset } from '../gallery/ideas';
 import type { AvoidedPartner } from '../gallery/queries';
-import { styleThisUrl } from '../styling/urls';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -15,12 +14,21 @@ import { Layout } from '../layout/layout';
 import {
   CameraIcon,
   HangerIcon,
+  PhotoLibraryIcon,
+  PREPARE_AND_SUBMIT_PHOTO,
   SavedToast,
   StripFlags,
 } from '../layout/parts';
+import { GarmentOutfitsStrip } from '../outfits/garment-outfits';
+import type { GarmentOutfits } from '../outfits/queries';
 import { ShareLinkButton } from '../share/share-button';
+import { StyleThisLink } from '../styling/style-this';
 import type { ViewContext } from '../view-context';
-import { type WearPanel, WearSection } from '../wears/wear-section';
+import {
+  type WearPanel,
+  WearSection,
+  WhereaboutsSection,
+} from '../wears/wear-section';
 import type { GarmentRef } from '../wishlist/queries';
 import { categoryLabel, priceLabel } from './garment';
 import { GarmentCondition } from './garment-condition';
@@ -46,17 +54,22 @@ export interface GarmentPageModel {
   /** Wishlist items that would replace this closet garment. */
   replacedBy: { id: number; name: string | null; category: string }[];
   /**
-   * The outfit gallery's side of the garment (#9), the owner's alone like
-   * outfits: "Style this" for a closet garment, and the garments it is
-   * never paired with. Nothing for a grantee or a wishlist item.
+   * The outfit gallery's side of the garment (#9): "Style this" for a
+   * closet garment (anyone's who sees it: Styling browses a shared
+   * wardrobe), and the garments it is never paired with (the owner's).
    */
   styling: { canStyle: boolean; avoided: AvoidedPartner[] };
   /**
    * "Goes with my closet" (#18b): a wishlist item against the closet, the
-   * owner's alone for the same reason. Undefined for a grantee and for
-   * anything not on the wishlist.
+   * owner's alone. Undefined for a grantee and for anything not on the
+   * wishlist.
    */
   goesWith: GoesWithCloset | undefined;
+  /**
+   * "In N outfits" (#84): the owner's outfits that hold it, private like
+   * outfits. Undefined for a grantee and for a wishlist item.
+   */
+  outfits: GarmentOutfits | undefined;
   /** Edit, photo, mask, condition and "Bought it": the owner and a MANAGE grantee. */
   canEdit: boolean;
   /** Archive, restore and delete: the owner only. */
@@ -69,48 +82,35 @@ export interface GarmentPageModel {
 const PHOTO_ACCEPT =
   'image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif';
 
+const PHOTO_SHEET_ID = 'garment-photo-sheet';
+
+/** Opens the photo sheet (the ⋯ menu's Photo, the empty hero's button). */
+const OPEN_PHOTO_SHEET = `this.closest('details')?.removeAttribute('open'); document.getElementById('${PHOTO_SHEET_ID}').showModal()`;
+
 /**
- * The photo form's client side, as an inline module so it runs again after
- * a boosted navigation back here (a fixed string): the photo is prepared on
- * the phone before upload (photo-input.js; the server removes its
- * background), the camera button, and the mask editor's pencil
- * (mask-editor.js, delegated on #garment-photo-slot because the cutout
- * polling swaps the photo).
+ * The mask editor's pencil (mask-editor.js), as an inline module so it runs
+ * again after a boosted navigation back here (a fixed string): delegated on
+ * #garment-photo-slot, because the cutout polling swaps the pencil.
  */
-const PHOTO_SCRIPT = `import { wirePhotoUpload } from 'photo-input';
-import { wireUpEditMask } from 'mask-editor';
-
-// Some Chrome/Android versions drop the Camera option from the gallery
-// input's chooser depending on its accept value (upstream issue 99): a
-// dedicated capture input launches the camera, and its file goes through
-// the same path as a picked one.
-const photoCaptureBtn = document.getElementById('photoCaptureBtn');
-const photoCaptureInput = document.getElementById('photoCaptureInput');
-const photoInputEl = document.getElementById('photoInput');
-photoCaptureBtn?.addEventListener('click', () => photoCaptureInput?.click());
-photoCaptureInput?.addEventListener('change', () => {
-  const file = photoCaptureInput.files?.[0];
-  if (!file || !photoInputEl) return;
-  const dt = new DataTransfer();
-  dt.items.add(file);
-  photoInputEl.files = dt.files;
-  photoInputEl.dispatchEvent(new Event('change'));
-});
-
-wireUpEditMask(document.getElementById('garment-photo-slot'));
-wirePhotoUpload();`;
+const MASK_SCRIPT = `import { wireUpEditMask } from 'mask-editor';
+wireUpEditMask(document.getElementById('garment-photo-slot'));`;
 
 /** The one-shot flags the garment page's toasts read (GarmentPageQuery). */
 const GARMENT_PAGE_FLAGS = ['created', 'photoSaved', 'bought'] as const;
 
-/** GET /wardrobe/:id: the photo (and its upload), the fields, and the actions. */
+/**
+ * GET /wardrobe/:id (redesign plan, "Garment page"; #84): the hero, the
+ * facts, the wear line with the primary actions, the property chips, the
+ * capsules row, "In N outfits", then the details and care. Everything
+ * else (edit, photo, clone, share, archive, delete) is in the app bar's ⋯
+ * menu; the photo is taken or chosen in a sheet.
+ */
 export function GarmentPage(props: {
   ctx: ViewContext;
   model: GarmentPageModel;
 }) {
   const { ctx, model } = props;
   const { garment } = model;
-  const wishlist = garment.status === 'wishlist';
   const title = garment.name ?? categoryLabel(garment.category);
   return (
     <Layout ctx={ctx} title={title}>
@@ -118,9 +118,9 @@ export function GarmentPage(props: {
         ctx={ctx}
         title={title}
         back={backUrl(garment, model.viewOwner)}
+        actions={<GarmentMenu ctx={ctx} model={model} />}
       />
-      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <StatusBadge status={garment.status} />
+      <main class="flex flex-col gap-6 px-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         <div id="garment-photo-slot">
           <GarmentPhotoView
             garment={garment}
@@ -128,36 +128,101 @@ export function GarmentPage(props: {
             canEdit={model.canEdit}
           />
         </div>
-        {model.canEdit && <PhotoForm model={model} />}
-        <GarmentDetails garment={garment} />
+        <Summary model={model} />
         <Replacement model={model} />
-        {/* A wishlist item is not in the closet: it has no condition, wears
-            or capsules until "Bought it"; what it has is how it would go
-            with the closet. */}
+        {/* A wishlist item is not in the closet: it has no condition, wears,
+            capsules or outfits until "Bought it" (the route reads none);
+            what it has is how it would go with the closet. */}
         <GoesWithSection goesWith={model.goesWith} />
-        {!wishlist && (
-          <>
-            <GarmentCondition
-              garment={garment}
-              viewOwner={model.viewOwner}
-              canEdit={model.canEdit}
-            />
-            {model.wear && <WearSection garment={garment} panel={model.wear} />}
-            <GarmentCapsules
-              garmentId={garment.id}
-              capsules={model.capsules}
-              viewOwner={model.viewOwner}
-              canEdit={model.canEdit}
-            />
-            <AvoidedPartners
-              garmentId={garment.id}
-              partners={model.styling.avoided}
-            />
-          </>
+        {garment.status !== 'wishlist' && (
+          <GarmentCapsules
+            garmentId={garment.id}
+            capsules={model.capsules}
+            viewOwner={model.viewOwner}
+            canEdit={model.canEdit}
+          />
         )}
-        <GarmentActions ctx={ctx} model={model} />
-        {model.canEdit && garment.photo && <MaskEditorDialog />}
+        {model.outfits && <GarmentOutfitsStrip outfits={model.outfits} />}
+        <AvoidedPartners
+          garmentId={garment.id}
+          partners={model.styling.avoided}
+        />
+        <GarmentDetails garment={garment} />
+        <Care model={model} />
       </main>
+      <PhotoTools model={model} />
+      <Toasts model={model} />
+      <Dock ctx={ctx} />
+    </Layout>
+  );
+}
+
+/**
+ * Under the hero: where it is when not in the closet, the facts, the wear
+ * line with the primary actions (the owner's; anyone else's actions
+ * alone), and the property chips.
+ */
+function Summary({ model }: { model: GarmentPageModel }) {
+  const { garment } = model;
+  return (
+    <section class="flex flex-col gap-4" aria-label={t('garment.SUMMARY')}>
+      <div class="flex flex-col gap-2">
+        <StatusBadge status={garment.status} />
+        <FactsLine garment={garment} />
+      </div>
+      {model.wear ? (
+        <WearSection garment={garment} panel={model.wear} />
+      ) : (
+        <PrimaryActions model={model} />
+      )}
+      <PropertyChips garment={garment} />
+    </section>
+  );
+}
+
+/** The condition, and where it is (the owner's): a closet garment's care. */
+function Care({ model }: { model: GarmentPageModel }) {
+  const { garment } = model;
+  if (garment.status === 'wishlist') return null;
+  return (
+    <>
+      <GarmentCondition
+        garment={garment}
+        viewOwner={model.viewOwner}
+        canEdit={model.canEdit}
+      />
+      {model.wear && <WhereaboutsSection garment={garment} />}
+    </>
+  );
+}
+
+/**
+ * For whoever may change the photo: the photo sheet, and with a photo the
+ * mask editor and the module that wires its pencil.
+ */
+function PhotoTools({ model }: { model: GarmentPageModel }) {
+  if (!model.canEdit) return null;
+  const { garment } = model;
+  return (
+    <>
+      <PhotoSheet garment={garment} viewOwner={model.viewOwner} />
+      {garment.photo && (
+        <>
+          <MaskEditorDialog />
+          <script
+            type="module"
+            dangerouslySetInnerHTML={{ __html: MASK_SCRIPT }}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
+/** The one-shot toasts after a create, a photo or "Bought it". */
+function Toasts({ model }: { model: GarmentPageModel }) {
+  return (
+    <>
       {model.justCreated && (
         <SavedToast id="garment-saved-toast" text={t('GARMENT_SAVED')} />
       )}
@@ -168,8 +233,7 @@ export function GarmentPage(props: {
         <SavedToast id="bought-toast" text={t('wishlist.BOUGHT_TOAST')} />
       )}
       <StripFlags names={GARMENT_PAGE_FLAGS} />
-      <Dock ctx={ctx} />
-    </Layout>
+    </>
   );
 }
 
@@ -186,18 +250,181 @@ function backUrl(garment: GarmentDetail, viewOwner: number | undefined) {
 function StatusBadge({ status }: { status: GarmentDetail['status'] }) {
   if (status === 'closet') return null;
   return (
-    <span class="badge badge-soft badge-primary mb-4">
+    <span class="badge badge-soft badge-primary self-start">
       {t(status === 'wishlist' ? 'wishlist.ON_WISHLIST' : 'ARCHIVED')}
     </span>
   );
 }
 
 /**
- * The garment's photo: the cutout (the original when there is none), with
- * the mask editor's pencil, and where the cutout stands: pending polls GET /wardrobe/:id/cutout every 2 s (this
- * component again, swapped over itself; the answer without the trigger ends
- * the polling), failed offers "Try again". Its own hx-indicator keeps the
- * polls off the app bar's spinner.
+ * The facts line: "Red Wing · Boots · Iron Ranger · 9 · 3 identical", what
+ * is set of the brand, the category and type, the size and the copies.
+ */
+function FactsLine({ garment }: { garment: GarmentDetail }) {
+  const facts: Child[] = [
+    garment.brand,
+    // capitalize is for a custom category stored lower case; a type's
+    // label is already written as it should read.
+    <span class="capitalize">{categoryLabel(garment.category)}</span>,
+    garment.type && valueLabel('type', garment.type),
+    garment.size,
+    garment.quantity > 1 && t('QUANTITY_VALUE', { quantity: garment.quantity }),
+  ].filter(Boolean);
+  return (
+    <p class="text-muted">
+      {facts.map((fact, index) => (
+        <>
+          {index > 0 && ' · '}
+          {fact}
+        </>
+      ))}
+    </p>
+  );
+}
+
+/**
+ * The primary actions for whoever has no wear line (the owner's own is in
+ * WearSection, with Wore today and Washed): "Style this" on a closet
+ * garment, "Bought it" on a wishlist item for the owner and a MANAGE
+ * grantee. Nothing when neither applies.
+ */
+function PrimaryActions({ model }: { model: GarmentPageModel }) {
+  const { garment, viewOwner } = model;
+  const buy = model.canEdit && garment.status === 'wishlist';
+  if (!model.styling.canStyle && !buy) return null;
+  return (
+    <div class="flex flex-wrap gap-2">
+      {model.styling.canStyle && (
+        <StyleThisLink garmentId={garment.id} viewOwner={viewOwner} />
+      )}
+      {buy && (
+        <a
+          href={garmentUrl(garment.id, viewOwner, '/bought')}
+          class="btn btn-primary flex-1"
+        >
+          {t('wishlist.BOUGHT_IT')}
+        </a>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The ⋯ menu in the app bar: what the requester may do, and nothing else.
+ * Edit, the photo sheet and Share for the owner and a MANAGE grantee;
+ * Clone for anyone who can see the garment (the copy lands in their own
+ * wardrobe); archive or restore, and delete, for the owner
+ * (OwnerMenuItems). Buttons and links only: a form inside a daisyUI
+ * menu item loses its styling.
+ */
+function GarmentMenu({
+  ctx,
+  model,
+}: {
+  ctx: ViewContext;
+  model: GarmentPageModel;
+}) {
+  const { garment, viewOwner } = model;
+  return (
+    <details class="dropdown dropdown-end" id="garment-menu">
+      <summary
+        class="btn btn-ghost btn-circle text-xl"
+        aria-label={t('MORE_ACTIONS')}
+      >
+        ⋯
+      </summary>
+      <ul class="menu dropdown-content bg-base-100 rounded-box shadow-lg z-20 w-56 p-2">
+        {model.canEdit && (
+          <li>
+            <a href={garmentUrl(garment.id, viewOwner, '/edit')}>
+              {t('garment.EDIT')}
+            </a>
+          </li>
+        )}
+        {model.canEdit && (
+          <li>
+            <button type="button" onclick={OPEN_PHOTO_SHEET}>
+              {t(garment.photo ? 'garment.CHANGE_PHOTO' : 'garment.ADD_PHOTO')}
+            </button>
+          </li>
+        )}
+        <li>
+          <a href={garmentUrl(garment.id, viewOwner, '/clone')}>
+            {t('garment.CLONE')}
+          </a>
+        </li>
+        {model.canEdit && (
+          <li>
+            <ShareLinkButton
+              siteUrl={ctx.siteUrl}
+              type="garment"
+              shareableId={garment.shareableId}
+              variant="menu"
+            />
+          </li>
+        )}
+        {model.canDelete && <OwnerMenuItems model={model} />}
+      </ul>
+    </details>
+  );
+}
+
+/**
+ * The owner's items of the ⋯ menu: archive (a closet garment) or restore
+ * (an archived one), and delete (a wishlist item's is "Remove from
+ * wishlist": it has no history to keep).
+ */
+function OwnerMenuItems({ model }: { model: GarmentPageModel }) {
+  const { garment, viewOwner } = model;
+  const wishlist = garment.status === 'wishlist';
+  return (
+    <>
+      {garment.status === 'closet' && (
+        <li>
+          <button
+            type="button"
+            hx-post={garmentUrl(garment.id, viewOwner, '/archive')}
+            hx-confirm={t('CONFIRM_ARCHIVE')}
+          >
+            {t('ARCHIVE')}
+          </button>
+        </li>
+      )}
+      {garment.status === 'archived' && (
+        <li>
+          <button
+            type="button"
+            hx-post={garmentUrl(garment.id, viewOwner, '/restore')}
+            hx-confirm={t('CONFIRM_RESTORE')}
+          >
+            {t('RESTORE')}
+          </button>
+        </li>
+      )}
+      <li>
+        <button
+          type="button"
+          class="text-error"
+          hx-delete={garmentUrl(garment.id, viewOwner)}
+          hx-confirm={t(
+            wishlist ? 'wishlist.CONFIRM_REMOVE' : 'CONFIRM_DELETE',
+          )}
+        >
+          {t(wishlist ? 'wishlist.REMOVE' : 'DELETE')}
+        </button>
+      </li>
+    </>
+  );
+}
+
+/**
+ * The hero: the cutout (the original when there is none), contained on the
+ * plinth at 4:5, with the mask editor's pencil, and where the cutout
+ * stands: pending polls GET /wardrobe/:id/cutout every 2 s (this component
+ * again, swapped over itself; the answer without the trigger ends the
+ * polling), failed offers "Try again". Its own hx-indicator keeps the polls
+ * off the app bar's spinner. Without a photo, the hanger, and for whoever
+ * may add one the button that opens the photo sheet.
  */
 export function GarmentPhotoView(props: {
   garment: GarmentDetail;
@@ -210,9 +437,19 @@ export function GarmentPhotoView(props: {
     return (
       <div
         id="garment-photo"
-        class="rounded-box bg-base-200 aspect-square w-full max-w-sm mx-auto flex items-center justify-center text-faint mb-6"
+        class="rounded-box bg-base-200 aspect-[4/5] w-full flex flex-col items-center justify-center gap-4 text-faint"
       >
         <HangerIcon class="size-20" strokeWidth="1" />
+        {canEdit && (
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            onclick={OPEN_PHOTO_SHEET}
+          >
+            <CameraIcon class="size-4" />
+            {t('garment.ADD_PHOTO')}
+          </button>
+        )}
       </div>
     );
   }
@@ -227,12 +464,12 @@ export function GarmentPhotoView(props: {
       }
     : {};
   return (
-    <div id="garment-photo" class="mb-6" {...polling}>
-      <figure class="relative rounded-box overflow-hidden bg-base-200 aspect-square w-full max-w-sm mx-auto">
+    <div id="garment-photo" {...polling}>
+      <figure class="relative rounded-box overflow-hidden bg-base-200 aspect-[4/5] w-full">
         <img
           src={imageUrl(photo, 'nobg')}
           alt={garment.name ?? ''}
-          class="object-cover w-full h-full"
+          class="object-contain w-full h-full"
         />
         {pending && (
           <div
@@ -270,7 +507,7 @@ function CutoutFailed(props: { retryUrl: string | undefined }) {
   return (
     <div
       role="alert"
-      class="alert alert-warning alert-soft mt-2 w-full max-w-sm mx-auto flex justify-between"
+      class="alert alert-warning alert-soft mt-2 w-full flex justify-between"
     >
       <span>{t('CUTOUT_FAILED')}</span>
       {props.retryUrl && (
@@ -298,7 +535,7 @@ function EditMaskButton(props: {
     <button
       id="editMaskBtn"
       type="button"
-      class="btn btn-circle btn-sm absolute top-2 right-2 btn-neutral opacity-80 hover:opacity-100"
+      class="btn btn-circle absolute bottom-3 right-3 btn-neutral opacity-80 hover:opacity-100"
       title={t('MASK_EDITOR_TITLE')}
       aria-label={t('MASK_EDITOR_TITLE')}
       data-original-url={imageUrl(props.photo, 'original')}
@@ -311,7 +548,7 @@ function EditMaskButton(props: {
         viewBox="0 0 24 24"
         stroke-width="1.5"
         stroke="currentColor"
-        class="size-4"
+        class="size-5"
       >
         <path
           stroke-linecap="round"
@@ -324,8 +561,8 @@ function EditMaskButton(props: {
 }
 
 /**
- * The set properties as one row of chips ("Light · Casual · 6 oz · 203 gsm
- * · Cotton · Short sleeve"); nothing when none is set.
+ * The set properties as one row of chips ("Warmth: Light · Casual · 6 oz ·
+ * 203 gsm · Cotton · Short sleeve"); nothing when none is set.
  */
 function PropertyChips({ garment }: { garment: GarmentDetail }) {
   const words = (
@@ -362,72 +599,70 @@ function PropertyChips({ garment }: { garment: GarmentDetail }) {
   );
 }
 
-/** The fields: category always, the rest when set. */
+/**
+ * The rest, a plain list: what the facts line leaves out (colours, price,
+ * when it was acquired, washing, notes) and the product link. Nothing when
+ * none is set.
+ */
 function GarmentDetails({ garment }: { garment: GarmentDetail }) {
+  const rows = [
+    garment.colors && (
+      <Detail label={t('COLOR')}>
+        <span class="capitalize">{garment.colors.join(', ')}</span>
+      </Detail>
+    ),
+    garment.price && (
+      <Detail label={t('PRICE')}>{priceLabel(garment.price)}</Detail>
+    ),
+    garment.acquiredOn && (
+      <Detail label={t('DATE_ACQUIRED')}>{garment.acquiredOn}</Detail>
+    ),
+    garment.washingDetails && (
+      <Detail label={t('WASHING_DETAILS')} block>
+        <p class="whitespace-pre-line">{garment.washingDetails}</p>
+      </Detail>
+    ),
+    garment.notes && (
+      <Detail label={t('NOTES')} block>
+        <p class="whitespace-pre-line">{garment.notes}</p>
+      </Detail>
+    ),
+  ].filter(Boolean);
+  if (rows.length === 0 && !garment.sourceUrl) return null;
   return (
-    <div class="card bg-base-100 shadow-sm mb-4">
-      <div class="card-body gap-3">
-        <Detail label={t('CATEGORY')}>
-          <span class="font-medium">
-            {/* capitalize is for a custom category stored lower case; a
-                type's label is already written as it should read. */}
-            <span class="capitalize">{categoryLabel(garment.category)}</span>
-            {garment.type && ` · ${valueLabel('type', garment.type)}`}
-          </span>
-        </Detail>
-        <PropertyChips garment={garment} />
-        {garment.brand && (
-          <Detail label={t('BRAND')}>
-            <span class="font-medium">{garment.brand}</span>
-          </Detail>
-        )}
-        {garment.size && (
-          <Detail label={t('SIZE')}>
-            <span class="font-medium">{garment.size}</span>
-          </Detail>
-        )}
-        <QuantityDetail quantity={garment.quantity} />
-        {garment.colors && (
-          <Detail label={t('COLOR')}>
-            <span class="capitalize font-medium">
-              {garment.colors.join(', ')}
-            </span>
-          </Detail>
-        )}
-        {garment.washingDetails && (
-          <Detail label={t('WASHING_DETAILS')} block>
-            <p class="text-sm whitespace-pre-line">{garment.washingDetails}</p>
-          </Detail>
-        )}
-        {garment.acquiredOn && (
-          <Detail label={t('DATE_ACQUIRED')}>
-            <span class="font-medium">{garment.acquiredOn}</span>
-          </Detail>
-        )}
-        {garment.price && (
-          <Detail label={t('PRICE')}>
-            <span class="font-medium">{priceLabel(garment.price)}</span>
-          </Detail>
-        )}
-        {garment.sourceUrl && (
-          // Only ever http(s) (readSourceUrl, and the column's check). A new
-          // tab, so the app stays where it was; noopener keeps the shop's page
-          // from reaching back into this one, noreferrer from learning its URL.
-          <a
-            href={garment.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="link link-primary text-sm self-start"
-          >
-            {t('VIEW_PRODUCT')}
-          </a>
-        )}
-        {garment.notes && (
-          <Detail label={t('NOTES')} block>
-            <p class="text-sm whitespace-pre-line">{garment.notes}</p>
-          </Detail>
-        )}
-      </div>
+    <section aria-labelledby="garment-details-title">
+      <h2 id="garment-details-title" class="text-sm text-muted mb-2">
+        {t('garment.DETAILS')}
+      </h2>
+      <dl class="flex flex-col divide-y divide-base-300 text-sm">{rows}</dl>
+      {garment.sourceUrl && (
+        // Only ever http(s) (readSourceUrl, and the column's check). A new
+        // tab, so the app stays where it was; noopener keeps the shop's page
+        // from reaching back into this one, noreferrer from learning its URL.
+        <a
+          href={garment.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="link link-primary text-sm inline-block mt-2"
+        >
+          {t('VIEW_PRODUCT')}
+        </a>
+      )}
+    </section>
+  );
+}
+
+function Detail(props: { label: string; block?: boolean; children: Child }) {
+  return (
+    <div
+      class={
+        props.block
+          ? 'flex flex-col gap-1 py-2'
+          : 'flex justify-between gap-4 py-2'
+      }
+    >
+      <dt class="text-muted">{props.label}</dt>
+      <dd class={props.block ? '' : 'text-right'}>{props.children}</dd>
     </div>
   );
 }
@@ -453,232 +688,128 @@ function Replacement({ model }: { model: GarmentPageModel }) {
   return (
     <section
       id="garment-replacement"
-      class="card bg-base-100 shadow-sm mb-4"
+      class="flex flex-col gap-2 text-sm"
       aria-label={t('wishlist.REPLACEMENT')}
     >
-      <div class="card-body gap-2 text-sm">
-        {replaces && (
-          <p>
-            {t('wishlist.REPLACEMENT_FOR')} {link(replaces)}
-          </p>
-        )}
-        {replacedBy.length > 0 && (
-          <p>
-            {t('wishlist.ON_WISHLIST_TO_REPLACE')}{' '}
-            {replacedBy.map((item, index) => (
-              <>
-                {index > 0 && ', '}
-                {link(item)}
-              </>
-            ))}
-          </p>
-        )}
-        {findable && (
-          <a
-            href={wardrobeUrl(
-              viewOwner,
-              destinationParams({ to: 'wishlist', replaces: garment.id }),
-              '/wardrobe/new',
-            )}
-            class="btn btn-sm btn-outline self-start"
-          >
-            {t('wishlist.FIND_REPLACEMENT')}
-          </a>
-        )}
-      </div>
+      {replaces && (
+        <p>
+          {t('wishlist.REPLACEMENT_FOR')} {link(replaces)}
+        </p>
+      )}
+      {replacedBy.length > 0 && (
+        <p>
+          {t('wishlist.ON_WISHLIST_TO_REPLACE')}{' '}
+          {replacedBy.map((item, index) => (
+            <>
+              {index > 0 && ', '}
+              {link(item)}
+            </>
+          ))}
+        </p>
+      )}
+      {findable && (
+        <a
+          href={wardrobeUrl(
+            viewOwner,
+            destinationParams({ to: 'wishlist', replaces: garment.id }),
+            '/wardrobe/new',
+          )}
+          class="btn btn-sm btn-outline self-start"
+        >
+          {t('wishlist.FIND_REPLACEMENT')}
+        </a>
+      )}
     </section>
   );
 }
 
 /**
- * What the requester may do, and nothing else: edit, share and a wishlist
- * item's "Bought it" for the owner and a MANAGE grantee; archive (a closet
- * garment), restore (an archived one) and delete for the owner; and clone
- * for anyone who can see the garment (the copy lands in their own wardrobe
- * and only reads this one).
+ * The photo sheet (the ⋯ menu's Photo): take one with the camera or choose
+ * one from the library. Choosing uploads at once: the photo is prepared on
+ * the phone (PREPARE_AND_SUBMIT_PHOTO), posted as multipart to POST
+ * /wardrobe/:id/photo, and the answer's HX-Redirect reloads this page with
+ * ?photoSaved=1, its cutout pending. The camera has an input of its own:
+ * some Chrome/Android versions drop the Camera option from the library
+ * input's chooser depending on its accept value (upstream issue 99).
  */
-function GarmentActions({
-  ctx,
-  model,
-}: {
-  ctx: ViewContext;
-  model: GarmentPageModel;
-}) {
-  const { garment, viewOwner } = model;
-  return (
-    <>
-      <div class="flex flex-col gap-2 mb-6">
-        <StyleThis
-          garmentId={garment.id}
-          viewOwner={viewOwner}
-          shown={model.styling.canStyle}
-        />
-        {model.canEdit && garment.status === 'wishlist' && (
-          <a
-            href={garmentUrl(garment.id, viewOwner, '/bought')}
-            class="btn btn-primary btn-sm"
-          >
-            {t('wishlist.BOUGHT_IT')}
-          </a>
-        )}
-        {model.canEdit && (
-          <a
-            href={garmentUrl(garment.id, viewOwner, '/edit')}
-            class="btn btn-outline btn-sm"
-          >
-            {t('EDIT')}
-          </a>
-        )}
-        <a
-          href={garmentUrl(garment.id, viewOwner, '/clone')}
-          class="btn btn-outline btn-sm"
-        >
-          {t('CLONE_GARMENT')}
-        </a>
-        {model.canEdit && (
-          <ShareLinkButton
-            siteUrl={ctx.siteUrl}
-            type="garment"
-            shareableId={garment.shareableId}
-          />
-        )}
-      </div>
-      {model.canDelete && (
-        <div class="flex flex-col gap-2">
-          {garment.status === 'closet' && (
-            <button
-              type="button"
-              class="btn btn-outline btn-sm w-full"
-              hx-post={garmentUrl(garment.id, viewOwner, '/archive')}
-              hx-confirm={t('CONFIRM_ARCHIVE')}
-            >
-              {t('ARCHIVE')}
-            </button>
-          )}
-          {garment.status === 'archived' && (
-            <button
-              type="button"
-              class="btn btn-outline btn-sm w-full"
-              hx-post={garmentUrl(garment.id, viewOwner, '/restore')}
-              hx-confirm={t('CONFIRM_RESTORE')}
-            >
-              {t('RESTORE')}
-            </button>
-          )}
-          <button
-            type="button"
-            class="btn btn-error btn-outline btn-sm w-full"
-            hx-delete={garmentUrl(garment.id, viewOwner)}
-            hx-confirm={t(
-              garment.status === 'wishlist'
-                ? 'wishlist.CONFIRM_REMOVE'
-                : 'CONFIRM_DELETE',
-            )}
-          >
-            {t(garment.status === 'wishlist' ? 'wishlist.REMOVE' : 'DELETE')}
-          </button>
-        </div>
-      )}
-    </>
-  );
-}
-
-/**
- * Styling with this garment chosen and locked in its row (`?with=`, #42),
- * opened on an idea around it; in a shared wardrobe, browsing only.
- */
-function StyleThis({
-  garmentId,
-  viewOwner,
-  shown,
-}: {
-  garmentId: number;
+function PhotoSheet(props: {
+  garment: GarmentDetail;
   viewOwner: number | undefined;
-  shown: boolean;
 }) {
-  if (!shown) return null;
+  const action = garmentUrl(props.garment.id, props.viewOwner, '/photo');
   return (
-    <a href={styleThisUrl(garmentId, viewOwner)} class="btn btn-primary btn-sm">
-      {t('gallery.STYLE_THIS')}
-    </a>
-  );
-}
-
-/** "3 identical", for multiples only. */
-function QuantityDetail({ quantity }: { quantity: number }) {
-  if (quantity === 1) return null;
-  return (
-    <Detail label={t('QUANTITY')}>
-      <span class="font-medium">{t('QUANTITY_VALUE', { quantity })}</span>
-    </Detail>
-  );
-}
-
-function Detail(props: { label: string; block?: boolean; children: Child }) {
-  return (
-    <div class={props.block ? 'flex flex-col gap-1' : 'flex justify-between'}>
-      <span class="text-muted text-sm">{props.label}</span>
-      {props.children}
-    </div>
+    <dialog
+      id={PHOTO_SHEET_ID}
+      class="modal modal-bottom sm:modal-middle"
+      aria-labelledby="garment-photo-sheet-title"
+    >
+      <div class="modal-box flex flex-col gap-3 pb-8">
+        <h2 id="garment-photo-sheet-title" class="font-bold text-lg">
+          {t(
+            props.garment.photo ? 'garment.CHANGE_PHOTO' : 'garment.ADD_PHOTO',
+          )}
+        </h2>
+        <p class="text-sm text-muted">{t('garment.PHOTO_HINT')}</p>
+        <PhotoSource action={action} source="camera" />
+        <PhotoSource action={action} source="library" />
+        <p
+          id="photo-uploading"
+          class="htmx-indicator flex items-center gap-2 text-sm"
+          role="status"
+        >
+          <span class="loading loading-spinner loading-sm"></span>
+          {t('garment.PHOTO_UPLOADING')}
+        </p>
+        <div class="modal-action mt-0">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            onclick="this.closest('dialog').close()"
+          >
+            {t('CANCEL')}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>{t('CLOSE')}</button>
+      </form>
+    </dialog>
   );
 }
 
 /**
- * Photo upload: the chosen file, downscaled on the phone, in a multipart
- * post; the server answers HX-Redirect to this page with ?photoSaved=1,
- * which then shows its cutout pending.
+ * One way in to the sheet: a button-styled label over its file input
+ * (`relative`: the sr-only input must not escape the sheet, see Gotchas),
+ * in an htmx form of its own. Disabled offline (data-needs-network).
  */
-function PhotoForm({ model }: { model: GarmentPageModel }) {
-  const { garment, viewOwner } = model;
+function PhotoSource(props: { action: string; source: 'camera' | 'library' }) {
+  const camera = props.source === 'camera';
+  const Icon = camera ? CameraIcon : PhotoLibraryIcon;
   return (
-    <>
-      <form
-        hx-post={garmentUrl(garment.id, viewOwner, '/photo')}
-        hx-encoding="multipart/form-data"
-        hx-indicator="#photo-loading"
-        hx-target="main"
-        hx-select="main"
-        hx-swap="outerHTML"
-        class="flex flex-col gap-2 mb-6"
+    <form
+      hx-post={props.action}
+      hx-encoding="multipart/form-data"
+      hx-indicator="#photo-uploading"
+      hx-swap="none"
+      data-needs-network=""
+    >
+      <label
+        class="relative btn btn-outline w-full justify-start gap-3"
+        data-photo-source={props.source}
       >
-        <div class="flex gap-2 items-center">
-          <input
-            type="file"
-            id="photoInput"
-            name="photo"
-            class="file-input file-input-sm flex-1"
-            accept={PHOTO_ACCEPT}
-          />
-          <input
-            type="file"
-            id="photoCaptureInput"
-            class="hidden"
-            accept={PHOTO_ACCEPT}
-            capture="environment"
-          />
-          <button
-            id="photoCaptureBtn"
-            type="button"
-            class="btn btn-neutral btn-sm btn-square"
-            title={t('TAKE_PHOTO')}
-            aria-label={t('TAKE_PHOTO')}
-          >
-            <CameraIcon class="size-4" />
-          </button>
-          <button id="photoBtn" class="btn btn-neutral btn-sm" disabled>
-            {t(garment.photo ? 'UPDATE_PHOTO' : 'ADD_PHOTO')}
-          </button>
-          <span
-            id="photo-loading"
-            class="htmx-indicator loading loading-ring loading-sm"
-          ></span>
-        </div>
-      </form>
-      <script
-        type="module"
-        dangerouslySetInnerHTML={{ __html: PHOTO_SCRIPT }}
-      />
-    </>
+        <Icon class="size-5" />
+        {t(camera ? 'garment.PHOTO_CAMERA' : 'garment.PHOTO_LIBRARY')}
+        <input
+          type="file"
+          id={camera ? 'photoCaptureInput' : 'photoInput'}
+          name="photo"
+          accept={PHOTO_ACCEPT}
+          capture={camera ? 'environment' : undefined}
+          class="sr-only"
+          onchange={PREPARE_AND_SUBMIT_PHOTO}
+        />
+      </label>
+    </form>
   );
 }
 

@@ -16,8 +16,8 @@ export function AvoidedPartners(props: {
 }) {
   if (props.partners.length === 0) return null;
   return (
-    <section class="mb-6" id="garment-avoided">
-      <h2 class="font-semibold mb-2">{t('gallery.AVOIDED_HEADING')}</h2>
+    <section id="garment-avoided">
+      <h2 class="text-sm text-muted mb-2">{t('gallery.AVOIDED_HEADING')}</h2>
       <ul class="flex flex-col gap-1">
         {props.partners.map((partner) => (
           <li class="flex items-center justify-between gap-2">

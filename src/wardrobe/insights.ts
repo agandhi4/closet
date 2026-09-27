@@ -199,15 +199,27 @@ function unwornList(
     );
 }
 
+/**
+ * What one wear of a garment cost: what it cost (price per piece ×
+ * quantity) over its wear days, rounded to the cent; null when it has not
+ * been worn yet (never divided). The one rule, shared by insights and the
+ * garment page's wear line (#84).
+ */
+export function perWearCost(
+  price: string,
+  quantity: number,
+  wearDays: number,
+): string | null {
+  if (wearDays === 0) return null;
+  return fromCents(Math.round((toCents(price) * quantity) / wearDays));
+}
+
 function costPerWear(garment: InsightGarment): CostPerWear {
-  const cents = toCents(garment.price!) * garment.quantity;
+  const price = garment.price!;
   return {
     garment,
-    cost: fromCents(cents),
-    perWear:
-      garment.wearDays === 0
-        ? null
-        : fromCents(Math.round(cents / garment.wearDays)),
+    cost: fromCents(toCents(price) * garment.quantity),
+    perWear: perWearCost(price, garment.quantity, garment.wearDays),
   };
 }
 

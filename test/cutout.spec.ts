@@ -1,12 +1,13 @@
 import { expect, test } from '@playwright/test';
 import sharp from 'sharp';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { openPhotoSheet } from './support/garment-page';
 
 /**
  * A garment photo in a browser, against the test server (its model stubbed
- * to answer in 3 s, test/support/test-server.ts): the form uploads the
- * photo, the page shows the cutout pending, the polling fragment swaps the
- * cutout in, and the pencil that arrives with it edits it
+ * to answer in 3 s, test/support/test-server.ts): the photo sheet uploads
+ * the photo it is given, the page shows the cutout pending, the polling
+ * fragment swaps the cutout in, and the pencil that arrives with it edits it
  * (public/js/mask-editor.js), saving a new photo version.
  */
 test('an uploaded photo shows "Removing background", then its cutout, which the pencil edits', async ({
@@ -29,6 +30,7 @@ test('an uploaded photo shows "Removing background", then its cutout, which the 
   const garmentId = new URL(created.url()).pathname.split('/').pop();
 
   await page.goto(`/wardrobe/${garmentId}`);
+  await openPhotoSheet(page);
   await page.locator('#photoInput').setInputFiles({
     name: 'shirt.jpg',
     mimeType: 'image/jpeg',
@@ -38,8 +40,6 @@ test('an uploaded photo shows "Removing background", then its cutout, which the 
       .jpeg()
       .toBuffer(),
   });
-  await expect(page.locator('#photoBtn')).toBeEnabled();
-  await page.locator('#photoBtn').click();
 
   const photo = page.locator('#garment-photo');
   await expect(page.locator('#garment-photo-status')).toHaveText(

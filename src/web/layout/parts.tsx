@@ -55,7 +55,19 @@ export function CameraIcon(props: { class: string }) {
   );
 }
 
-/** Choosing a photo already taken (the library): outfit selfies. */
+/**
+ * The `onchange` of a file input that uploads as soon as a photo is chosen
+ * (the garment page's photo sheet, outfit selfies): the photo is prepared
+ * on the phone first (photo-input.js: a 24 MP photo becomes a 1600 px JPEG
+ * of a few hundred KB, HEIC left for the server), then its form submitted;
+ * nothing is posted when the choice came back empty. A dynamic import from
+ * the handler, so the module loads only when a photo is chosen, and no page
+ * script has to run again after a boosted navigation or an htmx swap.
+ */
+export const PREPARE_AND_SUBMIT_PHOTO =
+  "import('photo-input').then((m) => m.preparePhoto(this)).then((file) => { if (file) this.form.requestSubmit(); })";
+
+/** Choosing a photo already taken (the library): the photo sheet, outfit selfies. */
 export function PhotoLibraryIcon(props: { class: string }) {
   return (
     <svg

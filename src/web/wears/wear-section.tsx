@@ -3,16 +3,18 @@ import {
   dirtyCopies,
   washLimit,
 } from '../../wardrobe/availability';
+import { perWearCost } from '../../wardrobe/insights';
 import { AutosaveForm } from '../autosave';
 import { daysBetween, type IsoDate } from '../calendar/calendar-date';
 import { t } from '../i18n';
+import { StyleThisLink } from '../styling/style-this';
+import { priceLabel } from '../wardrobe/garment';
 import type { GarmentDetail } from '../wardrobe/queries';
 import { garmentUrl } from '../wardrobe/urls';
 import { CARE_NOTE_MAX } from '../wardrobe/validation';
 import type { WearSummary } from './queries';
 
-export const WEAR_SECTION_ID = 'garment-wear';
-/** What Wore today and Washed answer: the section without "where it is". */
+/** What Wore today and Washed answer: the wear line and the buttons. */
 const WEAR_STATUS_ID = 'garment-wear-status';
 
 /** What the section shows: the garment's wash state and away, and its wears. */
@@ -25,17 +27,17 @@ export interface WearPanel {
 type WearGarment = Pick<
   GarmentDetail,
   | 'id'
+  | 'status'
   | 'category'
   | 'quantity'
+  | 'price'
   | 'washAfterWears'
   | 'lastWashedOn'
-  | 'away'
-  | 'awayNote'
 >;
 
 // Wore today and Washed answer the wear status (htmx) or, posted without
-// script, the garment page (303); never the section, which holds the
-// autosaved "where it is" (a save queued there would die with it). Disabled
+// script, the garment page (303); never "where it is" (WhereaboutsSection),
+// which is autosaved: a save queued there would die with a swap. Disabled
 // while offline (data-needs-network): the connectivity banner says why.
 const SWAP = {
   'hx-target': `#${WEAR_STATUS_ID}`,
@@ -44,33 +46,23 @@ const SWAP = {
 } as const;
 
 /**
- * The garment page's "Wear and wash" (the owner's alone: wears, washes and
- * away are their own records, like the calendar). "Worn 12 times · 2 since
- * washed · last worn yesterday", the wash state ("2 of 3 need a wash"),
- * Wore today (or its undo, the same day), Washed, and where it is (in the
- * closet, lent, at the repair shop) with a note. POST /wardrobe/:id/wear
- * and /washed answer `WearStatus`, /away its form's status line
- * (src/web/wears/routes.tsx).
+ * The garment page's wear line and primary actions (the owner's alone:
+ * wears and washes are their own records, like the calendar): "Worn 12
+ * times · 2 since washed · last worn yesterday · $4.00 a wear", the wash
+ * state ("2 of 3 need a wash"), then Style this, Wore today (or its undo,
+ * the same day) and Washed. POST /wardrobe/:id/wear and /washed answer
+ * `WearStatus` (src/web/wears/routes.tsx). Where it is sits lower on the
+ * page, with the condition (WhereaboutsSection).
  */
 export function WearSection(props: { garment: WearGarment; panel: WearPanel }) {
   return (
-    <section
-      id={WEAR_SECTION_ID}
-      class="card bg-base-100 shadow-sm mb-4"
-      aria-labelledby="garment-wear-title"
-    >
-      <div class="card-body gap-3">
-        <h2 id="garment-wear-title" class="text-sm text-muted">
-          {t('wear.SECTION')}
-        </h2>
-        <WearStatus garment={props.garment} panel={props.panel} />
-        <AwayForm garment={props.garment} />
-      </div>
+    <section id="garment-wear" aria-label={t('wear.SECTION')}>
+      <WearStatus garment={props.garment} panel={props.panel} />
     </section>
   );
 }
 
-/** The wears, the wash state and their buttons. */
+/** The wear line, the wash state and the row of primary actions. */
 export function WearStatus(props: { garment: WearGarment; panel: WearPanel }) {
   const { garment, panel } = props;
   const { summary } = panel;
@@ -80,27 +72,38 @@ export function WearStatus(props: { garment: WearGarment; panel: WearPanel }) {
     limit,
     wearsSinceWash: summary.sinceWash,
   });
+  const needsWash = limit !== null && dirty > 0;
   return (
     <div id={WEAR_STATUS_ID} class="flex flex-col gap-3">
-      <p class="font-medium">{wornLine(summary, panel.today)}</p>
-      <WashState dirty={dirty} quantity={garment.quantity} limit={limit} />
-      {garment.lastWashedOn && (
-        <p class="text-xs text-muted">
-          {t('wear.LAST_WASHED', {
-            when: relativeDay(garment.lastWashedOn, panel.today),
-          })}
-        </p>
-      )}
+      <div class="flex flex-col gap-1">
+        <p class="text-sm">{wornLine(garment, summary, panel.today)}</p>
+        {(needsWash || garment.lastWashedOn) && (
+          <p class="flex flex-wrap items-center gap-2 text-xs text-muted">
+            {needsWash && (
+              <WashState dirty={dirty} quantity={garment.quantity} />
+            )}
+            {garment.lastWashedOn &&
+              t('wear.LAST_WASHED', {
+                when: relativeDay(garment.lastWashedOn, panel.today),
+              })}
+          </p>
+        )}
+      </div>
       <div class="flex flex-wrap gap-2">
+        {/* Styling takes closet garments only, never an archived one. */}
+        {garment.status === 'closet' && (
+          <StyleThisLink garmentId={garment.id} viewOwner={undefined} />
+        )}
         <WoreToday garment={garment} today={summary.today} />
         {summary.sinceWash > 0 && limit !== null && (
           <form
             method="post"
             action={garmentUrl(garment.id, undefined, '/washed')}
             hx-post={garmentUrl(garment.id, undefined, '/washed')}
+            class="flex flex-1"
             {...SWAP}
           >
-            <button type="submit" class="btn btn-sm btn-outline">
+            <button type="submit" class="btn btn-outline flex-1">
               {t('wear.WASHED')}
             </button>
           </form>
@@ -110,17 +113,32 @@ export function WearStatus(props: { garment: WearGarment; panel: WearPanel }) {
   );
 }
 
-/** "Worn 12 times · 2 since washed · last worn yesterday"; "Not worn yet". */
-function wornLine(summary: WearSummary, today: IsoDate): string {
+/**
+ * "Worn 12 times · 2 since washed · last worn yesterday · $4.00 a wear";
+ * "Not worn yet". The cost is the insights' rule (perWearCost), shown only
+ * with a price and a wear.
+ */
+function wornLine(
+  garment: WearGarment,
+  summary: WearSummary,
+  today: IsoDate,
+): string {
   if (summary.worn === 0 || summary.lastWorn === null) {
     return t('wear.NOT_WORN');
   }
+  const perWear =
+    garment.price === null
+      ? null
+      : perWearCost(garment.price, garment.quantity, summary.worn);
   return [
     summary.worn === 1
       ? t('wear.WORN_ONCE')
       : t('wear.WORN_TIMES', { count: summary.worn }),
     t('wear.SINCE_WASH', { count: summary.sinceWash }),
     t('wear.LAST_WORN', { when: relativeDay(summary.lastWorn, today) }),
+    ...(perWear === null
+      ? []
+      : [t('wear.PER_WEAR', { cost: priceLabel(perWear) })]),
   ].join(' · ');
 }
 
@@ -133,15 +151,10 @@ export function relativeDay(day: IsoDate, today: IsoDate): string {
   return day;
 }
 
-/** "Needs a wash", "2 of 3 need a wash", or nothing (clean, or never washed). */
-function WashState(props: {
-  dirty: number;
-  quantity: number;
-  limit: number | null;
-}) {
-  if (props.limit === null || props.dirty === 0) return null;
+/** "Needs a wash", or "2 of 3 need a wash" for multiples. */
+function WashState(props: { dirty: number; quantity: number }) {
   return (
-    <span class="badge badge-info self-start">
+    <span class="badge badge-info">
       {props.quantity > 1
         ? t('wear.COPIES_NEED_WASH', {
             dirty: props.dirty,
@@ -171,11 +184,17 @@ function WoreToday(props: {
   const url = garmentUrl(props.garment.id, undefined, '/wear');
   const undo = props.today === 'single';
   return (
-    <form method="post" action={url} hx-post={url} {...SWAP}>
+    <form
+      method="post"
+      action={url}
+      hx-post={url}
+      class="flex flex-1"
+      {...SWAP}
+    >
       <input type="hidden" name="worn" value={undo ? '0' : '1'} />
       <button
         type="submit"
-        class={`btn btn-sm ${undo ? 'btn-ghost' : 'btn-primary'}`}
+        class={`btn flex-1 whitespace-nowrap ${undo ? 'btn-ghost' : 'btn-outline'}`}
       >
         {undo ? t('wear.UNDO_WORE_TODAY') : t('wear.WORE_TODAY')}
       </button>
@@ -187,53 +206,61 @@ function WoreToday(props: {
  * Where it is: in the closet, lent or at the repair shop, and a note (who
  * has it, which shop), shown by CSS while a reason is checked, so it is
  * there the moment one is tapped. Saved on every change like the capsule
- * toggles (`AutosaveForm`); without script, Save.
+ * toggles (`AutosaveForm`); without script, Save. The owner's alone, like
+ * the wears; POST /wardrobe/:id/away answers the form's status line.
  */
-function AwayForm({ garment }: { garment: WearGarment }) {
+export function WhereaboutsSection(props: {
+  garment: Pick<GarmentDetail, 'id' | 'away' | 'awayNote'>;
+}) {
+  const { garment } = props;
   return (
-    <AutosaveForm
-      action={garmentUrl(garment.id, undefined, '/away')}
-      native
-      class="group flex flex-col gap-2"
-    >
-      <span class="text-xs text-muted">{t('wear.WHERE')}</span>
-      <div class="flex flex-wrap gap-2">
-        <input
-          type="radio"
-          name="away"
-          value=""
-          class="btn btn-sm rounded-full"
-          aria-label={t('wear.IN_CLOSET')}
-          checked={garment.away === null}
-          data-no-note=""
-        />
-        {AWAY_REASONS.map((reason) => (
+    <section id="garment-away" aria-labelledby="garment-away-title">
+      <h2 id="garment-away-title" class="text-sm text-muted mb-2">
+        {t('wear.WHERE')}
+      </h2>
+      <AutosaveForm
+        action={garmentUrl(garment.id, undefined, '/away')}
+        native
+        class="group flex flex-col gap-2"
+      >
+        <div class="flex flex-wrap gap-2">
           <input
             type="radio"
             name="away"
-            value={reason}
-            class="btn btn-sm rounded-full checked:btn-warning"
-            aria-label={t(`wear.away.${reason}`)}
-            checked={garment.away === reason}
+            value=""
+            class="btn btn-sm rounded-full"
+            aria-label={t('wear.IN_CLOSET')}
+            checked={garment.away === null}
+            data-no-note=""
           />
-        ))}
-      </div>
-      {/* Posted in the closet too; the server keeps a note only with a
-          reason (the away route). */}
-      <input
-        type="text"
-        name="awayNote"
-        value={garment.awayNote ?? ''}
-        maxlength={CARE_NOTE_MAX}
-        placeholder={t('wear.AWAY_NOTE_PLACEHOLDER')}
-        aria-label={t('wear.AWAY_NOTE')}
-        class="input input-bordered input-sm w-full group-has-[[data-no-note]:checked]:hidden"
-      />
-      <noscript>
-        <button type="submit" class="btn btn-sm self-start">
-          {t('SAVE')}
-        </button>
-      </noscript>
-    </AutosaveForm>
+          {AWAY_REASONS.map((reason) => (
+            <input
+              type="radio"
+              name="away"
+              value={reason}
+              class="btn btn-sm rounded-full checked:btn-warning"
+              aria-label={t(`wear.away.${reason}`)}
+              checked={garment.away === reason}
+            />
+          ))}
+        </div>
+        {/* Posted in the closet too; the server keeps a note only with a
+            reason (the away route). */}
+        <input
+          type="text"
+          name="awayNote"
+          value={garment.awayNote ?? ''}
+          maxlength={CARE_NOTE_MAX}
+          placeholder={t('wear.AWAY_NOTE_PLACEHOLDER')}
+          aria-label={t('wear.AWAY_NOTE')}
+          class="input input-bordered input-sm w-full group-has-[[data-no-note]:checked]:hidden"
+        />
+        <noscript>
+          <button type="submit" class="btn btn-sm self-start">
+            {t('SAVE')}
+          </button>
+        </noscript>
+      </AutosaveForm>
+    </section>
   );
 }

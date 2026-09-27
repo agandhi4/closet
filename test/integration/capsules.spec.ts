@@ -357,7 +357,7 @@ describe('capsules', () => {
       expect(page.statusCode).toBe(200);
       expectFullPage(page);
       const html = unescapeHtml(page.body);
-      expect(html).toContain('In capsules');
+      expect(html).toContain('>Capsules</h2>');
       expect(html).toContain(`hx-post="/wardrobe/${ids.jeans}/capsules"`);
       expect(html).toMatch(
         new RegExp(

@@ -3,12 +3,14 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { openPhotoSheet } from './support/garment-page';
 
 /**
  * The phone downscales a picked photo before upload (public/js/
- * photo-input.js): to 1600 px on its long side as a JPEG, or unchanged when
- * it is small or the browser cannot decode it (HEIC in Chromium; the server
- * decodes it).
+ * photo-input.js, imported by the photo sheet's inputs): to 1600 px on its
+ * long side as a JPEG, or unchanged when it is small or the browser cannot
+ * decode it (HEIC in Chromium; the server decodes it). Choosing a photo
+ * uploads it at once, so the spec reads the file off the upload itself.
  */
 
 const bigPhoto = () =>
@@ -18,7 +20,21 @@ const bigPhoto = () =>
     .jpeg()
     .toBuffer();
 
-async function openGarment(page: Page) {
+interface Uploaded {
+  name: string;
+  type: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Opens a new garment's photo sheet and holds its upload: `uploaded` is
+ * the photo the page posts (answered 204, so nothing is stored and the page
+ * stays).
+ */
+async function openSheetAndCatchUpload(
+  page: Page,
+): Promise<{ uploaded: Promise<Uploaded> }> {
   await signIn(page, 'downscale');
   const created = await page.request.post('/wardrobe', {
     form: { name: 'Downscaled shirt', category: 'shirt' },
@@ -26,34 +42,43 @@ async function openGarment(page: Page) {
   });
   const id = new URL(created.url()).pathname.split('/').pop();
   await page.goto(`/wardrobe/${id}`);
-}
+  await openPhotoSheet(page);
 
-/** The file the form will upload, once the submit button allows it. */
-async function chosenFile(page: Page) {
-  await expect(page.locator('#photoBtn')).toBeEnabled();
-  return page.locator('#photoInput').evaluate(async (input) => {
-    const file = (input as HTMLInputElement).files![0];
-    const bitmap = await createImageBitmap(file).catch(() => undefined);
-    return {
-      name: file.name,
-      type: file.type,
-      width: bitmap?.width,
-      height: bitmap?.height,
-    };
+  let answer!: (photo: Uploaded) => void;
+  let fail!: (error: Error) => void;
+  const uploaded = new Promise<Uploaded>((resolve, reject) => {
+    answer = resolve;
+    fail = reject;
   });
+  await page.route(`**/wardrobe/${id}/photo`, async (route) => {
+    const request = route.request();
+    try {
+      const body = request.postDataBuffer();
+      const form = await new Response(body && new Uint8Array(body), {
+        headers: { 'content-type': request.headers()['content-type'] },
+      }).formData();
+      const file = form.get('photo') as File;
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const { width, height } = await sharp(bytes)
+        .metadata()
+        .catch(() => ({ width: undefined, height: undefined }));
+      answer({ name: file.name, type: file.type, width, height });
+    } catch (error) {
+      fail(error as Error);
+    }
+    await route.fulfill({ status: 204 });
+  });
+  return { uploaded };
 }
-
-test.beforeEach(async ({ page }) => {
-  await openGarment(page);
-});
 
 test('a large photo goes up as a 1600 px JPEG', async ({ page }) => {
+  const { uploaded } = await openSheetAndCatchUpload(page);
   await page.locator('#photoInput').setInputFiles({
     name: 'IMG_0001.jpeg',
     mimeType: 'image/jpeg',
     buffer: await bigPhoto(),
   });
-  expect(await chosenFile(page)).toEqual({
+  expect(await uploaded).toEqual({
     name: 'IMG_0001.jpg',
     type: 'image/jpeg',
     width: 1600,
@@ -62,12 +87,13 @@ test('a large photo goes up as a 1600 px JPEG', async ({ page }) => {
 });
 
 test('a photo the browser cannot decode goes up as it is', async ({ page }) => {
+  const { uploaded } = await openSheetAndCatchUpload(page);
   await page.locator('#photoInput').setInputFiles({
     name: 'IMG_0002.heic',
     mimeType: 'image/heic',
     buffer: readFileSync(path.join(__dirname, 'fixtures', 'example.heic')),
   });
-  expect(await chosenFile(page)).toMatchObject({
+  expect(await uploaded).toMatchObject({
     name: 'IMG_0002.heic',
     type: 'image/heic',
   });

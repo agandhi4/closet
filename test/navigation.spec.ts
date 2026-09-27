@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createGarment, createOutfit } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { openGarmentMenu } from './support/garment-page';
 import { householdToday } from './support/household-today';
 
 /**
@@ -33,7 +34,8 @@ test('deleting a garment swaps to the wardrobe (HX-Location)', async ({
   await markDocument(page);
 
   page.on('dialog', (dialog) => void dialog.accept());
-  await page.getByRole('button', { name: 'Delete' }).click();
+  const menu = await openGarmentMenu(page);
+  await menu.getByRole('button', { name: 'Delete' }).click();
 
   await expect(page).toHaveURL(/\/wardrobe$/);
   await expect(

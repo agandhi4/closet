@@ -40,6 +40,8 @@ import { detachOutfitWears } from '../wears/queries';
 export interface OutfitGarment {
   id: number;
   name: string | null;
+  /** Where it goes in an OutfitCollage (its role). */
+  category: string;
   photo: ImageRef | null;
 }
 
@@ -92,11 +94,13 @@ export interface SaveResult {
 async function outfitsWithGarments(
   db: Db,
   where: SQL | undefined,
+  limit?: number,
 ): Promise<(OutfitSummary & { shareableId: string })[]> {
   const rows = await db.query.outfit.findMany({
     columns: { id: true, name: true, notes: true, shareableId: true },
     where,
     orderBy: desc(outfit.id),
+    limit,
     with: {
       slots: {
         columns: {},
@@ -104,7 +108,7 @@ async function outfitsWithGarments(
         orderBy: asc(outfitSlot.position),
         with: {
           garment: {
-            columns: { id: true, name: true },
+            columns: { id: true, name: true, category: true },
             with: { photo: { columns: { fileName: true, version: true } } },
           },
         },
@@ -120,6 +124,40 @@ async function outfitsWithGarments(
 /** The list page: every outfit of the owner's. */
 export function listOutfits(db: Db, ownerId: number): Promise<OutfitSummary[]> {
   return outfitsWithGarments(db, eq(outfit.ownerId, ownerId));
+}
+
+/** The garment page's "In N outfits" (#84): how many, and the newest few. */
+export interface GarmentOutfits {
+  count: number;
+  outfits: OutfitSummary[];
+}
+
+/**
+ * The owner's outfits that hold `garmentId` (any slot), counted, and the
+ * newest `limit` of them with their garments. Two statements, run together:
+ * the count, and one db.query for the shown outfits.
+ */
+export async function outfitsWithGarment(
+  db: Db,
+  ownerId: number,
+  garmentId: number,
+  limit: number,
+): Promise<GarmentOutfits> {
+  const where = and(
+    eq(outfit.ownerId, ownerId),
+    inArray(
+      outfit.id,
+      db
+        .select({ id: outfitSlot.outfitId })
+        .from(outfitSlot)
+        .where(eq(outfitSlot.garmentId, garmentId)),
+    ),
+  );
+  const [count, outfits] = await Promise.all([
+    db.$count(outfit, where),
+    outfitsWithGarments(db, where, limit),
+  ]);
+  return { count, outfits };
 }
 
 /** The detail page's outfit, or undefined when it is not the owner's. */

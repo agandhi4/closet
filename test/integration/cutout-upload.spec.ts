@@ -75,14 +75,15 @@ describe('cutouts: upload, page and polling', () => {
     const html = unescapeHtml(res.body);
     expect(html).toMatch(
       new RegExp(
-        `<div id="garment-photo" class="mb-6" hx-get="/wardrobe/${id}/cutout" hx-trigger="every 2s" hx-swap="outerHTML" hx-indicator="#garment-photo-status">`,
+        `<div id="garment-photo" hx-get="/wardrobe/${id}/cutout" hx-trigger="every 2s" hx-swap="outerHTML" hx-indicator="#garment-photo-status">`,
       ),
     );
     expect(html).toContain('Removing background…');
-    // Nothing to edit yet; the form posts the photo alone.
+    // Nothing to edit yet; the photo sheet posts the photo alone, prepared
+    // on the phone first.
     expect(html).not.toContain('id="editMaskBtn"');
     expect(html).not.toContain('name="nobgPhoto"');
-    expect(html).toContain(`import { wirePhotoUpload } from 'photo-input';`);
+    expect(html).toContain("import('photo-input')");
     expectNativePostForms(res);
     expectNoRawI18nKeys(res);
   });
@@ -101,7 +102,7 @@ describe('cutouts: upload, page and polling', () => {
     const res = await fragment(id);
     expectFragment(res);
     const html = unescapeHtml(res.body);
-    expect(html).toMatch(/^<div id="garment-photo" class="mb-6">/);
+    expect(html).toMatch(/^<div id="garment-photo">/);
     expect(html).not.toContain('hx-trigger');
     expect(html).toContain(`src="/file/nobg/${fileName}?v=2"`);
     expect(html).toContain(`data-nobg-url="/file/nobg/${fileName}?v=2"`);
@@ -227,7 +228,7 @@ describe('cutouts: upload, page and polling', () => {
       .where(eq(file.fileName, fileName));
 
     const html = unescapeHtml((await page(id)).body);
-    expect(html).toContain('<div id="garment-photo" class="mb-6">');
+    expect(html).toContain('<div id="garment-photo">');
     expect(html).not.toContain('hx-trigger="every 2s"');
     expect(html).toContain('id="editMaskBtn"');
   });

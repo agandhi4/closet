@@ -3,7 +3,11 @@ import type { IsoDate } from '../calendar/calendar-date';
 import { dayLabel } from '../calendar/labels';
 import { selfieUrl } from '../files/image-url';
 import { t } from '../i18n';
-import { CameraIcon, PhotoLibraryIcon } from '../layout/parts';
+import {
+  CameraIcon,
+  PhotoLibraryIcon,
+  PREPARE_AND_SUBMIT_PHOTO,
+} from '../layout/parts';
 import type { SelfieRef } from './queries';
 
 /**
@@ -24,14 +28,6 @@ const THUMB_SIZES = {
   strip: 'h-36',
 } as const;
 export type SelfieThumbSize = keyof typeof THUMB_SIZES;
-
-// The chosen photo is downscaled on the phone first (photo-input.js, as the
-// garment photo form does: a 24 MP photo becomes a few hundred KB), then
-// the form is posted. A dynamic import from the handler, so the module
-// loads only when a photo is chosen, and no page script has to be run again
-// after a boosted navigation or an htmx swap brings a row in.
-const PREPARE_AND_SUBMIT =
-  "import('photo-input').then((m) => m.preparePhoto(this)).then(() => this.form.requestSubmit())";
 
 /**
  * A button that takes a selfie for the entry (the camera, `capture`) or
@@ -73,7 +69,7 @@ export function SelfieUpload(props: {
           accept="image/*"
           capture={source === 'camera' ? 'environment' : undefined}
           class="sr-only"
-          onchange={PREPARE_AND_SUBMIT}
+          onchange={PREPARE_AND_SUBMIT_PHOTO}
         />
       </label>
     </PostForm>

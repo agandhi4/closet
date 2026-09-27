@@ -72,7 +72,7 @@ export function GoesWithSection({
   return (
     <section
       id={GOES_WITH_ID}
-      class="card bg-base-100 shadow-sm mb-4"
+      class="card bg-base-100 border border-base-300"
       aria-labelledby="goes-with-title"
     >
       <div class="card-body gap-3">

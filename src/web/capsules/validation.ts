@@ -91,7 +91,7 @@ export const MembersBody = Type.Union([
 ]);
 
 /**
- * POST /wardrobe/:id/capsules, the garment page's "In capsules": the same
+ * POST /wardrobe/:id/capsules, the garment page's capsules row: the same
  * rule from the garment's side, `capsuleIds` checked and `shown` every
  * capsule the toggles listed (one created meanwhile elsewhere is left
  * alone).
