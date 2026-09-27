@@ -100,6 +100,7 @@ Each area's detail lives in a `CLAUDE.md` beside its code. Claude Code loads one
 | Capsules | `src/web/capsules/CLAUDE.md` | capsules and the capsule filter |
 | Wears and washes | `src/web/wears/CLAUDE.md` | wears, washes, away, laundry, availability |
 | Insights | `src/web/insights/CLAUDE.md` | the insights page |
+| Sharing | `src/web/sharing/CLAUDE.md` | the access resolver; which surfaces are share-aware vs owner-only |
 | Sizes | `src/web/sizes/CLAUDE.md` | sizes, body measurements, the brand hint |
 | Seed personas | `src/seed/CLAUDE.md` | the seed, the persona bibles, demo data |
 | Calendar | `src/web/calendar/CLAUDE.md` | the calendar, its entries and occasions |

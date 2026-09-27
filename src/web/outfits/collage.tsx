@@ -24,6 +24,17 @@ const UPPER: readonly GarmentRole[] = ['layer', 'one-piece', 'top'];
 const SIDE: readonly GarmentRole[] = ['accessory', 'bag', 'none'];
 
 /**
+ * The outfit without its side column (accessories, bags, `none`), for a
+ * frame too narrow for it: the calendar month's ~48 px cells. Every garment
+ * when the outfit is all side pieces. Shares `SIDE` with the collage's own
+ * layout so the two never disagree.
+ */
+export function bodyOf<G extends CollageGarment>(garments: readonly G[]): G[] {
+  const body = garments.filter((g) => !SIDE.includes(categoryRole(g.category)));
+  return body.length > 0 ? body : [...garments];
+}
+
+/**
  * Each size's box, garment column and piece heights: `card` for a card a
  * phone screen holds whole, `tile` for the Saved grid's two columns (about
  * 170 px wide at 390 px: a 4:5 frame so the grid's rows line up, the

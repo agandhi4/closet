@@ -1,9 +1,8 @@
-import { categoryRole } from '../../wardrobe/properties';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { type CollageGarment, OutfitCollage } from '../outfits/collage';
+import { bodyOf, OutfitCollage } from '../outfits/collage';
 import type { ViewContext } from '../view-context';
 import type { MonthDayView, MonthView } from './calendar-view';
 import { CalendarTabs } from './calendar-tabs';
@@ -72,17 +71,6 @@ export function MonthPage(props: { ctx: ViewContext; view: MonthView }) {
       <Dock ctx={ctx} />
     </Layout>
   );
-}
-
-/**
- * The outfit's body for a cell about 48 px wide: the thumb collage's side
- * column (accessories, bags) would take half of it and shrink the rest to
- * specks, so it is left out here; the week's rows show the whole outfit.
- */
-function bodyOf(garments: readonly CollageGarment[]): CollageGarment[] {
-  const side = ['accessory', 'bag', 'none'];
-  const body = garments.filter((g) => !side.includes(categoryRole(g.category)));
-  return body.length > 0 ? body : [...garments];
 }
 
 function MonthDay({ day }: { day: MonthDayView }) {
