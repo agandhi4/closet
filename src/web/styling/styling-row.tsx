@@ -16,6 +16,12 @@ import { STYLING_GARMENTS_PATH, type StylingState, stylingUrl } from './urls';
  * what Save and Shuffle post, with `role` and `lock`, one of each per row
  * in document order. The server marks the chosen item `data-selected`; the
  * module centres it on load, after a swap and after a history restore.
+ *
+ * What the row shows is CSS off that state (#106): the chosen item's plinth
+ * wears a ring (PLINTH_STATE), and a locked row is frozen: its strip stops
+ * scrolling sideways (`overflow-x: hidden`, `touch-action: pan-y`, so the
+ * page still scrolls under a thumb) and its neighbours fade, until the lock
+ * is lifted and the strip swipes again from the same item.
  */
 
 const ROLE_LABELS: Record<GarmentRole, StringKey> = {
@@ -49,6 +55,15 @@ function sizing(role: GarmentRole): { item: string; strip: string } {
     : { item: 'w-28', strip: 'px-[calc(50%-3.5rem)]' };
 }
 
+/**
+ * The chosen item's plinth wears an ink ring, inset so the strip's own
+ * clipping never cuts it. In a locked row the ring takes the lock's clay
+ * accent (the theme's "used sparingly": a locked row is one of its uses)
+ * and the neighbours fade, so the frozen row reads as one at a glance.
+ */
+const PLINTH_STATE =
+  'ring-inset group-data-selected/item:ring-2 group-data-selected/item:ring-primary group-data-selected/item:group-has-[.styling-lock:checked]/row:ring-accent group-not-data-selected/item:group-has-[.styling-lock:checked]/row:opacity-40';
+
 /** What a row's links and sentinel need of the page. */
 export interface RowContext {
   state: StylingState;
@@ -65,7 +80,7 @@ export function StylingRowView(props: {
   const { strip } = sizing(row.role);
   return (
     <section
-      class="flex flex-col gap-1"
+      class="group/row flex flex-col gap-1"
       data-styling-row={row.role}
       aria-label={label}
     >
@@ -76,7 +91,7 @@ export function StylingRowView(props: {
         <LockToggle locked={row.locked} label={label} />
       </div>
       <div
-        class={`styling-strip relative flex gap-3 overflow-x-auto snap-x snap-mandatory overscroll-x-contain ${strip}`}
+        class={`styling-strip relative flex gap-3 overflow-x-auto snap-x snap-mandatory overscroll-x-contain group-has-[.styling-lock:checked]/row:overflow-x-hidden group-has-[.styling-lock:checked]/row:touch-pan-y ${strip}`}
         role="listbox"
         aria-label={t('styling.STRIP_LABEL', { role: label })}
       >
@@ -106,9 +121,12 @@ export function StylingRowView(props: {
 }
 
 /**
- * Lock: Shuffle leaves the row as it is. The checkbox has no name: it
- * writes the row's `lock` field, which posts in step with its `role` and
- * `garmentId` (an unchecked box would post nothing and shift the lists).
+ * Lock: the row is frozen (no swiping, see the header) and Shuffle leaves
+ * it as it is. The checkbox has no name: it writes the row's `lock` field,
+ * which posts in step with its `role` and `garmentId` (an unchecked box
+ * would post nothing and shift the lists), and mirrors its state into its
+ * `checked` attribute, which htmx's history snapshot (innerHTML) keeps, so
+ * a row restored by Back is still frozen and still reads locked.
  */
 function LockToggle(props: { locked: boolean; label: string }) {
   return (
@@ -120,7 +138,7 @@ function LockToggle(props: { locked: boolean; label: string }) {
         class="styling-lock"
         checked={props.locked}
         aria-label={t('styling.LOCK', { role: props.label })}
-        onchange="this.closest('[data-styling-row]').querySelector('input[name=lock]').value = this.checked ? '1' : ''"
+        onchange="this.closest('[data-styling-row]').querySelector('input[name=lock]').value = this.checked ? '1' : ''; this.toggleAttribute('checked', this.checked)"
       />
       {/* Heroicons' lock-closed and lock-open, outline. */}
       <svg
@@ -163,13 +181,15 @@ function NoGarment(props: { role: GarmentRole; selected: boolean }) {
   return (
     <button
       type="button"
-      class={`styling-item snap-center shrink-0 ${item} flex flex-col gap-1`}
+      class={`styling-item group/item snap-center snap-always shrink-0 ${item} flex flex-col gap-1`}
       role="option"
       data-garment-id=""
       data-selected={props.selected ? '' : undefined}
       aria-selected={props.selected ? 'true' : 'false'}
     >
-      <span class="aspect-square w-full rounded-box border border-dashed border-base-300 flex items-center justify-center text-faint text-2xl">
+      <span
+        class={`aspect-square w-full rounded-box border border-dashed border-base-300 flex items-center justify-center text-faint text-2xl ${PLINTH_STATE}`}
+      >
         —
       </span>
       <span class="text-xs text-muted truncate">{t('styling.NO_GARMENT')}</span>
@@ -194,13 +214,15 @@ function GarmentItem(props: {
   return (
     <a
       href={garmentUrl(garment.id, props.viewOwner)}
-      class={`styling-item snap-center shrink-0 ${item} flex flex-col gap-1 no-underline`}
+      class={`styling-item group/item snap-center snap-always shrink-0 ${item} flex flex-col gap-1 no-underline`}
       role="option"
       data-garment-id={garment.id}
       data-selected={props.selected ? '' : undefined}
       aria-selected={props.selected ? 'true' : 'false'}
     >
-      <span class="aspect-square w-full rounded-box bg-base-200 flex items-center justify-center p-2">
+      <span
+        class={`aspect-square w-full rounded-box bg-base-200 flex items-center justify-center p-2 ${PLINTH_STATE}`}
+      >
         {garment.photo ? (
           <img
             src={imageUrl(garment.photo, 'thumb')}

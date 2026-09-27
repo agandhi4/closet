@@ -15,6 +15,10 @@
  *   strip is harmless.
  * - A tap on a neighbour centres it instead of opening it; a tap on the
  *   chosen garment opens its page (a boosted link).
+ * - A locked row is frozen (#106): CSS stops its strip scrolling under a
+ *   finger (styling-row.tsx), and a tap on a neighbour does nothing, since
+ *   a script's scroll would still move it. Centring on load still runs, so
+ *   a row opened locked ("Style this") sits on its garment.
  *
  * Evaluated once per document: the listeners below sit on the document and
  * serve every page's rows.
@@ -66,6 +70,13 @@ function choose(strip, item) {
   }
 }
 
+/** The row's lock, the same state the strip's CSS freezes on. */
+function isLocked(strip) {
+  return Boolean(
+    strip.closest('[data-styling-row]')?.querySelector('.styling-lock:checked'),
+  );
+}
+
 /** Scrolls `item` to the middle of its strip. */
 function centre(strip, item, behavior) {
   if (!item) return;
@@ -93,6 +104,7 @@ document.addEventListener(
     if (!strip) return;
     event.preventDefault();
     event.stopPropagation();
+    if (isLocked(strip)) return;
     centre(strip, item, smooth());
   },
   { capture: true },

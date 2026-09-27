@@ -151,6 +151,89 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
+/** Where a strip is scrolled to, in whole pixels. */
+const scrollLeft = (strip: Locator) =>
+  strip.evaluate((el) => Math.round(el.scrollLeft));
+
+/** A sideways wheel over the middle of `strip`: what a swipe is to it. */
+async function wheel(page: Page, strip: Locator, deltaX: number) {
+  const box = (await strip.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(deltaX, 0);
+}
+
+test('the chosen garment is ringed, and a locked row is frozen until unlocked (#106)', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await signIn(page, 'styling-freeze');
+  const g = await wardrobe(page);
+  await page.goto('/styling');
+
+  // The chosen item wears the ring, its neighbours none. Each item stops a
+  // fling on its own, so a swipe moves one item at a time.
+  const tops = row(page, 'top');
+  const plinth = (id: number) =>
+    tops.locator(`[data-garment-id="${id}"] > span`).first();
+  await expect(tops.locator('[aria-selected="true"]')).toHaveAttribute(
+    'data-garment-id',
+    String(g.newTee),
+  );
+  await expect(plinth(g.newTee)).not.toHaveCSS('box-shadow', 'none');
+  await expect(plinth(g.oldTee)).toHaveCSS('box-shadow', 'none');
+  await expect(tops.locator('.styling-item').first()).toHaveCSS(
+    'scroll-snap-stop',
+    'always',
+  );
+
+  // Lock the top row: its strip no longer scrolls sideways (the page still
+  // does), so a swipe leaves the new tee where it was.
+  const strip = tops.locator('.styling-strip');
+  await tops.locator('label.swap').click();
+  await expect(strip).toHaveCSS('overflow-x', 'hidden');
+  await expect(strip).toHaveCSS('touch-action', 'pan-y');
+  const frozenAt = await scrollLeft(strip);
+  await wheel(page, strip, 200);
+  // The same wheel on an unlocked row moves it: the attempt was real, and
+  // was handled before the locked strip is measured again.
+  const bottoms = row(page, 'bottom');
+  await wheel(page, bottoms.locator('.styling-strip'), -200);
+  await expect(chosen(bottoms)).toHaveValue('');
+  expect(await scrollLeft(strip)).toBe(frozenAt);
+  await expect(chosen(tops)).toHaveValue(String(g.newTee));
+  // A tap on a neighbour neither centres it nor opens its page.
+  await tops.locator(`[data-garment-id="${g.oldTee}"]`).click();
+  await expect(page).toHaveURL(/\/styling$/);
+  expect(await scrollLeft(strip)).toBe(frozenAt);
+  await expect(chosen(tops)).toHaveValue(String(g.newTee));
+
+  // Shuffle keeps the locked row, still frozen on the same garment.
+  await page.getByRole('button', { name: /Shuffle/ }).click();
+  await expect(page.locator('#styling-rows input[name="seed"]')).toHaveCount(1);
+  const shuffledTops = row(page, 'top');
+  const shuffledStrip = shuffledTops.locator('.styling-strip');
+  await expect(chosen(shuffledTops)).toHaveValue(String(g.newTee));
+  await expect(
+    shuffledTops.getByRole('checkbox', { name: 'Lock Top' }),
+  ).toBeChecked();
+  await expect(shuffledStrip).toHaveCSS('overflow-x', 'hidden');
+  await expect(chosen(row(page, 'bottom'))).toHaveValue(String(g.jeans));
+  const shuffledAt = await scrollLeft(shuffledStrip);
+  await wheel(page, shuffledStrip, 200);
+  await wheel(page, row(page, 'bottom').locator('.styling-strip'), -200);
+  await expect(chosen(row(page, 'bottom'))).toHaveValue('');
+  expect(await scrollLeft(shuffledStrip)).toBe(shuffledAt);
+
+  // Unlocked, it swipes again from the same item: one on is the old tee.
+  await shuffledTops.locator('label.swap').click();
+  await expect(shuffledStrip).toHaveCSS('overflow-x', 'auto');
+  await wheel(page, shuffledStrip, 200);
+  await expect(chosen(shuffledTops)).toHaveValue(String(g.oldTee));
+  expect(await scrollLeft(shuffledStrip)).toBeGreaterThan(shuffledAt);
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
 test('an outfit opened in Styling saves its changes in place', async ({
   page,
 }) => {

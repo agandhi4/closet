@@ -65,6 +65,14 @@ async function shot(page: Page, name: string, url?: string): Promise<void> {
   });
 }
 
+/** Styling with its top row locked: frozen, ringed in the accent (#106). */
+async function lockTopRow(page: Page): Promise<void> {
+  const top = page.locator('[data-styling-row="top"]');
+  await top.locator('label.swap').click();
+  await expect(top.locator('input.styling-lock')).toBeChecked();
+  await expect(top.locator('.styling-strip')).toHaveCSS('overflow-x', 'hidden');
+}
+
 test('demo: Theo, every feature with real data', async ({ page }) => {
   await signInAs(page, 'demo');
   await shot(page, '01-demo-wardrobe', '/wardrobe');
@@ -113,10 +121,11 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
     '74-demo-saved-for-day',
     '/outfits?for=day:2026-09-29&occasion=evening',
   );
-  // Styling (#42) replaced the outfit builder: the fresh stack, then its
-  // Save sheet.
+  // Styling (#42) replaced the outfit builder: the fresh stack with its
+  // top locked (#106: the frozen row beside the others), then its Save
+  // sheet.
   await page.goto('/styling');
-  await expect(page.locator('[data-styling-row]').first()).toBeVisible();
+  await lockTopRow(page);
   await shot(page, '08-demo-styling');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('#styling-save')).toBeVisible();
@@ -191,7 +200,7 @@ test.describe('dark', () => {
     await page.locator('#saved-outfits a[href^="/outfits/"]').first().click();
     await shot(page, '07-demo-outfit-dark');
     await page.goto('/styling');
-    await expect(page.locator('[data-styling-row]').first()).toBeVisible();
+    await lockTopRow(page);
     await shot(page, '08-demo-styling-dark');
     await shot(
       page,
