@@ -20,7 +20,8 @@ export const SECTION_HOME: Readonly<Record<Section, string>> = {
 
 /**
  * The dock's tabs, in order: Today · Wardrobe · Style · Outfits · Calendar,
- * the owner's decision on #43 (2026-09-27; no centre "+").
+ * the owner's decision on #43 (2026-09-27; no centre "+"). The dock, the
+ * active tab and the tab roots follow from this file alone.
  */
 export const DOCK_TABS: readonly Section[] = [
   'today',
@@ -33,9 +34,10 @@ export const DOCK_TABS: readonly Section[] = [
 /**
  * Path roots, each with its subtree. Capsules are named subsets of the
  * wardrobe, so they are Wardrobe too; trips (#10) are the Calendar's Trips
- * tab (the redesign's "Calendar › Trips"), so they are Calendar. Pages outside every root (the profile,
- * sharing, the public share page, /about) belong to no section. `/` is
- * matched on its own: every path starts with it.
+ * tab (the redesign's "Calendar › Trips"), so they are Calendar. Pages
+ * outside every root belong to no section: Profile and its pages (the app
+ * bar's avatar marks those), the public share and invite pages, /about.
+ * `/` is matched on its own: every path starts with it.
  */
 const SECTION_ROOTS: readonly (readonly [root: string, section: Section])[] = [
   ['/wardrobe', 'wardrobe'],

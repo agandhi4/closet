@@ -9,9 +9,9 @@ import { dayOfWeek, type IsoDate } from '../calendar/calendar-date';
 import { DAY_NAMES, dayLabel, occasionLabel } from '../calendar/labels';
 import type { CapsuleRef } from '../capsules/queries';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { BackLink, EmptyState } from '../layout/parts';
 import {
   destinationQuery,
@@ -78,7 +78,12 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
   const context: RowContext = { state: model.state, viewOwner };
   return (
     <Layout ctx={ctx} title={t('styling.TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={t('styling.TITLE')}
+        back={model.state.returnTo}
+        scope={<ScopeMenu model={model} />}
+      />
       <main class="pt-20 pb-40 w-full sm:max-w-lg sm:mx-auto flex flex-col gap-3">
         <Header model={model} />
         {model.rows.length > 0 ? (
@@ -173,15 +178,13 @@ function StateFields({ model }: { model: StylingModel }) {
   );
 }
 
+/**
+ * Under the app bar (which carries the title, the way back and the capsule
+ * scope): the outfit being edited, the destination, and the notes.
+ */
 function Header({ model }: { model: StylingModel }) {
-  const { state } = model;
   return (
     <div class="flex flex-col gap-2 px-4">
-      <div class="flex items-center gap-2">
-        {state.returnTo && <BackLink href={state.returnTo} />}
-        <h1 class="text-2xl font-bold flex-1">{t('styling.TITLE')}</h1>
-        <ScopeMenu model={model} />
-      </div>
       {model.outfit && (
         <p class="text-sm" data-styling-outfit={model.outfit.id}>
           {t('styling.EDITING', {
@@ -238,7 +241,7 @@ function ScopeMenu({ model }: { model: StylingModel }) {
   if (capsules.length === 0) return null;
   return (
     <details class="dropdown dropdown-end">
-      <summary class="btn btn-sm btn-outline rounded-full max-w-48">
+      <summary class="btn btn-sm btn-outline rounded-full max-w-36">
         <span class="truncate">
           {capsule ? capsule.name : t('gallery.ALL_GARMENTS')}
         </span>{' '}

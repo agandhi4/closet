@@ -93,7 +93,7 @@ describe('createErrorHandler', () => {
     expect(res.statusCode).toBe(404);
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
     expect(res.body).toMatch(/^<!DOCTYPE html><html lang="en">/);
-    expect(res.body).toContain('<h1>Error 404</h1>');
+    expect(res.body).toMatch(/<h1\b[^>]*>Error 404<\/h1>/);
     expect(res.body).toContain('<p>Not Found</p>');
     expect(res.body).toContain('Path: /missing');
     expect(res.body).toContain('class="dock"');
@@ -103,7 +103,7 @@ describe('createErrorHandler', () => {
   it('keeps a Fastify 4xx thrown in the handler, with its message', async () => {
     const res = await app.inject({ method: 'GET', url: '/too-large' });
     expect(res.statusCode).toBe(413);
-    expect(res.body).toContain('<h1>Error 413</h1>');
+    expect(res.body).toMatch(/<h1\b[^>]*>Error 413<\/h1>/);
     expect(res.body).toContain('<p>request file too large</p>');
   });
 
@@ -130,7 +130,7 @@ describe('createErrorHandler', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.body).toMatch(/^<!DOCTYPE html>/);
-    expect(res.body).toContain('<h1>Error 400</h1>');
+    expect(res.body).toMatch(/<h1\b[^>]*>Error 400<\/h1>/);
     expect(res.body).toContain('body/date must match format &quot;date&quot;');
   });
 

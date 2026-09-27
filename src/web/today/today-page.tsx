@@ -9,9 +9,9 @@ import { Reasons } from '../gallery/ideas-page';
 import type { PoolGarment } from '../gallery/queries';
 import { ideasUrl } from '../gallery/urls';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { OutfitCollage } from '../outfits/collage';
 import { EntrySelfie } from '../selfies/views';
 import type { ViewContext } from '../view-context';
@@ -38,9 +38,8 @@ export function TodayPage(props: { ctx: ViewContext; model: TodayModel }) {
   const { ctx, model } = props;
   return (
     <Layout ctx={ctx} title={t('today.TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={dayLabel(model.today)} />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
-        <h1 class="text-2xl font-bold px-2">{dayLabel(model.today)}</h1>
         <WeatherSlot ctx={ctx} />
         <p
           data-offline-note=""

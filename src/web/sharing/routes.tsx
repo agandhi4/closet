@@ -6,27 +6,19 @@ import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage, wantsFragment } from '../render';
 import { requestOrigin } from '../security/origin';
 import { viewContext } from '../view-context';
-import {
-  InviteLinkResult,
-  InvitePage,
-  inviteUrl,
-  ManagePage,
-  REFUSAL_MESSAGES,
-} from './pages';
+import { InviteLinkResult, InvitePage, inviteUrl, parseRefusal } from './pages';
 import {
   acceptInvite,
-  type AcceptRefusal,
   createInvite,
   declineInvite,
   findInvite,
   removeShare,
-  sharesOf,
 } from './queries';
+import { LEGACY_MANAGE_PATH, SHARING_PATH, sharingRefusalUrl } from './urls';
 
-const MANAGE_PATH = '/wardrobe-share/manage';
-
-const ManageQuery = Type.Object({
-  // A refusal code from an accept redirect; unknown values show nothing.
+const LegacyManageQuery = Type.Object({
+  // A refusal code from an accept redirect made before #82; unknown values
+  // are dropped.
   error: Type.Optional(Type.String()),
 });
 
@@ -40,40 +32,34 @@ const CreateInviteBody = Type.Object({
 const ShareParams = Type.Object({ id: Type.Integer({ minimum: 1 }) });
 const InviteParams = Type.Object({ token: Type.String({ maxLength: 255 }) });
 
-function isRefusal(value: string | undefined): value is AcceptRefusal {
-  return value !== undefined && value in REFUSAL_MESSAGES;
-}
-
 /**
- * /wardrobe-share: invite links (view or edit) between users, the manage
- * page, and the public invite landing. Invite tokens are bearer secrets in
- * the path: those routes log their pattern, never the URL (secretPath).
+ * /wardrobe-share: invite links (view or edit) between users, their answers
+ * and the public invite landing. Sharing is managed in Profile › Sharing
+ * (SharingSection, rendered by the profile route), where every write here
+ * lands. Invite tokens are bearer secrets in the path: those routes log
+ * their pattern, never the URL (secretPath).
  */
 export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
   { db, logger },
   done,
 ) => {
+  // The manage page moved into Profile (#82). Links in pages the installed
+  // app cached still come here: a permanent redirect, keeping a refusal.
   app.get(
-    MANAGE_PATH,
-    { schema: { querystring: ManageQuery } },
+    LEGACY_MANAGE_PATH,
+    { schema: { querystring: LegacyManageQuery } },
     async (request, reply) => {
-      const id = sessionUserId(request);
-      const { error } = request.query;
-      return renderPage(
-        reply,
-        <ManagePage
-          ctx={viewContext(reply)}
-          {...await sharesOf(db, id)}
-          origin={requestOrigin(request)}
-          refusal={isRefusal(error) ? error : undefined}
-        />,
+      const refusal = parseRefusal(request.query.error);
+      return reply.redirect(
+        refusal ? sharingRefusalUrl(refusal) : SHARING_PATH,
+        301,
       );
     },
   );
 
-  // The manage page's htmx form swaps the link in; without htmx, back to
-  // the page, which lists the new invite with its link.
+  // Profile's htmx form swaps the link in; without htmx, back to the
+  // section, which lists the new invite with its link.
   app.post(
     '/wardrobe-share/create-invite-link',
     { schema: { body: CreateInviteBody } },
@@ -90,7 +76,7 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           />,
         );
       }
-      return reply.redirect(MANAGE_PATH, 302);
+      return reply.redirect(SHARING_PATH, 302);
     },
   );
 
@@ -106,7 +92,7 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         throw new HttpError(404);
       }
       logger.info(`User ${userId} removed share ${shareId}`);
-      return reply.redirect(MANAGE_PATH, 302);
+      return reply.redirect(SHARING_PATH, 302);
     },
   );
 
@@ -137,16 +123,16 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const result = await acceptInvite(db, request.params.token, id);
       if (!result.accepted) {
         logger.info(`User ${id} could not accept an invite: ${result.reason}`);
-        return reply.redirect(`${MANAGE_PATH}?error=${result.reason}`, 302);
+        return reply.redirect(sharingRefusalUrl(result.reason), 302);
       }
       logger.info(
         `User ${id} accepted share ${result.shareId} of user ${result.grantorId}'s wardrobe`,
       );
-      return reply.redirect(MANAGE_PATH, 302);
+      return reply.redirect(SHARING_PATH, 302);
     },
   );
 
-  // Either answer lands on the manage page: a refused decline (an open link
+  // Either answer lands on Profile › Sharing: a refused decline (an open link
   // someone else holds) must leave the link intact and says nothing.
   app.post(
     '/wardrobe-share/invite/:token/decline',
@@ -159,7 +145,7 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ? `User ${id} declined or withdrew an invite`
           : `User ${id} may not decline this invite; left in place`,
       );
-      return reply.redirect(MANAGE_PATH, 302);
+      return reply.redirect(SHARING_PATH, 302);
     },
   );
 

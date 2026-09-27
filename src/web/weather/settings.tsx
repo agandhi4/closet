@@ -1,5 +1,6 @@
 import { AutosaveForm } from '../autosave';
 import { t } from '../i18n';
+import { ProfileSection } from '../layout/parts';
 import {
   displayDifference,
   OFFSET_LIMIT,
@@ -54,36 +55,30 @@ export function WeatherSettings(props: {
 }) {
   const { settings } = props;
   return (
-    <section
+    <ProfileSection
       id={WEATHER_SETTINGS_ID}
-      class="card bg-base-200 w-full max-w-sm"
-      aria-labelledby="weather-heading"
+      heading={t('weather.SETTINGS_HEADING')}
     >
-      <div class="card-body gap-3">
-        <h2 id="weather-heading" class="card-title">
-          {t('weather.SETTINGS_HEADING')}
-        </h2>
-        <WeatherLocation {...props} />
-        <AutosaveForm action="/weather/unit">
-          <div class="flex items-center gap-2">
-            <span class="text-sm">{t('weather.UNIT')}</span>
-            {TEMPERATURE_UNITS.map((unit) => (
-              <input
-                type="radio"
-                name="unit"
-                value={unit}
-                class="btn btn-sm rounded-full"
-                aria-label={t(
-                  unit === 'celsius' ? 'weather.CELSIUS' : 'weather.FAHRENHEIT',
-                )}
-                checked={settings.unit === unit}
-              />
-            ))}
-          </div>
-        </AutosaveForm>
-        <OffsetControls settings={settings} />
-      </div>
-    </section>
+      <WeatherLocation {...props} />
+      <AutosaveForm action="/weather/unit">
+        <div class="flex items-center gap-2">
+          <span class="text-sm">{t('weather.UNIT')}</span>
+          {TEMPERATURE_UNITS.map((unit) => (
+            <input
+              type="radio"
+              name="unit"
+              value={unit}
+              class="btn btn-sm rounded-full"
+              aria-label={t(
+                unit === 'celsius' ? 'weather.CELSIUS' : 'weather.FAHRENHEIT',
+              )}
+              checked={settings.unit === unit}
+            />
+          ))}
+        </div>
+      </AutosaveForm>
+      <OffsetControls settings={settings} />
+    </ProfileSection>
   );
 }
 

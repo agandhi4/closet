@@ -5,12 +5,17 @@ import { LOGIN_PATH } from './login-path';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
+import { requestOrigin } from '../security/origin';
 import { ACCOUNT_LIMIT, SIGN_IN_LIMIT } from '../security/rate-limit';
 import { viewContext } from '../view-context';
+import { parseRefusal } from '../sharing/pages';
+import { sharesOf } from '../sharing/queries';
+import { SHARE_ERROR_PARAM } from '../sharing/urls';
 import { findWeatherSettings } from '../weather/queries';
 import { deleteAccount } from './account';
 import { InlineErrors } from './form';
 import { LOGOUT_PATH } from './logout';
+import { PROFILE_PATH } from './urls';
 import {
   ChangePasswordPage,
   DeleteAccountPage,
@@ -23,6 +28,7 @@ import {
   UpdateEmailPage,
 } from './pages';
 import { hashPassword, setPassword, verifyPassword } from './passwords';
+import { listTokens } from './personal-tokens';
 import {
   type AccountRow,
   findUserByEmail,
@@ -50,12 +56,14 @@ import {
   validateRegistration,
 } from './validation';
 
-const PROFILE_PATH = '/auth/profile';
-
+// Navigation state: one-shot flags and a refusal code, each shown or not;
+// no value is a 400.
 const ProfileQuery = Type.Object({
   passwordChanged: Type.Optional(Type.String()),
   // The week template's saved toast (#16, src/web/week-plan).
   weekSaved: Type.Optional(Type.String()),
+  // Why an invite could not be accepted (Sharing, src/web/sharing).
+  [SHARE_ERROR_PARAM]: Type.Optional(Type.String()),
 });
 
 /**
@@ -200,28 +208,42 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       ),
   );
 
+  // Profile: the signed-in user's own settings, whoever asks; no route
+  // here reads another user's.
   app.get(
     PROFILE_PATH,
     { schema: { querystring: ProfileQuery } },
-    async (request, reply) =>
-      renderPage(
+    async (request, reply) => {
+      const id = sessionUserId(request);
+      const { query } = request;
+      const [slots, weatherSettings, shares, tokenList] = await Promise.all([
+        findWeekTemplate(db, id),
+        weather && findWeatherSettings(db, id),
+        sharesOf(db, id),
+        listTokens(db, id),
+      ]);
+      return renderPage(
         reply,
         <ProfilePage
           ctx={viewContext(reply)}
-          passwordChanged={request.query.passwordChanged === '1'}
-          week={{
-            slots: await findWeekTemplate(db, sessionUserId(request)),
-            saved: request.query.weekSaved === '1',
-          }}
+          passwordChanged={query.passwordChanged === '1'}
+          week={{ slots, saved: query.weekSaved === '1' }}
           weather={
-            weather && {
-              settings: await findWeatherSettings(db, sessionUserId(request)),
+            weatherSettings && {
+              settings: weatherSettings,
               timeZone: config.timeZone,
               now: new Date(),
             }
           }
+          sharing={{
+            ...shares,
+            origin: requestOrigin(request),
+            refusal: parseRefusal(query[SHARE_ERROR_PARAM]),
+          }}
+          tokens={tokenList}
         />,
-      ),
+      );
+    },
   );
 
   app.get('/auth/update-email', async (_request, reply) =>

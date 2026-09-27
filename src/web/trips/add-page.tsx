@@ -3,10 +3,9 @@ import { PostForm } from '../auth/form';
 import type { IsoDate } from '../calendar/calendar-date';
 import { dayLabel, occasionLabel } from '../calendar/labels';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink } from '../layout/parts';
 import type { OutfitSummary } from '../outfits/queries';
 import { SavedOutfitButton } from '../outfits/saved-outfit-button';
 import type { ViewContext } from '../view-context';
@@ -55,15 +54,9 @@ export function AddOutfitPage(props: {
   );
   return (
     <Layout ctx={ctx} title={t('trips.ADD_TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={t('trips.ADD_TITLE')} back={back} />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-5">
-        <div class="flex items-center gap-3">
-          <BackLink href={back} />
-          <div class="min-w-0">
-            <h1 class="text-2xl font-bold">{t('trips.ADD_TITLE')}</h1>
-            <p class="text-sm text-base-content/60 truncate">{trip.name}</p>
-          </div>
-        </div>
+        <p class="text-sm text-base-content/60 truncate">{trip.name}</p>
 
         <nav aria-label={t('trips.DAY')}>
           <p class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">

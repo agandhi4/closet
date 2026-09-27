@@ -5,10 +5,10 @@ import type {
   PlanComparison,
 } from '../../wardrobe/plans';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, EmptyState } from '../layout/parts';
+import { EmptyState } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { itemTitle, priorityLabel } from './labels';
 import type { ComparedRow } from './compare';
@@ -56,12 +56,12 @@ export function ComparePage(props: {
   const { pair } = model;
   return (
     <Layout ctx={ctx} title={t('shopping.COMPARE_TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={t('shopping.COMPARE_TITLE')}
+        back={pair ? planUrl(pair.a.id) : PLANS_PATH}
+      />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
-        <div class="flex items-center gap-3">
-          <BackLink href={pair ? planUrl(pair.a.id) : PLANS_PATH} />
-          <h1 class="text-2xl font-bold">{t('shopping.COMPARE_TITLE')}</h1>
-        </div>
         {!pair ? (
           <EmptyState message={t('shopping.COMPARE_NEEDS_TWO')}>
             <a href={PLANS_PATH} class="btn btn-primary btn-sm">

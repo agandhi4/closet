@@ -1,10 +1,9 @@
 import { PostForm } from '../auth/form';
 import type { FieldErrors } from '../auth/validation';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { PLANS_PATH, planUrl } from './urls';
 import { PLAN_NAME_MAX, PLAN_NOTES_MAX } from './validation';
@@ -32,12 +31,8 @@ export function PlanFormPage(props: {
   const back = editing ? planUrl(planId) : PLANS_PATH;
   return (
     <Layout ctx={ctx} title={title}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={title} back={back} />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <div class="flex items-center gap-3 mb-6">
-          <BackLink href={back} />
-          <h1 class="text-2xl font-bold">{title}</h1>
-        </div>
         <PostForm
           action={editing ? planUrl(planId) : PLANS_PATH}
           class="flex flex-col gap-4"

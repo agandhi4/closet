@@ -1,8 +1,8 @@
 import { AlreadySavedToast } from '../gallery/already-saved';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { destinationQuery } from '../outfits/destination';
 import { SelfieView } from '../selfies/views';
 import type { ViewContext } from '../view-context';
@@ -43,7 +43,7 @@ export function CalendarPage(props: {
   const { ctx, view } = props;
   return (
     <Layout ctx={ctx} title={t('CALENDAR_PAGE_TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={t('CALENDAR')} />
       <main class="p-4 pt-20 pb-24">
         <CalendarTabs active="week" />
         <WeatherSlot

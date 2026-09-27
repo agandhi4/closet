@@ -1,7 +1,7 @@
 import { t, tHtml } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import type { ViewContext } from '../view-context';
 
 export function AboutPage({ ctx }: { ctx: ViewContext }) {
@@ -13,12 +13,9 @@ export function AboutPage({ ctx }: { ctx: ViewContext }) {
       ogTitle={t('ABOUT_OG_TITLE', { appName })}
       ogDescription={t('ABOUT_OG_DESC', { appName })}
     >
-      <Navbar ctx={ctx} />
-      <main class="flex flex-col items-center py-16 px-4">
+      <AppBar ctx={ctx} title={t('ABOUT_HEADING', { appName })} />
+      <main class="flex flex-col items-center pt-20 pb-24 px-4">
         <div class="max-w-2xl w-full prose">
-          <h1 class="text-3xl font-bold mb-8">
-            {t('ABOUT_HEADING', { appName })}
-          </h1>
           {/* ABOUT_INTRO carries the upstream attribution link (the one
               permitted upstream reference, CLAUDE.md Gotchas). */}
           <p

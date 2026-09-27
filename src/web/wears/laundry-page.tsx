@@ -1,10 +1,9 @@
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import {
-  BackLink,
   EmptyState,
   GarmentThumb,
   SavedToast,
@@ -34,12 +33,8 @@ export function LaundryPage(props: {
   const worn = items.filter((item) => item.dirty === 0);
   return (
     <Layout ctx={ctx} title={t('wear.LAUNDRY')}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={t('wear.LAUNDRY')} back="/wardrobe" />
       <main class="p-4 pt-20 pb-40 w-full max-w-lg mx-auto">
-        <div class="flex items-center gap-3 mb-6">
-          <BackLink href="/wardrobe" />
-          <h1 class="text-2xl font-bold flex-1">{t('wear.LAUNDRY')}</h1>
-        </div>
         {items.length === 0 ? (
           <EmptyState message={t('wear.LAUNDRY_EMPTY')}>
             <a href="/wardrobe" class="btn btn-sm">

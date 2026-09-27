@@ -11,10 +11,10 @@ import {
 } from '../../wardrobe/insights';
 import type { IsoDate } from '../calendar/calendar-date';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, EmptyState, GarmentThumb } from '../layout/parts';
+import { EmptyState, GarmentThumb } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
@@ -44,15 +44,9 @@ export function InsightsPage(props: {
   const { insights } = model;
   return (
     <Layout ctx={ctx} title={t('insights.TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={t('insights.TITLE')} back="/wardrobe" />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
-        <div class="flex items-start gap-3">
-          <BackLink href="/wardrobe" />
-          <div class="flex-1 min-w-0">
-            <h1 class="text-2xl font-bold">{t('insights.TITLE')}</h1>
-            <p class="text-sm text-base-content/60">{t('insights.INTRO')}</p>
-          </div>
-        </div>
+        <p class="text-sm text-base-content/60">{t('insights.INTRO')}</p>
         {insights.closet.garments === 0 ? (
           <EmptyState message={t('insights.EMPTY')}>
             <a href="/wardrobe/new" class="btn btn-primary btn-sm">

@@ -2,6 +2,7 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { Type } from '@sinclair/typebox';
 import type { Db } from '../../db/client';
 import { sessionUserId } from '../auth/require-session';
+import { profileSection } from '../auth/urls';
 import { t } from '../i18n';
 import type { Logger } from '../../logger';
 import { renderFragment } from '../render';
@@ -15,7 +16,12 @@ import {
   upsertDevice,
 } from './queries';
 import type { PushSender, VapidConfig } from './sender';
-import { ReminderSettingsForm, ReminderStatus, TestResult } from './settings';
+import {
+  PUSH_SETTINGS_ID,
+  ReminderSettingsForm,
+  ReminderStatus,
+  TestResult,
+} from './settings';
 
 /**
  * The browser's PushSubscription.toJSON(), as public/js/push.js posts it.
@@ -210,7 +216,7 @@ export const pushRoutes: FastifyPluginCallbackTypebox<PushRouteOptions> = (
       {
         title: t('PUSH_TEST_TITLE', { appName }),
         body: t('PUSH_TEST_BODY'),
-        url: '/auth/profile',
+        url: profileSection(PUSH_SETTINGS_ID),
         tag: 'push-test',
       },
       { ttlSeconds: TEST_TTL_SECONDS },

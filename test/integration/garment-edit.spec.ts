@@ -103,7 +103,7 @@ describe('garment edit, clone and archive', () => {
       {},
       bob.cookie,
     );
-    expect(accepted.headers.location).toBe('/wardrobe-share/manage');
+    expect(accepted.headers.location).toBe('/auth/profile#sharing');
 
     garmentId = await createFullGarment();
   });

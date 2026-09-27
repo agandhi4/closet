@@ -144,9 +144,11 @@ test.describe('stale-while-revalidate tab roots', () => {
     expect(registered.ok()).toBe(true);
     await api.dispose();
 
+    // Signing out is Profile's, reached through the avatar (#82).
+    await page.locator('#avatar').click();
     await page
+      .locator('#sign-out')
       .getByRole('button', { name: 'Logout' })
-      .filter({ visible: true })
       .click();
     await expect(page).toHaveURL(/\/auth\/login$/);
     await page.locator('#email').fill(second);

@@ -9,7 +9,7 @@ describe('wardrobe sharing', () => {
 
   const userId = async (email: string) => userIdOf(t, email);
 
-  /** The htmx form on /wardrobe-share/manage: returns the invite token. */
+  /** The htmx form in Profile › Sharing: returns the invite token. */
   const createInvite = async (
     cookie: string,
     permission: 'VIEW' | 'MANAGE',
@@ -34,7 +34,7 @@ describe('wardrobe sharing', () => {
     });
     expect(res.statusCode).toBe(302);
     // A failed accept redirects to the same page with ?error=.
-    expect(res.headers.location).toBe('/wardrobe-share/manage');
+    expect(res.headers.location).toBe('/auth/profile#sharing');
   };
 
   beforeAll(async () => {

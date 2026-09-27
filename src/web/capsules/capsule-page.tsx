@@ -1,9 +1,9 @@
 import { ideasUrl } from '../gallery/urls';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, EmptyState, SavedToast, StripFlags } from '../layout/parts';
+import { EmptyState, SavedToast, StripFlags } from '../layout/parts';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import type { GridPage } from '../wardrobe/queries';
@@ -47,20 +47,22 @@ export function CapsulePage(props: {
   const search = { ...EMPTY_SEARCH, capsule: String(capsule.id) };
   return (
     <Layout ctx={ctx} title={capsule.name}>
-      <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24">
-        <div class="flex items-center gap-3 mb-2 px-2">
-          <BackLink href={capsuleUrl(undefined, viewOwner)} />
-          <h1 class="text-2xl font-bold flex-1">{capsule.name}</h1>
-          {model.isOwner && (
+      <AppBar
+        ctx={ctx}
+        title={capsule.name}
+        back={capsuleUrl(undefined, viewOwner)}
+        actions={
+          model.isOwner && (
             <a
               href={capsuleUrl(capsule.id, viewOwner, '/edit')}
               class="btn btn-ghost btn-sm"
             >
               {t('EDIT_CAPSULE')}
             </a>
-          )}
-        </div>
+          )
+        }
+      />
+      <main class="p-4 pt-20 pb-24">
         {capsule.notes && (
           <p class="text-sm whitespace-pre-line text-base-content/70 mb-2 px-2">
             {capsule.notes}

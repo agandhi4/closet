@@ -45,7 +45,7 @@ export function summaryUrl(days?: { from: IsoDate; to: IsoDate }): string {
 
 /**
  * Where the line goes: nothing with WEATHER_ENABLED=false. Its own
- * hx-indicator, so this background load does not light the navbar spinner
+ * hx-indicator, so this background load does not light the app bar's spinner
  * (the body's inherited one) on every page.
  */
 export function WeatherSlot(props: {

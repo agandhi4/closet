@@ -5,10 +5,10 @@ import {
 } from '../../wardrobe/shopping';
 import { OutfitCountSlot } from '../gallery/goes-with';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, EmptyState, GarmentThumb } from '../layout/parts';
+import { EmptyState, GarmentThumb } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
@@ -43,26 +43,24 @@ export function ShoppingPage(props: {
   const { plan, list } = model;
   return (
     <Layout ctx={ctx} title={t('shopping.TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={t('shopping.TITLE')}
+        back={plan ? planUrl(plan.id) : PLANS_PATH}
+      />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
-        <div class="flex items-start gap-3">
-          <BackLink href={plan ? planUrl(plan.id) : PLANS_PATH} />
-          <div class="flex-1 min-w-0">
-            <h1 class="text-2xl font-bold">{t('shopping.TITLE')}</h1>
-            {plan && (
-              <p class="text-sm text-base-content/60 truncate">
-                <a href={planUrl(plan.id)} class="link link-hover">
-                  {plan.name}
-                </a>
-                {plan.active && (
-                  <span class="badge badge-primary badge-sm ml-2">
-                    {t('plans.ACTIVE')}
-                  </span>
-                )}
-              </p>
+        {plan && (
+          <p class="text-sm text-base-content/60 truncate">
+            <a href={planUrl(plan.id)} class="link link-hover">
+              {plan.name}
+            </a>
+            {plan.active && (
+              <span class="badge badge-primary badge-sm ml-2">
+                {t('plans.ACTIVE')}
+              </span>
             )}
-          </div>
-        </div>
+          </p>
+        )}
         {!plan || !list ? (
           <EmptyState message={t('shopping.NO_PLAN')}>
             <a href={PLANS_PATH} class="btn btn-primary btn-sm">

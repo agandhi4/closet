@@ -17,9 +17,8 @@ import { verifyPassword } from './passwords';
 import { findUserById } from './queries';
 import { sessionUserId } from './require-session';
 import { TokensPage } from './tokens-page';
+import { TOKENS_PATH } from './urls';
 import { Password } from './validation';
-
-export const TOKENS_PATH = '/auth/tokens';
 
 const TokensQuery = Type.Object({
   // Navigation state from the revoke redirect; anything else shows nothing.

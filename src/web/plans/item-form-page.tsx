@@ -12,10 +12,9 @@ import { QUANTITY_MAX } from '../../wardrobe/availability';
 import { PostForm } from '../auth/form';
 import type { FieldErrors } from '../auth/validation';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, orderCategories } from '../wardrobe/garment';
 import { valueLabel } from '../wardrobe/labels';
@@ -61,17 +60,11 @@ export function ItemFormPage(props: {
   const back = planUrl(planId);
   return (
     <Layout ctx={ctx} title={title}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={title} back={back} />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <div class="flex items-center gap-3 mb-2">
-          <BackLink href={back} />
-          <div class="min-w-0">
-            <h1 class="text-2xl font-bold">{title}</h1>
-            <p class="text-sm text-base-content/60 truncate">
-              {model.planName}
-            </p>
-          </div>
-        </div>
+        <p class="text-sm text-base-content/60 truncate mb-2">
+          {model.planName}
+        </p>
         {model.proposed && (
           <p role="status" class="alert alert-info alert-soft text-sm my-3">
             {t('plans.PROPOSED_EDIT_HINT')}

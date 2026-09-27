@@ -1,9 +1,9 @@
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, GarmentThumb } from '../layout/parts';
+import { GarmentThumb } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import {
@@ -61,15 +61,13 @@ export function ItemCandidatesPage(props: {
   const facts = itemFacts(item);
   return (
     <Layout ctx={ctx} title={title}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={title}
+        back={model.returnTo ?? planUrl(plan.id)}
+      />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
-        <div class="flex items-start gap-3">
-          <BackLink href={model.returnTo ?? planUrl(plan.id)} />
-          <div class="flex-1 min-w-0">
-            <h1 class="text-2xl font-bold break-words">{title}</h1>
-            <p class="text-sm text-base-content/60 truncate">{plan.name}</p>
-          </div>
-        </div>
+        <p class="text-sm text-base-content/60 truncate">{plan.name}</p>
         {(facts.length > 0 || item.budget) && (
           <p class="text-sm text-base-content/70">
             {[
@@ -197,12 +195,12 @@ export function GarmentPlanItemsPage(props: {
   const title = t('shopping.PLAN_ITEMS_TITLE', { name });
   return (
     <Layout ctx={ctx} title={title}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={title}
+        back={garmentUrl(garment.id, undefined)}
+      />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
-        <div class="flex items-center gap-3">
-          <BackLink href={garmentUrl(garment.id, undefined)} />
-          <h1 class="text-2xl font-bold break-words flex-1 min-w-0">{title}</h1>
-        </div>
         <p class="text-sm text-base-content/70">
           {t('shopping.PLAN_ITEMS_INTRO')}
         </p>

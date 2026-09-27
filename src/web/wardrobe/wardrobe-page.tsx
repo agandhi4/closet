@@ -14,9 +14,9 @@ import {
 import { PostForm } from '../auth/form';
 import { imageUrl } from '../files/image-url';
 import { type StringKey, t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import {
   EmptyState,
   HangerIcon,
@@ -148,10 +148,10 @@ export function WardrobePage(props: {
   const { model } = props;
   return (
     <Layout ctx={props.ctx} title={t('WARDROBE')}>
-      <Navbar ctx={props.ctx} />
-      <header class="px-4 pt-20">
+      <AppBar ctx={props.ctx} title={t('WARDROBE')} />
+      <div class="px-4 pt-20">
         {!model.selecting && !model.picking && <WeatherSlot ctx={props.ctx} />}
-      </header>
+      </div>
       <WardrobeMain model={model} />
       <Dock ctx={props.ctx} />
     </Layout>
@@ -162,8 +162,8 @@ export function WardrobePage(props: {
  * The swappable part of the wardrobe page: heading, wardrobe switcher,
  * result count, the first page of the grid, the fixed search and filter bar
  * and the filter modal. GET /wardrobe answers htmx fragment requests with
- * this element alone, so filtering and searching never re-render navbar and
- * dock, and always start again from the first page.
+ * this element alone, so filtering and searching never re-render the app
+ * bar and the dock, and always start again from the first page.
  */
 export function WardrobeMain({ model }: { model: WardrobeModel }) {
   const { viewOwner, selecting } = model;
@@ -302,17 +302,19 @@ function LaundryPrompt(props: { count: number }) {
 }
 
 /**
- * The title and, for someone who may edit, Select (or Cancel) and New. The
- * picker's Cancel goes back to its capsule.
+ * The mode and, for someone who may edit, Select (or Cancel) and New. The
+ * picker's Cancel goes back to its capsule. Inside #wardrobe-main, which
+ * select mode and filtering swap, so it follows them; the app bar's title
+ * is the page's and stays "Wardrobe" (R3 moves these actions into it).
  */
 function Heading({ model }: { model: WardrobeModel }) {
   const { search, viewOwner, canEdit, selecting, picking } = model;
   if (picking) {
     return (
       <div class="flex items-center justify-between gap-2 mb-6 px-2">
-        <h1 class="text-2xl font-bold">
+        <h2 class="text-xl font-semibold">
           {t('PICK_GARMENTS_FOR', { name: picking.name })}
-        </h1>
+        </h2>
         <a
           href={capsuleUrl(picking.capsuleId, viewOwner)}
           class="btn btn-ghost btn-sm"
@@ -323,10 +325,10 @@ function Heading({ model }: { model: WardrobeModel }) {
     );
   }
   return (
-    <div class="flex items-center justify-between gap-2 mb-6 px-2">
-      <h1 class="text-2xl font-bold">
-        {selecting ? t('SELECT_GARMENTS') : t('WARDROBE')}
-      </h1>
+    <div class="flex items-center justify-end gap-2 mb-6 px-2">
+      {selecting && (
+        <h2 class="text-xl font-semibold mr-auto">{t('SELECT_GARMENTS')}</h2>
+      )}
       <div class="flex items-center gap-2">
         {canEdit && model.page.tiles.length > 0 && (
           <SelectToggle

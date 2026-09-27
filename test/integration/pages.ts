@@ -240,7 +240,6 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app('/auth/tokens'),
     // Public, but a signed-out visitor is sent to log in like any app page.
     app('/auth/logout'),
-    app('/wardrobe-share/manage'),
     open('/about'),
     open('/offline.html'),
     open('/auth/login'),
@@ -265,10 +264,36 @@ export function expectFullPage(res: LightMyRequestResponse): void {
   expectNativePostForms(res);
   expectAutosaveControls(res);
   expectNoScriptNavigation(res);
+  expectAppBar(res);
   // _hyperscript left the app (2026-09-26): an `_=` attribute would do
   // nothing at all.
   expect(res.body).not.toMatch(/\s_="/);
   expect(res.body).not.toContain('_hyperscript');
+}
+
+/**
+ * Every page has the one app bar (src/web/layout/app-bar.tsx) and its title
+ * is the page's only h1; signed in, the avatar opens Profile, signed out
+ * the bar offers a way in. The drawer is gone (#82).
+ */
+export function expectAppBar(res: LightMyRequestResponse): void {
+  const body = res.body;
+  expect(body.match(/<header class="app-bar\b/g)).toHaveLength(1);
+  expect(body.match(/<h1\b/g)).toHaveLength(1);
+  expect(body).not.toContain('drawer-toggle');
+  if (res.headers['x-page-account']) {
+    expect(body.match(/<a href="\/auth\/profile" id="avatar"/g)).toHaveLength(
+      1,
+    );
+  } else {
+    // A link in, or on the login page its own form.
+    expect(body).toMatch(/(?:href|action)="\/auth\/(?:login|register)"/);
+  }
+}
+
+/** The app bar's title, the page's h1, as text. */
+export function pageTitle(body: string): string | undefined {
+  return /<h1\b[^>]*>([^<]*)<\/h1>/.exec(body)?.[1];
 }
 
 /**

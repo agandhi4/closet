@@ -97,8 +97,8 @@ and response bandwidth/latency. */
   --noise: 0;
 }
 
-/* Inter for everything, Fraunces for headings only (a page's h1, a card's
-   title, the app's name in the navbar): the plan's one risk for this
+/* Inter for everything, Fraunces for headings only (a page's h1, the app
+   bar's title, and a card's title): the plan's one risk for this
    direction is the serif spreading into the UI. */
 @theme {
   --font-sans: "Inter Variable", system-ui, sans-serif;
@@ -125,18 +125,21 @@ and response bandwidth/latency. */
   --spacing-dock: calc(4rem + env(safe-area-inset-bottom, 0px));
 }
 
-/* The app chrome stacks above every page: page content stays at z-20 or
-   below (a stretched-link card's form is z-10, the bars above the dock
-   z-20). daisyUI gives .dock z-index 1, so any positioned z-10 in the page
-   (the outfit card's calendar button) drew over it. The dock sits below the
-   navbar, whose drawer (inside it) must cover the dock when open, and the
-   toasts (z 999) never reach down to it. */
-.navbar {
+/* The app chrome, the app bar (layout/app-bar.tsx) and the dock, stacks
+   above every page: page content stays at z-20 or below (a stretched-link
+   card's form is z-10, the bars above the dock z-20). daisyUI gives .dock
+   z-index 1, so any positioned z-10 in the page (the outfit card's calendar
+   button) drew over it. The two bars never meet, so they share a level; a
+   menu opening from the bar (a scope or ⋯ dropdown) draws over the content
+   from inside it. The toasts (z 999) sit above both. Pages leave the bar's
+   4rem with pt-20. */
+.app-bar {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 1000;
+  height: 4rem;
+  z-index: 900;
 }
 .dock {
   z-index: 900;
@@ -206,13 +209,13 @@ html[data-connectivity='reconnecting'] [data-offline-note] {
 .cal-today    { background-color: var(--color-primary); color: var(--color-primary-content); font-weight: 700; }
 .cal-in-week  { color: var(--color-primary); background-color: color-mix(in oklch, var(--color-primary) 12%, transparent); font-weight: 600; }
 .cal-out-month { color: color-mix(in oklch, var(--color-base-content) 25%, transparent); }
-/* 
+/*
  * pulltorefresh.js styling to pin refresh UI elements
- * under navbar and match the daisyui theme  
+ * under the app bar and match the daisyui theme
  */
 .ptr--ptr {
   position: fixed !important;
-  top: 4rem !important; /* pin below the fixed navbar */
+  top: 4rem !important; /* pin below the fixed app bar */
   left: 0;
   right: 0;
   z-index: 999;

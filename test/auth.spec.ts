@@ -3,11 +3,15 @@ import { E2E_PASSWORD, signIn, signUpHeaders } from './support/e2e-session';
 
 const APP_NAME = process.env.APP_NAME || 'Closet';
 
+/** Profile's account section, which names who is signed in. */
+const signedInAs = (page: Page) => page.locator('#account');
+
 /**
  * The session is resolved once per request from the access_token cookie
  * (createSessionResolver, see src/app.ts). This proves the cookie set by
  * /auth/login is honoured by the session gate on /wardrobe and /auth/profile
- * and by the navbar and profile page that show the user.
+ * and by the app bar's avatar and Profile's account section that show the
+ * user.
  */
 test.describe('login session', () => {
   test('cookie from /auth/login sticks across wardrobe and profile', async ({
@@ -40,10 +44,12 @@ test.describe('login session', () => {
 
     await page.goto('/wardrobe');
     await expect(page).toHaveURL(/\/wardrobe$/);
-    await expect(page.locator('body')).toContainText(APP_NAME);
+    await expect(page.locator('#avatar')).toHaveText(
+      email.charAt(0).toUpperCase(),
+    );
 
     await page.goto('/auth/profile');
-    await expect(page.locator('main h1')).toHaveText(email);
+    await expect(signedInAs(page)).toContainText(email);
   });
 
   // A refused change answers 400, which htmx would not swap into a boosted
@@ -75,7 +81,7 @@ test.describe('login session', () => {
 
     // Still signed in on a full reload, with the replacement cookie.
     await page.goto('/auth/profile');
-    await expect(page.locator('main h1')).toHaveText(email);
+    await expect(signedInAs(page)).toContainText(email);
   });
 
   // The account forms post natively (no htmx), which is what lets a
@@ -108,7 +114,7 @@ test.describe('login session', () => {
     await page.locator('#password').fill(E2E_PASSWORD);
     await page.getByRole('button', { name: 'Login' }).click();
     await expect(page).toHaveURL(/\/auth\/profile$/);
-    await expect(page.locator('main h1')).toHaveText(email);
+    await expect(signedInAs(page)).toContainText(email);
   });
 
   test('registering through the form signs the new account in', async ({
@@ -128,7 +134,7 @@ test.describe('login session', () => {
     await page.getByRole('button', { name: 'Register' }).click();
 
     await expect(page).toHaveURL(/\/auth\/profile$/);
-    await expect(page.locator('main h1')).toHaveText(email);
+    await expect(signedInAs(page)).toContainText(email);
   });
 
   test('delete account: wrong credentials show the error, nothing is deleted', async ({
@@ -146,42 +152,48 @@ test.describe('login session', () => {
       'Incorrect email or password',
     );
     await page.goto('/auth/profile');
-    await expect(page.locator('main h1')).toHaveText(email);
+    await expect(signedInAs(page)).toContainText(email);
   });
 });
 
 /**
- * Signing out is a POST from the navbar (a GET let any cross-site link sign
- * someone out). The button submits one hidden native form through its
- * `form` attribute, from the desktop bar and from the phone's drawer.
+ * Signing out is a POST (a GET let any cross-site link sign someone out),
+ * from Profile's last section; the drawer that held it is gone (#82). On a
+ * phone the avatar is the way there.
  */
 test.describe('logout', () => {
-  // The bar's button and the drawer's; only one is on screen at a time.
-  const logoutButton = (page: Page) =>
-    page.getByRole('button', { name: 'Logout' }).filter({ visible: true });
-
   const expectSignedOut = async (page: Page) => {
     await expect(page).toHaveURL(/\/auth\/login$/);
     await page.goto('/wardrobe');
     await expect(page).toHaveURL(/\/auth\/login$/);
   };
 
-  test('the navbar button signs out', async ({ page }) => {
+  test("Profile's sign-out signs out", async ({ page }) => {
     await signIn(page, 'logout-desktop');
-    await page.goto('/wardrobe');
-    await logoutButton(page).click();
+    await page.goto('/auth/profile');
+    await page
+      .locator('#sign-out')
+      .getByRole('button', { name: 'Logout' })
+      .click();
     await expectSignedOut(page);
   });
 
   test.describe('on a phone', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
-    test('the drawer button signs out', async ({ page }) => {
+    test('the avatar opens Profile, whose sign-out signs out', async ({
+      page,
+    }) => {
       await signIn(page, 'logout-phone');
       await page.goto('/wardrobe');
-      await expect(logoutButton(page)).toHaveCount(0);
-      await page.locator('label[aria-label="open sidebar"]').click();
-      await logoutButton(page).click();
+      await page.locator('#avatar').click();
+      await expect(page).toHaveURL(/\/auth\/profile$/);
+      await page.getByRole('link', { name: 'Sign out', exact: true }).click();
+      const button = page
+        .locator('#sign-out')
+        .getByRole('button', { name: 'Logout' });
+      await expect(button).toBeInViewport();
+      await button.click();
       await expectSignedOut(page);
     });
   });
@@ -191,12 +203,12 @@ test.describe('logout', () => {
   }) => {
     const email = await signIn(page, 'logout-link');
     await page.goto('/auth/logout');
-    await expect(page.locator('main h1')).toHaveText(
+    await expect(page.locator('main')).toContainText(
       `Sign out of ${APP_NAME} on this device?`,
     );
     // Nothing has ended yet.
     await page.goto('/auth/profile');
-    await expect(page.locator('main h1')).toHaveText(email);
+    await expect(signedInAs(page)).toContainText(email);
 
     await page.goto('/auth/logout');
     await page.locator('main').getByRole('button', { name: 'Logout' }).click();

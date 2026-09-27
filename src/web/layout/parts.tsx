@@ -191,3 +191,32 @@ export function StripFlags(props: { names: readonly string[] }) {
 })();`;
   return <script dangerouslySetInnerHTML={{ __html: script }} />;
 }
+
+/**
+ * One section of Profile (src/web/auth/pages.tsx): an anchor other pages
+ * link to (`/auth/profile#weather`), its heading and its content. Each
+ * feature renders its own (the sharing, weather, notifications and week
+ * sections); `scroll-mt-20` keeps the heading clear of the fixed app bar
+ * when the anchor is followed.
+ */
+export function ProfileSection(props: {
+  id: string;
+  heading: string;
+  children: Child;
+}) {
+  const headingId = `${props.id}-heading`;
+  return (
+    <section
+      id={props.id}
+      class="card bg-base-200 w-full scroll-mt-20"
+      aria-labelledby={headingId}
+    >
+      <div class="card-body gap-3">
+        <h2 id={headingId} class="card-title">
+          {props.heading}
+        </h2>
+        {props.children}
+      </div>
+    </section>
+  );
+}

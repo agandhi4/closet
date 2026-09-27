@@ -1,22 +1,36 @@
 import type { Child } from 'hono/jsx';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
+import { ProfileSection } from '../layout/parts';
 import { STYLE_PROFILE_PATH } from '../plans/urls';
 import {
+  PUSH_SETTINGS_ID,
   PushEndpointField,
   PushSettings,
   PushSignedOut,
 } from '../push/settings';
+import { SharingSection, type SharingModel } from '../sharing/pages';
+import { SHARING_SECTION_ID } from '../sharing/urls';
 import type { ViewContext } from '../view-context';
 import type { TemplateSlot } from '../../wardrobe/week';
 import type { WeatherSettings as Settings } from '../weather/queries';
-import { WeatherSettings } from '../weather/settings';
+import { WEATHER_SETTINGS_ID, WeatherSettings } from '../weather/settings';
+import { WEEK_SETTINGS_ID } from '../week-plan/urls';
 import { WeekTemplateSettings } from '../week-plan/views';
 import { ErrorAlert, Field, Fieldset, PostForm, SubmitButton } from './form';
-import { LOGOUT_PATH } from './logout';
+import { SignOutForm } from './logout';
+import type { TokenListing } from './personal-tokens';
+import {
+  ACCOUNT_SECTION_ID,
+  AGENT_ACCESS_SECTION_ID,
+  profileSection,
+  SIGN_OUT_SECTION_ID,
+  STYLE_SECTION_ID,
+  TOKENS_PATH,
+} from './urls';
 import type {
   ChangePasswordBody,
   FieldErrors,
@@ -26,8 +40,16 @@ import type {
 
 /** The pages under /auth. Each takes the page context and what to show. */
 
+/** Where the account's own forms go back to: Profile › Account. */
+const ACCOUNT_SECTION_PATH = profileSection(ACCOUNT_SECTION_ID);
+
+/** A one-form page: sign in, register, the account's forms. */
 function AccountShell(props: {
   ctx: ViewContext;
+  /** The app bar's title, the page's h1. */
+  title: string;
+  /** The back arrow (the account's forms go back to Profile). */
+  back?: string;
   ogTitle?: string;
   ogDescription?: string;
   children: Child;
@@ -35,14 +57,14 @@ function AccountShell(props: {
   return (
     <Layout
       ctx={props.ctx}
+      title={props.title}
       ogTitle={props.ogTitle}
       ogDescription={props.ogDescription}
     >
-      <Navbar ctx={props.ctx} />
-      {/* Centred while it fits; from the top once it does not (the profile's
-          sections), so nothing ends up under the fixed navbar, where no
-          scroll reaches it. The padding clears the navbar and the dock, as
-          on every other page. */}
+      <AppBar ctx={props.ctx} title={props.title} back={props.back} />
+      {/* Centred while it fits; from the top once it does not, so nothing
+          ends up under the fixed app bar, where no scroll reaches it. The
+          padding clears the app bar and the dock, as on every other page. */}
       <main class="flex flex-col justify-center-safe items-center min-h-full gap-3 px-4 pt-20 pb-24">
         {props.children}
       </main>
@@ -83,12 +105,16 @@ export function LoginPage(props: {
   const title = t('LOGIN_OG_TITLE', { appName: ctx.appName });
   const description = t('LOGIN_OG_DESC', { appName: ctx.appName });
   return (
-    <AccountShell ctx={ctx} ogTitle={title} ogDescription={description}>
+    <AccountShell
+      ctx={ctx}
+      title={title}
+      ogTitle={title}
+      ogDescription={description}
+    >
       <WebPageData ctx={ctx} name={title} description={description} />
       {/* Signed out only: a signed-in visitor opening this page keeps
           their notifications. */}
       {ctx.pwaEnabled && !ctx.user && <PushSignedOut />}
-      <h1 class="text-2xl font-bold mb-4">{title}</h1>
       {props.failed && <ErrorAlert message={t('LOGIN_FAILED')} />}
       <PostForm action="/auth/login">
         <Fieldset legend={t('LOGIN')}>
@@ -115,13 +141,11 @@ export function LoginPage(props: {
 /** GET /auth/logout: what a signed-in visitor sees behind an old sign-out link. */
 export function LogoutPage(props: { ctx: ViewContext }) {
   return (
-    <AccountShell ctx={props.ctx}>
-      <h1 class="text-2xl font-bold">
+    <AccountShell ctx={props.ctx} title={t('profile.SIGN_OUT')}>
+      <p class="text-lg">
         {t('LOGOUT_PROMPT', { appName: props.ctx.appName })}
-      </h1>
-      <PostForm action={LOGOUT_PATH}>
-        <SubmitButton label={t('LOGOUT')} />
-      </PostForm>
+      </p>
+      <SignOutForm />
     </AccountShell>
   );
 }
@@ -175,9 +199,13 @@ export function RegisterPage(props: { ctx: ViewContext } & RegisterFormState) {
   const title = t('REGISTER_OG_TITLE', { appName: ctx.appName });
   const description = t('REGISTER_OG_DESC', { appName: ctx.appName });
   return (
-    <AccountShell ctx={ctx} ogTitle={title} ogDescription={description}>
+    <AccountShell
+      ctx={ctx}
+      title={title}
+      ogTitle={title}
+      ogDescription={description}
+    >
       <WebPageData ctx={ctx} name={title} description={description} />
-      <h1 class="text-2xl font-bold mb-4">{title}</h1>
       <PostForm action="/auth/register">
         <RegisterFields input={props.input} errors={props.errors} />
       </PostForm>
@@ -185,45 +213,148 @@ export function RegisterPage(props: { ctx: ViewContext } & RegisterFormState) {
   );
 }
 
-export function ProfilePage(props: {
+export interface ProfileProps {
   ctx: ViewContext;
   passwordChanged: boolean;
   /** The week template section (#16): the stored slots, and whether it was just saved. */
   week: { slots: readonly TemplateSlot[]; saved: boolean };
   /** The weather section's state; absent with WEATHER_ENABLED=false. */
   weather?: { settings: Settings; timeZone: string; now: Date };
-}) {
+  /** The Sharing section: this user's shares and invites. */
+  sharing: SharingModel;
+  /** Agent access: the personal access tokens in force. */
+  tokens: TokenListing[];
+}
+
+/**
+ * Profile, the avatar's page (docs/plans/2026-09-26-redesign.md, "The app
+ * bar"): every setting of the signed-in user's own, in sections, in the
+ * plan's order. Each section is an anchor that pages and redirects link to
+ * (`/auth/profile#weather`); the jump links at the top reach them on a
+ * phone. Editors too large for a section keep their own page, linked from
+ * it (the style profile, agent access, the account's forms), with a back
+ * arrow to their section.
+ */
+export function ProfilePage(props: ProfileProps) {
+  const { ctx } = props;
+  // Web Push needs the service worker, which only PWA_ENABLED serves.
+  const sections: { id: string; label: string }[] = [
+    { id: ACCOUNT_SECTION_ID, label: t('profile.ACCOUNT') },
+    { id: SHARING_SECTION_ID, label: t('WARDROBE_SHARING') },
+    ...(ctx.pwaEnabled
+      ? [{ id: PUSH_SETTINGS_ID, label: t('PUSH_HEADING') }]
+      : []),
+    ...(props.weather
+      ? [{ id: WEATHER_SETTINGS_ID, label: t('weather.SETTINGS_HEADING') }]
+      : []),
+    { id: WEEK_SETTINGS_ID, label: t('weekPlan.template.HEADING') },
+    { id: STYLE_SECTION_ID, label: t('style.TITLE') },
+    { id: AGENT_ACCESS_SECTION_ID, label: t('agentAccess.TITLE') },
+    { id: SIGN_OUT_SECTION_ID, label: t('profile.SIGN_OUT') },
+  ];
   return (
-    <AccountShell ctx={props.ctx}>
-      {props.passwordChanged && (
-        <div role="status" class="alert alert-success">
-          <span>{t('PASSWORD_CHANGED')}</span>
-        </div>
+    <Layout ctx={ctx} title={t('PROFILE')}>
+      <AppBar ctx={ctx} title={t('PROFILE')} />
+      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-4">
+        {props.passwordChanged && (
+          <div role="status" class="alert alert-success">
+            <span>{t('PASSWORD_CHANGED')}</span>
+          </div>
+        )}
+        <nav
+          aria-label={t('profile.SECTIONS')}
+          class="flex gap-2 overflow-x-auto overscroll-x-contain pb-1"
+        >
+          {sections.map((section) => (
+            <a
+              href={`#${section.id}`}
+              class="btn btn-sm btn-ghost border-base-300 shrink-0"
+            >
+              {section.label}
+            </a>
+          ))}
+        </nav>
+        <AccountSection ctx={ctx} />
+        <SharingSection {...props.sharing} />
+        {ctx.pwaEnabled && <PushSettings />}
+        {props.weather && <WeatherSettings {...props.weather} />}
+        <WeekTemplateSettings {...props.week} />
+        <ProfileSection id={STYLE_SECTION_ID} heading={t('style.TITLE')}>
+          <p class="text-sm text-base-content/70">{t('profile.STYLE_HINT')}</p>
+          <a href={STYLE_PROFILE_PATH} class="btn btn-sm self-start">
+            {t('profile.EDIT_STYLE')}
+          </a>
+        </ProfileSection>
+        <AgentAccessSection tokens={props.tokens} />
+        <ProfileSection
+          id={SIGN_OUT_SECTION_ID}
+          heading={t('profile.SIGN_OUT')}
+        >
+          <p class="text-sm text-base-content/70">
+            {t('profile.SIGN_OUT_HINT')}
+          </p>
+          <SignOutForm />
+        </ProfileSection>
+        <a href="/about" class="link link-hover text-sm self-center">
+          {t('ABOUT_TITLE')}
+        </a>
+      </main>
+      <Dock ctx={ctx} />
+    </Layout>
+  );
+}
+
+/** Profile › Account: who is signed in, and the account's own forms. */
+function AccountSection({ ctx }: { ctx: ViewContext }) {
+  return (
+    <ProfileSection id={ACCOUNT_SECTION_ID} heading={t('profile.ACCOUNT')}>
+      <p class="text-sm break-all">
+        {t('profile.SIGNED_IN_AS', { email: ctx.user?.email ?? '' })}
+      </p>
+      <ul class="menu menu-sm bg-base-100 rounded-box w-full p-1">
+        <li>
+          <a href="/auth/update-email">{t('UPDATE_EMAIL')}</a>
+        </li>
+        <li>
+          <a href="/auth/change-password">{t('CHANGE_PASSWORD')}</a>
+        </li>
+        <li>
+          <a href="/auth/delete-account" class="text-error">
+            {t('DELETE_ACCOUNT')}
+          </a>
+        </li>
+      </ul>
+    </ProfileSection>
+  );
+}
+
+/**
+ * Profile › Agent access: the tokens in force by name; creating and
+ * revoking stay on their page (TOKENS_PATH), where a new token is shown
+ * once in the answer to its password-checked form.
+ */
+function AgentAccessSection(props: { tokens: TokenListing[] }) {
+  return (
+    <ProfileSection
+      id={AGENT_ACCESS_SECTION_ID}
+      heading={t('agentAccess.TITLE')}
+    >
+      {props.tokens.length === 0 ? (
+        <p class="text-sm text-base-content/70">{t('agentAccess.NONE')}</p>
+      ) : (
+        <ul class="text-sm flex flex-col gap-1">
+          {props.tokens.map((token) => (
+            <li class="flex items-center gap-2 min-w-0">
+              <span class="truncate">{token.name}</span>
+              <code class="text-xs text-base-content/60">{token.prefix}…</code>
+            </li>
+          ))}
+        </ul>
       )}
-      <h1 class="text-2xl">{props.ctx.user?.email}</h1>
-      <a class="link" href="/auth/update-email">
-        {t('UPDATE_EMAIL')}
+      <a href={TOKENS_PATH} class="btn btn-sm self-start">
+        {t('agentAccess.MANAGE')}
       </a>
-      <a class="link" href="/auth/change-password">
-        {t('CHANGE_PASSWORD')}
-      </a>
-      <a class="link" href={STYLE_PROFILE_PATH}>
-        {t('style.TITLE')}
-      </a>
-      <a class="link" href="/wardrobe-share/manage">
-        {t('WARDROBE_SHARING')}
-      </a>
-      <a class="link" href="/auth/tokens">
-        {t('agentAccess.TITLE')}
-      </a>
-      <a class="link" href="/auth/delete-account">
-        {t('DELETE_ACCOUNT')}
-      </a>
-      {/* Web Push needs the service worker, which only PWA_ENABLED serves. */}
-      {props.ctx.pwaEnabled && <PushSettings />}
-      <WeekTemplateSettings {...props.week} />
-      {props.weather && <WeatherSettings {...props.weather} />}
-    </AccountShell>
+    </ProfileSection>
   );
 }
 
@@ -276,7 +407,11 @@ export function UpdateEmailPage(
   props: { ctx: ViewContext } & UpdateEmailFormState,
 ) {
   return (
-    <AccountShell ctx={props.ctx}>
+    <AccountShell
+      ctx={props.ctx}
+      title={t('UPDATE_EMAIL')}
+      back={ACCOUNT_SECTION_PATH}
+    >
       <PostForm action="/auth/update-email">
         <UpdateEmailFields input={props.input} errors={props.errors} />
       </PostForm>
@@ -291,7 +426,11 @@ export function ChangePasswordPage(props: {
 }) {
   const errors = props.errors ?? {};
   return (
-    <AccountShell ctx={props.ctx}>
+    <AccountShell
+      ctx={props.ctx}
+      title={t('CHANGE_PASSWORD')}
+      back={ACCOUNT_SECTION_PATH}
+    >
       <PostForm action="/auth/change-password">
         <Fieldset legend={t('CHANGE_PASSWORD')}>
           {/* Tells password managers which account's password this is. */}
@@ -340,7 +479,11 @@ export function DeleteAccountPage(props: {
   failed?: boolean;
 }) {
   return (
-    <AccountShell ctx={props.ctx}>
+    <AccountShell
+      ctx={props.ctx}
+      title={t('DELETE_ACCOUNT')}
+      back={ACCOUNT_SECTION_PATH}
+    >
       {props.failed && <ErrorAlert message={t('DELETE_ACCOUNT_FAILED')} />}
       <PostForm
         action="/auth/delete-account"

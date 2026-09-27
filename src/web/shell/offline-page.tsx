@@ -1,8 +1,8 @@
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { OfflineIcon } from '../layout/app-status';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import type { ViewContext } from '../view-context';
 
 /**
@@ -13,12 +13,9 @@ import type { ViewContext } from '../view-context';
 export function OfflinePage({ ctx }: { ctx: ViewContext }) {
   return (
     <Layout ctx={ctx}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={t('OFFLINE_TITLE')} />
       <main class="p-20 gap-2 flex flex-col justify-center items-center h-full">
-        <div class="flex flex-row gap-2">
-          <h1>{t('OFFLINE_TITLE')}</h1>
-          <OfflineIcon class="size-6 text-error animate-pulse" />
-        </div>
+        <OfflineIcon class="size-6 text-error animate-pulse" />
         <p>{t('OFFLINE_DESC')}</p>
         <a href="/" class="btn">
           {t('RETURN_TO_HOME')}

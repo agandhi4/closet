@@ -1,7 +1,7 @@
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { EmptyState, GarmentThumb } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
@@ -49,15 +49,16 @@ export function WishlistPage(props: {
   const { viewOwner, canEdit } = model;
   return (
     <Layout ctx={ctx} title={t('wishlist.TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={t('WARDROBE')} />
       <main class="p-4 pt-20 pb-24">
-        <div class="flex items-center justify-between gap-2 mb-6 px-2">
-          <h1 class="text-2xl font-bold">{t('WARDROBE')}</h1>
-          {canEdit && model.items.length > 0 && (
-            <AddButtons viewOwner={viewOwner} />
-          )}
-        </div>
         <WardrobeTabs active="wishlist" viewOwner={viewOwner} />
+        {/* Two labelled buttons: wider than the app bar's actions have room
+            for on a phone (R3's add sheet takes them into the bar). */}
+        {canEdit && model.items.length > 0 && (
+          <div class="max-w-lg mx-auto mb-3 px-2 flex justify-end">
+            <AddButtons viewOwner={viewOwner} />
+          </div>
+        )}
         {model.candidacies && (
           <div class="max-w-lg mx-auto mb-3 px-2 flex justify-end">
             <a href={SHOPPING_PATH} class="link link-primary text-sm">

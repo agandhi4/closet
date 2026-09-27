@@ -2098,7 +2098,7 @@ describe('authorization matrix', () => {
       url: `/wardrobe-share/invite/${token[1]}/accept`,
       headers: { cookie: actors[grantee].cookie },
     });
-    expect(accept.headers.location).toBe('/wardrobe-share/manage');
+    expect(accept.headers.location).toBe('/auth/profile#sharing');
   };
 
   const createFixture = async (): Promise<Fixture> => {

@@ -1,9 +1,9 @@
 import { DEFAULT_OCCASION, OCCASIONS } from '../../wardrobe/occasions';
 import { occasionLabel } from '../calendar/labels';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { STYLING_PATH } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { EmptyState, GarmentThumb } from '../layout/parts';
@@ -35,14 +35,16 @@ export function OutfitsPage(props: {
   const { ctx, outfits } = props;
   return (
     <Layout ctx={ctx} title={t('OUTFITS')}>
-      <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24">
-        <div class="flex items-center justify-between mb-6 px-2">
-          <h1 class="text-2xl font-bold">{t('OUTFITS')}</h1>
+      <AppBar
+        ctx={ctx}
+        title={t('OUTFITS')}
+        actions={
           <a href={STYLING_PATH} class="btn btn-primary btn-sm">
             + {t('styling.NEW')}
           </a>
-        </div>
+        }
+      />
+      <main class="p-4 pt-20 pb-24">
         <OutfitTabs active="saved" />
         {outfits.length > 0 ? (
           <>

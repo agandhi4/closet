@@ -7,7 +7,7 @@
  * cache: the service worker's (views/assets/src-sw.ts: a tab root opened
  * stale-while-revalidate, or any page whose network request timed out or
  * failed) or htmx's history snapshots. For a cached copy a minute old or
- * more, #freshness in the navbar says "Updated 3 minutes ago".
+ * more, #freshness in the app bar says "Updated 3 minutes ago".
  *
  * A tab root's revalidation lands moments after it opens. When the server's
  * page differs it is swapped in at once if the page is untouched (no tap, key

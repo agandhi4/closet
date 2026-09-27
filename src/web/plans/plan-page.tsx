@@ -1,10 +1,10 @@
 import type { ItemMatch, ItemStatus } from '../../wardrobe/plans';
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, SavedToast, StripFlags } from '../layout/parts';
+import { SavedToast, StripFlags } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
@@ -55,23 +55,21 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
   const { plan, tally, proposed } = model.gaps;
   return (
     <Layout ctx={ctx} title={plan.name}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={plan.name}
+        back={PLANS_PATH}
+        actions={<PlanMenu gaps={model.gaps} />}
+      />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-5">
-        <div class="flex items-start gap-3">
-          <BackLink href={PLANS_PATH} />
-          <div class="flex-1 min-w-0">
-            <h1 class="text-2xl font-bold break-words">{plan.name}</h1>
-            <p class="text-sm text-base-content/60" id="plan-tally">
-              {plan.active && (
-                <span class="badge badge-primary badge-sm mr-2">
-                  {t('plans.ACTIVE')}
-                </span>
-              )}
-              {t('plans.TALLY', tally)}
-            </p>
-          </div>
-          <PlanMenu gaps={model.gaps} />
-        </div>
+        <p class="text-sm text-base-content/60" id="plan-tally">
+          {plan.active && (
+            <span class="badge badge-primary badge-sm mr-2">
+              {t('plans.ACTIVE')}
+            </span>
+          )}
+          {t('plans.TALLY', tally)}
+        </p>
         {plan.notes && (
           <p class="text-sm whitespace-pre-line text-base-content/80">
             {plan.notes}
@@ -161,8 +159,8 @@ function GroupHeading(props: { id: string; count: number; children: string }) {
 /**
  * Edit, Duplicate, Make active and Delete. The two posts are hidden forms
  * outside the menu that its buttons submit through their `form` attribute
- * (a form inside a daisyUI menu item loses the item's styling; the
- * navbar's sign-out does the same).
+ * (a form inside a daisyUI menu item loses the item's styling). In the
+ * app bar's actions (layout/app-bar.tsx).
  */
 function PlanMenu({ gaps }: { gaps: PlanGaps }) {
   const { plan } = gaps;
@@ -170,11 +168,13 @@ function PlanMenu({ gaps }: { gaps: PlanGaps }) {
     <>
       <PostForm
         id="plan-duplicate"
+        class="hidden"
         action={planUrl(plan.id, '/duplicate')}
         needsNetwork
       />
       <PostForm
         id="plan-activate"
+        class="hidden"
         action={planUrl(plan.id, '/activate')}
         needsNetwork
       />

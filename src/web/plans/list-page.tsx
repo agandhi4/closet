@@ -1,9 +1,9 @@
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, EmptyState } from '../layout/parts';
+import { EmptyState } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import type { PlanGaps } from './gaps';
 import {
@@ -38,15 +38,17 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
   const { ctx, model } = props;
   return (
     <Layout ctx={ctx} title={t('plans.TITLE')}>
-      <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-5">
-        <div class="flex items-center gap-3">
-          <BackLink href="/wardrobe" />
-          <h1 class="text-2xl font-bold flex-1">{t('plans.TITLE')}</h1>
+      <AppBar
+        ctx={ctx}
+        title={t('plans.TITLE')}
+        back="/wardrobe"
+        actions={
           <a href={`${PLANS_PATH}/new`} class="btn btn-primary btn-sm">
             + {t('plans.NEW_PLAN')}
           </a>
-        </div>
+        }
+      />
+      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-5">
         <p class="text-sm text-base-content/70">
           {t('plans.INTRO')}{' '}
           <a href={STYLE_PROFILE_PATH} class="link link-primary">

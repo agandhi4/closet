@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, TestApp } from './harness';
-import { expectFullPage } from './pages';
+import { expectFullPage, pageTitle } from './pages';
 
 /**
  * The web layer (src/web/) inside the real app: the session gate on `GET /`
@@ -63,11 +63,10 @@ describe('web layer', () => {
       const res = await t.inject({ method: 'GET', url: '/no-such-page?x=1' });
       expect(res.statusCode).toBe(404);
       expectFullPage(res);
-      expect(res.body).toContain('<h1>Error 404</h1>');
+      expect(pageTitle(res.body)).toBe('Error 404');
       expect(res.body).toContain('<p>Cannot GET /no-such-page?x=1</p>');
-      expect(res.body).toContain(
-        `<a href="/auth/profile">${t.owner.email}</a>`,
-      );
+      // The avatar: the account's initial, opening Profile.
+      expect(res.body).toContain('<a href="/auth/profile" id="avatar"');
     });
 
     it('is the 404 page signed out too, not a login redirect', async () => {
@@ -77,8 +76,9 @@ describe('web layer', () => {
         anonymous: true,
       });
       expect(res.statusCode).toBe(404);
-      expect(res.body).toContain('<h1>Error 404</h1>');
+      expect(pageTitle(res.body)).toBe('Error 404');
       expect(res.body).toContain('href="/auth/login"');
+      expect(res.body).not.toContain('id="avatar"');
     });
 
     it('answers a missing static asset as data', async () => {
@@ -99,9 +99,7 @@ describe('web layer', () => {
       expect(res.statusCode).toBe(200);
       expectFullPage(res);
       expect(res.body).toContain('<title>About</title>');
-      expect(res.body).toContain(
-        '<h1 class="text-3xl font-bold mb-8">About Closet</h1>',
-      );
+      expect(pageTitle(res.body)).toBe('About Closet');
       // The attribution link is the one raw-HTML string on the page.
       expect(res.body).toContain(
         '<a href="https://github.com/lazztech/libre-closet" class="link"',
@@ -113,26 +111,18 @@ describe('web layer', () => {
       expect(res.headers['x-frame-options']).toBe('DENY');
     });
 
-    it('shows the signed-in account in the navbar', async () => {
+    it('shows the signed-in account as the avatar, which opens Profile', async () => {
       const res = await t.inject({ method: 'GET', url: '/offline.html' });
       expect(res.statusCode).toBe(200);
       expectFullPage(res);
-      expect(res.body).toContain(
-        `<a href="/auth/profile">${t.owner.email}</a>`,
+      expect(res.body).toMatch(
+        /<a href="\/auth\/profile" id="avatar" class="[^"]*" aria-label="Profile">/,
       );
-      // Signing out is a native POST: one hidden form, submitted by the
-      // desktop bar's and the drawer's buttons through their form attribute.
-      expect(res.body).not.toContain('href="/auth/logout"');
-      expect(
-        res.body.match(
-          /<form id="logout-form" method="post" action="\/auth\/logout" class="hidden" hx-boost="false" data-submit-once="">/g,
-        ),
-      ).toHaveLength(1);
-      expect(
-        res.body.match(
-          /<button type="submit" form="logout-form">Logout<\/button>/g,
-        ),
-      ).toHaveLength(2);
+      // owner@example.com: its initial, never the address, in the bar.
+      expect(res.body).toMatch(/aria-hidden="true">O<\/span>/);
+      expect(res.body).not.toContain(t.owner.email);
+      // Signing out lives in Profile now: no page but Profile carries it.
+      expect(res.body).not.toContain('logout');
     });
   });
 

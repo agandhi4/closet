@@ -1,16 +1,17 @@
+import type { Child } from 'hono/jsx';
+import type { SharePermission } from '../../db/schema';
+import { PostForm } from '../auth/form';
+import { t, type StringKey } from '../i18n';
+import { AppBar } from '../layout/app-bar';
+import { Layout } from '../layout/layout';
+import { ProfileSection } from '../layout/parts';
 import { CopyableText } from '../share/share-button';
 import { sharedBy } from '../share/share-page';
-import type { Child } from 'hono/jsx';
-import { PostForm } from '../auth/form';
-import type { SharePermission } from '../../db/schema';
-import { t, type StringKey } from '../i18n';
-import { Dock } from '../layout/dock';
-import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import type { ViewContext } from '../view-context';
 import type { AcceptRefusal, ShareParty, ShareView } from './queries';
+import { SHARING_SECTION_ID } from './urls';
 
-/** Views of /wardrobe-share: the manage page, the invite landing, the new-link fragment. */
+/** Views of sharing: Profile's Sharing section, the invite landing, the new-link fragment. */
 
 export const REFUSAL_MESSAGES: Record<AcceptRefusal, StringKey> = {
   'not-found': 'SHARE_ERROR_NOT_FOUND',
@@ -18,6 +19,15 @@ export const REFUSAL_MESSAGES: Record<AcceptRefusal, StringKey> = {
   'wrong-recipient': 'SHARE_ERROR_WRONG_RECIPIENT',
   'already-shared': 'SHARE_ERROR_ALREADY_SHARED',
 };
+
+/** A refusal code from a URL; anything else is none (navigation state, never a 400). */
+export function parseRefusal(
+  value: string | undefined,
+): AcceptRefusal | undefined {
+  return value !== undefined && Object.hasOwn(REFUSAL_MESSAGES, value)
+    ? (value as AcceptRefusal)
+    : undefined;
+}
 
 export function inviteUrl(origin: string, token: string): string {
   return `${origin}/wardrobe-share/invite/${token}`;
@@ -67,181 +77,156 @@ function partyName(party: ShareParty): string {
   return party.email ?? '';
 }
 
-function ShareCard(props: { title: string; children: Child }) {
+/** A list within the Sharing section: outbound, pending or inbound shares. */
+function ShareList(props: { title: string; children: Child }) {
   return (
-    <div class="card bg-base-100 shadow-sm mb-6">
-      <div class="card-body">
-        <h2 class="card-title text-lg">{props.title}</h2>
-        {props.children}
-      </div>
+    <div class="flex flex-col">
+      <h3 class="font-semibold text-sm">{props.title}</h3>
+      <ul class="divide-y divide-base-300">{props.children}</ul>
     </div>
   );
 }
 
-export function ManagePage(props: {
-  ctx: ViewContext;
+export interface SharingModel {
   outbound: ShareView[];
   inbound: ShareView[];
   pending: ShareView[];
   /** Origin the invite links are built on (the one this page was requested on). */
   origin: string;
+  /** Why an invite could not be accepted, from the accept's redirect. */
   refusal?: AcceptRefusal;
-}) {
-  const { ctx, outbound, inbound, pending } = props;
+}
+
+/**
+ * Profile › Sharing (the manage page until #82): invite links, the
+ * wardrobes this user shares and the ones shared with them, and invites
+ * waiting for an answer. Every write posts to /wardrobe-share/* and lands
+ * back here (SHARING_PATH).
+ */
+export function SharingSection(props: SharingModel) {
+  const { outbound, inbound, pending } = props;
   const empty = !outbound.length && !inbound.length && !pending.length;
   return (
-    <Layout ctx={ctx} title={t('WARDROBE_SHARING')}>
-      <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 w-full max-w-2xl mx-auto">
-        <h1 class="text-2xl font-bold mb-6">{t('WARDROBE_SHARING')}</h1>
+    <ProfileSection id={SHARING_SECTION_ID} heading={t('WARDROBE_SHARING')}>
+      {props.refusal && (
+        <div role="alert" class="alert alert-error">
+          <span>{t(REFUSAL_MESSAGES[props.refusal])}</span>
+        </div>
+      )}
 
-        {props.refusal && (
-          <div role="alert" class="alert alert-error mb-4">
-            <span>{t(REFUSAL_MESSAGES[props.refusal])}</span>
-          </div>
-        )}
+      <p class="text-sm text-base-content/70">{t('SHARE_WARDROBE_DESC')}</p>
+      <form
+        hx-post="/wardrobe-share/create-invite-link"
+        hx-target="#invite-link-result"
+        hx-swap="outerHTML"
+        class="flex gap-2 items-center"
+      >
+        <select
+          name="permission"
+          class="select select-bordered select-sm"
+          aria-label={t('SHARE_WARDROBE')}
+        >
+          <option value="VIEW">{t('PERMISSION_VIEW')}</option>
+          <option value="MANAGE">{t('PERMISSION_MANAGE')}</option>
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">
+          {t('CREATE_INVITE_LINK')}
+        </button>
+      </form>
+      <div id="invite-link-result"></div>
 
-        <ShareCard title={t('SHARE_WARDROBE')}>
-          <p class="text-sm text-base-content/60 mb-4">
-            {t('SHARE_WARDROBE_DESC')}
-          </p>
-          <form
-            hx-post="/wardrobe-share/create-invite-link"
-            hx-target="#invite-link-result"
-            hx-swap="outerHTML"
-            class="flex gap-2 items-center"
-          >
-            <select name="permission" class="select select-bordered select-sm">
-              <option value="VIEW">{t('PERMISSION_VIEW')}</option>
-              <option value="MANAGE">{t('PERMISSION_MANAGE')}</option>
-            </select>
-            <button type="submit" class="btn btn-primary btn-sm">
-              {t('CREATE_INVITE_LINK')}
-            </button>
-          </form>
-          <div id="invite-link-result"></div>
-        </ShareCard>
-
-        {outbound.length > 0 && (
-          <ShareCard title={t('YOUR_SHARED_WARDROBES')}>
-            <ul class="divide-y divide-base-200">
-              {outbound.map((share) => (
-                <li class="py-3 flex items-center justify-between">
-                  <div class="flex flex-col gap-1">
-                    <div class="flex items-center gap-2">
-                      <span class="font-medium">
-                        {share.grantee
-                          ? partyName(share.grantee)
-                          : t('PENDING_INVITE')}
-                      </span>
-                      <PermissionBadge permission={share.permission} />
-                      {!share.acceptedAt && (
-                        <span class="badge badge-ghost badge-sm">
-                          {t('PENDING')}
-                        </span>
-                      )}
-                    </div>
-                    {share.inviteToken && (
-                      <CopyableText
-                        value={inviteUrl(props.origin, share.inviteToken)}
-                        size="xs"
-                        label={t('COPY_INVITE_LINK')}
-                      />
-                    )}
-                  </div>
-                  <PostButton
-                    action={`/wardrobe-share/${share.id}/remove`}
-                    label={t('REVOKE')}
-                    class="btn btn-ghost btn-xs text-error"
-                  />
-                </li>
-              ))}
-            </ul>
-          </ShareCard>
-        )}
-
-        {pending.length > 0 && (
-          <ShareCard title={t('PENDING_INVITES')}>
-            <ul class="divide-y divide-base-200">
-              {pending.map((share) => (
-                <li class="py-3 flex items-center justify-between">
-                  <div>
-                    <span class="font-medium">{partyName(share.grantor)}</span>
-                    <PermissionBadge
-                      permission={share.permission}
-                      class="ml-2"
-                    />
-                  </div>
-                  {share.inviteToken && (
-                    <div class="flex gap-2">
-                      <PostButton
-                        action={`/wardrobe-share/invite/${share.inviteToken}/accept`}
-                        label={t('ACCEPT')}
-                        class="btn btn-primary btn-xs"
-                      />
-                      <PostButton
-                        action={`/wardrobe-share/invite/${share.inviteToken}/decline`}
-                        label={t('DECLINE')}
-                        class="btn btn-ghost btn-xs text-error"
-                      />
-                    </div>
+      {outbound.length > 0 && (
+        <ShareList title={t('YOUR_SHARED_WARDROBES')}>
+          {outbound.map((share) => (
+            <li class="py-3 flex items-center justify-between gap-2">
+              <div class="flex flex-col gap-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium break-all">
+                    {share.grantee
+                      ? partyName(share.grantee)
+                      : t('PENDING_INVITE')}
+                  </span>
+                  <PermissionBadge permission={share.permission} />
+                  {!share.acceptedAt && (
+                    <span class="badge badge-ghost badge-sm">
+                      {t('PENDING')}
+                    </span>
                   )}
-                </li>
-              ))}
-            </ul>
-          </ShareCard>
-        )}
+                </div>
+                {share.inviteToken && (
+                  <CopyableText
+                    value={inviteUrl(props.origin, share.inviteToken)}
+                    size="xs"
+                    label={t('COPY_INVITE_LINK')}
+                  />
+                )}
+              </div>
+              <PostButton
+                action={`/wardrobe-share/${share.id}/remove`}
+                label={t('REVOKE')}
+                class="btn btn-ghost btn-xs text-error"
+              />
+            </li>
+          ))}
+        </ShareList>
+      )}
 
-        {inbound.length > 0 && (
-          <ShareCard title={t('SHARED_WITH_YOU')}>
-            <ul class="divide-y divide-base-200">
-              {inbound.map((share) => (
-                <li class="py-3 flex items-center justify-between">
-                  <div>
-                    <a
-                      href={`/wardrobe?ownerId=${share.grantor.id}`}
-                      class="font-medium link link-primary"
-                    >
-                      {partyName(share.grantor)}
-                    </a>
-                    <PermissionBadge
-                      permission={share.permission}
-                      class="ml-2"
-                    />
-                  </div>
+      {pending.length > 0 && (
+        <ShareList title={t('PENDING_INVITES')}>
+          {pending.map((share) => (
+            <li class="py-3 flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <span class="font-medium break-all">
+                  {partyName(share.grantor)}
+                </span>
+                <PermissionBadge permission={share.permission} class="ml-2" />
+              </div>
+              {share.inviteToken && (
+                <div class="flex gap-2">
                   <PostButton
-                    action={`/wardrobe-share/${share.id}/remove`}
-                    label={t('LEAVE')}
+                    action={`/wardrobe-share/invite/${share.inviteToken}/accept`}
+                    label={t('ACCEPT')}
+                    class="btn btn-primary btn-xs"
+                  />
+                  <PostButton
+                    action={`/wardrobe-share/invite/${share.inviteToken}/decline`}
+                    label={t('DECLINE')}
                     class="btn btn-ghost btn-xs text-error"
                   />
-                </li>
-              ))}
-            </ul>
-          </ShareCard>
-        )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ShareList>
+      )}
 
-        {empty && (
-          <div class="text-center text-base-content/40 py-12">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="1"
-              stroke="currentColor"
-              class="size-16 mx-auto mb-4"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.935-2.185 2.25 2.25 0 0 0-3.935 2.185Z"
+      {inbound.length > 0 && (
+        <ShareList title={t('SHARED_WITH_YOU')}>
+          {inbound.map((share) => (
+            <li class="py-3 flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <a
+                  href={`/wardrobe?ownerId=${share.grantor.id}`}
+                  class="font-medium link link-primary break-all"
+                >
+                  {partyName(share.grantor)}
+                </a>
+                <PermissionBadge permission={share.permission} class="ml-2" />
+              </div>
+              <PostButton
+                action={`/wardrobe-share/${share.id}/remove`}
+                label={t('LEAVE')}
+                class="btn btn-ghost btn-xs text-error"
               />
-            </svg>
-            <p>{t('NO_SHARES_YET')}</p>
-          </div>
-        )}
-      </main>
-      <Dock ctx={ctx} />
-    </Layout>
+            </li>
+          ))}
+        </ShareList>
+      )}
+
+      {empty && (
+        <p class="text-sm text-base-content/60">{t('NO_SHARES_YET')}</p>
+      )}
+    </ProfileSection>
   );
 }
 
@@ -257,8 +242,8 @@ export function InvitePage(props: {
   const { ctx, invite } = props;
   return (
     <Layout ctx={ctx} title={t('WARDROBE_INVITE')}>
-      <Navbar ctx={ctx} />
-      <main class="flex flex-col justify-center items-center min-h-[80vh] px-4">
+      <AppBar ctx={ctx} title={t('WARDROBE_INVITE')} />
+      <main class="flex flex-col justify-center items-center min-h-[80vh] px-4 pt-20">
         <div class="card bg-base-100 shadow-md w-full max-w-md">
           <div class="card-body">
             {invite ? (
@@ -291,7 +276,6 @@ function InviteDetails(props: {
   const from = sharedBy(invite.grantor) ?? t('INVITE_FROM_UNKNOWN');
   return (
     <>
-      <h1 class="text-2xl font-bold mb-2">{t('WARDROBE_INVITE')}</h1>
       <p class="text-base-content/60 mb-4">
         {t('INVITE_FROM')} <strong>{from}</strong>
       </p>

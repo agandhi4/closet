@@ -29,7 +29,7 @@ export function webManifest(config: {
     // too). Where it opens can (#15).
     id: '/wardrobe',
     start_url: '/',
-    // One value each, so the light theme's page colour: the navbar's
+    // One value each, so the light theme's page colour: the app bar's
     // (the title bar blends into it) and the splash screen's.
     theme_color: THEME_BASE_100.light,
     background_color: THEME_BASE_100.light,

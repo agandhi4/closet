@@ -105,7 +105,16 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
   await shot(page, '08b-demo-styling-save');
   await shot(page, '09-demo-calendar-history', '/calendar?week=2026-08-23');
   await shot(page, '10-demo-calendar-planned', '/calendar?week=2026-09-27');
-  await shot(page, '11-demo-shares', '/wardrobe-share/manage');
+  // Sharing is Profile's section since #82: the old page's link lands there,
+  // and the shot is the section (65 is the whole of Profile).
+  await page.goto('/wardrobe-share/manage');
+  await expect(page).toHaveURL(/\/auth\/profile#sharing$/);
+  await page.waitForLoadState('networkidle');
+  await page.locator('#sharing').screenshot({
+    path: `${DIR}/11-demo-shares.png`,
+    animations: 'disabled',
+  });
+  await shot(page, '65-demo-profile', '/auth/profile');
 });
 
 // The dark theme (#81, closet-dark follows the system's scheme): the same

@@ -2,9 +2,9 @@ import { tripPhase } from '../../wardrobe/packing';
 import { CalendarTabs } from '../calendar/calendar-tabs';
 import type { IsoDate } from '../calendar/calendar-date';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { EmptyState } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { phaseLabel, tripDates } from './labels';
@@ -30,15 +30,17 @@ export function TripsPage(props: {
   const { ctx, trips, today } = props;
   return (
     <Layout ctx={ctx} title={t('trips.TITLE')}>
-      <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-3">
-        <CalendarTabs active="trips" />
-        <div class="flex items-center justify-between gap-2">
-          <h1 class="text-2xl font-bold">{t('trips.TITLE')}</h1>
+      <AppBar
+        ctx={ctx}
+        title={t('CALENDAR')}
+        actions={
           <a href={`${TRIPS_PATH}/new`} class="btn btn-primary btn-sm">
             + {t('trips.NEW')}
           </a>
-        </div>
+        }
+      />
+      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-3">
+        <CalendarTabs active="trips" />
         {trips.length === 0 ? (
           <EmptyState message={t('trips.EMPTY')}>
             <a href={`${TRIPS_PATH}/new`} class="btn btn-primary btn-sm">

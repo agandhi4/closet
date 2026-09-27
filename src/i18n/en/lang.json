@@ -2,6 +2,15 @@
   "APP_DESCRIPTION": "Wardrobe organizer: garments, outfits, and a calendar.",
   "HOME": "Home",
   "PROFILE": "Profile",
+  "profile": {
+    "SECTIONS": "Profile sections",
+    "ACCOUNT": "Account",
+    "SIGNED_IN_AS": "Signed in as {email}",
+    "STYLE_HINT": "Your styles, palette and budget: what your plans and your agent go by.",
+    "EDIT_STYLE": "Edit your style profile",
+    "SIGN_OUT": "Sign out",
+    "SIGN_OUT_HINT": "Signs out this device only. Changing your password signs out every device."
+  },
   "FILES": "Files",
   "WARDROBE": "Wardrobe",
   "OUTFITS": "Outfits",
@@ -242,7 +251,8 @@
     "REVOKE_CONFIRM": "Revoke {name}? Anything using it stops working at once.",
     "REVOKED": "Token revoked.",
     "NAME_REQUIRED": "Give the token a name.",
-    "TOO_MANY": "You have {max} tokens. Revoke one first."
+    "TOO_MANY": "You have {max} tokens. Revoke one first.",
+    "MANAGE": "Manage tokens"
   },
   "SHARE_WARDROBE": "Share Your Wardrobe",
   "SHARE_WARDROBE_DESC": "Invite someone to view or manage your wardrobe.",

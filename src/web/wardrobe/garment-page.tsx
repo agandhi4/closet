@@ -9,11 +9,10 @@ import type { GoesWithCloset } from '../gallery/ideas';
 import type { AvoidedPartner } from '../gallery/queries';
 import { styleThisUrl } from '../styling/urls';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import {
-  BackLink,
   CameraIcon,
   HangerIcon,
   SavedToast,
@@ -112,11 +111,16 @@ export function GarmentPage(props: {
   const { ctx, model } = props;
   const { garment } = model;
   const wishlist = garment.status === 'wishlist';
+  const title = garment.name ?? categoryLabel(garment.category);
   return (
-    <Layout ctx={ctx} title={garment.name ?? categoryLabel(garment.category)}>
-      <Navbar ctx={ctx} />
+    <Layout ctx={ctx} title={title}>
+      <AppBar
+        ctx={ctx}
+        title={title}
+        back={backUrl(garment, model.viewOwner)}
+      />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <GarmentHeading garment={garment} viewOwner={model.viewOwner} />
+        <StatusBadge status={garment.status} />
         <div id="garment-photo-slot">
           <GarmentPhotoView
             garment={garment}
@@ -169,32 +173,22 @@ export function GarmentPage(props: {
   );
 }
 
-/**
- * The back arrow (to the wishlist for a wishlist item, else the grid), the
- * name, and where the garment is when it is not the closet.
- */
-function GarmentHeading(props: {
-  garment: GarmentDetail;
-  viewOwner: number | undefined;
-}) {
-  const { garment } = props;
-  const wishlist = garment.status === 'wishlist';
+/** The back arrow: to the wishlist for a wishlist item, else the grid. */
+function backUrl(garment: GarmentDetail, viewOwner: number | undefined) {
+  return wardrobeUrl(
+    viewOwner,
+    {},
+    garment.status === 'wishlist' ? WISHLIST_PATH : '/wardrobe',
+  );
+}
+
+/** Where the garment is when it is not the closet: the wishlist, or archived. */
+function StatusBadge({ status }: { status: GarmentDetail['status'] }) {
+  if (status === 'closet') return null;
   return (
-    <div class="flex items-center gap-3 mb-6">
-      <BackLink
-        href={wardrobeUrl(
-          props.viewOwner,
-          {},
-          wishlist ? WISHLIST_PATH : '/wardrobe',
-        )}
-      />
-      <h1 class="text-2xl font-bold flex-1">{garment.name}</h1>
-      {garment.status !== 'closet' && (
-        <span class="badge badge-soft badge-primary">
-          {t(wishlist ? 'wishlist.ON_WISHLIST' : 'ARCHIVED')}
-        </span>
-      )}
-    </div>
+    <span class="badge badge-soft badge-primary mb-4">
+      {t(status === 'wishlist' ? 'wishlist.ON_WISHLIST' : 'ARCHIVED')}
+    </span>
   );
 }
 
@@ -203,7 +197,7 @@ function GarmentHeading(props: {
  * the mask editor's pencil, and where the cutout stands: pending polls GET /wardrobe/:id/cutout every 2 s (this
  * component again, swapped over itself; the answer without the trigger ends
  * the polling), failed offers "Try again". Its own hx-indicator keeps the
- * polls off the navbar spinner.
+ * polls off the app bar's spinner.
  */
 export function GarmentPhotoView(props: {
   garment: GarmentDetail;

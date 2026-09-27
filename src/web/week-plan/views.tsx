@@ -8,7 +8,7 @@ import type { Slot } from '../../wardrobe/week-planner';
 import { PostForm } from '../auth/form';
 import { DAY_NAMES, dayLabel, occasionLabel } from '../calendar/labels';
 import { t } from '../i18n';
-import { SavedToast, StripFlags } from '../layout/parts';
+import { ProfileSection, SavedToast, StripFlags } from '../layout/parts';
 import type { PlannedBanner } from './plan';
 import { weekdayFieldNames } from './template';
 import {
@@ -136,74 +136,66 @@ export function WeekTemplateSettings(props: {
   saved: boolean;
 }) {
   return (
-    <section
+    <ProfileSection
       id={WEEK_SETTINGS_ID}
-      class="card bg-base-200 w-full max-w-sm"
-      aria-labelledby="week-heading"
+      heading={t('weekPlan.template.HEADING')}
     >
-      <div class="card-body gap-3">
-        <h2 id="week-heading" class="card-title">
-          {t('weekPlan.template.HEADING')}
-        </h2>
-        <p class="text-sm text-base-content/70">
-          {t('weekPlan.template.HINT')}
-        </p>
-        <PostForm
-          action={WEEK_TEMPLATE_PATH}
-          class="flex flex-col gap-3"
-          needsNetwork
-        >
-          {templateDays(props.slots).map((day) => {
-            const names = weekdayFieldNames(day.weekday);
-            const weekday = t(DAY_NAMES[day.weekday]);
-            return (
-              <fieldset
-                class="flex flex-col gap-1"
-                data-weekday={String(day.weekday)}
+      <p class="text-sm text-base-content/70">{t('weekPlan.template.HINT')}</p>
+      <PostForm
+        action={WEEK_TEMPLATE_PATH}
+        class="flex flex-col gap-3"
+        needsNetwork
+      >
+        {templateDays(props.slots).map((day) => {
+          const names = weekdayFieldNames(day.weekday);
+          const weekday = t(DAY_NAMES[day.weekday]);
+          return (
+            <fieldset
+              class="flex flex-col gap-1"
+              data-weekday={String(day.weekday)}
+            >
+              <legend class="text-sm font-semibold">{weekday}</legend>
+              <select
+                name={names.day}
+                class="select select-bordered select-sm w-full"
+                aria-label={t('weekPlan.template.DAY_LABEL', { weekday })}
               >
-                <legend class="text-sm font-semibold">{weekday}</legend>
-                <select
-                  name={names.day}
-                  class="select select-bordered select-sm w-full"
-                  aria-label={t('weekPlan.template.DAY_LABEL', { weekday })}
-                >
-                  <option value="" selected={day.day === null}>
-                    {t('weekPlan.template.NO_DAY')}
+                <option value="" selected={day.day === null}>
+                  {t('weekPlan.template.NO_DAY')}
+                </option>
+                {DAY_OCCASIONS.map((occasion) => (
+                  <option value={occasion} selected={day.day === occasion}>
+                    {occasionLabel(occasion)}
                   </option>
-                  {DAY_OCCASIONS.map((occasion) => (
-                    <option value={occasion} selected={day.day === occasion}>
-                      {occasionLabel(occasion)}
-                    </option>
-                  ))}
-                </select>
-                <div
-                  class="flex flex-wrap gap-2"
-                  role="group"
-                  aria-label={t('weekPlan.template.AROUND_LABEL', { weekday })}
-                >
-                  {AROUND_OCCASIONS.map((occasion) => (
-                    <input
-                      type="checkbox"
-                      name={names.around}
-                      value={occasion}
-                      class="btn btn-xs rounded-full"
-                      aria-label={occasionLabel(occasion)}
-                      checked={day.around.includes(occasion)}
-                    />
-                  ))}
-                </div>
-              </fieldset>
-            );
-          })}
-          <button type="submit" class="btn btn-primary btn-sm">
-            {t('SAVE')}
-          </button>
-        </PostForm>
-      </div>
+                ))}
+              </select>
+              <div
+                class="flex flex-wrap gap-2"
+                role="group"
+                aria-label={t('weekPlan.template.AROUND_LABEL', { weekday })}
+              >
+                {AROUND_OCCASIONS.map((occasion) => (
+                  <input
+                    type="checkbox"
+                    name={names.around}
+                    value={occasion}
+                    class="btn btn-xs rounded-full"
+                    aria-label={occasionLabel(occasion)}
+                    checked={day.around.includes(occasion)}
+                  />
+                ))}
+              </div>
+            </fieldset>
+          );
+        })}
+        <button type="submit" class="btn btn-primary btn-sm">
+          {t('SAVE')}
+        </button>
+      </PostForm>
       {props.saved && (
         <SavedToast id="week-saved-toast" text={t('weekPlan.template.SAVED')} />
       )}
       <StripFlags names={[WEEK_SAVED_FLAG]} />
-    </section>
+    </ProfileSection>
   );
 }

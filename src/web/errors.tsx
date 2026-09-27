@@ -1,9 +1,9 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { STATUS_CODES } from 'node:http';
 import { t } from './i18n';
+import { AppBar } from './layout/app-bar';
 import { Dock } from './layout/dock';
 import { Layout } from './layout/layout';
-import { Navbar } from './layout/navbar';
 import { loggableUrl } from './loggable-url';
 import type { Logger } from '../logger';
 import { renderPage } from './render';
@@ -101,11 +101,8 @@ export function ErrorPage(props: {
 }) {
   return (
     <Layout ctx={props.ctx}>
-      <Navbar ctx={props.ctx} />
+      <AppBar ctx={props.ctx} title={`${t('ERROR')} ${props.status}`} />
       <main class="p-20 flex flex-col justify-center items-center h-full">
-        <h1>
-          {t('ERROR')} {props.status}
-        </h1>
         <p>{props.message}</p>
         <p>
           <small>

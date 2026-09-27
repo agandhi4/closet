@@ -144,9 +144,11 @@ test.describe('installed app delivery', () => {
     await page.goto('/wardrobe');
     expect(await cachedPaths(page)).toContain('/wardrobe');
 
+    // Signing out is Profile's, reached through the avatar (#82).
+    await page.locator('#avatar').click();
     await page
+      .locator('#sign-out')
       .getByRole('button', { name: 'Logout' })
-      .filter({ visible: true })
       .click();
     await expect(page).toHaveURL(/\/auth\/login$/);
     await expect

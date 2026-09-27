@@ -328,7 +328,7 @@ describe('web push (PWA_ENABLED=true)', () => {
       expect(JSON.parse(String(payload))).toEqual({
         title: 'Closet notifications work',
         body: 'This is the test you sent from your profile.',
-        url: '/auth/profile',
+        url: '/auth/profile#notifications',
         tag: 'push-test',
       });
       expect(options).toMatchObject({

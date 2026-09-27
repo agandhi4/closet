@@ -110,7 +110,7 @@ test('plan the wardrobe, see its gaps, duplicate it', async ({ page }) => {
 test('the style profile saves from the Profile', async ({ page }) => {
   await signIn(page, 'style');
   await page.goto('/auth/profile');
-  await page.getByRole('link', { name: 'Style profile' }).click();
+  await page.getByRole('link', { name: 'Edit your style profile' }).click();
   await expectNoSidewaysScroll(page);
   await page.getByRole('checkbox', { name: 'Smart casual' }).check();
   await page.getByRole('radio', { name: 'Mid' }).check();

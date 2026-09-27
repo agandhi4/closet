@@ -1,14 +1,14 @@
 import { dayLabel } from '../calendar/labels';
 import { AlreadySavedToast } from '../gallery/already-saved';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { EntrySelfie, SelfieView } from '../selfies/views';
 import { ShareLinkButton } from '../share/share-button';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
-import { BackLink, GarmentThumb } from '../layout/parts';
+import { GarmentThumb } from '../layout/parts';
 import type { OutfitSummary, WornDay } from './queries';
 
 /**
@@ -29,12 +29,8 @@ export function OutfitPage(props: {
   const name = outfit.name || t('UNTITLED_OUTFIT');
   return (
     <Layout ctx={ctx} title={name}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={name} back="/outfits" />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <div class="flex items-center gap-3 mb-6">
-          <BackLink href="/outfits" />
-          <h1 class="text-2xl font-bold flex-1">{name}</h1>
-        </div>
         {outfit.notes && (
           <p class="text-base-content/60 text-sm mb-6 px-1">{outfit.notes}</p>
         )}

@@ -1,10 +1,9 @@
 import { PostForm } from '../auth/form';
 import type { FieldErrors } from '../auth/validation';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
 import { Messages } from '../wardrobe/garment-form';
@@ -56,12 +55,12 @@ export function BoughtPage(props: { ctx: ViewContext; model: BoughtModel }) {
   const title = t('wishlist.BOUGHT_TITLE', { name });
   return (
     <Layout ctx={ctx} title={title}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={title}
+        back={garmentUrl(garment.id, model.viewOwner)}
+      />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <div class="flex items-center gap-3 mb-6">
-          <BackLink href={garmentUrl(garment.id, model.viewOwner)} />
-          <h1 class="text-2xl font-bold">{title}</h1>
-        </div>
         <p class="text-sm text-base-content/70 mb-4">
           {t('wishlist.BOUGHT_INTRO')}
         </p>

@@ -1,8 +1,8 @@
 import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { GarmentThumb, HangerIcon } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import type { SharedGarment, SharedOutfit } from './queries';
@@ -48,7 +48,7 @@ export function SharePage(props: {
       ogDescription={preview?.description}
       ogImage={preview?.image}
     >
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={ctx.appName} />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col items-center gap-6">
         {shared && <SharedItem shared={shared} />}
       </main>

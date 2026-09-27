@@ -6,6 +6,7 @@ import {
 } from '../../push/reminders';
 import { AutosaveForm } from '../autosave';
 import { t } from '../i18n';
+import { ProfileSection } from '../layout/parts';
 import type { ReminderSettings } from './queries';
 import type { SendReport } from './sender';
 
@@ -24,74 +25,69 @@ export const REMINDERS_ID = 'push-reminders';
  * (permission denied), unsupported, install (iOS/iPadOS outside the
  * installed app, where there is no push at all), error.
  */
+/** The Profile's notifications section: its anchor. */
+export const PUSH_SETTINGS_ID = 'notifications';
+
 export function PushSettings() {
   return (
-    <section
-      class="card bg-base-200 w-full max-w-sm"
-      aria-labelledby="push-heading"
-    >
-      <div class="card-body gap-3">
-        <h2 id="push-heading" class="card-title">
-          {t('PUSH_HEADING')}
-        </h2>
-        <push-settings class="flex flex-col gap-2">
-          <p data-show="checking">{t('PUSH_CHECKING')}</p>
-          <p data-show="on" hidden>
-            {t('PUSH_STATE_ON')}
-          </p>
-          <p data-show="off" hidden>
-            {t('PUSH_STATE_OFF')}
-          </p>
-          <p data-show="blocked" hidden>
-            {t('PUSH_STATE_BLOCKED')}
-          </p>
-          <p data-show="unsupported" hidden>
-            {t('PUSH_STATE_UNSUPPORTED')}
-          </p>
-          <p data-show="install" hidden>
-            {t('PUSH_STATE_INSTALL')}
-          </p>
-          <p data-show="error" class="text-error" role="alert" hidden>
-            {t('PUSH_STATE_ERROR')}
-          </p>
-          <button
-            type="button"
-            class="btn btn-primary"
-            data-show="off error"
-            data-action="enable"
-            hidden
-          >
-            {t('PUSH_ENABLE')}
-          </button>
-          <button
-            type="button"
-            class="btn"
-            data-show="on"
-            data-action="disable"
-            hidden
-          >
-            {t('PUSH_DISABLE')}
-          </button>
-          {/* This device's reminders: only the browser knows which device it
+    <ProfileSection id={PUSH_SETTINGS_ID} heading={t('PUSH_HEADING')}>
+      <push-settings class="flex flex-col gap-2">
+        <p data-show="checking">{t('PUSH_CHECKING')}</p>
+        <p data-show="on" hidden>
+          {t('PUSH_STATE_ON')}
+        </p>
+        <p data-show="off" hidden>
+          {t('PUSH_STATE_OFF')}
+        </p>
+        <p data-show="blocked" hidden>
+          {t('PUSH_STATE_BLOCKED')}
+        </p>
+        <p data-show="unsupported" hidden>
+          {t('PUSH_STATE_UNSUPPORTED')}
+        </p>
+        <p data-show="install" hidden>
+          {t('PUSH_STATE_INSTALL')}
+        </p>
+        <p data-show="error" class="text-error" role="alert" hidden>
+          {t('PUSH_STATE_ERROR')}
+        </p>
+        <button
+          type="button"
+          class="btn btn-primary"
+          data-show="off error"
+          data-action="enable"
+          hidden
+        >
+          {t('PUSH_ENABLE')}
+        </button>
+        <button
+          type="button"
+          class="btn"
+          data-show="on"
+          data-action="disable"
+          hidden
+        >
+          {t('PUSH_DISABLE')}
+        </button>
+        {/* This device's reminders: only the browser knows which device it
               is (its subscription's endpoint), so push.js asks for them once
               the state is on (POST /push/reminders/form) and they replace
               this slot. */}
-          <div id={REMINDERS_ID} data-show="on" hidden></div>
-        </push-settings>
-        {/* Sends to all of the user's devices, not only this one, so it is
+        <div id={REMINDERS_ID} data-show="on" hidden></div>
+      </push-settings>
+      {/* Sends to all of the user's devices, not only this one, so it is
             there whatever this browser's state; the answer says how many. */}
-        <button
-          type="button"
-          class="btn btn-outline"
-          hx-post="/push/test"
-          hx-target="#push-test-result"
-          hx-swap="innerHTML"
-        >
-          {t('PUSH_SEND_TEST')}
-        </button>
-        <div id="push-test-result" aria-live="polite"></div>
-      </div>
-    </section>
+      <button
+        type="button"
+        class="btn btn-outline"
+        hx-post="/push/test"
+        hx-target="#push-test-result"
+        hx-swap="innerHTML"
+      >
+        {t('PUSH_SEND_TEST')}
+      </button>
+      <div id="push-test-result" aria-live="polite"></div>
+    </ProfileSection>
   );
 }
 

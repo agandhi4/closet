@@ -3,12 +3,13 @@ import { GARMENT_COLORS } from '../../wardrobe/properties';
 import { BUDGET_BANDS, STYLES } from '../../wardrobe/style';
 import type { RhythmEntry } from '../../wardrobe/week';
 import { PostForm } from '../auth/form';
+import { profileSection, STYLE_SECTION_ID } from '../auth/urls';
 import { occasionLabel } from '../calendar/labels';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, SavedToast, StripFlags } from '../layout/parts';
+import { SavedToast, StripFlags } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { WEEK_SETTINGS_PATH } from '../week-plan/urls';
 import { budgetLabel, styleLabel } from './labels';
@@ -50,12 +51,12 @@ export function StyleProfilePage(props: {
   const { values } = model;
   return (
     <Layout ctx={ctx} title={t('style.TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={t('style.TITLE')}
+        back={profileSection(STYLE_SECTION_ID)}
+      />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <div class="flex items-center gap-3 mb-2">
-          <BackLink href="/auth/profile" />
-          <h1 class="text-2xl font-bold">{t('style.TITLE')}</h1>
-        </div>
         <p class="text-sm text-base-content/70 mb-4">
           {t('style.INTRO')}{' '}
           <a href={PLANS_PATH} class="link link-primary">

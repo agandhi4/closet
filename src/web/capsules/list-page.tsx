@@ -1,8 +1,8 @@
 import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { EmptyState, HangerIcon } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { capsuleUrl, wardrobeUrl } from '../wardrobe/urls';
@@ -38,16 +38,18 @@ export function CapsulesPage(props: {
   const { viewOwner } = model;
   return (
     <Layout ctx={ctx} title={t('CAPSULES')}>
-      <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24">
-        <div class="flex items-center justify-between gap-2 mb-6 px-2">
-          <h1 class="text-2xl font-bold">{t('WARDROBE')}</h1>
-          {model.isOwner && (
+      <AppBar
+        ctx={ctx}
+        title={t('WARDROBE')}
+        actions={
+          model.isOwner && (
             <a href="/capsules/new" class="btn btn-primary btn-sm">
               + {t('NEW_CAPSULE')}
             </a>
-          )}
-        </div>
+          )
+        }
+      />
+      <main class="p-4 pt-20 pb-24">
         <WardrobeTabs active="capsules" viewOwner={viewOwner} />
         <div class="flex flex-col gap-4 max-w-lg mx-auto">
           <Card

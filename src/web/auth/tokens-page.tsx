@@ -1,10 +1,11 @@
 import { todayIn } from '../calendar/calendar-date';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { CopyableText } from '../share/share-button';
 import type { ViewContext } from '../view-context';
 import { Field, PostForm } from './form';
+import { AGENT_ACCESS_SECTION_ID, profileSection } from './urls';
 import {
   MAX_ACTIVE_TOKENS,
   TOKEN_NAME_MAX,
@@ -66,9 +67,12 @@ export function TokensPage(props: TokensPageProps) {
   const day = (instant: Date) => todayIn(timeZone, instant);
   return (
     <Layout ctx={ctx} title={t('agentAccess.TITLE')}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={t('agentAccess.TITLE')}
+        back={profileSection(AGENT_ACCESS_SECTION_ID)}
+      />
       <main class="p-4 pt-20 pb-24 w-full max-w-2xl mx-auto">
-        <h1 class="text-2xl font-bold mb-2">{t('agentAccess.TITLE')}</h1>
         <p class="text-sm text-base-content/70 mb-6">
           {t('agentAccess.INTRO')}
         </p>

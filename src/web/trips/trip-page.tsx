@@ -5,10 +5,10 @@ import type { IsoDate } from '../calendar/calendar-date';
 import { dayLabel, occasionLabel } from '../calendar/labels';
 import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, HangerIcon, SavedToast, StripFlags } from '../layout/parts';
+import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { phaseLabel, tripDates } from './labels';
 import type { PackingGarmentView, TripModel, TripOutfitView } from './model';
@@ -53,23 +53,25 @@ export function TripPage(props: { ctx: ViewContext; model: TripPageModel }) {
   const { trip } = model;
   return (
     <Layout ctx={ctx} title={trip.name}>
-      <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-6">
-        <header class="flex items-start gap-3">
-          <BackLink href={TRIPS_PATH} />
-          <div class="flex-1 min-w-0">
-            <h1 class="text-2xl font-bold break-words">{trip.name}</h1>
-            <p class="text-sm text-base-content/70">
-              {tripDates(trip)} · {phaseLabel(model.phase)}
-            </p>
-            {trip.destination && (
-              <p class="text-sm text-base-content/60">{trip.destination}</p>
-            )}
-          </div>
+      <AppBar
+        ctx={ctx}
+        title={trip.name}
+        back={TRIPS_PATH}
+        actions={
           <a href={tripUrl(trip.id, '/edit')} class="btn btn-ghost btn-sm">
             {t('trips.EDIT_SHORT')}
           </a>
-        </header>
+        }
+      />
+      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-6">
+        <div>
+          <p class="text-sm text-base-content/70">
+            {tripDates(trip)} · {phaseLabel(model.phase)}
+          </p>
+          {trip.destination && (
+            <p class="text-sm text-base-content/60">{trip.destination}</p>
+          )}
+        </div>
         <p
           data-offline-note=""
           class="alert alert-warning alert-soft py-2 text-sm"

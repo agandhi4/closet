@@ -3,26 +3,21 @@ import { PostForm } from './form';
 
 /**
  * Signing out is a POST (a GET let any cross-site link or image sign someone
- * out). The navbar renders LogoutForm once, empty, and each LogoutButton (the
- * desktop bar and the mobile drawer) submits it through the `form`
- * attribute, so the button stays a direct child of its menu item and keeps
- * daisyUI's menu styling. A native post, like every PostForm: the answer is
- * a redirect the service worker watches for (views/assets/src-sw.ts).
+ * out). The one control is this form: Profile's last section, and the page
+ * behind GET /auth/logout (old cached pages link there). A native post,
+ * like every PostForm: the answer is a redirect the service worker watches
+ * for (views/assets/src-sw.ts). Disabled offline, where the post could not
+ * reach the server and the cookie would stay.
  */
 
 export const LOGOUT_PATH = '/auth/logout';
-const LOGOUT_FORM_ID = 'logout-form';
 
-// Hidden: it has nothing to show, and it must not take a cell of the
-// drawer's grid. A hidden form still submits for its buttons.
-export function LogoutForm() {
-  return <PostForm id={LOGOUT_FORM_ID} action={LOGOUT_PATH} class="hidden" />;
-}
-
-export function LogoutButton() {
+export function SignOutForm() {
   return (
-    <button type="submit" form={LOGOUT_FORM_ID}>
-      {t('LOGOUT')}
-    </button>
+    <PostForm id="logout-form" action={LOGOUT_PATH} needsNetwork>
+      <button type="submit" class="btn btn-outline btn-error w-full">
+        {t('LOGOUT')}
+      </button>
+    </PostForm>
   );
 }

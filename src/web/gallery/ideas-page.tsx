@@ -6,9 +6,9 @@ import { type IsoDate, dayOfWeek } from '../calendar/calendar-date';
 import { DAY_NAMES, dayLabel, occasionLabel } from '../calendar/labels';
 import type { CapsuleRef } from '../capsules/queries';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
 import { BackLink, EmptyState } from '../layout/parts';
 import { OutfitCollage } from '../outfits/collage';
 import {
@@ -59,14 +59,16 @@ export function IdeasPage(props: { ctx: ViewContext; model: IdeasPageModel }) {
   const shuffle = ideasUrl({ ...state, seed: shuffledSeed(state.seed) });
   return (
     <Layout ctx={ctx} title={t('gallery.TITLE')}>
-      <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-3">
-        <div class="flex items-center justify-between gap-2 px-2">
-          <h1 class="text-2xl font-bold">{t('OUTFITS')}</h1>
+      <AppBar
+        ctx={ctx}
+        title={t('OUTFITS')}
+        actions={
           <a href={shuffle} class="btn btn-ghost btn-sm" data-shuffle="">
             ⤮ {t('gallery.SHUFFLE')}
           </a>
-        </div>
+        }
+      />
+      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-3">
         <OutfitTabs active="ideas" />
         <Scope model={model} />
         {cards.weather && <WeatherNote weather={cards.weather} />}

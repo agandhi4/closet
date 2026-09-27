@@ -7,10 +7,10 @@ import {
 import { AutosaveForm } from '../autosave';
 import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink, EmptyState, HangerIcon } from '../layout/parts';
+import { EmptyState, HangerIcon } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from './garment';
 import { type LabelledProperty, valueLabel } from './labels';
@@ -46,12 +46,12 @@ export function TagPage(props: { ctx: ViewContext; model: TagCardModel }) {
   const { ctx, model } = props;
   return (
     <Layout ctx={ctx} title={t('TAG_GARMENTS')}>
-      <Navbar ctx={ctx} />
+      <AppBar
+        ctx={ctx}
+        title={t('TAG_GARMENTS')}
+        back={wardrobeUrl(model.viewOwner)}
+      />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <div class="flex items-center gap-3 mb-6">
-          <BackLink href={wardrobeUrl(model.viewOwner)} />
-          <h1 class="text-2xl font-bold">{t('TAG_GARMENTS')}</h1>
-        </div>
         <TagCard model={model} />
       </main>
       <Dock ctx={ctx} />

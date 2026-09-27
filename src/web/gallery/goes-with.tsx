@@ -198,7 +198,7 @@ export function OutfitCountLink(props: {
  * view (`revealed`: the list scrolls with the window). Loaded, not
  * rendered: each count is a search over the closet, and a plan's items are
  * unbounded, so the page's cost stays the list's and each chip pays for
- * itself only once seen. Its own hx-indicator keeps the navbar spinner
+ * itself only once seen. Its own hx-indicator keeps the app bar's spinner
  * still, as the cutout's polling does.
  */
 export function OutfitCountSlot(props: { garmentId: number }) {

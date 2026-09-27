@@ -1,10 +1,9 @@
 import { type Occasion, OCCASIONS } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
+import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Navbar } from '../layout/navbar';
-import { BackLink } from '../layout/parts';
 import { ideasUrl } from '../gallery/urls';
 import type { OutfitSummary } from '../outfits/queries';
 import { SavedOutfitButton } from '../outfits/saved-outfit-button';
@@ -59,9 +58,9 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
   const title = changing ? t('changeEntry.TITLE') : t('CALENDAR_PLAN_TITLE');
   return (
     <Layout ctx={ctx} title={title}>
-      <Navbar ctx={ctx} />
+      <AppBar ctx={ctx} title={title} back={`/calendar?week=${model.day}`} />
       <main class="p-4 pt-20 pb-24 w-full sm:max-w-lg sm:mx-auto flex flex-col gap-5">
-        <PlanHeading model={model} changing={changing} title={title} />
+        <PlanHeading model={model} changing={changing} />
         {!changing && <OccasionChips day={model.day} chosen={model.occasion} />}
 
         <div class="flex flex-col gap-2">
@@ -115,32 +114,27 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
 type Replacing = NonNullable<PlanModel['replacing']>;
 
 /**
- * The title, back to the week, the day (and, when changing an entry, its
+ * Under the app bar's title: the day (and, when changing an entry, its
  * occasion and outfit), and why a worn entry is not being changed.
  */
 function PlanHeading(props: {
   model: PlanModel;
   changing: Replacing | undefined;
-  title: string;
 }) {
-  const { model, changing, title } = props;
+  const { model, changing } = props;
   const worn = model.replacing?.worn ? model.replacing : undefined;
   return (
     <>
-      <div class="flex items-center gap-3">
-        <BackLink href={`/calendar?week=${model.day}`} />
-        <div class="min-w-0">
-          <h1 class="text-2xl font-bold">{title}</h1>
-          <p class="text-sm text-base-content/60">
-            {dayLabel(model.day)}
-            {changing && <> · {occasionLabel(model.occasion)}</>}
+      <div class="min-w-0">
+        <p class="text-sm text-base-content/60">
+          {dayLabel(model.day)}
+          {changing && <> · {occasionLabel(model.occasion)}</>}
+        </p>
+        {changing && (
+          <p class="text-sm truncate" data-replacing={changing.entryId}>
+            {t('changeEntry.INSTEAD_OF', { name: outfitName(changing) })}
           </p>
-          {changing && (
-            <p class="text-sm truncate" data-replacing={changing.entryId}>
-              {t('changeEntry.INSTEAD_OF', { name: outfitName(changing) })}
-            </p>
-          )}
-        </div>
+        )}
       </div>
       {worn && (
         <p class="alert alert-info alert-soft py-2 text-sm" role="note">

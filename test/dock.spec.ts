@@ -98,7 +98,7 @@ test('every page marks its section in the dock, loaded or swapped in', async ({
     ['/calendar', '/calendar'],
     [`/calendar?week=${WEEK[0]}`, '/calendar'],
     ['/auth/profile', null],
-    ['/wardrobe-share/manage', null],
+    ['/auth/profile/style', null],
   ];
 
   for (const [path, tab] of routes) {

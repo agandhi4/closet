@@ -27,7 +27,8 @@ describe('wardrobe share lifecycle', () => {
     cookie: string;
   }
 
-  const MANAGE_PAGE = '/wardrobe-share/manage';
+  /** Where sharing is managed since #82: Profile › Sharing. */
+  const SHARING = '/auth/profile#sharing';
 
   const signUp = async (label: string): Promise<Account> => {
     const email = `${label}-${randomUUID().slice(0, 8)}@example.com`;
@@ -86,12 +87,12 @@ describe('wardrobe share lifecycle', () => {
   const acceptOk = async (token: string, account: Account) => {
     const res = await accept(token, account);
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe(MANAGE_PAGE);
+    expect(res.headers.location).toBe(SHARING);
   };
 
   /**
-   * A refused accept: redirect back to the manage page carrying the refusal
-   * code, which the page shows as its message.
+   * A refused accept: redirect back to Profile › Sharing carrying the
+   * refusal code, which the section shows as its message.
    */
   const expectAcceptRefused = async (
     res: Awaited<ReturnType<typeof accept>>,
@@ -100,10 +101,12 @@ describe('wardrobe share lifecycle', () => {
     account: Account,
   ) => {
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe(`${MANAGE_PAGE}?error=${code}`);
+    expect(res.headers.location).toBe(
+      `/auth/profile?shareError=${code}#sharing`,
+    );
     const page = await t.inject({
       method: 'GET',
-      url: `${MANAGE_PAGE}?error=${code}`,
+      url: `/auth/profile?shareError=${code}`,
       headers: { cookie: account.cookie },
     });
     expect(page.body).toContain(message);
@@ -244,7 +247,7 @@ describe('wardrobe share lifecycle', () => {
 
       const res = await post(`/wardrobe-share/${share!.id}/remove`, owner);
       expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe(MANAGE_PAGE);
+      expect(res.headers.location).toBe(SHARING);
       expect(await shareBetween(grantee)).toBeNull();
 
       expect(await readStatuses(grantee)).toEqual([404, 404]);
@@ -300,7 +303,7 @@ describe('wardrobe share lifecycle', () => {
 
       const res = await decline(token, recipient);
       expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe(MANAGE_PAGE);
+      expect(res.headers.location).toBe(SHARING);
 
       const invite = await shareByToken(token);
       expect(invite).not.toBeNull();
