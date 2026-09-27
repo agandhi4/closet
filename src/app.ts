@@ -155,9 +155,10 @@ export async function createApp(
     // One line per request comes from the onResponse hook below.
     logController: new LogController({ disableRequestLogging: true }),
   });
-  // The queue first: a job still running needs the pool to record itself.
+  // The queue and the weather's background refreshes first: a job still
+  // running needs the pool to record itself, a refresh to save its row.
   app.addHook('onClose', async () => {
-    await cutouts.stop();
+    await Promise.all([cutouts.stop(), weather?.settled()]);
     await db.$client.end();
   });
 

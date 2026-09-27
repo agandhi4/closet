@@ -889,6 +889,45 @@ describe('trips', () => {
       expect(forecasts()).toBe(before);
     });
 
+    it('limits how many destinations one account can locate a minute: each is a fetch and a cached row', async () => {
+      const cookie = await t.register('trip-hopper@example.com');
+      const today = t.today();
+      const created = await post(
+        '/trips',
+        {
+          name: 'Road trip',
+          destination: '',
+          startsOn: addDays(today, 3),
+          endsOn: addDays(today, 5),
+          notes: '',
+        },
+        { cookie },
+      );
+      const id = Number(
+        /^\/trips\/(\d+)/.exec(String(created.headers.location))![1],
+      );
+      const statuses: number[] = [];
+      for (let i = 0; i < 11; i++) {
+        const res = await post(
+          `/trips/${id}/destination`,
+          {
+            name: `Stop ${i}`,
+            latitude: String(30 + i / 10),
+            longitude: '-97.74',
+          },
+          { cookie },
+        );
+        statuses.push(res.statusCode);
+      }
+      expect(statuses.slice(0, 10)).toEqual(Array(10).fill(303));
+      expect(statuses[10]).toBe(429);
+      expect(t.logs.messages('warn', 'RateLimit')).toContainEqual(
+        expect.stringMatching(
+          /^Rate limit reached: POST \/trips\/\d+\/destination for user \d+$/,
+        ),
+      );
+    });
+
     it('gives the gallery the destination’s forecast for a trip day', async () => {
       const today = t.today();
       const id = await newTrip({

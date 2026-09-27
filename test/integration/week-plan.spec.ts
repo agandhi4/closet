@@ -129,6 +129,7 @@ function fakeWeather(days: () => DayForecast[]): WeatherService {
     normalsFor: () =>
       Promise.reject(new Error('The weekly plan never reads normals')),
     searchPlaces: () => Promise.resolve([]),
+    settled: () => Promise.resolve(),
   };
 }
 

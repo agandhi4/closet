@@ -96,6 +96,30 @@ test('"Use my location" sends the rounded position and says until when', async (
   ).toBeVisible();
 });
 
+test('"Use my location" can be tried again after its post fails', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 40.689167, longitude: -73.975556 });
+  await signIn(page, 'weather-here-retry');
+  await page.goto('/auth/profile');
+  const settings = page.locator('#weather');
+  const button = settings.getByRole('button', { name: 'Use my location' });
+
+  // The connection drops as the position is sent: nothing is swapped in.
+  await page.route('**/weather/here', (route) => route.abort());
+  await button.click();
+  await expect(settings.locator('[data-locate-status]')).toHaveText(
+    'Your location could not be saved. Try again, or search your city.',
+  );
+  await expect(button).toBeEnabled();
+
+  await page.unroute('**/weather/here');
+  await button.click();
+  await expect(settings).toContainText('Using your location from');
+});
+
 test.describe('offline', () => {
   test.skip(
     process.env.PWA_ENABLED !== 'true',

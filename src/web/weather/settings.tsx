@@ -193,6 +193,7 @@ function HereControls(props: {
         data-locate-status=""
         data-denied={t('weather.HERE_DENIED')}
         data-failed={t('weather.HERE_FAILED')}
+        data-not-saved={t('weather.HERE_NOT_SAVED')}
         hidden
       ></p>
       <form

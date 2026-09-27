@@ -57,15 +57,48 @@ export function isValidTimeZone(timeZone: string): boolean {
   }
 }
 
+/**
+ * One formatter per zone for a shape, built on first use. Building an
+ * Intl.DateTimeFormat is what costs (todayIn building one per call was 2.2%
+ * of the server's CPU, #114); formatting with one is cheap and it holds no
+ * state between calls. The zones are APP_TIMEZONE and the specs' few.
+ */
+function perZone(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): (timeZone: string) => Intl.DateTimeFormat {
+  const formats = new Map<string, Intl.DateTimeFormat>();
+  return (timeZone) => {
+    let format = formats.get(timeZone);
+    if (!format) {
+      format = new Intl.DateTimeFormat(locale, { ...options, timeZone });
+      formats.set(timeZone, format);
+    }
+    return format;
+  };
+}
+
+// en-CA formats as YYYY-MM-DD; todayIn reads formatToParts rather than rely
+// on that.
+const dayFormat = perZone('en-CA', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+const hourFormat = perZone('en-US', { hourCycle: 'h23', hour: 'numeric' });
+const wallClockFormat = perZone('en-US', {
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: 'numeric',
+  second: 'numeric',
+});
+
 /** The calendar date in `timeZone` at the instant `now`. */
 export function todayIn(timeZone: string, now: Date): IsoDate {
-  // en-CA formats as YYYY-MM-DD; formatToParts avoids relying on that.
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
+  const parts = dayFormat(timeZone).formatToParts(now);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((p) => p.type === type)!.value);
   return formatIsoDate(part('year'), part('month'), part('day'));
@@ -77,11 +110,7 @@ export function todayIn(timeZone: string, now: Date): IsoDate {
  * from 3 pm", which only looks at the hours still to come).
  */
 export function hourIn(timeZone: string, now: Date): number {
-  const hour = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    hour: 'numeric',
-  })
+  const hour = hourFormat(timeZone)
     .formatToParts(now)
     .find((p) => p.type === 'hour')!.value;
   return Number(hour);
@@ -111,16 +140,7 @@ export function instantAt(
 
 // How far `timeZone`'s wall clock is ahead of UTC at the instant `at`.
 function zoneOffsetMs(timeZone: string, at: number): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    second: 'numeric',
-  }).formatToParts(new Date(at));
+  const parts = wallClockFormat(timeZone).formatToParts(new Date(at));
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((p) => p.type === type)!.value);
   const wall = Date.UTC(

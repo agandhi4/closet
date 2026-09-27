@@ -26,6 +26,18 @@ export function initLocate(part) {
   if (!button || !form || !status) return;
   if (!window.isSecureContext || !('geolocation' in navigator)) return;
   button.hidden = false;
+  const failed = (message) => {
+    button.disabled = false;
+    status.textContent = message;
+    status.hidden = false;
+  };
+  // A post that fails (offline, a server error, the rate limit) swaps
+  // nothing, so the button would stay disabled with no way to try again:
+  // htmx reports it here, on the form that sent it. A success swaps this
+  // whole part, button included.
+  form.addEventListener('htmx:afterRequest', (event) => {
+    if (!event.detail.successful) failed(status.dataset.notSaved);
+  });
   button.addEventListener('click', () => {
     button.disabled = true;
     status.hidden = true;
@@ -35,14 +47,12 @@ export function initLocate(part) {
         form.elements.longitude.value = coords.longitude.toFixed(DECIMALS);
         form.requestSubmit();
       },
-      (error) => {
-        button.disabled = false;
-        status.textContent =
+      (error) =>
+        failed(
           error.code === PERMISSION_DENIED
             ? status.dataset.denied
-            : status.dataset.failed;
-        status.hidden = false;
-      },
+            : status.dataset.failed,
+        ),
       OPTIONS,
     );
   });

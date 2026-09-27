@@ -15,7 +15,10 @@ import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
 import { IsoDateSchema } from '../schemas';
-import { WEATHER_SEARCH_LIMIT } from '../security/rate-limit';
+import {
+  WEATHER_LOCATION_LIMIT,
+  WEATHER_SEARCH_LIMIT,
+} from '../security/rate-limit';
 import { roundedLocation } from '../../weather/location';
 import { FEELINGS, TEMPERATURE_UNITS } from '../../weather/temperature';
 import {
@@ -89,7 +92,8 @@ export interface WeatherRouteOptions extends WebOptions {
  *   the server), WEATHER_SEARCH_LIMIT. `secretPath`: the request log shows
  *   the route, never the typed city.
  * - POST /weather/home, /home/clear, /here, /here/clear, /unit, /feedback,
- *   /offset/reset: the profile's settings, each answering to htmx the part
+ *   /offset/reset: the profile's settings (home and here, which set a
+ *   location to fetch for, WEATHER_LOCATION_LIMIT), each answering to htmx the part
  *   of the section it changed (the location, the offset; the unit its status
  *   line and the offset) or a 303 to the profile. Coordinates are rounded
  *   before they are stored; the logs name the user, never a location.
@@ -198,6 +202,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
           longitude: Longitude,
         }),
       },
+      config: { rateLimit: WEATHER_LOCATION_LIMIT },
     },
     async (request, reply) => {
       const { name, latitude, longitude } = request.body;
@@ -225,6 +230,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
       schema: {
         body: Type.Object({ latitude: Latitude, longitude: Longitude }),
       },
+      config: { rateLimit: WEATHER_LOCATION_LIMIT },
     },
     async (request, reply) => {
       const { latitude, longitude } = request.body;

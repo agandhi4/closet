@@ -40,7 +40,9 @@ export const weekPlanRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     const now = new Date();
     const today = todayIn(config.timeZone, now);
     const started = performance.now();
-    const forecast = await weekForecast({ db, weather }, ownerId, now);
+    const forecast = await weekForecast({ db, weather }, ownerId, now, {
+      fresh: true,
+    });
     const result = await planMyWeek(db, ownerId, {
       today,
       hour: hourIn(config.timeZone, now),

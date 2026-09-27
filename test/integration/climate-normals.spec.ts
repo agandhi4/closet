@@ -54,6 +54,33 @@ function at(offsetMs: number): void {
   vi.setSystemTime(new Date(NOW.getTime() + offsetMs));
 }
 
+/**
+ * Waits for the background refresh (#114) an ask started at `offsetMs` to
+ * record its outcome in the row at `latitude`: stale normals are served at
+ * once and refreshed after the answer.
+ */
+async function refreshed(
+  t: TestApp,
+  latitude: number,
+  offsetMs: number,
+): Promise<void> {
+  // A loop on real timers, not vi.waitFor: with fake timers installed,
+  // vi.waitFor advances the faked clock on every try, and the refresh would
+  // record a later instant than the one the spec asked at.
+  const expected = new Date(NOW.getTime() + offsetMs);
+  for (let tries = 0; ; tries += 1) {
+    const [row] = await t.db
+      .select({ attemptedAt: weatherNormals.attemptedAt })
+      .from(weatherNormals)
+      .where(eq(weatherNormals.latitude, latitude));
+    if (row.attemptedAt.getTime() === expected.getTime() || tries === 500) {
+      expect(row.attemptedAt).toEqual(expected);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 function hitsOf(stub: WeatherStub, path: string): URLSearchParams[] {
   return stub.hits
     .filter((hit) => hit.startsWith(`${path}?`))
@@ -202,6 +229,7 @@ describe('climate normals', () => {
       expect(html).toContain(`/outfits/ideas?for=trip:${id}:${day}`);
     }
     expect(t.logs.messages('info', 'Weather')).toEqual([
+      'Climate normals for 30.27,-97.74: refreshing; none kept, the ask waits',
       expect.stringMatching(
         /^Climate normals for 30\.27,-97\.74: 366 days from 2016-2025 in \d+ ms$/,
       ),
@@ -222,7 +250,7 @@ describe('climate normals', () => {
     expect(archiveHits()).toHaveLength(1);
   });
 
-  it('asks the archive once per location for simultaneous pages, and again only after 30 days', async () => {
+  it('asks the archive once per location for simultaneous pages, and again in the background only after 30 days', async () => {
     const id = await newTrip(200, 202, SPRINGFIELD);
     const before = archiveHits().length;
     const pages = await Promise.all([
@@ -237,8 +265,10 @@ describe('climate normals', () => {
     await tripWeather(id);
     expect(archiveHits()).toHaveLength(before + 1);
 
+    // Stale: the page shows the cached normals at once, refreshed behind it.
     at(31 * DAY);
-    await tripWeather(id);
+    expect(typicalDays(await tripWeather(id))).toHaveLength(3);
+    await refreshed(t, 39.8, 31 * DAY);
     expect(archiveHits()).toHaveLength(before + 2);
     const [row] = await t.db
       .select()
@@ -255,6 +285,7 @@ describe('climate normals', () => {
     at(40 * DAY);
     const html = await tripWeather(id);
     expect(typicalDays(html)).toHaveLength(2);
+    await refreshed(t, 30.27, 40 * DAY);
     expect(archiveHits()).toHaveLength(before + 1);
     expect(t.logs.messages('warn', 'Weather')).toEqual([
       expect.stringMatching(
@@ -269,6 +300,7 @@ describe('climate normals', () => {
     stub.fail(false);
     at(40 * DAY + 11 * MINUTE);
     await tripWeather(id);
+    await refreshed(t, 30.27, 40 * DAY + 11 * MINUTE);
     expect(archiveHits()).toHaveLength(before + 2);
   });
 

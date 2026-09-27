@@ -663,6 +663,7 @@
     "STOP_HERE": "Stop using my location",
     "HERE_DENIED": "Location is blocked for this app. Allow it in your settings, or search your city.",
     "HERE_FAILED": "Your location could not be found. Try again, or search your city.",
+    "HERE_NOT_SAVED": "Your location could not be saved. Try again, or search your city.",
     "UNIT": "Show",
     "CELSIUS": "°C",
     "FAHRENHEIT": "°F",

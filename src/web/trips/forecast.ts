@@ -56,11 +56,15 @@ export interface TripForecastLater {
 export type TripForecast =
   | { kind: 'no-location' }
   | { kind: 'over' }
-  /** Open-Meteo has never answered the forecast for the place. */
-  | { kind: 'unavailable' }
   | {
       kind: 'forecast';
       days: TripWeatherDay[];
+      /**
+       * Some trip days are within the forecast, but Open-Meteo has never
+       * answered it for the place (`days` is empty). The typical days past
+       * it are their own answer and still show.
+       */
+      unavailable: boolean;
       /**
        * The days past the forecast with the place's normals, in order; empty
        * when none are past it or the normals are not available.
@@ -119,11 +123,11 @@ export async function tripForecast(
     within && deps.weather.forecastFor(location),
     later && deps.weather.normalsFor(location),
   ]);
-  if (within && !cached) return { kind: 'unavailable' };
   const { offset, unit } = settings;
   return {
     kind: 'forecast',
     days: forecastDays(cached, within, offset),
+    unavailable: within !== null && !cached,
     typical: typicalDays(normals, later, trip.endsOn, offset),
     later,
     unit,

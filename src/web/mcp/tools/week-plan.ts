@@ -22,7 +22,9 @@ export const weekPlanTools = [
     async run(_args, ctx) {
       const now = new Date();
       const today = todayIn(ctx.timeZone, now);
-      const forecast = await weekForecast(ctx, ctx.userId, now);
+      const forecast = await weekForecast(ctx, ctx.userId, now, {
+        fresh: true,
+      });
       const result = await planMyWeek(ctx.db, ctx.userId, {
         today,
         hour: hourIn(ctx.timeZone, now),

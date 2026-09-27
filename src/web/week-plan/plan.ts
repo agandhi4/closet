@@ -21,6 +21,7 @@ import {
   weekPool,
   type WeekPoolGarment,
 } from '../gallery/queries';
+import type { ReadOptions } from '../weather/location-cache';
 import { userWeather, type WeatherService } from '../weather/service';
 import {
   batchAutoEntries,
@@ -62,12 +63,17 @@ export const NO_FORECAST: WeekForecast = { days: new Map(), offset: 0 };
 /**
  * The person's forecast (a cached read, at most one bounded fetch; nothing
  * without WEATHER_ENABLED or a location). Read before any transaction: a
- * plan never holds the owner lock while Open-Meteo answers.
+ * plan never holds the owner lock while Open-Meteo answers. A plan is a
+ * decision made once, so "Plan my week" reads `{ fresh: true }` (a stale
+ * forecast's refresh awaited, not served around); the daily re-plan reads
+ * `{}` after its batch refreshed every candidate's forecast together
+ * (refreshForecastsFor), so one slow location never holds up the rest.
  */
 export async function weekForecast(
   deps: { db: Db; weather: WeatherService | undefined },
   userId: number,
   now: Date,
+  read: ReadOptions,
 ): Promise<WeekForecast> {
   if (!deps.weather) return NO_FORECAST;
   const { settings, cached } = await userWeather(
@@ -75,6 +81,7 @@ export async function weekForecast(
     deps.weather,
     userId,
     now,
+    read,
   );
   return {
     days: new Map((cached?.forecast.days ?? []).map((day) => [day.day, day])),

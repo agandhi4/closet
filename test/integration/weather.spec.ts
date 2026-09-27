@@ -48,6 +48,31 @@ function at(offsetMs: number): void {
   vi.setSystemTime(new Date(NOW.getTime() + offsetMs));
 }
 
+/**
+ * Waits for the background refresh (#114) an ask started at `offsetMs` to
+ * record its outcome: a stale forecast is served at once and refreshed after
+ * the answer, so a spec that counts fetches or reads the next answer waits
+ * for the row's attempt first. By then the refresh has finished: the row is
+ * saved (or the failure recorded) as its last step.
+ */
+async function refreshed(t: TestApp, offsetMs: number): Promise<void> {
+  // A loop on real timers, not vi.waitFor: with fake timers installed,
+  // vi.waitFor advances the faked clock on every try, and the refresh would
+  // record a later instant than the one the spec asked at.
+  const expected = new Date(NOW.getTime() + offsetMs);
+  for (let tries = 0; ; tries += 1) {
+    const [row] = await t.db
+      .select({ attemptedAt: weatherForecast.attemptedAt })
+      .from(weatherForecast)
+      .where(eq(weatherForecast.latitude, ROUNDED.latitude));
+    if (row.attemptedAt.getTime() === expected.getTime() || tries === 500) {
+      expect(row.attemptedAt).toEqual(expected);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 async function toolNamesOf(t: TestApp, token: string): Promise<string[]> {
   const res = await mcpRequest(t, token, 'tools/list');
   return res
@@ -227,6 +252,7 @@ describe('weather', () => {
       // The log names the rounded location, never the user; the fetcher's
       // line names the host, never the query.
       expect(t.logs.messages('info', 'Weather')).toEqual([
+        'Forecast for 40.69,-73.98: refreshing; none kept, the ask waits',
         expect.stringMatching(
           /^Forecast for 40\.69,-73\.98: 16 days in \d+ ms$/,
         ),
@@ -254,19 +280,34 @@ describe('weather', () => {
       expect(cached.forecast?.days).toHaveLength(16);
     });
 
-    it('fetches once an hour per location, and once for simultaneous asks', async () => {
+    it('fetches once an hour per location, in the background, once for simultaneous asks', async () => {
       const before = forecastHits(stub).length;
       at(59 * MINUTE);
       await summary();
       expect(forecastHits(stub)).toHaveLength(before);
 
+      // An hour old: every ask is served the cached forecast at once, and
+      // one refresh runs behind them.
+      t.logs.clear();
       at(61 * MINUTE);
       const answers = await Promise.all([summary(), summary(), summary()]);
       expect(answers.map((res) => res.statusCode)).toEqual([200, 200, 200]);
-      expect(forecastHits(stub)).toHaveLength(before + 1);
       for (const res of answers) {
-        expect(res.body).toContain('as of 9:31 PM');
+        expect(res.body).toContain('as of 8:30 PM');
       }
+      await refreshed(t, 61 * MINUTE);
+      expect(forecastHits(stub)).toHaveLength(before + 1);
+      expect(t.logs.messages('info', 'Weather')).toEqual([
+        'Forecast for 40.69,-73.98: refreshing; the one from 2026-09-27T00:30:00.000Z kept meanwhile',
+        expect.stringMatching(
+          /^Forecast for 40\.69,-73\.98: 16 days in \d+ ms$/,
+        ),
+      ]);
+
+      // The next ask gets the refreshed forecast, and fetches nothing.
+      const next = await summary();
+      expect(next.body).toContain('as of 9:31 PM');
+      expect(forecastHits(stub)).toHaveLength(before + 1);
     });
 
     it('keeps the last good forecast when Open-Meteo fails, and waits before asking again', async () => {
@@ -277,6 +318,7 @@ describe('weather', () => {
       const res = await summary();
       expect(res.statusCode).toBe(200);
       expect(res.body).toContain('as of 9:31 PM');
+      await refreshed(t, 3 * HOUR);
       expect(forecastHits(stub)).toHaveLength(before + 1);
       expect(t.logs.messages('warn', 'Weather')).toEqual([
         expect.stringMatching(
@@ -284,15 +326,20 @@ describe('weather', () => {
         ),
       ]);
 
+      // The failed refresh changed nothing the page shows.
+      expect((await summary()).body).toBe(res.body);
+
       at(3 * HOUR + 9 * MINUTE);
       await summary();
       expect(forecastHits(stub)).toHaveLength(before + 1);
 
       stub.fail(false);
       at(3 * HOUR + 11 * MINUTE);
-      const fresh = await summary();
+      const stale = await summary();
+      expect(stale.body).toContain('as of 9:31 PM');
+      await refreshed(t, 3 * HOUR + 11 * MINUTE);
       expect(forecastHits(stub)).toHaveLength(before + 2);
-      expect(fresh.body).toContain('as of 11:41 PM');
+      expect((await summary()).body).toContain('as of 11:41 PM');
     });
 
     it("gives the calendar's days their chips, from the household's today", async () => {
@@ -415,9 +462,11 @@ describe('weather', () => {
       expect(line).toContain('Near you');
       expect(forecastHits(stub).at(-1)?.get('latitude')).toBe('40.71');
 
+      // Home's forecast is stale by now: served, and refreshed behind it.
       at(13 * HOUR);
       const later = unescapeHtml((await summary()).body);
       expect(later).toContain('Fort Greene');
+      await refreshed(t, 13 * HOUR);
       expect(forecastHits(stub).at(-1)?.get('latitude')).toBe('40.69');
     });
 
@@ -590,6 +639,44 @@ describe('weather', () => {
       const far = calendar.entries.find((e) => e.day === '2026-10-20')!;
       expect(far.weather).toBeUndefined();
     });
+  });
+
+  it('limits how many locations one account can set a minute: each is a fetch and a cached row', async () => {
+    const cookie = await t.register('wanderer@example.com');
+    const here = (latitude: number) =>
+      t.inject({
+        method: 'POST',
+        url: '/weather/here',
+        ...form({ latitude: String(latitude), longitude: '-73.98' }),
+        headers: { ...form({}).headers, cookie },
+      });
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      statuses.push((await here(40 + i / 10)).statusCode);
+    }
+    expect(statuses.slice(0, 10)).toEqual(Array(10).fill(200));
+    expect(statuses[10]).toBe(429);
+    expect(t.logs.messages('warn', 'RateLimit')).toContainEqual(
+      expect.stringMatching(
+        /^Rate limit reached: POST \/weather\/here for user \d+$/,
+      ),
+    );
+    // Home counts on its own, and someone else's count is their own.
+    const home = await t.inject({
+      method: 'POST',
+      url: '/weather/home',
+      ...form({ name: 'Fort Greene', ...PRECISE }),
+      headers: { ...form({}).headers, cookie },
+    });
+    expect(home.statusCode).toBe(200);
+    const neighbour = await t.register('stayer@example.com');
+    const theirs = await t.inject({
+      method: 'POST',
+      url: '/weather/here',
+      ...form({ latitude: '40.5', longitude: '-73.98' }),
+      headers: { ...form({}).headers, cookie: neighbour },
+    });
+    expect(theirs.statusCode).toBe(200);
   });
 
   it('is the signed-in user’s own: another account starts with nothing', async () => {

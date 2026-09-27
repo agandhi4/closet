@@ -43,11 +43,14 @@ export function TripWeather(props: {
           {t('trips.WEATHER_NO_PLACE')}
         </p>
       );
-    case 'unavailable':
-      return <p class="text-sm text-muted">{t('trips.WEATHER_UNAVAILABLE')}</p>;
     case 'forecast':
       return (
         <div class="flex flex-col gap-1" data-trip-weather="forecast">
+          {forecast.unavailable && (
+            <p class="text-sm text-muted" data-forecast-unavailable="">
+              {t('trips.WEATHER_UNAVAILABLE')}
+            </p>
+          )}
           <ul class="flex flex-col divide-y divide-base-200">
             {forecast.days.map((day) => (
               <TripWeatherRow
@@ -71,7 +74,9 @@ export function TripWeather(props: {
           {forecast.later && (
             <p class="text-xs text-muted" data-forecast-from="">
               {t(
-                forecast.days.length === 0
+                // No day within the forecast (not one that failed): the
+                // whole trip waits for it.
+                forecast.days.length === 0 && !forecast.unavailable
                   ? 'trips.FORECAST_FROM'
                   : 'trips.FORECAST_LATER',
                 {

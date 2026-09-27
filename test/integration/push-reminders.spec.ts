@@ -21,6 +21,8 @@ import {
 } from '../../src/web/calendar/calendar-date';
 import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
 import { saveReminderSettings } from '../../src/web/push/queries';
+import { setHome } from '../../src/web/weather/queries';
+import type { WeatherService } from '../../src/web/weather/service';
 import {
   type ReminderDeps,
   pruneReminders,
@@ -530,6 +532,64 @@ describe('push reminders', () => {
       } finally {
         await other.$client.end();
       }
+    });
+
+    it('loses no reminder to a minute a slow run overran: the next run sends it', async () => {
+      const cookie = await t.register('overran@example.com');
+      const userId = await userIdOf(t, 'overran@example.com');
+      const phone = await subscribe(cookie);
+      await remind(userId, phone, { morning: minute(9) });
+      const day = addDays(DAY, 5);
+      await sendDueReminders(deps, onTheMinute(day, 8, 59));
+      // 09:00 and 09:01 were skipped (the minutely timer skips a minute a
+      // run overran); 09:02's run finds it due and unclaimed.
+      await sendDueReminders(deps, onTheMinute(day, 9, 2));
+      expect(sentTo(phone)).toHaveLength(1);
+      await sendDueReminders(deps, onTheMinute(day, 9, 3));
+      expect(sentTo(phone)).toHaveLength(1);
+    });
+
+    it("refreshes the morning's forecasts once per place, together, before anyone's reminder reads them", async () => {
+      const day = addDays(DAY, 6);
+      const people: { userId: number; phone: string }[] = [];
+      for (const n of [1, 2, 3]) {
+        const email = `batch-${n}@example.com`;
+        const cookie = await t.register(email);
+        const userId = await userIdOf(t, email);
+        const phone = await subscribe(cookie);
+        await remind(userId, phone, { morning: minute(6, 15) });
+        // People 1 and 2 share a place; 3 lives elsewhere.
+        await setHome(t.db, userId, {
+          name: `Place ${n}`,
+          location: { latitude: n === 3 ? 41 : 40, longitude: -74 },
+        });
+        people.push({ userId, phone });
+      }
+      const asked: { latitude: number; fresh: boolean }[] = [];
+      const weather: WeatherService = {
+        forecastFor: (location, read) => {
+          asked.push({
+            latitude: location.latitude,
+            fresh: read?.fresh ?? false,
+          });
+          return Promise.resolve(null);
+        },
+        normalsFor: () => Promise.reject(new Error('never asked')),
+        searchPlaces: () => Promise.resolve([]),
+        settled: () => Promise.resolve(),
+      };
+      const run = await sendDueReminders(
+        { ...deps, weather, replan: { ...deps.replan, weather } },
+        onTheMinute(day, 6, 15),
+      );
+      expect(run.failed).toBe(0);
+      for (const { phone } of people) expect(sentTo(phone)).toHaveLength(1);
+      // The batch's fresh reads first, one per place; every later read (each
+      // person's weather line) serves what the batch left, never waits.
+      const fresh = asked.filter((a) => a.fresh).map((a) => a.latitude);
+      expect(fresh.sort()).toEqual([40, 41]);
+      expect(asked.slice(0, 2).every((a) => a.fresh)).toBe(true);
+      expect(asked.slice(2).some((a) => a.fresh)).toBe(false);
     });
 
     it('prunes the claims of past days', async () => {

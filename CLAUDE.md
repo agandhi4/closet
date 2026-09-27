@@ -160,7 +160,7 @@ A feature lives whole (routes, queries, views) in `src/web/<feature>/`, a Fastif
 The detail of each rule, its code and its spec: `src/web/security/CLAUDE.md`. What every change keeps:
 
 - **CSRF**: the root same-origin hook refuses a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site with a 403, before the body is read. Nothing changes state on a GET. Tools send an Origin: the harness does by default, Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
-- **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `MCP_LIMIT`.
+- **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `WEATHER_SEARCH_LIMIT`, `WEATHER_LOCATION_LIMIT`, `MCP_LIMIT`.
 - **Refusals do not reveal ids**: what the requester cannot see is a 404 like an unknown id; what they can see but may not change is a 403 (`WardrobeAccess`; `test/integration/authorization-*.spec.ts` is the matrix).
 - **Outbound fetches** of a user-supplied URL or a third-party API go only through `createOutboundFetcher`.
 - **Redirect targets** from the user go through `safeReturnTo`; a path carrying a secret sets `config: { secretPath: true }` and every log line names requests through `loggableUrl()`; public pages never show an email.

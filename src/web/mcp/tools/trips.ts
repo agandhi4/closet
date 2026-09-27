@@ -138,7 +138,7 @@ export const tripTools = [
   defineTool({
     name: 'get_trip',
     title: 'Get a trip',
-    description: `One of your trips as its page shows it: the days with their outfits (each for a day and an occasion, or for any day), and the packing list, derived from those outfits: every garment grouped by role, how many outfits hold it, its wears on the trip (one per day it is worn, whatever the occasions, plus one per outfit without a day), the copies needed (with a wash limit k, ceil(wears / k) since nothing is washed on the trip; one for what is never washed), the copies to pack (up to the quantity owned), whether it is marked packed, and warnings: too-few (you own fewer than the trip needs), wash (before departure, fewer clean copies now than to pack), away (lent or at the repair shop), archived. A finished trip's list has no warnings. Then the extras (charger, toiletries...) packed or not. With weather on and the destination located in the app, the destination's forecast for the trip's days within the 16-day forecast, from when the later days' forecast arrives, and meanwhile those later days' typical weather (typicalDays, each marked typical: the average of the last ${NORMAL_YEARS} years' days around that date at the destination, never a forecast: highs and lows, the feels-like range, the share of days with rain, and what such a day asks of an all-day outfit).`,
+    description: `One of your trips as its page shows it: the days with their outfits (each for a day and an occasion, or for any day), and the packing list, derived from those outfits: every garment grouped by role, how many outfits hold it, its wears on the trip (one per day it is worn, whatever the occasions, plus one per outfit without a day), the copies needed (with a wash limit k, ceil(wears / k) since nothing is washed on the trip; one for what is never washed), the copies to pack (up to the quantity owned), whether it is marked packed, and warnings: too-few (you own fewer than the trip needs), wash (before departure, fewer clean copies now than to pack), away (lent or at the repair shop), archived. A finished trip's list has no warnings. Then the extras (charger, toiletries...) packed or not. With weather on and the destination located in the app, the destination's forecast for the trip's days within the 16-day forecast (forecastUnavailable when Open-Meteo has none for the place yet: typicalDays still come), from when the later days' forecast arrives, and meanwhile those later days' typical weather (typicalDays, each marked typical: the average of the last ${NORMAL_YEARS} years' days around that date at the destination, never a forecast: highs and lows, the feels-like range, the share of days with rain, and what such a day asks of an all-day outfit).`,
     input: z.object({ tripId: rowId().describe('The trip, from list_trips.') }),
     writes: false,
     async run({ tripId }, ctx) {
@@ -199,6 +199,7 @@ export const tripTools = [
             ? undefined
             : forecast.kind === 'forecast'
               ? {
+                  forecastUnavailable: forecast.unavailable,
                   fetchedAt: forecast.fetchedAt?.toISOString() ?? null,
                   days: forecast.days.map((day) =>
                     dayWeather(day.forecast, 'all-day', forecast.offset),

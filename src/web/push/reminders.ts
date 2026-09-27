@@ -7,7 +7,11 @@ import { ideaName } from '../gallery/ideas';
 import { t } from '../i18n';
 import { todayFor, type TodayModel } from '../today/today';
 import { TODAY_PATH } from '../today/urls';
-import { userWeather, type WeatherService } from '../weather/service';
+import {
+  refreshForecastsFor,
+  userWeather,
+  type WeatherService,
+} from '../weather/service';
 import { todayLine } from '../weather/summary';
 import { weatherLineText } from '../weather/views';
 import {
@@ -125,6 +129,7 @@ export async function sendDueReminders(
     group.deviceIds.push(deviceId);
     groups.set(key, group);
   }
+  await refreshMorningForecasts(deps, [...groups.values()], now);
   for (const { userId, kind, deviceIds } of groups.values()) {
     // Logged before sending: a claim is never retried (claim before send, so
     // a crash loses a reminder rather than doubling it), and this line is
@@ -159,6 +164,27 @@ export async function sendDueReminders(
     `Reminders at ${now.toISOString()}: ${run.claimed} claimed of ${run.due} due, ${run.sent} sent, ${run.skipped} skipped, ${run.failed} failed`,
   );
   return run;
+}
+
+/**
+ * The morning's forecasts, refreshed together before anyone's re-plan or
+ * weather line reads them: each read after is then a refreshed row (or the
+ * stale one), never a person's own wait on Open-Meteo in turn.
+ */
+async function refreshMorningForecasts(
+  deps: ReminderDeps,
+  groups: readonly { userId: number; kind: ReminderKind }[],
+  now: Date,
+): Promise<void> {
+  const mornings = groups
+    .filter((group) => group.kind === 'morning')
+    .map((group) => group.userId);
+  if (!deps.weather || mornings.length === 0) return;
+  await refreshForecastsFor(
+    { db: deps.db, weather: deps.weather, logger: deps.logger },
+    mornings,
+    now,
+  );
 }
 
 /**
@@ -206,6 +232,10 @@ export async function reminderPayload(
   now: Date,
   swapped: readonly Swap[],
 ): Promise<PushPayload | null> {
+  // The morning's forecast first (sendDueReminders refreshed the batch's
+  // rows), so the line and Today's ideas (todayFor) read the same row.
+  const weather =
+    kind === 'morning' ? await weatherText(deps, userId, now) : null;
   const model = await todayFor(deps, userId, now);
   if (kind === 'evening') {
     if (model.wornToday) return null;
@@ -221,7 +251,6 @@ export async function reminderPayload(
     };
   }
   const outfits = [...morningIdea(model), ...plannedOutfits(model)];
-  const weather = await weatherText(deps, userId, now);
   return {
     title: t('today.push.MORNING_TITLE'),
     body: [

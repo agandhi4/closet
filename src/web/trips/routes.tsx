@@ -16,7 +16,10 @@ import { HttpError } from '../errors';
 import { listOutfits } from '../outfits/queries';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
-import { WEATHER_SEARCH_LIMIT } from '../security/rate-limit';
+import {
+  WEATHER_LOCATION_LIMIT,
+  WEATHER_SEARCH_LIMIT,
+} from '../security/rate-limit';
 import { viewContext } from '../view-context';
 import { AddOutfitPage } from './add-page';
 import { tripForecast } from './forecast';
@@ -543,7 +546,10 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
     app.post(
       `${TRIPS_PATH}/:id/destination`,
-      { schema: { params: TripParams, body: DestinationBody } },
+      {
+        schema: { params: TripParams, body: DestinationBody },
+        config: { rateLimit: WEATHER_LOCATION_LIMIT },
+      },
       async (request, reply) => {
         const ownerId = sessionUserId(request);
         const { id } = request.params;
