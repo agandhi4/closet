@@ -175,6 +175,54 @@ test.describe('Trips', () => {
     ).toHaveCount(1);
     await expectPhoneWidth(page);
   });
+
+  test('days past the forecast show their typical weather, and their ideas are matched to it', async ({
+    page,
+  }) => {
+    await signIn(page, 'trips-typical');
+    await closet(page);
+    const today = householdToday();
+    const created = await page.request.post('/trips', {
+      form: {
+        name: 'Long weekend',
+        destination: 'Austin',
+        startsOn: addDays(today, 14),
+        endsOn: addDays(today, 17),
+      },
+      headers: SAME_ORIGIN,
+    });
+    expect(created.ok()).toBe(true);
+    const tripPath = new URL(created.url()).pathname;
+    const located = await page.request.post(`${tripPath}/destination`, {
+      form: {
+        name: 'Austin, Texas, United States',
+        latitude: '30.27',
+        longitude: '-97.74',
+      },
+      headers: SAME_ORIGIN,
+    });
+    expect(located.ok()).toBe(true);
+    await page.goto(tripPath);
+
+    // Two days in the forecast, then two typical days, labelled as such.
+    await expect(page.locator('[data-weather-day]')).toHaveCount(2);
+    const typical = page.locator('[data-typical-day]');
+    await expect(typical).toHaveCount(2);
+    await expect(page.getByText(/not a forecast/)).toBeVisible();
+    await expect(typical.first()).toContainText(
+      /Typically -?\d+–-?\d+ °F, \d+% rain chance/,
+    );
+    await expectPhoneWidth(page);
+
+    await typical.first().getByRole('link', { name: 'Ideas' }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`/outfits/ideas\\?for=trip:\\d+:${addDays(today, 16)}`),
+    );
+    await expect(page.locator('[data-ideas-weather="typical"]')).toContainText(
+      /Typically feels -?\d+–-?\d+ °F/,
+    );
+    await expectPhoneWidth(page);
+  });
 });
 
 test.describe('A trip in the installed app', () => {

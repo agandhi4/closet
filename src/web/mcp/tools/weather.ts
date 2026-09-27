@@ -6,7 +6,7 @@ import {
   FORECAST_DAYS,
   rainFrom,
 } from '../../../weather/forecast';
-import { weatherNeeds } from '../../../weather/match';
+import { type WeatherNeeds, weatherNeeds } from '../../../weather/match';
 import {
   addDays,
   daysBetween,
@@ -14,6 +14,7 @@ import {
   todayIn,
 } from '../../calendar/calendar-date';
 import { HttpError } from '../../errors';
+import type { TripTypicalDay } from '../../trips/forecast';
 import { userWeather } from '../../weather/service';
 import { defineTool, type ToolContext } from '../tool';
 import { isoDate, occasionInput } from './common';
@@ -44,19 +45,44 @@ export function dayWeather(
     lowC: round1(day.low),
     precipitationChance: day.precipitationChance,
     rainFromHour: rainFrom(day, 0),
-    outfit: needs && {
-      occasion,
-      hours: needs.window,
-      feelsLikeC: {
-        min: round1(needs.feelsLike.min),
-        max: round1(needs.feelsLike.max),
-      },
-      torsoWarmth: needs.torso,
-      torsoWarmthWithoutLayer: needs.torsoWithoutLayer,
-      legsAndFeetWarmth: needs.limbs,
-      needsLayer: needs.layer,
-      needsWaterResistance: needs.rain,
+    outfit: needs && outfitNeeds(needs),
+  };
+}
+
+/**
+ * A trip day past the forecast (get_trip): the destination's climate
+ * normals, marked `typical` so no agent reads them as a forecast, and what
+ * a typical day asks of an all-day outfit.
+ */
+export function typicalDayWeather({ day, normals, needs }: TripTypicalDay) {
+  return {
+    day,
+    typical: true,
+    highC: round1(normals.high),
+    lowC: round1(normals.low),
+    feelsLikeC: {
+      min: round1(normals.feelsLow),
+      max: round1(normals.feelsHigh),
     },
+    rainChance: normals.rainChance,
+    outfit: needs && outfitNeeds(needs),
+  };
+}
+
+/** What a day asks of an outfit for its occasion, in a tool's words. */
+function outfitNeeds(needs: WeatherNeeds) {
+  return {
+    occasion: needs.occasion,
+    hours: needs.window,
+    feelsLikeC: {
+      min: round1(needs.feelsLike.min),
+      max: round1(needs.feelsLike.max),
+    },
+    torsoWarmth: needs.torso,
+    torsoWarmthWithoutLayer: needs.torsoWithoutLayer,
+    legsAndFeetWarmth: needs.limbs,
+    needsLayer: needs.layer,
+    needsWaterResistance: needs.rain,
   };
 }
 

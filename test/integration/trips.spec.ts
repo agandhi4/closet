@@ -867,7 +867,7 @@ describe('trips', () => {
       expect(kept.latitude).toBeNull();
     });
 
-    it('says from when the forecast of days past 16 days arrives, fetching nothing', async () => {
+    it('says from when the forecast of days past 16 days arrives, with their typical weather meanwhile and no forecast fetched', async () => {
       const today = t.today();
       const id = await newTrip({
         startsOn: addDays(today, 30),
@@ -878,11 +878,15 @@ describe('trips', () => {
         latitude: '30.27',
         longitude: '-97.74',
       });
-      const hits = stub.hits.length;
+      const forecasts = () =>
+        stub.hits.filter((hit) => hit.startsWith('/v1/forecast?')).length;
+      const before = forecasts();
       const res = await get(`/trips/${id}/weather`);
       expect(res.body).toContain('data-forecast-from=""');
       expect(hasText(res.body, 'arrives on')).toBe(true);
-      expect(stub.hits.length).toBe(hits);
+      // The climate normals (climate-normals.spec.ts covers them).
+      expect(res.body).toContain('data-trip-typical=""');
+      expect(forecasts()).toBe(before);
     });
 
     it('gives the gallery the destination’s forecast for a trip day', async () => {

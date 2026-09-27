@@ -4,7 +4,7 @@ import type { Occasion } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
 import type { IsoDate } from '../calendar/calendar-date';
 import { dayLabel, occasionLabel } from '../calendar/labels';
-import { ideaName } from '../gallery/ideas';
+import { ideaName, type IdeasWeather } from '../gallery/ideas';
 import { Reasons } from '../gallery/ideas-page';
 import type { PoolGarment } from '../gallery/queries';
 import { ideasUrl } from '../gallery/urls';
@@ -208,7 +208,7 @@ export function IdeasRowView(props: { row: IdeasRow; today: IsoDate }) {
             <IdeaCard
               idea={idea}
               occasion={row.occasion}
-              weather={row.weather !== null}
+              weather={row.weather}
               eager={index === 0}
             />
           ))}
@@ -238,7 +238,7 @@ export function IdeasRowView(props: { row: IdeasRow; today: IsoDate }) {
 function IdeaCard(props: {
   idea: Idea<PoolGarment>;
   occasion: Occasion;
-  weather: boolean;
+  weather: IdeasWeather | null;
   eager: boolean;
 }) {
   const { idea } = props;

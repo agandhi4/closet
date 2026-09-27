@@ -149,4 +149,94 @@ describe('the Open-Meteo client', () => {
     });
     expect(await client.searchPlaces('atlantis')).toEqual([]);
   });
+
+  describe('climate normals (the historical archive)', () => {
+    const YEARS = { first: 2016, last: 2025 };
+    // Two complete days in the requested years, one without a high, and a
+    // day from outside them.
+    const ARCHIVE = {
+      latitude: 30.27,
+      longitude: -97.74,
+      daily: {
+        time: ['2015-12-31', '2016-07-01', '2016-07-02', '2016-07-03'],
+        temperature_2m_max: [10, 35, 33, null],
+        temperature_2m_min: [2, 24, 22, 23],
+        apparent_temperature_max: [8, 38, 36, 37],
+        apparent_temperature_min: [0, 25, 23, 24],
+        precipitation_sum: [0, 0, 4.2, 0],
+      },
+    };
+
+    it('asks the fixed archive host for whole years at the rounded location, in the household zone', async () => {
+      const { fetcher, calls } = fetcherAnswering(ARCHIVE);
+      const client = createOpenMeteoClient({
+        fetcher,
+        timeZone: 'America/New_York',
+      });
+      await client.normals({ latitude: 30.27, longitude: -97.7 }, YEARS);
+      const [{ url, request }] = calls;
+      const sent = new URL(url);
+      expect(`${sent.origin}${sent.pathname}`).toBe(OPEN_METEO.archive);
+      expect(Object.fromEntries(sent.searchParams)).toEqual({
+        latitude: '30.27',
+        longitude: '-97.70',
+        start_date: '2016-01-01',
+        end_date: '2025-12-31',
+        daily:
+          'temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum',
+        timezone: 'America/New_York',
+      });
+      expect(request).toEqual({
+        accept: ['json'],
+        hosts: ['archive-api.open-meteo.com'],
+      });
+    });
+
+    it('averages the complete days of those years', async () => {
+      const client = createOpenMeteoClient({
+        fetcher: fetcherAnswering(ARCHIVE).fetcher,
+        timeZone: 'America/New_York',
+      });
+      const normals = await client.normals(
+        { latitude: 30.27, longitude: -97.74 },
+        YEARS,
+      );
+      expect(normals.years).toEqual(YEARS);
+      // 1 and 2 July only: 3 July has no high, 31 December 2015 is outside.
+      expect(normals.days['07-02']).toEqual({
+        high: 34,
+        low: 23,
+        feelsHigh: 37,
+        feelsLow: 24,
+        rainChance: 50,
+      });
+      expect(normals.days['12-31']).toBeUndefined();
+    });
+
+    it('refuses an answer that is not the documented shape, or has no complete day', async () => {
+      for (const body of [
+        'not json',
+        { daily: {} },
+        { daily: { ...ARCHIVE.daily, precipitation_sum: [0] } },
+        {
+          daily: {
+            time: ['2016-07-03'],
+            temperature_2m_max: [null],
+            temperature_2m_min: [1],
+            apparent_temperature_max: [1],
+            apparent_temperature_min: [1],
+            precipitation_sum: [1],
+          },
+        },
+      ]) {
+        const client = createOpenMeteoClient({
+          fetcher: fetcherAnswering(body).fetcher,
+          timeZone: 'America/New_York',
+        });
+        await expect(
+          client.normals({ latitude: 30.27, longitude: -97.74 }, YEARS),
+        ).rejects.toBeInstanceOf(WeatherResponseError);
+      }
+    });
+  });
 });

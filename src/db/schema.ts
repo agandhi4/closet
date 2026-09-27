@@ -27,6 +27,7 @@ import {
   type ReminderKind,
 } from '../push/reminders';
 import type { Forecast } from '../weather/forecast';
+import type { ClimateNormals } from '../weather/normals';
 import {
   DEFAULT_TEMPERATURE_UNIT,
   OFFSET_LIMIT,
@@ -1620,6 +1621,46 @@ export const weatherForecast = pgTable(
     check(
       'weather_forecast_fetched_check',
       sql`(${table.forecast} is null) = (${table.fetchedAt} is null)`,
+    ),
+  ],
+);
+
+// The climate normals cache (#14's "typical" days, for #10's trips;
+// src/web/weather/service.ts): one row per rounded location holding every
+// calendar day's normals (src/weather/normals.ts), refreshed once it is 30
+// days old, keeping the last good answer. Beside weather_forecast rather than
+// a kind in it: a different answer (a year of normals from ten years of the
+// archive, not 16 days ahead), a different lifetime and a different
+// endpoint, so a shared row would need a kind in its key and a payload typed
+// by that kind. One row per location, not per month: the archive answers a
+// date range, so any month's normals take the ten years' fetch anyway, and
+// once fetched every day of the year comes with it.
+export const weatherNormals = pgTable(
+  'weather_normals',
+  {
+    latitude: numeric('latitude', {
+      precision: 4,
+      scale: 2,
+      mode: 'number',
+    }).notNull(),
+    longitude: numeric('longitude', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    }).notNull(),
+    // The last good answer; null until the location's first fetch succeeds.
+    normals: jsonb('normals').$type<ClimateNormals>(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }),
+    attemptedAt: timestamp('attempted_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'weather_normals_pkey',
+      columns: [table.latitude, table.longitude],
+    }),
+    check(
+      'weather_normals_fetched_check',
+      sql`(${table.normals} is null) = (${table.fetchedAt} is null)`,
     ),
   ],
 );

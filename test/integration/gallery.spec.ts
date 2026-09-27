@@ -805,12 +805,16 @@ describe('outfit gallery with the weather', () => {
     expect(res.body).toContain('data-ideas-weather');
     expect(res.body).toMatch(/Feels -?\d+–-?\d+ °F/);
     expect(res.body).toContain('/outfits/ideas/feedback');
-    // A day past the forecast is dressed without it, and fetches nothing new.
+    // A day past the forecast is dressed without it, and fetches nothing new:
+    // climate normals are a trip destination's alone.
     const far = await t.inject({
       method: 'GET',
       url: `/outfits/ideas?for=day:${addDays(t.today(), 40)}`,
     });
     expect(far.body).not.toContain('data-ideas-weather');
+    expect(stub.hits.filter((hit) => hit.startsWith('/v1/archive'))).toEqual(
+      [],
+    );
   });
 
   it('"too warm" nudges the offset and comes back to the same ideas', async () => {

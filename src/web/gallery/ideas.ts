@@ -11,6 +11,7 @@ import { categoryRole } from '../../wardrobe/properties';
 import { FORECAST_DAYS, forecastDay } from '../../weather/forecast';
 import type { Location } from '../../weather/location';
 import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
+import { normalsOn, typicalDay } from '../../weather/normals';
 import type { TemperatureUnit } from '../../weather/temperature';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
 import { type CapsuleDetail, findCapsule } from '../capsules/queries';
@@ -132,6 +133,8 @@ export async function ideasScope(
 export interface IdeasWeather {
   needs: WeatherNeeds;
   unit: TemperatureUnit;
+  /** From the destination's climate normals (a trip day past the forecast), not a forecast. */
+  typical: boolean;
 }
 
 export interface IdeasResult {
@@ -169,11 +172,13 @@ export async function ideasFor(
 }
 
 /**
- * What the day's forecast asks for the occasion, with the person's offset:
- * only for days the forecast covers (today to FORECAST_DAYS ahead), so a
- * past or far day never makes the request wait on Open-Meteo. The forecast
- * is the person's own location's, or `input.place`'s (a trip's
- * destination) through the same cache.
+ * What the day's weather asks for the occasion, with the person's offset.
+ * The forecast only for days it covers (today to FORECAST_DAYS ahead), so a
+ * past day never makes the request wait on Open-Meteo; it is the person's
+ * own location's, or `input.place`'s (a trip's destination) through the
+ * same cache. Past the forecast, a trip's destination has its typical day
+ * (climate normals, src/weather/normals.ts) and nothing else does: the
+ * person's own days (the gallery, Today) stay forecast-only.
  */
 async function dayWeather(
   deps: { db: Db; weather: WeatherService | undefined },
@@ -181,13 +186,21 @@ async function dayWeather(
   input: IdeasInput,
   now: Date,
 ): Promise<IdeasWeather | null> {
-  if (!deps.weather) return null;
-  if (
-    input.day < input.today ||
-    input.day > addDays(input.today, FORECAST_DAYS - 1)
-  ) {
-    return null;
+  const { db, weather } = deps;
+  if (!weather || input.day < input.today) return null;
+  const { place } = input;
+  if (input.day <= addDays(input.today, FORECAST_DAYS - 1)) {
+    return forecastWeather({ db, weather }, ownerId, input, now);
   }
+  return place ? typicalWeather({ db, weather }, ownerId, input, place) : null;
+}
+
+async function forecastWeather(
+  deps: { db: Db; weather: WeatherService },
+  ownerId: number,
+  input: IdeasInput,
+  now: Date,
+): Promise<IdeasWeather | null> {
   const { place } = input;
   const { settings, cached } =
     place === undefined
@@ -199,7 +212,29 @@ async function dayWeather(
   const forecast = cached && forecastDay(cached.forecast, input.day);
   const needs =
     forecast && weatherNeeds(forecast, input.occasion, settings.offset);
-  return needs ? { needs, unit: settings.unit } : null;
+  return needs ? { needs, unit: settings.unit, typical: false } : null;
+}
+
+/** A trip day past the forecast: the destination's typical day for it. */
+async function typicalWeather(
+  deps: { db: Db; weather: WeatherService },
+  ownerId: number,
+  input: IdeasInput,
+  place: Location,
+): Promise<IdeasWeather | null> {
+  const [settings, cached] = await Promise.all([
+    findWeatherSettings(deps.db, ownerId),
+    deps.weather.normalsFor(place),
+  ]);
+  const normals = cached && normalsOn(cached.normals, input.day);
+  const needs =
+    normals &&
+    weatherNeeds(
+      typicalDay(input.day, normals),
+      input.occasion,
+      settings.offset,
+    );
+  return needs ? { needs, unit: settings.unit, typical: true } : null;
 }
 
 /** Garments as an outfit's slots and name list them: top to toe (OUTFIT_ORDER), the given order among equals. */

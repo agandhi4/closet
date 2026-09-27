@@ -105,3 +105,24 @@ export function rainFrom(day: DayForecast, fromHour: number): number | null {
   );
   return wet ? wet.hour : null;
 }
+
+// A clear day's shape: coolest at DAWN_HOUR, warmest at PEAK_HOUR.
+const DAWN_HOUR = 6;
+const PEAK_HOUR = 15;
+
+/**
+ * Where `hour` (0-23) sits between a day's low (0, at 6:00) and high (1, at
+ * 15:00): a cosine up through the day and back down overnight. The seed's
+ * simulated forecasts (src/seed/weather.ts) and a typical day built from
+ * climate normals (src/weather/normals.ts) share it.
+ */
+export function diurnalPhase(hour: number): number {
+  if (hour >= DAWN_HOUR && hour <= PEAK_HOUR) {
+    return (
+      (1 - Math.cos((Math.PI * (hour - DAWN_HOUR)) / (PEAK_HOUR - DAWN_HOUR))) /
+      2
+    );
+  }
+  const since = (hour + 24 - PEAK_HOUR) % 24;
+  return (1 + Math.cos((Math.PI * since) / (24 - PEAK_HOUR + DAWN_HOUR))) / 2;
+}

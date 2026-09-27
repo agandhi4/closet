@@ -5,7 +5,11 @@ import {
   daysInMonth,
   type IsoDate,
 } from '../web/calendar/calendar-date';
-import type { DayForecast, HourForecast } from '../weather/forecast';
+import {
+  type DayForecast,
+  diurnalPhase,
+  type HourForecast,
+} from '../weather/forecast';
 import { fahrenheitToCelsius } from '../weather/temperature';
 import { stream } from './random';
 
@@ -126,11 +130,9 @@ function anomalyOn(key: string, day: IsoDate): number {
   return anomaly;
 }
 
-// A day's feels-like runs from its low at LOW_HOUR to its high at HIGH_HOUR
-// and back: the shape of a clear day. The swing is 12 to 18 °F (Central
-// Park's normal daily range).
-const LOW_HOUR = 6;
-const HIGH_HOUR = 15;
+// A day's feels-like runs from its low to its high and back (diurnalPhase:
+// the shape of a clear day). The swing is 12 to 18 °F (Central Park's normal
+// daily range).
 const SWING_F = { min: 12, max: 18 };
 // A rainy day's rain: a spell of 3 to 8 hours starting between 6:00 and
 // 18:00, likely (70-90 %) inside it and unlikely (10-25 %) outside.
@@ -168,7 +170,9 @@ export function forecastDayOf(key: string, weather: Weather): DayForecast {
       : 10 + Math.floor(random.next() * (weather.rain ? 16 : 6));
     return {
       hour,
-      feelsLike: round1(fahrenheitToCelsius(feelsLow + swing * diurnal(hour))),
+      feelsLike: round1(
+        fahrenheitToCelsius(feelsLow + swing * diurnalPhase(hour)),
+      ),
       precipitationChance: chance,
       code: raining ? wetCode : dryCode,
     };
@@ -181,17 +185,6 @@ export function forecastDayOf(key: string, weather: Weather): DayForecast {
     precipitationChance: Math.max(...hours.map((h) => h.precipitationChance)),
     hours,
   };
-}
-
-/** 0 at LOW_HOUR, 1 at HIGH_HOUR, a cosine between and back overnight. */
-function diurnal(hour: number): number {
-  if (hour >= LOW_HOUR && hour <= HIGH_HOUR) {
-    return (
-      (1 - Math.cos((Math.PI * (hour - LOW_HOUR)) / (HIGH_HOUR - LOW_HOUR))) / 2
-    );
-  }
-  const since = (hour + 24 - HIGH_HOUR) % 24;
-  return (1 + Math.cos((Math.PI * since) / (24 - HIGH_HOUR + LOW_HOUR))) / 2;
 }
 
 function round1(value: number): number {

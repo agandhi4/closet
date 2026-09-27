@@ -41,6 +41,7 @@ import {
   goesWithCount,
   IDEAS_PAGE_SIZE,
   ideasFor,
+  type IdeasWeather,
   ideasScope,
   MAX_SEED,
   pickIdea,
@@ -350,7 +351,7 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       now,
     );
     logger.debug(
-      `Ideas for user ${ownerId}: ${result.ideas.length} on page ${page} (seed ${state.seed}, ${planning.day} ${planning.occasion}${trip ? `, trip ${trip.id}` : ''}${capsule ? `, capsule ${capsule.id}` : ''}${styled ? `, with garment ${styled.id}` : ''}${result.weather ? ', weather' : ''}) in ${Math.round(performance.now() - started)} ms`,
+      `Ideas for user ${ownerId}: ${result.ideas.length} on page ${page} (seed ${state.seed}, ${planning.day} ${planning.occasion}${trip ? `, trip ${trip.id}` : ''}${capsule ? `, capsule ${capsule.id}` : ''}${styled ? `, with garment ${styled.id}` : ''}${weatherNote(result.weather)}) in ${Math.round(performance.now() - started)} ms`,
     );
     return {
       ownerId,
@@ -517,3 +518,9 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   done();
 };
+
+/** The ideas log line's weather part: what the page was matched to. */
+function weatherNote(weather: IdeasWeather | null): string {
+  if (!weather) return '';
+  return weather.typical ? ', typical weather' : ', weather';
+}

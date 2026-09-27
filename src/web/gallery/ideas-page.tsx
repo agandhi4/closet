@@ -190,8 +190,11 @@ function WeatherNote({ weather }: { weather: IdeasWeather }) {
     needs.rain ? t('gallery.RAIN') : null,
   ].filter((note) => note !== null);
   return (
-    <p class="px-2 text-sm text-base-content/70" data-ideas-weather="">
-      {t('gallery.FEELS', {
+    <p
+      class="px-2 text-sm text-base-content/70"
+      data-ideas-weather={weather.typical ? 'typical' : 'forecast'}
+    >
+      {t(weather.typical ? 'gallery.FEELS_TYPICAL' : 'gallery.FEELS', {
         range: t('weather.RANGE', {
           low: displayTemperature(needs.feelsLike.min, unit),
           high: displayTemperature(needs.feelsLike.max, unit),
@@ -319,7 +322,7 @@ function IdeaCard(props: {
       <div class="card-body p-3 gap-3">
         <OutfitCollage garments={idea.garments} eager={props.eager} />
         <h2 class="font-semibold text-sm line-clamp-2">{name}</h2>
-        <Reasons idea={idea} weather={model.weather !== null} />
+        <Reasons idea={idea} weather={model.weather} />
         {/* One row: the pick, and "Not this" opening upward over the
             collage, so a whole card fits a phone screen above the dock. */}
         <div class="flex items-start gap-2">
@@ -424,7 +427,7 @@ export function Reasons({
   weather,
 }: {
   idea: Idea<PoolGarment>;
-  weather: boolean;
+  weather: IdeasWeather | null;
 }) {
   const rested = idea.garments
     .filter((g) => idea.rested.includes(g.id) && g.name)
@@ -436,7 +439,14 @@ export function Reasons({
       tone: 'badge-warning',
     })),
     ...(weather && idea.problems.length === 0
-      ? [{ text: t('gallery.FITS_WEATHER'), tone: 'badge-success' }]
+      ? [
+          {
+            text: t(
+              weather.typical ? 'gallery.FITS_TYPICAL' : 'gallery.FITS_WEATHER',
+            ),
+            tone: 'badge-success',
+          },
+        ]
       : []),
     ...(rested.length > 0
       ? [

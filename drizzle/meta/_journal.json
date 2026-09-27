@@ -176,6 +176,13 @@
       "when": 1790487983737,
       "tag": "0024_trips",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790489880981,
+      "tag": "0025_weather_normals",
+      "breakpoints": true
     }
   ]
 }

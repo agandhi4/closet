@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Occasion } from '../wardrobe/occasions';
 import type { GarmentRole, Warmth } from '../wardrobe/properties';
-import type { DayForecast } from './forecast';
+import { type DayForecast, diurnalPhase } from './forecast';
 import {
   assessOutfit,
   limbTarget,
@@ -22,13 +22,9 @@ function day(
   rainAt: readonly number[] = [],
 ): DayForecast {
   const hours = Array.from({ length: 24 }, (_, hour) => {
-    const phase =
-      hour >= 6 && hour <= 15
-        ? (1 - Math.cos((Math.PI * (hour - 6)) / 9)) / 2
-        : (1 + Math.cos((Math.PI * ((hour + 24 - 15) % 24)) / 15)) / 2;
     return {
       hour,
-      feelsLike: low + (high - low) * phase,
+      feelsLike: low + (high - low) * diurnalPhase(hour),
       precipitationChance: rainAt.includes(hour) ? 80 : 10,
       code: rainAt.includes(hour) ? 63 : 1,
     };

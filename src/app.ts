@@ -312,6 +312,7 @@ function createWeather(
       endpoints: stub?.endpoints,
     }),
     logger: logger.child({ context: 'Weather' }),
+    timeZone: config.APP_TIMEZONE,
   });
 }
 

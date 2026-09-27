@@ -1,4 +1,5 @@
 import { conditionOf, rainFrom } from '../../weather/forecast';
+import { NORMAL_YEARS } from '../../weather/normals';
 import {
   displayTemperature,
   type TemperatureUnit,
@@ -13,7 +14,7 @@ import {
   hourLabel,
   UNIT_SYMBOLS,
 } from '../weather/views';
-import type { TripForecast, TripWeatherDay } from './forecast';
+import type { TripForecast, TripTypicalDay, TripWeatherDay } from './forecast';
 import { shortDate } from './labels';
 import { tripIdeasUrl, tripUrl } from './urls';
 
@@ -22,8 +23,9 @@ import { tripIdeasUrl, tripUrl } from './urls';
  * destination's forecast for the trip's days the forecast reaches, each day
  * with its range, rain and what it asks of an outfit, and a link to ideas
  * for it (the gallery with the destination's forecast); past the forecast,
- * from when the rest arrives. The page loads it after itself, so a slow
- * Open-Meteo never holds the trip up.
+ * from when the rest arrives and, meanwhile, each day's typical weather
+ * (climate normals, labelled as such) with its own ideas link. The page
+ * loads it after itself, so a slow Open-Meteo never holds the trip up.
  */
 export function TripWeather(props: {
   tripId: number;
@@ -61,6 +63,17 @@ export function TripWeather(props: {
               />
             ))}
           </ul>
+          {forecast.fetchedAt && (
+            <p class="text-xs text-base-content/50">
+              {t('weather.AS_OF', {
+                time: fetchedLabel(
+                  forecast.fetchedAt,
+                  props.timeZone,
+                  props.now,
+                ),
+              })}
+            </p>
+          )}
           {forecast.later && (
             <p class="text-xs text-base-content/60" data-forecast-from="">
               {t(
@@ -74,16 +87,24 @@ export function TripWeather(props: {
               )}
             </p>
           )}
-          {forecast.fetchedAt && (
-            <p class="text-xs text-base-content/50">
-              {t('weather.AS_OF', {
-                time: fetchedLabel(
-                  forecast.fetchedAt,
-                  props.timeZone,
-                  props.now,
-                ),
-              })}
-            </p>
+          {forecast.typical.length > 0 && (
+            <>
+              <p class="text-xs text-base-content/60 pt-1">
+                {t('trips.TYPICAL_NOTE', { years: NORMAL_YEARS })}
+              </p>
+              <ul
+                class="flex flex-col divide-y divide-base-200"
+                data-trip-typical=""
+              >
+                {forecast.typical.map((day) => (
+                  <TripTypicalRow
+                    tripId={props.tripId}
+                    day={day}
+                    unit={forecast.unit}
+                  />
+                ))}
+              </ul>
+            </>
           )}
         </div>
       );
@@ -132,6 +153,48 @@ function TripWeatherRow(props: {
       </span>
       <a
         href={tripIdeasUrl(props.tripId, { day: forecast.day })}
+        class="btn btn-ghost btn-xs"
+      >
+        {t('trips.DAY_IDEAS')}
+      </a>
+    </li>
+  );
+}
+
+/**
+ * A day past the forecast: the destination's typical range and rain chance,
+ * worded as typical so it never reads as a forecast (no condition icon: a
+ * normal has no weather of its own), with what a typical day asks.
+ */
+function TripTypicalRow(props: {
+  tripId: number;
+  day: TripTypicalDay;
+  unit: TemperatureUnit;
+}) {
+  const { day, normals, needs } = props.day;
+  const { unit } = props;
+  return (
+    <li class="flex items-center gap-2 py-1.5" data-typical-day={day}>
+      <span class="flex flex-col min-w-0 flex-1">
+        <span class="text-sm">
+          <span class="font-medium">{dayLabel(day)}</span>{' '}
+          {t('trips.TYPICAL_DAY', {
+            range: t('weather.RANGE', {
+              low: displayTemperature(normals.low, unit),
+              high: displayTemperature(normals.high, unit),
+              unit: UNIT_SYMBOLS[unit],
+            }),
+            chance: normals.rainChance,
+          })}
+        </span>
+        {needs?.layer && (
+          <span class="text-xs text-base-content/60">
+            {t('weather.TAKE_LAYER')}
+          </span>
+        )}
+      </span>
+      <a
+        href={tripIdeasUrl(props.tripId, { day })}
         class="btn btn-ghost btn-xs"
       >
         {t('trips.DAY_IDEAS')}

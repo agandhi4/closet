@@ -11,6 +11,11 @@ import {
   type Location,
   roundedLocation,
 } from '../../weather/location';
+import {
+  type ClimateNormals,
+  climateNormals,
+  type ObservedDay,
+} from '../../weather/normals';
 import type { OutboundFetcher } from '../security/outbound-fetch';
 
 /**
@@ -24,9 +29,16 @@ import type { OutboundFetcher } from '../security/outbound-fetch';
  * the rounded coordinates (or the typed city name) and nothing about the
  * user: no cookie, no id, the fetcher's fixed User-Agent.
  *
- * Climate normals past FORECAST_DAYS (the plan's "typical" days, from
- * climate-api.open-meteo.com) are deferred: a third endpoint here and a
- * per-month cache. The calendar shows no weather past the forecast.
+ * Climate normals, the "typical" days past FORECAST_DAYS (#10's trips), come
+ * from the historical archive (ERA5 reanalysis: what the weather was, on a
+ * ~10 km grid), not the climate API: that one serves CMIP6 model runs, a
+ * model's simulated days whose average carries the model's bias and needs
+ * a model chosen, where the archive's average is the place's recent record.
+ * One request covers NORMAL_YEARS whole years of daily highs, lows,
+ * feels-like and precipitation (about 140 KB, under the fetcher's 512 KB
+ * cap; Open-Meteo counts it as ~260 of its free calls, once per location a
+ * month), from which every calendar day's normal is computed
+ * (src/weather/normals.ts).
  */
 
 export interface WeatherEndpoints {
@@ -34,12 +46,15 @@ export interface WeatherEndpoints {
   forecast: string;
   /** The geocoding search (`/v1/search`). */
   geocoding: string;
+  /** The historical weather archive (`/v1/archive`): climate normals. */
+  archive: string;
 }
 
 /** Production. Tests pass a stub's (test/support/weather-stub.ts). */
 export const OPEN_METEO: WeatherEndpoints = {
   forecast: 'https://api.open-meteo.com/v1/forecast',
   geocoding: 'https://geocoding-api.open-meteo.com/v1/search',
+  archive: 'https://archive-api.open-meteo.com/v1/archive',
 };
 
 /** How many places a city search offers. */
@@ -55,6 +70,11 @@ export interface Place {
 export interface WeatherClient {
   /** FORECAST_DAYS days from today, hours in `timeZone`. */
   forecast(location: Location): Promise<Forecast>;
+  /** Every calendar day's normals over `years` (whole years, inclusive). */
+  normals(
+    location: Location,
+    years: { first: number; last: number },
+  ): Promise<ClimateNormals>;
   searchPlaces(query: string): Promise<Place[]>;
 }
 
@@ -85,6 +105,18 @@ const ForecastAnswer = Type.Object({
   }),
 });
 type ForecastAnswer = Static<typeof ForecastAnswer>;
+
+const ArchiveAnswer = Type.Object({
+  daily: Type.Object({
+    time: Type.Array(Type.String()),
+    temperature_2m_max: Numbers,
+    temperature_2m_min: Numbers,
+    apparent_temperature_max: Numbers,
+    apparent_temperature_min: Numbers,
+    precipitation_sum: Numbers,
+  }),
+});
+type ArchiveAnswer = Static<typeof ArchiveAnswer>;
 
 const GeocodingAnswer = Type.Object({
   // Absent when nothing matched.
@@ -149,6 +181,31 @@ export function createOpenMeteoClient(options: {
         );
       }
       return { timeZone, days: forecastDays(answer) };
+    },
+
+    async normals(location, years) {
+      const answer = await getJson(
+        endpoints.archive,
+        new URLSearchParams({
+          latitude: location.latitude.toFixed(COORDINATE_DECIMALS),
+          longitude: location.longitude.toFixed(COORDINATE_DECIMALS),
+          start_date: `${years.first}-01-01`,
+          end_date: `${years.last}-12-31`,
+          daily:
+            'temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum',
+          timezone: timeZone,
+        }),
+      );
+      if (!Value.Check(ArchiveAnswer, answer)) {
+        throw new WeatherResponseError(
+          'The archive answer is not the documented shape',
+        );
+      }
+      const observed = observedDays(answer, years);
+      if (observed.length === 0) {
+        throw new WeatherResponseError('The archive has no complete days');
+      }
+      return climateNormals(observed, years);
     },
 
     async searchPlaces(query) {
@@ -223,5 +280,45 @@ function forecastDays({ hourly, daily }: ForecastAnswer): DayForecast[] {
         hours: hoursByDay.get(day) ?? [],
       },
     ];
+  });
+}
+
+/**
+ * The archive's days within `years` that have every value (the newest days
+ * of a year still being compiled come back null and are left out).
+ */
+function observedDays(
+  { daily }: ArchiveAnswer,
+  years: { first: number; last: number },
+): ObservedDay[] {
+  const series = [
+    daily.temperature_2m_max,
+    daily.temperature_2m_min,
+    daily.apparent_temperature_max,
+    daily.apparent_temperature_min,
+    daily.precipitation_sum,
+  ];
+  if (series.some((values) => values.length !== daily.time.length)) {
+    throw new WeatherResponseError('The archive series differ in length');
+  }
+  const first = `${years.first}-01-01`;
+  const last = `${years.last}-12-31`;
+  return daily.time.flatMap((day, i) => {
+    const [high, low, feelsHigh, feelsLow, precipitation] = series.map(
+      (values) => values[i],
+    );
+    if (
+      !LOCAL_DAY.test(day) ||
+      day < first ||
+      day > last ||
+      high === null ||
+      low === null ||
+      feelsHigh === null ||
+      feelsLow === null ||
+      precipitation === null
+    ) {
+      return [];
+    }
+    return [{ day, high, low, feelsHigh, feelsLow, precipitation }];
   });
 }

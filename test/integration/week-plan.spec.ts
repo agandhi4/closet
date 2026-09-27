@@ -100,7 +100,10 @@ function weekAt(feelsLike: (day: IsoDate) => number): DayForecast[] {
   return WEEK.map((day) => steadyDay(day, feelsLike(day)));
 }
 
-/** A weather service that answers `days` for any location (the re-plan's). */
+/**
+ * A weather service that answers `days` for any location (the re-plan's).
+ * The week is forecast-only: asking it for climate normals fails the spec.
+ */
 function fakeWeather(days: () => DayForecast[]): WeatherService {
   return {
     forecastFor: () =>
@@ -108,6 +111,8 @@ function fakeWeather(days: () => DayForecast[]): WeatherService {
         forecast: { timeZone: 'America/New_York', days: days() },
         fetchedAt: new Date(),
       }),
+    normalsFor: () =>
+      Promise.reject(new Error('The weekly plan never reads normals')),
     searchPlaces: () => Promise.resolve([]),
   };
 }

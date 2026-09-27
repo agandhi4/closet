@@ -1,8 +1,9 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
-import { userWeather, weatherForecast } from '../../db/schema';
+import { userWeather, weatherForecast, weatherNormals } from '../../db/schema';
 import type { Forecast } from '../../weather/forecast';
 import type { Location } from '../../weather/location';
+import type { ClimateNormals } from '../../weather/normals';
 import {
   DEFAULT_TEMPERATURE_UNIT,
   type Feeling,
@@ -13,11 +14,11 @@ import {
 
 /**
  * The weather's rows (#14): a user's settings (user_weather) and the
- * forecast cache (weather_forecast). One writer per piece of state: the
- * home (setHome, clearHome), the phone's location (setHere, clearHere), the
- * unit (setTemperatureUnit), the offset (nudgeTemperatureOffset,
- * resetTemperatureOffset); the cache is the service's alone
- * (saveForecast, recordFailedFetch; src/web/weather/service.ts).
+ * caches (weather_forecast, weather_normals). One writer per piece of
+ * state: the home (setHome, clearHome), the phone's location (setHere,
+ * clearHere), the unit (setTemperatureUnit), the offset
+ * (nudgeTemperatureOffset, resetTemperatureOffset); the caches are the
+ * service's alone (src/web/weather/service.ts).
  * Locations arrive rounded (src/weather/location.ts): nothing here rounds,
  * and nothing takes a location that was not.
  */
@@ -205,14 +206,18 @@ export async function resetTemperatureOffset(
     .where(eq(userWeather.userId, userId));
 }
 
-/** A cached forecast row, as the service reads it. */
-export interface ForecastRow {
-  forecast: Forecast | null;
+/**
+ * A location's cache row, as the service reads it (location-cache.ts): the
+ * last good answer and when it was fetched (both null until one was), and
+ * the last attempt, good or not.
+ */
+export interface CacheRow<T> {
+  value: T | null;
   fetchedAt: Date | null;
   attemptedAt: Date;
 }
 
-function atLocation(location: Location) {
+function forecastAt(location: Location) {
   return and(
     eq(weatherForecast.latitude, location.latitude),
     eq(weatherForecast.longitude, location.longitude),
@@ -222,15 +227,15 @@ function atLocation(location: Location) {
 export async function findForecastRow(
   db: Queryable,
   location: Location,
-): Promise<ForecastRow | undefined> {
+): Promise<CacheRow<Forecast> | undefined> {
   const [row] = await db
     .select({
-      forecast: weatherForecast.forecast,
+      value: weatherForecast.forecast,
       fetchedAt: weatherForecast.fetchedAt,
       attemptedAt: weatherForecast.attemptedAt,
     })
     .from(weatherForecast)
-    .where(atLocation(location));
+    .where(forecastAt(location));
   return row;
 }
 
@@ -251,7 +256,7 @@ export async function saveForecast(
 }
 
 /** A failed refresh: the last good answer stays, the attempt is noted. */
-export async function recordFailedFetch(
+export async function recordFailedForecast(
   db: Queryable,
   location: Location,
   at: Date,
@@ -261,6 +266,59 @@ export async function recordFailedFetch(
     .values({ ...location, attemptedAt: at })
     .onConflictDoUpdate({
       target: [weatherForecast.latitude, weatherForecast.longitude],
+      set: { attemptedAt: at },
+    });
+}
+
+function normalsAt(location: Location) {
+  return and(
+    eq(weatherNormals.latitude, location.latitude),
+    eq(weatherNormals.longitude, location.longitude),
+  );
+}
+
+export async function findNormalsRow(
+  db: Queryable,
+  location: Location,
+): Promise<CacheRow<ClimateNormals> | undefined> {
+  const [row] = await db
+    .select({
+      value: weatherNormals.normals,
+      fetchedAt: weatherNormals.fetchedAt,
+      attemptedAt: weatherNormals.attemptedAt,
+    })
+    .from(weatherNormals)
+    .where(normalsAt(location));
+  return row;
+}
+
+export async function saveNormals(
+  db: Queryable,
+  location: Location,
+  normals: ClimateNormals,
+  at: Date,
+): Promise<void> {
+  const values = { normals, fetchedAt: at, attemptedAt: at };
+  await db
+    .insert(weatherNormals)
+    .values({ ...location, ...values })
+    .onConflictDoUpdate({
+      target: [weatherNormals.latitude, weatherNormals.longitude],
+      set: values,
+    });
+}
+
+/** A failed refresh: the last good normals stay, the attempt is noted. */
+export async function recordFailedNormals(
+  db: Queryable,
+  location: Location,
+  at: Date,
+): Promise<void> {
+  await db
+    .insert(weatherNormals)
+    .values({ ...location, attemptedAt: at })
+    .onConflictDoUpdate({
+      target: [weatherNormals.latitude, weatherNormals.longitude],
       set: { attemptedAt: at },
     });
 }

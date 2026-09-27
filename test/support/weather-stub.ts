@@ -1,7 +1,11 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { AppOptions } from '../../src/app';
-import { addDays, todayIn } from '../../src/web/calendar/calendar-date';
+import {
+  addDays,
+  daysBetween,
+  todayIn,
+} from '../../src/web/calendar/calendar-date';
 import { forecastDayOf, weatherFor } from '../../src/seed/weather';
 import type { DayForecast } from '../../src/weather/forecast';
 
@@ -17,7 +21,9 @@ import type { DayForecast } from '../../src/weather/forecast';
  * The forecast is the seed's simulated New York weather (src/seed/weather.ts,
  * forecastDayOf, the demo persona's days) from today in the requested zone:
  * deterministic for a date, and the weather the demo's planned week was
- * drawn for. The search knows a few places (PLACES).
+ * drawn for. The archive (climate normals, #10's far trip days) answers
+ * the same simulated days for the requested years, so the normals are New
+ * York's as the seed models them. The search knows a few places (PLACES).
  */
 
 const STUB_IP = '127.0.0.2';
@@ -115,9 +121,63 @@ export function forecastAnswer(days: readonly DayForecast[], timeZone: string) {
   };
 }
 
+/**
+ * Open-Meteo's archive answer (the fields the app reads) for `first` to
+ * `last`: the seed's simulated New York days as observations, air highs and
+ * lows, the hours' feels-like range, and 5 mm on a rainy day.
+ */
+export function archiveAnswer(first: string, last: string) {
+  const count = daysBetween(first, last) + 1;
+  const days = weatherFor(WEATHER_KEY, first, count).map((weather) => ({
+    weather,
+    forecast: forecastDayOf(WEATHER_KEY, weather),
+  }));
+  const feels = (day: DayForecast) => day.hours.map((h) => h.feelsLike);
+  return {
+    daily: {
+      time: days.map(({ weather }) => weather.day),
+      temperature_2m_max: days.map(({ forecast }) => forecast.high),
+      temperature_2m_min: days.map(({ forecast }) => forecast.low),
+      apparent_temperature_max: days.map(({ forecast }) =>
+        Math.max(...feels(forecast)),
+      ),
+      apparent_temperature_min: days.map(({ forecast }) =>
+        Math.min(...feels(forecast)),
+      ),
+      precipitation_sum: days.map(({ weather }) => (weather.rain ? 5 : 0)),
+    },
+  };
+}
+
 export async function startWeatherStub(): Promise<WeatherStub> {
   const hits: string[] = [];
   let failing = false;
+  // Ten years of simulated days take a moment; a range is computed once.
+  const archives = new Map<string, ReturnType<typeof archiveAnswer>>();
+  // Each endpoint's answer to a request, by path.
+  const endpoints: Record<string, (params: URLSearchParams) => unknown> = {
+    '/v1/forecast': (params) => {
+      const timeZone = params.get('timezone') ?? 'GMT';
+      const count = Number(params.get('forecast_days') ?? 7);
+      const today = todayIn(timeZone, new Date());
+      const days = weatherFor(WEATHER_KEY, today, count).map((w) =>
+        forecastDayOf(WEATHER_KEY, w),
+      );
+      return forecastAnswer(days, timeZone);
+    },
+    '/v1/archive': (params) => {
+      const first = params.get('start_date') ?? '';
+      const last = params.get('end_date') ?? '';
+      const key = `${first}/${last}`;
+      const answer = archives.get(key) ?? archiveAnswer(first, last);
+      archives.set(key, answer);
+      return answer;
+    },
+    '/v1/search': (params) => {
+      const results = PLACES[(params.get('name') ?? '').toLowerCase()];
+      return results ? { results } : { generationtime_ms: 0.1 };
+    },
+  };
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${STUB_IP}`);
     hits.push(`${url.pathname}${url.search}`);
@@ -126,21 +186,11 @@ export async function startWeatherStub(): Promise<WeatherStub> {
       res.end(JSON.stringify(body));
     };
     if (failing) return json(500, { error: true, reason: 'stubbed failure' });
-    if (url.pathname === '/v1/forecast') {
-      const timeZone = url.searchParams.get('timezone') ?? 'GMT';
-      const count = Number(url.searchParams.get('forecast_days') ?? 7);
-      const today = todayIn(timeZone, new Date());
-      const days = weatherFor(WEATHER_KEY, today, count).map((w) =>
-        forecastDayOf(WEATHER_KEY, w),
-      );
-      return json(200, forecastAnswer(days, timeZone));
-    }
-    if (url.pathname === '/v1/search') {
-      const name = (url.searchParams.get('name') ?? '').toLowerCase();
-      const results = PLACES[name];
-      return json(200, results ? { results } : { generationtime_ms: 0.1 });
-    }
-    return json(404, { error: true, reason: 'Not found' });
+    const answer = Object.hasOwn(endpoints, url.pathname)
+      ? endpoints[url.pathname]
+      : undefined;
+    if (!answer) return json(404, { error: true, reason: 'Not found' });
+    return json(200, answer(url.searchParams));
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -153,6 +203,7 @@ export async function startWeatherStub(): Promise<WeatherStub> {
       endpoints: {
         forecast: `${base}/v1/forecast`,
         geocoding: `${base}/v1/search`,
+        archive: `${base}/v1/archive`,
       },
       fetch: {
         destinations: {

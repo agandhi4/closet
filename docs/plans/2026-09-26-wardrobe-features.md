@@ -316,8 +316,8 @@ No `season` property: seasons follow from warmth, and a "summer" set of garments
 ## 7. Weather
 
 - **Provider: Open-Meteo** (free, no API key or account, 16-day hourly forecast with apparent
-  temperature, precipitation probability, wind and UV, plus a geocoding API and climate data for
-  dates further out). The server fetches from its fixed host, which is an allow-list, not the
+  temperature, precipitation probability, wind and UV, plus a geocoding API and a historical
+  archive for dates further out). The server fetches from its fixed host, which is an allow-list, not the
   user-URL path of section 0. The PWA itself still makes no external requests.
 - **Location:**
   - A **home location** per user, set in the profile by searching a city (Open-Meteo geocoding).
@@ -325,12 +325,23 @@ No `season` property: seasons follow from warmth, and a "summer" set of garments
     per user rounded to about 1 km and used while fresh.
   - A trip's destination, geocoded, gives that trip its forecast.
   - Coordinates go from the server to Open-Meteo rounded, and no other identifier is sent.
-- **Cache:** one fetch per rounded location per hour, in memory, and the last good answer is kept
-  for offline pages, shown with its time.
+- **Cache:** one fetch per rounded location per hour, and the last good answer is kept for offline
+  pages, shown with its time. Built as a table (`weather_forecast`), not memory: restarts and
+  overlapping deploys start warm.
 - **Where it shows:**
   - Today's summary on the wardrobe and calendar headers ("9 to 17°C, rain after 3 pm").
   - The next 16 days on the calendar: an icon plus high and low per day.
-  - A trip's forecast for its dates. Past 16 days it shows climate normals labelled "typical".
+  - A trip's forecast for its dates. Past 16 days it shows climate normals labelled "typical"
+    ("Typically 50–65 °F, 24% rain chance"), and ideas for those days are matched to a typical day.
+- **Climate normals** (built after #10, part of #14): each calendar day's average over the last ten
+  whole years at the place, from Open-Meteo's historical archive (ERA5, observed weather), not its
+  climate API (CMIP6 model runs, whose average carries a model's bias): daily highs and lows, the
+  feels-like range, and the share of days with 1 mm of rain or more, averaged over a week either
+  side of the date. One archive request per location covers every day of the year; cached as one
+  row per location (`weather_normals`) for 30 days, with the forecast's last-good and single-flight
+  rules. A typical day for the matching is a clear day's curve from the normal feels-like low to
+  high, with the rain chance every hour. Normals are for a trip's far days only: Today, the
+  calendar and the weekly plan and its re-plan stay forecast-only.
 - **How it drives suggestions:** each occasion of the day (section 8) has a time window. Its
   apparent-temperature range sets a target warmth for the outfit (the warmths of its layers
   combined). A large swing between morning and evening asks for a layer. Rain asks for
