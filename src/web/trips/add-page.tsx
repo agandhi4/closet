@@ -54,7 +54,7 @@ export function AddOutfitPage(props: {
   );
   return (
     <Layout ctx={ctx} title={t('trips.ADD_TITLE')}>
-      <AppBar ctx={ctx} title={t('trips.ADD_TITLE')} back={back} />
+      <AppBar ctx={ctx} title={t('trips.ADD_TITLE')} back={back} formPage />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-5">
         <p class="text-sm text-muted truncate">{trip.name}</p>
 

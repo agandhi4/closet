@@ -146,6 +146,9 @@ export function Layout({
         {/* Save-on-change forms drop answers a newer edit overtook
             (src/web/autosave.tsx). */}
         <script type="module" src={`/js/autosave.js${v}`}></script>
+        {/* The app bar's back arrow goes back like a native app's. After
+            submit-once, whose cancelled submits it must see as cancelled. */}
+        <script type="module" src={`/js/back.js${v}`}></script>
         {ctx.pwaEnabled && (
           // Service worker registration, update toast, Web Push, the install
           // dialog, iOS pull to refresh. In the head so hx-boost body swaps

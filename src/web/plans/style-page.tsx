@@ -55,6 +55,7 @@ export function StyleProfilePage(props: {
         ctx={ctx}
         title={t('style.TITLE')}
         back={profileSection(STYLE_SECTION_ID)}
+        formPage
       />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         <p class="text-sm text-base-content/70 mb-4">

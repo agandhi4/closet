@@ -12,6 +12,7 @@ import {
   TRIP_NOTES_MAX,
   type TripField,
 } from './validation';
+import { CancelLink } from '../layout/parts';
 
 export interface TripFormModel {
   /** Absent for a new trip. */
@@ -44,7 +45,7 @@ export function TripFormPage(props: {
   const back = editing ? tripUrl(tripId) : TRIPS_PATH;
   return (
     <Layout ctx={ctx} title={title}>
-      <AppBar ctx={ctx} title={title} back={back} />
+      <AppBar ctx={ctx} title={title} back={back} formPage />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         <PostForm
           action={editing ? tripUrl(tripId) : TRIPS_PATH}
@@ -108,9 +109,7 @@ export function TripFormPage(props: {
             <button type="submit" class="btn btn-primary flex-1">
               {t('SAVE')}
             </button>
-            <a href={back} class="btn btn-ghost">
-              {t('CANCEL')}
-            </a>
+            <CancelLink href={back} />
           </div>
         </PostForm>
         {editing && (

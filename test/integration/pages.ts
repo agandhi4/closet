@@ -176,72 +176,97 @@ export interface PageRoute {
   url: string;
   /** `config: { public: true }`: renders for an anonymous visitor too, instead of a login redirect. */
   public: boolean;
+  /**
+   * An add or edit page, which its save is done with: its app bar says so
+   * (`AppBar formPage`, `data-form-page`), and the back arrow of the page
+   * the save lands on skips it (public/js/back.js). `expectFormPageFlag`.
+   */
+  formPage: boolean;
 }
 
-/** Every GET route that renders a full page; all render for a signed-in user. */
+/**
+ * Every GET route that renders a full page; all render for a signed-in user.
+ * A new add or edit page is listed with `form`, so a page that forgets its
+ * `formPage` fails, as does a page that claims it wrongly.
+ */
 export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
-  const app = (url: string): PageRoute => ({ url, public: false });
-  const open = (url: string): PageRoute => ({ url, public: true });
+  const app = (url: string): PageRoute => ({
+    url,
+    public: false,
+    formPage: false,
+  });
+  const form = (url: string): PageRoute => ({
+    url,
+    public: false,
+    formPage: true,
+  });
+  const open = (url: string): PageRoute => ({
+    url,
+    public: true,
+    formPage: false,
+  });
   return [
     app('/'),
     app('/wardrobe'),
     app('/wardrobe?archived=true'),
-    app('/wardrobe/new'),
+    form('/wardrobe/new'),
     app(`/wardrobe/${f.garmentId}`),
-    app(`/wardrobe/${f.garmentId}/edit`),
-    app(`/wardrobe/${f.garmentId}/clone`),
+    form(`/wardrobe/${f.garmentId}/edit`),
+    form(`/wardrobe/${f.garmentId}/clone`),
     app('/wardrobe/tag'),
     app(`/wardrobe?capsule=${f.capsuleId}`),
     app(`/wardrobe?pick=${f.capsuleId}`),
     app('/wardrobe/wishlist'),
-    app('/wardrobe/new?to=wishlist'),
-    app(`/wardrobe/new?to=wishlist&replaces=${f.garmentId}`),
-    app('/wardrobe/new/from-link?to=wishlist'),
+    form('/wardrobe/new?to=wishlist'),
+    form(`/wardrobe/new?to=wishlist&replaces=${f.garmentId}`),
+    form('/wardrobe/new/from-link?to=wishlist'),
     app(`/wardrobe/${f.wishlistId}`),
-    app(`/wardrobe/${f.wishlistId}/edit`),
-    app(`/wardrobe/${f.wishlistId}/bought`),
+    form(`/wardrobe/${f.wishlistId}/edit`),
+    form(`/wardrobe/${f.wishlistId}/bought`),
     app('/capsules'),
-    app('/capsules/new'),
+    form('/capsules/new'),
     app(`/capsules/${f.capsuleId}`),
-    app(`/capsules/${f.capsuleId}/edit`),
+    form(`/capsules/${f.capsuleId}/edit`),
     app('/outfits'),
     app('/outfits?for=day:2030-10-09&occasion=evening'),
-    app('/styling'),
-    app(`/styling?capsule=${f.capsuleId}`),
-    app(`/styling?with=${f.garmentId}`),
-    app(`/styling?outfit=${f.outfitId}&returnTo=%2Fcalendar`),
+    form('/styling'),
+    form(`/styling?capsule=${f.capsuleId}`),
+    form(`/styling?with=${f.garmentId}`),
+    form(`/styling?outfit=${f.outfitId}&returnTo=%2Fcalendar`),
     app(`/outfits/${f.outfitId}`),
     app('/calendar'),
     app('/calendar/month'),
     app('/calendar/month?month=2030-10'),
     app('/calendar/plan?for=day:2030-10-09&occasion=evening'),
-    app('/styling?for=day:2030-10-09&occasion=evening'),
-    app(`/styling?for=trip:${f.tripId}`),
+    form('/styling?for=day:2030-10-09&occasion=evening'),
+    form(`/styling?for=trip:${f.tripId}`),
     app('/wardrobe/plans'),
-    app('/wardrobe/plans/new'),
+    form('/wardrobe/plans/new'),
     app(`/wardrobe/plans/${f.planId}`),
-    app(`/wardrobe/plans/${f.planId}/edit`),
-    app(`/wardrobe/plans/${f.planId}/items/new`),
-    app(`/wardrobe/plans/${f.planId}/items/${f.planItemId}/edit`),
+    form(`/wardrobe/plans/${f.planId}/edit`),
+    form(`/wardrobe/plans/${f.planId}/items/new`),
+    form(`/wardrobe/plans/${f.planId}/items/${f.planItemId}/edit`),
+    form(`/wardrobe/plans/${f.planId}/items/${f.planItemId}/candidates`),
+    form(`/wardrobe/${f.wishlistId}/plan-items`),
     app('/outfits/ideas'),
     app('/outfits/ideas?for=day:2030-10-09&occasion=evening'),
     app(`/outfits/ideas?capsule=${f.capsuleId}&with=${f.garmentId}`),
     app('/trips'),
-    app('/trips/new'),
+    form('/trips/new'),
     app(`/trips/${f.tripId}`),
-    app(`/trips/${f.tripId}/edit`),
-    app(`/trips/${f.tripId}/outfits/new`),
-    app(`/trips/${f.tripId}/outfits/new?day=2030-10-09&occasion=evening`),
+    form(`/trips/${f.tripId}/edit`),
+    form(`/trips/${f.tripId}/outfits/new`),
+    form(`/trips/${f.tripId}/outfits/new?day=2030-10-09&occasion=evening`),
     app(`/outfits/ideas?for=trip:${f.tripId}`),
     app('/wardrobe/insights'),
     app('/wardrobe/insights?unworn=30'),
     app('/auth/profile'),
-    app('/auth/profile/style'),
-    app('/auth/profile/sizes'),
+    form('/auth/profile/style'),
+    form('/auth/profile/sizes'),
     app('/auth/update-email'),
     app('/auth/delete-account'),
     app('/auth/change-password'),
-    app('/auth/tokens'),
+    form('/auth/tokens'),
     // Public, but a signed-out visitor is sent to log in like any app page.
     app('/auth/logout'),
     open('/about'),
@@ -252,6 +277,18 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     open(`/share?shareableId=${f.garmentShareableId}&type=garment`),
     open(`/share?shareableId=${f.outfitShareableId}&type=outfit`),
   ];
+}
+
+/** The app bar marks exactly the pages `pageRoutes` lists as form pages. */
+export function expectFormPageFlag(
+  route: PageRoute,
+  res: LightMyRequestResponse,
+): void {
+  const header = /<header class="app-bar\b[^>]*>/.exec(res.body)?.[0] ?? '';
+  expect({
+    url: route.url,
+    formPage: header.includes('data-form-page'),
+  }).toEqual({ url: route.url, formPage: route.formPage });
 }
 
 export function expectNoRawI18nKeys(res: LightMyRequestResponse): void {

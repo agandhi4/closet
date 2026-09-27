@@ -46,6 +46,7 @@ export function LinkPage(props: { ctx: ViewContext; model: LinkPageModel }) {
           {},
           wishlist ? WISHLIST_PATH : '/wardrobe/new',
         )}
+        formPage
       />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         <p class="text-sm text-muted mb-4">{t('linkImport.INTRO')}</p>

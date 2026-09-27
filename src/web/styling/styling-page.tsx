@@ -82,6 +82,9 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
         ctx={ctx}
         title={t('styling.TITLE')}
         back={model.state.returnTo}
+        // Save posts natively and lands elsewhere (the outfit, a week); on a
+        // shared wardrobe nothing saves.
+        formPage={!model.shared}
         scope={<ScopeMenu model={model} />}
       />
       <main class="pt-20 pb-40 w-full sm:max-w-lg sm:mx-auto flex flex-col gap-3">

@@ -191,17 +191,17 @@ test('the avatar opens Profile in place, and back returns', async ({
   // No tab is Profile's: the avatar marks it instead.
   await expect(page.locator('.dock a[aria-current="page"]')).toHaveCount(0);
 
-  // A section's page goes back to its section.
+  // A section's page goes back to Profile as it was left, at the section
+  // (back in history, #105: the arrow's href, `#style`, is only for a cold
+  // entry).
   await page.locator('#style').getByRole('link').click();
   await expectTitle(page, 'Style profile', 'the style profile');
   await bar(page).getByRole('link', { name: 'Back' }).click();
-  await expect(page).toHaveURL(/\/auth\/profile#style$/);
+  await expect(page).toHaveURL(/\/auth\/profile$/);
   await expect(page.locator('#style')).toBeInViewport();
 
-  // Back through htmx's history restore (Profile at #style, the style
-  // profile, Profile, then the wardrobe): the wardrobe's bar again.
-  await page.goBack();
-  await page.goBack();
+  // Back through htmx's history restore, from Profile to the wardrobe: the
+  // wardrobe's bar again.
   await page.goBack();
   await expect(page).toHaveURL(/\/wardrobe$/);
   await expectTitle(page, 'Wardrobe', 'the wardrobe, restored');

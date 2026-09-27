@@ -14,8 +14,18 @@ export interface AppBarProps {
    * (the Wardrobe's switcher between the wardrobes shared with the user).
    */
   titleMenu?: Child;
-  /** The back arrow's target; absent on a section's root page. */
+  /**
+   * The back arrow, absent on a section's root page: its fallback target.
+   * The arrow goes back in history when the page before is in the app, and
+   * here only on a cold entry (a shared link, a notification, a fresh
+   * launch; public/js/back.js).
+   */
   back?: string;
+  /**
+   * The page is a form its save is done with (an add or edit page): the
+   * page the save lands on goes back past it, never to the stale form.
+   */
+  formPage?: boolean;
   /** Beside the title: what the page is scoped to (a wardrobe, a capsule). */
   scope?: Child;
   /** At most two of the page's own actions, before the avatar. */
@@ -40,8 +50,11 @@ export interface AppBarProps {
 export function AppBar(props: AppBarProps) {
   const { ctx } = props;
   return (
-    <header class="app-bar flex items-center gap-1 px-2 bg-base-100 border-b border-base-300">
-      {props.back && <BackLink href={props.back} />}
+    <header
+      class="app-bar flex items-center gap-1 px-2 bg-base-100 border-b border-base-300"
+      data-form-page={props.formPage ? '' : undefined}
+    >
+      {props.back && <BackLink href={props.back} historyBack />}
       <div class="flex flex-col flex-1 min-w-0 px-1">
         <div class="flex items-center gap-2 min-w-0">
           {props.titleMenu ? (

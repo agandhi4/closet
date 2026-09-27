@@ -10,7 +10,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { Messages } from '../layout/parts';
+import { CancelLink, Messages } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { GARMENT_COLORS } from '../../wardrobe/properties';
 import { categoryLabel, normalizeCategory } from './garment';
@@ -143,7 +143,7 @@ export function GarmentFormPage(props: {
   const category = normalizeCategory(values.category);
   return (
     <Layout ctx={ctx} title={title}>
-      <AppBar ctx={ctx} title={title} back={back} />
+      <AppBar ctx={ctx} title={title} back={back} formPage />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         {mode.kind === 'new' && !link && (
           <a
@@ -221,9 +221,7 @@ export function GarmentFormPage(props: {
           <OwnershipFields model={model} wishlist={wishlist} />
           <MoreDetails model={model} wishlist={wishlist} category={category} />
           <div class="flex gap-2 mt-2">
-            <a href={back} class="btn btn-ghost flex-1">
-              {t('CANCEL')}
-            </a>
+            <CancelLink href={back} class="flex-1" />
             <button type="submit" class="btn btn-primary flex-1">
               {t('SAVE')}
             </button>

@@ -174,7 +174,12 @@ export function SizesPage(props: { ctx: ViewContext; model: SizesPageModel }) {
   const refused = model.refusedBrand;
   return (
     <Layout ctx={ctx} title={t('sizes.TITLE')}>
-      <AppBar ctx={ctx} title={t('sizes.TITLE')} back={SIZES_SECTION_PATH} />
+      <AppBar
+        ctx={ctx}
+        title={t('sizes.TITLE')}
+        back={SIZES_SECTION_PATH}
+        formPage
+      />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-6">
         <p class="text-sm text-muted">{t('sizes.HINT')}</p>
         <section

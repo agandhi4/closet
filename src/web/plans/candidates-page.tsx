@@ -65,6 +65,7 @@ export function ItemCandidatesPage(props: {
         ctx={ctx}
         title={title}
         back={model.returnTo ?? planUrl(plan.id)}
+        formPage
       />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
         <p class="text-sm text-muted truncate">{plan.name}</p>
@@ -197,6 +198,7 @@ export function GarmentPlanItemsPage(props: {
         ctx={ctx}
         title={title}
         back={garmentUrl(garment.id, undefined)}
+        formPage
       />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
         <p class="text-sm text-base-content/70">

@@ -273,4 +273,41 @@ describe('app shell', () => {
       expect(pageTitle(res.body)).toBe('Wardrobe Invitation');
     });
   });
+
+  // What public/js/back.js reads (#105); test/back-navigation.spec.ts
+  // proves the behaviour in a browser.
+  describe("the app bar's back arrow", () => {
+    const header = (html: string) =>
+      /<header class="app-bar[^"]*"[^>]*>/.exec(html)![0];
+
+    it('goes back in history, with its href as the fallback', async () => {
+      const res = await get('/auth/update-email');
+      expect(res.body).toContain('/js/back.js?v=');
+      expect(res.body).toMatch(
+        /<a href="\/auth\/profile#account" class="btn[^"]*" aria-label="Back" data-history-back=""/,
+      );
+      expect(header(res.body)).not.toContain('data-form-page');
+    });
+
+    it('marks the pages a save is done with', async () => {
+      for (const url of ['/wardrobe/new', '/capsules/new', '/trips/new']) {
+        const res = await get(url);
+        expect(header(res.body), url).toContain('data-form-page=""');
+      }
+      for (const url of ['/wardrobe', '/auth/profile']) {
+        const res = await get(url);
+        expect(header(res.body), url).not.toContain('data-form-page');
+      }
+    });
+
+    it("leaves a destination's own back link fixed", async () => {
+      const res = await get('/outfits?for=day:2026-09-28&occasion=evening');
+      const destinationLine =
+        /<div class="flex items-center gap-2" data-destination-day="[^"]*">\s*<a [^>]*>/.exec(
+          res.body,
+        )![0];
+      expect(destinationLine).toContain('aria-label="Back"');
+      expect(destinationLine).not.toContain('data-history-back');
+    });
+  });
 });

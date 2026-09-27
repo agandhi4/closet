@@ -71,6 +71,7 @@ export function TokensPage(props: TokensPageProps) {
         ctx={ctx}
         title={t('agentAccess.TITLE')}
         back={profileSection(AGENT_ACCESS_SECTION_ID)}
+        formPage
       />
       <main class="p-4 pt-20 pb-24 w-full max-w-2xl mx-auto">
         <p class="text-sm text-base-content/70 mb-6">

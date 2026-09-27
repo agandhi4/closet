@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, TestApp } from './harness';
 import {
   createPageFixture,
+  expectFormPageFlag,
   expectFragment,
   expectFullPage,
   HX_BOOSTED,
@@ -46,10 +47,12 @@ describe('pages', () => {
   const routes = (): PageRoute[] => pageRoutes(fixture, inviteToken);
 
   it('renders every page route for a signed-in user', async () => {
-    for (const { url } of routes()) {
+    for (const route of routes()) {
+      const { url } = route;
       const res = await t.inject({ method: 'GET', url });
       expect({ url, status: res.statusCode }).toEqual({ url, status: 200 });
       expectFullPage(res);
+      expectFormPageFlag(route, res);
     }
   });
 
