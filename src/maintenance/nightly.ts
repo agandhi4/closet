@@ -1,5 +1,6 @@
-import { addDays, instantAt, todayIn } from '../web/calendar/calendar-date';
 import type { Logger } from '../logger';
+import { addDays, instantAt, todayIn } from '../web/calendar/calendar-date';
+import { awaitRunInFlight, type ScheduledJob } from './scheduled';
 
 /**
  * A once-a-day job at a wall-clock hour in the household's zone
@@ -7,11 +8,11 @@ import type { Logger } from '../logger';
  * every run, so DST changes and a slow run never drift it, and runs never
  * overlap. Started by server.ts (the server) only; the integration harness
  * and the CLIs never schedule anything.
+ *
+ * Stopping has scheduleMinutely's contract (ScheduledJob): stop() clears
+ * the timer and waits for a run in flight, bounded, so the pool is not
+ * ended under reconciliation or a prune (#78).
  */
-
-export interface NightlyJob {
-  stop(): void;
-}
 
 export interface NightlyOptions {
   name: string;
@@ -30,34 +31,43 @@ export function scheduleNightly({
   run,
   logger,
   now = () => new Date(),
-}: NightlyOptions): NightlyJob {
+}: NightlyOptions): ScheduledJob {
   let timer: NodeJS.Timeout | undefined;
+  let running: Promise<void> | undefined;
   let stopped = false;
 
   const scheduleNext = () => {
     if (stopped) return;
     const at = nextRunAt(now(), timeZone, hour);
     logger.info(`${name} next runs at ${at.toISOString()}`);
-    timer = setTimeout(() => {
-      void (async () => {
-        try {
-          await run();
-        } catch (error) {
-          // Logged, never thrown: a failed night must not stop the next one.
-          logger.error({ err: error }, `${name} failed`);
-        }
-        scheduleNext();
-      })();
-    }, at.getTime() - now().getTime());
+    timer = setTimeout(tick, at.getTime() - now().getTime());
     // Never what keeps the process alive: the server's socket does that.
     timer.unref();
   };
 
+  // `running` is set synchronously with the timer firing, so a stop() that
+  // lands at any point after it sees the run.
+  const tick = () => {
+    running = (async () => {
+      try {
+        await run();
+      } catch (error) {
+        // Logged, never thrown: a failed night must not stop the next one.
+        logger.error({ err: error }, `${name} failed`);
+      }
+    })();
+    void running.then(() => {
+      running = undefined;
+      scheduleNext();
+    });
+  };
+
   scheduleNext();
   return {
-    stop() {
+    async stop() {
       stopped = true;
       clearTimeout(timer);
+      await awaitRunInFlight(name, running, logger);
     },
   };
 }

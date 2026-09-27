@@ -1,4 +1,3 @@
-import type { FastifyInstance } from 'fastify';
 import { type AppOptions, createApp } from './app';
 import type { Config } from './config';
 import { type CutoutQueue, retryFailedCutouts } from './cutout/queue';
@@ -8,6 +7,7 @@ import type { Logger } from './logger';
 import { scheduleMinutely } from './maintenance/minutely';
 import { scheduleNightly } from './maintenance/nightly';
 import { reconcileStorage } from './maintenance/reconcile';
+import { type ScheduledJob, stopBeforeClose } from './maintenance/scheduled';
 import { addDays, todayIn } from './web/calendar/calendar-date';
 import { pruneReminders, sendDueReminders } from './web/push/reminders';
 import type { PushSender } from './web/push/sender';
@@ -43,33 +43,34 @@ export async function serve(
     options,
   );
 
+  // Every timer, stopped together at preClose (a run in flight waited for)
+  // before onClose ends the queue and the pool (#78).
+  const jobs: ScheduledJob[] = [];
   const reconciliation = logger.child({ context: 'Reconciliation' });
   if (config.MAINTENANCE_ENABLED) {
-    const nightly = scheduleNightly({
-      name: 'Storage reconciliation',
-      hour: RECONCILE_HOUR,
-      timeZone: config.APP_TIMEZONE,
-      run: () => reconcileStorage({ db, photos, logger: reconciliation }),
-      logger: reconciliation,
-    });
-    // Before listen(): Fastify takes no hooks once it is ready.
-    app.addHook('onClose', (_instance, done) => {
-      nightly.stop();
-      done();
-    });
+    jobs.push(
+      scheduleNightly({
+        name: 'Storage reconciliation',
+        hour: RECONCILE_HOUR,
+        timeZone: config.APP_TIMEZONE,
+        run: () => reconcileStorage({ db, photos, logger: reconciliation }),
+        logger: reconciliation,
+      }),
+    );
   } else {
     reconciliation.info(
       'Storage reconciliation disabled (MAINTENANCE_ENABLED=false)',
     );
   }
-  // Before listen() too (hooks).
-  startCutouts(config, logger, app, db, cutouts, runner);
-  if (push) startReminders(config, logger, app, db, push, weather);
-  if (weather) startReplans(config, logger, app, db, weather, push);
+  jobs.push(startCutouts(config, logger, db, cutouts, runner));
+  if (push) jobs.push(...startReminders(config, logger, db, push, weather));
+  if (weather) jobs.push(...startReplans(config, logger, db, weather, push));
+  // Before listen(): Fastify takes no hooks once it is ready.
+  stopBeforeClose(app, jobs, logger.child({ context: 'Scheduler' }));
 
   // `docker stop` sends SIGTERM: stop accepting, let in-flight requests
-  // finish, then onClose ends the queue, the pool and the timers and the
-  // process exits on its own.
+  // finish and stop the timers (preClose), then onClose ends the queue and
+  // the pool and the process exits on its own.
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.once(signal, () => {
       logger.info(`${signal}: shutting down`);
@@ -83,19 +84,18 @@ export async function serve(
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
 }
 
-// The queue (pending cutouts from before a restart first) and the nightly
-// retry of failed ones.
+// The queue (pending cutouts from before a restart first; createApp stops
+// it) and the nightly retry of failed ones, returned.
 function startCutouts(
   config: Config,
   logger: Logger,
-  app: FastifyInstance,
   db: Db,
   cutouts: CutoutQueue,
   runner: CutoutRunner,
-): void {
+): ScheduledJob {
   const log = logger.child({ context: 'Cutout' });
   cutouts.start(runner);
-  const retry = scheduleNightly({
+  return scheduleNightly({
     name: 'Cutout retry',
     hour: RECONCILE_HOUR,
     timeZone: config.APP_TIMEZONE,
@@ -104,23 +104,17 @@ function startCutouts(
     },
     logger: log,
   });
-  app.addHook('onClose', (_instance, done) => {
-    retry.stop();
-    done();
-  });
 }
 
 // The push reminders (src/web/push/reminders.ts): every minute, what is due
-// is claimed and sent; the claims of past days go nightly. Stopped before
-// the server closes, waiting for a run in flight (it uses the pool).
+// is claimed and sent; the claims of past days go nightly. Both returned.
 function startReminders(
   config: Config,
   logger: Logger,
-  app: FastifyInstance,
   db: Db,
   sender: PushSender,
   weather: WeatherService | undefined,
-): void {
+): ScheduledJob[] {
   const log = logger.child({ context: 'Push' });
   const deps = {
     db,
@@ -145,26 +139,21 @@ function startReminders(
       ),
     logger: log,
   });
-  app.addHook('preClose', async () => {
-    prune.stop();
-    await reminders.stop();
-  });
+  return [reminders, prune];
 }
 
 // The week's daily re-plan (src/web/week-plan/replan.ts): every minute a
 // run that does nothing before REPLAN_HOUR and then claims each user's
 // re-plan once for the day (so a restart after the hour catches up); the
-// claims of past days go nightly. Stopped before the server closes, waiting
-// for a run in flight (it uses the pool). Without WEATHER_ENABLED there is
-// no forecast to re-plan against, so nothing is scheduled.
+// claims of past days go nightly. Both returned. Without WEATHER_ENABLED
+// there is no forecast to re-plan against, so nothing is scheduled.
 function startReplans(
   config: Config,
   logger: Logger,
-  app: FastifyInstance,
   db: Db,
   weather: WeatherService,
   push: PushSender | undefined,
-): void {
+): ScheduledJob[] {
   const log = logger.child({ context: 'WeekPlan' });
   const deps = {
     db,
@@ -186,8 +175,5 @@ function startReplans(
       pruneReplans(deps, addDays(todayIn(config.APP_TIMEZONE, new Date()), -1)),
     logger: log,
   });
-  app.addHook('preClose', async () => {
-    prune.stop();
-    await replans.stop();
-  });
+  return [replans, prune];
 }

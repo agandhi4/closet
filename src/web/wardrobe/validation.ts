@@ -35,6 +35,7 @@ import {
   propertyApplies,
   type Sleeve,
   SLEEVES,
+  storedSet,
   type Warmth,
   WARMTHS,
 } from '../../wardrobe/properties';
@@ -658,15 +659,13 @@ export function readProperties(
   /** `value` when the category's role has `property`, else not set. */
   const only = <T>(property: GarmentProperty, value: T | null): T | null =>
     propertyApplies(property, category) ? value : null;
-  // In MATERIALS order, each once; none is null, never an empty array.
-  const materials = MATERIALS.filter((m) => values.materials.includes(m));
   return {
     ok: true,
     fields: {
       type: findType(category, values.type)?.value ?? null,
       warmth: only('warmth', pick(WARMTHS, values.warmth)),
       formality: only('formality', pick(FORMALITIES, values.formality)),
-      materials: only('materials', materials.length > 0 ? materials : null),
+      materials: only('materials', storedSet(MATERIALS, values.materials)),
       pattern: only('pattern', pick(PATTERNS, values.pattern)),
       fit: only('fit', pick(FITS, values.fit)),
       sleeve: only('sleeve', pick(SLEEVES, values.sleeve)),
@@ -743,9 +742,8 @@ function readColors(posted: string[] = []): {
   colors: GarmentColor[] | null;
   errors: string[];
 } {
-  const colors = GARMENT_COLORS.filter((color) => posted.includes(color));
   return {
-    colors: colors.length > 0 ? colors : null,
+    colors: storedSet(GARMENT_COLORS, posted),
     errors: [...new Set(posted)]
       .filter((color) => !isGarmentColor(color))
       .map((color) => t('validation.UNKNOWN_COLOR', { color })),

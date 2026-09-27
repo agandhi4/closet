@@ -31,7 +31,9 @@ import {
   GarmentCategory,
   type GarmentColor,
   type Material,
+  MATERIALS,
   propertyApplies,
+  storedSet,
   typesOf,
   type Warmth,
 } from '../../wardrobe/properties';
@@ -430,18 +432,27 @@ export async function findGarment(
 /**
  * The garment's photo inside a write transaction, the row locked so two
  * writes to one garment take turns. Undefined when the garment is not in
- * `ownerId`'s wardrobe (any more).
+ * `ownerId`'s wardrobe (any more), or, given `status`, no longer has it: a
+ * lock that waited on another transaction's status change judges the row
+ * as that transaction committed it.
  */
 export async function lockGarment(
   tx: Queryable,
   id: number,
   ownerId: number,
+  status?: GarmentStatus,
 ): Promise<{ photoId: number | null; fileName: string | null } | undefined> {
   const [row] = await tx
     .select({ photoId: garment.photoId, fileName: file.fileName })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))
-    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
+    .where(
+      and(
+        eq(garment.id, id),
+        eq(garment.ownerId, ownerId),
+        status && eq(garment.status, status),
+      ),
+    )
     .for('update', { of: garment });
   return row;
 }
@@ -549,16 +560,20 @@ export async function replacePhotoRow(
 /**
  * Deletes the garment and its photo's row together; returns the photo's
  * stored name (for the caller to unlink after commit), null without one,
- * undefined when the garment is not in `ownerId`'s wardrobe. Outfit slots
- * that wore it are emptied by their foreign key.
+ * undefined when the garment is not in `ownerId`'s wardrobe, or not (any
+ * more) in `status` when one is given: buyCandidate's clean-up of other
+ * candidates deletes only what is still on the wishlist, so a candidate
+ * bought meanwhile is kept. Outfit slots that wore it are emptied by their
+ * foreign key.
  */
 export function deleteGarment(
   db: Queryable,
   id: number,
   ownerId: number,
+  status?: GarmentStatus,
 ): Promise<string | null | undefined> {
   return db.transaction(async (tx) => {
-    const locked = await lockGarment(tx, id, ownerId);
+    const locked = await lockGarment(tx, id, ownerId, status);
     if (!locked) return undefined;
     await tx.delete(garment).where(eq(garment.id, id));
     if (locked.photoId !== null) {
@@ -584,14 +599,18 @@ export function bulkSetProperty(
 ): Promise<{ updated: number; skipped: number }> {
   return db.transaction(async (tx) => {
     const rows = await tx
-      .select({ id: garment.id, category: garment.category })
+      .select({
+        id: garment.id,
+        category: garment.category,
+        materials: garment.materials,
+      })
       .from(garment)
       .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, ids)))
       .for('update');
-    const applicable = rows
-      .filter((row) => bulkApplies(change, row.category))
-      .map((row) => row.id);
-    if (applicable.length > 0) {
+    const applicable = rows.filter((row) => bulkApplies(change, row.category));
+    if (change.property === 'materials') {
+      await addMaterial(tx, applicable, change.value);
+    } else if (applicable.length > 0) {
       await tx
         .update(garment)
         .set(
@@ -599,13 +618,46 @@ export function bulkSetProperty(
             ? conditionSet(change.value)
             : bulkSet(change),
         )
-        .where(inArray(garment.id, applicable));
+        .where(
+          inArray(
+            garment.id,
+            applicable.map((row) => row.id),
+          ),
+        );
     }
     return {
       updated: applicable.length,
       skipped: rows.length - applicable.length,
     };
   });
+}
+
+/**
+ * Adds `material` to each (locked) garment's set, stored through storedSet
+ * as the garment form stores it (MATERIALS order, each once), so a garment
+ * that has it keeps its set. One statement per distinct resulting set: a
+ * selection is mostly a few shapes of set.
+ */
+async function addMaterial(
+  tx: Queryable,
+  rows: { id: number; materials: Material[] | null }[],
+  material: Material,
+): Promise<void> {
+  const bySet = new Map<string, { materials: Material[]; ids: number[] }>();
+  for (const row of rows) {
+    // Never null: `material` itself is in MATERIALS.
+    const materials = storedSet(MATERIALS, [
+      ...(row.materials ?? []),
+      material,
+    ])!;
+    const key = materials.join(',');
+    const group = bySet.get(key) ?? { materials, ids: [] };
+    group.ids.push(row.id);
+    bySet.set(key, group);
+  }
+  for (const { materials, ids } of bySet.values()) {
+    await tx.update(garment).set({ materials }).where(inArray(garment.id, ids));
+  }
 }
 
 /** Condition belongs to every role; the rest are propertyApplies'. */
@@ -626,16 +678,10 @@ function conditionSet(condition: Condition) {
     : { condition };
 }
 
-function bulkSet(change: Exclude<BulkChange, { property: 'condition' }>) {
+function bulkSet(
+  change: Exclude<BulkChange, { property: 'condition' | 'materials' }>,
+) {
   switch (change.property) {
-    case 'materials':
-      // Added once: a garment that already has it keeps its set as is.
-      return {
-        materials: sql<Material[]>`case
-          when ${garment.materials} @> array[${change.value}]::text[] then ${garment.materials}
-          else coalesce(${garment.materials}, '{}') || array[${change.value}]::text[]
-        end`,
-      };
     case 'warmth':
       return { warmth: change.value };
     case 'formality':

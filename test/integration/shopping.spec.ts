@@ -3,6 +3,8 @@ import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment, planItem, planItemCandidate } from '../../src/db/schema';
 import { changeCandidates } from '../../src/web/plans/candidates';
+import { buyCandidate } from '../../src/web/plans/purchase';
+import { buyGarment } from '../../src/web/wardrobe/status';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import { jpegPhoto, uploadPhoto } from './garments';
 import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
@@ -888,6 +890,66 @@ describe('the shopping loop', () => {
         'Comparing needs two plans',
       );
     });
+  });
+
+  it('keeps a candidate bought while another purchase removes it', async () => {
+    const planId = await createPlan('Race plan');
+    const itemId = await addItem(planId, {
+      name: 'Race tee',
+      category: 'tops',
+      budget: '30',
+    });
+    const [bought, other] = [
+      await addWishlist('Race tee A', { category: 'tops', price: '20' }),
+      await addWishlist('Race tee B', { category: 'tops', price: '25' }),
+    ];
+    await changeCandidates(t.db, ownerId, {
+      add: { itemIds: [itemId], garmentIds: [bought, other] },
+    });
+    const purchase = { acquiredOn: t.today(), price: '25' };
+
+    // B's "Bought it" holds its transaction open after the buy. A's reads
+    // B as a wishlist candidate (B's buy is not committed), buys A, then
+    // waits on B's row to remove it; once B commits, B is in the closet.
+    let boughtOther!: () => void;
+    const otherBought = new Promise<void>((resolve) => (boughtOther = resolve));
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const first = t.db.transaction(async (tx) => {
+      const outcome = await buyGarment(tx, other, ownerId, {
+        ...purchase,
+        archiveReplaced: false,
+      });
+      expect(outcome.ok).toBe(true);
+      boughtOther();
+      await held;
+    });
+    await otherBought;
+    let secondDone = false;
+    const second = buyCandidate(
+      {
+        db: t.db,
+        photos: t.photos,
+        logger: t.logger.child({ context: 'Web' }),
+        cutouts: t.cutouts,
+      },
+      bought,
+      ownerId,
+      { ...purchase, archiveReplaced: false },
+      { adjustItems: [], removeCandidates: [other] },
+    ).finally(() => (secondDone = true));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(secondDone).toBe(false);
+    release();
+    await first;
+    const outcome = await second;
+
+    expect(outcome).toMatchObject({ ok: true, removed: [] });
+    expect(await statusOf(bought)).toBe('closet');
+    expect(await statusOf(other)).toBe('closet');
+    expect(t.logs.messages('info', 'Web')).toContain(
+      `Garment ${bought} bought for user ${ownerId}: candidates ${other} kept, no longer on the wishlist`,
+    );
   });
 
   it('is in the Wardrobe menu and the plans list', async () => {

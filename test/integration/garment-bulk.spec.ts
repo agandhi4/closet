@@ -232,6 +232,19 @@ describe('property filters, select mode and bulk edit', () => {
       expect(heavyTee.materials).toEqual(['cotton', 'linen']);
     });
 
+    it('stores the set in MATERIALS order, as the garment form does', async () => {
+      // Denim comes after cotton in MATERIALS: appended, it would come first.
+      const res = await post('/wardrobe/bulk', {
+        ids: [ids.jeans, ids.tee],
+        property: 'materials',
+        material: 'cotton',
+      });
+      expect(res.headers.location).toContain('bulkUpdated=2');
+      const [tee, jeans] = await rows([ids.tee, ids.jeans]);
+      expect(jeans.materials).toEqual(['cotton', 'denim']);
+      expect(tee.materials).toEqual(['cotton', 'linen']);
+    });
+
     it('leaves the property alone when its tab’s chips were not touched', async () => {
       const before = await rows([ids.boots]);
       // Another tab's value rides along; the chosen tab posted nothing.

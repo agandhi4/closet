@@ -3,8 +3,11 @@ import { captureLogs } from '../../test/support/log-capture';
 import { nextRunAt, scheduleNightly } from './nightly';
 
 // Every instant is explicit UTC and every zone is named, so these hold
-// whatever zone the test process runs in.
+// whatever zone the test process runs in. Fake timers throughout: every
+// wait is advanced explicitly, so the stop specs never depend on the
+// machine's speed (run 30 times in a row to prove it, as minutely.spec.ts).
 const NY = 'America/New_York';
+const HOUR = 60 * 60 * 1000;
 
 describe('nextRunAt', () => {
   it.each([
@@ -39,6 +42,7 @@ describe('scheduleNightly', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-15T12:00:00Z'));
+    logs.clear();
   });
 
   afterEach(() => {
@@ -67,9 +71,9 @@ describe('scheduleNightly', () => {
     expect(failure.msg).toBe('Test job failed');
     expect(failure.err?.stack).toContain('storage unreachable');
 
-    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(24 * HOUR);
     expect(run).toHaveBeenCalledTimes(2);
-    job.stop();
+    await job.stop();
   });
 
   it('never runs once stopped', async () => {
@@ -81,8 +85,78 @@ describe('scheduleNightly', () => {
       run,
       logger,
     });
-    job.stop();
-    await vi.advanceTimersByTimeAsync(3 * 24 * 60 * 60 * 1000);
+    await job.stop();
+    await vi.advanceTimersByTimeAsync(3 * 24 * HOUR);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('stop() waits for a run in flight, then runs nothing more', async () => {
+    let finish!: () => void;
+    const run = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    const job = scheduleNightly({
+      name: 'Test job',
+      hour: 3,
+      timeZone: NY,
+      run,
+      logger,
+    });
+    await vi.advanceTimersByTimeAsync(20 * HOUR);
+    expect(run).toHaveBeenCalledTimes(1);
+
+    let stopped = false;
+    const stopping = job.stop().then(() => (stopped = true));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(stopped).toBe(false);
+    finish();
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(logs.messages('warn')).toEqual([]);
+    // The run's end schedules nothing once stopped.
+    await vi.advanceTimersByTimeAsync(3 * 24 * HOUR);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('stop() waits for a run that fails, and logs the failure', async () => {
+    let fail!: (error: Error) => void;
+    const run = vi.fn(
+      () => new Promise<void>((_resolve, reject) => (fail = reject)),
+    );
+    const job = scheduleNightly({
+      name: 'Test job',
+      hour: 3,
+      timeZone: NY,
+      run,
+      logger,
+    });
+    await vi.advanceTimersByTimeAsync(20 * HOUR);
+    const stopping = job.stop();
+    fail(new Error('pool ended'));
+    await expect(stopping).resolves.toBeUndefined();
+    expect(logs.messages('error')).toEqual(['Test job failed']);
+    await vi.advanceTimersByTimeAsync(3 * 24 * HOUR);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('stop() gives up on a run that never ends after 15 s, with a warning', async () => {
+    const run = vi.fn(() => new Promise<void>(() => {}));
+    const job = scheduleNightly({
+      name: 'Stuck job',
+      hour: 3,
+      timeZone: NY,
+      run,
+      logger,
+    });
+    await vi.advanceTimersByTimeAsync(20 * HOUR);
+    let stopped = false;
+    const stopping = job.stop().then(() => (stopped = true));
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(stopped).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await stopping;
+    expect(logs.messages('warn')).toEqual([
+      'Stuck job still running after 15000 ms; stopped',
+    ]);
+    await vi.advanceTimersByTimeAsync(3 * 24 * HOUR);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

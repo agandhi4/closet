@@ -9,6 +9,7 @@ import {
   type GarmentColor,
   type Material,
   MATERIALS,
+  storedSet,
   typesOf,
   type Warmth,
   WARMTHS,
@@ -259,15 +260,6 @@ function readRange<T extends number>(
     : { value: { min: from, max: to } };
 }
 
-/** A set in its list's order, each once; none is null (the column's rule). */
-function readSet<T extends string>(
-  values: readonly T[],
-  posted: readonly string[],
-): T[] | null {
-  const chosen = values.filter((value) => posted.includes(value));
-  return chosen.length > 0 ? chosen : null;
-}
-
 /** The category (trimmed, lower case, never blank), as garment.category. */
 function readCategory(posted: string): Read<string> {
   const category = normalizeCategory(posted);
@@ -359,8 +351,8 @@ export function readPlanItemForm(body: PlanItemBody): PlanItemForm {
       name: textOrNull(values.name),
       category: category.value,
       type: type.value,
-      colors: readSet(GARMENT_COLORS, values.colors),
-      materials: readSet(MATERIALS, values.materials),
+      colors: storedSet(GARMENT_COLORS, values.colors),
+      materials: storedSet(MATERIALS, values.materials),
       warmthMin: warmth.value.min,
       warmthMax: warmth.value.max,
       formalityMin: formality.value.min,
@@ -426,9 +418,9 @@ export function readStyleProfileForm(
   body: StyleProfileBody,
 ): StyleProfileFields {
   return {
-    styles: readSet(STYLES, body.styles ?? []),
+    styles: storedSet(STYLES, body.styles ?? []),
     budget: pick(BUDGET_BANDS, body.budget ?? ''),
-    palette: readSet(GARMENT_COLORS, body.palette ?? []),
+    palette: storedSet(GARMENT_COLORS, body.palette ?? []),
     notes: body.notes?.trim() || null,
   };
 }

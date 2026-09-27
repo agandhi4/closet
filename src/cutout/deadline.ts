@@ -1,8 +1,10 @@
 /**
  * Whether `work` settles within `ms`: true once it resolves, false when the
  * time runs out first. It keeps running either way; the caller decides what
- * to cut short. A rejection is passed on. For the cutout queue's shutdown
- * (CutoutQueue.stop, CutoutListener.close), which must never hang a deploy.
+ * to cut short. A rejection is passed on. For every shutdown that must
+ * never hang a deploy: the cutout queue's (CutoutQueue.stop,
+ * CutoutListener.close) and the timers' (awaitRunInFlight,
+ * src/maintenance/scheduled.ts).
  */
 export async function settlesWithin(
   work: Promise<unknown>,

@@ -8,11 +8,13 @@ import {
   GarmentCategory,
   gsmToOz,
   LENGTHS,
+  MATERIALS,
   ozToGsm,
   type PresetValues,
   presetsFor,
   propertyApplies,
   SLEEVES,
+  storedSet,
   typesOf,
   WARMTHS,
 } from './properties';
@@ -225,5 +227,20 @@ describe('applyPresets', () => {
       blazer,
     );
     expect(chosen.waterResistant).toBe(true);
+  });
+});
+
+describe('storedSet', () => {
+  it('stores a set in its list’s order, each once', () => {
+    expect(storedSet(MATERIALS, ['wool', 'cotton', 'wool'])).toEqual([
+      'cotton',
+      'wool',
+    ]);
+  });
+
+  it('drops values outside the list, and stores none as null', () => {
+    expect(storedSet(MATERIALS, ['vinyl', 'denim'])).toEqual(['denim']);
+    expect(storedSet(MATERIALS, ['vinyl'])).toBeNull();
+    expect(storedSet(MATERIALS, [])).toBeNull();
   });
 });

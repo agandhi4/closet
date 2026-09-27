@@ -163,6 +163,22 @@ export function isGarmentColor(value: string): value is GarmentColor {
 }
 
 /**
+ * A value set as every `text[]` set column stores it (garment.colors and
+ * .materials, plan_item's, style_profile's): in `values`' order, each once,
+ * anything outside `values` dropped, null for none (never an empty array).
+ * Every writer of such a column goes through it: the garment form
+ * (readColors, readProperties), bulk edit's "Set material", the plan and
+ * style forms, "Bought it"'s fitted item.
+ */
+export function storedSet<T extends string>(
+  values: readonly T[],
+  chosen: readonly string[],
+): T[] | null {
+  const set = values.filter((value) => chosen.includes(value));
+  return set.length > 0 ? set : null;
+}
+
+/**
  * Fabric weight is stored in grams per square metre (what most product
  * pages give, and an integer), entered and shown in ounces per square yard
  * too: a "6 oz heavyweight tee" is 203 gsm. Bounds reject typos, not

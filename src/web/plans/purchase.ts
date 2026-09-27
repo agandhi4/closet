@@ -9,7 +9,11 @@ import {
   type TargetDifference,
   targetDifferences,
 } from '../../wardrobe/plans';
-import { isMaterial } from '../../wardrobe/properties';
+import {
+  GARMENT_COLORS,
+  MATERIALS,
+  storedSet,
+} from '../../wardrobe/properties';
 import { deleteGarment } from '../wardrobe/queries';
 import { buyGarment, type BuyOutcome, type Purchase } from '../wardrobe/status';
 import type { WardrobeDeps } from '../wardrobe/writes';
@@ -168,14 +172,12 @@ export function fittedItem(
   piece: BoughtPiece,
 ): PlanItemFields {
   const fitted = fitTargetTo(toTarget(item), piece);
-  // Sets are null for none (the columns' rule), never an empty array.
-  const set = <T>(values: T[]) => (values.length > 0 ? values : null);
   return {
     ...itemFields(item),
     category: fitted.category,
     type: fitted.type,
-    colors: set([...fitted.colors]),
-    materials: set(fitted.materials.filter(isMaterial)),
+    colors: storedSet(GARMENT_COLORS, fitted.colors),
+    materials: storedSet(MATERIALS, fitted.materials),
     warmthMin: fitted.warmth?.min ?? null,
     warmthMax: fitted.warmth?.max ?? null,
     formalityMin: fitted.formality?.min ?? null,
@@ -257,17 +259,23 @@ export async function buyCandidate(
       }
     }
 
+    // `others` was read without a lock: a candidate bought since (another
+    // "Bought it" on it, committed while this one ran) must not go, so the
+    // delete takes it only while it is still on the wishlist.
     const removed: { id: number; fileName: string | null }[] = [];
+    const kept: number[] = [];
     for (const id of new Set(followUps.removeCandidates)) {
       if (!others.includes(id)) continue;
-      const fileName = await deleteGarment(tx, id, ownerId);
-      if (fileName !== undefined) removed.push({ id, fileName });
+      const fileName = await deleteGarment(tx, id, ownerId, 'wishlist');
+      if (fileName === undefined) kept.push(id);
+      else removed.push({ id, fileName });
     }
     return {
       ok: true as const,
       archivedReplaced: bought.archivedReplaced,
       adjusted,
       removed,
+      kept,
     };
   });
   if (!outcome.ok) return outcome;
@@ -278,6 +286,11 @@ export async function buyCandidate(
   if (outcome.adjusted.length > 0 || outcome.removed.length > 0) {
     logger.info(
       `Garment ${garmentId} bought for user ${ownerId}'s plans: items ${outcome.adjusted.join(', ') || 'none'} changed to match, candidates ${outcome.removed.map((r) => r.id).join(', ') || 'none'} removed from the wishlist`,
+    );
+  }
+  if (outcome.kept.length > 0) {
+    logger.info(
+      `Garment ${garmentId} bought for user ${ownerId}: candidates ${outcome.kept.join(', ')} kept, no longer on the wishlist`,
     );
   }
   return {
