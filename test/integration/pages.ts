@@ -181,6 +181,8 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app('/outfits/ideas'),
     app('/outfits/ideas?for=day:2030-10-09&occasion=evening'),
     app(`/outfits/ideas?capsule=${f.capsuleId}&with=${f.garmentId}`),
+    app('/wardrobe/insights'),
+    app('/wardrobe/insights?unworn=30'),
     app('/auth/profile'),
     app('/auth/profile/style'),
     app('/auth/update-email'),

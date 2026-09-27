@@ -238,6 +238,26 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(await lastWashedOn(hamper)).toBe(today);
     });
 
+    it('insights count days from today: a wear today was 0 days ago', async () => {
+      const worn = await createGarment(t, { name: `Insight ${at}`, cookie });
+      expect(
+        (await post(`/wardrobe/${worn}/wear`, { worn: '1' })).statusCode,
+      ).toBe(303);
+      const token = await createAccessToken(t, {
+        cookie,
+        name: `Insights ${at}`,
+      });
+      const stats = await tool<{
+        today: IsoDate;
+        unworn: { garments: { id: number }[] };
+      }>(t, token, 'wardrobe_stats', { unwornDays: 30 });
+      expect(stats.today).toBe(today);
+      expect(stats.unworn.garments.map((g) => g.id)).not.toContain(worn);
+      // The page, whose "last worn" reads against the same today.
+      const page = await get('/wardrobe/insights');
+      expect(page.statusCode).toBe(200);
+    });
+
     it('MCP: get_calendar starts today; mark_worn and mark_washed record today', async () => {
       const token = await createAccessToken(t, {
         cookie,

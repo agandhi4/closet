@@ -24,6 +24,7 @@ import {
   StripFlags,
 } from '../layout/parts';
 import type { CapsuleRef } from '../capsules/queries';
+import { INSIGHTS_PATH } from '../insights/urls';
 import { PLANS_PATH, SHOPPING_PATH } from '../plans/urls';
 import type { SharedWardrobe } from '../sharing/access';
 import type { ViewContext } from '../view-context';
@@ -350,11 +351,11 @@ function Heading({ model }: { model: WardrobeModel }) {
 
 /**
  * The Wardrobe header's ⋯ menu (docs/plans/2026-09-26-redesign.md, "Where
- * every route goes"): the wardrobe's less frequent places. Plans and the
- * shopping list (#34) for now; the redesign (R3) moves Select and Tag here,
- * and insights (#17) joins them. Links only: a form inside a daisyUI menu
- * item loses its styling. Plans are the signed-in user's own, so the links
- * never carry a shared wardrobe's `?ownerId=`.
+ * every route goes"): the wardrobe's less frequent places. Plans, the
+ * shopping list (#34) and insights (#17); the redesign (R3) moves Select
+ * and Tag here. Links only: a form inside a daisyUI menu item loses its
+ * styling. All three are the signed-in user's own, so the links never
+ * carry a shared wardrobe's `?ownerId=`.
  */
 function WardrobeMenu() {
   return (
@@ -371,6 +372,9 @@ function WardrobeMenu() {
         </li>
         <li>
           <a href={SHOPPING_PATH}>{t('shopping.TITLE')}</a>
+        </li>
+        <li>
+          <a href={INSIGHTS_PATH}>{t('insights.TITLE')}</a>
         </li>
       </ul>
     </details>

@@ -52,8 +52,8 @@ import { jpeg, type LinkSites, startLinkSites } from './link-sites';
  * owner's own records too, but
  * about a garment a grantee can see: with `?ownerId=` a 403, without it a
  * 404 (the garment is not in their wardrobe); a garment's condition is a
- * property like any other (MANAGE writes it). /laundry is always the
- * requester's own: another user's ids are ignored. Wardrobe plans and the
+ * property like any other (MANAGE writes it). /laundry and insights (#17)
+ * are always the requester's own: another user's ids are ignored. Wardrobe plans and the
  * style profile (#34) are private like outfits: every refusal is a 404 or
  * the requester's own; starting a plan from the owner's closet needs a view
  * of it and lands in the requester's plans. The shopping loop (#34b) is the
@@ -1046,6 +1046,24 @@ const ROUTES: Route[] = [
     secret: garmentName,
     vias: BOTH,
     request: (_, q) => ({ method: 'GET', url: `/laundry${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    // Insights (#17) read the wear log: the requester's own whatever
+    // `?ownerId=` says. The owner's never-worn garment is in their
+    // unworn list; nobody else's page names it.
+    name: 'GET /wardrobe/insights',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/wardrobe/insights${q}` }),
     expect: {
       owner: 'ok',
       manager: 'hidden',

@@ -277,6 +277,7 @@ describe('the MCP endpoint', () => {
           'suggest_outfits',
           'update_garment',
           'update_plan_item',
+          'wardrobe_stats',
         ].sort(),
       );
       for (const listed of tools) {

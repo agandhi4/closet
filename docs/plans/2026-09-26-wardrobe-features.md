@@ -383,7 +383,7 @@ is common at home too.
 
 ## 10. Insights
 
-`/insights`: queries over `garment_wear`, `garment` and prices. Nothing stored.
+`/wardrobe/insights` (built in #17; the Wardrobe's ⋯ menu): queries over `garment_wear`, `garment` and prices. Nothing stored.
 
 - % of the closet worn in the last 30, 90 and 365 days.
 - **Unworn in N days**, each with "Style this item" (section 3's `?with=`).

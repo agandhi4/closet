@@ -9,6 +9,7 @@ import { calendarRoutes } from './calendar/routes';
 import { capsuleRoutes } from './capsules/routes';
 import { fileRoutes } from './files/routes';
 import { galleryRoutes } from './gallery/routes';
+import { insightsRoutes } from './insights/routes';
 import type { Photos } from './files/photos';
 import type { Logger } from '../logger';
 import { outfitRoutes } from './outfits/routes';
@@ -100,6 +101,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(wishlistRoutes, options);
   await app.register(planRoutes, options);
   await app.register(shoppingRoutes, options);
+  await app.register(insightsRoutes, options);
   await app.register(wearRoutes, options);
   await app.register(calendarRoutes, options);
   await app.register(outfitRoutes, options);

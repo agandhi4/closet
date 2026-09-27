@@ -233,10 +233,34 @@ test('demo: Theo, the outfit gallery', async ({ page }) => {
   await shot(page, '48-demo-style-this');
 });
 
+test('demo: Theo, insights', async ({ page }) => {
+  await signInAs(page, 'demo');
+  // Measured from the real today, not the anchor: the history ages with
+  // the run's date, so the figures drift (a picture, not a gate).
+  await page.goto('/wardrobe/insights');
+  await expect(page.locator('#insights-worn')).toBeVisible();
+  await shot(page, '50-demo-insights');
+  await shot(
+    page,
+    '51-demo-insights-unworn-30',
+    '/wardrobe/insights?unworn=30',
+  );
+  // "Style this" on an unworn garment opens the gallery holding it.
+  await page
+    .locator('#insights-unworn')
+    .getByRole('link', { name: 'Style this' })
+    .first()
+    .click();
+  await expect(page.getByText(/^With /).first()).toBeVisible();
+  await shot(page, '52-demo-insights-style-this');
+});
+
 test('sparse: Dana, untagged and degraded', async ({ page }) => {
   await signInAs(page, 'sparse');
   await shot(page, '12-sparse-wardrobe', '/wardrobe');
   await shot(page, '13-sparse-tagging', '/wardrobe/tag');
+  // A closet without a wear: the figures at zero and what to do about it.
+  await shot(page, '53-sparse-insights', '/wardrobe/insights');
 });
 
 test('fresh: Riley, the empty states', async ({ page }) => {
@@ -251,6 +275,7 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '41-fresh-plans', '/wardrobe/plans');
   await shot(page, '45-fresh-shopping-list', '/wardrobe/shopping');
   await shot(page, '49-fresh-ideas', '/outfits/ideas');
+  await shot(page, '54-fresh-insights', '/wardrobe/insights');
   await shot(
     page,
     '27-fresh-calendar-plan',
