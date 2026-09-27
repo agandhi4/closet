@@ -54,7 +54,7 @@ export function StyleProfilePage(props: {
   return (
     <Layout ctx={ctx} title={t('style.TITLE')}>
       <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 max-w-lg mx-auto">
+      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         <div class="flex items-center gap-3 mb-2">
           <BackLink href="/auth/profile" />
           <h1 class="text-2xl font-bold">{t('style.TITLE')}</h1>

@@ -1,0 +1,217 @@
+import type { OutfitCount } from '../../wardrobe/goes-with';
+import { t } from '../i18n';
+import { OutfitCollage } from '../outfits/collage';
+import { categoryLabel } from '../wardrobe/garment';
+import { garmentUrl } from '../wardrobe/urls';
+import { type GoesWithCloset, ideaName, type NearDuplicate } from './ideas';
+
+/**
+ * "Goes with my closet" (#18b) on a wishlist item's page, the owner's
+ * alone (goesWithCloset reads their closet and clashes): how many outfits
+ * it makes, the near-identical garments they already own, the best few as
+ * the gallery's OutfitCollage cards in a scroll-snap strip, and the roles
+ * it is worn with. Display only: nothing here posts, since an outfit with
+ * something not yet bought cannot be saved (pickIdea takes closet
+ * garments); "Bought it" makes it one. The shopping list's candidate cards
+ * show the count alone (OutfitCountLink).
+ */
+
+export const GOES_WITH_ID = 'goes-with';
+
+/** "Makes 12 outfits with your closet", or the card's shorter "Goes with 12 outfits". */
+function countText(count: OutfitCount, card: boolean): string {
+  const { outfits, capped } = count;
+  if (outfits === 0)
+    return t(card ? 'goesWith.CARD_NONE' : 'goesWith.COUNT_NONE');
+  if (capped) {
+    return t(card ? 'goesWith.CARD_CAPPED' : 'goesWith.COUNT_CAPPED', {
+      count: outfits,
+    });
+  }
+  if (outfits === 1)
+    return t(card ? 'goesWith.CARD_ONE' : 'goesWith.COUNT_ONE');
+  return t(card ? 'goesWith.CARD' : 'goesWith.COUNT', { count: outfits });
+}
+
+function GarmentLink(props: {
+  garment: { id: number; name: string | null; category: string };
+}) {
+  const { garment } = props;
+  return (
+    <a href={garmentUrl(garment.id, undefined)} class="link link-hover">
+      {garment.name ?? categoryLabel(garment.category)}
+    </a>
+  );
+}
+
+function Links(props: {
+  garments: readonly { id: number; name: string | null; category: string }[];
+}) {
+  return (
+    <>
+      {props.garments.map((garment, index) => (
+        <>
+          {index > 0 && ', '}
+          <GarmentLink garment={garment} />
+        </>
+      ))}
+    </>
+  );
+}
+
+/** Nothing without an answer: a grantee's view, or a garment not on the wishlist. */
+export function GoesWithSection({
+  goesWith,
+}: {
+  goesWith: GoesWithCloset | undefined;
+}) {
+  if (!goesWith) return null;
+  const { best, roles } = goesWith;
+  // One card fills the strip; with more, the next one peeks in to say so.
+  const cardWidth = best.length > 1 ? 'w-11/12' : 'w-full';
+  return (
+    <section
+      id={GOES_WITH_ID}
+      class="card bg-base-100 shadow-sm mb-4"
+      aria-labelledby="goes-with-title"
+    >
+      <div class="card-body gap-3">
+        <h2 id="goes-with-title" class="card-title text-base">
+          {t('goesWith.TITLE')}
+        </h2>
+        <div>
+          <p class="text-lg font-semibold" data-goes-with-count="">
+            {countText(goesWith, false)}
+          </p>
+          <p class="text-xs text-base-content/60">{t('goesWith.JUDGED')}</p>
+        </div>
+        <NearDuplicates duplicates={goesWith.nearDuplicates} />
+        {best.length > 0 && (
+          <>
+            <div
+              class="flex overflow-x-auto overscroll-x-contain snap-x snap-mandatory gap-3 pb-1"
+              aria-label={t('goesWith.BEST_LABEL')}
+              data-goes-with-strip=""
+            >
+              {best.map((idea) => (
+                <article
+                  class={`snap-center shrink-0 ${cardWidth} flex flex-col gap-1`}
+                  data-goes-with-idea={idea.garments.map((g) => g.id).join(',')}
+                >
+                  <OutfitCollage garments={idea.garments} />
+                  <p class="text-sm font-medium line-clamp-2">
+                    {ideaName(idea.garments)}
+                  </p>
+                </article>
+              ))}
+            </div>
+            <p class="text-xs text-base-content/60">
+              {t('goesWith.DISPLAY_ONLY')}
+            </p>
+          </>
+        )}
+        {roles.length > 0 && (
+          <div>
+            <h3 class="text-sm font-semibold mb-1">
+              {t('goesWith.PAIRS_HEADING')}
+            </h3>
+            <ul class="flex flex-col gap-1 text-sm">
+              {roles.map((role) => (
+                <li data-goes-with-role={role.role}>
+                  <span class="font-medium">
+                    {t(`goesWith.role.${role.role}`)}
+                  </span>{' '}
+                  <span class="text-base-content/60">
+                    {role.goes === 0
+                      ? t('goesWith.NO_LAYER')
+                      : t('goesWith.ROLE_COUNT', {
+                          goes: role.goes,
+                          of: role.of,
+                        })}
+                  </span>
+                  {role.best.length > 0 && (
+                    <>
+                      {' · '}
+                      <Links garments={role.best.map((p) => p.garment)} />
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The closet garments near-identical to the item: the one it replaces is
+ * like for like (info); any other is a second of something owned
+ * (a warning: "do I need this?").
+ */
+function NearDuplicates({ duplicates }: { duplicates: NearDuplicate[] }) {
+  const replaced = duplicates.filter((d) => d.replaced);
+  const others = duplicates.filter((d) => !d.replaced);
+  return (
+    <>
+      {replaced.length > 0 && (
+        <p class="text-sm" data-goes-with-replaces="">
+          {t('goesWith.REPLACES_LIKE_FOR_LIKE')} <Links garments={replaced} />
+        </p>
+      )}
+      {others.length > 0 && (
+        <div
+          role="note"
+          class="alert alert-warning alert-soft py-2 text-sm flex flex-col items-start gap-0"
+          data-goes-with-duplicates=""
+        >
+          <p>
+            {t('goesWith.DUPLICATES')} <Links garments={others} />
+          </p>
+          <p class="text-xs">{t('goesWith.DUPLICATES_HINT')}</p>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** A shopping list candidate's count, linking to the full answer on its page. */
+export function OutfitCountLink(props: {
+  garmentId: number;
+  count: OutfitCount;
+}) {
+  return (
+    <a
+      href={`${garmentUrl(props.garmentId, undefined)}#${GOES_WITH_ID}`}
+      class="text-xs link link-hover text-base-content/70"
+      data-goes-with-count=""
+    >
+      {countText(props.count, true)}
+    </a>
+  );
+}
+
+/**
+ * Where a shopping list candidate's count arrives (#18b): replaced by
+ * OutfitCountLink from GET /wardrobe/:id/outfit-count when it scrolls into
+ * view (`revealed`: the list scrolls with the window). Loaded, not
+ * rendered: each count is a search over the closet, and a plan's items are
+ * unbounded, so the page's cost stays the list's and each chip pays for
+ * itself only once seen. Its own hx-indicator keeps the navbar spinner
+ * still, as the cutout's polling does.
+ */
+export function OutfitCountSlot(props: { garmentId: number }) {
+  return (
+    <span
+      class="text-xs text-base-content/50"
+      hx-get={garmentUrl(props.garmentId, undefined, '/outfit-count')}
+      hx-trigger="revealed"
+      hx-swap="outerHTML"
+      hx-indicator="this"
+      data-outfit-count-slot=""
+    >
+      {t('goesWith.COUNTING')}
+    </span>
+  );
+}

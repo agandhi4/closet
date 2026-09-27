@@ -62,7 +62,7 @@ export function ItemFormPage(props: {
   return (
     <Layout ctx={ctx} title={title}>
       <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 max-w-lg mx-auto">
+      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         <div class="flex items-center gap-3 mb-2">
           <BackLink href={back} />
           <div class="min-w-0">

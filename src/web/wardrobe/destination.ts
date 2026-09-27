@@ -5,7 +5,7 @@ import { findOwnedItem, findPlan } from '../plans/queries';
 import { itemNotFound } from '../plans/validation';
 import type { WardrobeAccess } from '../sharing/access';
 import type { EntryStatus } from '../../wardrobe/status';
-import { changeCandidates } from '../plans/candidates';
+import { changeCandidates, requireCandidateRoom } from '../plans/candidates';
 import type { WithGarment } from './writes';
 import { findGarment, type GarmentDetail } from './queries';
 import { TO_CLOSET, type Destination } from './urls';
@@ -42,6 +42,9 @@ export async function resolveCandidateFor(
     : undefined;
   const plan = item && (await findPlan(db, item.planId, access.ownerId));
   if (!item || !plan) throw itemNotFound();
+  // A new garment is never already one of its candidates: a full item is
+  // refused before the form is filled in, or a garment or photo stored.
+  await requireCandidateRoom(db, item.id);
   return { id: item.id, title: itemTitle(item), planName: plan.name };
 }
 

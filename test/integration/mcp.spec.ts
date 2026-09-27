@@ -261,6 +261,7 @@ describe('the MCP endpoint', () => {
           'get_plan_gaps',
           'get_shopping_list',
           'get_style_profile',
+          'goes_with_closet',
           'laundry_status',
           'list_capsules',
           'list_outfits',

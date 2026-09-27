@@ -2,8 +2,10 @@ import * as z from 'zod/v4';
 import { DEFAULT_OCCASION, OCCASION_HINTS } from '../../../wardrobe/occasions';
 import { todayIn } from '../../calendar/calendar-date';
 import { HttpError } from '../../errors';
+import { OUTFIT_COUNT_CAP } from '../../../wardrobe/goes-with';
 import {
   dailySeed,
+  goesWithCloset,
   IDEAS_PAGE_SIZE,
   ideaName,
   ideasFor,
@@ -20,12 +22,19 @@ const round1 = (value: number) => Math.round(value * 10) / 10;
 /** Ideas per call at most: a page, or a few for a quick answer. */
 const MAX_IDEAS = 12;
 
+/** A garment as the tools name it. */
+const named = (g: { id: number; name: string | null; category: string }) => ({
+  id: g.id,
+  name: g.name,
+  category: g.category,
+});
+
 /**
  * The outfit generator's tools (#9): the same ideas as the Outfits page's
  * Ideas tab (ideasFor: the available closet, the weather, the occasion's
- * formality, avoided pairs, saved outfits skipped) and the same pick. The
- * caller's own, like outfits: no ownerId. "Goes with my closet" (#18b) is
- * this with a wishlist item locked, when it lands.
+ * formality, avoided pairs, saved outfits skipped) and the same pick; and
+ * "Goes with my closet" (#18b: goesWithCloset, as a wishlist item's page
+ * shows it). The caller's own, like outfits: no ownerId.
  */
 export const galleryTools = [
   defineTool({
@@ -123,6 +132,50 @@ export const galleryTools = [
             .filter((g) => idea.rested.includes(g.id))
             .map((g) => g.name ?? g.category),
         })),
+      };
+    },
+  }),
+
+  defineTool({
+    name: 'goes_with_closet',
+    title: 'Goes with my closet',
+    description: `Judges one of your wishlist items (list_wishlist) against your whole closet, as its page in the app does: how many distinct outfits it makes with what you own (counted up to ${OUTFIT_COUNT_CAP}; capped: true means more), the best few (those dressed at the item's own formality first), each role it is worn with (how many of your bottoms, shoes, layers... go with it, and the best of them), and the closet garments near-identical to it (same category, type and colours: "do I need this?"; replacesIt marks the one it is on the wishlist to replace). The same rules as suggest_outfits (colours, patterns, your clashes), but not the weather or an occasion: a purchase is worn across seasons. Outfits here cannot be saved with pick_outfit until the item is bought (Bought it, in the app).`,
+    input: z.object({
+      garmentId: rowId().describe('The wishlist item, from list_wishlist.'),
+    }),
+    writes: false,
+    async run({ garmentId }, ctx) {
+      const today = todayIn(ctx.timeZone, new Date());
+      const result = await goesWithCloset(ctx.db, ctx.userId, garmentId, today);
+      if (!result) throw new HttpError(404, 'Not on your wishlist');
+      return {
+        item: named(result.item),
+        outfits: {
+          count: result.outfits,
+          capped: result.capped,
+          cap: OUTFIT_COUNT_CAP,
+        },
+        best: result.best.map((idea) => ({
+          name: ideaName(idea.garments),
+          garments: idea.garments.map(named),
+          atItemsFormality: idea.score === 0,
+        })),
+        pairsWith: result.roles.map((role) => ({
+          role: role.role,
+          goWithIt: role.goes,
+          inCloset: role.of,
+          best: role.best.map((partner) => ({
+            ...named(partner.garment),
+            outfits: partner.outfits,
+          })),
+        })),
+        nearDuplicates: result.nearDuplicates.map((garment) => ({
+          ...named(garment),
+          type: garment.type,
+          colors: garment.colors,
+          replacesIt: garment.replaced,
+        })),
+        note: 'Display only: pick_outfit takes closet garments, so these become outfits after Bought it.',
       };
     },
   }),

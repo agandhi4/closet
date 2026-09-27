@@ -2,7 +2,7 @@ import { PassThrough, Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runSeed } from '../../src/seed/seed';
 import { createTestApp, OWNER_EMAIL, type TestApp, userIdOf } from './harness';
-import { createAccessToken, tool } from './mcp';
+import { callTool, createAccessToken, tool } from './mcp';
 
 /**
  * The MCP endpoint against the seed personas (#32, #33), the loop the
@@ -135,6 +135,69 @@ describe('MCP over the seed personas', () => {
       pieces: 3,
       cheapestCandidates: '139.80',
     });
+  });
+
+  it('judges each of Theo’s wishlist items against his closet (#18b)', async () => {
+    interface Answer {
+      outfits: { count: number; capped: boolean; cap: number };
+      best: { garments: { id: number }[]; atItemsFormality: boolean }[];
+      pairsWith: { role: string; goWithIt: number; inCloset: number }[];
+      nearDuplicates: { name: string; replacesIt: boolean }[];
+    }
+    const { items } = await tool<{ items: { id: number; name: string }[] }>(
+      t,
+      demoToken,
+      'list_wishlist',
+    );
+    const judge = async (name: string) => {
+      const item = items.find((i) => i.name === name)!;
+      const answer = await tool<Answer>(t, demoToken, 'goes_with_closet', {
+        garmentId: item.id,
+      });
+      for (const idea of answer.best) {
+        expect(idea.garments.map((g) => g.id)).toContain(item.id);
+      }
+      return { id: item.id, answer };
+    };
+
+    // W01, the grey merino: like for like with the pilling one (T21), and
+    // with everything he owns; the best at its formality (3) first.
+    const merino = (await judge('New grey merino crewneck')).answer;
+    expect(merino.outfits).toEqual({ count: 50, capped: true, cap: 50 });
+    expect(merino.best[0].atItemsFormality).toBe(true);
+    expect(merino.nearDuplicates).toEqual([
+      expect.objectContaining({
+        name: 'Grey merino crewneck',
+        replacesIt: true,
+      }),
+    ]);
+    expect(
+      merino.pairsWith.map((r) => [r.role, r.goWithIt === r.inCloset]),
+    ).toEqual([
+      ['layer', true],
+      ['bottom', true],
+      ['footwear', true],
+    ]);
+    // W02, the padded shirt jacket: the layer of every outfit, no twin
+    // (the olive chore coat is a jacket of another colour).
+    const jacket = (await judge('Padded shirt jacket')).answer;
+    expect(jacket.outfits.capped).toBe(true);
+    expect(jacket.pairsWith.map((r) => r.role)).toEqual([
+      'top',
+      'bottom',
+      'footwear',
+    ]);
+    expect(jacket.nearDuplicates).toEqual([]);
+    // W03, the Allbirds: he already has white sneakers.
+    const couriers = await judge('White Couriers');
+    expect(couriers.answer.nearDuplicates).toEqual([
+      expect.objectContaining({ name: 'White sneakers', replacesIt: false }),
+    ]);
+    // The owner sees Theo's wishlist through the share, never this.
+    const refused = await callTool(t, ownerToken, 'goes_with_closet', {
+      garmentId: couriers.id,
+    });
+    expect(refused.value.error).toBe('Not on your wishlist');
   });
 
   it('lets Theo’s own token read his closet and compare it with Dana’s', async () => {

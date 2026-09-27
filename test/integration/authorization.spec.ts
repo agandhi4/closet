@@ -1905,6 +1905,28 @@ describe('authorization matrix', () => {
     },
   );
 
+  // "Goes with my closet" (#18b) judges a wishlist item against the owner's
+  // closet and clashes: the owner's alone, like ideas, though every grantee
+  // reads the item itself (mcp-seed.spec.ts refuses goes_with_closet to a
+  // grantee's token).
+  it.each([
+    ['owner', true],
+    ['manager', false],
+    ['viewer', false],
+  ] as const)(
+    'a wishlist item’s page shows %s "Goes with my closet": %s',
+    async (actor, shown) => {
+      const res = await t.inject({
+        method: 'GET',
+        url: `/wardrobe/${shared.wishlistId}?ownerId=${actors.owner.id}`,
+        headers: { cookie: actors[actor].cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toContain(shared.wishlistName);
+      expect(res.body.includes('id="goes-with"')).toBe(shown);
+    },
+  );
+
   // The outfit form posts garment ids; ids outside the requester's own
   // wardrobe are dropped (the row stays, empty), so no outfit can reference
   // a shared garment.

@@ -15,7 +15,10 @@ import {
   type Material,
   type Warmth,
 } from '../../wardrobe/properties';
+import { lockOwner } from '../auth/queries';
+import { HttpError } from '../errors';
 import type { ImageRef } from '../files/image-url';
+import { t } from '../i18n';
 import { splitColors } from '../wardrobe/garment';
 import { onWishlist } from '../wardrobe/status';
 
@@ -47,16 +50,46 @@ export interface CandidateChange {
 }
 
 /**
+ * Candidates a plan item holds at most: a curated few to choose between in
+ * the store, not a catalogue. It also bounds what each candidate costs the
+ * shopping list ("Goes with my closet"'s count, #18b). Counted over the
+ * candidates still on the wishlist (the ones any page shows); applies to
+ * new links only: an item already past it (none could be when it came in)
+ * keeps its candidates and may drop some, just not gain one.
+ */
+export const MAX_CANDIDATES_PER_ITEM = 5;
+
+/**
+ * A change that would take an item past MAX_CANDIDATES_PER_ITEM: nothing
+ * was written. A 400 with the reason, which the pickers re-render in their
+ * form and add_candidate (MCP) answers as its error; thrown so that a
+ * caller's transaction (the garment the link was made for) rolls back too.
+ */
+export class TooManyCandidates extends HttpError {
+  constructor(readonly itemIds: number[]) {
+    super(
+      400,
+      t('shopping.TOO_MANY_CANDIDATES', { max: MAX_CANDIDATES_PER_ITEM }),
+    );
+    this.name = 'TooManyCandidates';
+  }
+}
+
+/**
  * The one writer of plan_item_candidate: removes every pairing in `remove`,
  * then adds every pairing in `add` (one already there is kept), in one
  * transaction. Only items of `ownerId`'s plans and garments of their
  * wardrobe take part, and only wishlist garments are added (a candidate is
- * something not owned yet); any other id is dropped. Both sides are locked
- * FOR SHARE, so an item or garment deleted meanwhile waits for this to
- * commit rather than failing a foreign key halfway. The item's candidates
- * page, the wishlist item's "For plan item…", the garment form's
- * `planItem`, add_candidate (MCP), a plan's duplicate and the seed all go
- * through it. A savepoint inside a caller's transaction.
+ * something not owned yet); any other id is dropped. An add that would take
+ * an item past MAX_CANDIDATES_PER_ITEM throws TooManyCandidates before
+ * anything is written, counted under lockOwner (the owner's user row), so
+ * two adds at once (two tabs, an agent beside the app) cannot both pass the
+ * count. Both sides are locked FOR SHARE, so an item or garment deleted
+ * meanwhile waits for this to commit rather than failing a foreign key
+ * halfway. The item's candidates page, the wishlist item's "For plan
+ * item…", the garment form's `planItem`, add_candidate (MCP), a plan's
+ * duplicate and the seed all go through it. A savepoint inside a caller's
+ * transaction.
  */
 export function changeCandidates(
   db: Queryable,
@@ -64,6 +97,9 @@ export function changeCandidates(
   change: CandidateChange,
 ): Promise<{ added: number; removed: number }> {
   return db.transaction(async (tx) => {
+    // First, before the rows below: the cap's count must see every other
+    // change of this owner's candidates committed.
+    await lockOwner(tx, ownerId);
     const sets = [change.add, change.remove].flatMap((set) => set ?? []);
     const items = await ownedItems(
       tx,
@@ -88,6 +124,8 @@ export function changeCandidates(
     });
     const remove = owned(change.remove, garments, false);
     const add = owned(change.add, garments, true);
+    const over = await itemsPastCap(tx, add, remove);
+    if (over.length > 0) throw new TooManyCandidates(over);
     let removed = 0;
     if (remove.itemIds.length > 0 && remove.garmentIds.length > 0) {
       removed = (
@@ -118,6 +156,67 @@ export function changeCandidates(
     }
     return { added, removed };
   });
+}
+
+/** Each item's candidates still on the wishlist: what the cap counts. */
+async function wishlistCandidates(
+  db: Queryable,
+  itemIds: number[],
+): Promise<Map<number, Set<number>>> {
+  const rows = await db
+    .select({
+      itemId: planItemCandidate.planItemId,
+      garmentId: planItemCandidate.garmentId,
+    })
+    .from(planItemCandidate)
+    .innerJoin(garment, eq(garment.id, planItemCandidate.garmentId))
+    .where(and(inArray(planItemCandidate.planItemId, itemIds), onWishlist()));
+  const byItem = new Map<number, Set<number>>();
+  for (const { itemId, garmentId } of rows) {
+    byItem.set(itemId, (byItem.get(itemId) ?? new Set()).add(garmentId));
+  }
+  return byItem;
+}
+
+/**
+ * The items `add` would take past MAX_CANDIDATES_PER_ITEM, after `remove`:
+ * only items that gain a candidate count, so one already past the cap may
+ * still lose some.
+ */
+async function itemsPastCap(
+  tx: Queryable,
+  add: CandidateSet,
+  remove: CandidateSet,
+): Promise<number[]> {
+  if (add.itemIds.length === 0 || add.garmentIds.length === 0) return [];
+  const current = await wishlistCandidates(tx, add.itemIds);
+  return add.itemIds.filter((itemId) => {
+    const kept = new Set(current.get(itemId));
+    if (remove.itemIds.includes(itemId)) {
+      for (const garmentId of remove.garmentIds) kept.delete(garmentId);
+    }
+    const gained = add.garmentIds.filter((id) => !kept.has(id));
+    return (
+      gained.length > 0 && kept.size + gained.length > MAX_CANDIDATES_PER_ITEM
+    );
+  });
+}
+
+/**
+ * Refuses ahead of time (TooManyCandidates) when `ownerId`'s item `itemId`
+ * already holds MAX_CANDIDATES_PER_ITEM candidates: the garment form's and
+ * the link import's `planItem`, add_candidate (MCP), before a garment is
+ * made or a page fetched for a link that cannot be added. Only a courtesy:
+ * changeCandidates' count, under the lock, is the rule.
+ */
+export async function requireCandidateRoom(
+  db: Queryable,
+  itemId: number,
+): Promise<void> {
+  const held = (await wishlistCandidates(db, [itemId])).get(itemId);
+  if ((held?.size ?? 0) >= MAX_CANDIDATES_PER_ITEM) {
+    throw new TooManyCandidates([itemId]);
+  }
 }
 
 /** Which of `ids` are items of `ownerId`'s plans, locked FOR SHARE. */

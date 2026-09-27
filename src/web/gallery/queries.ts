@@ -15,7 +15,7 @@ import type { IsoDate } from '../calendar/calendar-date';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
 import { splitColors } from '../wardrobe/garment';
-import { inCloset, ownedGarment } from '../wardrobe/status';
+import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
 import { availableGarment } from '../wears/queries';
 
 /**
@@ -111,8 +111,8 @@ export function ideaPool(
 /**
  * `?with=`'s garment: the owner's, in the closet, whether or not it is
  * clean (the person asked to style it). Undefined otherwise: archived,
- * a wishlist item (#18b will lock one through its own route), someone
- * else's, or no such garment.
+ * a wishlist item (only "Goes with my closet" locks one: wishlistGarments),
+ * someone else's, or no such garment.
  */
 export async function styledGarment(
   db: Db,
@@ -126,6 +126,67 @@ export async function styledGarment(
     and(eq(garment.id, garmentId), eq(garment.ownerId, ownerId), inCloset()),
   );
   return found;
+}
+
+/** A garment as "Goes with my closet" (#18b) reads it: the pool's, with its type (near-duplicates). */
+export interface ClosetGarment extends PoolGarment {
+  type: string | null;
+}
+
+/** A wishlist item as "Goes with my closet" locks it, and what it replaces. */
+export interface WishlistGarment extends ClosetGarment {
+  replacesGarmentId: number | null;
+}
+
+/**
+ * The owner's whole closet (inCloset), dirty and away included: "Goes with
+ * my closet" judges a purchase against what the owner has, not against
+ * what is clean today, so the answer does not move on laundry day. Never a
+ * gallery pool: ideas draw from ideaPool. One statement.
+ */
+export async function closetGarments(
+  db: Db,
+  ownerId: number,
+  today: IsoDate,
+): Promise<ClosetGarment[]> {
+  const rows = await poolQuery(
+    db,
+    today,
+    and(eq(garment.ownerId, ownerId), inCloset()),
+  );
+  return rows.map((row) => ({ ...poolGarment(row), type: row.type }));
+}
+
+/**
+ * The owner's wishlist items among `ids`, as the generator locks them. The
+ * only read that hands a wishlist item to the generator: goesWithCloset and
+ * goesWithCount (ideas.ts) lock it, and nothing adds it to a pool.
+ */
+export async function wishlistGarments(
+  db: Db,
+  ownerId: number,
+  ids: readonly number[],
+  today: IsoDate,
+): Promise<WishlistGarment[]> {
+  const rows = await db
+    .select({
+      ...poolColumns(today),
+      replacesGarmentId: garment.replacesGarmentId,
+    })
+    .from(garment)
+    .leftJoin(file, eq(file.id, garment.photoId))
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        inArray(garment.id, [...ids]),
+        onWishlist(),
+      ),
+    );
+  return rows.map((row) => ({
+    ...poolGarment(row),
+    type: row.type,
+    replacesGarmentId: row.replacesGarmentId,
+  }));
 }
 
 /**

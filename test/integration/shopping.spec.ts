@@ -383,17 +383,19 @@ describe('the shopping loop', () => {
     });
 
     it('goes with the item or the garment when either is deleted', async () => {
+      // Items of its own: the block's shared item holds the cap by now.
       const gone = await addWishlist('Soon deleted', { category: 'tops' });
+      const mine = await addItem(planId, { category: 'tops' });
       const other = await addItem(planId, { category: 'tops' });
       await changeCandidates(t.db, ownerId, {
-        add: { itemIds: [itemId, other], garmentIds: [gone] },
+        add: { itemIds: [mine, other], garmentIds: [gone] },
       });
       const deleted = await t.inject({
         method: 'DELETE',
         url: `/wardrobe/${gone}`,
       });
       expect(deleted.statusCode).toBe(200);
-      expect(await candidatesOf(itemId)).not.toContain(gone);
+      expect(await candidatesOf(mine)).not.toContain(gone);
       const keep = await addWishlist('Kept', { category: 'tops' });
       await changeCandidates(t.db, ownerId, {
         add: { itemIds: [other], garmentIds: [keep] },

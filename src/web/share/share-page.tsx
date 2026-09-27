@@ -49,7 +49,7 @@ export function SharePage(props: {
       ogImage={preview?.image}
     >
       <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 max-w-lg mx-auto flex flex-col items-center gap-6">
+      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col items-center gap-6">
         {shared && <SharedItem shared={shared} />}
       </main>
       <Dock ctx={ctx} />

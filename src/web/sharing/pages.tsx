@@ -92,7 +92,7 @@ export function ManagePage(props: {
   return (
     <Layout ctx={ctx} title={t('WARDROBE_SHARING')}>
       <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 max-w-2xl mx-auto">
+      <main class="p-4 pt-20 pb-24 w-full max-w-2xl mx-auto">
         <h1 class="text-2xl font-bold mb-6">{t('WARDROBE_SHARING')}</h1>
 
         {props.refusal && (

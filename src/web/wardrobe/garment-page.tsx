@@ -4,6 +4,8 @@ import { GarmentCapsules } from '../capsules/garment-capsules';
 import type { GarmentCapsule } from '../capsules/queries';
 import { imageUrl } from '../files/image-url';
 import { AvoidedPartners } from '../gallery/avoided';
+import { GoesWithSection } from '../gallery/goes-with';
+import type { GoesWithCloset } from '../gallery/ideas';
 import type { AvoidedPartner } from '../gallery/queries';
 import { ideasUrl } from '../gallery/urls';
 import { t } from '../i18n';
@@ -44,6 +46,12 @@ export interface GarmentPageModel {
    * never paired with. Nothing for a grantee or a wishlist item.
    */
   styling: { canStyle: boolean; avoided: AvoidedPartner[] };
+  /**
+   * "Goes with my closet" (#18b): a wishlist item against the closet, the
+   * owner's alone for the same reason. Undefined for a grantee and for
+   * anything not on the wishlist.
+   */
+  goesWith: GoesWithCloset | undefined;
   /** Edit, photo, mask, condition and "Bought it": the owner and a MANAGE grantee. */
   canEdit: boolean;
   /** Archive, restore and delete: the owner only. */
@@ -101,7 +109,7 @@ export function GarmentPage(props: {
   return (
     <Layout ctx={ctx} title={garment.name ?? categoryLabel(garment.category)}>
       <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 max-w-lg mx-auto">
+      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         <GarmentHeading garment={garment} viewOwner={model.viewOwner} />
         <div id="garment-photo-slot">
           <GarmentPhotoView
@@ -114,9 +122,9 @@ export function GarmentPage(props: {
         <GarmentDetails garment={garment} />
         <Replacement model={model} />
         {/* A wishlist item is not in the closet: it has no condition, wears
-            or capsules until "Bought it". #18b's "Goes with my closet" (the
-            generator over inCloset plus this item) goes here, for wishlist
-            items. */}
+            or capsules until "Bought it"; what it has is how it would go
+            with the closet. */}
+        <GoesWithSection goesWith={model.goesWith} />
         {!wishlist && (
           <>
             <GarmentCondition

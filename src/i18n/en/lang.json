@@ -819,7 +819,8 @@
     "SAME": "In both, the same · {count}",
     "CHANGE_QUANTITY": "×{a} → ×{b}",
     "CHANGE_PRIORITY": "{a} → {b} priority",
-    "CHANGE_DETAILS": "details differ"
+    "CHANGE_DETAILS": "details differ",
+    "TOO_MANY_CANDIDATES": "A plan item takes at most {max} candidates: a few to choose between. Remove one before adding another."
   },
   "gallery": {
     "TITLE": "Outfit ideas",
@@ -915,5 +916,36 @@
     "OTHER_BRANDS": "Other brands",
     "UNBRANDED": "{count} without a brand",
     "BREAKDOWN_LINE": "{garments} garments · {pieces} pieces · {worn}% of wears"
+  },
+  "goesWith": {
+    "TITLE": "Goes with my closet",
+    "COUNT": "Makes {count} outfits with your closet",
+    "COUNT_ONE": "Makes 1 outfit with your closet",
+    "COUNT_CAPPED": "Makes {count}+ outfits with your closet",
+    "COUNT_NONE": "Nothing in your closet goes with it yet",
+    "JUDGED": "Judged on colour, pattern, formality and your clashes, not the weather: you would wear it in more than one season.",
+    "BEST_LABEL": "The best outfits with it, swipe for more",
+    "DISPLAY_ONLY": "Ideas only: once you have bought it, you can save and plan them.",
+    "PAIRS_HEADING": "Pairs with",
+    "ROLE_COUNT": "{goes} of {of}",
+    "NO_LAYER": "No layer goes with it",
+    "DUPLICATES": "Near-identical in your closet:",
+    "DUPLICATES_HINT": "Same kind and colour. Do you need another?",
+    "REPLACES_LIKE_FOR_LIKE": "Like for like: it replaces",
+    "CARD": "Goes with {count} outfits",
+    "CARD_ONE": "Goes with 1 outfit",
+    "CARD_CAPPED": "Goes with {count}+ outfits",
+    "CARD_NONE": "Goes with nothing in your closet yet",
+    "role": {
+      "layer": "Layers",
+      "one-piece": "Dresses",
+      "top": "Tops",
+      "bottom": "Bottoms",
+      "footwear": "Shoes",
+      "accessory": "Accessories",
+      "bag": "Bags",
+      "none": "Other"
+    },
+    "COUNTING": "Counting outfits…"
   }
 }

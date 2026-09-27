@@ -3,6 +3,7 @@ import {
   fromCents,
   type ShoppingEntry,
 } from '../../wardrobe/shopping';
+import { OutfitCountSlot } from '../gallery/goes-with';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -198,7 +199,8 @@ const BUDGET_BADGES: Record<BudgetFit, string | null> = {
 /**
  * A candidate: its photo, name and brand linking to its page, its price
  * against the budget, whether it is the kind of thing the item asks for,
- * the product link and "Bought it".
+ * how many outfits it makes with the closet, the product link and "Bought
+ * it".
  */
 function CandidateRow(props: {
   candidate: ListedCandidate;
@@ -241,6 +243,7 @@ function CandidateRow(props: {
             </span>
           )}
         </span>
+        <OutfitCountSlot garmentId={candidate.garmentId} />
         {!candidate.matches && (
           <p class="text-xs text-warning" data-mismatch>
             {t('shopping.DOESNT_MATCH', {

@@ -113,6 +113,13 @@ test('shop for a plan’s gap on the phone, buy the candidate', async ({
   await expect(
     merino.getByRole('link', { name: 'View product' }),
   ).toHaveAttribute('target', '_blank');
+  // "Goes with my closet"'s count (#18b) arrives in each candidate as it
+  // comes into view: nothing in this empty closet yet.
+  await expect(merino.locator('[data-outfit-count-slot]')).toHaveCount(0);
+  await expect(merino.locator('[data-goes-with-count]')).toHaveText([
+    'Goes with nothing in your closet yet',
+    'Goes with nothing in your closet yet',
+  ]);
   await expectNoSidewaysScroll(page);
 
   // Bought it: it fulfils the item; the other candidate is offered, ticked.

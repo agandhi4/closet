@@ -1,7 +1,12 @@
 import * as z from 'zod/v4';
 import { fromCents } from '../../../wardrobe/shopping';
 import { HttpError } from '../../errors';
-import { candidatesOfItems, changeCandidates } from '../../plans/candidates';
+import {
+  candidatesOfItems,
+  changeCandidates,
+  MAX_CANDIDATES_PER_ITEM,
+  requireCandidateRoom,
+} from '../../plans/candidates';
 import { planComparison, type ComparedRow } from '../../plans/compare';
 import { allPlanGaps } from '../../plans/gaps';
 import { findOwnedItem, type PlanItemRow } from '../../plans/queries';
@@ -71,8 +76,7 @@ export const shoppingTools = [
   defineTool({
     name: 'add_candidate',
     title: 'Add a candidate product to a plan item',
-    description:
-      'WRITES: links a product to one of your plan items as a candidate, so it shows under the item on the shopping list. Either garmentId (an item already on your wishlist: list_wishlist) or url (a product page, imported onto your wishlist as add_garment_from_link does, then linked; rate limited with it, 10 a minute; name, category and type override the page). Not a proposal: a candidate changes nothing the plan asks for and counts for nothing until the owner buys it in the app. Answers the garment and whether it matches the item (and how not).',
+    description: `WRITES: links a product to one of your plan items as a candidate, so it shows under the item on the shopping list. Either garmentId (an item already on your wishlist: list_wishlist) or url (a product page, imported onto your wishlist as add_garment_from_link does, then linked; rate limited with it, 10 a minute; name, category and type override the page). Not a proposal: a candidate changes nothing the plan asks for and counts for nothing until the owner buys it in the app. An item holds at most ${MAX_CANDIDATES_PER_ITEM} candidates (a few to choose between): past that the call is refused, so remove one in the app first. Answers the garment and whether it matches the item (and how not).`,
     input: z.object({
       itemId: rowId().describe('The plan item, from get_plan_gaps.'),
       garmentId: rowId()
@@ -174,6 +178,8 @@ async function importCandidate(
   args: { url: string; name?: string; category?: string; type?: string },
 ): Promise<number> {
   const access = await wardrobeFor(ctx, undefined, 'manage');
+  // Before the fetch: a full item would refuse the link anyway.
+  await requireCandidateRoom(ctx.db, itemId);
   if (!(await ctx.allowLinkImport())) {
     throw new HttpError(429, 'Too many link imports: try again in a minute');
   }

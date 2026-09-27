@@ -21,13 +21,24 @@ import { createOutfit } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
 import { userWeather, type WeatherService } from '../weather/service';
 import {
+  goesWith,
+  type GoesWith,
+  nearDuplicates,
+  type OutfitCount,
+  outfitCount,
+} from '../../wardrobe/goes-with';
+import {
   avoidedPairs,
+  type ClosetGarment,
+  closetGarments,
   ideaPool,
   outfitOfGarments,
   pickedGarments,
   type PoolGarment,
   savedOutfits,
   styledGarment,
+  type WishlistGarment,
+  wishlistGarments,
 } from './queries';
 
 /**
@@ -37,9 +48,11 @@ import {
  * logic (docs/plans/2026-09-26-redesign.md, section 1): the gallery's Ideas
  * (routes.tsx), the MCP tool suggest_outfits, and next Today (#15: its
  * occasions, a page of 3) and Styling's Shuffle (#42: `styled` becomes its
- * locked rows). "Goes with my closet" (#18b) locks a wishlist item the same
- * way `styled` locks a closet garment. And pickIdea, the one way an idea
- * becomes an outfit.
+ * locked rows). "Goes with my closet" (#18b) is its sibling below,
+ * goesWithCloset: the whole closet with a wishlist item locked the way
+ * `styled` locks a closet garment, never in a pool, so ideasFor, Today and
+ * pickIdea never see one. And pickIdea, the one way an idea becomes an
+ * outfit.
  */
 
 /** Cards a gallery page holds: one on screen at phone width, the next few ready. */
@@ -263,4 +276,71 @@ export function pickIdea(
       schedule: saved.schedule,
     };
   });
+}
+
+/** A closet garment near-identical to a wishlist item (nearDuplicates). */
+export interface NearDuplicate extends ClosetGarment {
+  /** The garment the item is on the wishlist to replace: like for like, not a second one. */
+  replaced: boolean;
+}
+
+/** "Goes with my closet" for one wishlist item: what the page and goes_with_closet show. */
+export interface GoesWithCloset extends GoesWith<ClosetGarment> {
+  item: WishlistGarment;
+  nearDuplicates: NearDuplicate[];
+}
+
+/**
+ * "Goes with my closet" (#18b): the owner's wishlist item `itemId` judged
+ * against their whole closet (closetGarments: dirty and away included) and
+ * their avoided pairs, by the generator with the item locked
+ * (src/wardrobe/goes-with.ts says what is judged: no weather, the item's
+ * own formality, no rotation), and the closet garments near-identical to
+ * it. Undefined when `itemId` is not one of the owner's wishlist items.
+ * The owner's own, like ideas: a grantee who can see the wishlist never
+ * gets this, as it reads the owner's closet and clashes. Display only: an
+ * outfit with the item cannot be picked (pickIdea takes closet garments),
+ * which "Bought it" changes. Seeded by the item's id, so the same closet
+ * answers the same.
+ */
+export async function goesWithCloset(
+  db: Db,
+  ownerId: number,
+  itemId: number,
+  today: IsoDate,
+): Promise<GoesWithCloset | undefined> {
+  const [[item], closet, avoid] = await Promise.all([
+    wishlistGarments(db, ownerId, [itemId], today),
+    closetGarments(db, ownerId, today),
+    avoidedPairs(db, ownerId),
+  ]);
+  if (!item) return undefined;
+  return {
+    item,
+    ...goesWith({ item, closet, avoid, seed: item.id }),
+    nearDuplicates: nearDuplicates(item, closet).map((garment) => ({
+      ...garment,
+      replaced: garment.id === item.replacesGarmentId,
+    })),
+  };
+}
+
+/**
+ * How many outfits the owner's wishlist item `itemId` makes with the closet
+ * (goesWithCloset's count, from the same search): the shopping list's
+ * candidate chip, GET /wardrobe/:id/outfit-count. Undefined when it is not
+ * one of the owner's wishlist items. Three statements and one search.
+ */
+export async function goesWithCount(
+  db: Db,
+  ownerId: number,
+  itemId: number,
+  today: IsoDate,
+): Promise<OutfitCount | undefined> {
+  const [[item], closet, avoid] = await Promise.all([
+    wishlistGarments(db, ownerId, [itemId], today),
+    closetGarments(db, ownerId, today),
+    avoidedPairs(db, ownerId),
+  ]);
+  return item && outfitCount({ item, closet, avoid, seed: item.id });
 }

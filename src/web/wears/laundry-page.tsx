@@ -35,7 +35,7 @@ export function LaundryPage(props: {
   return (
     <Layout ctx={ctx} title={t('wear.LAUNDRY')}>
       <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-40 max-w-lg mx-auto">
+      <main class="p-4 pt-20 pb-40 w-full max-w-lg mx-auto">
         <div class="flex items-center gap-3 mb-6">
           <BackLink href="/wardrobe" />
           <h1 class="text-2xl font-bold flex-1">{t('wear.LAUNDRY')}</h1>

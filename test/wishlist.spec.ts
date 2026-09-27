@@ -6,8 +6,9 @@ import { SAME_ORIGIN, signIn } from './support/e2e-session';
  * The wishlist in a browser at phone width (#18): the Wardrobe's Wishlist
  * tab (the dock stays on Wardrobe), "Find a replacement" from a worn-out
  * garment into the wishlist's form, the item's card, and "Bought it"
- * moving it into the closet while archiving the old one only when asked.
- * The server side is test/integration/wishlist.spec.ts.
+ * moving it into the closet while archiving the old one only when asked;
+ * and "Goes with my closet" on an item's page (#18b) at 390 px. The server
+ * side is test/integration/wishlist.spec.ts and goes-with.spec.ts.
  */
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -93,6 +94,55 @@ test('find a replacement, see it on the wishlist, and buy it', async ({
   );
   await page.goto('/wardrobe/wishlist');
   await expect(page.getByText('Nothing on the wishlist yet')).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
+test('"Goes with my closet" on a wishlist item fits a phone', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await signIn(page, 'goes-with');
+  const plain = { props: '1', pattern: 'solid' };
+  const closet: [string, string, string][] = [
+    ['Raw jeans', 'bottoms', 'blue'],
+    ['Khaki chinos', 'bottoms', 'beige'],
+    ['White sneakers', 'footwear', 'white'],
+    ['Brown boots', 'footwear', 'brown'],
+    ['Grey tee', 'tops', 'grey'],
+  ];
+  for (const [name, category, color] of closet) {
+    await createGarment(page, name, category, { ...plain, color });
+  }
+  const item = await createGarment(page, 'Another grey tee', 'tops', {
+    ...plain,
+    color: 'grey',
+    to: 'wishlist',
+    wishlist: '1',
+    replaces: '',
+  });
+
+  await page.goto(`/wardrobe/${item}`);
+  const section = page.locator('#goes-with');
+  await expect(section).toContainText('Makes 4 outfits with your closet');
+  // The twin it would be: same kind and colour.
+  await expect(section.locator('[data-goes-with-duplicates]')).toContainText(
+    'Grey tee',
+  );
+  // The best few swipe sideways inside the card; the page itself never does.
+  const strip = section.locator('[data-goes-with-strip]');
+  await expect(strip).toHaveCSS('scroll-snap-type', 'x mandatory');
+  await expect(strip.locator('article')).toHaveCount(3);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  // Display only: nothing to tap but the garments it pairs with.
+  await expect(section.locator('button, form')).toHaveCount(0);
+  await section.getByRole('link', { name: 'Khaki chinos' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Khaki chinos' }),
+  ).toBeVisible();
 
   expect(errors).toEqual([]);
 });

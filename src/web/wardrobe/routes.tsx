@@ -15,7 +15,7 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { sessionUserId } from '../auth/require-session';
-import { todayIn } from '../calendar/calendar-date';
+import { type IsoDate, todayIn } from '../calendar/calendar-date';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
@@ -33,6 +33,7 @@ import {
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
+import { type GoesWithCloset, goesWithCloset } from '../gallery/ideas';
 import { avoidedWith } from '../gallery/queries';
 import { countNeedingWash, wearSummary } from '../wears/queries';
 import { normalizeCategory, normalizeSize, splitColors } from './garment';
@@ -645,6 +646,27 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
+  /**
+   * A wishlist item's "Goes with my closet" (#18b) for its page: the
+   * owner's alone (it reads their closet and clashes), so nothing for a
+   * grantee or for a garment not on the wishlist.
+   */
+  async function judgeWishlistItem(
+    garment: GarmentDetail,
+    access: { isOwner: boolean; ownerId: number },
+    today: IsoDate,
+  ): Promise<GoesWithCloset | undefined> {
+    if (garment.status !== 'wishlist' || !access.isOwner) return undefined;
+    const started = performance.now();
+    const judged = await goesWithCloset(db, access.ownerId, garment.id, today);
+    if (judged) {
+      logger.debug(
+        `Goes with my closet for user ${access.ownerId}: wishlist item ${garment.id} makes ${judged.outfits}${judged.capped ? '+' : ''} outfit(s), ${judged.nearDuplicates.length} near-duplicate(s), in ${Math.round(performance.now() - started)} ms`,
+      );
+    }
+    return judged;
+  }
+
   app.get(
     '/wardrobe/:id',
     { schema: { params: GarmentParams, querystring: GarmentPageQuery } },
@@ -663,11 +685,12 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // says what it replaces; a closet garment lists the wishlist items
       // that would replace it.
       const owned = garment.status !== 'wishlist';
-      // The gallery's side (Style this, never paired with) is the owner's,
-      // like outfits: never read for a grantee.
+      // The gallery's side (Style this, never paired with, and a wishlist
+      // item's "Goes with my closet") is the owner's, like outfits: never
+      // read for a grantee.
       const styles = owned && access.isOwner;
-      const [capsules, wear, replaces, replacedBy, avoided] = await Promise.all(
-        [
+      const [capsules, wear, replaces, replacedBy, avoided, goesWith] =
+        await Promise.all([
           owned ? capsulesOfGarment(db, access.ownerId, id) : [],
           // Wears and washes are the owner's own records: never read for a
           // grantee (the section is not rendered either).
@@ -679,8 +702,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             ? replacementsOf(db, id, access.ownerId)
             : [],
           styles ? avoidedWith(db, access.ownerId, id) : [],
-        ],
-      );
+          judgeWishlistItem(garment, access, today),
+        ]);
       return renderPage(
         reply,
         <GarmentPage
@@ -696,6 +719,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
               canStyle: styles && garment.status === 'closet',
               avoided,
             },
+            goesWith,
             canEdit: access.canManage,
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',

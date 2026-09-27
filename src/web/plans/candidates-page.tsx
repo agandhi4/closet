@@ -37,6 +37,8 @@ export interface ItemCandidatesModel {
    * shopping list); undefined: the plan, whose page then says Saved.
    */
   returnTo: string | undefined;
+  /** Why the last save was refused (TooManyCandidates): the form comes back with it. */
+  error?: string;
 }
 
 /**
@@ -104,6 +106,7 @@ export function ItemCandidatesPage(props: {
           >
             {t('shopping.FROM_WISHLIST')}
           </h2>
+          <PickerError error={model.error} />
           {model.wishlist.length === 0 ? (
             <p class="text-sm text-base-content/60">
               {t('shopping.WISHLIST_EMPTY')}
@@ -172,6 +175,8 @@ export interface GarmentPlanItemsModel {
   plans: PlanGaps[];
   /** The items the garment is a candidate for now. */
   chosen: Set<number>;
+  /** Why the last save was refused (TooManyCandidates): the form comes back with it. */
+  error?: string;
 }
 
 const STATUS_ORDER: readonly ItemStatus[] = ['missing', 'partly', 'owned'];
@@ -201,6 +206,7 @@ export function GarmentPlanItemsPage(props: {
         <p class="text-sm text-base-content/70">
           {t('shopping.PLAN_ITEMS_INTRO')}
         </p>
+        <PickerError error={model.error} />
         {model.plans.length === 0 ? (
           <p class="text-sm text-base-content/60">
             {t('plans.EMPTY')}{' '}
@@ -300,6 +306,16 @@ export function CandidacyLinks(props: {
       <a href={garmentPlanItemsUrl(props.garmentId)} class="link link-primary">
         {t('shopping.FOR_PLAN_ITEM')}
       </a>
+    </p>
+  );
+}
+
+/** A refused save, above the form it came back to. */
+function PickerError({ error }: { error: string | undefined }) {
+  if (!error) return null;
+  return (
+    <p role="alert" class="alert alert-error alert-soft text-sm mb-2">
+      {error}
     </p>
   );
 }

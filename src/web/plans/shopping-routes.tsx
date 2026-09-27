@@ -1,5 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
+import type { FastifyReply } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
@@ -19,6 +20,8 @@ import {
   candidaciesOf,
   candidatesOfItems,
   changeCandidates,
+  MAX_CANDIDATES_PER_ITEM,
+  TooManyCandidates,
 } from './candidates';
 import { GarmentPlanItemsPage, ItemCandidatesPage } from './candidates-page';
 import { planComparison } from './compare';
@@ -57,6 +60,21 @@ const CandidatesBody = Type.Object({
 const PlanItemsBody = Type.Object({ itemIds: Picked, shown: Picked });
 
 const GARMENT_NOT_FOUND = 'Garment not found';
+
+/**
+ * A picker's save: the change, or the cap's refusal (TooManyCandidates) in
+ * words for the form to come back with. Any other error is the error page's.
+ */
+async function refusedAsForm<T>(
+  change: () => Promise<T>,
+): Promise<T | { refused: string }> {
+  try {
+    return await change();
+  } catch (error) {
+    if (error instanceof TooManyCandidates) return { refused: error.message };
+    throw error;
+  }
+}
 
 /** Ticked and shown as the writer's add and remove. */
 function picked(checked: number[] = [], shown: number[] = []) {
@@ -149,38 +167,55 @@ export const shoppingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // ---- A plan item's candidates -------------------------------------------
 
+  /**
+   * A plan item's candidates page: as stored, or (a refused save) with what
+   * was ticked and why, 400.
+   */
+  async function renderItemCandidates(
+    reply: FastifyReply,
+    userId: number,
+    { plan, item }: Awaited<ReturnType<typeof requirePlanItem>>,
+    returnTo: string | undefined,
+    refused?: { chosen: number[]; error: string },
+  ) {
+    const [wishlist, candidates] = await Promise.all([
+      wishlistItems(db, userId),
+      refused ? undefined : candidatesOfItems(db, userId, [item.id]),
+    ]);
+    const chosen =
+      refused?.chosen ??
+      (candidates?.get(item.id) ?? []).map((c) => c.garmentId);
+    return renderPage(
+      reply,
+      <ItemCandidatesPage
+        ctx={viewContext(reply)}
+        model={{
+          plan,
+          item,
+          wishlist,
+          chosen: new Set(chosen),
+          returnTo: returnTo
+            ? safeReturnTo(returnTo, planUrl(plan.id))
+            : undefined,
+          error: refused?.error,
+        }}
+      />,
+      { status: refused ? 400 : 200 },
+    );
+  }
+
   app.get(
     `${PLANS_PATH}/:id/items/:itemId/candidates`,
     { schema: { params: ItemParams, querystring: CandidatesQuery } },
     async (request, reply) => {
       const userId = sessionUserId(request);
-      const { plan, item } = await requirePlanItem(
+      const found = await requirePlanItem(
         db,
         userId,
         request.params.id,
         request.params.itemId,
       );
-      const [wishlist, candidates] = await Promise.all([
-        wishlistItems(db, userId),
-        candidatesOfItems(db, userId, [item.id]),
-      ]);
-      return renderPage(
-        reply,
-        <ItemCandidatesPage
-          ctx={viewContext(reply)}
-          model={{
-            plan,
-            item,
-            wishlist,
-            chosen: new Set(
-              (candidates.get(item.id) ?? []).map((c) => c.garmentId),
-            ),
-            returnTo: request.query.returnTo
-              ? safeReturnTo(request.query.returnTo, planUrl(plan.id))
-              : undefined,
-          }}
-        />,
-      );
+      return renderItemCandidates(reply, userId, found, request.query.returnTo);
     },
   );
 
@@ -189,20 +224,36 @@ export const shoppingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { params: ItemParams, body: CandidatesBody } },
     async (request, reply) => {
       const userId = sessionUserId(request);
-      const { plan, item } = await requirePlanItem(
+      const found = await requirePlanItem(
         db,
         userId,
         request.params.id,
         request.params.itemId,
       );
+      const { plan, item } = found;
       const { checked, unchecked } = picked(
         request.body.garmentIds,
         request.body.shown,
       );
-      const { added, removed } = await changeCandidates(db, userId, {
-        add: { itemIds: [item.id], garmentIds: checked },
-        remove: { itemIds: [item.id], garmentIds: unchecked },
-      });
+      const changed = await refusedAsForm(() =>
+        changeCandidates(db, userId, {
+          add: { itemIds: [item.id], garmentIds: checked },
+          remove: { itemIds: [item.id], garmentIds: unchecked },
+        }),
+      );
+      if ('refused' in changed) {
+        logger.info(
+          `Plan item ${item.id} of plan ${plan.id}: candidates refused for user ${userId}, past ${MAX_CANDIDATES_PER_ITEM}`,
+        );
+        return renderItemCandidates(
+          reply,
+          userId,
+          found,
+          request.body.returnTo,
+          { chosen: checked, error: changed.refused },
+        );
+      }
+      const { added, removed } = changed;
       logger.info(
         `Plan item ${item.id} of plan ${plan.id}: ${added} candidate(s) added, ${removed} removed by user ${userId}`,
       );
@@ -215,6 +266,36 @@ export const shoppingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // ---- A wishlist item's plan items ---------------------------------------
 
+  /**
+   * A wishlist item's plan items page: as stored, or (a refused save) with
+   * what was ticked and why, 400.
+   */
+  async function renderGarmentPlanItems(
+    reply: FastifyReply,
+    userId: number,
+    garment: GarmentRef,
+    refused?: { chosen: number[]; error: string },
+  ) {
+    const [plans, candidacies] = await Promise.all([
+      allPlanGaps(db, userId),
+      refused ? [] : candidaciesOf(db, userId, [garment.id]),
+    ]);
+    const chosen = refused?.chosen ?? candidacies.map((c) => c.itemId);
+    return renderPage(
+      reply,
+      <GarmentPlanItemsPage
+        ctx={viewContext(reply)}
+        model={{
+          garment,
+          plans,
+          chosen: new Set(chosen),
+          error: refused?.error,
+        }}
+      />,
+      { status: refused ? 400 : 200 },
+    );
+  }
+
   // An item no longer on the wishlist (bought on another phone, a stale
   // link) sends the person to its page, as "Bought it" does.
   app.get(
@@ -226,21 +307,7 @@ export const shoppingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (garment.status !== 'wishlist') {
         return reply.redirect(garmentUrl(garment.id, undefined), 302);
       }
-      const [plans, candidacies] = await Promise.all([
-        allPlanGaps(db, userId),
-        candidaciesOf(db, userId, [garment.id]),
-      ]);
-      return renderPage(
-        reply,
-        <GarmentPlanItemsPage
-          ctx={viewContext(reply)}
-          model={{
-            garment,
-            plans,
-            chosen: new Set(candidacies.map((c) => c.itemId)),
-          }}
-        />,
-      );
+      return renderGarmentPlanItems(reply, userId, garment);
     },
   );
 
@@ -257,10 +324,22 @@ export const shoppingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.body.itemIds,
         request.body.shown,
       );
-      const { added, removed } = await changeCandidates(db, userId, {
-        add: { itemIds: checked, garmentIds: [garment.id] },
-        remove: { itemIds: unchecked, garmentIds: [garment.id] },
-      });
+      const changed = await refusedAsForm(() =>
+        changeCandidates(db, userId, {
+          add: { itemIds: checked, garmentIds: [garment.id] },
+          remove: { itemIds: unchecked, garmentIds: [garment.id] },
+        }),
+      );
+      if ('refused' in changed) {
+        logger.info(
+          `Garment ${garment.id}: plan items refused for user ${userId}, an item past ${MAX_CANDIDATES_PER_ITEM} candidates`,
+        );
+        return renderGarmentPlanItems(reply, userId, garment, {
+          chosen: checked,
+          error: changed.refused,
+        });
+      }
+      const { added, removed } = changed;
       logger.info(
         `Garment ${garment.id} a candidate for ${added} more plan item(s), ${removed} fewer, by user ${userId}`,
       );

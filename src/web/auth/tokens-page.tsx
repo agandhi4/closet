@@ -67,7 +67,7 @@ export function TokensPage(props: TokensPageProps) {
   return (
     <Layout ctx={ctx} title={t('agentAccess.TITLE')}>
       <Navbar ctx={ctx} />
-      <main class="p-4 pt-20 pb-24 max-w-2xl mx-auto">
+      <main class="p-4 pt-20 pb-24 w-full max-w-2xl mx-auto">
         <h1 class="text-2xl font-bold mb-2">{t('agentAccess.TITLE')}</h1>
         <p class="text-sm text-base-content/70 mb-6">
           {t('agentAccess.INTRO')}

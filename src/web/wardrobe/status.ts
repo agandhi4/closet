@@ -21,9 +21,10 @@ import type { IsoDate } from '../calendar/calendar-date';
  * clothes one can wear do: the grid (without "Show archived"), the outfit
  * builder's cycles, capsules' counts and pages, tagging mode, laundry and
  * the wash counts, availableGarment (src/web/wears/queries.ts), the MCP
- * tools' closet reads, the outfit generator (#9, through availableGarment)
- * and insights (src/web/insights/queries.ts). Future user: "Goes with my
- * closet" (#18b: the generator over inCloset plus one wishlist item).
+ * tools' closet reads, the outfit generator (#9, through availableGarment),
+ * insights (src/web/insights/queries.ts) and "Goes with my closet" (#18b:
+ * closetGarments, src/web/gallery/queries.ts, with one wishlist item locked
+ * beside it, never mixed in).
  *
  * `status` is the column to test: garment.status, or an alias's (the outfit
  * edit form's peers).

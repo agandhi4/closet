@@ -165,6 +165,14 @@ test('demo: Theo, the wishlist', async ({ page }) => {
     page.getByRole('link', { name: 'Find a replacement' }),
   ).toBeVisible();
   await shot(page, '33-demo-replace-soon');
+  // "Goes with my closet" (#18b) on the Allbirds: 50+ outfits, and the
+  // white sneakers he already owns.
+  await page.goto('/wardrobe/wishlist');
+  await page.getByRole('link', { name: 'White Couriers' }).click();
+  await expect(page.locator('[data-goes-with-duplicates]')).toContainText(
+    'White sneakers',
+  );
+  await shot(page, '34-demo-goes-with');
 });
 
 test('demo: Theo, weather', async ({ page }) => {
