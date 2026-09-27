@@ -126,7 +126,7 @@ export function SelfieView(props: {
             loading="lazy"
             decoding="async"
           />
-          <p class="text-sm text-base-content/60 mt-2 px-1">{dayLabel(day)}</p>
+          <p class="text-sm text-muted mt-2 px-1">{dayLabel(day)}</p>
           <div class="flex flex-wrap items-center gap-2 mt-3">
             {entryId !== null && (
               <>

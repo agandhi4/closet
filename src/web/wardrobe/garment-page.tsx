@@ -210,7 +210,7 @@ export function GarmentPhotoView(props: {
     return (
       <div
         id="garment-photo"
-        class="rounded-box bg-base-200 aspect-square w-full max-w-sm mx-auto flex items-center justify-center text-base-content/30 mb-6"
+        class="rounded-box bg-base-200 aspect-square w-full max-w-sm mx-auto flex items-center justify-center text-faint mb-6"
       >
         <HangerIcon class="size-20" strokeWidth="1" />
       </div>
@@ -617,7 +617,7 @@ function QuantityDetail({ quantity }: { quantity: number }) {
 function Detail(props: { label: string; block?: boolean; children: Child }) {
   return (
     <div class={props.block ? 'flex flex-col gap-1' : 'flex justify-between'}>
-      <span class="text-base-content/60 text-sm">{props.label}</span>
+      <span class="text-muted text-sm">{props.label}</span>
       {props.children}
     </div>
   );
@@ -698,7 +698,7 @@ function MaskEditorDialog() {
             </button>
           </div>
           <div class="flex items-center gap-2 flex-1 min-w-32">
-            <span class="text-xs text-base-content/60 shrink-0">
+            <span class="text-xs text-muted shrink-0">
               {t('MASK_BRUSH_SIZE')}
             </span>
             <input

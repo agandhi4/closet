@@ -85,13 +85,11 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
         <section aria-labelledby="start-from">
           <h2
             id="start-from"
-            class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2"
+            class="text-xs font-semibold uppercase tracking-wide text-muted mb-2"
           >
             {t('plans.START_FROM')}
           </h2>
-          <p class="text-xs text-base-content/60 mb-2">
-            {t('plans.START_FROM_HINT')}
-          </p>
+          <p class="text-xs text-muted mb-2">{t('plans.START_FROM_HINT')}</p>
           <PostForm
             action={`${PLANS_PATH}/from-wardrobe`}
             class="flex flex-col gap-2"

@@ -77,10 +77,7 @@ export function PlannedWeekBanner({ banner }: { banner: PlannedBanner }) {
                 {entry.outfitName || t('UNTITLED_OUTFIT')}
               </span>
               {entry.plannedBy === 'user' && (
-                <span class="text-base-content/60">
-                  {' '}
-                  ({t('weekPlan.YOURS_NOW')})
-                </span>
+                <span class="text-muted"> ({t('weekPlan.YOURS_NOW')})</span>
               )}
             </li>
           ))}

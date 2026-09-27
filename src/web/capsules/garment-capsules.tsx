@@ -29,7 +29,7 @@ export function GarmentCapsules(props: {
   }
   return (
     <section id={SECTION_ID} class="mb-6">
-      <h2 class="text-sm text-base-content/60 mb-2">{t('IN_CAPSULES')}</h2>
+      <h2 class="text-sm text-muted mb-2">{t('IN_CAPSULES')}</h2>
       {props.canEdit ? (
         <AutosaveForm action={garmentUrl(garmentId, viewOwner, '/capsules')}>
           <div class="flex flex-wrap gap-2">

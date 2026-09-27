@@ -467,9 +467,7 @@ function QuantityField(props: { value: string; errors?: string[] }) {
         class={`input input-bordered w-28 ${props.errors ? 'input-error' : ''}`}
         value={props.value}
       />
-      <span class="text-xs text-base-content/60 mt-1">
-        {t('QUANTITY_HINT')}
-      </span>
+      <span class="text-xs text-muted mt-1">{t('QUANTITY_HINT')}</span>
       <Messages messages={props.errors} />
     </div>
   );

@@ -183,7 +183,7 @@ export function WardrobeMain({ model }: { model: WardrobeModel }) {
         </>
       )}
 
-      <p class="text-sm text-base-content/60 mb-4 px-2">
+      <p class="text-sm text-muted mb-4 px-2">
         {model.count} {t('RESULTS')}
       </p>
 
@@ -498,7 +498,7 @@ export function GarmentTiles(props: {
           data-wardrobe-more=""
         >
           <span
-            class="loading loading-dots loading-md text-base-content/40"
+            class="loading loading-dots loading-md text-muted"
             aria-label={t('LOADING_MORE')}
           ></span>
         </div>
@@ -518,7 +518,7 @@ function Tile(props: {
   return (
     <a
       href={garmentUrl(tile.id, props.viewOwner)}
-      class={`${TILE_CLASS} hover:shadow-md transition-shadow cursor-pointer ${tile.status === 'archived' ? 'opacity-50' : ''}`}
+      class={`${TILE_CLASS} hover:shadow-md transition-shadow cursor-pointer`}
     >
       <TileContent tile={tile} eager={props.eager} />
     </a>
@@ -539,7 +539,7 @@ function SelectTile(props: {
   const { tile } = props;
   return (
     <label
-      class={`${TILE_CLASS} relative cursor-pointer has-[:checked]:ring-2 has-[:checked]:ring-primary ${tile.status === 'archived' ? 'opacity-50' : ''}`}
+      class={`${TILE_CLASS} relative cursor-pointer has-[:checked]:ring-2 has-[:checked]:ring-primary`}
     >
       <input
         type="checkbox"
@@ -557,8 +557,11 @@ function SelectTile(props: {
   );
 }
 
+// An archived garment's photo is dimmed and badged; its name and category
+// keep their contrast (#88: dimming the whole card took the text below AA).
 function TileContent(props: { tile: GarmentTile; eager: boolean }) {
   const { tile } = props;
+  const dimmed = tile.status === 'archived' ? 'opacity-50' : '';
   return (
     <>
       <figure class="relative aspect-square bg-base-200">
@@ -567,21 +570,23 @@ function TileContent(props: { tile: GarmentTile; eager: boolean }) {
           <img
             src={imageUrl(tile.photo, 'thumb')}
             alt={tile.name ?? ''}
-            class="object-cover w-full h-full"
+            class={`object-cover w-full h-full ${dimmed}`}
             width="400"
             height="400"
             decoding="async"
             loading={props.eager ? undefined : 'lazy'}
           />
         ) : (
-          <div class="flex items-center justify-center w-full h-full text-base-content/30">
+          <div
+            class={`flex items-center justify-center w-full h-full text-faint ${dimmed}`}
+          >
             <HangerIcon class="size-12" strokeWidth="1" />
           </div>
         )}
       </figure>
       <div class="card-body p-3">
         <h2 class="card-title text-sm">{tile.name}</h2>
-        <p class="text-xs text-base-content/60 capitalize">
+        <p class="text-xs text-muted capitalize">
           {categoryLabel(tile.category)}
         </p>
       </div>
@@ -596,6 +601,9 @@ function TileContent(props: { tile: GarmentTile; eager: boolean }) {
  */
 function TileBadges({ tile }: { tile: GarmentTile }) {
   const badges: { text: string; class: string }[] = [];
+  if (tile.status === 'archived') {
+    badges.push({ text: t('ARCHIVED'), class: 'badge-neutral' });
+  }
   if (tile.quantity > 1) {
     badges.push({
       text: t('QUANTITY_BADGE', { quantity: tile.quantity }),
@@ -1028,7 +1036,7 @@ function PropertyFilterGroups(props: {
 function FilterGroup(props: { title: string; children: Child }) {
   return (
     <div class="mb-5">
-      <h4 class="font-medium text-sm text-base-content/60 uppercase tracking-wide mb-2">
+      <h4 class="font-medium text-sm text-muted uppercase tracking-wide mb-2">
         {props.title}
       </h4>
       <div class="flex flex-wrap gap-2">{props.children}</div>
@@ -1242,7 +1250,7 @@ function BulkDialog() {
     <dialog id="bulk-dialog" class="modal modal-bottom sm:modal-middle">
       <div class="modal-box">
         <h3 class="font-bold text-lg mb-2">{t('BULK_TITLE')}</h3>
-        <p class="text-sm text-base-content/60 mb-4">{t('BULK_HINT')}</p>
+        <p class="text-sm text-muted mb-4">{t('BULK_HINT')}</p>
         <div role="tablist" class="tabs tabs-box tabs-sm flex-wrap">
           {BULK_PROPERTIES.map((property, index) => {
             const choice = BULK_CHOICES[property];
@@ -1260,7 +1268,7 @@ function BulkDialog() {
                 />
                 <div class="tab-content pt-4">
                   {property === 'materials' && (
-                    <p class="text-xs text-base-content/60 mb-2">
+                    <p class="text-xs text-muted mb-2">
                       {t('BULK_MATERIALS_ADD')}
                     </p>
                   )}

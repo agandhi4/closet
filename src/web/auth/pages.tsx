@@ -346,7 +346,7 @@ function AgentAccessSection(props: { tokens: TokenListing[] }) {
           {props.tokens.map((token) => (
             <li class="flex items-center gap-2 min-w-0">
               <span class="truncate">{token.name}</span>
-              <code class="text-xs text-base-content/60">{token.prefix}…</code>
+              <code class="text-xs text-muted">{token.prefix}…</code>
             </li>
           ))}
         </ul>

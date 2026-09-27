@@ -79,7 +79,7 @@ function CollagePiece(props: {
     />
   ) : (
     <span
-      class={`${props.class} aspect-square max-w-full rounded-box bg-base-100 flex flex-col items-center justify-center gap-1 text-base-content/40 p-1`}
+      class={`${props.class} aspect-square max-w-full rounded-box bg-base-100 flex flex-col items-center justify-center gap-1 text-muted p-1`}
     >
       <HangerIcon class="size-6" strokeWidth="1.5" />
       <span class="text-xs text-center line-clamp-2">{garment.name}</span>

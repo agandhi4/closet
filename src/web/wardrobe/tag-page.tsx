@@ -91,12 +91,12 @@ export function TagCard({ model }: { model: TagCardModel }) {
               decoding="async"
             />
           ) : (
-            <HangerIcon class="size-16 text-base-content/30" strokeWidth="1" />
+            <HangerIcon class="size-16 text-faint" strokeWidth="1" />
           )}
         </figure>
         <div class="card-body p-4">
           <h2 class="card-title">{garment.name}</h2>
-          <p class="text-sm text-base-content/60 capitalize">
+          <p class="text-sm text-muted capitalize">
             {categoryLabel(garment.category)}
           </p>
         </div>
@@ -136,7 +136,7 @@ function TagLeft(props: { left: number; oob?: boolean }) {
   return (
     <p
       id={TAG_LEFT_ID}
-      class="text-sm text-base-content/60"
+      class="text-sm text-muted"
       hx-swap-oob={props.oob ? 'true' : undefined}
     >
       {t('TAG_LEFT', { count: props.left })}

@@ -30,7 +30,7 @@ export function AboutPage({ ctx }: { ctx: ViewContext }) {
           <p class="mb-6">{t('ABOUT_OPEN_SOURCE_DESC', { appName })}</p>
           <h2 class="text-xl font-semibold mt-8 mb-3">{t('ABOUT_TECH')}</h2>
           <p class="mb-6">{t('ABOUT_TECH_DESC')}</p>
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-muted">
             {t('APP_VERSION')} {ctx.appRelease}
           </p>
         </div>

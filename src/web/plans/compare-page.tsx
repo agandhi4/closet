@@ -161,7 +161,7 @@ function Comparison({ pair }: { pair: NonNullable<ComparePageModel['pair']> }) {
       />
       {same.length > 0 && (
         <details id="compare-same">
-          <summary class="text-xs font-semibold uppercase tracking-wide text-base-content/50 cursor-pointer">
+          <summary class="text-xs font-semibold uppercase tracking-wide text-muted cursor-pointer">
             {t('shopping.SAME', { count: same.length })}
           </summary>
           <ul class="flex flex-col gap-1 mt-2">
@@ -186,15 +186,13 @@ function Group(props: {
     <section id={props.id} aria-labelledby={`${props.id}-title`}>
       <h2
         id={`${props.id}-title`}
-        class="text-xs font-semibold uppercase tracking-wide text-base-content/50"
+        class="text-xs font-semibold uppercase tracking-wide text-muted"
       >
         {props.title} · {props.rows.length}
       </h2>
-      {props.hint && (
-        <p class="text-xs text-base-content/60 mb-1">{props.hint}</p>
-      )}
+      {props.hint && <p class="text-xs text-muted mb-1">{props.hint}</p>}
       {props.rows.length === 0 ? (
-        <p class="text-sm text-base-content/60">{props.empty}</p>
+        <p class="text-sm text-muted">{props.empty}</p>
       ) : (
         <ul class="flex flex-col gap-1 mt-1">{props.rows}</ul>
       )}
@@ -253,7 +251,7 @@ function ItemRow(props: {
       <span class="flex-1 min-w-0 break-words">
         {itemTitle(item.row)}
         {item.quantity > 1 && changes.length === 0 && (
-          <span class="text-base-content/60"> ×{item.quantity}</span>
+          <span class="text-muted"> ×{item.quantity}</span>
         )}
       </span>
       {changes.length > 0 && before && (

@@ -93,15 +93,13 @@ function GarmentCard({ garment }: { garment: SharedGarment }) {
           />
         </figure>
       ) : (
-        <div class="aspect-square bg-base-200 flex items-center justify-center text-base-content/30">
+        <div class="aspect-square bg-base-200 flex items-center justify-center text-faint">
           <HangerIcon class="size-20" strokeWidth="1" />
         </div>
       )}
       <div class="card-body gap-2">
         <h2 class="card-title">{garment.name}</h2>
-        <p class="capitalize text-base-content/60 text-sm">
-          {garment.category}
-        </p>
+        <p class="capitalize text-muted text-sm">{garment.category}</p>
         {garment.brand && <p class="text-sm">{garment.brand}</p>}
       </div>
     </div>
@@ -113,9 +111,7 @@ function OutfitCard({ outfit }: { outfit: SharedOutfit }) {
     <div class="card bg-base-100 w-full max-w-sm shadow-sm">
       <div class="card-body gap-4">
         <h2 class="card-title">{outfit.name}</h2>
-        {outfit.notes && (
-          <p class="text-base-content/60 text-sm">{outfit.notes}</p>
-        )}
+        {outfit.notes && <p class="text-muted text-sm">{outfit.notes}</p>}
         {outfit.garments.length > 0 && (
           <div class="flex flex-wrap gap-2">
             {outfit.garments.map((garment) => (

@@ -78,7 +78,7 @@ export function LaundryPage(props: {
 function LaundryGroup(props: { title: string; items: LaundryItem[] }) {
   return (
     <section>
-      <h2 class="text-sm text-base-content/60 mb-2">{props.title}</h2>
+      <h2 class="text-sm text-muted mb-2">{props.title}</h2>
       <ul class="flex flex-col gap-2">
         {props.items.map((item) => (
           <li>
@@ -106,7 +106,7 @@ function LaundryRow({ item }: { item: LaundryItem }) {
       <GarmentThumb garment={item} class="rounded-box" />
       <span class="flex flex-col min-w-0">
         <span class="font-medium truncate">{name}</span>
-        <span class="text-xs text-base-content/60">{washLabel(item)}</span>
+        <span class="text-xs text-muted">{washLabel(item)}</span>
       </span>
     </label>
   );

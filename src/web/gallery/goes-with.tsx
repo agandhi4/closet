@@ -83,7 +83,7 @@ export function GoesWithSection({
           <p class="text-lg font-semibold" data-goes-with-count="">
             {countText(goesWith, false)}
           </p>
-          <p class="text-xs text-base-content/60">{t('goesWith.JUDGED')}</p>
+          <p class="text-xs text-muted">{t('goesWith.JUDGED')}</p>
         </div>
         <NearDuplicates duplicates={goesWith.nearDuplicates} />
         {best.length > 0 && (
@@ -105,9 +105,7 @@ export function GoesWithSection({
                 </article>
               ))}
             </div>
-            <p class="text-xs text-base-content/60">
-              {t('goesWith.DISPLAY_ONLY')}
-            </p>
+            <p class="text-xs text-muted">{t('goesWith.DISPLAY_ONLY')}</p>
           </>
         )}
         {roles.length > 0 && (
@@ -121,7 +119,7 @@ export function GoesWithSection({
                   <span class="font-medium">
                     {t(`goesWith.role.${role.role}`)}
                   </span>{' '}
-                  <span class="text-base-content/60">
+                  <span class="text-muted">
                     {role.goes === 0
                       ? t('goesWith.NO_LAYER')
                       : t('goesWith.ROLE_COUNT', {
@@ -204,7 +202,7 @@ export function OutfitCountLink(props: {
 export function OutfitCountSlot(props: { garmentId: number }) {
   return (
     <span
-      class="text-xs text-base-content/50"
+      class="text-xs text-muted"
       hx-get={garmentUrl(props.garmentId, undefined, '/outfit-count')}
       hx-trigger="revealed"
       hx-swap="outerHTML"

@@ -48,7 +48,7 @@ export function LinkPage(props: { ctx: ViewContext; model: LinkPageModel }) {
         )}
       />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <p class="text-sm opacity-70 mb-4">{t('linkImport.INTRO')}</p>
+        <p class="text-sm text-muted mb-4">{t('linkImport.INTRO')}</p>
         <PostForm
           action={wardrobeUrl(
             viewOwner,
@@ -88,7 +88,7 @@ export function LinkPage(props: { ctx: ViewContext; model: LinkPageModel }) {
           <button type="submit" class="btn btn-primary">
             {t('linkImport.FETCH')}
           </button>
-          <p class="text-xs opacity-60 text-center">
+          <p class="text-xs text-muted text-center">
             {t('linkImport.FETCH_HINT')}
           </p>
         </PostForm>

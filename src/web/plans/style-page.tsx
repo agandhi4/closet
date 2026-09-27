@@ -167,9 +167,7 @@ function ChipGroup(props: { label: string; hint?: string; children: Child }) {
       <span class="label">
         <span class="label-text">{props.label}</span>
       </span>
-      {props.hint && (
-        <p class="text-xs text-base-content/60 mb-1">{props.hint}</p>
-      )}
+      {props.hint && <p class="text-xs text-muted mb-1">{props.hint}</p>}
       <div class="flex flex-wrap gap-2">{props.children}</div>
     </div>
   );

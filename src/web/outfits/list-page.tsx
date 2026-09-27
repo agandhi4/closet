@@ -202,9 +202,7 @@ function OutfitCard({ outfit }: { outfit: OutfitSummary }) {
           </div>
         </div>
         {outfit.notes && (
-          <p class="text-xs text-base-content/60 line-clamp-2">
-            {outfit.notes}
-          </p>
+          <p class="text-xs text-muted line-clamp-2">{outfit.notes}</p>
         )}
         <div class="flex flex-wrap gap-1 mt-1">
           {outfit.garments.map((garment) => (

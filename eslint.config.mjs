@@ -12,6 +12,11 @@ const INLINE_COLOUR =
   '/#[0-9a-fA-F]{3,8}\\b|\\b(?:rgba?|hsla?|oklch|oklab|lab|lch|color-mix)\\(/';
 const THEME_TOKENS_ONLY =
   'Colours come from the daisyUI theme tokens in views/assets/main.css (bg-base-200, text-error), never a palette class or an inline colour (#81).';
+// text-base-content/0 to /69; \x2F is the slash, which an esquery regex
+// cannot hold.
+const FAINT_TEXT_CLASS = '/\\btext-base-content\\x2F(?:\\d|[1-6]\\d)\\b/';
+const MUTED_TEXT =
+  'Muted text is text-muted (WCAG AA on every base in both themes); a decorative graphic that carries no information is text-faint (views/assets/main.css, #88).';
 
 export default tseslint.config(
   {
@@ -86,6 +91,16 @@ export default tseslint.config(
             message: THEME_TOKENS_ONLY,
           },
         ]),
+        // Below /70 the base content fails AA on some base (#88): muted
+        // text is the one text-muted tone, faint the decorative graphics.
+        {
+          selector: `Literal[value=${FAINT_TEXT_CLASS}]`,
+          message: MUTED_TEXT,
+        },
+        {
+          selector: `TemplateElement[value.raw=${FAINT_TEXT_CLASS}]`,
+          message: MUTED_TEXT,
+        },
         {
           selector: `JSXAttribute[name.name='style'] Literal[value=${INLINE_COLOUR}]`,
           message: THEME_TOKENS_ONLY,

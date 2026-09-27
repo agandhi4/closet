@@ -149,7 +149,7 @@ function PlanSection(props: {
     >
       <h2
         id="bought-plans-title"
-        class="text-xs font-semibold uppercase tracking-wide text-base-content/50"
+        class="text-xs font-semibold uppercase tracking-wide text-muted"
       >
         {t('shopping.FOR_YOUR_PLANS')}
       </h2>
@@ -185,14 +185,12 @@ function PlanSection(props: {
                   />
                   <span class="label-text">{t('shopping.ADJUST_ITEM')}</span>
                 </label>
-                <p class="text-xs text-base-content/60">
-                  {t('shopping.KEEP_HINT')}
-                </p>
+                <p class="text-xs text-muted">{t('shopping.KEEP_HINT')}</p>
               </>
             )}
             {purchase.others.length > 0 && (
               <fieldset class="flex flex-col gap-1">
-                <legend class="text-xs text-base-content/60 mb-1">
+                <legend class="text-xs text-muted mb-1">
                   {t('shopping.OTHER_CANDIDATES')}
                 </legend>
                 {purchase.others.map(({ candidate, suggested }) => (

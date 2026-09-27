@@ -56,10 +56,10 @@ export function AddOutfitPage(props: {
     <Layout ctx={ctx} title={t('trips.ADD_TITLE')}>
       <AppBar ctx={ctx} title={t('trips.ADD_TITLE')} back={back} />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-5">
-        <p class="text-sm text-base-content/60 truncate">{trip.name}</p>
+        <p class="text-sm text-muted truncate">{trip.name}</p>
 
         <nav aria-label={t('trips.DAY')}>
-          <p class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">
+          <p class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
             {t('trips.DAY')}
           </p>
           <ul class="flex flex-wrap gap-2">
@@ -79,7 +79,7 @@ export function AddOutfitPage(props: {
         </nav>
 
         <nav aria-label={t('OCCASION')}>
-          <p class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">
+          <p class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
             {t('OCCASION')}
           </p>
           <ul class="flex flex-wrap gap-2">
@@ -106,7 +106,7 @@ export function AddOutfitPage(props: {
         </a>
 
         <section>
-          <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
             {day ? dayLabel(day) : t('trips.ANY_DAY')} ·{' '}
             {t('CALENDAR_PLAN_SAVED')}
           </h2>
@@ -130,9 +130,7 @@ export function AddOutfitPage(props: {
               ))}
             </PostForm>
           ) : (
-            <p class="text-sm text-base-content/50">
-              {t('CALENDAR_PLAN_NO_OUTFITS')}
-            </p>
+            <p class="text-sm text-muted">{t('CALENDAR_PLAN_NO_OUTFITS')}</p>
           )}
         </section>
       </main>

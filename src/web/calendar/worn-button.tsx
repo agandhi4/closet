@@ -35,7 +35,7 @@ export function WornButton(props: {
         class={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${
           props.worn
             ? 'bg-success text-success-content'
-            : 'text-base-content/40 italic font-normal hover:text-base-content/70'
+            : 'text-muted italic font-normal hover:text-base-content'
         }`}
       >
         {props.worn

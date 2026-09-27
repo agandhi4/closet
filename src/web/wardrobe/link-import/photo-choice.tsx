@@ -66,7 +66,7 @@ export function LinkPhotoSlot(props: { photo?: string; errors?: string[] }) {
             height="112"
             class="w-28 h-28 object-contain rounded-box bg-base-200"
           />
-          <p class="text-sm opacity-70">{t('linkImport.PHOTO_CUTOUT_HINT')}</p>
+          <p class="text-sm text-muted">{t('linkImport.PHOTO_CUTOUT_HINT')}</p>
         </>
       )}
       {props.errors?.map((message) => (

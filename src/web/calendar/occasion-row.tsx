@@ -26,7 +26,7 @@ export function OccasionRow(props: {
   return (
     <div class="flex flex-col gap-0.5 mb-1" data-occasion={entry.occasion}>
       <div class="flex items-center gap-1">
-        <span class="text-[10px] font-semibold uppercase tracking-wide text-base-content/50">
+        <span class="text-[10px] font-semibold uppercase tracking-wide text-muted">
           {occasionLabel(entry.occasion)}
           {entry.plannedBy === 'auto' && (
             <span
@@ -43,7 +43,7 @@ export function OccasionRow(props: {
         {!entry.worn && (
           <a
             href={changeEntryUrl(entry)}
-            class="btn btn-ghost btn-xs ms-auto h-6 min-h-6 px-2 font-normal text-base-content/60"
+            class="btn btn-ghost btn-xs ms-auto h-6 min-h-6 px-2 font-normal text-muted"
             aria-label={t('changeEntry.ACTION_LABEL', {
               name: entry.outfit.name || t('UNTITLED_OUTFIT'),
             })}
@@ -137,7 +137,7 @@ function EntryChip({ entry }: { entry: CalendarEntry }) {
         <input type="hidden" name="week" value={entry.day} />
         <button
           type="submit"
-          class="text-base-content/30 hover:text-error w-5 h-5 flex items-center justify-center rounded hover:bg-error/10 shrink-0 transition-colors"
+          class="text-muted hover:text-error w-5 h-5 flex items-center justify-center rounded hover:bg-error/10 shrink-0 transition-colors"
           aria-label={t('DELETE')}
         >
           ×

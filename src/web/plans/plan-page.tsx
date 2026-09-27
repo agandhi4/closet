@@ -62,7 +62,7 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
         actions={<PlanMenu gaps={model.gaps} />}
       />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-5">
-        <p class="text-sm text-base-content/60" id="plan-tally">
+        <p class="text-sm text-muted" id="plan-tally">
           {plan.active && (
             <span class="badge badge-primary badge-sm mr-2">
               {t('plans.ACTIVE')}
@@ -91,9 +91,7 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
             <GroupHeading id="group-proposed" count={proposed.length}>
               {t('plans.PROPOSED')}
             </GroupHeading>
-            <p class="text-xs text-base-content/60 mb-2">
-              {t('plans.PROPOSED_HINT')}
-            </p>
+            <p class="text-xs text-muted mb-2">{t('plans.PROPOSED_HINT')}</p>
             <ul class="flex flex-col gap-2">
               {proposed.map((item) => (
                 <ProposedCard item={item} />
@@ -103,7 +101,7 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
         )}
 
         {tally.owned + tally.partly + tally.missing === 0 ? (
-          <p class="text-sm text-base-content/60 text-center pt-8">
+          <p class="text-sm text-muted text-center pt-8">
             {t('plans.NO_ITEMS')}
           </p>
         ) : (
@@ -149,7 +147,7 @@ function GroupHeading(props: { id: string; count: number; children: string }) {
   return (
     <h2
       id={props.id}
-      class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2"
+      class="text-xs font-semibold uppercase tracking-wide text-muted mb-2"
     >
       {props.children} · {props.count}
     </h2>
@@ -236,7 +234,7 @@ function ItemHead(props: {
       >
         {itemTitle(item)}
         {item.quantity > 1 && props.progress === undefined && (
-          <span class="text-base-content/60"> ×{item.quantity}</span>
+          <span class="text-muted"> ×{item.quantity}</span>
         )}
       </a>
       <span class="flex items-center gap-1 shrink-0">
@@ -260,7 +258,7 @@ function ItemBody({ item }: { item: PlanItemRow }) {
   return (
     <>
       {(facts.length > 0 || item.budget) && (
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-muted">
           {[
             ...facts,
             item.budget

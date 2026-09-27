@@ -41,7 +41,7 @@ export function GarmentCondition(props: {
   }
   return (
     <section id={SECTION_ID} class="mb-4">
-      <h2 class="text-sm text-base-content/60 mb-2">{t('CONDITION')}</h2>
+      <h2 class="text-sm text-muted mb-2">{t('CONDITION')}</h2>
       <AutosaveForm
         action={garmentUrl(garment.id, viewOwner, '/condition')}
         native

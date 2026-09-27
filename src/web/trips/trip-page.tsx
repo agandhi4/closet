@@ -69,7 +69,7 @@ export function TripPage(props: { ctx: ViewContext; model: TripPageModel }) {
             {tripDates(trip)} · {phaseLabel(model.phase)}
           </p>
           {trip.destination && (
-            <p class="text-sm text-base-content/60">{trip.destination}</p>
+            <p class="text-sm text-muted">{trip.destination}</p>
           )}
         </div>
         <p
@@ -85,7 +85,7 @@ export function TripPage(props: { ctx: ViewContext; model: TripPageModel }) {
         <ExtrasSection model={model} />
         {trip.notes && (
           <section>
-            <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-1">
+            <h2 class="text-xs font-semibold uppercase tracking-wide text-muted mb-1">
               {t('NOTES')}
             </h2>
             <p class="text-sm whitespace-pre-line">{trip.notes}</p>
@@ -112,7 +112,7 @@ function SectionHeading(props: { id?: string; children: string }) {
   return (
     <h2
       id={props.id}
-      class="text-xs font-semibold uppercase tracking-wide text-base-content/60"
+      class="text-xs font-semibold uppercase tracking-wide text-muted"
     >
       {props.children}
     </h2>
@@ -234,7 +234,7 @@ function DayBlock(props: {
         </div>
       </div>
       {outfits.length === 0 && day !== null && (
-        <p class="text-xs text-base-content/40">{t('trips.DAY_EMPTY')}</p>
+        <p class="text-xs text-muted">{t('trips.DAY_EMPTY')}</p>
       )}
       {outfits.map((outfit) => (
         <TripOutfitRow model={model} outfit={outfit} />
@@ -282,10 +282,7 @@ function TripOutfitRow(props: {
               />
             ) : (
               <span class="size-10 rounded bg-base-100 flex items-center justify-center">
-                <HangerIcon
-                  class="size-4 text-base-content/30"
-                  strokeWidth="1.5"
-                />
+                <HangerIcon class="size-4 text-faint" strokeWidth="1.5" />
               </span>
             ),
           )}
@@ -293,7 +290,7 @@ function TripOutfitRow(props: {
         <span class="flex flex-col min-w-0">
           <span class="text-sm font-medium truncate">{name}</span>
           {outfit.occasion && (
-            <span class="text-xs text-base-content/60">
+            <span class="text-xs text-muted">
               {occasionLabel(outfit.occasion)}
             </span>
           )}
@@ -370,7 +367,7 @@ function PackingSection({ model }: { model: TripPageModel }) {
         {t('trips.PACKING')}
       </SectionHeading>
       {packing.garments === 0 ? (
-        <p class="text-sm text-base-content/50">{t('trips.PACKING_EMPTY')}</p>
+        <p class="text-sm text-muted">{t('trips.PACKING_EMPTY')}</p>
       ) : (
         <>
           <PackedSummary packing={packing} />
@@ -378,7 +375,7 @@ function PackingSection({ model }: { model: TripPageModel }) {
             <div class="flex flex-col gap-3">
               {packing.groups.map((group) => (
                 <fieldset data-role={group.role}>
-                  <legend class="text-xs text-base-content/50 mb-1">
+                  <legend class="text-xs text-muted mb-1">
                     {t(`trips.role.${group.role}`)}
                   </legend>
                   <ul class="flex flex-col">
@@ -422,7 +419,7 @@ function PackingRowView({ row }: { row: PackingRow<PackingGarmentView> }) {
           />
         ) : (
           <span class="size-10 rounded bg-base-200 flex items-center justify-center shrink-0">
-            <HangerIcon class="size-4 text-base-content/30" strokeWidth="1.5" />
+            <HangerIcon class="size-4 text-faint" strokeWidth="1.5" />
           </span>
         )}
         <span class="flex flex-col min-w-0 flex-1">
@@ -435,7 +432,7 @@ function PackingRowView({ row }: { row: PackingRow<PackingGarmentView> }) {
               </span>
             )}
           </span>
-          <span class="text-xs text-base-content/50">
+          <span class="text-xs text-muted">
             {t(row.outfits === 1 ? 'trips.IN_ONE_OUTFIT' : 'trips.IN_OUTFITS', {
               count: row.outfits,
             })}

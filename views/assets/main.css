@@ -32,7 +32,7 @@ and response bandwidth/latency. */
   --color-base-200: oklch(94% 0.01 80); /* the plinth behind every cutout */
   --color-base-300: oklch(89% 0.012 75);
   /* Darker than the plan's sketch (24%, still primary's ink), so the
-     pages' muted text, text-base-content/60, passes AA on the plinth. */
+     muted text (text-muted, below) passes AA on every base. */
   --color-base-content: oklch(18% 0.01 60);
   --color-primary: oklch(24% 0.01 60);
   --color-primary-content: oklch(98% 0.006 85);
@@ -104,6 +104,25 @@ and response bandwidth/latency. */
   --font-sans: "Inter Variable", system-ui, sans-serif;
   --font-serif: "Fraunces Variable", Georgia, serif;
 }
+/* Muted text (#88): one tone for secondary text (hints, captions, section
+   labels, empty states, meta lines), the base content at 65%. It is the
+   faintest text that passes WCAG AA (4.5:1) on base-100, base-200 and
+   base-300 in both themes: light 5.74 / 5.48 / 5.13, dark 6.78 / 5.65 /
+   4.79 (the old text-base-content/60 was 4.40 and 4.33 on base-300, /50
+   down to 3.27). Derived from base-content rather than a colour of its
+   own, so it follows each theme and stays below /70 and full ink in the
+   hierarchy on any of the bases. Also the colour of the muted text in the
+   rules below (var(--color-muted)).
+   Faint is for decorative graphics only (a placeholder hanger where a
+   garment has no photo, a dash beside its label): it fails AA on purpose
+   and never carries text or information. The eslint rule in
+   eslint.config.mjs refuses text-base-content/0 to /69 in markup, so
+   these two are the only ways below /70. */
+@theme inline {
+  --color-muted: color-mix(in oklab, var(--color-base-content) 65%, transparent);
+  --color-faint: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+}
+
 @layer base {
   h1,
   .card-title {
@@ -208,7 +227,7 @@ html[data-connectivity='reconnecting'] [data-offline-note] {
 /* ── Calendar: mini calendar cell states ──────────────────────────────── */
 .cal-today    { background-color: var(--color-primary); color: var(--color-primary-content); font-weight: 700; }
 .cal-in-week  { color: var(--color-primary); background-color: color-mix(in oklch, var(--color-primary) 12%, transparent); font-weight: 600; }
-.cal-out-month { color: color-mix(in oklch, var(--color-base-content) 25%, transparent); }
+.cal-out-month { color: var(--color-muted); }
 /*
  * pulltorefresh.js styling to pin refresh UI elements
  * under the app bar and match the daisyui theme
@@ -272,7 +291,7 @@ body {
 }
 
 .ms-placeholder {
-  color: color-mix(in oklch, var(--color-base-content) 40%, transparent);
+  color: var(--color-muted);
   font-size: 0.875rem;
 }
 
@@ -305,7 +324,7 @@ body {
 
 .ms-pill-remove {
   cursor: pointer;
-  opacity: 0.5;
+  color: var(--color-muted);
   font-size: 0.875rem;
   line-height: 1;
   display: inline-flex;
@@ -320,12 +339,12 @@ body {
 }
 
 .ms-pill-remove:hover {
-  opacity: 1;
+  color: var(--color-base-content);
   background: color-mix(in oklch, var(--color-base-content) 20%, transparent);
 }
 
 .ms-chevron {
-  color: color-mix(in oklch, var(--color-base-content) 40%, transparent);
+  color: var(--color-muted);
   flex-shrink: 0;
   transition: transform 0.15s ease;
 }
@@ -364,7 +383,7 @@ body {
   border-radius: var(--radius-field);
   padding: 0.25rem 0.5rem;
   background: var(--color-base-200);
-  color: color-mix(in oklch, var(--color-base-content) 40%, transparent);
+  color: var(--color-muted);
 }
 
 .ms-search-input {
@@ -455,7 +474,7 @@ body {
 .ms-empty {
   padding: 0.625rem 0.75rem;
   font-size: 0.8125rem;
-  color: color-mix(in oklch, var(--color-base-content) 40%, transparent);
+  color: var(--color-muted);
   text-align: center;
 }
 
@@ -470,7 +489,7 @@ body {
 
 .ms-count {
   font-size: 0.75rem;
-  color: color-mix(in oklch, var(--color-base-content) 50%, transparent);
+  color: var(--color-muted);
 }
 
 .ms-clear {

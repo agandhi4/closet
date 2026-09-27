@@ -67,7 +67,7 @@ export function ItemCandidatesPage(props: {
         back={model.returnTo ?? planUrl(plan.id)}
       />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
-        <p class="text-sm text-base-content/60 truncate">{plan.name}</p>
+        <p class="text-sm text-muted truncate">{plan.name}</p>
         {(facts.length > 0 || item.budget) && (
           <p class="text-sm text-base-content/70">
             {[
@@ -100,15 +100,13 @@ export function ItemCandidatesPage(props: {
         <section aria-labelledby="from-wishlist">
           <h2
             id="from-wishlist"
-            class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2"
+            class="text-xs font-semibold uppercase tracking-wide text-muted mb-2"
           >
             {t('shopping.FROM_WISHLIST')}
           </h2>
           <PickerError error={model.error} />
           {model.wishlist.length === 0 ? (
-            <p class="text-sm text-base-content/60">
-              {t('shopping.WISHLIST_EMPTY')}
-            </p>
+            <p class="text-sm text-muted">{t('shopping.WISHLIST_EMPTY')}</p>
           ) : (
             <PostForm
               action={candidatesUrl(plan.id, item.id)}
@@ -135,7 +133,7 @@ export function ItemCandidatesPage(props: {
                         <span class="font-medium text-sm break-words">
                           {garment.name ?? categoryLabel(garment.category)}
                         </span>
-                        <span class="text-xs text-base-content/60">
+                        <span class="text-xs text-muted">
                           {[
                             garment.brand,
                             garment.price ? priceLabel(garment.price) : null,
@@ -206,7 +204,7 @@ export function GarmentPlanItemsPage(props: {
         </p>
         <PickerError error={model.error} />
         {model.plans.length === 0 ? (
-          <p class="text-sm text-base-content/60">
+          <p class="text-sm text-muted">
             {t('plans.EMPTY')}{' '}
             <a href={PLANS_PATH} class="link link-primary">
               {t('plans.TITLE')}
@@ -220,7 +218,7 @@ export function GarmentPlanItemsPage(props: {
           >
             {model.plans.map((gaps) => (
               <fieldset class="flex flex-col gap-1" id={`plan-${gaps.plan.id}`}>
-                <legend class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-1">
+                <legend class="text-xs font-semibold uppercase tracking-wide text-muted mb-1">
                   {gaps.plan.name}
                   {gaps.plan.active && ` · ${t('plans.ACTIVE')}`}
                 </legend>

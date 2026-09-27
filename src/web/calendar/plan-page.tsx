@@ -73,7 +73,7 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
         </div>
 
         <section>
-          <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
             {t('CALENDAR_PLAN_SAVED')}
           </h2>
           {model.outfits.length > 0 ? (
@@ -100,9 +100,7 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
               ))}
             </PostForm>
           ) : (
-            <p class="text-sm text-base-content/50">
-              {t('CALENDAR_PLAN_NO_OUTFITS')}
-            </p>
+            <p class="text-sm text-muted">{t('CALENDAR_PLAN_NO_OUTFITS')}</p>
           )}
         </section>
       </main>
@@ -126,7 +124,7 @@ function PlanHeading(props: {
   return (
     <>
       <div class="min-w-0">
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-muted">
           {dayLabel(model.day)}
           {changing && <> · {occasionLabel(model.occasion)}</>}
         </p>
@@ -153,7 +151,7 @@ function outfitName(replacing: Replacing): string {
 function OccasionChips(props: { day: IsoDate; chosen: Occasion }) {
   return (
     <nav aria-label={t('OCCASION')}>
-      <p class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">
+      <p class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
         {t('CALENDAR_PLAN_OCCASION')}
       </p>
       <ul class="flex flex-wrap gap-2">

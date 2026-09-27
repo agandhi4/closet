@@ -96,7 +96,7 @@ export function GarmentThumb(props: {
     <div
       class={`size-20 bg-base-200 flex items-center justify-center ${props.class}`}
     >
-      <HangerIcon class="size-6 text-base-content/30" strokeWidth="1.5" />
+      <HangerIcon class="size-6 text-faint" strokeWidth="1.5" />
     </div>
   );
 }
@@ -133,7 +133,7 @@ export function EmptyState(props: {
   children: Child;
 }) {
   return (
-    <div class="flex flex-col items-center justify-center gap-4 pt-20 text-base-content/40">
+    <div class="flex flex-col items-center justify-center gap-4 pt-20 text-muted">
       {props.icon ?? <HangerIcon class="size-16" strokeWidth="1" />}
       <p class="text-center text-sm px-4">{props.message}</p>
       {props.children}

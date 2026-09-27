@@ -50,7 +50,7 @@ export function ShoppingPage(props: {
       />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
         {plan && (
-          <p class="text-sm text-base-content/60 truncate">
+          <p class="text-sm text-muted truncate">
             <a href={planUrl(plan.id)} class="link link-hover">
               {plan.name}
             </a>
@@ -152,7 +152,7 @@ function ItemCard(props: { entry: Entry; plan: PlanDetail }) {
             )}
           </span>
         </div>
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-muted">
           {[
             ...facts,
             match.status === 'partly'
@@ -167,9 +167,7 @@ function ItemCard(props: { entry: Entry; plan: PlanDetail }) {
         </p>
         {item.note && <p class="text-xs italic">{item.note}</p>}
         {entry.candidates.length === 0 ? (
-          <p class="text-sm text-base-content/60">
-            {t('shopping.NO_CANDIDATES')}
-          </p>
+          <p class="text-sm text-muted">{t('shopping.NO_CANDIDATES')}</p>
         ) : (
           <ul class="flex flex-col gap-2" aria-label={t('shopping.CANDIDATES')}>
             {entry.candidates.map(({ candidate, budget }) => (
@@ -225,7 +223,7 @@ function CandidateRow(props: {
           {name}
         </a>
         {candidate.brand && (
-          <span class="text-xs text-base-content/60">{candidate.brand}</span>
+          <span class="text-xs text-muted">{candidate.brand}</span>
         )}
         <span class="flex flex-wrap items-center gap-1 text-sm">
           {candidate.price && (

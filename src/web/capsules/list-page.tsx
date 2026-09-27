@@ -98,7 +98,7 @@ function Card(props: {
       <div class="card-body p-4 gap-3">
         <div class="flex items-baseline justify-between gap-2">
           <h2 class="card-title text-base">{props.name}</h2>
-          <span class="text-sm text-base-content/60 shrink-0">
+          <span class="text-sm text-muted shrink-0">
             {garmentCount(props.count)}
           </span>
         </div>
@@ -129,7 +129,7 @@ function StripThumb({ garment }: { garment: StripGarment }) {
           decoding="async"
         />
       ) : (
-        <div class="flex items-center justify-center w-full h-full text-base-content/30">
+        <div class="flex items-center justify-center w-full h-full text-faint">
           <HangerIcon class="size-6" strokeWidth="1.5" />
         </div>
       )}

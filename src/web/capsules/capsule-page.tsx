@@ -68,9 +68,7 @@ export function CapsulePage(props: {
             {capsule.notes}
           </p>
         )}
-        <p class="text-sm text-base-content/60 mb-4 px-2">
-          {garmentCount(model.count)}
-        </p>
+        <p class="text-sm text-muted mb-4 px-2">{garmentCount(model.count)}</p>
         <CapsuleActions model={model} />
         {model.page.tiles.length === 0 ? (
           <EmptyState message={t('CAPSULE_EMPTY')}>

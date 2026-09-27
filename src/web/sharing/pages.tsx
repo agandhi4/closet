@@ -223,9 +223,7 @@ export function SharingSection(props: SharingModel) {
         </ShareList>
       )}
 
-      {empty && (
-        <p class="text-sm text-base-content/60">{t('NO_SHARES_YET')}</p>
-      )}
+      {empty && <p class="text-sm text-muted">{t('NO_SHARES_YET')}</p>}
     </ProfileSection>
   );
 }
@@ -276,14 +274,14 @@ function InviteDetails(props: {
   const from = sharedBy(invite.grantor) ?? t('INVITE_FROM_UNKNOWN');
   return (
     <>
-      <p class="text-base-content/60 mb-4">
+      <p class="text-muted mb-4">
         {t('INVITE_FROM')} <strong>{from}</strong>
       </p>
       <div class="mb-4">
         <div class="flex items-center gap-2 mb-2">
           <PermissionBadge permission={invite.permission} />
         </div>
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-muted">
           {t(
             invite.permission === 'VIEW'
               ? 'INVITE_VIEW_DESC'
@@ -308,9 +306,7 @@ function InviteDetails(props: {
         </div>
       ) : (
         <div class="flex flex-col gap-2">
-          <p class="text-sm text-base-content/60 mb-2">
-            {t('INVITE_LOGIN_REQUIRED')}
-          </p>
+          <p class="text-sm text-muted mb-2">{t('INVITE_LOGIN_REQUIRED')}</p>
           <a href="/auth/login" class="btn btn-primary">
             {t('LOGIN')}
           </a>

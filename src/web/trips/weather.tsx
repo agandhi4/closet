@@ -36,21 +36,15 @@ export function TripWeather(props: {
   const { forecast } = props;
   switch (forecast.kind) {
     case 'over':
-      return (
-        <p class="text-sm text-base-content/50">{t('trips.WEATHER_OVER')}</p>
-      );
+      return <p class="text-sm text-muted">{t('trips.WEATHER_OVER')}</p>;
     case 'no-location':
       return (
-        <p class="text-sm text-base-content/50" data-trip-weather="no-location">
+        <p class="text-sm text-muted" data-trip-weather="no-location">
           {t('trips.WEATHER_NO_PLACE')}
         </p>
       );
     case 'unavailable':
-      return (
-        <p class="text-sm text-base-content/50">
-          {t('trips.WEATHER_UNAVAILABLE')}
-        </p>
-      );
+      return <p class="text-sm text-muted">{t('trips.WEATHER_UNAVAILABLE')}</p>;
     case 'forecast':
       return (
         <div class="flex flex-col gap-1" data-trip-weather="forecast">
@@ -64,7 +58,7 @@ export function TripWeather(props: {
             ))}
           </ul>
           {forecast.fetchedAt && (
-            <p class="text-xs text-base-content/50">
+            <p class="text-xs text-muted">
               {t('weather.AS_OF', {
                 time: fetchedLabel(
                   forecast.fetchedAt,
@@ -75,7 +69,7 @@ export function TripWeather(props: {
             </p>
           )}
           {forecast.later && (
-            <p class="text-xs text-base-content/60" data-forecast-from="">
+            <p class="text-xs text-muted" data-forecast-from="">
               {t(
                 forecast.days.length === 0
                   ? 'trips.FORECAST_FROM'
@@ -89,7 +83,7 @@ export function TripWeather(props: {
           )}
           {forecast.typical.length > 0 && (
             <>
-              <p class="text-xs text-base-content/60 pt-1">
+              <p class="text-xs text-muted pt-1">
                 {t('trips.TYPICAL_NOTE', { years: NORMAL_YEARS })}
               </p>
               <ul
@@ -136,7 +130,7 @@ function TripWeatherRow(props: {
           })}
         </span>
         {(needs || notes.length > 0) && (
-          <span class="text-xs text-base-content/60">
+          <span class="text-xs text-muted">
             {needs &&
               t('gallery.FEELS', {
                 range: t('weather.RANGE', {
@@ -188,9 +182,7 @@ function TripTypicalRow(props: {
           })}
         </span>
         {needs?.layer && (
-          <span class="text-xs text-base-content/60">
-            {t('weather.TAKE_LAYER')}
-          </span>
+          <span class="text-xs text-muted">{t('weather.TAKE_LAYER')}</span>
         )}
       </span>
       <a

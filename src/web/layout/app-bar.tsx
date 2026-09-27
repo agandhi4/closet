@@ -52,10 +52,7 @@ export function AppBar(props: AppBarProps) {
         {/* "Updated 3 minutes ago" while the page on screen is a cached copy
             a minute old or more (public/js/freshness.js); under the title,
             so it never covers or moves the content. */}
-        <span
-          id="freshness"
-          class="hidden truncate text-xs text-base-content/60"
-        ></span>
+        <span id="freshness" class="hidden truncate text-xs text-muted"></span>
       </div>
       {props.scope && (
         <div class="flex items-center shrink-0">{props.scope}</div>

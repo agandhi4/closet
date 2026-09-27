@@ -119,7 +119,7 @@ function WishlistCard(props: { item: WishlistItem; model: WishlistModel }) {
         >
           {name}
         </a>
-        <p class="text-xs text-base-content/60 truncate">
+        <p class="text-xs text-muted truncate">
           {[item.brand, categoryLabel(item.category)]
             .filter(Boolean)
             .join(' · ')}

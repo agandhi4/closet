@@ -233,7 +233,7 @@ function ReminderField(props: {
           ))}
         </select>
       </div>
-      {props.hint && <p class="text-xs text-base-content/60">{props.hint}</p>}
+      {props.hint && <p class="text-xs text-muted">{props.hint}</p>}
     </div>
   );
 }

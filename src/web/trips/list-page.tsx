@@ -69,11 +69,11 @@ export function TripsPage(props: {
                         {tripDates(trip)}
                       </p>
                       {trip.destination && (
-                        <p class="text-sm text-base-content/60 truncate">
+                        <p class="text-sm text-muted truncate">
                           {trip.destination}
                         </p>
                       )}
-                      <p class="text-xs text-base-content/50">
+                      <p class="text-xs text-muted">
                         {t('trips.COUNTS', {
                           outfits: trip.outfits,
                           extras: trip.extras,

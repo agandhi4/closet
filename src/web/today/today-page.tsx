@@ -74,7 +74,7 @@ export function TodayPage(props: { ctx: ViewContext; model: TodayModel }) {
 function RowHeading(props: { occasion: Occasion; children?: Child }) {
   return (
     <div class="flex items-center justify-between gap-2 px-2">
-      <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+      <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">
         {occasionLabel(props.occasion)}
       </h2>
       {props.children}
@@ -213,7 +213,7 @@ export function IdeasRowView(props: { row: IdeasRow; today: IsoDate }) {
           ))}
         </div>
       ) : (
-        <p class="px-2 text-sm text-base-content/60">
+        <p class="px-2 text-sm text-muted">
           {t('gallery.EMPTY')}{' '}
           <a href="/wardrobe" class="link">
             {t('gallery.EMPTY_ACTION')}

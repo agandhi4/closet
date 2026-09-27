@@ -46,7 +46,7 @@ export function InsightsPage(props: {
     <Layout ctx={ctx} title={t('insights.TITLE')}>
       <AppBar ctx={ctx} title={t('insights.TITLE')} back="/wardrobe" />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
-        <p class="text-sm text-base-content/60">{t('insights.INTRO')}</p>
+        <p class="text-sm text-muted">{t('insights.INTRO')}</p>
         {insights.closet.garments === 0 ? (
           <EmptyState message={t('insights.EMPTY')}>
             <a href="/wardrobe/new" class="btn btn-primary btn-sm">
@@ -102,7 +102,7 @@ function Figures({ model }: { model: InsightsPageModel }) {
       {/* Empty while every garment is newer than the threshold. */}
       {insights.leastWorn.length > 0 && (
         <Card id="insights-least-worn" title={t('insights.LEAST_WORN')}>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-muted">
             {t('insights.LEAST_WORN_NOTE', {
               days: LEAST_WORN_MIN_OWNED_DAYS,
             })}
@@ -126,7 +126,7 @@ function Figures({ model }: { model: InsightsPageModel }) {
             label={(key) => key ?? t('insights.OTHER_BRANDS')}
           />
           {insights.unbranded > 0 && (
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-muted">
               {t('insights.UNBRANDED', { count: insights.unbranded })}
             </p>
           )}
@@ -159,7 +159,7 @@ function WornLately({ insights }: { insights: WardrobeInsights }) {
             <p class="text-xs">
               {t('insights.WORN_OF', { worn: share.worn, total: share.total })}
             </p>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-muted">
               {t('insights.WORN_WINDOW', { days: share.days })}
             </p>
           </div>
@@ -210,7 +210,7 @@ function Unworn(props: { insights: WardrobeInsights; today: IsoDate }) {
         )}
       />
       {garments.length > shown.length && (
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-muted">
           {t('insights.UNWORN_MORE', { count: garments.length - shown.length })}
         </p>
       )}
@@ -250,7 +250,7 @@ function GarmentList(props: {
             <GarmentThumb garment={garment} class="rounded-box shrink-0" />
             <span class="flex flex-col min-w-0">
               <span class="font-medium truncate">{garmentName(garment)}</span>
-              <span class="text-xs text-base-content/60">{detail}</span>
+              <span class="text-xs text-muted">{detail}</span>
             </span>
           </a>
           {props.action?.(garment)}
@@ -289,7 +289,7 @@ function CostList(props: {
   if (props.entries.length === 0) return null;
   return (
     <div id={props.id}>
-      <h3 class="text-sm text-base-content/60 mb-1">{props.title}</h3>
+      <h3 class="text-sm text-muted mb-1">{props.title}</h3>
       <GarmentList
         rows={props.entries.map((entry) => ({
           garment: entry.garment,
@@ -304,10 +304,10 @@ function Cost({ cost }: { cost: WardrobeInsights['cost'] }) {
   return (
     <Card id="insights-cost" title={t('insights.COST_PER_WEAR')}>
       {cost.priced === 0 ? (
-        <p class="text-sm text-base-content/60">{t('insights.NO_PRICES')}</p>
+        <p class="text-sm text-muted">{t('insights.NO_PRICES')}</p>
       ) : (
         <>
-          <p class="text-xs text-base-content/60">{t('insights.COST_INTRO')}</p>
+          <p class="text-xs text-muted">{t('insights.COST_INTRO')}</p>
           <p class="text-sm" data-closet-value={cost.closetValue}>
             {t('insights.CLOSET_VALUE', {
               total: priceLabel(cost.closetValue),
@@ -342,12 +342,10 @@ function Pairs({ insights }: { insights: WardrobeInsights }) {
   return (
     <Card id="insights-pairs" title={t('insights.PAIRS')}>
       {insights.pairs.length === 0 ? (
-        <p class="text-sm text-base-content/60">{t('insights.PAIRS_NONE')}</p>
+        <p class="text-sm text-muted">{t('insights.PAIRS_NONE')}</p>
       ) : (
         <>
-          <p class="text-xs text-base-content/60">
-            {t('insights.PAIRS_INTRO')}
-          </p>
+          <p class="text-xs text-muted">{t('insights.PAIRS_INTRO')}</p>
           <ul class="flex flex-col gap-3">
             {insights.pairs.map(({ a, b, days }) => (
               <li
@@ -363,7 +361,7 @@ function Pairs({ insights }: { insights: WardrobeInsights }) {
                 <span class="flex flex-col min-w-0 text-sm">
                   <span class="truncate">{garmentName(a)}</span>
                   <span class="truncate">{garmentName(b)}</span>
-                  <span class="text-xs text-base-content/60">
+                  <span class="text-xs text-muted">
                     {t('insights.PAIR_DAYS', { count: days })}
                   </span>
                 </span>
@@ -419,7 +417,7 @@ function Colours({ insights }: { insights: WardrobeInsights }) {
         ))}
       </ul>
       {insights.uncoloured > 0 && (
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-muted">
           {t('insights.UNCOLOURED', { count: insights.uncoloured })}
         </p>
       )}
@@ -436,7 +434,7 @@ function Strip(props: {
   const { share } = props;
   return (
     <div data-strip={props.name}>
-      <h3 class="text-sm text-base-content/60 mb-1">{props.title}</h3>
+      <h3 class="text-sm text-muted mb-1">{props.title}</h3>
       <div
         class="flex h-5 w-full rounded-full overflow-hidden ring-1 ring-base-300"
         role="img"
@@ -468,11 +466,9 @@ function BreakdownList(props: {
         <li data-key={row.key ?? ''}>
           <div class="flex items-baseline justify-between gap-2 text-sm">
             <span class="font-medium truncate">{props.label(row.key)}</span>
-            <span class="text-xs text-base-content/60 shrink-0">
-              {row.closet}%
-            </span>
+            <span class="text-xs text-muted shrink-0">{row.closet}%</span>
           </div>
-          <p class="text-xs text-base-content/60">{breakdownLine(row)}</p>
+          <p class="text-xs text-muted">{breakdownLine(row)}</p>
           <progress
             class="progress progress-primary w-full"
             value={String(row.worn)}

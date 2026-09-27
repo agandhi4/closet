@@ -60,7 +60,7 @@ export function WearSection(props: { garment: WearGarment; panel: WearPanel }) {
       aria-labelledby="garment-wear-title"
     >
       <div class="card-body gap-3">
-        <h2 id="garment-wear-title" class="text-sm text-base-content/60">
+        <h2 id="garment-wear-title" class="text-sm text-muted">
           {t('wear.SECTION')}
         </h2>
         <WearStatus garment={props.garment} panel={props.panel} />
@@ -85,7 +85,7 @@ export function WearStatus(props: { garment: WearGarment; panel: WearPanel }) {
       <p class="font-medium">{wornLine(summary, panel.today)}</p>
       <WashState dirty={dirty} quantity={garment.quantity} limit={limit} />
       {garment.lastWashedOn && (
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-muted">
           {t('wear.LAST_WASHED', {
             when: relativeDay(garment.lastWashedOn, panel.today),
           })}
@@ -196,7 +196,7 @@ function AwayForm({ garment }: { garment: WearGarment }) {
       native
       class="group flex flex-col gap-2"
     >
-      <span class="text-xs text-base-content/60">{t('wear.WHERE')}</span>
+      <span class="text-xs text-muted">{t('wear.WHERE')}</span>
       <div class="flex flex-wrap gap-2">
         <input
           type="radio"

@@ -150,16 +150,14 @@ export function TokensPage(props: TokensPageProps) {
           <div class="card-body">
             <h2 class="card-title text-lg">{t('agentAccess.YOUR_TOKENS')}</h2>
             {tokens.length === 0 ? (
-              <p class="text-sm text-base-content/60">
-                {t('agentAccess.NONE')}
-              </p>
+              <p class="text-sm text-muted">{t('agentAccess.NONE')}</p>
             ) : (
               <ul class="divide-y divide-base-200">
                 {tokens.map((token) => (
                   <li class="py-3 flex items-center justify-between gap-2">
                     <div class="flex flex-col gap-1 min-w-0">
                       <span class="font-medium truncate">{token.name}</span>
-                      <span class="text-xs text-base-content/60">
+                      <span class="text-xs text-muted">
                         <code>{token.prefix}…</code>{' '}
                         {t('agentAccess.CREATED_ON', {
                           day: day(token.createdAt),

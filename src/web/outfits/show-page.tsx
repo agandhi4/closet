@@ -32,7 +32,7 @@ export function OutfitPage(props: {
       <AppBar ctx={ctx} title={name} back="/outfits" />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         {outfit.notes && (
-          <p class="text-base-content/60 text-sm mb-6 px-1">{outfit.notes}</p>
+          <p class="text-muted text-sm mb-6 px-1">{outfit.notes}</p>
         )}
         <h2 class="font-semibold mb-3">{t('GARMENTS_IN_OUTFIT')}</h2>
         {outfit.garments.length > 0 ? (
@@ -50,7 +50,7 @@ export function OutfitPage(props: {
             ))}
           </div>
         ) : (
-          <p class="text-base-content/40 text-sm italic mb-8">
+          <p class="text-muted text-sm italic mb-8">
             {t('OUTFIT_NO_GARMENTS')}
           </p>
         )}

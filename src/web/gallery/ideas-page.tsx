@@ -247,7 +247,7 @@ export function IdeaCards({ model }: { model: IdeaCardsModel }) {
           data-ideas-more=""
         >
           <span
-            class="loading loading-dots loading-md text-base-content/40"
+            class="loading loading-dots loading-md text-muted"
             aria-label={t('LOADING_MORE')}
           ></span>
         </div>
@@ -377,9 +377,7 @@ function IdeaCard(props: {
                   {t('gallery.NOT_TODAY')}
                 </button>
               </div>
-              <p class="text-xs text-base-content/60">
-                {t('gallery.CLASHES_PROMPT')}
-              </p>
+              <p class="text-xs text-muted">{t('gallery.CLASHES_PROMPT')}</p>
               <div class="flex flex-wrap gap-2">
                 {pairs.map(([a, b]) => (
                   // htmx removes the card on success; without script the

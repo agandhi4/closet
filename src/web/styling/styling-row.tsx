@@ -70,7 +70,7 @@ export function StylingRowView(props: {
       aria-label={label}
     >
       <div class="flex items-center justify-between px-4">
-        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">
           {label}
         </h2>
         <LockToggle locked={row.locked} label={label} />
@@ -139,7 +139,7 @@ function LockToggle(props: { locked: boolean; label: string }) {
         />
       </svg>
       <svg
-        class="swap-off size-4 text-base-content/40"
+        class="swap-off size-4 text-muted"
         xmlns="http://www.w3.org/2000/svg"
         fill="none"
         viewBox="0 0 24 24"
@@ -169,12 +169,10 @@ function NoGarment(props: { role: GarmentRole; selected: boolean }) {
       data-selected={props.selected ? '' : undefined}
       aria-selected={props.selected ? 'true' : 'false'}
     >
-      <span class="aspect-square w-full rounded-box border border-dashed border-base-300 flex items-center justify-center text-base-content/40 text-2xl">
+      <span class="aspect-square w-full rounded-box border border-dashed border-base-300 flex items-center justify-center text-faint text-2xl">
         —
       </span>
-      <span class="text-xs text-base-content/50 truncate">
-        {t('styling.NO_GARMENT')}
-      </span>
+      <span class="text-xs text-muted truncate">{t('styling.NO_GARMENT')}</span>
     </button>
   );
 }
@@ -214,7 +212,7 @@ function GarmentItem(props: {
             decoding="async"
           />
         ) : (
-          <HangerIcon class="size-10 text-base-content/30" strokeWidth="1" />
+          <HangerIcon class="size-10 text-faint" strokeWidth="1" />
         )}
       </span>
       <span class="text-xs truncate">
@@ -251,7 +249,7 @@ function StripSentinel(props: {
       data-strip-more=""
     >
       <span
-        class="loading loading-dots loading-sm text-base-content/40"
+        class="loading loading-dots loading-sm text-muted"
         aria-label={t('LOADING_MORE')}
       ></span>
     </span>

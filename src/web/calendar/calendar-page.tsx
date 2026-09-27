@@ -88,7 +88,7 @@ function MiniMonth({ view }: { view: CalendarView }) {
         >
           ‹
         </a>
-        <p class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
+        <p class="text-xs font-semibold uppercase tracking-wide text-muted">
           {t(MONTH_NAMES[miniMonth.month.month - 1])} {miniMonth.month.year}
         </p>
         <a
@@ -104,7 +104,7 @@ function MiniMonth({ view }: { view: CalendarView }) {
           <thead>
             <tr>
               {DAY_LETTERS.map((key) => (
-                <th class="text-center font-medium text-base-content/40 pb-0.5 w-[14.28%]">
+                <th class="text-center font-medium text-muted pb-0.5 w-[14.28%]">
                   {t(key)}
                 </th>
               ))}
@@ -141,7 +141,7 @@ function MiniMonth({ view }: { view: CalendarView }) {
 function DayLooks({ day }: { day: CalendarDayView }) {
   return (
     <div class="flex flex-col gap-0.5 mb-1" data-looks={day.date}>
-      <span class="text-[10px] font-semibold uppercase tracking-wide text-base-content/50">
+      <span class="text-[10px] font-semibold uppercase tracking-wide text-muted">
         {t('selfie.DETACHED')}
       </span>
       <div class="flex flex-wrap gap-1">
@@ -169,7 +169,7 @@ function DayColumn({ ctx, day }: { ctx: ViewContext; day: CalendarDayView }) {
     <div class="bg-base-200 rounded-xl overflow-hidden min-h-48 flex flex-col">
       <div class="flex items-baseline gap-1.5 px-3 py-2 bg-base-300 border-b border-base-300">
         <span
-          class={`text-xs font-semibold ${day.isToday ? 'text-primary' : 'text-base-content/50'}`}
+          class={`text-xs font-semibold ${day.isToday ? 'text-primary' : 'text-muted'}`}
         >
           {t(DAY_NAMES[day.weekday])}
         </span>
@@ -188,7 +188,7 @@ function DayColumn({ ctx, day }: { ctx: ViewContext; day: CalendarDayView }) {
         {/* Also the marker the integration specs split day columns on. */}
         <a
           href={plan}
-          class="mt-auto pt-2 text-xs text-base-content/40 hover:text-base-content/70 select-none"
+          class="mt-auto pt-2 text-xs text-muted hover:text-base-content select-none"
         >
           +{' '}
           {day.entries.length > 0

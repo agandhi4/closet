@@ -139,7 +139,7 @@ export function WeatherLine(props: {
       {notes.map((note) => (
         <span>· {note}</span>
       ))}
-      <span class="text-xs text-base-content/50">
+      <span class="text-xs text-muted">
         {line.place ?? t('weather.NEAR_YOU')} · {asOf}
       </span>
     </p>
@@ -175,10 +175,7 @@ export function weatherLineText(line: TodayLine): string {
 export function WeatherPrompt() {
   return (
     <p id={WEATHER_LINE_ID} class="mb-3 px-2 text-sm">
-      <a
-        class="link link-hover text-base-content/60"
-        href="/auth/profile#weather"
-      >
+      <a class="link link-hover text-muted" href="/auth/profile#weather">
         {t('weather.SET_LOCATION')}
       </a>
     </p>
@@ -191,7 +188,7 @@ export function WeatherDay({ chip }: { chip: DayChip }) {
     <span
       id={dayChipId(chip.day)}
       hx-swap-oob="true"
-      class="ml-auto flex items-baseline gap-1 text-xs text-base-content/60"
+      class="ml-auto flex items-baseline gap-1 text-xs text-muted"
       data-weather-day={chip.day}
     >
       <ConditionIcon condition={chip.condition} />

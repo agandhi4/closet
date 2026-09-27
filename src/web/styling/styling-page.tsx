@@ -319,9 +319,7 @@ function ActionBar({ model }: { model: StylingModel }) {
           ⤮ {t('gallery.SHUFFLE')}
         </button>
         {model.shared ? (
-          <p class="text-xs text-base-content/60 flex-1">
-            {t('styling.SHARED_NO_SAVE')}
-          </p>
+          <p class="text-xs text-muted flex-1">{t('styling.SHARED_NO_SAVE')}</p>
         ) : (
           <button
             type="button"

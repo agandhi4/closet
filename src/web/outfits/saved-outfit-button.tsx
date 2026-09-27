@@ -39,10 +39,7 @@ export function SavedOutfitButton(props: {
             />
           ) : (
             <span class="size-12 rounded bg-base-200 flex items-center justify-center">
-              <HangerIcon
-                class="size-5 text-base-content/30"
-                strokeWidth="1.5"
-              />
+              <HangerIcon class="size-5 text-faint" strokeWidth="1.5" />
             </span>
           ),
         )}
@@ -51,7 +48,7 @@ export function SavedOutfitButton(props: {
         <span class="font-medium truncate">
           {outfit.name || t('UNTITLED_OUTFIT')}
         </span>
-        {note && <span class="text-xs text-base-content/60">{note}</span>}
+        {note && <span class="text-xs text-muted">{note}</span>}
       </span>
     </button>
   );
