@@ -17,9 +17,14 @@ tech-worker closet looks like, with real products to Clone and, later, buy (#18,
 | Email | demo@closet.invalid |
 | First name | Theo |
 | Last name | Marsh |
+| Weather home | Fort Greene, Brooklyn |
+| Weather location | 40.69, -73.98 |
+| Temperature unit | fahrenheit |
 
 `.invalid` is reserved (RFC 2606): the address can never be a real person's or collide with a
-household account.
+household account. The weather home (#14) is Fort Greene Park rounded to two decimals, about a
+kilometre, as the app stores every location; he reads temperatures in °F. Riley and Dana have none: the
+fresh account's header asks for a city, and Dana has never opened the profile.
 
 ## Who he is
 
@@ -369,7 +374,9 @@ anchor (the seed's `--anchor`, default today in `APP_TIMEZONE`), then a planned 
 another date, the reference dates (acquisitions, archives, events) shift by whole weeks so weekdays
 keep their meaning, and the weather follows the real dates of the window.
 
-**Weather** (`src/seed/weather.ts`; pure, no network; #14 will bring real forecasts for today):
+**Weather** (`src/seed/weather.ts`; pure, no network; the app's real forecasts are #14's, from Open-Meteo,
+for his weather home; the tests' stand-in for Open-Meteo serves these same simulated days, hour by hour, so
+the planned week's weather on the calendar is the weather it was drawn for):
 - Daily normal high for Central Park by day of year (1991-2020 normals, linearly interpolated between
   month mid-points): Jan 39, Feb 42, Mar 50, Apr 62, May 72, Jun 80, Jul 84, Aug 83, Sep 76, Oct 64,
   Nov 54, Dec 44 °F.
@@ -377,7 +384,11 @@ keep their meaning, and the weather follows the real dates of the window.
   Events' shifts. Humidity adds up to 6 °F of feels-like above 80 °F.
 - Rain: a probability by month (Jul 0.30, Aug 0.28, Sep 0.25; NOAA's days with 0.1 in or more).
 - Bands on the feels-like high: **hot** 85 and up, **warm** 75-84, **mild** 65-74, **cool** 52-64,
-  **cold** 38-51, **freezing** under 38.
+  **cold** 38-51, **freezing** under 38. As the app's weather matching (`src/weather/match.ts`) reads the
+  same days, each band asks for a torso warmth (top plus layer) in a range: hot 1-2, warm 1-4, mild 3-5,
+  cool 4-7, cold 6-9, freezing 8-9, rising band by band (`weather.spec.ts`).
+- Each day as a forecast: the feels-like runs from its low at 6:00 to its high at 15:00 (a 12 to 18 °F
+  swing), and a rainy day's rain is a spell of 3 to 8 hours starting between 6:00 and 18:00.
 
 **Each day**:
 1. The Event's outfit, if the day has one. Otherwise the week's `Draws from`; a meeting Wednesday
@@ -417,7 +428,8 @@ the window, which is what an "unworn in 90 days" insight (#17) should flag. Seed
 rules reach for the merino office outfit, the leather jacket and the hoodie.
 
 **What later features add** (plan section 10): wears and washes (#7, done: quantities 3 and 6, the
-worn entries as wears, laundry Sundays as washes, the Condition and Away tables), occasions on each entry (#13, done: work days, evenings and nights out, the morning workouts), the conference as a trip
+worn entries as wears, laundry Sundays as washes, the Condition and Away tables), occasions on each entry (#13, done: work days, evenings and nights out, the morning workouts), weather (#14, done: his
+Fort Greene home in °F, the simulated days served as forecasts in the tests), the conference as a trip
 with a packing list (#10; the Travel capsule is its pool), a generator-avoid pair olive chinos + olive
 chore coat (#21), and the Next buys as wishlist items (#18, done: the Wishlist table, W01 replacing T21). The outfit gallery (#9) swipes from the
 capsules.

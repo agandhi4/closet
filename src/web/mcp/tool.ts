@@ -7,6 +7,7 @@ import { describeError } from '../errors';
 import type { Photos } from '../files/photos';
 import type { OutboundFetcher } from '../security/outbound-fetch';
 import { authorizeWardrobe, type WardrobeNeed } from '../sharing/access';
+import type { WeatherService } from '../weather/service';
 
 /**
  * The MCP tools' shared shape (#33). A tool is data (name, description,
@@ -25,6 +26,8 @@ export interface ToolContext {
   photos: Photos;
   cutouts: { wake(): void };
   fetcher: OutboundFetcher;
+  /** The weather; undefined with WEATHER_ENABLED=false (no weather tool is listed then). */
+  weather: WeatherService | undefined;
   /** The Web logger: the writers the tools call log through it, as for a page. */
   webLogger: Logger;
   /** APP_TIMEZONE: "today" is the household's. */

@@ -12,7 +12,7 @@ import type { WebOptions } from '../plugin';
 import { MCP_LIMIT, MCP_LINK_IMPORT_LIMIT } from '../security/rate-limit';
 import { requestOrigin } from '../security/origin';
 import { registerTools, type ToolContext } from './tool';
-import { MCP_TOOLS } from './tools';
+import { mcpTools } from './tools';
 
 const BEARER = /^Bearer\s+(\S+)\s*$/i;
 
@@ -44,7 +44,9 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
   options,
   done,
 ) => {
-  const { db, photos, cutouts, fetcher, config, logger, mcpLogger } = options;
+  const { db, photos, cutouts, fetcher, weather, config, logger, mcpLogger } =
+    options;
+  const tools = mcpTools({ weather: weather !== undefined });
   const linkImportLimit = app.createRateLimit(MCP_LINK_IMPORT_LIMIT);
 
   async function requireToken(request: FastifyRequest, reply: FastifyReply) {
@@ -78,6 +80,7 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
         photos,
         cutouts,
         fetcher,
+        weather,
         webLogger: logger,
         timeZone: config.timeZone,
         userId: auth.user.id,
@@ -91,7 +94,7 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
         { name: config.appName, version: BUILD_INFO.version },
         { instructions: INSTRUCTIONS },
       );
-      registerTools(server, MCP_TOOLS, context, {
+      registerTools(server, tools, context, {
         logger: mcpLogger,
         tokenId: auth.tokenId,
       });

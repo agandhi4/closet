@@ -7,6 +7,7 @@ import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { ACCOUNT_LIMIT, SIGN_IN_LIMIT } from '../security/rate-limit';
 import { viewContext } from '../view-context';
+import { findWeatherSettings } from '../weather/queries';
 import { deleteAccount } from './account';
 import { InlineErrors } from './form';
 import { LOGOUT_PATH } from './logout';
@@ -61,7 +62,7 @@ const ProfileQuery = Type.Object({
  */
 export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
-  { config, db, tokens, photos, logger },
+  { config, db, tokens, photos, logger, weather },
   done,
 ) => {
   // DISABLE_REGISTRATION: every registration route sends the visitor to the
@@ -204,6 +205,13 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         <ProfilePage
           ctx={viewContext(reply)}
           passwordChanged={request.query.passwordChanged === '1'}
+          weather={
+            weather && {
+              settings: await findWeatherSettings(db, sessionUserId(request)),
+              timeZone: config.timeZone,
+              now: new Date(),
+            }
+          }
         />,
       ),
   );

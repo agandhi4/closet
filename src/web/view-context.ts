@@ -19,6 +19,8 @@ export interface ViewContext {
   path: string;
   signupsDisabled: boolean;
   pwaEnabled: boolean;
+  /** WEATHER_ENABLED: pages render the weather's slots (src/web/weather/views.tsx). */
+  weatherEnabled: boolean;
   /** `?v=` on every first-party static URL; see src/build-info.ts. */
   appVersion: string;
   /** package.json version, shown on /about. */
@@ -51,6 +53,7 @@ export interface ViewContextConfig {
   siteUrl: string;
   registrationDisabled: boolean;
   pwaEnabled: boolean;
+  weatherEnabled: boolean;
 }
 
 /**
@@ -75,6 +78,7 @@ export function createViewContextBuilder(config: ViewContextConfig) {
       path,
       signupsDisabled: config.registrationDisabled,
       pwaEnabled: config.pwaEnabled,
+      weatherEnabled: config.weatherEnabled,
       appVersion: BUILD_INFO.assetVersion,
       appRelease: BUILD_INFO.version,
       canonicalUrl,

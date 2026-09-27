@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { createApp } from './app';
+import { type AppOptions, createApp } from './app';
 import type { Config } from './config';
 import { type CutoutQueue, retryFailedCutouts } from './cutout/queue';
 import type { CutoutRunner } from './cutout/runner';
@@ -19,13 +19,16 @@ const RECONCILE_HOUR = 3;
  * load test and Lighthouse boot on the build, passes a stub, so no test
  * downloads or runs the 940 MB model. createApp() itself never starts the
  * queue or a timer: the integration harness and the CLIs never run jobs.
+ * `options` are createApp's test-only ones (the test server's stand-in for
+ * Open-Meteo); main.ts passes none.
  */
 export async function serve(
   config: Config,
   logger: Logger,
   runner: CutoutRunner,
+  options: AppOptions = {},
 ): Promise<void> {
-  const { app, db, photos, cutouts } = await createApp(config, logger);
+  const { app, db, photos, cutouts } = await createApp(config, logger, options);
 
   const reconciliation = logger.child({ context: 'Reconciliation' });
   if (config.MAINTENANCE_ENABLED) {

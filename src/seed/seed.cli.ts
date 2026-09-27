@@ -23,6 +23,7 @@ runCli('Seed', ({ config, logger, db }) =>
     ),
     logger,
     timeZone: config.APP_TIMEZONE,
+    weatherEnabled: config.WEATHER_ENABLED,
     input: process.stdin,
     output: process.stdout,
     errors: process.stderr,

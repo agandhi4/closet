@@ -83,6 +83,9 @@ export const REFUSALS: Readonly<
   },
   'port-not-allowed': { message: 'linkImport.PORT_NOT_ALLOWED', status: 400 },
   'blocked-address': { message: 'linkImport.BLOCKED_ADDRESS', status: 400 },
+  // The rule of fetches that name their hosts (the weather's API); a link
+  // import names none, so it never meets it.
+  'host-not-allowed': { message: 'linkImport.BLOCKED_ADDRESS', status: 400 },
   unresolvable: { message: 'linkImport.UNRESOLVABLE', status: 400 },
   'too-many-redirects': {
     message: 'linkImport.TOO_MANY_REDIRECTS',

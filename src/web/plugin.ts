@@ -19,6 +19,8 @@ import { shellRoutes } from './shell/routes';
 import { sharingRoutes } from './sharing/routes';
 import { linkImportRoutes } from './wardrobe/link-import/routes';
 import { wardrobeRoutes } from './wardrobe/routes';
+import type { WeatherService } from './weather/service';
+import { weatherRoutes } from './weather/routes';
 import { wearRoutes } from './wears/routes';
 import { wishlistRoutes } from './wishlist/routes';
 
@@ -53,6 +55,11 @@ export interface WebOptions {
    * supplied (the link import).
    */
   fetcher: OutboundFetcher;
+  /**
+   * The weather (src/web/weather/service.ts), built by createApp() only
+   * when WEATHER_ENABLED: undefined means no weather route, view or tool.
+   */
+  weather: WeatherService | undefined;
   /** Context `Mcp`: one line per MCP tool call (src/web/mcp). */
   mcpLogger: Logger;
 }
@@ -94,6 +101,9 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(authRoutes, options);
   await app.register(tokenRoutes, options);
   await app.register(sharingRoutes, options);
+  // WEATHER_ENABLED=false: no /weather route, so nothing stores a location.
+  const { weather } = options;
+  if (weather) await app.register(weatherRoutes, { ...options, weather });
   // Bearer-authenticated (config.bearer): the session gate above passes it.
   await app.register(mcpRoutes, options);
   const { vapid } = options.config;

@@ -25,6 +25,7 @@ import {
 import type { CapsuleRef } from '../capsules/queries';
 import type { SharedWardrobe } from '../sharing/access';
 import type { ViewContext } from '../view-context';
+import { WeatherSlot } from '../weather/views';
 import { categoryLabel, GARMENT_COLORS } from './garment';
 import type { FilterOptions, GarmentTile, GridPage } from './queries';
 import { type LabelledProperty, valueLabel } from './labels';
@@ -132,15 +133,23 @@ export function searchParams(search: GridSearch): Record<string, string> {
   return { ...search };
 }
 
-/** GET /wardrobe: the shell around the swappable main. */
+/**
+ * GET /wardrobe: the shell around the swappable main, and above it today's
+ * weather (#14), outside #wardrobe-main so filtering never reloads it. Not
+ * in select mode or the capsule picker, which are tasks, not the closet.
+ */
 export function WardrobePage(props: {
   ctx: ViewContext;
   model: WardrobeModel;
 }) {
+  const { model } = props;
   return (
     <Layout ctx={props.ctx} title={t('WARDROBE')}>
       <Navbar ctx={props.ctx} />
-      <WardrobeMain model={props.model} />
+      <header class="px-4 pt-20">
+        {!model.selecting && !model.picking && <WeatherSlot ctx={props.ctx} />}
+      </header>
+      <WardrobeMain model={model} />
       <Dock ctx={props.ctx} />
     </Layout>
   );
@@ -156,7 +165,7 @@ export function WardrobePage(props: {
 export function WardrobeMain({ model }: { model: WardrobeModel }) {
   const { viewOwner, selecting } = model;
   return (
-    <main id="wardrobe-main" class="p-4 pt-20 pb-40">
+    <main id="wardrobe-main" class="p-4 pt-0 pb-40">
       <Heading model={model} />
       {!selecting && (
         <>

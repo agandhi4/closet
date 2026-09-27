@@ -63,6 +63,10 @@ const BASE_ENV: Env = {
   TRUSTED_PROXIES: '127.0.0.1,::1',
   DISABLE_REGISTRATION: 'false',
   PWA_ENABLED: 'false',
+  // No spec reaches Open-Meteo: weather is off unless a spec turns it on
+  // with the stand-in (test/support/weather-stub.ts), which createTestApp
+  // then requires.
+  WEATHER_ENABLED: 'false',
   ACCESS_TOKEN_SECRET: 'integration-test-secret-0123456789abcdef',
 };
 
@@ -194,6 +198,11 @@ export interface TestAppOptions {
    * (test/integration/link-sites.ts, which serves it).
    */
   outboundFetch?: AppOptions['outboundFetch'];
+  /**
+   * Open-Meteo's stand-in (startWeatherStub().options, test/support/
+   * weather-stub.ts): required with WEATHER_ENABLED=true.
+   */
+  weather?: AppOptions['weather'];
 }
 
 export async function createTestApp(
@@ -206,6 +215,13 @@ export async function createTestApp(
     env: { ...BASE_ENV, ...database.env, DATA_PATH: dataPath, ...overrides },
     envFiles: [],
   });
+  if (config.WEATHER_ENABLED && !options.weather) {
+    await database.drop();
+    await rm(dataPath, { recursive: true, force: true });
+    throw new Error(
+      'WEATHER_ENABLED=true needs the weather stub (options.weather): a spec must never call Open-Meteo',
+    );
+  }
   const logs = new LogCapture();
   const logger = options.appLog
     ? createLogger(config)
@@ -219,6 +235,7 @@ export async function createTestApp(
     await options.beforeBoot?.(database.env);
     ({ app, db, photos, cutouts } = await createApp(config, logger, {
       outboundFetch: options.outboundFetch,
+      weather: options.weather,
     }));
     await app.ready();
   } catch (error) {

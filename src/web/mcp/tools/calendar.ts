@@ -11,6 +11,7 @@ import {
 } from '../../wears/queries';
 import { defineTool, wardrobeFor } from '../tool';
 import { isoDate, ownerIdInput, rowId } from './common';
+import { calendarWeather } from './weather';
 
 /** get_calendar's widest range: two months, a planning conversation's horizon. */
 const MAX_CALENDAR_DAYS = 62;
@@ -25,7 +26,7 @@ export const calendarTools = [
   defineTool({
     name: 'get_calendar',
     title: 'Get my calendar',
-    description: `Your calendar from one day to another (inclusive, at most ${MAX_CALENDAR_DAYS} days): each entry's id, day, occasion (the part of the day: a day can hold several outfits, listed in occasion order), outfit and whether it was worn. Without dates: this week, from today. Days are the household's (its time zone).`,
+    description: `Your calendar from one day to another (inclusive, at most ${MAX_CALENDAR_DAYS} days): each entry's id, day, occasion (the part of the day: a day can hold several outfits, listed in occasion order), outfit and whether it was worn. Without dates: this week, from today. Days are the household's (its time zone). With weather on and a location set, an entry within the forecast also has the day's weather and what it asks of that occasion's outfit (as get_weather gives it).`,
     input: z.object({
       from: isoDate().optional().describe('First day, YYYY-MM-DD.'),
       to: isoDate().optional().describe('Last day, YYYY-MM-DD.'),
@@ -43,6 +44,8 @@ export const calendarTools = [
         );
       }
       const entries = await findEntries(ctx.db, ctx.userId, first, last);
+      const weatherOf =
+        entries.length > 0 ? await calendarWeather(ctx, first, last) : null;
       return {
         today,
         from: first,
@@ -60,6 +63,7 @@ export const calendarTools = [
             occasion: entry.occasion,
             worn: entry.worn,
             outfit: { id: entry.outfit.id, name: entry.outfit.name },
+            weather: weatherOf?.(entry.day, entry.occasion),
           })),
       };
     },

@@ -30,6 +30,11 @@ import {
   GarmentCategory,
   type GarmentRole,
 } from '../wardrobe/properties';
+import { type Location, roundedLocation } from '../weather/location';
+import {
+  isTemperatureUnit,
+  type TemperatureUnit,
+} from '../weather/temperature';
 import {
   BibleError,
   type BibleTable,
@@ -159,9 +164,17 @@ interface LaundryRule {
   wears: number | null;
 }
 
+/** The Account table's weather rows: where the persona lives, and how they read it. */
+export interface PersonaWeather {
+  home: { name: string; location: Location };
+  unit: TemperatureUnit;
+}
+
 export interface Persona {
   key: PersonaKey;
   account: { email: string; firstName: string; lastName: string };
+  /** Their weather settings (#14); null without a `Weather home` row. */
+  weather: PersonaWeather | null;
   /** Personas this one shares its wardrobe with, once both exist. */
   sharesWith: { persona: PersonaKey; permission: SharePermission }[];
   /** What the persona owns (the closet and the archive). */
@@ -229,6 +242,7 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
       firstName: required(source, fields, 'First name'),
       lastName: required(source, fields, 'Last name'),
     },
+    weather: readWeather(source, fields),
     sharesWith: list(fields['Shares with'] ?? '').map((share) =>
       readShare(source, share),
     ),
@@ -312,6 +326,38 @@ function garmentNotes(
     }
   }
   return notes;
+}
+
+/**
+ * `Weather home` (a place's name), `Weather location` ("40.69, -73.97",
+ * rounded as the app stores it) and `Temperature unit` (celsius or
+ * fahrenheit), all or none.
+ */
+function readWeather(
+  source: string,
+  fields: Record<string, string>,
+): PersonaWeather | null {
+  const name = fields['Weather home'];
+  if (name === undefined) return null;
+  const [latitude, longitude] = required(source, fields, 'Weather location')
+    .split(',')
+    .map((part) => Number(part.trim()));
+  const location = roundedLocation(latitude, longitude);
+  const unit = required(source, fields, 'Temperature unit');
+  if (
+    !location ||
+    location.latitude !== latitude ||
+    location.longitude !== longitude
+  ) {
+    throw new BibleError(
+      source,
+      `Weather location is not a rounded "latitude, longitude": ${fields['Weather location']}`,
+    );
+  }
+  if (!isTemperatureUnit(unit)) {
+    throw new BibleError(source, `Temperature unit is not one: ${unit}`);
+  }
+  return { home: { name, location }, unit };
 }
 
 function required(

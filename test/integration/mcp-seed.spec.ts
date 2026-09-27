@@ -31,6 +31,7 @@ describe('MCP over the seed personas', () => {
       photos: t.photos,
       logger: t.logger,
       timeZone: 'America/New_York',
+      weatherEnabled: true,
       input: Readable.from(['Closet-demo-1\n']),
       output,
       errors: new PassThrough(),

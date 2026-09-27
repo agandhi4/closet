@@ -14,6 +14,7 @@ import {
   outfitCalendar,
   outfitSlot,
   user,
+  userWeather,
   wardrobeShare,
 } from '../../src/db/schema';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
@@ -56,6 +57,7 @@ describe('seed personas', () => {
       photos: t.photos,
       logger: t.logger,
       timeZone: 'America/New_York',
+      weatherEnabled: true,
       input: Readable.from([stdin]),
       output,
       errors,
@@ -243,6 +245,27 @@ describe('seed personas', () => {
       acquiredOn: '2026-05-02',
       sourceUrl: expect.stringMatching(/^https:\/\/theunbrandedbrand\.com\//),
     });
+    // His weather home (#14), rounded as the app stores every location;
+    // Riley and Dana have none.
+    expect(
+      await t.db
+        .select({
+          userId: userWeather.userId,
+          homeName: userWeather.homeName,
+          homeLatitude: userWeather.homeLatitude,
+          homeLongitude: userWeather.homeLongitude,
+          temperatureUnit: userWeather.temperatureUnit,
+        })
+        .from(userWeather),
+    ).toEqual([
+      {
+        userId: await userIdOf(t, EMAILS[0]),
+        homeName: 'Fort Greene, Brooklyn',
+        homeLatitude: 40.69,
+        homeLongitude: -73.98,
+        temperatureUnit: 'fahrenheit',
+      },
+    ]);
     const worn = demo.calendar.filter((entry) => entry.wornAt);
     expect(worn.length).toBeGreaterThan(60);
     // Worn that evening in New York; the planned week after the anchor is not.
@@ -455,7 +478,13 @@ describe('seed personas', () => {
     };
     await expect(
       seedPersona(
-        { db: t.db, photos: t.photos, logger: t.logger, timeZone: 'UTC' },
+        {
+          db: t.db,
+          photos: t.photos,
+          logger: t.logger,
+          timeZone: 'UTC',
+          weatherEnabled: true,
+        },
         broken,
         { anchor: ANCHOR, password: PASSWORD },
       ),

@@ -4,6 +4,7 @@ import { Layout } from '../layout/layout';
 import { Navbar } from '../layout/navbar';
 import { destinationQuery } from '../outfits/destination';
 import type { ViewContext } from '../view-context';
+import { WeatherDaySlot, WeatherSlot } from '../weather/views';
 import type { CalendarDayView, CalendarView, MonthLink } from './calendar-view';
 import { DAY_LETTERS, DAY_NAMES, MONTH_NAMES } from './labels';
 import { OccasionRow } from './occasion-row';
@@ -11,7 +12,9 @@ import { OccasionRow } from './occasion-row';
 /**
  * GET /calendar: the mini month, then one column per day of the week (Sunday
  * to Saturday) with its entries stacked in occasion order (OccasionRow) and
- * a link to plan one more (the plan page, GET /calendar/plan).
+ * a link to plan one more (the plan page, GET /calendar/plan). Today's
+ * weather heads the page and each day within the forecast gets its chip
+ * (#14; both loaded after the page, src/web/weather/views.tsx).
  * Responsive grid: 1 col, 2 cols from 400px, 4 at lg, all 8 in a row at 2xl.
  */
 export function CalendarPage(props: { ctx: ViewContext; view: CalendarView }) {
@@ -20,13 +23,20 @@ export function CalendarPage(props: { ctx: ViewContext; view: CalendarView }) {
     <Layout ctx={ctx} title={t('CALENDAR_PAGE_TITLE')}>
       <Navbar ctx={ctx} />
       <main class="p-4 pt-20 pb-24">
+        <WeatherSlot
+          ctx={ctx}
+          days={{
+            from: view.days[0].date,
+            to: view.days[view.days.length - 1].date,
+          }}
+        />
         <div
           id="week-grid"
           class="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8 gap-3"
         >
           <MiniMonth view={view} />
           {view.days.map((day) => (
-            <DayColumn day={day} />
+            <DayColumn ctx={ctx} day={day} />
           ))}
         </div>
       </main>
@@ -95,7 +105,7 @@ function MiniMonth({ view }: { view: CalendarView }) {
   );
 }
 
-function DayColumn({ day }: { day: CalendarDayView }) {
+function DayColumn({ ctx, day }: { ctx: ViewContext; day: CalendarDayView }) {
   const plan = `/calendar/plan?${destinationQuery({
     kind: 'day',
     day: day.date,
@@ -114,6 +124,7 @@ function DayColumn({ day }: { day: CalendarDayView }) {
         >
           {day.dayNum}
         </span>
+        <WeatherDaySlot ctx={ctx} day={day.date} />
       </div>
       <div class="flex flex-col gap-1 p-3 flex-1">
         {day.entries.map((entry) => (

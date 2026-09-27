@@ -40,6 +40,7 @@ import {
 import { splitColors } from '../web/wardrobe/garment';
 import { insertGarment } from '../web/wardrobe/queries';
 import { setGarmentStatus } from '../web/wardrobe/status';
+import { setHome, setTemperatureUnit } from '../web/weather/queries';
 import { garmentSvg } from './art';
 import {
   isPersonaKey,
@@ -47,6 +48,7 @@ import {
   type Persona,
   PERSONA_KEYS,
   type PersonaKey,
+  type PersonaWeather,
   type SeedGarment,
   type SeedWishlistItem,
   slotRank,
@@ -67,6 +69,8 @@ export interface SeedDeps {
   logger: Logger;
   /** APP_TIMEZONE: "today" for the default anchor, and when a day was worn. */
   timeZone: string;
+  /** WEATHER_ENABLED: off, no persona's location is stored (as for anyone). */
+  weatherEnabled: boolean;
 }
 
 export interface SeedReport {
@@ -113,6 +117,7 @@ export async function seedPersona(
         firstName: persona.account.firstName,
         lastName: persona.account.lastName,
       });
+      if (deps.weatherEnabled) await writeWeather(tx, userId, persona.weather);
       const ids = new Map<string, number>();
       const photoIdOf = async (bibleId: string) => {
         const photo = photos.get(bibleId);
@@ -234,6 +239,17 @@ async function archive(
   });
   // Inserted in the closet a moment ago: anything else is a bug.
   if (!archived.ok) throw new Error(`Could not archive ${bibleId}`);
+}
+
+/** The Account table's weather rows through the profile's writers (#14). */
+async function writeWeather(
+  tx: Queryable,
+  userId: number,
+  weather: PersonaWeather | null,
+): Promise<void> {
+  if (!weather) return;
+  await setHome(tx, userId, weather.home);
+  await setTemperatureUnit(tx, userId, weather.unit);
 }
 
 /**

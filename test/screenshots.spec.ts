@@ -167,6 +167,24 @@ test('demo: Theo, the wishlist', async ({ page }) => {
   await shot(page, '33-demo-replace-soon');
 });
 
+test('demo: Theo, weather', async ({ page }) => {
+  await signInAs(page, 'demo');
+  // Today's line (the seed's simulated weather, from the test server's
+  // stand-in for Open-Meteo) in °F, then the forecast on this week's days.
+  await page.goto('/wardrobe');
+  await expect(page.locator('p#weather-line')).toContainText('°F');
+  await shot(page, '35-demo-weather-wardrobe');
+  await page.goto('/calendar');
+  await expect(page.locator('[data-weather-day]')).not.toHaveCount(0);
+  await shot(page, '36-demo-weather-calendar');
+  await page.goto('/auth/profile');
+  await expect(page.locator('#weather')).toContainText(
+    'Home: Fort Greene, Brooklyn',
+  );
+  await page.locator('#weather').scrollIntoViewIfNeeded();
+  await shot(page, '37-demo-weather-profile');
+});
+
 test('sparse: Dana, untagged and degraded', async ({ page }) => {
   await signInAs(page, 'sparse');
   await shot(page, '12-sparse-wardrobe', '/wardrobe');
@@ -176,6 +194,8 @@ test('sparse: Dana, untagged and degraded', async ({ page }) => {
 test('fresh: Riley, the empty states', async ({ page }) => {
   await signInAs(page, 'fresh');
   await shot(page, '14-fresh-wardrobe', '/wardrobe');
+  // No city yet: the header's weather line asks for one.
+  await expect(page.getByText('Add your city for the weather')).toBeVisible();
   await shot(page, '15-fresh-outfits', '/outfits');
   await shot(page, '16-fresh-calendar', `/calendar?week=${ANCHOR}`);
   await shot(page, '24-fresh-laundry', '/laundry');

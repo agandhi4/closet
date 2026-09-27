@@ -6,6 +6,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   primaryKey,
@@ -18,6 +19,12 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { CUTOUT_STATUSES } from '../cutout/state';
+import type { Forecast } from '../weather/forecast';
+import {
+  DEFAULT_TEMPERATURE_UNIT,
+  OFFSET_LIMIT,
+  TEMPERATURE_UNITS,
+} from '../weather/temperature';
 import {
   DEFAULT_OCCASION,
   type Occasion,
@@ -738,10 +745,134 @@ export const wardrobeShare = pgTable(
   ],
 );
 
+// A user's weather settings (#14, src/web/weather/): where their weather is
+// for and how they read it. Coordinates are stored rounded to 2 decimals
+// (about 1 km; src/weather/location.ts), the only form they are ever sent
+// in. `home_*` is the city picked from the geocoding search; `here_*` is the
+// installed app's "use my location", used while fresh (HERE_FRESH_HOURS,
+// src/web/weather/queries.ts), then home again. No row until the user sets
+// something, and none at all with WEATHER_ENABLED=false (the routes that
+// write it are not registered).
+export const userWeather = pgTable(
+  'user_weather',
+  {
+    userId: integer('user_id').primaryKey(),
+    homeName: text('home_name'),
+    homeLatitude: numeric('home_latitude', {
+      precision: 4,
+      scale: 2,
+      mode: 'number',
+    }),
+    homeLongitude: numeric('home_longitude', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    }),
+    hereLatitude: numeric('here_latitude', {
+      precision: 4,
+      scale: 2,
+      mode: 'number',
+    }),
+    hereLongitude: numeric('here_longitude', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    }),
+    hereLocatedAt: timestamp('here_located_at', { withTimezone: true }),
+    // °C added to the feels-like temperature before matching, in half
+    // degrees (src/weather/temperature.ts). The default is written as SQL:
+    // Postgres reads a numeric default back as the literal '0', which a
+    // plain 0 here would differ from in the drift check.
+    temperatureOffset: numeric('temperature_offset', {
+      precision: 2,
+      scale: 1,
+      mode: 'number',
+    })
+      .default(sql`'0'`)
+      .notNull(),
+    temperatureUnit: text('temperature_unit', { enum: TEMPERATURE_UNITS })
+      .default(DEFAULT_TEMPERATURE_UNIT)
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'user_weather_user_id_foreign',
+      columns: [table.userId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    check(
+      'user_weather_home_check',
+      sql`(${table.homeName} is null) = (${table.homeLatitude} is null) and (${table.homeLatitude} is null) = (${table.homeLongitude} is null)`,
+    ),
+    check(
+      'user_weather_here_check',
+      sql`(${table.hereLatitude} is null) = (${table.hereLongitude} is null) and (${table.hereLatitude} is null) = (${table.hereLocatedAt} is null)`,
+    ),
+    check(
+      'user_weather_latitude_check',
+      sql`${table.homeLatitude} between -90 and 90 and ${table.hereLatitude} between -90 and 90`,
+    ),
+    check(
+      'user_weather_longitude_check',
+      sql`${table.homeLongitude} between -180 and 180 and ${table.hereLongitude} between -180 and 180`,
+    ),
+    check(
+      'user_weather_temperature_offset_check',
+      sql`${table.temperatureOffset} between ${sql.raw(String(-OFFSET_LIMIT))} and ${sql.raw(String(OFFSET_LIMIT))}`,
+    ),
+    check(
+      'user_weather_temperature_unit_check',
+      sql`${table.temperatureUnit} in (${sqlList(TEMPERATURE_UNITS)})`,
+    ),
+  ],
+);
+
+// The forecast cache (#14, src/web/weather/service.ts): one row per rounded
+// location, refreshed once it is an hour old, keeping the last good answer
+// when a refresh fails. A table rather than process memory: a deploy (the
+// hourly autoupdate) or a restart starts warm instead of asking Open-Meteo
+// again, two servers during an overlapping deploy share it, and the last good
+// answer survives a restart while Open-Meteo is down. It holds no user id:
+// which user is where is user_weather's.
+export const weatherForecast = pgTable(
+  'weather_forecast',
+  {
+    latitude: numeric('latitude', {
+      precision: 4,
+      scale: 2,
+      mode: 'number',
+    }).notNull(),
+    longitude: numeric('longitude', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    }).notNull(),
+    // The last good answer, normalized (src/weather/forecast.ts); null until
+    // the location's first fetch succeeds.
+    forecast: jsonb('forecast').$type<Forecast>(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }),
+    // The last fetch tried, good or not: a failing provider is asked again
+    // only after a pause.
+    attemptedAt: timestamp('attempted_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'weather_forecast_pkey',
+      columns: [table.latitude, table.longitude],
+    }),
+    check(
+      'weather_forecast_fetched_check',
+      sql`(${table.forecast} is null) = (${table.fetchedAt} is null)`,
+    ),
+  ],
+);
+
 // Relations for db.query (relational queries); they add nothing to the
 // schema. Names follow the MikroORM entities' properties.
 
-export const userRelations = relations(user, ({ many }) => ({
+export const userRelations = relations(user, ({ one, many }) => ({
   devices: many(userDevice),
   accessTokens: many(personalAccessToken),
   fileUploads: many(file),
@@ -749,8 +880,13 @@ export const userRelations = relations(user, ({ many }) => ({
   outfits: many(outfit),
   capsules: many(capsule),
   calendarEntries: many(outfitCalendar),
+  weather: one(userWeather),
   sharesGranted: many(wardrobeShare, { relationName: 'grantor' }),
   sharesReceived: many(wardrobeShare, { relationName: 'grantee' }),
+}));
+
+export const userWeatherRelations = relations(userWeather, ({ one }) => ({
+  user: one(user, { fields: [userWeather.userId], references: [user.id] }),
 }));
 
 export const personalAccessTokenRelations = relations(

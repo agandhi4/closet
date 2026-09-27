@@ -72,6 +72,22 @@ export function todayIn(timeZone: string, now: Date): IsoDate {
 }
 
 /**
+ * The hour of the day (0-23) in `timeZone` at the instant `now`: todayIn's
+ * companion for what part of the household's day it is (the weather's "rain
+ * from 3 pm", which only looks at the hours still to come).
+ */
+export function hourIn(timeZone: string, now: Date): number {
+  const hour = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    hour: 'numeric',
+  })
+    .formatToParts(now)
+    .find((p) => p.type === 'hour')!.value;
+  return Number(hour);
+}
+
+/**
  * The instant `day` reaches `hour`:00 in `timeZone`: todayIn's inverse,
  * for the seed's history (a day worn "that evening"). The zone's offset is
  * read from Intl at the first guess and again at the result, which settles

@@ -10,7 +10,7 @@ import type { Logger } from '../../logger';
  * the routes that fetch a user's URL and on the MCP endpoint. Registered
  * once at the root by createApp() with `global: false`: nothing is limited
  * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
- * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, MCP_LIMIT). Every limited route counts
+ * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, WEATHER_SEARCH_LIMIT, MCP_LIMIT). Every limited route counts
  * on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
@@ -71,6 +71,19 @@ export const ACCOUNT_LIMIT: RateLimitOptions = {
  */
 export const LINK_IMPORT_LIMIT: RateLimitOptions = {
   max: 10,
+  timeWindow: '1 minute',
+  hook: 'preHandler',
+  keyGenerator: (request) => `user ${request.auth!.user.id}`,
+};
+
+/**
+ * The weather's city search (GET /weather/places, src/web/weather): each
+ * search is a call to Open-Meteo's geocoding. Per signed-in user, like
+ * LINK_IMPORT_LIMIT: room for a few tries at a spelling, and a ceiling on
+ * how hard one account can make the server ask a free service.
+ */
+export const WEATHER_SEARCH_LIMIT: RateLimitOptions = {
+  max: 20,
   timeWindow: '1 minute',
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,

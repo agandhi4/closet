@@ -407,6 +407,44 @@ describe('outbound fetch (SSRF guard)', () => {
       expect(shop.hits).toHaveLength(2);
     });
 
+    it('keeps a fetch that names its hosts on them, redirects included', async () => {
+      const other = await serve(PUBLIC_IP, html('<title>Elsewhere</title>'));
+      const api = await serve(PUBLIC_IP, (req, res) => {
+        if (req.url === '/away') {
+          res.writeHead(302, { location: `http://other.test:${other.port}/` });
+          res.end();
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end('{"ok":true}');
+      });
+      const fetcher = createOutboundFetcher({
+        logger: captureLogs().logger,
+        resolve: scriptedResolver({
+          'api.test': PUBLIC_IP,
+          'other.test': PUBLIC_IP,
+        }).resolve,
+        destinations: TEST_INTERNET,
+      });
+      const request = { accept: ['json'], hosts: ['api.test'] } as const;
+
+      const fetched = await fetcher.fetch(
+        `http://api.test:${api.port}/v1`,
+        request,
+      );
+      expect(fetched.kind).toBe('json');
+      expect(JSON.parse(fetched.body.toString('utf8'))).toEqual({ ok: true });
+      await expectRefused(
+        fetcher.fetch(`http://api.test:${api.port}/away`, request),
+        'host-not-allowed',
+      );
+      await expectRefused(
+        fetcher.fetch(`http://other.test:${other.port}/`, request),
+        'host-not-allowed',
+      );
+      expect(other.hits).toEqual([]);
+    });
+
     it('refuses a redirect to another scheme', async () => {
       const shop = await serve(PUBLIC_IP, (_req, res) => {
         res.writeHead(301, { location: 'file:///etc/passwd' });

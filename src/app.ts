@@ -26,6 +26,14 @@ import {
 import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
 import { createViewContextBuilder } from './web/view-context';
+import {
+  createOpenMeteoClient,
+  type WeatherEndpoints,
+} from './web/weather/open-meteo';
+import {
+  createWeatherService,
+  type WeatherService,
+} from './web/weather/service';
 
 const PUBLIC_DIR = join(PROJECT_ROOT, 'public');
 const nodeModule = (...segments: string[]) =>
@@ -55,6 +63,15 @@ export interface AppOptions {
    * pass them; production never does (CLAUDE.md Gotchas).
    */
   outboundFetch?: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
+  /**
+   * Open-Meteo's stand-in (test/support/weather-stub.ts): its endpoints and
+   * the address policy that admits it. The specs and the e2e test server
+   * pass it, so no test reaches the real service; production never does.
+   */
+  weather?: {
+    endpoints: WeatherEndpoints;
+    fetch: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
+  };
 }
 
 /**
@@ -109,6 +126,7 @@ export async function createApp(
     logger: logger.child({ context: 'OutboundFetch' }),
     ...options.outboundFetch,
   });
+  const weather = createWeather(config, logger, db, options.weather);
 
   const app = Fastify({
     trustProxy,
@@ -151,6 +169,7 @@ export async function createApp(
     siteUrl: config.SITE_URL,
     registrationDisabled: config.DISABLE_REGISTRATION,
     pwaEnabled: config.PWA_ENABLED,
+    weatherEnabled: weather !== undefined,
   });
   // Declared up front so every request object has the same shape; the hook
   // below fills them (both stay undefined on static paths).
@@ -239,10 +258,45 @@ export async function createApp(
     photos,
     cutouts,
     fetcher,
+    weather,
     mcpLogger: logger.child({ context: 'Mcp' }),
   });
 
   return { app, db, photos, cutouts };
+}
+
+/**
+ * The weather (#14), or nothing with WEATHER_ENABLED=false: no service, so
+ * no route, page or tool can fetch or store a location. Its own outbound
+ * fetcher (the same rules as the link import's; see outbound-fetch.ts), so a
+ * spec's stand-in for Open-Meteo is admitted for the weather alone.
+ */
+function createWeather(
+  config: Config,
+  logger: Logger,
+  db: Db,
+  stub: AppOptions['weather'],
+): WeatherService | undefined {
+  const boot = logger.child({ context: 'Bootstrap' });
+  if (!config.WEATHER_ENABLED) {
+    boot.info('Weather: off (WEATHER_ENABLED=false)');
+    return undefined;
+  }
+  boot.info(
+    `Weather: on (${stub ? 'a stand-in for Open-Meteo' : 'Open-Meteo'})`,
+  );
+  return createWeatherService({
+    db,
+    client: createOpenMeteoClient({
+      fetcher: createOutboundFetcher({
+        logger: logger.child({ context: 'OutboundFetch' }),
+        ...stub?.fetch,
+      }),
+      timeZone: config.APP_TIMEZONE,
+      endpoints: stub?.endpoints,
+    }),
+    logger: logger.child({ context: 'Weather' }),
+  });
 }
 
 // Inline script: the pages' one-line handlers and inline modules (CLAUDE.md,

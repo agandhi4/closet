@@ -15,6 +15,14 @@ describe('persona bibles', () => {
       firstName: 'Theo',
       lastName: 'Marsh',
     });
+    expect(demo.weather).toEqual({
+      home: {
+        name: 'Fort Greene, Brooklyn',
+        location: { latitude: 40.69, longitude: -73.98 },
+      },
+      unit: 'fahrenheit',
+    });
+    expect(loadPersona('fresh').weather).toBeNull();
     expect(demo.garments).toHaveLength(83);
     expect(demo.garments.filter((g) => g.archivedOn)).toHaveLength(3);
     expect(demo.outfits).toHaveLength(26);
@@ -210,6 +218,22 @@ describe('persona bibles', () => {
       'a sleeve on shoes (the form would drop it)',
       bible('| F01 | Shoes | sneakers | white | long |'),
       /drops sleeve/,
+    ],
+    [
+      'a weather location more precise than the app stores',
+      bible('| F01 | Shoes | sneakers | white | — |').replace(
+        '| Last name | Y |',
+        '| Last name | Y |\n| Weather home | Here |\n| Weather location | 40.6892, -73.97 |\n| Temperature unit | celsius |',
+      ),
+      /Weather location is not a rounded/,
+    ],
+    [
+      'a temperature unit the app does not have',
+      bible('| F01 | Shoes | sneakers | white | — |').replace(
+        '| Last name | Y |',
+        '| Last name | Y |\n| Weather home | Here |\n| Weather location | 40.69, -73.97 |\n| Temperature unit | kelvin |',
+      ),
+      /Temperature unit is not one: kelvin/,
     ],
     [
       'a type from another category',

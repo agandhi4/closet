@@ -105,6 +105,7 @@ The token acts as you, shares included: a wardrobe shared with you read-only sta
 | `MODELS_PATH`                      | Where the background-removal model (940 MB) is kept; downloaded there at boot when missing and checksum-verified. A local disk, not NFS | `./models` (`/app/models` in the image) | `/app/models` |
 | `CUTOUT_THREADS`                   | CPU threads the background-removal model uses                                       | `4`                     | `8`                                                                                       |
 | `CUTOUT_POLL_SECONDS`              | How often an idle cutout queue looks for photos no notification announced (a backstop: writes notify it at once) | `60` | `30` |
+| `WEATHER_ENABLED`                  | Weather forecasts (Open-Meteo, fetched by the server for each user's location rounded to about 1 km) on the page headers, the calendar and the MCP tools. `false` fetches nothing and stores no location | `true` | `false` |
 | `PUBLIC_VAPID_KEY`                 | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>` |
 | `PRIVATE_VAPID_KEY`                | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>`                                             |
 

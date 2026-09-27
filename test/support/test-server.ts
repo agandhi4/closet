@@ -3,6 +3,7 @@ import type * as ConfigModule from '../../src/config';
 import type { CutoutRunner } from '../../src/cutout/runner';
 import type * as LoggerModule from '../../src/logger';
 import type * as ServerModule from '../../src/server';
+import { startWeatherStub } from './weather-stub';
 
 /**
  * The built server (dist/, `npm run build` first) as src/main.ts boots it,
@@ -10,7 +11,10 @@ import type * as ServerModule from '../../src/server';
  * model, which no test downloads. Playwright (playwright.config.ts), the
  * load test (scripts/load-test.ts) and Lighthouse (lighthouserc.js) start
  * it with `npm run start:test`; an upload goes pending and its cutout
- * arrives STUB_DELAY_MS later, as in production. Configuration is the
+ * arrives STUB_DELAY_MS later, as in production. And the weather comes from
+ * a stand-in for Open-Meteo (weather-stub.ts: the seed's simulated New York
+ * weather), so no test run calls the real service and the screenshots'
+ * weather is the same on every run of a date. Configuration is the
  * environment's, as for main.ts.
  */
 
@@ -56,10 +60,11 @@ async function main(): Promise<void> {
   )) as typeof ServerModule;
   const config = loadConfig();
   const logger = createLogger(config);
+  const weather = await startWeatherStub();
   logger.info(
-    `Test server: background removal stubbed (${STUB_DELAY_MS} ms a photo)`,
+    `Test server: background removal stubbed (${STUB_DELAY_MS} ms a photo), weather from ${weather.options.endpoints.forecast}`,
   );
-  await serve(config, logger, stubRunner);
+  await serve(config, logger, stubRunner, { weather: weather.options });
 }
 
 main().catch((error: unknown) => {

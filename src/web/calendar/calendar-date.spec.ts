@@ -7,6 +7,7 @@ import {
   daysInMonth,
   formatIsoDate,
   formatYearMonth,
+  hourIn,
   instantAt,
   isValidTimeZone,
   parseIsoDate,
@@ -100,6 +101,16 @@ describe('calendar dates', () => {
       expect(
         todayIn('America/New_York', new Date('2026-11-01T04:00:00Z')),
       ).toBe('2026-11-01');
+    });
+
+    it("tells the zone's hour: 00:30 UTC on a Sunday is 20:30 on New York's Saturday", () => {
+      const now = new Date('2026-09-27T00:30:00Z');
+      expect(hourIn('America/New_York', now)).toBe(20);
+      expect(todayIn('America/New_York', now)).toBe('2026-09-26');
+      expect(hourIn('UTC', now)).toBe(0);
+      expect(hourIn('America/New_York', new Date('2026-09-26T04:00:00Z'))).toBe(
+        0,
+      );
     });
 
     it('knows real zone names only', () => {

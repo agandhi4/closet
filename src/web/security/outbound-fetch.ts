@@ -14,12 +14,15 @@ import type { Logger } from '../../logger';
 import { isPublicAddress } from './public-address';
 
 /**
- * The only way the server fetches a URL a user supplied (the link import,
- * issue #6; docs/plans/2026-09-26-wardrobe-features.md, section 0). The
- * server sits on the homelab LAN, so a URL is a way to make it connect to
- * the NAS, pgvault or the router (SSRF). Every fetch:
+ * The only way the server fetches anything from the internet: a URL a user
+ * supplied (the link import, issue #6; docs/plans/2026-09-26-wardrobe-features.md,
+ * section 0) and the weather's fixed API (#14, src/web/weather/open-meteo.ts,
+ * which names its hosts in `FetchRequest.hosts`). The server sits on the
+ * homelab LAN, so a URL is a way to make it connect to the NAS, pgvault or
+ * the router (SSRF). Every fetch:
  *
- * - takes http(s) on the default port only, never with credentials in the URL;
+ * - takes http(s) on the default port only, never with credentials in the URL,
+ *   and, when the request names `hosts`, only those hosts (redirects too);
  * - resolves the name once and refuses it if any answer is not a public
  *   address (public-address.ts), then connects to the checked address
  *   (`pinnedLookup`): the socket never resolves the name again, so DNS
@@ -38,12 +41,14 @@ import { isPublicAddress } from './public-address';
  * The per-user rate limit is the caller's (the route's), not this module's.
  */
 
-export type ContentKind = 'html' | 'image';
+export type ContentKind = 'html' | 'image' | 'json';
 
 /** Per content kind, the most decoded bytes read before the fetch is refused. */
 export const BYTE_LIMITS: Readonly<Record<ContentKind, number>> = {
   html: 2 * 1024 * 1024,
   image: 15 * 1024 * 1024,
+  // An API answer: a 16-day hourly forecast is about 40 KB.
+  json: 512 * 1024,
 };
 export const MAX_REDIRECTS = 3;
 export const FETCH_TIMEOUT_MS = 10_000;
@@ -62,10 +67,12 @@ const MEDIA_TYPES: Readonly<Record<ContentKind, readonly string[]>> = {
     'image/heic',
     'image/heif',
   ],
+  json: ['application/json'],
 };
 const ACCEPT_HEADERS: Readonly<Record<ContentKind, string>> = {
   html: 'text/html,application/xhtml+xml;q=0.9',
   image: 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8',
+  json: 'application/json',
 };
 const USER_AGENT = 'Mozilla/5.0 (compatible; Closet/1.0; +link import)';
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -75,6 +82,7 @@ export type OutboundFetchRefusal =
   | 'unsupported-scheme'
   | 'credentials-in-url'
   | 'port-not-allowed'
+  | 'host-not-allowed'
   | 'unresolvable'
   | 'blocked-address'
   | 'too-many-redirects'
@@ -99,6 +107,12 @@ export class OutboundFetchError extends Error {
 export interface FetchRequest {
   /** What the caller can use; anything else is refused before its body is read. */
   accept: readonly ContentKind[];
+  /**
+   * A fixed third-party API's allow-list: every hop's host must be one of
+   * these (lower case), so a redirect elsewhere is refused before it is
+   * resolved. Absent for a user's URL, which may go anywhere public.
+   */
+  hosts?: readonly string[];
 }
 
 export interface FetchedResource {
@@ -157,7 +171,11 @@ const systemResolve: Resolve = (hostname) =>
  * The URL's host (an IPv6 literal without brackets) once its scheme, port
  * and lack of credentials pass. Nothing is resolved yet.
  */
-function checkedHost(url: URL, destinations: DestinationPolicy): string {
+function checkedHost(
+  url: URL,
+  destinations: DestinationPolicy,
+  hosts: readonly string[] | undefined,
+): string {
   const protocol = url.protocol;
   if (protocol !== 'http:' && protocol !== 'https:') {
     throw new OutboundFetchError(
@@ -176,6 +194,12 @@ function checkedHost(url: URL, destinations: DestinationPolicy): string {
     throw new OutboundFetchError(
       'port-not-allowed',
       `Port ${port} is not fetched`,
+    );
+  }
+  if (hosts && !hosts.includes(url.hostname)) {
+    throw new OutboundFetchError(
+      'host-not-allowed',
+      `${url.hostname} is not one of this fetch's hosts`,
     );
   }
   return url.hostname.replace(/^\[(.*)\]$/, '$1');
@@ -199,8 +223,12 @@ export function createOutboundFetcher(
   } = options;
 
   /** The URL's destination, checked, with the address to connect to. */
-  async function pin(url: URL, signal: AbortSignal): Promise<PinnedTarget> {
-    const host = checkedHost(url, destinations);
+  async function pin(
+    url: URL,
+    request: FetchRequest,
+    signal: AbortSignal,
+  ): Promise<PinnedTarget> {
+    const host = checkedHost(url, destinations, request.hosts);
     const addresses = isIP(host)
       ? [{ address: host, family: isIP(host) }]
       : await resolveName(host, signal);
@@ -242,14 +270,14 @@ export function createOutboundFetcher(
 
   async function fetchFollowing(
     start: URL,
-    accept: readonly ContentKind[],
+    request: FetchRequest,
     signal: AbortSignal,
     hosts: string[],
   ): Promise<FetchedResource> {
     let url = start;
     for (let redirects = 0; ; redirects++) {
-      const target = await pin(url, signal);
-      const response = await send(target, accept, signal);
+      const target = await pin(url, request, signal);
+      const response = await send(target, request.accept, signal);
       const location = response.headers.location;
       if (REDIRECT_STATUSES.has(response.statusCode ?? 0) && location) {
         response.destroy();
@@ -264,7 +292,7 @@ export function createOutboundFetcher(
         continue;
       }
       return {
-        ...(await readResponse(response, accept, signal)),
+        ...(await readResponse(response, request.accept, signal)),
         url,
         redirects,
       };
@@ -279,12 +307,7 @@ export function createOutboundFetcher(
       try {
         const url = parseUrl(rawUrl);
         hosts.push(url.hostname);
-        const fetched = await fetchFollowing(
-          url,
-          request.accept,
-          timeout,
-          hosts,
-        );
+        const fetched = await fetchFollowing(url, request, timeout, hosts);
         logger.info(
           `Fetched ${fetched.kind} from ${hostChain(hosts)}: ${fetched.body.length} bytes in ${elapsed(started)} ms`,
         );

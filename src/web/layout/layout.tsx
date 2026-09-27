@@ -41,6 +41,7 @@ function importMap(version: string) {
       'mask-editor': `/js/mask-editor.js${v}`,
       'photo-input': `/js/photo-input.js${v}`,
       'outfit-builder': `/js/outfit-builder.js${v}`,
+      locate: `/js/locate.js${v}`,
       push: `/js/push.js${v}`,
       freshness: `/js/freshness.js${v}`,
       'age-label': `/js/age-label.js${v}`,

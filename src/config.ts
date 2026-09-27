@@ -105,6 +105,11 @@ export const ConfigSchema = Type.Object({
   // src/cutout/listener.ts); the poll catches what a lost notification or a
   // dropped listener connection missed. One indexed claim, never while busy.
   CUTOUT_POLL_SECONDS: Type.Integer({ minimum: 1, maximum: 3600, default: 60 }),
+  // Weather (#14): forecasts from Open-Meteo, fetched by the server for each
+  // user's rounded location (src/web/weather/). Off: nothing is ever
+  // fetched, no location is stored (the routes that take one are gone) and
+  // no page shows weather.
+  WEATHER_ENABLED: Type.Boolean({ default: true }),
 });
 
 export type Config = Static<typeof ConfigSchema>;
