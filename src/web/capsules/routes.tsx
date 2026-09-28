@@ -1,5 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { selectScalars } from '../../db/select-scalars';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { HttpError } from '../errors';
@@ -8,7 +9,8 @@ import { navigateTo, renderFragment, renderPage } from '../render';
 import {
   type AuthorizedWardrobe,
   authorizeWardrobe,
-  sharedWardrobesOf,
+  sharedWardrobesSql,
+  toSharedWardrobe,
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
@@ -25,12 +27,12 @@ import { CapsuleFormPage, type CapsuleFormModel } from './form-page';
 import { CapsulesPage } from './list-page';
 import {
   type CapsuleDetail,
+  capsuleListSql,
   changeMembership,
-  closetCard,
   createCapsule,
   deleteCapsule,
   findCapsule,
-  listCapsules,
+  readCapsuleList,
   updateCapsule,
 } from './queries';
 import {
@@ -69,13 +71,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     ownerId: number | '' | undefined,
     need: WardrobeNeed,
   ): Promise<AuthorizedWardrobe> {
-    return authorizeWardrobe(
-      db,
-      sessionUserId(request),
-      ownerId,
-      need,
-      CAPSULE_NOT_FOUND,
-    );
+    return authorizeWardrobe(db, request, ownerId, need, CAPSULE_NOT_FOUND);
   }
 
   async function requireCapsule(
@@ -134,20 +130,19 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'view',
       );
-      const [closet, capsules, sharedWardrobes] = await Promise.all([
-        closetCard(db, access.ownerId),
-        listCapsules(db, access.ownerId),
-        sharedWardrobesOf(db, sessionUserId(request)),
-      ]);
+      // The cards and the switcher: one statement (#170; it was four).
+      const row = await selectScalars(db, {
+        ...capsuleListSql(access.ownerId),
+        sharedWardrobes: sharedWardrobesSql(sessionUserId(request)),
+      });
       return renderPage(
         reply,
         <CapsulesPage
           ctx={viewContext(reply)}
           model={{
-            closet,
-            capsules,
+            ...readCapsuleList(row),
             viewOwner,
-            sharedWardrobes,
+            sharedWardrobes: row.sharedWardrobes.map(toSharedWardrobe),
             canEdit: access.canManage,
             isOwner: access.isOwner,
           }}

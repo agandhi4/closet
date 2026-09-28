@@ -247,11 +247,12 @@ describe('the garment page', () => {
       }
     });
 
-    it('a grantee’s: the share too, and none of the owner’s records', async () => {
+    it('a grantee’s: the share in the session’s statement, and none of the owner’s records', async () => {
       const record = await recordQueries(() =>
         page(boots, viewer, `?ownerId=${ownerId}`),
       );
-      expect(record.statements).toBe(4);
+      expect(record.statements).toBe(3);
+      expect(record.sql[0]).toContain('"wardrobe_share"');
       const all = record.sql.join('\n');
       for (const owners of [
         'garment_wear',

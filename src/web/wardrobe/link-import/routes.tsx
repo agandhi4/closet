@@ -126,7 +126,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const { access, viewOwner } = await authorizeWardrobe(
         db,
-        sessionUserId(request),
+        request,
         request.query.ownerId,
         'manage',
         'Garment not found',
@@ -171,7 +171,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (retryAfter !== undefined) throw tooManyAttempts(retryAfter);
       const { access, viewOwner } = await authorizeWardrobe(
         db,
-        sessionUserId(request),
+        request,
         request.query.ownerId,
         'manage',
         'Garment not found',
@@ -237,7 +237,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // wardrobe is still checked, so only someone who may add to it fetches.
       const { access } = await authorizeWardrobe(
         db,
-        userId,
+        request,
         request.query.ownerId,
         'manage',
         'Garment not found',

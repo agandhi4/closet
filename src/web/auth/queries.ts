@@ -2,8 +2,15 @@ import { and, eq, ne, notExists, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import { isLockTimeout, isUniqueViolation } from '../../db/errors';
-import { file, pendingPhoto, user, USER_EMAIL_UNIQUE } from '../../db/schema';
+import {
+  file,
+  pendingPhoto,
+  type SharePermission,
+  user,
+  USER_EMAIL_UNIQUE,
+} from '../../db/schema';
 import { HttpError } from '../errors';
+import { sharePermissionSql } from '../sharing/access';
 import { t } from '../i18n';
 import { type StoredPhoto, unkeyedPhoto } from '../files/image-variant';
 import { STORED_PHOTO_COLUMNS } from '../files/queries';
@@ -44,13 +51,17 @@ export function normalizeEmail(email: string): string {
  * token carries as `pwf` (passwordFingerprint), cut in SQL so the 60
  * characters of the hash stay in the database. Only a route that checks the
  * current password (`config: { checksPassword: true }`) asks for the hash as
- * well, which then saves that route a second read of the same row.
+ * well, which then saves that route a second read of the same row; and a
+ * request addressing another user's wardrobe (`?ownerId=`) reads its share
+ * as `share` (null for none), which saves the access check its round trip
+ * (shareToReadAhead, src/web/sharing/access.ts).
  */
 export interface SessionAccount {
   id: number;
   email: string | null;
   fingerprint: string;
   password?: string;
+  share?: SharePermission | null;
 }
 
 const sessionColumns = {
@@ -62,14 +73,16 @@ const sessionColumns = {
 export async function findSessionAccount(
   db: Db,
   id: number,
-  withHash: boolean,
+  read: { withHash: boolean; shareOf?: number },
 ): Promise<SessionAccount | undefined> {
   const [row] = await db
-    .select(
-      withHash
-        ? { ...sessionColumns, password: user.password }
-        : sessionColumns,
-    )
+    .select({
+      ...sessionColumns,
+      ...(read.withHash ? { password: user.password } : {}),
+      ...(read.shareOf === undefined
+        ? {}
+        : { share: sharePermissionSql(read.shareOf, id) }),
+    })
     .from(user)
     .where(eq(user.id, id));
   return row;

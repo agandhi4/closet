@@ -148,13 +148,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     ownerId: number | '' | undefined,
     need: WardrobeNeed,
   ): Promise<AuthorizedWardrobe> {
-    return authorizeWardrobe(
-      db,
-      sessionUserId(request),
-      ownerId,
-      need,
-      GARMENT_NOT_FOUND,
-    );
+    return authorizeWardrobe(db, request, ownerId, need, GARMENT_NOT_FOUND);
   }
 
   async function requireGarment(

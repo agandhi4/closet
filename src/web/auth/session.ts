@@ -3,6 +3,11 @@ import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import { loggableUrl } from '../loggable-url';
 import { SESSION_ENDED_HEADER } from '../page-cache';
+import {
+  rememberShareReadAhead,
+  type ShareReadAhead,
+  shareToReadAhead,
+} from '../sharing/access';
 import { type AccountRow, findSessionAccount } from './queries';
 import { SESSION_LIFETIME_SECONDS, type SessionTokens } from './tokens';
 
@@ -20,10 +25,11 @@ export const SESSION_COOKIE = 'access_token';
 
 /**
  * A session cookie's verdict: its session (and, on a `checksPassword` route,
- * the account row with its hash), or why it no longer opens one.
+ * the account row with its hash; on a request addressing another user's
+ * wardrobe, that share), or why it no longer opens one.
  */
 type CookieVerdict =
-  | { auth: AuthContext; account?: AccountRow }
+  | { auth: AuthContext; account?: AccountRow; share?: ShareReadAhead }
   | { rejected: string };
 
 /**
@@ -61,7 +67,9 @@ export function sessionAccount(request: FastifyRequest): AccountRow {
  * the row is read fresh because comparing its fingerprint is the
  * revocation. It reads the id, the email (the app bar, the order mail's
  * owner) and the hash's 8-character suffix, not the hash (#171); a
- * `checksPassword` route's lookup reads the hash too, for sessionAccount().
+ * `checksPassword` route's lookup reads the hash too, for sessionAccount(),
+ * and a request whose `?ownerId=` names another user's wardrobe reads the
+ * share with it, for the access check (#170, shareToReadAhead).
  *
  * A cookie that no longer opens a session is ended here, on whatever route
  * it arrives (endSession: the cookie cleared, Clear-Site-Data sent). That
@@ -84,11 +92,15 @@ export function createSessionResolver(deps: {
 
   const judge = async (
     token: string,
-    withHash: boolean,
+    request: FastifyRequest,
   ): Promise<CookieVerdict> => {
     const claims = tokens.verify(token);
     if (!claims) return { rejected: 'invalid signature, claims or expiry' };
-    const row = await findSessionAccount(db, claims.userId, withHash);
+    const shareOf = shareToReadAhead(request, claims.userId);
+    const row = await findSessionAccount(db, claims.userId, {
+      withHash: request.routeOptions.config.checksPassword === true,
+      shareOf,
+    });
     if (!row) return { rejected: `unknown user ${claims.userId}` };
     if (row.fingerprint !== claims.pwf) {
       return { rejected: `password fingerprint mismatch for user ${row.id}` };
@@ -100,6 +112,10 @@ export function createSessionResolver(deps: {
         row.password === undefined
           ? undefined
           : { ...user, password: row.password },
+      share:
+        shareOf === undefined
+          ? undefined
+          : { ownerId: shareOf, permission: row.share ?? null },
     };
   };
 
@@ -110,12 +126,10 @@ export function createSessionResolver(deps: {
     const token = request.cookies?.[SESSION_COOKIE];
     if (!token) return undefined;
 
-    const verdict = await judge(
-      token,
-      request.routeOptions.config.checksPassword === true,
-    );
+    const verdict = await judge(token, request);
     if ('auth' in verdict) {
       if (verdict.account) accountsWithHash.set(request, verdict.account);
+      if (verdict.share) rememberShareReadAhead(request, verdict.share);
       return verdict.auth;
     }
     endSession(reply);

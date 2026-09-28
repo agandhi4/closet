@@ -78,7 +78,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   ): Promise<number> {
     const { access } = await authorizeWardrobe(
       db,
-      sessionUserId(request),
+      request,
       ownerId,
       'own',
       GARMENT_NOT_FOUND,

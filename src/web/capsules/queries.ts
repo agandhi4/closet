@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lte, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { isUniqueViolation } from '../../db/errors';
 import { selectScalars } from '../../db/select-scalars';
@@ -10,7 +10,7 @@ import {
   garment,
 } from '../../db/schema';
 import type { PlinthPhoto } from '../files/image-url';
-import { PLINTH_PHOTO_COLUMNS, plinthPhoto } from '../files/queries';
+import { plinthPhoto } from '../files/queries';
 import { inCloset, ownedGarment } from '../wardrobe/status';
 
 /**
@@ -62,27 +62,22 @@ export const CARD_STRIP = 4;
  * gallery's pool (#9) when it comes. Safe on any wardrobe without checking
  * whose capsule it is: a capsule only ever holds its owner's garments
  * (changeMembership), so on another wardrobe it matches nothing. A route
- * that shows the capsule's name still looks it up (findCapsule).
+ * that shows the capsule's name still looks it up (findCapsule). Given the
+ * `capsule.id` column, it is correlated with an outer capsule row (the list
+ * page's cards).
  */
-export function inCapsule(capsuleId: number): SQL {
+export function inCapsule(capsuleId: number | typeof capsule.id): SQL {
   return sql`${garment.id} in (select ${capsuleGarment.garmentId} from ${capsuleGarment} where ${capsuleGarment.capsuleId} = ${capsuleId})`;
 }
 
 const byName = [asc(sql`lower(${capsule.name})`), asc(capsule.id)];
 
-/** The wardrobe's capsules by name: Styling's and the outfit gallery's capsule menus. */
-export function capsuleNames(db: Db, ownerId: number): Promise<CapsuleRef[]> {
-  return db
-    .select({ id: capsule.id, name: capsule.name })
-    .from(capsule)
-    .where(eq(capsule.ownerId, ownerId))
-    .orderBy(...byName);
-}
-
 /**
- * capsuleNames as a scalar subquery (a JSON array, empty for none), for a
- * page that reads it in one statement with its other lists: the grid's
- * scope menu (gridContext, src/web/wardrobe/grid-context.ts).
+ * The wardrobe's capsules by name as a scalar subquery (a JSON array, empty
+ * for none), for a page that reads it in one statement with its other
+ * lists: the grid's scope menu (gridContext,
+ * src/web/wardrobe/grid-context.ts), Styling's and the outfit gallery's
+ * capsule menus.
  */
 export function capsuleNamesSql(ownerId: number): SQL<CapsuleRef[]> {
   return sql<CapsuleRef[]>`(
@@ -111,97 +106,43 @@ export async function findCapsule(
   return row;
 }
 
+/** A card's count and strip as the list's statement reads them (JSON), before readCard. */
+interface CardJson {
+  count: number;
+  strip: (Omit<StripGarment, 'photo'> & {
+    photo: Parameters<typeof plinthPhoto>[0];
+  })[];
+}
+
+export type ClosetCard = Pick<CapsuleCard, 'count' | 'strip'>;
+
 /**
- * The list page: every capsule of the wardrobe by name, with its count of
- * members in the closet and the newest few of them. Two statements, whatever
- * the number of capsules: the counts (grouped), and the strips (ranked per
- * capsule, only the first CARD_STRIP read).
+ * A card over the closet garments `members` picks: how many, and the
+ * newest CARD_STRIP of them with their photos, as one JSON object.
  */
-export async function listCapsules(
-  db: Db,
-  ownerId: number,
-): Promise<CapsuleCard[]> {
-  const [capsules, strips] = await Promise.all([
-    db
-      .select({
-        id: capsule.id,
-        name: capsule.name,
-        count: sql<number>`count(${garment.id})::int`,
-      })
-      .from(capsule)
-      .leftJoin(capsuleGarment, eq(capsuleGarment.capsuleId, capsule.id))
-      .leftJoin(
-        garment,
-        and(eq(garment.id, capsuleGarment.garmentId), inCloset()),
-      )
-      .where(eq(capsule.ownerId, ownerId))
-      .groupBy(capsule.id)
-      .orderBy(...byName),
-    capsuleStrips(db, ownerId),
-  ]);
-  return capsules.map((row) => ({ ...row, strip: strips.get(row.id) ?? [] }));
+function cardSql(members: SQL | undefined): SQL<CardJson> {
+  return sql<CardJson>`json_build_object(
+    'count', (select count(*)::int from ${garment} where ${members}),
+    'strip', (
+      select coalesce(json_agg(strip order by strip.id desc), '[]')
+      from (
+        select ${garment.id} as id, ${garment.name} as name,
+          case when ${file.id} is null then null else json_build_object(
+            'fileName', ${file.fileName},
+            'version', ${file.version},
+            'cutoutStatus', ${file.cutoutStatus}
+          ) end as photo
+        from ${garment}
+        left join ${file} on ${eq(file.id, garment.photoId)}
+        where ${members}
+        order by ${garment.id} desc
+        limit ${CARD_STRIP}
+      ) strip
+    )
+  )`;
 }
 
-async function capsuleStrips(
-  db: Db,
-  ownerId: number,
-): Promise<Map<number, StripGarment[]>> {
-  const ranked = db
-    .select({
-      capsuleId: capsuleGarment.capsuleId,
-      id: garment.id,
-      name: garment.name,
-      photoId: garment.photoId,
-      rank: sql<number>`(row_number() over (partition by ${capsuleGarment.capsuleId} order by ${garment.id} desc))::int`.as(
-        'rank',
-      ),
-    })
-    .from(capsuleGarment)
-    .innerJoin(capsule, eq(capsule.id, capsuleGarment.capsuleId))
-    .innerJoin(garment, eq(garment.id, capsuleGarment.garmentId))
-    .where(and(eq(capsule.ownerId, ownerId), inCloset()))
-    .as('ranked');
-  const rows = await db
-    .select({
-      capsuleId: ranked.capsuleId,
-      id: ranked.id,
-      name: ranked.name,
-      photo: PLINTH_PHOTO_COLUMNS,
-    })
-    .from(ranked)
-    .leftJoin(file, eq(file.id, ranked.photoId))
-    .where(lte(ranked.rank, CARD_STRIP))
-    .orderBy(asc(ranked.capsuleId), asc(ranked.rank));
-  const strips = new Map<number, StripGarment[]>();
-  for (const { capsuleId, photo, ...shown } of rows) {
-    strips.set(capsuleId, [
-      ...(strips.get(capsuleId) ?? []),
-      { ...shown, photo: plinthPhoto(photo) },
-    ]);
-  }
-  return strips;
-}
-
-/** The closet's card on the list page: every garment in the closet. */
-export async function closetCard(
-  db: Db,
-  ownerId: number,
-): Promise<{ count: number; strip: StripGarment[] }> {
-  const closet = and(eq(garment.ownerId, ownerId), inCloset());
-  const [count, strip] = await Promise.all([
-    db.$count(garment, closet),
-    db
-      .select({
-        id: garment.id,
-        name: garment.name,
-        photo: PLINTH_PHOTO_COLUMNS,
-      })
-      .from(garment)
-      .leftJoin(file, eq(file.id, garment.photoId))
-      .where(closet)
-      .orderBy(desc(garment.id))
-      .limit(CARD_STRIP),
-  ]);
+function readCard({ count, strip }: CardJson): ClosetCard {
   return {
     count,
     strip: strip.map((shown) => ({
@@ -209,6 +150,69 @@ export async function closetCard(
       photo: plinthPhoto(shown.photo),
     })),
   };
+}
+
+/** What the list page shows: the closet's card, then each capsule's. */
+export interface CapsuleList {
+  closet: ClosetCard;
+  capsules: CapsuleCard[];
+}
+
+/**
+ * The list page's cards as scalar subqueries, for its one statement with
+ * the app bar's switcher (GET /capsules, #170; it was four): the closet's
+ * card (every garment in the closet), and every capsule of the wardrobe by
+ * name, each with its count of members in the closet and the newest few
+ * of them. Read back with readCapsuleList.
+ */
+export function capsuleListSql(ownerId: number) {
+  // Each capsule's card is correlated with its row (inCapsule on the column).
+  const members = inCapsule(capsule.id);
+  return {
+    closet: cardSql(and(eq(garment.ownerId, ownerId), inCloset())),
+    capsules: sql<(CapsuleRef & { card: CardJson })[]>`(
+      select coalesce(
+        json_agg(
+          json_build_object(
+            'id', ${capsule.id},
+            'name', ${capsule.name},
+            'card', ${cardSql(and(members, inCloset()))}
+          )
+          order by ${sql.join(byName, sql`, `)}
+        ),
+        '[]'
+      )
+      from ${capsule}
+      where ${eq(capsule.ownerId, ownerId)}
+    )`,
+  };
+}
+
+export function readCapsuleList(row: {
+  closet: CardJson;
+  capsules: (CapsuleRef & { card: CardJson })[];
+}): CapsuleList {
+  return {
+    closet: readCard(row.closet),
+    capsules: readCapsuleCards(row.capsules),
+  };
+}
+
+function readCapsuleCards(
+  rows: (CapsuleRef & { card: CardJson })[],
+): CapsuleCard[] {
+  return rows.map(({ id, name, card }) => ({ id, name, ...readCard(card) }));
+}
+
+/** The capsules' cards alone, in one statement: list_capsules (src/web/mcp/tools/capsules.ts). */
+export async function listCapsules(
+  db: Queryable,
+  ownerId: number,
+): Promise<CapsuleCard[]> {
+  const { capsules } = await selectScalars(db, {
+    capsules: capsuleListSql(ownerId).capsules,
+  });
+  return readCapsuleCards(capsules);
 }
 
 export interface GarmentCapsule extends CapsuleRef {

@@ -1,6 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { type Static, Type } from '@sinclair/typebox';
+import { selectScalars } from '../../db/select-scalars';
 import type { Idea } from '../../wardrobe/generator';
 import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
 import { GARMENT_ROLES, type GarmentRole } from '../../wardrobe/properties';
@@ -8,7 +9,7 @@ import { sessionUserId } from '../auth/require-session';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
 import {
   type CapsuleRef,
-  capsuleNames,
+  capsuleNamesSql,
   findCapsule,
 } from '../capsules/queries';
 import { capsuleNotFound } from '../capsules/validation';
@@ -43,7 +44,11 @@ import {
   RowId,
 } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
-import { authorizeWardrobe, sharedWardrobesOf } from '../sharing/access';
+import {
+  authorizeWardrobe,
+  sharedWardrobesSql,
+  toSharedWardrobe,
+} from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
   MAX_ROWS,
@@ -374,12 +379,12 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    * outside it).
    */
   async function scopeOf(
-    userId: number,
+    request: FastifyRequest,
     query: { ownerId?: number | ''; capsule?: number },
   ): Promise<Wardrobe> {
     const { access, viewOwner } = await authorizeWardrobe(
       db,
-      userId,
+      request,
       query.ownerId,
       'view',
       'Wardrobe not found',
@@ -392,10 +397,20 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     return { ownerId: access.ownerId, viewOwner, capsule };
   }
 
-  /** Whose wardrobe the page browses, by name, for a grantee. */
-  async function sharedName(userId: number, ownerId: number) {
-    const shares = await sharedWardrobesOf(db, userId);
-    return shares.find((share) => share.grantorId === ownerId)?.grantorName;
+  /**
+   * The capsule menu and, for a grantee, whose wardrobe the page browses,
+   * by name: one statement (#170; they were two).
+   */
+  async function menus(userId: number, wardrobe: Wardrobe) {
+    const { capsules, shares } = await selectScalars(db, {
+      capsules: capsuleNamesSql(wardrobe.ownerId),
+      shares:
+        wardrobe.viewOwner === undefined
+          ? undefined
+          : sharedWardrobesSql(userId),
+    });
+    const owner = shares?.find((share) => share.grantorId === wardrobe.ownerId);
+    return { capsules, owner: owner && toSharedWardrobe(owner).grantorName };
   }
 
   /**
@@ -515,7 +530,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const { query } = request;
       const today = todayIn(config.timeZone, new Date());
-      const wardrobe = await scopeOf(userId, query);
+      const wardrobe = await scopeOf(request, query);
       const shared = wardrobe.viewOwner !== undefined;
       const [aim, opened] = await Promise.all([
         aimOf(userId, shared, query, today),
@@ -526,13 +541,12 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         today,
         garment: opened.with,
       });
-      const [windows, capsules, owner] = await Promise.all([
+      const [windows, { capsules, owner }] = await Promise.all([
         roleWindows(db, wardrobe.ownerId, {
           capsuleId: wardrobe.capsule?.id,
           selected: ids(openingGarments(opened, styled.idea)),
         }),
-        capsuleNames(db, wardrobe.ownerId),
-        shared ? sharedName(userId, wardrobe.ownerId) : undefined,
+        menus(userId, wardrobe),
       ]);
       const model = pageModel({
         wardrobe,
@@ -627,7 +641,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { query } = request;
       const started = performance.now();
       const today = todayIn(config.timeZone, new Date());
-      const wardrobe = await scopeOf(userId, query);
+      const wardrobe = await scopeOf(request, query);
       const shared = wardrobe.viewOwner !== undefined;
       const [{ states, held }, aim] = await Promise.all([
         checkedStates(wardrobe.ownerId, postedStates(query)),
@@ -674,9 +688,8 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     STYLING_ROW_PATH,
     { schema: { querystring: RowsQuery } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
       const { query } = request;
-      const wardrobe = await scopeOf(userId, query);
+      const wardrobe = await scopeOf(request, query);
       const { states, held } = await checkedStates(
         wardrobe.ownerId,
         postedStates(query),
@@ -708,11 +721,10 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     STYLING_GARMENTS_PATH,
     { schema: { querystring: GarmentsQuery } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
       const { role, before, capsule, ownerId } = request.query;
       const { access, viewOwner } = await authorizeWardrobe(
         db,
-        userId,
+        request,
         ownerId,
         'view',
         'Wardrobe not found',
@@ -752,7 +764,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       } catch (error) {
         const states = savedStates(body);
         if (!(error instanceof OutfitGarmentsGone) || !states) throw error;
-        return refusedPage(reply, userId, body, { error, states });
+        return refusedPage(request, reply, body, { error, states });
       }
     },
   );
@@ -796,11 +808,12 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    * garment of another's is cleared like a deleted one and never shown.
    */
   async function refusedPage(
+    request: FastifyRequest,
     reply: FastifyReply,
-    userId: number,
     body: Static<typeof SaveBody>,
     refused: Pick<RefusedSave, 'error' | 'states'>,
   ) {
+    const userId = sessionUserId(request);
     logger.info(
       `Styling save by user ${userId} refused (${refused.error.statusCode}): garments ${describeGone(refused.error.gone)}${body.outfit === undefined ? '' : ` for outfit ${body.outfit}`}; the page again`,
     );
@@ -813,17 +826,17 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     );
     const own: Wardrobe = { ownerId: userId, viewOwner: undefined };
     const [wardrobe, aim, opened] = await Promise.all([
-      scopeOf(userId, { capsule: body.capsule }),
+      scopeOf(request, { capsule: body.capsule }),
       aimIdeas(db, userId, postedDestination(body), today),
       openedWith(userId, own, { outfit: body.outfit }),
     ]);
     const { states, held } = await checkedStates(userId, cleared);
-    const [windows, capsules] = await Promise.all([
+    const [windows, { capsules }] = await Promise.all([
       roleWindows(db, userId, {
         capsuleId: wardrobe.capsule?.id,
         selected: states.flatMap((s) => s.garmentId ?? []),
       }),
-      capsuleNames(db, userId),
+      menus(userId, own),
     ]);
     const model = pageModel({
       wardrobe,

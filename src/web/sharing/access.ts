@@ -1,6 +1,8 @@
 import { and, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
+import type { FastifyRequest } from 'fastify';
 import type { Db } from '../../db/client';
 import { type SharePermission, user, wardrobeShare } from '../../db/schema';
+import { sessionUserId } from '../auth/require-session';
 import { HttpError } from '../errors';
 
 /**
@@ -22,33 +24,119 @@ export interface WardrobeAccess {
 }
 
 /**
- * The single ownership resolver for wardrobe routes (src/web/wardrobe). At
- * most one share lookup; none for the requester's own wardrobe.
+ * Who asks: a signed-in request (a page or a form, whose session statement
+ * may have read the share its `?ownerId=` names already: shareToReadAhead),
+ * or a user id (the MCP tools, which have no cookie session and read the
+ * share themselves).
  */
-export async function resolveWardrobeAccess(
-  db: Db,
+export type Requester = FastifyRequest | number;
+
+/** The one definition of a share that opens `ownerId`'s wardrobe to `userId`. */
+function acceptedShare(ownerId: number, userId: number) {
+  return and(
+    eq(wardrobeShare.grantorId, ownerId),
+    eq(wardrobeShare.granteeId, userId),
+    isNotNull(wardrobeShare.acceptedAt),
+  );
+}
+
+/** What the session statement read of the share a request addresses. */
+export interface ShareReadAhead {
+  ownerId: number;
+  /** Null: no accepted share, so that wardrobe does not exist for the requester. */
+  permission: SharePermission | null;
+}
+
+const sharesReadAhead = new WeakMap<FastifyRequest, ShareReadAhead>();
+
+// RowId's maximum (src/web/schemas.ts): ids are int4.
+const MAX_ROW_ID = 2_147_483_647;
+
+/**
+ * The other user's wardrobe a request's `?ownerId=` names, whose share the
+ * session statement reads in the same round trip (findSessionAccount,
+ * src/web/auth/queries.ts), so a grantee's request pays no statement of
+ * its own for the access check (#170). Undefined for one's own wardrobe and
+ * for anything but a plain row id: the route's schema judges those, and
+ * resolveWardrobeAccess then reads the share itself (a body's `ownerId`
+ * too). The session hook runs before validation, so this reads the raw
+ * query string.
+ */
+export function shareToReadAhead(
+  request: FastifyRequest,
   userId: number,
-  ownerId: number | undefined,
-): Promise<WardrobeAccess> {
-  if (ownerId == null || ownerId === userId) {
-    return { ownerId: userId, isOwner: true, canView: true, canManage: true };
-  }
+): number | undefined {
+  const raw = (request.query as Record<string, unknown> | undefined)?.ownerId;
+  if (typeof raw !== 'string' || !/^[1-9]\d{0,9}$/.test(raw)) return undefined;
+  const ownerId = Number(raw);
+  return ownerId <= MAX_ROW_ID && ownerId !== userId ? ownerId : undefined;
+}
+
+/**
+ * The permission of `userId`'s accepted share of `ownerId`'s wardrobe as a
+ * scalar subquery, null for none: a column of the session statement.
+ */
+export function sharePermissionSql(
+  ownerId: number,
+  userId: number,
+): SQL<SharePermission | null> {
+  return sql<SharePermission | null>`(
+    select ${wardrobeShare.permission} from ${wardrobeShare}
+    where ${acceptedShare(ownerId, userId)}
+  )`;
+}
+
+/**
+ * Keeps what the session statement read, for this request alone: the
+ * resolver stores it only for a cookie that opened a session, and the next
+ * request reads the share again, so a revoked share stops access there.
+ */
+export function rememberShareReadAhead(
+  request: FastifyRequest,
+  share: ShareReadAhead,
+): void {
+  sharesReadAhead.set(request, share);
+}
+
+/** The requester's share of `ownerId`'s wardrobe: the one read ahead when it is this wardrobe's, else a statement. */
+async function sharePermission(
+  db: Db,
+  requester: Requester,
+  userId: number,
+  ownerId: number,
+): Promise<SharePermission | null> {
+  const ahead =
+    typeof requester === 'number' ? undefined : sharesReadAhead.get(requester);
+  if (ahead?.ownerId === ownerId) return ahead.permission;
   const [share] = await db
     .select({ permission: wardrobeShare.permission })
     .from(wardrobeShare)
-    .where(
-      and(
-        eq(wardrobeShare.grantorId, ownerId),
-        eq(wardrobeShare.granteeId, userId),
-        isNotNull(wardrobeShare.acceptedAt),
-      ),
-    );
+    .where(acceptedShare(ownerId, userId));
+  return share?.permission ?? null;
+}
+
+/**
+ * The single ownership resolver for wardrobe routes (src/web/wardrobe). At
+ * most one share lookup: none for the requester's own wardrobe, and none
+ * for a request whose session statement read the share already.
+ */
+export async function resolveWardrobeAccess(
+  db: Db,
+  requester: Requester,
+  ownerId: number | undefined,
+): Promise<WardrobeAccess> {
+  const userId =
+    typeof requester === 'number' ? requester : sessionUserId(requester);
+  if (ownerId == null || ownerId === userId) {
+    return { ownerId: userId, isOwner: true, canView: true, canManage: true };
+  }
+  const permission = await sharePermission(db, requester, userId, ownerId);
   return {
     ownerId,
     isOwner: false,
-    canView: share !== undefined,
-    canManage: share?.permission === 'MANAGE',
-    permission: share?.permission,
+    canView: permission !== null,
+    canManage: permission === 'MANAGE',
+    permission: permission ?? undefined,
   };
 }
 
@@ -72,12 +160,16 @@ export interface AuthorizedWardrobe {
  */
 export async function authorizeWardrobe(
   db: Db,
-  userId: number,
+  requester: Requester,
   ownerId: number | '' | undefined,
   need: WardrobeNeed,
   notFound: string,
 ): Promise<AuthorizedWardrobe> {
-  const access = await resolveWardrobeAccess(db, userId, ownerId || undefined);
+  const access = await resolveWardrobeAccess(
+    db,
+    requester,
+    ownerId || undefined,
+  );
   if (!access.canView) throw new HttpError(404, notFound);
   if (need === 'manage' && !access.canManage) throw new HttpError(403);
   if (need === 'own' && !access.isOwner) throw new HttpError(403);

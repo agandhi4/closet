@@ -44,7 +44,7 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   ) {
     const { access } = await authorizeWardrobe(
       db,
-      sessionUserId(request),
+      request,
       ownerId,
       'own',
       GARMENT_NOT_FOUND,

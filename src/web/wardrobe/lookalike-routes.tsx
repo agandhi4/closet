@@ -34,7 +34,7 @@ export const lookalikeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { query } = request;
       const { access, viewOwner } = await authorizeWardrobe(
         db,
-        sessionUserId(request),
+        request,
         query.ownerId,
         'manage',
         GARMENT_NOT_FOUND,
@@ -75,7 +75,7 @@ export const lookalikeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const { access, viewOwner } = await authorizeWardrobe(
         db,
-        userId,
+        request,
         request.query.ownerId,
         'manage',
         GARMENT_NOT_FOUND,

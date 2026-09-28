@@ -8,7 +8,12 @@ import { ProfileSection } from '../layout/parts';
 import { CopyableText } from '../share/share-button';
 import { sharedBy } from '../share/share-page';
 import type { ViewContext } from '../view-context';
-import type { AcceptRefusal, ShareParty, ShareView } from './queries';
+import type {
+  AcceptRefusal,
+  InviteView,
+  ShareParty,
+  ShareView,
+} from './queries';
 import { SHARING_SECTION_ID } from './urls';
 
 /** Views of sharing: Profile's Sharing section, the invite landing, the new-link fragment. */
@@ -234,7 +239,7 @@ export function SharingSection(props: SharingModel) {
  */
 export function InvitePage(props: {
   ctx: ViewContext;
-  invite: ShareView | undefined;
+  invite: InviteView | undefined;
   token: string;
 }) {
   const { ctx, invite } = props;
@@ -265,7 +270,7 @@ export function InvitePage(props: {
 
 function InviteDetails(props: {
   ctx: ViewContext;
-  invite: ShareView;
+  invite: InviteView;
   token: string;
 }) {
   const { invite, ctx } = props;

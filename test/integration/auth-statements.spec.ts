@@ -144,13 +144,13 @@ describe('auth, account and push statements (#171)', () => {
     it('cuts the same fingerprint in SQL that a token carries', async () => {
       const id = t.owner.id;
       const hash = await passwordOf(id);
-      const account = await findSessionAccount(t.db, id, false);
+      const account = await findSessionAccount(t.db, id, { withHash: false });
       expect(account).toEqual({
         id,
         email: t.owner.email,
         fingerprint: passwordFingerprint(hash),
       });
-      expect(await findSessionAccount(t.db, id, true)).toEqual({
+      expect(await findSessionAccount(t.db, id, { withHash: true })).toEqual({
         ...account,
         password: hash,
       });

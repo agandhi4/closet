@@ -246,7 +246,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const { access } = await authorizeWardrobe(
         db,
-        userId,
+        request,
         request.body.ownerId,
         'view',
         'Wardrobe not found',

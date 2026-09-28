@@ -1,5 +1,4 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../calendar/calendar-date';
 import type { WebOptions } from '../plugin';
 import { requestOrigin } from '../security/origin';
@@ -33,7 +32,7 @@ export const exportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       async (request, reply) => {
         const { access } = await authorizeWardrobe(
           db,
-          sessionUserId(request),
+          request,
           request.query.ownerId,
           'own',
           'Wardrobe not found',
