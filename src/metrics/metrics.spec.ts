@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
+import { recordErrors } from '../../test/support/sentry-stub';
 import { Metrics } from './metrics';
 
 function newMetrics(enabled = false) {
   const { logger, logs } = captureLogs();
-  return { metrics: new Metrics({ enabled, logger }), logs };
+  const errors = recordErrors();
+  return {
+    metrics: new Metrics({ enabled, logger, errors: errors.tracker }),
+    logs,
+    errors,
+  };
 }
 
 /**
@@ -103,9 +109,9 @@ describe('Metrics', () => {
     const { metrics } = newMetrics(true);
     metrics.addRoute('/calendar');
     metrics.observeRequest('/calendar', 'GET', 200, 0.01);
-    metrics.observeJob('cutout', 'discarded', 2.5);
-    metrics.countPushSend('delivered');
-    metrics.observeMcpCall('list_garments', 'refused', 0.02);
+    metrics.observeJob('cutout', { outcome: 'discarded' }, 2.5);
+    metrics.countPushSend({ outcome: 'delivered' });
+    metrics.observeMcpCall('list_garments', { outcome: 'refused' }, 0.02);
     metrics.observeClientTiming({
       route: '/calendar',
       kind: 'htmx',
@@ -121,6 +127,51 @@ describe('Metrics', () => {
     expect(body).toContain(
       'http_request_duration_seconds_count{route="/calendar",method="GET",status_class="2xx"} 1',
     );
+  });
+
+  // #117: the failure outcomes are the error tracker's choke points.
+  it('hands every failure, and only failures, to the error tracker', async () => {
+    const { metrics, errors } = newMetrics();
+    await metrics.timeJob('reconciliation', () => Promise.resolve())();
+    const jobError = new Error('disk gone');
+    await expect(
+      metrics.timeJob('reminders', () => Promise.reject(jobError))(),
+    ).rejects.toBe(jobError);
+    const cutoutError = new Error('model crashed');
+    metrics.observeJob('cutout', { outcome: 'discarded' }, 1);
+    metrics.observeJob('cutout', { outcome: 'failure', error: cutoutError }, 1);
+    const pushError = new Error('HTTP 403');
+    metrics.countPushSend({ outcome: 'delivered' });
+    metrics.countPushSend({ outcome: 'pruned' });
+    metrics.countPushSend({ outcome: 'failed', error: pushError });
+    const toolError = new Error('boom');
+    metrics.observeMcpCall('list_garments', { outcome: 'refused' }, 0.01);
+    metrics.observeMcpCall(
+      'list_garments',
+      { outcome: 'error', error: toolError },
+      0.01,
+    );
+
+    expect(errors.exceptions).toEqual([
+      {
+        error: jobError,
+        context: { source: 'job', tags: { job: 'reminders' } },
+      },
+      {
+        error: cutoutError,
+        context: { source: 'job', tags: { job: 'cutout' } },
+      },
+      { error: pushError, context: { source: 'push' } },
+      {
+        error: toolError,
+        context: { source: 'mcp', tags: { tool: 'list_garments' } },
+      },
+    ]);
+    const { body } = await metrics.exposition();
+    expect(body).toMatch(
+      /^job_duration_seconds_count\{name="reminders",outcome="failure"\} 1$/m,
+    );
+    expect(body).toContain('push_sends_total{outcome="failed"} 1');
   });
 
   it("records a device's sample only for a route the app has", async () => {
@@ -180,8 +231,8 @@ describe('Metrics', () => {
     await expect(
       metrics.timeJob('replan', () => Promise.reject(new Error('down')))(),
     ).rejects.toThrow('down');
-    metrics.countPushSend('delivered');
-    metrics.observeMcpCall('list_garments', 'ok', 0.02);
+    metrics.countPushSend({ outcome: 'delivered' });
+    metrics.observeMcpCall('list_garments', { outcome: 'ok' }, 0.02);
     metrics.observeClientTiming({
       route: '/calendar',
       kind: 'full',

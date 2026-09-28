@@ -2,6 +2,7 @@ import { type Config, ConfigError, loadConfig } from './config';
 import { BIREFNET_512, CutoutModel } from './cutout/model';
 import { ModelRunner } from './cutout/runner';
 import { createLogger, type Logger } from './logger';
+import { createCrashHandler } from './metrics/error-tracker';
 import { serve } from './server';
 
 /**
@@ -31,6 +32,11 @@ function modelRunner(config: Config, logger: Logger): ModelRunner {
 // A boot that fails (bad configuration, a refused migration, a taken port)
 // ends the process, whatever still holds the event loop, so the container
 // reports it. pino's transport flushes on exit.
+//
+// Once serving, a crash (an uncaught exception, or an unhandled rejection,
+// which Node raises as one) is sent to the error tracker before the
+// process exits 1 as it would have (createCrashHandler). Here only, never
+// in createApp: the specs' processes boot many apps and keep Node's own.
 function main(): void {
   let config: Config;
   try {
@@ -40,10 +46,21 @@ function main(): void {
     process.exit(1);
   }
   const logger = createLogger(config);
-  serve(config, logger, modelRunner(config, logger)).catch((error: unknown) => {
-    logger.fatal({ err: error }, 'Boot failed');
-    process.exit(1);
-  });
+  serve(config, logger, modelRunner(config, logger))
+    .then(({ errors }) => {
+      const onCrash = createCrashHandler({
+        errors,
+        logger,
+        exit: (code) => process.exit(code),
+      });
+      process.on('uncaughtException', (error, origin) => {
+        void onCrash(error, origin);
+      });
+    })
+    .catch((error: unknown) => {
+      logger.fatal({ err: error }, 'Boot failed');
+      process.exit(1);
+    });
 }
 
 main();

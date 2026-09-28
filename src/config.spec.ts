@@ -144,6 +144,23 @@ describe('loadConfig', () => {
     ).toBe(true);
   });
 
+  it('takes a Sentry DSN, treats an empty one as unset and refuses anything else', () => {
+    expect(load({}).SENTRY_DSN).toBe('');
+    expect(load({ SENTRY_DSN: '' }).SENTRY_DSN).toBe('');
+    expect(load({ SENTRY_DSN: 'http://abc123@bug.box/3' }).SENTRY_DSN).toBe(
+      'http://abc123@bug.box/3',
+    );
+    expect(
+      load({ SENTRY_DSN: 'https://abc@sentry.example/prefix/12' }).SENTRY_DSN,
+    ).toBe('https://abc@sentry.example/prefix/12');
+    for (const bad of ['bug.box/3', 'http://bug.box/3', 'http://k@bug.box/']) {
+      const problems = problemsOf({ ...REQUIRED, SENTRY_DSN: bad });
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatch(/^SENTRY_DSN: /);
+      expect(problems[0]).not.toContain(bad);
+    }
+  });
+
   it('never puts a value in the message', () => {
     try {
       loadConfig({

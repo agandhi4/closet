@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   logger.info(
     `Test server: background removal stubbed (${STUB_DELAY_MS} ms a photo), weather from ${weather.options.endpoints.forecast}`,
   );
-  const app = await serve(config, logger, stubRunner, {
+  const { app } = await serve(config, logger, stubRunner, {
     weather: weather.options,
   });
   // serve() closes the app on SIGTERM; the stub's own server would keep the

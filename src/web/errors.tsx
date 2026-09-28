@@ -6,6 +6,7 @@ import { Dock } from './layout/dock';
 import { Layout } from './layout/layout';
 import { loggableUrl } from './loggable-url';
 import type { Logger } from '../logger';
+import type { ErrorTracker } from '../metrics/error-tracker';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
 
@@ -75,8 +76,17 @@ export function describeError(error: unknown): ErrorAnswer {
  * and the not-found handler share it): the error page, in the layout, with
  * the status of the failure. The login redirect and 401 never reach it,
  * requireSession answers those itself.
+ *
+ * Only an unexpected error (the 500) goes to the error tracker (#117).
+ * An HttpError is an answer the code chose, whatever its status: a 4xx
+ * refusal, and the owner lock's 503 (OwnerLockTimeout), which asks the
+ * person to try again while another write holds their wardrobe. That 503
+ * is contention working as designed; what stalled the other writer (a
+ * statement or idle-in-transaction timeout) fails its own request with an
+ * unexpected error, which is captured there. The 503s themselves stay in
+ * the warn line and the request metric's 5xx.
  */
-export function createErrorHandler(logger: Logger) {
+export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
   return async function handleError(
     error: unknown,
     request: FastifyRequest,
@@ -86,6 +96,14 @@ export function createErrorHandler(logger: Logger) {
     const url = loggableUrl(request);
     if (unexpected) {
       logger.error({ err: error }, `${request.method} ${url} -> ${status}`);
+      errors.captureException(error, {
+        source: 'route',
+        tags: {
+          route: request.routeOptions.url ?? 'unmatched',
+          method: request.method,
+        },
+        userId: request.auth?.user.id,
+      });
     } else {
       logger.warn(
         `${request.method} ${url} -> ${status}: ${message}${logDetail ? ` (${logDetail})` : ''}`,

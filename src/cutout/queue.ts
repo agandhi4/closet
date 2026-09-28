@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Db, DbConfig } from '../db/client';
 import type { Logger } from '../logger';
-import type { JobOutcome, Metrics } from '../metrics/metrics';
+import type { JobEnding, Metrics } from '../metrics/metrics';
 import type { Photos } from '../web/files/photos';
 import { settlesWithin } from './deadline';
 import { CutoutListener } from './listener';
@@ -188,10 +188,10 @@ export class CutoutQueue {
         }
         polling = false;
         const startedAt = performance.now();
-        const outcome = await this.process(job, runner, worker, halt);
+        const ending = await this.process(job, runner, worker, halt);
         this.deps.metrics.observeJob(
           'cutout',
-          outcome,
+          ending,
           (performance.now() - startedAt) / 1000,
         );
         continue;
@@ -229,13 +229,14 @@ export class CutoutQueue {
     return false;
   }
 
-  // Answers how the job ended, for its metric.
+  // Answers how the job ended, for its metric (and a failure's error, for
+  // the error tracker the metrics hand it to).
   private async process(
     job: CutoutJob,
     runner: CutoutRunner,
     worker: string,
     halt: AbortSignal,
-  ): Promise<JobOutcome> {
+  ): Promise<JobEnding> {
     const { photos, logger } = this.deps;
     const startedAt = Date.now();
     const queuedMs =
@@ -268,7 +269,7 @@ export class CutoutQueue {
         logger.info(
           `Cutout ready: ${label}, version ${outcome.state.version}; ${timing}`,
         );
-        return 'success';
+        return { outcome: 'success' };
       }
       // The photo was edited, replaced or requeued while the job ran.
       const lease =
@@ -278,13 +279,13 @@ export class CutoutQueue {
       logger.info(
         `Cutout discarded (${outcome.reason}): ${label}; ${timing}${lease}`,
       );
-      return 'discarded';
+      return { outcome: 'discarded' };
     } catch (error) {
       if (halt.aborted) {
         logger.info(
           `Cutout interrupted by shutdown: ${label}; stays pending, ${await this.release(job, label, worker)}`,
         );
-        return 'interrupted';
+        return { outcome: 'interrupted' };
       }
       return this.fail(job, label, worker, startedAt, error);
     }
@@ -336,7 +337,7 @@ export class CutoutQueue {
     worker: string,
     startedAt: number,
     error: unknown,
-  ): Promise<JobOutcome> {
+  ): Promise<JobEnding> {
     const { db, logger } = this.deps;
     const elapsed = `after ${Date.now() - startedAt} ms`;
     try {
@@ -346,7 +347,7 @@ export class CutoutQueue {
       });
       if (!outcome.ok && outcome.reason === 'gone') {
         logger.info(`Cutout discarded (gone): ${label}, ${elapsed}`);
-        return 'discarded';
+        return { outcome: 'discarded' };
       }
       let recorded = '';
       if (!outcome.ok) {
@@ -371,7 +372,7 @@ export class CutoutQueue {
         `Could not record failure of ${label}`,
       );
     }
-    return 'failure';
+    return { outcome: 'failure', error };
   }
 
   // Waits `ms`, or less when woken or halted: which one ended it. Halted

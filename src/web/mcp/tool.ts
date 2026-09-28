@@ -3,7 +3,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type * as z from 'zod/v4';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
-import type { McpOutcome, Metrics } from '../../metrics/metrics';
+import type { McpEnding, Metrics } from '../../metrics/metrics';
 import { describeError } from '../errors';
 import type { Photos } from '../files/photos';
 import type { OutboundFetcher } from '../security/outbound-fetch';
@@ -103,9 +103,11 @@ export class ImageAnswer {
  */
 type Outcome = 'ok' | 'error' | `${'refused' | 'failed'} ${number}${string}`;
 
-// The metric's outcome drops the refusal's status (a closed label set).
-function metricOutcome(outcome: Outcome): McpOutcome {
-  return outcome === 'ok' || outcome === 'error' ? outcome : 'refused';
+// The metric's outcome drops the refusal's status (a closed label set); an
+// unexpected error goes with it to the error tracker.
+function metricEnding(outcome: Outcome, error: unknown): McpEnding {
+  if (outcome === 'error') return { outcome, error };
+  return { outcome: outcome === 'ok' ? 'ok' : 'refused' };
 }
 
 function textResult(value: unknown, isError = false): CallToolResult {
@@ -135,7 +137,8 @@ function toolResult(value: unknown): CallToolResult {
  * the time; never the arguments (a link can carry a token of its own),
  * never the caller's token and never an answer (an image's bytes
  * included). A refusal (a 4xx HttpError, as a route would answer) is a tool error with its message; anything else is logged with
- * its stack and answered without detail.
+ * its stack, sent to the error tracker (through the metrics) and answered
+ * without detail.
  */
 export function registerTools(
   server: McpServer,
@@ -161,6 +164,7 @@ export function registerTools(
       async (args: Record<string, unknown>) => {
         const started = performance.now();
         let outcome: Outcome = 'ok';
+        let failure: unknown;
         try {
           return toolResult(await tool.run(args, ctx));
         } catch (error) {
@@ -168,6 +172,7 @@ export function registerTools(
             describeError(error);
           if (unexpected) {
             outcome = 'error';
+            failure = error;
             log.logger.error(
               { err: error },
               `MCP ${tool.name} failed for user ${ctx.userId}`,
@@ -183,7 +188,7 @@ export function registerTools(
           );
           log.metrics.observeMcpCall(
             tool.name,
-            metricOutcome(outcome),
+            metricEnding(outcome, failure),
             elapsedMs / 1000,
           );
         }

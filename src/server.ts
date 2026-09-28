@@ -1,5 +1,4 @@
-import type { FastifyInstance } from 'fastify';
-import { type AppOptions, createApp } from './app';
+import { type AppOptions, type ClosetApp, createApp } from './app';
 import type { Config } from './config';
 import { type CutoutQueue, retryFailedCutouts } from './cutout/queue';
 import type { CutoutRunner } from './cutout/runner';
@@ -37,19 +36,17 @@ const RECONCILE_HOUR = 3;
  * `options` are createApp's test-only ones (the test server's stand-in for
  * Open-Meteo); main.ts passes none. Returns the listening app, so a caller
  * that started something beside it (the test server's stub) can stop it
- * when the app's server closes.
+ * when the app's server closes, and its error tracker, which main.ts's
+ * crash handler reports through.
  */
 export async function serve(
   config: Config,
   logger: Logger,
   runner: CutoutRunner,
   options: AppOptions = {},
-): Promise<FastifyInstance> {
-  const { app, db, photos, cutouts, push, weather, metrics } = await createApp(
-    config,
-    logger,
-    options,
-  );
+): Promise<Pick<ClosetApp, 'app' | 'errors'>> {
+  const { app, db, photos, cutouts, push, weather, metrics, errors } =
+    await createApp(config, logger, options);
 
   // Every timer, stopped together at preClose (a run in flight waited for)
   // before onClose ends the queue and the pool (#78).
@@ -103,7 +100,7 @@ export async function serve(
   }
 
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
-  return app;
+  return { app, errors };
 }
 
 // The queue (pending cutouts from before a restart first; createApp stops

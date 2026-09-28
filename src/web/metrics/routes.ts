@@ -5,6 +5,7 @@ import { sessionUserId } from '../auth/require-session';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { VITALS_LIMIT } from '../security/rate-limit';
+import { readBeaconBodies } from './beacon';
 
 /**
  * The metrics' two routes, registered only with METRICS_ENABLED (#115):
@@ -68,21 +69,7 @@ export const metricsRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       .send(body);
   });
 
-  // sendBeacon posts a string as text/plain: a simple request in every
-  // browser, where a JSON Blob is refused by some. This plugin's routes read
-  // text/plain as JSON; the parser is encapsulated, so no other route does.
-  app.removeContentTypeParser('text/plain');
-  app.addContentTypeParser(
-    'text/plain',
-    { parseAs: 'string', bodyLimit: VITALS_MAX_BYTES },
-    (_request, body, parsed) => {
-      try {
-        parsed(null, JSON.parse(body as string));
-      } catch {
-        parsed(new HttpError(400, 'Body is not JSON'), undefined);
-      }
-    },
-  );
+  readBeaconBodies(app, VITALS_MAX_BYTES);
 
   app.post(
     '/metrics/vitals',

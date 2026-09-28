@@ -23,6 +23,10 @@ export interface ViewContext {
   weatherEnabled: boolean;
   /** METRICS_ENABLED: signed-in pages load the timing beacon (public/js/vitals.js). */
   metricsEnabled: boolean;
+  /** SENTRY_DSN: signed-in pages load the error beacon (public/js/errors.js). */
+  errorTrackingEnabled: boolean;
+  /** The build's full git sha (the error tracker's release), when known. */
+  buildSha: string | undefined;
   /** `?v=` on every first-party static URL; see src/build-info.ts. */
   appVersion: string;
   /** package.json version, shown on /about. */
@@ -57,6 +61,7 @@ export interface ViewContextConfig {
   pwaEnabled: boolean;
   weatherEnabled: boolean;
   metricsEnabled: boolean;
+  errorTrackingEnabled: boolean;
 }
 
 /**
@@ -83,6 +88,8 @@ export function createViewContextBuilder(config: ViewContextConfig) {
       pwaEnabled: config.pwaEnabled,
       weatherEnabled: config.weatherEnabled,
       metricsEnabled: config.metricsEnabled,
+      errorTrackingEnabled: config.errorTrackingEnabled,
+      buildSha: BUILD_INFO.sha,
       appVersion: BUILD_INFO.assetVersion,
       appRelease: BUILD_INFO.version,
       canonicalUrl,

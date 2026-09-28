@@ -15,6 +15,12 @@ module.exports = {
     'build.json',
     // The fonts' @font-face rules, already inlined into bundle.css.
     'vendor/fonts/fonts.css',
+    // The error beacon: loaded only with SENTRY_DSN (the layout), so
+    // without one no device fetches it; with one, the worker's assets-v1
+    // cache keeps it after the first page that loads it.
+    'js/errors.js',
+    // js/vitals.js is also opt-in (METRICS_ENABLED) yet still precached: an
+    // inconsistency left as is (#117 review), not a pattern to follow.
     // The client libraries (/modules/, copied from node_modules): cached by
     // the worker when a page loads them (assets-v1), never precached; the
     // install dialog's bundle alone is 160 KB.

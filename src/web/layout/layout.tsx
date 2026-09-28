@@ -62,6 +62,25 @@ export interface LayoutProps {
   children?: Child;
 }
 
+/**
+ * With SENTRY_DSN, on signed-in pages (POST /errors/client is
+ * session-only): public/js/errors.js, which beacons uncaught errors and
+ * unhandled rejections with this build's release. Without a DSN the page
+ * is byte for byte what it was. The first deferred script, so its
+ * listeners are in place before htmx and every module run; a classic one,
+ * so it can read its own data-release.
+ */
+function ErrorScript({ ctx, v }: { ctx: ViewContext; v: string }) {
+  if (!ctx.errorTrackingEnabled || !ctx.user) return null;
+  return (
+    <script
+      defer
+      src={`/js/errors.js${v}`}
+      data-release={ctx.buildSha}
+    ></script>
+  );
+}
+
 export function Layout({
   ctx,
   title,
@@ -129,6 +148,7 @@ export function Layout({
         {/* Served from config by src/web/shell, not a static file. */}
         <link rel="manifest" href="/manifest.json" />
         <link href={`/bundle.css${v}`} rel="stylesheet" />
+        <ErrorScript ctx={ctx} v={v} />
         {/* Libraries are served from node_modules (registerStaticAssets in
             app.ts), never a CDN. */}
         <script defer src={`/modules/htmx.min.js${v}`}></script>

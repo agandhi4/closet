@@ -11,7 +11,7 @@ import type { Logger } from '../../logger';
  * once at the root by createApp() with `global: false`: nothing is limited
  * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
  * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, WEATHER_SEARCH_LIMIT, WEATHER_LOCATION_LIMIT,
- * VITALS_LIMIT, MCP_LIMIT). Every limited route counts on its own. Counters live in
+ * VITALS_LIMIT, CLIENT_ERROR_LIMIT, MCP_LIMIT). Every limited route counts on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
  * The client address is `request.ip`, which Fastify takes from
@@ -133,6 +133,20 @@ export const WEATHER_LOCATION_LIMIT: RateLimitOptions = {
  */
 export const VITALS_LIMIT: RateLimitOptions = {
   max: 30,
+  timeWindow: '1 minute',
+  hook: 'preHandler',
+  keyGenerator: (request) => `user ${request.auth!.user.id}`,
+};
+
+/**
+ * The pages' script errors (POST /errors/client, src/web/metrics/
+ * client-errors.ts), each forwarded to Bugsink: per signed-in user, like
+ * VITALS_LIMIT. public/js/errors.js already sends a distinct error once per
+ * document and at most five a page; this caps a looping page, or a script
+ * with a session, flooding the tracker.
+ */
+export const CLIENT_ERROR_LIMIT: RateLimitOptions = {
+  max: 10,
   timeWindow: '1 minute',
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,

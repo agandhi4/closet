@@ -1,6 +1,6 @@
 # Metrics
 
-Prometheus metrics for the homelab's VictoriaMetrics (#115, homelab #39): vmagent scrapes `GET /metrics` over the Docker network and Grafana's dashboards (in the homelab repo) read them. No analytics service, no third-party script: the data stays on the homelab.
+Prometheus metrics for the homelab's VictoriaMetrics (#115, homelab #39): vmagent scrapes `GET /metrics` over the Docker network and Grafana's dashboards (in the homelab repo) read them. No analytics service, no third-party script: the data stays on the homelab. Error tracking (Bugsink, #117) lives here too: see the section at the end.
 
 ## Layout
 
@@ -9,9 +9,13 @@ Prometheus metrics for the homelab's VictoriaMetrics (#115, homelab #39): vmagen
                        vocabularies JobName, JobOutcome, CLIENT_TIMING_KINDS, CLIENT_TIMING_METRICS),
                        http.ts (registerHttpMetrics: the root hooks for the request histogram, the route
                        templates and Server-Timing), request-timing.ts (RequestTiming in async context:
-                       the db and render parts of Server-Timing)
-  web/metrics/         routes.ts: GET /metrics and POST /metrics/vitals, registered only with METRICS_ENABLED
+                       the db and render parts of Server-Timing), error-tracker.ts (ErrorTracker: the
+                       Sentry client for Bugsink, scrubEvent)
+  web/metrics/         routes.ts: GET /metrics and POST /metrics/vitals, registered only with METRICS_ENABLED;
+                       client-errors.ts: POST /errors/client, only with SENTRY_DSN; beacon.ts (both beacons'
+                       text/plain JSON body)
 public/js/vitals.js    the device's timings, loaded by the layout on signed-in pages with METRICS_ENABLED
+public/js/errors.js    the pages' script errors, loaded by the layout on signed-in pages with SENTRY_DSN
 ```
 
 ## What is exported
@@ -55,3 +59,20 @@ Batches of up to 20 go out with `navigator.sendBeacon` 5 s after their first sam
 - **One registry per app, never the library's global one.** The integration specs boot many apps in one process; the global registry would refuse the second `http_request_duration_seconds`. Metrics are recorded with METRICS_ENABLED off too (a few additions a request); only exposure is gated.
 - **`@prometheus-io/client` is prom-client renamed** (the Prometheus project took it over at 0.16; `prom-client@15` is deprecated). Same API; it needs Node 22 or later. Pre-1.0: read its changelog before a minor bump, and let the contract snapshot judge it.
 - **A new label value must come from a closed set.** A route template, a `JobName`, a tool name, an outcome: never a URL, id, email or user agent. A new timer in `server.ts` wraps its run in `metrics.timeJob(<JobName>, run)`.
+
+## Error tracking (Bugsink)
+
+`SENTRY_DSN` (empty: off) points `@sentry/node` at the homelab's Bugsink (`bug.box`, Sentry-compatible; finplat reports there too). Without it `createErrorTracker` answers `DISABLED_ERROR_TRACKER`: no client, no `/errors/client`, no script on pages (byte-identical), nothing sent, and **the SDK is never loaded**: `error-tracker.ts` imports it for types only and `await import()`s it after the DSN check (Sentry plus OpenTelemetry is a large module graph to evaluate on every boot). `error-tracker.spec.ts` proves the loader is not called and that no other file names `@sentry/node`. With it: errors only (`sampleRate` 1, no tracing, sessions or client reports), `sendDefaultPii: false`, `environment` NODE_ENV, `release` the full git sha (`BUILD_INFO.sha`, `public/build.json`; `docs/deployment.md`). The pino logs stay as they were; context `ErrorTracking` logs only the tracker's own trouble (Bugsink refusing or unreachable).
+
+**One client per app, never `Sentry.init`**, like the one registry per app: a `NodeClient` and a base `Scope`, so the integration specs' apps never share one. Hence no automatic integrations: no HTTP or console breadcrumbs, no request data, no process-level handlers. Only `dedupe`, `linkedErrors` (Drizzle keeps Postgres's error in `cause`), `nodeContext` and `contextLines`. Capture through the scope (`scope.captureException`), never `client.captureException`: only the scope hands integrations the original error.
+
+**Captured at the choke points, nowhere else** (each tagged `source`):
+
+- `route`: the error handler's unexpected 500 (`createErrorHandler`, `src/web/errors.tsx`), tagged with the route template, method and user id. Never an `HttpError`, whatever its status: a 4xx is a refusal, and the owner lock's 503 is contention working as designed (what stalled the other writer fails its own request and is captured there).
+- `job`, `push`, `mcp`: the metrics' failure outcomes. `observeJob`, `countPushSend` and `observeMcpCall` take an ending (`JobEnding`, `PushEnding`, `McpEnding`), and the failure variant must carry its error, so a failure the metrics count is a failure Bugsink sees: `timeJob` (every timer in `server.ts`), the cutout queue per photo, the push sender per device, `registerTools` for an unexpected tool error.
+- `client`: `POST /errors/client`. Session-only, CSRF-checked like every POST, a body over 16 KB a 413 before it is read, `CLIENT_ERROR_LIMIT` (10 a minute per user), schema-checked (message at most 1000 characters, stack 8000, release a hex sha). A route the app does not have (`Metrics.hasRoute`) is tagged `unknown`. Forwarded as a `ClientError` with the page's own stack (Chromium's frames parse; the raw stack also goes in the `client` context). The event's release is always the server's; the page's claimed one is only the tag `page_release` (a stale cached page shows there, and no user can file events under a release of their choosing).
+- `process`: a crash of the production server. `main.ts` alone (the specs' processes boot many apps and keep Node's default) installs `createCrashHandler` on `uncaughtException`: it logs fatal, captures (tagged with the `origin`), waits up to 2 s for the send, then exits 1 as Node would, so Docker restarts the container. An unhandled rejection reaches it too: Node's default `--unhandled-rejections=throw` raises one as an uncaught exception only while no `unhandledRejection` listener exists, so there must never be one (it would swallow the crash; src/web/files/CLAUDE.md relies on the crash). A second crash during the send exits at once.
+
+`public/js/errors.js` (about 2.5 KB, a classic `defer` script, the first in the head so its listeners precede htmx and every module): `error` and `unhandledrejection`, each distinct error once per document, at most 5 per page view, the route template from Server-Timing as vitals.js reads it. Kept out of the precache (`workbox-config.js`): without a DSN no device fetches it; with one, `assets-v1` keeps it.
+
+**Scrubbing** (`scrubEvent`, the `beforeSend`): the event's `request` is dropped whole (closet never attaches one; bodies of the auth routes included), any key named like a credential (`cookie`, `authorization`, `access_token`, `password`, `token`...) is `[Filtered]`, and every string loses JWTs, `access_token=` values, personal access tokens, `Bearer` values and Drizzle's `params:` tail (what a user sent). Closet leaked session JWTs to Loki once (`docs/audits/2026-09-25-closet-stack-and-backups.md`). `test/integration/error-tracking.spec.ts` posts to a stub DSN (`test/support/sentry-stub.ts`, the real transport) and scans what was sent for the owner's cookie and JWT after a route error that echoed them.

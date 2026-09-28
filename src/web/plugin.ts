@@ -13,7 +13,9 @@ import { galleryRoutes } from './gallery/routes';
 import { insightsRoutes } from './insights/routes';
 import type { Photos } from './files/photos';
 import type { Logger } from '../logger';
+import type { ErrorTracker } from '../metrics/error-tracker';
 import type { Metrics } from '../metrics/metrics';
+import { clientErrorRoutes } from './metrics/client-errors';
 import { metricsRoutes } from './metrics/routes';
 import { outfitRoutes } from './outfits/routes';
 import { planRoutes } from './plans/routes';
@@ -86,6 +88,11 @@ export interface WebOptions {
    * into it, and with METRICS_ENABLED /metrics and the device beacon exist.
    */
   metrics: Metrics;
+  /**
+   * The error tracker (src/metrics/error-tracker.ts); with SENTRY_DSN the
+   * pages' script errors reach it through POST /errors/client.
+   */
+  errors: ErrorTracker;
 }
 
 /**
@@ -155,4 +162,6 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(shareRoutes, options);
   // METRICS_ENABLED=false: no /metrics and no beacon (src/web/metrics).
   if (options.metrics.enabled) await app.register(metricsRoutes, options);
+  // No SENTRY_DSN: no /errors/client (src/web/metrics/client-errors.ts).
+  if (options.errors.enabled) await app.register(clientErrorRoutes, options);
 };

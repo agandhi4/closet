@@ -10,6 +10,7 @@ import { CutoutQueue } from './cutout/queue';
 import { createDb, type Db, dbConfig } from './db/client';
 import { runMigrations } from './db/migrate';
 import type { Logger } from './logger';
+import { createErrorTracker, type ErrorTracker } from './metrics/error-tracker';
 import { registerHttpMetrics } from './metrics/http';
 import { Metrics } from './metrics/metrics';
 import { registerStaticAssets } from './static-assets';
@@ -65,6 +66,12 @@ export interface ClosetApp {
    * GET /metrics only with METRICS_ENABLED; server.ts times its jobs here.
    */
   metrics: Metrics;
+  /**
+   * The error tracker (src/metrics/error-tracker.ts): Bugsink with
+   * SENTRY_DSN, a no-op without. The metrics and the error handler capture
+   * through it; closing the app sends what it still holds.
+   */
+  errors: ErrorTracker;
 }
 
 export interface AppOptions {
@@ -118,9 +125,22 @@ export async function createApp(
   boot.info(
     `Metrics: ${config.METRICS_ENABLED ? 'on (GET /metrics, POST /metrics/vitals)' : 'off (METRICS_ENABLED=false)'}`,
   );
+  const errors = await createErrorTracker({
+    dsn: config.SENTRY_DSN,
+    release: BUILD_INFO.sha,
+    environment: config.NODE_ENV,
+    logger: logger.child({ context: 'ErrorTracking' }),
+  });
+  // The DSN's host only: its key is a credential of sorts.
+  boot.info(
+    errors.enabled
+      ? `Error tracking: on (${new URL(config.SENTRY_DSN).host}, release ${BUILD_INFO.commit ?? 'unknown'})`
+      : 'Error tracking: off (SENTRY_DSN unset)',
+  );
   const metrics = new Metrics({
     enabled: config.METRICS_ENABLED,
     logger: logger.child({ context: 'Metrics' }),
+    errors,
   });
 
   const database = dbConfig(config);
@@ -174,9 +194,11 @@ export async function createApp(
   });
   // The queue and the weather's background refreshes first: a job still
   // running needs the pool to record itself, a refresh to save its row.
+  // The error tracker last, so a failure on the way out is still sent.
   app.addHook('onClose', async () => {
     await Promise.all([cutouts.stop(), weather?.settled()]);
     await db.$client.end();
+    await errors.close();
   });
 
   // First of all the hooks: the request's timing (Server-Timing) must be in
@@ -217,6 +239,7 @@ export async function createApp(
     pwaEnabled: config.PWA_ENABLED,
     weatherEnabled: weather !== undefined,
     metricsEnabled: config.METRICS_ENABLED,
+    errorTrackingEnabled: errors.enabled,
   });
   // Declared up front so every request object has the same shape; the hook
   // below fills them (both stay undefined on static paths).
@@ -282,7 +305,7 @@ export async function createApp(
   );
 
   const web = logger.child({ context: 'Web' });
-  app.setErrorHandler(createErrorHandler(web));
+  app.setErrorHandler(createErrorHandler(web, errors));
   // A path no route matches is the 404 page (a static path, which has no
   // page context, gets data from the error handler instead).
   app.setNotFoundHandler((request) => {
@@ -307,9 +330,10 @@ export async function createApp(
     mcpLogger: logger.child({ context: 'Mcp' }),
     push,
     metrics,
+    errors,
   });
 
-  return { app, db, photos, cutouts, push, weather, metrics };
+  return { app, db, photos, cutouts, push, weather, metrics, errors };
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   Registry,
 } from '@prometheus-io/client';
 import type { Logger } from '../logger';
+import type { ErrorContext, ErrorTracker } from './error-tracker';
 
 /**
  * The process's Prometheus metrics (#115), read by the homelab's vmagent
@@ -24,6 +25,11 @@ import type { Logger } from '../logger';
  * Recording always happens (it is a few additions per request); only the
  * route that exposes them, the device beacon and the process's default
  * metrics are gated by METRICS_ENABLED.
+ *
+ * A failure outcome carries its error (the `*Ending` types below), which is
+ * handed to the error tracker (#117, src/metrics/error-tracker.ts): the
+ * places that record a job's, a push's or a tool's failure are the one
+ * place each of those reaches Bugsink.
  */
 
 /**
@@ -50,6 +56,19 @@ export type JobOutcome = 'success' | 'failure' | 'discarded' | 'interrupted';
 export type PushOutcome = 'delivered' | 'pruned' | 'failed';
 
 export type McpOutcome = 'ok' | 'refused' | 'error';
+
+/**
+ * How a job, a push send or a tool call ended: its outcome, and for the
+ * failure outcome the error, which the metrics hand to the error tracker.
+ * A failure without its error does not type-check.
+ */
+type Ending<Outcome extends string, Failure extends Outcome> =
+  | { outcome: Exclude<Outcome, Failure> }
+  | { outcome: Failure; error: unknown };
+
+export type JobEnding = Ending<JobOutcome, 'failure'>;
+export type PushEnding = Ending<PushOutcome, 'failed'>;
+export type McpEnding = Ending<McpOutcome, 'error'>;
 
 /** Where a device's timing came from (public/js/vitals.js). */
 export const CLIENT_TIMING_KINDS = ['full', 'htmx', 'restore'] as const;
@@ -91,6 +110,8 @@ export interface MetricsOptions {
   /** METRICS_ENABLED: adds the process's default metrics (CPU, memory, event loop). */
   enabled: boolean;
   logger: Logger;
+  /** Where failures go (DISABLED_ERROR_TRACKER without SENTRY_DSN). */
+  errors: ErrorTracker;
 }
 
 export class Metrics {
@@ -109,10 +130,12 @@ export class Metrics {
   // only values a device may name as its route.
   private readonly routeTemplates = new Set<string>();
   private readonly logger: Logger;
+  private readonly errors: ErrorTracker;
 
-  constructor({ enabled, logger }: MetricsOptions) {
+  constructor({ enabled, logger, errors }: MetricsOptions) {
     this.enabled = enabled;
     this.logger = logger;
+    this.errors = errors;
     const registers = [this.registry];
     this.httpDuration = new Histogram({
       name: 'http_request_duration_seconds',
@@ -162,6 +185,11 @@ export class Metrics {
     this.routeTemplates.add(template);
   }
 
+  /** A route template of this app: the only route a device may name. */
+  hasRoute(template: string): boolean {
+    return this.routeTemplates.has(template);
+  }
+
   observeRequest(
     route: string,
     method: string,
@@ -174,14 +202,15 @@ export class Metrics {
     );
   }
 
-  observeJob(name: JobName, outcome: JobOutcome, seconds: number): void {
-    this.jobDuration.observe({ name, outcome }, seconds);
+  observeJob(name: JobName, ending: JobEnding, seconds: number): void {
+    this.jobDuration.observe({ name, outcome: ending.outcome }, seconds);
+    this.capture(ending, { source: 'job', tags: { job: name } });
   }
 
   /**
    * A scheduled job's `run`, timed under `name` (server.ts wraps every timer
-   * it starts): `success`, or `failure` when it throws (rethrown, for the
-   * scheduler to log).
+   * it starts): `success`, or `failure` when it throws (captured, and
+   * rethrown for the scheduler to log).
    */
   timeJob<A extends unknown[], T>(
     name: JobName,
@@ -189,23 +218,34 @@ export class Metrics {
   ): (...args: A) => Promise<T> {
     return async (...args) => {
       const started = performance.now();
-      let outcome: JobOutcome = 'failure';
+      const seconds = () => (performance.now() - started) / 1000;
+      let result: T;
       try {
-        const result = await run(...args);
-        outcome = 'success';
-        return result;
-      } finally {
-        this.observeJob(name, outcome, (performance.now() - started) / 1000);
+        result = await run(...args);
+      } catch (error) {
+        this.observeJob(name, { outcome: 'failure', error }, seconds());
+        throw error;
       }
+      this.observeJob(name, { outcome: 'success' }, seconds());
+      return result;
     };
   }
 
-  countPushSend(outcome: PushOutcome): void {
-    this.pushSends.inc({ outcome });
+  countPushSend(ending: PushEnding): void {
+    this.pushSends.inc({ outcome: ending.outcome });
+    this.capture(ending, { source: 'push' });
   }
 
-  observeMcpCall(tool: string, outcome: McpOutcome, seconds: number): void {
-    this.mcpCalls.observe({ tool, outcome }, seconds);
+  observeMcpCall(tool: string, ending: McpEnding, seconds: number): void {
+    this.mcpCalls.observe({ tool, outcome: ending.outcome }, seconds);
+    this.capture(ending, { source: 'mcp', tags: { tool } });
+  }
+
+  private capture(
+    ending: JobEnding | PushEnding | McpEnding,
+    context: ErrorContext,
+  ): void {
+    if ('error' in ending) this.errors.captureException(ending.error, context);
   }
 
   /**
@@ -237,7 +277,7 @@ export class Metrics {
    * Returns whether it was recorded.
    */
   observeClientTiming(sample: ClientTimingSample): boolean {
-    if (!this.routeTemplates.has(sample.route)) {
+    if (!this.hasRoute(sample.route)) {
       this.clientDropped.inc({ reason: 'unknown_route' });
       return false;
     }

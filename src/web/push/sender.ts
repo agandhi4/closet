@@ -2,7 +2,7 @@ import { isPushServiceEndpoint } from './endpoint';
 import webpush from 'web-push';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
-import type { Metrics } from '../../metrics/metrics';
+import type { Metrics, PushEnding } from '../../metrics/metrics';
 import type { PushPayload } from './payload';
 import { deleteDeviceById, type DeviceRow, devicesOf } from './queries';
 
@@ -54,8 +54,6 @@ export interface PushSender {
   ): Promise<SendReport>;
 }
 
-type Outcome = 'delivered' | 'pruned' | 'failed';
-
 // The push service no longer knows the subscription: the browser dropped it,
 // the user revoked permission, or it expired. It will never work again.
 const GONE_STATUSES = new Set([404, 410]);
@@ -72,12 +70,15 @@ const ERROR_BODY_LOG_LIMIT = 200;
  *
  * Endpoints are capability URLs: logs name a device by its row id, never
  * by endpoint (a WebPushError carries the endpoint; it is not logged whole).
+ * A failed send's error goes to the error tracker through the metrics; the
+ * tracker sends an error's name, message and stack, never its other
+ * properties (the endpoint, the push service's headers).
  */
 export function createPushSender(options: {
   db: Db;
   logger: Logger;
   vapid: VapidConfig;
-  /** Every device's outcome, as push_sends_total{outcome}. */
+  /** Every device's outcome, as push_sends_total{outcome}; a failure's error to the error tracker. */
   metrics: Metrics;
 }): PushSender {
   const { db, logger, vapid, metrics } = options;
@@ -94,7 +95,7 @@ export function createPushSender(options: {
     device: DeviceRow,
     body: string,
     { ttlSeconds }: SendOptions,
-  ): Promise<Outcome> {
+  ): Promise<PushEnding> {
     // Never connect to an endpoint outside the push services (SSRF), even one
     // stored before subscribe checked it: drop the row instead.
     if (!isPushServiceEndpoint(device.pushEndpoint)) {
@@ -102,7 +103,7 @@ export function createPushSender(options: {
       logger.warn(
         `Push device ${device.id} of user ${userId} is not on a push service; removed unsent`,
       );
-      return 'pruned';
+      return { outcome: 'pruned' };
     }
     try {
       await webpush.sendNotification(
@@ -118,7 +119,7 @@ export function createPushSender(options: {
           timeout: REQUEST_TIMEOUT_MS,
         },
       );
-      return 'delivered';
+      return { outcome: 'delivered' };
     } catch (error) {
       if (
         error instanceof webpush.WebPushError &&
@@ -128,12 +129,12 @@ export function createPushSender(options: {
         logger.info(
           `Push device ${device.id} of user ${userId} is gone (${error.statusCode}); removed`,
         );
-        return 'pruned';
+        return { outcome: 'pruned' };
       }
       logger.warn(
         `Push to device ${device.id} of user ${userId} failed: ${describeFailure(error)}`,
       );
-      return 'failed';
+      return { outcome: 'failed', error };
     }
   }
 
@@ -155,13 +156,13 @@ export function createPushSender(options: {
     };
     settled.forEach((result, index) => {
       if (result.status === 'fulfilled') {
-        report[result.value] += 1;
+        report[result.value.outcome] += 1;
         metrics.countPushSend(result.value);
         return;
       }
       // Only the prune can get here (a database error deleting the row).
       report.failed += 1;
-      metrics.countPushSend('failed');
+      metrics.countPushSend({ outcome: 'failed', error: result.reason });
       logger.error(
         { err: result.reason },
         `Push to device ${devices[index].id} of user ${userId}: could not remove the gone device`,

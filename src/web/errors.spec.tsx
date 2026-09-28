@@ -1,6 +1,10 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { captureLogs, type LogCapture } from '../../test/support/log-capture';
+import {
+  recordErrors,
+  type RecordedErrors,
+} from '../../test/support/sentry-stub';
 import { createErrorHandler, HttpError } from './errors';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
@@ -21,6 +25,8 @@ const ctx: ViewContext = {
   pwaEnabled: false,
   weatherEnabled: false,
   metricsEnabled: false,
+  errorTrackingEnabled: false,
+  buildSha: undefined,
   appVersion: '1.0.0+test',
   appRelease: '1.0.0',
   canonicalUrl: 'http://localhost/boom',
@@ -32,11 +38,13 @@ const ctx: ViewContext = {
 describe('createErrorHandler', () => {
   let app: FastifyInstance;
   let logs: LogCapture;
+  let errors: RecordedErrors;
   let secondRender: unknown;
 
   beforeEach(async () => {
     const captured = captureLogs();
     logs = captured.logs;
+    errors = recordErrors();
     app = Fastify();
     // What the root preValidation hook in app.ts does for every non-static
     // request.
@@ -44,7 +52,7 @@ describe('createErrorHandler', () => {
     app.addHook('preValidation', async (request, reply) => {
       if (request.url !== '/static') reply.locals = ctx;
     });
-    app.setErrorHandler(createErrorHandler(captured.logger));
+    app.setErrorHandler(createErrorHandler(captured.logger, errors.tracker));
     app.get('/missing', () => {
       throw new HttpError(404);
     });
@@ -149,6 +157,26 @@ describe('createErrorHandler', () => {
       'GET /busy -> 503: Try again in a moment. (owner 7)',
     ]);
     expect(logs.records.some((record) => record.level === 'error')).toBe(false);
+  });
+
+  // #117: the error tracker gets crashes, never an answer the code chose.
+  // The owner lock's 503 is contention working as designed (errors.tsx).
+  it('sends only the unexpected 500 to the error tracker', async () => {
+    for (const url of ['/missing', '/busy', '/too-large']) {
+      await app.inject({ method: 'GET', url });
+    }
+    await app.inject({ method: 'POST', url: '/validated', payload: {} });
+    expect(errors.exceptions).toEqual([]);
+
+    await app.inject({ method: 'GET', url: '/boom' });
+    expect(errors.exceptions).toHaveLength(1);
+    const [{ error, context }] = errors.exceptions;
+    expect((error as Error).message).toBe('connection refused at 10.0.0.5');
+    expect(context).toEqual({
+      source: 'route',
+      tags: { route: '/boom', method: 'GET' },
+      userId: undefined,
+    });
   });
 
   it('hides the detail of anything else behind a 500, logged with its stack', async () => {

@@ -3,20 +3,22 @@ import fs from 'fs';
 import path from 'path';
 
 // Build step (`npm run generate:build-info`, part of `npm run build`).
-// Writes public/build.json, which src/build-info.ts folds into the `?v=`
-// cache key on every first-party static URL (see src/web/layout/layout.tsx). The key
-// must change on every deploy because /modules, /js, /vendor, /assets and
-// bundle.css are served immutable for a year: package.json version plus the commit when
-// one can be resolved, otherwise the build timestamp still makes it unique.
+// Writes public/build.json, which src/build-info.ts reads for two things:
+// the `?v=` cache key on every first-party static URL (see
+// src/web/layout/layout.tsx), which must change on every deploy because
+// /modules, /js, /vendor, /assets and bundle.css are served immutable for a
+// year (package.json version plus the short commit when one can be
+// resolved, otherwise the build timestamp still makes it unique); and the
+// error tracker's release, the full commit sha (src/metrics/error-tracker.ts).
 const OUT_PATH = path.join(__dirname, '..', 'public', 'build.json');
 
 function resolveCommit(): string | undefined {
   // CI and Docker builds have no .git; the CI publish job passes GIT_SHA as a
   // build-arg (see docker/Dockerfile).
   const fromEnv = process.env.GIT_SHA ?? process.env.GITHUB_SHA;
-  if (fromEnv) return fromEnv.slice(0, 7);
+  if (fromEnv) return fromEnv;
   try {
-    return execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: path.join(__dirname, '..'),
       stdio: ['ignore', 'pipe', 'ignore'],
     })

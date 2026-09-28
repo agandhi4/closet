@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
+import { DISABLED_ERROR_TRACKER } from './error-tracker';
 import { verifyPassword } from '../web/auth/passwords';
 import { registerHttpMetrics } from './http';
 import { Metrics } from './metrics';
@@ -14,7 +15,11 @@ describe('registerHttpMetrics, Server-Timing', () => {
   beforeAll(async () => {
     registerHttpMetrics(
       app,
-      new Metrics({ enabled: false, logger: captureLogs().logger }),
+      new Metrics({
+        enabled: false,
+        logger: captureLogs().logger,
+        errors: DISABLED_ERROR_TRACKER,
+      }),
     );
     app.post<{ Body: { password: string } }>(
       '/reset-password',

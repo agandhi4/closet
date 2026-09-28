@@ -31,8 +31,11 @@ CLOSET_WEB_NETWORK=linuxbox_web
 TRUSTED_PROXIES=172.23.0.0/16      # linuxbox_web: Caddy is the edge here, so X-Forwarded-For is the real client
 CLOSET_MODELS_DIR=/srv/docker/closet/models
 METRICS_ENABLED=true               # GET /metrics for vmagent on the Docker network (homelab #39); src/metrics/CLAUDE.md
+SENTRY_DSN=http://<key>@bug.box/<project id>   # Bugsink's closet project (#117); unset or empty: error tracking off
 # APP_TIMEZONE defaults to America/New_York in the compose file
 ```
+
+**Error tracking.** `SENTRY_DSN` is the DSN of closet's project in the homelab's Bugsink (`bug.box`, the one finplat reports to; Bugsink shows it on the project's page). The container must reach that name: the boot log says `Error tracking: on (bug.box, release <sha7>)`, and a `Could not send an event to Bugsink` warning (context `ErrorTracking`) means it cannot. Each event's `release` is the image's full git sha: CI's `publish` job passes `GIT_SHA=${{ github.sha }}` as a build-arg, the builder stage's `npm run build` writes it into `public/build.json` (`scripts/write-build-info.ts`), and the image ships that file (`src/build-info.ts` reads it as `BUILD_INFO.sha`). No runtime variable carries it, so the pages' beacon and the server report the same release, the one the `sha-<7>` tag names. A local `npm run build` uses `git rev-parse HEAD`; without `build.json` (`start:dev`, the tests) events have no release. What is captured and how it is scrubbed: `src/metrics/CLAUDE.md`, Error tracking.
 
 **Trusted proxies.** `TRUSTED_PROXIES` must include the address Caddy connects from (Request security). Check with the boot log line `Trusted proxies: ...` and a rate-limit hit's `for <ip>` warning: it must name the client, not Caddy.
 
