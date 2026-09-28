@@ -50,6 +50,26 @@ export class LogCapture {
       .join('\n');
   }
 
+  /**
+   * The lines at `minLevel` and above written since `mark` (a
+   * `records.length` read before the work), each with its error's stack:
+   * for a failure message that has to name the server-side cause.
+   */
+  describeFrom(mark: number, minLevel: string): string {
+    const floor = pino.levels.values[minLevel];
+    const lines = this.records
+      .slice(mark)
+      .filter((record) => pino.levels.values[record.level] >= floor)
+      .map((record) =>
+        [`${record.level}: ${record.msg}`, record.err?.stack]
+          .filter(Boolean)
+          .join('\n'),
+      );
+    return lines.length === 0
+      ? `nothing logged at ${minLevel} or above`
+      : `the app logged:\n${lines.join('\n')}`;
+  }
+
   clear(): void {
     this.records.length = 0;
   }

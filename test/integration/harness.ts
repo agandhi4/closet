@@ -294,42 +294,41 @@ export async function createTestApp(
     }
     return app.inject({ ...options, headers });
   };
-  const sessionFrom = (res: LightMyRequestResponse, action: string) => {
+  // A sign-in that set no session names what the app logged at warn and
+  // above while it ran: a setup 500 otherwise says only its status, and the
+  // cause sits in t.logs, which no spec prints once createTestApp throws
+  // (#249).
+  const signIn = async (action: string, request: TestInjectOptions) => {
+    const mark = logs.records.length;
+    const res = await inject({
+      method: 'POST',
+      headers: uniqueClient(),
+      anonymous: true,
+      ...request,
+    });
     const token = res.cookies.find((c) => c.name === 'access_token');
     if (!token) {
+      const serverSide = options.appLog
+        ? 'the app logged to stdout and app.log (appLog)'
+        : logs.describeFrom(mark, 'warn');
       throw new Error(
-        `${action} did not set access_token (status ${res.statusCode})`,
+        `${action} did not set access_token (status ${res.statusCode}); ${serverSide}`,
       );
     }
     return `access_token=${token.value}`;
   };
 
-  const login = async (email: string, password = TEST_PASSWORD) =>
-    sessionFrom(
-      await inject({
-        method: 'POST',
-        url: '/auth/login',
-        payload: { email, password },
-        headers: uniqueClient(),
-        anonymous: true,
-      }),
-      'login',
-    );
+  const login = (email: string, password = TEST_PASSWORD) =>
+    signIn('login', { url: '/auth/login', payload: { email, password } });
   const register = async (email: string, password = TEST_PASSWORD) => {
     if (config.DISABLE_REGISTRATION) {
       await insertUser(db, email, await hashPassword(password));
       return login(email, password);
     }
-    return sessionFrom(
-      await inject({
-        method: 'POST',
-        url: '/auth/register',
-        payload: { email, password, confirmPassword: password },
-        headers: uniqueClient(),
-        anonymous: true,
-      }),
-      'register',
-    );
+    return signIn('register', {
+      url: '/auth/register',
+      payload: { email, password, confirmPassword: password },
+    });
   };
 
   try {

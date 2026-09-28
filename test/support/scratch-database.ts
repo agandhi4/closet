@@ -20,24 +20,47 @@ export interface ScratchDatabase {
 // localhost:5432 with trust auth.
 const LOCAL_ADMIN_URL = 'postgres://postgres@localhost:5432/postgres';
 
+function adminUrl(): string {
+  return process.env.TEST_DATABASE_URL ?? LOCAL_ADMIN_URL;
+}
+
+async function withAdmin<T>(work: (client: Client) => Promise<T>): Promise<T> {
+  const client = new Client({ connectionString: adminUrl() });
+  await client.connect();
+  try {
+    return await work(client);
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * The server's clock, in ms: the one both ends of a scratch database's age
+ * are read from. Never the process's Date.now(): a spec that fakes Date into
+ * the past before createTestApp (recap.spec.ts pins yesterday) would name
+ * its live database over an hour old, and another run's sweep dropped it
+ * while no connection was open, between the boot's migrations and the
+ * owner's registration (#249: "register did not set access_token (status
+ * 500)", the insert failing with "database ... does not exist").
+ */
+async function serverNowMs(client: Client): Promise<number> {
+  const { rows } = await client.query<{ ms: number }>(
+    'select extract(epoch from clock_timestamp())::float8 * 1000 as ms',
+  );
+  return rows[0].ms;
+}
+
 export async function createScratchDatabase(
   prefix: string,
 ): Promise<ScratchDatabase> {
-  const adminUrl = process.env.TEST_DATABASE_URL ?? LOCAL_ADMIN_URL;
-  const url = new URL(adminUrl);
-  const name = scratchDatabaseName(prefix, Date.now());
-  const run = async (sql: string) => {
-    const client = new Client({ connectionString: adminUrl });
-    await client.connect();
-    try {
-      await client.query(sql);
-    } finally {
-      await client.end();
-    }
-  };
-
+  const url = new URL(adminUrl());
+  let name: string;
   try {
-    await run(`create database "${name}"`);
+    name = await withAdmin(async (client) => {
+      const created = scratchDatabaseName(prefix, await serverNowMs(client));
+      await client.query(`create database "${created}"`);
+      return created;
+    });
   } catch (error) {
     throw new Error(
       `Cannot create a scratch database on ${url.host}. Start pgvault-dev, ` +
@@ -55,7 +78,10 @@ export async function createScratchDatabase(
       DATABASE_SSL: 'false',
     },
     // FORCE (Postgres 13+) closes any connection the app has not released.
-    drop: () => run(`drop database if exists "${name}" with (force)`),
+    drop: () =>
+      withAdmin(async (client) => {
+        await client.query(`drop database if exists "${name}" with (force)`);
+      }),
   };
 }
 
@@ -80,18 +106,16 @@ export function scratchDatabaseCreatedAt(name: string): number | undefined {
 
 /**
  * Drops scratch databases left behind by killed runs: named by
- * scratchDatabaseName, older than `maxAgeMs`, and with no open connection.
- * Never WITH (FORCE): a database someone is still using stays. Names from
- * before the timestamp (no age to read) are left alone.
+ * scratchDatabaseName, older than `maxAgeMs` by the server's clock (as
+ * createScratchDatabase named them; see serverNowMs), and with no open
+ * connection. Never WITH (FORCE): a database someone is still using stays.
+ * Names from before the timestamp (no age to read) are left alone.
  */
 export async function sweepStaleScratchDatabases(
-  nowMs: number,
   maxAgeMs = 60 * 60 * 1000,
 ): Promise<string[]> {
-  const adminUrl = process.env.TEST_DATABASE_URL ?? LOCAL_ADMIN_URL;
-  const client = new Client({ connectionString: adminUrl });
-  await client.connect();
-  try {
+  return withAdmin(async (client) => {
+    const nowMs = await serverNowMs(client);
     const { rows } = await client.query<{ datname: string }>(
       `select datname from pg_database d
         where datname ~ '^closet_(it|audit)_'
@@ -107,7 +131,5 @@ export async function sweepStaleScratchDatabases(
       await client.query(`drop database if exists "${name}"`);
     }
     return stale;
-  } finally {
-    await client.end();
-  }
+  });
 }

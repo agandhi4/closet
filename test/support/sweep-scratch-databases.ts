@@ -8,7 +8,7 @@ import { sweepStaleScratchDatabases } from './scratch-database';
  */
 export default async function setup(): Promise<void> {
   try {
-    const dropped = await sweepStaleScratchDatabases(Date.now());
+    const dropped = await sweepStaleScratchDatabases();
     if (dropped.length > 0) {
       console.log(`Dropped ${dropped.length} stale scratch database(s)`);
     }

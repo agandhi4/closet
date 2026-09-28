@@ -1,0 +1,21 @@
+# Integration tests: the harness, scratch databases, the authorization matrix
+
+The Vitest integration tier (`test/integration/`) boots the real app in-process
+on a scratch Postgres database per spec file and drives it through
+`app.inject()`. The tiers, layout and other test gotchas are in
+`test/CLAUDE.md`. These rules apply when you change the harness, the scratch
+databases or the authorization matrix.
+
+## The harness
+
+- **The integration harness configures the app explicitly.** `createTestApp(overrides)` builds `Config` with `loadConfig({ env: { ...BASE_ENV, ...database, DATA_PATH, ...overrides }, envFiles: [] })`: neither the process environment nor `.env.local` reaches a spec, and different overrides in one file are fine. Its logger writes JSON lines into `t.logs` (LOG_LEVEL `debug`, nothing on the console); `{ appLog: true }` gives the real stdout + `app.log` outputs instead (file-route.spec.ts reads app.log). Vitest runs every file in its own child process (the default `forks` pool with `isolate`), which keeps one file's app, rate-limit counters and mocks out of the next: never set `isolate: false` or `pool: 'threads'` on the integration project.
+- **The integration harness is signed in by default.** `createTestApp` registers `owner@example.com` at boot and `t.inject` sends that session (`t.owner.cookie`) unless the request has its own `cookie` header or passes `anonymous: true`. A test about signed-out behavior must say `anonymous: true`; one that forgets asserts on the owner's view.
+
+## Scratch databases
+
+- **Scratch databases are named with their creation time** (`closet_it_<base36 seconds>_<hex>`). A killed test run (`npm run check` stops the tests when another check fails) never drops its databases; the integration project's globalSetup (`test/support/sweep-scratch-databases.ts`) drops idle ones older than an hour, never with FORCE, and leaves names it cannot date. **Both the name's time and the sweep's "now" are the Postgres server's clock**, never `Date.now()`: specs that fake Date to yesterday before `createTestApp` named a live database over an hour old, and another run's sweep dropped it between boot and the owner's registration (#249). A harness sign-in that sets no session throws with what the app logged at warn and above.
+
+## The authorization matrix
+
+- **The authorization matrix is split by route group so Vitest spreads it** (#113): each `authorization-<group>.spec.ts` hands its `ROUTES` to `describeMatrix` (`authorization-matrix.ts`), which boots its own app and fixture. A case compares one statement's md5 per table (and the stored file names) before and after the request, and fetches rows only to explain a difference; a clone's success alone compares every row. A new table a wardrobe request may write joins `TABLES` there, and a new route joins its group's file. A route that exists only behind a flag says `feature: 'weather' | 'orderMail'`, and its group's app boots with that feature on against its stand-in (`featureApp`).
+- **A route that takes an id fails CI until the matrix requests it or it is exempt** (`authorization-coverage.spec.ts`, #182). The spec boots the app with every optional feature on and collects its routes with an `onRoute` hook (it mocks `fastify` so the hook is on the instance before `createApp` registers anything; a hook added after boot sees nothing). An id route is one with a path parameter or wildcard, or a querystring or body schema with `ownerId`. It loads every `authorization-<group>.spec.ts` through `collectMatrix` (describeMatrix records the routes instead of describing them), evaluates each case's request on a stand-in fixture (`ADDRESS`), and resolves the URL with Fastify's own router over the app's templates. A route whose querystring takes `ownerId` must also be requested with it (the `ownerId` via). HEAD routes Fastify adds beside a GET count as the GET. The fix for a failure is a matrix case in the route's group. Only a route that needs none goes on `EXEMPT`, keyed `METHOD /template`, with its reason: public by design (a capability URL, whose token is the credential), or `covered by <spec> "<test name>"` when another spec owns its authorization. An exemption that goes stale (the route is gone, takes no id or has joined the matrix) fails too. A new `Fixture` field needs a stand-in value in `ADDRESS`, which typecheck enforces.
