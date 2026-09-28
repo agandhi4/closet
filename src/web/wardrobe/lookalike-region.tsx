@@ -3,7 +3,8 @@ import { PostForm } from '../auth/form';
 import { t } from '../i18n';
 import { GarmentThumb } from '../layout/parts';
 import { categoryLabel } from './garment';
-import { type ClosetLookalike, dismissedValue } from './lookalikes';
+import type { ClosetLookalike } from './lookalikes';
+import { idListValue } from './validation';
 import { garmentUrl, wardrobeUrl } from './urls';
 
 /**
@@ -69,7 +70,7 @@ export function LookalikesContent({ panel }: { panel: LookalikesPanel }) {
       <input
         type="hidden"
         name="lookalikesDismissed"
-        value={dismissedValue(dismissed)}
+        value={idListValue(dismissed)}
       />
       {matches.length > 0 && (
         <div
@@ -91,7 +92,7 @@ export function LookalikesContent({ panel }: { panel: LookalikesPanel }) {
             hx-include="closest form"
             hx-params={LOOKALIKE_PARAMS}
             hx-vals={JSON.stringify({
-              lookalikesDismissed: dismissedValue([
+              lookalikesDismissed: idListValue([
                 ...dismissed,
                 ...matches.map((match) => match.id),
               ]),

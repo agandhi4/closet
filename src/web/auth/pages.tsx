@@ -5,6 +5,7 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { ProfileSection } from '../layout/parts';
+import { wardrobeExportPath } from '../page-cache';
 import { STYLE_PROFILE_PATH } from '../plans/urls';
 import {
   PUSH_SETTINGS_ID,
@@ -29,6 +30,7 @@ import type { TokenListing } from './personal-tokens';
 import {
   ACCOUNT_SECTION_ID,
   AGENT_ACCESS_SECTION_ID,
+  EXPORT_SECTION_ID,
   profileSection,
   SIGN_OUT_SECTION_ID,
   STYLE_SECTION_ID,
@@ -255,6 +257,7 @@ export function ProfilePage(props: ProfileProps) {
     { id: WEEK_SETTINGS_ID, label: t('weekPlan.template.HEADING') },
     { id: STYLE_SECTION_ID, label: t('style.TITLE') },
     { id: SIZES_SECTION_ID, label: t('sizes.TITLE') },
+    { id: EXPORT_SECTION_ID, label: t('profile.EXPORT') },
     { id: AGENT_ACCESS_SECTION_ID, label: t('agentAccess.TITLE') },
     { id: SIGN_OUT_SECTION_ID, label: t('profile.SIGN_OUT') },
   ];
@@ -292,6 +295,7 @@ export function ProfilePage(props: ProfileProps) {
           </a>
         </ProfileSection>
         <SizesSection {...props.sizes} />
+        <ExportSection />
         <AgentAccessSection tokens={props.tokens} />
         <ProfileSection
           id={SIGN_OUT_SECTION_ID}
@@ -306,6 +310,41 @@ export function ProfilePage(props: ProfileProps) {
       </main>
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * Profile › Export (#200): the requester's own wardrobe as a file. Plain
+ * downloads: not boosted (htmx would fetch the file as a page) and never
+ * the service worker's (bypassesWorker). Each at least 44 px tall (WCAG
+ * 2.5.5, the app's touch target): daisyUI's default button is 40 px at this
+ * theme's field size, so `min-h-11` lifts it without btn-lg's larger type.
+ */
+function ExportSection() {
+  return (
+    <ProfileSection id={EXPORT_SECTION_ID} heading={t('profile.EXPORT')}>
+      <p class="text-sm text-muted">{t('profile.EXPORT_HINT')}</p>
+      <div class="flex flex-wrap gap-2">
+        <a
+          href={wardrobeExportPath('csv')}
+          download=""
+          hx-boost="false"
+          class="btn min-h-11 flex-1"
+          data-export="csv"
+        >
+          {t('profile.EXPORT_CSV')}
+        </a>
+        <a
+          href={wardrobeExportPath('json')}
+          download=""
+          hx-boost="false"
+          class="btn min-h-11 flex-1"
+          data-export="json"
+        >
+          {t('profile.EXPORT_JSON')}
+        </a>
+      </div>
+    </ProfileSection>
   );
 }
 

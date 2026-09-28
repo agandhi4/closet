@@ -46,14 +46,31 @@ export function endedSession(headers: { has(name: string): boolean }): boolean {
 /** The MCP endpoint's path (src/web/mcp): an API for programs, never a page. */
 export const MCP_PATH = '/mcp';
 
+/** The wardrobe export's downloads (src/web/wardrobe/export-routes.ts, #200). */
+export function wardrobeExportPath(format: 'csv' | 'json'): string {
+  return `/wardrobe/export.${format}`;
+}
+
+const EXPORT_PATHS: ReadonlySet<string> = new Set([
+  wardrobeExportPath('csv'),
+  wardrobeExportPath('json'),
+]);
+
 /**
  * Requests no worker route matches, so the worker neither answers nor
- * caches them: the MCP endpoint. Programs call it, not the app (and they
- * have no worker), but a browser tab opened on it must reach the server as
- * it is and never land in the page cache.
+ * caches them: the MCP endpoint, and the wardrobe export. Programs call
+ * MCP, not the app (and they have no worker), but a browser tab opened on
+ * it must reach the server as it is and never land in the page cache. An
+ * export is a download the browser navigates to: as a page it would be
+ * stored in the page cache (a whole wardrobe per copy) and answered from
+ * there offline, stale.
  */
 export function bypassesWorker(url: { pathname: string }): boolean {
-  return url.pathname === MCP_PATH || url.pathname.startsWith(`${MCP_PATH}/`);
+  return (
+    url.pathname === MCP_PATH ||
+    url.pathname.startsWith(`${MCP_PATH}/`) ||
+    EXPORT_PATHS.has(url.pathname)
+  );
 }
 
 /**

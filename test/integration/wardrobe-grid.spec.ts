@@ -147,12 +147,12 @@ describe('wardrobe grid', () => {
     const record = await recordQueries(() => get('/wardrobe'));
     // Session, then page, count, filter values, shared wardrobes, the
     // "need details" count (tagging mode's prompt), the "need a wash" count
-    // (the laundry prompt, the owner's own) and the capsules (the filter's
-    // choices; none here) in parallel. None of them returns more rows than
-    // a page and its lists.
-    expect(record.statements).toBe(8);
+    // (the laundry prompt, the owner's own), the capsules (the filter's
+    // choices; none here) and the drafts waiting (#200: one row at most) in
+    // parallel. None of them returns more rows than a page and its lists.
+    expect(record.statements).toBe(9);
     expect(record.rows).toBeLessThanOrEqual(
-      1 + (GRID_PAGE_SIZE + 1) + 1 + 1 + 1 + 1,
+      1 + (GRID_PAGE_SIZE + 1) + 1 + 1 + 1 + 1 + 1,
     );
   });
 

@@ -16,6 +16,7 @@ import {
   timestamp,
   unique,
   uniqueIndex,
+  uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
 import { CUTOUT_STATUSES } from '../cutout/state';
@@ -372,12 +373,14 @@ export const file = pgTable(
   ],
 );
 
-// A link import's photo stored before its garment form is saved (bytes
-// only, no `file` row): bound to the user who fetched it, who alone may
-// claim or discard it, and at most MAX_PENDING_PER_USER of them per user.
-// The save deletes the row with the `file` row's insert; reconciliation
-// removes day-old ones with their bytes, outside its deletion guard
-// (src/web/files/pending-photos.ts, src/maintenance/reconcile.ts).
+// A photo stored before its garment form is saved (bytes only, no `file`
+// row: a link import's, the add sheet's upload, a draft of a multi-photo
+// batch): bound to the user who stored it, who alone may claim or discard
+// it. Unbatched ones are capped at MAX_PENDING_PER_USER a user (the oldest
+// evicted), batched drafts at MAX_DRAFTS_PER_USER (refused past it, never
+// evicted). The save deletes the row with the `file` row's insert;
+// reconciliation removes day-old ones with their bytes, outside its
+// deletion guard (src/web/files/pending-photos.ts, src/maintenance/reconcile.ts).
 export const pendingPhoto = pgTable(
   'pending_photo',
   {
@@ -386,12 +389,25 @@ export const pendingPhoto = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    // A draft of a multi-photo upload (#200): the upload, and the photo's
+    // place in it (the queue's order: a batch's rows share created_at).
+    batchId: uuid('batch_id'),
+    batchPosition: smallint('batch_position'),
+    // The wardrobe a draft adds to (a grantee's may be a shared one): where
+    // its queue resumes. Null once that wardrobe is gone; the draft then
+    // waits for reconciliation like any pending photo.
+    batchOwnerId: integer('batch_owner_id'),
   },
   (table) => [
     // The per-user cap's oldest-first eviction; also the foreign key's.
     index('pending_photo_user_id_created_at_index').on(
       table.userId,
       table.createdAt,
+    ),
+    index('pending_photo_batch_owner_id_index').on(table.batchOwnerId),
+    check(
+      'pending_photo_batch_check',
+      sql`(${table.batchId} is null) = (${table.batchPosition} is null)`,
     ),
     foreignKey({
       name: 'pending_photo_user_id_foreign',
@@ -400,6 +416,13 @@ export const pendingPhoto = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
+    foreignKey({
+      name: 'pending_photo_batch_owner_id_foreign',
+      columns: [table.batchOwnerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
   ],
 );
 

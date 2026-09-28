@@ -1,3 +1,5 @@
+import { idListValue } from './validation';
+
 /**
  * The wardrobe's links, its capsules' included. `viewOwner` is the shared
  * wardrobe a page shows (undefined for the requester's own); every link and
@@ -15,6 +17,43 @@ export const LINK_PHOTO_PATH = `${LINK_IMPORT_PATH}/photo`;
  * pending photo, then the new garment form opens with it.
  */
 export const PHOTO_ADD_PATH = '/wardrobe/new/photo';
+
+/** Discarding a draft of a multi-photo batch (#200); the queue moves on. */
+export const DRAFT_DISCARD_PATH = '/wardrobe/new/drafts/discard';
+
+/**
+ * A draft of a batch on the new garment form (#200): `saved` is the
+ * garments its batch saved so far, and `leftOut` the photos its upload
+ * could not read (the first draft only).
+ */
+export function draftUrl(
+  viewOwner: number | undefined,
+  photo: string,
+  saved: readonly number[],
+  leftOut: readonly string[] = [],
+): string {
+  const url = wardrobeUrl(
+    viewOwner,
+    { photo, saved: idListValue(saved) },
+    '/wardrobe/new',
+  );
+  if (leftOut.length === 0) return url;
+  const names = new URLSearchParams(
+    leftOut.map((name) => ['leftOut', name.slice(0, 255)]),
+  );
+  return `${url}&${names.toString()}`;
+}
+
+/**
+ * Where a batch's queue ends (#200): select mode with the garments it
+ * saved checked, so "Set…" tags them together.
+ */
+export function batchDoneUrl(
+  viewOwner: number | undefined,
+  saved: readonly number[],
+): string {
+  return wardrobeUrl(viewOwner, { select: '1', checked: idListValue(saved) });
+}
 
 /** Tagging mode (tag-page.tsx): one card at a time, from the newest. */
 export const TAG_PATH = '/wardrobe/tag';

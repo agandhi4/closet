@@ -2,6 +2,7 @@ import { type Static, Type } from '@sinclair/typebox';
 import type { FieldErrors } from '../auth/validation';
 import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
 import { t } from '../i18n';
+import { MAX_DRAFTS_PER_USER } from '../files/pending-photos';
 import { RowId } from '../schemas';
 import {
   NEVER_WASH,
@@ -81,14 +82,37 @@ const PRESET_MATERIALS_MAX = 400;
 export const ColorValue = Type.String({ maxLength: 40 });
 
 /**
- * The duplicate check's "Not the same" ids, comma-joined (#20,
- * lookalikes.ts: readDismissed drops anything malformed). A form grows it
+ * Garment ids a page carries as navigation state, joined by commas: the
+ * duplicate check's "Not the same" list (#20) and the draft queue's saved
+ * garments (#200). The page wrote it, so anything malformed is dropped,
+ * never a 400, and an id outside the addressed wardrobe matches nothing.
+ */
+export function readIdList(value: string | undefined): number[] {
+  return (value ?? '')
+    .split(',')
+    .filter((part) => /^\d{1,9}$/.test(part))
+    .map(Number);
+}
+
+/** An id list as a page carries it (readIdList reads it back). */
+export function idListValue(ids: readonly number[]): string {
+  return [...new Set(ids)].join(',');
+}
+
+/**
+ * The duplicate check's "Not the same" ids (readIdList). A form grows it
  * by the few matches shown per dismissal; the cap only bounds a hand-made
  * request.
  */
 export const LookalikesDismissed = Type.Optional(
   Type.String({ maxLength: 400 }),
 );
+
+/**
+ * The draft queue's saved garments (readIdList): one id per draft of a
+ * batch, at most MAX_DRAFTS_PER_USER of them.
+ */
+export const DraftsSaved = Type.Optional(Type.String({ maxLength: 400 }));
 
 /**
  * One of a property's values as a form posts it ('' for the reset chip).
@@ -253,6 +277,9 @@ export const GarmentBody = Type.Object({
   // The duplicate check's "Not the same" list (#20, lookalikes.ts): never
   // stored, only carried back into a refused form's region.
   lookalikesDismissed: LookalikesDismissed,
+  // A draft's form (#200): the garments its batch saved so far, carried on
+  // to the next draft and, after the last, into select mode. Never stored.
+  draftsSaved: DraftsSaved,
 });
 export type GarmentBody = Static<typeof GarmentBody>;
 
@@ -1160,6 +1187,9 @@ export const GridQuery = Type.Object({
   // One-shot flags from POST /wardrobe/bulk's redirect (the toast).
   bulkUpdated: Type.Optional(Type.Integer({ minimum: 0 })),
   bulkSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
+  // Select mode after a batch of drafts (#200): the garments it saved,
+  // checked on the first page (readIdList; navigation state).
+  checked: DraftsSaved,
 });
 export type GridQuery = Static<typeof GridQuery>;
 
@@ -1204,6 +1234,21 @@ export type DestinationQuery = Static<typeof DestinationQuery>;
 export const NewGarmentQuery = Type.Object({
   ...DestinationQuery.properties,
   photo: Type.Optional(Type.String({ maxLength: 64 })),
+  // A draft's queue (#200), navigation state: the garments its batch saved
+  // so far (readIdList), and the photos its upload could not read (their
+  // names as the phone sent them, shown on the first draft).
+  saved: DraftsSaved,
+  leftOut: Type.Optional(
+    Type.Array(Type.String({ maxLength: 255 }), {
+      maxItems: MAX_DRAFTS_PER_USER,
+    }),
+  ),
+});
+
+/** POST /wardrobe/new/drafts/discard: the draft, and the queue's saved garments. */
+export const DiscardDraftBody = Type.Object({
+  photo: Type.String({ maxLength: 64 }),
+  saved: DraftsSaved,
 });
 
 /**

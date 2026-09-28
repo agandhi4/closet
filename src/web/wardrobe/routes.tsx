@@ -21,7 +21,14 @@ import { AutosaveSaved } from '../autosave';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
-import { isPendingPhotoOf } from '../files/pending-photos';
+import {
+  batchDrafts,
+  draftsHeld,
+  draftsWaiting,
+  MAX_DRAFTS_PER_USER,
+  pendingPhotoOf,
+  type PendingScope,
+} from '../files/pending-photos';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import {
@@ -48,8 +55,8 @@ import {
   type GarmentPageModel,
   GarmentPhotoView,
 } from './garment-page';
+import { type DraftQueue, nextDraft } from './draft-queue';
 import { pendingPhotoView } from './link-import/photo-choice';
-import { readDismissed } from './lookalikes';
 import { PropertiesFragment } from './property-fields';
 import { repairLog, repairPanel } from './repairs';
 import {
@@ -88,6 +95,9 @@ import {
   TagSaved,
 } from './tag-page';
 import {
+  batchDoneUrl,
+  DRAFT_DISCARD_PATH,
+  draftUrl,
   garmentUrl,
   PHOTO_ADD_PATH,
   TAG_PATH,
@@ -97,6 +107,7 @@ import {
 import {
   BulkBody,
   ConditionBody,
+  DiscardDraftBody,
   formValues,
   GarmentBody,
   type GarmentField,
@@ -111,6 +122,7 @@ import {
   readBulkChange,
   readCondition,
   readGarmentForm,
+  readIdList,
   readTags,
   RotateBody,
   storedFormValues,
@@ -130,10 +142,11 @@ import {
   cloneGarment,
   createGarment,
   createGarmentWithPendingPhoto,
+  discardPendingPhoto,
   removeGarment,
   replacePhoto,
   rotateGarmentPhoto,
-  stagePhotoUpload,
+  stagePhotoUploads,
   type WardrobeDeps,
 } from './writes';
 
@@ -161,6 +174,14 @@ function resolve(
 }
 
 const GARMENT_NOT_FOUND = 'Garment not found';
+
+/**
+ * The requester's draft addressed through another wardrobe than its
+ * batch's (#200): not found there, like a garment outside the wardrobe.
+ */
+function draftNotFound(): HttpError {
+  return new HttpError(404, 'Photo not found');
+}
 
 function notFound(): HttpError {
   return new HttpError(404, GARMENT_NOT_FOUND);
@@ -316,6 +337,102 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     return { garment, left, viewOwner };
   }
 
+  /**
+   * What GET /wardrobe/new shows for `?photo=`: the pending photo while it
+   * is still in `scope` (else "no longer available"), and a draft's queue
+   * (#200). The requester's draft for another wardrobe is a 404.
+   */
+  async function formPhoto(
+    scope: PendingScope,
+    photo: string,
+    query: { saved?: string; leftOut?: string[] },
+  ): Promise<Pick<GarmentFormRequest, 'link' | 'errors' | 'draft'>> {
+    const pending = await pendingPhotoOf(db, photo, scope);
+    if (pending === 'otherWardrobe') throw draftNotFound();
+    if (!pending) {
+      return {
+        link: pendingPhotoView(undefined),
+        errors: { linkPhoto: [t('add.PHOTO_GONE')] },
+      };
+    }
+    return {
+      link: pendingPhotoView(photo),
+      draft:
+        pending.draft &&
+        (await draftQueue(scope.userId, photo, pending.draft.batchId, {
+          saved: readIdList(query.saved),
+          leftOut: query.leftOut ?? [],
+        })),
+    };
+  }
+
+  /** A draft's queue (#200): its batch's drafts still waiting, in picked order. */
+  async function draftQueue(
+    userId: number,
+    current: string,
+    batchId: string,
+    carried: Pick<DraftQueue, 'saved' | 'leftOut'>,
+  ): Promise<DraftQueue> {
+    return {
+      current,
+      waiting: await batchDrafts(db, userId, batchId),
+      ...carried,
+    };
+  }
+
+  /**
+   * The draft a save's pending photo is (#200), read before the save claims
+   * it; undefined without a photo or for one that is no draft. Its queue for
+   * a refused form, and where the queue goes once garment `id` is saved: the
+   * next draft after it in picked order, wrapping round (so one skipped
+   * earlier comes back once the rest are done), else select mode with the
+   * batch checked.
+   */
+  async function postedDraft(
+    scope: PendingScope,
+    body: { linkPhoto?: string; draftsSaved?: string },
+    viewOwner: number | undefined,
+  ) {
+    const photo = body.linkPhoto;
+    if (!photo) return undefined;
+    const { userId } = scope;
+    const pending = await pendingPhotoOf(db, photo, scope);
+    // Never saved into another wardrobe than its batch's (#200); the claim
+    // is scoped the same way, so this is the answer, not the guard.
+    if (pending === 'otherWardrobe') throw draftNotFound();
+    const draft = pending?.draft;
+    if (!draft) return undefined;
+    const saved = readIdList(body.draftsSaved);
+    return {
+      queue: () =>
+        draftQueue(userId, photo, draft.batchId, { saved, leftOut: [] }),
+      after: async (id: number): Promise<string> => {
+        logger.info(
+          `Garment ${id} saved from draft ${photo} of batch ${draft.batchId.slice(0, 8)}`,
+        );
+        const next = nextDraft(
+          await batchDrafts(db, userId, draft.batchId),
+          draft.position,
+        );
+        const savedNow = [...saved, id];
+        return next
+          ? draftUrl(viewOwner, next, savedNow)
+          : batchEnd(viewOwner, savedNow);
+      },
+    };
+  }
+
+  /** Where a batch's queue ends: select mode with what it saved checked. */
+  function batchEnd(
+    viewOwner: number | undefined,
+    saved: readonly number[],
+  ): string {
+    logger.info(`Draft queue done: ${saved.length} garments saved`);
+    return saved.length > 0
+      ? batchDoneUrl(viewOwner, saved)
+      : wardrobeUrl(viewOwner);
+  }
+
   /** The form again, with the posted values and what is wrong with them. */
   async function refuseForm(
     reply: FastifyReply,
@@ -355,6 +472,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         toTag,
         toWash,
         capsules,
+        drafts,
       ] = await Promise.all([
         gridPage(db, access.ownerId, filters, { ownerView: access.isOwner }),
         gridCount(db, access.ownerId, filters),
@@ -365,6 +483,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         // The laundry prompt reads wears: the owner's alone.
         access.isOwner ? countNeedingWash(db, access.ownerId) : 0,
         capsuleNames(db, access.ownerId),
+        // The requester's own drafts for this wardrobe (#200): only someone
+        // who can add has any to continue.
+        access.canManage
+          ? draftsWaiting(db, userId, access.ownerId)
+          : undefined,
       ]);
       if (filters.capsule) listedCapsule(capsules, filters.capsule);
       const picking =
@@ -389,6 +512,9 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         picking,
         capsules,
         bulkResult: bulkResult(request.query),
+        drafts,
+        // A batch's end (#200): its garments start checked for "Set…".
+        batchSaved: new Set(readIdList(request.query.checked)),
       };
       if (wantsFragment(request, reply)) {
         return renderFragment(
@@ -454,7 +580,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // for a plan item of the owner's with `&planItem=`). `?photo=` is an
   // add-sheet upload's pending photo, shown only while it is still the
   // requester's (the save's claim is the real check); otherwise the form
-  // says it is gone (a back navigation after saving lands here).
+  // says it is gone (a back navigation after saving lands here). A draft
+  // of a batch (#200) also gets its queue (draft-queue.tsx).
   app.get(
     '/wardrobe/new',
     { schema: { querystring: NewGarmentQuery } },
@@ -471,48 +598,92 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         access,
       );
       const { photo } = request.query;
-      const pending = photo
-        ? await isPendingPhotoOf(db, photo, sessionUserId(request))
-        : false;
       return renderGarmentForm(reply, db, {
         mode: { kind: 'new', destination },
         suggestionsFrom: access.ownerId,
         viewOwner,
         values: destinationValues(destination, replaced),
-        link: photo ? pendingPhotoView(pending ? photo : undefined) : undefined,
-        errors:
-          photo && !pending ? { linkPhoto: [t('add.PHOTO_GONE')] } : undefined,
         candidateFor,
+        ...(photo &&
+          (await formPhoto(
+            { userId: sessionUserId(request), ownerId: access.ownerId },
+            photo,
+            request.query,
+          ))),
       });
     },
   );
 
   // The add sheet's camera and library (#97): the photo, stored as the
-  // requester's pending photo (stagePhotoUpload: the upload path every
+  // requester's pending photo (stagePhotoUploads: the upload path every
   // garment photo takes, then the pending row), and a 303 to the new
   // garment form carrying it, whose save claims it and queues its cutout.
-  // Adding is a write: the wardrobe is checked before the body is read, so
-  // a refused upload stores nothing. A native post (PostForm): a refused
-  // photo is the error page, which htmx would not swap.
+  // A library pick of several (#200) is a batch of drafts instead, and the
+  // 303 opens the first. Adding is a write: the wardrobe is checked before
+  // the body is read, so a refused upload stores nothing, and so is the
+  // room left for drafts: the parser stops at the first photo past it (one
+  // photo always fits: it is not a draft). A native post (PostForm): a
+  // refused photo is the error page, which htmx would not swap.
   app.post(
     PHOTO_ADD_PATH,
     { schema: { querystring: OwnerQuery } },
     async (request, reply) => {
-      const { viewOwner } = await resolve(
+      const { access, viewOwner } = await resolve(
         options,
         request,
         request.query.ownerId,
         'manage',
       );
-      // Parts past the first photo are drained unread (storeUploadParts),
-      // never an error mid-stream that could strand the photo's bytes.
-      const photo = await stagePhotoUpload(
+      const userId = sessionUserId(request);
+      const room = MAX_DRAFTS_PER_USER - (await draftsHeld(db, userId));
+      const staged = await stagePhotoUploads(
         deps,
-        request.files(),
-        sessionUserId(request),
+        request.files({ limits: { files: Math.max(room, 1) } }),
+        userId,
+        access.ownerId,
       );
       return reply.redirect(
-        wardrobeUrl(viewOwner, { photo }, '/wardrobe/new'),
+        staged.kind === 'single'
+          ? wardrobeUrl(viewOwner, { photo: staged.fileName }, '/wardrobe/new')
+          : draftUrl(viewOwner, staged.first, [], staged.leftOut),
+        303,
+      );
+    },
+  );
+
+  // A draft's Discard (#200): the photo goes (discardPendingPhoto: only the
+  // requester's own, still pending, in the wardrobe its batch was uploaded
+  // for) and the queue moves on to the next draft after it, or ends as a
+  // save of the last one would. Nothing to discard (saved or discarded
+  // already, a second tap) ends the queue the same way; the requester's
+  // draft for another wardrobe is a 404, as on the form and the save.
+  app.post(
+    DRAFT_DISCARD_PATH,
+    { schema: { querystring: OwnerQuery, body: DiscardDraftBody } },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        options,
+        request,
+        request.query.ownerId,
+        'manage',
+      );
+      const userId = sessionUserId(request);
+      const scope = { userId, ownerId: access.ownerId };
+      const { photo } = request.body;
+      const saved = readIdList(request.body.saved);
+      const pending = await pendingPhotoOf(db, photo, scope);
+      if (pending === 'otherWardrobe') throw draftNotFound();
+      const draft = pending?.draft;
+      if (draft) await discardPendingPhoto(deps, photo, scope);
+      const next =
+        draft &&
+        nextDraft(
+          await batchDrafts(db, userId, draft.batchId),
+          draft.position,
+          photo,
+        );
+      return reply.redirect(
+        next ? draftUrl(viewOwner, next, saved) : batchEnd(viewOwner, saved),
         303,
       );
     },
@@ -552,6 +723,14 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { linkPhoto } = request.body;
+      const userId = sessionUserId(request);
+      // A draft of a batch (#200) is read before the save claims it: the
+      // queue moves on to the batch's next draft afterwards.
+      const draft = await postedDraft(
+        { userId, ownerId: access.ownerId },
+        request.body,
+        viewOwner,
+      );
       // A plan item's "Add a candidate" (34b) is checked before anything is
       // read or stored, and linked in the garment's transaction.
       const { destination, candidateFor, withGarment } =
@@ -563,7 +742,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         viewOwner,
         link: linkPhoto ? pendingPhotoView(linkPhoto) : undefined,
         candidateFor,
-        lookalikesDismissed: readDismissed(request.body.lookalikesDismissed),
+        lookalikesDismissed: readIdList(request.body.lookalikesDismissed),
       } as const;
       const form = readGarmentForm(
         request.body,
@@ -574,13 +753,14 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ...again,
           values: form.values,
           errors: form.errors,
+          draft: await draft?.queue(),
         });
       }
       const id = linkPhoto
         ? await createGarmentWithPendingPhoto(
             deps,
             access.ownerId,
-            sessionUserId(request),
+            userId,
             form.fields,
             linkPhoto,
             status,
@@ -602,7 +782,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         });
       }
       logger.info(
-        `Garment ${id} created (${status}) by user ${sessionUserId(request)} in wardrobe ${access.ownerId}${
+        `Garment ${id} created (${status}) by user ${userId} in wardrobe ${access.ownerId}${
           form.fields.replacesGarmentId
             ? `, asked to replace garment ${form.fields.replacesGarmentId}`
             : ''
@@ -612,6 +792,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             : ''
         }`,
       );
+      if (draft) return reply.redirect(await draft.after(id), 303);
       return reply.redirect(garmentUrl(id, viewOwner, '', { created: 1 }), 302);
     },
   );
@@ -1113,7 +1294,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           viewOwner,
           values: form.values,
           errors: form.errors,
-          lookalikesDismissed: readDismissed(request.body.lookalikesDismissed),
+          lookalikesDismissed: readIdList(request.body.lookalikesDismissed),
         });
       }
       const id = await cloneGarment(deps, source, userId, form.fields);

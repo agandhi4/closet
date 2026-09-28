@@ -150,22 +150,6 @@ export function addCopies(
 }
 
 /**
- * The form's "Not the same" list: ids joined by commas. Navigation state
- * the page wrote, so anything malformed is dropped, never a 400.
- */
-export function readDismissed(value: string | undefined): number[] {
-  return (value ?? '')
-    .split(',')
-    .filter((part) => /^\d{1,9}$/.test(part))
-    .map(Number);
-}
-
-/** The list as the form carries it. */
-export function dismissedValue(ids: readonly number[]): string {
-  return [...new Set(ids)].join(',');
-}
-
-/**
  * GET /wardrobe/lookalikes: the form's fields that decide a match, as the
  * region's refresh sends them (hx-params), and the dismissed list. The
  * fields are the garment form's own shapes and caps.

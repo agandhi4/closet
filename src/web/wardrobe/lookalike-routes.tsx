@@ -7,14 +7,9 @@ import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
 import { authorizeWardrobe } from '../sharing/access';
 import { LookalikesContent } from './lookalike-region';
-import {
-  addCopies,
-  closetLookalikes,
-  LookalikesQuery,
-  readDismissed,
-} from './lookalikes';
+import { addCopies, closetLookalikes, LookalikesQuery } from './lookalikes';
 import { garmentUrl } from './urls';
-import { GarmentParams, OwnerQuery } from './validation';
+import { GarmentParams, OwnerQuery, readIdList } from './validation';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
 
@@ -44,7 +39,7 @@ export const lookalikeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
         GARMENT_NOT_FOUND,
       );
-      const dismissed = readDismissed(query.lookalikesDismissed);
+      const dismissed = readIdList(query.lookalikesDismissed);
       const matches = await closetLookalikes(
         db,
         access.ownerId,

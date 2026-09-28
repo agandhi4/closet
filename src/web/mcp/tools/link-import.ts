@@ -96,7 +96,9 @@ export async function addGarmentFromLink(
   const posted = formPost(withOverrides(form.values, overrides));
   const read = readGarmentForm(posted, { owner: isOwner });
   if (!read.ok) {
-    if (photo) await discardPendingPhoto(deps, photo, ctx.userId);
+    if (photo) {
+      await discardPendingPhoto(deps, photo, { userId: ctx.userId, ownerId });
+    }
     const messages = Object.entries(read.errors).map(
       ([field, errors]) => `${field}: ${errors?.join(' ')}`,
     );

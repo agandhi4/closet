@@ -235,7 +235,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       }
       // The pending photo is the fetching user's, not the wardrobe's; the
       // wardrobe is still checked, so only someone who may add to it fetches.
-      await authorizeWardrobe(
+      const { access } = await authorizeWardrobe(
         db,
         userId,
         request.query.ownerId,
@@ -261,7 +261,12 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           );
         }
       }
-      if (current) await discardPendingPhoto(writeDeps, current, userId);
+      if (current) {
+        await discardPendingPhoto(writeDeps, current, {
+          userId,
+          ownerId: access.ownerId,
+        });
+      }
       logger.info(
         `Link photo choice by user ${userId}: ${photo ?? 'no photo'}${current ? ` instead of ${current}` : ''}`,
       );

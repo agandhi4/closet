@@ -18,6 +18,7 @@ export function profileSection(id: string): string {
 export const ACCOUNT_SECTION_ID = 'account';
 export const STYLE_SECTION_ID = 'style';
 export const AGENT_ACCESS_SECTION_ID = 'agent-access';
+export const EXPORT_SECTION_ID = 'export';
 export const SIGN_OUT_SECTION_ID = 'sign-out';
 
 /** Agent access: the MCP endpoint's personal access tokens (token-routes.tsx). */

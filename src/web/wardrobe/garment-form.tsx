@@ -28,6 +28,7 @@ import type { ReplaceableGarment } from '../wishlist/queries';
 import type { BrandSize } from '../sizes/queries';
 import { BRAND_SIZE_HINT_TRIGGER, BrandSizeHint } from '../sizes/views';
 import type { CandidateFor } from './destination';
+import { type DraftQueue, DraftQueueSection } from './draft-queue';
 import {
   LookalikeCopyForm,
   type LookalikesPanel,
@@ -51,6 +52,7 @@ import {
   type FormAudience,
   type GarmentField,
   type GarmentFormValues,
+  idListValue,
   NAME_MAX,
   PRICE_INPUT_MAX,
   SIZE_MAX,
@@ -133,6 +135,11 @@ export interface GarmentFormModel {
    * the closet only (addsToCloset; renderGarmentForm reads it).
    */
   lookalikes?: LookalikesPanel;
+  /**
+   * A draft of a multi-photo batch (#200): its queue above the form, the
+   * category asked first, and the save moving on to the next draft.
+   */
+  draft?: DraftQueue;
 }
 
 const TITLES = {
@@ -178,7 +185,7 @@ export function GarmentFormPage(props: {
   model: GarmentFormModel;
 }) {
   const { ctx, model } = props;
-  const { mode, values, viewOwner, link, errors = {} } = model;
+  const { mode, values, viewOwner, link, draft, errors = {} } = model;
   const back = backUrl(model);
   const wishlist = isWishlistForm(mode);
   const title = formTitle(mode);
@@ -187,6 +194,7 @@ export function GarmentFormPage(props: {
     <Layout ctx={ctx} title={title}>
       <AppBar ctx={ctx} title={title} back={back} formPage />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
+        {draft && <DraftQueueSection queue={draft} viewOwner={viewOwner} />}
         {mode.kind === 'new' && !link && (
           <a
             href={wardrobeUrl(
@@ -207,42 +215,14 @@ export function GarmentFormPage(props: {
               errors={errors.linkPhoto}
             />
           )}
-          <TextField
-            name="name"
-            label={t('NAME')}
-            value={values.name}
-            maxlength={NAME_MAX}
-            placeholder={t('NAME_PLACEHOLDER')}
-          />
-          <div class="flex flex-col">
-            <label class="label" for="garment-category">
-              <span class="label-text">{t('CATEGORY')} *</span>
-            </label>
+          {draft && (
             <input
-              id="garment-category"
-              type="text"
-              name="category"
-              list="category-suggestions"
-              class={`input input-bordered w-full ${errors.category ? 'input-error' : ''}`}
-              value={values.category}
-              maxlength={CATEGORY_MAX}
-              required
-              placeholder={t('TYPE_OR_SELECT_CATEGORY')}
-              autocomplete="off"
-              {...REFRESH_PROPERTIES}
+              type="hidden"
+              name="draftsSaved"
+              value={idListValue(draft.saved)}
             />
-            <datalist id="category-suggestions">
-              {model.categories.map((category) => (
-                <option value={category.value}>{category.label}</option>
-              ))}
-            </datalist>
-            <Messages messages={errors.category} />
-          </div>
-          <PropertiesMain
-            category={category}
-            values={values.properties}
-            errors={errors.fabricWeight}
-          />
+          )}
+          <NameAndCategory model={model} category={category} />
           <ColorMultiSelect selected={values.colors} errors={errors.color} />
           <BrandAndSize model={model} />
           <OwnershipFields model={model} wishlist={wishlist} />
@@ -259,6 +239,60 @@ export function GarmentFormPage(props: {
       </main>
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * The name, the category and what the category suggests (its type,
+ * warmth and weight). A draft of a batch (#200) asks the category first,
+ * so its properties follow it before anything else is typed.
+ */
+function NameAndCategory(props: { model: GarmentFormModel; category: string }) {
+  const { model, category } = props;
+  const { values, errors = {} } = model;
+  const name = (
+    <TextField
+      name="name"
+      label={t('NAME')}
+      value={values.name}
+      maxlength={NAME_MAX}
+      placeholder={t('NAME_PLACEHOLDER')}
+    />
+  );
+  return (
+    <>
+      {!model.draft && name}
+      <div class="flex flex-col">
+        <label class="label" for="garment-category">
+          <span class="label-text">{t('CATEGORY')} *</span>
+        </label>
+        <input
+          id="garment-category"
+          type="text"
+          name="category"
+          list="category-suggestions"
+          class={`input input-bordered w-full ${errors.category ? 'input-error' : ''}`}
+          value={values.category}
+          maxlength={CATEGORY_MAX}
+          required
+          placeholder={t('TYPE_OR_SELECT_CATEGORY')}
+          autocomplete="off"
+          {...REFRESH_PROPERTIES}
+        />
+        <datalist id="category-suggestions">
+          {model.categories.map((suggestion) => (
+            <option value={suggestion.value}>{suggestion.label}</option>
+          ))}
+        </datalist>
+        <Messages messages={errors.category} />
+      </div>
+      <PropertiesMain
+        category={category}
+        values={values.properties}
+        errors={errors.fabricWeight}
+      />
+      {model.draft && name}
+    </>
   );
 }
 

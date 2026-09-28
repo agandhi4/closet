@@ -342,8 +342,10 @@ function AddGroup(props: { title: string; children: Child }) {
  * it on the phone and submits (PREPARE_AND_SUBMIT_PHOTO). The camera has
  * an input of its own, as on the garment page's photo sheet: some
  * Chrome/Android versions drop the Camera option from a library input's
- * chooser. `relative`: the sr-only input must not escape the sheet
- * (Gotchas). Disabled offline (data-needs-network on the row).
+ * chooser. The library takes several photos at once (#200): each is
+ * prepared, and two or more become a batch of drafts (stagePhotoUploads).
+ * `relative`: the sr-only input must not escape the sheet (Gotchas).
+ * Disabled offline (data-needs-network on the row).
  */
 function PhotoItem(props: { source: 'camera' | 'library' }) {
   const camera = props.source === 'camera';
@@ -359,6 +361,7 @@ function PhotoItem(props: { source: 'camera' | 'library' }) {
           form={photoFormId(props.source)}
           accept={PHOTO_ACCEPT}
           capture={camera ? 'environment' : undefined}
+          multiple={!camera}
           class="sr-only"
           onchange={PREPARE_AND_SUBMIT_PHOTO}
         />

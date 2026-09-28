@@ -32,6 +32,7 @@ import { type LabelledProperty, valueLabel } from './labels';
 import type { FilterOptions, GarmentTile, GridPage } from './queries';
 import {
   capsuleUrl,
+  draftUrl,
   garmentUrl,
   LAUNDRY_PATH,
   TAG_PATH,
@@ -118,10 +119,23 @@ export interface WardrobeModel {
   capsules: CapsuleRef[];
   /** After POST /wardrobe/bulk: its toast. */
   bulkResult?: { updated: number; skipped: number };
+  /**
+   * The requester's drafts waiting for this wardrobe (#200): the prompt
+   * to continue them, from the first (someone who can add only).
+   */
+  drafts?: { count: number; first: string };
+  /**
+   * Select mode at a batch's end (#200, `?checked=`): the garments the
+   * draft queue saved, checked where the first page shows them.
+   */
+  batchSaved: ReadonlySet<number>;
 }
 
 /** The one-shot flags the bulk edit's redirect carries (GridQuery). */
 const BULK_FLAGS = ['bulkUpdated', 'bulkSkipped'] as const;
+
+/** The draft queue's end (#200, batchDoneUrl): its garments, checked once. */
+const BATCH_FLAGS = ['checked'] as const;
 
 /** Tiles above the fold on a phone load eagerly; the rest when scrolled near. */
 const EAGER_TILES = 8;
@@ -282,14 +296,26 @@ export function WardrobeMain({ model }: { model: WardrobeModel }) {
 }
 
 /**
- * The slim prompts above the grid (the plan's "slim banner"): "12 garments
- * need details · Tag them" for someone who can tag, "3 garments need a wash
- * · Laundry" for the owner.
+ * The slim prompts above the grid (the plan's "slim banner"): "4 photos
+ * waiting to be added · Continue" for someone with drafts here (#200), "12
+ * garments need details · Tag them" for someone who can tag, "3 garments
+ * need a wash · Laundry" for the owner.
  */
 function Prompts({ model }: { model: WardrobeModel }) {
-  const { toTag, toWash } = model;
+  const { toTag, toWash, drafts } = model;
   return (
     <>
+      {drafts && (
+        <Prompt
+          text={
+            drafts.count === 1
+              ? t('drafts.WAITING_ONE')
+              : t('drafts.WAITING', { count: drafts.count })
+          }
+          href={draftUrl(model.viewOwner, drafts.first, [])}
+          action={t('drafts.CONTINUE')}
+        />
+      )}
       {toTag > 0 && (
         <Prompt
           text={
@@ -328,10 +354,32 @@ function Tiles({ model }: { model: WardrobeModel }) {
     );
   }
   if (model.selecting) {
+    const checked = model.page.tiles.filter((tile) =>
+      model.batchSaved.has(tile.id),
+    ).length;
     return (
-      <BulkForm search={model.search} viewOwner={model.viewOwner}>
-        <Grid model={model} />
-      </BulkForm>
+      <>
+        {checked > 0 && (
+          <>
+            <p
+              role="status"
+              class="alert alert-success alert-soft text-sm mb-3"
+            >
+              {checked === 1
+                ? t('drafts.DONE_ONE')
+                : t('drafts.DONE', { count: checked })}
+            </p>
+            <StripFlags names={BATCH_FLAGS} />
+          </>
+        )}
+        <BulkForm
+          search={model.search}
+          viewOwner={model.viewOwner}
+          checked={checked}
+        >
+          <Grid model={model} />
+        </BulkForm>
+      </>
     );
   }
   return <Grid model={model} />;
@@ -414,6 +462,7 @@ function Grid({ model }: { model: WardrobeModel }) {
         viewOwner={model.viewOwner}
         selecting={model.selecting}
         picking={model.picking}
+        batchSaved={model.batchSaved}
         firstPage
       />
     </GarmentGrid>
@@ -435,6 +484,8 @@ export function GarmentTiles(props: {
   selecting: boolean;
   /** The capsule picker: members checked, every tile marked shown. */
   picking?: Picking;
+  /** Select mode at a batch's end: its garments checked (the first page only). */
+  batchSaved?: ReadonlySet<number>;
   firstPage?: boolean;
 }) {
   const { page, search, viewOwner, selecting, picking } = props;
@@ -446,7 +497,10 @@ export function GarmentTiles(props: {
           <SelectTile
             tile={tile}
             eager={eager}
-            checked={picking?.members.has(tile.id) ?? false}
+            checked={
+              (picking?.members.has(tile.id) ?? false) ||
+              (props.batchSaved?.has(tile.id) ?? false)
+            }
             shown={picking !== undefined}
           />
         ) : (
@@ -1234,6 +1288,8 @@ function SelectForm(props: {
 function BulkForm(props: {
   search: GridSearch;
   viewOwner: number | undefined;
+  /** Boxes checked as rendered (a batch's garments, #200). */
+  checked: number;
   children: Child;
 }) {
   return (
@@ -1244,7 +1300,7 @@ function BulkForm(props: {
         searchParams(props.search),
         '/wardrobe/bulk',
       )}
-      checked={0}
+      checked={props.checked}
       button={
         <button
           type="button"

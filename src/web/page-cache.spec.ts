@@ -15,11 +15,17 @@ import {
 const ORIGIN = 'https://closet.test';
 
 describe('bypassesWorker', () => {
-  it.each(['/mcp', '/mcp/', '/mcp/anything'])('leaves %s alone', (path) => {
+  it.each([
+    '/mcp',
+    '/mcp/',
+    '/mcp/anything',
+    '/wardrobe/export.csv',
+    '/wardrobe/export.json',
+  ])('leaves %s alone', (path) => {
     expect(bypassesWorker(new URL(`${ORIGIN}${path}`))).toBe(true);
   });
 
-  it.each(['/wardrobe', '/mcpx', '/auth/tokens', '/'])(
+  it.each(['/wardrobe', '/wardrobe/export', '/mcpx', '/auth/tokens', '/'])(
     'handles %s as the app',
     (path) => {
       expect(bypassesWorker(new URL(`${ORIGIN}${path}`))).toBe(false);

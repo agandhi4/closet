@@ -8,6 +8,9 @@ import {
 } from '../web/files/image-variant';
 import {
   deletePendingPhotoRow,
+  isAgedPending,
+  type PendingCutoffs,
+  pendingCutoffs,
   pendingPhotoRows,
   takeAgedPendingPhotos,
 } from '../web/files/pending-photos';
@@ -55,8 +58,9 @@ export interface ReconciliationReport {
   /** `file` rows whose original is gone from storage; reported, never deleted. */
   missingOriginals: number;
   /**
-   * Link imports never saved (a `pending_photo` row older than the cutoff),
-   * deleted with their photo sets. Explained orphans: outside the guard.
+   * Pending photos never saved (a `pending_photo` row past its cutoff: the
+   * run's, or a week for a batch's drafts), deleted with their photo sets.
+   * Explained orphans: outside the guard.
    */
   pendingPhotosDeleted: number;
   /** `pending_photo` rows whose photo set is gone from storage, deleted. */
@@ -101,9 +105,10 @@ interface FileRow extends StoredPhoto {
  * first and checked by the guard; only then are the orphans deleted.
  *
  * Link imports' pending photos (`pending_photo`, bytes without a `file`
- * row) are not unexplained orphans: day-old ones go with their rows in a
- * pass of their own before the plan, outside the guard, and younger ones
- * are left out of the plan. Pending rows whose bytes are gone are deleted.
+ * row) are not unexplained orphans: day-old ones (a batch's drafts:
+ * week-old, pendingCutoffs) go with their rows in a pass of their own
+ * before the plan, outside the guard, and younger ones are left out of the
+ * plan. Pending rows whose bytes are gone are deleted.
  *
  * Runs nightly from the server (nightly.ts, server.ts) unless
  * MAINTENANCE_ENABLED is false, and on demand through
@@ -131,7 +136,7 @@ export async function reconcileStorage(
   const agedPending = await removeAgedPendingPhotos(
     deps,
     pendingRows,
-    cutoff,
+    pendingCutoffs(cutoff, startedAt),
     dryRun,
   );
   const plan = await planReconciliation(deps, cutoff, pendingRows, agedPending);
@@ -194,7 +199,7 @@ function summary(report: ReconciliationReport): string {
 }
 
 /**
- * Link imports never saved: pending photos older than the cutoff, their
+ * Pending photos never saved: those past their cutoff (isAgedPending), their
  * rows and their photo sets (a set that has a `file` row after all keeps
  * its bytes). Each row is deleted in one statement, so a save claiming the
  * photo at the same moment either wins (no row is returned here) or finds
@@ -202,18 +207,22 @@ function summary(report: ReconciliationReport): string {
  */
 async function removeAgedPendingPhotos(
   { db, photos, logger }: ReconcileDeps,
-  snapshot: readonly { fileName: string; createdAt: Date }[],
-  cutoff: Date,
+  snapshot: readonly {
+    fileName: string;
+    createdAt: Date;
+    batchId: string | null;
+  }[],
+  cutoffs: PendingCutoffs,
   dryRun: boolean,
 ): Promise<Set<string>> {
   if (dryRun) {
     return new Set(
       snapshot
-        .filter((row) => row.createdAt < cutoff)
+        .filter((row) => isAgedPending(row, cutoffs))
         .map((row) => row.fileName),
     );
   }
-  const names = await takeAgedPendingPhotos(db, cutoff);
+  const names = await takeAgedPendingPhotos(db, cutoffs);
   for (const name of names) {
     if (await photoRowExists(db, name)) continue;
     logger.debug(`Deleting abandoned link import ${name}`);

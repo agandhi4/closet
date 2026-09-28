@@ -6,9 +6,14 @@ import {
 } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { HttpError } from '../errors';
+import { t } from '../i18n';
 import { parseStoredName, unkeyedPhoto } from '../files/image-variant';
 import {
+  draftsHeld,
+  MAX_DRAFTS_PER_USER,
   MAX_PENDING_PER_USER,
+  type PendingScope,
+  recordDraftBatch,
   recordPendingPhoto,
   takePendingPhoto,
 } from '../files/pending-photos';
@@ -128,23 +133,156 @@ export async function keepPendingPhoto(
 }
 
 /**
- * POST /wardrobe/new/photo (the add sheet's camera and library, #97): the
- * multipart photo stored as storeUploadParts stores any garment photo, kept
- * as `userId`'s pending photo for the new garment form to claim. Its name;
- * a 400 without a photo.
+ * What an add-sheet upload kept (stagePhotoUploads): one pending photo, as
+ * the camera and a one-photo library pick always kept (#97), or a batch of
+ * drafts from a pick of several (#200), with the names of the photos it
+ * left out because they could not be read.
  */
-export async function stagePhotoUpload(
+export type StagedPhotos =
+  | { kind: 'single'; fileName: string }
+  | { kind: 'batch'; first: string; count: number; leftOut: string[] };
+
+/**
+ * POST /wardrobe/new/photo (the add sheet's camera and library): every
+ * multipart `photo`, stored in turn as storeUpload stores any garment
+ * photo (awaited one at a time, so at most one HEIC is buffered). One
+ * photo is kept as `userId`'s pending photo (keepPendingPhoto), and its
+ * refusal is the request's, as before #200. Several are kept together as
+ * a batch of drafts for `ownerId`'s wardrobe (recordDraftBatch): one that
+ * cannot be read is left out and named, the others kept; the whole upload
+ * is refused, keeping nothing, when none could be read or the drafts
+ * would pass MAX_DRAFTS_PER_USER (the parser's `files` limit, set by the
+ * route to the room left, stops it early; the batch's record checks again
+ * under the user's lock).
+ */
+export async function stagePhotoUploads(
   deps: Pick<WardrobeDeps, 'db' | 'photos' | 'logger'>,
   parts: AsyncIterable<MultipartFile>,
   userId: number,
-): Promise<string> {
-  const photo = await deps.photos.storeUploadParts(parts, userId);
-  if (!photo) throw new HttpError(400, 'No file uploaded');
-  await keepPendingPhoto(deps, photo.fileName, userId);
-  deps.logger.info(
-    `Photo ${photo.fileName} uploaded by user ${userId}, pending its garment form`,
+  ownerId: number,
+): Promise<StagedPhotos> {
+  const { logger } = deps;
+  const { stored, refused } = await storeEachPhoto(deps, parts, userId);
+  const picked = stored.length + refused.length;
+  if (picked === 0) throw new HttpError(400, 'No file uploaded');
+  if (picked === 1) {
+    if (refused[0]) throw refused[0].error;
+    const fileName = stored[0];
+    await keepPendingPhoto(deps, fileName, userId);
+    logger.info(
+      `Photo ${fileName} uploaded by user ${userId}, pending its garment form`,
+    );
+    return { kind: 'single', fileName };
+  }
+  if (stored.length === 0) {
+    logger.warn(
+      `Upload by user ${userId}: none of ${picked} photos could be read`,
+    );
+    throw new HttpError(400, t('drafts.NONE_READ'));
+  }
+  const batchId = await keepDraftBatch(deps, stored, userId, ownerId);
+  const leftOut = refused.map((photo) => photo.name);
+  logger.info(
+    `Batch ${batchId.slice(0, 8)} of ${stored.length} drafts uploaded by user ${userId} for wardrobe ${ownerId}${
+      leftOut.length > 0 ? `; left out (unreadable): ${leftOut.join(', ')}` : ''
+    }`,
   );
-  return photo.fileName;
+  return { kind: 'batch', first: stored[0], count: stored.length, leftOut };
+}
+
+/**
+ * Every `photo` part stored in turn (other parts drained), the ones the
+ * photo itself refuses set aside with their errors. Anything else (the
+ * parser's `files` limit, storage failing) deletes what was stored and
+ * throws: the limit as the drafts' refusal.
+ */
+async function storeEachPhoto(
+  { db, photos, logger }: Pick<WardrobeDeps, 'db' | 'photos' | 'logger'>,
+  parts: AsyncIterable<MultipartFile>,
+  userId: number,
+): Promise<{ stored: string[]; refused: { name: string; error: unknown }[] }> {
+  const stored: string[] = [];
+  const refused: { name: string; error: unknown }[] = [];
+  try {
+    for await (const part of parts) {
+      if (part.fieldname !== 'photo') {
+        part.file.resume();
+        continue;
+      }
+      const result = await photos.storeUpload(part, userId).then(
+        (row) => ({ ok: true as const, fileName: row.fileName }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      if (result.ok) {
+        stored.push(result.fileName);
+        continue;
+      }
+      if (!refusesThePhoto(result.error)) throw result.error;
+      // What the decode left unread, so the next part can arrive.
+      part.file.resume();
+      refused.push({ name: part.filename, error: result.error });
+    }
+  } catch (error) {
+    await deleteStoredPhotos(photos, stored);
+    if (!isFilesLimit(error)) throw error;
+    const held = await draftsHeld(db, userId);
+    logger.warn(
+      `Upload by user ${userId} refused: past ${MAX_DRAFTS_PER_USER} drafts (${held} held)`,
+    );
+    throw draftsFull(held);
+  }
+  return { stored, refused };
+}
+
+/**
+ * `stored` (this request's bytes) kept as one batch of drafts; its id. A
+ * batch the user has no room for deletes the bytes and is refused (409).
+ */
+async function keepDraftBatch(
+  { db, photos, logger }: Pick<WardrobeDeps, 'db' | 'photos' | 'logger'>,
+  stored: string[],
+  userId: number,
+  ownerId: number,
+): Promise<string> {
+  const recorded = await recordDraftBatch(db, stored, userId, ownerId).catch(
+    async (error: unknown) => {
+      await deleteStoredPhotos(photos, stored);
+      throw error;
+    },
+  );
+  if ('batchId' in recorded) return recorded.batchId;
+  await deleteStoredPhotos(photos, stored);
+  logger.warn(
+    `Batch of ${stored.length} by user ${userId} refused: past ${MAX_DRAFTS_PER_USER} drafts (${recorded.refused.held} held)`,
+  );
+  throw draftsFull(recorded.refused.held);
+}
+
+async function deleteStoredPhotos(
+  photos: Photos,
+  names: readonly string[],
+): Promise<void> {
+  for (const name of names) await photos.deleteVariants(unkeyedPhoto(name));
+}
+
+/** A photo's own refusal (not an image, too large): the sender's, a 4xx. */
+function refusesThePhoto(error: unknown): boolean {
+  const { statusCode } = error as { statusCode?: unknown };
+  return (
+    typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500
+  );
+}
+
+/** @fastify/multipart's refusal past the request's `files` limit. */
+function isFilesLimit(error: unknown): boolean {
+  return (error as { code?: unknown }).code === 'FST_FILES_LIMIT';
+}
+
+function draftsFull(held: number): HttpError {
+  return new HttpError(
+    409,
+    t('drafts.FULL', { held, max: MAX_DRAFTS_PER_USER }),
+  );
 }
 
 /**
@@ -156,8 +294,9 @@ export async function stagePhotoUpload(
  * for its cutout) and the garment with it, so nothing reaches `garment` or
  * `file` until the form is saved.
  *
- * Undefined when `userId` cannot claim the name: no pending row of theirs
- * (someone else's, or claimed, discarded, evicted or reconciled already),
+ * Undefined when `userId` cannot claim the name for `ownerId`'s wardrobe:
+ * no pending row of theirs in that scope (someone else's, a draft uploaded
+ * for another wardrobe, or claimed, discarded, evicted or reconciled already),
  * its bytes gone, or already a `file` row. Nothing is written then, and no
  * bytes are ever deleted here: the name came from the client.
  */
@@ -182,7 +321,9 @@ export async function createGarmentWithPendingPhoto(
     (await db.transaction(async (tx) => {
       await lockPhotoName(tx, fileName);
       if (await photoRowExists(tx, fileName)) return undefined;
-      if (!(await takePendingPhoto(tx, fileName, userId))) return undefined;
+      if (!(await takePendingPhoto(tx, fileName, { userId, ownerId }))) {
+        return undefined;
+      }
       const photoId = await insertPhotoRow(tx, {
         ...photo,
         ...initialCutoutState('pending'),
@@ -212,31 +353,32 @@ export async function createGarmentWithPendingPhoto(
 
 /**
  * Deletes a pending photo the form no longer shows (link import: another
- * photo was picked, or none). False, deleting nothing, unless `userId` fetched it and
- * it is still pending (no `file` row): only an import of theirs that no
- * garment was saved with goes. Under the name's lock, so a save claiming it
- * at the same moment either wins (nothing is deleted) or finds it gone. The
- * bytes go after the commit.
+ * photo was picked, or none; a draft's Discard, #200). False, deleting
+ * nothing, unless it is still pending in `scope` (takePendingPhoto: the
+ * user's own, a draft only from its batch's wardrobe) with no `file` row:
+ * only a photo of theirs that no garment was saved with goes. Under the
+ * name's lock, so a save claiming it at the same moment either wins
+ * (nothing is deleted) or finds it gone. The bytes go after the commit.
  */
 export async function discardPendingPhoto(
   { db, photos, logger }: WardrobeDeps,
   fileName: string,
-  userId: number,
+  scope: PendingScope,
 ): Promise<boolean> {
   if (parseStoredName(fileName)?.variant !== 'original') return false;
   const discarded = await db.transaction(async (tx) => {
     await lockPhotoName(tx, fileName);
     if (await photoRowExists(tx, fileName)) return false;
-    return takePendingPhoto(tx, fileName, userId);
+    return takePendingPhoto(tx, fileName, scope);
   });
   if (!discarded) {
     logger.warn(
-      `Pending photo ${fileName} not discarded: not pending for user ${userId}`,
+      `Pending photo ${fileName} not discarded: not pending for user ${scope.userId} in wardrobe ${scope.ownerId}`,
     );
     return false;
   }
   await photos.deleteVariants(unkeyedPhoto(fileName));
-  logger.info(`Discarded pending photo ${fileName} of user ${userId}`);
+  logger.info(`Discarded pending photo ${fileName} of user ${scope.userId}`);
   return true;
 }
 

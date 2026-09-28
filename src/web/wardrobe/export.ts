@@ -1,0 +1,215 @@
+import { Readable } from 'node:stream';
+import { and, asc, eq, getTableColumns, gt } from 'drizzle-orm';
+import { showsCutout } from '../../cutout/state';
+import type { Db } from '../../db/client';
+import { file, garment } from '../../db/schema';
+import type { Logger } from '../../logger';
+import { imageUrl } from '../files/image-url';
+
+/**
+ * The wardrobe export (#200; docs/plans/2026-09-28-multi-add-and-export.md):
+ * every garment of one owner, as CSV for spreadsheets or JSON with photo
+ * URLs for a backup. Owner-only (export-routes.ts). Streamed a page of
+ * garments at a time, so a closet of any size holds one page in memory.
+ */
+
+export const EXPORT_FORMATS = ['csv', 'json'] as const;
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
+/** Garments per statement. */
+export const EXPORT_PAGE_SIZE = 200;
+
+/**
+ * The garment columns left out: whose it is (always the requester) and
+ * the internal photo row id (the photo is exported as its URLs).
+ */
+const OMITTED: ReadonlySet<string> = new Set(['ownerId', 'photoId']);
+
+type GarmentRow = typeof garment.$inferSelect;
+
+/**
+ * Every other garment column, in the table's order, under its database
+ * name in both formats. Read from the schema, so a column added later is
+ * exported without a second list; wardrobe-export.spec.ts compares the
+ * two.
+ */
+export const EXPORT_COLUMNS: readonly {
+  key: keyof GarmentRow;
+  name: string;
+}[] = Object.entries(getTableColumns(garment))
+  .filter(([key]) => !OMITTED.has(key))
+  .map(([key, column]) => ({
+    key: key as keyof GarmentRow,
+    name: column.name,
+  }));
+
+/** The photo's columns after the garment's, in the CSV. */
+export const PHOTO_COLUMNS = ['photo_url', 'cutout_url', 'thumb_url'] as const;
+
+/** A garment's photo as absolute URLs; `cutout` only when it is shown. */
+export interface ExportedPhoto {
+  original: string;
+  cutout: string | null;
+  thumb: string;
+}
+
+interface ExportRow {
+  garment: GarmentRow;
+  photo: ExportedPhoto | null;
+}
+
+/**
+ * `ownerId`'s garments, every status, oldest first, a keyset page per
+ * statement with the photo joined.
+ */
+async function* exportPages(
+  db: Db,
+  ownerId: number,
+  origin: string,
+): AsyncGenerator<ExportRow[]> {
+  let after = 0;
+  for (;;) {
+    const rows = await db
+      .select({
+        garment,
+        photo: {
+          fileName: file.fileName,
+          version: file.version,
+          cutoutStatus: file.cutoutStatus,
+        },
+      })
+      .from(garment)
+      .leftJoin(file, eq(file.id, garment.photoId))
+      .where(and(eq(garment.ownerId, ownerId), gt(garment.id, after)))
+      .orderBy(asc(garment.id))
+      .limit(EXPORT_PAGE_SIZE);
+    yield rows.map((row) => ({
+      garment: row.garment,
+      photo: row.photo && {
+        original: origin + imageUrl(row.photo, 'original'),
+        cutout: showsCutout(row.photo.cutoutStatus)
+          ? origin + imageUrl(row.photo, 'nobg')
+          : null,
+        thumb: origin + imageUrl(row.photo, 'thumb'),
+      },
+    }));
+    const last = rows.at(-1);
+    if (!last || rows.length < EXPORT_PAGE_SIZE) return;
+    after = last.garment.id;
+  }
+}
+
+/** Sets in a CSV cell: no set value holds a comma. */
+const SET_SEPARATOR = ', ';
+
+/** A stored value as CSV text: null is empty (the form never stores ''). */
+export function csvValue(value: GarmentRow[keyof GarmentRow]): string {
+  if (value === null) return '';
+  if (Array.isArray(value)) return value.join(SET_SEPARATOR);
+  return String(value);
+}
+
+// What a spreadsheet reads as a formula (or a cell that becomes one):
+// OWASP's CSV injection list.
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/**
+ * One CSV cell: a formula-looking text is prefixed with `'` (so a garment
+ * named `=HYPERLINK(...)` stays text in every spreadsheet), then RFC 4180
+ * quoting for commas, quotes and line breaks.
+ */
+export function csvCell(text: string): string {
+  const safe = FORMULA_START.test(text) ? `'${text}` : text;
+  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+}
+
+const CRLF = '\r\n';
+
+function csvLine(cells: readonly string[]): string {
+  return cells.map(csvCell).join(',') + CRLF;
+}
+
+async function* csvChunks(pages: AsyncGenerator<ExportRow[]>) {
+  // The BOM tells spreadsheet apps the file is UTF-8.
+  yield '﻿' +
+    csvLine([...EXPORT_COLUMNS.map((column) => column.name), ...PHOTO_COLUMNS]);
+  for await (const page of pages) {
+    if (page.length === 0) continue;
+    yield page
+      .map(({ garment: row, photo }) =>
+        csvLine([
+          ...EXPORT_COLUMNS.map((column) => csvValue(row[column.key])),
+          photo?.original ?? '',
+          photo?.cutout ?? '',
+          photo?.thumb ?? '',
+        ]),
+      )
+      .join('');
+  }
+}
+
+/** A garment as the JSON bundle holds it: the columns' own types, and its photo. */
+function jsonGarment({ garment: row, photo }: ExportRow): object {
+  return {
+    ...Object.fromEntries(
+      EXPORT_COLUMNS.map((column) => [column.name, row[column.key]]),
+    ),
+    photo,
+  };
+}
+
+async function* jsonChunks(
+  pages: AsyncGenerator<ExportRow[]>,
+  exportedAt: Date,
+) {
+  yield `{"exportedAt":${JSON.stringify(exportedAt)},"garments":[`;
+  let first = true;
+  for await (const page of pages) {
+    if (page.length === 0) continue;
+    yield (first ? '' : ',') +
+      page.map((row) => JSON.stringify(jsonGarment(row))).join(',');
+    first = false;
+  }
+  yield ']}\n';
+}
+
+/**
+ * `ownerId`'s wardrobe as a stream of `format`, photo URLs on `origin`.
+ * Logs how many garments went out and how long it took, or the failure (the
+ * headers are gone by then: the browser reports a failed download).
+ */
+export function wardrobeExport(
+  db: Db,
+  logger: Logger,
+  {
+    ownerId,
+    format,
+    origin,
+  }: { ownerId: number; format: ExportFormat; origin: string },
+): Readable {
+  const started = performance.now();
+  let garments = 0;
+  async function* counted() {
+    for await (const page of exportPages(db, ownerId, origin)) {
+      garments += page.length;
+      yield page;
+    }
+  }
+  async function* logged() {
+    try {
+      yield* format === 'csv'
+        ? csvChunks(counted())
+        : jsonChunks(counted(), new Date());
+      logger.info(
+        `Export (${format}) of wardrobe ${ownerId}: ${garments} garments in ${(performance.now() - started).toFixed(0)}ms`,
+      );
+    } catch (error) {
+      logger.error(
+        { err: error },
+        `Export (${format}) of wardrobe ${ownerId} failed after ${garments} garments`,
+      );
+      throw error;
+    }
+  }
+  return Readable.from(logged());
+}

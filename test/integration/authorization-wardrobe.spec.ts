@@ -142,6 +142,74 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // A library pick of several (#200): a batch of drafts for the
+    // addressed wardrobe, refused before the body is read like one photo.
+    name: 'POST /wardrobe/new/photo (a batch)',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: ['ownerId'],
+    request: async (f, q) => {
+      const photo = {
+        data: f.photo,
+        filename: 'photo.jpg',
+        contentType: 'image/jpeg',
+      };
+      const body = await multipart({}, { photo: [photo, photo] });
+      return { method: 'POST', url: `/wardrobe/new/photo${q}`, ...body };
+    },
+    expect: {
+      owner: 'ok',
+      manager: 'ok',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // A draft's Discard (#200): only the requester's own draft can go, so
+    // the matrix's name (nobody's) discards nothing and ends the queue.
+    // Listed as a read for that: nothing may change for anyone, a success
+    // included. The discard itself is draft-batch.spec.ts's.
+    name: 'POST /wardrobe/new/drafts/discard',
+    kind: 'read',
+    ok: 303,
+    secret: garmentName,
+    vias: ['ownerId'],
+    request: (_, q) => ({
+      method: 'POST',
+      url: `/wardrobe/new/drafts/discard${q}`,
+      payload: { photo: '00000000-0000-4000-8000-000000000000.webp' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'ok',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
+  ...(['csv', 'json'] as const).map(
+    (format): Route => ({
+      // The export (#200): the owner's alone. With ?ownerId= a grantee is
+      // refused, MANAGE included; without it they export their own.
+      name: `GET /wardrobe/export.${format}`,
+      kind: 'read',
+      ok: 200,
+      secret: garmentName,
+      shows: true,
+      vias: BOTH,
+      request: (_, q) => ({
+        method: 'GET',
+        url: `/wardrobe/export.${format}${q}`,
+      }),
+      expect: {
+        owner: 'ok',
+        manager: ['hidden', 'forbidden'],
+        viewer: ['hidden', 'forbidden'],
+        stranger: ['hidden', 'notFound'],
+      },
+    }),
+  ),
+  {
     // Not `shows`: the card is the wardrobe's newest untagged garment, and
     // other cases add garments to the owner's wardrobe, so which one it is
     // depends on order. Refusals must still leak no name. Without ?ownerId

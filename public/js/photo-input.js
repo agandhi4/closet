@@ -1,8 +1,9 @@
 /**
  * A chosen photo, prepared on the phone before upload (preparePhoto, which
  * the photo inputs' onchange imports: PREPARE_AND_SUBMIT_PHOTO in
- * src/web/layout/parts.tsx, used by the garment page's photo sheet and the
- * outfit selfies); the server removes a garment photo's background.
+ * src/web/layout/parts.tsx, used by the garment page's photo sheet, the
+ * add sheet's camera and library, and the outfit selfies); the server
+ * removes a garment photo's background.
  */
 
 // The server stores photos at 1080 px (src/web/files/photos.ts); 1600
@@ -60,20 +61,26 @@ const downscalePhoto = async (file) => {
 };
 
 /**
- * Replaces the input's chosen file with its downscaled copy (setting
- * `files` fires no change event) and returns the file that will be
- * uploaded; undefined when none is chosen.
+ * Replaces the input's chosen files with their downscaled copies (setting
+ * `files` fires no change event) and returns the first file that will be
+ * uploaded; undefined when none is chosen. A `multiple` input (the add
+ * sheet's library, #200) has each of its photos prepared in turn, one
+ * decoded bitmap at a time, in the order they were picked. The name and
+ * the single return value are what the handler string in cached pages
+ * calls (PREPARE_AND_SUBMIT_PHOTO).
  * @param {HTMLInputElement} input
  * @returns {Promise<File | undefined>}
  */
 export const preparePhoto = async (input) => {
-  const file = input.files?.[0];
-  if (!file) return undefined;
-  const prepared = await downscalePhoto(file);
-  if (prepared !== file) {
+  const files = [...(input.files ?? [])];
+  if (files.length === 0) return undefined;
+  const prepared = [];
+  for (const file of files) prepared.push(await downscalePhoto(file));
+  if (prepared.some((file, index) => file !== files[index])) {
     const dt = new DataTransfer();
-    dt.items.add(prepared);
+    for (const file of prepared) dt.items.add(file);
     input.files = dt.files;
   }
-  return prepared;
+  if (prepared.length > 1) console.info(`[photo] prepared ${prepared.length} photos`);
+  return prepared[0];
 };
