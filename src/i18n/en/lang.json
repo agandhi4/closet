@@ -531,6 +531,7 @@
     "TIMEOUT": "The site took too long to answer.",
     "NETWORK": "The site couldn't be reached.",
     "UNREADABLE_IMAGE": "That photo couldn't be read.",
+    "RATE_LIMITED": "Too many photos fetched in the last minute. Try again in a minute.",
     "FOUND_DETAILS": "Filled in from the page. Check everything before saving.",
     "NOTHING_FOUND": "Nothing could be read from that page. The link is kept below; fill in the rest, or add from a link to the photo instead.",
     "NO_PHOTO": "No photo could be fetched from the page. Add one after saving.",

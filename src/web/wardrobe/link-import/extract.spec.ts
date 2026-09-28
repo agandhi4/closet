@@ -169,6 +169,44 @@ describe('extractProduct', () => {
     }
   });
 
+  it('passes over an empty Product node to the one that says something', () => {
+    const html = `
+      <script type="application/ld+json">{"@type": "Product", "@id": "#product"}</script>
+      <script type="application/ld+json">{"@graph": [
+        {"@type": "Product", "@id": "#product"},
+        {"@type": "Product", "name": "Oxford Shirt", "brand": "Acme"}
+      ]}</script>`;
+
+    expect(extractProduct(html, new URL('https://shop.test/'))).toMatchObject({
+      source: 'json-ld',
+      name: 'Oxford Shirt',
+      brand: 'Acme',
+    });
+  });
+
+  it('does not credit JSON-LD when its only Product is empty', () => {
+    const html = `
+      <script type="application/ld+json">{"@type": "Product", "@id": "#product"}</script>
+      <meta property="og:title" content="Oxford Shirt">`;
+
+    expect(extractProduct(html, new URL('https://shop.test/'))).toMatchObject({
+      source: 'open-graph',
+      name: 'Oxford Shirt',
+    });
+  });
+
+  it.each([
+    'application/ld+json; charset=utf-8',
+    'Application/LD+JSON ;charset="UTF-8"',
+  ])('reads JSON-LD typed %s', (type) => {
+    const html = `<script type='${type}'>{"@type": "Product", "name": "Tee"}</script>`;
+
+    expect(extractProduct(html, new URL('https://shop.test/'))).toMatchObject({
+      source: 'json-ld',
+      name: 'Tee',
+    });
+  });
+
   it('bounds the name to the form field', () => {
     const html = `<script type="application/ld+json">
       {"@type": "Product", "name": "${'Tee '.repeat(200)}"}</script>`;

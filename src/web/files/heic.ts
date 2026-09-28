@@ -58,11 +58,9 @@ export async function decodeHeic(
   maxBytes: number,
   maxPixels: number,
 ): Promise<DecodedHeic> {
-  const buffer = await readUpTo(stream, maxBytes);
-  if (!buffer) {
-    throw new HttpError(413, `HEIC uploads are limited to ${maxBytes} bytes`);
-  }
-  const images = await heicDecode.all({ buffer });
+  const images = await heicDecode.all({
+    buffer: await readHeic(stream, maxBytes),
+  });
   try {
     // The primary image, as heic-decode's default export picks it.
     const [primary] = images;
@@ -77,6 +75,34 @@ export async function decodeHeic(
   } finally {
     images.dispose();
   }
+}
+
+/**
+ * The primary image's pixel count from the container, decoding none of
+ * them: what decodeHeic would allocate. The same 413 past `maxBytes`; what
+ * heic-decode throws for undecodable bytes is passed through.
+ */
+export async function heicPixelCount(
+  stream: Readable,
+  maxBytes: number,
+): Promise<number> {
+  const images = await heicDecode.all({
+    buffer: await readHeic(stream, maxBytes),
+  });
+  try {
+    const [primary] = images;
+    return primary.width * primary.height;
+  } finally {
+    images.dispose();
+  }
+}
+
+async function readHeic(stream: Readable, maxBytes: number): Promise<Buffer> {
+  const buffer = await readUpTo(stream, maxBytes);
+  if (!buffer) {
+    throw new HttpError(413, `HEIC uploads are limited to ${maxBytes} bytes`);
+  }
+  return buffer;
 }
 
 // undefined when the stream exceeds the cap. The loop never breaks early:

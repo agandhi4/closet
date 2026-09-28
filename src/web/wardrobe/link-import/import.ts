@@ -1,7 +1,11 @@
 import { Readable } from 'node:stream';
 import type { Db } from '../../../db/client';
 import { HttpError } from '../../errors';
-import type { ImageSource, Photos } from '../../files/photos';
+import {
+  type ImageSource,
+  MAX_INPUT_PIXELS,
+  type Photos,
+} from '../../files/photos';
 import type { StringKey } from '../../i18n';
 import type { Logger } from '../../../logger';
 import {
@@ -23,10 +27,13 @@ import { type ExtractedProduct, extractProduct } from './extract';
  * form's save claims (createGarmentWithPendingPhoto, ../writes.ts) or
  * reconciliation removes a day later.
  *
- * Memory: one import holds up to MAX_PHOTO_CHOICES images of up to 15 MB
- * (BYTE_LIMITS.image) at once, about 90 MB transient, plus the decodes for
- * their previews. LINK_IMPORT_LIMIT bounds one user's rate, not how many
- * users import at the same moment.
+ * Memory: the choices are fetched and previewed CHOICE_CONCURRENCY at a
+ * time, and all of them together decode at most CHOICE_PIXEL_BUDGET pixels
+ * (previewChoices), so one import holds at most three fetched images of up
+ * to 15 MB (BYTE_LIMITS.image: two in flight, and the first readable one
+ * kept to store) and two decodes, however many candidates the page names.
+ * LINK_IMPORT_LIMIT bounds one user's rate, not how many users import at
+ * the same moment.
  *
  * - An image: stored as the pending photo.
  * - A web page: extractProduct, then its image candidates fetched for the
@@ -36,6 +43,18 @@ import { type ExtractedProduct, extractProduct } from './extract';
 
 /** How many of a page's image candidates are fetched as choices. */
 export const MAX_PHOTO_CHOICES = 6;
+
+/** How many choices are fetched and previewed at once. */
+export const CHOICE_CONCURRENCY = 2;
+
+/**
+ * The pixels one import's previews may decode, all its choices together:
+ * as many as a single upload may (MAX_INPUT_PIXELS), so a page of six
+ * near-limit photos costs what one does, not six times it. A choice past
+ * what is left is skipped. Six ordinary product photos (a few MP each) fit
+ * several times over.
+ */
+export const CHOICE_PIXEL_BUDGET = MAX_INPUT_PIXELS;
 
 /**
  * The link field's cap (and the posted link's). Longer than the fetcher's
@@ -156,27 +175,19 @@ export async function importLink(
     return { kind: 'image', photo: await storePhoto(deps, resource, userId) };
   }
   const product = extractProduct(pageText(resource), resource.url);
-  const readable = await fetchChoices(
+  const { choices, first } = await previewChoices(
     deps,
     product.images.slice(0, MAX_PHOTO_CHOICES),
   );
-  const photo = readable[0]
-    ? await storePhoto(deps, readable[0].resource, userId)
-    : undefined;
+  const photo = first ? await storePhoto(deps, first, userId) : undefined;
   deps.logger.info(
-    `Link import from ${resource.url.hostname}: ${product.source ?? 'nothing'} extracted, ${readable.length} of ${product.images.length} photos read${photo ? `, ${photo} pending` : ''}`,
+    `Link import from ${resource.url.hostname}: ${product.source ?? 'nothing'} extracted, ${choices.length} of ${product.images.length} photos read${photo ? `, ${photo} pending` : ''}`,
   );
   return {
     kind: 'page',
     product,
     photo,
-    choices:
-      readable.length > 1
-        ? readable.map(({ url: choice, preview }) => ({
-            url: choice,
-            preview,
-          }))
-        : [],
+    choices: choices.length > 1 ? choices : [],
   };
 }
 
@@ -234,37 +245,74 @@ async function storePhoto(
   return fileName;
 }
 
+export type ChoiceDeps = Pick<LinkImportDeps, 'fetcher' | 'logger'> & {
+  photos: Pick<Photos, 'inputPixels' | 'preview'>;
+};
+
 /**
  * The candidates that are images Photos can read, in the page's order,
- * with their previews. Fetched together; one that is refused or unreadable
- * is left out (the fetcher logs why).
+ * with their previews, and the first of them as fetched (to store as the
+ * pending photo). One that is refused, unreadable or past the pixel budget
+ * is left out (the fetcher logs its refusals, Photos an unreadable image;
+ * a skip for the budget is logged here), never failing the import.
+ *
+ * Bounded however many candidates there are: CHOICE_CONCURRENCY at a time,
+ * each one's pixels (read from its header, before any is decoded) taken
+ * from CHOICE_PIXEL_BUDGET, and only the first readable one's bytes kept
+ * past its preview. The budget goes in the order headers are read: the
+ * page's, unless an earlier photo is slower to fetch.
  */
-async function fetchChoices(
-  deps: LinkImportDeps,
+export async function previewChoices(
+  { fetcher, photos, logger }: ChoiceDeps,
   urls: readonly string[],
-): Promise<(PhotoChoice & { resource: FetchedResource })[]> {
-  const results = await Promise.all(
-    urls.map(async (url) => {
-      try {
-        const resource = await deps.fetcher.fetch(url, { accept: ['image'] });
-        const preview = await deps.photos.preview(imageSource(resource));
-        return {
-          url,
-          resource,
-          preview: `data:image/webp;base64,${preview.toString('base64')}`,
-        };
-      } catch (error) {
-        if (
-          error instanceof OutboundFetchError ||
-          (error instanceof HttpError && error.statusCode < 500)
-        ) {
-          return undefined;
-        }
-        throw error;
+): Promise<{ choices: PhotoChoice[]; first: FetchedResource | undefined }> {
+  const previews: (PhotoChoice | undefined)[] = [];
+  let first: { index: number; resource: FetchedResource } | undefined;
+  let budget = CHOICE_PIXEL_BUDGET;
+
+  const previewOne = async (url: string, index: number): Promise<void> => {
+    let resource: FetchedResource;
+    try {
+      resource = await fetcher.fetch(url, { accept: ['image'] });
+      const pixels = await photos.inputPixels(imageSource(resource));
+      if (pixels > budget) {
+        logger.warn(
+          `Link import skipped photo ${index + 1} from ${resource.url.hostname}: ${pixels} pixels, ${budget} left of the import's budget`,
+        );
+        return;
       }
-    }),
+      budget -= pixels;
+      const webp = await photos.preview(imageSource(resource));
+      previews[index] = {
+        url,
+        preview: `data:image/webp;base64,${webp.toString('base64')}`,
+      };
+    } catch (error) {
+      if (
+        error instanceof OutboundFetchError ||
+        (error instanceof HttpError && error.statusCode < 500)
+      ) {
+        return;
+      }
+      throw error;
+    }
+    if (!first || index < first.index) first = { index, resource };
+  };
+
+  let next = 0;
+  const worker = async () => {
+    while (next < urls.length) {
+      const index = next++;
+      await previewOne(urls[index], index);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CHOICE_CONCURRENCY, urls.length) }, worker),
   );
-  return results.filter((result) => result !== undefined);
+  return {
+    choices: previews.filter((choice) => choice !== undefined),
+    first: first?.resource,
+  };
 }
 
 function imageSource(resource: FetchedResource): ImageSource {

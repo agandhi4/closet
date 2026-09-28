@@ -205,7 +205,8 @@ const MATERIAL_WORDS: readonly (readonly [Material, RegExp])[] = [
   ['cashmere', words('cashmere')],
   ['silk', words('silk')],
   ['denim', words('denim|selvedge|selvage')],
-  ['leather', words('(?<!faux |vegan |pu )leather')],
+  // "faux leather", "faux-leather", "PU leather" are synthetic, below.
+  ['leather', words('(?<!(?:faux|vegan|pu)[- ])leather')],
   ['suede', words('suede')],
   ['polyester', words('polyester')],
   ['nylon', words('nylon|polyamide')],
@@ -216,7 +217,7 @@ const MATERIAL_WORDS: readonly (readonly [Material, RegExp])[] = [
   [
     'synthetic',
     words(
-      'acrylic|viscose|rayon|modal|lyocell|tencel|(?:faux|vegan|pu) leather',
+      'acrylic|viscose|rayon|modal|lyocell|tencel|(?:faux|vegan|pu)[- ]leather',
     ),
   ],
 ];

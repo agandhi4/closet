@@ -42,6 +42,24 @@ export async function registerRateLimit(
   });
 }
 
+/**
+ * The 429 a route that counts through `createRateLimit` throws: the same
+ * refusal and wording as a route-config limit's (errorResponseBuilder
+ * above; the plugin's "after" is English, as the catalog is).
+ */
+export function tooManyAttempts(ttlInSeconds: number): HttpError {
+  const [count, unit] =
+    ttlInSeconds < 60
+      ? [Math.max(1, Math.round(ttlInSeconds)), 'second']
+      : [Math.round(ttlInSeconds / 60), 'minute'];
+  return new HttpError(
+    429,
+    t('TOO_MANY_ATTEMPTS', {
+      after: `${count} ${unit}${count === 1 ? '' : 's'}`,
+    }),
+  );
+}
+
 /** Login and registration: per client address, before the body is read. */
 export const SIGN_IN_LIMIT: RateLimitOptions = {
   max: 5,
@@ -65,15 +83,18 @@ export const ACCOUNT_LIMIT: RateLimitOptions = {
 
 /**
  * The routes that fetch a URL the user supplied through the outbound
- * fetcher (the link import and its photo choice; one import fetches the
- * page and up to MAX_PHOTO_CHOICES images). Per signed-in user, like
+ * fetcher: the link import and its photo choice together (one import
+ * fetches the page and up to MAX_PHOTO_CHOICES images). Both count on ONE
+ * checker, `app.createRateLimit(LINK_IMPORT_LIMIT)` built once in
+ * link-import/routes.tsx, never a route's `config.rateLimit`: each of
+ * those, and each createRateLimit call, gets a store of its own, so two
+ * would allow ten a minute each. Per signed-in user, like
  * ACCOUNT_LIMIT: generous for someone adding what they bought, and a
  * ceiling on how hard the server can be made to hammer another site.
  */
 export const LINK_IMPORT_LIMIT: RateLimitOptions = {
   max: 10,
   timeWindow: '1 minute',
-  hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
 };
 

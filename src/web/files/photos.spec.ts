@@ -451,6 +451,67 @@ describe('Photos.storeUpload', () => {
   });
 });
 
+describe('Photos.inputPixels', () => {
+  const source = (data: Buffer, mimetype: string, filename = 'a photo') => ({
+    stream: Readable.from([data]),
+    mimetype,
+    filename,
+  });
+
+  beforeEach(() => {
+    heicMock.mockReset();
+  });
+
+  it("reads an image's pixel count from its header", async () => {
+    const jpeg = await sharp({
+      create: { width: 300, height: 200, channels: 3, background: '#123' },
+    })
+      .jpeg()
+      .toBuffer();
+
+    await expect(build().inputPixels(source(jpeg, 'image/jpeg'))).resolves.toBe(
+      60_000,
+    );
+  });
+
+  it("reads a HEIC's from its container without decoding a pixel", async () => {
+    const decode = vi.fn();
+    heicMock.mockResolvedValue(
+      Object.assign([{ width: 4032, height: 3024, decode }], {
+        dispose: vi.fn(),
+      }),
+    );
+
+    await expect(
+      build().inputPixels(source(Buffer.from('x'), 'image/heic')),
+    ).resolves.toBe(4032 * 3024);
+    expect(decode).not.toHaveBeenCalled();
+  });
+
+  it('refuses past MAX_INPUT_PIXELS as a decode would, from the header', async () => {
+    const side = Math.ceil(Math.sqrt(MAX_INPUT_PIXELS)) + 1000;
+    const bomb = await sharp({
+      create: { width: side, height: side, channels: 3, background: '#000' },
+      limitInputPixels: false,
+    })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
+    await expect(
+      build().inputPixels(source(bomb, 'image/png')),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Image too large' });
+  }, 30_000);
+
+  it.each([
+    ['bytes that are no image', Buffer.from('not a jpeg'), 'image/jpeg'],
+    ['a type that is no image', Buffer.from('<html>'), 'text/html'],
+  ])('refuses %s with a 400', async (_label, data, mimetype) => {
+    await expect(
+      build().inputPixels(source(data, mimetype)),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
 describe('Photos.storeImage', () => {
   /** Decoded RGBA with a pixel reader. */
   const pixels = async (bytes: Buffer) => {

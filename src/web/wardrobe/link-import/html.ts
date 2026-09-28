@@ -167,8 +167,10 @@ function addMeta(
   else metas.set(normalized, [value]);
 }
 
+// The media type's essence: parameters (`; charset=utf-8`) do not change it.
 function isJsonLd(attributes: Map<string, string>): boolean {
-  return attributes.get('type')?.trim().toLowerCase() === 'application/ld+json';
+  const essence = attributes.get('type')?.split(';', 1)[0];
+  return essence?.trim().toLowerCase() === 'application/ld+json';
 }
 
 const NAMED_ENTITIES: Readonly<Record<string, string>> = {

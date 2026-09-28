@@ -26,6 +26,7 @@ export function pendingPhotoView(photo: string | undefined): LinkImportView {
 }
 
 const SLOT_ID = 'link-photo';
+const CHOICES_ID = 'link-photo-choices';
 
 /**
  * The top of a garment form prefilled from a link: what the import found,
@@ -89,6 +90,14 @@ export function LinkPhotoSlot(props: { photo?: string; errors?: string[] }) {
  * One button per photo the page offered, plus "No photo". The button's
  * `url` and the form's current `linkPhoto` go to the photo route
  * (hx-params keeps the rest of the form out); the answer replaces the slot.
+ *
+ * The taps share one queue on the group, the latest last: two picks in
+ * flight at once would both post the same `linkPhoto`, so only one could
+ * discard it and the other's new photo would lose its only reference. A
+ * queued request reads the form when it is sent, after the slot has taken
+ * the previous answer. Not the form's own queue (autosave's
+ * `closest form:queue last`, which a property change would empty of a
+ * waiting pick), and never on an element an answer replaces.
  */
 function PhotoChoices(props: {
   choices: PhotoChoice[];
@@ -99,13 +108,14 @@ function PhotoChoices(props: {
     'hx-params': 'url,linkPhoto',
     'hx-target': `#${SLOT_ID}`,
     'hx-swap': 'outerHTML',
+    'hx-sync': `#${CHOICES_ID}:queue last`,
   } as const;
   return (
     <div class="flex flex-col">
       <span class="label">
         <span class="label-text">{t('linkImport.CHOOSE_PHOTO')}</span>
       </span>
-      <div class="grid grid-cols-3 gap-2">
+      <div id={CHOICES_ID} class="grid grid-cols-3 gap-2">
         {props.choices.map((choice, index) => (
           <button
             type="button"

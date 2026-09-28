@@ -18,6 +18,7 @@ import { PROJECT_ROOT } from '../../project-root';
 import {
   type DecodedHeic,
   decodeHeic,
+  heicPixelCount,
   imageTooLarge,
   isHeicUpload,
 } from './heic';
@@ -272,6 +273,32 @@ export class Photos {
         })
         .webp({ quality: PREVIEW_QUALITY }),
     );
+  }
+
+  /**
+   * How many pixels decoding the image would take, read from its header (a
+   * HEIC's container) without decoding any: for a caller that budgets
+   * several decodes (link import's choices). The same refusals as a
+   * decode: 400 for bytes that are not an image, 400 "Image too large" past
+   * MAX_INPUT_PIXELS. Consumes the stream.
+   */
+  async inputPixels(source: ImageSource): Promise<number> {
+    let pixels: number;
+    try {
+      pixels = isHeicUpload(source)
+        ? await heicPixelCount(source.stream, this.config.maxHeicBytes)
+        : await this.headerPixels(source);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      this.logger.warn(
+        `Rejected unreadable image ${source.filename}: ${String(error)}`,
+      );
+      throw exceedsPixelLimit(error)
+        ? imageTooLarge()
+        : new HttpError(400, 'Unreadable image');
+    }
+    if (pixels > MAX_INPUT_PIXELS) throw imageTooLarge();
+    return pixels;
   }
 
   /**
@@ -597,13 +624,19 @@ export class Photos {
     source: ImageSource,
   ): Promise<{ pixels: Readable; raw?: DecodedHeic['raw'] }> {
     if (isHeicUpload(source)) return this.decodeHeicSource(source);
-    if (!source.mimetype?.startsWith('image/')) {
-      // https://github.com/fastify/fastify-multipart/issues/497
-      // An unconsumed multipart stream hangs the request: drain, then refuse.
-      source.stream.resume();
-      throw new HttpError(400, 'Wrong filetype');
-    }
+    refuseNonImage(source);
     return { pixels: source.stream };
+  }
+
+  // sharp's metadata: the header only, which limitInputPixels does not
+  // check (inputPixels does). Every pixel count but a HEIC's.
+  private async headerPixels(source: ImageSource): Promise<number> {
+    refuseNonImage(source);
+    const transformer = decoder();
+    source.stream.on('error', (error) => transformer.destroy(error));
+    const { width, height } = await source.stream.pipe(transformer).metadata();
+    if (!width || !height) throw new Error('No dimensions in the header');
+    return width * height;
   }
 
   // HEIC is the one format sharp cannot read (see heic.ts). The whole part is
@@ -739,6 +772,15 @@ export class Photos {
       throw error;
     }
   }
+}
+
+// Bytes Photos cannot read as any image: a 400.
+function refuseNonImage(source: ImageSource): void {
+  if (source.mimetype?.startsWith('image/')) return;
+  // https://github.com/fastify/fastify-multipart/issues/497
+  // An unconsumed multipart stream hangs the request: drain, then refuse.
+  source.stream.resume();
+  throw new HttpError(400, 'Wrong filetype');
 }
 
 // sharp reports limitInputPixels only through its message ("Input image

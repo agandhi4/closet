@@ -167,15 +167,31 @@ const PRODUCT_TYPES = new Set([
 const MAX_DEPTH = 8;
 const MAX_NODES = 5000;
 
-/** The first Product node in the page's JSON-LD blocks. */
+/**
+ * The first Product node in the page's JSON-LD blocks that says anything.
+ * Pages often reference the product before describing it (`{"@type":
+ * "Product", "@id": "#product"}` in a breadcrumb or an early block), so an
+ * empty node is passed over, not taken.
+ */
 function findProduct(blocks: readonly string[]): SourceFields | null {
   for (const block of blocks) {
     const parsed = parseJsonLd(block);
-    const node =
-      parsed === undefined ? null : findProductNode(parsed, { nodes: 0 }, 0);
-    if (node) return productFields(node);
+    if (parsed === undefined) continue;
+    for (const node of productNodes(parsed, { nodes: 0 }, 0)) {
+      const fields = productFields(node);
+      if (saysAnything(fields)) return fields;
+    }
   }
   return null;
+}
+
+function saysAnything(fields: SourceFields): boolean {
+  return (
+    fields.images.length > 0 ||
+    (Object.keys(EMPTY_FIELDS) as (keyof MergedFields)[]).some(
+      (key) => fields[key] !== null,
+    )
+  );
 }
 
 /**
@@ -214,24 +230,24 @@ function typeNames(node: JsonObject): string[] {
 }
 
 /**
- * Depth-first through arrays, `@graph` and nested objects (a WebPage's
- * `mainEntity`), bounded in depth and node count so a hostile document
- * cannot make the walk expensive.
+ * The Product nodes, depth-first through arrays, `@graph` and nested
+ * objects (a WebPage's `mainEntity`), bounded in depth and node count so a
+ * hostile document cannot make the walk expensive. A Product's own
+ * children are not searched (its variants are its own fields).
  */
-function findProductNode(
+function* productNodes(
   value: Json,
   budget: { nodes: number },
   depth: number,
-): JsonObject | null {
-  if (depth > MAX_DEPTH || ++budget.nodes > MAX_NODES) return null;
+): Generator<JsonObject> {
+  if (depth > MAX_DEPTH || ++budget.nodes > MAX_NODES) return;
   if (isObject(value) && typeNames(value).some((t) => PRODUCT_TYPES.has(t))) {
-    return value;
+    yield value;
+    return;
   }
   for (const child of childNodes(value)) {
-    const found = findProductNode(child, budget, depth + 1);
-    if (found) return found;
+    yield* productNodes(child, budget, depth + 1);
   }
-  return null;
 }
 
 /** The arrays and objects inside an array or object. */

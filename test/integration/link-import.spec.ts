@@ -24,6 +24,7 @@ import {
 } from './garments';
 import {
   createTestApp,
+  multipart,
   TEST_PASSWORD,
   type TestApp,
   unescapeHtml,
@@ -207,6 +208,25 @@ describe('adding a garment from a link', () => {
       expect(sites.hits.length).toBe(hits);
     });
 
+    it('lets shared text through the field: a text input for a URL keyboard, not type="url"', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/wardrobe/new/from-link',
+      });
+      const field = /<input[^>]*id="link-url"[^>]*>/.exec(res.body)?.[0];
+      expect(field).toContain('type="text"');
+      expect(field).toContain('inputmode="url"');
+
+      // What such a field posts: the words and the link, which linkIn finds.
+      const { cookie } = await signUp('sharer@example.com');
+      const shared = await importLink(
+        `Heavyweight Pocket Tee | Studio Knit ${sites.url('/products/tee')}`,
+        { cookie },
+      );
+      expect(shared.statusCode).toBe(200);
+      expect(shared.body).toContain('value="Heavyweight Pocket Tee"');
+    });
+
     it('says so when the shared text holds no link', async () => {
       const res = await t.inject({
         method: 'GET',
@@ -325,6 +345,42 @@ describe('adding a garment from a link', () => {
       expect(linkPhotoIn(res.body)).toBe(current);
       expect(res.body).toContain(text('linkImport.HTTP_STATUS'));
       expect(await storedOriginals()).toContain(current);
+    });
+
+    it('queues the taps on the choice group, so each pick posts the photo the last one left', async () => {
+      const { cookie } = await signUp('picker@example.com');
+      const page = await importLink(sites.url('/products/tee'), { cookie });
+      const buttons = page.body.match(/<button[^>]*name="url"[^>]*>/g) ?? [];
+      // Two photos and "No photo".
+      expect(buttons).toHaveLength(3);
+      for (const button of buttons) {
+        expect(button).toContain('hx-sync="#link-photo-choices:queue last"');
+      }
+      expect(page.body).toContain('id="link-photo-choices"');
+    });
+
+    it('answers the slot, keeping the photo, past the rate limit (htmx swaps no 429)', async () => {
+      const { cookie } = await signUp('choosy@example.com');
+      const current = `${randomUUID()}.webp`;
+      const choose = () =>
+        t.inject({
+          method: 'POST',
+          url: '/wardrobe/new/from-link/photo',
+          payload: { url: '', linkPhoto: current },
+          headers: { cookie, 'hx-request': 'true' },
+        });
+      for (let i = 0; i < 10; i++) {
+        const res = await choose();
+        expect(res.body).not.toContain(text('linkImport.RATE_LIMITED'));
+      }
+
+      const refused = await choose();
+      expect(refused.statusCode).toBe(200);
+      expect(refused.body).toContain(text('linkImport.RATE_LIMITED'));
+      expect(linkPhotoIn(refused.body)).toBe(current);
+      expect(t.logs.messages('warn', 'Web').join('\n')).toMatch(
+        /Rate limit reached: POST \/wardrobe\/new\/from-link\/photo for user \d+/,
+      );
     });
 
     it('never deletes a photo that has a row', async () => {
@@ -470,16 +526,32 @@ describe('adding a garment from a link', () => {
       for (let i = 0; i < MAX_PENDING_PER_USER; i++) {
         photos.push(await importPhoto(hoarder.cookie));
       }
-      // The eleventh through the photo choice (without replacing one): the
-      // imports' rate limit is also ten a minute, and the cap is per user,
-      // whichever route stores the photo.
+      // The eleventh from the add sheet's upload: the ten imports spent the
+      // link routes' shared rate limit, and the cap is per user, whichever
+      // route stores the photo.
+      const body = await multipart(
+        {},
+        {
+          photo: {
+            data: await jpegPhoto(),
+            filename: 'IMG_0011.jpg',
+            contentType: 'image/jpeg',
+          },
+        },
+      );
       const eleventh = await t.inject({
         method: 'POST',
-        url: '/wardrobe/new/from-link/photo',
-        payload: { url: sites.url('/img/front.jpg') },
-        headers: { cookie: hoarder.cookie, 'hx-request': 'true' },
+        url: '/wardrobe/new/photo',
+        payload: body.payload,
+        headers: { ...body.headers, cookie: hoarder.cookie },
       });
-      photos.push(linkPhotoIn(eleventh.body)!);
+      expect(eleventh.statusCode).toBe(303);
+      photos.push(
+        new URL(
+          eleventh.headers.location!,
+          'http://localhost',
+        ).searchParams.get('photo')!,
+      );
       const [oldest, ...kept] = photos;
       expect(
         (await pendingOf(hoarder.id)).map((row) => row.fileName).sort(),
@@ -735,7 +807,7 @@ describe('adding a garment from a link', () => {
     }
     expect(statuses.slice(0, 10)).toEqual(Array(10).fill(400));
     expect(statuses[10]).toBe(429);
-    expect(t.logs.messages('warn', 'RateLimit')).toContain(
+    expect(t.logs.messages('warn', 'Web')).toContain(
       `Rate limit reached: POST /wardrobe/new/from-link for user ${shopperId}`,
     );
     // Someone else's count is their own.
@@ -743,5 +815,30 @@ describe('adding a garment from a link', () => {
     expect(
       (await importLink('no link here', { cookie: other.cookie })).statusCode,
     ).toBe(400);
+  });
+
+  it('counts imports and photo choices together: the combined eleventh is refused', async () => {
+    const { cookie } = await signUp('mixer@example.com');
+    const choose = () =>
+      t.inject({
+        method: 'POST',
+        url: '/wardrobe/new/from-link/photo',
+        payload: { url: '' },
+        headers: { cookie, 'hx-request': 'true' },
+      });
+    // Five of each, interleaved: ten fetches between the two routes.
+    for (let i = 0; i < 5; i++) {
+      expect((await importLink('no link here', { cookie })).statusCode).toBe(
+        400,
+      );
+      const choice = await choose();
+      expect(choice.body).not.toContain(text('linkImport.RATE_LIMITED'));
+    }
+
+    const eleventhImport = await importLink('no link here', { cookie });
+    expect(eleventhImport.statusCode).toBe(429);
+    const eleventhChoice = await choose();
+    expect(eleventhChoice.statusCode).toBe(200);
+    expect(eleventhChoice.body).toContain(text('linkImport.RATE_LIMITED'));
   });
 });
