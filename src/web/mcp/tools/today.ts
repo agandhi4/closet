@@ -1,10 +1,9 @@
 import * as z from 'zod/v4';
 import { DEFAULT_OCCASION } from '../../../wardrobe/occasions';
 import { ideaName } from '../../gallery/ideas';
-import { somethingWornOn } from '../../today/queries';
 import { todayFor } from '../../today/today';
 import { defineTool } from '../tool';
-import { calendarWeather } from './weather';
+import { weatherOfDays } from './weather';
 
 /**
  * Today (#15) as data: the same model the home screen renders (todayFor),
@@ -20,19 +19,18 @@ export const todayTools = [
     input: z.object({}),
     writes: false,
     async run(_args, ctx) {
+      // Worn today rides in Today's own statement, and the day's weather is
+      // the model's (#172: both were statements of their own).
       const model = await todayFor(
         { db: ctx.db, weather: ctx.weather, timeZone: ctx.timeZone },
         ctx.userId,
         new Date(),
+        { worn: true },
       );
-      // Not in the model: the page never shows it (todayFor).
-      const [weather, wornToday] = await Promise.all([
-        calendarWeather(ctx, model.today, model.today),
-        somethingWornOn(ctx.db, ctx.userId, model.today),
-      ]);
+      const weather = weatherOfDays(model.weather);
       return {
         day: model.today,
-        wornToday,
+        wornToday: model.wornToday,
         weather: weather?.(model.today, DEFAULT_OCCASION) ?? null,
         rows: model.rows.map((row) =>
           row.kind === 'planned'

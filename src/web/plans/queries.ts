@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import {
   file,
   garment,
@@ -562,21 +563,34 @@ export async function deleteItem(
 
 // ---- The style profile ------------------------------------------------------
 
-/** The user's style profile, or undefined when never saved. */
+/**
+ * The user's style profile as a scalar subquery (null when never saved),
+ * for a read that takes it with others in one statement: get_style_profile
+ * reads it with the week template (#172). Every field is JSON as stored
+ * (text and text arrays).
+ */
+export function styleProfileSql(
+  userId: number,
+): SQL<StyleProfileFields | null> {
+  return sql<StyleProfileFields | null>`(
+    select json_build_object(
+      'styles', ${styleProfile.styles},
+      'budget', ${styleProfile.budget},
+      'palette', ${styleProfile.palette},
+      'notes', ${styleProfile.notes}
+    )
+    from ${styleProfile} where ${eq(styleProfile.userId, userId)})`;
+}
+
+/** styleProfileSql alone, or undefined when never saved: the style page. */
 export async function findStyleProfile(
   db: Db,
   userId: number,
 ): Promise<StyleProfileFields | undefined> {
-  const [row] = await db
-    .select({
-      styles: styleProfile.styles,
-      budget: styleProfile.budget,
-      palette: styleProfile.palette,
-      notes: styleProfile.notes,
-    })
-    .from(styleProfile)
-    .where(eq(styleProfile.userId, userId));
-  return row;
+  const { profile } = await selectScalars(db, {
+    profile: styleProfileSql(userId),
+  });
+  return profile ?? undefined;
 }
 
 /** The one writer of a style profile: the row upserted. */

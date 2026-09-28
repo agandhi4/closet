@@ -1,4 +1,5 @@
 import type { Db } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import type { Idea } from '../../wardrobe/generator';
 import {
   compareOccasions,
@@ -8,14 +9,19 @@ import {
 } from '../../wardrobe/occasions';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
 import type { CalendarEntry } from '../calendar/calendar-view';
-import { findEntries } from '../calendar/queries';
+import { entriesSql } from '../calendar/queries';
 import { dailySeed, ideasFor, type IdeasWeather } from '../gallery/ideas';
 import type { PoolGarment } from '../gallery/queries';
 import {
-  userWeather,
+  readWeatherWithForecast,
+  weatherWithForecastSql,
+} from '../weather/queries';
+import {
   type UserWeather,
+  userWeatherFrom,
   type WeatherService,
 } from '../weather/service';
+import { somethingWornSql } from './queries';
 
 /**
  * Today (#15; plan section 9): the household's day for one person, as a
@@ -32,9 +38,9 @@ import {
  * - The person's weather (settings and forecast), read once beside the
  *   entries: the page's line and the ideas' matching share it.
  *
- * Whether anything was worn today is not in it: the page never shows it,
- * so its readers that need it (get_today, the evening reminder) ask
- * somethingWornOn themselves (#158).
+ * Whether anything was worn today is read only when asked (`worn`, in the
+ * same statement): the page never shows it (#158); get_today asks, and the
+ * evening reminder reads it for every evening person at once (eveningDays).
  */
 
 /** Ideas a suggestions row shows at once. */
@@ -67,6 +73,18 @@ export interface TodayModel {
   rows: TodayRow[];
   /** Null with WEATHER_ENABLED=false. */
   weather: UserWeather | null;
+  /** Whether anything was worn today (somethingWornSql); read only when asked (`worn`). */
+  wornToday?: boolean;
+}
+
+export interface TodayOptions {
+  /**
+   * The person's weather when the caller read it already (the morning
+   * reminders' batch refresh, refreshForecastsFor, #173); else read here.
+   */
+  ownWeather?: UserWeather;
+  /** Also read whether anything was worn today (get_today; the page never shows it). */
+  worn?: boolean;
 }
 
 export interface TodayDeps {
@@ -76,24 +94,52 @@ export interface TodayDeps {
 }
 
 /**
- * `ownWeather`: the person's weather when the caller read it already (the
- * morning reminders' batch refresh, refreshForecastsFor, #173); else read
- * here.
+ * The day's entries, the person's settings with their forecast row, and
+ * (when asked) whether anything was worn, in one statement (#172; the
+ * entries and the weather were two, in parallel), so the ideas start with
+ * the weather in hand. Only a forecast that must be fetched reads again
+ * (userWeatherFrom).
  */
+async function readDay(
+  deps: TodayDeps,
+  ownerId: number,
+  today: IsoDate,
+  now: Date,
+  { ownWeather, worn }: TodayOptions,
+) {
+  const read = await selectScalars(deps.db, {
+    entries: entriesSql(ownerId, today, today),
+    weather:
+      ownWeather || !deps.weather
+        ? undefined
+        : weatherWithForecastSql(ownerId, now),
+    worn: worn ? somethingWornSql(ownerId, today) : undefined,
+  });
+  const weather =
+    ownWeather ??
+    (deps.weather &&
+      (await userWeatherFrom(
+        deps.weather,
+        readWeatherWithForecast(read.weather ?? null, now),
+        now,
+      )));
+  return { entries: read.entries, weather, worn: read.worn };
+}
+
 export async function todayFor(
   deps: TodayDeps,
   ownerId: number,
   now: Date,
-  ownWeather?: UserWeather,
+  options: TodayOptions = {},
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  // Together: the page waits for one round trip here, not two in turn, and
-  // the ideas below start with the weather in hand.
-  const [entries, weather] = await Promise.all([
-    findEntries(deps.db, ownerId, today, today),
-    ownWeather ??
-      (deps.weather && userWeather(deps.db, deps.weather, ownerId, now)),
-  ]);
+  const { entries, weather, worn } = await readDay(
+    deps,
+    ownerId,
+    today,
+    now,
+    options,
+  );
   // Occasion order, the calendar's; a stable sort keeps the planned first.
   entries.sort((a, b) => compareOccasions(a.occasion, b.occasion));
   const rows: TodayRow[] = [];
@@ -116,7 +162,7 @@ export async function todayFor(
       await todayIdeas(deps, ownerId, now, DEFAULT_OCCASION, 1, weather),
     );
   }
-  return { today, rows, weather: weather ?? null };
+  return { today, rows, weather: weather ?? null, wornToday: worn };
 }
 
 /**

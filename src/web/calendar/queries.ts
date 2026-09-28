@@ -161,17 +161,35 @@ export type Scheduled =
  * (owner, day, outfit) constraint), whatever the occasion, and reports
  * 'already-scheduled', so a double tap or a replayed form is not an error.
  * The ownership check and the write are one step under the owner lock, so
- * a replace or a re-plan never sees the day half changed.
+ * a replace or a re-plan never sees the day half changed. Answers the
+ * occasion the outfit is on that day: the one asked, or the one it kept.
+ * The check reads it with the outfit (#172: schedule_outfit read the whole
+ * day's entries again after the write to say which), and the lock keeps it
+ * true until the insert.
  */
 export function scheduleOutfit(
   db: Queryable,
   entry: NewEntry,
-): Promise<Scheduled | 'no-such-outfit'> {
+): Promise<(Scheduled & { occasion: Occasion }) | 'no-such-outfit'> {
   return ownerTransaction(db, entry.ownerId, 'scheduleOutfit', async (tx) => {
-    if (!(await ownsOutfit(tx, entry.ownerId, entry.outfitId))) {
-      return 'no-such-outfit';
-    }
-    return insertEntry(tx, entry);
+    // The outfit is on a day once (the unique owner, day, outfit key): one row.
+    const [owned] = await tx
+      .select({ kept: outfitCalendar.occasion })
+      .from(outfit)
+      .leftJoin(
+        outfitCalendar,
+        and(
+          eq(outfitCalendar.outfitId, outfit.id),
+          eq(outfitCalendar.ownerId, entry.ownerId),
+          eq(outfitCalendar.day, entry.day),
+        ),
+      )
+      .where(
+        and(eq(outfit.id, entry.outfitId), eq(outfit.ownerId, entry.ownerId)),
+      );
+    if (!owned) return 'no-such-outfit';
+    const scheduled = await insertEntry(tx, entry);
+    return { ...scheduled, occasion: owned.kept ?? entry.occasion };
   });
 }
 

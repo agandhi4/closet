@@ -1,7 +1,6 @@
 import { type AnyColumn, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { garmentWear, outfitCalendar, user } from '../../db/schema';
-import { selectScalars } from '../../db/select-scalars';
 import type { Occasion } from '../../wardrobe/occasions';
 import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../calendar/calendar-date';
@@ -21,10 +20,11 @@ import { pickIdea, type PickResult } from '../gallery/ideas';
 /**
  * Whether the owner marked anything worn on `day`: a calendar entry (its
  * worn pill, "Wore it", "Wear this") or a garment's "Wore today". The
- * evening reminder is skipped when so. `ownerId` may be an outer query's
+ * evening reminder is skipped when so, and get_today answers it (todayFor's
+ * `worn`, in Today's own statement). `ownerId` may be an outer query's
  * column (eveningDays).
  */
-function somethingWornSql(
+export function somethingWornSql(
   ownerId: number | AnyColumn,
   day: IsoDate,
 ): SQL<boolean> {
@@ -39,18 +39,6 @@ function somethingWornSql(
       where ${garmentWear.ownerId} = ${ownerId}
         and ${garmentWear.day} = ${day}
     ))`;
-}
-
-/** somethingWornSql alone, in one statement: get_today's. */
-export async function somethingWornOn(
-  db: Db,
-  ownerId: number,
-  day: IsoDate,
-): Promise<boolean> {
-  const { worn } = await selectScalars(db, {
-    worn: somethingWornSql(ownerId, day),
-  });
-  return worn;
 }
 
 /**

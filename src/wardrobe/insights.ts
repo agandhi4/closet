@@ -235,7 +235,7 @@ export interface GarmentCosts {
  * one definition insights, the recap, wardrobe_stats, get_garment and the
  * garment page's wear line share; repairs are the owner's own, so it is
  * only ever computed from an owner-only read (insightGarments,
- * wearSummary).
+ * wearSummarySql).
  */
 export function totalCost(costs: GarmentCosts): string | null {
   if (costs.price === null) return null;

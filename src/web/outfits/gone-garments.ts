@@ -34,6 +34,39 @@ function holds(holdable: Holdable, status: GarmentStatus): boolean {
   return holdable === 'closet' ? status === 'closet' : status !== 'wishlist';
 }
 
+/** An owner's garment as a save judges it: what it may hold, and the slot it fills. */
+export interface NamedGarment {
+  id: number;
+  name: string | null;
+  category: string;
+  status: GarmentStatus;
+}
+
+/**
+ * `ownerId`'s garments among `garmentIds`, by id, whatever their status:
+ * one statement. goneGarments' read, and create_outfit's (MCP), which
+ * takes each slot's category from it and judges the save with goneOf, so
+ * refusing costs no second read (#172).
+ */
+export async function namedGarments(
+  db: Queryable,
+  ownerId: number,
+  garmentIds: readonly number[],
+): Promise<Map<number, NamedGarment>> {
+  const wanted = [...new Set(garmentIds)];
+  if (wanted.length === 0) return new Map();
+  const rows = await db
+    .select({
+      id: garment.id,
+      name: garment.name,
+      category: garment.category,
+      status: garment.status,
+    })
+    .from(garment)
+    .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, wanted)));
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
 /**
  * Which of `garmentIds` a save of `ownerId`'s cannot hold, in the order
  * given. One statement. Read after the write refused (or inside its
@@ -45,13 +78,20 @@ export async function goneGarments(
   garmentIds: readonly number[],
   holdable: Holdable,
 ): Promise<GoneGarment[]> {
+  return goneOf(
+    await namedGarments(db, ownerId, garmentIds),
+    garmentIds,
+    holdable,
+  );
+}
+
+/** goneGarments over garments already read (namedGarments). */
+export function goneOf(
+  found: ReadonlyMap<number, NamedGarment>,
+  garmentIds: readonly number[],
+  holdable: Holdable,
+): GoneGarment[] {
   const wanted = [...new Set(garmentIds)];
-  if (wanted.length === 0) return [];
-  const rows = await db
-    .select({ id: garment.id, name: garment.name, status: garment.status })
-    .from(garment)
-    .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, wanted)));
-  const found = new Map(rows.map((row) => [row.id, row]));
   return wanted.flatMap((id): GoneGarment[] => {
     const row = found.get(id);
     if (!row) return [{ id }];

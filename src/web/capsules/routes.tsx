@@ -294,14 +294,18 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       await requireCapsule(id, access.ownerId);
       const { ids, shown } = request.body ?? {};
-      const result = await changeMembership(db, access.ownerId, {
+      const { added, removed } = await changeMembership(db, access.ownerId, {
         add: { capsuleIds: [id], garmentIds: ids ?? [] },
         remove: { capsuleIds: [id], garmentIds: unchecked(shown, ids) },
       });
       logger.info(
-        `Capsule ${id} garments chosen by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${result.added} added, ${result.removed} removed, ${shown?.length ?? 0} shown`,
+        `Capsule ${id} garments chosen by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${added} added, ${removed} removed, ${shown?.length ?? 0} shown`,
       );
-      return reply.redirect(capsuleUrl(id, viewOwner, '', result), 303);
+      // The toast's counts, as query parameters.
+      return reply.redirect(
+        capsuleUrl(id, viewOwner, '', { added, removed }),
+        303,
+      );
     },
   );
 

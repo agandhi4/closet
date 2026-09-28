@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 import { DEFAULT_OCCASION } from '../../../wardrobe/occasions';
-import { findEntries, scheduleOutfit } from '../../calendar/queries';
+import { scheduleOutfit } from '../../calendar/queries';
 import {
   isRefused,
   replaceEntryOutfit,
@@ -8,7 +8,11 @@ import {
   replaceRefusal,
 } from '../../calendar/replace';
 import { HttpError } from '../../errors';
-import { garmentsGoneError } from '../../outfits/gone-garments';
+import {
+  goneOf,
+  namedGarments,
+  OutfitGarmentsGone,
+} from '../../outfits/gone-garments';
 import {
   type CreateResult,
   createOutfit,
@@ -18,7 +22,6 @@ import {
   OUTFIT_NOTES_MAX,
   type OutfitSummary,
 } from '../../outfits/queries';
-import { findGarment } from '../../wardrobe/queries';
 import { defineTool } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
 
@@ -103,25 +106,23 @@ export const outfitTools = [
     // createOutfit reuses an outfit of the same garments: a retry creates nothing.
     idempotent: true,
     async run({ garmentIds, name, notes, scheduleDate, occasion }, ctx) {
-      // Each slot is its garment's category, as Styling saves them. A
-      // garment the caller does not own (another's, deleted, a wishlist
-      // item) refuses the save, named, as the pages refuse it (#219);
-      // createOutfit checks again as it writes.
-      const garments = await Promise.all(
-        garmentIds.map((id) => findGarment(ctx.db, id, ctx.userId)),
-      );
-      if (garments.some((g) => !g || g.status === 'wishlist')) {
-        throw await garmentsGoneError(ctx.db, ctx.userId, garmentIds, 'owned');
-      }
+      // Each slot is its garment's category, as Styling saves them, read
+      // for every garment in one statement (#172: it was one per garment).
+      // A garment the caller does not own (another's, deleted, a wishlist
+      // item) refuses the save, named from the same read, as the pages
+      // refuse it (#219); createOutfit checks again as it writes.
+      const garments = await namedGarments(ctx.db, ctx.userId, garmentIds);
+      const gone = goneOf(garments, garmentIds, 'owned');
+      if (gone.length > 0) throw new OutfitGarmentsGone(gone);
       const plan = scheduleDate
         ? { day: scheduleDate, occasion: occasion ?? DEFAULT_OCCASION }
         : undefined;
       const saved = await createOutfit(ctx.db, ctx.userId, {
         name: name || null,
         notes: notes?.trim() ? notes : null,
-        slots: garments.map((garment) => ({
-          category: garment!.category,
-          garmentId: garment!.id,
+        slots: garmentIds.map((garmentId) => ({
+          category: garments.get(garmentId)!.category,
+          garmentId,
         })),
         plan,
       });
@@ -182,15 +183,12 @@ export const outfitTools = [
       if (scheduled === 'no-such-outfit') {
         throw new HttpError(404, OUTFIT_NOT_FOUND);
       }
-      const { outcome } = scheduled;
-      // Already there: say which occasion it kept.
-      const entry = (await findEntries(ctx.db, ctx.userId, date, date)).find(
-        (found) => found.outfit.id === outfitId,
-      );
+      // Already there: the occasion it kept.
+      const { outcome, occasion: kept } = scheduled;
       ctx.webLogger.info(
-        `Outfit ${outfitId} ${outcome} on ${date} (${entry?.occasion}) for user ${ctx.userId} (MCP)${outcome === 'already-scheduled' && scheduled.adopted ? "; the week planner's entry is the user's now" : ''}`,
+        `Outfit ${outfitId} ${outcome} on ${date} (${kept}) for user ${ctx.userId} (MCP)${outcome === 'already-scheduled' && scheduled.adopted ? "; the week planner's entry is the user's now" : ''}`,
       );
-      return { outcome, date, occasion: entry?.occasion ?? planned };
+      return { outcome, date, occasion: kept };
     },
   }),
 ];

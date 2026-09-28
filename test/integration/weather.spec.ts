@@ -530,13 +530,14 @@ describe('weather', () => {
       expect(line).toContain('id="weather-line"');
       expect(page).toContain(line);
 
-      // The session; the entries beside the settings and forecast (one
-      // statement, findWeatherWithForecast); the pool and the generator's
-      // memory in one (#168; Today hands ideasFor the weather it read).
+      // The session; the entries with the settings and forecast in one
+      // statement (#172; two before, in parallel); the pool and the
+      // generator's memory in one (#168; Today hands ideasFor the weather
+      // it read).
       const page158 = await recordQueries(() =>
         t.inject({ method: 'GET', url: '/' }),
       );
-      expect(page158.statements).toBe(4);
+      expect(page158.statements).toBe(3);
       // The session, then the settings and forecast together.
       expect((await recordQueries(() => summary())).statements).toBe(2);
       expect(stub.hits).toHaveLength(hits);

@@ -1,8 +1,14 @@
 import * as z from 'zod/v4';
+import { selectScalars } from '../../../db/select-scalars';
 import { compareOccasions } from '../../../wardrobe/occasions';
 import { addDays, daysBetween, todayIn } from '../../calendar/calendar-date';
-import { findEntries } from '../../calendar/queries';
+import { entriesSql } from '../../calendar/queries';
 import { HttpError } from '../../errors';
+import {
+  readWeatherWithForecast,
+  weatherWithForecastSql,
+} from '../../weather/queries';
+import { userWeatherFrom } from '../../weather/service';
 import {
   laundryList,
   markWashed,
@@ -11,7 +17,7 @@ import {
 } from '../../wears/queries';
 import { defineTool, wardrobeFor } from '../tool';
 import { isoDate, ownerIdInput, rowId } from './common';
-import { calendarWeather } from './weather';
+import { reachesForecast, weatherOfDays } from './weather';
 
 /** get_calendar's widest range: two months, a planning conversation's horizon. */
 const MAX_CALENDAR_DAYS = 62;
@@ -33,7 +39,8 @@ export const calendarTools = [
     }),
     writes: false,
     async run({ from, to }, ctx) {
-      const today = todayIn(ctx.timeZone, new Date());
+      const now = new Date();
+      const today = todayIn(ctx.timeZone, now);
       const first = from ?? today;
       const last = to ?? addDays(first, 6);
       const days = daysBetween(first, last) + 1;
@@ -43,9 +50,28 @@ export const calendarTools = [
           `Ask for 1 to ${MAX_CALENDAR_DAYS} days, from before to`,
         );
       }
-      const entries = await findEntries(ctx.db, ctx.userId, first, last);
+      // The entries and, when the range reaches the forecast, the settings
+      // with their forecast row: one statement (#172; it was two in turn).
+      const { weather } = ctx;
+      const read = await selectScalars(ctx.db, {
+        entries: entriesSql(ctx.userId, first, last),
+        weather:
+          weather && reachesForecast(today, first, last)
+            ? weatherWithForecastSql(ctx.userId, now)
+            : undefined,
+      });
+      const { entries } = read;
+      // Only entries carry weather: an empty range never fetches a forecast.
       const weatherOf =
-        entries.length > 0 ? await calendarWeather(ctx, first, last) : null;
+        weather && read.weather !== undefined && entries.length > 0
+          ? weatherOfDays(
+              await userWeatherFrom(
+                weather,
+                readWeatherWithForecast(read.weather, now),
+                now,
+              ),
+            )
+          : null;
       return {
         today,
         from: first,

@@ -264,18 +264,6 @@ export function capsulesOfGarmentSql(
   )`;
 }
 
-/** capsulesOfGarmentSql alone: get_garment's (src/web/mcp/tools/garments.ts). */
-export async function capsulesOfGarment(
-  db: Queryable,
-  ownerId: number,
-  garmentId: number,
-): Promise<GarmentCapsule[]> {
-  const { capsules } = await selectScalars(db, {
-    capsules: capsulesOfGarmentSql(ownerId, garmentId),
-  });
-  return capsules;
-}
-
 /**
  * The owner already has a capsule by this name, whatever its case
  * (capsule_owner_id_lower_name_unique). The index is the rule, so a
@@ -360,24 +348,27 @@ export interface MembershipChange {
  * garment keeps its membership and may still be listed). Both sides are locked FOR SHARE, so a capsule or
  * garment deleted meanwhile waits for this to commit rather than failing a
  * foreign key halfway. The picker (a capsule and the tiles it showed), the
- * garment page's toggles (a garment and the capsules it listed) and the
- * seed all go through it.
+ * garment page's toggles (a garment and the capsules it listed),
+ * set_capsule_membership (MCP) and the seed all go through it. Answers
+ * which of the named capsules are the wardrobe's (`capsules`), so a caller
+ * that must refuse another's capsule learns it from the write (MCP's 404)
+ * rather than reading the capsule first (#172).
  */
 export function changeMembership(
   db: Queryable,
   ownerId: number,
   change: MembershipChange,
-): Promise<{ added: number; removed: number }> {
+): Promise<{
+  added: number;
+  removed: number;
+  capsules: ReadonlySet<number>;
+}> {
   return db.transaction(async (tx) => {
     const sets = [change.add, change.remove].flatMap((set) => set ?? []);
-    const capsules = await ownedCapsules(
+    const { capsules, garments } = await lockMembers(
       tx,
       ownerId,
       sets.flatMap((set) => set.capsuleIds),
-    );
-    const garments = await ownedGarments(
-      tx,
-      ownerId,
       sets.flatMap((set) => set.garmentIds),
     );
     // Each id once: a form may post one twice.
@@ -419,49 +410,56 @@ export function changeMembership(
           .returning({ capsuleId: capsuleGarment.capsuleId })
       ).length;
     }
-    return { added, removed };
+    return { added, removed, capsules };
   });
 }
 
-/** Which of `ids` are capsules of `ownerId`'s wardrobe, locked FOR SHARE. */
-async function ownedCapsules(
-  tx: Queryable,
-  ownerId: number,
-  ids: number[],
-): Promise<Set<number>> {
-  if (ids.length === 0) return new Set();
-  const rows = await tx
-    .select({ id: capsule.id })
-    .from(capsule)
-    .where(and(eq(capsule.ownerId, ownerId), inArray(capsule.id, ids)))
-    .orderBy(capsule.id)
-    .for('share');
-  return new Set(rows.map((row) => row.id));
-}
-
 /**
- * Which of `ids` are garments of `ownerId`'s wardrobe owned now or once
- * (not wishlist items), locked FOR SHARE.
+ * Which of `capsuleIds` are capsules of `ownerId`'s wardrobe, and which of
+ * `garmentIds` its garments owned now or once (not wishlist items), both
+ * locked FOR SHARE, in one statement (#172: it was one per side). Capsules
+ * first, then garments, each in id order, as every multi-row garment
+ * locker takes them (pickedGarments), so two lockers never deadlock on
+ * each other's. A side with no ids reads nothing.
  */
-async function ownedGarments(
+async function lockMembers(
   tx: Queryable,
   ownerId: number,
-  ids: number[],
-): Promise<Set<number>> {
-  if (ids.length === 0) return new Set();
-  const rows = await tx
-    .select({ id: garment.id })
-    .from(garment)
-    .where(
-      and(
-        eq(garment.ownerId, ownerId),
-        inArray(garment.id, ids),
-        ownedGarment(),
-      ),
+  capsuleIds: number[],
+  garmentIds: number[],
+): Promise<{ capsules: Set<number>; garments: Set<number> }> {
+  if (capsuleIds.length === 0 && garmentIds.length === 0) {
+    return { capsules: new Set(), garments: new Set() };
+  }
+  const ids = (list: number[]) =>
+    sql`array[${sql.join(
+      list.map((id) => sql`${id}`),
+      sql`, `,
+    )}]::int[]`;
+  // A side with no ids is `false`: an empty array literal needs a type
+  // Postgres cannot infer from `array[]`.
+  const among = (column: SQL, list: number[]) =>
+    list.length === 0 ? sql`false` : sql`${column} = any(${ids(list)})`;
+  const { rows } = await tx.execute<{
+    capsules: number[];
+    garments: number[];
+  }>(sql`
+    with capsules as (
+      select ${capsule.id} as id from ${capsule}
+      where ${capsule.ownerId} = ${ownerId} and ${among(sql`${capsule.id}`, capsuleIds)}
+      order by ${capsule.id}
+      for share
+    ),
+    garments as (
+      select ${garment.id} as id from ${garment}
+      where ${garment.ownerId} = ${ownerId} and ${among(sql`${garment.id}`, garmentIds)}
+        and ${ownedGarment()}
+      order by ${garment.id}
+      for share
     )
-    // Id order, as every multi-row garment locker takes them
-    // (pickedGarments), so two lockers never deadlock on each other's.
-    .orderBy(garment.id)
-    .for('share');
-  return new Set(rows.map((row) => row.id));
+    select
+      (select coalesce(json_agg(id), '[]') from capsules) as capsules,
+      (select coalesce(json_agg(id), '[]') from garments) as garments`);
+  const [row] = rows;
+  return { capsules: new Set(row.capsules), garments: new Set(row.garments) };
 }

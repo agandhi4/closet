@@ -1,4 +1,5 @@
 import { buffer } from 'node:stream/consumers';
+import { selectScalars } from '../../../db/select-scalars';
 import { QUANTITY_MAX } from '../../../wardrobe/availability';
 import * as z from 'zod/v4';
 import {
@@ -26,7 +27,7 @@ import {
 } from '../../../wardrobe/care';
 import { perWearCost, totalCost } from '../../../wardrobe/insights';
 import { todayIn } from '../../calendar/calendar-date';
-import { capsulesOfGarment, findCapsule } from '../../capsules/queries';
+import { capsulesOfGarmentSql, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
 import { t } from '../../i18n';
 import { publicPhoto } from '../../files/references';
@@ -43,7 +44,7 @@ import {
   updateGarmentProperties,
 } from '../../wardrobe/queries';
 import { addCopies, closetLookalikes } from '../../wardrobe/lookalikes';
-import { repairLog } from '../../wardrobe/repairs';
+import { repairLogSql } from '../../wardrobe/repairs';
 import {
   CATEGORY_MAX,
   NAME_MAX,
@@ -56,7 +57,7 @@ import {
   withCarePresets,
   withPresets,
 } from '../../wardrobe/validation';
-import { wearSummary } from '../../wears/queries';
+import { wearSummarySql } from '../../wears/queries';
 import { wishlistItems } from '../../wishlist/queries';
 import {
   defineTool,
@@ -93,7 +94,9 @@ export function summaryOut(garment: GarmentSummary) {
  * A garment in full, as its page shows it, without the photo. The owner's
  * own records (wears, washes, away, cost per wear, the repair log) only on
  * their own wardrobe, as the page: a grantee gets the price alone, never a
- * cost that holds the owner's repairs.
+ * cost that holds the owner's repairs. Everything beside the garment is
+ * one statement over the garment page's own fragments (#172; it was one
+ * round trip each).
  */
 async function garmentOut(
   ctx: ToolContext,
@@ -101,15 +104,16 @@ async function garmentOut(
   ownerId: number,
   isOwner: boolean,
 ) {
-  const [capsules, wears, repairs] = await Promise.all([
-    capsulesOfGarment(ctx.db, ownerId, garment.id),
-    isOwner
-      ? wearSummary(ctx.db, garment.id, todayIn(ctx.timeZone, new Date()))
+  const { capsules, wears, repairs } = await selectScalars(ctx.db, {
+    capsules: capsulesOfGarmentSql(ownerId, garment.id),
+    wears: isOwner
+      ? wearSummarySql(garment.id, todayIn(ctx.timeZone, new Date()))
       : undefined,
-    isOwner && garment.status !== 'wishlist'
-      ? repairLog(ctx.db, garment.id)
-      : undefined,
-  ]);
+    repairs:
+      isOwner && garment.status !== 'wishlist'
+        ? repairLogSql(garment.id)
+        : undefined,
+  });
   const cost = wears
     ? totalCost({
         price: garment.price,

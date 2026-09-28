@@ -158,7 +158,7 @@ describe('repair costs in cost per wear', () => {
     it('“Spent on it” and the wear line add the one same sum', async () => {
       // A hat, 10.00, worn twice, mended today for 10.00. A row dated
       // tomorrow (no form writes one: readRepairDay refuses it) proves both
-      // figures read wearSummary's repairCost, bounded by today, rather
+      // figures read wearSummarySql's repairCost, bounded by today, rather
       // than the log's entries summed apart. Another user's, so the
       // owner's insights figures stay as the tests below pin them.
       const cookie = await t.register('hatter@example.com');

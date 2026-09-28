@@ -1,4 +1,5 @@
 import * as z from 'zod/v4';
+import { selectScalars } from '../../../db/select-scalars';
 import { QUANTITY_MAX } from '../../../wardrobe/availability';
 import {
   type ItemMatch,
@@ -30,13 +31,13 @@ import {
   findActivePlan,
   findOwnedItem,
   findPlan,
-  findStyleProfile,
   type PlanDetail,
   type PlanItemRow,
+  styleProfileSql,
   updateItem,
 } from '../../plans/queries';
 import { templateDays, weeklyRhythm } from '../../../wardrobe/week';
-import { findWeekTemplate } from '../../week-plan/template';
+import { inTemplateOrder, weekTemplateSql } from '../../week-plan/template';
 import {
   BLANK_ITEM_VALUES,
   itemNotFound,
@@ -354,12 +355,14 @@ export const planTools = [
     input: z.object({}),
     writes: false,
     async run(_args, ctx) {
-      const [profile, template] = await Promise.all([
-        findStyleProfile(ctx.db, ctx.userId),
-        findWeekTemplate(ctx.db, ctx.userId),
-      ]);
+      // One statement (#172; it was two).
+      const read = await selectScalars(ctx.db, {
+        profile: styleProfileSql(ctx.userId),
+        template: weekTemplateSql(ctx.userId),
+      });
+      const template = inTemplateOrder(read.template);
       return {
-        profile: profile ?? null,
+        profile: read.profile,
         week: {
           template: templateDays(template),
           rhythm: weeklyRhythm(template),

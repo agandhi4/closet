@@ -3,7 +3,6 @@ import { and, eq, inArray, ne, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import { garment, garmentRepair } from '../../db/schema';
-import { selectScalars } from '../../db/select-scalars';
 import { REPAIR_KINDS, type RepairKind } from '../../wardrobe/care';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { ownerTransaction } from '../auth/queries';
@@ -61,7 +60,7 @@ export type NewRepair = Omit<RepairEntry, 'id'>;
 
 /**
  * The garment page's log: its entries, and what they cost in all. `total`
- * is wearSummary's `repairCost` (repairCostSql), the very sum cost per wear
+ * is wearSummarySql's `repairCost` (repairCostSql), the very sum cost per wear
  * adds, so "Spent on it" and the wear line never disagree.
  */
 export interface RepairLog {
@@ -187,23 +186,12 @@ export function repairLogSql(garmentId: number): SQL<RepairEntry[]> {
   )`;
 }
 
-/** repairLogSql alone: get_garment (MCP). */
-export async function repairLog(
-  db: Queryable,
-  garmentId: number,
-): Promise<RepairEntry[]> {
-  const { entries } = await selectScalars(db, {
-    entries: repairLogSql(garmentId),
-  });
-  return entries;
-}
-
 /**
  * What a garment's repairs done up to `through` cost in all, as a scalar
  * subquery on its id column: numeric's exact sum as text ('37.50'), null
  * when no entry gives a cost. Cost per wear's repair part (totalCost,
  * src/wardrobe/insights.ts), a column of the statement that already reads
- * the garment (insightGarments, wearSummary) rather than a query of its
+ * the garment (insightGarments, wearSummarySql) rather than a query of its
  * own. The owner's own record: only an owner-only read may select it.
  */
 export function repairCostSql(

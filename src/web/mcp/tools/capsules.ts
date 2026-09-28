@@ -90,15 +90,21 @@ export const capsuleTools = [
     idempotent: true,
     async run({ id, ownerId, add, remove }, ctx) {
       const access = await wardrobeFor(ctx, ownerId, 'manage');
-      await capsuleIn(ctx, id, access.ownerId);
-      const result = await changeMembership(ctx.db, access.ownerId, {
-        add: { capsuleIds: [id], garmentIds: add },
-        remove: { capsuleIds: [id], garmentIds: remove },
-      });
-      ctx.webLogger.info(
-        `Capsule ${id} membership changed by user ${ctx.userId} (MCP): ${result.added} added, ${result.removed} removed`,
+      // No lookup first (#172): the writer drops a capsule outside the
+      // wardrobe, writing nothing, and says so.
+      const { added, removed, capsules } = await changeMembership(
+        ctx.db,
+        access.ownerId,
+        {
+          add: { capsuleIds: [id], garmentIds: add },
+          remove: { capsuleIds: [id], garmentIds: remove },
+        },
       );
-      return result;
+      if (!capsules.has(id)) throw new HttpError(404, CAPSULE_NOT_FOUND);
+      ctx.webLogger.info(
+        `Capsule ${id} membership changed by user ${ctx.userId} (MCP): ${added} added, ${removed} removed`,
+      );
+      return { added, removed };
     },
   }),
 ];

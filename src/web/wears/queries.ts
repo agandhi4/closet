@@ -132,18 +132,6 @@ export function wearSummarySql(
   )`;
 }
 
-/** wearSummarySql alone: get_garment's own-wardrobe branch (src/web/mcp/tools/garments.ts). */
-export async function wearSummary(
-  db: Queryable,
-  garmentId: number,
-  today: IsoDate,
-): Promise<WearSummary> {
-  const { summary } = await selectScalars(db, {
-    summary: wearSummarySql(garmentId, today),
-  });
-  return summary;
-}
-
 /** A garment as the wear line reads it (WearStatus, wear-section.tsx). */
 export type WearGarment = Pick<
   GarmentDetail,

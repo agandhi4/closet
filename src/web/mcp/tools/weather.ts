@@ -15,14 +15,14 @@ import {
 } from '../../calendar/calendar-date';
 import { HttpError } from '../../errors';
 import type { TripTypicalDay } from '../../trips/forecast';
-import { userWeather } from '../../weather/service';
-import { defineTool, type ToolContext } from '../tool';
+import { userWeather, type UserWeather } from '../../weather/service';
+import { defineTool } from '../tool';
 import { isoDate, occasionInput } from './common';
 
 /**
  * The weather tools (#14), listed only with WEATHER_ENABLED (mcpTools,
  * ./index.ts). The user's own location and forecast, as on their pages;
- * get_calendar adds the same day summaries to its entries (calendarWeather).
+ * get_calendar and get_today add the same day summaries (weatherOfDays).
  */
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
@@ -91,34 +91,32 @@ function horizon(today: IsoDate): IsoDate {
   return addDays(today, FORECAST_DAYS - 1);
 }
 
-/**
- * The weather of each calendar day for get_calendar's entries: a function
- * from (day, occasion) to dayWeather, or null when there is nothing to add
- * (weather off, no location, the range outside the forecast, no answer from
- * Open-Meteo yet).
- */
-export async function calendarWeather(
-  ctx: ToolContext,
+/** Whether the days `first` to `last` reach into the forecast from `today`. */
+export function reachesForecast(
+  today: IsoDate,
   first: IsoDate,
   last: IsoDate,
-): Promise<
-  | ((
-      day: IsoDate,
-      occasion: Occasion,
-    ) => ReturnType<typeof dayWeather> | undefined)
-  | null
-> {
-  if (!ctx.weather) return null;
-  const now = new Date();
-  const today = todayIn(ctx.timeZone, now);
-  if (last < today || first > horizon(today)) return null;
-  const { settings, cached } = await userWeather(
-    ctx.db,
-    ctx.weather,
-    ctx.userId,
-    now,
-  );
-  if (!cached) return null;
+): boolean {
+  return last >= today && first <= horizon(today);
+}
+
+/** A day's weather for an occasion (dayWeather), or undefined past the forecast. */
+export type DayWeatherOf = (
+  day: IsoDate,
+  occasion: Occasion,
+) => ReturnType<typeof dayWeather> | undefined;
+
+/**
+ * The weather of each day for get_calendar's entries and get_today, from
+ * the user's weather their tool already read in its own statement: null
+ * when there is nothing to add (weather off, no location, no answer from
+ * Open-Meteo yet).
+ */
+export function weatherOfDays(
+  weather: UserWeather | null | undefined,
+): DayWeatherOf | null {
+  if (!weather?.cached) return null;
+  const { settings, cached } = weather;
   return (day, occasion) => {
     const forecast = cached.forecast.days.find((d) => d.day === day);
     return forecast && dayWeather(forecast, occasion, settings.offset);

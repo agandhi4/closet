@@ -14,5 +14,5 @@
 
 ## Gotchas
 
-- **Wears count days, not entries, and every new wear count must too.** With several outfits a day, one garment has a `garment_wear` row per worn entry that held it (so unmarking one entry removes exactly its rows); every count and wash rule is `count(distinct day)` (`wearsSinceWashSql`, `wearSummary`, `availability.ts`, insights' `insightGarments` and `wornPairs`). A new query that counts rows would count "office then dinner, same shoes" twice (`wears.spec.ts` has that case).
+- **Wears count days, not entries, and every new wear count must too.** With several outfits a day, one garment has a `garment_wear` row per worn entry that held it (so unmarking one entry removes exactly its rows); every count and wash rule is `count(distinct day)` (`wearsSinceWashSql`, `wearSummarySql`, `availability.ts`, insights' `insightGarments` and `wornPairs`). A new query that counts rows would count "office then dinner, same shoes" twice (`wears.spec.ts` has that case).
 - **Condition is not availability, and `away: repair` is not `needs_repair`.** Condition (good, needs_repair, replace_soon) is a garment property anyone who can edit sets; it never feeds `availableGarment`/`isAvailable`. Away (lent, repair) is the owner's record that the garment is physically elsewhere, and does. Do not merge the two.

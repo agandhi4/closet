@@ -231,8 +231,9 @@ describe('Today', () => {
       await clearToday();
       const undressed = await recordQueries(() => get('/'));
       expect(undressed.statements).toBe(3);
-      // somethingWornOn's statement is gone from the page.
-      expect(undressed.sql.join('\n')).not.toMatch(/select exists/);
+      // Worn today (somethingWornSql, get_today's `worn`) is not read for
+      // the page.
+      expect(undressed.sql.join('\n')).not.toMatch(/\)\s+or exists \(/);
 
       const office = await saveOutfit('Office again', [tops[2], bottoms[0]]);
       await planToday(office, 'work');

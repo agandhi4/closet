@@ -348,7 +348,9 @@ async function morningPayload(
 ): Promise<PushPayload> {
   const swapped = await swappedToday(deps, userId, now, batch);
   // The line and Today's ideas share the batch's weather (refreshed first).
-  const model = await todayFor(deps, userId, now, batch.weather.get(userId));
+  const model = await todayFor(deps, userId, now, {
+    ownWeather: batch.weather.get(userId),
+  });
   const outfits = [...morningIdea(model), ...plannedOutfits(model)];
   return {
     title: t('today.push.MORNING_TITLE'),
