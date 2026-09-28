@@ -59,6 +59,13 @@ export type PushOutcome = 'delivered' | 'pruned' | 'failed';
 export type McpOutcome = 'ok' | 'refused' | 'error';
 
 /**
+ * How /file/** found the files it served (src/web/files/routes.ts): `none`,
+ * from the URL's signature alone; `row`, by asking the database (an
+ * unsigned or stale URL, a file the URL names that is gone).
+ */
+export type PhotoLookup = 'none' | 'row';
+
+/**
  * How a job, a push send or a tool call ended: its outcome, and for the
  * failure outcome the error, which the metrics hand to the error tracker.
  * A failure without its error does not type-check.
@@ -127,6 +134,7 @@ export class Metrics {
     'route' | 'kind' | 'metric' | 'cache'
   >;
   private readonly clientDropped: Counter<'reason'>;
+  private readonly photoRequests: Counter<'lookup'>;
   // Every route the app registered (registerHttpMetrics' onRoute hook): the
   // only values a device may name as its route.
   private readonly routeTemplates = new Set<string>();
@@ -176,6 +184,12 @@ export class Metrics {
       name: 'client_timing_dropped_total',
       help: 'Device timing samples dropped, by reason.',
       labelNames: ['reason'],
+      registers,
+    });
+    this.photoRequests = new Counter({
+      name: 'photo_requests_total',
+      help: 'Photos served by /file/**, by how the files were found: none (a signed URL) or row (a database lookup).',
+      labelNames: ['lookup'],
       registers,
     });
     if (enabled) collectDefaultMetrics({ register: this.registry });
@@ -240,6 +254,10 @@ export class Metrics {
   countPushSend(ending: PushEnding): void {
     this.pushSends.inc({ outcome: ending.outcome });
     this.capture(ending, { source: 'push' });
+  }
+
+  countPhotoRequest(lookup: PhotoLookup): void {
+    this.photoRequests.inc({ lookup });
   }
 
   observeMcpCall(tool: string, ending: McpEnding, seconds: number): void {

@@ -16,7 +16,8 @@ import type { PlannerGarment } from '../../wardrobe/week-planner';
 import { matchGarment } from '../../weather/match';
 import type { IsoDate } from '../calendar/calendar-date';
 import { inCapsule } from '../capsules/queries';
-import type { ImageRef } from '../files/image-url';
+import type { SignablePhotoRef } from '../files/image-url';
+import { photoRefJson, readPhotoRef } from '../files/queries';
 import { sameGarmentsOutfit } from '../outfits/queries';
 import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
 import { availableGarment, wearsSinceWashSql } from '../wears/queries';
@@ -32,7 +33,7 @@ import { availableGarment, wearsSinceWashSql } from '../wears/queries';
 export interface PoolGarment extends IdeaGarment {
   name: string | null;
   category: string;
-  photo: ImageRef | null;
+  photo: SignablePhotoRef | null;
 }
 
 /** What the generator judges a garment by, and what a card names. */
@@ -52,7 +53,7 @@ const garmentColumns = {
 /** garmentColumns and the card's photo. */
 const drawnColumns = {
   ...garmentColumns,
-  photo: { fileName: file.fileName, version: file.version },
+  photo: photoRefJson,
 };
 
 /** Days since the last day worn (wears count by day); null when never. */
@@ -73,7 +74,7 @@ export type PoolRow = Pick<
   typeof garment.$inferSelect,
   keyof typeof garmentColumns
 > & {
-  photo: { fileName: string; version: number } | null;
+  photo: SignablePhotoRef | null;
   idleDays: number | null;
 };
 
@@ -106,11 +107,9 @@ function poolJsonSql(
     ...garmentColumns,
     idleDays: today === null ? sql`null` : idleDaysSql(today),
   }).map(([key, column]) => sql`${sql.raw(`'${key}'`)}, ${column}`);
-  // A garment without a photo has none, as drizzle's left join answers it.
-  const photo = sql`case when ${file.id} is null then null else json_build_object('fileName', ${file.fileName}, 'version', ${file.version}) end`;
   return sql<PoolRow[]>`(
     select coalesce(json_agg(json_build_object(
-      ${sql.join(fields, sql`, `)}, 'photo', ${photo}
+      ${sql.join(fields, sql`, `)}, 'photo', ${photoRefJson}
     )), '[]')
     from ${garment}
     left join ${file} on ${eq(file.id, garment.photoId)}
@@ -267,13 +266,14 @@ export type DrawnJson = [
   waterResistant: DrawnRow['waterResistant'],
   fileName: string | null,
   version: number | null,
+  variantKey: string | null,
 ];
 
 const drawnJson = sql<DrawnJson>`json_build_array(
   ${garment.id}, ${garment.name}, ${garment.category}, ${garment.colors},
   ${garment.pattern}, ${garment.formality}, ${garment.warmth}, ${garment.type},
   ${garment.fabricWeight}, ${garment.waterResistant},
-  ${file.fileName}, ${file.version}
+  ${file.fileName}, ${file.version}, ${file.variantKey}
 )`;
 
 /** A drawnJson array as a garment that is never rotated. */
@@ -290,9 +290,12 @@ function drawnGarment([
   waterResistant,
   fileName,
   version,
+  variantKey,
 ]: DrawnJson): ClosetGarment {
   const photo =
-    fileName === null || version === null ? null : { fileName, version };
+    fileName === null || version === null
+      ? null
+      : readPhotoRef({ fileName, version, variantKey });
   return {
     ...poolGarment({
       ...{ id, name, category, colors, pattern, formality, warmth, type },

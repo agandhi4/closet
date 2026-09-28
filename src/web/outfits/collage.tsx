@@ -1,5 +1,5 @@
 import { categoryRole, type GarmentRole } from '../../wardrobe/properties';
-import { type ImageRef, imageUrl } from '../files/image-url';
+import { type SignablePhotoRef, imageUrl } from '../files/image-url';
 import { HangerIcon } from '../layout/parts';
 
 /**
@@ -17,7 +17,7 @@ export interface CollageGarment {
   id: number;
   name: string | null;
   category: string;
-  photo: ImageRef | null;
+  photo: SignablePhotoRef | null;
 }
 
 const UPPER: readonly GarmentRole[] = ['layer', 'one-piece', 'top'];

@@ -45,13 +45,16 @@ test('an uploaded photo shows "Removing background", then its cutout, which the 
   await expect(page.locator('#garment-photo-status')).toHaveText(
     /Removing background/,
   );
-  await expect(photo.locator('img')).toHaveAttribute('src', /\?v=1$/);
+  await expect(photo.locator('img')).toHaveAttribute(
+    'src',
+    /\?v=1&s=[\w-]{16}$/,
+  );
   await expect(page.locator('#editMaskBtn')).toHaveCount(0);
 
   // The stub answers after 3 s; the page polls every 2 s.
   await expect(photo.locator('img')).toHaveAttribute(
     'src',
-    /^\/file\/nobg\/[0-9a-f-]+\.webp\?v=2$/,
+    /^\/file\/nobg\/[0-9a-f-]+\.webp\?v=2&k=[0-9a-f]{12}&s=[\w-]{16}$/,
     { timeout: 15_000 },
   );
   await expect(page.locator('#garment-photo-status')).toHaveCount(0);
@@ -67,10 +70,13 @@ test('an uploaded photo shows "Removing background", then its cutout, which the 
   await expect(page.locator('#maskEditorDialog')).toBeVisible();
   await page.locator('#maskEditorAccept').click();
   expect((await saved).status()).toBe(200);
-  await expect(photo.locator('img')).toHaveAttribute('src', /\?v=3$/);
+  await expect(photo.locator('img')).toHaveAttribute(
+    'src',
+    /\?v=3&k=[0-9a-f]{12}&s=[\w-]{16}$/,
+  );
   await expect(page.locator('#editMaskBtn')).toHaveAttribute(
     'data-nobg-url',
-    /\?v=3$/,
+    /\?v=3&k=[0-9a-f]{12}&s=[\w-]{16}$/,
   );
   expect(cspViolations).toEqual([]);
 });

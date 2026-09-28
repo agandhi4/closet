@@ -16,6 +16,7 @@ import { AutosaveSaved } from '../autosave';
 import { todayIn } from '../calendar/calendar-date';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
+import { imageUrl } from '../files/image-url';
 import {
   batchDrafts,
   draftsHeld,
@@ -1293,8 +1294,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // The mask editor's save (public/js/mask-editor.js): the edited cutout
-  // replaces the stored one; the answer is the photo's new version,
-  // so the page can point at the new immutable URL.
+  // replaces the stored one; the answer is the photo's new URLs (signed:
+  // imageUrl), which the page points at. `version` stays for a page whose
+  // script predates them (it rewrites `v`, which the signature covers, so
+  // /file answers that through the row).
   app.post(
     '/wardrobe/:id/nobg',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
@@ -1310,12 +1313,20 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
       const part = await request.file();
       if (!part) throw new HttpError(400, 'No file uploaded');
-      const version = await options.photos.saveEditedCutout(
+      const photo = await options.photos.saveEditedCutout(
         part.file,
         garment.photo.fileName,
       );
-      logger.info(`Garment ${id} cutout replaced, photo version ${version}`);
-      return reply.send({ version });
+      // Its row went (a delete or a photo replaced) after the garment was read.
+      if (!photo) throw new HttpError(404);
+      logger.info(
+        `Garment ${id} cutout replaced, photo version ${photo.version}`,
+      );
+      return reply.send({
+        version: photo.version,
+        originalUrl: imageUrl(photo, 'original'),
+        nobgUrl: imageUrl(photo, 'nobg'),
+      });
     },
   );
 

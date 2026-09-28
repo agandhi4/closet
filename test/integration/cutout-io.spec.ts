@@ -154,14 +154,14 @@ describe('cutout writes outside the row lock', () => {
       },
     );
 
-    await expect(edit(fileName)).resolves.toBe(2);
+    await expect(edit(fileName)).resolves.toMatchObject({ version: 2 });
     expect(lockedDuringStore).toBe(false);
     await expectOnlyTheRowsSet(fileName);
   });
 
   it('leaves the row and the served cutout as they were when the COMMIT fails, and deletes the orphans', async () => {
     const fileName = await photo('Refused commit shirt');
-    await expect(edit(fileName, 600)).resolves.toBe(2);
+    await expect(edit(fileName, 600)).resolves.toMatchObject({ version: 2 });
     const before = await photoRow(t, fileName);
     const servedBefore = await storedCutout(t, fileName);
 
@@ -265,11 +265,13 @@ describe('cutout writes outside the row lock', () => {
 
   it('applies concurrent mask edits one after another, keeping only the last set', async () => {
     const fileName = await photo('Many edits shirt');
-    const versions = await Promise.all(
+    const saved = await Promise.all(
       [300, 400, 500, 600, 700].map((width) => edit(fileName, width)),
     );
 
-    expect(versions.sort()).toEqual([2, 3, 4, 5, 6]);
+    expect(saved.map((photo) => photo?.version).sort()).toEqual([
+      2, 3, 4, 5, 6,
+    ]);
     expect(await photoRow(t, fileName)).toMatchObject({
       version: 6,
       cutoutStatus: 'edited',

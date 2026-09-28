@@ -1,7 +1,7 @@
 import { DRAWN_ROLES, OUTFIT_ORDER } from '../../wardrobe/generator';
 import type { GarmentRole } from '../../wardrobe/properties';
 import type { GarmentStatus } from '../../wardrobe/status';
-import type { ImageRef } from '../files/image-url';
+import type { SignablePhotoRef } from '../files/image-url';
 
 /**
  * Styling's rows (#42; docs/plans/2026-09-26-redesign.md, "Styling"), pure:
@@ -33,7 +33,7 @@ export interface RowGarment {
   name: string | null;
   category: string;
   status: GarmentStatus;
-  photo: ImageRef | null;
+  photo: SignablePhotoRef | null;
 }
 
 /** The window of a role's cycle a page shows: its first `garments.length` of `count`, newest first. */

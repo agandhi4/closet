@@ -1,6 +1,7 @@
 import { brandKey, brandSpelling } from './brands';
 import type { Condition, GarmentColor } from './properties';
 import { fromCents, toCents } from './shopping';
+import type { SignablePhotoRef } from '../web/files/image-url';
 
 /**
  * Insights (#17, docs/plans/2026-09-26-wardrobe-features.md section 10): how
@@ -82,7 +83,8 @@ export interface InsightGarment {
    */
   repairCost: string | null;
   condition: Condition;
-  photo: { fileName: string; version: number } | null;
+  /** As imageUrl signs it (photoRefJson, src/web/files/queries.ts). */
+  photo: SignablePhotoRef | null;
   /** 'YYYY-MM-DD', null without a date (a recap's new additions). */
   acquiredOn: string | null;
   /** Distinct days worn, ever (up to the window's last day). */

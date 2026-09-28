@@ -229,7 +229,7 @@ describe('the Wardrobe header and tabs', () => {
     const html = await get('/wardrobe');
     const img = (fileName: string) =>
       new RegExp(
-        `<img src="/file/thumb/${fileName}\\?v=1" alt="" class="([^"]*)"`,
+        `<img src="/file/thumb/${fileName}\\?v=1&s=[\\w-]{16}" alt="" class="([^"]*)"`,
       ).exec(html)?.[1];
     expect(img(cut)).toContain('object-contain');
     expect(img(raw)).toContain('object-cover');

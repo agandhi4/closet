@@ -53,6 +53,13 @@ const get = (url: string, extra: Partial<AuditRequest> = {}): AuditRequest => ({
   ...extra,
 });
 
+/** The seed photo's URL as a page renders it: signed by the build's imageUrl. */
+const photoUrl = (f: Fixture, variant: 'original' | 'nobg' | 'thumb') =>
+  f.build.imageUrl.imageUrl(
+    f.build.fileQueries.readPhotoRef(f.ids.photo),
+    variant,
+  );
+
 const post = (
   url: string,
   form: AuditRequest['form'] = {},
@@ -409,16 +416,15 @@ const pages: Step[] = [
     expect: 200,
   }),
 
-  // #162 Photos: served files
+  // #162 Photos: served files, by the URLs a page renders (imageUrl's,
+  // signed: answered from storage alone), and by an old page's unsigned
+  // URL (answered through the row).
   http({
     ...PHOTOS,
     name: 'Original',
     kind: 'file',
     route: 'GET /file/:fileName',
-    request: (f) =>
-      get(`/file/${f.ids.photo.fileName}?v=${f.ids.photo.version}`, {
-        as: null,
-      }),
+    request: (f) => get(photoUrl(f, 'original'), { as: null }),
     expect: 200,
   }),
   http({
@@ -426,15 +432,20 @@ const pages: Step[] = [
     name: 'Cutout',
     kind: 'file',
     route: 'GET /file/nobg/:fileName',
-    request: (f) =>
-      get(`/file/nobg/${f.ids.photo.fileName}?v=${f.ids.photo.version}`, {
-        as: null,
-      }),
+    request: (f) => get(photoUrl(f, 'nobg'), { as: null }),
     expect: 200,
   }),
   http({
     ...PHOTOS,
     name: 'Thumb',
+    kind: 'file',
+    route: 'GET /file/thumb/:fileName',
+    request: (f) => get(photoUrl(f, 'thumb'), { as: null }),
+    expect: 200,
+  }),
+  http({
+    ...PHOTOS,
+    name: 'Thumb, unsigned (an old page)',
     kind: 'file',
     route: 'GET /file/thumb/:fileName',
     request: (f) =>
@@ -456,10 +467,9 @@ const pages: Step[] = [
           await unlink(join(f.dataPath, name));
       }
     },
-    request: (f) =>
-      get(`/file/thumb/${f.ids.photo.fileName}?v=${f.ids.photo.version}`, {
-        as: null,
-      }),
+    // Signed, as the page renders it: the named file is missing, so the
+    // row answers and the thumb is made.
+    request: (f) => get(photoUrl(f, 'thumb'), { as: null }),
     expect: 200,
   }),
   http({

@@ -5,7 +5,8 @@ import { file, garment } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
 import type { Condition } from '../../wardrobe/properties';
 import type { GarmentStatus } from '../../wardrobe/status';
-import type { ImageRef } from '../files/image-url';
+import type { SignablePhotoRef } from '../files/image-url';
+import { photoRefJson } from '../files/queries';
 import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
 
 /**
@@ -31,7 +32,7 @@ export interface WishlistItem {
   category: string;
   price: string | null;
   sourceUrl: string | null;
-  photo: ImageRef | null;
+  photo: SignablePhotoRef | null;
   /** The garment it would replace; null for none (or deleted since). */
   replaces: GarmentRef | null;
 }
@@ -55,7 +56,7 @@ export async function wishlistItems(
       category: garment.category,
       price: garment.price,
       sourceUrl: garment.sourceUrl,
-      photo: { fileName: file.fileName, version: file.version },
+      photo: photoRefJson,
       replaces: {
         id: replacedGarment.id,
         name: replacedGarment.name,

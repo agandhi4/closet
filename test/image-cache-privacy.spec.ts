@@ -75,13 +75,18 @@ test.describe('the image cache belongs to one session', () => {
 
   /**
    * The photo's thumb, cutout and original, from its tile on the wardrobe
-   * page open in `page`.
+   * page open in `page`: the signed URLs the page itself requests (#162).
+   * A photo's three URLs differ only in their path (imageUrl signs the set,
+   * not the variant), so the path swap gives the exact URLs the garment page
+   * and the mask editor load, which is what the worker caches by.
    */
   async function photoUrls(page: Page): Promise<string[]> {
     const thumb = await page
       .locator('#wardrobe-grid > a img')
       .getAttribute('src');
-    expect(thumb).toMatch(/^\/file\/thumb\/[0-9a-f-]+\.webp\?v=\d+$/);
+    expect(thumb).toMatch(
+      /^\/file\/thumb\/[0-9a-f-]+\.webp\?v=\d+(&k=[0-9a-f]{12})?&s=[A-Za-z0-9_-]{16}$/,
+    );
     return [
       thumb!,
       thumb!.replace('/file/thumb/', '/file/nobg/'),

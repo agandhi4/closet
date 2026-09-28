@@ -23,6 +23,7 @@ import {
   imageTooLarge,
   isHeicUpload,
 } from './heic';
+import type { SignablePhotoRef } from './image-url';
 import {
   type ImageVariant,
   newVariantKey,
@@ -34,6 +35,7 @@ import {
 import {
   findPhotoByShareableId,
   findVariantKey,
+  readPhotoRef,
   type NewPhotoRow,
 } from './queries';
 import { PhotoStorage } from './storage';
@@ -474,14 +476,15 @@ export class Photos {
   /**
    * The mask editor's cutout replaces the stored one (the `edit` event: a
    * user's mask always wins, and no server job result replaces it after).
-   * Returns the photo's new version; undefined when no row has that name.
-   * The upload is encoded and stored before the row is locked, so neither
-   * a slow client nor slow storage ever holds the lock.
+   * Returns the photo as its URLs now name it (the new version and variant
+   * key: the editor's next image and edit read those); undefined when no
+   * row has that name. The upload is encoded and stored before the row is
+   * locked, so neither a slow client nor slow storage ever holds the lock.
    */
   async saveEditedCutout(
     stream: Readable,
     originalFileName: string,
-  ): Promise<number | undefined> {
+  ): Promise<SignablePhotoRef | undefined> {
     const bytes = await this.encodeUpload(
       stream,
       originalTransformer(decoder()),
@@ -497,7 +500,10 @@ export class Photos {
       );
       return undefined;
     }
-    return outcome.state.version;
+    const { version, variantKey } = outcome.state;
+    // A garment's photo: the mask editor edits only those (never a selfie,
+    // `unwanted`, which the machine refuses an edit).
+    return readPhotoRef({ fileName: originalFileName, version, variantKey });
   }
 
   /**
@@ -781,6 +787,22 @@ export class Photos {
         return this.getOrNotFound(thumbName);
       }
     }
+  }
+
+  /**
+   * The variant's file of exactly this set, as stored; undefined when it is
+   * not on disk. No fallback and no thumb made: the /file routes' signed
+   * path (a URL naming this set), which answers a miss through the row and
+   * getVariant. Making a thumb here could write one under a key a swap has
+   * since retired, from the original, beside no cutout.
+   */
+  openStoredVariant(
+    photo: StoredPhoto,
+    variant: ImageVariant,
+  ): Promise<Readable | undefined> {
+    return this.storage.get(
+      variantFileName(photo.fileName, variant, photo.variantKey),
+    );
   }
 
   /** Rewrites the set's thumb from its cutout if present, else from the original. */

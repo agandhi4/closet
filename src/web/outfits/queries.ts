@@ -25,7 +25,12 @@ import {
 import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
-import type { ImageRef } from '../files/image-url';
+import type { SignablePhotoRef } from '../files/image-url';
+import {
+  PHOTO_REF_RELATION,
+  photoRefJson,
+  readPhotoRef,
+} from '../files/queries';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import { entrySelfieSql, type SelfieRef } from '../selfies/queries';
@@ -49,7 +54,7 @@ export interface OutfitGarment {
   name: string | null;
   /** Where it goes in an OutfitCollage (its role). */
   category: string;
-  photo: ImageRef | null;
+  photo: SignablePhotoRef | null;
 }
 
 export interface OutfitSummary {
@@ -126,7 +131,7 @@ async function outfitsWithGarments(
         with: {
           garment: {
             columns: { id: true, name: true, category: true },
-            with: { photo: { columns: { fileName: true, version: true } } },
+            with: { photo: PHOTO_REF_RELATION },
           },
         },
       },
@@ -134,7 +139,9 @@ async function outfitsWithGarments(
   });
   return rows.map(({ slots, ...fields }) => ({
     ...fields,
-    garments: slots.flatMap(({ garment: shown }) => (shown ? [shown] : [])),
+    garments: slots.flatMap(({ garment: shown }) =>
+      shown ? [{ ...shown, photo: readPhotoRef(shown.photo) }] : [],
+    ),
   }));
 }
 
@@ -174,9 +181,7 @@ export function outfitGarmentsSql(): SQL<OutfitGarment[]> {
           'id', ${garment.id},
           'name', ${garment.name},
           'category', ${garment.category},
-          'photo', case when ${file.id} is null then null else json_build_object(
-            'fileName', ${file.fileName}, 'version', ${file.version}
-          ) end
+          'photo', ${photoRefJson}
         )
         order by ${outfitSlot.position}
       ),

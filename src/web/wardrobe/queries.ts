@@ -24,9 +24,10 @@ import type { AwayReason } from '../../wardrobe/availability';
 import type { CareLabel, CareWash } from '../../wardrobe/care';
 import type { EntryStatus, GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
-import type { ImageRef, PlinthPhoto } from '../files/image-url';
+import type { SignablePhotoRef, PlinthPhoto } from '../files/image-url';
 import type { StoredPhoto } from '../files/image-variant';
 import {
+  photoWithCutoutJson,
   PLINTH_PHOTO_COLUMNS,
   plinthPhoto,
   STORED_PHOTO_COLUMNS,
@@ -405,7 +406,7 @@ export async function filterOptions(
 }
 
 /** A garment's photo on its page: the cutout's state decides what shows. */
-export interface GarmentPhoto extends ImageRef {
+export interface GarmentPhoto extends SignablePhotoRef {
   /** Always read (detailColumns): rotateGarmentPhoto's check compares it. */
   version: number;
   cutoutStatus: CutoutStatus;
@@ -475,11 +476,7 @@ const detailColumns = {
   lastWashedOn: garment.lastWashedOn,
   away: garment.away,
   awayNote: garment.awayNote,
-  photo: {
-    fileName: file.fileName,
-    version: file.version,
-    cutoutStatus: file.cutoutStatus,
-  },
+  photo: photoWithCutoutJson,
 };
 
 /** The garment in `ownerId`'s wardrobe, or undefined. */

@@ -35,7 +35,7 @@ export interface CutoutRow extends CutoutState {
 }
 
 /**
- * The channel every write that queues a cutout notifies (notifyCutoutQueued)
+ * The channel every write that queues a cutout notifies (CUTOUT_QUEUED_NOTIFY)
  * and the queue's listener (src/cutout/listener.ts) listens on. Channels are
  * per database, so this one name is safe on the shared pgvault instance.
  */
@@ -45,14 +45,13 @@ export const CUTOUT_QUEUED_CHANNEL = 'closet_cutout_queued';
  * Tells every listening queue, in this process or another (a CLI, a second
  * server during an overlapping deploy), that a row became pending. Inside a
  * transaction Postgres delivers it only on commit, so a listener never looks
- * before the row is visible, and a rollback sends nothing. Called by the
- * two writes that make a row claimable: applyCutoutEvent (request, retry,
- * release) and insertPhotoRow (a new pending photo). The payload is empty
- * so Postgres folds a transaction's repeats into one.
+ * before the row is visible, and a rollback sends nothing. An expression for
+ * the RETURNING of the write that makes a row claimable, so the notification
+ * costs no statement of its own (#162): applyCutoutEvent's update (request,
+ * retry, release) and insertPhotoRow's insert (a new pending photo). The
+ * payload is empty so Postgres folds a transaction's repeats into one.
  */
-export async function notifyCutoutQueued(q: Queryable): Promise<void> {
-  await q.execute(sql`select pg_notify(${CUTOUT_QUEUED_CHANNEL}, '')`);
-}
+export const CUTOUT_QUEUED_NOTIFY = sql<string>`pg_notify(${CUTOUT_QUEUED_CHANNEL}, '')`;
 
 /** What an event did: the transition, or `gone` when the photo row is gone. */
 export type CutoutOutcome = Transition | { ok: false; reason: 'gone' };
@@ -96,7 +95,7 @@ export async function applyCutoutEvent(
 ): Promise<Transition> {
   const next = transition(row, event);
   if (!next.ok) return next;
-  await tx
+  const update = tx
     .update(file)
     .set({
       cutoutStatus: next.state.status,
@@ -112,7 +111,11 @@ export async function applyCutoutEvent(
     .where(eq(file.id, row.id));
   // A released row is claimable again: tell the other servers, rather than
   // leave it to their poll.
-  if (next.queued || event.type === 'release') await notifyCutoutQueued(tx);
+  if (next.queued || event.type === 'release') {
+    await update.returning({ notified: CUTOUT_QUEUED_NOTIFY });
+  } else {
+    await update;
+  }
   return next;
 }
 

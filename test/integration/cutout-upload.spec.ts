@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { file } from '../../src/db/schema';
+import { imageUrl } from '../../src/web/files/image-url';
+import { readPhotoRef } from '../../src/web/files/queries';
 import { fakeRunner, halfMask, storedCutout } from './cutouts';
 import {
   createGarment,
@@ -128,8 +130,15 @@ describe('cutouts: upload, page and polling', () => {
     const html = unescapeHtml(res.body);
     expect(html).toMatch(/^<div id="garment-photo">/);
     expect(html).not.toContain('hx-trigger');
-    expect(html).toContain(`src="/file/nobg/${fileName}?v=2"`);
-    expect(html).toContain(`data-nobg-url="/file/nobg/${fileName}?v=2"`);
+    // The new set's URL: version 2 under the key the job stored it as.
+    const row = await photoRow(t, fileName);
+    const nobgUrl = imageUrl(
+      readPhotoRef({ fileName, version: 2, variantKey: row!.variantKey }),
+      'nobg',
+    );
+    expect(row!.variantKey).toMatch(/^[0-9a-f]{12}$/);
+    expect(html).toContain(`src="${nobgUrl}"`);
+    expect(html).toContain(`data-nobg-url="${nobgUrl}"`);
     expect(html).toContain(`data-save-url="/wardrobe/${id}/nobg"`);
     expect(await storedCutout(t, fileName)).toBeDefined();
   });

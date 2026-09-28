@@ -18,6 +18,8 @@ import type * as ConfigModule from '../../src/config';
 import type * as CutoutQueueModule from '../../src/cutout/queue';
 import type { CutoutRunner } from '../../src/cutout/runner';
 import type * as DbClientModule from '../../src/db/client';
+import type * as ImageUrlModule from '../../src/web/files/image-url';
+import type * as FileQueriesModule from '../../src/web/files/queries';
 import type * as LoggerModule from '../../src/logger';
 import type * as ReconcileModule from '../../src/maintenance/reconcile';
 import type * as SchemaModule from '../../src/db/schema';
@@ -82,6 +84,8 @@ export interface Build {
   config: typeof ConfigModule;
   logger: typeof LoggerModule;
   db: typeof DbClientModule;
+  imageUrl: typeof ImageUrlModule;
+  fileQueries: typeof FileQueriesModule;
   schema: typeof SchemaModule;
   seed: typeof SeedModule;
   calendar: typeof CalendarDateModule;
@@ -106,6 +110,8 @@ async function loadBuild(): Promise<Build> {
     config: await load('config.js'),
     logger: await load('logger.js'),
     db: await load('db/client.js'),
+    imageUrl: await load('web/files/image-url.js'),
+    fileQueries: await load('web/files/queries.js'),
     schema: await load('db/schema.js'),
     seed: await load('seed/seed.js'),
     calendar: await load('web/calendar/calendar-date.js'),
@@ -159,8 +165,17 @@ export interface SeedIds {
   otherGarmentId: number;
   /** The grid's second page starts before this id (GRID_PAGE_SIZE newest first). */
   secondPageBefore: number;
-  /** Its photo: the file's name, version and share id (the Open Graph image's). */
-  photo: { fileName: string; version: number; shareableId: string };
+  /**
+   * Its photo: what its URLs name (imageUrl's, signed by the build's own
+   * module, so the steps request what a page renders) and its share id
+   * (the Open Graph image's).
+   */
+  photo: {
+    fileName: string;
+    version: number;
+    variantKey: string | null;
+    shareableId: string;
+  };
   garmentShareableId: string;
   /** A wishlist item that is a candidate of the active plan. */
   wishlistId: number;
@@ -730,6 +745,7 @@ async function findSeedIds(
         shareableId: s.garment.shareableId,
         fileName: s.file.fileName,
         version: s.file.version,
+        variantKey: s.file.variantKey,
         fileShareableId: s.file.shareableId,
       })
       .from(s.garmentRepair)
@@ -909,6 +925,7 @@ async function findSeedIds(
     photo: {
       fileName: repaired.fileName,
       version: repaired.version,
+      variantKey: repaired.variantKey,
       shareableId: repaired.fileShareableId,
     },
     garmentShareableId: repaired.shareableId,

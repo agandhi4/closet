@@ -1,5 +1,9 @@
 import type { Child } from 'hono/jsx';
-import { type ImageRef, imageUrl, type PlinthPhoto } from '../files/image-url';
+import {
+  type SignablePhotoRef,
+  imageUrl,
+  type PlinthPhoto,
+} from '../files/image-url';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
 
@@ -111,7 +115,7 @@ export function PhotoLibraryIcon(props: { class: string }) {
 
 /** An 80px garment tile: the thumb variant, or the placeholder. */
 export function GarmentThumb(props: {
-  garment: { name: string | null; photo: ImageRef | null };
+  garment: { name: string | null; photo: SignablePhotoRef | null };
   class: string;
 }) {
   const { garment } = props;

@@ -18,7 +18,8 @@ import {
   tripPhase,
 } from '../../wardrobe/packing';
 import type { IsoDate } from '../calendar/calendar-date';
-import type { ImageRef } from '../files/image-url';
+import type { SignablePhotoRef } from '../files/image-url';
+import { photoRefJson } from '../files/queries';
 import type { CollageGarment } from '../outfits/collage';
 import { outfitGarmentsSql } from '../outfits/queries';
 import { wearsSinceWashSql } from '../wears/queries';
@@ -65,7 +66,7 @@ export interface TripDay {
 /** A garment on the packing list, as the page and the tool show it. */
 export interface PackingGarmentView extends PackingGarment {
   name: string | null;
-  photo: ImageRef | null;
+  photo: SignablePhotoRef | null;
 }
 
 export interface TripModel {
@@ -146,9 +147,7 @@ function packingGarmentsSql(
         'washAfterWears', ${garment.washAfterWears},
         'status', ${garment.status},
         'away', ${garment.away},
-        'photo', case when ${file.id} is null then null else json_build_object(
-          'fileName', ${file.fileName}, 'version', ${file.version}
-        ) end,
+        'photo', ${photoRefJson},
         'wearsSinceWash', ${wearsSinceWashSql()},
         'packed', exists (
           select 1 from ${tripGarmentPacked}

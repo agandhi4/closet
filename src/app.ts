@@ -19,6 +19,7 @@ import { normalizeEmail } from './web/auth/queries';
 import { createSessionResolver } from './web/auth/session';
 import { createSessionTokens } from './web/auth/tokens';
 import { createErrorHandler, HttpError } from './web/errors';
+import { configurePhotoUrls } from './web/files/image-url';
 import { createPhotos, type Photos, photosConfig } from './web/files/photos';
 import { loggableUrl } from './web/loggable-url';
 import { webPlugin } from './web/plugin';
@@ -170,6 +171,8 @@ export async function createApp(
     db,
     logger.child({ context: 'Photos' }),
   );
+  // Before any page renders a /file URL: the key the /file routes verify.
+  configurePhotoUrls(config.ACCESS_TOKEN_SECRET);
   const cutouts = new CutoutQueue({
     db,
     database,

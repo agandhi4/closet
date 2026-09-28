@@ -5,7 +5,7 @@ import type { Db, Queryable } from '../../db/client';
 import { file, selfie } from '../../db/schema';
 import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../calendar/calendar-date';
-import type { ImageRef } from '../files/image-url';
+import type { SelfiePhoto } from '../files/image-url';
 import { insertPhotoRow, type NewPhotoRow } from '../files/queries';
 import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
 
@@ -21,7 +21,7 @@ import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
 /** A selfie as a view draws it: its id (removal) and its photo (the URLs). */
 export interface SelfieRef {
   id: number;
-  photo: ImageRef;
+  photo: SelfiePhoto;
 }
 
 export type SelfieOutcome =

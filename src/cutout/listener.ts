@@ -43,7 +43,7 @@ export interface CutoutListenerDeps {
  * The cutout queue's one dedicated LISTEN connection (CutoutQueue owns it
  * while started): outside the pool, because a pooled client is handed to
  * other queries and LISTEN belongs to one session. Writes in any process
- * notify CUTOUT_QUEUED_CHANNEL on commit (notifyCutoutQueued). A dropped
+ * notify CUTOUT_QUEUED_CHANNEL on commit (CUTOUT_QUEUED_NOTIFY). A dropped
  * connection is reopened with backoff; close() ends it for good.
  */
 /**

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { count, eq } from 'drizzle-orm';
@@ -5,6 +6,8 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { file, garmentWear, outfitCalendar, selfie } from '../../src/db/schema';
 import { addDays } from '../../src/web/calendar/calendar-date';
+import { imageUrl } from '../../src/web/files/image-url';
+import { readPhotoRef } from '../../src/web/files/queries';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { createGarment } from './garments';
 import {
@@ -222,6 +225,20 @@ describe('outfit selfies', () => {
         (await t.inject({ method: 'GET', url, anonymous: true })).statusCode,
       ).toBe(404);
     }
+    // A signature is the server's word that a name is no selfie's (#162):
+    // one made for another photo does not carry over to this name.
+    const signedForAnother = imageUrl(
+      readPhotoRef({
+        fileName: `${randomUUID()}.webp`,
+        version: 1,
+        variantKey: null,
+      }),
+      'thumb',
+    );
+    const borrowed = `/file/thumb/${fileName}?${signedForAnother.split('?')[1]}`;
+    expect((await t.inject({ method: 'GET', url: borrowed })).statusCode).toBe(
+      404,
+    );
     // Not a photo name at all is a 404 too, like /file's.
     expect(
       (await t.inject({ method: 'GET', url: '/selfies/app.log' })).statusCode,

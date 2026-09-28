@@ -10,7 +10,8 @@ import {
   isGarmentColor,
 } from '../../wardrobe/properties';
 import { ownerTransaction } from '../auth/queries';
-import type { ImageRef } from '../files/image-url';
+import type { SignablePhotoRef } from '../files/image-url';
+import { photoRefJson } from '../files/queries';
 import { normalizeCategory } from './garment';
 import { inCloset } from './status';
 import {
@@ -40,7 +41,7 @@ export interface ClosetLookalike {
   name: string | null;
   category: string;
   quantity: number;
-  photo: ImageRef | null;
+  photo: SignablePhotoRef | null;
 }
 
 /** What the form says about the garment being added, as posted. */
@@ -81,7 +82,7 @@ export async function closetLookalikes(
       colors: garment.colors,
       brand: garment.brand,
       quantity: garment.quantity,
-      photo: { fileName: file.fileName, version: file.version },
+      photo: photoRefJson,
     })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))

@@ -1,4 +1,5 @@
 import { imageUrl } from '../../files/image-url';
+import { pendingPhotoRef } from '../../files/queries';
 import { t } from '../../i18n';
 import { LINK_PHOTO_PATH, wardrobeUrl } from '../urls';
 import type { PhotoChoice } from './import';
@@ -68,7 +69,7 @@ export function LinkPhotoSlot(props: { photo?: string; errors?: string[] }) {
         <>
           <input type="hidden" name="linkPhoto" value={photo} />
           <img
-            src={imageUrl({ fileName: photo }, 'thumb')}
+            src={imageUrl(pendingPhotoRef(photo), 'thumb')}
             alt={t('add.PHOTO_ALT')}
             width="112"
             height="112"

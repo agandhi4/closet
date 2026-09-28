@@ -244,7 +244,7 @@ describe('cutout queue', () => {
         payload: body.payload,
         headers: body.headers,
       });
-      expect(res.json()).toEqual({ version: 2 });
+      expect(res.json()).toMatchObject({ version: 2 });
       edited = await storedCutout(t, fileName);
       return halfMask();
     });

@@ -9,9 +9,17 @@ import {
   jpegPhoto,
   photoFileName,
   photoRow,
+  pngCutout,
   uploadPhoto,
 } from './garments';
-import { createTestApp, TestApp } from './harness';
+import { variantPath } from './cutouts';
+import {
+  createTestApp,
+  multipart,
+  recordQueries,
+  TestApp,
+  unescapeHtml,
+} from './harness';
 
 /**
  * /file/** serves photos from DATA_PATH without a session, and DATA_PATH also
@@ -150,5 +158,137 @@ describe('/file route and request logging', () => {
     expect(log).not.toContain('auth-secret-sentinel');
     expect(log).not.toContain('heartbeat-marker');
     expect(log).not.toContain('thumb-marker');
+  });
+});
+
+/**
+ * #162: a URL imageUrl signed is served from storage without a statement
+ * (a cold wardrobe grid was one statement per thumb over production's WiFi
+ * link to the database). The signature names the set, so new bytes are
+ * only ever reached through a new URL, and anything the signature does not
+ * cover falls back to the row, as every request did before.
+ */
+describe('/file signed URLs', () => {
+  let t: TestApp;
+  let garmentId: number;
+  let fileName: string;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    garmentId = await createGarment(t, { name: 'Signed coat' });
+    await uploadPhoto(t, garmentId, await jpegPhoto());
+    fileName = await photoFileName(t, garmentId);
+  });
+
+  afterAll(() => t?.cleanup());
+
+  /** The garment page's /file URLs, as the browser reads them. */
+  const pageUrls = async () => {
+    const page = unescapeHtml(
+      (await t.inject({ method: 'GET', url: `/wardrobe/${garmentId}` })).body,
+    );
+    const find = (variant: string) => {
+      const match = new RegExp(
+        `"(/file/${variant}${fileName}\\?v=\\d+[^"]*&s=[A-Za-z0-9_-]{16})"`,
+      ).exec(page);
+      if (!match) throw new Error(`no signed /file/${variant} URL on the page`);
+      return match[1];
+    };
+    return { original: find(''), nobg: find('nobg/') };
+  };
+
+  const get = (url: string) =>
+    t.inject({ method: 'GET', url, anonymous: true });
+
+  const saveMask = async () => {
+    const body = await multipart(
+      {},
+      {
+        nobgPhoto: {
+          data: await pngCutout(),
+          filename: 'cutout.png',
+          contentType: 'image/png',
+        },
+      },
+    );
+    const res = await t.inject({
+      method: 'POST',
+      url: `/wardrobe/${garmentId}/nobg`,
+      payload: body.payload,
+      headers: body.headers,
+    });
+    expect(res.statusCode).toBe(200);
+  };
+
+  it('serves every variant of a signed URL without a statement, private and immutable', async () => {
+    await saveMask();
+    const urls = await pageUrls();
+    const thumb = urls.nobg.replace('/file/nobg/', '/file/thumb/');
+    for (const [url, variant] of [
+      [urls.original, 'original'],
+      [urls.nobg, 'nobg'],
+      [thumb, 'thumb'],
+    ] as const) {
+      const stored = await readFile(await variantPath(t, fileName, variant));
+      const record = await recordQueries(async () => {
+        const res = await get(url);
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['cache-control']).toBe(
+          'private, max-age=31536000, immutable',
+        );
+        expect(res.rawPayload.equals(stored)).toBe(true);
+      });
+      expect(record.statements).toBe(0);
+    }
+  });
+
+  it('asks the row for an unsigned or altered URL, one statement', async () => {
+    const { nobg } = await pageUrls();
+    const altered = [
+      `/file/nobg/${fileName}?v=2`,
+      nobg.replace(/&s=[^&]+/, '&s=AAAAAAAAAAAAAAAAAAAAAA'),
+      nobg.replace(/&k=[^&]+/, '&k=ffffffffffff'),
+    ];
+    for (const url of altered) {
+      const record = await recordQueries(async () => {
+        expect((await get(url)).statusCode).toBe(200);
+      });
+      expect(record.statements).toBe(1);
+    }
+  });
+
+  // Rotate, mask edit and cutout replacement all retire the set a URL
+  // names: the old URL never reaches the new bytes through its signature,
+  // and the new URL never the old ones.
+  it('answers a URL whose set a new cutout retired through the row: the new bytes', async () => {
+    const before = await pageUrls();
+    await saveMask();
+    const after = await pageUrls();
+    expect(after.nobg).not.toBe(before.nobg);
+
+    const current = await readFile(await variantPath(t, fileName, 'nobg'));
+    const retired = await recordQueries(async () => {
+      const res = await get(before.nobg);
+      expect(res.statusCode).toBe(200);
+      expect(res.rawPayload.equals(current)).toBe(true);
+    });
+    expect(retired.statements).toBe(1);
+
+    const fresh = await get(after.nobg);
+    expect(fresh.rawPayload.equals(current)).toBe(true);
+  });
+
+  it('is a 404 for a signed URL once its garment is deleted', async () => {
+    const urls = await pageUrls();
+    const thumb = urls.nobg.replace('/file/nobg/', '/file/thumb/');
+    const res = await t.inject({
+      method: 'DELETE',
+      url: `/wardrobe/${garmentId}`,
+      headers: { 'hx-request': 'true' },
+    });
+    expect(res.statusCode).toBe(200);
+    for (const url of [urls.original, urls.nobg, thumb]) {
+      expect((await get(url)).statusCode).toBe(404);
+    }
   });
 });

@@ -5,6 +5,7 @@ import type { Db } from '../../db/client';
 import { file, garment } from '../../db/schema';
 import type { Logger } from '../../logger';
 import { imageUrl } from '../files/image-url';
+import { photoWithCutoutJson } from '../files/queries';
 
 /**
  * The wardrobe export (#200; docs/plans/2026-09-28-multi-add-and-export.md):
@@ -72,11 +73,7 @@ async function* exportPages(
     const rows = await db
       .select({
         garment,
-        photo: {
-          fileName: file.fileName,
-          version: file.version,
-          cutoutStatus: file.cutoutStatus,
-        },
+        photo: photoWithCutoutJson,
       })
       .from(garment)
       .leftJoin(file, eq(file.id, garment.photoId))

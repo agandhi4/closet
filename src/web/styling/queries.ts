@@ -11,6 +11,7 @@ import {
 import type { Db } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
 import { file, garment, outfit, outfitSlot } from '../../db/schema';
+import { photoRefJson, readPhotoRef } from '../files/queries';
 import {
   builtInCategoriesOf,
   categoryRole,
@@ -67,8 +68,6 @@ function cycleOf(ownerId: number, capsuleId: number | undefined): SQL {
   )!;
 }
 
-const photoColumns = { fileName: file.fileName, version: file.version };
-
 /**
  * A RowGarment as JSON, an array in readRowGarment's order (no key per
  * garment), from `garment` left joined to its `file`.
@@ -80,9 +79,10 @@ type RowGarmentJson = [
   status: GarmentStatus,
   fileName: string | null,
   version: number | null,
+  variantKey: string | null,
 ];
 
-const rowGarmentJson = sql`json_build_array(${garment.id}, ${garment.name}, ${garment.category}, ${garment.status}, ${file.fileName}, ${file.version})`;
+const rowGarmentJson = sql`json_build_array(${garment.id}, ${garment.name}, ${garment.category}, ${garment.status}, ${file.fileName}, ${file.version}, ${file.variantKey})`;
 
 function readRowGarment([
   id,
@@ -91,9 +91,12 @@ function readRowGarment([
   status,
   fileName,
   version,
+  variantKey,
 ]: RowGarmentJson): RowGarment {
   const photo =
-    fileName === null || version === null ? null : { fileName, version };
+    fileName === null || version === null
+      ? null
+      : readPhotoRef({ fileName, version, variantKey });
   return { id, name, category, status, photo };
 }
 
@@ -149,7 +152,8 @@ export function roleWindowsSql(
   return sql<WindowJson[]>`(
     select coalesce(json_agg(json_build_array(
       windowed.role, windowed.count, windowed.id, windowed.name,
-      windowed.category, windowed.status, ${file.fileName}, ${file.version}
+      windowed.category, windowed.status, ${file.fileName}, ${file.version},
+      ${file.variantKey}
     ) order by windowed.rank), '[]')
     from (
       select ranked.*, coalesce(max(case when ${isChosen} then ranked.rank end) over (partition by ranked.role), 0) as deepest
@@ -196,7 +200,7 @@ export async function roleGarmentsBefore(
       name: garment.name,
       category: garment.category,
       status: garment.status,
-      photo: photoColumns,
+      photo: photoRefJson,
     })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))

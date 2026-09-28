@@ -267,7 +267,9 @@ describe('calendar', () => {
       const thursday = dayColumns(await weekPage()).get('2030-10-10')!;
       const thumbs = extractImgSrcs(thursday);
       expect(thumbs).toHaveLength(1);
-      expect(thumbs[0]).toMatch(/^\/file\/thumb\/[0-9a-f-]{36}\.webp\?v=1$/);
+      expect(thumbs[0]).toMatch(
+        /^\/file\/thumb\/[0-9a-f-]{36}\.webp\?v=1&s=[\w-]{16}$/,
+      );
       expect(hasText(thursday, '>Pictured<')).toBe(true);
       // One link edits the outfit, named for it alone (not its garments).
       expect(hasText(thursday, 'aria-label="Pictured"')).toBe(true);

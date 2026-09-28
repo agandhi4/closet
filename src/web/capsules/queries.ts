@@ -10,7 +10,7 @@ import {
   garment,
 } from '../../db/schema';
 import type { PlinthPhoto } from '../files/image-url';
-import { plinthPhoto } from '../files/queries';
+import { plinthPhoto, plinthPhotoJson } from '../files/queries';
 import { inCloset, ownedGarment } from '../wardrobe/status';
 
 /**
@@ -145,11 +145,7 @@ function cardSql(members: SQL | undefined): SQL<CardJson> {
       select coalesce(json_agg(strip order by strip.id desc), '[]')
       from (
         select ${garment.id} as id, ${garment.name} as name,
-          case when ${file.id} is null then null else json_build_object(
-            'fileName', ${file.fileName},
-            'version', ${file.version},
-            'cutoutStatus', ${file.cutoutStatus}
-          ) end as photo
+          ${plinthPhotoJson} as photo
         from ${garment}
         left join ${file} on ${eq(file.id, garment.photoId)}
         where ${members}

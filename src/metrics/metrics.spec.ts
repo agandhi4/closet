@@ -105,6 +105,16 @@ describe('Metrics', () => {
     );
   });
 
+  it('counts photos served by how their files were found', async () => {
+    const { metrics } = newMetrics(true);
+    metrics.countPhotoRequest('none');
+    metrics.countPhotoRequest('none');
+    metrics.countPhotoRequest('row');
+    const { body } = await metrics.exposition();
+    expect(body).toContain('photo_requests_total{lookup="none"} 2');
+    expect(body).toContain('photo_requests_total{lookup="row"} 1');
+  });
+
   it('never exposes a `job` label (the scraper sets it)', async () => {
     const { metrics } = newMetrics(true);
     metrics.addRoute('/calendar');
@@ -394,6 +404,7 @@ describe('Metrics', () => {
         "# TYPE http_request_duration_seconds histogram",
         "# TYPE job_duration_seconds histogram",
         "# TYPE mcp_tool_call_duration_seconds histogram",
+        "# TYPE photo_requests_total counter",
         "# TYPE push_sends_total counter",
         "client_timing_dropped_total{reason}",
         "client_timing_seconds_bucket{cache,kind,le="+Inf",metric,route}",

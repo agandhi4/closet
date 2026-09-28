@@ -96,9 +96,13 @@ test('erase and restore strokes land on the saved cutout, and nothing else chang
       .toBuffer(),
   });
   const photo = page.locator('#garment-photo img');
-  await expect(photo).toHaveAttribute('src', /^\/file\/nobg\/.+\?v=2$/, {
-    timeout: 15_000,
-  });
+  await expect(photo).toHaveAttribute(
+    'src',
+    /^\/file\/nobg\/.+\?v=2&k=[0-9a-f]{12}&s=[\w-]{16}$/,
+    {
+      timeout: 15_000,
+    },
+  );
 
   // Where the strokes go. The photo fills the square's middle 3/4 across
   // (portrait, padded to a square) and all of its height; the stub's
@@ -149,7 +153,10 @@ test('erase and restore strokes land on the saved cutout, and nothing else chang
   );
   await page.locator('#maskEditorAccept').click();
   expect((await saved).status()).toBe(200);
-  await expect(photo).toHaveAttribute('src', /\?v=3$/);
+  await expect(photo).toHaveAttribute(
+    'src',
+    /\?v=3&k=[0-9a-f]{12}&s=[\w-]{16}$/,
+  );
 
   const after = await cutout();
   const photoColour = (pixel: Pixel) => {

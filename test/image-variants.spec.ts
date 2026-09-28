@@ -45,7 +45,7 @@ test('wardrobe grid uses versioned thumb URLs served as immutable webp', async (
     .locator('img');
   await expect(tile).toBeVisible();
   const src = await tile.getAttribute('src');
-  expect(src).toMatch(/^\/file\/thumb\/[0-9a-f-]+\.webp\?v=1$/);
+  expect(src).toMatch(/^\/file\/thumb\/[0-9a-f-]+\.webp\?v=1&s=[\w-]{16}$/);
 
   for (const variant of ['thumb', 'nobg', 'original']) {
     const url =

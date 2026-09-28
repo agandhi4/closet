@@ -192,7 +192,7 @@ test.describe('installed app delivery', () => {
     });
     await expect(page.locator('#garment-photo img')).toHaveAttribute(
       'src',
-      /\?v=2$/,
+      /\?v=2&k=[0-9a-f]{12}&s=[\w-]{16}$/,
       { timeout: 15_000 },
     );
     await page.locator('#editMaskBtn').click();

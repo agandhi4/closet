@@ -2,9 +2,17 @@ import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { imageUrl } from '../../src/web/files/image-url';
+import { readPhotoRef } from '../../src/web/files/queries';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { createGarment, garmentRow, jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, hxLocationPath, imgTags, TestApp } from './harness';
+import {
+  createTestApp,
+  hxLocationPath,
+  imgTags,
+  TestApp,
+  unescapeHtml,
+} from './harness';
 
 const exists = (path: string) =>
   access(path).then(
@@ -49,9 +57,15 @@ describe('wardrobe', () => {
     });
 
     it('renders the grid with versioned thumbs, eager above the fold and lazy below', async () => {
-      const thumbUrl = `/file/thumb/${fileName}?v=1`;
+      // The URL a page renders: signed (#162).
+      const thumbUrl = imageUrl(
+        readPhotoRef({ fileName, version: 1, variantKey: null }),
+        'thumb',
+      );
       const tileFor = (html: string) =>
-        imgTags(html).find((tag) => tag.includes(`src="${thumbUrl}"`));
+        imgTags(unescapeHtml(html)).find((tag) =>
+          tag.includes(`src="${thumbUrl}"`),
+        );
 
       const first = await t.inject({ method: 'GET', url: '/wardrobe' });
       expect(first.statusCode).toBe(200);

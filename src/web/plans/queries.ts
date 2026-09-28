@@ -17,7 +17,8 @@ import {
 } from '../../wardrobe/properties';
 import { isUniqueViolation } from '../../db/errors';
 import { ownerTransaction } from '../auth/queries';
-import type { ImageRef } from '../files/image-url';
+import type { SignablePhotoRef } from '../files/image-url';
+import { photoRefJson } from '../files/queries';
 import { inCloset } from '../wardrobe/status';
 import {
   PLAN_NAME_MAX,
@@ -212,7 +213,7 @@ export interface ClosetGarment {
   quantity: number;
   condition: Condition;
   price: string | null;
-  photo: ImageRef | null;
+  photo: SignablePhotoRef | null;
 }
 
 /**
@@ -239,7 +240,7 @@ export async function closetPieces(
       quantity: garment.quantity,
       condition: garment.condition,
       price: garment.price,
-      photo: { fileName: file.fileName, version: file.version },
+      photo: photoRefJson,
     })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))

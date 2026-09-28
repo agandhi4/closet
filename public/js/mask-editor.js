@@ -35,18 +35,14 @@ const squarePadBlob = async (blob) => {
  *
  * Delegated on `container` (#garment-photo-slot), and the URLs are read from
  * the button's data attributes at the tap: the photo is swapped when its
- * cutout arrives, button included. Every /file/** response
- * is cached as immutable, so after a save the server's new version is
- * written into the URLs: the image and any further edit read the new cutout.
+ * cutout arrives, button included. Every /file/** URL names its bytes for
+ * good (cached as immutable), so a save answers the photo's new URLs, built
+ * and signed by the server (imageUrl), and the image and any further edit
+ * read those. Never build or rewrite a /file URL here: its signature covers
+ * every parameter.
  * @param {HTMLElement | null} container
  */
 export const wireUpEditMask = (container) => {
-  const withVersion = (url, version) => {
-    const u = new URL(url, location.origin);
-    u.searchParams.set('v', String(version));
-    return u.pathname + u.search;
-  };
-
   container?.addEventListener('click', async (event) => {
     const btn = event.target.closest('#editMaskBtn');
     if (!btn || btn.disabled) return;
@@ -72,10 +68,10 @@ export const wireUpEditMask = (container) => {
       formData.append('nobgPhoto', new File([editedBlob], 'nobg.webp', { type: 'image/webp' }));
       const resp = await fetch(saveUrl, { method: 'POST', body: formData });
       if (!resp.ok) throw new Error(`POST ${saveUrl} -> ${resp.status}`);
-      const { version } = await resp.json();
+      const saved = await resp.json();
 
-      btn.dataset.originalUrl = withVersion(originalUrl, version);
-      btn.dataset.nobgUrl = withVersion(nobgUrl, version);
+      btn.dataset.originalUrl = saved.originalUrl;
+      btn.dataset.nobgUrl = saved.nobgUrl;
       const img = btn.closest('figure')?.querySelector('img');
       if (img) img.src = btn.dataset.nobgUrl;
     } catch (err) {

@@ -25,6 +25,8 @@ import {
   SLEEVES,
 } from '../../src/wardrobe/properties';
 import { EXPORT_PAGE_SIZE } from '../../src/web/wardrobe/export';
+import { imageUrl } from '../../src/web/files/image-url';
+import { readPhotoRef } from '../../src/web/files/queries';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
 import { createTestApp, type TestApp, userIdOf } from './harness';
 
@@ -96,7 +98,11 @@ describe('the wardrobe export', () => {
   let t: TestApp;
   let fullId: number;
   let plainId: number;
-  let fullPhoto: { fileName: string; version: number };
+  let fullPhoto: {
+    fileName: string;
+    version: number;
+    variantKey: string | null;
+  };
 
   const rowsOf = (ownerId: number) =>
     t.db
@@ -162,7 +168,11 @@ describe('the wardrobe export', () => {
       .set({ cutoutStatus: 'none' })
       .from(garment)
       .where(and(eq(garment.id, fullId), eq(file.id, garment.photoId)))
-      .returning({ fileName: file.fileName, version: file.version });
+      .returning({
+        fileName: file.fileName,
+        version: file.version,
+        variantKey: file.variantKey,
+      });
     fullPhoto = photo!;
     // An owner-only record that is no garment field: never exported.
     await t.db.insert(garmentRepair).values({
@@ -218,13 +228,16 @@ describe('the wardrobe export', () => {
       const parsed = new URL(url);
       return parsed.pathname + parsed.search;
     };
-    const version = `?v=${fullPhoto.version}`;
-    expect(path(photo.original)).toBe(`/file/${fullPhoto.fileName}${version}`);
-    expect(path(photo.cutout)).toBe(
-      `/file/nobg/${fullPhoto.fileName}${version}`,
+    // The URLs a page renders (signed: served without a statement, #162).
+    expect(path(photo.original)).toBe(
+      imageUrl(readPhotoRef(fullPhoto), 'original'),
     );
-    expect(path(photo.thumb)).toBe(
-      `/file/thumb/${fullPhoto.fileName}${version}`,
+    expect(path(photo.cutout)).toBe(imageUrl(readPhotoRef(fullPhoto), 'nobg'));
+    expect(path(photo.thumb)).toBe(imageUrl(readPhotoRef(fullPhoto), 'thumb'));
+    expect(path(photo.thumb)).toMatch(
+      new RegExp(
+        `^/file/thumb/${fullPhoto.fileName}\\?v=${fullPhoto.version}&`,
+      ),
     );
     expect(bundle.garments.find((row) => row.id === plainId)?.photo).toBeNull();
     expect(res.body).not.toContain('77.77');

@@ -80,7 +80,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       );
       await expect(page.locator('#garment-photo img')).toHaveAttribute(
         'src',
-        /^\/file\/nobg\/[0-9a-f-]+\.webp\?v=2$/,
+        /^\/file\/nobg\/[0-9a-f-]+\.webp\?v=2&k=[0-9a-f]{12}&s=[\w-]{16}$/,
         { timeout: 15_000 },
       );
 
