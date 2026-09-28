@@ -69,13 +69,32 @@ export function inCapsule(capsuleId: number): SQL {
 
 const byName = [asc(sql`lower(${capsule.name})`), asc(capsule.id)];
 
-/** The wardrobe's capsules by name: the grid's filter and the garment page's toggles. */
+/** The wardrobe's capsules by name: Styling's and the outfit gallery's capsule menus. */
 export function capsuleNames(db: Db, ownerId: number): Promise<CapsuleRef[]> {
   return db
     .select({ id: capsule.id, name: capsule.name })
     .from(capsule)
     .where(eq(capsule.ownerId, ownerId))
     .orderBy(...byName);
+}
+
+/**
+ * capsuleNames as a scalar subquery (a JSON array, empty for none), for a
+ * page that reads it in one statement with its other lists: the grid's
+ * scope menu (gridContext, src/web/wardrobe/grid-context.ts).
+ */
+export function capsuleNamesSql(ownerId: number): SQL<CapsuleRef[]> {
+  return sql<CapsuleRef[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object('id', ${capsule.id}, 'name', ${capsule.name})
+        order by ${sql.join(byName, sql`, `)}
+      ),
+      '[]'
+    )
+    from ${capsule}
+    where ${eq(capsule.ownerId, ownerId)}
+  )`;
 }
 
 /** The capsule in `ownerId`'s wardrobe, or undefined. */
@@ -189,24 +208,6 @@ export async function closetCard(
       photo: plinthPhoto(shown.photo),
     })),
   };
-}
-
-/**
- * The picker's checked tiles: the ids of the capsule's members (archived
- * ones too; the grid decides what it shows). Empty for a capsule outside
- * `ownerId`'s wardrobe.
- */
-export async function memberIds(
-  db: Db,
-  capsuleId: number,
-  ownerId: number,
-): Promise<Set<number>> {
-  const rows = await db
-    .select({ id: capsuleGarment.garmentId })
-    .from(capsuleGarment)
-    .innerJoin(capsule, eq(capsule.id, capsuleGarment.capsuleId))
-    .where(and(eq(capsule.id, capsuleId), eq(capsule.ownerId, ownerId)));
-  return new Set(rows.map((row) => row.id));
 }
 
 export interface GarmentCapsule extends CapsuleRef {

@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { capsule, capsuleGarment, garment } from '../../src/db/schema';
+import { recordStatements } from '../support/query-recorder';
 import { createGarment } from './garments';
 import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
 import {
@@ -490,6 +491,27 @@ describe('capsules', () => {
       expect(html).toContain(`href="/wardrobe?capsule=${travel}"`);
       expect(html).toContain(`href="/styling?capsule=${travel}"`);
       expect(html).toContain(`href="/capsules/${travel}/edit"`);
+    });
+
+    // A round trip per statement in production (#156, #159): the session,
+    // then the capsule's lookup, its tiles and its count all at once, since
+    // inCapsule needs no lookup first.
+    it('reads a capsule’s page in 4 statements, the last three in one round trip', async () => {
+      const { result: res, statements } = await recordStatements(() =>
+        get(`/capsules/${travel}`),
+      );
+      expect(res.statusCode).toBe(200);
+      expect(statements).toHaveLength(4);
+      const reads = statements.slice(1);
+      const lastSent = Math.max(...reads.map((s) => s.startedAt));
+      const firstAnswered = Math.min(...reads.map((s) => s.startedAt + s.ms));
+      expect(lastSent).toBeLessThan(firstAnswered);
+    });
+
+    it('is a 404 for another wardrobe’s capsule, whatever its reads found', async () => {
+      const theirs = await t.register('other-capsules@example.com');
+      const res = await get(`/capsules/${travel}`, { cookie: theirs });
+      expect(res.statusCode).toBe(404);
     });
 
     it('shows a new user the empty state', async () => {

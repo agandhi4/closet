@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
 import { type SharePermission, user, wardrobeShare } from '../../db/schema';
 import { HttpError } from '../errors';
@@ -95,7 +95,31 @@ export interface SharedWardrobe {
   permission: SharePermission;
 }
 
-/** Wardrobes shared with `userId`: the wardrobe page's switcher, list_shared_wardrobes (MCP). */
+/** A share with `userId` as sharedWardrobesOf and sharedWardrobesSql read it. */
+export interface SharedWardrobeRow {
+  grantorId: number;
+  firstName: string | null;
+  email: string | null;
+  permission: SharePermission;
+}
+
+function acceptedSharesWith(userId: number) {
+  return and(
+    eq(wardrobeShare.granteeId, userId),
+    isNotNull(wardrobeShare.acceptedAt),
+  );
+}
+
+export function toSharedWardrobe(row: SharedWardrobeRow): SharedWardrobe {
+  return {
+    grantorId: row.grantorId,
+    grantorName: row.firstName || row.email || '',
+    grantorFirstName: row.firstName || null,
+    permission: row.permission,
+  };
+}
+
+/** Wardrobes shared with `userId`: the other tabs' switchers, list_shared_wardrobes (MCP). */
 export async function sharedWardrobesOf(
   db: Db,
   userId: number,
@@ -109,17 +133,33 @@ export async function sharedWardrobesOf(
     })
     .from(wardrobeShare)
     .innerJoin(user, eq(user.id, wardrobeShare.grantorId))
-    .where(
-      and(
-        eq(wardrobeShare.granteeId, userId),
-        isNotNull(wardrobeShare.acceptedAt),
-      ),
-    )
+    .where(acceptedSharesWith(userId))
     .orderBy(wardrobeShare.id);
-  return rows.map((row) => ({
-    grantorId: row.grantorId,
-    grantorName: row.firstName || row.email || '',
-    grantorFirstName: row.firstName || null,
-    permission: row.permission,
-  }));
+  return rows.map(toSharedWardrobe);
+}
+
+/**
+ * sharedWardrobesOf's rows as a scalar subquery (a JSON array, empty for
+ * none; map each through toSharedWardrobe), for a page that reads it in
+ * one statement with its other lists: the grid's switcher (gridContext,
+ * src/web/wardrobe/grid-context.ts).
+ */
+export function sharedWardrobesSql(userId: number): SQL<SharedWardrobeRow[]> {
+  return sql<SharedWardrobeRow[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'grantorId', ${wardrobeShare.grantorId},
+          'firstName', ${user.firstName},
+          'email', ${user.email},
+          'permission', ${wardrobeShare.permission}
+        )
+        order by ${wardrobeShare.id}
+      ),
+      '[]'
+    )
+    from ${wardrobeShare}
+    join ${user} on ${eq(user.id, wardrobeShare.grantorId)}
+    where ${acceptedSharesWith(userId)}
+  )`;
 }

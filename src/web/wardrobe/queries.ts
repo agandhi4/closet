@@ -1,6 +1,7 @@
 import {
   and,
   arrayContains,
+  type Column,
   desc,
   eq,
   ilike,
@@ -17,6 +18,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import { file, garment } from '../../db/schema';
 import type { AwayReason } from '../../wardrobe/availability';
 import type { CareLabel, CareWash } from '../../wardrobe/care';
@@ -108,6 +110,8 @@ export interface GarmentTile {
   condition: Condition;
   /** The owner's own records; absent on a shared wardrobe's grid. */
   care?: { dirty: number; away: AwayReason | null };
+  /** In the capsule picker only: a member of the capsule being picked. */
+  member?: boolean;
 }
 
 export interface GridPage {
@@ -121,7 +125,10 @@ export function containsPattern(text: string): string {
   return `%${text.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 }
 
-function gridWhere(ownerId: number, filters: GridFilters): SQL | undefined {
+export function gridWhere(
+  ownerId: number,
+  filters: GridFilters,
+): SQL | undefined {
   const conditions: (SQL | undefined)[] = [
     eq(garment.ownerId, ownerId),
     ...propertyConditions(filters),
@@ -184,21 +191,29 @@ const tileColumns = {
  * garment added meanwhile never shifts one onto the next). One statement,
  * one row per tile, served by garment_owner_id_status_id_index (or the
  * category one) in index order. `ownerView` adds the owner's own records to
- * each tile (dirty copies, away), which a share never shows.
+ * each tile (dirty copies, away), which a share never shows. `pick` (the
+ * capsule picker) marks each tile a member of that capsule or not, in the
+ * same statement: inCapsule matches nothing for another wardrobe's capsule.
  */
 export async function gridPage(
   db: Db,
   ownerId: number,
   filters: GridFilters,
-  options: { before?: number; ownerView: boolean },
+  options: { before?: number; ownerView: boolean; pick?: number },
 ): Promise<GridPage> {
-  const { before, ownerView } = options;
-  // Not computed at all for a share (the correlated count is the cost).
+  const { before, ownerView, pick } = options;
+  // Not computed at all for a share. Each is a correlated count of the
+  // garment's wears since its wash (garment_wear_garment_id_day_index), run
+  // only for tiles with a wash limit: about 0.03 ms a tile in the demo's
+  // plan (#159), so a set-based rewrite would buy nothing.
   const own = ownerView
     ? { dirty: dirtyCopiesSql(), away: sql<AwayReason | null>`${garment.away}` }
     : { dirty: sql<number>`0`, away: sql<AwayReason | null>`null` };
+  const member = sql<
+    boolean | null
+  >`${pick === undefined ? sql`null` : inCapsule(pick)}`;
   const rows = await db
-    .select({ ...tileColumns, ...own })
+    .select({ ...tileColumns, ...own, member })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))
     .where(
@@ -209,12 +224,14 @@ export async function gridPage(
     )
     .orderBy(desc(garment.id))
     .limit(GRID_PAGE_SIZE + 1);
-  const tiles = rows
-    .slice(0, GRID_PAGE_SIZE)
-    .map(({ dirty, away, photo, ...row }) => {
-      const tile = { ...row, photo: plinthPhoto(photo) };
-      return ownerView ? { ...tile, care: { dirty, away } } : tile;
-    });
+  const tiles = rows.slice(0, GRID_PAGE_SIZE).map(
+    ({ dirty, away, member, photo, ...row }): GarmentTile => ({
+      ...row,
+      photo: plinthPhoto(photo),
+      ...(ownerView && { care: { dirty, away } }),
+      ...(member !== null && { member }),
+    }),
+  );
   return {
     tiles,
     before: rows.length > GRID_PAGE_SIZE ? tiles.at(-1)!.id : undefined,
@@ -318,57 +335,73 @@ export interface FilterOptions {
   washes: CareWash[];
 }
 
+/** No values: the filter modal's options where the page renders no modal. */
+export const NO_FILTER_OPTIONS: FilterOptions = {
+  categories: [],
+  sizes: [],
+  types: [],
+  warmths: [],
+  formalities: [],
+  materials: [],
+  washes: [],
+};
+
+/** Every distinct non-null value of `column` in the scan, as an array. */
+function distinctValues(column: Column): SQL {
+  return sql`coalesce(array_agg(distinct ${column}) filter (where ${column} is not null), '{}')`;
+}
+
 /**
- * The wardrobe's distinct categories (sorted), sizes (in wearing order),
- * types, warmths, formalities, care labels' washes and materials, in one
- * statement (materials
- * through a subquery over their unnested arrays). There is no brand filter
- * in the UI, so no brand list.
+ * The wardrobe's distinct categories, sizes, types, warmths, formalities,
+ * care labels' washes and materials as one JSON object, a scalar subquery
+ * (materials through a subquery over their unnested arrays), so the grid
+ * reads it with its counts (gridContext, grid-context.ts). Put in the
+ * modal's order by readFilterOptions. There is no brand filter in the UI,
+ * so no brand list.
  */
+export function filterOptionsSql(ownerId: number): SQL<FilterOptions> {
+  // The materials are their own scan of the wardrobe, deliberately
+  // uncorrelated: unnesting in the outer query would multiply its rows
+  // (harmless to the distinct aggregates, but a trap for anything added).
+  return sql<FilterOptions>`(
+    select json_build_object(
+      'categories', ${distinctValues(garment.category)},
+      'sizes', ${distinctValues(garment.size)},
+      'types', ${distinctValues(garment.type)},
+      'warmths', ${distinctValues(garment.warmth)},
+      'formalities', ${distinctValues(garment.formality)},
+      'washes', ${distinctValues(garment.careWash)},
+      'materials', (
+        select coalesce(array_agg(distinct worn.material), '{}')
+        from garment owned cross join lateral unnest(owned.materials) as worn(material)
+        where owned.owner_id = ${ownerId} and owned.status <> 'wishlist'
+      )
+    )
+    from ${garment}
+    where ${and(eq(garment.ownerId, ownerId), ownedGarment())}
+  )`;
+}
+
+/** filterOptionsSql's values in the modal's order: sizes in wearing order. */
+export function readFilterOptions(values: FilterOptions): FilterOptions {
+  return {
+    ...values,
+    categories: [...values.categories].sort(),
+    sizes: [...values.sizes].sort(compareSizes),
+    warmths: [...values.warmths].sort(),
+    formalities: [...values.formalities].sort(),
+  };
+}
+
+/** The garment form's suggestions (render-form.tsx): filterOptionsSql alone. */
 export async function filterOptions(
   db: Db,
   ownerId: number,
 ): Promise<FilterOptions> {
-  const [row] = await db
-    .select({
-      categories: sql<
-        string[]
-      >`coalesce(array_agg(distinct ${garment.category}), '{}')`,
-      sizes: sql<
-        string[]
-      >`coalesce(array_agg(distinct ${garment.size}) filter (where ${garment.size} is not null), '{}')`,
-      types: sql<
-        string[]
-      >`coalesce(array_agg(distinct ${garment.type}) filter (where ${garment.type} is not null), '{}')`,
-      warmths: sql<
-        Warmth[]
-      >`coalesce(array_agg(distinct ${garment.warmth}) filter (where ${garment.warmth} is not null), '{}')`,
-      formalities: sql<
-        Formality[]
-      >`coalesce(array_agg(distinct ${garment.formality}) filter (where ${garment.formality} is not null), '{}')`,
-      washes: sql<
-        CareWash[]
-      >`coalesce(array_agg(distinct ${garment.careWash}) filter (where ${garment.careWash} is not null), '{}')`,
-      // Its own scan of the wardrobe, deliberately uncorrelated: unnesting
-      // in the outer query would multiply its rows (harmless to the distinct
-      // aggregates above, but a trap for anything added later).
-      materials: sql<Material[]>`(
-        select coalesce(array_agg(distinct worn.material), '{}')
-        from garment owned cross join lateral unnest(owned.materials) as worn(material)
-        where owned.owner_id = ${ownerId} and owned.status <> 'wishlist'
-      )`,
-    })
-    .from(garment)
-    .where(and(eq(garment.ownerId, ownerId), ownedGarment()));
-  return {
-    categories: [...row.categories].sort(),
-    sizes: [...row.sizes].sort(compareSizes),
-    types: row.types,
-    warmths: [...row.warmths].sort(),
-    formalities: [...row.formalities].sort(),
-    materials: row.materials,
-    washes: row.washes,
-  };
+  const { options } = await selectScalars(db, {
+    options: filterOptionsSql(ownerId),
+  });
+  return readFilterOptions(options);
 }
 
 /** A garment's photo on its page: the cutout's state decides what shows. */
@@ -780,34 +813,73 @@ function needsTags(ownerId: number): SQL | undefined {
   );
 }
 
-/** How many of `ownerId`'s garments still need tags (the wardrobe's prompt, the "left" count). */
+/** How many of `ownerId`'s garments still need tags (search_garments' total, the specs). */
 export function countToTag(db: Db, ownerId: number): Promise<number> {
   return db.$count(garment, needsTags(ownerId));
 }
 
 /**
+ * countToTag as a scalar subquery, for a statement that reads it with
+ * something else (the grid's prompt, a tagging tap's answer). Its own FROM
+ * hides an outer query's `garment`, so the columns inside name its rows.
+ */
+export function toTagCountSql(ownerId: number): SQL<number> {
+  return sql<number>`(select count(*)::int from ${garment} where ${needsTags(ownerId)})`;
+}
+
+/** A tap's answer on the tagging card: the garment as saved and the count left, in one statement. */
+export async function taggedGarment(
+  db: Db,
+  id: number,
+  ownerId: number,
+): Promise<{ garment: GarmentDetail; left: number } | undefined> {
+  const [row] = await db
+    .select({ ...detailColumns, left: toTagCountSql(ownerId) })
+    .from(garment)
+    .leftJoin(file, eq(file.id, garment.photoId))
+    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)));
+  if (!row) return undefined;
+  const { left, ...tagged } = row;
+  return { garment: tagged, left };
+}
+
+/** Tagging mode's card: the next garment to tag, and how many still need tags. */
+export interface TagQueue {
+  /** Undefined past the queue's oldest garment. */
+  garment: GarmentDetail | undefined;
+  /** Every garment still needing tags, `before` or not (countToTag). */
+  left: number;
+}
+
+/**
  * The next garment to tag, newest first, below `before` when given: the
  * tagging mode's cursor, so a skipped garment does not come back until the
- * next pass.
+ * next pass. One statement with the count left: the whole queue is the
+ * match, so the window counts it before the limit, and the garments below
+ * `before` sort first; when none is, the one row left is above the cursor
+ * and no card (a pass that skipped some ends on "N still need details").
  */
 export async function nextToTag(
   db: Db,
   ownerId: number,
   before?: number,
-): Promise<GarmentDetail | undefined> {
+): Promise<TagQueue> {
+  const belowCursor =
+    before === undefined ? [] : [sql`${garment.id} < ${before} desc`];
   const [row] = await db
-    .select(detailColumns)
+    .select({
+      ...detailColumns,
+      left: sql<number>`count(*) over ()`.mapWith(Number),
+    })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))
-    .where(
-      and(
-        needsTags(ownerId),
-        before === undefined ? undefined : lt(garment.id, before),
-      ),
-    )
-    .orderBy(desc(garment.id))
+    .where(needsTags(ownerId))
+    .orderBy(...belowCursor, desc(garment.id))
     .limit(1);
-  return row;
+  if (!row) return { garment: undefined, left: 0 };
+  const { left, ...next } = row;
+  const onCard = before === undefined || next.id < before;
+  return { garment: onCard ? next : undefined, left };
 }
 
 /** Writes the given properties; false when the garment is not in `ownerId`'s wardrobe. */

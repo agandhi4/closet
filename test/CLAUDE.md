@@ -12,7 +12,7 @@ The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
                        test-server.ts (`npm run start:test`: the build served with a stubbed cutout runner,
                        for Playwright and Lighthouse),
                        query-recorder.ts (recordStatements: every SQL statement this process sends
-                       while a callback runs, with rows and time; recordQueries and the page audit),
+                       while a callback runs, with rows, start and time; recordQueries and the page audit),
                        multipart.ts, pwa-env.ts (PWA_ENV: the PWA's config with a throwaway VAPID pair),
                        household-today.ts (householdToday: the server's "today" for Playwright),
                        log-capture.ts (LogCapture, captureLogs: the app's log lines as records),

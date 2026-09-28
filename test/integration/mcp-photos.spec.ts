@@ -265,7 +265,7 @@ describe('MCP garment photos and tagging', () => {
       const queue: number[] = [];
       let before: number | undefined;
       for (;;) {
-        const next = await nextToTag(t.db, ownerId, before);
+        const { garment: next } = await nextToTag(t.db, ownerId, before);
         if (!next) return queue;
         queue.push(next.id);
         before = next.id;

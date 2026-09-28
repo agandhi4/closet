@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { file, garment } from '../../src/db/schema';
+import { capsule, capsuleGarment, file, garment } from '../../src/db/schema';
 import { GRID_PAGE_SIZE } from '../../src/web/wardrobe/queries';
 import { HX_FRAGMENT } from './pages';
 import {
@@ -143,17 +143,74 @@ describe('wardrobe grid', () => {
     expect(tileIds(html)).toHaveLength(found);
   });
 
-  it('reads the page as plain rows: one statement for the tiles, whatever the wardrobe holds', async () => {
-    const record = await recordQueries(() => get('/wardrobe'));
-    // Session, then page, count, filter values, shared wardrobes, the
-    // "need details" count (tagging mode's prompt), the "need a wash" count
-    // (the laundry prompt, the owner's own), the capsules (the filter's
-    // choices; none here) and the drafts waiting (#200: one row at most) in
-    // parallel. None of them returns more rows than a page and its lists.
-    expect(record.statements).toBe(9);
-    expect(record.rows).toBeLessThanOrEqual(
-      1 + (GRID_PAGE_SIZE + 1) + 1 + 1 + 1 + 1 + 1,
-    );
+  // Production pays a network round trip per statement (#156), so these
+  // counts are the page's latency budget (#159): the session, the page,
+  // and one statement for everything around it (gridContext).
+  describe('statements per request', () => {
+    it('the page: the tiles, and the count, filter values, capsules, prompts and switcher together', async () => {
+      const record = await recordQueries(() => get('/wardrobe'));
+      expect(record.statements).toBe(3);
+      // A page of tiles (and the one that says there are more), and one row
+      // for everything else: the lists arrive as JSON inside it.
+      expect(record.rows).toBe(1 + (GRID_PAGE_SIZE + 1) + 1);
+      const context = record.sql.find((sql) => sql.includes('json_agg'));
+      for (const read of ['pending_photo', 'wardrobe_share', 'capsule']) {
+        expect(context).toContain(`"${read}"`);
+      }
+    });
+
+    it('a fragment: the same, without the app bar’s switcher it does not render', async () => {
+      const record = await recordQueries(() =>
+        get('/wardrobe?keyword=garment', HX_FRAGMENT),
+      );
+      expect(record.statements).toBe(3);
+      expect(record.sql.join('\n')).not.toContain('"wardrobe_share"');
+    });
+
+    it('select mode: the tiles alone, since it renders no count, filters or prompts', async () => {
+      const record = await recordQueries(() => get('/wardrobe?select=1'));
+      expect(record.statements).toBe(2);
+    });
+
+    it('the next page: the tiles alone', async () => {
+      const record = await recordQueries(() =>
+        get(`/wardrobe/tiles?before=${ids[GRID_PAGE_SIZE - 1]}`, HX_FRAGMENT),
+      );
+      expect(record.statements).toBe(2);
+    });
+
+    it('the capsule picker: members marked on the tiles, the capsule looked up with the context', async () => {
+      const [picked] = await t.db
+        .insert(capsule)
+        .values({ ownerId: t.owner.id, name: 'Picked' })
+        .returning({ id: capsule.id });
+      await t.db.insert(capsuleGarment).values(
+        [ids[0], ids[2]].map((garmentId) => ({
+          capsuleId: picked.id,
+          garmentId,
+        })),
+      );
+
+      const page = await recordQueries(() =>
+        get(`/wardrobe?pick=${picked.id}`),
+      );
+      expect(page.statements).toBe(3);
+      const { html } = await get(`/wardrobe?pick=${picked.id}`);
+      const checked = [
+        ...html.matchAll(
+          /<input[^>]*name="ids"[^>]*value="(\d+)"[^>]*\schecked=""/g,
+        ),
+      ].map((m) => Number(m[1]));
+      expect(checked).toEqual([ids[0], ids[2]]);
+
+      const next = await recordQueries(() =>
+        get(
+          `/wardrobe/tiles?pick=${picked.id}&before=${ids[GRID_PAGE_SIZE - 1]}`,
+          HX_FRAGMENT,
+        ),
+      );
+      expect(next.statements).toBe(2);
+    });
   });
 
   it('a malformed cursor is a 400', async () => {

@@ -9,6 +9,7 @@ import {
   isNull,
   lt,
   or,
+  type SQL,
   sql,
 } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
@@ -198,35 +199,41 @@ export async function batchDrafts(
   }));
 }
 
+/** The grid's drafts prompt (#200): how many wait, and where Continue opens. */
+export interface DraftsWaiting {
+  count: number;
+  first: string;
+}
+
 /**
  * `userId`'s drafts waiting for `ownerId`'s wardrobe (the grid's prompt):
- * how many, and the first of the oldest batch, where Continue opens. One
- * row: the count is a window over the whole match, taken before the limit.
+ * how many, and the first of the oldest batch, where Continue opens; null
+ * for none. A scalar subquery, so the grid reads it in the statement that
+ * reads its other counts (gridContext, src/web/wardrobe/grid-context.ts).
+ * One row: the count is a window over the whole match, taken before the
+ * limit.
  */
-export async function draftsWaiting(
-  db: Queryable,
+export function draftsWaitingSql(
   userId: number,
   ownerId: number,
-): Promise<{ count: number; first: string } | undefined> {
-  const [row] = await db
-    .select({
-      first: pendingPhoto.fileName,
-      count: sql<number>`count(*) over ()`.mapWith(Number),
-    })
-    .from(pendingPhoto)
-    .where(
-      and(
-        eq(pendingPhoto.userId, userId),
-        eq(pendingPhoto.batchOwnerId, ownerId),
-      ),
-    )
-    .orderBy(
-      asc(pendingPhoto.createdAt),
-      asc(pendingPhoto.batchId),
-      asc(pendingPhoto.batchPosition),
-    )
-    .limit(1);
-  return row;
+): SQL<DraftsWaiting | null> {
+  return sql<DraftsWaiting | null>`(
+    select json_build_object('first', ${pendingPhoto.fileName}, 'count', count(*) over ())
+    from ${pendingPhoto}
+    where ${and(
+      eq(pendingPhoto.userId, userId),
+      eq(pendingPhoto.batchOwnerId, ownerId),
+    )}
+    order by ${sql.join(
+      [
+        asc(pendingPhoto.createdAt),
+        asc(pendingPhoto.batchId),
+        asc(pendingPhoto.batchPosition),
+      ],
+      sql`, `,
+    )}
+    limit 1
+  )`;
 }
 
 /**

@@ -23,6 +23,8 @@ How to change the schema is in the root `CLAUDE.md` (Changing the schema). This 
                        DbTimeouts (see Timeouts). Db, and Queryable (Db or a transaction) for writes
                        that must commit with others
     errors.ts          isUniqueViolation, isLockTimeout: a driver error through drizzle's cause chain
+    select-scalars.ts  selectScalars(): independent scalar subqueries (counts, JSON lists) in one
+                       statement, one round trip (the wardrobe grid's context, #159)
     migrate.ts         runMigrations(): boot-time runner (legacy adoption, advisory lock);
                        requireCurrentSchema(): the CLIs' check instead of migrating
 ```

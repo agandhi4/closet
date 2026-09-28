@@ -166,17 +166,23 @@ export async function laundryList(
     .orderBy(desc(dirtyCopiesSql()), desc(garment.id));
 }
 
-/** How many of the owner's garments in the closet need a wash (the wardrobe's prompt). */
+/**
+ * The owner's garments in the closet, not away, with a copy that needs a
+ * wash: the wardrobe's laundry prompt counts them (gridContext,
+ * src/web/wardrobe/grid-context.ts).
+ */
+export function needingWash(ownerId: number): SQL {
+  return and(
+    eq(garment.ownerId, ownerId),
+    inCloset(),
+    isNull(garment.away),
+    needsWash(),
+  )!;
+}
+
+/** How many of the owner's garments need a wash (needingWash). */
 export function countNeedingWash(db: Db, ownerId: number): Promise<number> {
-  return db.$count(
-    garment,
-    and(
-      eq(garment.ownerId, ownerId),
-      inCloset(),
-      isNull(garment.away),
-      needsWash(),
-    ),
-  );
+  return db.$count(garment, needingWash(ownerId));
 }
 
 export type EntryWornOutcome =

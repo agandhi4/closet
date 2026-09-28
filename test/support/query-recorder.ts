@@ -20,6 +20,8 @@ export interface RecordedStatement {
   values: readonly unknown[];
   /** Rows it returned (0 for a write without RETURNING, or a failure). */
   rows: number;
+  /** When it was sent (`performance.now()`): with `ms`, whether two overlapped. */
+  startedAt: number;
   /** From the call to its answer: queueing on the connection included. */
   ms: number;
 }
@@ -57,12 +59,12 @@ export async function recordStatements<T>(
       sql: typeof text === 'string' ? text : '',
       values,
       rows: 0,
+      startedAt: performance.now(),
       ms: 0,
     };
     statements.push(statement);
-    const started = performance.now();
     const settle = (result: QueryResult | undefined) => {
-      statement.ms = performance.now() - started;
+      statement.ms = performance.now() - statement.startedAt;
       statement.rows = result?.rows?.length ?? 0;
     };
     const callback = args.at(-1);

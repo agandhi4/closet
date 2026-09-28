@@ -190,9 +190,13 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'view',
       );
-      const capsule = await requireCapsule(request.params.id, access.ownerId);
-      const filters = { ...CLOSET_FILTERS, capsule: capsule.id };
-      const [page, count] = await Promise.all([
+      // All three at once (one round trip, not two): the members' reads
+      // need no lookup first, since inCapsule matches nothing outside the
+      // capsule's own wardrobe, and a capsule not found is a 404 whatever
+      // they read.
+      const filters = { ...CLOSET_FILTERS, capsule: request.params.id };
+      const [capsule, page, count] = await Promise.all([
+        requireCapsule(request.params.id, access.ownerId),
         gridPage(db, access.ownerId, filters, { ownerView: access.isOwner }),
         gridCount(db, access.ownerId, filters),
       ]);

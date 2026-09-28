@@ -86,15 +86,19 @@ export const EMPTY_SEARCH: GridSearch = {
 
 /**
  * The capsule picker (`?pick=`): select mode whose checkboxes are the
- * capsule's membership. Members start checked, and every tile says it was
- * shown (a hidden `shown`), so the post changes only what the picker
- * showed (POST /capsules/:id/garments).
+ * capsule's membership. Members (each tile's `member`, read with the page)
+ * start checked, and every tile says it was shown (a hidden `shown`), so
+ * the post changes only what the picker showed (POST /capsules/:id/garments).
  */
 export interface Picking {
   capsuleId: number;
-  members: ReadonlySet<number>;
 }
 
+/**
+ * The grid and what surrounds it (GridContext, read in one statement). In
+ * select mode and the picker only the tiles and the capsules are read; the
+ * rest render nowhere there and are empty.
+ */
 export interface WardrobeModel {
   search: GridSearch;
   page: GridPage;
@@ -498,8 +502,7 @@ export function GarmentTiles(props: {
             tile={tile}
             eager={eager}
             checked={
-              (picking?.members.has(tile.id) ?? false) ||
-              (props.batchSaved?.has(tile.id) ?? false)
+              tile.member === true || (props.batchSaved?.has(tile.id) ?? false)
             }
             shown={picking !== undefined}
           />
@@ -1327,9 +1330,7 @@ function PickForm(props: {
     <SelectForm
       id="pick-form"
       action={capsuleUrl(picking.capsuleId, model.viewOwner, '/garments')}
-      checked={
-        model.page.tiles.filter((tile) => picking.members.has(tile.id)).length
-      }
+      checked={model.page.tiles.filter((tile) => tile.member).length}
       button={
         <button type="submit" class="btn btn-primary btn-sm">
           {t('SAVE')}

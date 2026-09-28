@@ -105,6 +105,27 @@ describe('tagging mode', () => {
     );
   });
 
+  // A round trip per statement in production (#156, #159): the card and its
+  // count left are one statement, and so are a tap's chips and count.
+  it('reads the card, or a tap’s answer, with its count left in one statement', async () => {
+    const page = await recordQueries(() =>
+      t.inject({ method: 'GET', url: '/wardrobe/tag' }),
+    );
+    // The session, then the card.
+    expect(page.statements).toBe(2);
+    const past = await recordQueries(() => card(`?before=${ids.bag}`));
+    expect(past.statements).toBe(2);
+    expect(past.sql.join('\n')).toContain('count(*) over ()');
+
+    // A tap that changes nothing: the session, the garment, its answer.
+    const current = await row(ids.blank);
+    const tap = await recordQueries(() =>
+      tag(ids.blank, { type: current.type ?? '' }),
+    );
+    expect(tap.statements).toBe(3);
+    expect(await row(ids.blank)).toEqual(current);
+  });
+
   it('moves past a garment with Next, leaving it for the next pass', async () => {
     const res = await tag(ids.blank, { next: '1' });
     expect(res.statusCode).toBe(200);
