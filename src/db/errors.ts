@@ -2,10 +2,26 @@ import type { UniqueConstraint } from './schema';
 
 /** Postgres' SQLSTATE for unique_violation. */
 const UNIQUE_VIOLATION = '23505';
+/** lock_not_available: a lock wait ran past lock_timeout (or NOWAIT). */
+const LOCK_NOT_AVAILABLE = '55P03';
 
 interface PgError {
   code?: unknown;
   constraint?: unknown;
+}
+
+/**
+ * The driver's error in `error`'s chain, the first with a SQLSTATE: drizzle
+ * wraps it as `cause` of an error whose message is the failed statement.
+ */
+function driverError(error: unknown): PgError | undefined {
+  let current: unknown = error;
+  while (current instanceof Error) {
+    const pg = current as Error & PgError;
+    if (typeof pg.code === 'string') return pg;
+    current = current.cause;
+  }
+  return undefined;
 }
 
 /**
@@ -15,18 +31,17 @@ interface PgError {
  * matched any unique violation once mapped the plan table's "one active plan"
  * race to "name already taken" (#34 review). A violation of any other
  * constraint answers false, so the caller rethrows it instead of turning it
- * into a user-facing message. drizzle wraps the driver's error as `cause`, so
- * the chain is walked.
+ * into a user-facing message.
  */
 export function isUniqueViolation(
   error: unknown,
   constraint: UniqueConstraint,
 ): boolean {
-  let current: unknown = error;
-  while (current instanceof Error) {
-    const pg = current as Error & PgError;
-    if (pg.code === UNIQUE_VIOLATION) return pg.constraint === constraint;
-    current = current.cause;
-  }
-  return false;
+  const pg = driverError(error);
+  return pg?.code === UNIQUE_VIOLATION && pg.constraint === constraint;
+}
+
+/** Whether `error` is a lock wait that ran past the transaction's lock_timeout. */
+export function isLockTimeout(error: unknown): boolean {
+  return driverError(error)?.code === LOCK_NOT_AVAILABLE;
 }

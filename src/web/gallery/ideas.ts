@@ -349,7 +349,7 @@ export function pickIdea(
   },
 ): Promise<PickResult | 'not-found'> {
   const wanted = [...new Set(input.garmentIds)];
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'pickIdea', async (tx) => {
     const found = await pickedGarments(tx, ownerId, wanted);
     if (found.length !== wanted.length) return 'not-found';
     const existing = await outfitOfGarments(tx, ownerId, wanted);

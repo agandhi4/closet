@@ -96,7 +96,7 @@ export function changeCandidates(
 ): Promise<{ added: number; removed: number }> {
   // The owner lock first, before the rows below: the cap's count must see
   // every other change of this owner's candidates committed.
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'changeCandidates', async (tx) => {
     const sets = [change.add, change.remove].flatMap((set) => set ?? []);
     const items = await ownedItems(
       tx,
@@ -228,6 +228,7 @@ async function ownedItems(
     .from(planItem)
     .innerJoin(wardrobePlan, eq(wardrobePlan.id, planItem.planId))
     .where(and(eq(wardrobePlan.ownerId, ownerId), inArray(planItem.id, ids)))
+    .orderBy(planItem.id)
     .for('share', { of: planItem });
   return new Set(rows.map((row) => row.id));
 }
@@ -246,6 +247,8 @@ async function ownedGarments(
     .select({ id: garment.id, status: garment.status })
     .from(garment)
     .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, ids)))
+    // Id order, as every multi-row garment locker takes them (pickedGarments).
+    .orderBy(garment.id)
     .for('share');
   return new Map(rows.map((row) => [row.id, row.status === 'wishlist']));
 }

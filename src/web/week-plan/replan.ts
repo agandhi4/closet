@@ -11,7 +11,7 @@ import {
   type Unwearable,
   unwearableOn,
 } from '../../wardrobe/week-planner';
-import { ownerTransaction } from '../auth/queries';
+import { OwnerLockTimeout, ownerTransaction } from '../auth/queries';
 import {
   dayOfWeek,
   hourIn,
@@ -118,7 +118,12 @@ export type ReplanOutcome =
   /** Nothing to do: re-planned today already (here or elsewhere), or no auto entry. */
   | { kind: 'skipped' }
   /** Logged, and the day claimed: not tried again until tomorrow. */
-  | { kind: 'failed' };
+  | { kind: 'failed' }
+  /**
+   * Another of the owner's writes held the owner lock past its timeout:
+   * nothing judged, logged, the day left unclaimed for the next minute.
+   */
+  | { kind: 'deferred' };
 
 /** One minute's re-plan. Never throws for a user: each failure is logged. */
 export async function replanWeeks(
@@ -144,7 +149,7 @@ export async function replanWeeks(
   }
   for (const userId of candidates) {
     const outcome = await replanToday(deps, userId, now);
-    if (outcome.kind === 'skipped') continue;
+    if (outcome.kind === 'skipped' || outcome.kind === 'deferred') continue;
     run.claimed += 1;
     if (outcome.kind === 'failed') {
       run.failed += 1;
@@ -170,7 +175,8 @@ export async function replanWeeks(
  * today's swaps out and goes only for other days': one push per swap,
  * never two. The returned swaps are all of them, today's included. Never
  * throws: a failure is logged and the day claimed all the same, so it is
- * not retried every minute.
+ * not retried every minute; only an owner lock timeout leaves the day
+ * unclaimed, for the next minute.
  */
 export async function replanToday(
   deps: ReplanDeps,
@@ -203,6 +209,15 @@ export async function replanToday(
       unannounced.length > 0 && (await pushSwaps(deps, userId, unannounced));
     return { kind: 'replanned', swaps, kept, pushed };
   } catch (error) {
+    // Another of the owner's writes held the lock past its timeout: nothing
+    // was judged, so the day stays unclaimed and the next minute tries again
+    // (claiming it would wait on the same lock).
+    if (error instanceof OwnerLockTimeout) {
+      deps.logger.warn(
+        `Week re-plan for user ${userId} on ${today} deferred: ${error.logDetail}`,
+      );
+      return { kind: 'deferred' };
+    }
     deps.logger.error(
       { err: error },
       `Week re-plan for user ${userId} on ${today} failed`,
@@ -220,7 +235,7 @@ async function claimAfterFailure(
   now: Date,
 ): Promise<void> {
   try {
-    await ownerTransaction(deps.db, userId, (tx) =>
+    await ownerTransaction(deps.db, userId, 'claimAfterFailure', (tx) =>
       claimReplan(tx, userId, today, now),
     );
   } catch (error) {
@@ -253,7 +268,7 @@ async function replanUser(
   // refreshed their batch's forecasts together first (refreshForecastsFor).
   // Read before the owner lock: a network wait must never hold it.
   const forecast = await weekForecast(deps, userId, now, {});
-  return ownerTransaction(deps.db, userId, async (tx) => {
+  return ownerTransaction(deps.db, userId, 'replanUser', async (tx) => {
     const auto = await autoEntries(tx, userId, today);
     if (auto.length === 0) return undefined;
     if (!(await claimReplan(tx, userId, today, now))) return undefined;

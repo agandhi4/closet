@@ -6,7 +6,11 @@ import { join } from 'node:path';
 import { Client } from 'pg';
 import { PROJECT_ROOT } from '../project-root';
 import type { Logger } from '../logger';
-import { connectionOptions, type DbConfig } from './client';
+import {
+  connectionOptions,
+  type DbConfig,
+  MAINTENANCE_TIMEOUTS,
+} from './client';
 
 /**
  * Brings the database to the schema in drizzle/ at boot, before anything
@@ -84,7 +88,7 @@ export async function runMigrations(
   logger: Logger,
 ): Promise<void> {
   const started = Date.now();
-  const client = new Client(connectionOptions(config));
+  const client = new Client(connectionOptions(config, MAINTENANCE_TIMEOUTS));
   await client.connect();
   try {
     await acquireLock(client, logger);
@@ -134,7 +138,7 @@ export class SchemaBehindError extends Error {
  * should write to.
  */
 export async function requireCurrentSchema(config: DbConfig): Promise<void> {
-  const client = new Client(connectionOptions(config));
+  const client = new Client(connectionOptions(config, MAINTENANCE_TIMEOUTS));
   await client.connect();
   try {
     const last = await lastAppliedAt(client);

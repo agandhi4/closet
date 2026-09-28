@@ -331,6 +331,7 @@ export function avoidPair(
           ownedGarment(),
         ),
       )
+      .orderBy(garment.id)
       .for('share');
     if (owned.length !== 2) return 'not-found';
     const inserted = await tx

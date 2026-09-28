@@ -209,8 +209,9 @@ export type CandidatePurchaseOutcome =
  * candidacies only; the owner's save, so not proposed), then the other
  * candidates to remove (wishlist items that are candidates of those
  * items only; anything else posted is ignored). The removed photos' bytes
- * go after the commit. `ownerId` is the requester: the caller refuses a
- * grantee asking for follow-ups.
+ * go after the commit. `ownerId` is the wardrobe's owner (the owner lock's
+ * key), not necessarily the requester: the caller refuses a grantee asking
+ * for follow-ups.
  */
 export async function buyCandidate(
   deps: WardrobeDeps,
@@ -223,65 +224,72 @@ export async function buyCandidate(
   // The owner lock before the garment locks below (buyGarment,
   // deleteGarment): the plan items' writes need it, and a pick takes it
   // before its garments, so the other order could deadlock.
-  const outcome = await ownerTransaction(db, ownerId, async (tx) => {
-    // Read while the garment is still on the wishlist: its links are read
-    // through onWishlist, and stop mattering once it is bought.
-    const candidacies = await candidaciesOf(tx, ownerId, [garmentId]);
-    const itemIds = candidacies.map((c) => c.itemId);
-    const others = [...(await candidatesOfItems(tx, ownerId, itemIds)).values()]
-      .flat()
-      .map((candidate) => candidate.garmentId)
-      .filter((id) => id !== garmentId);
-    const bought = await buyGarment(tx, garmentId, ownerId, purchase);
-    if (!bought.ok) return bought;
+  const outcome = await ownerTransaction(
+    db,
+    ownerId,
+    'buyCandidate',
+    async (tx) => {
+      // Read while the garment is still on the wishlist: its links are read
+      // through onWishlist, and stop mattering once it is bought.
+      const candidacies = await candidaciesOf(tx, ownerId, [garmentId]);
+      const itemIds = candidacies.map((c) => c.itemId);
+      const others = [
+        ...(await candidatesOfItems(tx, ownerId, itemIds)).values(),
+      ]
+        .flat()
+        .map((candidate) => candidate.garmentId)
+        .filter((id) => id !== garmentId);
+      const bought = await buyGarment(tx, garmentId, ownerId, purchase);
+      if (!bought.ok) return bought;
 
-    const adjusted: number[] = [];
-    const adjust = itemIds.filter((id) => followUps.adjustItems.includes(id));
-    if (adjust.length > 0) {
-      const piece = (await pieceOf(tx, garmentId, ownerId))!;
-      const planIds = [...new Set(candidacies.map((c) => c.planId))];
-      const items = await itemsOf(tx, planIds);
-      // Only an item the garment does not match is changed: the page offers
-      // nothing else, and a rewrite would accept a matching proposal unasked.
-      const mismatched = items.filter(
-        (i) =>
-          adjust.includes(i.id) &&
-          targetDifferences(toTarget(i), piece).length > 0,
-      );
-      for (const item of mismatched) {
-        await updateItem(
-          tx,
-          item.id,
-          item.planId,
-          ownerId,
-          fittedItem(item, piece),
-          {
-            proposed: false,
-          },
+      const adjusted: number[] = [];
+      const adjust = itemIds.filter((id) => followUps.adjustItems.includes(id));
+      if (adjust.length > 0) {
+        const piece = (await pieceOf(tx, garmentId, ownerId))!;
+        const planIds = [...new Set(candidacies.map((c) => c.planId))];
+        const items = await itemsOf(tx, planIds);
+        // Only an item the garment does not match is changed: the page offers
+        // nothing else, and a rewrite would accept a matching proposal unasked.
+        const mismatched = items.filter(
+          (i) =>
+            adjust.includes(i.id) &&
+            targetDifferences(toTarget(i), piece).length > 0,
         );
-        adjusted.push(item.id);
+        for (const item of mismatched) {
+          await updateItem(
+            tx,
+            item.id,
+            item.planId,
+            ownerId,
+            fittedItem(item, piece),
+            {
+              proposed: false,
+            },
+          );
+          adjusted.push(item.id);
+        }
       }
-    }
 
-    // `others` was read without a lock: a candidate bought since (another
-    // "Bought it" on it, committed while this one ran) must not go, so the
-    // delete takes it only while it is still on the wishlist.
-    const removed: { id: number; fileName: string | null }[] = [];
-    const kept: number[] = [];
-    for (const id of new Set(followUps.removeCandidates)) {
-      if (!others.includes(id)) continue;
-      const fileName = await deleteGarment(tx, id, ownerId, 'wishlist');
-      if (fileName === undefined) kept.push(id);
-      else removed.push({ id, fileName });
-    }
-    return {
-      ok: true as const,
-      archivedReplaced: bought.archivedReplaced,
-      adjusted,
-      removed,
-      kept,
-    };
-  });
+      // `others` was read without a lock: a candidate bought since (another
+      // "Bought it" on it, committed while this one ran) must not go, so the
+      // delete takes it only while it is still on the wishlist.
+      const removed: { id: number; fileName: string | null }[] = [];
+      const kept: number[] = [];
+      for (const id of new Set(followUps.removeCandidates)) {
+        if (!others.includes(id)) continue;
+        const fileName = await deleteGarment(tx, id, ownerId, 'wishlist');
+        if (fileName === undefined) kept.push(id);
+        else removed.push({ id, fileName });
+      }
+      return {
+        ok: true as const,
+        archivedReplaced: bought.archivedReplaced,
+        adjusted,
+        removed,
+        kept,
+      };
+    },
+  );
   if (!outcome.ok) return outcome;
   // Only after commit: an unlink cannot be rolled back.
   for (const { fileName } of outcome.removed) {

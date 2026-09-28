@@ -134,7 +134,7 @@ export function planMyWeek(
   ownerId: number,
   input: PlanWeekInput,
 ): Promise<WeekPlanResult> {
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'planMyWeek', async (tx) => {
     const template = await findWeekTemplate(tx, ownerId);
     if (template.length === 0) {
       return {
@@ -264,7 +264,7 @@ export function undoWeekPlan(
   ownerId: number,
   weekPlanId: number,
 ): Promise<{ entries: number; outfits: number } | 'not-found'> {
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'undoWeekPlan', async (tx) => {
     if (!(await weekPlanOf(tx, ownerId, weekPlanId))) return 'not-found';
     const removed = await removeAutoEntries(
       tx,

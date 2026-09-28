@@ -205,7 +205,7 @@ export function setEntryWorn(
     today: IsoDate;
   },
 ): Promise<EntryWornOutcome> {
-  return ownerTransaction(db, input.ownerId, async (tx) => {
+  return ownerTransaction(db, input.ownerId, 'setEntryWorn', async (tx) => {
     const [entry] = await tx
       .select({
         id: outfitCalendar.id,

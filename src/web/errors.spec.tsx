@@ -48,6 +48,11 @@ describe('createErrorHandler', () => {
     app.get('/missing', () => {
       throw new HttpError(404);
     });
+    app.get('/busy', () => {
+      throw new HttpError(503, 'Try again in a moment.', {
+        logDetail: 'owner 7',
+      });
+    });
     app.get('/boom', () => {
       throw new Error('connection refused at 10.0.0.5');
     });
@@ -133,6 +138,17 @@ describe('createErrorHandler', () => {
     expect(res.body).toMatch(/^<!DOCTYPE html>/);
     expect(res.body).toMatch(/<h1\b[^>]*>Error 400<\/h1>/);
     expect(res.body).toContain('body/date must match format &quot;date&quot;');
+  });
+
+  it('keeps a chosen 5xx HttpError, logged as a warning with its log detail', async () => {
+    const res = await app.inject({ method: 'GET', url: '/busy' });
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toContain('<p>Try again in a moment.</p>');
+    expect(res.body).not.toContain('owner 7');
+    expect(logs.messages('warn')).toEqual([
+      'GET /busy -> 503: Try again in a moment. (owner 7)',
+    ]);
+    expect(logs.records.some((record) => record.level === 'error')).toBe(false);
   });
 
   it('hides the detail of anything else behind a 500, logged with its stack', async () => {

@@ -585,7 +585,11 @@ export async function claimReplan(
   return rows.length > 0;
 }
 
-/** Removes claims of days before `before`: a claim only ever guards its own day. */
+/**
+ * Removes claims of days before `before`: a claim only ever guards its own
+ * day. Every owner's at once, without the owner lock: no writer judges a
+ * past day's claim (the exemption in src/web/calendar/CLAUDE.md, Owner lock).
+ */
 export async function pruneReplanClaims(
   db: Queryable,
   before: IsoDate,

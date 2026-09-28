@@ -278,7 +278,7 @@ export async function createPlan(
   items: PlanItemFields[] = [],
 ): Promise<number | NameTaken> {
   try {
-    return await ownerTransaction(db, ownerId, async (tx) => {
+    return await ownerTransaction(db, ownerId, 'createPlan', async (tx) => {
       const [row] = await tx
         .insert(wardrobePlan)
         .values({ ownerId, ...fields })
@@ -309,7 +309,7 @@ export async function updatePlan(
   fields: PlanFields,
 ): Promise<'updated' | 'not-found' | NameTaken> {
   try {
-    const updated = await ownerTransaction(db, ownerId, (tx) =>
+    const updated = await ownerTransaction(db, ownerId, 'updatePlan', (tx) =>
       tx
         .update(wardrobePlan)
         .set(fields)
@@ -333,7 +333,7 @@ export async function deletePlan(
   id: number,
   ownerId: number,
 ): Promise<boolean> {
-  const deleted = await ownerTransaction(db, ownerId, (tx) =>
+  const deleted = await ownerTransaction(db, ownerId, 'deletePlan', (tx) =>
     tx
       .delete(wardrobePlan)
       .where(and(eq(wardrobePlan.id, id), eq(wardrobePlan.ownerId, ownerId)))
@@ -353,7 +353,7 @@ export function setActivePlan(
   id: number,
   ownerId: number,
 ): Promise<boolean> {
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'setActivePlan', async (tx) => {
     if (!(await findPlan(tx, id, ownerId))) return false;
     await tx
       .update(wardrobePlan)
@@ -412,7 +412,7 @@ export function addItems(
   items: PlanItemFields[],
   options: { proposed: boolean },
 ): Promise<number[] | undefined> {
-  return ownerTransaction(db, ownerId, async (tx) =>
+  return ownerTransaction(db, ownerId, 'addItems', async (tx) =>
     (await findPlan(tx, planId, ownerId))
       ? insertItems(tx, planId, items, options)
       : undefined,
@@ -460,7 +460,7 @@ export async function updateItem(
   fields: PlanItemFields,
   { proposed }: { proposed: boolean },
 ): Promise<boolean> {
-  const updated = await ownerTransaction(db, ownerId, (tx) =>
+  const updated = await ownerTransaction(db, ownerId, 'updateItem', (tx) =>
     tx
       .update(planItem)
       .set({ ...fields, proposed })
@@ -477,7 +477,7 @@ export async function acceptItem(
   planId: number,
   ownerId: number,
 ): Promise<boolean> {
-  const updated = await ownerTransaction(db, ownerId, (tx) =>
+  const updated = await ownerTransaction(db, ownerId, 'acceptItem', (tx) =>
     tx
       .update(planItem)
       .set({ proposed: false })
@@ -494,7 +494,7 @@ export async function deleteItem(
   planId: number,
   ownerId: number,
 ): Promise<boolean> {
-  const deleted = await ownerTransaction(db, ownerId, (tx) =>
+  const deleted = await ownerTransaction(db, ownerId, 'deleteItem', (tx) =>
     tx
       .delete(planItem)
       .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))

@@ -1,6 +1,9 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
+import { isLockTimeout } from '../../db/errors';
 import { file, pendingPhoto, user } from '../../db/schema';
+import { HttpError } from '../errors';
+import { t } from '../i18n';
 import { revokeDevices } from '../push/queries';
 import { revokeAllTokens } from './personal-tokens';
 
@@ -152,13 +155,44 @@ export async function deleteUserAndFileRows(
  * Writers call it through ownerTransaction; the rule it serves (every
  * writer of the calendar and the plan tables, the owner lock first) is in
  * src/web/calendar/CLAUDE.md, Owner lock.
+ *
+ * No row is a 404: the account is gone, typically deleted by deleteAccount
+ * while this writer queued behind it. Going on unlocked would fail a
+ * foreign key halfway, a 500.
  */
 export async function lockOwner(tx: Queryable, ownerId: number): Promise<void> {
-  await tx
+  const [locked] = await tx
     .select({ id: user.id })
     .from(user)
     .where(eq(user.id, ownerId))
     .for('no key update');
+  if (!locked) throw new HttpError(404, 'Wardrobe not found');
+}
+
+/**
+ * How long an owner transaction waits for any lock (the owner lock, or a
+ * row lock under it) before it gives up: its `lock_timeout`. Behind a
+ * stalled writer (a hung statement, a request stuck mid-transaction; the
+ * pool's own timeouts end those, src/db/client.ts) a request fails fast
+ * with OwnerLockTimeout instead of hanging with it.
+ */
+export const OWNER_LOCK_TIMEOUT_MS = 5_000;
+
+/**
+ * An owner transaction's lock wait ran past OWNER_LOCK_TIMEOUT_MS: a 503
+ * asking to try again, logged with the owner and the writer. Nothing was
+ * written (the transaction rolled back).
+ */
+export class OwnerLockTimeout extends HttpError {
+  constructor(
+    readonly ownerId: number,
+    readonly writer: string,
+  ) {
+    super(503, t('WARDROBE_BUSY'), {
+      logDetail: `${writer} for owner ${ownerId} waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock`,
+    });
+    this.name = 'OwnerLockTimeout';
+  }
 }
 
 /**
@@ -168,15 +202,40 @@ export async function lockOwner(tx: Queryable, ownerId: number): Promise<void> {
  * items (src/web/calendar/CLAUDE.md, Owner lock). The lock comes before
  * any row lock `work` takes (an outfit, a garment, an entry): the re-plan
  * takes those under it too, so taking one first could deadlock. A trip's
- * lock is the one taken before it (src/web/trips).
+ * lock is the one taken before it (src/web/trips). `writer` names the
+ * operation for the log (the function's name).
+ *
+ * Every lock wait from here to the end of the transaction is bounded by
+ * OWNER_LOCK_TIMEOUT_MS (`SET LOCAL lock_timeout`, which in a savepoint
+ * lasts to the caller's commit); a wait past it throws OwnerLockTimeout.
+ *
+ * Nested inside a caller's transaction, the lock belongs to the outermost
+ * transaction once taken. But if this savepoint is the first to take it and
+ * then rolls back (`work` throws) while the caller catches and carries on,
+ * the lock goes with the savepoint: the rest of the caller's transaction
+ * runs unlocked. No caller does that today; one that must keep going after
+ * a failed owner write takes lockOwner itself first.
  */
-export function ownerTransaction<T>(
+export async function ownerTransaction<T>(
   db: Queryable,
   ownerId: number,
+  writer: string,
   work: (tx: Queryable) => Promise<T>,
 ): Promise<T> {
-  return db.transaction(async (tx) => {
-    await lockOwner(tx, ownerId);
-    return work(tx);
-  });
+  try {
+    return await db.transaction(async (tx) => {
+      // set_config(..., true) is SET LOCAL with a bound value.
+      await tx.execute(
+        sql`select set_config('lock_timeout', ${`${OWNER_LOCK_TIMEOUT_MS}ms`}, true)`,
+      );
+      await lockOwner(tx, ownerId);
+      return work(tx);
+    });
+  } catch (error) {
+    // A nested ownerTransaction already mapped it (and is not a pg error).
+    if (!(error instanceof OwnerLockTimeout) && isLockTimeout(error)) {
+      throw new OwnerLockTimeout(ownerId, writer);
+    }
+    throw error;
+  }
 }

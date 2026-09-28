@@ -104,7 +104,7 @@ export function replaceEntryOutfit(
   target: EntryTarget,
   choice: ReplacementChoice,
 ): Promise<ReplaceOutcome> {
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'replaceEntryOutfit', async (tx) => {
     const entry = await lockEntryToReplace(tx, ownerId, target);
     if (!entry) return { outcome: 'entry-not-found' };
     // Before the choice: a refused replace must not save an idea either.

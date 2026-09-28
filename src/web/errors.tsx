@@ -12,30 +12,51 @@ import type { ViewContext } from './view-context';
 /**
  * What a plain-Fastify handler throws to answer with an error page:
  * `throw new HttpError(404)`. The message is shown on the page, so it is
- * for people (the status text by default), never internals.
+ * for people (the status text by default), never internals; `logDetail` is
+ * what the log line adds (ids, the operation), never shown. Any status,
+ * a 5xx included (the owner lock's 503): an HttpError is an answer the code
+ * chose, not a crash.
  */
 export class HttpError extends Error {
+  readonly logDetail?: string;
+
   constructor(
     readonly statusCode: number,
     message: string = STATUS_CODES[statusCode] ?? 'Error',
+    options: { logDetail?: string } = {},
   ) {
     super(message);
     this.name = 'HttpError';
+    this.logDetail = options.logDetail;
   }
 }
 
 const INTERNAL_ERROR = 'Internal server error';
 
-/**
- * Status and page message for anything a route throws: an HttpError or a
- * Fastify error (a failed body parse, a schema validation, an oversized
- * upload) keeps its 4xx status and message; everything else, and every 5xx,
- * is a 500 without detail.
- */
-export function describeError(error: unknown): {
+export interface ErrorAnswer {
   status: number;
   message: string;
-} {
+  /** For the log line, never the answer (HttpError.logDetail). */
+  logDetail?: string;
+  /** A crash, not a chosen answer: logged with its stack. */
+  unexpected: boolean;
+}
+
+/**
+ * Status and page message for anything a route or tool throws: an HttpError
+ * keeps its status and message; a Fastify error (a failed body parse, a
+ * schema validation, an oversized upload) its 4xx status and message;
+ * everything else is an unexpected 500 without detail.
+ */
+export function describeError(error: unknown): ErrorAnswer {
+  if (error instanceof HttpError) {
+    return {
+      status: error.statusCode,
+      message: error.message,
+      logDetail: error.logDetail,
+      unexpected: false,
+    };
+  }
   if (error instanceof Error) {
     const { statusCode } = error as Error & { statusCode?: unknown };
     if (
@@ -43,10 +64,10 @@ export function describeError(error: unknown): {
       statusCode >= 400 &&
       statusCode < 500
     ) {
-      return { status: statusCode, message: error.message };
+      return { status: statusCode, message: error.message, unexpected: false };
     }
   }
-  return { status: 500, message: INTERNAL_ERROR };
+  return { status: 500, message: INTERNAL_ERROR, unexpected: true };
 }
 
 /**
@@ -61,12 +82,14 @@ export function createErrorHandler(logger: Logger) {
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<FastifyReply | undefined> {
-    const { status, message } = describeError(error);
+    const { status, message, logDetail, unexpected } = describeError(error);
     const url = loggableUrl(request);
-    if (status >= 500) {
+    if (unexpected) {
       logger.error({ err: error }, `${request.method} ${url} -> ${status}`);
     } else {
-      logger.warn(`${request.method} ${url} -> ${status}: ${message}`);
+      logger.warn(
+        `${request.method} ${url} -> ${status}: ${message}${logDetail ? ` (${logDetail})` : ''}`,
+      );
     }
 
     if (reply.sent) {

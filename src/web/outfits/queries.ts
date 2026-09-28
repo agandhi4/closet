@@ -389,7 +389,7 @@ export function createOutfit(
     return { id: created.id, slots: input.slots.length, refused, schedule };
   };
   return input.plan
-    ? ownerTransaction(db, ownerId, save)
+    ? ownerTransaction(db, ownerId, 'createOutfit', save)
     : db.transaction(save);
 }
 
@@ -411,7 +411,7 @@ export function updateOutfit(
   ownerId: number,
   input: OutfitInput,
 ): Promise<SaveResult | 'not-found'> {
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'updateOutfit', async (tx) => {
     // FOR UPDATE: two saves of one outfit take turns. Without the lock both
     // delete the old slots and the second insert collides with the first's
     // new rows on the (outfit_id, position) key.
@@ -476,7 +476,7 @@ export function deleteOutfit(
   id: number,
   ownerId: number,
 ): Promise<{ wearsKept: number } | undefined> {
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'deleteOutfit', async (tx) => {
     // Locked like updateOutfit's: a save of this outfit takes its turn.
     const [found] = await tx
       .select({ id: outfit.id })

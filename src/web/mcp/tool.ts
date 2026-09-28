@@ -97,8 +97,11 @@ export class ImageAnswer {
   ) {}
 }
 
-/** Why a call ended, for the log line. */
-type Outcome = 'ok' | `refused ${number}` | 'error';
+/**
+ * Why a call ended, for the log line: a 4xx is 'refused', a chosen 5xx (the
+ * owner lock's 503) 'failed', either with the error's log detail.
+ */
+type Outcome = 'ok' | 'error' | `${'refused' | 'failed'} ${number}${string}`;
 
 // The metric's outcome drops the refusal's status (a closed label set).
 function metricOutcome(outcome: Outcome): McpOutcome {
@@ -161,15 +164,16 @@ export function registerTools(
         try {
           return toolResult(await tool.run(args, ctx));
         } catch (error) {
-          const { status, message } = describeError(error);
-          if (status >= 500) {
+          const { status, message, logDetail, unexpected } =
+            describeError(error);
+          if (unexpected) {
             outcome = 'error';
             log.logger.error(
               { err: error },
               `MCP ${tool.name} failed for user ${ctx.userId}`,
             );
           } else {
-            outcome = `refused ${status}`;
+            outcome = `${status >= 500 ? 'failed' : 'refused'} ${status}${logDetail ? ` (${logDetail})` : ''}`;
           }
           return textResult({ error: message }, true);
         } finally {

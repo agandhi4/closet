@@ -6,6 +6,8 @@ How to change the schema is in the root `CLAUDE.md` (Changing the schema). This 
 
 **Pending migrations run in one transaction, all files together** (drizzle-orm's migrator). A failed batch leaves nothing behind, and `CREATE INDEX CONCURRENTLY` cannot run inside it. The tables are household-sized, so a plain `CREATE INDEX` holds its write lock for milliseconds; if a table ever grows to where that matters, build the index in a non-transactional step added to `runMigrations` after `migrate()` (under the same lock), not in a migration file.
 
+**Timeouts** (#134, `DbTimeouts` in `client.ts`, sent as startup parameters): one stuck transaction must not wedge an owner's writes (the owner lock, Calendar). `createDb` opens the server's pool with `SERVER_TIMEOUTS`: `statement_timeout` 15 s, `idle_in_transaction_session_timeout` 30 s (Postgres ends the session of a transaction left waiting on the app between statements: a request stuck on I/O inside it, a client gone mid-way; its next statement fails, the pool drops the connection). The nightly reconciliation shares the pool: its statements are short, household-sized queries. `lock_timeout` is not a pool setting: `ownerTransaction` sets it (5 s, `SET LOCAL`) for its own transaction, so only owner writers fail fast on a lock (a 503, Calendar's Owner lock). **Longer, explicit**: `MAINTENANCE_TIMEOUTS` (10 min statement, 5 min idle in transaction) for the boot's migrations (`runMigrations`, `requireCurrentSchema`; the advisory-lock wait of an overlapping deploy counts as a statement) and every CLI (`runCli`'s pool: the seed's one-transaction persona, reconciliation, set-password). `connectionOptions` without timeouts keeps the database's defaults (the cutout listener, the specs' own clients). `test/integration/db-timeouts.spec.ts`.
+
 **How `src/db/migrate.ts` adopts a MikroORM-era database** (production's first Drizzle boot). All of it runs on one connection holding `pg_advisory_lock(hashtext('closet:migrations'))`, so two servers on one database (an overlapping deploy) never migrate at once; the second waits, then finds nothing to do.
 
 - `mikro_orm_migrations` exists: its rows must include `LAST_LEGACY_MIGRATION` (`Migration20260926021506`, the newest file in `test/support/legacy-migrations/`), or boot fails with `LegacyMigrationsIncompleteError` (boot a pre-Drizzle build once to finish them). Then, if `drizzle.__drizzle_migrations` has no row for the baseline (`drizzle/0000_baseline.sql`, the full schema as MikroORM left it), the runner inserts the row drizzle's migrator would have written (hash and `created_at` from drizzle-orm's own `readMigrationFiles`) without running the SQL.
@@ -17,14 +19,17 @@ How to change the schema is in the root `CLAUDE.md` (Changing the schema). This 
 
 ```
     schema.ts          Every table, index, constraint and relation (the source of drizzle/ migrations)
-    client.ts          dbConfig(config), createDb(): one pg Pool (max 10, min 2) + drizzle(). Db, and
-                       Queryable (Db or a transaction) for writes that must commit with others
+    client.ts          dbConfig(config), createDb(): one pg Pool (max 10, min 2) + drizzle(), with its
+                       DbTimeouts (see Timeouts). Db, and Queryable (Db or a transaction) for writes
+                       that must commit with others
+    errors.ts          isUniqueViolation, isLockTimeout: a driver error through drizzle's cause chain
     migrate.ts         runMigrations(): boot-time runner (legacy adoption, advisory lock);
                        requireCurrentSchema(): the CLIs' check instead of migrating
 ```
 
 ## Gotchas
 
+- **A connection can die while checked out, and an unheard 'error' kills the process.** pg-pool listens for a connection's `error` only while it is idle in the pool; `idle_in_transaction_session_timeout` ends a session mid-transaction, and node-postgres emits `error` on that client with no query to fail. `createDb` gives every connection its own listener (`pool.on('connect')`); keep it for any new pool or long-lived client.
 - **A numeric column's default is written as SQL** (``.default(sql`'0'`)``, `user_weather.temperature_offset`): Postgres reads a numeric default back as the literal `'0'`, so a plain `.default(0)` shows as drift in `migrations.spec.ts`.
 - **Postgres' `least()` and `greatest()` ignore NULL arguments.** `least(quantity, wears / null)` is the quantity, not null, so a garment that never needs a wash came out fully dirty until the SQL wash rule (`dirtyCopiesSql`) used a CASE; `wears.spec.ts`'s SQL-against-TypeScript case table caught it. Compare any SQL form of a pure rule against the rule the same way.
 - **A unique violation is answered only for the constraint the caller names.** `isUniqueViolation(error, constraint)` (`src/db/errors.ts`) takes the constraint (`UniqueConstraint`: the names are constants beside their indexes in `schema.ts`) and is false for any other, so the caller rethrows. Matching any `23505` once turned the plans' one-active race into "a plan with this name already exists". A new writer that answers a violation with a message adds its constraint to `UniqueConstraint`.

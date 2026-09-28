@@ -1,5 +1,10 @@
 import { type Config, ConfigError, loadConfig } from '../config';
-import { createDb, type Db, dbConfig } from '../db/client';
+import {
+  createDb,
+  type Db,
+  dbConfig,
+  MAINTENANCE_TIMEOUTS,
+} from '../db/client';
 import { requireCurrentSchema, SchemaBehindError } from '../db/migrate';
 import { createLogger, type Logger } from '../logger';
 
@@ -45,7 +50,13 @@ async function run(
   const config = loadConfig();
   const logger = createLogger(config);
   await requireCurrentSchema(dbConfig(config));
-  const db = createDb(dbConfig(config), logger.child({ context: 'Db' }));
+  // Operator-scale work (a seeded persona is one transaction): the long
+  // timeouts, not the server's.
+  const db = createDb(
+    dbConfig(config),
+    logger.child({ context: 'Db' }),
+    MAINTENANCE_TIMEOUTS,
+  );
   try {
     return await command({
       config,

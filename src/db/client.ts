@@ -47,7 +47,50 @@ export function dbConfig(config: Config): DbConfig {
   };
 }
 
-export function connectionOptions(config: DbConfig): ClientConfig {
+/**
+ * The session timeouts a connection opens with (startup parameters, so they
+ * cost no round trip). A stalled transaction holds its row locks, the owner
+ * lock included (src/web/auth/queries.ts), until one of these ends it.
+ * `lock_timeout` is not here: ownerTransaction sets it for its own
+ * transaction (OWNER_LOCK_TIMEOUT_MS).
+ */
+export interface DbTimeouts {
+  /** statement_timeout: the longest any one statement may run. */
+  statementMs: number;
+  /**
+   * idle_in_transaction_session_timeout: how long a transaction may wait on
+   * the application between statements before Postgres ends its session (a
+   * request stuck on I/O inside a transaction, a client gone mid-way).
+   */
+  idleInTransactionMs: number;
+}
+
+/** The server's pool: every request, timer and job. */
+export const SERVER_TIMEOUTS: DbTimeouts = {
+  statementMs: 15_000,
+  idleInTransactionMs: 30_000,
+};
+
+/**
+ * Operator-scale work that may legitimately run long: the boot's migrations
+ * (their advisory-lock wait included: an overlapping deploy's second server
+ * waits out the first's migration) and every CLI (runCli: the seed's
+ * one-transaction persona, reconciliation). Long, but bounded, so a hung run
+ * still ends on its own.
+ */
+export const MAINTENANCE_TIMEOUTS: DbTimeouts = {
+  statementMs: 10 * 60_000,
+  idleInTransactionMs: 5 * 60_000,
+};
+
+/**
+ * Without `timeouts` a session keeps the database's defaults (none): the
+ * cutout listener only LISTENs, and the specs' own clients build fixtures.
+ */
+export function connectionOptions(
+  config: DbConfig,
+  timeouts?: DbTimeouts,
+): ClientConfig {
   return {
     host: config.host,
     port: config.port,
@@ -56,6 +99,10 @@ export function connectionOptions(config: DbConfig): ClientConfig {
     password: config.password,
     // pgvault's certificate is self-signed.
     ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
+    ...(timeouts && {
+      statement_timeout: timeouts.statementMs,
+      idle_in_transaction_session_timeout: timeouts.idleInTransactionMs,
+    }),
   };
 }
 
@@ -71,24 +118,40 @@ const POOL_MIN = 2;
 const POOL_IDLE_TIMEOUT_MS = 30_000;
 
 /**
- * One pg Pool and the Drizzle instance over it. The caller owns the pool's
- * lifetime: `db.$client.end()` on shutdown.
+ * One pg Pool and the Drizzle instance over it, its connections opened with
+ * `timeouts` (the server's unless a caller says otherwise). The caller owns
+ * the pool's lifetime: `db.$client.end()` on shutdown.
  */
-export function createDb(config: DbConfig, logger: Logger): Db {
+export function createDb(
+  config: DbConfig,
+  logger: Logger,
+  timeouts: DbTimeouts = SERVER_TIMEOUTS,
+): Db {
   const pool = new TimedPool({
-    ...connectionOptions(config),
+    ...connectionOptions(config, timeouts),
     max: POOL_MAX,
     min: POOL_MIN,
     idleTimeoutMillis: POOL_IDLE_TIMEOUT_MS,
   });
-  // An idle connection that dies (Postgres restarted, network dropped) is
-  // reported here, and an 'error' event without a listener kills the
-  // process. The pool discards the connection and opens a new one on demand.
-  pool.on('error', (error) => {
-    logger.error({ err: error }, 'Idle database connection failed');
+  // A connection that dies emits 'error', and an 'error' event without a
+  // listener kills the process. The pool listens only while a connection is
+  // idle in it (Postgres restarted, network dropped), but a checked-out one
+  // dies too: idle_in_transaction_session_timeout ends the session of a
+  // transaction stalled between statements. So each connection has its own
+  // listener for life, and the pool's exists only to be there. A dead
+  // connection is not queryable: its transaction's next statement fails, and
+  // the pool discards it on release and opens another on demand.
+  pool.on('connect', (client) => {
+    client.on('error', (error) => {
+      logger.error({ err: error }, 'Database connection failed');
+    });
+  });
+  pool.on('error', () => {
+    // Logged by the connection's own listener above.
   });
   logger.info(
-    `Drizzle pool for ${config.database} on ${config.host}:${config.port} (max ${POOL_MAX}, min ${POOL_MIN})`,
+    `Drizzle pool for ${config.database} on ${config.host}:${config.port} (max ${POOL_MAX}, min ${POOL_MIN}; ` +
+      `statement_timeout ${timeouts.statementMs} ms, idle_in_transaction_session_timeout ${timeouts.idleInTransactionMs} ms)`,
   );
   return drizzle(pool, { schema });
 }

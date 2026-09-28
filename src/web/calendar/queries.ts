@@ -120,7 +120,7 @@ export function scheduleOutfit(
   db: Queryable,
   entry: NewEntry,
 ): Promise<Scheduled | 'no-such-outfit'> {
-  return ownerTransaction(db, entry.ownerId, async (tx) => {
+  return ownerTransaction(db, entry.ownerId, 'scheduleOutfit', async (tx) => {
     if (!(await ownsOutfit(tx, entry.ownerId, entry.outfitId))) {
       return 'no-such-outfit';
     }
@@ -171,7 +171,9 @@ export function insertEntry(
   db: Queryable,
   entry: NewEntry,
 ): Promise<Scheduled> {
-  return ownerTransaction(db, entry.ownerId, (tx) => upsertEntry(tx, entry));
+  return ownerTransaction(db, entry.ownerId, 'insertEntry', (tx) =>
+    upsertEntry(tx, entry),
+  );
 }
 
 async function upsertEntry(tx: Queryable, entry: NewEntry): Promise<Scheduled> {
@@ -322,7 +324,7 @@ export function wearOutfitOn(
 ): Promise<WornOutfit | 'future'> {
   const { ownerId, outfitId, day, occasion } = input;
   if (day > input.today) return Promise.resolve('future');
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'wearOutfitOn', async (tx) => {
     const scheduled = await insertEntry(tx, {
       ownerId,
       outfitId,
@@ -377,7 +379,7 @@ export function deleteEntry(
   id: number,
   ownerId: number,
 ): Promise<{ selfies: string[] } | EntryMiss> {
-  return ownerTransaction(db, ownerId, async (tx) => {
+  return ownerTransaction(db, ownerId, 'deleteEntry', async (tx) => {
     const [entry] = await tx
       .select({ id: outfitCalendar.id })
       .from(outfitCalendar)

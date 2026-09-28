@@ -37,6 +37,7 @@
   "LOGIN_FAILED": "Incorrect email or password",
   "EMAIL_IN_USE": "Another account already uses this email address",
   "TOO_MANY_ATTEMPTS": "Too many attempts. Try again in {after}.",
+  "WARDROBE_BUSY": "Another change to this wardrobe is still saving. Try again in a moment.",
   "ERROR": "Error",
   "PATH": "Path",
   "TIME": "Time",

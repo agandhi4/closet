@@ -10,6 +10,7 @@ import {
   weekReplan,
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
+import { lockOwner } from '../../src/web/auth/queries';
 import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
 import { deleteEntry, scheduleOutfit } from '../../src/web/calendar/queries';
 import {
@@ -404,6 +405,40 @@ describe('the owner lock', () => {
       expect(replan).toEqual({ kind: 'skipped' });
       expect(await entriesOn(day)).toEqual([]);
       expect(await t.db.$count(outfit)).toBe(outfits);
+    });
+
+    it('defers, the day unclaimed, behind a write that holds the lock past its timeout (#134)', async () => {
+      const { day, outfitId } = await unwearableAutoEntry();
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      let held!: () => void;
+      const holding = new Promise<void>((resolve) => (held = resolve));
+      const holder = t.db.transaction(async (tx) => {
+        await lockOwner(tx, t.owner.id);
+        held();
+        await released;
+      });
+      await Promise.race([holding, holder]);
+      const replan = await replanToday(deps, t.owner.id, new Date());
+      release();
+      await holder;
+
+      expect(replan).toEqual({ kind: 'deferred' });
+      expect(await t.db.$count(weekReplan)).toBe(0);
+      expect(
+        t.logs
+          .messages('warn', 'WeekPlan')
+          .some((line) =>
+            line.startsWith(
+              `Week re-plan for user ${t.owner.id} on ${t.today()} deferred: replanUser for owner ${t.owner.id} waited`,
+            ),
+          ),
+      ).toBe(true);
+      // The next minute's run judges it.
+      expect(await replanToday(deps, t.owner.id, new Date())).toMatchObject({
+        kind: 'replanned',
+      });
+      expect((await entriesOn(day))[0].outfitId).not.toBe(outfitId);
     });
   });
 

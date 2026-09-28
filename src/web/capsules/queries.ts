@@ -395,6 +395,7 @@ async function ownedCapsules(
     .select({ id: capsule.id })
     .from(capsule)
     .where(and(eq(capsule.ownerId, ownerId), inArray(capsule.id, ids)))
+    .orderBy(capsule.id)
     .for('share');
   return new Set(rows.map((row) => row.id));
 }
@@ -419,6 +420,9 @@ async function ownedGarments(
         ownedGarment(),
       ),
     )
+    // Id order, as every multi-row garment locker takes them
+    // (pickedGarments), so two lockers never deadlock on each other's.
+    .orderBy(garment.id)
     .for('share');
   return new Set(rows.map((row) => row.id));
 }
