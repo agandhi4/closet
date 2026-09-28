@@ -1,6 +1,5 @@
 import { and, asc, desc, eq, inArray, ne, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
-import { selectScalars } from '../../db/select-scalars';
 import {
   file,
   garment,
@@ -566,7 +565,8 @@ export async function deleteItem(
 /**
  * The user's style profile as a scalar subquery (null when never saved),
  * for a read that takes it with others in one statement: get_style_profile
- * reads it with the week template (#172). Every field is JSON as stored
+ * (#172) and the style page (#251) read it with the week template. Every
+ * field is JSON as stored
  * (text and text arrays).
  */
 export function styleProfileSql(
@@ -580,17 +580,6 @@ export function styleProfileSql(
       'notes', ${styleProfile.notes}
     )
     from ${styleProfile} where ${eq(styleProfile.userId, userId)})`;
-}
-
-/** styleProfileSql alone, or undefined when never saved: the style page. */
-export async function findStyleProfile(
-  db: Db,
-  userId: number,
-): Promise<StyleProfileFields | undefined> {
-  const { profile } = await selectScalars(db, {
-    profile: styleProfileSql(userId),
-  });
-  return profile ?? undefined;
 }
 
 /** The one writer of a style profile: the row upserted. */

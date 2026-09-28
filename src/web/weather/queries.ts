@@ -83,6 +83,19 @@ export async function findWeatherSettings(
   return row ? settingsOf(row) : NO_WEATHER_SETTINGS;
 }
 
+/**
+ * The name of the user's home as a scalar subquery (null without a home or
+ * a settings row), for a page that shows it beside its own reads in one
+ * statement: the style page's read-only home city (#251). The check
+ * constraints keep the home's name, latitude and longitude all set or all
+ * null, so the name alone says whether there is one (settingsOf's rule).
+ */
+export function homeNameSql(userId: number): SQL<string | null> {
+  return sql<string | null>`(
+    select ${userWeather.homeName}
+    from ${userWeather} where ${eq(userWeather.userId, userId)})`;
+}
+
 /** The user's settings, and the active location's forecast cache row. */
 export interface WeatherWithForecast {
   settings: WeatherSettings;

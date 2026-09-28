@@ -33,7 +33,8 @@ import {
 import { dayOfWeek } from '../../src/web/calendar/calendar-date';
 import { weeklyRhythm } from '../../src/wardrobe/week';
 import { findWeekTemplate } from '../../src/web/week-plan/template';
-import { findStyleProfile } from '../../src/web/plans/queries';
+import { selectScalars } from '../../src/db/select-scalars';
+import { styleProfileSql } from '../../src/web/plans/queries';
 import { brandSizesOf, findMeasurements } from '../../src/web/sizes/queries';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
 import { variantFileName } from '../../src/web/files/image-variant';
@@ -242,7 +243,9 @@ describe('seed personas', () => {
           photo: await sha(s.fileName),
         })),
       ),
-      styleProfile: (await findStyleProfile(t.db, id)) ?? null,
+      styleProfile: (
+        await selectScalars(t.db, { profile: styleProfileSql(id) })
+      ).profile,
       // Sizes (#24): the brands without their ids, which differ between runs.
       sizes: {
         ...(await findMeasurements(t.db, id)),

@@ -14,12 +14,7 @@ import {
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
-import {
-  CLOSET_FILTERS,
-  findGarment,
-  gridCount,
-  gridPage,
-} from '../wardrobe/queries';
+import { CLOSET_FILTERS, gridCount, gridPage } from '../wardrobe/queries';
 import { capsuleUrl } from '../wardrobe/urls';
 import { GarmentParams, OwnerQuery } from '../wardrobe/validation';
 import { CapsulePage } from './capsule-page';
@@ -275,7 +270,9 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // The picker's Save (a native post from the grid in `?pick=` mode): the
   // tiles it showed become members exactly when checked; members it never
   // showed are left alone. Ids outside the wardrobe are dropped. Back to
-  // the capsule with a toast saying what changed.
+  // the capsule with a toast saying what changed. No capsule lookup first
+  // (#251): the writer drops a capsule outside the wardrobe, writing
+  // nothing, and says so, which is the 404.
   app.post(
     '/capsules/:id/garments',
     {
@@ -292,12 +289,16 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { id } = request.params;
-      await requireCapsule(id, access.ownerId);
       const { ids, shown } = request.body ?? {};
-      const { added, removed } = await changeMembership(db, access.ownerId, {
-        add: { capsuleIds: [id], garmentIds: ids ?? [] },
-        remove: { capsuleIds: [id], garmentIds: unchecked(shown, ids) },
-      });
+      const { added, removed, capsules } = await changeMembership(
+        db,
+        access.ownerId,
+        {
+          add: { capsuleIds: [id], garmentIds: ids ?? [] },
+          remove: { capsuleIds: [id], garmentIds: unchecked(shown, ids) },
+        },
+      );
+      if (!capsules.has(id)) throw capsuleNotFound();
       logger.info(
         `Capsule ${id} garments chosen by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${added} added, ${removed} removed, ${shown?.length ?? 0} shown`,
       );
@@ -312,7 +313,9 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // The garment page's capsules row toggles (an AutosaveForm, on every
   // change): the capsules the section listed hold the garment exactly when
   // checked. The answer is the form's status line, never the toggles (see
-  // src/web/autosave.tsx).
+  // src/web/autosave.tsx). No garment lookup first (#251): a garment
+  // outside the wardrobe takes no part in the write, and the writer says
+  // so (a wishlist item is found, and changes nothing).
   app.post(
     '/wardrobe/:id/capsules',
     {
@@ -329,14 +332,14 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { id } = request.params;
-      if (!(await findGarment(db, id, access.ownerId))) {
-        throw new HttpError(404, 'Garment not found');
-      }
       const { capsuleIds, shown } = request.body ?? {};
       const result = await changeMembership(db, access.ownerId, {
         add: { capsuleIds: capsuleIds ?? [], garmentIds: [id] },
         remove: { capsuleIds: unchecked(shown, capsuleIds), garmentIds: [id] },
       });
+      if (!result.garments.has(id)) {
+        throw new HttpError(404, 'Garment not found');
+      }
       logger.info(
         `Garment ${id} capsules set by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${result.added} added, ${result.removed} removed`,
       );

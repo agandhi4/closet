@@ -14,6 +14,7 @@ import {
 } from '../../src/web/plans/queries';
 import { PLAN_NAME_MAX } from '../../src/web/plans/validation';
 import { findWeatherSettings, setHome } from '../../src/web/weather/queries';
+import { recordStatements } from '../support/query-recorder';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import { createWishlistItem } from './garments';
@@ -261,6 +262,20 @@ describe('wardrobe plans', () => {
     it('says nothing of a home city with the weather off', async () => {
       const page = await get('/auth/profile/style');
       expect(page.body).not.toContain('id="style-home"');
+    });
+
+    // A round trip per statement in production (#156): the session, then
+    // the profile and the week template in one statement (#251; it was one
+    // each), and no weather read with the weather off.
+    it('reads the page in 2 statements', async () => {
+      const { result, statements } = await recordStatements(() =>
+        get('/auth/profile/style'),
+      );
+      expect(result.statusCode).toBe(200);
+      expect(statements).toHaveLength(2); // 3 before #251
+      expect(statements[1].sql).toContain('"style_profile"');
+      expect(statements[1].sql).toContain('"week_template"');
+      expect(statements[1].sql).not.toContain('"user_weather"');
     });
   });
 
@@ -972,5 +987,19 @@ describe('the style profile beside the weather', () => {
     expect(saved.statusCode).toBe(303);
     const settings = await findWeatherSettings(t.db, t.owner.id);
     expect(settings.home?.name).toBe('Fort Greene, Brooklyn');
+  });
+
+  // The home city rides in the page's one statement with the profile and
+  // the week template (#251; they were three).
+  it('reads the page in 2 statements, the home city among them', async () => {
+    const { result, statements } = await recordStatements(() =>
+      t.inject({ method: 'GET', url: '/auth/profile/style' }),
+    );
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toContain('Home: Fort Greene, Brooklyn');
+    expect(statements).toHaveLength(2); // 4 before #251
+    for (const table of ['style_profile', 'week_template', 'user_weather']) {
+      expect(statements[1].sql).toContain(`"${table}"`);
+    }
   });
 });

@@ -387,6 +387,59 @@ describe('capsules', () => {
       );
     });
 
+    // A round trip per statement in production (#156): neither the picker's
+    // Save nor the toggles read the capsule or the garment before writing
+    // (#251). changeMembership locks both sides in one statement and says
+    // which took part, so the session, then the transaction: begin, the
+    // lock, the delete, the insert, commit.
+    describe('statements per request', () => {
+      const sqlOf = async (work: () => Promise<{ statusCode: number }>) => {
+        const { result, statements } = await recordStatements(work);
+        return { status: result.statusCode, sql: statements.map((s) => s.sql) };
+      };
+
+      it('the picker’s Save: the session, then the write (6)', async () => {
+        const saved = await sqlOf(() =>
+          post(`/capsules/${office}/garments`, {
+            ids: [ids.tee],
+            shown: [ids.tee, ids.boots],
+          }),
+        );
+        expect(saved.status).toBe(303);
+        expect(saved.sql).toHaveLength(6); // 7 before #251
+        expect(saved.sql[1]).toBe('begin');
+      });
+
+      it('the garment page’s toggles: the session, then the write (6)', async () => {
+        const weekend = await createCapsule('Weekend toggles');
+        const saved = await sqlOf(() =>
+          post(`/wardrobe/${ids.boots}/capsules`, {
+            capsuleIds: [weekend],
+            shown: [office, weekend],
+          }),
+        );
+        expect(saved.status).toBe(200);
+        expect(saved.sql).toHaveLength(6); // 7 before #251
+        expect(saved.sql[1]).toBe('begin');
+      });
+
+      it('another wardrobe’s capsule or garment is a 404 after a write that changed nothing', async () => {
+        const before = await members(office);
+        const capsuleRefused = await sqlOf(() =>
+          post(`/capsules/${office}/garments`, { shown: before }, stranger),
+        );
+        expect(capsuleRefused.status).toBe(404);
+        // The session, begin, the lock, commit: nothing to delete or add.
+        expect(capsuleRefused.sql).toHaveLength(4);
+        const garmentRefused = await sqlOf(() =>
+          post(`/wardrobe/${ids.tee}/capsules`, { shown: [office] }, stranger),
+        );
+        expect(garmentRefused.status).toBe(404);
+        expect(garmentRefused.sql).toHaveLength(4);
+        expect(await members(office)).toEqual(before);
+      });
+    });
+
     it('drops a garment from every capsule when it is deleted', async () => {
       const doomed = await createGarment(t, {
         name: 'Doomed',

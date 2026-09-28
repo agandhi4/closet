@@ -184,10 +184,13 @@ describe('the wishlist', () => {
         ids: [merino, charcoal],
         shown: [merino, charcoal],
       });
-      await post(`/wardrobe/${beanie}/capsules`, {
+      // The item is the wardrobe's, so the toggles find it (200, not a
+      // 404) and change nothing.
+      const toggled = await post(`/wardrobe/${beanie}/capsules`, {
         capsuleIds: [capsuleId],
         shown: [capsuleId],
       });
+      expect(toggled.statusCode).toBe(200);
       const members = await t.db
         .select({ garmentId: capsuleGarment.garmentId })
         .from(capsuleGarment)

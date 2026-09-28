@@ -2,6 +2,7 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { categorySuggestions } from '../wardrobe/garment';
 import { ownerTransaction } from '../auth/queries';
+import { selectScalars } from '../../db/select-scalars';
 import { sessionUserId } from '../auth/require-session';
 import type { HttpError } from '../errors';
 import { t } from '../i18n';
@@ -30,19 +31,19 @@ import {
   deleteItem,
   deletePlan,
   findPlan,
-  findStyleProfile,
   insertItems,
   itemFields,
   itemsOf,
   type PlanDetail,
   saveStyleProfile,
   setActivePlan,
+  styleProfileSql,
   updateItem,
   updatePlan,
 } from './queries';
-import { findWeatherSettings } from '../weather/queries';
+import { homeNameSql } from '../weather/queries';
 import { weeklyRhythm } from '../../wardrobe/week';
-import { findWeekTemplate } from '../week-plan/template';
+import { inTemplateOrder, weekTemplateSql } from '../week-plan/template';
 import { StyleProfilePage } from './style-page';
 import { requirePlan as requireOwnPlan, requirePlanItem } from './require';
 import { PLANS_PATH, planUrl, STYLE_PROFILE_PATH } from './urls';
@@ -87,19 +88,6 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger } = options;
-
-  /**
-   * The home city for the style page, read-only: the weather's (#14,
-   * user_weather), never a second copy. Undefined with WEATHER_ENABLED off,
-   * when there is no home to speak of.
-   */
-  async function homeCity(
-    userId: number,
-  ): Promise<{ name: string | null } | undefined> {
-    if (!options.weather) return undefined;
-    const settings = await findWeatherSettings(db, userId);
-    return { name: settings.home?.name ?? null };
-  }
 
   function requirePlan(
     request: FastifyRequest,
@@ -595,20 +583,23 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { querystring: StyleProfileQuery } },
     async (request, reply) => {
       const userId = sessionUserId(request);
-      // Three independent reads: one round trip, not three in a row.
-      const [profile, template, home] = await Promise.all([
-        findStyleProfile(db, userId),
-        findWeekTemplate(db, userId),
-        homeCity(userId),
-      ]);
+      // One statement (#251; it was one per part), each part its module's:
+      // the profile, the week template its rhythm comes from, and the home
+      // city, read-only, the weather's (#14, user_weather, never a second
+      // copy), not read with WEATHER_ENABLED off.
+      const read = await selectScalars(db, {
+        profile: styleProfileSql(userId),
+        template: weekTemplateSql(userId),
+        home: options.weather ? homeNameSql(userId) : undefined,
+      });
       return renderPage(
         reply,
         <StyleProfilePage
           ctx={viewContext(reply)}
           model={{
-            values: styleProfilePost(profile ?? EMPTY_STYLE_PROFILE),
-            rhythm: weeklyRhythm(template),
-            home,
+            values: styleProfilePost(read.profile ?? EMPTY_STYLE_PROFILE),
+            rhythm: weeklyRhythm(inTemplateOrder(read.template)),
+            home: options.weather ? { name: read.home ?? null } : undefined,
             saved: request.query.saved === '1',
           }}
         />,

@@ -350,9 +350,11 @@ export interface MembershipChange {
  * foreign key halfway. The picker (a capsule and the tiles it showed), the
  * garment page's toggles (a garment and the capsules it listed),
  * set_capsule_membership (MCP) and the seed all go through it. Answers
- * which of the named capsules are the wardrobe's (`capsules`), so a caller
- * that must refuse another's capsule learns it from the write (MCP's 404)
- * rather than reading the capsule first (#172).
+ * which of the named capsules and garments are the wardrobe's (`capsules`,
+ * `garments`; a wishlist item is the wardrobe's, found but never paired),
+ * so a caller that must refuse another's capsule or garment learns it from
+ * the write (the 404 after a write that changed nothing) rather than
+ * reading it first (#172 for MCP, #251 for the picker and the toggles).
  */
 export function changeMembership(
   db: Queryable,
@@ -362,10 +364,11 @@ export function changeMembership(
   added: number;
   removed: number;
   capsules: ReadonlySet<number>;
+  garments: ReadonlySet<number>;
 }> {
   return db.transaction(async (tx) => {
     const sets = [change.add, change.remove].flatMap((set) => set ?? []);
-    const { capsules, garments } = await lockMembers(
+    const { capsules, garments, pairable } = await lockMembers(
       tx,
       ownerId,
       sets.flatMap((set) => set.capsuleIds),
@@ -377,7 +380,7 @@ export function changeMembership(
         capsules.has(id),
       ),
       garmentIds: [...new Set(set?.garmentIds)].filter((id) =>
-        garments.has(id),
+        pairable.has(id),
       ),
     });
     const remove = owned(change.remove);
@@ -410,26 +413,31 @@ export function changeMembership(
           .returning({ capsuleId: capsuleGarment.capsuleId })
       ).length;
     }
-    return { added, removed, capsules };
+    return { added, removed, capsules, garments };
   });
 }
 
 /**
  * Which of `capsuleIds` are capsules of `ownerId`'s wardrobe, and which of
- * `garmentIds` its garments owned now or once (not wishlist items), both
- * locked FOR SHARE, in one statement (#172: it was one per side). Capsules
- * first, then garments, each in id order, as every multi-row garment
- * locker takes them (pickedGarments), so two lockers never deadlock on
- * each other's. A side with no ids reads nothing.
+ * `garmentIds` its garments (`garments`, any status) and of those the ones
+ * a capsule may hold (`pairable`: owned now or once, not wishlist items),
+ * all locked FOR SHARE, in one statement (#172: it was one per side).
+ * Capsules first, then garments, each in id order, as every multi-row
+ * garment locker takes them (pickedGarments), so two lockers never
+ * deadlock on each other's. A side with no ids reads nothing.
  */
 async function lockMembers(
   tx: Queryable,
   ownerId: number,
   capsuleIds: number[],
   garmentIds: number[],
-): Promise<{ capsules: Set<number>; garments: Set<number> }> {
+): Promise<{
+  capsules: Set<number>;
+  garments: Set<number>;
+  pairable: Set<number>;
+}> {
   if (capsuleIds.length === 0 && garmentIds.length === 0) {
-    return { capsules: new Set(), garments: new Set() };
+    return { capsules: new Set(), garments: new Set(), pairable: new Set() };
   }
   const ids = (list: number[]) =>
     sql`array[${sql.join(
@@ -443,6 +451,7 @@ async function lockMembers(
   const { rows } = await tx.execute<{
     capsules: number[];
     garments: number[];
+    pairable: number[];
   }>(sql`
     with capsules as (
       select ${capsule.id} as id from ${capsule}
@@ -451,15 +460,19 @@ async function lockMembers(
       for share
     ),
     garments as (
-      select ${garment.id} as id from ${garment}
+      select ${garment.id} as id, ${ownedGarment()} as pairable from ${garment}
       where ${garment.ownerId} = ${ownerId} and ${among(sql`${garment.id}`, garmentIds)}
-        and ${ownedGarment()}
       order by ${garment.id}
       for share
     )
     select
       (select coalesce(json_agg(id), '[]') from capsules) as capsules,
-      (select coalesce(json_agg(id), '[]') from garments) as garments`);
+      (select coalesce(json_agg(id), '[]') from garments) as garments,
+      (select coalesce(json_agg(id) filter (where pairable), '[]') from garments) as pairable`);
   const [row] = rows;
-  return { capsules: new Set(row.capsules), garments: new Set(row.garments) };
+  return {
+    capsules: new Set(row.capsules),
+    garments: new Set(row.garments),
+    pairable: new Set(row.pairable),
+  };
 }
