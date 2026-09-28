@@ -21,6 +21,7 @@ import { insertUser } from '../../src/web/auth/queries';
 import { type IsoDate, todayIn } from '../../src/web/calendar/calendar-date';
 import type { Photos } from '../../src/web/files/photos';
 import type { PushSender } from '../../src/web/push/sender';
+import type { WeatherService } from '../../src/web/weather/service';
 import type { Metrics } from '../../src/metrics/metrics';
 import type { OrderMailDeps } from '../../src/web/wardrobe/order-mail/poll';
 import { LogCapture } from '../support/log-capture';
@@ -154,6 +155,12 @@ export interface TestApp {
    * them in the harness.
    */
   push: PushSender | undefined;
+  /**
+   * The app's weather service (WEATHER_ENABLED only). A spec that counts
+   * fetches or reads the row after a stale ask awaits `settled()`: the
+   * answer is served before its background refresh ends (#114).
+   */
+  weather: WeatherService | undefined;
   /** The app's metrics (what GET /metrics exposes with METRICS_ENABLED). */
   metrics: Metrics;
   /**
@@ -266,19 +273,17 @@ export async function createTestApp(
   let photos: Photos;
   let cutouts: CutoutQueue;
   let push: PushSender | undefined;
+  let weather: WeatherService | undefined;
   let metrics: Metrics;
   let orderMail: OrderMailDeps | undefined;
   try {
     await options.beforeBoot?.(database.env);
-    ({ app, db, photos, cutouts, push, metrics, orderMail } = await createApp(
-      config,
-      logger,
-      {
+    ({ app, db, photos, cutouts, push, weather, metrics, orderMail } =
+      await createApp(config, logger, {
         outboundFetch: options.outboundFetch,
         weather: options.weather,
         orderMail: options.orderMail,
-      },
-    ));
+      }));
     await app.ready();
   } catch (error) {
     // A failing boot (typically a migration) must not leak the database.
@@ -360,6 +365,7 @@ export async function createTestApp(
     photos,
     cutouts,
     push,
+    weather,
     metrics,
     orderMail,
     owner,

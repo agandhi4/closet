@@ -49,28 +49,20 @@ function at(offsetMs: number): void {
 }
 
 /**
- * Waits for the background refresh (#114) an ask started at `offsetMs` to
- * record its outcome: a stale forecast is served at once and refreshed after
- * the answer, so a spec that counts fetches or reads the next answer waits
- * for the row's attempt first. By then the refresh has finished: the row is
- * saved (or the failure recorded) as its last step.
+ * Waits for the background refresh (#114) an ask started at `offsetMs`, and
+ * checks it recorded that instant: a stale forecast is served at once and
+ * refreshed after the answer, so a spec that counts fetches or reads the
+ * next answer waits for the refresh first, through the service's own
+ * signal (the app's close awaits it too), never a poll.
  */
 async function refreshed(t: TestApp, offsetMs: number): Promise<void> {
-  // A loop on real timers, not vi.waitFor: with fake timers installed,
-  // vi.waitFor advances the faked clock on every try, and the refresh would
-  // record a later instant than the one the spec asked at.
-  const expected = new Date(NOW.getTime() + offsetMs);
-  for (let tries = 0; ; tries += 1) {
-    const [row] = await t.db
-      .select({ attemptedAt: weatherForecast.attemptedAt })
-      .from(weatherForecast)
-      .where(eq(weatherForecast.latitude, ROUNDED.latitude));
-    if (row.attemptedAt.getTime() === expected.getTime() || tries === 500) {
-      expect(row.attemptedAt).toEqual(expected);
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  if (!t.weather) throw new Error('refreshed() needs WEATHER_ENABLED');
+  await t.weather.settled();
+  const [row] = await t.db
+    .select({ attemptedAt: weatherForecast.attemptedAt })
+    .from(weatherForecast)
+    .where(eq(weatherForecast.latitude, ROUNDED.latitude));
+  expect(row.attemptedAt).toEqual(new Date(NOW.getTime() + offsetMs));
 }
 
 async function toolNamesOf(t: TestApp, token: string): Promise<string[]> {
@@ -113,6 +105,7 @@ describe('weather', () => {
   afterEach(() => {
     vi.useRealTimers();
     stub.fail(false);
+    stub.hold(false);
   });
 
   const summary = (query = '') =>
@@ -287,14 +280,19 @@ describe('weather', () => {
       expect(forecastHits(stub)).toHaveLength(before);
 
       // An hour old: every ask is served the cached forecast at once, and
-      // one refresh runs behind them.
+      // one refresh runs behind them. Open-Meteo's answer is held until the
+      // pages are in, so the refresh is still running for all three: on a
+      // loaded machine one ask can reach the cache only after the refresh
+      // saved, and is rightly served the new forecast (#184).
       t.logs.clear();
       at(61 * MINUTE);
+      stub.hold(true);
       const answers = await Promise.all([summary(), summary(), summary()]);
       expect(answers.map((res) => res.statusCode)).toEqual([200, 200, 200]);
       for (const res of answers) {
         expect(res.body).toContain('as of 8:30 PM');
       }
+      stub.hold(false);
       await refreshed(t, 61 * MINUTE);
       expect(forecastHits(stub)).toHaveLength(before + 1);
       expect(t.logs.messages('info', 'Weather')).toEqual([

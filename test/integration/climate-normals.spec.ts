@@ -55,30 +55,23 @@ function at(offsetMs: number): void {
 }
 
 /**
- * Waits for the background refresh (#114) an ask started at `offsetMs` to
- * record its outcome in the row at `latitude`: stale normals are served at
- * once and refreshed after the answer.
+ * Waits for the background refresh (#114) an ask started at `offsetMs`, and
+ * checks it recorded that instant in the row at `latitude`: stale normals
+ * are served at once and refreshed after the answer. The service's own
+ * signal (the app's close awaits it too), never a poll.
  */
 async function refreshed(
   t: TestApp,
   latitude: number,
   offsetMs: number,
 ): Promise<void> {
-  // A loop on real timers, not vi.waitFor: with fake timers installed,
-  // vi.waitFor advances the faked clock on every try, and the refresh would
-  // record a later instant than the one the spec asked at.
-  const expected = new Date(NOW.getTime() + offsetMs);
-  for (let tries = 0; ; tries += 1) {
-    const [row] = await t.db
-      .select({ attemptedAt: weatherNormals.attemptedAt })
-      .from(weatherNormals)
-      .where(eq(weatherNormals.latitude, latitude));
-    if (row.attemptedAt.getTime() === expected.getTime() || tries === 500) {
-      expect(row.attemptedAt).toEqual(expected);
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  if (!t.weather) throw new Error('refreshed() needs WEATHER_ENABLED');
+  await t.weather.settled();
+  const [row] = await t.db
+    .select({ attemptedAt: weatherNormals.attemptedAt })
+    .from(weatherNormals)
+    .where(eq(weatherNormals.latitude, latitude));
+  expect(row.attemptedAt).toEqual(new Date(NOW.getTime() + offsetMs));
 }
 
 function hitsOf(stub: WeatherStub, path: string): URLSearchParams[] {

@@ -92,6 +92,14 @@ export interface WeatherStub {
   hits: string[];
   /** From now on, answer every request with a 500 (true) or normally (false). */
   fail(failing: boolean): void;
+  /**
+   * From now on, keep every answer back (true; requests are still recorded
+   * in `hits` as they arrive), or send the kept ones and answer at once
+   * again (false). For a spec that must see what is served while a refresh
+   * is under way: without it, an ask that reaches the cache late (a loaded
+   * machine) finds the refresh already saved (#184).
+   */
+  hold(holding: boolean): void;
   close(): Promise<void>;
 }
 
@@ -152,6 +160,8 @@ export function archiveAnswer(first: string, last: string) {
 export async function startWeatherStub(): Promise<WeatherStub> {
   const hits: string[] = [];
   let failing = false;
+  // The answers hold(true) keeps back, sent by hold(false).
+  let held: (() => void)[] | null = null;
   // Ten years of simulated days take a moment; a range is computed once.
   const archives = new Map<string, ReturnType<typeof archiveAnswer>>();
   // Each endpoint's answer to a request, by path.
@@ -185,12 +195,16 @@ export async function startWeatherStub(): Promise<WeatherStub> {
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(body));
     };
-    if (failing) return json(500, { error: true, reason: 'stubbed failure' });
-    const answer = Object.hasOwn(endpoints, url.pathname)
-      ? endpoints[url.pathname]
-      : undefined;
-    if (!answer) return json(404, { error: true, reason: 'Not found' });
-    return json(200, answer(url.searchParams));
+    const respond = () => {
+      if (failing) return json(500, { error: true, reason: 'stubbed failure' });
+      const answer = Object.hasOwn(endpoints, url.pathname)
+        ? endpoints[url.pathname]
+        : undefined;
+      if (!answer) return json(404, { error: true, reason: 'Not found' });
+      return json(200, answer(url.searchParams));
+    };
+    if (held) held.push(respond);
+    else respond();
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -215,6 +229,11 @@ export async function startWeatherStub(): Promise<WeatherStub> {
     hits,
     fail(value) {
       failing = value;
+    },
+    hold(holding) {
+      const waiting = held ?? [];
+      held = holding ? waiting : null;
+      if (!holding) for (const respond of waiting) respond();
     },
     close: () =>
       new Promise((resolve) => {
