@@ -1005,6 +1005,17 @@
     "UNBRANDED": "{count} without a brand",
     "BREAKDOWN_LINE": "{garments} garments · {pieces} pieces · {worn}% of wears"
   },
+  "lookalikes": {
+    "TITLE": "Looks like one you already have",
+    "COPIES": "{count} copies",
+    "ADD_COPY": "Add a copy",
+    "ADD_COPY_OF": "Add a copy of {name}",
+    "HINT": "Same kind and colours, no other brand. A copy counts one more of it instead of saving a new garment; nothing on this form is kept.",
+    "NOT_THE_SAME": "Not the same",
+    "COPY_ADDED": "Copy added",
+    "TOO_MANY": "That would be more than {max} copies, the most a garment holds",
+    "NOT_IN_CLOSET": "Only a garment in the closet has copies to add"
+  },
   "goesWith": {
     "TITLE": "Goes with my closet",
     "COUNT": "Makes {count} outfits with your closet",

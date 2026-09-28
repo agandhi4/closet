@@ -78,7 +78,17 @@ const PRESET_MATERIALS_MAX = 400;
 
 // Room for a hostile value to reach readGarmentForm and be named in its
 // message; every real colour is a few letters.
-const ColorValue = Type.String({ maxLength: 40 });
+export const ColorValue = Type.String({ maxLength: 40 });
+
+/**
+ * The duplicate check's "Not the same" ids, comma-joined (#20,
+ * lookalikes.ts: readDismissed drops anything malformed). A form grows it
+ * by the few matches shown per dismissal; the cap only bounds a hand-made
+ * request.
+ */
+export const LookalikesDismissed = Type.Optional(
+  Type.String({ maxLength: 400 }),
+);
 
 /**
  * One of a property's values as a form posts it ('' for the reset chip).
@@ -228,6 +238,9 @@ export const GarmentBody = Type.Object({
   // it (POST /wardrobe only; the requester's own item in their own
   // wardrobe, else a 404).
   planItem: Type.Optional(Type.Union([Type.Literal(''), RowId])),
+  // The duplicate check's "Not the same" list (#20, lookalikes.ts): never
+  // stored, only carried back into a refused form's region.
+  lookalikesDismissed: LookalikesDismissed,
 });
 export type GarmentBody = Static<typeof GarmentBody>;
 
@@ -1151,6 +1164,7 @@ export const GarmentPageQuery = Type.Object({
   photoSaved: Type.Optional(Type.String()),
   bought: Type.Optional(Type.String()),
   repairSaved: Type.Optional(Type.String()),
+  copyAdded: Type.Optional(Type.String()),
 });
 
 /**

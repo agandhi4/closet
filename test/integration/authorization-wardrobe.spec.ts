@@ -545,6 +545,43 @@ const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  // The duplicate check (#20) is part of adding to the wardrobe, like
+  // GET /wardrobe/new; "Add a copy" changes the quantity, a garment
+  // property, like condition.
+  {
+    name: 'GET /wardrobe/lookalikes',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    vias: ['ownerId'],
+    request: (_, q) => ({
+      method: 'GET',
+      url: `/wardrobe/lookalikes${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'ok',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/:id/copies',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.garmentId}/copies${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
 ];
 
 describeMatrix('wardrobe', ROUTES, (m) => {

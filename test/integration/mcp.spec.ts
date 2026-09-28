@@ -250,6 +250,7 @@ describe('the MCP endpoint', () => {
       expect(tools.map((listed) => listed.name).sort()).toEqual(
         [
           'add_candidate',
+          'add_garment_copy',
           'add_garment_from_link',
           'compare_plans',
           'compare_with_shared_wardrobe',
@@ -463,16 +464,77 @@ describe('the MCP endpoint', () => {
         isError: true,
         value: { error: 'On the wishlist: not bought yet' },
       });
+      // goes_with_closet judges a wishlist item: no lookalikes here (#20),
+      // and it has no copies to add.
+      expect(added).not.toHaveProperty('lookalikes');
+      expect(
+        await callTool(t, token, 'add_garment_copy', { id: added.garment.id }),
+      ).toEqual({
+        isError: true,
+        value: { error: 'Only a garment in the closet has copies to add' },
+      });
     });
 
-    it('add_garment_from_link saves to the closet when asked', async () => {
-      const added = await tool<{ garment: { id: number; status: string } }>(
-        t,
-        token,
-        'add_garment_from_link',
-        { url: sites.url('/products/tee'), destination: 'closet' },
-      );
-      expect(added.garment.status).toBe('closet');
+    // #20: a tool call cannot ask before saving, so an import to the closet
+    // names the closet garments it looks like, and add_garment_copy counts
+    // a copy. (Two imports only: the file shares one 10-a-minute budget.)
+    it('add_garment_from_link saves to the closet when asked, naming its lookalikes', async () => {
+      type Added = {
+        garment: { id: number; status: string; quantity: number };
+        lookalikes?: { id: number; name: string; quantity: number }[];
+      };
+      const first = await tool<Added>(t, token, 'add_garment_from_link', {
+        url: sites.url('/products/tee'),
+        destination: 'closet',
+      });
+      expect(first.garment.status).toBe('closet');
+      // Navy: nothing in the closet looks like it yet.
+      expect(first.lookalikes).toEqual([]);
+      const second = await tool<Added>(t, token, 'add_garment_from_link', {
+        url: sites.url('/products/tee'),
+        destination: 'closet',
+      });
+      expect(second.lookalikes).toEqual([
+        {
+          id: first.garment.id,
+          name: 'Heavyweight Pocket Tee',
+          category: 'tops',
+          quantity: 1,
+        },
+      ]);
+
+      const copied = await tool<Added>(t, token, 'add_garment_copy', {
+        id: first.garment.id,
+        copies: 2,
+      });
+      expect(copied.garment.quantity).toBe(3);
+      expect(
+        await callTool(t, token, 'add_garment_copy', {
+          id: first.garment.id,
+          copies: 28,
+        }),
+      ).toEqual({
+        isError: true,
+        value: {
+          error: 'That would be more than 30 copies, the most a garment holds',
+        },
+      });
+      // A viewer may not; a MANAGE grantee may, in the shared wardrobe.
+      const viewed = await callTool(t, viewer.token, 'add_garment_copy', {
+        id: first.garment.id,
+        ownerId: t.owner.id,
+      });
+      expect(viewed.isError).toBe(true);
+      const managed = await tool<Added>(t, manager.token, 'add_garment_copy', {
+        id: first.garment.id,
+        ownerId: t.owner.id,
+      });
+      expect(managed.garment.quantity).toBe(4);
+      const [row] = await t.db
+        .select({ quantity: garment.quantity })
+        .from(garment)
+        .where(eq(garment.id, first.garment.id));
+      expect(row.quantity).toBe(4);
     });
 
     it('add_garment_from_link asks for a category the page does not give, keeping nothing', async () => {

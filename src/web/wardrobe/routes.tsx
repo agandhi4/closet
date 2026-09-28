@@ -49,6 +49,7 @@ import {
   GarmentPhotoView,
 } from './garment-page';
 import { pendingPhotoView } from './link-import/photo-choice';
+import { readDismissed } from './lookalikes';
 import { PropertiesFragment } from './property-fields';
 import { repairLog, repairPanel } from './repairs';
 import {
@@ -557,6 +558,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         viewOwner,
         link: linkPhoto ? pendingPhotoView(linkPhoto) : undefined,
         candidateFor,
+        lookalikesDismissed: readDismissed(request.body.lookalikesDismissed),
       } as const;
       const form = readGarmentForm(
         request.body,
@@ -840,6 +842,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             justSavedPhoto: request.query.photoSaved === '1',
             justBought: request.query.bought === '1',
             justLoggedRepair: request.query.repairSaved === '1',
+            justAddedCopy: request.query.copyAdded === '1',
           }}
         />,
       );
@@ -1047,7 +1050,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const values = storedFormValues(source, { owner: access.isOwner });
       return renderGarmentForm(reply, db, {
-        mode: { kind: 'clone', garmentId: source.id },
+        mode: {
+          kind: 'clone',
+          garmentId: source.id,
+          wishlist: source.status === 'wishlist',
+        },
         suggestionsFrom: sessionUserId(request),
         viewOwner,
         values: {
@@ -1080,7 +1087,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.params.id,
         access.ownerId,
       );
-      const mode = { kind: 'clone', garmentId: source.id } as const;
+      const mode = {
+        kind: 'clone',
+        garmentId: source.id,
+        wishlist: source.status === 'wishlist',
+      } as const;
       // The clone is the requester's own garment, whoever owns the source.
       const form = readGarmentForm(request.body, formAudience(mode, viewOwner));
       if (!form.ok) {
@@ -1090,6 +1101,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           viewOwner,
           values: form.values,
           errors: form.errors,
+          lookalikesDismissed: readDismissed(request.body.lookalikesDismissed),
         });
       }
       const id = await cloneGarment(deps, source, userId, form.fields);

@@ -28,6 +28,11 @@ import type { ReplaceableGarment } from '../wishlist/queries';
 import type { BrandSize } from '../sizes/queries';
 import { BRAND_SIZE_HINT_TRIGGER, BrandSizeHint } from '../sizes/views';
 import type { CandidateFor } from './destination';
+import {
+  LookalikeCopyForm,
+  type LookalikesPanel,
+  LookalikesRegion,
+} from './lookalike-region';
 import { RepairEditor } from './repair-log';
 import type { RepairPanel } from './repairs';
 import {
@@ -60,7 +65,17 @@ import {
 export type GarmentFormMode =
   | { kind: 'new'; destination: Destination }
   | { kind: 'edit'; garmentId: number; wishlist: boolean }
-  | { kind: 'clone'; garmentId: number };
+  | { kind: 'clone'; garmentId: number; wishlist: boolean };
+
+/**
+ * A form whose save puts a new garment in the closet: a new one there, or
+ * a clone of a closet garment (a wishlist item's clone lands on the
+ * wishlist, statusOfClone). Where the duplicate check (#20) runs.
+ */
+export function addsToCloset(mode: GarmentFormMode): boolean {
+  if (mode.kind === 'new') return mode.destination.to === 'closet';
+  return mode.kind === 'clone' && !mode.wishlist;
+}
 
 /** A form for a wishlist item: a new one, or an edit of one. */
 export function isWishlistForm(mode: GarmentFormMode): boolean {
@@ -113,6 +128,11 @@ export interface GarmentFormModel {
    * owned garment only (repairPanel, repairs.ts).
    */
   repairs?: RepairPanel;
+  /**
+   * The duplicate check (#20), under Brand and Size: a form that adds to
+   * the closet only (addsToCloset; renderGarmentForm reads it).
+   */
+  lookalikes?: LookalikesPanel;
 }
 
 const TITLES = {
@@ -224,22 +244,7 @@ export function GarmentFormPage(props: {
             errors={errors.fabricWeight}
           />
           <ColorMultiSelect selected={values.colors} errors={errors.color} />
-          <TextField
-            name="brand"
-            label={t('BRAND')}
-            value={values.brand}
-            maxlength={BRAND_MAX}
-            placeholder={t('BRAND_PLACEHOLDER')}
-            refresh={viewOwner === undefined ? BRAND_SIZE_HINT_TRIGGER : {}}
-          />
-          <TextField
-            name="size"
-            label={t('SIZE')}
-            value={values.size}
-            maxlength={SIZE_MAX}
-            placeholder={t('SIZE_PLACEHOLDER')}
-          />
-          {viewOwner === undefined && <BrandSizeHint note={model.brandSize} />}
+          <BrandAndSize model={model} />
           <OwnershipFields model={model} wishlist={wishlist} />
           <MoreDetails model={model} wishlist={wishlist} category={category} />
           <div class="flex gap-2 mt-2">
@@ -249,10 +254,42 @@ export function GarmentFormPage(props: {
             </button>
           </div>
         </PostForm>
+        {model.lookalikes && <LookalikeCopyForm />}
         {model.repairs && <RepairEditor panel={model.repairs} />}
       </main>
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * Brand and size, then what they (and the fields above) tell: the
+ * requester's own note on the brand (#24; their body, so only on their own
+ * wardrobe) and the duplicate check (#20) when the form adds to the closet.
+ */
+function BrandAndSize({ model }: { model: GarmentFormModel }) {
+  const { values, viewOwner } = model;
+  const own = viewOwner === undefined;
+  return (
+    <>
+      <TextField
+        name="brand"
+        label={t('BRAND')}
+        value={values.brand}
+        maxlength={BRAND_MAX}
+        placeholder={t('BRAND_PLACEHOLDER')}
+        refresh={own ? BRAND_SIZE_HINT_TRIGGER : {}}
+      />
+      <TextField
+        name="size"
+        label={t('SIZE')}
+        value={values.size}
+        maxlength={SIZE_MAX}
+        placeholder={t('SIZE_PLACEHOLDER')}
+      />
+      {own && <BrandSizeHint note={model.brandSize} />}
+      {model.lookalikes && <LookalikesRegion panel={model.lookalikes} />}
+    </>
   );
 }
 

@@ -1,4 +1,5 @@
 import { buffer } from 'node:stream/consumers';
+import { QUANTITY_MAX } from '../../../wardrobe/availability';
 import * as z from 'zod/v4';
 import {
   categoryRole,
@@ -26,6 +27,7 @@ import {
 import { todayIn } from '../../calendar/calendar-date';
 import { capsulesOfGarment, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
+import { t } from '../../i18n';
 import { publicPhoto } from '../../files/references';
 import { normalizeCategory, normalizeSize } from '../../wardrobe/garment';
 import {
@@ -39,6 +41,7 @@ import {
   setCondition,
   updateGarmentProperties,
 } from '../../wardrobe/queries';
+import { addCopies, closetLookalikes } from '../../wardrobe/lookalikes';
 import { repairLog } from '../../wardrobe/repairs';
 import {
   CATEGORY_MAX,
@@ -558,6 +561,55 @@ export const garmentTools = [
   }),
 
   defineTool({
+    name: 'add_garment_copy',
+    title: 'Add copies of a garment',
+    description: `WRITES: counts more identical copies of a closet garment (its quantity: three of the same white tee are one garment with 3 copies) instead of adding a new garment. The garment's photo, wears, washes and repairs stay as they are; new copies start clean. At most ${QUANTITY_MAX} copies a garment. Needs your own wardrobe or a MANAGE share. Not for a wishlist item (not bought yet) or an archived garment.`,
+    input: z.object({
+      id: rowId(),
+      ownerId: ownerIdInput,
+      copies: z
+        .number()
+        .int()
+        .min(1)
+        .max(QUANTITY_MAX - 1)
+        .default(1)
+        .describe('How many more (default 1).'),
+    }),
+    writes: true,
+    idempotent: false,
+    async run(args, ctx) {
+      const access = await wardrobeFor(ctx, args.ownerId, 'manage');
+      const outcome = await addCopies(
+        ctx.db,
+        access.ownerId,
+        args.id,
+        args.copies,
+      );
+      if (!outcome.ok) {
+        ctx.webLogger.info(
+          `Copies of garment ${args.id} refused for user ${ctx.userId} (MCP): ${outcome.reason}`,
+        );
+        if (outcome.reason === 'not-found') {
+          throw new HttpError(404, GARMENT_NOT_FOUND);
+        }
+        throw new HttpError(
+          409,
+          outcome.reason === 'too-many'
+            ? t('lookalikes.TOO_MANY', { max: QUANTITY_MAX })
+            : t('lookalikes.NOT_IN_CLOSET'),
+        );
+      }
+      ctx.webLogger.info(
+        `Garment ${args.id} copies added by user ${ctx.userId} in wardrobe ${access.ownerId} (MCP): quantity ${outcome.from} -> ${outcome.to}`,
+      );
+      const saved = await garmentIn(ctx, args.id, access.ownerId);
+      return {
+        garment: await garmentOut(ctx, saved, access.ownerId, access.isOwner),
+      };
+    },
+  }),
+
+  defineTool({
     name: 'list_wishlist',
     title: 'List the wishlist',
     description:
@@ -589,7 +641,7 @@ export const garmentTools = [
     name: 'add_garment_from_link',
     title: 'Add a garment from a product link',
     description:
-      'WRITES: fetches a product page (or an image link), extracts the name, brand, colours, category, type, materials, price and first photo as the app\'s link import does, and saves the garment (the photo\'s background removal follows). Lands on the wishlist unless `destination` is `closet`: a product link is usually something being considered, and the owner moves it to the closet with "Bought it" in the app. Say `closet` only for something already owned. Give `category` when the page does not make it clear; any field given overrides the extraction. Needs your own wardrobe or a MANAGE share. Rate limited: 10 imports a minute.',
+      "WRITES: fetches a product page (or an image link), extracts the name, brand, colours, category, type, materials, price and first photo as the app's link import does, and saves the garment (the photo's background removal follows). Lands on the wishlist unless `destination` is `closet`: a product link is usually something being considered, and the owner moves it to the closet with \"Bought it\" in the app. Say `closet` only for something already owned. Give `category` when the page does not make it clear; any field given overrides the extraction. Saved to the closet, the answer's `lookalikes` are closet garments that look like the same product (same category, type and colours, no other brand): if there are any, ask the owner whether it is another copy of one; if so they delete the new garment in the app, and add_garment_copy counts the copy. Needs your own wardrobe or a MANAGE share. Rate limited: 10 imports a minute.",
     input: z.object({
       url: z.url({ protocol: /^https?$/ }).max(2048),
       ownerId: ownerIdInput,
@@ -621,9 +673,33 @@ export const garmentTools = [
       }
       const saved = await addGarmentFromLink(ctx, access, args);
       const garment = await garmentIn(ctx, saved.id, access.ownerId);
+      // The garment form's duplicate check (#20), after the fact: a tool
+      // call has no form to ask on before saving.
+      const lookalikes =
+        garment.status === 'closet'
+          ? await closetLookalikes(
+              ctx.db,
+              access.ownerId,
+              {
+                category: garment.category,
+                type: garment.type ?? '',
+                colors: garment.colors ?? [],
+                brand: garment.brand ?? '',
+              },
+              { exceptId: garment.id },
+            )
+          : [];
       return {
         garment: await garmentOut(ctx, garment, access.ownerId, access.isOwner),
         notices: saved.notices,
+        ...(garment.status === 'closet' && {
+          lookalikes: lookalikes.map(({ id, name, category, quantity }) => ({
+            id,
+            name,
+            category,
+            quantity,
+          })),
+        }),
       };
     },
   }),

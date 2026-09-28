@@ -713,6 +713,65 @@ altered, kept with the garment so the laundry pile and the tailor's ticket have 
   per-garment laundry routine built from the label, editing an entry (remove and log it again), a
   repair write tool over MCP, and reminders ("the boots are due a resole").
 
+## 18. Duplicate garments: "add a copy" (#20)
+
+Wardrowbe's idea, from "Later" below, in its lightweight form (owner, 2026-09-27): no image embeddings,
+the metadata the closet already holds. Adding a garment that looks like one already owned offers "add a
+copy" (the garment's quantity, section 1's multiples) instead of a second garment.
+
+- **One rule, 18b's.** `nearDuplicates` (`src/wardrobe/goes-with.ts`, section 11): the same category, the
+  same type (both untyped counts as the same) and the same colour set, never an empty one. #20 asks it
+  with **`sameBrand`**: a garment whose brand differs (both named, compared by `brandKey`, section 16) is
+  not a copy. A blank brand on either side is unknown and still matches: most garments have none (Dana's
+  closet), and colours already carry the rule's weight. 18b keeps asking without it, because "do I need
+  another?" is about the kind (the Allbirds beside the Vejas), while "is this a copy?" is about the
+  product. No second rule.
+- **Where it fires.**
+  - **The garment form, when the garment lands in the closet**: a new garment by hand, from the add
+    sheet's photo, or from a link (the link import's prefilled form is this form, so #6 and #129's
+    imports get it), and a clone of a closet garment. A region under Brand and Size, rendered with the
+    page (a link import or a clone arrives filled in) and refreshed as the form changes (a GET fragment
+    that reads the closet and writes nothing). At most 3 matches, newest first, each with its photo,
+    name and copies. Not on an edit (it is already a garment), a wishlist form or "Bought it" (18b judges
+    a wishlist item against the closet on its page, before buying).
+  - **MCP**: `add_garment_from_link` has no review step, so it cannot ask first. Saved to the closet, its
+    answer lists the `lookalikes` beside the garment, and the description tells Claude to ask the owner.
+    A new tool, `add_garment_copy`, adds copies to a garment through the web's writer.
+  - **Bulk paths**: none creates garments. Bulk edit and tagging mode change existing ones; the seed
+    writes the personas' bibles. Nothing to check.
+- **It never blocks a save.** The region is a suggestion beside Save, which saves as it always did. The
+  check is a read. A refresh that fails (offline, an error) leaves the region as it was.
+- **"Add a copy"** is a button on each match. It posts to that garment's `POST /wardrobe/:id/copies`
+  and lands on that garment's page with a toast. Owner and MANAGE grantee: quantity is a garment
+  property a grantee already sets. The buttons belong to a small form of their own after the garment
+  form (`form=`), never to the garment form: a submit button there would come before Save in tree
+  order and become the form's default button, so Enter in the name field would add a copy.
+  - **Quantity**: one more, up to `QUANTITY_MAX` (30). The button is absent at the cap, and the write
+    refuses past it (409). More than one ("bought two") is the garment page's edit afterwards. It runs
+    in `ownerTransaction`: the garment row locked, judged (in the closet, under the cap), then written,
+    with the owner lock's bounded wait, serialized with the re-plan, which reads availability.
+  - **Nothing from the form is saved.** The garment keeps its name, properties, price and date.
+  - **Photos**: the garment keeps its own. A pending photo the form held (a link import's, the add
+    sheet's) is left as Cancel leaves it: nightly reconciliation removes it once it is a day old, and it
+    counts toward the per-user cap of 10 until then (Images).
+  - **Wears, washes and repairs**: untouched. They belong to the garment and count days, so the new copy
+    starts clean: dirty copies are floor(wears / limit), capped at the quantity.
+  - **Price**: per copy. Insights' spend and cost per wear (both price × copies, #17, `perWearCost`) rise
+    by one price, as they would after editing the quantity. A different price paid for the new copy is
+    not recorded (one price per garment).
+- **Dismissing a false positive**: "Not the same" on the region adds the matches shown to a hidden list in
+  the form (`lookalikesDismissed`). Every refresh sends the list, so those matches stay away while the
+  form is open. A new match that a later change brings still shows. The list is posted with a refused
+  save and kept. Nothing is stored: the suggestion only exists while the form is open, and saving
+  answers it.
+- **Offline**: "Add a copy" carries `data-needs-network`, disabled with the explanation like every write.
+- **Seed**: no change. Cloning any of Theo's garments that has colours shows the garment itself. The
+  Playwright spec uses its own user.
+- **Out of scope**: image embeddings; matching on the name or notes; finding duplicates already in the
+  closet and merging two garments (their wears, outfits, capsules and photos would need merging); a
+  stored "not a duplicate" mark; a price per copy; the wishlist and "Bought it" (18b); MCP deleting the
+  garment it just saved (MCP never deletes: the owner does it in the app, then `add_garment_copy`).
+
 ## Delivery
 
 Each feature is its own GitHub issue (six) and ships alone. The work for each: its schema and migration
@@ -759,6 +818,7 @@ auto-plan and outfit selfies. The summaries below were the proposals; the sectio
 **Later** (worth doing, not yet): duplicate detection with image embeddings (Wardrowbe); generator rules ("never X with
 Y"); an inspiration library with "recreate this look"; order email import. (Care label and repair log,
 from Save Your Wardrobe, became section 17.) (Measurements and per-brand sizes, from Stylebook, became section 16.)
+(Duplicate detection became section 18, on metadata; image embeddings stay here.)
 
 **Skipped:** avatar try-on (a gimmick at household scale), and social feeds, polls and resale
 marketplaces (they need a user base).

@@ -5,6 +5,7 @@ import {
   MAX_DRAWS,
   OUTFIT_ORDER,
 } from './generator';
+import { brandKey } from './brands';
 import type { GarmentColor, GarmentRole } from './properties';
 
 /**
@@ -229,27 +230,52 @@ export interface Lookalike {
   category: string;
   type: string | null;
   colors: readonly GarmentColor[];
+  /** Compared only with `sameBrand`. */
+  brand?: string | null;
+}
+
+/** The garment judged: a saved one, or a form not yet saved (no id). */
+export type LookalikeProbe = Omit<Lookalike, 'id'> & { id?: number };
+
+export interface NearDuplicateOptions {
+  /**
+   * Also rule out a garment whose brand differs from the item's (#20, "add
+   * a copy"): a copy is the same product, while "do I need another?" (18b,
+   * the default) is about the kind, whoever made it.
+   */
+  sameBrand?: boolean;
 }
 
 /**
- * Closet garments near-identical to the item: "do I need this?". The same
- * category and type (both untyped counts as the same, as for a category
- * without types) and the same colours as a set, in any order. A garment
- * without colours is never one: unknown is not the same.
+ * Closet garments near-identical to the item: "do I need this?" (#18b, a
+ * wishlist item) and "is this a copy of one I own?" (#20, a new garment,
+ * with `sameBrand`). The same category and type (both untyped counts as the
+ * same, as for a category without types) and the same colours as a set, in
+ * any order. A garment without colours is never one: unknown is not the
+ * same. A blank brand is the opposite, unknown and not different: most
+ * garments have none, and the colours already carry the rule.
  */
 export function nearDuplicates<L extends Lookalike>(
-  item: Lookalike,
+  item: LookalikeProbe,
   closet: readonly L[],
+  { sameBrand = false }: NearDuplicateOptions = {},
 ): L[] {
   const colors = new Set(item.colors);
   if (colors.size === 0) return [];
+  const brand = sameBrand ? brandKey(item.brand ?? '') : '';
   return closet.filter(
     (garment) =>
       garment.id !== item.id &&
       garment.category === item.category &&
       garment.type === item.type &&
-      sameSet(colors, new Set(garment.colors)),
+      sameSet(colors, new Set(garment.colors)) &&
+      !differentBrands(brand, brandKey(garment.brand ?? '')),
   );
+}
+
+/** Both named, and not the same brand; '' (no brand, or not asked) never differs. */
+function differentBrands(a: string, b: string): boolean {
+  return a !== '' && b !== '' && a !== b;
 }
 
 function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {

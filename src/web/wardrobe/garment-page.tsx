@@ -93,6 +93,8 @@ export interface GarmentPageModel {
   justSavedPhoto: boolean;
   justBought: boolean;
   justLoggedRepair: boolean;
+  /** "Add a copy" from a new garment's form (#20) landed here. */
+  justAddedCopy: boolean;
 }
 
 const PHOTO_SHEET_ID = 'garment-photo-sheet';
@@ -114,6 +116,7 @@ const GARMENT_PAGE_FLAGS = [
   'photoSaved',
   'bought',
   'repairSaved',
+  'copyAdded',
 ] as const;
 
 /**
@@ -298,6 +301,9 @@ function Toasts({ model }: { model: GarmentPageModel }) {
       )}
       {model.justLoggedRepair && (
         <SavedToast id="repair-saved-toast" text={t('care.REPAIR_SAVED')} />
+      )}
+      {model.justAddedCopy && (
+        <SavedToast id="copy-added-toast" text={t('lookalikes.COPY_ADDED')} />
       )}
       <StripFlags names={GARMENT_PAGE_FLAGS} />
     </>

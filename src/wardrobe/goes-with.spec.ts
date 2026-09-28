@@ -318,4 +318,41 @@ describe('nearDuplicates', () => {
     ).toEqual([]);
     expect(nearDuplicates(item, [item])).toEqual([]);
   });
+
+  it('ignores brands unless asked for the same brand', () => {
+    const uniqlo = { ...item, brand: 'Uniqlo' };
+    const cos = { ...lookalike(2, 'tops', 'sweater', ['grey']), brand: 'COS' };
+    const other = { ...cos, colors: ['blue', 'grey'] as GarmentColor[] };
+    expect(nearDuplicates(uniqlo, [other])).toEqual([other]);
+    expect(nearDuplicates(uniqlo, [other], { sameBrand: true })).toEqual([]);
+  });
+
+  it('with the same brand, matches its spellings and a blank brand on either side', () => {
+    const probe = {
+      category: 'tops',
+      type: 'sweater',
+      colors: ['grey', 'blue'] as GarmentColor[],
+      brand: ' UNIQLO ',
+    };
+    const spelled = {
+      ...lookalike(2, 'tops', 'sweater', ['blue', 'grey']),
+      brand: 'uniqlo',
+    };
+    const blank = {
+      ...lookalike(3, 'tops', 'sweater', ['grey', 'blue']),
+      brand: null,
+    };
+    expect(
+      nearDuplicates(probe, [spelled, blank], { sameBrand: true }),
+    ).toEqual([spelled, blank]);
+    expect(
+      nearDuplicates({ ...probe, brand: '' }, [spelled], { sameBrand: true }),
+    ).toEqual([spelled]);
+  });
+
+  it('judges a form not yet saved, which has no id', () => {
+    const unsaved = { category: 'tops', type: 'sweater', colors: item.colors };
+    const same = lookalike(1, 'tops', 'sweater', ['grey', 'blue']);
+    expect(nearDuplicates(unsaved, [same])).toEqual([same]);
+  });
 });
