@@ -21,6 +21,7 @@ import { insertUser } from '../../src/web/auth/queries';
 import { type IsoDate, todayIn } from '../../src/web/calendar/calendar-date';
 import type { Photos } from '../../src/web/files/photos';
 import type { PushSender } from '../../src/web/push/sender';
+import type { Metrics } from '../../src/metrics/metrics';
 import { LogCapture } from '../support/log-capture';
 import { createScratchDatabase } from '../support/scratch-database';
 
@@ -152,6 +153,8 @@ export interface TestApp {
    * them in the harness.
    */
   push: PushSender | undefined;
+  /** The app's metrics (what GET /metrics exposes with METRICS_ENABLED). */
+  metrics: Metrics;
   /** The user registered at boot, whose session t.inject() sends by default. */
   owner: TestUser;
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
@@ -239,12 +242,17 @@ export async function createTestApp(
   let photos: Photos;
   let cutouts: CutoutQueue;
   let push: PushSender | undefined;
+  let metrics: Metrics;
   try {
     await options.beforeBoot?.(database.env);
-    ({ app, db, photos, cutouts, push } = await createApp(config, logger, {
-      outboundFetch: options.outboundFetch,
-      weather: options.weather,
-    }));
+    ({ app, db, photos, cutouts, push, metrics } = await createApp(
+      config,
+      logger,
+      {
+        outboundFetch: options.outboundFetch,
+        weather: options.weather,
+      },
+    ));
     await app.ready();
   } catch (error) {
     // A failing boot (typically a migration) must not leak the database.
@@ -326,6 +334,7 @@ export async function createTestApp(
     photos,
     cutouts,
     push,
+    metrics,
     owner,
     inject,
     db,

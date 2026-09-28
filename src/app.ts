@@ -7,10 +7,13 @@ import Fastify, { type FastifyInstance, LogController } from 'fastify';
 import { join } from 'node:path';
 import { BUILD_INFO } from './build-info';
 import { type Config, trustedProxies } from './config';
+import { countPendingCutouts } from './cutout/queries';
 import { CutoutQueue } from './cutout/queue';
 import { createDb, type Db, dbConfig } from './db/client';
 import { runMigrations } from './db/migrate';
 import type { Logger } from './logger';
+import { registerHttpMetrics } from './metrics/http';
+import { Metrics } from './metrics/metrics';
 import { PROJECT_ROOT } from './project-root';
 import { isStaticPath } from './static-prefixes';
 import { createSessionResolver } from './web/auth/session';
@@ -63,6 +66,11 @@ export interface ClosetApp {
   push: PushSender | undefined;
   /** The weather, when WEATHER_ENABLED: the reminders' forecast line. */
   weather: WeatherService | undefined;
+  /**
+   * The process's metrics (src/metrics/): recorded always, exposed at
+   * GET /metrics only with METRICS_ENABLED; server.ts times its jobs here.
+   */
+  metrics: Metrics;
 }
 
 export interface AppOptions {
@@ -113,6 +121,14 @@ export async function createApp(
     `Build ${BUILD_INFO.version} (${BUILD_INFO.commit ?? 'no commit'}), static cache key ${BUILD_INFO.assetVersion}`,
   );
 
+  boot.info(
+    `Metrics: ${config.METRICS_ENABLED ? 'on (GET /metrics, POST /metrics/vitals)' : 'off (METRICS_ENABLED=false)'}`,
+  );
+  const metrics = new Metrics({
+    enabled: config.METRICS_ENABLED,
+    logger: logger.child({ context: 'Metrics' }),
+  });
+
   const database = dbConfig(config);
   // Before anything queries: the schema is current or the boot fails.
   await runMigrations(database, logger.child({ context: 'Migrations' }));
@@ -128,7 +144,9 @@ export async function createApp(
     photos,
     logger: logger.child({ context: 'Cutout' }),
     pollMs: config.CUTOUT_POLL_SECONDS * 1000,
+    metrics,
   });
+  metrics.trackCutoutQueue(() => countPendingCutouts(db));
   // The only fetcher of user-supplied URLs (the link import); one per
   // process, handed to the web layer like Photos.
   const fetcher = createOutboundFetcher({
@@ -147,7 +165,12 @@ export async function createApp(
     : undefined;
   const push =
     vapid &&
-    createPushSender({ db, logger: logger.child({ context: 'Push' }), vapid });
+    createPushSender({
+      db,
+      logger: logger.child({ context: 'Push' }),
+      vapid,
+      metrics,
+    });
 
   const app = Fastify({
     trustProxy,
@@ -161,6 +184,11 @@ export async function createApp(
     await Promise.all([cutouts.stop(), weather?.settled()]);
     await db.$client.end();
   });
+
+  // First of all the hooks: the request's timing (Server-Timing) must be in
+  // place before any hook queries, and every route's template is noted as
+  // it is registered.
+  registerHttpMetrics(app, metrics);
 
   // CSRF: every POST/PUT/PATCH/DELETE must come from this site's own pages.
   // onRequest, so it precedes every route and the body is never read; see
@@ -194,6 +222,7 @@ export async function createApp(
     registrationDisabled: config.DISABLE_REGISTRATION,
     pwaEnabled: config.PWA_ENABLED,
     weatherEnabled: weather !== undefined,
+    metricsEnabled: config.METRICS_ENABLED,
   });
   // Declared up front so every request object has the same shape; the hook
   // below fills them (both stay undefined on static paths).
@@ -277,9 +306,10 @@ export async function createApp(
     weather,
     mcpLogger: logger.child({ context: 'Mcp' }),
     push,
+    metrics,
   });
 
-  return { app, db, photos, cutouts, push, weather };
+  return { app, db, photos, cutouts, push, weather, metrics };
 }
 
 /**

@@ -19,6 +19,9 @@ export const STATIC_FILES = [
   // Connectivity heartbeat (public/js/connectivity.js): a probe must never
   // cost a JWT verification or a user query.
   '/healthz',
+  // The metrics scrape (src/web/metrics), every 15 s: no session, no
+  // request log line.
+  '/metrics',
   '/favicon.ico',
   '/robots.txt',
   '/llms.txt',

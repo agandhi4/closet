@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { JSX } from 'hono/jsx/jsx-runtime';
 import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
+import { timeRender } from '../metrics/request-timing';
 import { PAGE_ACCOUNT_HEADER } from './page-cache';
 
 const HTML = 'text/html; charset=utf-8';
@@ -31,7 +32,8 @@ export async function renderPage(
   page: JSX.Element,
   options: RenderOptions = {},
 ): Promise<FastifyReply> {
-  return send(reply, `<!DOCTYPE html>${await renderToString(page)}`, options);
+  const html = await timeRender(() => renderToString(page));
+  return send(reply, `<!DOCTYPE html>${html}`, options);
 }
 
 /** Sends an htmx swap target: markup without the layout around it. */
@@ -40,7 +42,7 @@ export async function renderFragment(
   fragment: JSX.Element,
   options: RenderOptions = {},
 ): Promise<FastifyReply> {
-  return send(reply, await renderToString(fragment), options);
+  return send(reply, await timeRender(() => renderToString(fragment)), options);
 }
 
 /**

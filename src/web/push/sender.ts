@@ -2,6 +2,7 @@ import { isPushServiceEndpoint } from './endpoint';
 import webpush from 'web-push';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
+import type { Metrics } from '../../metrics/metrics';
 import type { PushPayload } from './payload';
 import { deleteDeviceById, type DeviceRow, devicesOf } from './queries';
 
@@ -76,8 +77,10 @@ export function createPushSender(options: {
   db: Db;
   logger: Logger;
   vapid: VapidConfig;
+  /** Every device's outcome, as push_sends_total{outcome}. */
+  metrics: Metrics;
 }): PushSender {
-  const { db, logger, vapid } = options;
+  const { db, logger, vapid, metrics } = options;
   webpush.getVapidHeaders(
     new URL(vapid.subject).origin,
     vapid.subject,
@@ -153,10 +156,12 @@ export function createPushSender(options: {
     settled.forEach((result, index) => {
       if (result.status === 'fulfilled') {
         report[result.value] += 1;
+        metrics.countPushSend(result.value);
         return;
       }
       // Only the prune can get here (a database error deleting the row).
       report.failed += 1;
+      metrics.countPushSend('failed');
       logger.error(
         { err: result.reason },
         `Push to device ${devices[index].id} of user ${userId}: could not remove the gone device`,

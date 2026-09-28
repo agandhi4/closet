@@ -30,6 +30,7 @@ CLOSET_DB_PORT=5433
 CLOSET_WEB_NETWORK=linuxbox_web
 TRUSTED_PROXIES=172.23.0.0/16      # linuxbox_web: Caddy is the edge here, so X-Forwarded-For is the real client
 CLOSET_MODELS_DIR=/srv/docker/closet/models
+METRICS_ENABLED=true               # GET /metrics for vmagent on the Docker network (homelab #39); src/metrics/CLAUDE.md
 # APP_TIMEZONE defaults to America/New_York in the compose file
 ```
 

@@ -297,6 +297,7 @@ describe('cutout queue: notifications from another process', () => {
       photos: t.photos,
       logger: t.logger.child({ context: 'Cutout' }),
       pollMs: 3_600_000,
+      metrics: t.metrics,
     });
     try {
       const connects = listenerConnects(t);
@@ -435,6 +436,7 @@ describe('cutout queue: the idle poll', () => {
       photos: t.photos,
       logger: t.logger.child({ context: 'Cutout' }),
       pollMs: 1_000,
+      metrics: t.metrics,
     });
   }
 

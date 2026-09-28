@@ -112,6 +112,11 @@ export const ConfigSchema = Type.Object({
   // fetched, no location is stored (the routes that take one are gone) and
   // no page shows weather.
   WEATHER_ENABLED: Type.Boolean({ default: true }),
+  // Prometheus metrics (src/metrics/): GET /metrics for the homelab's
+  // vmagent, which scrapes the container over the Docker network, and the
+  // devices' timing beacon (POST /metrics/vitals). Off: neither route exists
+  // and pages load no timing script.
+  METRICS_ENABLED: Type.Boolean({ default: false }),
 });
 
 export type Config = Static<typeof ConfigSchema>;

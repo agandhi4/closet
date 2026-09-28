@@ -11,8 +11,7 @@ import type { Logger } from '../../logger';
  * once at the root by createApp() with `global: false`: nothing is limited
  * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
  * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, WEATHER_SEARCH_LIMIT, WEATHER_LOCATION_LIMIT,
- * MCP_LIMIT). Every limited route counts
- * on its own. Counters live in
+ * VITALS_LIMIT, MCP_LIMIT). Every limited route counts on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
  * The client address is `request.ip`, which Fastify takes from
@@ -120,6 +119,20 @@ export const WEATHER_SEARCH_LIMIT: RateLimitOptions = {
  */
 export const WEATHER_LOCATION_LIMIT: RateLimitOptions = {
   max: 10,
+  timeWindow: '1 minute',
+  hook: 'preHandler',
+  keyGenerator: (request) => `user ${request.auth!.user.id}`,
+};
+
+/**
+ * The devices' timing beacon (POST /metrics/vitals, src/web/metrics): per
+ * signed-in user, like ACCOUNT_LIMIT. public/js/vitals.js sends a batch at
+ * most every few seconds while pages change and once as a page hides, so a
+ * busy minute of taps is a handful; this is a ceiling on a device (or a
+ * script with a session) filling the histograms.
+ */
+export const VITALS_LIMIT: RateLimitOptions = {
+  max: 30,
   timeWindow: '1 minute',
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,

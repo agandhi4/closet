@@ -63,6 +63,7 @@ src/
                        (its files, the MikroORM adoption and the gotchas: src/db/CLAUDE.md)
   maintenance/         the nightly and minutely timers, storage reconciliation, the CLIs
                        (src/maintenance/CLAUDE.md)
+  metrics/             Prometheus metrics, Server-Timing, the device timings: src/metrics/CLAUDE.md
   cutout/              Background removal (see Background removal):
                        src/cutout/CLAUDE.md
   wardrobe/            The garment model, pure (no database, web or strings): src/wardrobe/CLAUDE.md
@@ -119,6 +120,7 @@ Each area's detail lives in a `CLAUDE.md` beside its code. Claude Code loads one
 | Layout | `src/web/layout/CLAUDE.md` | the app bar, the dock, sections, stacking, a page's `<main>` |
 | Database | `src/db/CLAUDE.md` | schema internals, drizzle-kit traps, the MikroORM-era adoption |
 | Maintenance | `src/maintenance/CLAUDE.md` | the timers, storage reconciliation, the CLIs |
+| Metrics | `src/metrics/CLAUDE.md` | `/metrics`, Server-Timing, the device timings, a new timer or label |
 | Tests | `test/CLAUDE.md` | the integration harness, Playwright's server, Vitest traps |
 | Deployment (not auto-loaded) | `docs/deployment.md` | production, its env, recovery, CI publishing |
 
@@ -172,7 +174,7 @@ The detail of each rule, its code and its spec: `src/web/security/CLAUDE.md`. Wh
 
 ### Logging
 
-`createLogger(config)` (`src/logger.ts`) is the process's pino logger: LOG_LEVEL for both outputs, pino-pretty in a worker thread to stdout and to `DATA_PATH/app.log` (flushed on exit), `cookie`, `authorization` and `set-cookie` redacted wherever a `req`/`res` is logged. Every module takes a child named for it (`logger.child({ context: 'Photos' })`; contexts: Bootstrap, Migrations, Db, Photos, Cutout, CutoutModel, Security, RateLimit, Session, OutboundFetch, Weather, Push, WeekPlan, Web, Http, Fastify, Mcp, Reconciliation, Scheduler, SetPassword, RevokePush, Seed), so lines are filterable in app.log and Loki. Fastify gets the `Fastify` child (its own startup and internal warnings) with its request logging off: the root onResponse hook writes the one header-free line per request, skipping static paths.
+`createLogger(config)` (`src/logger.ts`) is the process's pino logger: LOG_LEVEL for both outputs, pino-pretty in a worker thread to stdout and to `DATA_PATH/app.log` (flushed on exit), `cookie`, `authorization` and `set-cookie` redacted wherever a `req`/`res` is logged. Every module takes a child named for it (`logger.child({ context: 'Photos' })`; contexts: Bootstrap, Migrations, Db, Photos, Cutout, CutoutModel, Security, RateLimit, Session, OutboundFetch, Weather, Push, WeekPlan, Web, Http, Fastify, Mcp, Reconciliation, Scheduler, Metrics, SetPassword, RevokePush, Seed), so lines are filterable in app.log and Loki. Fastify gets the `Fastify` child (its own startup and internal warnings) with its request logging off: the root onResponse hook writes the one header-free line per request, skipping static paths.
 
 ## Conventions
 

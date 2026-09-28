@@ -13,6 +13,8 @@ import { galleryRoutes } from './gallery/routes';
 import { insightsRoutes } from './insights/routes';
 import type { Photos } from './files/photos';
 import type { Logger } from '../logger';
+import type { Metrics } from '../metrics/metrics';
+import { metricsRoutes } from './metrics/routes';
 import { outfitRoutes } from './outfits/routes';
 import { planRoutes } from './plans/routes';
 import { shoppingRoutes } from './plans/shopping-routes';
@@ -78,6 +80,11 @@ export interface WebOptions {
    * profile's test send uses it, and server.ts's reminders.
    */
   push: PushSender | undefined;
+  /**
+   * The process's metrics (src/metrics/metrics.ts): MCP calls are timed
+   * into it, and with METRICS_ENABLED /metrics and the device beacon exist.
+   */
+  metrics: Metrics;
 }
 
 /**
@@ -144,4 +151,6 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   }
   await app.register(fileRoutes, options);
   await app.register(shareRoutes, options);
+  // METRICS_ENABLED=false: no /metrics and no beacon (src/web/metrics).
+  if (options.metrics.enabled) await app.register(metricsRoutes, options);
 };

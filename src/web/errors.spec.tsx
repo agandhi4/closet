@@ -20,6 +20,7 @@ const ctx: ViewContext = {
   signupsDisabled: false,
   pwaEnabled: false,
   weatherEnabled: false,
+  metricsEnabled: false,
   appVersion: '1.0.0+test',
   appRelease: '1.0.0',
   canonicalUrl: 'http://localhost/boom',

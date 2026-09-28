@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Db, DbConfig } from '../db/client';
 import type { Logger } from '../logger';
+import type { JobOutcome, Metrics } from '../metrics/metrics';
 import type { Photos } from '../web/files/photos';
 import { settlesWithin } from './deadline';
 import { CutoutListener } from './listener';
@@ -36,6 +37,8 @@ export interface CutoutQueueDeps {
   logger: Logger;
   /** How long an idle queue waits before looking again unasked (CUTOUT_POLL_SECONDS). */
   pollMs: number;
+  /** Each job's run time and ending, as job_duration_seconds{name="cutout"}. */
+  metrics: Metrics;
 }
 
 /**
@@ -184,7 +187,13 @@ export class CutoutQueue {
           );
         }
         polling = false;
-        await this.process(job, runner, worker, halt);
+        const startedAt = performance.now();
+        const outcome = await this.process(job, runner, worker, halt);
+        this.deps.metrics.observeJob(
+          'cutout',
+          outcome,
+          (performance.now() - startedAt) / 1000,
+        );
         continue;
       }
       this.settleIdle(asked);
@@ -220,12 +229,13 @@ export class CutoutQueue {
     return false;
   }
 
+  // Answers how the job ended, for its metric.
   private async process(
     job: CutoutJob,
     runner: CutoutRunner,
     worker: string,
     halt: AbortSignal,
-  ): Promise<void> {
+  ): Promise<JobOutcome> {
     const { photos, logger } = this.deps;
     const startedAt = Date.now();
     const queuedMs =
@@ -258,24 +268,25 @@ export class CutoutQueue {
         logger.info(
           `Cutout ready: ${label}, version ${outcome.state.version}; ${timing}`,
         );
-      } else {
-        // The photo was edited, replaced or requeued while the job ran.
-        const lease =
-          outcome.reason === 'stale'
-            ? `; ${await this.release(job, label, worker)}`
-            : '';
-        logger.info(
-          `Cutout discarded (${outcome.reason}): ${label}; ${timing}${lease}`,
-        );
+        return 'ok';
       }
+      // The photo was edited, replaced or requeued while the job ran.
+      const lease =
+        outcome.reason === 'stale'
+          ? `; ${await this.release(job, label, worker)}`
+          : '';
+      logger.info(
+        `Cutout discarded (${outcome.reason}): ${label}; ${timing}${lease}`,
+      );
+      return 'discarded';
     } catch (error) {
       if (halt.aborted) {
         logger.info(
           `Cutout interrupted by shutdown: ${label}; stays pending, ${await this.release(job, label, worker)}`,
         );
-        return;
+        return 'interrupted';
       }
-      await this.fail(job, label, worker, startedAt, error);
+      return this.fail(job, label, worker, startedAt, error);
     }
   }
 
@@ -325,7 +336,7 @@ export class CutoutQueue {
     worker: string,
     startedAt: number,
     error: unknown,
-  ): Promise<void> {
+  ): Promise<JobOutcome> {
     const { db, logger } = this.deps;
     const elapsed = `after ${Date.now() - startedAt} ms`;
     try {
@@ -335,7 +346,7 @@ export class CutoutQueue {
       });
       if (!outcome.ok && outcome.reason === 'gone') {
         logger.info(`Cutout discarded (gone): ${label}, ${elapsed}`);
-        return;
+        return 'discarded';
       }
       let recorded = '';
       if (!outcome.ok) {
@@ -360,6 +371,7 @@ export class CutoutQueue {
         `Could not record failure of ${label}`,
       );
     }
+    return 'error';
   }
 
   // Waits `ms`, or less when woken or halted: which one ended it. Halted

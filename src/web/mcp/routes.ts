@@ -44,8 +44,17 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
   options,
   done,
 ) => {
-  const { db, photos, cutouts, fetcher, weather, config, logger, mcpLogger } =
-    options;
+  const {
+    db,
+    photos,
+    cutouts,
+    fetcher,
+    weather,
+    config,
+    logger,
+    mcpLogger,
+    metrics,
+  } = options;
   const tools = mcpTools({ weather: weather !== undefined });
   const linkImportLimit = app.createRateLimit(MCP_LINK_IMPORT_LIMIT);
 
@@ -97,6 +106,7 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
       registerTools(server, tools, context, {
         logger: mcpLogger,
         tokenId: auth.tokenId,
+        metrics,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({
         // Stateless: every request stands alone, nothing is kept between.

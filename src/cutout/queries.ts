@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../db/client';
 import { file, garment } from '../db/schema';
 import { CUTOUT_TIMEOUT_MS } from './runner';
@@ -196,6 +196,15 @@ export function claimNextCutout(
       lapsedWorker: row.worker,
     };
   });
+}
+
+/** Photos waiting for the queue, a job in flight included: its depth metric. */
+export async function countPendingCutouts(db: Db): Promise<number> {
+  const [row] = await db
+    .select({ pending: count() })
+    .from(file)
+    .where(eq(file.cutoutStatus, 'pending'));
+  return row.pending;
 }
 
 /** Stored names of failed cutouts with fewer than `maxAttempts` runs. */

@@ -493,6 +493,7 @@ describe('push reminders', () => {
         sender: createPushSender({
           db: other,
           logger,
+          metrics: t.metrics,
           vapid: {
             subject: PWA_ENV.SITE_URL,
             publicKey: PWA_ENV.PUBLIC_VAPID_KEY,

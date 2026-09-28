@@ -17,6 +17,9 @@ for (const [key, value] of Object.entries(committedEnv)) {
 // specs only sign in through the app, so a fresh one per run will do unless
 // the caller (CI) passes its own. The webServer inherits process.env.
 process.env.ACCESS_TOKEN_SECRET ??= randomBytes(32).toString('hex');
+// Production runs with the metrics on: the pages load the timing beacon
+// (public/js/vitals.js), and test/metrics.spec.ts reads /metrics.
+process.env.METRICS_ENABLED ??= 'true';
 
 /**
  * See https://playwright.dev/docs/test-configuration.

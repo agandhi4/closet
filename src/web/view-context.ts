@@ -21,6 +21,8 @@ export interface ViewContext {
   pwaEnabled: boolean;
   /** WEATHER_ENABLED: pages render the weather's slots (src/web/weather/views.tsx). */
   weatherEnabled: boolean;
+  /** METRICS_ENABLED: signed-in pages load the timing beacon (public/js/vitals.js). */
+  metricsEnabled: boolean;
   /** `?v=` on every first-party static URL; see src/build-info.ts. */
   appVersion: string;
   /** package.json version, shown on /about. */
@@ -54,6 +56,7 @@ export interface ViewContextConfig {
   registrationDisabled: boolean;
   pwaEnabled: boolean;
   weatherEnabled: boolean;
+  metricsEnabled: boolean;
 }
 
 /**
@@ -79,6 +82,7 @@ export function createViewContextBuilder(config: ViewContextConfig) {
       signupsDisabled: config.registrationDisabled,
       pwaEnabled: config.pwaEnabled,
       weatherEnabled: config.weatherEnabled,
+      metricsEnabled: config.metricsEnabled,
       appVersion: BUILD_INFO.assetVersion,
       appRelease: BUILD_INFO.version,
       canonicalUrl,

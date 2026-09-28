@@ -4,9 +4,13 @@ import {
   type NodePgQueryResultHKT,
 } from 'drizzle-orm/node-postgres';
 import type { PgDatabase } from 'drizzle-orm/pg-core';
-import { type ClientConfig, Pool } from 'pg';
+import { type ClientConfig, Pool, type PoolClient, type PoolConfig } from 'pg';
 import type { Config } from '../config';
 import type { Logger } from '../logger';
+import {
+  currentRequestTiming,
+  type RequestTiming,
+} from '../metrics/request-timing';
 import * as schema from './schema';
 
 /**
@@ -71,7 +75,7 @@ const POOL_IDLE_TIMEOUT_MS = 30_000;
  * lifetime: `db.$client.end()` on shutdown.
  */
 export function createDb(config: DbConfig, logger: Logger): Db {
-  const pool = new Pool({
+  const pool = new TimedPool({
     ...connectionOptions(config),
     max: POOL_MAX,
     min: POOL_MIN,
@@ -87,4 +91,65 @@ export function createDb(config: DbConfig, logger: Logger): Db {
     `Drizzle pool for ${config.database} on ${config.host}:${config.port} (max ${POOL_MAX}, min ${POOL_MIN})`,
   );
   return drizzle(pool, { schema });
+}
+
+/**
+ * A Pool that adds, to the request it serves, the time from asking for a
+ * connection to giving it back: the `db` of Server-Timing
+ * (src/metrics/request-timing.ts). Drizzle reaches the pool two ways, both
+ * through connect(): `pool.query` connects and releases around one query,
+ * and a transaction holds one connection throughout. The request is read
+ * when connect() is called, in the caller's async context; the pool's own
+ * callbacks may run in another request's (a waiting connect is served from
+ * whoever releases), so they only carry what was captured here. `release`
+ * is the pool's own event, emitted synchronously as a client is returned.
+ */
+class TimedPool extends Pool {
+  private readonly held = new WeakMap<
+    PoolClient,
+    { timing: RequestTiming; since: number }
+  >();
+
+  constructor(config: PoolConfig) {
+    super(config);
+    this.on('release', (_error, client) => {
+      const hold = this.held.get(client);
+      if (!hold) return;
+      this.held.delete(client);
+      hold.timing.dbMs += performance.now() - hold.since;
+    });
+  }
+
+  override connect(): Promise<PoolClient>;
+  override connect(
+    callback: (
+      err: Error | undefined,
+      client: PoolClient | undefined,
+      done: (release?: unknown) => void,
+    ) => void,
+  ): void;
+  override connect(
+    callback?: (
+      err: Error | undefined,
+      client: PoolClient | undefined,
+      done: (release?: unknown) => void,
+    ) => void,
+  ): Promise<PoolClient> | void {
+    const timing = currentRequestTiming();
+    const since = performance.now();
+    const hold = (client: PoolClient | undefined) => {
+      if (timing && client) this.held.set(client, { timing, since });
+    };
+    if (callback) {
+      super.connect((err, client, done) => {
+        hold(client);
+        callback(err, client, done);
+      });
+      return;
+    }
+    return super.connect().then((client) => {
+      hold(client);
+      return client;
+    });
+  }
 }

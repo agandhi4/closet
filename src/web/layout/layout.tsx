@@ -156,6 +156,13 @@ export function Layout({
           // never re-run it.
           <script type="module" src={`/js/pwa.js${v}`}></script>
         )}
+        {ctx.metricsEnabled && ctx.user && (
+          // The device's page-load, htmx and interaction timings, beaconed
+          // to POST /metrics/vitals (session-only, so signed-in pages only).
+          // A module: deferred, never blocks rendering; in the head, so it
+          // runs once per document and sees every boosted navigation.
+          <script type="module" src={`/js/vitals.js${v}`}></script>
+        )}
       </head>
 
       {/* hx-boost swaps the body on every link and form

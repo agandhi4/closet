@@ -106,6 +106,7 @@ The token acts as you, shares included: a wardrobe shared with you read-only sta
 | `CUTOUT_THREADS`                   | CPU threads the background-removal model uses                                       | `4`                     | `8`                                                                                       |
 | `CUTOUT_POLL_SECONDS`              | How often an idle cutout queue looks for photos no notification announced (a backstop: writes notify it at once) | `60` | `30` |
 | `WEATHER_ENABLED`                  | Weather forecasts (Open-Meteo, fetched by the server for each user's location rounded to about 1 km) on the page headers, the calendar and the MCP tools. `false` fetches nothing and stores no location | `true` | `false` |
+| `METRICS_ENABLED`                  | Prometheus metrics at `GET /metrics` (request, job, push, MCP and device timings) for a scraper on the container's network; a request that came through a proxy (`X-Forwarded-For`) gets a 404 there. Pages then send their timings to `POST /metrics/vitals` | `false` | `true` |
 | `PUBLIC_VAPID_KEY`                 | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>` |
 | `PRIVATE_VAPID_KEY`                | Web push - required when `PWA_ENABLED=true`, generate with `npx web-push generate-vapid-keys` | -                | `<from web-push>`                                             |
 

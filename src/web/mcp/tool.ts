@@ -3,6 +3,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type * as z from 'zod/v4';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
+import type { McpOutcome, Metrics } from '../../metrics/metrics';
 import { describeError } from '../errors';
 import type { Photos } from '../files/photos';
 import type { OutboundFetcher } from '../security/outbound-fetch';
@@ -99,6 +100,11 @@ export class ImageAnswer {
 /** Why a call ended, for the log line. */
 type Outcome = 'ok' | `refused ${number}` | 'error';
 
+// The metric's outcome drops the refusal's status (a closed label set).
+function metricOutcome(outcome: Outcome): McpOutcome {
+  return outcome === 'ok' || outcome === 'error' ? outcome : 'refused';
+}
+
 function textResult(value: unknown, isError = false): CallToolResult {
   return {
     content: [{ type: 'text', text: JSON.stringify(value) }],
@@ -132,7 +138,7 @@ export function registerTools(
   server: McpServer,
   tools: readonly ClosetTool<z.ZodObject>[],
   ctx: ToolContext,
-  log: { logger: Logger; tokenId: number },
+  log: { logger: Logger; tokenId: number; metrics: Metrics },
 ): void {
   for (const tool of tools) {
     server.registerTool(
@@ -167,8 +173,14 @@ export function registerTools(
           }
           return textResult({ error: message }, true);
         } finally {
+          const elapsedMs = performance.now() - started;
           log.logger.info(
-            `MCP ${tool.name} by user ${ctx.userId} (token ${log.tokenId}): ${outcome} ${(performance.now() - started).toFixed(1)}ms`,
+            `MCP ${tool.name} by user ${ctx.userId} (token ${log.tokenId}): ${outcome} ${elapsedMs.toFixed(1)}ms`,
+          );
+          log.metrics.observeMcpCall(
+            tool.name,
+            metricOutcome(outcome),
+            elapsedMs / 1000,
           );
         }
       },

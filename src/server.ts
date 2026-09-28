@@ -5,6 +5,7 @@ import { type CutoutQueue, retryFailedCutouts } from './cutout/queue';
 import type { CutoutRunner } from './cutout/runner';
 import type { Db } from './db/client';
 import type { Logger } from './logger';
+import type { Metrics } from './metrics/metrics';
 import { scheduleMinutely } from './maintenance/minutely';
 import { scheduleNightly } from './maintenance/nightly';
 import { reconcileStorage } from './maintenance/reconcile';
@@ -44,7 +45,7 @@ export async function serve(
   runner: CutoutRunner,
   options: AppOptions = {},
 ): Promise<FastifyInstance> {
-  const { app, db, photos, cutouts, push, weather } = await createApp(
+  const { app, db, photos, cutouts, push, weather, metrics } = await createApp(
     config,
     logger,
     options,
@@ -60,7 +61,9 @@ export async function serve(
         name: 'Storage reconciliation',
         hour: RECONCILE_HOUR,
         timeZone: config.APP_TIMEZONE,
-        run: () => reconcileStorage({ db, photos, logger: reconciliation }),
+        run: metrics.timeJob('reconciliation', () =>
+          reconcileStorage({ db, photos, logger: reconciliation }),
+        ),
         logger: reconciliation,
       }),
     );
@@ -69,7 +72,7 @@ export async function serve(
       'Storage reconciliation disabled (MAINTENANCE_ENABLED=false)',
     );
   }
-  jobs.push(startCutouts(config, logger, db, cutouts, runner));
+  jobs.push(startCutouts(config, logger, metrics, db, cutouts, runner));
   // One set of re-plan deps: the minutely run and the morning reminder's
   // re-plan first (src/web/push/reminders.ts) are the same re-plan.
   const replan: ReplanDeps = {
@@ -79,8 +82,10 @@ export async function serve(
     timeZone: config.APP_TIMEZONE,
     logger: logger.child({ context: 'WeekPlan' }),
   };
-  if (push) jobs.push(...startReminders(config, logger, push, replan));
-  jobs.push(...startReplans(config, replan));
+  if (push) {
+    jobs.push(...startReminders(config, logger, metrics, push, replan));
+  }
+  jobs.push(...startReplans(config, metrics, replan));
   // Before listen(): Fastify takes no hooks once it is ready.
   stopBeforeClose(app, jobs, logger.child({ context: 'Scheduler' }));
 
@@ -106,6 +111,7 @@ export async function serve(
 function startCutouts(
   config: Config,
   logger: Logger,
+  metrics: Metrics,
   db: Db,
   cutouts: CutoutQueue,
   runner: CutoutRunner,
@@ -116,9 +122,9 @@ function startCutouts(
     name: 'Cutout retry',
     hour: RECONCILE_HOUR,
     timeZone: config.APP_TIMEZONE,
-    run: async () => {
+    run: metrics.timeJob('cutout_retry', async () => {
       if ((await retryFailedCutouts(db, log)) > 0) cutouts.wake();
-    },
+    }),
     logger: log,
   });
 }
@@ -129,6 +135,7 @@ function startCutouts(
 function startReminders(
   config: Config,
   logger: Logger,
+  metrics: Metrics,
   sender: PushSender,
   replan: ReplanDeps,
 ): ScheduledJob[] {
@@ -143,18 +150,21 @@ function startReminders(
   };
   const reminders = scheduleMinutely({
     name: 'Push reminders',
-    run: (now) => sendDueReminders(deps, now),
+    run: metrics.timeJob('reminders', (now: Date) =>
+      sendDueReminders(deps, now),
+    ),
     logger: log,
   });
   const prune = scheduleNightly({
     name: 'Reminder claims prune',
     hour: RECONCILE_HOUR,
     timeZone: config.APP_TIMEZONE,
-    run: () =>
+    run: metrics.timeJob('reminder_prune', () =>
       pruneReminders(
         deps,
         addDays(todayIn(config.APP_TIMEZONE, new Date()), -1),
       ),
+    ),
     logger: log,
   });
   return [reminders, prune];
@@ -166,18 +176,23 @@ function startReminders(
 // claims of past days go nightly. Both returned. Scheduled with or without
 // WEATHER_ENABLED: without a forecast it still swaps an outfit that can no
 // longer be worn.
-function startReplans(config: Config, deps: ReplanDeps): ScheduledJob[] {
+function startReplans(
+  config: Config,
+  metrics: Metrics,
+  deps: ReplanDeps,
+): ScheduledJob[] {
   const replans = scheduleMinutely({
     name: 'Week re-plan',
-    run: (now) => replanWeeks(deps, now),
+    run: metrics.timeJob('replan', (now: Date) => replanWeeks(deps, now)),
     logger: deps.logger,
   });
   const prune = scheduleNightly({
     name: 'Re-plan claims prune',
     hour: RECONCILE_HOUR,
     timeZone: config.APP_TIMEZONE,
-    run: () =>
+    run: metrics.timeJob('replan_prune', () =>
       pruneReplans(deps, addDays(todayIn(config.APP_TIMEZONE, new Date()), -1)),
+    ),
     logger: deps.logger,
   });
   return [replans, prune];
