@@ -2,6 +2,7 @@ import { eq, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Queryable } from '../../db/client';
 import { file, garment, selfie } from '../../db/schema';
+import type { StoredPhoto } from './image-variant';
 
 /**
  * What points at a photo's `file` row: a garment's photo and an outfit
@@ -20,20 +21,24 @@ export function photoIsReferenced(fileId: AnyPgColumn): SQL<boolean> {
 }
 
 /**
- * Whether the stored name is a photo only its owner may see: an outfit
- * selfie, served by the session-checked GET /selfies/* (src/web/selfies)
- * and refused by the public /file/** routes, which serve by unguessable
- * name alone. A name without a row (a link import's pending photo) is not.
+ * The stored name as anything that serves photos by name alone serves it
+ * (the public /file/** routes, the MCP photo tool): its StoredPhoto, whose
+ * variant key names the nobg and thumb its row points at (none for a name
+ * without a row: a link import's pending photo), or undefined when only its
+ * owner may see it: an outfit selfie, served by the session-checked GET
+ * /selfies/* (src/web/selfies). A new kind of private photo joins the
+ * refusal here. One statement per image request.
  */
-export async function isPrivatePhoto(
+export async function publicPhoto(
   q: Queryable,
   fileName: string,
-): Promise<boolean> {
+): Promise<StoredPhoto | undefined> {
   const [row] = await q
-    .select({ id: selfie.id })
-    .from(selfie)
-    .innerJoin(file, eq(file.id, selfie.photoId))
+    .select({ variantKey: file.variantKey, selfieId: selfie.id })
+    .from(file)
+    .leftJoin(selfie, eq(selfie.photoId, file.id))
     .where(eq(file.fileName, fileName))
     .limit(1);
-  return row !== undefined;
+  if (row?.selfieId != null) return undefined;
+  return { fileName, variantKey: row?.variantKey ?? null };
 }

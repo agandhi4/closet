@@ -28,6 +28,7 @@ import {
   parseIsoDate,
   todayIn,
 } from '../web/calendar/calendar-date';
+import { unkeyedPhoto } from '../web/files/image-variant';
 import type { Photos } from '../web/files/photos';
 import { insertPhotoRow, type NewPhotoRow } from '../web/files/queries';
 import { t } from '../web/i18n';
@@ -267,7 +268,8 @@ async function removeStored(
   { photos }: SeedDeps,
   stored: Iterable<NewPhotoRow>,
 ): Promise<void> {
-  for (const photo of stored) await photos.deleteVariants(photo.fileName);
+  for (const photo of stored)
+    await photos.deleteVariants(unkeyedPhoto(photo.fileName));
 }
 
 /**
@@ -660,7 +662,7 @@ async function storeArt(
   if (failures.length > 0) {
     logger.warn(`Drawing ${persona.key}'s photos failed; removing them`);
     for (const photo of stored.values()) {
-      await photos.deleteVariants(photo.fileName);
+      await photos.deleteVariants(unkeyedPhoto(photo.fileName));
     }
     throw new AggregateError(
       failures,
@@ -741,7 +743,7 @@ async function storeSelfies(
   } catch (error) {
     logger.warn(`Drawing ${persona.key}'s selfies failed; removing them`);
     for (const photo of stored.values()) {
-      await photos.deleteVariants(photo.fileName);
+      await photos.deleteVariants(unkeyedPhoto(photo.fileName));
     }
     throw error;
   }

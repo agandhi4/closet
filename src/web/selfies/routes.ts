@@ -4,7 +4,11 @@ import type { FastifyReply } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../calendar/calendar-date';
 import { HttpError } from '../errors';
-import { type ImageVariant, parseStoredName } from '../files/image-variant';
+import {
+  type ImageVariant,
+  parseStoredName,
+  unkeyedPhoto,
+} from '../files/image-variant';
 import type { WebOptions } from '../plugin';
 import { RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
@@ -108,7 +112,7 @@ export const selfieRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.debug(`Selfie photo ${fileName} is not user ${ownerId}'s`);
       return reply.status(404).header('Cache-Control', 'no-store').send();
     }
-    const stream = await photos.getVariant(fileName, variant);
+    const stream = await photos.getVariant(unkeyedPhoto(fileName), variant);
     stream.on('error', (error) =>
       logger.error({ err: error }, `Streaming selfie ${fileName} failed`),
     );

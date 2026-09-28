@@ -12,8 +12,9 @@ import {
 /**
  * The cutout columns of the `file` table, written only here: every change
  * locks the row, asks the state machine (transition, ./state.ts) and writes
- * the state it answers. Photos (the cutout bytes), the queue, the retry
- * route and the nightly retry all go through applyCutoutEvent.
+ * the state it answers. Photos (the pointer to cutout bytes it stored
+ * first), the queue, the retry route and the nightly retry all go through
+ * applyCutoutEvent.
  */
 
 /**
@@ -64,6 +65,7 @@ const stateColumns = {
   attempts: file.cutoutAttempts,
   jobVersion: file.cutoutJobVersion,
   worker: file.cutoutWorker,
+  variantKey: file.variantKey,
 };
 
 /** The photo's cutout state, its row locked until the transaction ends. */
@@ -81,20 +83,19 @@ export async function lockCutoutRow(
 
 /**
  * Applies `event` to a row locked by the caller's transaction: writes the
- * next state when the machine allows it, nothing otherwise. `effect` runs
- * once the machine has accepted and before the row is written: Photos
- * stores the cutout bytes and thumb there, so they are on disk before any
- * client can see the new version, and never written for a refused event.
+ * next state when the machine allows it, nothing otherwise. Database work
+ * only: the transaction holds the row's lock, and the server pool ends a
+ * session idle in a transaction (a slow NFS write would be one). The bytes
+ * a succeed or edit brings are stored before the transaction, under the
+ * key the event carries (Photos.writeCutout).
  */
 export async function applyCutoutEvent(
   tx: Queryable,
   row: CutoutRow,
   event: CutoutEvent,
-  effect?: () => Promise<void>,
 ): Promise<Transition> {
   const next = transition(row, event);
   if (!next.ok) return next;
-  await effect?.();
   await tx
     .update(file)
     .set({
@@ -105,6 +106,7 @@ export async function applyCutoutEvent(
       // Only start leases (nextState): a lease is always taken now.
       cutoutWorker: next.state.worker,
       cutoutStartedAt: next.state.worker === null ? null : sql`now()`,
+      variantKey: next.state.variantKey,
       ...(next.queued && { cutoutRequestedAt: new Date() }),
     })
     .where(eq(file.id, row.id));
@@ -114,7 +116,7 @@ export async function applyCutoutEvent(
   return next;
 }
 
-/** applyCutoutEvent in a transaction of its own, for events that write no bytes. */
+/** applyCutoutEvent in a transaction of its own, for events that bring no bytes. */
 export function recordCutoutEvent(
   db: Db,
   fileName: string,

@@ -4,6 +4,7 @@ import type { Logger } from '../../logger';
 import type { IsoDate } from '../calendar/calendar-date';
 import { ownEntryDay } from '../calendar/queries';
 import { HttpError } from '../errors';
+import { unkeyedPhoto } from '../files/image-variant';
 import type { Photos } from '../files/photos';
 import type { NewPhotoRow } from '../files/queries';
 import { deleteSelfie, type SelfieOutcome, setEntrySelfie } from './queries';
@@ -65,7 +66,7 @@ export async function attachSelfie(
   logger.info(
     `Selfie ${selfieId} of calendar entry ${entryId} ${replaced ? 'replaced' : 'taken'} by user ${ownerId}: ${photo.fileName}; ${wornNote}`,
   );
-  if (replaced) await photos.deleteVariants(replaced);
+  if (replaced) await photos.deleteVariants(unkeyedPhoto(replaced));
   return outcome.day;
 }
 
@@ -84,11 +85,11 @@ async function commitSelfie(
     outcome = await write();
   } catch (error) {
     logger.warn(`Rolled back; removing orphaned selfie ${photo.fileName}`);
-    await photos.deleteVariants(photo.fileName);
+    await photos.deleteVariants(unkeyedPhoto(photo.fileName));
     throw error;
   }
   if (outcome === 'not-found' || outcome === 'future') {
-    await photos.deleteVariants(photo.fileName);
+    await photos.deleteVariants(unkeyedPhoto(photo.fileName));
     throw outcome === 'not-found' ? entryNotFound() : notYetWorn();
   }
   return outcome;
@@ -107,7 +108,7 @@ export async function removeSelfie(
   const fileName = await deleteSelfie(db, selfieId, ownerId);
   if (fileName === undefined) return false;
   // Only after commit: an unlink cannot be rolled back.
-  await photos.deleteVariants(fileName);
+  await photos.deleteVariants(unkeyedPhoto(fileName));
   logger.info(`Selfie ${selfieId} removed by user ${ownerId}: ${fileName}`);
   return true;
 }

@@ -1,5 +1,6 @@
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
+import { unkeyedPhoto } from '../files/image-variant';
 import type { Photos } from '../files/photos';
 import { deleteEntry } from './queries';
 
@@ -17,7 +18,9 @@ export async function removeEntry(
   const outcome = await deleteEntry(db, id, ownerId);
   if (outcome === 'not-found') return false;
   // Only after commit: an unlink cannot be rolled back.
-  for (const fileName of outcome.selfies) await photos.deleteVariants(fileName);
+  for (const fileName of outcome.selfies) {
+    await photos.deleteVariants(unkeyedPhoto(fileName));
+  }
   logger.info(
     `Calendar entry ${id} deleted by user ${ownerId}${
       outcome.selfies.length > 0

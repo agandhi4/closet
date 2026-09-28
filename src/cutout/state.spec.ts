@@ -10,6 +10,7 @@ import {
 } from './state';
 
 const WORKER = 'linux-box:1:0a1b2c3d';
+const KEY = 'a1b2c3d4e5f6';
 
 const at = (
   status: CutoutStatus,
@@ -20,6 +21,7 @@ const at = (
   attempts: 1,
   jobVersion: status === 'pending' ? 3 : null,
   worker: status === 'pending' ? WORKER : null,
+  variantKey: null,
   ...overrides,
 });
 
@@ -44,6 +46,7 @@ describe('cutout state machine', () => {
           attempts: 0,
           jobVersion: null,
           worker: null,
+          variantKey: null,
         },
       });
     });
@@ -72,6 +75,7 @@ describe('cutout state machine', () => {
           attempts: 2,
           jobVersion: null,
           worker: null,
+          variantKey: null,
         },
       });
     });
@@ -105,6 +109,7 @@ describe('cutout state machine', () => {
           attempts: 1,
           jobVersion: 3,
           worker: WORKER,
+          variantKey: null,
         },
       });
     });
@@ -142,6 +147,7 @@ describe('cutout state machine', () => {
           attempts: 1,
           jobVersion: null,
           worker: null,
+          variantKey: null,
         },
       });
     });
@@ -167,9 +173,13 @@ describe('cutout state machine', () => {
   });
 
   describe('succeed', () => {
-    it('makes the cutout ready under a new version', () => {
+    it('makes the cutout ready under a new version and key', () => {
       expect(
-        transition(at('pending'), { type: 'succeed', jobVersion: 3 }),
+        transition(at('pending'), {
+          type: 'succeed',
+          jobVersion: 3,
+          variantKey: KEY,
+        }),
       ).toEqual({
         ok: true,
         queued: false,
@@ -179,6 +189,7 @@ describe('cutout state machine', () => {
           attempts: 1,
           jobVersion: null,
           worker: null,
+          variantKey: KEY,
         },
       });
     });
@@ -188,6 +199,7 @@ describe('cutout state machine', () => {
         transition(at('pending', { version: 4, jobVersion: 4 }), {
           type: 'succeed',
           jobVersion: 3,
+          variantKey: KEY,
         }),
       ).toEqual({ ok: false, reason: 'stale' });
     });
@@ -197,19 +209,21 @@ describe('cutout state machine', () => {
         transition(at('pending', { jobVersion: null, worker: null }), {
           type: 'succeed',
           jobVersion: 3,
+          variantKey: KEY,
         }),
       ).toEqual({ ok: false, reason: 'stale' });
     });
 
-    it.each(refusedFrom({ type: 'succeed', jobVersion: 3 }, ['pending']))(
-      'never overwrites a %s cutout',
-      (status, event) => {
-        expect(transition(at(status), event)).toEqual({
-          ok: false,
-          reason: 'not-allowed',
-        });
-      },
-    );
+    it.each(
+      refusedFrom({ type: 'succeed', jobVersion: 3, variantKey: KEY }, [
+        'pending',
+      ]),
+    )('never overwrites a %s cutout', (status, event) => {
+      expect(transition(at(status), event)).toEqual({
+        ok: false,
+        reason: 'not-allowed',
+      });
+    });
   });
 
   describe('fail', () => {
@@ -228,6 +242,7 @@ describe('cutout state machine', () => {
           attempts: 2,
           jobVersion: null,
           worker: null,
+          variantKey: null,
         },
       });
     });
@@ -256,9 +271,11 @@ describe('cutout state machine', () => {
     const EDITABLE = CUTOUT_STATUSES.filter((status) => status !== 'unwanted');
 
     it.each(EDITABLE)(
-      'takes the user mask from %s under a new version',
+      'takes the user mask from %s under a new version and key',
       (status) => {
-        expect(transition(at(status), { type: 'edit' })).toEqual({
+        expect(
+          transition(at(status), { type: 'edit', variantKey: KEY }),
+        ).toEqual({
           ok: true,
           queued: false,
           state: {
@@ -267,12 +284,22 @@ describe('cutout state machine', () => {
             attempts: 1,
             jobVersion: null,
             worker: null,
+            variantKey: KEY,
           },
         });
       },
     );
 
-    it.each(refusedFrom({ type: 'edit' }, EDITABLE))(
+    it("points at the new mask's bytes, never the earlier cutout's", () => {
+      expect(
+        transition(at('ready', { variantKey: '0123456789ab' }), {
+          type: 'edit',
+          variantKey: KEY,
+        }),
+      ).toMatchObject({ ok: true, state: { variantKey: KEY, version: 4 } });
+    });
+
+    it.each(refusedFrom({ type: 'edit', variantKey: KEY }, EDITABLE))(
       'is refused from %s (a selfie keeps its background)',
       (status, event) => {
         expect(transition(at(status), event)).toEqual({
@@ -291,9 +318,9 @@ describe('cutout state machine', () => {
     { type: 'retry' },
     { type: 'start', worker: WORKER },
     { type: 'release', worker: WORKER },
-    { type: 'succeed', jobVersion: 3 },
+    { type: 'succeed', jobVersion: 3, variantKey: KEY },
     { type: 'fail', jobVersion: 3 },
-    { type: 'edit' },
+    { type: 'edit', variantKey: KEY },
   ])('leaves an unwanted cutout alone: $type', (event) => {
     expect(transition(at('unwanted'), event)).toEqual({
       ok: false,
@@ -307,10 +334,14 @@ describe('cutout state machine', () => {
       { type: 'start', worker: WORKER },
     );
     if (!started.ok) throw new Error('start refused');
-    const edited = transition(started.state, { type: 'edit' });
+    const edited = transition(started.state, { type: 'edit', variantKey: KEY });
     if (!edited.ok) throw new Error('edit refused');
     expect(
-      transition(edited.state, { type: 'succeed', jobVersion: 3 }),
+      transition(edited.state, {
+        type: 'succeed',
+        jobVersion: 3,
+        variantKey: KEY,
+      }),
     ).toEqual({ ok: false, reason: 'not-allowed' });
   });
 });

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -11,6 +11,7 @@ import {
   pngCutout,
   uploadPhoto,
 } from './garments';
+import { variantPath } from './cutouts';
 import { createTestApp, multipart, TestApp } from './harness';
 
 describe('mask edit (POST /wardrobe/:id/nobg)', () => {
@@ -26,9 +27,9 @@ describe('mask edit (POST /wardrobe/:id/nobg)', () => {
     const garmentId = await createGarment(t, { name: 'Red jacket' });
     await uploadPhoto(t, garmentId, await jpegPhoto());
     const fileName = await photoFileName(t, garmentId);
-    const thumbPath = join(t.dataPath, variantFileName(fileName, 'thumb'));
-    const nobgPath = join(t.dataPath, variantFileName(fileName, 'nobg'));
-    const thumbBefore = await readFile(thumbPath);
+    const thumbBefore = await readFile(
+      join(t.dataPath, variantFileName(fileName, 'thumb')),
+    );
     expect((await sharp(thumbBefore).metadata()).hasAlpha).toBe(false);
 
     const body = await multipart(
@@ -50,6 +51,14 @@ describe('mask edit (POST /wardrobe/:id/nobg)', () => {
     expect(res.statusCode).toBeLessThan(300);
     expect(res.json()).toEqual({ version: 2 });
 
+    // Stored under the row's new variant key (#141); the thumb it replaced
+    // is gone.
+    const nobgPath = await variantPath(t, fileName, 'nobg');
+    const thumbPath = await variantPath(t, fileName, 'thumb');
+    expect(nobgPath).toMatch(/-nobg-[0-9a-f]{12}\.webp$/);
+    await expect(
+      stat(join(t.dataPath, variantFileName(fileName, 'thumb'))),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
     const nobg = await sharp(nobgPath).metadata();
     expect(nobg.format).toBe('webp');
     expect(nobg.hasAlpha).toBe(true);

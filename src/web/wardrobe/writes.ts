@@ -5,7 +5,7 @@ import {
 } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { HttpError } from '../errors';
-import { parseStoredName } from '../files/image-variant';
+import { parseStoredName, unkeyedPhoto } from '../files/image-variant';
 import {
   MAX_PENDING_PER_USER,
   recordPendingPhoto,
@@ -61,7 +61,7 @@ async function commitWithPhoto<T>(
     );
   } catch (error) {
     logger.warn(`Rolled back; removing orphaned upload ${photo.fileName}`);
-    await photos.deleteVariants(photo.fileName);
+    await photos.deleteVariants(unkeyedPhoto(photo.fileName));
     throw error;
   }
 }
@@ -111,10 +111,12 @@ export async function keepPendingPhoto(
   try {
     evicted = await recordPendingPhoto(db, fileName, userId);
   } catch (error) {
-    await photos.deleteVariants(fileName);
+    await photos.deleteVariants(unkeyedPhoto(fileName));
     throw error;
   }
-  for (const name of evicted) await photos.deleteVariants(name);
+  for (const name of evicted) {
+    await photos.deleteVariants(unkeyedPhoto(name));
+  }
   if (evicted.length > 0) {
     logger.info(
       `User ${userId} is over ${MAX_PENDING_PER_USER} pending photos: evicted ${evicted.join(', ')}`,
@@ -165,21 +167,33 @@ export async function createGarmentWithPendingPhoto(
   status: EntryStatus,
   withGarment?: WithGarment,
 ): Promise<number | undefined> {
-  const id = await db.transaction(async (tx) => {
-    await lockPhotoName(tx, fileName);
-    if (await photoRowExists(tx, fileName)) return undefined;
-    // The wardrobe's owner owns the row, whoever saves (as replacePhoto).
-    const photo = await photos.pendingPhotoRow(fileName, ownerId);
-    if (!photo) return undefined;
-    if (!(await takePendingPhoto(tx, fileName, userId))) return undefined;
-    const photoId = await insertPhotoRow(tx, {
-      ...photo,
-      ...initialCutoutState('pending'),
-    });
-    const garmentId = await insertGarment(tx, ownerId, fields, photoId, status);
-    await withGarment?.(tx, garmentId);
-    return garmentId;
-  });
+  // The wardrobe's owner owns the row, whoever saves (as replacePhoto).
+  // Its bytes are checked before the transaction: storage I/O never runs
+  // under the name's lock (#141). Checked early is still true at the
+  // insert: a pending photo's bytes are deleted only by whoever took its
+  // pending row first (a discard, an eviction, reconciliation, account
+  // deletion), and then takePendingPhoto below finds none.
+  const photo = await photos.pendingPhotoRow(fileName, ownerId);
+  const id =
+    photo &&
+    (await db.transaction(async (tx) => {
+      await lockPhotoName(tx, fileName);
+      if (await photoRowExists(tx, fileName)) return undefined;
+      if (!(await takePendingPhoto(tx, fileName, userId))) return undefined;
+      const photoId = await insertPhotoRow(tx, {
+        ...photo,
+        ...initialCutoutState('pending'),
+      });
+      const garmentId = await insertGarment(
+        tx,
+        ownerId,
+        fields,
+        photoId,
+        status,
+      );
+      await withGarment?.(tx, garmentId);
+      return garmentId;
+    }));
   if (id === undefined) {
     logger.warn(
       `Pending photo ${fileName} could not be claimed by user ${userId}`,
@@ -218,7 +232,7 @@ export async function discardPendingPhoto(
     );
     return false;
   }
-  await photos.deleteVariants(fileName);
+  await photos.deleteVariants(unkeyedPhoto(fileName));
   logger.info(`Discarded pending photo ${fileName} of user ${userId}`);
   return true;
 }
@@ -276,8 +290,7 @@ export async function replacePhoto(
     async (tx, photoId) => {
       const locked = await lockGarment(tx, id, ownerId);
       if (!locked) throw new HttpError(404, 'Garment not found');
-      await replacePhotoRow(tx, id, photoId, locked.photoId);
-      return locked.fileName;
+      return replacePhotoRow(tx, id, photoId, locked.photoId);
     },
   );
   deps.logger.info(
@@ -287,7 +300,7 @@ export async function replacePhoto(
   if (replaced) {
     await deps.photos.deleteVariants(replaced);
     deps.logger.info(
-      `Garment ${id} photo replaced: ${replaced} -> ${photo.fileName}`,
+      `Garment ${id} photo replaced: ${replaced.fileName} -> ${photo.fileName}`,
     );
   } else {
     deps.logger.info(`Garment ${id} photo added: ${photo.fileName}`);
@@ -303,9 +316,9 @@ export async function removeGarment(
   id: number,
   ownerId: number,
 ): Promise<boolean> {
-  const fileName = await deleteGarment(deps.db, id, ownerId);
-  if (fileName === undefined) return false;
+  const photo = await deleteGarment(deps.db, id, ownerId);
+  if (photo === undefined) return false;
   // Only after commit: an unlink cannot be rolled back.
-  if (fileName) await deps.photos.deleteVariants(fileName);
+  if (photo) await deps.photos.deleteVariants(photo);
   return true;
 }

@@ -1,15 +1,20 @@
 import { and, eq, not } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { file } from '../db/schema';
-import { parseStoredName } from '../web/files/image-variant';
+import {
+  parseStoredName,
+  type StoredPhoto,
+  unkeyedPhoto,
+} from '../web/files/image-variant';
 import {
   deletePendingPhotoRow,
   pendingPhotoRows,
   takeAgedPendingPhotos,
 } from '../web/files/pending-photos';
-import { photoRowExists } from '../web/files/queries';
+import { photoRowExists, STORED_PHOTO_COLUMNS } from '../web/files/queries';
 import { photoIsReferenced } from '../web/files/references';
 import type { Photos } from '../web/files/photos';
+import type { StoredObject } from '../web/files/storage';
 import type { Logger } from '../logger';
 
 // Younger objects and rows are left alone: an upload writes its bytes before
@@ -56,6 +61,12 @@ export interface ReconciliationReport {
   pendingPhotosDeleted: number;
   /** `pending_photo` rows whose photo set is gone from storage, deleted. */
   pendingRowsWithoutFiles: number;
+  /**
+   * Cutout and thumb files of a live photo under another variant key than
+   * its row's (a cutout write that died before its swap, or whose clean-up
+   * failed; a thumb backfilled across a swap), deleted.
+   */
+  supersededVariantsDeleted: number;
   /** Why the guard refused; set only when it did, and then nothing was deleted. */
   refused?: string;
   durationMs: number;
@@ -68,23 +79,24 @@ export interface ReconcileDeps {
 }
 
 interface StoredPhotoSet {
-  names: string[];
+  objects: StoredObject[];
   newest: Date;
 }
 
-interface FileRow {
+interface FileRow extends StoredPhoto {
   id: number;
-  fileName: string;
   createdOn: string;
 }
 
 /**
- * Keeps storage and the file table describing each other. Three findings,
+ * Keeps storage and the file table describing each other. Four findings,
  * each bounded by `olderThan`:
  *   storage -> rows      photo sets whose base name has no `file` row
  *   rows -> references   `file` rows nothing references: no garment's photo,
  *                        no outfit selfie (photoIsReferenced, the one list)
  *   rows -> storage      `file` rows whose original is missing (reported only)
+ *   rows -> variants     a live photo's cutout and thumb files under another
+ *                        variant key than its row's (superseded)
  * An unreferenced row is an orphan by definition. Everything is planned
  * first and checked by the guard; only then are the orphans deleted.
  *
@@ -128,7 +140,13 @@ export async function reconcileStorage(
     : guardRefusal({
         rows: plan.rowCount,
         storedPhotoSets: plan.photoSets.size - plan.pendingSets,
-        deletions: plan.orphanedSets.length + plan.orphanedRows.length,
+        // A photo with superseded variants counts as a set: a database
+        // restored behind its storage makes every newer cutout look
+        // superseded, and the guard is what stops that.
+        deletions:
+          plan.orphanedSets.length +
+          plan.orphanedRows.length +
+          plan.superseded.size,
       });
   if (refused) {
     logger.warn(
@@ -136,7 +154,7 @@ export async function reconcileStorage(
     );
   }
   const deleted = refused
-    ? { rows: 0, objects: 0 }
+    ? { rows: 0, objects: 0, superseded: 0 }
     : await removeOrphans(deps, plan, dryRun);
   const pendingRowsWithoutFiles = await removePendingRowsWithoutFiles(
     deps,
@@ -153,6 +171,7 @@ export async function reconcileStorage(
     missingOriginals: plan.missingOriginals,
     pendingPhotosDeleted: agedPending.size,
     pendingRowsWithoutFiles,
+    supersededVariantsDeleted: deleted.superseded,
     ...(refused ? { refused } : {}),
     durationMs: Date.now() - startedAt,
   };
@@ -168,7 +187,8 @@ function summary(report: ReconciliationReport): string {
     `${report.orphanedObjectsDeleted} orphaned photo sets and ${report.orphanedRowsDeleted} orphaned rows ` +
     `${would}deleted, ${report.missingOriginals} rows missing their original, ` +
     `${report.pendingPhotosDeleted} abandoned link imports and ${report.pendingRowsWithoutFiles} ` +
-    `pending rows without files ${would}deleted` +
+    `pending rows without files ${would}deleted, ` +
+    `${report.supersededVariantsDeleted} superseded variant files ${would}deleted` +
     (report.refused ? ' (refused by the guard)' : '')
   );
 }
@@ -197,7 +217,7 @@ async function removeAgedPendingPhotos(
   for (const name of names) {
     if (await photoRowExists(db, name)) continue;
     logger.debug(`Deleting abandoned link import ${name}`);
-    await photos.deleteVariants(name);
+    await photos.deleteVariants(unkeyedPhoto(name));
   }
   return new Set(names);
 }
@@ -229,6 +249,8 @@ interface ReconciliationPlan {
   pendingSets: number;
   /** Pending rows (read before the scan) whose original is not stored. */
   pendingRowsWithoutFiles: string[];
+  /** Live rows' superseded variant files (supersededVariants), by base name. */
+  superseded: Map<string, string[]>;
 }
 
 // Reads storage and both tables once and decides everything; deletes nothing.
@@ -246,13 +268,12 @@ async function planReconciliation(
   const { photoSets, storedObjects } = await scanStorage(photos);
   const pendingNames = new Set(pendingRows.map((row) => row.fileName));
   const pendingRowsWithoutFiles = [...pendingNames].filter(
-    (name) =>
-      !agedPending.has(name) && !photoSets.get(name)?.names.includes(name),
+    (name) => !agedPending.has(name) && !holdsOriginal(photoSets, name),
   );
   const rows = await db
     .select({
       id: file.id,
-      fileName: file.fileName,
+      ...STORED_PHOTO_COLUMNS,
       createdOn: file.createdOn,
       referenced: photoIsReferenced(file.id),
     })
@@ -271,6 +292,12 @@ async function planReconciliation(
     return true;
   });
   const orphanedIds = new Set(orphanedRows.map((row) => row.id));
+  const superseded = supersededVariants(
+    rows.filter((row) => !orphanedIds.has(row.id)),
+    photoSets,
+    cutoff,
+    logger,
+  );
   const missingOriginals = reportMissingOriginals(
     rows.filter((row) => !orphanedIds.has(row.id)),
     photoSets,
@@ -286,22 +313,146 @@ async function planReconciliation(
     missingOriginals,
     pendingSets: [...pendingNames].filter((name) => photoSets.has(name)).length,
     pendingRowsWithoutFiles,
+    superseded,
   };
+}
+
+function holdsOriginal(
+  photoSets: ReadonlyMap<string, StoredPhotoSet>,
+  baseName: string,
+): boolean {
+  return (
+    photoSets
+      .get(baseName)
+      ?.objects.some((object) => object.name === baseName) ?? false
+  );
+}
+
+/**
+ * A live row's cutout and thumb files under another variant key than the
+ * row's (null included: unkeyed ones beside a keyed set) that a cutout
+ * write replaced. A set goes only when every file of it is older than the
+ * cutoff (a younger one may be a write between its files and its swap,
+ * Photos.writeCutout) and older than every file of the set the row points
+ * at. Fails safe, never destroying the newest bytes: a set with a cutout
+ * newer than the row's is what a database restored behind its storage
+ * looks like (the row names an older key), so it is kept and logged (a
+ * lone thumb is not: it is derived, and goes by the cutoff alone); a row whose own files
+ * are not in storage deletes nothing, since nothing then says which set is
+ * the older one.
+ */
+function supersededVariants(
+  rows: readonly FileRow[],
+  photoSets: ReadonlyMap<string, StoredPhotoSet>,
+  cutoff: Date,
+  logger: Logger,
+): Map<string, string[]> {
+  const superseded = new Map<string, string[]>();
+  for (const row of rows) {
+    const stale = staleVariantsOf(
+      row,
+      photoSets.get(row.fileName)?.objects ?? [],
+      cutoff,
+      logger,
+    );
+    if (stale.length > 0) superseded.set(row.fileName, stale);
+  }
+  return superseded;
+}
+
+// One row's side of supersededVariants: the names to delete.
+function staleVariantsOf(
+  row: FileRow,
+  objects: readonly StoredObject[],
+  cutoff: Date,
+  logger: Logger,
+): string[] {
+  const { current, others } = variantSets(row, objects);
+  if (others.size === 0) return [];
+  // A keyed set is written whole (nobg and thumb); an unkeyed one may lack
+  // either (no cutout, a thumb not backfilled yet), not both.
+  if (current.length < (row.variantKey === null ? 1 : 2)) {
+    logger.warn(
+      `Keeping every variant of ${row.fileName}: the files of its row's variant (${keyLabel(row.variantKey)}) are not in storage`,
+    );
+    return [];
+  }
+  const currentOldest = Math.min(
+    ...current.map((object) => object.lastModified.getTime()),
+  );
+  const stale: string[] = [];
+  for (const [key, files] of others) {
+    if (files.some((object) => object.lastModified >= cutoff)) continue;
+    // Only a set with a cutout can be the one copy of anything; a lone
+    // thumb is derived (and regenerable) and is what a thumb backfilled
+    // across a swap leaves under the old key, newer than the row's set.
+    const hasCutout = files.some(
+      (object) => parseStoredName(object.name)?.variant === 'nobg',
+    );
+    if (
+      hasCutout &&
+      files.some((object) => object.lastModified.getTime() >= currentOldest)
+    ) {
+      logger.warn(
+        `Keeping variant ${keyLabel(key)} of ${row.fileName}: newer than the row's variant (${keyLabel(row.variantKey)}): database restored behind storage?`,
+      );
+      continue;
+    }
+    stale.push(...files.map((object) => object.name));
+  }
+  return stale;
+}
+
+// A photo's nobg and thumb files: the row's set, and every other set by its
+// key (null: the unkeyed set).
+function variantSets(
+  row: FileRow,
+  objects: readonly StoredObject[],
+): { current: StoredObject[]; others: Map<string | null, StoredObject[]> } {
+  const current: StoredObject[] = [];
+  const others = new Map<string | null, StoredObject[]>();
+  for (const object of objects) {
+    const parsed = parseStoredName(object.name);
+    if (!parsed || parsed.variant === 'original') continue;
+    if (parsed.variantKey === row.variantKey) current.push(object);
+    else {
+      others.set(parsed.variantKey, [
+        ...(others.get(parsed.variantKey) ?? []),
+        object,
+      ]);
+    }
+  }
+  return { current, others };
+}
+
+function keyLabel(variantKey: string | null): string {
+  return variantKey === null ? 'unkeyed' : `key ${variantKey}`;
 }
 
 async function removeOrphans(
   deps: ReconcileDeps,
   plan: ReconciliationPlan,
   dryRun: boolean,
-): Promise<{ rows: number; objects: number }> {
-  const rows = await removeOrphanedRows(deps, plan.orphanedRows, dryRun);
-  for (const [baseName, set] of plan.orphanedSets) {
+): Promise<{ rows: number; objects: number; superseded: number }> {
+  const rows = await removeOrphanedRows(deps, plan, dryRun);
+  // The files the scan found: a base name alone no longer names them all
+  // (variant keys, image-variant.ts).
+  for (const [, set] of plan.orphanedSets) {
+    const names = set.objects.map((object) => object.name);
     deps.logger.debug(
-      `${dryRun ? 'Would delete' : 'Deleting'} orphaned ${set.names.join(', ')}`,
+      `${dryRun ? 'Would delete' : 'Deleting'} orphaned ${names.join(', ')}`,
     );
-    if (!dryRun) await deps.photos.deleteVariants(baseName);
+    if (!dryRun) await deps.photos.deleteFiles(names);
   }
-  return { rows, objects: plan.orphanedSets.length };
+  let superseded = 0;
+  for (const [baseName, names] of plan.superseded) {
+    deps.logger.info(
+      `${dryRun ? 'Would delete' : 'Deleting'} superseded variants of ${baseName}: ${names.join(', ')}`,
+    );
+    if (!dryRun) await deps.photos.deleteFiles(names);
+    superseded += names.length;
+  }
+  return { rows, objects: plan.orphanedSets.length, superseded };
 }
 
 /**
@@ -353,11 +504,11 @@ async function scanStorage(photos: Photos): Promise<{
     if (!parsed) continue;
     const set = photoSets.get(parsed.baseName);
     if (set) {
-      set.names.push(object.name);
+      set.objects.push(object);
       if (object.lastModified > set.newest) set.newest = object.lastModified;
     } else {
       photoSets.set(parsed.baseName, {
-        names: [object.name],
+        objects: [object],
         newest: object.lastModified,
       });
     }
@@ -370,7 +521,7 @@ async function scanStorage(photos: Photos): Promise<{
 // delete; an unlink cannot be rolled back.
 async function removeOrphanedRows(
   { db, photos, logger }: ReconcileDeps,
-  candidates: FileRow[],
+  { orphanedRows: candidates, photoSets }: ReconciliationPlan,
   dryRun: boolean,
 ): Promise<number> {
   if (dryRun) {
@@ -389,12 +540,18 @@ async function removeOrphanedRows(
       const [deleted] = await db
         .delete(file)
         .where(and(eq(file.id, candidate.id), not(photoIsReferenced(file.id))))
-        .returning({ fileName: file.fileName });
+        .returning(STORED_PHOTO_COLUMNS);
       if (!deleted) continue;
       logger.debug(
         `Deleted unreferenced file ${candidate.id} (${deleted.fileName})`,
       );
-      await photos.deleteVariants(deleted.fileName);
+      await photos.deleteVariants(deleted);
+      // With whatever else the scan found of it (a superseded variant).
+      await photos.deleteFiles(
+        (photoSets.get(deleted.fileName)?.objects ?? []).map(
+          (object) => object.name,
+        ),
+      );
       removed += 1;
     } catch (error) {
       logger.warn(
@@ -416,7 +573,7 @@ function reportMissingOriginals(
   let missing = 0;
   for (const row of rows) {
     if (row.createdOn >= cutoffIso) continue;
-    if (photoSets.get(row.fileName)?.names.includes(row.fileName)) continue;
+    if (holdsOriginal(photoSets, row.fileName)) continue;
     logger.warn(
       `File row ${row.fileName} (created ${row.createdOn}) has no original in storage`,
     );

@@ -10,6 +10,7 @@ import {
 } from '../../src/maintenance/reconcile';
 import {
   parseStoredName,
+  unkeyedPhoto,
   variantFileName,
 } from '../../src/web/files/image-variant';
 import { MAX_PENDING_PER_USER } from '../../src/web/files/pending-photos';
@@ -654,7 +655,7 @@ describe('adding a garment from a link', () => {
         const { cookie, id } = await signUp('young@example.com');
         const young = await importPhoto(cookie);
         const lost = await importPhoto(cookie);
-        await t.photos.deleteVariants(lost);
+        await t.photos.deleteVariants(unkeyedPhoto(lost));
 
         const report = await reconcile();
         expect(report).toMatchObject({

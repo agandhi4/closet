@@ -4,6 +4,8 @@ import { isLockTimeout } from '../../db/errors';
 import { file, pendingPhoto, user } from '../../db/schema';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
+import { type StoredPhoto, unkeyedPhoto } from '../files/image-variant';
+import { STORED_PHOTO_COLUMNS } from '../files/queries';
 import { revokeDevices } from '../push/queries';
 import { revokeAllTokens } from './personal-tokens';
 
@@ -117,7 +119,7 @@ export async function updateEmail(
 
 /**
  * Deletes the user, their File rows and their pending photos' rows in
- * one transaction and returns the stored names, which the caller unlinks
+ * one transaction and returns the stored photos, which the caller unlinks
  * after commit: the database cascade
  * drops rows (garments, outfits, calendar entries, shares), never the photo
  * bytes (CLAUDE.md Gotchas).
@@ -125,12 +127,12 @@ export async function updateEmail(
 export async function deleteUserAndFileRows(
   db: Db,
   id: number,
-): Promise<string[]> {
+): Promise<StoredPhoto[]> {
   return db.transaction(async (tx) => {
     const files = await tx
       .delete(file)
       .where(eq(file.createdById, id))
-      .returning({ fileName: file.fileName });
+      .returning(STORED_PHOTO_COLUMNS);
     // Link imports never saved: their bytes have no `file` row, and the
     // cascade would drop the rows that explain them to reconciliation.
     const pending = await tx
@@ -138,7 +140,7 @@ export async function deleteUserAndFileRows(
       .where(eq(pendingPhoto.userId, id))
       .returning({ fileName: pendingPhoto.fileName });
     await tx.delete(user).where(eq(user.id, id));
-    return [...files, ...pending].map((row) => row.fileName);
+    return [...files, ...pending.map((row) => unkeyedPhoto(row.fileName))];
   });
 }
 

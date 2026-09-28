@@ -315,6 +315,11 @@ export const file = pgTable(
     // older than CUTOUT_LEASE_MS (src/cutout/queries.ts).
     cutoutWorker: text('cutout_worker'),
     cutoutStartedAt: timestamp('cutout_started_at', { withTimezone: true }),
+    // Which nobg and thumb are the photo's (#141): a cutout written onto the
+    // row stores them under a fresh key before its transaction, which then
+    // points this at them with the new version (Photos.writeCutout); null
+    // for the ones stored with the photo (variantFileName, image-variant.ts).
+    variantKey: text('variant_key'),
   },
   (table) => [
     index('file_created_by_id_index').on(table.createdById),
@@ -327,6 +332,13 @@ export const file = pgTable(
     check(
       'file_cutout_lease_check',
       sql`(${table.cutoutWorker} is null and ${table.cutoutStartedAt} is null) or (${table.cutoutStatus} = 'pending' and ${table.cutoutWorker} is not null and ${table.cutoutStartedAt} is not null)`,
+    ),
+    // The key is part of file names (newVariantKey), and only a stored
+    // cutout (succeed: ready, edit: edited) sets one, so an unwanted photo
+    // (an outfit selfie) is never keyed: its callers name it unkeyed.
+    check(
+      'file_variant_key_check',
+      sql`${table.variantKey} is null or (${table.cutoutStatus} in ('ready', 'edited') and ${table.variantKey} ~ '^[0-9a-f]{12}$')`,
     ),
     uniqueIndex('file_shareable_id_unique').on(table.shareableId),
     foreignKey({

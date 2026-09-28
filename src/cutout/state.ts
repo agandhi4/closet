@@ -1,8 +1,8 @@
 /**
  * Where a photo's background-removed cutout stands, and the one function
  * that decides every change to it. Stored on the photo's `file` row
- * (cutout_status, cutout_attempts, cutout_job_version, cutout_worker;
- * src/db/schema.ts) and changed only through applyCutoutEvent
+ * (cutout_status, cutout_attempts, cutout_job_version, cutout_worker,
+ * variant_key; src/db/schema.ts) and changed only through applyCutoutEvent
  * (src/cutout/queries.ts), which locks the row, asks transition() and
  * writes what it answers. Nothing else writes those columns.
  *
@@ -38,6 +38,11 @@
  * A job's result (succeed, fail) is accepted only while the row is pending
  * and still on the photo version the job started for: a result for a
  * replaced, edited or requeued photo is discarded, never written.
+ *
+ * The two events that bring new cutout bytes (succeed, edit) carry the
+ * variant key those bytes were already stored under (Photos.writeCutout,
+ * #141), and the new version always comes with it: a version is never
+ * bumped without pointing at the bytes it names.
  */
 
 export const CUTOUT_STATUSES = [
@@ -69,6 +74,11 @@ export interface CutoutState {
    * applyCutoutEvent.
    */
   worker: string | null;
+  /**
+   * The key of the photo's current nobg and thumb (file.variant_key,
+   * image-variant.ts); null while they are the ones stored with the photo.
+   */
+  variantKey: string | null;
 }
 
 export type CutoutEvent =
@@ -83,11 +93,14 @@ export type CutoutEvent =
    * shutdown, a result refused as stale): the row is free at once.
    */
   | { type: 'release'; worker: string }
-  /** The job's cutout, for the photo version it started for. */
-  | { type: 'succeed'; jobVersion: number }
+  /**
+   * The job's cutout, for the photo version it started for, stored under
+   * `variantKey`.
+   */
+  | { type: 'succeed'; jobVersion: number; variantKey: string }
   | { type: 'fail'; jobVersion: number }
-  /** The user saved a mask in the mask editor. */
-  | { type: 'edit' };
+  /** The user saved a mask in the mask editor, stored under `variantKey`. */
+  | { type: 'edit'; variantKey: string };
 
 export type CutoutEventType = CutoutEvent['type'];
 
@@ -163,12 +176,13 @@ function nextState(state: CutoutState, event: CutoutEvent): CutoutState {
       // Its attempt stays counted; the row keeps its place in the queue.
       return { ...state, ...noJob };
     case 'succeed':
-      // New cutout bytes under the same name: a new version URL.
+      // New cutout bytes under a new key: a new version URL.
       return {
         ...state,
         ...noJob,
         status: 'ready',
         version: state.version + 1,
+        variantKey: event.variantKey,
       };
     case 'fail':
       return { ...state, ...noJob, status: 'failed' };
@@ -178,6 +192,7 @@ function nextState(state: CutoutState, event: CutoutEvent): CutoutState {
         ...noJob,
         status: 'edited',
         version: state.version + 1,
+        variantKey: event.variantKey,
       };
   }
 }

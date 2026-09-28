@@ -33,6 +33,28 @@ export function plinthPhoto(
 }
 
 /**
+ * A `file` row's StoredPhoto (image-variant.ts): what serving or deleting
+ * its bytes needs. Every query that hands a photo to Photos.getVariant,
+ * copy or deleteVariants selects these.
+ */
+export const STORED_PHOTO_COLUMNS = {
+  fileName: file.fileName,
+  variantKey: file.variantKey,
+};
+
+/** The row's variant key; undefined when no row has that name. */
+export async function findVariantKey(
+  q: Queryable,
+  fileName: string,
+): Promise<string | null | undefined> {
+  const [row] = await q
+    .select({ variantKey: file.variantKey })
+    .from(file)
+    .where(eq(file.fileName, fileName));
+  return row?.variantKey;
+}
+
+/**
  * A photo's `file` row as Photos returns it after writing the bytes, not yet
  * inserted: the caller commits it in the transaction that also points a
  * garment at it (insertPhotoRow with its tx), and calls deleteVariants if

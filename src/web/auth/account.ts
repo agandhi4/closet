@@ -16,11 +16,11 @@ export async function deleteAccount(
   { db, photos, logger }: { db: Db; photos: Photos; logger: Logger },
   userId: number,
 ): Promise<number> {
-  const fileNames = await deleteUserAndFileRows(db, userId);
+  const stored = await deleteUserAndFileRows(db, userId);
   // After commit: an unlink cannot be rolled back. deleteVariants logs a
   // failure instead of throwing; the nightly reconciliation removes what is
   // left, and the account is gone either way.
-  for (const fileName of fileNames) await photos.deleteVariants(fileName);
-  logger.info(`Deleted user ${userId} and ${fileNames.length} of their photos`);
-  return fileNames.length;
+  for (const photo of stored) await photos.deleteVariants(photo);
+  logger.info(`Deleted user ${userId} and ${stored.length} of their photos`);
+  return stored.length;
 }

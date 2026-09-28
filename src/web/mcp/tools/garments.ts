@@ -19,7 +19,7 @@ import {
 import { todayIn } from '../../calendar/calendar-date';
 import { capsulesOfGarment, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
-import { isPrivatePhoto } from '../../files/references';
+import { publicPhoto } from '../../files/references';
 import { normalizeCategory, normalizeSize } from '../../wardrobe/garment';
 import {
   findGarment,
@@ -429,15 +429,14 @@ export const garmentTools = [
       // A garment's photo is never a selfie (each has its own file row),
       // but the rule that no selfie leaves through anything but its owner's
       // session is checked here as on the public /file routes.
-      if (await isPrivatePhoto(ctx.db, garment.photo.fileName)) {
+      const photo = await publicPhoto(ctx.db, garment.photo.fileName);
+      if (!photo) {
         ctx.webLogger.warn(
           `Refused a selfie as garment ${id}'s photo to user ${ctx.userId} (MCP)`,
         );
         throw new HttpError(404, GARMENT_NOT_FOUND);
       }
-      const thumb = await buffer(
-        await ctx.photos.getVariant(garment.photo.fileName, 'thumb'),
-      );
+      const thumb = await buffer(await ctx.photos.getVariant(photo, 'thumb'));
       return new ImageAnswer(
         { id: garment.id, name: garment.name, category: garment.category },
         thumb,

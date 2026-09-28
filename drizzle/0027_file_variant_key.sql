@@ -1,0 +1,2 @@
+ALTER TABLE "file" ADD COLUMN "variant_key" text;--> statement-breakpoint
+ALTER TABLE "file" ADD CONSTRAINT "file_variant_key_check" CHECK ("file"."variant_key" is null or ("file"."cutout_status" in ('ready', 'edited') and "file"."variant_key" ~ '^[0-9a-f]{12}$'));

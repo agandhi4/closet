@@ -296,6 +296,8 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       'file_name',
       'id',
       'shareable_id',
+      // 0027_file_variant_key.
+      'variant_key',
       'version',
     ]);
     expect(Object.keys(await columnsOf(env, 'outfit')).sort()).toEqual([

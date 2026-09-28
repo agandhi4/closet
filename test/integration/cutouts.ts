@@ -1,8 +1,13 @@
+import { eq } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import type { CutoutMask, CutoutRunner } from '../../src/cutout/runner';
-import { variantFileName } from '../../src/web/files/image-variant';
+import { file } from '../../src/db/schema';
+import {
+  type ImageVariant,
+  variantFileName,
+} from '../../src/web/files/image-variant';
 import type { TestApp } from './harness';
 
 /**
@@ -56,9 +61,28 @@ export function fakeRunner(
   return runner;
 }
 
-/** The stored cutout's bytes, undefined when there is none. */
-export function storedCutout(t: TestApp, fileName: string) {
-  return readFile(join(t.dataPath, variantFileName(fileName, 'nobg'))).catch(
+/**
+ * Where the variant the photo's row points at is stored: its name carries
+ * the row's variant key once a cutout was written onto it.
+ */
+export async function variantPath(
+  t: TestApp,
+  fileName: string,
+  variant: ImageVariant,
+): Promise<string> {
+  const [row] = await t.db
+    .select({ variantKey: file.variantKey })
+    .from(file)
+    .where(eq(file.fileName, fileName));
+  return join(
+    t.dataPath,
+    variantFileName(fileName, variant, row?.variantKey ?? null),
+  );
+}
+
+/** The cutout the photo's row points at, undefined when there is none. */
+export async function storedCutout(t: TestApp, fileName: string) {
+  return readFile(await variantPath(t, fileName, 'nobg')).catch(
     () => undefined,
   );
 }

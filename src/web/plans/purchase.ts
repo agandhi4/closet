@@ -15,6 +15,7 @@ import {
   storedSet,
 } from '../../wardrobe/properties';
 import { ownerTransaction } from '../auth/queries';
+import type { StoredPhoto } from '../files/image-variant';
 import { deleteGarment } from '../wardrobe/queries';
 import { buyGarment, type BuyOutcome, type Purchase } from '../wardrobe/status';
 import type { WardrobeDeps } from '../wardrobe/writes';
@@ -273,13 +274,13 @@ export async function buyCandidate(
       // `others` was read without a lock: a candidate bought since (another
       // "Bought it" on it, committed while this one ran) must not go, so the
       // delete takes it only while it is still on the wishlist.
-      const removed: { id: number; fileName: string | null }[] = [];
+      const removed: { id: number; photo: StoredPhoto | null }[] = [];
       const kept: number[] = [];
       for (const id of new Set(followUps.removeCandidates)) {
         if (!others.includes(id)) continue;
-        const fileName = await deleteGarment(tx, id, ownerId, 'wishlist');
-        if (fileName === undefined) kept.push(id);
-        else removed.push({ id, fileName });
+        const photo = await deleteGarment(tx, id, ownerId, 'wishlist');
+        if (photo === undefined) kept.push(id);
+        else removed.push({ id, photo });
       }
       return {
         ok: true as const,
@@ -292,8 +293,8 @@ export async function buyCandidate(
   );
   if (!outcome.ok) return outcome;
   // Only after commit: an unlink cannot be rolled back.
-  for (const { fileName } of outcome.removed) {
-    if (fileName) await photos.deleteVariants(fileName);
+  for (const { photo } of outcome.removed) {
+    if (photo) await photos.deleteVariants(photo);
   }
   if (outcome.adjusted.length > 0 || outcome.removed.length > 0) {
     logger.info(

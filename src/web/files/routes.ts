@@ -5,7 +5,7 @@ import type { Readable } from 'node:stream';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { type ImageVariant, parseStoredName } from './image-variant';
-import { isPrivatePhoto } from './references';
+import { publicPhoto } from './references';
 
 // Variant URLs carry `?v=<file.version>` (imageUrl()), which is what makes a
 // year of immutable caching safe: rewritten bytes are only ever reached
@@ -49,11 +49,14 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     if (parseStoredName(fileName)?.variant !== 'original') {
       throw new HttpError(404);
     }
-    if (await isPrivatePhoto(db, fileName)) {
+    // The row names the nobg and thumb it points at (its variant key), so
+    // the URL stays `<uuid>.webp?v=` whichever set is current.
+    const photo = await publicPhoto(db, fileName);
+    if (!photo) {
       logger.warn(`Refused a selfie on the public /file route: ${fileName}`);
       throw new HttpError(404);
     }
-    const stream = await photos.getVariant(fileName, variant);
+    const stream = await photos.getVariant(photo, variant);
     return sendImage(reply, stream, 'image/webp', IMMUTABLE_YEAR);
   };
 

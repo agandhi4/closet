@@ -16,8 +16,9 @@ import { transition } from '../../cutout/state';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
 import { captureLogs } from '../../../test/support/log-capture';
+import { unkeyedPhoto, variantFileName } from './image-variant';
 import { MAX_INPUT_PIXELS, Photos } from './photos';
-import { findPhotoByShareableId } from './queries';
+import { findPhotoByShareableId, findVariantKey } from './queries';
 import { PhotoStorage } from './storage';
 
 // libheif is WASM and there is no HEIC fixture; the decode branch is about
@@ -26,20 +27,33 @@ vi.mock('heic-decode', () => ({ default: { all: vi.fn() } }));
 const heicMock = vi.mocked(heicDecode.all);
 
 // The row queries Photos makes; the integration tier runs them for real.
-vi.mock('./queries', () => ({ findPhotoByShareableId: vi.fn() }));
+vi.mock('./queries', () => ({
+  findPhotoByShareableId: vi.fn(),
+  findVariantKey: vi.fn(),
+}));
 vi.mock('../../cutout/queries', () => ({
   lockCutoutRow: vi.fn(),
   applyCutoutEvent: vi.fn(),
 }));
 const findByShareMock = vi.mocked(findPhotoByShareableId);
+const findKeyMock = vi.mocked(findVariantKey);
 const lockMock = vi.mocked(lockCutoutRow);
 const applyMock = vi.mocked(applyCutoutEvent);
 
 // A transaction is the same fake: the cutout queries above are mocked.
+// `transactionFails` makes the next one throw after its work, as a COMMIT
+// that fails (or whose answer is lost) does.
 const tx = {};
+let transactionFails: Error | undefined;
 const db = {
-  transaction: (work: (tx: object) => Promise<unknown>) => work(tx),
+  transaction: async (work: (tx: object) => Promise<unknown>) => {
+    const result = await work(tx);
+    if (transactionFails) throw transactionFails;
+    return result;
+  },
 } as unknown as Db;
+
+const A = unkeyedPhoto('a.webp');
 
 const cutoutRow = (overrides: Partial<CutoutRow> = {}): CutoutRow => ({
   id: 1,
@@ -49,16 +63,24 @@ const cutoutRow = (overrides: Partial<CutoutRow> = {}): CutoutRow => ({
   attempts: 1,
   jobVersion: null,
   worker: null,
+  variantKey: null,
   ...overrides,
 });
 
 /** applyCutoutEvent as the real one decides, minus the row write. */
 const applyAsTheMachine = () =>
-  applyMock.mockImplementation(async (_tx, row, event, effect) => {
-    const next = transition(row, event);
-    if (next.ok) await effect?.();
-    return next;
-  });
+  applyMock.mockImplementation((_tx, row, event) =>
+    Promise.resolve(transition(row, event)),
+  );
+
+/** The variant key the event applyCutoutEvent was last given carries. */
+const writtenKey = (): string => {
+  const event = applyMock.mock.lastCall?.[2];
+  if (event?.type !== 'edit' && event?.type !== 'succeed') {
+    throw new Error('No cutout event was applied');
+  }
+  return event.variantKey;
+};
 
 const MAX_HEIC_BYTES = 1024;
 
@@ -75,7 +97,9 @@ const collect = async (stream: Readable) => {
   return Buffer.concat(chunks);
 };
 
-const { logger } = captureLogs();
+const { logger, logs: logCapture } = captureLogs();
+/** Every message logged since the spec file started. */
+const logs = () => logCapture.records.map((record) => record.msg);
 
 // Photos over real disk storage in a temp directory, so the variant logic
 // (thumb derivation, fallbacks, atomic writes) runs end to end; `stores`
@@ -110,7 +134,9 @@ const photoFiles = () =>
 beforeEach(async () => {
   dataPath = await mkdtemp(join(tmpdir(), 'closet-photos-'));
   stores = [];
+  transactionFails = undefined;
   findByShareMock.mockReset();
+  findKeyMock.mockReset();
   lockMock.mockReset();
   applyMock.mockReset();
 });
@@ -123,14 +149,14 @@ describe('Photos.getVariant', () => {
   it('serves the original as-is', async () => {
     const photos = build();
     await put('a.webp', await png(8));
-    const out = await collect(await photos.getVariant('a.webp', 'original'));
+    const out = await collect(await photos.getVariant(A, 'original'));
     expect(out.equals(await stored('a.webp'))).toBe(true);
   });
 
   it('falls back to the original when the cutout is missing', async () => {
     const photos = build();
     await put('a.webp', await png(8));
-    const out = await collect(await photos.getVariant('a.webp', 'nobg'));
+    const out = await collect(await photos.getVariant(A, 'nobg'));
     expect(out.equals(await stored('a.webp'))).toBe(true);
   });
 
@@ -138,7 +164,7 @@ describe('Photos.getVariant', () => {
     const photos = build();
     await put('a.webp', await png(8));
     await put('a-nobg.webp', await png(9));
-    const out = await collect(await photos.getVariant('a.webp', 'nobg'));
+    const out = await collect(await photos.getVariant(A, 'nobg'));
     expect(out.equals(await stored('a-nobg.webp'))).toBe(true);
   });
 
@@ -146,14 +172,14 @@ describe('Photos.getVariant', () => {
     const photos = build();
     await put('a.webp', await png(1000));
 
-    const first = await collect(await photos.getVariant('a.webp', 'thumb'));
+    const first = await collect(await photos.getVariant(A, 'thumb'));
     const meta = await sharp(first).metadata();
     expect(meta.format).toBe('webp');
     expect(meta.width).toBeLessThanOrEqual(400);
     expect(meta.height).toBeLessThanOrEqual(400);
     expect(stores).toEqual(['a-thumb.webp']);
 
-    await collect(await photos.getVariant('a.webp', 'thumb'));
+    await collect(await photos.getVariant(A, 'thumb'));
     expect(stores).toEqual(['a-thumb.webp']);
   });
 
@@ -161,9 +187,9 @@ describe('Photos.getVariant', () => {
     const photos = build();
     await put('a.webp', await png(1000));
     const streams = await Promise.all([
-      photos.getVariant('a.webp', 'thumb'),
-      photos.getVariant('a.webp', 'thumb'),
-      photos.getVariant('a.webp', 'thumb'),
+      photos.getVariant(A, 'thumb'),
+      photos.getVariant(A, 'thumb'),
+      photos.getVariant(A, 'thumb'),
     ]);
     await Promise.all(streams.map(collect));
     expect(stores).toEqual(['a-thumb.webp']);
@@ -173,67 +199,170 @@ describe('Photos.getVariant', () => {
     const photos = build();
     await put('a.webp', await png(1000));
     await put('a-nobg.webp', await png(300));
-    const out = await collect(await photos.getVariant('a.webp', 'thumb'));
+    const out = await collect(await photos.getVariant(A, 'thumb'));
     expect((await sharp(out).metadata()).width).toBe(300);
   });
 
   it('is a 404 when the original is missing', async () => {
     const photos = build();
-    await expect(photos.getVariant('a.webp', 'thumb')).rejects.toMatchObject({
+    await expect(photos.getVariant(A, 'thumb')).rejects.toMatchObject({
       statusCode: 404,
     });
   });
 });
 
 describe('Photos.saveEditedCutout', () => {
-  it('rewrites the thumb from a first cutout added after the thumb was served', async () => {
+  it('stores the cutout and its thumb under a new key before the row points at them', async () => {
     const photos = build();
-    lockMock.mockResolvedValue(cutoutRow({ status: 'none', version: 1 }));
-    applyAsTheMachine();
     await put('a.webp', await png(1000));
-    await collect(await photos.getVariant('a.webp', 'thumb'));
-    expect((await sharp(await stored('a-thumb.webp')).metadata()).width).toBe(
-      400,
-    );
+    lockMock.mockResolvedValue(cutoutRow({ status: 'none', version: 1 }));
+    applyMock.mockImplementation((_tx, row, event) => {
+      // No storage I/O inside the transaction: both files are already there.
+      expect(event).toMatchObject({ type: 'edit' });
+      const key = (event as { variantKey: string }).variantKey;
+      expect(stores).toEqual([
+        variantFileName('a.webp', 'nobg', key),
+        variantFileName('a.webp', 'thumb', key),
+      ]);
+      return Promise.resolve(transition(row, event));
+    });
 
     await expect(
       photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
     ).resolves.toBe(2);
-    expect((await sharp(await stored('a-thumb.webp')).metadata()).width).toBe(
-      300,
-    );
-    expect(applyMock).toHaveBeenCalledWith(
-      tx,
-      cutoutRow({ status: 'none', version: 1 }),
-      { type: 'edit' },
-      expect.any(Function),
-    );
+    const key = writtenKey();
+    expect(key).toMatch(/^[0-9a-f]{12}$/);
+    expect(
+      (
+        await sharp(
+          await stored(variantFileName('a.webp', 'thumb', key)),
+        ).metadata()
+      ).width,
+    ).toBe(300);
+    expect(stores).toHaveLength(2);
   });
 
-  it('writes the cutout and the thumb before the row takes the new version', async () => {
+  it('deletes the set the new cutout replaced, after the swap', async () => {
     const photos = build();
+    const old = { fileName: 'a.webp', variantKey: '0123456789ab' };
     await put('a.webp', await png(1000));
-    await put('a-nobg.webp', await png(600));
-    lockMock.mockResolvedValue(cutoutRow());
-    applyMock.mockImplementation(async (_tx, row, event, effect) => {
-      await effect?.();
-      // The new thumb is on disk before any client can see the new version.
-      expect(stores).toEqual(['a-nobg.webp', 'a-thumb.webp']);
-      return transition(row, event);
-    });
+    await put(
+      variantFileName('a.webp', 'nobg', old.variantKey),
+      await png(600),
+    );
+    await put(
+      variantFileName('a.webp', 'thumb', old.variantKey),
+      await png(400),
+    );
+    // A thumb backfilled for a request that raced an earlier swap.
+    await put('a-thumb.webp', await png(400));
+    lockMock.mockResolvedValue(
+      cutoutRow({ status: 'ready', variantKey: old.variantKey }),
+    );
+    applyAsTheMachine();
+
     await expect(
-      photos.saveEditedCutout(Readable.from(await png(500)), 'a.webp'),
+      photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
     ).resolves.toBe(2);
+    const key = writtenKey();
+    expect(photoFiles().sort()).toEqual(
+      [
+        'a.webp',
+        'a-thumb.webp',
+        variantFileName('a.webp', 'nobg', key),
+        variantFileName('a.webp', 'thumb', key),
+      ].sort(),
+    );
   });
 
-  it('writes nothing for a photo whose row is gone', async () => {
+  it('deletes its files when the row is gone', async () => {
     const photos = build();
     lockMock.mockResolvedValue(undefined);
     await expect(
       photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
     ).resolves.toBeUndefined();
     expect(applyMock).not.toHaveBeenCalled();
-    expect(stores).toEqual([]);
+    expect(stores).toHaveLength(2);
+    expect(photoFiles()).toEqual([]);
+  });
+
+  it('deletes its files when the machine refuses the event', async () => {
+    const photos = build();
+    await put('a.webp', await png(1000));
+    await put('a-nobg.webp', await png(600));
+    lockMock.mockResolvedValue(cutoutRow({ status: 'unwanted' }));
+    applyAsTheMachine();
+    await expect(
+      photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
+    ).resolves.toBeUndefined();
+    expect(photoFiles().sort()).toEqual(['a-nobg.webp', 'a.webp']);
+    expect(logs()).toContainEqual(
+      expect.stringMatching(
+        /Deleted a-nobg-[0-9a-f]{12}\.webp and a-thumb-[0-9a-f]{12}\.webp: edit refused \(not-allowed\)/,
+      ),
+    );
+  });
+
+  it('deletes its files and rethrows when the swap rolls back', async () => {
+    const photos = build();
+    await put('a.webp', await png(1000));
+    await put('a-nobg.webp', await png(600));
+    lockMock.mockResolvedValue(cutoutRow({ status: 'none' }));
+    applyAsTheMachine();
+    transactionFails = new Error('idle-in-transaction timeout');
+    findKeyMock.mockResolvedValue(null);
+
+    await expect(
+      photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
+    ).rejects.toBe(transactionFails);
+    // The served set is untouched and nothing new is left behind.
+    expect(photoFiles().sort()).toEqual(['a-nobg.webp', 'a.webp']);
+    expect(logs()).toContainEqual(
+      expect.stringMatching(/swap to key [0-9a-f]{12} rolled back/),
+    );
+  });
+
+  it('keeps its files, and deletes the set it replaced, when the swap committed although its transaction failed', async () => {
+    const photos = build();
+    const old = variantFileName('a.webp', 'nobg', '0123456789ab');
+    const oldThumb = variantFileName('a.webp', 'thumb', '0123456789ab');
+    await put('a.webp', await png(1000));
+    await put(old, await png(600));
+    await put(oldThumb, await png(400));
+    lockMock.mockResolvedValue(
+      cutoutRow({ status: 'ready', variantKey: '0123456789ab' }),
+    );
+    applyAsTheMachine();
+    transactionFails = new Error('Connection terminated unexpectedly');
+    findKeyMock.mockImplementation(() => Promise.resolve(writtenKey()));
+
+    await expect(
+      photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
+    ).resolves.toBe(2);
+    const key = writtenKey();
+    expect(photoFiles().sort()).toEqual(
+      [
+        'a.webp',
+        variantFileName('a.webp', 'nobg', key),
+        variantFileName('a.webp', 'thumb', key),
+      ].sort(),
+    );
+    expect(has(old)).toBe(false);
+  });
+
+  it('keeps its files when the row cannot be read after a failed swap', async () => {
+    const photos = build();
+    await put('a.webp', await png(1000));
+    lockMock.mockResolvedValue(cutoutRow({ status: 'none' }));
+    applyAsTheMachine();
+    transactionFails = new Error('Connection terminated unexpectedly');
+    findKeyMock.mockRejectedValue(new Error('database unreachable'));
+
+    await expect(
+      photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
+    ).rejects.toBe(transactionFails);
+    // Reconciliation's to judge a day later: never a row pointing at nothing.
+    expect(photoFiles()).toHaveLength(3);
   });
 
   it('refuses undecodable bytes with a 400 before touching the row', async () => {
@@ -251,7 +380,7 @@ describe('Photos.regenerateThumb', () => {
     const photos = build();
     await put('a.webp', await png(1000));
     await put('a-nobg.webp', await png(300));
-    await photos.regenerateThumb('a.webp');
+    await photos.regenerateThumb(A);
     expect((await sharp(await stored('a-thumb.webp')).metadata()).width).toBe(
       300,
     );
@@ -264,7 +393,7 @@ describe('Photos.deleteVariants', () => {
     const photos = build();
     await put('a.webp', Buffer.from('x'));
     await put('a-thumb.webp', Buffer.from('x'));
-    await photos.deleteVariants('a.webp');
+    await photos.deleteVariants(A);
     expect(has('a.webp')).toBe(false);
     expect(has('a-thumb.webp')).toBe(false);
   });
@@ -291,6 +420,55 @@ describe('Photos.copy', () => {
     expect(
       (await sharp(await stored(`${base}-thumb.webp`)).metadata()).width,
     ).toBe(300);
+  });
+
+  it('copies the cutout the source row points at, unkeyed', async () => {
+    const photos = build();
+    await put('a.webp', await png(1000));
+    await put('a-nobg.webp', await png(600));
+    await put(
+      variantFileName('a.webp', 'nobg', '0123456789ab'),
+      await png(300),
+    );
+    findKeyMock.mockResolvedValue('0123456789ab');
+
+    const row = await photos.copy('a.webp', 7);
+
+    const base = row!.fileName.replace('.webp', '');
+    expect(
+      (await stored(`${base}-nobg.webp`)).equals(
+        await stored(variantFileName('a.webp', 'nobg', '0123456789ab')),
+      ),
+    ).toBe(true);
+  });
+
+  it('reads the cutout again when a swap deleted the one it was about to open', async () => {
+    const photos = build();
+    await put('a.webp', await png(1000));
+    // The row read first names a set a swap has deleted since.
+    const swappedIn = variantFileName('a.webp', 'nobg', 'fedcba987654');
+    await put(swappedIn, await png(300));
+    findKeyMock
+      .mockResolvedValueOnce('0123456789ab')
+      .mockResolvedValue('fedcba987654');
+
+    const row = await photos.copy('a.webp', 7);
+
+    const base = row!.fileName.replace('.webp', '');
+    expect(
+      (await stored(`${base}-nobg.webp`)).equals(await stored(swappedIn)),
+    ).toBe(true);
+  });
+
+  it('copies no cutout when the row names none that exists', async () => {
+    const photos = build();
+    await put('a.webp', await png(1000));
+    findKeyMock.mockResolvedValue('0123456789ab');
+
+    const row = await photos.copy('a.webp', 7);
+
+    expect(has(`${row!.fileName.replace('.webp', '')}-nobg.webp`)).toBe(false);
+    expect(findKeyMock).toHaveBeenCalledTimes(2);
   });
 
   it('returns undefined when the source is gone', async () => {

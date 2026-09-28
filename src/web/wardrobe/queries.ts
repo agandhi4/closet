@@ -22,7 +22,12 @@ import type { AwayReason } from '../../wardrobe/availability';
 import type { EntryStatus, GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef, PlinthPhoto } from '../files/image-url';
-import { PLINTH_PHOTO_COLUMNS, plinthPhoto } from '../files/queries';
+import type { StoredPhoto } from '../files/image-variant';
+import {
+  PLINTH_PHOTO_COLUMNS,
+  plinthPhoto,
+  STORED_PHOTO_COLUMNS,
+} from '../files/queries';
 import { dirtyCopiesSql, needsWash } from '../wears/queries';
 import { compareSizes } from './garment';
 import { type GarmentScope, inCloset, inScope, ownedGarment } from './status';
@@ -438,8 +443,10 @@ export async function findGarment(
 }
 
 /**
- * The garment's photo inside a write transaction, the row locked so two
- * writes to one garment take turns. Undefined when the garment is not in
+ * The garment's photo row id inside a write transaction, the garment
+ * locked so two writes to one garment take turns (not the `file` row: a
+ * cutout swap may hold it, so its variant key comes from the delete that
+ * waits for it, deletePhotoRow). Undefined when the garment is not in
  * `ownerId`'s wardrobe (any more), or, given `status`, no longer has it: a
  * lock that waited on another transaction's status change judges the row
  * as that transaction committed it.
@@ -449,11 +456,10 @@ export async function lockGarment(
   id: number,
   ownerId: number,
   status?: GarmentStatus,
-): Promise<{ photoId: number | null; fileName: string | null } | undefined> {
+): Promise<{ photoId: number | null } | undefined> {
   const [row] = await tx
-    .select({ photoId: garment.photoId, fileName: file.fileName })
+    .select({ photoId: garment.photoId })
     .from(garment)
-    .leftJoin(file, eq(file.id, garment.photoId))
     .where(
       and(
         eq(garment.id, id),
@@ -552,22 +558,41 @@ export async function updateGarmentFields(
   return updated.length > 0;
 }
 
-/** Points the (locked) garment at its new photo and drops the old photo's row. */
+/**
+ * Points the (locked) garment at its new photo and drops the old photo's
+ * row; returns the old photo's files for the caller to unlink after commit.
+ */
 export async function replacePhotoRow(
   tx: Queryable,
   id: number,
   photoId: number,
   previousPhotoId: number | null,
-): Promise<void> {
+): Promise<StoredPhoto | null> {
   await tx.update(garment).set({ photoId }).where(eq(garment.id, id));
-  if (previousPhotoId !== null) {
-    await tx.delete(file).where(eq(file.id, previousPhotoId));
-  }
+  return deletePhotoRow(tx, previousPhotoId);
+}
+
+/**
+ * Deletes a garment's `file` row and answers its files as the row was when
+ * deleted: the delete waits for a cutout swap holding the row, so a key
+ * read earlier (unlocked) could name the set the swap just replaced and
+ * leave the new one unlinked.
+ */
+async function deletePhotoRow(
+  tx: Queryable,
+  photoId: number | null,
+): Promise<StoredPhoto | null> {
+  if (photoId === null) return null;
+  const [deleted] = await tx
+    .delete(file)
+    .where(eq(file.id, photoId))
+    .returning(STORED_PHOTO_COLUMNS);
+  return deleted ?? null;
 }
 
 /**
  * Deletes the garment and its photo's row together; returns the photo's
- * stored name (for the caller to unlink after commit), null without one,
+ * files (for the caller to unlink after commit), null without one,
  * undefined when the garment is not in `ownerId`'s wardrobe, or not (any
  * more) in `status` when one is given: buyCandidate's clean-up of other
  * candidates deletes only what is still on the wishlist, so a candidate
@@ -579,15 +604,12 @@ export function deleteGarment(
   id: number,
   ownerId: number,
   status?: GarmentStatus,
-): Promise<string | null | undefined> {
+): Promise<StoredPhoto | null | undefined> {
   return db.transaction(async (tx) => {
     const locked = await lockGarment(tx, id, ownerId, status);
     if (!locked) return undefined;
     await tx.delete(garment).where(eq(garment.id, id));
-    if (locked.photoId !== null) {
-      await tx.delete(file).where(eq(file.id, locked.photoId));
-    }
-    return locked.fileName;
+    return deletePhotoRow(tx, locked.photoId);
   });
 }
 

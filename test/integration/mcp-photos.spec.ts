@@ -175,7 +175,7 @@ describe('MCP garment photos and tagging', () => {
       ).toEqual({ isError: true, value: { error: 'Garment not found' } });
 
       // A garment row wrongly pointing at the selfie's file is still refused
-      // (isPrivatePhoto), as the public /file routes refuse its name.
+      // (publicPhoto), as the public /file routes refuse its name.
       await t.db
         .update(garment)
         .set({ photoId: row.photoId })
