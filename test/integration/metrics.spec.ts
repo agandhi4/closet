@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp, uniqueClient } from './harness';
+import {
+  createTestApp,
+  TEST_PASSWORD,
+  type TestApp,
+  uniqueClient,
+} from './harness';
 
 /**
  * The metrics (#115): GET /metrics for the homelab's scraper, the devices'
@@ -64,6 +69,144 @@ describe('metrics, off by default', () => {
     // The session and the garment were read inside this request's timing.
     expect(Number(timing.db)).toBeGreaterThan(0);
     expect(Number(timing.render)).toBeGreaterThan(0);
+  });
+});
+
+// #136: a request that checked a secret it carries (a password, an access
+// or invite token: markSecretChecked) answers without Server-Timing, which
+// would give a guesser the server's own time, free of network jitter. No
+// route declares it: the check marks its request.
+describe('Server-Timing on routes that check a secret', () => {
+  let t: TestApp;
+  const email = 'timing@example.com';
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    await t.register(email);
+  });
+
+  afterAll(() => t?.cleanup());
+
+  const post = (url: string, payload: Record<string, string>) =>
+    t.inject({ method: 'POST', url, payload });
+
+  it.each([
+    [
+      'sign-in, unknown email',
+      () =>
+        t.inject({
+          method: 'POST',
+          url: '/auth/login',
+          payload: { email: 'nobody@example.com', password: 'Wrong1234' },
+          anonymous: true,
+        }),
+      401,
+    ],
+    [
+      'sign-in, wrong password',
+      () =>
+        t.inject({
+          method: 'POST',
+          url: '/auth/login',
+          payload: { email, password: 'Wrong1234' },
+          anonymous: true,
+        }),
+      401,
+    ],
+    [
+      'sign-in, right password',
+      () =>
+        t.inject({
+          method: 'POST',
+          url: '/auth/login',
+          payload: { email, password: TEST_PASSWORD },
+          anonymous: true,
+        }),
+      302,
+    ],
+    [
+      'change password',
+      () =>
+        post('/auth/change-password', {
+          currentPassword: 'Wrong1234',
+          newPassword: 'Another1234',
+          confirmPassword: 'Another1234',
+        }),
+      400,
+    ],
+    [
+      'change email',
+      () =>
+        post('/auth/update-email', {
+          email: 'new@example.com',
+          confirmEmail: 'new@example.com',
+          currentPassword: 'Wrong1234',
+        }),
+      400,
+    ],
+    [
+      'delete account',
+      () =>
+        post('/auth/delete-account', {
+          email: 'owner@example.com',
+          password: 'Wrong1234',
+        }),
+      401,
+    ],
+    [
+      'create an access token',
+      () =>
+        post('/auth/tokens', { name: 'laptop', currentPassword: 'Wrong1234' }),
+      400,
+    ],
+    [
+      'invite landing',
+      () =>
+        t.inject({
+          method: 'GET',
+          url: '/wardrobe-share/invite/no-such-token',
+          anonymous: true,
+        }),
+      200,
+    ],
+    [
+      'accept an invite',
+      () => post('/wardrobe-share/invite/no-such-token/accept', {}),
+      302,
+    ],
+    [
+      'decline an invite',
+      () => post('/wardrobe-share/invite/no-such-token/decline', {}),
+      302,
+    ],
+    [
+      'MCP, unknown token',
+      () =>
+        t.inject({
+          method: 'POST',
+          url: '/mcp',
+          anonymous: true,
+          sameOrigin: false,
+          headers: { authorization: 'Bearer closet_pat_unknown' },
+          payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+        }),
+      401,
+    ],
+  ])('%s answers without it', async (_route, send, status) => {
+    const res = await send();
+    expect(res.statusCode).toBe(status);
+    expect(res.headers['server-timing']).toBeUndefined();
+  });
+
+  it.each([
+    ['the sign-in page', '/auth/login', true],
+    ['the profile', '/auth/profile', false],
+    ['the access tokens page', '/auth/tokens', false],
+    ['the wardrobe', '/wardrobe', false],
+  ])('%s still carries it', async (_page, url, anonymous) => {
+    const res = await t.inject({ method: 'GET', url, anonymous });
+    expect(res.statusCode).toBe(200);
+    expect(serverTiming(res.headers['server-timing']).route).toBe(url);
   });
 });
 

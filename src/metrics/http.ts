@@ -14,8 +14,9 @@ export const UNMATCHED_ROUTE = 'unmatched';
  * else (createApp): every route's template is noted as it is registered (the
  * device beacon may name only those), each request carries a RequestTiming
  * in async context, answers with `Server-Timing` (db, render, the route
- * template) and lands in http_request_duration_seconds under its route
- * template, never its URL, so ids never become series.
+ * template; not once a secret was checked, markSecretChecked) and lands in
+ * http_request_duration_seconds under its route template, never its URL, so
+ * ids never become series.
  *
  * Hooks, not a plugin: added to the root, they apply to every route
  * registered after them (CLAUDE.md Gotchas, plugin inheritance).
@@ -42,7 +43,7 @@ export function registerHttpMetrics(
     else done();
   });
   app.addHook('onSend', (request, reply, payload, done) => {
-    if (request.timing) {
+    if (request.timing && !request.timing.secretChecked) {
       reply.header(
         'Server-Timing',
         serverTimingHeader(request.timing, request.routeOptions.url),

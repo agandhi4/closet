@@ -117,7 +117,10 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   app.post(
     '/wardrobe-share/invite/:token/accept',
-    { config: { secretPath: true }, schema: { params: InviteParams } },
+    {
+      config: { secretPath: true },
+      schema: { params: InviteParams },
+    },
     async (request, reply) => {
       const id = sessionUserId(request);
       const result = await acceptInvite(db, request.params.token, id);
@@ -136,7 +139,10 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // someone else holds) must leave the link intact and says nothing.
   app.post(
     '/wardrobe-share/invite/:token/decline',
-    { config: { secretPath: true }, schema: { params: InviteParams } },
+    {
+      config: { secretPath: true },
+      schema: { params: InviteParams },
+    },
     async (request, reply) => {
       const id = sessionUserId(request);
       const declined = await declineInvite(db, request.params.token, id);

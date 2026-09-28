@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createTestApp, TEST_PASSWORD, TestApp } from './harness';
+import {
+  createTestApp,
+  recordQueries,
+  TEST_PASSWORD,
+  TestApp,
+} from './harness';
 
 describe('sessions', () => {
   let t: TestApp;
@@ -171,6 +176,31 @@ describe('sessions', () => {
     expect(
       wrong.cookies.find((c) => c.name === 'access_token'),
     ).toBeUndefined();
+  });
+
+  // #136: nothing in the answer or the work behind it tells an existing
+  // address from an unknown one. Same statements (the lookup by
+  // lower(email), found or not), the same bcrypt cost (passwords.spec.ts),
+  // the same page; and no Server-Timing (metrics.spec.ts).
+  it('a refused sign-in does the same work for an existing and an unknown email', async () => {
+    const refusal = async (address: string) => {
+      let body = '';
+      const queries = await recordQueries(async () => {
+        const res = await t.inject({
+          method: 'POST',
+          url: '/auth/login',
+          payload: { email: address, password: 'WrongPassword1' },
+          anonymous: true,
+        });
+        expect(res.statusCode).toBe(401);
+        body = res.body.replaceAll(address, '<email>');
+      });
+      return { sql: queries.sql, body };
+    };
+    const known = await refusal(email);
+    const unknown = await refusal('nobody@example.com');
+    expect(unknown.sql).toEqual(known.sql);
+    expect(unknown.body).toBe(known.body);
   });
 
   it('a wardrobe you have no share for does not exist for you', async () => {

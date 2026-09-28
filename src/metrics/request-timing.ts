@@ -15,12 +15,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface RequestTiming {
   dbMs: number;
   renderMs: number;
+  /** A secret the request carries was checked: no Server-Timing (markSecretChecked). */
+  secretChecked: boolean;
 }
 
 const context = new AsyncLocalStorage<RequestTiming>();
 
 export function newRequestTiming(): RequestTiming {
-  return { dbMs: 0, renderMs: 0 };
+  return { dbMs: 0, renderMs: 0, secretChecked: false };
 }
 
 /** Runs `next` (a Fastify hook's `done`) and everything it leads to with `timing`. */
@@ -34,6 +36,23 @@ export function runWithRequestTiming(
 /** The timing of the request this code runs for, if any. */
 export function currentRequestTiming(): RequestTiming | undefined {
   return context.getStore();
+}
+
+/**
+ * Called by every function that checks a secret a request carries, before
+ * it looks: verifyPassword (src/web/auth/passwords.ts), authenticateToken
+ * (personal-tokens.ts) and the invite lookups (src/web/sharing/queries.ts).
+ * That request then answers without Server-Timing, whose `db` and `render`
+ * would hand a guesser the server's own time without the network's jitter:
+ * whether an email's lookup found a row, whether a token matched (#136).
+ * Marked by the check itself rather than declared per route, so a new route
+ * that checks a password or a token is covered without remembering to. In
+ * async context like the rest of the timing, so the query layer needs no
+ * request; outside one (the seed, the CLIs) it does nothing.
+ */
+export function markSecretChecked(): void {
+  const timing = context.getStore();
+  if (timing) timing.secretChecked = true;
 }
 
 /** Awaits `render`, adding its time to the request's `render`. */

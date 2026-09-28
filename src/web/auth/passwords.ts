@@ -1,6 +1,6 @@
 import * as bcrypt from 'bcryptjs';
-import { randomUUID } from 'node:crypto';
 import type { Db } from '../../db/client';
+import { markSecretChecked } from '../../metrics/request-timing';
 import type { StringKey } from '../i18n';
 import { type PasswordChange, updatePasswordHash } from './queries';
 
@@ -13,19 +13,24 @@ export function hashPassword(password: string): Promise<string> {
 /**
  * Compared against when the account does not exist, so an unknown email
  * costs the same bcrypt work as a wrong password and response times do not
- * tell which addresses have accounts. A hash of a random string, made on
- * first use (a 12-round hash is too slow for every boot and unit test).
+ * tell which addresses have accounts. A BCRYPT_ROUNDS hash of a random
+ * string that was thrown away; its value is irrelevant, since no account
+ * matches it (verifyPassword answers false whatever the comparison says).
+ * A constant, not a hash made on first use: that made the first unknown
+ * email after each boot cost a hash and a comparison, twice a real
+ * account's time (#136).
  */
-let unknownAccountHash: Promise<string> | undefined;
+export const UNKNOWN_ACCOUNT_HASH =
+  '$2b$12$2XMqcJVfAECVq8kMYvFPKOWE4G13BXHCFM.4YGO5pHDP8rUtNwe8S';
 
 /** Whether `password` is the one behind `hash`; false, at the same cost, when there is no account. */
 export async function verifyPassword(
   password: string,
   hash: string | undefined,
 ): Promise<boolean> {
+  markSecretChecked();
   if (hash === undefined) {
-    unknownAccountHash ??= hashPassword(randomUUID());
-    await bcrypt.compare(password, await unknownAccountHash);
+    await bcrypt.compare(password, UNKNOWN_ACCOUNT_HASH);
     return false;
   }
   return bcrypt.compare(password, hash);

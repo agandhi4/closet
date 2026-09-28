@@ -1,6 +1,7 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
+import { markSecretChecked } from '../../metrics/request-timing';
 import { personalAccessToken, user } from '../../db/schema';
 import type { SessionUser } from './session';
 
@@ -158,6 +159,7 @@ export async function authenticateToken(
   token: string,
   now = new Date(),
 ): Promise<TokenAuth | undefined> {
+  markSecretChecked();
   if (!token.startsWith(TOKEN_PREFIX)) return undefined;
   const [row] = await db
     .select({

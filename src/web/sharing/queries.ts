@@ -2,6 +2,7 @@ import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../../db/client';
+import { markSecretChecked } from '../../metrics/request-timing';
 import { isUniqueViolation } from '../../db/errors';
 import {
   type SharePermission,
@@ -87,6 +88,7 @@ export async function findInvite(
   db: Db,
   token: string,
 ): Promise<ShareView | undefined> {
+  markSecretChecked();
   const [row] = await selectShares(db).where(
     eq(wardrobeShare.inviteToken, token),
   );
@@ -137,6 +139,7 @@ export async function acceptInvite(
   token: string,
   granteeId: number,
 ): Promise<AcceptResult> {
+  markSecretChecked();
   try {
     return await db.transaction(async (tx): Promise<AcceptResult> => {
       const [invite] = await tx
@@ -207,6 +210,7 @@ export async function declineInvite(
   token: string,
   userId: number,
 ): Promise<boolean> {
+  markSecretChecked();
   const [invite] = await db
     .select({
       id: wardrobeShare.id,

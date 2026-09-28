@@ -4,14 +4,15 @@ import {
   Gauge,
   Histogram,
   Registry,
-} from 'prom-client';
+} from '@prometheus-io/client';
 import type { Logger } from '../logger';
 
 /**
  * The process's Prometheus metrics (#115), read by the homelab's vmagent
- * from GET /metrics (src/web/metrics/routes.ts). One registry per app, never
- * prom-client's global one, so the integration specs' apps never share a
- * series.
+ * from GET /metrics (src/web/metrics/routes.ts), through
+ * @prometheus-io/client (prom-client's successor, #136). One registry per
+ * app, never the library's global one, so the integration specs' apps never
+ * share a series.
  *
  * The contract with the homelab (its Grafana dashboards read these names):
  * `http_request_duration_seconds{route,method,status_class}` and
@@ -38,8 +39,13 @@ export type JobName =
   | 'replan'
   | 'replan_prune';
 
-/** A cutout run's ending (src/cutout/queue.ts); `ok`/`error` for the timers. */
-export type JobOutcome = 'ok' | 'error' | 'discarded' | 'interrupted';
+/**
+ * A job's ending. `success` and `failure` are the homelab contract, shared
+ * with finplat (homelab stacks/homeinfra/vmalert/rules/apps.yml): the
+ * JobFailed alert and the RED dashboard select `outcome="failure"`. A
+ * cutout run may also end `discarded` or `interrupted` (src/cutout/queue.ts).
+ */
+export type JobOutcome = 'success' | 'failure' | 'discarded' | 'interrupted';
 
 export type PushOutcome = 'delivered' | 'pruned' | 'failed';
 
@@ -174,7 +180,7 @@ export class Metrics {
 
   /**
    * A scheduled job's `run`, timed under `name` (server.ts wraps every timer
-   * it starts): `ok`, or `error` when it throws (rethrown, for the
+   * it starts): `success`, or `failure` when it throws (rethrown, for the
    * scheduler to log).
    */
   timeJob<A extends unknown[], T>(
@@ -183,10 +189,10 @@ export class Metrics {
   ): (...args: A) => Promise<T> {
     return async (...args) => {
       const started = performance.now();
-      let outcome: JobOutcome = 'error';
+      let outcome: JobOutcome = 'failure';
       try {
         const result = await run(...args);
-        outcome = 'ok';
+        outcome = 'success';
         return result;
       } finally {
         this.observeJob(name, outcome, (performance.now() - started) / 1000);

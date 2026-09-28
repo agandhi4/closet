@@ -268,7 +268,7 @@ export class CutoutQueue {
         logger.info(
           `Cutout ready: ${label}, version ${outcome.state.version}; ${timing}`,
         );
-        return 'ok';
+        return 'success';
       }
       // The photo was edited, replaced or requeued while the job ran.
       const lease =
@@ -371,7 +371,7 @@ export class CutoutQueue {
         `Could not record failure of ${label}`,
       );
     }
-    return 'error';
+    return 'failure';
   }
 
   // Waits `ms`, or less when woken or halted: which one ended it. Halted
