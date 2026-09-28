@@ -20,6 +20,11 @@ export interface RecordedStatement {
   values: readonly unknown[];
   /** Rows it returned (0 for a write without RETURNING, or a failure). */
   rows: number;
+  /**
+   * The SQLSTATE of a statement Postgres refused (`23505`, a unique
+   * violation), else undefined: whether a request raised an error it caught.
+   */
+  error?: string;
   /** When it was sent (`performance.now()`): with `ms`, whether two overlapped. */
   startedAt: number;
   /** From the call to its answer: queueing on the connection included. */
@@ -63,14 +68,17 @@ export async function recordStatements<T>(
       ms: 0,
     };
     statements.push(statement);
-    const settle = (result: QueryResult | undefined) => {
+    const settle = (result: QueryResult | undefined, error?: Error | null) => {
       statement.ms = performance.now() - statement.startedAt;
       statement.rows = result?.rows?.length ?? 0;
+      if (error) {
+        statement.error = (error as { code?: string }).code ?? error.message;
+      }
     };
     const callback = args.at(-1);
     if (typeof callback === 'function') {
       args[args.length - 1] = ((error, result) => {
-        settle(result);
+        settle(result, error);
         (callback as QueryCallback)(error, result);
       }) satisfies QueryCallback;
     }
@@ -82,7 +90,7 @@ export async function recordStatements<T>(
           return result;
         },
         (error: Error) => {
-          settle(undefined);
+          settle(undefined, error);
           throw error;
         },
       );

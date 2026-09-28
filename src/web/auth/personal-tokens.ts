@@ -12,8 +12,8 @@ import type { SessionUser } from './session';
  * prefix to tell tokens apart on the profile. A fast hash is right here: the
  * token is 256 random bits, so there is nothing to guess, and a slow one
  * would cost every call. A token acts exactly as its user; a new password
- * revokes every token (revokeAllTokens, called by updatePasswordHash), as it
- * ends every session.
+ * revokes every token (revokeAllTokensStatement, in updatePasswordHash's
+ * statement), as it ends every session.
  */
 
 export const TOKEN_PREFIX = 'closet_';
@@ -38,33 +38,51 @@ export interface TokenListing {
   lastUsedAt: Date | null;
 }
 
+const listingColumns = {
+  id: personalAccessToken.id,
+  name: personalAccessToken.name,
+  prefix: personalAccessToken.tokenPrefix,
+  createdAt: personalAccessToken.createdAt,
+  lastUsedAt: personalAccessToken.lastUsedAt,
+};
+
+const inForce = (userId: number) =>
+  and(
+    eq(personalAccessToken.userId, userId),
+    isNull(personalAccessToken.revokedAt),
+  );
+
 /** The user's tokens still in force, newest first. */
-export function listTokens(db: Db, userId: number): Promise<TokenListing[]> {
+export function listTokens(
+  db: Queryable,
+  userId: number,
+): Promise<TokenListing[]> {
   return db
-    .select({
-      id: personalAccessToken.id,
-      name: personalAccessToken.name,
-      prefix: personalAccessToken.tokenPrefix,
-      createdAt: personalAccessToken.createdAt,
-      lastUsedAt: personalAccessToken.lastUsedAt,
-    })
+    .select(listingColumns)
     .from(personalAccessToken)
-    .where(
-      and(
-        eq(personalAccessToken.userId, userId),
-        isNull(personalAccessToken.revokedAt),
-      ),
-    )
+    .where(inForce(userId))
     .orderBy(desc(personalAccessToken.id));
 }
 
+/**
+ * What creating answers: the token in the clear (the only time it exists
+ * outside the caller's hands) and the list the page shows, the new token
+ * first; or, at the cap, the list as it stands.
+ */
 export type CreateTokenResult =
-  | { created: true; id: number; token: string }
-  | { created: false; reason: 'too-many' };
+  | { created: true; id: number; token: string; tokens: TokenListing[] }
+  | { created: false; reason: 'too-many'; tokens: TokenListing[] };
 
 /**
- * Makes a token for `userId` and returns it in the clear, the only time it
- * exists outside the caller's hands. `name` is already trimmed and bounded.
+ * Makes a token for `userId`. `name` is already trimmed and bounded.
+ *
+ * The list is read under the user's lock, where the cap is checked, and
+ * handed back with the new row: the page needs it either way, so the cap
+ * costs no count of its own and the answer no read after commit (#171).
+ * The lock and the list stay two statements: the list must be read after
+ * the lock is granted, and a statement's snapshot is taken before its
+ * locks are, so a creation waiting on another would count the tokens as
+ * they were before that one committed.
  */
 export function createToken(
   db: Db,
@@ -78,15 +96,9 @@ export function createToken(
       .from(user)
       .where(eq(user.id, userId))
       .for('update');
-    const active = await tx.$count(
-      personalAccessToken,
-      and(
-        eq(personalAccessToken.userId, userId),
-        isNull(personalAccessToken.revokedAt),
-      ),
-    );
-    if (active >= MAX_ACTIVE_TOKENS) {
-      return { created: false, reason: 'too-many' } as const;
+    const tokens = await listTokens(tx, userId);
+    if (tokens.length >= MAX_ACTIVE_TOKENS) {
+      return { created: false, reason: 'too-many', tokens } as const;
     }
     const token = `${TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
     const [row] = await tx
@@ -97,8 +109,13 @@ export function createToken(
         tokenHash: hashToken(token),
         tokenPrefix: token.slice(0, DISPLAY_LENGTH),
       })
-      .returning({ id: personalAccessToken.id });
-    return { created: true, id: row.id, token } as const;
+      .returning(listingColumns);
+    return {
+      created: true,
+      id: row.id,
+      token,
+      tokens: [row, ...tokens],
+    } as const;
   });
 }
 
@@ -114,33 +131,21 @@ export async function revokeToken(
   const revoked = await db
     .update(personalAccessToken)
     .set({ revokedAt: new Date() })
-    .where(
-      and(
-        eq(personalAccessToken.id, id),
-        eq(personalAccessToken.userId, userId),
-        isNull(personalAccessToken.revokedAt),
-      ),
-    )
+    .where(and(eq(personalAccessToken.id, id), inForce(userId)))
     .returning({ id: personalAccessToken.id });
   return revoked.length > 0;
 }
 
-/** Revokes every token of the user: a new password (updatePasswordHash). */
-export async function revokeAllTokens(
-  tx: Queryable,
-  userId: number,
-): Promise<number> {
-  const revoked = await tx
+/**
+ * Revokes every token of the user, returning a row per token revoked: a new
+ * password, as a CTE of updatePasswordHash's one statement.
+ */
+export function revokeAllTokensStatement(db: Queryable, userId: number) {
+  return db
     .update(personalAccessToken)
     .set({ revokedAt: new Date() })
-    .where(
-      and(
-        eq(personalAccessToken.userId, userId),
-        isNull(personalAccessToken.revokedAt),
-      ),
-    )
+    .where(inForce(userId))
     .returning({ id: personalAccessToken.id });
-  return revoked.length;
 }
 
 export interface TokenAuth {

@@ -1,13 +1,10 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
+import { loggableUrl } from '../loggable-url';
 import { SESSION_ENDED_HEADER } from '../page-cache';
-import { findUserById } from './queries';
-import {
-  passwordFingerprint,
-  SESSION_LIFETIME_SECONDS,
-  type SessionTokens,
-} from './tokens';
+import { type AccountRow, findSessionAccount } from './queries';
+import { SESSION_LIFETIME_SECONDS, type SessionTokens } from './tokens';
 
 /** The signed-in user as every route and page sees it: never the hash. */
 export interface SessionUser {
@@ -21,14 +18,50 @@ export interface AuthContext {
 
 export const SESSION_COOKIE = 'access_token';
 
-/** A session cookie's verdict: its session, or why it no longer opens one. */
-type CookieVerdict = { auth: AuthContext } | { rejected: string };
+/**
+ * A session cookie's verdict: its session (and, on a `checksPassword` route,
+ * the account row with its hash), or why it no longer opens one.
+ */
+type CookieVerdict =
+  | { auth: AuthContext; account?: AccountRow }
+  | { rejected: string };
+
+/**
+ * The account rows the session lookup read with their hash, by request: kept
+ * off `request.auth`, which the views and logs see, so a hash has no path
+ * into a page or a log line. Filled only for `checksPassword` routes.
+ */
+const accountsWithHash = new WeakMap<FastifyRequest, AccountRow>();
+
+/**
+ * The signed-in account with its password hash, on a route that says
+ * `config: { checksPassword: true }`: the session lookup read it, so the
+ * route's password check costs no second read of the row. Read from the
+ * same statement that checked the session's fingerprint, so the hash it
+ * verifies against is the one that session was judged by. Calling it
+ * anywhere else is a programming error.
+ */
+export function sessionAccount(request: FastifyRequest): AccountRow {
+  const account = accountsWithHash.get(request);
+  if (!account) {
+    throw new Error(
+      `sessionAccount() on ${request.method} ${loggableUrl(request)}, which has no session or no config.checksPassword`,
+    );
+  }
+  return account;
+}
 
 /**
  * Resolves a request's session once: cookie -> JWT -> user row -> password
  * fingerprint. The root preValidation hook in app.ts calls it for every
  * non-static request and stores the result as `request.auth`;
  * requireSession, sessionUserId() and the page context only read that.
+ *
+ * One statement, every request, never cached (src/web/security/CLAUDE.md):
+ * the row is read fresh because comparing its fingerprint is the
+ * revocation. It reads the id, the email (the app bar, the order mail's
+ * owner) and the hash's 8-character suffix, not the hash (#171); a
+ * `checksPassword` route's lookup reads the hash too, for sessionAccount().
  *
  * A cookie that no longer opens a session is ended here, on whatever route
  * it arrives (endSession: the cookie cleared, Clear-Site-Data sent). That
@@ -49,15 +82,25 @@ export function createSessionResolver(deps: {
 }) {
   const { db, tokens, logger } = deps;
 
-  const judge = async (token: string): Promise<CookieVerdict> => {
+  const judge = async (
+    token: string,
+    withHash: boolean,
+  ): Promise<CookieVerdict> => {
     const claims = tokens.verify(token);
     if (!claims) return { rejected: 'invalid signature, claims or expiry' };
-    const user = await findUserById(db, claims.userId);
-    if (!user) return { rejected: `unknown user ${claims.userId}` };
-    if (passwordFingerprint(user.password) !== claims.pwf) {
-      return { rejected: `password fingerprint mismatch for user ${user.id}` };
+    const row = await findSessionAccount(db, claims.userId, withHash);
+    if (!row) return { rejected: `unknown user ${claims.userId}` };
+    if (row.fingerprint !== claims.pwf) {
+      return { rejected: `password fingerprint mismatch for user ${row.id}` };
     }
-    return { auth: { user: { id: user.id, email: user.email } } };
+    const user = { id: row.id, email: row.email };
+    return {
+      auth: { user },
+      account:
+        row.password === undefined
+          ? undefined
+          : { ...user, password: row.password },
+    };
   };
 
   return async function resolveSession(
@@ -67,8 +110,14 @@ export function createSessionResolver(deps: {
     const token = request.cookies?.[SESSION_COOKIE];
     if (!token) return undefined;
 
-    const verdict = await judge(token);
-    if ('auth' in verdict) return verdict.auth;
+    const verdict = await judge(
+      token,
+      request.routeOptions.config.checksPassword === true,
+    );
+    if ('auth' in verdict) {
+      if (verdict.account) accountsWithHash.set(request, verdict.account);
+      return verdict.auth;
+    }
     endSession(reply);
     logger.info(
       `Rejected access token (${verdict.rejected}): cookie cleared, Clear-Site-Data sent`,

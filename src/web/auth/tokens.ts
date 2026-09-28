@@ -19,8 +19,15 @@ export interface SessionClaims {
 /** A token's lifetime; the cookie's Max-Age is the same span in seconds. */
 export const SESSION_LIFETIME_SECONDS = 365 * 24 * 60 * 60;
 
+/**
+ * How many trailing characters of the bcrypt hash a token carries as `pwf`.
+ * The session lookup computes the same suffix in SQL (findSessionAccount,
+ * queries.ts), so the hash itself never leaves the database on a request.
+ */
+export const PASSWORD_FINGERPRINT_LENGTH = 8;
+
 export function passwordFingerprint(passwordHash: string): string {
-  return passwordHash.slice(-8);
+  return passwordHash.slice(-PASSWORD_FINGERPRINT_LENGTH);
 }
 
 export interface SessionTokens {

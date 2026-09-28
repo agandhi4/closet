@@ -1,21 +1,25 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, ne, notExists, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
-import { isLockTimeout } from '../../db/errors';
-import { file, pendingPhoto, user } from '../../db/schema';
+import { isLockTimeout, isUniqueViolation } from '../../db/errors';
+import { file, pendingPhoto, user, USER_EMAIL_UNIQUE } from '../../db/schema';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { type StoredPhoto, unkeyedPhoto } from '../files/image-variant';
 import { STORED_PHOTO_COLUMNS } from '../files/queries';
-import { revokeDevices } from '../push/queries';
-import { revokeAllTokens } from './personal-tokens';
+import { revokeDevicesStatement } from '../push/queries';
+import { revokeAllTokensStatement } from './personal-tokens';
+import { PASSWORD_FINGERPRINT_LENGTH } from './tokens';
 
 /**
  * Account rows. Emails are stored as normalizeEmail writes them (trimmed,
  * lower case; drizzle/0005 converted the older rows) and are unique
  * case-insensitively: the `user_lower_email_unique` index on lower(email),
- * which is also what the lookups below use. The register and update-email
- * routes still check first, for a message under the field; a concurrent
- * write that wins the race is the index's unique violation.
+ * which is also what the lookups below use. The two writers of an address
+ * (insertUser, updateEmail) check it is free inside their own statement, so
+ * a taken address raises nothing; only a concurrent write that wins the
+ * race between that check and the index is the index's unique violation,
+ * which they catch by name and answer the same way.
  */
 
 export interface AccountRow {
@@ -34,12 +38,38 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-export async function findUserById(
+/**
+ * The session's account as the resolver reads it on every request
+ * (createSessionResolver, session.ts): `fingerprint` is the hash's suffix a
+ * token carries as `pwf` (passwordFingerprint), cut in SQL so the 60
+ * characters of the hash stay in the database. Only a route that checks the
+ * current password (`config: { checksPassword: true }`) asks for the hash as
+ * well, which then saves that route a second read of the same row.
+ */
+export interface SessionAccount {
+  id: number;
+  email: string | null;
+  fingerprint: string;
+  password?: string;
+}
+
+const sessionColumns = {
+  id: user.id,
+  email: user.email,
+  fingerprint: sql<string>`right(${user.password}, ${PASSWORD_FINGERPRINT_LENGTH})`,
+};
+
+export async function findSessionAccount(
   db: Db,
   id: number,
-): Promise<AccountRow | undefined> {
+  withHash: boolean,
+): Promise<SessionAccount | undefined> {
   const [row] = await db
-    .select(accountColumns)
+    .select(
+      withHash
+        ? { ...sessionColumns, password: user.password }
+        : sessionColumns,
+    )
     .from(user)
     .where(eq(user.id, id));
   return row;
@@ -59,21 +89,41 @@ export async function findUserByEmail(
 }
 
 /**
- * `email` must already be normalized; the caller checked it is free.
- * Registration asks for no name; the seed's personas have one (the share
- * page says "Shared by" the first name).
+ * The new account, or undefined when `email` is taken, in one statement: the
+ * insert selects its row only where no account has the address, so a taken
+ * one raises nothing (a unique violation is a Postgres ERROR whose DETAIL
+ * names the address). A sign-up that commits the same address between that
+ * check and the index is the race's unique violation, caught by the index's
+ * name and answered the same; any other error is rethrown. `email` must
+ * already be normalized. Registration asks for no name; the seed's personas
+ * have one (the share page says "Shared by" the first name).
+ *
+ * Raw SQL: Drizzle's insert-select must select every column, the serial id
+ * included, which a select list cannot default.
  */
 export async function insertUser(
   db: Queryable,
   email: string,
   passwordHash: string,
   name: { firstName?: string; lastName?: string } = {},
-): Promise<AccountRow> {
-  const [row] = await db
-    .insert(user)
-    .values({ email, password: passwordHash, ...name })
-    .returning(accountColumns);
-  return row;
+): Promise<AccountRow | undefined> {
+  try {
+    const { rows } = await db.execute<{
+      id: number;
+      email: string | null;
+      password: string;
+    }>(sql`
+      insert into ${user} (email, password, first_name, last_name)
+      select ${email}, ${passwordHash}, ${name.firstName ?? null}, ${name.lastName ?? null}
+      where not exists (
+        select 1 from ${user} where lower(${user.email}) = lower(${email})
+      )
+      returning id, email, password`);
+    return rows[0];
+  } catch (error) {
+    if (isUniqueViolation(error, USER_EMAIL_UNIQUE)) return undefined;
+    throw error;
+  }
 }
 
 /** What a new password took away, besides every other session. */
@@ -85,36 +135,99 @@ export interface PasswordChange {
 
 /**
  * The one writer of a password. The new hash ends every session issued
- * before it (the fingerprint), and the same transaction revokes every
+ * before it (the fingerprint), and the same statement revokes every
  * personal access token and every push subscription but `keepEndpoint`'s
  * (the device making the change, if it has one): a new password is how an
  * account is taken back, and a device signed out by it must stop receiving
- * the account's notifications at once (revokeDevices).
+ * the account's notifications at once (revokeDevicesStatement).
+ *
+ * One statement, not a transaction of three (#171): the token revocation
+ * and the device removal are data-modifying CTEs beside the update, which
+ * Postgres runs to completion whether or not the outer select reads them,
+ * atomically with it. The three touch different tables, so none sees
+ * another's change (a CTE's writes are invisible to its siblings). A
+ * transaction cost five round trips to pgvault, this one.
+ *
+ * An account that no longer exists is an HttpError 404 (the route's page;
+ * the CLI prints it), never a half-read row.
  */
-export function updatePasswordHash(
-  db: Db,
+export async function updatePasswordHash(
+  db: Queryable,
   id: number,
   passwordHash: string,
   keepEndpoint?: string,
 ): Promise<PasswordChange> {
-  return db.transaction(async (tx) => {
-    const [account] = await tx
-      .update(user)
-      .set({ password: passwordHash })
-      .where(eq(user.id, id))
-      .returning(accountColumns);
-    const revokedTokens = await revokeAllTokens(tx, id);
-    const revokedDevices = await revokeDevices(tx, id, keepEndpoint);
-    return { account, revokedTokens, revokedDevices };
-  });
+  const account = db
+    .$with('account')
+    .as(
+      db
+        .update(user)
+        .set({ password: passwordHash })
+        .where(eq(user.id, id))
+        .returning(accountColumns),
+    );
+  const tokens = db
+    .$with('revoked_tokens')
+    .as(revokeAllTokensStatement(db, id));
+  const devices = db
+    .$with('revoked_devices')
+    .as(revokeDevicesStatement(db, id, keepEndpoint));
+  const [row] = await db
+    .with(account, tokens, devices)
+    .select({
+      id: account.id,
+      email: account.email,
+      password: account.password,
+      revokedTokens: sql`(select count(*) from ${tokens})`.mapWith(Number),
+      revokedDevices: sql`(select count(*) from ${devices})`.mapWith(Number),
+    })
+    .from(account);
+  // No row: the account is gone (deleted between the caller's read and
+  // this), and the CTEs found nothing of it to revoke. A 404, as lockOwner.
+  if (!row) throw new HttpError(404, 'Account not found');
+  const { revokedTokens, revokedDevices, ...changed } = row;
+  return { account: changed, revokedTokens, revokedDevices };
 }
 
+/**
+ * Moves the account to `email` (already normalized); false when another
+ * account has it. One statement, and a taken address raises nothing, as
+ * insertUser: the update applies only where no other account holds the
+ * address, and the race past that check is the index's violation, caught by
+ * name. The account's own address, in any case, is no clash.
+ */
 export async function updateEmail(
   db: Db,
   id: number,
   email: string,
-): Promise<void> {
-  await db.update(user).set({ email }).where(eq(user.id, id));
+): Promise<boolean> {
+  const other = alias(user, 'other');
+  try {
+    const updated = await db
+      .update(user)
+      .set({ email })
+      .where(
+        and(
+          eq(user.id, id),
+          notExists(
+            db
+              .select({ id: other.id })
+              .from(other)
+              .where(
+                and(
+                  eq(sql`lower(${other.email})`, sql`lower(${email})`),
+                  ne(other.id, id),
+                ),
+              ),
+          ),
+        ),
+      )
+      .returning({ id: user.id });
+    return updated.length > 0;
+  } catch (error) {
+    if (isUniqueViolation(error, USER_EMAIL_UNIQUE)) return false;
+    throw error;
+  }
 }
 
 /**

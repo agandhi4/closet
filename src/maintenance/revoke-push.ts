@@ -37,7 +37,8 @@ export async function runRevokeAllPush(
     errors.write('Usage: npm run push:revoke-all\n');
     return 2;
   }
-  // One transaction, through the same revokeDevices a password change uses.
+  // One transaction, through the same statement a password change uses
+  // (revokeDevicesStatement).
   const revoked = await db.transaction(async (tx) => {
     const perUser: { userId: number; devices: number }[] = [];
     for (const userId of await usersWithDevices(tx)) {

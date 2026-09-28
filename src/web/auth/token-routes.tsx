@@ -12,10 +12,11 @@ import {
   listTokens,
   revokeToken,
   TOKEN_NAME_MAX,
+  type TokenListing,
 } from './personal-tokens';
 import { verifyPassword } from './passwords';
-import { findUserById } from './queries';
 import { sessionUserId } from './require-session';
+import { sessionAccount } from './session';
 import { TokensPage } from './tokens-page';
 import { TOKENS_PATH } from './urls';
 import { Password } from './validation';
@@ -66,45 +67,49 @@ export const tokenRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app.post(
     TOKENS_PATH,
     {
-      config: { rateLimit: ACCOUNT_LIMIT },
+      config: { rateLimit: ACCOUNT_LIMIT, checksPassword: true },
       schema: { body: CreateTokenBody },
     },
     async (request, reply) => {
       const userId = sessionUserId(request);
       const name = request.body.name.trim();
       // The form again with what was typed, the password never echoed.
-      const refuse = async (
-        notice: 'name-required' | 'too-many' | undefined,
-        passwordError?: string,
-      ) =>
+      // `tokens`: the list when the caller already read it (createToken's).
+      const refuse = async ({
+        notice,
+        passwordError,
+        tokens,
+      }: {
+        notice?: 'name-required' | 'too-many';
+        passwordError?: string;
+        tokens?: TokenListing[];
+      }) =>
         renderPage(
           reply,
           <TokensPage
             ctx={viewContext(reply)}
-            tokens={await listTokens(db, userId)}
+            tokens={tokens ?? (await listTokens(db, userId))}
             timeZone={config.timeZone}
             notice={notice}
             form={{ name: request.body.name, passwordError }}
           />,
           { status: 400 },
         );
-      if (!name) return refuse('name-required');
+      if (!name) return refuse({ notice: 'name-required' });
 
       // Step-up, as for every route that hands out or changes a credential:
       // a token outlives signing out, so a borrowed unlocked phone or a
       // stolen cookie must not be enough to mint one.
-      const account = await findUserById(db, userId);
-      if (
-        !(await verifyPassword(request.body.currentPassword, account?.password))
-      ) {
+      const { password } = sessionAccount(request);
+      if (!(await verifyPassword(request.body.currentPassword, password))) {
         logger.info(`Token refused for user ${userId}: wrong current password`);
-        return refuse(undefined, t('WRONG_CURRENT_PASSWORD'));
+        return refuse({ passwordError: t('WRONG_CURRENT_PASSWORD') });
       }
 
       const result = await createToken(db, userId, name);
       if (!result.created) {
         logger.warn(`Token refused for user ${userId}: ${result.reason}`);
-        return refuse(result.reason);
+        return refuse({ notice: result.reason, tokens: result.tokens });
       }
       logger.info(`User ${userId} created access token ${result.id}`);
       // The only time the token exists in a response: nothing may store it.
@@ -113,7 +118,7 @@ export const tokenRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         reply,
         <TokensPage
           ctx={viewContext(reply)}
-          tokens={await listTokens(db, userId)}
+          tokens={result.tokens}
           timeZone={config.timeZone}
           created={{ name, token: result.token }}
         />,

@@ -121,19 +121,19 @@ export async function devicesOf(
  * said 410. `keep` is the endpoint of the device making the change (the
  * change-password form posts it), which stays signed in and keeps its row
  * and reminders; an endpoint that is not one of this user's keeps nothing.
- * Callers: updatePasswordHash (the change-password route and
- * `user:set-password`, in the password's own transaction) and
- * `push:revoke-all` (after an ACCESS_TOKEN_SECRET rotation). The devices'
- * reminder claims go with them (push_reminder cascades). Returns how many
- * were removed.
+ * The devices' reminder claims go with them (push_reminder cascades).
+ *
+ * The statement, returning a row per device removed. Callers:
+ * updatePasswordHash (the change-password route and `user:set-password`),
+ * as a CTE of the password's own statement, and revokeDevices.
  */
-export async function revokeDevices(
-  tx: Queryable,
+export function revokeDevicesStatement(
+  db: Queryable,
   userId: number,
   keep?: string,
-): Promise<number> {
+) {
   // user_device_user_id_index.
-  const removed = await tx
+  return db
     .delete(userDevice)
     .where(
       and(
@@ -142,7 +142,17 @@ export async function revokeDevices(
       ),
     )
     .returning({ id: userDevice.id });
-  return removed.length;
+}
+
+/**
+ * revokeDevicesStatement run on its own, for `push:revoke-all` (after an
+ * ACCESS_TOKEN_SECRET rotation). Returns how many were removed.
+ */
+export async function revokeDevices(
+  tx: Queryable,
+  userId: number,
+): Promise<number> {
+  return (await revokeDevicesStatement(tx, userId)).length;
 }
 
 /** The users with at least one device: whose `push:revoke-all` revokes. */

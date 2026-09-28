@@ -94,7 +94,7 @@ export function PushSettings() {
 /**
  * The change-password form's field naming this device's push subscription
  * (ChangePasswordBody): a new password revokes every other device's
- * subscription (revokeDevices) and keeps this one's, reminders and all.
+ * subscription (revokeDevicesStatement) and keeps this one's, reminders and all.
  * Only the browser knows its endpoint, so <push-endpoint> (public/js/
  * push.js) fills the hidden input. Left empty (no subscription, or a submit
  * before the script ran), this device's row goes with the others and the

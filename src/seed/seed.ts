@@ -167,10 +167,13 @@ export async function seedPersona(
   );
   try {
     const report = await db.transaction(async (tx) => {
-      const { id: userId } = await insertUser(tx, email, passwordHash, {
+      const account = await insertUser(tx, email, passwordHash, {
         firstName: persona.account.firstName,
         lastName: persona.account.lastName,
       });
+      // Checked free above; taken since, by a sign-up or a second seed.
+      if (!account) throw new Error(`${email} was registered while seeding`);
+      const userId = account.id;
       if (deps.weatherEnabled) await writeWeather(tx, userId, persona.weather);
       const { owned: ids, wishlist: wishlistIds } = await writeGarments(
         tx,

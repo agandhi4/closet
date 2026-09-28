@@ -20,6 +20,14 @@ declare module 'fastify' {
      * client), still refusing a foreign one.
      */
     bearer?: boolean;
+    /**
+     * The route checks the current password (the step-up rule, Auth): the
+     * session lookup then reads the hash with the rest of the row, and the
+     * handler takes it from sessionAccount() (session.ts) instead of
+     * reading the row again. Every other request's lookup leaves the hash
+     * in the database.
+     */
+    checksPassword?: boolean;
   }
 }
 
