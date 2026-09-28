@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
+import { SESSION_ENDED_HEADER } from '../page-cache';
 import { findUserById } from './queries';
 import {
   passwordFingerprint,
@@ -105,7 +106,8 @@ export function setSessionCookie(reply: FastifyReply, token: string): void {
  * (and its push subscription) until a page loaded online registered it
  * again. The worker's page cache, the one private thing in Cache Storage,
  * is dropped by the worker itself (views/assets/src-sw.ts: the sign-out
- * navigation, and the signed-out page a revoked session lands on).
+ * navigation, an auth POST answered with X-Session-Ended, and the
+ * signed-out page a revoked session lands on).
  */
 export function endSession(reply: FastifyReply): void {
   reply.clearCookie(SESSION_COOKIE, {
@@ -114,4 +116,5 @@ export function endSession(reply: FastifyReply): void {
     sameSite: 'lax',
   });
   reply.header('Clear-Site-Data', '"cache"');
+  reply.header(SESSION_ENDED_HEADER, '1');
 }

@@ -28,6 +28,21 @@ export const PAGE_ACCOUNT_HEADER = 'X-Page-Account';
  */
 export const CACHED_AT_HEADER = 'X-SW-Cached-At';
 
+/**
+ * Set by endSession (src/web/auth/session.ts) on every answer that ends a
+ * session on this device: sign-out, account deletion, and a cookie that no
+ * longer opens a session (revoked elsewhere, expired), whatever the answer
+ * is, a 4xx included. The worker reads it as the session's end (#131).
+ * Clear-Site-Data, sent beside it, cannot serve: Chromium applies it and
+ * hides it from the response, the worker's own fetch included.
+ */
+export const SESSION_ENDED_HEADER = 'X-Session-Ended';
+
+/** Whether the server ended this device's session with this answer. */
+export function endedSession(headers: { has(name: string): boolean }): boolean {
+  return headers.has(SESSION_ENDED_HEADER);
+}
+
 /** The MCP endpoint's path (src/web/mcp): an API for programs, never a page. */
 export const MCP_PATH = '/mcp';
 

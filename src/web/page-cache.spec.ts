@@ -3,11 +3,13 @@ import {
   bypassesWorker,
   CACHED_AT_HEADER,
   cachedAt,
+  endedSession,
   PAGE_ACCOUNT_HEADER,
   pageAccount,
   revalidationOutcome,
   sentToLogin,
   servesStaleWhileRevalidate,
+  SESSION_ENDED_HEADER,
 } from './page-cache';
 
 const ORIGIN = 'https://closet.test';
@@ -134,6 +136,18 @@ describe('sentToLogin', () => {
         headers: new Headers({ [PAGE_ACCOUNT_HEADER]: '7' }),
       }),
     ).toBe(false);
+  });
+});
+
+describe('endedSession', () => {
+  it('is an answer that says the session ended (endSession)', () => {
+    expect(endedSession(new Headers({ [SESSION_ENDED_HEADER]: '1' }))).toBe(
+      true,
+    );
+  });
+
+  it('is not an answer without it (a plain refusal)', () => {
+    expect(endedSession(new Headers())).toBe(false);
   });
 });
 

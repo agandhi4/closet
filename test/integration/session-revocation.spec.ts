@@ -67,6 +67,8 @@ const NEXT_REQUESTS = [
 
 function expectSessionEnded(res: LightMyRequestResponse): void {
   expect(res.headers['clear-site-data']).toBe('"cache"');
+  // What the service worker reads: Chromium hides Clear-Site-Data (#131).
+  expect(res.headers['x-session-ended']).toBe('1');
   const cleared = res.cookies.find((c) => c.name === 'access_token');
   expect(cleared?.value).toBe('');
   expect(cleared?.path).toBe('/');
@@ -75,6 +77,7 @@ function expectSessionEnded(res: LightMyRequestResponse): void {
 
 function expectNothingCleared(res: LightMyRequestResponse): void {
   expect(res.headers['clear-site-data']).toBeUndefined();
+  expect(res.headers['x-session-ended']).toBeUndefined();
   expect(res.cookies.find((c) => c.name === 'access_token')).toBeUndefined();
 }
 
@@ -265,6 +268,19 @@ describe('a revoked session clears the device', () => {
 
   it('a garbled cookie is ended too', async () => {
     await expectEndedOnEveryRequest('access_token=not-a-jwt');
+  });
+
+  it('a refused sign-in over a dead cookie still ends it', async () => {
+    const email = 'refused@example.com';
+    await t.register(email);
+    const res = await t.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password: 'NotThePassword1' },
+      headers: { ...uniqueClient(), cookie: 'access_token=not-a-jwt' },
+    });
+    expect(res.statusCode).toBe(401);
+    expectSessionEnded(res);
   });
 
   it('signing in over a dead cookie keeps the new session', async () => {

@@ -1,7 +1,11 @@
 import { expect, type Page, test } from '@playwright/test';
 import sharp from 'sharp';
 import { createGarment, createOutfit } from './support/e2e-data';
-import { changePasswordElsewhere, signIn } from './support/e2e-session';
+import {
+  changePasswordElsewhere,
+  signIn,
+  signUpHeaders,
+} from './support/e2e-session';
 import { householdToday } from './support/household-today';
 import {
   cachedPaths,
@@ -15,7 +19,8 @@ import {
  * cleared and `Clear-Site-Data: "cache"` (the session resolver,
  * src/web/auth/session.ts), so the selfie it had in its HTTP cache is gone,
  * and with the PWA on, a boosted tap that lands on the login page drops the
- * worker's page cache (sentToLogin, views/assets/src-sw.ts). The headers on
+ * worker's page cache (sentToLogin, views/assets/src-sw.ts), as does a
+ * refused sign-in that ends the session (X-Session-Ended, #131). The headers on
  * every revocation path are test/integration/session-revocation.spec.ts.
  *
  * Chromium only: `cache: 'only-if-cached'` is how a page asks the HTTP cache
@@ -109,6 +114,53 @@ test.describe('a session revoked elsewhere', () => {
       .not.toEqual(expect.arrayContaining(['/wardrobe']));
     const left = await cachedPaths(page);
     expect(left).not.toContain('/calendar');
+    await other.close();
+  });
+
+  test("a refused sign-in that clears the revoked cookie drops the worker's page cache", async ({
+    page,
+    browser,
+  }) => {
+    test.skip(
+      process.env.PWA_ENABLED !== 'true',
+      'needs a server started with PWA_ENABLED=true',
+    );
+    // Sign-ins are limited per address: a forwarded one of its own.
+    await page.setExtraHTTPHeaders({
+      'x-forwarded-for': signUpHeaders()['x-forwarded-for'],
+    });
+    const email = await signIn(page, 'revoked-refusal');
+    await waitForServiceWorker(page);
+    await cachePage(page, '/wardrobe');
+    await cachePage(page, '/calendar');
+    // The login form opens to a signed-in user too (to switch accounts).
+    await page.goto('/auth/login');
+
+    const other = await changePasswordElsewhere(browser, email);
+
+    // A wrong password: the 401 re-renders the form, and the resolver has
+    // cleared the revoked cookie on it (X-Session-Ended). No redirect, and
+    // no page request follows that could tell the worker.
+    await page.locator('#email').fill(email);
+    await page.locator('#password').fill('NotThePassword1');
+    const refused = page.waitForResponse(
+      (res) =>
+        res.url().endsWith('/auth/login') && res.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: 'Login' }).click();
+    expect((await refused).status()).toBe(401);
+    await expect(page.locator('[role="alert"]')).toHaveText(
+      'Incorrect email or password',
+    );
+    const cookies = await page.context().cookies();
+    expect(cookies.find((c) => c.name === 'access_token')).toBeUndefined();
+
+    // Nothing rendered for the revoked account is left for the next one: the
+    // worker drops the pages before it answers, so no wait is needed.
+    const left = await cachedPaths(page);
+    expect(left).not.toContain('/wardrobe');
+    expect(left).not.toContain('/calendar');
+    expect(left).not.toContain('/auth/login');
     await other.close();
   });
 });

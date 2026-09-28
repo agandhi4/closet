@@ -21,6 +21,7 @@ import {
   bypassesWorker,
   CACHED_AT_HEADER,
   cachedAt,
+  endedSession,
   type FreshPage,
   pageAccount,
   type Revalidation,
@@ -451,10 +452,10 @@ const isPageRequest = ({ request, url }: { request: Request; url: URL }) =>
 
 // Signing in (POST /auth/login, /auth/register) and out (POST /auth/logout,
 // /auth/delete-account) change whose pages this device may show: once the
-// server has answered with its redirect, the cached pages go, so no session
-// is ever served the previous one's, online or off. The server also sends
-// Clear-Site-Data: "cache" on sign-out, which not every browser applies to
-// Cache Storage. Registered before the page routes: the first match wins.
+// server has answered, the cached pages go, so no session is ever served the
+// previous one's, online or off. The server also sends Clear-Site-Data:
+// "cache" whenever a session ends, which not every browser applies to Cache
+// Storage. Registered before the page routes: the first match wins.
 const SESSION_STARTS = new Set(['/auth/login', '/auth/register']);
 const SESSION_ENDS = new Set(['/auth/logout', '/auth/delete-account']);
 
@@ -462,20 +463,47 @@ const isSessionBoundary = ({ url }: { url: URL }) =>
   url.origin === self.location.origin &&
   (SESSION_STARTS.has(url.pathname) || SESSION_ENDS.has(url.pathname));
 
+type SessionChange = 'session started' | 'session ended' | 'session revoked';
+
+/**
+ * What an auth POST's answer did to this device's session. A redirect means
+ * it changed (a navigation sees an opaque redirect, whose headers it cannot
+ * read; htmx's XHR a followed one). A refusal (a wrong password, a taken
+ * email) re-renders the form with a 4xx and changes nothing, unless it
+ * says X-Session-Ended (endedSession): the cookie it was sent with no
+ * longer opened a session (revoked elsewhere, expired), and the server
+ * cleared it on this very answer (#131). The login form stays open to a
+ * signed-in user, so this is a wrong password typed after the account's
+ * password changed on another device.
+ *
+ * A sign-in keeps the push subscription even when its redirect also ended
+ * a dead session (X-Session-Ended beside the new cookie): the auth forms
+ * are native posts, so the worker sees an opaque redirect whose headers it
+ * cannot read, and it need not. The next signed-in page re-sends the
+ * subscription (syncSubscription, public/js/push.js), which moves the
+ * device's row to the new account with its reminders off (upsertDevice,
+ * src/web/push/queries.ts), so the previous account's notifications stop.
+ */
+function sessionChange(url: URL, response: Response): SessionChange | null {
+  if (response.type === 'opaqueredirect' || response.redirected) {
+    return SESSION_ENDS.has(url.pathname) ? 'session ended' : 'session started';
+  }
+  return endedSession(response.headers) ? 'session revoked' : null;
+}
+
 const sessionBoundaryHandler = async ({
   request,
   url,
   event,
 }: RouteHandlerCallbackOptions) => {
   const response = await fetch(request);
-  // A redirect means the session changed (a navigation sees it as an opaque
-  // redirect, htmx's XHR as a followed one); a refusal (a wrong password, a
-  // taken email) re-renders the form with a 4xx and changes nothing.
+  const change = sessionChange(url, response);
   // Dropped before answering, so the redirect's next page cannot race it.
-  if (response.type === 'opaqueredirect' || response.redirected) {
-    const ends = SESSION_ENDS.has(url.pathname);
-    await dropPages(event, ends ? 'session ended' : 'session started');
-    if (ends) event.waitUntil(dropPushSubscription());
+  if (change) {
+    await dropPages(event, change);
+    if (change !== 'session started') {
+      event.waitUntil(dropPushSubscription());
+    }
   }
   return response;
 };
