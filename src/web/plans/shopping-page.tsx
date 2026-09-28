@@ -118,8 +118,8 @@ function Summary({ list }: { list: PlanShoppingList }) {
           {t('shopping.SUMMARY_CHEAPEST', {
             total: priceLabel(fromCents(totals.cheapestCents)),
           })}
-          {totals.uncovered > 0 &&
-            ` · ${t('shopping.SUMMARY_UNCOVERED', { count: totals.uncovered })}`}
+          {totals.withoutPricedMatch > 0 &&
+            ` · ${t('shopping.SUMMARY_WITHOUT_PRICED_MATCH', { count: totals.withoutPricedMatch })}`}
         </p>
       </div>
     </section>

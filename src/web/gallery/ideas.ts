@@ -63,6 +63,9 @@ import {
 /** Cards a gallery page holds: one on screen at phone width, the next few ready. */
 export const IDEAS_PAGE_SIZE = 6;
 
+/** The last page a gallery goes to (ideasPage): 50 pages of 6 is more than anyone swipes. */
+export const MAX_IDEAS_PAGE = 50;
+
 /** Seeds are non-negative 31-bit integers (they travel in URLs). */
 export const MAX_SEED = 2_147_483_647;
 
@@ -177,6 +180,31 @@ export async function ideasFor(
     limit: input.limit,
   });
   return { ...page, weather };
+}
+
+/**
+ * Page `page` (1-based) of `pageSize` ideas, for the surfaces that page
+ * (the Ideas strip, suggest_outfits): ideasFor, with `more` false on
+ * MAX_IDEAS_PAGE, the last page they go to, so neither offers a page its
+ * own input refuses (the strip's sentinel would fetch page 1 again).
+ */
+export async function ideasPage(
+  deps: { db: Db; weather: WeatherService | undefined },
+  ownerId: number,
+  input: Omit<IdeasInput, 'offset' | 'limit'> & {
+    page: number;
+    pageSize: number;
+  },
+  now: Date,
+): Promise<IdeasResult> {
+  const { page, pageSize, ...rest } = input;
+  const result = await ideasFor(
+    deps,
+    ownerId,
+    { ...rest, offset: (page - 1) * pageSize, limit: pageSize },
+    now,
+  );
+  return { ...result, more: result.more && page < MAX_IDEAS_PAGE };
 }
 
 /**

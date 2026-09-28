@@ -19,10 +19,11 @@ import { isUniqueViolation } from '../../db/errors';
 import { ownerTransaction } from '../auth/queries';
 import type { ImageRef } from '../files/image-url';
 import { inCloset } from '../wardrobe/status';
-import type {
-  PlanFields,
-  PlanItemFields,
-  StyleProfileFields,
+import {
+  PLAN_NAME_MAX,
+  type PlanFields,
+  type PlanItemFields,
+  type StyleProfileFields,
 } from './validation';
 
 /**
@@ -33,7 +34,8 @@ import type {
  * The one reader of another wardrobe is closetPieces, for "start from a
  * wardrobe", after the route authorized the view (authorizeWardrobe).
  *
- * One writer each: the plan's name and notes (createPlan, updatePlan), which
+ * One writer each: the plan's name and notes (createPlan, or
+ * createGeneratedPlan for a name the app makes up; updatePlan), which
  * plan is active (setActivePlan; createPlan activates a first plan), the
  * items (addItems, insertItems, updateItem, acceptItem, deleteItem) and the style
  * profile (saveStyleProfile; its rhythm is the week template's, #16,
@@ -248,7 +250,7 @@ export async function closetPieces(
   }));
 }
 
-/** The categories of `ownerId`'s closet (the item form offers their custom ones). */
+/** The categories of `ownerId`'s closet (the item form suggests them after the built-in ones). */
 export async function closetCategories(
   db: Db,
   ownerId: number,
@@ -263,13 +265,10 @@ export async function closetCategories(
 // ---- Plan writes ------------------------------------------------------------
 
 /**
- * A new plan of `ownerId`'s, with `items`; active when the owner has no
- * active plan yet (their first, or after deleting the active one), so the
- * gap view always has one to show once any exists; lockOwner makes
- * that check and the activation one step. 'name-taken' only for the name
- * index (another of their plans has the name in any case); any other
- * violation is a bug and rethrown. A savepoint, so a caller's transaction
- * survives.
+ * A new plan of `ownerId`'s named by the owner (the plan form, the seed),
+ * with `items`. 'name-taken' only for the name index (another of their
+ * plans has the name in any case); any other violation is a bug and
+ * rethrown. A savepoint, so a caller's transaction survives.
  */
 export async function createPlan(
   db: Queryable,
@@ -278,27 +277,109 @@ export async function createPlan(
   items: PlanItemFields[] = [],
 ): Promise<number | NameTaken> {
   try {
-    return await ownerTransaction(db, ownerId, 'createPlan', async (tx) => {
-      const [row] = await tx
-        .insert(wardrobePlan)
-        .values({ ownerId, ...fields })
-        .returning({ id: wardrobePlan.id });
-      await tx
-        .update(wardrobePlan)
-        .set({ active: true })
-        .where(
-          and(
-            eq(wardrobePlan.id, row.id),
-            sql`not exists (select 1 from ${wardrobePlan} where ${wardrobePlan.ownerId} = ${ownerId} and ${wardrobePlan.active})`,
-          ),
-        );
-      await insertItems(tx, row.id, items, { proposed: false });
-      return row.id;
-    });
+    return await ownerTransaction(db, ownerId, 'createPlan', (tx) =>
+      insertPlan(tx, ownerId, fields, items),
+    );
   } catch (error) {
     if (isUniqueViolation(error, PLAN_NAME_UNIQUE)) return 'name-taken';
     throw error;
   }
+}
+
+/**
+ * A name the app makes up for a new plan: `base` through `nameFor` for the
+ * n-th try (n = 1, 2, ...): a duplicate's "NYC minimal (copy 2)", a
+ * wardrobe's "Like Theo’s wardrobe 2".
+ */
+export interface GeneratedPlanName {
+  base: string;
+  nameFor: (base: string, n: number) => string;
+}
+
+/**
+ * A new plan of `ownerId`'s under a generated name (a duplicate, "start
+ * from a wardrobe"): the first try none of their plans has in any case,
+ * chosen under the owner lock, in the insert's transaction. Every writer
+ * of wardrobe_plan holds that lock, so the name cannot be taken between
+ * the two: two taps of Duplicate queue and name their copies apart. The
+ * name index firing here would mean a writer skipping the lock, a bug, so
+ * it is not answered. A savepoint, so a caller's transaction survives.
+ */
+export function createGeneratedPlan(
+  db: Queryable,
+  ownerId: number,
+  name: GeneratedPlanName,
+  notes: string | null,
+  items: PlanItemFields[] = [],
+): Promise<{ id: number; name: string }> {
+  return ownerTransaction(db, ownerId, 'createGeneratedPlan', async (tx) => {
+    const free = await freePlanName(tx, ownerId, name);
+    const id = await insertPlan(tx, ownerId, { name: free, notes }, items);
+    return { id, name: free };
+  });
+}
+
+/**
+ * Inserts the plan with its items, under the owner lock the caller holds:
+ * active when the owner has no active plan yet (their first, or after
+ * deleting the active one), so the gap view always has one to show once
+ * any exists; the lock makes that check and the activation one step.
+ */
+async function insertPlan(
+  tx: Queryable,
+  ownerId: number,
+  fields: PlanFields,
+  items: PlanItemFields[],
+): Promise<number> {
+  const [row] = await tx
+    .insert(wardrobePlan)
+    .values({ ownerId, ...fields })
+    .returning({ id: wardrobePlan.id });
+  await tx
+    .update(wardrobePlan)
+    .set({ active: true })
+    .where(
+      and(
+        eq(wardrobePlan.id, row.id),
+        sql`not exists (select 1 from ${wardrobePlan} where ${wardrobePlan.ownerId} = ${ownerId} and ${wardrobePlan.active})`,
+      ),
+    );
+  await insertItems(tx, row.id, items, { proposed: false });
+  return row.id;
+}
+
+/**
+ * The first try of `name` none of the owner's plans has in any case, read
+ * under the owner lock the caller holds (createGeneratedPlan). Every try
+ * fits PLAN_NAME_MAX, so the plan's edit form takes the name back: a long
+ * base is cut (whole characters, trailing space dropped) and the suffix
+ * kept whole; cutting the suffix instead would make "(copy 2)" and
+ * "(copy 3)" one name and the search endless.
+ */
+async function freePlanName(
+  tx: Queryable,
+  ownerId: number,
+  { base, nameFor }: GeneratedPlanName,
+): Promise<string> {
+  const taken = new Set(
+    (
+      await tx
+        .select({ name: sql<string>`lower(${wardrobePlan.name})` })
+        .from(wardrobePlan)
+        .where(eq(wardrobePlan.ownerId, ownerId))
+    ).map((row) => row.name),
+  );
+  // In code points, as the form's maxLength counts them.
+  const characters = [...base];
+  const fitted = (n: number): string => {
+    const over = [...nameFor(base, n)].length - PLAN_NAME_MAX;
+    if (over <= 0) return nameFor(base, n);
+    const cut = characters.slice(0, characters.length - over);
+    return nameFor(cut.join('').trimEnd(), n);
+  };
+  let n = 1;
+  while (taken.has(fitted(n).toLowerCase())) n += 1;
+  return fitted(n);
 }
 
 /** Renames it: 'not-found' outside the owner's plans, 'name-taken' for another plan's name. */
@@ -371,30 +452,6 @@ export function setActivePlan(
       .where(eq(wardrobePlan.id, id));
     return true;
   });
-}
-
-/**
- * The first name `nameFor(n)` gives (n = 1, 2, ...) that none of the
- * owner's plans has in any case: a duplicate's "NYC minimal (copy 2)", a
- * wardrobe's "Theo's wardrobe 2". The unique index is still the race's
- * answer (createPlan's 'name-taken').
- */
-export async function freePlanName(
-  db: Db,
-  ownerId: number,
-  nameFor: (n: number) => string,
-): Promise<string> {
-  const taken = new Set(
-    (
-      await db
-        .select({ name: sql<string>`lower(${wardrobePlan.name})` })
-        .from(wardrobePlan)
-        .where(eq(wardrobePlan.ownerId, ownerId))
-    ).map((row) => row.name),
-  );
-  let n = 1;
-  while (taken.has(nameFor(n).toLowerCase())) n += 1;
-  return nameFor(n);
 }
 
 // ---- Item writes ------------------------------------------------------------

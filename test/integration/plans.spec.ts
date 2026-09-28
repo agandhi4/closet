@@ -6,11 +6,13 @@ import {
   user,
   wardrobePlan,
 } from '../../src/db/schema';
+import { lockOwner } from '../../src/web/auth/queries';
 import { saveWeekTemplate } from '../../src/web/week-plan/template';
 import {
   createPlan as insertPlan,
   insertItems,
 } from '../../src/web/plans/queries';
+import { PLAN_NAME_MAX } from '../../src/web/plans/validation';
 import { findWeatherSettings, setHome } from '../../src/web/weather/queries';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
@@ -112,6 +114,41 @@ describe('wardrobe plans', () => {
       .from(wardrobePlan)
       .where(eq(wardrobePlan.ownerId, id))
       .orderBy(asc(wardrobePlan.id));
+
+  /**
+   * Starts `requests` while a transaction holds `owner`'s lock, releases it
+   * once `waiting` of them queue behind it, and answers them: requests
+   * that read before they lock run those reads side by side, as two tabs.
+   */
+  const whileOwnerLocked = async <T>(
+    owner: number,
+    waiting: number,
+    requests: () => Promise<T>[],
+  ): Promise<T[]> => {
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const holder = t.db.transaction(async (tx) => {
+      await lockOwner(tx, owner);
+      locked();
+      await released;
+    });
+    await isLocked;
+    const answers = Promise.all(requests());
+    await expect
+      .poll(async () => {
+        const { rows } = await t.db.execute<{ waiting: number }>(
+          sql`select count(*)::int as waiting from pg_stat_activity
+              where datname = current_database() and wait_event_type = 'Lock'`,
+        );
+        return rows[0].waiting;
+      })
+      .toBe(waiting);
+    release();
+    await holder;
+    return answers;
+  };
 
   beforeAll(async () => {
     t = await createTestApp();
@@ -446,6 +483,31 @@ describe('wardrobe plans', () => {
       items.boots = await addItem(planId, { category: 'footwear' });
     });
 
+    it('takes a custom category the closet does not hold yet, typed with suggestions (#123)', async () => {
+      const id = await createPlan('Training');
+      const form = unescapeHtml(
+        (await get(`/wardrobe/plans/${id}/items/new`)).body,
+      );
+      // A text field, as the garment form's, suggesting the built-in ones.
+      expect(form).toMatch(
+        /<input id="item-category" type="text" name="category" list="item-category-suggestions"/,
+      );
+      expect(form).not.toContain('<select id="item-category"');
+      expect(form).toMatch(
+        /<datalist id="item-category-suggestions">[^]*<option value="tops">Tops<\/option>/,
+      );
+      const itemId = await addItem(id, { category: ' Gym Kit ' });
+      const [row] = await t.db
+        .select({ category: planItem.category })
+        .from(planItem)
+        .where(eq(planItem.id, itemId));
+      expect(row.category).toBe('gym kit');
+      const edit = unescapeHtml(
+        (await get(`/wardrobe/plans/${id}/items/${itemId}/edit`)).body,
+      );
+      expect(edit).toMatch(/id="item-category"[^>]*value="gym kit"/);
+    });
+
     it('refuses a type of another category, a range the wrong way round and a bad budget, with messages', async () => {
       const before = await t.db.$count(planItem);
       const res = await post(`/wardrobe/plans/${planId}/items`, {
@@ -616,6 +678,45 @@ describe('wardrobe plans', () => {
         (await plansOf(ownerId)).find((p) => p.id === copyId)?.active,
       ).toBe(false);
     });
+
+    it('names two duplicates made at the same moment apart, never a 500 (#123)', async () => {
+      const id = await createPlan('Twin taps');
+      const [a, b] = await whileOwnerLocked(ownerId, 2, () => [
+        post(`/wardrobe/plans/${id}/duplicate`, {}),
+        post(`/wardrobe/plans/${id}/duplicate`, {}),
+      ]);
+      expect([a.statusCode, b.statusCode]).toEqual([303, 303]);
+      const names = (await plansOf(ownerId)).map((p) => p.name);
+      expect(names).toContain('Twin taps (copy)');
+      expect(names).toContain('Twin taps (copy 2)');
+    });
+
+    it('cuts a long plan’s name so its copy fits the plan form (#123)', async () => {
+      const long = `${'Capsule for the long wet autumn '.repeat(3)}ok`.slice(
+        0,
+        PLAN_NAME_MAX,
+      );
+      const id = await createPlan(long);
+      const names: string[] = [];
+      for (let copy = 0; copy < 2; copy += 1) {
+        const res = await post(`/wardrobe/plans/${id}/duplicate`, {});
+        expect(res.statusCode).toBe(303);
+        const copyId = Number(
+          /\/wardrobe\/plans\/(\d+)/.exec(String(res.headers.location))![1],
+        );
+        const { name } = (await plansOf(ownerId)).find((p) => p.id === copyId)!;
+        names.push(name);
+        expect([...name].length).toBeLessThanOrEqual(PLAN_NAME_MAX);
+        // The edit form takes the name back as it is.
+        const saved = await post(`/wardrobe/plans/${copyId}`, {
+          name,
+          notes: '',
+        });
+        expect(saved.statusCode, saved.body).toBe(303);
+      }
+      expect(names[0]).toMatch(/^Capsule for the long wet autumn .* \(copy\)$/);
+      expect(names[1]).toMatch(/ \(copy 2\)$/);
+    });
   });
 
   describe('start from a wardrobe', () => {
@@ -725,6 +826,22 @@ describe('wardrobe plans', () => {
       expect(
         await t.db.$count(wardrobePlan, eq(wardrobePlan.ownerId, theoId)),
       ).toBe(0);
+    });
+
+    it('names two plans started at the same moment apart, never a 500 (#123)', async () => {
+      const racer = await t.register('racing-starts@example.com');
+      const racerId = await userIdOf(t, 'racing-starts@example.com');
+      const start = () =>
+        post('/wardrobe/plans/from-wardrobe', { ownerId: racerId }, racer);
+      const [a, b] = await whileOwnerLocked(racerId, 2, () => [
+        start(),
+        start(),
+      ]);
+      expect([a.statusCode, b.statusCode]).toEqual([303, 303]);
+      expect((await plansOf(racerId)).map((p) => p.name)).toEqual([
+        'My closet',
+        'My closet 2',
+      ]);
     });
 
     it('refuses a wardrobe nobody shared, as if it did not exist', async () => {

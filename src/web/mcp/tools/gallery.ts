@@ -8,8 +8,9 @@ import {
   goesWithCloset,
   IDEAS_PAGE_SIZE,
   ideaName,
-  ideasFor,
+  ideasPage,
   ideasScope,
+  MAX_IDEAS_PAGE,
   MAX_SEED,
   pickIdea,
 } from '../../gallery/ideas';
@@ -59,7 +60,7 @@ export const galleryTools = [
         .max(MAX_SEED)
         .optional()
         .describe("Which ideas. Omit for the day's; the answer says which."),
-      page: z.number().int().min(1).max(50).optional(),
+      page: z.number().int().min(1).max(MAX_IDEAS_PAGE).optional(),
       limit: z.number().int().min(1).max(MAX_IDEAS).optional(),
     }),
     writes: false,
@@ -84,7 +85,7 @@ export const galleryTools = [
         today,
       });
       const usedSeed = seed ?? dailySeed(today);
-      const result = await ideasFor(
+      const result = await ideasPage(
         { db: ctx.db, weather: ctx.weather },
         ctx.userId,
         {
@@ -94,8 +95,8 @@ export const galleryTools = [
           capsuleId: capsule?.id,
           locked: styled ? [styled] : [],
           seed: usedSeed,
-          offset: (page - 1) * limit,
-          limit,
+          page,
+          pageSize: limit,
         },
         now,
       );

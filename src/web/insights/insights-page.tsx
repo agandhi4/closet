@@ -380,10 +380,13 @@ type ColourShare = WardrobeInsights['colours'][number];
  * The palette: the closet's colours and the worn ones as strips, each
  * segment as wide as its share (flex-grow over a zero basis, so rounding
  * never overflows the strip), coloured by the garment form's swatch
- * classes (main.css, `.ms-swatch--<colour>`); the legend says it in words.
+ * classes (main.css, `.ms-swatch--<colour>`), and the garments without a
+ * colour as a plain segment at the end, so each colour takes its share of
+ * the whole closet; the legend says it in words.
  */
 function Colours({ insights }: { insights: WardrobeInsights }) {
   if (insights.colours.length === 0) return null;
+  const { uncoloured } = insights;
   return (
     <Card id="insights-colours" title={t('insights.COLOURS')}>
       <Strip
@@ -391,6 +394,7 @@ function Colours({ insights }: { insights: WardrobeInsights }) {
         title={t('insights.COLOURS_CLOSET')}
         colours={insights.colours}
         share={(colour) => colour.closet}
+        uncoloured={uncoloured.closet}
       />
       {insights.recentWearDays > 0 && (
         <Strip
@@ -398,6 +402,7 @@ function Colours({ insights }: { insights: WardrobeInsights }) {
           title={t('insights.COLOURS_WORN')}
           colours={insights.colours}
           share={(colour) => colour.worn}
+          uncoloured={uncoloured.worn}
         />
       )}
       <ul class="flex flex-col gap-1 text-xs">
@@ -416,9 +421,13 @@ function Colours({ insights }: { insights: WardrobeInsights }) {
           </li>
         ))}
       </ul>
-      {insights.uncoloured > 0 && (
+      {uncoloured.garments > 0 && (
         <p class="text-xs text-muted">
-          {t('insights.UNCOLOURED', { count: insights.uncoloured })}
+          {t('insights.UNCOLOURED', {
+            count: uncoloured.garments,
+            closet: uncoloured.closet,
+            worn: uncoloured.worn,
+          })}
         </p>
       )}
     </Card>
@@ -430,8 +439,10 @@ function Strip(props: {
   title: string;
   colours: ColourShare[];
   share: (colour: ColourShare) => number;
+  /** The garments without a colour's percent: the strip's plain end. */
+  uncoloured: number;
 }) {
-  const { share } = props;
+  const { share, uncoloured } = props;
   return (
     <div data-strip={props.name}>
       <h3 class="text-sm text-muted mb-1">{props.title}</h3>
@@ -451,6 +462,15 @@ function Strip(props: {
               data-share={share(colour)}
             />
           ))}
+        {uncoloured > 0 && (
+          <span
+            class="basis-0 bg-base-300"
+            style={`flex-grow:${uncoloured}`}
+            title={`${t('insights.NO_COLOUR')} ${uncoloured}%`}
+            data-uncoloured=""
+            data-share={uncoloured}
+          />
+        )}
       </div>
     </div>
   );

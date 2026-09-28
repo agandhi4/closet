@@ -108,7 +108,7 @@ export const insightTools = [
           closetPercent: c.closet,
           wornPercent: c.worn,
         })),
-        uncoloured: insights.uncoloured,
+        uncoloured: insights.uncoloured.garments,
         categories: insights.categories.map((row) =>
           breakdownOut(row, 'category'),
         ),

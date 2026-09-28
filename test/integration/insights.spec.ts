@@ -302,6 +302,8 @@ describe('insights', () => {
     // Navigation state: anything else is the default.
     ['?unworn=45', ['sandals', 'scarf', 'belt']],
     ['?unworn=abc', ['sandals', 'scarf', 'belt']],
+    // However long (#123): a length limit would answer 400 first.
+    ['?unworn=not-a-window', ['sandals', 'scarf', 'belt']],
   ])('unworn %s', async (query, names) => {
     const { html } = await page(query);
     expect(idsIn(html, 'insights-unworn')).toEqual(names.map((n) => g[n]));
@@ -375,27 +377,37 @@ describe('insights', () => {
             .matchAll(/data-colour="(\w+)" data-share="(\d+)"/g),
         ].map((m) => [m[1], Number(m[2])]),
       );
-    // Seven coloured garments: black 2 (shirt, belt), brown 1.5, blue,
-    // red, white 1 each, green 0.5. The boots have none.
+    // Shares of the whole closet (#123): eight garments, seven coloured:
+    // black 2 (shirt, belt), brown 1.5, blue, red, white 1 each, green 0.5;
+    // the boots have none, and are the strip's plain end.
     expect(strip('closet')).toEqual({
-      black: 29,
-      brown: 21,
-      blue: 14,
-      red: 14,
-      white: 14,
-      green: 7,
+      black: 25,
+      brown: 19,
+      blue: 13,
+      red: 13,
+      white: 13,
+      green: 6,
     });
-    // 15 wear days of coloured garments in the year: tee 6, jeans 4,
-    // jacket 3 (half green, half brown), scarf 1, belt 1.
+    // 16 wear days in the year: tee 6, jeans 4, jacket 3 (half green, half
+    // brown), scarf 1, belt 1, and the boots' 1.
     expect(strip('worn')).toEqual({
-      black: 7,
-      brown: 10,
-      blue: 27,
-      red: 7,
-      white: 40,
-      green: 10,
+      black: 6,
+      brown: 9,
+      blue: 25,
+      red: 6,
+      white: 38,
+      green: 9,
     });
-    expect(colours).toContain('1 without a colour');
+    const plainEnd = (name: string) =>
+      /data-uncoloured="" data-share="(\d+)"/.exec(
+        colours
+          .slice(colours.indexOf(`data-strip="${name}"`))
+          .split('</div></div>')[0],
+      )?.[1];
+    expect([plainEnd('closet'), plainEnd('worn')]).toEqual(['13', '6']);
+    expect(colours).toContain(
+      '1 without a colour: 13% of the closet, 6% of what you wear',
+    );
   });
 
   it('categories and brands: garments, pieces and share of wears', async () => {
@@ -474,6 +486,7 @@ describe('insights', () => {
       };
       pairs: { garments: { id: number }[]; days: number }[];
       colours: { colour: string; closetPercent: number }[];
+      uncoloured: number;
       categories: { category: string }[];
       brands: { brand: string | null }[];
       condition: { needsRepair: number; replaceSoon: number };
@@ -515,11 +528,13 @@ describe('insights', () => {
       [g.tee, g.jacket, 2],
       [g.jeans, g.jacket, 2],
     ]);
+    // Of the whole closet and all wear days, the boots without a colour too.
     expect(stats.colours[0]).toEqual({
       colour: 'black',
-      closetPercent: 29,
-      wornPercent: 7,
+      closetPercent: 25,
+      wornPercent: 6,
     });
+    expect(stats.uncoloured).toBe(1);
     expect(stats.categories.map((c) => c.category)[0]).toBe('tops');
     expect(stats.brands.map((b) => b.brand)).toEqual([
       'Uniqlo',

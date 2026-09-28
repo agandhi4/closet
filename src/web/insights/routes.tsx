@@ -15,9 +15,10 @@ import { readInsights } from './queries';
 import { INSIGHTS_PATH } from './urls';
 
 // Navigation state (the unworn list's window chips): anything but one of
-// the choices falls back to the default, never a 400.
+// the choices falls back to the default, never a 400, so no length limit
+// either (one answered a long value 400 before the fallback, #123).
 const InsightsQuery = Type.Object({
-  unworn: Type.Optional(Type.String({ maxLength: 8 })),
+  unworn: Type.Optional(Type.String()),
 });
 
 function unwornDays(value: string | undefined): UnwornDays {

@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { garment, planItemCandidate } from '../../src/db/schema';
+import { garment, planItem, planItemCandidate } from '../../src/db/schema';
+import { lockOwner } from '../../src/web/auth/queries';
 import { createTestApp, type TestApp } from './harness';
 import {
   html,
@@ -43,7 +44,7 @@ interface ShoppingOut {
     budget: string;
     itemsWithoutBudget: number;
     cheapestCandidates: string;
-    itemsWithoutCandidate: number;
+    itemsWithoutPricedMatch: number;
   };
 }
 
@@ -242,7 +243,7 @@ describe('MCP: the shopping loop', () => {
       budget: '140.00',
       itemsWithoutBudget: 0,
       cheapestCandidates: '49.90',
-      itemsWithoutCandidate: 1,
+      itemsWithoutPricedMatch: 1,
     });
     const theirs = await callTool(t, strangerToken, 'get_shopping_list', {
       planId,
@@ -267,5 +268,52 @@ describe('MCP: the shopping loop', () => {
       b: copy,
     });
     expect(theirs.value.error).toBe('Plan not found');
+  });
+
+  it('add_candidate by url leaves no wishlist item behind when the item is deleted during the save (#123)', async () => {
+    const doomed = await addItem({
+      name: 'Doomed scarf',
+      category: 'accessories',
+    });
+    sites.serve(
+      '/products/scarf',
+      html(`<html><head><meta property="og:title" content="Wool Scarf">
+        </head><body></body></html>`),
+    );
+    const wishlistCount = () =>
+      t.db.$count(garment, eq(garment.status, 'wishlist'));
+    const before = await wishlistCount();
+    // The owner lock held while the item is deleted: the save's link waits
+    // behind it, then finds the item gone.
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const deleter = t.db.transaction(async (tx) => {
+      await lockOwner(tx, t.owner.id);
+      await tx.delete(planItem).where(eq(planItem.id, doomed));
+      locked();
+      await released;
+    });
+    await isLocked;
+    const added = callTool(t, token, 'add_candidate', {
+      itemId: doomed,
+      url: sites.url('/products/scarf'),
+    });
+    await expect
+      .poll(async () => {
+        const { rows } = await t.db.execute<{ waiting: number }>(
+          sql`select count(*)::int as waiting from pg_stat_activity
+              where datname = current_database() and wait_event_type = 'Lock'`,
+        );
+        return rows[0].waiting;
+      })
+      .toBe(1);
+    release();
+    await deleter;
+    const answer = await added;
+    expect(answer.isError).toBe(true);
+    expect(answer.value.error).toBe('Plan item not found');
+    expect(await wishlistCount()).toBe(before);
   });
 });

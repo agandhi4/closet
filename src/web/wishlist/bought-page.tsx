@@ -116,7 +116,11 @@ export function BoughtPage(props: { ctx: ViewContext; model: BoughtModel }) {
             </label>
           )}
           {model.plans.length > 0 && (
-            <PlanSection plans={model.plans} ticked={model.ticked} />
+            <PlanSection
+              plans={model.plans}
+              ticked={model.ticked}
+              archivable={model.archivable}
+            />
           )}
           <div class="flex gap-2 mt-2">
             <CancelLink
@@ -134,12 +138,16 @@ export function BoughtPage(props: { ctx: ViewContext; model: BoughtModel }) {
   );
 }
 
-/** What buying it does to the owner's plan items it is a candidate for. */
+/**
+ * What buying it does to the owner's plan items it is a candidate for, and
+ * where archiving the replaced garment too would leave one short.
+ */
 function PlanSection(props: {
   plans: PlanPurchase[];
   ticked: PlanFollowUps | undefined;
+  archivable: GarmentRef | undefined;
 }) {
-  const { ticked } = props;
+  const { ticked, archivable } = props;
   return (
     <section
       id="bought-plans"
@@ -186,6 +194,13 @@ function PlanSection(props: {
                 </label>
                 <p class="text-xs text-muted">{t('shopping.KEEP_HINT')}</p>
               </>
+            )}
+            {purchase.afterArchiving && archivable && (
+              <p class="text-xs text-muted" data-if-archived>
+                {t('shopping.IF_ARCHIVED', {
+                  name: archivable.name ?? categoryLabel(archivable.category),
+                })}
+              </p>
             )}
             {purchase.others.length > 0 && (
               <fieldset class="flex flex-col gap-1">

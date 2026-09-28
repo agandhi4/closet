@@ -440,6 +440,18 @@ describe('planItemsFromWardrobe', () => {
     ]);
   });
 
+  it('groups a colour set however a row stores it: in another order or with a repeat (#123)', () => {
+    // garment_colors_check checks membership only (<@), not order or repeats.
+    const items = planItemsFromWardrobe([
+      source({ colors: ['blue', 'white'] }),
+      source({ colors: ['white', 'blue'] }),
+      source({ colors: ['white', 'blue', 'white'] }),
+    ]);
+    expect(items.map((i) => [i.colors, i.quantity])).toEqual([
+      [['blue', 'white'], 3],
+    ]);
+  });
+
   it('orders items as the wardrobe lists categories and types, untyped last', () => {
     const items = planItemsFromWardrobe([
       source({ category: 'footwear', type: 'boots' }),

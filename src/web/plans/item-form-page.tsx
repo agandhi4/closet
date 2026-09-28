@@ -16,9 +16,9 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import type { ViewContext } from '../view-context';
-import { categoryLabel, orderCategories } from '../wardrobe/garment';
+import { categoryLabel } from '../wardrobe/garment';
 import { valueLabel } from '../wardrobe/labels';
-import { PRICE_INPUT_MAX } from '../wardrobe/validation';
+import { CATEGORY_MAX, PRICE_INPUT_MAX } from '../wardrobe/validation';
 import { priorityLabel } from './labels';
 import { itemsUrl, itemUrl, planUrl } from './urls';
 import {
@@ -38,8 +38,8 @@ export interface ItemFormModel {
   proposed?: boolean;
   values: PlanItemFormValues;
   errors?: FieldErrors<PlanItemField>;
-  /** The owner's custom categories (their closet's), offered after the built-in ones. */
-  customCategories: string[];
+  /** The category suggestions: the built-in ones, then the owner's closet's own (categorySuggestions). */
+  categories: string[];
 }
 
 /**
@@ -85,7 +85,7 @@ export function ItemFormPage(props: {
           <KindFields
             values={values}
             errors={errors}
-            customCategories={model.customCategories}
+            categories={model.categories}
           />
           <ChipGroup label={t('COLOR')} hint={t('plans.COLORS_HINT')}>
             {GARMENT_COLORS.map((color) => (
@@ -213,24 +213,17 @@ export function ItemFormPage(props: {
 }
 
 /**
- * The category and type selects. The type list holds every category's
- * types, grouped; the save refuses one of another category with a message.
+ * The category, typed or picked from suggestions as on the garment form
+ * (a plan may ask for a custom category the closet does not hold yet: "gym
+ * kit"), and the type select. The type list holds every category's types,
+ * grouped; the save refuses one of another category with a message.
  */
 function KindFields(props: {
   values: PlanItemFormValues;
   errors: FieldErrors<PlanItemField>;
-  customCategories: string[];
+  categories: string[];
 }) {
   const { values, errors } = props;
-  // The built-in categories, the closet's own, and the item's (a custom
-  // category the closet no longer holds).
-  const categories = orderCategories([
-    ...new Set<string>([
-      ...Object.values(GarmentCategory),
-      ...props.customCategories,
-      ...(values.category ? [values.category] : []),
-    ]),
-  ]);
   return (
     <>
       <Labelled
@@ -238,21 +231,23 @@ function KindFields(props: {
         label={`${t('CATEGORY')} *`}
         errors={errors.category}
       >
-        <select
+        <input
           id="item-category"
+          type="text"
           name="category"
-          class={`select select-bordered w-full ${errors.category ? 'select-error' : ''}`}
+          list="item-category-suggestions"
+          class={`input input-bordered w-full ${errors.category ? 'input-error' : ''}`}
+          value={values.category}
+          maxlength={CATEGORY_MAX}
           required
-        >
-          <option value="" selected={!values.category}>
-            {t('plans.CHOOSE_CATEGORY')}
-          </option>
-          {categories.map((category) => (
-            <option value={category} selected={values.category === category}>
-              {categoryLabel(category)}
-            </option>
+          placeholder={t('TYPE_OR_SELECT_CATEGORY')}
+          autocomplete="off"
+        />
+        <datalist id="item-category-suggestions">
+          {props.categories.map((category) => (
+            <option value={category}>{categoryLabel(category)}</option>
           ))}
-        </select>
+        </datalist>
       </Labelled>
       <Labelled id="item-type" label={t('PROPERTY_TYPE')} errors={errors.type}>
         <select

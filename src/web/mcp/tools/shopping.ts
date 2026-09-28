@@ -4,6 +4,7 @@ import { HttpError } from '../../errors';
 import {
   candidatesOfItems,
   changeCandidates,
+  linkNewCandidate,
   MAX_CANDIDATES_PER_ITEM,
   requireCandidateRoom,
 } from '../../plans/candidates';
@@ -41,7 +42,7 @@ export const shoppingTools = [
     name: 'get_shopping_list',
     title: 'Get my shopping list',
     description:
-      'A wardrobe plan’s shopping list (your active plan unless planId is given): its missing and partly owned items, the highest priority first, each with how many copies are still to buy, its budget per piece, and its candidate products (wishlist garments linked to it, the likeliest first: matching the item, within budget, cheapest), each with its price, link, whether it is within the budget and whether it matches the item (and how not). The totals: items, pieces, the budget over the items that have one, and what the cheapest matching candidates would cost. Buying is the owner’s, in the app ("Bought it").',
+      'A wardrobe plan’s shopping list (your active plan unless planId is given): its missing and partly owned items, the highest priority first, each with how many copies are still to buy, its budget per piece, and its candidate products (wishlist garments linked to it, the likeliest first: matching the item, within budget, cheapest), each with its price, link, whether it is within the budget and whether it matches the item (and how not). The totals: items, pieces, the budget over the items that have one, what the cheapest matching candidates would cost, and itemsWithoutPricedMatch: the items left out of that cost, having no candidate that both matches and has a price (none at all, or only unpriced or non-matching ones). Buying is the owner’s, in the app ("Bought it").',
     input: z.object({ planId: planIdInput }),
     writes: false,
     async run({ planId }, ctx) {
@@ -67,7 +68,7 @@ export const shoppingTools = [
           budget: fromCents(totals.budgetCents),
           itemsWithoutBudget: totals.unbudgeted,
           cheapestCandidates: fromCents(totals.cheapestCents),
-          itemsWithoutCandidate: totals.uncovered,
+          itemsWithoutPricedMatch: totals.withoutPricedMatch,
         },
       };
     },
@@ -170,7 +171,8 @@ async function linkWishlistItem(
 
 /**
  * add_candidate by url: the link import onto the caller's own wishlist, the
- * candidate link written in the garment's transaction.
+ * candidate link written in the garment's transaction (linkNewCandidate:
+ * an item deleted while the page was fetched rolls the garment back).
  */
 async function importCandidate(
   ctx: ToolContext,
@@ -195,9 +197,7 @@ async function importCandidate(
     },
     {
       withGarment: (tx, garmentId) =>
-        changeCandidates(tx, access.ownerId, {
-          add: { itemIds: [itemId], garmentIds: [garmentId] },
-        }),
+        linkNewCandidate(tx, access.ownerId, itemId, garmentId),
     },
   );
   return saved.id;

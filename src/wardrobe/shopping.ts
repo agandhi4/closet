@@ -61,7 +61,7 @@ export interface ShoppingTotals {
    */
   cheapestCents: number;
   /** Items on the list without a matching, priced candidate (left out of cheapestCents). */
-  uncovered: number;
+  withoutPricedMatch: number;
 }
 
 /** '49.90' as 4990. The column's strings have at most two decimals. */
@@ -80,6 +80,16 @@ function budgetFit(price: string | null, budget: string | null): BudgetFit {
 }
 
 const FIT_RANK: Record<BudgetFit, number> = { within: 0, over: 1, unknown: 2 };
+
+/**
+ * Cheapest first, unpriced last. Without a budget every candidate's fit is
+ * 'unknown', so this alone orders them; a null that compared equal to
+ * everything made the sort intransitive (an unpriced one before priced ones).
+ */
+function comparePrices(a: string | null, b: string | null): number {
+  if (a === null || b === null) return Number(a === null) - Number(b === null);
+  return toCents(a) - toCents(b);
+}
 const PRIORITY_RANK = new Map<string, number>(
   PLAN_PRIORITIES.map((priority, index) => [priority, index]),
 );
@@ -120,9 +130,7 @@ export function shoppingList<
           (x, y) =>
             Number(y.candidate.matches) - Number(x.candidate.matches) ||
             FIT_RANK[x.budget] - FIT_RANK[y.budget] ||
-            (x.candidate.price === null || y.candidate.price === null
-              ? 0
-              : toCents(x.candidate.price) - toCents(y.candidate.price)) ||
+            comparePrices(x.candidate.price, y.candidate.price) ||
             x.candidate.garmentId - y.candidate.garmentId,
         ),
     }));
@@ -138,7 +146,7 @@ export function shoppingTotals(
     budgetCents: 0,
     unbudgeted: 0,
     cheapestCents: 0,
-    uncovered: 0,
+    withoutPricedMatch: 0,
   };
   for (const entry of entries) {
     totals.pieces += entry.toBuy;
@@ -147,7 +155,7 @@ export function shoppingTotals(
     const prices = entry.candidates
       .filter(({ candidate }) => candidate.matches && candidate.price !== null)
       .map(({ candidate }) => toCents(candidate.price!));
-    if (prices.length === 0) totals.uncovered += 1;
+    if (prices.length === 0) totals.withoutPricedMatch += 1;
     else totals.cheapestCents += Math.min(...prices) * entry.toBuy;
   }
   return totals;

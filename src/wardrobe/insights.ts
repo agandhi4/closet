@@ -155,8 +155,12 @@ export interface WardrobeInsights {
   };
   pairs: { a: InsightGarment; b: InsightGarment; days: number }[];
   colours: ColourShare[];
-  /** Garments without a colour (left out of the strip). */
-  uncoloured: number;
+  /**
+   * Garments without a colour, and their percent of the closet and of the
+   * recent wear days: the rest of each strip, so the colours' shares are
+   * of the whole closet (#123).
+   */
+  uncoloured: { garments: number; closet: number; worn: number };
   categories: Breakdown[];
   brands: Breakdown[];
   /** Garments without a brand (left out of the brands). */
@@ -252,21 +256,25 @@ function costs(garments: InsightGarment[]): WardrobeInsights['cost'] {
 }
 
 /**
- * Each colour's share of the closet and of what was worn. A garment in k
- * colours counts 1/k to each, so the strip adds up to the closet.
+ * Each colour's share of the whole closet and of all the recent wear days.
+ * A garment in k colours counts 1/k to each; one without a colour counts
+ * to `uncoloured`, so the colours and it add up to the closet (a closet
+ * half untagged is not all its colours at 100%).
  */
-function colourShares(garments: InsightGarment[]): {
-  colours: ColourShare[];
-  uncoloured: number;
-} {
+function colourShares(
+  garments: InsightGarment[],
+): Pick<WardrobeInsights, 'colours' | 'uncoloured'> {
   const shares = new Map<GarmentColor, { closet: number; worn: number }>();
-  let coloured = 0;
+  const uncoloured = { garments: 0, wornDays: 0 };
   let wornDays = 0;
   for (const garment of garments) {
-    const colours = garment.colors ?? [];
-    if (colours.length === 0) continue;
-    coloured += 1;
     wornDays += garment.recentWearDays;
+    const colours = garment.colors ?? [];
+    if (colours.length === 0) {
+      uncoloured.garments += 1;
+      uncoloured.wornDays += garment.recentWearDays;
+      continue;
+    }
     for (const colour of colours) {
       const share = shares.get(colour) ?? { closet: 0, worn: 0 };
       share.closet += 1 / colours.length;
@@ -282,10 +290,14 @@ function colourShares(garments: InsightGarment[]): {
       )
       .map(([colour, share]) => ({
         colour,
-        closet: percent(share.closet, coloured),
+        closet: percent(share.closet, garments.length),
         worn: percent(share.worn, wornDays),
       })),
-    uncoloured: garments.length - coloured,
+    uncoloured: {
+      garments: uncoloured.garments,
+      closet: percent(uncoloured.garments, garments.length),
+      worn: percent(uncoloured.wornDays, wornDays),
+    },
   };
 }
 

@@ -761,6 +761,62 @@ describe('outfit gallery', () => {
       expect(refused.isError).toBe(true);
     });
   });
+
+  // A closet of its own: 10 tops, 10 bottoms and 4 shoes in neutrals make
+  // 400 ideas, more than the 50 pages of 6 the gallery goes to.
+  describe('a closet past the last page (#123)', () => {
+    let cookie: string;
+    let unnamedTop: number;
+
+    beforeAll(async () => {
+      cookie = await t.register('big-closet@example.com');
+      const neutrals = ['white', 'grey', 'black', 'beige', 'brown'];
+      for (let i = 0; i < 10; i += 1) {
+        await garmentIn(`Top ${i}`, 'tops', neutrals[i % 5], cookie);
+        await garmentIn(`Bottom ${i}`, 'bottoms', neutrals[i % 5], cookie);
+      }
+      for (let i = 0; i < 4; i += 1) {
+        await garmentIn(`Shoe ${i}`, 'footwear', neutrals[i], cookie);
+      }
+      unnamedTop = await garmentIn('', 'tops', 'white', cookie);
+    });
+
+    const getAs = (url: string, headers: Record<string, string> = {}) =>
+      t.inject({ method: 'GET', url, headers: { cookie, ...headers } });
+
+    it('offers no page past the last: the sentinel stops at page 50', async () => {
+      const before = await getAs('/outfits/ideas/more?seed=3&page=49', {
+        ...HX_FRAGMENT,
+      });
+      expect(moreUrl(before.body)).toMatch(/seed=3&page=50$/);
+      const last = await getAs('/outfits/ideas/more?seed=3&page=50', {
+        ...HX_FRAGMENT,
+      });
+      expect(cardsOf(last.body)).toHaveLength(6);
+      expect(moreUrl(last.body)).toBeUndefined();
+      expect(last.body).not.toContain('data-ideas-more');
+    });
+
+    it('suggest_outfits says there is no more on the last page it takes', async () => {
+      const token = await createAccessToken(t, { cookie });
+      const more = async (page: number) =>
+        (
+          (await callTool(t, token, 'suggest_outfits', { seed: 3, page }))
+            .value as { more: boolean }
+        ).more;
+      expect(await more(49)).toBe(true);
+      expect(await more(50)).toBe(false);
+    });
+
+    it('names an unnamed garment by its category in "With" and the clash pairs', async () => {
+      const page = unescapeHtml(
+        (await getAs(`/outfits/ideas?with=${unnamedTop}&seed=3`)).body,
+      );
+      expect(page).toContain('With Tops');
+      expect(page).toMatch(/>\s*Tops \+ Bottom \d\s*</);
+      expect(page).not.toMatch(/>\s*\+ /);
+    });
+  });
 });
 
 describe('outfit gallery with the weather', () => {

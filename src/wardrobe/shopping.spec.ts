@@ -77,6 +77,25 @@ describe('shoppingList', () => {
     ]);
   });
 
+  it('orders candidates without a budget cheapest first, unpriced last (#123)', () => {
+    // Ids and input order chosen so a null price that compares equal to
+    // everything (an intransitive sort) cannot come out right by accident.
+    const [entry] = shoppingList(
+      [gap({ id: 1, priority: 'medium', budget: null }, 'missing', 0, 1)],
+      () => [
+        candidate(10, '90.00'),
+        candidate(11, null),
+        candidate(12, '40.00'),
+        candidate(13, null),
+        candidate(14, '60.00'),
+        candidate(9, '15.00', false),
+      ],
+    );
+    expect(entry.candidates.map(({ candidate: c }) => c.garmentId)).toEqual([
+      12, 14, 10, 11, 13, 9,
+    ]);
+  });
+
   it('knows no budget fit without a budget', () => {
     const [entry] = shoppingList(
       [gap({ id: 1, priority: 'medium', budget: null }, 'missing', 0, 1)],
@@ -112,7 +131,7 @@ describe('shoppingTotals', () => {
       budgetCents: 25_000,
       unbudgeted: 1,
       cheapestCents: 2 * 7990 + 8990,
-      uncovered: 1,
+      withoutPricedMatch: 1,
     });
   });
 
@@ -123,7 +142,7 @@ describe('shoppingTotals', () => {
       budgetCents: 0,
       unbudgeted: 0,
       cheapestCents: 0,
-      uncovered: 0,
+      withoutPricedMatch: 0,
     });
   });
 });

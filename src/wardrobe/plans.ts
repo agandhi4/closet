@@ -7,6 +7,7 @@ import {
   type GarmentColor,
   GarmentCategory,
   isBuiltInCategory,
+  storedSet,
   type Warmth,
 } from './properties';
 
@@ -475,7 +476,11 @@ export interface SourceGarment {
   brand: string | null;
   category: string;
   type: string | null;
-  /** A set in GARMENT_COLORS order, as garment.colors stores it. */
+  /**
+   * garment.colors as read: its writers store a set in GARMENT_COLORS order
+   * (storedSet), but the database only checks membership, so another order
+   * or a repeat is possible and grouped as the same set.
+   */
   colors: readonly GarmentColor[];
   quantity: number;
   /** '49.90'; null when unknown. */
@@ -540,7 +545,7 @@ export function planItemsFromWardrobe(
 ): DerivedItem[] {
   const groups = new Map<string, DerivedItem>();
   for (const garment of garments) {
-    const colors = [...garment.colors];
+    const colors = storedSet(GARMENT_COLORS, garment.colors) ?? [];
     const key = [garment.category, garment.type ?? '', colors.join(',')].join(
       '\u0000',
     );

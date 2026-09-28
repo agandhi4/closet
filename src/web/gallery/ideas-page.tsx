@@ -19,6 +19,7 @@ import { DayDestinationLine } from '../outfits/day-destination';
 import { OutfitTabs } from '../outfits/outfit-tabs';
 import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
+import { categoryLabel } from '../wardrobe/garment';
 import { UNIT_SYMBOLS } from '../weather/views';
 import { ideaName, type IdeasWeather, shuffledSeed } from './ideas';
 import type { PoolGarment } from './queries';
@@ -165,7 +166,9 @@ function Scope({ model }: { model: IdeasPageModel }) {
         )}
         {styled && (
           <span class="badge badge-lg badge-soft badge-primary gap-1">
-            {t('gallery.WITH', { name: styled.name ?? '' })}
+            {t('gallery.WITH', {
+              name: styled.name ?? categoryLabel(styled.category),
+            })}
             <a
               href={ideasUrl({ ...state, withId: undefined })}
               aria-label={t('gallery.WITHOUT')}
@@ -398,8 +401,8 @@ function IdeaCard(props: {
                     <StateFields state={model.state} />
                     <button type="submit" class="btn btn-outline btn-xs">
                       {t('gallery.PAIR', {
-                        a: a.name ?? '',
-                        b: b.name ?? '',
+                        a: a.name ?? categoryLabel(a.category),
+                        b: b.name ?? categoryLabel(b.category),
                       })}
                     </button>
                   </form>

@@ -18,9 +18,10 @@ import {
   dailySeed,
   goesWithCount,
   IDEAS_PAGE_SIZE,
-  ideasFor,
+  ideasPage,
   type IdeasWeather,
   ideasScope,
+  MAX_IDEAS_PAGE,
   parseSeed,
 } from './ideas';
 import { IdeaCards, IdeasPage, type SeededState } from './ideas-page';
@@ -49,9 +50,6 @@ import { type GalleryState, IDEAS_PATH, ideasUrl } from './urls';
  *   and a pick adds the outfit to the trip (pickForTrip), for the day and
  *   occasion when given.
  */
-
-/** Pages a gallery goes to: 50 pages of 6 is more than anyone swipes. */
-const MAX_PAGE = 50;
 
 const GalleryQuery = Type.Object({
   for: Type.Optional(Type.String()),
@@ -92,7 +90,7 @@ const PairBody = Type.Object({
 function parsePage(value: string | undefined): number {
   const page =
     value !== undefined && /^\d{1,3}$/.test(value) ? Number(value) : 1;
-  return page >= 1 && page <= MAX_PAGE ? page : 1;
+  return page >= 1 && page <= MAX_IDEAS_PAGE ? page : 1;
 }
 
 /** The gallery a write came from, for its redirect back. */
@@ -140,7 +138,7 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     };
     const page = parsePage(query.page);
     const started = performance.now();
-    const result = await ideasFor(
+    const result = await ideasPage(
       { db, weather },
       ownerId,
       {
@@ -150,8 +148,8 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         locked: styled ? [styled] : [],
         ...weatherAt,
         seed: state.seed,
-        offset: (page - 1) * IDEAS_PAGE_SIZE,
-        limit: IDEAS_PAGE_SIZE,
+        page,
+        pageSize: IDEAS_PAGE_SIZE,
       },
       now,
     );

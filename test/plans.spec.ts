@@ -68,7 +68,7 @@ test('plan the wardrobe, see its gaps, duplicate it', async ({ page }) => {
   ]) {
     await page.getByRole('link', { name: '+ Add item' }).click();
     await expectNoSidewaysScroll(page);
-    await page.getByLabel('Category *').selectOption('tops');
+    await page.getByLabel('Category *').fill('tops');
     await page.getByLabel('Type').selectOption({ label: item.type });
     await page.getByRole('checkbox', { name: item.color, exact: true }).check();
     await page.getByLabel('How many').fill(item.quantity);

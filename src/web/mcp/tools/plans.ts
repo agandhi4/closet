@@ -259,8 +259,14 @@ function why(match: ItemMatch, gaps: PlanGaps): string | null {
   switch (match.reason) {
     case null:
       return null;
-    case 'replace-soon':
-      return `only replace_soon copies: ${match.replaceSoon.map(named).join(', ')} ${match.replaceSoon.length === 1 ? 'is' : 'are'} worn out and counted as the gap to refill`;
+    case 'replace-soon': {
+      // Partly owned too: the usable copies count, the worn-out ones do not.
+      const owned =
+        match.have > 0
+          ? `${match.have} of ${match.need} copies owned`
+          : 'no usable copy owned';
+      return `${owned}; ${match.replaceSoon.map(named).join(', ')} ${match.replaceSoon.length === 1 ? 'is' : 'are'} marked replace_soon (worn out) and counted as the gap to refill`;
+    }
     case 'too-few-copies':
       return `${match.have} of ${match.need} copies owned`;
     case 'taken-by-other-items':
@@ -379,7 +385,7 @@ export const planTools = [
     name: 'get_plan_gaps',
     title: 'Get a plan’s gaps',
     description:
-      "A wardrobe plan measured against your closet (garments in it: not archived, not the wishlist): every item with its status (owned, partly, missing), copies had and needed, the garments that fulfil it, and for what is not owned the reason and a sentence why: replace-soon (only worn-out copies, marked replace_soon: the gap to refill), too-few-copies, taken-by-other-items (each garment fulfils one item), nothing-matches. A needs_repair garment still counts, flagged. A garment matches an item when it has the item's category, type if named, every colour and material named, and warmth and formality inside the item's ranges. Each item lists its candidate products: wishlist garments being considered for it, with price, link and whether each matches the item (and how not). Items proposed by an agent and not accepted are listed apart and not matched.",
+      "A wardrobe plan measured against your closet (garments in it: not archived, not the wishlist): every item with its status (owned, partly, missing), copies had and needed, the garments that fulfil it, and for what is not owned the reason and a sentence why: replace-soon (matching copies marked replace_soon are worn out: the gap to refill; usable copies beside them still count, so the item may be partly owned), too-few-copies, taken-by-other-items (each garment fulfils one item), nothing-matches. A needs_repair garment still counts, flagged. A garment matches an item when it has the item's category, type if named, every colour and material named, and warmth and formality inside the item's ranges. Each item lists its candidate products: wishlist garments being considered for it, with price, link and whether each matches the item (and how not). Items proposed by an agent and not accepted are listed apart and not matched.",
     input: z.object({ planId: planIdInput }),
     writes: false,
     async run({ planId }, ctx) {

@@ -1,6 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { isBuiltInCategory } from '../../wardrobe/properties';
+import { categorySuggestions } from '../wardrobe/garment';
+import { ownerTransaction } from '../auth/queries';
 import { sessionUserId } from '../auth/require-session';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
@@ -19,11 +20,12 @@ import {
   addItems,
   closetCategories,
   closetPieces,
+  createGeneratedPlan,
   createPlan,
   deleteItem,
   deletePlan,
+  findPlan,
   findStyleProfile,
-  freePlanName,
   insertItems,
   itemFields,
   itemsOf,
@@ -138,7 +140,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   async function renderItemForm(
     reply: FastifyReply,
     plan: PlanDetail,
-    model: Omit<ItemFormModel, 'planId' | 'planName' | 'customCategories'>,
+    model: Omit<ItemFormModel, 'planId' | 'planName' | 'categories'>,
     ownerId: number,
     status = 200,
   ): Promise<FastifyReply> {
@@ -151,7 +153,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ...model,
           planId: plan.id,
           planName: plan.name,
-          customCategories: categories.filter((c) => !isBuiltInCategory(c)),
+          categories: categorySuggestions(categories),
         }}
       />,
       { status },
@@ -251,18 +253,22 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           )?.grantorName ?? null);
       const closet = await closetPieces(db, access.ownerId);
       const items = itemsFromCloset(closet, sourceName);
-      const name = await freePlanName(db, userId, (n) => {
-        const base =
-          sourceName === null
-            ? t('plans.FROM_MY_CLOSET_NAME')
-            : t('plans.FROM_WARDROBE_NAME', { name: sourceName });
-        return n === 1 ? base : `${base} ${n}`;
-      });
-      const id = await createPlan(db, userId, { name, notes: null }, items);
-      if (id === 'name-taken') {
-        // Taken between freePlanName and the insert: another tab, the same tap.
-        throw new Error(`Plan name "${name}" taken while starting a plan`);
-      }
+      const numbered = (name: string, n: number) =>
+        n === 1 ? name : `${name} ${n}`;
+      // A long name is cut in the wardrobe's name, not the words around it.
+      const { id } = await createGeneratedPlan(
+        db,
+        userId,
+        sourceName === null
+          ? { base: t('plans.FROM_MY_CLOSET_NAME'), nameFor: numbered }
+          : {
+              base: sourceName,
+              nameFor: (base, n) =>
+                numbered(t('plans.FROM_WARDROBE_NAME', { name: base }), n),
+            },
+        null,
+        items,
+      );
       logger.info(
         `Plan ${id} started by user ${userId} from wardrobe ${access.ownerId}: ${items.length} items from ${closet.length} garments`,
       );
@@ -362,48 +368,59 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { params: PlanParams } },
     async (request, reply) => {
       const userId = sessionUserId(request);
-      const plan = await requirePlan(request, request.params.id);
-      const [items, candidates] = await Promise.all([
-        itemsOf(db, [plan.id]),
-        candidatesOfPlan(db, userId, plan.id),
-      ]);
-      const name = await freePlanName(db, userId, (n) =>
-        n === 1
-          ? t('plans.COPY_NAME', { name: plan.name })
-          : t('plans.COPY_NAME_N', { name: plan.name, n }),
-      );
-      const id = await db.transaction(async (tx) => {
-        const created = await createPlan(tx, userId, {
-          name,
-          notes: plan.notes,
-        });
-        if (created === 'name-taken') {
-          throw new Error(`Plan name "${name}" taken while duplicating`);
-        }
-        for (const proposed of [false, true]) {
-          const originals = items.filter((item) => item.proposed === proposed);
-          const copies = await insertItems(
+      // All under the owner lock: the original is read as no other write
+      // of the owner's leaves it, and the copy's name is chosen with the
+      // insert (createGeneratedPlan), so a second tap names its copy apart.
+      const copy = await ownerTransaction(
+        db,
+        userId,
+        'duplicatePlan',
+        async (tx) => {
+          const plan = await findPlan(tx, request.params.id, userId);
+          if (!plan) throw planNotFound();
+          const [items, candidates] = await Promise.all([
+            itemsOf(tx, [plan.id]),
+            candidatesOfPlan(tx, userId, plan.id),
+          ]);
+          const { id } = await createGeneratedPlan(
             tx,
-            created,
-            originals.map(itemFields),
-            { proposed },
+            userId,
+            {
+              base: plan.name,
+              nameFor: (name, n) =>
+                n === 1
+                  ? t('plans.COPY_NAME', { name })
+                  : t('plans.COPY_NAME_N', { name, n }),
+            },
+            plan.notes,
           );
-          for (const [index, original] of originals.entries()) {
-            const garmentIds = (candidates.get(original.id) ?? []).map(
-              (candidate) => candidate.garmentId,
+          for (const proposed of [false, true]) {
+            const originals = items.filter(
+              (item) => item.proposed === proposed,
             );
-            if (garmentIds.length === 0) continue;
-            await changeCandidates(tx, userId, {
-              add: { itemIds: [copies[index]], garmentIds },
-            });
+            const copies = await insertItems(
+              tx,
+              id,
+              originals.map(itemFields),
+              { proposed },
+            );
+            for (const [index, original] of originals.entries()) {
+              const garmentIds = (candidates.get(original.id) ?? []).map(
+                (candidate) => candidate.garmentId,
+              );
+              if (garmentIds.length === 0) continue;
+              await changeCandidates(tx, userId, {
+                add: { itemIds: [copies[index]], garmentIds },
+              });
+            }
           }
-        }
-        return created;
-      });
-      logger.info(
-        `Plan ${plan.id} duplicated by user ${userId} as plan ${id} (${items.length} items)`,
+          return { id, items: items.length };
+        },
       );
-      return reply.redirect(`${planUrl(id)}?created=1`, 303);
+      logger.info(
+        `Plan ${request.params.id} duplicated by user ${userId} as plan ${copy.id} (${copy.items} items)`,
+      );
+      return reply.redirect(`${planUrl(copy.id)}?created=1`, 303);
     },
   );
 

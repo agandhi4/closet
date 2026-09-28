@@ -5,7 +5,7 @@ import { findOwnedItem, findPlan } from '../plans/queries';
 import { itemNotFound } from '../plans/validation';
 import type { WardrobeAccess } from '../sharing/access';
 import type { EntryStatus } from '../../wardrobe/status';
-import { changeCandidates, requireCandidateRoom } from '../plans/candidates';
+import { linkNewCandidate, requireCandidateRoom } from '../plans/candidates';
 import type { WithGarment } from './writes';
 import { findGarment, type GarmentDetail } from './queries';
 import { TO_CLOSET, type Destination } from './urls';
@@ -69,9 +69,7 @@ export async function postedDestination(
     destination: { to, planItem: candidateFor.id },
     candidateFor,
     linkCandidate: (tx, garmentId) =>
-      changeCandidates(tx, access.ownerId, {
-        add: { itemIds: [candidateFor.id], garmentIds: [garmentId] },
-      }),
+      linkNewCandidate(tx, access.ownerId, candidateFor.id, garmentId),
   };
 }
 

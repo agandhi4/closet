@@ -173,8 +173,9 @@ describe('MCP: wardrobe plans', () => {
       need: 1,
       replaceSoon: [{ garmentId: merinoId, name: 'Grey merino' }],
     });
-    expect(merino.why).toContain('only replace_soon copies');
-    expect(merino.why).toContain(`Grey merino (garment ${merinoId})`);
+    expect(merino.why).toBe(
+      `no usable copy owned; Grey merino (garment ${merinoId}) is marked replace_soon (worn out) and counted as the gap to refill`,
+    );
     expect(gaps.partly[0]).toMatchObject({
       have: 3,
       need: 4,
@@ -310,5 +311,43 @@ describe('MCP: wardrobe plans', () => {
       profile: null,
       week: { rhythm: [] },
     });
+  });
+
+  // Last: a good grey sweater would own the Basics plan's sweater above.
+  it('says why of an item partly owned beside a worn-out copy, never "only replace_soon" (#123)', async () => {
+    const created = await post('/wardrobe/plans', { name: 'Knitwear' });
+    const knitwear = Number(
+      /\/wardrobe\/plans\/(\d+)/.exec(String(created.headers.location))![1],
+    );
+    await post(`/wardrobe/plans/${knitwear}/items`, {
+      category: 'tops',
+      type: 'sweater',
+      colors: 'grey',
+      quantity: '2',
+      priority: 'medium',
+    });
+    await post('/wardrobe', {
+      name: 'Grey lambswool',
+      category: 'tops',
+      type: 'sweater',
+      color: 'grey',
+      props: '1',
+      care: '1',
+    });
+    const gaps = await tool<Gaps>(t, token, 'get_plan_gaps', {
+      planId: knitwear,
+    });
+    expect(gaps.partly).toHaveLength(1);
+    const [sweaters] = gaps.partly;
+    expect(sweaters).toMatchObject({
+      have: 1,
+      need: 2,
+      reason: 'replace-soon',
+      replaceSoon: [{ garmentId: merinoId, name: 'Grey merino' }],
+    });
+    expect(sweaters.fulfilledBy).toHaveLength(1);
+    expect(sweaters.why).toBe(
+      `1 of 2 copies owned; Grey merino (garment ${merinoId}) is marked replace_soon (worn out) and counted as the gap to refill`,
+    );
   });
 });

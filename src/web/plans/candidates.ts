@@ -19,6 +19,7 @@ import { HttpError } from '../errors';
 import type { ImageRef } from '../files/image-url';
 import { t } from '../i18n';
 import { onWishlist } from '../wardrobe/status';
+import { itemNotFound } from './validation';
 
 /**
  * Candidate products for plan items (#34, slice 34b): wishlist garments the
@@ -153,6 +154,27 @@ export function changeCandidates(
     }
     return { added, removed };
   });
+}
+
+/**
+ * Links `garmentId`, a wishlist item this save just made, to `ownerId`'s
+ * item `itemId`, in the garment's own transaction (WithGarment): the
+ * garment form's and the link import's `planItem`, add_candidate by url.
+ * The item was checked before the save, but a slow product page leaves
+ * time to delete it: changeCandidates then drops its id and links nothing,
+ * so this throws the item's 404 and the garment's save rolls back, never
+ * leaving a wishlist item without the link it was added for.
+ */
+export async function linkNewCandidate(
+  tx: Queryable,
+  ownerId: number,
+  itemId: number,
+  garmentId: number,
+): Promise<void> {
+  const { added } = await changeCandidates(tx, ownerId, {
+    add: { itemIds: [itemId], garmentIds: [garmentId] },
+  });
+  if (added === 0) throw itemNotFound();
 }
 
 /** Each item's candidates still on the wishlist: what the cap counts. */

@@ -69,6 +69,19 @@ describe('wardrobeInsights', () => {
     expect(insights.cost.best).toEqual([]);
   });
 
+  it('shares colours over the whole closet and every wear day, the uncoloured included (#123)', () => {
+    const insights = wardrobeInsights(
+      [
+        garment({ colors: ['red'], recentWearDays: 3 }),
+        garment({ colors: null, recentWearDays: 1 }),
+      ],
+      [],
+      90,
+    );
+    expect(insights.colours).toEqual([{ colour: 'red', closet: 50, worn: 75 }]);
+    expect(insights.uncoloured).toEqual({ garments: 1, closet: 50, worn: 25 });
+  });
+
   it.each([
     [1, 1, 0],
     [2, 1, 1],

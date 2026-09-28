@@ -124,16 +124,20 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   };
 
   /**
-   * What buying `garment` does to the owner's plan items (34b); nothing for
-   * a grantee, whose purchase leaves the owner's plans to the owner.
+   * What buying `garment` does to the owner's plan items (34b), with the
+   * replaced garment the page offers to archive too (`archivable`); nothing
+   * for a grantee, whose purchase leaves the owner's plans to the owner.
    */
   async function purchasesFor(
     garment: GarmentDetail,
     { access }: AuthorizedWardrobe,
+    archivable: GarmentRef | undefined,
   ): Promise<PlanPurchase[]> {
     if (!access.isOwner) return [];
     const piece = await pieceOf(db, garment.id, access.ownerId);
-    return piece ? planPurchases(db, access.ownerId, piece) : [];
+    return piece
+      ? planPurchases(db, access.ownerId, piece, archivable?.id)
+      : [];
   }
 
   function resolve(
@@ -241,6 +245,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (garment.status !== 'wishlist') {
         return reply.redirect(garmentUrl(garment.id, viewOwner), 302);
       }
+      const replaced = await archivable(garment, authorized);
       return renderBought(reply, {
         garment,
         viewOwner,
@@ -248,8 +253,8 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           acquiredOn: todayIn(config.timeZone, new Date()),
           price: garment.price ?? '',
         },
-        archivable: await archivable(garment, authorized),
-        plans: await purchasesFor(garment, authorized),
+        archivable: replaced,
+        plans: await purchasesFor(garment, authorized, replaced),
       });
     },
   );
@@ -285,6 +290,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         logger.warn(
           `Bought it refused for garment ${garment.id}: ${Object.keys(read.errors).join(', ')}`,
         );
+        const replaced = await archivable(garment, authorized);
         return renderBought(
           reply,
           {
@@ -294,8 +300,8 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
               acquiredOn: request.body.acquiredOn ?? '',
               price: request.body.price ?? '',
             },
-            archivable: await archivable(garment, authorized),
-            plans: await purchasesFor(garment, authorized),
+            archivable: replaced,
+            plans: await purchasesFor(garment, authorized, replaced),
             ticked: followUps,
             errors: read.errors,
           },

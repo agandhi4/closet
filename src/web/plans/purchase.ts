@@ -70,7 +70,17 @@ export interface PlanPurchase {
    * owner has not accepted (outside matching).
    */
   after: ItemStatus | null;
-  /** The item's other wishlist candidates, and whether removing each is suggested. */
+  /**
+   * The status if the garment it replaces is archived too (the page's
+   * unticked "archive replaced"), only when that is worse than `after`: the
+   * old garment counted toward the item. Absent for a proposed item.
+   */
+  afterArchiving?: ItemStatus;
+  /**
+   * The item's other wishlist candidates, and whether removing each is
+   * suggested: only when the item ends up owned whether or not the replaced
+   * garment is archived, since the page cannot know which the owner ticks.
+   */
   others: { candidate: CandidateGarment; suggested: boolean }[];
 }
 
@@ -108,13 +118,17 @@ export async function pieceOf(
 /**
  * What buying `piece` (a wishlist garment of `ownerId`'s) does to the plan
  * items it is a candidate for: the Bought it page's plan section. Empty
- * when it is a candidate of nothing. Reads the candidacies, the plans'
- * items, the closet and the other candidates (four statements).
+ * when it is a candidate of nothing. `replaced` is the closet garment the
+ * purchase replaces when the page offers to archive it too: each item is
+ * then judged both ways, since the box is ticked after the page is drawn.
+ * Reads the candidacies, the plans' items, the closet and the other
+ * candidates (four statements).
  */
 export async function planPurchases(
   db: Queryable,
   ownerId: number,
   piece: BoughtPiece,
+  replaced: number | undefined,
 ): Promise<PlanPurchase[]> {
   const candidacies = await candidaciesOf(db, ownerId, [piece.id]);
   if (candidacies.length === 0) return [];
@@ -125,14 +139,21 @@ export async function planPurchases(
     closetPieces(db, ownerId),
     candidatesOfItems(db, ownerId, itemIds),
   ]);
-  // The closet as it will be: the purchase in it, in good condition.
+  // The closet as it will be: the purchase in it, in good condition, and
+  // without the replaced garment if the owner archives it.
   const withPurchase = [...closet, { ...piece, condition: 'good' as const }];
-  const after = new Map<number, ItemStatus>();
-  for (const planId of planIds) {
-    const accepted = items.filter((i) => i.planId === planId && !i.proposed);
-    const matches = matchPlan(accepted.map(toTarget), withPurchase);
-    for (const match of matches) after.set(match.itemId, match.status);
-  }
+  const after = statusesIn(items, planIds, withPurchase);
+  const afterArchiving =
+    replaced === undefined
+      ? after
+      : statusesIn(
+          items,
+          planIds,
+          withPurchase.filter((garment) => garment.id !== replaced),
+        );
+  // Owned whichever way the archive box goes: what a suggestion may rest on.
+  const ownedEitherWay = (itemId: number) =>
+    after.get(itemId) === 'owned' && afterArchiving.get(itemId) === 'owned';
   const others = [...candidates.values()]
     .flat()
     .filter((candidate) => candidate.garmentId !== piece.id);
@@ -144,10 +165,12 @@ export async function planPurchases(
   const settled = (garmentId: number) =>
     othersLinks
       .filter((link) => link.garmentId === garmentId)
-      .every((link) => after.get(link.itemId) === 'owned');
+      .every((link) => ownedEitherWay(link.itemId));
   const byId = new Map(items.map((item) => [item.id, item]));
   return candidacies.map((candidacy: Candidacy) => {
     const item = byId.get(candidacy.itemId)!;
+    const status = item.proposed ? null : (after.get(item.id) ?? null);
+    const archiving = afterArchiving.get(item.id);
     return {
       item,
       plan: {
@@ -156,16 +179,33 @@ export async function planPurchases(
         active: candidacy.planActive,
       },
       differences: targetDifferences(toTarget(item), piece),
-      after: item.proposed ? null : (after.get(item.id) ?? null),
+      after: status,
+      afterArchiving:
+        status !== null && archiving !== status ? archiving : undefined,
       others: (candidates.get(item.id) ?? [])
         .filter((candidate) => candidate.garmentId !== piece.id)
         .map((candidate) => ({
           candidate,
-          suggested:
-            after.get(item.id) === 'owned' && settled(candidate.garmentId),
+          suggested: ownedEitherWay(item.id) && settled(candidate.garmentId),
         })),
     };
   });
+}
+
+/** Each accepted item's status against `closet`, plan by plan (matchPlan). */
+function statusesIn(
+  items: readonly PlanItemRow[],
+  planIds: readonly number[],
+  closet: readonly ClosetPiece[],
+): Map<number, ItemStatus> {
+  const statuses = new Map<number, ItemStatus>();
+  for (const planId of planIds) {
+    const accepted = items.filter((i) => i.planId === planId && !i.proposed);
+    for (const match of matchPlan(accepted.map(toTarget), closet)) {
+      statuses.set(match.itemId, match.status);
+    }
+  }
+  return statuses;
 }
 
 /** `item`'s fields changed just enough for `piece` to match it (fitTargetTo). */

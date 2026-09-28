@@ -566,7 +566,7 @@ describe('the shopping loop', () => {
       expect(html).toContain('3 items to find · 4 pieces');
       expect(html).toContain('Budget $450.00');
       expect(html).toContain('Candidates from $269.90');
-      expect(html).toContain('1 still without a candidate');
+      expect(html).toContain('1 without a matching, priced candidate');
       expect(html).toContain(
         `href="/wardrobe/plans/${planId}/items/${items.oxford}/candidates?returnTo=%2Fwardrobe%2Fshopping"`,
       );
@@ -890,6 +890,61 @@ describe('the shopping loop', () => {
         'Comparing needs two plans',
       );
     });
+  });
+
+  it('judges Bought it with the replaced garment archived too: no removal suggested that archiving would undo (#123)', async () => {
+    // A fresh owner: two grey sweaters wanted, one owned; the purchase
+    // replaces it. Kept, the two fulfil the item; archived, one is short.
+    const replacer = await t.register('replacer@example.com');
+    const planId = await createPlan('Knitwear', replacer);
+    const itemId = await addItem(
+      planId,
+      { category: 'tops', type: 'sweater', colors: 'grey', quantity: '2' },
+      replacer,
+    );
+    const old = await post(
+      '/wardrobe',
+      {
+        name: 'Old grey sweater',
+        category: 'tops',
+        type: 'sweater',
+        color: 'grey',
+        props: '1',
+        care: '1',
+      },
+      replacer,
+    );
+    expect(old.statusCode, old.body).toBe(302);
+    const oldId = idFrom(old.headers.location, /^\/wardrobe\/(\d+)/);
+    const sweater = { category: 'tops', type: 'sweater', color: 'grey' };
+    const replacement = await addWishlist(
+      'New grey sweater',
+      { ...sweater, replaces: String(oldId), price: '60' },
+      replacer,
+    );
+    const other = await addWishlist(
+      'Other grey sweater',
+      { ...sweater, price: '70' },
+      replacer,
+    );
+    await changeCandidates(t.db, await userIdOf(t, 'replacer@example.com'), {
+      add: { itemIds: [itemId], garmentIds: [replacement, other] },
+    });
+
+    const html = unescapeHtml(
+      (await get(`/wardrobe/${replacement}/bought`, replacer)).body,
+    );
+    expect(html).toContain(
+      'Also archive Old grey sweater, which this replaces',
+    );
+    expect(html).toContain('It fulfils this item.');
+    // Offered, never ticked: the owner may still archive the old one.
+    expect(html).toMatch(
+      new RegExp(`name="removeCandidates" value="${other}"(?![^>]*checked)`),
+    );
+    expect(html).toContain(
+      'If you also archive Old grey sweater, this item stays short.',
+    );
   });
 
   it('keeps a candidate bought while another purchase removes it', async () => {
