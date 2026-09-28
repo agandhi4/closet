@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  applyCarePresets,
-  carePresetsFor,
-  type CareLabel,
-  repairTotal,
-} from './care';
+import { applyCarePresets, carePresetsFor, type CareLabel } from './care';
 import { MATERIALS } from './properties';
 
 const NONE: CareLabel = {
@@ -85,17 +80,5 @@ describe('applyCarePresets', () => {
   it('clears a preset the new materials do not give', () => {
     const cotton = applyCarePresets(NONE, null, ['cotton']);
     expect(applyCarePresets(cotton, ['cotton'], []).careWash).toBeNull();
-  });
-});
-
-describe('repairTotal', () => {
-  it('sums the costs given in cents', () => {
-    expect(repairTotal(['0.10', '0.20', null])).toBe('0.30');
-    expect(repairTotal(['25.00', '12.50'])).toBe('37.50');
-  });
-
-  it('is null when no entry gives a cost', () => {
-    expect(repairTotal([])).toBeNull();
-    expect(repairTotal([null, null])).toBeNull();
   });
 });

@@ -12,12 +12,14 @@ import {
   type WardrobeInsights,
 } from '../../wardrobe/insights';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
+import { repairCostSql } from '../wardrobe/repairs';
 import { type GarmentScope, inScope } from '../wardrobe/status';
 
 /**
- * Insights' two statements (#17): the garments with their wear counts, and
- * the pairs most worn together. Both are scoped to `ownerId` (wears are the
- * owner's records) and read a window of days (InsightsWindow). Wears count
+ * Insights' two statements (#17): the garments with their wear counts and
+ * repair costs, and the pairs most worn together. Both are scoped to
+ * `ownerId` (wears and repairs are the owner's records) and read a window
+ * of days (InsightsWindow). Wears count
  * distinct days, never rows (a garment in two entries on one day is one
  * wear). Every day count is taken against the window's last day here, in
  * Postgres' date arithmetic (date - date is whole days), so the pure
@@ -67,6 +69,9 @@ export function insightGarments(
         colors: garment.colors,
         quantity: garment.quantity,
         price: garment.price,
+        // Repairs dated up to `to`, like wears: a past year's cost per wear
+        // is what the garment had cost by its December 31 (#151).
+        repairCost: repairCostSql(garment.id, window.to),
         condition: garment.condition,
         photo: { fileName: file.fileName, version: file.version },
         acquiredOn: garment.acquiredOn,

@@ -34,7 +34,7 @@
                        the warnings, tripPhase), pure. See Trips
                        care.ts: the care label's value sets, its presets from the
                        materials (carePresetsFor, applyCarePresets), the repair
-                       kinds and repairTotal. See Wardrobe, care-and-repairs.md
+                       kinds. See Wardrobe, care-and-repairs.md
 ```
 
 ## Gotchas

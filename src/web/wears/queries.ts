@@ -15,6 +15,7 @@ import {
 import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../calendar/calendar-date';
 import type { ImageRef } from '../files/image-url';
+import { repairCostSql } from '../wardrobe/repairs';
 import { inCloset, ownedGarment } from '../wardrobe/status';
 
 /**
@@ -90,11 +91,15 @@ export interface WearSummary {
   lastWorn: IsoDate | null;
   /** Worn today by "Wore today" (undoable), through a worn calendar entry, or not. */
   today: 'single' | 'entry' | null;
+  /** Its repairs' costs summed (repairCostSql), for the wear line's cost per wear. */
+  repairCost: string | null;
 }
 
 /**
- * The garment's wear counts. The caller has found the garment in the
- * owner's wardrobe, so its row (grouped with none or more wears) is there.
+ * The garment's wear counts and what its repairs cost. The owner's own
+ * records: the caller is the owner (ownerRecords, the wear routes,
+ * get_garment's own-wardrobe branch), and has found the garment in their
+ * wardrobe, so its row (grouped with none or more wears) is there.
  */
 export async function wearSummary(
   db: Db,
@@ -108,6 +113,7 @@ export async function wearSummary(
       lastWorn: sql<IsoDate | null>`max(${garmentWear.day})::text`,
       single: sql<boolean>`coalesce(bool_or(${garmentWear.day} = ${today} and ${garmentWear.outfitCalendarId} is null), false)`,
       entry: sql<boolean>`coalesce(bool_or(${garmentWear.day} = ${today} and ${garmentWear.outfitCalendarId} is not null), false)`,
+      repairCost: repairCostSql(garment.id, today),
     })
     .from(garment)
     .leftJoin(garmentWear, eq(garmentWear.garmentId, garment.id))

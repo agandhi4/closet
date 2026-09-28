@@ -24,6 +24,7 @@ import {
   CARE_IRON,
   CARE_WASH,
 } from '../../../wardrobe/care';
+import { perWearCost, totalCost } from '../../../wardrobe/insights';
 import { todayIn } from '../../calendar/calendar-date';
 import { capsulesOfGarment, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
@@ -90,8 +91,9 @@ export function summaryOut(garment: GarmentSummary) {
 
 /**
  * A garment in full, as its page shows it, without the photo. The owner's
- * own records (wears, washes, away, the repair log) only on their own
- * wardrobe, as the page.
+ * own records (wears, washes, away, cost per wear, the repair log) only on
+ * their own wardrobe, as the page: a grantee gets the price alone, never a
+ * cost that holds the owner's repairs.
  */
 async function garmentOut(
   ctx: ToolContext,
@@ -108,6 +110,13 @@ async function garmentOut(
       ? repairLog(ctx.db, garment.id)
       : undefined,
   ]);
+  const cost = wears
+    ? totalCost({
+        price: garment.price,
+        quantity: garment.quantity,
+        repairCost: wears.repairCost,
+      })
+    : null;
   return {
     id: garment.id,
     name: garment.name,
@@ -159,6 +168,8 @@ async function garmentOut(
         worn: wears.worn,
         wornSinceWash: wears.sinceWash,
         lastWorn: wears.lastWorn,
+        cost,
+        costPerWear: cost === null ? null : perWearCost(cost, wears.worn),
       },
     }),
     ...(repairs && { repairs }),
@@ -466,7 +477,7 @@ export const garmentTools = [
     name: 'get_garment',
     title: 'Get a garment',
     description:
-      'One garment in full: its status (closet, archived, or wishlist: not bought yet) and fields, every property, its care label, product link and price, what it replaces (a wishlist item), quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes and its repair and alteration log (each with its day, kind, note and cost; not part of cost per wear). No photo: get_garment_photo has it.',
+      'One garment in full: its status (closet, archived, or wishlist: not bought yet) and fields, every property, its care label, product link and price, what it replaces (a wishlist item), quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes, what it cost (price per piece × copies plus what its repairs cost; null without a price) and its cost per wear (that over the days worn; null until worn), and its repair and alteration log (each with its day, kind, note and cost). No photo: get_garment_photo has it.',
     input: z.object({ id: rowId(), ownerId: ownerIdInput }),
     writes: false,
     async run({ id, ownerId }, ctx) {

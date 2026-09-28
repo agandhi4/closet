@@ -338,7 +338,9 @@ describe('insights', () => {
     const cost = section(html, 'insights-cost');
     // 20 + 100 + 300 + 50 + 40 + 60 (the tee's three copies at 20 each).
     expect(cost).toContain('data-closet-value="610.00"');
-    expect(cost).toContain('Your closet cost $610.00 · 2 without a price');
+    expect(cost).toContain(
+      'Your closet cost $610.00, repairs included · 2 without a price',
+    );
     expect(idsIn(cost, 'insights-best-value')).toEqual([g.tee, g.jeans]);
     expect(cost).toContain('$10.00 a wear · $60.00 over 6 days');
     expect(idsIn(cost, 'insights-most-per-wear')).toEqual([g.jacket, g.scarf]);

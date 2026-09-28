@@ -1,4 +1,4 @@
-import { REPAIR_KINDS, repairTotal } from '../../wardrobe/care';
+import { REPAIR_KINDS } from '../../wardrobe/care';
 import { PostForm } from '../auth/form';
 import { dateParts } from '../calendar/calendar-date';
 import { shortDayLabel } from '../calendar/labels';
@@ -6,7 +6,7 @@ import { t } from '../i18n';
 import { Messages } from '../layout/parts';
 import { priceLabel } from './garment';
 import { valueLabel } from './labels';
-import type { RepairEntry, RepairPanel } from './repairs';
+import type { RepairEntry, RepairLog, RepairPanel } from './repairs';
 import { garmentUrl } from './urls';
 import { CARE_NOTE_MAX, PRICE_INPUT_MAX } from './validation';
 
@@ -42,15 +42,12 @@ function Entry({ entry }: { entry: RepairEntry }) {
 
 /**
  * The garment page's "Repairs and alterations": the log newest first and
- * what it cost in all, or that nothing is logged yet, and "Log a repair"
- * (the edit page's editor).
+ * what it cost in all (RepairLog's `total`, the sum cost per wear adds),
+ * or that nothing is logged yet, and "Log a repair" (the edit page's
+ * editor).
  */
-export function RepairLogSection(props: {
-  garmentId: number;
-  entries: RepairEntry[];
-}) {
-  const { entries } = props;
-  const total = repairTotal(entries.map((entry) => entry.cost));
+export function RepairLogSection(props: { garmentId: number; log: RepairLog }) {
+  const { entries, total } = props.log;
   return (
     <section id="garment-repairs" aria-labelledby="garment-repairs-title">
       <div class="flex items-baseline justify-between gap-2 mb-2">

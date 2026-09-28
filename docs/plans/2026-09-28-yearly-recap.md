@@ -19,7 +19,8 @@ the owner's recap under their grant; the coordinator reversed that on 2026-09-28
   - `from` is January 1 and `to` is the year's last day that has happened.
   - "Recent" wear days are the year's wear days.
   - A garment's lifetime wear days and its "days since" stop at `to`. So a past year's cost per wear
-    is what it was on December 31.
+    is what it was on December 31. Its repairs too (#151): every repair dated up to `to` counts,
+    earlier years' included, as the price counts whole whenever it was paid.
   - `scope` is `owned`: the closet and the archive. A coat that was worn out and archived in November
     was still that year's most worn.
 - **The year boundary is the household's.** `garment_wear.day` is already a date in `APP_TIMEZONE`,

@@ -4,6 +4,7 @@ import {
   perWearCost,
   type InsightGarment,
   RANKED_LIMIT,
+  totalCost,
   wardrobeInsights,
 } from './insights';
 
@@ -26,6 +27,7 @@ function garment(fields: Partial<InsightGarment> = {}): InsightGarment {
     colors: null,
     quantity: 1,
     price: null,
+    repairCost: null,
     condition: 'good',
     photo: null,
     acquiredOn: null,
@@ -136,13 +138,58 @@ describe('wardrobeInsights', () => {
   });
 });
 
+describe('totalCost', () => {
+  it('is the price of every copy plus the repairs, counted once', () => {
+    expect(totalCost({ price: '12.50', quantity: 3, repairCost: null })).toBe(
+      '37.50',
+    );
+    expect(totalCost({ price: '12.50', quantity: 3, repairCost: '0.10' })).toBe(
+      '37.60',
+    );
+    expect(totalCost({ price: '0.10', quantity: 1, repairCost: '0.20' })).toBe(
+      '0.30',
+    );
+  });
+
+  it('is unknown without a price, whatever the repairs cost', () => {
+    expect(
+      totalCost({ price: null, quantity: 1, repairCost: '40.00' }),
+    ).toBeNull();
+  });
+});
+
 describe('perWearCost', () => {
-  it('divides what the garment cost, every copy, by its wear days, to the cent', () => {
-    expect(perWearCost('350.00', 1, 12)).toBe('29.17');
-    expect(perWearCost('12.50', 3, 5)).toBe('7.50');
+  it('divides what the garment cost by its wear days, to the cent', () => {
+    expect(perWearCost('350.00', 12)).toBe('29.17');
+    expect(perWearCost('37.50', 5)).toBe('7.50');
   });
 
   it('never divides by no wears', () => {
-    expect(perWearCost('80.00', 1, 0)).toBeNull();
+    expect(perWearCost('80.00', 0)).toBeNull();
+  });
+});
+
+describe('cost per wear with repairs (#151)', () => {
+  it('ranks a repaired garment by what it cost in all', () => {
+    // 100 over 10 wears is 10.00 a wear; the 60.00 resole makes it 16.00,
+    // dearer than the 150.00 coat's 15.00.
+    const boots = worn(10, '100');
+    const repaired = { ...boots, repairCost: '60.00' };
+    const coat = worn(10, '150');
+    const { cost } = wardrobeInsights([repaired, coat], [], 90);
+    expect(cost.best.map((c) => [c.garment.id, c.cost, c.perWear])).toEqual([
+      [coat.id, '150.00', '15.00'],
+    ]);
+    expect(cost.worst.map((c) => [c.garment.id, c.cost, c.perWear])).toEqual([
+      [boots.id, '160.00', '16.00'],
+    ]);
+    expect(cost.closetValue).toBe('310.00');
+  });
+
+  it('leaves an unpriced garment out, repaired or not', () => {
+    const unpriced = { ...worn(4), repairCost: '30.00' };
+    const { cost } = wardrobeInsights([unpriced], [], 90);
+    expect(cost).toMatchObject({ priced: 0, unpriced: 1, closetValue: '0.00' });
+    expect(cost.best).toEqual([]);
   });
 });

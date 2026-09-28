@@ -519,7 +519,7 @@ only these rows say it.
 
 What has been mended or altered (#23): the garment page's log, the owner's own record. Dated as the
 bible's acquisitions are (they move with the anchor), never before the garment was bought; costs are
-what he paid, shown beside the log and not added to cost per wear. B02's torn belt loop (Condition) and
+what he paid, shown beside the log and counted in cost per wear (#151). B02's torn belt loop (Condition) and
 F07's resole (Away) are not done yet, so not here.
 
 | Garment | Day | Kind | What was done | Cost |

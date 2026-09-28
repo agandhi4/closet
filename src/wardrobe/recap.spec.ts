@@ -22,6 +22,7 @@ function garment(fields: Partial<InsightGarment> = {}): InsightGarment {
     colors: null,
     quantity: 1,
     price: null,
+    repairCost: null,
     condition: 'good',
     photo: null,
     acquiredOn: null,

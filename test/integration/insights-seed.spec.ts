@@ -1,7 +1,14 @@
 import { PassThrough, Readable } from 'node:stream';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { garment } from '../../src/db/schema';
 import { runSeed } from '../../src/seed/seed';
-import { createTestApp, recordQueries, type TestApp } from './harness';
+import {
+  createTestApp,
+  recordQueries,
+  type TestApp,
+  userIdOf,
+} from './harness';
 import { tool } from './mcp';
 
 const PASSWORD = 'Closet-demo-1';
@@ -91,6 +98,30 @@ describe('insights over the seed personas', () => {
     expect(html).not.toContain('id="insights-no-wears"');
     expect(html).toMatch(/data-unworn-count="[1-9]/);
     expect(html).toContain('data-pair=');
+  });
+
+  // #151: Theo's Repairs table (demo.md: O03 25, B07 20, B01 15, F07 12,
+  // T13 without a cost) counts in what his closet cost, on top of his
+  // prices × copies. A new costed repair in the bible moves this pin.
+  it('counts Theo’s repairs in what his closet cost', async () => {
+    const demoId = await userIdOf(t, 'demo@closet.invalid');
+    const priced = await t.db
+      .select({ price: garment.price, quantity: garment.quantity })
+      .from(garment)
+      .where(
+        and(
+          eq(garment.ownerId, demoId),
+          eq(garment.status, 'closet'),
+          isNotNull(garment.price),
+        ),
+      );
+    const priceCents = priced.reduce(
+      (sum, row) => sum + Math.round(Number(row.price) * 100) * row.quantity,
+      0,
+    );
+    const html = (await demoPage()).body;
+    const closetValue = /data-closet-value="([\d.]+)"/.exec(html)![1];
+    expect(Math.round(Number(closetValue) * 100) - priceCents).toBe(7200);
   });
 
   it('bounds the page to the owner row and two statements over 80 garments', async () => {

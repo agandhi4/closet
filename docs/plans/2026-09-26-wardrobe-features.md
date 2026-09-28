@@ -699,11 +699,10 @@ altered, kept with the garment so the laundry pile and the tailor's ticket have 
   chips, what was done, the day defaulting to today, the cost), native posts, disabled offline. Adding
   lands on the garment page with the entry and a toast; a refusal re-renders the edit page with the
   messages. `get_garment` lists the log for the owner.
-- **Cost per wear stays the price's.** Insights has a cost concept (price ÷ wear days, the one rule
-  `perWearCost` that the garment page shares), so a repair's cost belongs in it in principle. Folding it
-  in means the insights page's query sums each garment's repairs, and that page is another slice's
-  work in flight; the log shows its own total meanwhile, and the follow-up is the insights query plus
-  `perWearCost` taking the total.
+- **Cost per wear stayed the price's here; #151 folded the repairs in.** What a garment cost is now
+  `totalCost` (price × copies plus its repairs' costs, null without a price), which every cost per wear
+  surface divides; the insights statement and the wear summary each sum the repairs in a scalar
+  subquery (`repairCostSql`), dated up to the window's last day; the log's "Spent on it" shows that same sum.
 - **Seed.** Theo's garments carry their materials' care, a Care labels table where the label differs
   (the blazer, the wool coat and the flannels dry clean only) and a Repairs table (the blazer's and
   flannels' alterations, the raw denim's chain-stitch hem, the Bean Boots' laces, the oxford's button).
@@ -756,7 +755,7 @@ copy" (the garment's quantity, section 1's multiples) instead of a second garmen
     counts toward the per-user cap of 10 until then (Images).
   - **Wears, washes and repairs**: untouched. They belong to the garment and count days, so the new copy
     starts clean: dirty copies are floor(wears / limit), capped at the quantity.
-  - **Price**: per copy. Insights' spend and cost per wear (both price × copies, #17, `perWearCost`) rise
+  - **Price**: per copy. Insights' spend and cost per wear (both price × copies, plus repairs since #151, `totalCost`) rise
     by one price, as they would after editing the quantity. A different price paid for the new copy is
     not recorded (one price per garment).
 - **Dismissing a false positive**: "Not the same" on the region adds the matches shown to a hidden list in

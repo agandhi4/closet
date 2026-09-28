@@ -3,7 +3,7 @@ import {
   dirtyCopies,
   washLimit,
 } from '../../wardrobe/availability';
-import { perWearCost } from '../../wardrobe/insights';
+import { perWearCost, totalCost } from '../../wardrobe/insights';
 import { AutosaveForm } from '../autosave';
 import { daysBetween, type IsoDate } from '../calendar/calendar-date';
 import { t } from '../i18n';
@@ -115,8 +115,8 @@ export function WearStatus(props: { garment: WearGarment; panel: WearPanel }) {
 
 /**
  * "Worn 12 times · 2 since washed · last worn yesterday · $4.00 a wear";
- * "Not worn yet". The cost is the insights' rule (perWearCost), shown only
- * with a price and a wear.
+ * "Not worn yet". The cost is the insights' rule (totalCost, repairs
+ * included, over perWearCost), shown only with a price and a wear.
  */
 function wornLine(
   garment: WearGarment,
@@ -126,10 +126,12 @@ function wornLine(
   if (summary.worn === 0 || summary.lastWorn === null) {
     return t('wear.NOT_WORN');
   }
-  const perWear =
-    garment.price === null
-      ? null
-      : perWearCost(garment.price, garment.quantity, summary.worn);
+  const cost = totalCost({
+    price: garment.price,
+    quantity: garment.quantity,
+    repairCost: summary.repairCost,
+  });
+  const perWear = cost === null ? null : perWearCost(cost, summary.worn);
   return [
     summary.worn === 1
       ? t('wear.WORN_ONCE')

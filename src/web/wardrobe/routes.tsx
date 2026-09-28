@@ -770,12 +770,14 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         avoided: [],
       };
     }
-    const [summary, outfits, avoided, repairs] = await Promise.all([
+    const [summary, outfits, avoided, entries] = await Promise.all([
       wearSummary(db, garment.id, today),
       outfitsWithGarment(db, access.ownerId, garment.id, GARMENT_OUTFITS_SHOWN),
       avoidedWith(db, access.ownerId, garment.id),
       repairLog(db, garment.id),
     ]);
+    // "Spent on it" is the wear line's repair sum, one figure for both.
+    const repairs = { entries, total: summary.repairCost };
     return { wear: { summary, today }, outfits, avoided, repairs };
   }
 

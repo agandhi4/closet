@@ -10,7 +10,6 @@
  */
 
 import { followPreset, type Material } from './properties';
-import { fromCents, toCents } from './shopping';
 
 // Each set is listed gentlest last: the order a label reads and the one
 // carePresetsFor combines by (the most careful material wins).
@@ -218,14 +217,3 @@ export function applyCarePresets(
 /** A repair log entry's kind: a mend (resoled, a patch) or a change of fit (hemmed, taken in). */
 export const REPAIR_KINDS = ['repair', 'alteration'] as const;
 export type RepairKind = (typeof REPAIR_KINDS)[number];
-
-/**
- * What a garment's repairs cost in all, summed in cents: null when no entry
- * gives a cost (nothing to say), never a sum of floats. Shown on the garment
- * page beside the log; not added to cost per wear (section 17).
- */
-export function repairTotal(costs: readonly (string | null)[]): string | null {
-  const given = costs.filter((cost) => cost !== null);
-  if (given.length === 0) return null;
-  return fromCents(given.reduce((sum, cost) => sum + toCents(cost), 0));
-}

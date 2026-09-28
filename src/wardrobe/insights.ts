@@ -17,6 +17,8 @@ import { fromCents, toCents } from './shopping';
  *   (quantity 3) is one garment, worn when any copy was. Quantity counts
  *   only where money or pieces are the question: cost per wear, the
  *   closet's value and the category breakdown's pieces.
+ * - What a garment cost is totalCost's, on every surface: its price ×
+ *   copies plus its repairs (#151).
  * - Wears are distinct days (the wear log's rule): two outfits on one day
  *   holding the same shoes are one wear.
  * - "Worn in the last N days": a wear on today or one of the N - 1 days
@@ -74,6 +76,11 @@ export interface InsightGarment {
   quantity: number;
   /** Per piece, the price paid ("Bought it" records it over the listed one). */
   price: string | null;
+  /**
+   * What its repairs dated up to the window's last day cost in all
+   * (repairCostSql); null when none gives a cost. The owner's own record.
+   */
+  repairCost: string | null;
   condition: Condition;
   photo: { fileName: string; version: number } | null;
   /** 'YYYY-MM-DD', null without a date (a recap's new additions). */
@@ -111,7 +118,7 @@ export interface WornShare {
 
 export interface CostPerWear {
   garment: InsightGarment;
-  /** price × quantity, what the garment cost. */
+  /** What the garment cost (totalCost): price × quantity plus repairs. */
   cost: string;
   /** cost ÷ wear days; null when not worn yet (never divided). */
   perWear: string | null;
@@ -153,7 +160,7 @@ export interface WardrobeInsights {
     /** Priced and never worn, the most expensive first. */
     notWornYet: CostPerWear[];
     notWornYetCount: number;
-    /** Sum of price × quantity over the priced garments. */
+    /** What the priced garments cost (totalCost), repairs included. */
     closetValue: string;
     priced: number;
     unpriced: number;
@@ -209,28 +216,47 @@ function unwornList(
     );
 }
 
-/**
- * What one wear of a garment cost: what it cost (price per piece ×
- * quantity) over its wear days, rounded to the cent; null when it has not
- * been worn yet (never divided). The one rule, shared by insights and the
- * garment page's wear line (#84).
- */
-export function perWearCost(
-  price: string,
-  quantity: number,
-  wearDays: number,
-): string | null {
-  if (wearDays === 0) return null;
-  return fromCents(Math.round((toCents(price) * quantity) / wearDays));
+/** What a garment's cost is made of (#151). */
+export interface GarmentCosts {
+  /** Per piece, the price paid. */
+  price: string | null;
+  quantity: number;
+  /** Its repairs' costs summed (repairCostSql); null when none gives one. */
+  repairCost: string | null;
 }
 
-function costPerWear(garment: InsightGarment): CostPerWear {
-  const price = garment.price!;
-  return {
-    garment,
-    cost: fromCents(toCents(price) * garment.quantity),
-    perWear: perWearCost(price, garment.quantity, garment.wearDays),
-  };
+/**
+ * What a garment cost: its price per piece × quantity, plus what its
+ * repairs cost (once: a repair is money spent, whatever the copies), in
+ * cents. Null without a price: repairs alone are not what a garment cost,
+ * so an unpriced garment stays out of cost per wear, repaired or not. The
+ * one definition insights, the recap, wardrobe_stats, get_garment and the
+ * garment page's wear line share; repairs are the owner's own, so it is
+ * only ever computed from an owner-only read (insightGarments,
+ * wearSummary).
+ */
+export function totalCost(costs: GarmentCosts): string | null {
+  if (costs.price === null) return null;
+  const repairs = costs.repairCost === null ? 0 : toCents(costs.repairCost);
+  return fromCents(toCents(costs.price) * costs.quantity + repairs);
+}
+
+/**
+ * What one wear of a garment cost: its total cost (totalCost) over its
+ * wear days, rounded to the cent; null when it has not been worn yet (never
+ * divided). The one rule, shared by insights and the garment page's wear
+ * line (#84).
+ */
+export function perWearCost(total: string, wearDays: number): string | null {
+  if (wearDays === 0) return null;
+  return fromCents(Math.round(toCents(total) / wearDays));
+}
+
+/** A garment's cost per wear; none without a price (totalCost). */
+function costPerWear(garment: InsightGarment): CostPerWear[] {
+  const cost = totalCost(garment);
+  if (cost === null) return [];
+  return [{ garment, cost, perWear: perWearCost(cost, garment.wearDays) }];
 }
 
 /**
@@ -241,7 +267,7 @@ function costPerWear(garment: InsightGarment): CostPerWear {
 export function costFigures(
   garments: InsightGarment[],
 ): WardrobeInsights['cost'] {
-  const priced = garments.filter((g) => g.price !== null).map(costPerWear);
+  const priced = garments.flatMap(costPerWear);
   const worn = priced
     .filter((c) => c.perWear !== null)
     .sort(

@@ -1,5 +1,6 @@
 import { type Static, Type } from '@sinclair/typebox';
-import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, type SQL, sql } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import { garment, garmentRepair } from '../../db/schema';
 import { REPAIR_KINDS, type RepairKind } from '../../wardrobe/care';
@@ -56,6 +57,16 @@ export function blankRepair(today: IsoDate): RepairFormValues {
 }
 
 export type NewRepair = Omit<RepairEntry, 'id'>;
+
+/**
+ * The garment page's log: its entries, and what they cost in all. `total`
+ * is wearSummary's `repairCost` (repairCostSql), the very sum cost per wear
+ * adds, so "Spent on it" and the wear line never disagree.
+ */
+export interface RepairLog {
+  entries: RepairEntry[];
+  total: string | null;
+}
 
 /** The edit page's log: what is logged (each removable), and the form to log another. */
 export interface RepairPanel {
@@ -158,6 +169,23 @@ export function repairLog(db: Db, garmentId: number): Promise<RepairEntry[]> {
     .from(garmentRepair)
     .where(eq(garmentRepair.garmentId, garmentId))
     .orderBy(desc(garmentRepair.day), desc(garmentRepair.id));
+}
+
+/**
+ * What a garment's repairs done up to `through` cost in all, as a scalar
+ * subquery on its id column: numeric's exact sum as text ('37.50'), null
+ * when no entry gives a cost. Cost per wear's repair part (totalCost,
+ * src/wardrobe/insights.ts), a column of the statement that already reads
+ * the garment (insightGarments, wearSummary) rather than a query of its
+ * own. The owner's own record: only an owner-only read may select it.
+ */
+export function repairCostSql(
+  garmentId: AnyPgColumn,
+  through: IsoDate,
+): SQL<string | null> {
+  return sql<
+    string | null
+  >`(select sum(${garmentRepair.cost})::text from ${garmentRepair} where ${garmentRepair.garmentId} = ${garmentId} and ${garmentRepair.day} <= ${through}::date)`;
 }
 
 /**

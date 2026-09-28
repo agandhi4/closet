@@ -36,7 +36,7 @@ import { BrandSizeNote } from '../sizes/views';
 import { categoryLabel, priceLabel } from './garment';
 import { GarmentCondition } from './garment-condition';
 import { RepairLogSection } from './repair-log';
-import type { RepairEntry } from './repairs';
+import type { RepairLog } from './repairs';
 import { fabricWeightLabel, valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
 import {
@@ -84,7 +84,7 @@ export interface GarmentPageModel {
    * The repair and alteration log (#23), the owner's own record like the
    * wears. Undefined for a grantee and for a wishlist item.
    */
-  repairs: RepairEntry[] | undefined;
+  repairs: RepairLog | undefined;
   /** Edit, photo, mask, condition and "Bought it": the owner and a MANAGE grantee. */
   canEdit: boolean;
   /** Archive, restore and delete: the owner only. */
@@ -221,7 +221,7 @@ function Care({ model }: { model: GarmentPageModel }) {
       )}
       {model.wear && <WhereaboutsSection garment={garment} />}
       {model.repairs && (
-        <RepairLogSection garmentId={garment.id} entries={model.repairs} />
+        <RepairLogSection garmentId={garment.id} log={model.repairs} />
       )}
     </>
   );
