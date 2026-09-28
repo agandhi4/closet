@@ -210,11 +210,103 @@ describe('the garment page', () => {
     expect(shown).toEqual(ids.slice(1).reverse());
     expect(strip).not.toContain('Other outfit');
 
-    // One more statement for the count and one for the strip, whatever the
-    // number of outfits.
+    // The count and the strip ride in the page's one context statement,
+    // whatever the number of outfits.
     const { sql } = await recordQueries(() => page(boots));
     const outfitReads = sql.filter((text) => text.includes('"outfit_slot"'));
-    expect(outfitReads).toHaveLength(2);
+    expect(outfitReads).toHaveLength(1);
+  });
+
+  // Production reaches Postgres at about 114 ms a statement (#156, #160):
+  // what the page shows beside the garment is one statement
+  // (garmentContext), and a tap on Wore today or Washed is the write and
+  // its answer.
+  describe('statements per request', () => {
+    const htmx = {
+      'content-type': 'application/x-www-form-urlencoded',
+      'hx-request': 'true',
+    };
+
+    it('the owner’s page: the session, the garment, and one for everything else', async () => {
+      const record = await recordQueries(() => page(boots));
+      expect(record.statements).toBe(3);
+      const context = record.sql.find((text) => text.includes('json_agg'));
+      for (const read of [
+        'capsule',
+        'garment_wear',
+        'outfit_slot',
+        'generator_avoid',
+        'garment_repair',
+      ]) {
+        expect(context).toContain(`"${read}"`);
+      }
+    });
+
+    it('a grantee’s: the share too, and none of the owner’s records', async () => {
+      const record = await recordQueries(() =>
+        page(boots, viewer, `?ownerId=${ownerId}`),
+      );
+      expect(record.statements).toBe(4);
+      const all = record.sql.join('\n');
+      for (const owners of [
+        'garment_wear',
+        'outfit_slot',
+        'generator_avoid',
+        'garment_repair',
+      ]) {
+        expect(all).not.toContain(`"${owners}"`);
+      }
+    });
+
+    it('a wishlist item’s: "Goes with my closet" and the brand note ride along', async () => {
+      const created = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        ...form({
+          name: 'Blacksmiths',
+          category: 'footwear',
+          brand: 'Red Wing',
+          to: 'wishlist',
+        }),
+      });
+      expect(created.statusCode).toBe(302);
+      const item = Number(
+        /^\/wardrobe\/(\d+)/.exec(String(created.headers.location))![1],
+      );
+      const record = await recordQueries(() => page(item));
+      expect(record.statements).toBe(3);
+      const context = record.sql.find((text) => text.includes('json_agg'));
+      expect(context).toContain('"generator_avoid"');
+      expect(context).toContain('"brand_size"');
+      expect(record.sql.join('\n')).not.toContain('"garment_wear"');
+    });
+
+    it('Wore today and its undo: the write, then the wear line it answers', async () => {
+      for (const worn of ['1', '0']) {
+        const record = await recordQueries(async () => {
+          const res = await t.inject({
+            method: 'POST',
+            url: `/wardrobe/${boots}/wear`,
+            payload: `worn=${worn}`,
+            headers: htmx,
+          });
+          expect(res.statusCode).toBe(200);
+        });
+        expect(record.statements).toBe(3);
+      }
+    });
+
+    it('Washed: the write, then the wear line it answers', async () => {
+      const record = await recordQueries(async () => {
+        const res = await t.inject({
+          method: 'POST',
+          url: `/wardrobe/${boots}/washed`,
+          headers: htmx,
+        });
+        expect(res.statusCode).toBe(200);
+      });
+      expect(record.statements).toBe(3);
+    });
   });
 
   it('shows a grantee Style this in their view, and neither wears nor outfits', async () => {

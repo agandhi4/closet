@@ -12,7 +12,7 @@ import { priceLabel } from '../wardrobe/garment';
 import type { GarmentDetail } from '../wardrobe/queries';
 import { garmentUrl } from '../wardrobe/urls';
 import { CARE_NOTE_MAX } from '../wardrobe/validation';
-import type { WearSummary } from './queries';
+import type { WearGarment, WearSummary } from './queries';
 
 /** What Wore today and Washed answer: the wear line and the buttons. */
 const WEAR_STATUS_ID = 'garment-wear-status';
@@ -23,17 +23,6 @@ export interface WearPanel {
   /** The household's date (APP_TIMEZONE): "last worn yesterday", "Wore today". */
   today: IsoDate;
 }
-
-type WearGarment = Pick<
-  GarmentDetail,
-  | 'id'
-  | 'status'
-  | 'category'
-  | 'quantity'
-  | 'price'
-  | 'washAfterWears'
-  | 'lastWashedOn'
->;
 
 // Wore today and Washed answer the wear status (htmx) or, posted without
 // script, the garment page (303); never "where it is" (WhereaboutsSection),

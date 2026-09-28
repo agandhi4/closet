@@ -1,7 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { recordCutoutEvent } from '../../cutout/queries';
-import { type CapsuleRef, capsulesOfGarment } from '../capsules/queries';
+import type { CapsuleRef } from '../capsules/queries';
 import { capsuleNotFound } from '../capsules/validation';
 import {
   findType,
@@ -13,7 +13,7 @@ import {
 import { CARE_WASH } from '../../wardrobe/care';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
-import { type IsoDate, todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../calendar/calendar-date';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
 import {
@@ -38,21 +38,15 @@ import {
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
-import { type GoesWithCloset, goesWithCloset } from '../gallery/ideas';
-import { avoidedWith } from '../gallery/queries';
-import { GARMENT_OUTFITS_SHOWN } from '../outfits/garment-outfits';
-import { outfitsWithGarment } from '../outfits/queries';
-import { wearSummary } from '../wears/queries';
+import { type GoesWithCloset, judgeGoesWithCloset } from '../gallery/ideas';
+import type { GoesWithInputs } from '../gallery/queries';
 import { normalizeCategory, normalizeSize } from './garment';
-import {
-  GarmentPage,
-  type GarmentPageModel,
-  GarmentPhotoView,
-} from './garment-page';
+import { garmentContext } from './garment-context';
+import { GarmentPage, GarmentPhotoView } from './garment-page';
 import { type DraftQueue, nextDraft } from './draft-queue';
 import { pendingPhotoView } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
-import { repairLog, repairPanel } from './repairs';
+import { repairPanel } from './repairs';
 import {
   bulkSetProperty,
   findGarment,
@@ -65,8 +59,6 @@ import {
   updateGarmentFields,
   updateGarmentProperties,
 } from './queries';
-import { garmentRef, replacementsOf } from '../wishlist/queries';
-import { brandSizeFor } from '../sizes/queries';
 import {
   destinationValues,
   postedDestination,
@@ -901,60 +893,29 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   /**
-   * A wishlist item's "Goes with my closet" (#18b) for its page: the
-   * owner's alone (it reads their closet and clashes), so nothing for a
-   * grantee or for a garment not on the wishlist.
+   * A wishlist item's "Goes with my closet" (#18b) for its page, judged
+   * over the inputs garmentContext read (the owner's alone; undefined
+   * otherwise). Logs the search, which is the page's time, not the reads.
    */
-  async function judgeWishlistItem(
-    garment: GarmentDetail,
-    access: { isOwner: boolean; ownerId: number },
-  ): Promise<GoesWithCloset | undefined> {
-    if (garment.status !== 'wishlist' || !access.isOwner) return undefined;
+  function judgeWishlistItem(
+    garmentId: number,
+    ownerId: number,
+    inputs: GoesWithInputs | undefined,
+  ): GoesWithCloset | undefined {
+    if (!inputs) return undefined;
     const started = performance.now();
-    const judged = await goesWithCloset(db, access.ownerId, garment.id);
+    const judged = judgeGoesWithCloset(inputs);
     if (judged) {
       logger.debug(
-        `Goes with my closet for user ${access.ownerId}: wishlist item ${garment.id} makes ${judged.outfits}${judged.capped ? '+' : ''} outfit(s), ${judged.nearDuplicates.length} near-duplicate(s), in ${Math.round(performance.now() - started)} ms`,
+        `Goes with my closet for user ${ownerId}: wishlist item ${garmentId} makes ${judged.outfits}${judged.capped ? '+' : ''} outfit(s), ${judged.nearDuplicates.length} near-duplicate(s), in ${Math.round(performance.now() - started)} ms`,
       );
     }
     return judged;
   }
 
-  /**
-   * The garment page's reads of the owner's own records: its wears and
-   * washes, the outfits that hold it ("In N outfits", #84) and the garments
-   * the gallery never pairs it with. Like outfits and the calendar, never
-   * read for a grantee (the page renders none of them), nor for a wishlist
-   * item, which is not in the closet.
-   */
-  async function ownerRecords(
-    garment: GarmentDetail,
-    access: { isOwner: boolean; ownerId: number },
-    today: IsoDate,
-  ): Promise<
-    Pick<GarmentPageModel, 'wear' | 'outfits' | 'repairs'> & {
-      avoided: GarmentPageModel['styling']['avoided'];
-    }
-  > {
-    if (garment.status === 'wishlist' || !access.isOwner) {
-      return {
-        wear: undefined,
-        outfits: undefined,
-        repairs: undefined,
-        avoided: [],
-      };
-    }
-    const [summary, outfits, avoided, entries] = await Promise.all([
-      wearSummary(db, garment.id, today),
-      outfitsWithGarment(db, access.ownerId, garment.id, GARMENT_OUTFITS_SHOWN),
-      avoidedWith(db, access.ownerId, garment.id),
-      repairLog(db, garment.id),
-    ]);
-    // "Spent on it" is the wear line's repair sum, one figure for both.
-    const repairs = { entries, total: summary.repairCost };
-    return { wear: { summary, today }, outfits, avoided, repairs };
-  }
-
+  // Three statements whatever the garment: the session, the garment (what
+  // is read next depends on its status), and garmentContext for the rest
+  // (garment-context.ts; garment-page.spec.ts counts them).
   app.get(
     '/wardrobe/:id',
     { schema: { params: GarmentParams, querystring: GarmentPageQuery } },
@@ -968,50 +929,29 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
       const garment = await requireGarment(options, id, access.ownerId);
-      // What a garment page shows depends on where the garment is: a
-      // wishlist item has no wears, washes or capsules (closet reads), and
-      // says what it replaces; a closet garment lists the wishlist items
-      // that would replace it.
-      const [capsules, replaces, replacedBy, own, goesWith, brandSize] =
-        await Promise.all([
-          garment.status === 'wishlist'
-            ? []
-            : capsulesOfGarment(db, access.ownerId, id),
-          garment.replacesGarmentId === null
-            ? undefined
-            : garmentRef(db, garment.replacesGarmentId, access.ownerId),
-          garment.status === 'closet'
-            ? replacementsOf(db, id, access.ownerId)
-            : [],
-          ownerRecords(garment, access, today),
-          judgeWishlistItem(garment, access),
-          // The owner's size in a wishlist item's brand (#24): their body,
-          // so never read for a grantee.
-          garment.status === 'wishlist' && access.isOwner && garment.brand
-            ? brandSizeFor(db, access.ownerId, garment.brand)
-            : undefined,
-        ]);
+      const context = await garmentContext(db, garment, access, today);
+      const { own } = context;
       return renderPage(
         reply,
         <GarmentPage
           ctx={viewContext(reply)}
           model={{
             garment,
-            capsules,
+            capsules: context.capsules,
             viewOwner,
-            wear: own.wear,
-            replaces,
-            replacedBy,
+            wear: own && { summary: own.wear, today },
+            replaces: context.replaces,
+            replacedBy: context.replacedBy,
             // "Style this" is anyone's who sees a closet garment: Styling
             // browses a shared wardrobe (#42) and saves only one's own.
             styling: {
               canStyle: garment.status === 'closet',
-              avoided: own.avoided,
+              avoided: own?.avoided ?? [],
             },
-            goesWith,
-            brandSize,
-            outfits: own.outfits,
-            repairs: own.repairs,
+            goesWith: judgeWishlistItem(id, access.ownerId, context.goesWith),
+            brandSize: context.brandSize,
+            outfits: own?.outfits,
+            repairs: own?.repairs,
             canEdit: access.canManage,
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',

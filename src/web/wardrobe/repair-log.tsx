@@ -13,7 +13,7 @@ import { CARE_NOTE_MAX, PRICE_INPUT_MAX } from './validation';
 /**
  * The repair and alteration log's views (#23): the garment page's section
  * and the edit page's editor. The owner's own: the routes pass them a log
- * only for the owner of an owned garment (ownerRecords, editRepairs).
+ * only for the owner of an owned garment (garmentContext, editRepairs).
  */
 
 /** Where the garment page's link and the writes' redirects land on the edit page. */

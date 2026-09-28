@@ -47,10 +47,11 @@ import {
   outfitCount,
 } from '../../wardrobe/goes-with';
 import {
-  avoidedPairs,
   type ClosetGarment,
   closetGarments,
   generatorMemorySql,
+  type GoesWithInputs,
+  goesWithInputs,
   ideaPoolSql,
   pickedGarments,
   type PoolGarment,
@@ -59,7 +60,6 @@ import {
   styledGarment,
   styledGarments,
   type WishlistGarment,
-  wishlistGarments,
 } from './queries';
 
 /**
@@ -520,18 +520,26 @@ export interface GoesWithCloset extends GoesWith<ClosetGarment> {
  * gets this, as it reads the owner's closet and clashes. Display only: an
  * outfit with the item cannot be picked (pickIdea takes closet garments),
  * which "Bought it" changes. Seeded by the item's id, so the same closet
- * answers the same.
+ * answers the same. One statement (goesWithInputs) and one search.
  */
 export async function goesWithCloset(
-  db: Db,
+  db: Queryable,
   ownerId: number,
   itemId: number,
 ): Promise<GoesWithCloset | undefined> {
-  const [[item], closet, avoid] = await Promise.all([
-    wishlistGarments(db, ownerId, [itemId]),
-    closetGarments(db, ownerId),
-    avoidedPairs(db, ownerId),
-  ]);
+  return judgeGoesWithCloset(await goesWithInputs(db, ownerId, itemId));
+}
+
+/**
+ * goesWithCloset's search over inputs already read: a wishlist item's page
+ * reads them with its other lists (garmentContext,
+ * src/web/wardrobe/garment-context.ts).
+ */
+export function judgeGoesWithCloset({
+  item,
+  closet,
+  avoid,
+}: GoesWithInputs): GoesWithCloset | undefined {
   if (!item) return undefined;
   return {
     item,
@@ -547,17 +555,13 @@ export async function goesWithCloset(
  * How many outfits the owner's wishlist item `itemId` makes with the closet
  * (goesWithCloset's count, from the same search): the shopping list's
  * candidate chip, GET /wardrobe/:id/outfit-count. Undefined when it is not
- * one of the owner's wishlist items. Three statements and one search.
+ * one of the owner's wishlist items. One statement and one search.
  */
 export async function goesWithCount(
-  db: Db,
+  db: Queryable,
   ownerId: number,
   itemId: number,
 ): Promise<OutfitCount | undefined> {
-  const [[item], closet, avoid] = await Promise.all([
-    wishlistGarments(db, ownerId, [itemId]),
-    closetGarments(db, ownerId),
-    avoidedPairs(db, ownerId),
-  ]);
+  const { item, closet, avoid } = await goesWithInputs(db, ownerId, itemId);
   return item && outfitCount({ item, closet, avoid, seed: item.id });
 }

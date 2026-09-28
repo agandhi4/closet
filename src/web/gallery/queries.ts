@@ -189,7 +189,7 @@ export async function weekPool(
  * person chose them): `?with=`'s garment, Styling's locked rows (#42). The
  * owner's, in the closet; fewer than asked for any that is not (archived,
  * a wishlist item, someone else's, gone). A wishlist item is only ever
- * locked by "Goes with my closet" (wishlistGarments).
+ * locked by "Goes with my closet" (goesWithInputsSql).
  */
 export function styledGarments(
   db: Db,
@@ -235,73 +235,180 @@ export interface WishlistGarment extends ClosetGarment {
   replacesGarmentId: number | null;
 }
 
-/** A row of drawnColumns as a garment that is never rotated. */
-function unrotatedGarment(row: Omit<PoolRow, 'idleDays'>): ClosetGarment {
+/** A row of drawnColumns. */
+type DrawnRow = Omit<PoolRow, 'idleDays'>;
+
+/**
+ * A row of drawnColumns as JSON, an array in drawnGarment's order, so the
+ * closet rides in one statement with the item and the pairs
+ * (goesWithInputsSql) and carries no key per garment. Null photo fields
+ * for a garment without one (the left join).
+ */
+type DrawnJson = [
+  id: DrawnRow['id'],
+  name: DrawnRow['name'],
+  category: DrawnRow['category'],
+  colors: DrawnRow['colors'],
+  pattern: DrawnRow['pattern'],
+  formality: DrawnRow['formality'],
+  warmth: DrawnRow['warmth'],
+  type: DrawnRow['type'],
+  fabricWeight: DrawnRow['fabricWeight'],
+  waterResistant: DrawnRow['waterResistant'],
+  fileName: string | null,
+  version: number | null,
+];
+
+const drawnJson = sql<DrawnJson>`json_build_array(
+  ${garment.id}, ${garment.name}, ${garment.category}, ${garment.colors},
+  ${garment.pattern}, ${garment.formality}, ${garment.warmth}, ${garment.type},
+  ${garment.fabricWeight}, ${garment.waterResistant},
+  ${file.fileName}, ${file.version}
+)`;
+
+/** A drawnJson array as a garment that is never rotated. */
+function drawnGarment([
+  id,
+  name,
+  category,
+  colors,
+  pattern,
+  formality,
+  warmth,
+  type,
+  fabricWeight,
+  waterResistant,
+  fileName,
+  version,
+]: DrawnJson): ClosetGarment {
+  const photo =
+    fileName === null || version === null ? null : { fileName, version };
   return {
-    ...poolGarment({ ...row, idleDays: null }),
-    type: row.type,
+    ...poolGarment({
+      ...{ id, name, category, colors, pattern, formality, warmth, type },
+      ...{ fabricWeight, waterResistant, photo, idleDays: null },
+    }),
+    type,
     idleDays: null,
   };
 }
 
 /**
  * The owner's whole closet (inCloset), dirty and away included, within a
- * capsule when given: "Goes with my closet" judges a purchase against what
- * the owner has, not against what is clean today, so the answer does not
- * move on laundry day; Styling's Shuffle over a shared wardrobe (#42,
- * browseIdea) draws from it because a grantee never learns the owner's
- * wash and away state. Never the owner's own gallery pool: ideas draw from
- * ideaPoolSql. One statement, without the pool's last-worn subquery: both
- * readers draw uniformly, so it fed nothing (#167: one garment_wear lookup
- * per closet garment on every wishlist item's page).
+ * capsule when given, as a scalar subquery: "Goes with my closet" judges a
+ * purchase against what the owner has, not against what is clean today,
+ * so the answer does not move on laundry day; Styling's Shuffle over a
+ * shared wardrobe (#42, browseIdea) draws from it because a grantee never
+ * learns the owner's wash and away state. Never the owner's own gallery
+ * pool: ideas draw from ideaPoolSql. Without the pool's last-worn
+ * subquery: both readers draw uniformly, so it fed nothing (#167: one
+ * garment_wear lookup per closet garment on every wishlist item's page).
  */
+function closetGarmentsSql(
+  ownerId: number,
+  capsuleId?: number,
+): SQL<DrawnJson[]> {
+  return sql<DrawnJson[]>`(
+    select coalesce(json_agg(${drawnJson} order by ${garment.id}), '[]')
+    from ${garment}
+    left join ${file} on ${eq(file.id, garment.photoId)}
+    where ${and(
+      eq(garment.ownerId, ownerId),
+      inCloset(),
+      capsuleId === undefined ? undefined : inCapsule(capsuleId),
+    )}
+  )`;
+}
+
+/** closetGarmentsSql alone: browseIdea's pool (ideas.ts). */
 export async function closetGarments(
-  db: Db,
+  db: Queryable,
   ownerId: number,
   capsuleId?: number,
 ): Promise<ClosetGarment[]> {
-  const rows = await db
-    .select(drawnColumns)
-    .from(garment)
-    .leftJoin(file, eq(file.id, garment.photoId))
-    .where(
-      and(
-        eq(garment.ownerId, ownerId),
-        inCloset(),
-        capsuleId === undefined ? undefined : inCapsule(capsuleId),
-      ),
-    );
-  return rows.map(unrotatedGarment);
+  const { closet } = await selectScalars(db, {
+    closet: closetGarmentsSql(ownerId, capsuleId),
+  });
+  return closet.map(drawnGarment);
 }
 
 /**
- * The owner's wishlist items among `ids`, as the generator locks them. The
- * only read that hands a wishlist item to the generator: goesWithCloset and
- * goesWithCount (ideas.ts) lock it, and nothing adds it to a pool.
+ * The owner's wishlist item `itemId` as drawnJson and what it replaces, or
+ * null when it is not one of their wishlist items.
  */
-export async function wishlistGarments(
-  db: Db,
+function wishlistGarmentSql(
   ownerId: number,
-  ids: readonly number[],
-): Promise<WishlistGarment[]> {
-  const rows = await db
-    .select({
-      ...drawnColumns,
-      replacesGarmentId: garment.replacesGarmentId,
-    })
-    .from(garment)
-    .leftJoin(file, eq(file.id, garment.photoId))
-    .where(
-      and(
-        eq(garment.ownerId, ownerId),
-        inArray(garment.id, [...ids]),
-        onWishlist(),
-      ),
-    );
-  return rows.map((row) => ({
-    ...unrotatedGarment(row),
-    replacesGarmentId: row.replacesGarmentId,
-  }));
+  itemId: number,
+): SQL<[DrawnJson, number | null] | null> {
+  return sql<[DrawnJson, number | null] | null>`(
+    select json_build_array(${drawnJson}, ${garment.replacesGarmentId})
+    from ${garment}
+    left join ${file} on ${eq(file.id, garment.photoId)}
+    where ${and(
+      eq(garment.ownerId, ownerId),
+      eq(garment.id, itemId),
+      onWishlist(),
+    )}
+  )`;
+}
+
+/**
+ * What "Goes with my closet" (#18b; goesWithCloset, goesWithCount in
+ * ideas.ts) judges: the owner's wishlist item as the generator locks it
+ * (undefined when `itemId` is not one), their whole closet and their
+ * avoided pairs.
+ */
+export interface GoesWithInputs {
+  item: WishlistGarment | undefined;
+  closet: ClosetGarment[];
+  avoid: [number, number][];
+}
+
+/** GoesWithInputs as goesWithInputsSql reads them (readGoesWithInputs). */
+export interface GoesWithInputsJson {
+  item: [DrawnJson, number | null] | null;
+  closet: DrawnJson[];
+  avoid: [number, number][];
+}
+
+/**
+ * GoesWithInputs as one JSON value, for a page that reads them with its
+ * other lists (garmentContext, src/web/wardrobe/garment-context.ts), and
+ * for goesWithInputs. The only read that hands a wishlist item to the
+ * generator: goesWithCloset and goesWithCount lock it, and nothing adds
+ * it to a pool.
+ */
+export function goesWithInputsSql(
+  ownerId: number,
+  itemId: number,
+): SQL<GoesWithInputsJson> {
+  return sql<GoesWithInputsJson>`json_build_object(
+    'item', ${wishlistGarmentSql(ownerId, itemId)},
+    'closet', ${closetGarmentsSql(ownerId)},
+    'avoid', ${avoidedPairsSql(ownerId)}
+  )`;
+}
+
+export function readGoesWithInputs(json: GoesWithInputsJson): GoesWithInputs {
+  return {
+    item: json.item
+      ? { ...drawnGarment(json.item[0]), replacesGarmentId: json.item[1] }
+      : undefined,
+    closet: json.closet.map(drawnGarment),
+    avoid: json.avoid,
+  };
+}
+
+/** goesWithInputsSql alone, in one statement. */
+export async function goesWithInputs(
+  db: Queryable,
+  ownerId: number,
+  itemId: number,
+): Promise<GoesWithInputs> {
+  const { inputs } = await selectScalars(db, {
+    inputs: goesWithInputsSql(ownerId, itemId),
+  });
+  return readGoesWithInputs(inputs);
 }
 
 /** What the generator must not repeat or pair, beside its pool. */
@@ -379,21 +486,6 @@ export async function generatorMemory(
   return readGeneratorMemory(
     await selectScalars(db, generatorMemorySql(ownerId)),
   );
-}
-
-/**
- * The owner's avoided pairs alone, for the searches that never compare
- * saved outfits ("Goes with my closet": goesWithCloset, goesWithCount).
- */
-export async function avoidedPairs(
-  db: Queryable,
-  ownerId: number,
-): Promise<[number, number][]> {
-  const rows = await db
-    .select({ a: generatorAvoid.garmentAId, b: generatorAvoid.garmentBId })
-    .from(generatorAvoid)
-    .where(eq(generatorAvoid.ownerId, ownerId));
-  return rows.map(({ a, b }) => [a, b]);
 }
 
 export type AvoidOutcome = 'added' | 'already' | 'not-found';
@@ -476,27 +568,39 @@ export interface AvoidedPartner {
   category: string;
 }
 
-/** The garments the owner said clash with `garmentId`, by name. */
-export async function avoidedWith(
-  db: Db,
+/**
+ * The garments the owner said clash with `garmentId`, by name, as a scalar
+ * subquery (a JSON array, empty for none): the garment page reads it with
+ * its other lists in one statement (garmentContext,
+ * src/web/wardrobe/garment-context.ts).
+ */
+export function avoidedWithSql(
   ownerId: number,
   garmentId: number,
-): Promise<AvoidedPartner[]> {
+): SQL<AvoidedPartner[]> {
   const partner = sql`case when ${generatorAvoid.garmentAId} = ${garmentId} then ${generatorAvoid.garmentBId} else ${generatorAvoid.garmentAId} end`;
-  return db
-    .select({ id: garment.id, name: garment.name, category: garment.category })
-    .from(generatorAvoid)
-    .innerJoin(garment, eq(garment.id, partner))
-    .where(
-      and(
-        eq(generatorAvoid.ownerId, ownerId),
-        or(
-          eq(generatorAvoid.garmentAId, garmentId),
-          eq(generatorAvoid.garmentBId, garmentId),
-        ),
+  return sql<AvoidedPartner[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'id', ${garment.id},
+          'name', ${garment.name},
+          'category', ${garment.category}
+        )
+        order by ${garment.name}, ${garment.id}
       ),
+      '[]'
     )
-    .orderBy(garment.name, garment.id);
+    from ${generatorAvoid}
+    join ${garment} on ${eq(garment.id, partner)}
+    where ${and(
+      eq(generatorAvoid.ownerId, ownerId),
+      or(
+        eq(generatorAvoid.garmentAId, garmentId),
+        eq(generatorAvoid.garmentBId, garmentId),
+      ),
+    )}
+  )`;
 }
 
 /**

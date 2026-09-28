@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ne, or, type SQL, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import type { Db } from '../../db/client';
+import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
+import { selectScalars } from '../../db/select-scalars';
 import type { Condition } from '../../wardrobe/properties';
 import type { GarmentStatus } from '../../wardrobe/status';
 import type { ImageRef } from '../files/image-url';
@@ -78,41 +79,73 @@ export function countWishlist(db: Db, ownerId: number): Promise<number> {
   return db.$count(garment, and(eq(garment.ownerId, ownerId), onWishlist()));
 }
 
-/** The garment `id` of `ownerId`'s wardrobe as a link shows it, or undefined. */
+/**
+ * The garment `id` of `ownerId`'s wardrobe as a link shows it (null when
+ * it is not there), as a scalar subquery: the garment page reads what it
+ * replaces with its other lists in one statement (garmentContext,
+ * src/web/wardrobe/garment-context.ts).
+ */
+export function garmentRefSql(
+  id: number,
+  ownerId: number,
+): SQL<GarmentRef | null> {
+  return sql<GarmentRef | null>`(
+    select json_build_object(
+      'id', ${garment.id},
+      'name', ${garment.name},
+      'category', ${garment.category},
+      'status', ${garment.status}
+    )
+    from ${garment}
+    where ${and(eq(garment.id, id), eq(garment.ownerId, ownerId))}
+  )`;
+}
+
+/** garmentRefSql alone, or undefined: the wishlist's and the shopping list's forms. */
 export async function garmentRef(
-  db: Db,
+  db: Queryable,
   id: number,
   ownerId: number,
 ): Promise<GarmentRef | undefined> {
-  const [row] = await db
-    .select({
-      id: garment.id,
-      name: garment.name,
-      category: garment.category,
-      status: garment.status,
-    })
-    .from(garment)
-    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)));
-  return row;
+  const { ref } = await selectScalars(db, { ref: garmentRefSql(id, ownerId) });
+  return ref ?? undefined;
 }
 
-/** The wishlist items that would replace garment `id` (its page's "On the wishlist"). */
-export function replacementsOf(
-  db: Db,
+/** A wishlist item that would replace a closet garment. */
+export interface Replacement {
+  id: number;
+  name: string | null;
+  category: string;
+}
+
+/**
+ * The wishlist items that would replace garment `id` (its page's "On the
+ * wishlist"), newest first, as a scalar subquery (a JSON array, empty for
+ * none) for garmentContext.
+ */
+export function replacementsOfSql(
   id: number,
   ownerId: number,
-): Promise<{ id: number; name: string | null; category: string }[]> {
-  return db
-    .select({ id: garment.id, name: garment.name, category: garment.category })
-    .from(garment)
-    .where(
-      and(
-        eq(garment.ownerId, ownerId),
-        eq(garment.replacesGarmentId, id),
-        onWishlist(),
+): SQL<Replacement[]> {
+  return sql<Replacement[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'id', ${garment.id},
+          'name', ${garment.name},
+          'category', ${garment.category}
+        )
+        order by ${garment.id} desc
       ),
+      '[]'
     )
-    .orderBy(desc(garment.id));
+    from ${garment}
+    where ${and(
+      eq(garment.ownerId, ownerId),
+      eq(garment.replacesGarmentId, id),
+      onWishlist(),
+    )}
+  )`;
 }
 
 /** A choice in a wishlist form's "Replaces". */

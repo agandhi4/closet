@@ -68,11 +68,11 @@ reason to tag it, not a reason to guess its kind.
 (`nearDuplicates`) is not covered: a rule names what it names, and silently widening it would surprise
 the owner. The kind rule is the tool for "all of these".
 
-**One reader, one type.** `pairingRules(db, ownerId)` replaces `avoidedPairs` at every call site:
+**One reader, one type.** `pairingRules(db, ownerId)` replaces the avoided pairs (`avoidedPairsSql`) at every call site:
 `ideasFor`, `goesWithCloset` and `outfitCount`, and `readWeek` (the planner and the re-plan). It returns
 `PairingRules { never, neverTypes, always }`, which replaces `IdeaRequest.avoid` and `WeekContext.avoid`.
 So no caller can forget a rule kind. `IdeaGarment` gains `type`, which `ideaPool`, `weekPool`,
-`closetGarments` and `wishlistGarments` select.
+`closetGarmentsSql` and `goesWithInputsSql` select.
 
 **Conflicts without a UI.** The same garment pair cannot be both "never" and "always". Setting one
 removes the other in the same transaction, so the newest rule wins, and the log says so. Every other

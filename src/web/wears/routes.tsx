@@ -24,7 +24,7 @@ import {
   markWashed,
   setAway,
   setWoreToday,
-  wearSummary,
+  wearStatusOf,
 } from './queries';
 import { WearStatus } from './wear-section';
 
@@ -71,15 +71,11 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 ) => {
   const today = () => todayIn(config.timeZone, new Date());
 
-  /**
-   * The owner's garment `id`, or the refusal (see above). A wishlist item
-   * is visible but not owned yet: nothing to wear, wash or lend (409).
-   */
-  async function ownGarment(
+  /** The requester's own wardrobe, or the refusal (see above). */
+  async function ownWardrobe(
     request: FastifyRequest,
-    id: number,
     ownerId: number | '' | undefined,
-  ) {
+  ): Promise<number> {
     const { access } = await authorizeWardrobe(
       db,
       sessionUserId(request),
@@ -87,12 +83,26 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       'own',
       GARMENT_NOT_FOUND,
     );
-    const garment = await findGarment(db, id, access.ownerId);
-    if (!garment) throw new HttpError(404, GARMENT_NOT_FOUND);
-    if (garment.status === 'wishlist') {
-      throw new HttpError(409, NOT_OWNED_YET);
-    }
-    return garment;
+    return access.ownerId;
+  }
+
+  /**
+   * Why a write found nothing to change: garment `id` is not the owner's
+   * (404), or is a wishlist item, visible but not owned yet: nothing to
+   * wear, wash or lend (409). Each writer refuses both itself, so the
+   * garment is read only on this path: a write that lands looks nothing up
+   * first (#160).
+   */
+  function refusal(outcome: 'not-found' | 'wishlist'): HttpError {
+    return outcome === 'wishlist'
+      ? new HttpError(409, NOT_OWNED_YET)
+      : new HttpError(404, GARMENT_NOT_FOUND);
+  }
+
+  /** refusal for a writer that answers only whether it wrote (markWashed, setAway). */
+  async function refusalOf(id: number, ownerId: number): Promise<HttpError> {
+    const garment = await findGarment(db, id, ownerId);
+    return refusal(garment?.status === 'wishlist' ? 'wishlist' : 'not-found');
   }
 
   /** The wear status again to htmx; the garment page to a plain post. */
@@ -100,19 +110,20 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     request: FastifyRequest,
     reply: FastifyReply,
     id: number,
+    ownerId: number,
   ): Promise<FastifyReply> {
     if (!request.headers['hx-request']) {
       return reply.redirect(garmentUrl(id, undefined), 303);
     }
     const day = today();
-    const [garment, summary] = await Promise.all([
-      findGarment(db, id, sessionUserId(request)),
-      wearSummary(db, id, day),
-    ]);
-    if (!garment) throw new HttpError(404, GARMENT_NOT_FOUND);
+    const status = await wearStatusOf(db, id, ownerId, day);
+    if (!status) throw new HttpError(404, GARMENT_NOT_FOUND);
     return renderFragment(
       reply,
-      <WearStatus garment={garment} panel={{ summary, today: day }} />,
+      <WearStatus
+        garment={status.garment}
+        panel={{ summary: status.summary, today: day }}
+      />,
     );
   }
 
@@ -128,19 +139,20 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const { id } = request.params;
-      const garment = await ownGarment(request, id, request.query.ownerId);
+      const ownerId = await ownWardrobe(request, request.query.ownerId);
       const worn = request.body.worn === '1';
       const day = today();
-      await setWoreToday(db, {
-        garmentId: garment.id,
-        ownerId: sessionUserId(request),
+      const outcome = await setWoreToday(db, {
+        garmentId: id,
+        ownerId,
         day,
         worn,
       });
+      if (outcome !== 'saved') throw refusal(outcome);
       logger.info(
-        `Garment ${id} ${worn ? 'worn' : 'wear undone'} on ${day} by user ${sessionUserId(request)}`,
+        `Garment ${id} ${worn ? 'worn' : 'wear undone'} on ${day} by user ${ownerId}`,
       );
-      return answer(request, reply, id);
+      return answer(request, reply, id, ownerId);
     },
   );
 
@@ -149,13 +161,12 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
       const { id } = request.params;
-      await ownGarment(request, id, request.query.ownerId);
+      const ownerId = await ownWardrobe(request, request.query.ownerId);
       const day = today();
-      await markWashed(db, sessionUserId(request), [id], day);
-      logger.info(
-        `Garment ${id} washed on ${day} by user ${sessionUserId(request)}`,
-      );
-      return answer(request, reply, id);
+      const washed = await markWashed(db, ownerId, [id], day);
+      if (washed.length === 0) throw await refusalOf(id, ownerId);
+      logger.info(`Garment ${id} washed on ${day} by user ${ownerId}`);
+      return answer(request, reply, id, ownerId);
     },
   );
 
@@ -170,16 +181,17 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const { id } = request.params;
-      await ownGarment(request, id, request.query.ownerId);
+      const ownerId = await ownWardrobe(request, request.query.ownerId);
       const { away, awayNote } = request.body;
-      await setAway(
+      const saved = await setAway(
         db,
-        sessionUserId(request),
+        ownerId,
         id,
         away === '' ? null : { reason: away, note: awayNote?.trim() || null },
       );
+      if (!saved) throw await refusalOf(id, ownerId);
       logger.info(
-        `Garment ${id} ${away === '' ? 'back in the closet' : `away (${away})`} for user ${sessionUserId(request)}`,
+        `Garment ${id} ${away === '' ? 'back in the closet' : `away (${away})`} for user ${ownerId}`,
       );
       // "Where it is" is an AutosaveForm: its status line, never the form.
       if (!request.headers['hx-request']) {

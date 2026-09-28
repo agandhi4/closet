@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, lte, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { isUniqueViolation } from '../../db/errors';
+import { selectScalars } from '../../db/select-scalars';
 import {
   capsule,
   CAPSULE_NAME_UNIQUE,
@@ -214,28 +215,47 @@ export interface GarmentCapsule extends CapsuleRef {
   member: boolean;
 }
 
-/** The garment page's capsules row: every capsule of the wardrobe, by name, and whether the garment is in it. */
-export function capsulesOfGarment(
-  db: Db,
+/**
+ * The garment page's capsules row: every capsule of the wardrobe, by name,
+ * and whether the garment is in it. A scalar subquery (a JSON array, empty
+ * for none), so the page reads it in one statement with its other lists
+ * (garmentContext, src/web/wardrobe/garment-context.ts).
+ */
+export function capsulesOfGarmentSql(
+  ownerId: number,
+  garmentId: number,
+): SQL<GarmentCapsule[]> {
+  return sql<GarmentCapsule[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'id', ${capsule.id},
+          'name', ${capsule.name},
+          'member', ${capsuleGarment.garmentId} is not null
+        )
+        order by ${sql.join(byName, sql`, `)}
+      ),
+      '[]'
+    )
+    from ${capsule}
+    left join ${capsuleGarment} on ${and(
+      eq(capsuleGarment.capsuleId, capsule.id),
+      eq(capsuleGarment.garmentId, garmentId),
+    )}
+    where ${eq(capsule.ownerId, ownerId)}
+  )`;
+}
+
+/** capsulesOfGarmentSql alone: get_garment's (src/web/mcp/tools/garments.ts). */
+export async function capsulesOfGarment(
+  db: Queryable,
   ownerId: number,
   garmentId: number,
 ): Promise<GarmentCapsule[]> {
-  return db
-    .select({
-      id: capsule.id,
-      name: capsule.name,
-      member: sql<boolean>`${capsuleGarment.garmentId} is not null`,
-    })
-    .from(capsule)
-    .leftJoin(
-      capsuleGarment,
-      and(
-        eq(capsuleGarment.capsuleId, capsule.id),
-        eq(capsuleGarment.garmentId, garmentId),
-      ),
-    )
-    .where(eq(capsule.ownerId, ownerId))
-    .orderBy(...byName);
+  const { capsules } = await selectScalars(db, {
+    capsules: capsulesOfGarmentSql(ownerId, garmentId),
+  });
+  return capsules;
 }
 
 /**

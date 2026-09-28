@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import {
   file,
   garment,
@@ -15,8 +16,9 @@ import {
 import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../calendar/calendar-date';
 import type { ImageRef } from '../files/image-url';
+import type { GarmentDetail } from '../wardrobe/queries';
 import { repairCostSql } from '../wardrobe/repairs';
-import { inCloset, ownedGarment } from '../wardrobe/status';
+import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
 
 /**
  * Wears, washes and away: the owner's own records about their garments
@@ -96,31 +98,94 @@ export interface WearSummary {
 }
 
 /**
- * The garment's wear counts and what its repairs cost. The owner's own
- * records: the caller is the owner (ownerRecords, the wear routes,
- * get_garment's own-wardrobe branch), and has found the garment in their
- * wardrobe, so its row (grouped with none or more wears) is there.
+ * The garment's wear counts and what its repairs cost, as a scalar
+ * subquery (a JSON object), so a page reads it with the rest in one
+ * statement: the garment page (garmentContext,
+ * src/web/wardrobe/garment-context.ts) and the wear routes' answer
+ * (wearStatusOf). The owner's own records: the caller is the owner and has
+ * found the garment in their wardrobe, so its row (grouped with none or
+ * more wears) is there. A column of selectScalars, never of a Drizzle
+ * select from one table (see wearStatusOf).
  */
+export function wearSummarySql(
+  garmentId: number,
+  today: IsoDate,
+): SQL<WearSummary> {
+  const worn = (entry: SQL) =>
+    sql`bool_or(${garmentWear.day} = ${today} and ${garmentWear.outfitCalendarId} ${entry})`;
+  return sql<WearSummary>`(
+    select json_build_object(
+      'worn', count(distinct ${garmentWear.day})::int,
+      'sinceWash', (count(distinct ${garmentWear.day}) filter (where ${garment.lastWashedOn} is null or ${garmentWear.day} > ${garment.lastWashedOn}))::int,
+      'lastWorn', max(${garmentWear.day})::text,
+      'today', case
+        when ${worn(sql`is null`)} then 'single'
+        when ${worn(sql`is not null`)} then 'entry'
+      end,
+      'repairCost', ${repairCostSql(garment.id, today)}
+    )
+    from ${garment}
+    left join ${garmentWear} on ${eq(garmentWear.garmentId, garment.id)}
+    where ${eq(garment.id, garmentId)}
+    group by ${garment.id}
+  )`;
+}
+
+/** wearSummarySql alone: get_garment's own-wardrobe branch (src/web/mcp/tools/garments.ts). */
 export async function wearSummary(
-  db: Db,
+  db: Queryable,
   garmentId: number,
   today: IsoDate,
 ): Promise<WearSummary> {
-  const [row] = await db
-    .select({
-      worn: sql<number>`count(distinct ${garmentWear.day})::int`,
-      sinceWash: sql<number>`(count(distinct ${garmentWear.day}) filter (where ${garment.lastWashedOn} is null or ${garmentWear.day} > ${garment.lastWashedOn}))::int`,
-      lastWorn: sql<IsoDate | null>`max(${garmentWear.day})::text`,
-      single: sql<boolean>`coalesce(bool_or(${garmentWear.day} = ${today} and ${garmentWear.outfitCalendarId} is null), false)`,
-      entry: sql<boolean>`coalesce(bool_or(${garmentWear.day} = ${today} and ${garmentWear.outfitCalendarId} is not null), false)`,
-      repairCost: repairCostSql(garment.id, today),
-    })
-    .from(garment)
-    .leftJoin(garmentWear, eq(garmentWear.garmentId, garment.id))
-    .where(eq(garment.id, garmentId))
-    .groupBy(garment.id);
-  const { single, entry, ...counts } = row;
-  return { ...counts, today: single ? 'single' : entry ? 'entry' : null };
+  const { summary } = await selectScalars(db, {
+    summary: wearSummarySql(garmentId, today),
+  });
+  return summary;
+}
+
+/** A garment as the wear line reads it (WearStatus, wear-section.tsx). */
+export type WearGarment = Pick<
+  GarmentDetail,
+  | 'id'
+  | 'status'
+  | 'category'
+  | 'quantity'
+  | 'price'
+  | 'washAfterWears'
+  | 'lastWashedOn'
+>;
+
+/**
+ * What Wore today and Washed answer (WearStatus, wear-section.tsx): the
+ * owner's garment as the wear line reads it, and its wear summary, in one
+ * statement. Undefined when it is not the owner's. Through selectScalars,
+ * not a select from garment with the summary as a column: Drizzle writes a
+ * single-table select's columns unqualified, the subquery's included, and
+ * its `garment` and `garment_wear` then both answer to "id".
+ */
+export async function wearStatusOf(
+  db: Queryable,
+  garmentId: number,
+  ownerId: number,
+  today: IsoDate,
+): Promise<{ garment: WearGarment; summary: WearSummary } | undefined> {
+  const { shown, summary } = await selectScalars(db, {
+    shown: sql<WearGarment | null>`(
+      select json_build_object(
+        'id', ${garment.id},
+        'status', ${garment.status},
+        'category', ${garment.category},
+        'quantity', ${garment.quantity},
+        'price', ${garment.price}::text,
+        'washAfterWears', ${garment.washAfterWears},
+        'lastWashedOn', ${garment.lastWashedOn}
+      )
+      from ${garment}
+      where ${and(eq(garment.id, garmentId), eq(garment.ownerId, ownerId))}
+    )`,
+    summary: wearSummarySql(garmentId, today),
+  });
+  return shown ? { garment: shown, summary } : undefined;
 }
 
 /** A garment on the laundry page. */
@@ -364,41 +429,37 @@ export async function detachOutfitWears(
  * at most one a day (garment_wear_garment_id_day_single_unique), or its
  * undo, which removes only that row (a worn calendar entry's stay).
  * 'not-found' when the garment is not the owner's, 'wishlist' when it is a
- * wishlist item (not owned yet, so not worn).
+ * wishlist item (not owned yet, so not worn), and nothing written for
+ * either. One statement: the lookup is a CTE the write reads, so the
+ * garment page's tap costs one round trip, not two (#160).
  */
 export async function setWoreToday(
-  db: Db,
+  db: Queryable,
   input: { garmentId: number; ownerId: number; day: IsoDate; worn: boolean },
 ): Promise<'saved' | 'not-found' | 'wishlist'> {
-  const [owned] = await db
-    .select({ status: garment.status })
-    .from(garment)
-    .where(
-      and(eq(garment.id, input.garmentId), eq(garment.ownerId, input.ownerId)),
-    );
-  if (!owned) return 'not-found';
-  if (owned.status === 'wishlist') return 'wishlist';
-  if (input.worn) {
-    await db
-      .insert(garmentWear)
-      .values({
-        garmentId: input.garmentId,
-        ownerId: input.ownerId,
-        day: input.day,
-      })
-      .onConflictDoNothing();
-  } else {
-    await db
-      .delete(garmentWear)
-      .where(
-        and(
+  const write = input.worn
+    ? sql`insert into ${garmentWear} (garment_id, owner_id, day)
+        select id, owner_id, ${input.day}::date from owned where not wishlist
+        on conflict do nothing`
+    : sql`delete from ${garmentWear}
+        where ${and(
           eq(garmentWear.garmentId, input.garmentId),
           eq(garmentWear.day, input.day),
           isNull(garmentWear.outfitCalendarId),
-        ),
-      );
-  }
-  return 'saved';
+        )}
+        and exists (select 1 from owned where not wishlist)`;
+  const { rows } = await db.execute<{ wishlist: boolean }>(sql`
+    with owned as (
+      select ${garment.id} as id, ${garment.ownerId} as owner_id,
+        ${onWishlist()} as wishlist
+      from ${garment}
+      where ${and(eq(garment.id, input.garmentId), eq(garment.ownerId, input.ownerId))}
+    ),
+    written as (${write})
+    select wishlist from owned`);
+  const [owned] = rows;
+  if (!owned) return 'not-found';
+  return owned.wishlist ? 'wishlist' : 'saved';
 }
 
 /**

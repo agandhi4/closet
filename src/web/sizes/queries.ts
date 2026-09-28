@@ -1,6 +1,7 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import { isUniqueViolation } from '../../db/errors';
+import { selectScalars } from '../../db/select-scalars';
 import {
   BRAND_SIZE_UNIQUE,
   bodyMeasurements,
@@ -130,19 +131,41 @@ export function brandSizesOf(
     .orderBy(asc(brandSize.brandKey));
 }
 
-/** One brand's note, however the brand is spelled; undefined for none or a blank brand. */
+/**
+ * One brand's note, however the brand is spelled (null for none), as a
+ * scalar subquery: a wishlist item's page reads it with its other lists in
+ * one statement (garmentContext, src/web/wardrobe/garment-context.ts).
+ * Undefined for a blank brand, which has no note to read: selectScalars
+ * leaves such a column out.
+ */
+export function brandSizeSql(
+  userId: number,
+  brand: string,
+): SQL<BrandSize | null> | undefined {
+  const key = brandKey(brand);
+  if (!key) return undefined;
+  return sql<BrandSize | null>`(
+    select json_build_object(
+      'id', ${brandSize.id},
+      'brand', ${brandSize.brand},
+      'size', ${brandSize.size},
+      'note', ${brandSize.note}
+    )
+    from ${brandSize}
+    where ${and(eq(brandSize.userId, userId), eq(brandSize.brandKey, key))}
+  )`;
+}
+
+/** brandSizeSql alone; undefined for none or a blank brand. */
 export async function brandSizeFor(
   db: Queryable,
   userId: number,
   brand: string,
 ): Promise<BrandSize | undefined> {
-  const key = brandKey(brand);
-  if (!key) return undefined;
-  const [row] = await db
-    .select(BRAND_SIZE)
-    .from(brandSize)
-    .where(and(eq(brandSize.userId, userId), eq(brandSize.brandKey, key)));
-  return row;
+  const { note } = await selectScalars(db, {
+    note: brandSizeSql(userId, brand),
+  });
+  return note ?? undefined;
 }
 
 /**

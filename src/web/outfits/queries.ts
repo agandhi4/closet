@@ -4,7 +4,6 @@ import {
   desc,
   eq,
   gte,
-  inArray,
   isNotNull,
   or,
   type SQL,
@@ -97,13 +96,11 @@ export interface SaveResult {
 async function outfitsWithGarments(
   db: Db,
   where: SQL | undefined,
-  limit?: number,
 ): Promise<(OutfitSummary & { shareableId: string })[]> {
   const rows = await db.query.outfit.findMany({
     columns: { id: true, name: true, notes: true, shareableId: true },
     where,
     orderBy: desc(outfit.id),
-    limit,
     with: {
       slots: {
         columns: {},
@@ -129,38 +126,67 @@ export function listOutfits(db: Db, ownerId: number): Promise<OutfitSummary[]> {
   return outfitsWithGarments(db, eq(outfit.ownerId, ownerId));
 }
 
+/** An outfit in the garment page's strip: what a thumb collage shows. */
+export type GarmentOutfit = Pick<OutfitSummary, 'id' | 'name' | 'garments'>;
+
 /** The garment page's "In N outfits" (#84): how many, and the newest few. */
 export interface GarmentOutfits {
   count: number;
-  outfits: OutfitSummary[];
+  outfits: GarmentOutfit[];
 }
 
 /**
  * The owner's outfits that hold `garmentId` (any slot), counted, and the
- * newest `limit` of them with their garments. Two statements, run together:
- * the count, and one db.query for the shown outfits.
+ * newest `limit` of them with their chosen garments in slot order, as one
+ * scalar subquery: the garment page reads it with its other lists in one
+ * statement (garmentContext, src/web/wardrobe/garment-context.ts). Only
+ * what the strip shows (outfitsWithGarments' notes and shareable id feed
+ * nothing there). `outfit_slot_garment_id_index` finds the outfits.
  */
-export async function outfitsWithGarment(
-  db: Db,
+export function outfitsWithGarmentSql(
   ownerId: number,
   garmentId: number,
   limit: number,
-): Promise<GarmentOutfits> {
-  const where = and(
+): SQL<GarmentOutfits> {
+  const holds = and(
     eq(outfit.ownerId, ownerId),
-    inArray(
-      outfit.id,
-      db
-        .select({ id: outfitSlot.outfitId })
-        .from(outfitSlot)
-        .where(eq(outfitSlot.garmentId, garmentId)),
-    ),
+    sql`${outfit.id} in (select ${outfitSlot.outfitId} from ${outfitSlot} where ${eq(outfitSlot.garmentId, garmentId)})`,
   );
-  const [count, outfits] = await Promise.all([
-    db.$count(outfit, where),
-    outfitsWithGarments(db, where, limit),
-  ]);
-  return { count, outfits };
+  // An empty slot shows nothing, as in outfitsWithGarments.
+  const garments = sql`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'id', ${garment.id},
+          'name', ${garment.name},
+          'category', ${garment.category},
+          'photo', case when ${file.id} is null then null else json_build_object(
+            'fileName', ${file.fileName}, 'version', ${file.version}
+          ) end
+        )
+        order by ${outfitSlot.position}
+      ),
+      '[]'
+    )
+    from ${outfitSlot}
+    join ${garment} on ${eq(garment.id, outfitSlot.garmentId)}
+    left join ${file} on ${eq(file.id, garment.photoId)}
+    where ${eq(outfitSlot.outfitId, outfit.id)}
+  )`;
+  const newest = sql`(
+    select ${outfit.id}, ${outfit.name}, ${garments} as garments
+    from ${outfit}
+    where ${holds}
+    order by ${outfit.id} desc
+    limit ${limit}
+  )`;
+  return sql<GarmentOutfits>`json_build_object(
+    'count', (select count(*)::int from ${outfit} where ${holds}),
+    'outfits', (
+      select coalesce(json_agg(shown order by shown.id desc), '[]')
+      from ${newest} shown
+    )
+  )`;
 }
 
 /** The detail page's outfit, or undefined when it is not the owner's. */

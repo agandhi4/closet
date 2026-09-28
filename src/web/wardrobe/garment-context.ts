@@ -1,0 +1,134 @@
+import { type SQL, sql } from 'drizzle-orm';
+import type { Db } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
+import type { IsoDate } from '../calendar/calendar-date';
+import { capsulesOfGarmentSql, type GarmentCapsule } from '../capsules/queries';
+import {
+  type AvoidedPartner,
+  avoidedWithSql,
+  type GoesWithInputs,
+  goesWithInputsSql,
+  readGoesWithInputs,
+} from '../gallery/queries';
+import { GARMENT_OUTFITS_SHOWN } from '../outfits/garment-outfits';
+import { type GarmentOutfits, outfitsWithGarmentSql } from '../outfits/queries';
+import { type BrandSize, brandSizeSql } from '../sizes/queries';
+import { type WearSummary, wearSummarySql } from '../wears/queries';
+import {
+  type GarmentRef,
+  garmentRefSql,
+  type Replacement,
+  replacementsOfSql,
+} from '../wishlist/queries';
+import type { GarmentDetail } from './queries';
+import { type RepairEntry, repairLogSql, type RepairLog } from './repairs';
+
+/**
+ * The owner's own records about a garment in their closet (#84, #150,
+ * #155): never read for a grantee, whose page renders none of them, nor
+ * for a wishlist item, which is not in the closet.
+ */
+export interface OwnerRecords {
+  wear: WearSummary;
+  outfits: GarmentOutfits;
+  avoided: AvoidedPartner[];
+  repairs: RepairLog;
+}
+
+/**
+ * What GET /wardrobe/:id shows beside the garment itself (garment-page.tsx).
+ * What a page shows depends on where the garment is: a wishlist item has
+ * no wears, washes or capsules (closet reads) and says what it replaces; a
+ * closet garment lists the wishlist items that would replace it.
+ * - `capsules`: the capsules row, for anything owned (anyone who sees it);
+ * - `replaces`: the garment it replaces (a wishlist item's, or a bought one's);
+ * - `replacedBy`: "On the wishlist", for a closet garment;
+ * - `own`: the owner's records (OwnerRecords), the owner's alone;
+ * - `goesWith`: "Goes with my closet"'s inputs for a wishlist item (#18b),
+ *   the owner's alone: it reads their closet and clashes;
+ * - `brandSize`: the owner's size in a wishlist item's brand (#24), their
+ *   body, so never read for a grantee.
+ */
+export interface GarmentContext {
+  capsules: GarmentCapsule[];
+  replaces: GarmentRef | undefined;
+  replacedBy: Replacement[];
+  own: OwnerRecords | undefined;
+  goesWith: GoesWithInputs | undefined;
+  brandSize: BrandSize | undefined;
+}
+
+/**
+ * The garment page's reads after the garment itself, in one statement
+ * (selectScalars): they share no rows, and each was its own round trip
+ * until #160. Which parts are read is decided here, from the garment and
+ * the access, and nowhere else: a part the page does not show for this
+ * garment or requester is never read, so **owner-only data (wears, washes,
+ * outfits, cost, avoided pairs, the repair log, the closet and the brand
+ * notes behind "Goes with my closet") is read only when `isOwner`**. A new
+ * owner-only read joins `own`, never a view. Nothing is sent when no part
+ * applies (a grantee's wishlist item that replaces nothing).
+ */
+export async function garmentContext(
+  db: Db,
+  garment: GarmentDetail,
+  access: { isOwner: boolean; ownerId: number },
+  today: IsoDate,
+): Promise<GarmentContext> {
+  const row = await selectScalars(db, contextColumns(garment, access, today));
+  const own = row.own && {
+    ...row.own,
+    // "Spent on it" is the wear line's repair sum, one figure for both.
+    repairs: { entries: row.own.repairs, total: row.own.wear.repairCost },
+  };
+  return {
+    capsules: row.capsules ?? [],
+    replaces: row.replaces ?? undefined,
+    replacedBy: row.replacedBy ?? [],
+    own,
+    goesWith: row.goesWith && readGoesWithInputs(row.goesWith),
+    brandSize: row.brandSize ?? undefined,
+  };
+}
+
+/** Each part's column, or undefined where the page shows none (see above). */
+function contextColumns(
+  { id, status, replacesGarmentId, brand }: GarmentDetail,
+  { isOwner, ownerId }: { isOwner: boolean; ownerId: number },
+  today: IsoDate,
+) {
+  const owned = status !== 'wishlist';
+  const when = <T>(read: boolean, column: () => T) =>
+    read ? column() : undefined;
+  return {
+    capsules: when(owned, () => capsulesOfGarmentSql(ownerId, id)),
+    replaces:
+      replacesGarmentId === null
+        ? undefined
+        : garmentRefSql(replacesGarmentId, ownerId),
+    replacedBy: when(status === 'closet', () => replacementsOfSql(id, ownerId)),
+    own: when(owned && isOwner, () => ownerRecordsSql(ownerId, id, today)),
+    goesWith: when(!owned && isOwner, () => goesWithInputsSql(ownerId, id)),
+    brandSize:
+      !owned && isOwner && brand ? brandSizeSql(ownerId, brand) : undefined,
+  };
+}
+
+/** OwnerRecords as ownerRecordsSql reads them: the log's entries, without their total. */
+type OwnerRecordsJson = Omit<OwnerRecords, 'repairs'> & {
+  repairs: RepairEntry[];
+};
+
+/** OwnerRecords as one JSON value, a column of garmentContext's statement. */
+function ownerRecordsSql(
+  ownerId: number,
+  id: number,
+  today: IsoDate,
+): SQL<OwnerRecordsJson> {
+  return sql<OwnerRecordsJson>`json_build_object(
+    'wear', ${wearSummarySql(id, today)},
+    'outfits', ${outfitsWithGarmentSql(ownerId, id, GARMENT_OUTFITS_SHOWN)},
+    'avoided', ${avoidedWithSql(ownerId, id)},
+    'repairs', ${repairLogSql(id)}
+  )`;
+}

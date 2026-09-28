@@ -1,8 +1,9 @@
 import { type Static, Type } from '@sinclair/typebox';
-import { and, desc, eq, inArray, ne, type SQL, sql } from 'drizzle-orm';
+import { and, eq, inArray, ne, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import { garment, garmentRepair } from '../../db/schema';
+import { selectScalars } from '../../db/select-scalars';
 import { REPAIR_KINDS, type RepairKind } from '../../wardrobe/care';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { ownerTransaction } from '../auth/queries';
@@ -16,7 +17,7 @@ import { CARE_NOTE_MAX, PRICE_INPUT_MAX, readPrice } from './validation';
  * A garment's repair and alteration log (#23; docs/plans/2026-09-26-
  * wardrobe-features.md, section 17): its form, reads and the two writes.
  * The owner's own record, like wears: the routes (repair-routes.tsx) refuse
- * anyone else, the garment page reads it through ownerRecords, and every
+ * anyone else, the garment page reads it through garmentContext, and every
  * write holds the owner lock (ownerTransaction).
  */
 
@@ -155,20 +156,41 @@ function readRepairDay(
 
 /**
  * A garment's log, newest day first (the latest logged first within a
- * day). The caller has established that the requester owns the garment.
+ * day), as a scalar subquery (a JSON array, empty for none): the garment
+ * page reads it with its other lists in one statement (garmentContext,
+ * src/web/wardrobe/garment-context.ts). The caller has established that
+ * the requester owns the garment. The cost is cast to text: in JSON a
+ * numeric is a number, and '25.00' would arrive as 25.
  */
-export function repairLog(db: Db, garmentId: number): Promise<RepairEntry[]> {
-  return db
-    .select({
-      id: garmentRepair.id,
-      day: garmentRepair.day,
-      kind: garmentRepair.kind,
-      note: garmentRepair.note,
-      cost: garmentRepair.cost,
-    })
-    .from(garmentRepair)
-    .where(eq(garmentRepair.garmentId, garmentId))
-    .orderBy(desc(garmentRepair.day), desc(garmentRepair.id));
+export function repairLogSql(garmentId: number): SQL<RepairEntry[]> {
+  return sql<RepairEntry[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'id', ${garmentRepair.id},
+          'day', ${garmentRepair.day},
+          'kind', ${garmentRepair.kind},
+          'note', ${garmentRepair.note},
+          'cost', ${garmentRepair.cost}::text
+        )
+        order by ${garmentRepair.day} desc, ${garmentRepair.id} desc
+      ),
+      '[]'
+    )
+    from ${garmentRepair}
+    where ${eq(garmentRepair.garmentId, garmentId)}
+  )`;
+}
+
+/** repairLogSql alone: the edit page's panel (repairPanel) and get_garment. */
+export async function repairLog(
+  db: Queryable,
+  garmentId: number,
+): Promise<RepairEntry[]> {
+  const { entries } = await selectScalars(db, {
+    entries: repairLogSql(garmentId),
+  });
+  return entries;
 }
 
 /**
