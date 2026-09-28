@@ -342,9 +342,17 @@ describe('year in review', () => {
     }
   });
 
-  it('reads the owner row, then insights’ two statements', async () => {
-    const record = await recordQueries(() => page());
-    expect(record.statements).toBe(3);
+  // #169: the same three for a past year, an empty one, and a grantee's
+  // ?ownerId= (owner-only, so no share is looked up).
+  it('reads the owner row, then insights’ two statements, whatever the year or ?ownerId=', async () => {
+    for (const query of ['', '?year=2025', '?year=2023', '?year=2019']) {
+      const record = await recordQueries(() => page(query));
+      expect(record.statements, query).toBe(3);
+    }
+    const grantee = await recordQueries(() =>
+      page(`?ownerId=${ownerId}`, viewerCookie),
+    );
+    expect(grantee.statements).toBe(3);
   });
 
   // As insights' "is the signed-in user's own: ?ownerId= is ignored": the

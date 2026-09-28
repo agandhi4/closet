@@ -107,6 +107,11 @@ export function insightGarments(
  * whichever outfits held them (the shoes of the office outfit and the
  * dinner jacket that evening are worn together). Bounded by the window:
  * the self-join is over at most a year's (garment, day) pairs of one owner.
+ *
+ * `garment.owner_id` repeats `garment_wear.owner_id` (a wear's owner is
+ * always its garment's: setEntryWorn joins on it) so the garments come
+ * from the owner's index, not a scan of every account's closet (#169:
+ * about a millisecond at ten accounts of 300 garments; the plan is on #175).
  */
 export async function wornPairs(
   db: Db,
@@ -119,6 +124,7 @@ export async function wornPairs(
       from ${garmentWear}
       join ${garment} on ${garment.id} = ${garmentWear.garmentId}
       where ${garmentWear.ownerId} = ${ownerId}
+        and ${garment.ownerId} = ${ownerId}
         and ${inScope(window.scope)}
         and ${gte(garmentWear.day, window.from)}
         and ${lte(garmentWear.day, window.to)}
@@ -133,7 +139,11 @@ export async function wornPairs(
   return result.rows;
 }
 
-/** Both statements over `window`, at once: insights' and a recap's rows. */
+/**
+ * Both statements over `window`, at once: insights' and a recap's rows.
+ * Concurrent, so one round trip after the session's; they share no rows,
+ * so they could be one statement (#169).
+ */
 export async function readInsightRows(
   db: Db,
   ownerId: number,

@@ -447,14 +447,23 @@ describe('insights', () => {
     expect(record.statements).toBe(3);
     // The user, a row per closet garment, the three pairs.
     expect(record.rows).toBe(1 + 8 + 3);
+    // Another unworn window is computed from the same rows (#169).
+    const unworn = await recordQueries(() => page('?unworn=30'));
+    expect(unworn.statements).toBe(3);
+    expect(unworn.rows).toBe(1 + 8 + 3);
   });
 
   it('is the signed-in user’s own: ?ownerId= is ignored', async () => {
-    const other = await t.inject({
-      method: 'GET',
-      url: `/wardrobe/insights?ownerId=${ownerId}`,
-      headers: { cookie: await t.login('stranger@example.com') },
-    });
+    const cookie = await t.login('stranger@example.com');
+    // No share is looked up: the same three statements as one's own page.
+    const request = () =>
+      t.inject({
+        method: 'GET',
+        url: `/wardrobe/insights?ownerId=${ownerId}`,
+        headers: { cookie },
+      });
+    expect((await recordQueries(request)).statements).toBe(3);
+    const other = await request();
     expect(other.statusCode).toBe(200);
     expect(other.body).toContain('1 garments in your closet');
     expect(other.body).not.toContain('White tee');
