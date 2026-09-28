@@ -347,17 +347,19 @@ async function writePlans(
       plan.items.map((item) => item.fields),
       { proposed: false },
     );
-    for (const [index, item] of plan.items.entries()) {
-      if (item.candidates.length === 0) continue;
-      await changeCandidates(tx, userId, {
-        add: {
-          itemIds: [itemIds[index]],
-          garmentIds: item.candidates.map(
-            (bibleId) => wishlistIds.get(bibleId)!,
-          ),
-        },
-      });
-    }
+    const links = plan.items.flatMap((item, index) =>
+      item.candidates.length === 0
+        ? []
+        : [
+            {
+              itemIds: [itemIds[index]],
+              garmentIds: item.candidates.map(
+                (bibleId) => wishlistIds.get(bibleId)!,
+              ),
+            },
+          ],
+    );
+    if (links.length > 0) await changeCandidates(tx, userId, { add: links });
     if (plan.active) await setActivePlan(tx, id, userId);
   }
 }

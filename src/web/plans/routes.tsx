@@ -3,12 +3,17 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { categorySuggestions } from '../wardrobe/garment';
 import { ownerTransaction } from '../auth/queries';
 import { sessionUserId } from '../auth/require-session';
+import type { HttpError } from '../errors';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderPage } from '../render';
 import { authorizeWardrobe, sharedWardrobesOf } from '../sharing/access';
 import { viewContext } from '../view-context';
-import { candidatesOfPlan, changeCandidates } from './candidates';
+import {
+  type CandidateSet,
+  candidatesOfPlan,
+  changeCandidates,
+} from './candidates';
 import { itemsFromCloset } from './derive';
 import { allPlanGaps, planGaps } from './gaps';
 import { ItemFormPage, type ItemFormModel } from './item-form-page';
@@ -320,9 +325,13 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const userId = sessionUserId(request);
       const { id } = request.params;
-      await requirePlan(request, id);
       const form = readPlanForm(request.body);
-      if (!form.ok) return refusePlanForm(reply, form, id);
+      if (!form.ok) {
+        // Another's plan is a 404 before its form comes back. A valid post
+        // needs no lookup: updatePlan answers 'not-found' itself.
+        await requirePlan(request, id);
+        return refusePlanForm(reply, form, id);
+      }
       const saved = await updatePlan(db, id, userId, form.fields);
       if (saved === 'not-found') throw planNotFound();
       if (saved === 'name-taken') {
@@ -394,6 +403,8 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             },
             plan.notes,
           );
+          // Each copy with its original's candidates, all in one change.
+          const links: CandidateSet[] = [];
           for (const proposed of [false, true]) {
             const originals = items.filter(
               (item) => item.proposed === proposed,
@@ -408,17 +419,19 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
               const garmentIds = (candidates.get(original.id) ?? []).map(
                 (candidate) => candidate.garmentId,
               );
-              if (garmentIds.length === 0) continue;
-              await changeCandidates(tx, userId, {
-                add: { itemIds: [copies[index]], garmentIds },
-              });
+              if (garmentIds.length > 0) {
+                links.push({ itemIds: [copies[index]], garmentIds });
+              }
             }
           }
-          return { id, items: items.length };
+          if (links.length > 0) {
+            await changeCandidates(tx, userId, { add: links });
+          }
+          return { id, items: items.length, linked: links.length };
         },
       );
       logger.info(
-        `Plan ${request.params.id} duplicated by user ${userId} as plan ${copy.id} (${copy.items} items)`,
+        `Plan ${request.params.id} duplicated by user ${userId} as plan ${copy.id} (${copy.items} items, ${copy.linked} with candidates)`,
       );
       return reply.redirect(`${planUrl(copy.id)}?created=1`, 303);
     },
@@ -445,20 +458,37 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { params: PlanParams, body: PlanItemBody } },
     async (request, reply) => {
       const userId = sessionUserId(request);
-      const plan = await requirePlan(request, request.params.id);
+      const planId = request.params.id;
       const form = readPlanItemForm(request.body);
-      if (!form.ok) return refuseItemForm(reply, plan, form, userId);
-      const added = await addItems(db, userId, plan.id, [form.fields], {
+      if (!form.ok) {
+        const plan = await requirePlan(request, planId);
+        return refuseItemForm(reply, plan, form, userId);
+      }
+      // addItems looks the plan up under the owner lock: no read before it.
+      const added = await addItems(db, userId, planId, [form.fields], {
         proposed: false,
       });
       if (!added) throw planNotFound();
       const [itemId] = added;
       logger.info(
-        `Plan item ${itemId} added to plan ${plan.id} by user ${userId}`,
+        `Plan item ${itemId} added to plan ${planId} by user ${userId}`,
       );
-      return reply.redirect(`${planUrl(plan.id)}?saved=1`, 303);
+      return reply.redirect(`${planUrl(planId)}?saved=1`, 303);
     },
   );
+
+  /**
+   * The 404 of an item write that matched nothing: the plan's when the plan
+   * is not the owner's, else the item's. The plan is read only then, so a
+   * write that lands reads nothing before it (its guard is ownsPlan).
+   */
+  async function itemMiss(
+    request: FastifyRequest,
+    planId: number,
+  ): Promise<HttpError> {
+    await requirePlan(request, planId);
+    return itemNotFound();
+  }
 
   async function requireItem(
     request: FastifyRequest,
@@ -531,8 +561,9 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const userId = sessionUserId(request);
       const { id, itemId } = request.params;
-      await requirePlan(request, id);
-      if (!(await acceptItem(db, itemId, id, userId))) throw itemNotFound();
+      if (!(await acceptItem(db, itemId, id, userId))) {
+        throw await itemMiss(request, id);
+      }
       logger.info(
         `Plan item ${itemId} of plan ${id} accepted by user ${userId}`,
       );
@@ -547,8 +578,9 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const userId = sessionUserId(request);
       const { id, itemId } = request.params;
-      await requirePlan(request, id);
-      if (!(await deleteItem(db, itemId, id, userId))) throw itemNotFound();
+      if (!(await deleteItem(db, itemId, id, userId))) {
+        throw await itemMiss(request, id);
+      }
       logger.info(
         `Plan item ${itemId} of plan ${id} deleted by user ${userId}`,
       );
@@ -562,19 +594,21 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     STYLE_PROFILE_PATH,
     { schema: { querystring: StyleProfileQuery } },
     async (request, reply) => {
-      const profile =
-        (await findStyleProfile(db, sessionUserId(request))) ??
-        EMPTY_STYLE_PROFILE;
+      const userId = sessionUserId(request);
+      // Three independent reads: one round trip, not three in a row.
+      const [profile, template, home] = await Promise.all([
+        findStyleProfile(db, userId),
+        findWeekTemplate(db, userId),
+        homeCity(userId),
+      ]);
       return renderPage(
         reply,
         <StyleProfilePage
           ctx={viewContext(reply)}
           model={{
-            values: styleProfilePost(profile),
-            rhythm: weeklyRhythm(
-              await findWeekTemplate(db, sessionUserId(request)),
-            ),
-            home: await homeCity(sessionUserId(request)),
+            values: styleProfilePost(profile ?? EMPTY_STYLE_PROFILE),
+            rhythm: weeklyRhythm(template),
+            home,
             saved: request.query.saved === '1',
           }}
         />,

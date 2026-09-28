@@ -1,7 +1,7 @@
 import type { Db } from '../../db/client';
 import {
-  findItem,
   findPlan,
+  findPlanItem,
   type PlanDetail,
   type PlanItemRow,
 } from './queries';
@@ -24,14 +24,15 @@ export async function requirePlan(
   return plan;
 }
 
+/** Both in one statement (findPlanItem), each miss with its own 404. */
 export async function requirePlanItem(
   db: Db,
   userId: number,
   planId: number,
   itemId: number,
 ): Promise<{ plan: PlanDetail; item: PlanItemRow }> {
-  const plan = await requirePlan(db, userId, planId);
-  const item = await findItem(db, itemId, plan.id, userId);
-  if (!item) throw itemNotFound();
-  return { plan, item };
+  const found = await findPlanItem(db, planId, itemId, userId);
+  if (!found) throw planNotFound();
+  if (!found.item) throw itemNotFound();
+  return { plan: found.plan, item: found.item };
 }

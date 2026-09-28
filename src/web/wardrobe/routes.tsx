@@ -923,11 +923,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   async function judgeWishlistItem(
     garment: GarmentDetail,
     access: { isOwner: boolean; ownerId: number },
-    today: IsoDate,
   ): Promise<GoesWithCloset | undefined> {
     if (garment.status !== 'wishlist' || !access.isOwner) return undefined;
     const started = performance.now();
-    const judged = await goesWithCloset(db, access.ownerId, garment.id, today);
+    const judged = await goesWithCloset(db, access.ownerId, garment.id);
     if (judged) {
       logger.debug(
         `Goes with my closet for user ${access.ownerId}: wishlist item ${garment.id} makes ${judged.outfits}${judged.capped ? '+' : ''} outfit(s), ${judged.nearDuplicates.length} near-duplicate(s), in ${Math.round(performance.now() - started)} ms`,
@@ -1000,7 +999,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             ? replacementsOf(db, id, access.ownerId)
             : [],
           ownerRecords(garment, access, today),
-          judgeWishlistItem(garment, access, today),
+          judgeWishlistItem(garment, access),
           // The owner's size in a wishlist item's brand (#24): their body,
           // so never read for a grantee.
           garment.status === 'wishlist' && access.isOwner && garment.brand

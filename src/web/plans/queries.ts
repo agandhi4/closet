@@ -158,25 +158,27 @@ export function itemsOf(
     .orderBy(asc(planItem.id));
 }
 
-/** Item `itemId` of the owner's plan `planId`, or undefined. */
-export async function findItem(
+/**
+ * The owner's plan `planId` with its item `itemId` (undefined when the
+ * plan has no such item), or undefined when the plan is not the owner's:
+ * the routes' lookup by path ids (require.ts), which answers each miss
+ * with its own 404. One statement, the item left-joined to the plan.
+ */
+export async function findPlanItem(
   db: Db,
-  itemId: number,
   planId: number,
+  itemId: number,
   ownerId: number,
-): Promise<PlanItemRow | undefined> {
+): Promise<{ plan: PlanDetail; item: PlanItemRow | undefined } | undefined> {
   const [row] = await db
-    .select(ITEM_COLUMNS)
-    .from(planItem)
-    .innerJoin(wardrobePlan, eq(wardrobePlan.id, planItem.planId))
-    .where(
-      and(
-        eq(planItem.id, itemId),
-        eq(planItem.planId, planId),
-        eq(wardrobePlan.ownerId, ownerId),
-      ),
-    );
-  return row;
+    .select({ plan: PLAN_COLUMNS, item: ITEM_COLUMNS })
+    .from(wardrobePlan)
+    .leftJoin(
+      planItem,
+      and(eq(planItem.planId, wardrobePlan.id), eq(planItem.id, itemId)),
+    )
+    .where(and(eq(wardrobePlan.id, planId), eq(wardrobePlan.ownerId, ownerId)));
+  return row && { plan: row.plan, item: row.item ?? undefined };
 }
 
 /**
@@ -331,19 +333,16 @@ async function insertPlan(
   fields: PlanFields,
   items: PlanItemFields[],
 ): Promise<number> {
+  // Decided in the insert itself: the subquery reads the owner's plans as
+  // they were before this row, and the owner lock keeps them so.
   const [row] = await tx
     .insert(wardrobePlan)
-    .values({ ownerId, ...fields })
+    .values({
+      ownerId,
+      ...fields,
+      active: sql`not exists (select 1 from ${wardrobePlan} where ${wardrobePlan.ownerId} = ${ownerId} and ${wardrobePlan.active})`,
+    })
     .returning({ id: wardrobePlan.id });
-  await tx
-    .update(wardrobePlan)
-    .set({ active: true })
-    .where(
-      and(
-        eq(wardrobePlan.id, row.id),
-        sql`not exists (select 1 from ${wardrobePlan} where ${wardrobePlan.ownerId} = ${ownerId} and ${wardrobePlan.active})`,
-      ),
-    );
   await insertItems(tx, row.id, items, { proposed: false });
   return row.id;
 }

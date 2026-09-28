@@ -277,12 +277,7 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const { id } = request.params;
       const started = performance.now();
-      const count = await goesWithCount(
-        db,
-        ownerId,
-        id,
-        todayIn(config.timeZone, new Date()),
-      );
+      const count = await goesWithCount(db, ownerId, id);
       if (!count) throw new HttpError(404, 'Not on your wishlist');
       logger.debug(
         `Outfit count for user ${ownerId}: wishlist item ${id} makes ${count.outfits}${count.capped ? '+' : ''} outfit(s) in ${Math.round(performance.now() - started)} ms`,

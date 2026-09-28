@@ -16,7 +16,7 @@ import {
 } from '../../wardrobe/properties';
 import { ownerTransaction } from '../auth/queries';
 import type { StoredPhoto } from '../files/image-variant';
-import { deleteGarment } from '../wardrobe/queries';
+import { deleteGarment, type GarmentDetail } from '../wardrobe/queries';
 import { buyGarment, type BuyOutcome, type Purchase } from '../wardrobe/status';
 import type { WardrobeDeps } from '../wardrobe/writes';
 import {
@@ -87,7 +87,41 @@ export interface PlanPurchase {
 /** A wishlist garment as a purchase judges it. */
 export type BoughtPiece = Omit<ClosetPiece, 'condition'>;
 
-/** Garment `id` of `ownerId`'s wardrobe as matching reads it, or undefined. */
+/** The columns a purchase is judged by: pieceOf reads them alone. */
+type PieceColumns = Pick<
+  GarmentDetail,
+  | 'id'
+  | 'category'
+  | 'type'
+  | 'colors'
+  | 'materials'
+  | 'warmth'
+  | 'formality'
+  | 'quantity'
+>;
+
+/**
+ * A garment as a purchase judges it. The Bought it page passes the garment
+ * it already read (findGarment has every column), so it never reads the
+ * row twice.
+ */
+export function boughtPiece(row: PieceColumns): BoughtPiece {
+  return {
+    id: row.id,
+    category: row.category,
+    type: row.type,
+    colors: row.colors ?? [],
+    materials: row.materials ?? [],
+    warmth: row.warmth,
+    formality: row.formality,
+    quantity: row.quantity,
+  };
+}
+
+/**
+ * Garment `id` of `ownerId`'s wardrobe as matching reads it, or undefined:
+ * buyCandidate's, after the buy, for the items to change to match.
+ */
 export async function pieceOf(
   db: Queryable,
   id: number,
@@ -106,13 +140,7 @@ export async function pieceOf(
     })
     .from(garment)
     .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)));
-  if (!row) return undefined;
-  const { colors, materials, ...rest } = row;
-  return {
-    ...rest,
-    colors: colors ?? [],
-    materials: materials ?? [],
-  };
+  return row && boughtPiece(row);
 }
 
 /**

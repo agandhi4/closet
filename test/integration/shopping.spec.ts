@@ -7,7 +7,13 @@ import { buyCandidate } from '../../src/web/plans/purchase';
 import { buyGarment } from '../../src/web/wardrobe/status';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import { jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
+import {
+  createTestApp,
+  recordQueries,
+  type TestApp,
+  unescapeHtml,
+  userIdOf,
+} from './harness';
 import {
   html,
   jpeg,
@@ -423,6 +429,55 @@ describe('the shopping loop', () => {
           ),
         );
       expect(await candidatesOf(copied.id)).toEqual(await candidatesOf(itemId));
+    });
+
+    it('copies every item’s candidates in the same statements, however many (#167)', async () => {
+      /** A plan of `n` items, each with its own wishlist candidate. */
+      const planOf = async (name: string, n: number) => {
+        const id = await createPlan(name);
+        for (let i = 0; i < n; i += 1) {
+          const item = await addItem(id, {
+            name: `${name} ${i}`,
+            category: 'tops',
+          });
+          await changeCandidates(t.db, ownerId, {
+            add: {
+              itemIds: [item],
+              garmentIds: [
+                await addWishlist(`${name} wish ${i}`, { category: 'tops' }),
+              ],
+            },
+          });
+        }
+        return id;
+      };
+      let copyId = 0;
+      const duplicate = (id: number) => async () => {
+        const res = await post(`/wardrobe/plans/${id}/duplicate`, {});
+        copyId = idFrom(res.headers.location, /^\/wardrobe\/plans\/(\d+)\?/);
+      };
+      const one = await recordQueries(duplicate(await planOf('Dup one', 1)));
+      const many = await planOf('Dup many', 4);
+      const four = await recordQueries(duplicate(many));
+      expect(four.statements).toBe(one.statements);
+
+      // Each copy holds its own original's candidate, none of another's.
+      const itemsOf = async (id: number) =>
+        t.db
+          .select({ id: planItem.id, name: planItem.name })
+          .from(planItem)
+          .where(eq(planItem.planId, id))
+          .orderBy(planItem.id);
+      const originals = await itemsOf(many);
+      const copies = await itemsOf(copyId);
+      expect(copies.map((item) => item.name)).toEqual(
+        originals.map((item) => item.name),
+      );
+      for (const [index, copy] of copies.entries()) {
+        expect(await candidatesOf(copy.id)).toEqual(
+          await candidatesOf(originals[index].id),
+        );
+      }
     });
   });
 

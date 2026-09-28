@@ -293,13 +293,14 @@ export async function browseIdea(
   },
 ): Promise<Idea<PoolGarment> | undefined> {
   const [closet, locked] = await Promise.all([
-    closetGarments(db, wardrobeOwnerId, input.today, input.capsuleId),
+    closetGarments(db, wardrobeOwnerId, input.capsuleId),
     styledGarments(db, wardrobeOwnerId, input.lockedIds, input.today),
   ]);
+  // closetGarments is never rotated; the locked rows are the pool's.
   const unworn = (g: PoolGarment): PoolGarment => ({ ...g, idleDays: null });
   const [idea] = generateIdeas({
     seed: input.seed,
-    pool: closet.map(unworn),
+    pool: closet,
     locked: locked.map(unworn),
     offset: 0,
     limit: 1,
@@ -457,11 +458,10 @@ export async function goesWithCloset(
   db: Db,
   ownerId: number,
   itemId: number,
-  today: IsoDate,
 ): Promise<GoesWithCloset | undefined> {
   const [[item], closet, avoid] = await Promise.all([
-    wishlistGarments(db, ownerId, [itemId], today),
-    closetGarments(db, ownerId, today),
+    wishlistGarments(db, ownerId, [itemId]),
+    closetGarments(db, ownerId),
     avoidedPairs(db, ownerId),
   ]);
   if (!item) return undefined;
@@ -485,11 +485,10 @@ export async function goesWithCount(
   db: Db,
   ownerId: number,
   itemId: number,
-  today: IsoDate,
 ): Promise<OutfitCount | undefined> {
   const [[item], closet, avoid] = await Promise.all([
-    wishlistGarments(db, ownerId, [itemId], today),
-    closetGarments(db, ownerId, today),
+    wishlistGarments(db, ownerId, [itemId]),
+    closetGarments(db, ownerId),
     avoidedPairs(db, ownerId),
   ]);
   return item && outfitCount({ item, closet, avoid, seed: item.id });

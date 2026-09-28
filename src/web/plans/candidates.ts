@@ -44,7 +44,11 @@ export interface CandidateSet {
 }
 
 export interface CandidateChange {
-  add?: CandidateSet;
+  /**
+   * One set, or several whose pairings differ per item: a duplicated plan
+   * links each copy to its own original's candidates, all in one change.
+   */
+  add?: CandidateSet | readonly CandidateSet[];
   remove?: CandidateSet;
 }
 
@@ -88,7 +92,9 @@ export class TooManyCandidates extends HttpError {
  * halfway. The item's candidates page, the wishlist item's "For plan
  * item…", the garment form's `planItem`, add_candidate (MCP), a plan's
  * duplicate and the seed all go through it. A savepoint inside a caller's
- * transaction.
+ * transaction. Its statements do not grow with the change: a caller with
+ * many items to link (a duplicate, the seed) passes them as one change,
+ * never one call per item (#167: a duplicate did, eight statements each).
  */
 export function changeCandidates(
   db: Queryable,
@@ -98,7 +104,9 @@ export function changeCandidates(
   // The owner lock first, before the rows below: the cap's count must see
   // every other change of this owner's candidates committed.
   return ownerTransaction(db, ownerId, 'changeCandidates', async (tx) => {
-    const sets = [change.add, change.remove].flatMap((set) => set ?? []);
+    const adds = [change.add ?? []].flat();
+    const sets = [...adds, ...(change.remove ? [change.remove] : [])];
+    // One lock statement per side for the whole change, however many sets.
     const items = await ownedItems(
       tx,
       ownerId,
@@ -109,19 +117,16 @@ export function changeCandidates(
       ownerId,
       sets.flatMap((set) => set.garmentIds),
     );
-    // Each id once: a form may post one twice.
-    const owned = (
-      set: CandidateSet | undefined,
-      garmentIds: Map<number, boolean>,
-      wishlistOnly: boolean,
-    ): CandidateSet => ({
-      itemIds: [...new Set(set?.itemIds)].filter((id) => items.has(id)),
-      garmentIds: [...new Set(set?.garmentIds)].filter(
-        (id) => garmentIds.has(id) && (!wishlistOnly || garmentIds.get(id)),
+    const remove: CandidateSet = {
+      // Each id once: a form may post one twice.
+      itemIds: [...new Set(change.remove?.itemIds)].filter((id) =>
+        items.has(id),
       ),
-    });
-    const remove = owned(change.remove, garments, false);
-    const add = owned(change.add, garments, true);
+      garmentIds: [...new Set(change.remove?.garmentIds)].filter((id) =>
+        garments.has(id),
+      ),
+    };
+    const add = addedPairings(adds, items, garments);
     const over = await itemsPastCap(tx, add, remove);
     if (over.length > 0) throw new TooManyCandidates(over);
     let removed = 0;
@@ -139,13 +144,13 @@ export function changeCandidates(
       ).length;
     }
     let added = 0;
-    if (add.itemIds.length > 0 && add.garmentIds.length > 0) {
+    if (add.size > 0) {
       added = (
         await tx
           .insert(planItemCandidate)
           .values(
-            add.itemIds.flatMap((planItemId) =>
-              add.garmentIds.map((garmentId) => ({ planItemId, garmentId })),
+            [...add].flatMap(([planItemId, garmentIds]) =>
+              [...garmentIds].map((garmentId) => ({ planItemId, garmentId })),
             ),
           )
           .onConflictDoNothing()
@@ -154,6 +159,30 @@ export function changeCandidates(
     }
     return { added, removed };
   });
+}
+
+/**
+ * The pairings `adds` asks for among the owner's items and wishlist
+ * garments, by item (each garment once): what changeCandidates inserts.
+ * Items left with nothing to gain are dropped.
+ */
+function addedPairings(
+  adds: readonly CandidateSet[],
+  items: Set<number>,
+  garments: Map<number, boolean>,
+): Map<number, Set<number>> {
+  const byItem = new Map<number, Set<number>>();
+  for (const set of adds) {
+    const garmentIds = set.garmentIds.filter((id) => garments.get(id));
+    if (garmentIds.length === 0) continue;
+    for (const itemId of set.itemIds) {
+      if (!items.has(itemId)) continue;
+      const held = byItem.get(itemId) ?? new Set<number>();
+      for (const garmentId of garmentIds) held.add(garmentId);
+      byItem.set(itemId, held);
+    }
+  }
+  return byItem;
 }
 
 /**
@@ -198,26 +227,28 @@ async function wishlistCandidates(
 }
 
 /**
- * The items `add` would take past MAX_CANDIDATES_PER_ITEM, after `remove`:
- * only items that gain a candidate count, so one already past the cap may
- * still lose some.
+ * The items `add` (garments by item) would take past
+ * MAX_CANDIDATES_PER_ITEM, after `remove`: only items that gain a
+ * candidate count, so one already past the cap may still lose some. One
+ * statement for every item added to.
  */
 async function itemsPastCap(
   tx: Queryable,
-  add: CandidateSet,
+  add: Map<number, Set<number>>,
   remove: CandidateSet,
 ): Promise<number[]> {
-  if (add.itemIds.length === 0 || add.garmentIds.length === 0) return [];
-  const current = await wishlistCandidates(tx, add.itemIds);
-  return add.itemIds.filter((itemId) => {
+  if (add.size === 0) return [];
+  const current = await wishlistCandidates(tx, [...add.keys()]);
+  return [...add].flatMap(([itemId, garmentIds]) => {
     const kept = new Set(current.get(itemId));
     if (remove.itemIds.includes(itemId)) {
       for (const garmentId of remove.garmentIds) kept.delete(garmentId);
     }
-    const gained = add.garmentIds.filter((id) => !kept.has(id));
-    return (
-      gained.length > 0 && kept.size + gained.length > MAX_CANDIDATES_PER_ITEM
-    );
+    const gained = [...garmentIds].filter((id) => !kept.has(id));
+    return gained.length > 0 &&
+      kept.size + gained.length > MAX_CANDIDATES_PER_ITEM
+      ? [itemId]
+      : [];
   });
 }
 

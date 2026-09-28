@@ -42,7 +42,8 @@ export interface PoolGarment extends IdeaGarment {
   photo: ImageRef | null;
 }
 
-const poolColumns = (today: IsoDate) => ({
+/** What the generator judges a garment by, and what a card shows. */
+const drawnColumns = {
   id: garment.id,
   name: garment.name,
   category: garment.category,
@@ -54,6 +55,11 @@ const poolColumns = (today: IsoDate) => ({
   fabricWeight: garment.fabricWeight,
   waterResistant: garment.waterResistant,
   photo: { fileName: file.fileName, version: file.version },
+};
+
+/** drawnColumns and the rotation's input, for a pool that rotates. */
+const poolColumns = (today: IsoDate) => ({
+  ...drawnColumns,
   // Days since the last day worn (wears count by day); null when never.
   idleDays: sql<
     number | null
@@ -189,14 +195,28 @@ export async function styledGarment(
   return found;
 }
 
-/** A garment as "Goes with my closet" (#18b) reads it: the pool's, with its type (near-duplicates). */
+/**
+ * A garment as "Goes with my closet" (#18b) reads it: the pool's, with its
+ * type (near-duplicates), never rotated (no idle days: its readers draw
+ * uniformly, and a grantee's Shuffle never learns the owner's wears).
+ */
 export interface ClosetGarment extends PoolGarment {
   type: string | null;
+  idleDays: null;
 }
 
 /** A wishlist item as "Goes with my closet" locks it, and what it replaces. */
 export interface WishlistGarment extends ClosetGarment {
   replacesGarmentId: number | null;
+}
+
+/** A row of drawnColumns as a garment that is never rotated. */
+function unrotatedGarment(row: Omit<PoolRow, 'idleDays'>): ClosetGarment {
+  return {
+    ...poolGarment({ ...row, idleDays: null }),
+    type: row.type,
+    idleDays: null,
+  };
 }
 
 /**
@@ -206,24 +226,27 @@ export interface WishlistGarment extends ClosetGarment {
  * move on laundry day; Styling's Shuffle over a shared wardrobe (#42,
  * browseIdea) draws from it because a grantee never learns the owner's
  * wash and away state. Never the owner's own gallery pool: ideas draw from
- * ideaPool. One statement.
+ * ideaPool. One statement, without the pool's last-worn subquery: both
+ * readers draw uniformly, so it fed nothing (#167: one garment_wear lookup
+ * per closet garment on every wishlist item's page).
  */
 export async function closetGarments(
   db: Db,
   ownerId: number,
-  today: IsoDate,
   capsuleId?: number,
 ): Promise<ClosetGarment[]> {
-  const rows = await poolQuery(
-    db,
-    today,
-    and(
-      eq(garment.ownerId, ownerId),
-      inCloset(),
-      capsuleId === undefined ? undefined : inCapsule(capsuleId),
-    ),
-  );
-  return rows.map((row) => ({ ...poolGarment(row), type: row.type }));
+  const rows = await db
+    .select(drawnColumns)
+    .from(garment)
+    .leftJoin(file, eq(file.id, garment.photoId))
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        inCloset(),
+        capsuleId === undefined ? undefined : inCapsule(capsuleId),
+      ),
+    );
+  return rows.map(unrotatedGarment);
 }
 
 /**
@@ -235,11 +258,10 @@ export async function wishlistGarments(
   db: Db,
   ownerId: number,
   ids: readonly number[],
-  today: IsoDate,
 ): Promise<WishlistGarment[]> {
   const rows = await db
     .select({
-      ...poolColumns(today),
+      ...drawnColumns,
       replacesGarmentId: garment.replacesGarmentId,
     })
     .from(garment)
@@ -252,8 +274,7 @@ export async function wishlistGarments(
       ),
     );
   return rows.map((row) => ({
-    ...poolGarment(row),
-    type: row.type,
+    ...unrotatedGarment(row),
     replacesGarmentId: row.replacesGarmentId,
   }));
 }

@@ -6,7 +6,7 @@ import {
   MAX_CANDIDATES_PER_ITEM,
   TooManyCandidates,
 } from '../../src/web/plans/candidates';
-import { createTestApp, type TestApp } from './harness';
+import { createTestApp, recordQueries, type TestApp } from './harness';
 import { callTool, createAccessToken } from './mcp';
 
 /**
@@ -233,6 +233,48 @@ describe('candidates per plan item', () => {
     expect(linked).toHaveLength(MAX_CANDIDATES_PER_ITEM);
     expect(linked).toContain(early);
     expect(linked).not.toContain(late);
+  });
+
+  it('judges several sets item by item, in the statements of one (#167)', async () => {
+    const full = await itemWith('Sets full', MAX_CANDIDATES_PER_ITEM - 1);
+    const open = await itemWith('Sets open', 0);
+    const [a, b, c] = [
+      await wishlistItem('Sets a'),
+      await wishlistItem('Sets b'),
+      await wishlistItem('Sets c'),
+    ];
+    const one = await recordQueries(() =>
+      changeCandidates(t.db, t.owner.id, {
+        add: [{ itemIds: [full.itemId], garmentIds: [a] }],
+      }),
+    );
+    const two = await recordQueries(() =>
+      changeCandidates(t.db, t.owner.id, {
+        add: [
+          { itemIds: [open.itemId], garmentIds: [b] },
+          { itemIds: [open.itemId], garmentIds: [c, b] },
+        ],
+      }),
+    );
+    expect(two.statements).toBe(one.statements);
+    expect(await candidatesOf(full.itemId)).toEqual(
+      [...full.garmentIds, a].sort((x, y) => x - y),
+    );
+    expect(await candidatesOf(open.itemId)).toEqual(
+      [b, c].sort((x, y) => x - y),
+    );
+    // One set past the cap refuses the whole change: the other item gains
+    // nothing either.
+    const [d, e] = [await wishlistItem('Sets d'), await wishlistItem('Sets e')];
+    const refused = changeCandidates(t.db, t.owner.id, {
+      add: [
+        { itemIds: [open.itemId], garmentIds: [d] },
+        { itemIds: [full.itemId], garmentIds: [e] },
+      ],
+    });
+    await expect(refused).rejects.toBeInstanceOf(TooManyCandidates);
+    await expect(refused).rejects.toMatchObject({ itemIds: [full.itemId] });
+    expect(await candidatesOf(open.itemId)).not.toContain(d);
   });
 
   it('counts only candidates still on the wishlist: a bought one frees its place', async () => {

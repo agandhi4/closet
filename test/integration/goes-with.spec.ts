@@ -2,7 +2,12 @@ import { count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { outfit, planItem } from '../../src/db/schema';
 import { changeCandidates } from '../../src/web/plans/candidates';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  recordQueries,
+  type TestApp,
+  unescapeHtml,
+} from './harness';
 import { callTool, createAccessToken, tool } from './mcp';
 import { expectFragment, HX_FRAGMENT } from './pages';
 
@@ -304,6 +309,22 @@ describe('goes with my closet', () => {
         expect(res.statusCode).toBe(200);
         expect(res.body).not.toContain('id="goes-with"');
       }
+    });
+
+    it('draws uniformly: never reads a wear, and a wear changes nothing (#167)', async () => {
+      const page = async () =>
+        sectionOf((await get(`/wardrobe/${sweater}`)).body);
+      const before = await page();
+      const read = await recordQueries(page);
+      expect(read.sql.filter((q) => q.includes('garment_wear'))).toEqual([]);
+      // The rotation's input, had it been read, would now differ.
+      const wore = await post(`/wardrobe/${closet['White tee']}/wear`, {
+        worn: '1',
+      });
+      expect(wore.statusCode).toBeLessThan(400);
+      expect(await page()).toBe(before);
+      // Undone, so the tee is clean for the Ideas tab below.
+      await post(`/wardrobe/${closet['White tee']}/wear`, { worn: '0' });
     });
 
     it('logs what it judged at debug', async () => {

@@ -146,8 +146,7 @@ export const galleryTools = [
     }),
     writes: false,
     async run({ garmentId }, ctx) {
-      const today = todayIn(ctx.timeZone, new Date());
-      const result = await goesWithCloset(ctx.db, ctx.userId, garmentId, today);
+      const result = await goesWithCloset(ctx.db, ctx.userId, garmentId);
       if (!result) throw new HttpError(404, 'Not on your wishlist');
       return {
         item: named(result.item),

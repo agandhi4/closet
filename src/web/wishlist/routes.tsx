@@ -28,10 +28,10 @@ import { type BoughtField, type BoughtModel, BoughtPage } from './bought-page';
 import type { WardrobeDeps } from '../wardrobe/writes';
 import { candidaciesByGarment } from '../plans/candidates';
 import {
+  boughtPiece,
   buyCandidate,
   type PlanFollowUps,
   type PlanPurchase,
-  pieceOf,
   planPurchases,
 } from '../plans/purchase';
 import { RowId } from '../schemas';
@@ -127,17 +127,20 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    * What buying `garment` does to the owner's plan items (34b), with the
    * replaced garment the page offers to archive too (`archivable`); nothing
    * for a grantee, whose purchase leaves the owner's plans to the owner.
+   * The garment as read for the page is the piece judged: no second read.
    */
-  async function purchasesFor(
+  function purchasesFor(
     garment: GarmentDetail,
     { access }: AuthorizedWardrobe,
     archivable: GarmentRef | undefined,
   ): Promise<PlanPurchase[]> {
-    if (!access.isOwner) return [];
-    const piece = await pieceOf(db, garment.id, access.ownerId);
-    return piece
-      ? planPurchases(db, access.ownerId, piece, archivable?.id)
-      : [];
+    if (!access.isOwner) return Promise.resolve([]);
+    return planPurchases(
+      db,
+      access.ownerId,
+      boughtPiece(garment),
+      archivable?.id,
+    );
   }
 
   function resolve(
@@ -284,9 +287,13 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.body,
         access.isOwner,
       );
-      const garment = await requireGarment(request.params.id, access.ownerId);
+      const { id } = request.params;
       const read = readPurchase(request.body);
       if (!read.ok) {
+        // Only a refusal reads the garment: its form is drawn again. A
+        // purchase goes straight to buyCandidate, whose status change is
+        // the lookup (an id outside the wardrobe is its 'not-found').
+        const garment = await requireGarment(id, access.ownerId);
         logger.warn(
           `Bought it refused for garment ${garment.id}: ${Object.keys(read.errors).join(', ')}`,
         );
@@ -310,7 +317,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       }
       const outcome = await buyCandidate(
         deps,
-        garment.id,
+        id,
         access.ownerId,
         { ...read.purchase, archiveReplaced },
         followUps,
@@ -320,21 +327,18 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           throw new HttpError(404, GARMENT_NOT_FOUND);
         }
         logger.info(
-          `Bought it ignored for garment ${garment.id}: it is ${outcome.status}`,
+          `Bought it ignored for garment ${id}: it is ${outcome.status}`,
         );
         throw new HttpError(409, t('wishlist.NOT_ON_WISHLIST'));
       }
       logger.info(
-        `Garment ${garment.id} bought (wishlist -> closet) by user ${sessionUserId(request)} in wardrobe ${access.ownerId}${
+        `Garment ${id} bought (wishlist -> closet) by user ${sessionUserId(request)} in wardrobe ${access.ownerId}${
           outcome.archivedReplaced === null
             ? ''
             : `; garment ${outcome.archivedReplaced} it replaces archived`
         }`,
       );
-      return reply.redirect(
-        garmentUrl(garment.id, viewOwner, '', { bought: 1 }),
-        303,
-      );
+      return reply.redirect(garmentUrl(id, viewOwner, '', { bought: 1 }), 303);
     },
   );
 
