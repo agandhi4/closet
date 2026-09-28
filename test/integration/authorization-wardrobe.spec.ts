@@ -324,6 +324,26 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // A turned copy replaces the photo (#199); the snapshot includes
+    // DATA_PATH, so a refusal stored no copy.
+    name: 'POST /wardrobe/:id/photo/rotate',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.garmentId}/photo/rotate${q}`,
+      payload: { direction: 'right' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
     name: 'POST /wardrobe/:id/nobg',
     kind: 'write',
     ok: 200,

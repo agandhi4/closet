@@ -99,7 +99,15 @@ export interface StoreImageOptions {
    * initialCutoutState('ready'), rather than queueing it.
    */
   alphaIsCutout?: boolean;
+  /**
+   * Clockwise degrees to turn the image after its EXIF orientation is
+   * applied: rotateStored's copy of a stored original.
+   */
+  rotate?: QuarterTurn;
 }
+
+/** A garment photo's rotation (POST /wardrobe/:id/photo/rotate), clockwise degrees. */
+export type QuarterTurn = 90 | 270;
 
 /**
  * The source side of a transcode failed (undecodable bytes, truncated
@@ -212,10 +220,15 @@ export class Photos {
   ): Promise<NewPhotoRow> {
     const fileName = `${randomUUID()}.webp`;
     const { pixels, raw } = await this.imageSource(source);
+    // Every path honours EXIF orientation, the art's included (#199: a
+    // sideways cutout upload stayed sideways). HEIC arrives decoded and
+    // rotated already, with no EXIF left, so it is a no-op there.
+    const oriented = decoder(raw).autoOrient();
+    if (options.rotate) oriented.rotate(options.rotate);
     const art = options.alphaIsCutout
       ? await this.decodeUpload(
           pixels,
-          decoder(raw)
+          oriented
             .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, {
               fit: sharp.fit.inside,
               withoutEnlargement: true,
@@ -227,7 +240,7 @@ export class Photos {
     if (!art) {
       await this.transcodeUpload(
         pixels,
-        this.imageTransformer(raw).autoOrient(),
+        originalTransformer(oriented),
         fileName,
       );
     }
@@ -380,6 +393,60 @@ export class Photos {
     return newPhotoRow(copied.fileName, userId);
   }
 
+  /**
+   * A stored photo turned by `turn` as a new photo (the rotate button,
+   * rotateGarmentPhoto): the original's bytes through storeImage, so the
+   * source's files are never touched, and with `withCutout` the cutout
+   * the source's row points at, turned the same way (a mask edit
+   * survives: the cutout is a padded square, so turning it is what cutting
+   * out the turned original gives). Returns the row to insert, as
+   * storeImage does, and whether the cutout came along: false when the
+   * source had none on disk (then it needs a new one). A 404 when the
+   * original is gone.
+   */
+  async rotateStored(
+    sourceFileName: string,
+    turn: QuarterTurn,
+    userId: number,
+    withCutout: boolean,
+  ): Promise<{ row: NewPhotoRow; cutoutKept: boolean }> {
+    const row = await this.storeImage(
+      {
+        stream: await this.getOrNotFound(sourceFileName),
+        mimetype: 'image/webp',
+        filename: sourceFileName,
+      },
+      userId,
+      { rotate: turn },
+    );
+    if (!withCutout) return { row, cutoutKept: false };
+
+    const rotated = unkeyedPhoto(row.fileName);
+    try {
+      const cutout = await this.openCurrentCutout(sourceFileName);
+      if (!cutout) {
+        this.logger.warn(
+          `Rotating ${sourceFileName}: its cutout is missing; ${row.fileName} will need a new one`,
+        );
+        return { row, cutoutKept: false };
+      }
+      await this.transcode(
+        cutout,
+        decoder().rotate(turn).webp({ quality: IMAGE_QUALITY }),
+        variantFileName(row.fileName, 'nobg'),
+      );
+      // storeImage made the thumb from the original; a cutout's comes from it.
+      await this.regenerateThumb(rotated);
+    } catch (error) {
+      await this.deleteVariants(rotated);
+      throw error;
+    }
+    this.logger.info(
+      `Rotated ${sourceFileName} by ${turn}° as ${row.fileName}, its cutout with it`,
+    );
+    return { row, cutoutKept: true };
+  }
+
   // The cutout the row points at, opened (an open file streams whole even
   // when it is deleted after); undefined when the photo has none. A swap
   // between reading the key and opening its file deletes the set it
@@ -415,7 +482,10 @@ export class Photos {
     stream: Readable,
     originalFileName: string,
   ): Promise<number | undefined> {
-    const bytes = await this.encodeUpload(stream, this.imageTransformer());
+    const bytes = await this.encodeUpload(
+      stream,
+      originalTransformer(decoder()),
+    );
     const outcome = await this.writeCutout(
       originalFileName,
       (variantKey) => ({ type: 'edit', variantKey }),
@@ -926,15 +996,6 @@ export class Photos {
     }
   }
 
-  private imageTransformer(raw?: DecodedHeic['raw']): Sharp {
-    return decoder(raw)
-      .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, {
-        fit: sharp.fit.inside,
-        withoutEnlargement: true,
-      })
-      .webp({ quality: IMAGE_QUALITY });
-  }
-
   private async writeThumb(
     { fileName, variantKey }: StoredPhoto,
     thumbName: string,
@@ -979,6 +1040,17 @@ export class Photos {
 interface Swap {
   before: CutoutRow;
   outcome: Transition;
+}
+
+// The stored original's size and encoding (storeImage), and an edited
+// cutout's (saveEditedCutout), over a decoder().
+function originalTransformer(decoded: Sharp): Sharp {
+  return decoded
+    .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, {
+      fit: sharp.fit.inside,
+      withoutEnlargement: true,
+    })
+    .webp({ quality: IMAGE_QUALITY });
 }
 
 // Every thumb, from the cutout when there is one (writeThumb, writeCutout).

@@ -91,6 +91,8 @@ export interface GarmentPageModel {
   canDelete: boolean;
   justCreated: boolean;
   justSavedPhoto: boolean;
+  /** A rotate landed here: the photo sheet opens again for the next turn. */
+  justRotatedPhoto: boolean;
   justBought: boolean;
   justLoggedRepair: boolean;
   /** "Add a copy" from a new garment's form (#20) landed here. */
@@ -101,6 +103,13 @@ const PHOTO_SHEET_ID = 'garment-photo-sheet';
 
 /** Opens the photo sheet (the ⋯ menu's Photo, the empty hero's button). */
 const OPEN_PHOTO_SHEET = `this.closest('details')?.removeAttribute('open'); document.getElementById('${PHOTO_SHEET_ID}').showModal()`;
+
+/**
+ * Opens the photo sheet as the page loads, after a rotate (?photoRotated=1),
+ * so repeated quarter turns are one tap each. A fixed string, placed after
+ * the dialog; StripFlags drops the marker, so a reload does not reopen it.
+ */
+const REOPEN_PHOTO_SHEET = `document.getElementById('${PHOTO_SHEET_ID}').showModal();`;
 
 /**
  * The mask editor's pencil (mask-editor.js), as an inline module so it runs
@@ -114,6 +123,7 @@ wireUpEditMask(document.getElementById('garment-photo-slot'));`;
 const GARMENT_PAGE_FLAGS = [
   'created',
   'photoSaved',
+  'photoRotated',
   'bought',
   'repairSaved',
   'copyAdded',
@@ -273,6 +283,9 @@ function PhotoTools({ model }: { model: GarmentPageModel }) {
   return (
     <>
       <PhotoSheet garment={garment} viewOwner={model.viewOwner} />
+      {model.justRotatedPhoto && (
+        <script dangerouslySetInnerHTML={{ __html: REOPEN_PHOTO_SHEET }} />
+      )}
       {garment.photo && (
         <>
           <MaskEditorDialog />
@@ -800,7 +813,8 @@ function Replacement({ model }: { model: GarmentPageModel }) {
  * selfies': a refused photo (too large, not an image) is the error page,
  * where an htmx post dropped the 4xx and the sheet failed silently.
  * "Uploading…" shows while one is submitting (submit-once marks it
- * `data-submitting`; the modal box is the `group`). The camera has an
+ * `data-submitting`; the two are the `upload` group, so the rotate form's
+ * submit does not show it). With a photo, ↺ and ↻ too. The camera has an
  * input of its own: some Chrome/Android versions drop the Camera option
  * from the library input's chooser depending on its accept value
  * (upstream issue 99).
@@ -816,22 +830,33 @@ function PhotoSheet(props: {
       class="modal modal-bottom sm:modal-middle"
       aria-labelledby="garment-photo-sheet-title"
     >
-      <div class="modal-box group flex flex-col gap-3 pb-8">
+      <div class="modal-box flex flex-col gap-3 pb-8">
         <h2 id="garment-photo-sheet-title" class="font-bold text-lg">
           {t(
             props.garment.photo ? 'garment.CHANGE_PHOTO' : 'garment.ADD_PHOTO',
           )}
         </h2>
         <p class="text-sm text-muted">{t('garment.PHOTO_HINT')}</p>
-        <PhotoSource action={action} source="camera" />
-        <PhotoSource action={action} source="library" />
-        <p
-          class="hidden items-center gap-2 text-sm group-has-[form[data-submitting]]:flex"
-          role="status"
-        >
-          <span class="loading loading-spinner loading-sm"></span>
-          {t('garment.PHOTO_UPLOADING')}
-        </p>
+        <div class="group/upload flex flex-col gap-3">
+          <PhotoSource action={action} source="camera" />
+          <PhotoSource action={action} source="library" />
+          <p
+            class="hidden items-center gap-2 text-sm group-has-[form[data-submitting]]/upload:flex"
+            role="status"
+          >
+            <span class="loading loading-spinner loading-sm"></span>
+            {t('garment.PHOTO_UPLOADING')}
+          </p>
+        </div>
+        {props.garment.photo && (
+          <RotateButtons
+            action={garmentUrl(
+              props.garment.id,
+              props.viewOwner,
+              '/photo/rotate',
+            )}
+          />
+        )}
         <div class="modal-action mt-0">
           <button
             type="button"
@@ -876,6 +901,52 @@ function PhotoSource(props: { action: string; source: 'camera' | 'library' }) {
           onchange={PREPARE_AND_SUBMIT_PHOTO}
         />
       </label>
+    </PostForm>
+  );
+}
+
+/**
+ * ↺ and ↻ (#199): one native post whose submitter names the direction
+ * (submit-once disables the buttons a tick after the submit, so its
+ * `direction` still posts), 303 back to the page with the turned photo
+ * and this sheet open again (?photoRotated=1, REOPEN_PHOTO_SHEET).
+ * "Rotating…" while it submits (submit-once's `data-submitting` on the
+ * form, the `rotate` group). Disabled offline.
+ */
+function RotateButtons(props: { action: string }) {
+  const turns = [
+    { direction: 'left', glyph: '↺', label: t('garment.ROTATE_LEFT') },
+    { direction: 'right', glyph: '↻', label: t('garment.ROTATE_RIGHT') },
+  ] as const;
+  return (
+    <PostForm
+      action={props.action}
+      needsNetwork
+      class="group/rotate flex flex-col gap-3"
+    >
+      <div class="flex gap-3">
+        {turns.map((turn) => (
+          <button
+            type="submit"
+            name="direction"
+            value={turn.direction}
+            class="btn btn-outline flex-1 gap-2"
+            data-rotate={turn.direction}
+          >
+            <span aria-hidden="true" class="text-lg leading-none">
+              {turn.glyph}
+            </span>
+            {turn.label}
+          </button>
+        ))}
+      </div>
+      <p
+        class="hidden items-center gap-2 text-sm group-data-submitting/rotate:flex"
+        role="status"
+      >
+        <span class="loading loading-spinner loading-sm"></span>
+        {t('garment.PHOTO_ROTATING')}
+      </p>
     </PostForm>
   );
 }

@@ -771,6 +771,40 @@ describe('Photos.storeImage', () => {
       height: 400,
     });
   });
+
+  it('with alphaIsCutout, honours the EXIF orientation as every other path does (#199)', async () => {
+    // The 300x400 art tagged "rotate 90° clockwise to display" (6): shown
+    // upright it is 400x300, the block 200 wide at x 100..300, y 100..200.
+    const sideways = await sharp(await art())
+      .withMetadata({ orientation: 6 })
+      .png()
+      .toBuffer();
+    expect((await sharp(sideways).metadata()).orientation).toBe(6);
+    const photos = build();
+    const row = await photos.storeImage(
+      { stream: Readable.from(sideways), mimetype: 'image/png', filename: 'x' },
+      7,
+      { alphaIsCutout: true },
+    );
+
+    const original = await pixels(await stored(row.fileName));
+    expect([original.info.width, original.info.height]).toEqual([400, 300]);
+    const nobg = await pixels(
+      await stored(row.fileName.replace('.webp', '-nobg.webp')),
+    );
+    // Padded to 400x400, the upright art 50 px down: the block is at x
+    // 100..300, y 150..250. Stored sideways it would be x 150..250, y
+    // 100..300.
+    expect(nobg.at(250, 200)[3]).toBe(255);
+    expect(nobg.at(200, 120)[3]).toBe(0);
+  });
+
+  it('turns the image by `rotate` after its EXIF orientation', async () => {
+    const photos = build();
+    const row = await photos.storeImage(await source(), 7, { rotate: 90 });
+    const original = await sharp(await stored(row.fileName)).metadata();
+    expect([original.width, original.height]).toEqual([400, 300]);
+  });
 });
 
 describe('Photos.watermarked', () => {

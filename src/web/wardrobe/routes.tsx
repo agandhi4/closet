@@ -112,6 +112,7 @@ import {
   readCondition,
   readGarmentForm,
   readTags,
+  RotateBody,
   storedFormValues,
   TagBody,
   TagQuery,
@@ -131,6 +132,7 @@ import {
   createGarmentWithPendingPhoto,
   removeGarment,
   replacePhoto,
+  rotateGarmentPhoto,
   stagePhotoUpload,
   type WardrobeDeps,
 } from './writes';
@@ -849,6 +851,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',
             justSavedPhoto: request.query.photoSaved === '1',
+            justRotatedPhoto: request.query.photoRotated === '1',
             justBought: request.query.bought === '1',
             justLoggedRepair: request.query.repairSaved === '1',
             justAddedCopy: request.query.copyAdded === '1',
@@ -1149,6 +1152,44 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         return reply.header('HX-Redirect', saved).status(200).send();
       }
       return reply.redirect(saved, 303);
+    },
+  );
+
+  // The photo sheet's ↺ and ↻: a native post (PostForm), 303 back to the
+  // garment with ?photoRotated=1, which opens the sheet again so the next
+  // quarter turn is one tap. The photo is replaced by a turned copy as an
+  // upload replaces it (rotateGarmentPhoto); a photo that changed
+  // meanwhile is a 409.
+  app.post(
+    '/wardrobe/:id/photo/rotate',
+    {
+      schema: {
+        params: GarmentParams,
+        querystring: OwnerQuery,
+        body: RotateBody,
+      },
+    },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        options,
+        request,
+        request.query.ownerId,
+        'manage',
+      );
+      const { id } = request.params;
+      const garment = await requireGarment(options, id, access.ownerId);
+      if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
+      await rotateGarmentPhoto(
+        deps,
+        id,
+        access.ownerId,
+        garment.photo,
+        request.body.direction,
+      );
+      return reply.redirect(
+        garmentUrl(id, viewOwner, '', { photoRotated: 1 }),
+        303,
+      );
     },
   );
 

@@ -1,4 +1,5 @@
 import type { MultipartFile } from '@fastify/multipart';
+import { lockCutoutRow } from '../../cutout/queries';
 import {
   type InitialCutoutColumns,
   initialCutoutState,
@@ -11,7 +12,7 @@ import {
   recordPendingPhoto,
   takePendingPhoto,
 } from '../files/pending-photos';
-import type { Photos } from '../files/photos';
+import type { Photos, QuarterTurn } from '../files/photos';
 import {
   insertPhotoRow,
   lockPhotoName,
@@ -22,7 +23,9 @@ import type { Logger } from '../../logger';
 import { type EntryStatus, statusOfClone } from '../../wardrobe/status';
 import {
   deleteGarment,
+  findGarment,
   type GarmentDetail,
+  type GarmentPhoto,
   insertGarment,
   lockGarment,
   replacePhotoRow,
@@ -270,10 +273,10 @@ export async function cloneGarment(
 
 /**
  * POST /wardrobe/:id/photo: stores the multipart photo, queues its cutout,
- * points the garment at it and removes the photo it replaces, rows in one
- * transaction and the old bytes after it. The new `file` row belongs to the
- * wardrobe's owner, whoever uploads (their account deletion takes it). A
- * 404 when the garment left the wardrobe meanwhile, a 400 without a photo.
+ * points the garment at it and removes the photo it replaces (swapPhoto).
+ * The new `file` row belongs to the wardrobe's owner, whoever uploads
+ * (their account deletion takes it). A 404 when the garment left the
+ * wardrobe meanwhile, a 400 without a photo.
  */
 export async function replacePhoto(
   deps: WardrobeDeps,
@@ -283,20 +286,115 @@ export async function replacePhoto(
 ): Promise<void> {
   const photo = await deps.photos.storeUploadParts(parts, ownerId);
   if (!photo) throw new HttpError(400, 'No file uploaded');
-  const replaced = await commitWithPhoto(
+  // The `request` event: every new photo is queued for its cutout.
+  await swapPhoto(deps, id, ownerId, photo, 'pending');
+}
+
+/** The rotate buttons' directions, as clockwise degrees. */
+export const ROTATIONS = {
+  left: 270,
+  right: 90,
+} as const satisfies Record<string, QuarterTurn>;
+export type RotateDirection = keyof typeof ROTATIONS;
+
+/**
+ * POST /wardrobe/:id/photo/rotate: the garment's photo turned a quarter as
+ * a new photo (Photos.rotateStored; the original is never modified) that
+ * replaces it as an upload does (swapPhoto). An edited cutout (a mask)
+ * turns with it and stays edited; any other is queued again for the
+ * turned photo, as a new upload's is. A 409 when the photo changed after
+ * it was read (another rotate or upload landed first, or its cutout moved:
+ * a mask saved, a job's result; the row's version says which): the turned
+ * copy is deleted and nothing else is written, so two quick taps never
+ * turn a stale photo over a newer one and no saved mask is lost.
+ */
+export async function rotateGarmentPhoto(
+  deps: WardrobeDeps,
+  id: number,
+  ownerId: number,
+  source: GarmentPhoto,
+  direction: RotateDirection,
+): Promise<void> {
+  const photoChanged = () => {
+    deps.logger.info(
+      `Garment ${id} rotate refused: photo ${source.fileName} changed while it was turned`,
+    );
+    return new HttpError(409, 'The photo changed meanwhile; try again');
+  };
+  const keepMask = source.cutoutStatus === 'edited';
+  const { row, cutoutKept } = await deps.photos
+    .rotateStored(source.fileName, ROTATIONS[direction], ownerId, keepMask)
+    .catch(async (error: unknown) => {
+      // The other tap's swap unlinked the original before this one opened
+      // it: its turn landed, this one is stale. A 404 otherwise.
+      if (
+        error instanceof HttpError &&
+        error.statusCode === 404 &&
+        (await findGarment(deps.db, id, ownerId))?.photo?.fileName !==
+          source.fileName
+      ) {
+        throw photoChanged();
+      }
+      throw error;
+    });
+  await swapPhoto(
     deps,
-    // The `request` event: every new photo is queued for its cutout.
-    { ...photo, ...initialCutoutState('pending') },
-    async (tx, photoId) => {
-      const locked = await lockGarment(tx, id, ownerId);
-      if (!locked) throw new HttpError(404, 'Garment not found');
-      return replacePhotoRow(tx, id, photoId, locked.photoId);
+    id,
+    ownerId,
+    row,
+    cutoutKept ? 'edited' : 'pending',
+    async (tx, currentPhotoId) => {
+      // After the garment's lock, as every garment write takes them. The
+      // version, not the status: every new cutout bumps it, so a second
+      // mask saved while this one was turned (still `edited`) is caught
+      // here instead of deleted with the row this swap replaces.
+      const current = await lockCutoutRow(tx, source.fileName);
+      if (
+        current?.id !== currentPhotoId ||
+        current.version !== source.version
+      ) {
+        throw photoChanged();
+      }
     },
   );
   deps.logger.info(
-    `Garment ${id} photo ${photo.fileName} queued for background removal`,
+    `Garment ${id} photo rotated ${direction} by user ${ownerId}${cutoutKept ? ', its edited cutout with it' : ''}`,
   );
-  deps.cutouts.wake();
+}
+
+/**
+ * The one way a garment's photo is replaced (an upload, a rotate): the new
+ * photo's row inserted with `cutout` as its initial state, the garment
+ * locked and pointed at it and the old photo's row deleted, in one
+ * transaction; then the queue woken for a pending cutout and the old
+ * photo's bytes unlinked after the commit. `check` runs under the
+ * garment's lock with its current photo id and refuses by throwing: the
+ * new bytes go then, as on any rollback (commitWithPhoto).
+ */
+async function swapPhoto(
+  deps: WardrobeDeps,
+  id: number,
+  ownerId: number,
+  photo: NewPhotoRow,
+  cutout: 'pending' | 'edited',
+  check?: (tx: Queryable, currentPhotoId: number | null) => Promise<void>,
+): Promise<void> {
+  const replaced = await commitWithPhoto(
+    deps,
+    { ...photo, ...initialCutoutState(cutout) },
+    async (tx, photoId) => {
+      const locked = await lockGarment(tx, id, ownerId);
+      if (!locked) throw new HttpError(404, 'Garment not found');
+      await check?.(tx, locked.photoId);
+      return replacePhotoRow(tx, id, photoId, locked.photoId);
+    },
+  );
+  if (cutout === 'pending') {
+    deps.logger.info(
+      `Garment ${id} photo ${photo.fileName} queued for background removal`,
+    );
+    deps.cutouts.wake();
+  }
   if (replaced) {
     await deps.photos.deleteVariants(replaced);
     deps.logger.info(

@@ -373,6 +373,8 @@ export async function filterOptions(
 
 /** A garment's photo on its page: the cutout's state decides what shows. */
 export interface GarmentPhoto extends ImageRef {
+  /** Always read (detailColumns): rotateGarmentPhoto's check compares it. */
+  version: number;
   cutoutStatus: CutoutStatus;
 }
 
