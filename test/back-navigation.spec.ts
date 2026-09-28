@@ -4,6 +4,7 @@ import { createGarment, createOutfit } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { openGarmentMenu } from './support/garment-page';
 import { householdToday } from './support/household-today';
+import { pageErrors } from './support/page-errors';
 
 /**
  * The app bar's back arrow goes back like a native app's (#105,
@@ -18,15 +19,6 @@ test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
 const backArrow = (page: Page) =>
   page.locator('header.app-bar a[data-history-back]');
-
-function collectErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') errors.push(msg.text());
-  });
-  return errors;
-}
 
 const historyLength = (page: Page) => page.evaluate(() => history.length);
 
@@ -66,7 +58,7 @@ async function tapCentredItem(page: Page, item: Locator): Promise<void> {
 test('wardrobe, a garment, back: the wardrobe, back in history', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-wardrobe');
   const id = await createGarment(page, 'Back tee');
   await page.goto('/wardrobe');
@@ -86,7 +78,7 @@ test('wardrobe, a garment, back: the wardrobe, back in history', async ({
 test('Styling, a garment, back: Styling with its rows as they were', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-styling');
   const oldTee = await createGarment(page, 'Old tee', 'tops');
   const newTee = await createGarment(page, 'New tee', 'tops');
@@ -117,7 +109,7 @@ test('Styling, a garment, back: Styling with its rows as they were', async ({
 });
 
 test("the calendar's week, an outfit, back: that week", async ({ page }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-calendar');
   const garment = await createGarment(page, 'Week top');
   const day = addDays(householdToday(), 14);
@@ -137,7 +129,7 @@ test("the calendar's week, an outfit, back: that week", async ({ page }) => {
 test('a deep link to a garment, back: the wardrobe, its fixed parent', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-deep-link');
   const id = await createGarment(page, 'Shared tee');
   // A new tab on the garment: nothing of the app's before it.
@@ -154,7 +146,7 @@ test('a deep link to a garment, back: the wardrobe, its fixed parent', async ({
 test('Styling, a garment, Edit, Save, back: Styling, never the form', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-after-save');
   const tee = await createGarment(page, 'Edited tee', 'tops');
   await page.goto('/styling');
@@ -181,7 +173,7 @@ test('Styling, a garment, Edit, Save, back: Styling, never the form', async ({
 test('wardrobe, a garment, Edit, Save, back: the wardrobe shows the save', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-save-fresh');
   const tee = await createGarment(page, 'Before tee', 'tops');
   await page.goto('/wardrobe');
@@ -206,7 +198,7 @@ test('wardrobe, a garment, Edit, Save, back: the wardrobe shows the save', async
 });
 
 test('a reload (pull to refresh) keeps the way back', async ({ page }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-reload');
   const id = await createGarment(page, 'Reloaded tee');
   await page.goto('/wardrobe');
@@ -227,7 +219,7 @@ test('a reload (pull to refresh) keeps the way back', async ({ page }) => {
 test('Insights, another window, back: Insights as it was, not the wardrobe', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-insights');
   await createGarment(page, 'Idle tee');
   await page.goto('/wardrobe/insights');
@@ -244,7 +236,7 @@ test('Insights, another window, back: Insights as it was, not the wardrobe', asy
 test('an outfit, Edit in Styling, Save, back: the outfits, never the editor', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-styling-save');
   const tee = await createGarment(page, 'Styled tee', 'tops');
   const outfit = await createOutfit(page, 'Tuesday', tee);
@@ -269,7 +261,7 @@ test('an outfit, Edit in Styling, Save, back: the outfits, never the editor', as
 test('a garment, Edit, Cancel, back: the wardrobe, never the form', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'back-cancel');
   const id = await createGarment(page, 'Cancelled tee');
   await page.goto('/wardrobe');

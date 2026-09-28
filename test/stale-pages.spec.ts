@@ -14,6 +14,10 @@ import {
   waitForServiceWorker,
   workerLogs,
 } from './support/service-worker';
+import {
+  WEBKIT_CANNOT_NAVIGATE_OFFLINE,
+  WEBKIT_CANNOT_WATCH_WORKER,
+} from './support/webkit-limits';
 
 declare global {
   interface Window {
@@ -68,8 +72,8 @@ async function searchWardrobe(page: Page, keyword: string): Promise<void> {
  * server's copy swapped in (untouched page) or offered (the user is already
  * reading). And the page cache never serves one account's page to another.
  *
- * Needs a server started with PWA_ENABLED=true; Chromium only, like
- * pwa.spec.ts.
+ * Needs a server started with PWA_ENABLED=true. Chromium runs every test,
+ * the Safari projects all but the offline ones, like pwa.spec.ts.
  */
 test.describe('stale-while-revalidate tab roots', () => {
   test.skip(
@@ -77,8 +81,8 @@ test.describe('stale-while-revalidate tab roots', () => {
     'needs a server started with PWA_ENABLED=true',
   );
   test.skip(
-    ({ browserName }) => browserName !== 'chromium',
-    'service workers are only reliable in chromium here',
+    ({ browserName }) => browserName === 'firefox',
+    'service workers are untested in Firefox here',
   );
 
   const FIVE_MINUTES = 5 * 60_000;
@@ -89,7 +93,9 @@ test.describe('stale-while-revalidate tab roots', () => {
   test('a second visit opens from the cache and says how old it is', async ({
     page,
     context,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_NAVIGATE_OFFLINE);
     await signIn(page, 'swr-open');
     await createGarment(page, 'Cached coat', 'coats');
     await waitForServiceWorker(page);
@@ -139,7 +145,9 @@ test.describe('stale-while-revalidate tab roots', () => {
   test('a page the user is reading is offered the newer one, never moved', async ({
     page,
     context,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_NAVIGATE_OFFLINE);
     await signIn(page, 'swr-offer');
     await waitForServiceWorker(page);
     await cachePage(page, '/wardrobe');
@@ -192,7 +200,9 @@ test.describe('stale-while-revalidate tab roots', () => {
     page,
     context,
     playwright,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
     await signIn(page, 'swr-race-a');
     await createGarment(page, 'Race coat', 'coats');
     await waitForServiceWorker(page);
@@ -253,7 +263,9 @@ test.describe('stale-while-revalidate tab roots', () => {
   test('two tabs opening the same tab root each learn how old their copy is', async ({
     page,
     context,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_NAVIGATE_OFFLINE);
     await signIn(page, 'swr-two-tabs');
     await waitForServiceWorker(page);
     await cachePage(page, '/wardrobe');
@@ -294,7 +306,9 @@ test.describe('stale-while-revalidate tab roots', () => {
   test('a filtered wardrobe shown from the cache is revalidated as its fragment', async ({
     page,
     context,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_NAVIGATE_OFFLINE);
     await signIn(page, 'swr-fragment');
     await createGarment(page, 'Rain coat', 'coats');
     await waitForServiceWorker(page);
@@ -329,7 +343,9 @@ test.describe('stale-while-revalidate tab roots', () => {
   test('a tab root cached before this worker activated is never served, even offline', async ({
     page,
     context,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_NAVIGATE_OFFLINE);
     await signIn(page, 'swr-old-build');
     await createGarment(page, 'Old build coat', 'coats');
     await waitForServiceWorker(page);

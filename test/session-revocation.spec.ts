@@ -23,13 +23,14 @@ import {
  * refused sign-in that ends the session (X-Session-Ended, #131). The headers on
  * every revocation path are test/integration/session-revocation.spec.ts.
  *
- * Chromium only: `cache: 'only-if-cached'` is how a page asks the HTTP cache
- * alone, and Clear-Site-Data's effect is what is measured.
+ * `cache: 'only-if-cached'` is how a page asks the HTTP cache alone, and
+ * Clear-Site-Data's effect is what is measured: Chromium and the Safari
+ * projects (nightly, #179) run it.
  */
 test.describe('a session revoked elsewhere', () => {
   test.skip(
-    ({ browserName }) => browserName !== 'chromium',
-    'reads the HTTP cache with only-if-cached, in chromium',
+    ({ browserName }) => browserName === 'firefox',
+    'untested in Firefox here',
   );
 
   /** Whether the browser's HTTP cache alone can answer `url`. */

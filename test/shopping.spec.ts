@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * The shopping loop in a browser at phone width (#34, slice 34b): a plan's
@@ -28,8 +29,7 @@ async function post(page: Page, url: string, form: Record<string, string>) {
 test('shop for a plan’s gap on the phone, buy the candidate', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'shopping');
   const plan = await post(page, '/wardrobe/plans', { name: 'NYC minimal' });
   const items: Record<string, string>[] = [

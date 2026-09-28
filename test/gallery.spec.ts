@@ -2,6 +2,7 @@ import { expect, type Page, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
 import { householdToday } from './support/household-today';
+import { MOBILE_WEBKIT_CANNOT_SWIPE } from './support/webkit-limits';
 
 /**
  * The outfit gallery in a browser at phone width (#9): swiping the Ideas
@@ -34,7 +35,9 @@ async function closet(page: Page): Promise<void> {
 test('swipes through ideas with native scroll snapping and loads the next page', async ({
   page,
   browserName,
+  isMobile,
 }) => {
+  test.skip(browserName === 'webkit' && isMobile, MOBILE_WEBKIT_CANNOT_SWIPE);
   await signIn(page, 'gallery-swipe');
   await closet(page);
   await page.goto('/outfits/ideas');
@@ -72,6 +75,7 @@ test('swipes through ideas with native scroll snapping and loads the next page',
   await expect(strip.locator('[data-ideas-more]')).toHaveCount(0);
 
   // Nothing listens for touches on the strip: the swipe is the browser's.
+  // Read through the DevTools protocol, Chromium's alone.
   if (browserName === 'chromium') {
     const cdp = await page.context().newCDPSession(page);
     const { result } = await cdp.send('Runtime.evaluate', {

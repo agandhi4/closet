@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { householdToday } from './support/household-today';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Wears and washes in a browser at phone width (#7): the calendar's worn
@@ -31,8 +32,7 @@ async function created(
 test('mark an outfit worn, wash it, log a wear alone, and do the laundry', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'wears');
   const garment = (name: string, quantity: string) =>
     created(

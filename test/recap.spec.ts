@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 import sharp from 'sharp';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * The year in review in a browser at phone width (#26): opened from the
@@ -40,8 +41,7 @@ async function expectLightCard(png: Buffer): Promise<void> {
 }
 
 test('the year in review on the phone, saved as an image', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'recap');
 
   // Ten pieces worn today: a recap in any week of the year, January 1

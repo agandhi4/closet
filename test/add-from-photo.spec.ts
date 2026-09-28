@@ -15,7 +15,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 
 async function openAddSheet(page: Page) {
   await page.goto('/wardrobe');
-  await page.getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
   const sheet = page.locator('#add-sheet');
   await expect(sheet).toBeVisible();
   return sheet;

@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * The duplicate check at phone width (#20): what only a browser shows. The
@@ -29,8 +30,7 @@ async function fillAsWhiteTee(page: Page, name: string) {
 test('a white tee like one owned offers a copy, which can be dismissed or taken', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'lookalikes');
   const owned = await createGarment(page, 'White tee', 'tops', {
     props: '1',

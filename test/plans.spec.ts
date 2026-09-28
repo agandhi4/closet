@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Wardrobe plans in a browser at phone width (#34, slice 34a): Plans from
@@ -20,8 +21,7 @@ async function expectNoSidewaysScroll(page: Page): Promise<void> {
 }
 
 test('plan the wardrobe, see its gaps, duplicate it', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'plans');
   await createGarment(page, 'White tee', 'tops', {
     props: '1',

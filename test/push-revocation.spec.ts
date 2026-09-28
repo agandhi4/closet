@@ -7,6 +7,7 @@ import {
 } from './support/e2e-session';
 import { fakeSubscription, stubPushManager } from './support/push-stub';
 import { waitForServiceWorker } from './support/service-worker';
+import { WEBKIT_HAS_NO_PUSH } from './support/webkit-limits';
 
 /**
  * A password change keeps the notifications of the device that made it and
@@ -27,9 +28,10 @@ test.describe('push subscriptions and revoked sessions', () => {
     process.env.PWA_ENABLED !== 'true',
     'needs a server started with PWA_ENABLED=true',
   );
+  test.skip(({ browserName }) => browserName === 'webkit', WEBKIT_HAS_NO_PUSH);
   test.skip(
-    ({ browserName }) => browserName !== 'chromium',
-    'service workers and push are only reliable in chromium here',
+    ({ browserName }) => browserName === 'firefox',
+    'service workers are untested in Firefox here',
   );
 
   /** This browser's subscription endpoint, or null without one. */

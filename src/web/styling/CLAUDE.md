@@ -13,4 +13,4 @@
 
 ## Gotchas
 
-- **A flex item's percentage width inside a padded scroll strip resolves against the padded box.** Styling's strips pad half the strip less half an item so the ends can centre; `basis-2/5` items then came out a sixth of the screen. Items take a fixed width (`w-28`) and the padding `calc(50% - half of it)`.
+- **The strips' ends are spacers, not padding** (`sizing`, #179). WebKit leaves a flex scroller's end padding out of its scrollable width when the items alone fit: a row of "No garment" and one garment did not scroll at all in Safari, so the garment could never be chosen. `::before` and `::after` spacers are `calc(50% - half an item - the gap)`, since the strip's `gap-3` also falls beside them. Items keep a fixed width (`w-28`): a percentage (`basis-2/5`) resolved against the wrong box and came out a sixth of the screen.

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * The garment form's properties in a browser (#12): what only htmx can
@@ -13,8 +14,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 test('a heavyweight tee: category, type and weight fill the presets, and a choice survives', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'garment-properties');
   await page.goto('/wardrobe/new');
 

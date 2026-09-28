@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { signIn } from './support/e2e-session';
 import { fakeSubscription, stubPushManager } from './support/push-stub';
+import { WEBKIT_HAS_NO_PUSH } from './support/webkit-limits';
 
 /**
  * The profile page's notification controls (<push-settings>, public/js/
@@ -39,7 +40,7 @@ test.describe('notification settings on the profile page', () => {
   );
   test.skip(
     ({ browserName }) => browserName !== 'chromium',
-    'service workers and push are only reliable in chromium here',
+    `the spec launches Chromium's full build (the channel above); ${WEBKIT_HAS_NO_PUSH}`,
   );
 
   test.beforeEach(async ({ page }) => {

@@ -2,8 +2,9 @@ name: Nightly
 
 # Slow checks that no PR or publish pays for: the page audit (against the
 # committed baseline) and Lighthouse (trend-shaped, used to run on every
-# push), and the real background-removal model, too big for the per-merge
-# publish job (#181). Nothing here gates a deploy.
+# push), the real background-removal model, too big for the per-merge
+# publish job (#181), and the browser suite in WebKit, the owner's phone's
+# engine (#179). Nothing here gates a deploy.
 on:
   schedule:
     - cron: "30 8 * * *" # 04:30 US Eastern
@@ -144,3 +145,111 @@ jobs:
           MODELS_DIR: models
         run: scripts/smoke-image.sh "$IMAGE_ID"
       - run: npx vitest run --project integration test/integration/cutout-model.spec.ts
+
+  # The whole Playwright suite in WebKit (#179): the owner uses the installed
+  # app on an iPhone, where every browser is WebKit, and the PR gate runs
+  # Chromium only. The two Safari projects of playwright.config.ts (`webkit`
+  # is desktop Safari, `Mobile Safari` an iPhone 12) are the matrix, one job
+  # each in parallel: sharding a project further would repeat the install
+  # and the build for a few minutes of tests. Production config, as ci.yml's
+  # e2e job runs Chromium. What each skip in these projects means and why a
+  # failure is worth reading: docs/testing-webkit.md.
+  webkit:
+    name: webkit (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: webkit
+            slug: webkit
+          - project: Mobile Safari
+            slug: mobile-safari
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: Password123
+          POSTGRES_DB: postgres-test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d postgres-test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      CI: true
+      DATABASE_HOST: localhost
+      DATABASE_USER: test
+      DATABASE_PASS: Password123
+      DATABASE_SCHEMA: postgres-test
+      PWA_ENABLED: "true"
+      SITE_URL: https://closet.test
+      # Required, 32+ characters (src/config.ts). Signs only this job's
+      # throwaway sessions.
+      ACCESS_TOKEN_SECRET: ci-only-access-token-secret-not-for-deployment
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Throwaway VAPID keys
+        run: |
+          keys=$(npx web-push generate-vapid-keys --json)
+          echo "PUBLIC_VAPID_KEY=$(echo "$keys" | jq -r .publicKey)" >> "$GITHUB_ENV"
+          echo "PRIVATE_VAPID_KEY=$(echo "$keys" | jq -r .privateKey)" >> "$GITHUB_ENV"
+      - run: npx playwright install --with-deps webkit
+      - run: npm run build
+      # One retry, not the config's two: a test that hangs to its 30 s
+      # timeout would cost three. A test that passes on its retry is flaky,
+      # not failing, and the JSON report says so.
+      - name: Playwright (${{ matrix.project }})
+        env:
+          PROJECT: ${{ matrix.project }}
+          PLAYWRIGHT_JSON_OUTPUT_FILE: results/${{ matrix.slug }}/results.json
+        run: npx playwright test --project="$PROJECT" --retries=1 --reporter=list,json,html
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: webkit-results-${{ matrix.slug }}
+          path: results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: playwright-report-${{ matrix.slug }}
+          path: playwright-report/
+          retention-days: 14
+
+  # A red run opens or updates the one tracking issue with the failing specs
+  # and the run's link; a green one closes it (scripts/webkit-nightly-issue.sh).
+  # Its own job so the token that writes issues never runs the suite.
+  webkit-issue:
+    name: webkit tracking issue
+    needs: webkit
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: scripts/webkit-nightly-issue.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: webkit-results-*
+          path: results
+          merge-multiple: true
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          OUTCOME: ${{ needs.webkit.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: scripts/webkit-nightly-issue.sh results

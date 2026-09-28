@@ -1,0 +1,77 @@
+# WebKit (Safari) tests
+
+The owner uses closet as the installed app on an iPhone, where every browser
+is WebKit. The PR gate runs Playwright in Chromium only, so `nightly.yml`'s
+`webkit` job runs the whole suite in the two Safari projects of
+`playwright.config.ts` (#179): `webkit` (desktop Safari) and `Mobile Safari`
+(an iPhone 12: 390 px, touch, `isMobile`). A red run opens or updates one
+issue, "Nightly WebKit / Mobile Safari run is failing", and a green run
+closes it (`scripts/webkit-nightly-issue.sh`; the job itself:
+`docs/deployment.md`, CI and publishing). Nothing waits on it.
+
+## Reading a failure
+
+Each failing spec is one of two things:
+
+- **An app bug on Safari.** Fix the app, or give it its own issue. The
+  first local run (#179) found the Styling strips unable to scroll a row
+  of one garment (WebKit leaves a flex scroller's end padding out of its
+  scroll width; `src/web/styling/CLAUDE.md`).
+- **Something Playwright's WebKit cannot do.** The spec skips in WebKit with
+  one of the reasons in `test/support/webkit-limits.ts`, each seen failing
+  with the app working: offline navigations (setOffline fails them before
+  the service worker answers), a service worker's own requests and console
+  (only Chromium routes and reports them), push (no PushManager in the
+  Linux build), and swiping in mobile WebKit (no wheel, no touch swipe; the
+  `webkit` project runs those specs at 390 px with touch). A skip that hides
+  an app bug does not belong there: the failure stays, and the tracking
+  issue says so.
+
+Two quirks the specs absorb rather than skip:
+
+- **WebKit refuses a fetch while its page is leaving** and logs "Fetch API
+  cannot load <url> due to access control checks.", which Playwright's
+  WebKit reports as a page error although the app catches it.
+  `pageErrors(page)` (`test/support/page-errors.ts`) leaves that line out;
+  a spec collects the page's errors through it, never its own
+  `page.on('pageerror')`.
+- **A Safari tab opens the install dialog** over the first page of every
+  session and it takes every tap. The Safari projects start with it
+  dismissed (`INSTALL_DISMISSED` in `playwright.config.ts`, the element's
+  own flag); `test/install-dialog.spec.ts` covers the dialog in Chromium.
+
+Other differences met on the way: Playwright's WebKit reports a multipart
+body without its files' bytes (`test/photo-downscale.spec.ts` reads them off
+the input) and cannot read the clipboard back (`client-behaviors.spec.ts`
+checks the link the tap writes); a held answer is released before
+`route.fulfill` returns, since WebKit hands it to the page first
+(`test/autosave.spec.ts`).
+
+## Running it on linux-box
+
+Playwright's WebKit needs system libraries linux-box does not have (and
+`install-deps` needs root), so the browser runs in Playwright's own image,
+whose tag must match `@playwright/test` in `package-lock.json`, against a
+`start:test` server on the host:
+
+```bash
+npm run build
+docker exec pgvault-dev-postgres-1 psql -U postgres -c 'CREATE DATABASE closet_webkit'
+# The production config, as the nightly runs it (PWA on, VAPID keys, https: SITE_URL),
+# plus what playwright.config.ts would set for its own server (SENTRY_DSN, ORDER_MAIL_*).
+PORT=3107 DATABASE_HOST=localhost DATABASE_USER=postgres DATABASE_PASS=postgres \
+  DATABASE_SCHEMA=closet_webkit PWA_ENABLED=true SITE_URL=https://closet.test \
+  PUBLIC_VAPID_KEY=.. PRIVATE_VAPID_KEY=.. ACCESS_TOKEN_SECRET=<32+ chars> \
+  METRICS_ENABLED=true ORDER_MAIL_JMAP_TOKEN=fmu1-e2e-stand-in \
+  ORDER_MAIL_SENDERS=orders-owner@example.com ORDER_MAIL_OWNER=orders-owner@example.com \
+  SENTRY_DSN=http://publickey@127.0.0.1:13107/1 npm run start:test &
+docker run --rm --network host --ipc host -u "$(id -u):$(id -g)" -e HOME=/tmp \
+  -v "$PWD:$PWD" -w "$PWD" -e PORT=3107 -e DATABASE_HOST=localhost \
+  -e DATABASE_USER=postgres -e DATABASE_PASS=postgres -e DATABASE_SCHEMA=closet_webkit \
+  -e PWA_ENABLED=true mcr.microsoft.com/playwright:v1.60.0-noble \
+  npx playwright test --project=webkit --project="Mobile Safari" --workers=4
+```
+
+The specs reuse the running server (not CI) and read the same database for
+their own rows. Stop the server by its PID, never by a pattern (other
+worktrees run the same command line), and drop the database.

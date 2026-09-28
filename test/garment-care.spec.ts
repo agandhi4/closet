@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * The care label and the repair log at phone width (#23): what only a
@@ -14,8 +15,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 test('wool fills the care label, a repair is logged, and both fit the phone', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'garment-care');
   await page.goto('/wardrobe/new');
 

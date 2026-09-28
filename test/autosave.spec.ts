@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createCapsule, createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Save-on-change forms keep every quick edit (src/web/autosave.tsx,
@@ -46,13 +47,17 @@ async function slowSaves(page: Page, path: RegExp): Promise<SlowSaves> {
       held += 1;
       if (held > 1) overlapped = true;
       bodies.push(new URLSearchParams(route.request().postData() ?? ''));
+      let response;
       try {
         await new Promise((resolve) => setTimeout(resolve, HOLD_MS));
-        const response = await route.fetch();
-        await route.fulfill({ response });
+        response = await route.fetch();
       } finally {
+        // Released before the answer goes back, not after fulfill resolves:
+        // WebKit hands the page its answer, and htmx sends the queued save,
+        // before Playwright's fulfill returns, which read as an overlap.
         held -= 1;
       }
+      await route.fulfill({ response });
     },
   );
   return {
@@ -75,12 +80,6 @@ async function slowSaves(page: Page, path: RegExp): Promise<SlowSaves> {
   };
 }
 
-function collectErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  return errors;
-}
-
 const radio = (page: Page, name: string) =>
   page.getByRole('radio', { name, exact: true });
 
@@ -93,7 +92,7 @@ async function editForm(page: Page, id: number): Promise<void> {
 test('tagging: three quick taps and Next are all saved, then the next garment', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page);
   await signIn(page, 'autosave-tag');
   await createGarment(page, 'Older tee');
   const tee = await createGarment(page, 'Newest tee');
@@ -127,7 +126,7 @@ test('tagging: three quick taps and Next are all saved, then the next garment', 
 test('tagging: a type tapped after a choice keeps the choice; the presets fill the rest', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page);
   await signIn(page, 'autosave-tag-presets');
   const tee = await createGarment(page, 'Only tee');
   await page.goto('/wardrobe/tag');
@@ -155,7 +154,7 @@ test('tagging: a type tapped after a choice keeps the choice; the presets fill t
 test("the garment form's properties: taps made while the type's presets load are kept", async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page);
   await signIn(page, 'autosave-properties');
   await page.goto('/wardrobe/new');
   const category = page.locator('#garment-category');
@@ -191,7 +190,7 @@ test("the garment form's properties: taps made while the type's presets load are
 test("the garment form's properties: a warmth tapped while a category change loads survives, and the presets catch up", async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page);
   await signIn(page, 'autosave-preset-markers');
   await page.goto('/wardrobe/new');
   const category = page.locator('#garment-category');
@@ -241,7 +240,7 @@ test("the garment form's properties: a warmth tapped while a category change loa
 test('condition: two quick chips and a note are all saved', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page);
   await signIn(page, 'autosave-condition');
   const tee = await createGarment(page, 'Worn tee');
   await page.goto(`/wardrobe/${tee}`);
@@ -274,7 +273,7 @@ test('condition: two quick chips and a note are all saved', async ({
 test('where it is: two quick choices and a note are all saved', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page);
   await signIn(page, 'autosave-away');
   const tee = await createGarment(page, 'Lent tee');
   await page.goto(`/wardrobe/${tee}`);
@@ -306,7 +305,7 @@ test('where it is: two quick choices and a note are all saved', async ({
 test('the capsules row: three quick toggles are all saved', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page);
   await signIn(page, 'autosave-capsules');
   const tee = await createGarment(page, 'Capsule tee');
   const names = ['Office', 'Weekend', 'Travel'];
@@ -335,7 +334,7 @@ test('the capsules row: three quick toggles are all saved', async ({
 test("a trip's packing list: three quick checks are all saved", async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page);
   await signIn(page, 'autosave-packing');
   const names = ['Packed tee', 'Packed jeans', 'Packed sneakers'];
   const ids = [
@@ -391,7 +390,7 @@ test("a trip's packing list: three quick checks are all saved", async ({
 test('the weather unit: two quick taps end on the second, and the offset reads in it', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page);
   await signIn(page, 'autosave-unit');
   for (const [url, form] of [
     ['/weather/unit', { unit: 'fahrenheit' }],

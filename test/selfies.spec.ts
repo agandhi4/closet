@@ -2,6 +2,7 @@ import { expect, type Page, test } from '@playwright/test';
 import sharp from 'sharp';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { householdToday } from './support/household-today';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Outfit selfies (#19) at phone width, as the installed app takes them:
@@ -54,8 +55,7 @@ function cameraPhoto(): Promise<Buffer> {
 test('take a mirror selfie from Today, see the look everywhere, then remove it', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   const uploads: number[] = [];
   page.on('request', (request) => {
     if (/\/calendar\/\d+\/selfie/.test(request.url())) {

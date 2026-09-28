@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * The wardrobe grid and the garment form in a browser: what only htmx and
@@ -13,8 +14,7 @@ const TOTAL = PAGE + 5;
 
 test('scrolling the grid loads the next page into it', async ({ page }) => {
   test.slow();
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
 
   await signIn(page, 'wardrobe-grid');
   for (let i = 1; i <= TOTAL; i++) {

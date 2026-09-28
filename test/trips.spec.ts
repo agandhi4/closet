@@ -4,6 +4,7 @@ import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { householdToday } from './support/household-today';
 import { waitForServiceWorker } from './support/service-worker';
+import { WEBKIT_CANNOT_NAVIGATE_OFFLINE } from './support/webkit-limits';
 
 /**
  * Trips (#10) at phone width, what only a browser shows: the trip form, the
@@ -232,8 +233,12 @@ test.describe('A trip in the installed app', () => {
     'needs a server started with PWA_ENABLED=true',
   );
   test.skip(
-    ({ browserName }) => browserName !== 'chromium',
-    'service workers are only reliable in chromium here',
+    ({ browserName }) => browserName === 'webkit',
+    WEBKIT_CANNOT_NAVIGATE_OFFLINE,
+  );
+  test.skip(
+    ({ browserName }) => browserName === 'firefox',
+    'service workers are untested in Firefox here',
   );
 
   test('offline, shows the last copy with its writes disabled', async ({

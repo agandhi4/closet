@@ -37,6 +37,24 @@ process.env.ORDER_MAIL_OWNER ??= ORDER_REVIEW_OWNER;
 process.env.SENTRY_DSN ??= E2E_SENTRY_DSN;
 
 /**
+ * A Safari tab (not the installed app) opens the install dialog over the
+ * first page of every session (public/js/pwa.js, offerInstall), and it
+ * takes every tap until dismissed. The Safari projects start as a user who
+ * has dismissed it: @khmyznikov/pwa-install's own flag, which it reads from
+ * sessionStorage or localStorage. test/install-dialog.spec.ts covers the
+ * dialog itself, in Chromium.
+ */
+const INSTALL_DISMISSED = {
+  cookies: [],
+  origins: [
+    {
+      origin: APP_ORIGIN,
+      localStorage: [{ name: 'pwa-hide-install', value: 'true' }],
+    },
+  ],
+};
+
+/**
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
@@ -77,9 +95,10 @@ export default defineConfig({
       use: { ...devices['Desktop Firefox'] },
     },
 
+    /* The Safari projects run nightly (.github/workflows/nightly.yml, #179). */
     {
       name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
+      use: { ...devices['Desktop Safari'], storageState: INSTALL_DISMISSED },
     },
 
     /* Test against mobile viewports. */
@@ -89,7 +108,7 @@ export default defineConfig({
     },
     {
       name: 'Mobile Safari',
-      use: { ...devices['iPhone 12'] },
+      use: { ...devices['iPhone 12'], storageState: INSTALL_DISMISSED },
     },
 
     /* Test against branded browsers. */

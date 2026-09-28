@@ -16,6 +16,7 @@ import {
   waitForServiceWorker,
   workerLogs,
 } from './support/service-worker';
+import { WEBKIT_CANNOT_WATCH_WORKER } from './support/webkit-limits';
 
 /**
  * The service worker's image cache is the session's, like its page cache
@@ -25,9 +26,10 @@ import {
  * in any of the worker's caches, even opened as a document. The page cache's
  * own cases are stale-pages.spec.ts and session-revocation.spec.ts.
  *
- * Needs a server started with PWA_ENABLED=true; Chromium only, like
- * stale-pages.spec.ts. Offline goes through networkSwitch: setOffline alone
- * does not cut the worker's own fetches.
+ * Needs a server started with PWA_ENABLED=true. Offline goes through
+ * networkSwitch: setOffline alone does not cut the worker's own fetches,
+ * and routing them is Chromium's alone, so the Safari projects run only the
+ * test without it.
  */
 test.describe('the image cache belongs to one session', () => {
   test.skip(
@@ -35,8 +37,8 @@ test.describe('the image cache belongs to one session', () => {
     'needs a server started with PWA_ENABLED=true',
   );
   test.skip(
-    ({ browserName }) => browserName !== 'chromium',
-    'service workers are only reliable in chromium here',
+    ({ browserName }) => browserName === 'firefox',
+    'service workers are untested in Firefox here',
   );
 
   /** A garment with a photo, made through the app's own posts; its id. */
@@ -173,7 +175,9 @@ test.describe('the image cache belongs to one session', () => {
     page,
     context,
     playwright,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
     await signIn(page, 'img-first');
     const garmentId = await addPhotographedGarment(page, 'Private coat');
     await waitForServiceWorker(page);
@@ -237,7 +241,9 @@ test.describe('the image cache belongs to one session', () => {
     page,
     context,
     playwright,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
     await signIn(page, 'img-race-a');
     await addPhotographedGarment(page, 'Race coat');
     const second = await registerElsewhere(playwright, 'img-race-b');

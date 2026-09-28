@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { createGarment, createOutfit } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
 import { householdToday } from './support/household-today';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Several outfits a day at phone width (#13): a day planned three times
@@ -16,8 +17,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 test('a three-outfit day: planned by occasion, stacked in order, each with its pill', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'occasions');
   const day = householdToday();
   // Planned in an order the page must not keep: evening, work, workout.

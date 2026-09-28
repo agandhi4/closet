@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createCapsule, createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Capsules in a browser at phone width (#8): the Capsules tab, creating a
@@ -15,8 +16,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 test('make a capsule, choose its garments, and toggle one from its page', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'capsules');
   for (const [name, category] of [
     ['Oxford', 'tops'],
@@ -89,8 +89,7 @@ test('make a capsule, choose its garments, and toggle one from its page', async 
 test('the picker counts members on a page the grid appends', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'capsule-count');
   // Created first, so newest-first it lands on the grid's second page.
   const old = await createGarment(page, 'Old member');

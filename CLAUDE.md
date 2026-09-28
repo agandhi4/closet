@@ -77,7 +77,7 @@ views/
 public/                Static: sw.js, bundle.css, vendor/, modules/, *.br/*.gz (generated), js/,
                        assets/ (icon.svg is the source; icon.png, icon-192.png, icon-512.png and
                        favicon.ico come from `npm run generate:icons`)
-test/                  Playwright specs (CI runs all of them in Chromium with the PWA on)
+test/                  Playwright specs (the gate runs them in Chromium, the nightly in WebKit too; PWA on)
   support/, integration/  the harness and its helpers: test/CLAUDE.md
 drizzle/               Generated migrations (NNNN_name.sql) + meta/ (journal, snapshots). Shipped in the image
 docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature work against it.

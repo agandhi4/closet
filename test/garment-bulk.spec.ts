@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Select mode and bulk edit in a browser (#12, slice 12b): the live count,
@@ -13,8 +14,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 test('select two tees, set them warm, and land back on the grid', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'garment-bulk');
   for (const name of ['Tee one', 'Tee two', 'Boots']) {
     const res = await page.request.post('/wardrobe', {

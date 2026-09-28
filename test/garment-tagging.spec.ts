@@ -1,5 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Tagging mode in a browser (#12, slice 12c): a tap saves and redraws the
@@ -27,8 +28,7 @@ function settled(page: Page): Promise<void> {
 }
 
 test('tag two tees by tapping, then finish', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'garment-tagging');
   for (const name of ['First tee', 'Second tee']) {
     const res = await page.request.post('/wardrobe', {

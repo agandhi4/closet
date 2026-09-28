@@ -7,6 +7,8 @@ import {
   cachePage,
   waitForServiceWorker,
 } from './support/service-worker';
+import { pageErrors } from './support/page-errors';
+import { WEBKIT_CANNOT_NAVIGATE_OFFLINE } from './support/webkit-limits';
 
 /**
  * Weather at phone width (#14): the profile's city search and "Use my
@@ -39,8 +41,7 @@ async function expectNoSideScroll(page: Page): Promise<void> {
 }
 
 test('a city from the search, then the line and the week', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'weather-city');
 
   await page.goto('/wardrobe');
@@ -87,8 +88,7 @@ async function monthCellBoxes(page: Page): Promise<number[][]> {
 test("the month grid's forecast days get their weather without moving (#201)", async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'weather-month');
   await setHome(page);
   // Today holds a collage: the tallest kind of cell a chip joins.
@@ -188,8 +188,12 @@ test.describe('offline', () => {
     'needs a server started with PWA_ENABLED=true',
   );
   test.skip(
-    ({ browserName }) => browserName !== 'chromium',
-    'service workers are only reliable in chromium here',
+    ({ browserName }) => browserName === 'webkit',
+    WEBKIT_CANNOT_NAVIGATE_OFFLINE,
+  );
+  test.skip(
+    ({ browserName }) => browserName === 'firefox',
+    'service workers are untested in Firefox here',
   );
 
   test('the cached line, with the time it was fetched', async ({

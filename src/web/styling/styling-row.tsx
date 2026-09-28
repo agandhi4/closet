@@ -45,16 +45,28 @@ export function roleLabel(role: GarmentRole): string {
 const SMALL: readonly GarmentRole[] = ['accessory', 'bag', 'none'];
 
 /**
- * An item's width and the strip's side padding go together: the padding is
- * half the strip less half an item, so the first and last items can be
- * centred and the neighbours peek in what is left. The width is fixed, not
- * a percentage: a flex item's percentage resolves against the strip's box
- * inside that padding, which shrank the items to a sliver.
+ * An item's width and the strip's end spacers go together: each spacer is
+ * half the strip less half an item and the strip's gap (`gap-3`, 0.75rem,
+ * also falls between a spacer and its item), so the first and last items
+ * can be centred and the neighbours peek in what is left. Spacers, not
+ * padding (#179): WebKit leaves a flex scroller's end padding out of its
+ * scrollable width when the items alone fit, so a row of "No garment" and
+ * one garment could not scroll at all in Safari and the garment was never
+ * chosen. The width is fixed, not a percentage: a flex item's percentage
+ * would resolve against the strip, not the item's share of it.
  */
 function sizing(role: GarmentRole): { item: string; strip: string } {
   return SMALL.includes(role)
-    ? { item: 'w-20', strip: 'px-[calc(50%-2.5rem)]' }
-    : { item: 'w-28', strip: 'px-[calc(50%-3.5rem)]' };
+    ? {
+        item: 'w-20',
+        strip:
+          'before:w-[calc(50%-3.25rem)] after:w-[calc(50%-3.25rem)] before:shrink-0 after:shrink-0',
+      }
+    : {
+        item: 'w-28',
+        strip:
+          'before:w-[calc(50%-4.25rem)] after:w-[calc(50%-4.25rem)] before:shrink-0 after:shrink-0',
+      };
 }
 
 /**

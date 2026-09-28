@@ -27,6 +27,10 @@ test.describe('install dialog', () => {
     process.env.PWA_ENABLED !== 'true',
     'needs a server started with PWA_ENABLED=true',
   );
+  // One engine dressed as each browser covers every install path, and only
+  // Chromium can be the Chrome that offers an install (beforeinstallprompt).
+  // The Safari projects also start with the dialog dismissed
+  // (playwright.config.ts, INSTALL_DISMISSED).
   test.skip(
     ({ browserName }) => browserName !== 'chromium',
     'Chromium stands in for the other browsers here',

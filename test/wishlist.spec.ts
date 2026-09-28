@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * The wishlist in a browser at phone width (#18): the Wardrobe's Wishlist
@@ -16,8 +17,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 test('find a replacement, see it on the wishlist, and buy it', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'wishlist');
   const old = await createGarment(page, 'Grey merino', 'tops', {
     props: '1',
@@ -99,8 +99,7 @@ test('find a replacement, see it on the wishlist, and buy it', async ({
 test('"Goes with my closet" on a wishlist item fits a phone', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'goes-with');
   const plain = { props: '1', pattern: 'solid' };
   const closet: [string, string, string][] = [

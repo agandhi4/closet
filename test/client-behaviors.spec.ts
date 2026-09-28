@@ -1,7 +1,8 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { openGarmentMenu } from './support/garment-page';
+import { pageErrors } from './support/page-errors';
 
 /**
  * What _hyperscript used to do, done by htmx attributes, inline handlers
@@ -11,19 +12,10 @@ import { openGarmentMenu } from './support/garment-page';
  * went with the builder: Styling's strips are test/styling.spec.ts's.
  */
 
-function collectErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') errors.push(msg.text());
-  });
-  return errors;
-}
-
 test('the filter modal applies and clears filters, keeping the keyword', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'client-filters');
   await createGarment(page, 'Red tee', 'tops', { color: 'red' });
   await createGarment(page, 'Blue tee', 'tops', { color: 'blue' });
@@ -57,7 +49,7 @@ test('the filter modal applies and clears filters, keeping the keyword', async (
 test('the outfit page plans the outfit from its sheet and lands on that week', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'client-plan-sheet');
   const garment = await createGarment(page, 'Sheet tee', 'tops');
   const res = await page.request.post('/outfits', {
@@ -82,8 +74,16 @@ test('the outfit page plans the outfit from its sheet and lands on that week', a
 test('the share button copies the link and flashes', async ({
   page,
   context,
+  browserName,
 }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  // Chromium needs both permissions. WebKit lets a tap write without one
+  // and never lets a page read the clipboard back (readText waits for the
+  // paste menu), so there the flash, which only a resolved write starts,
+  // and the link the tap writes are the proof.
+  const readable = browserName === 'chromium';
+  if (readable) {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  }
   await signIn(page, 'client-share');
   const id = await createGarment(page, 'Shared tee', 'tops');
   await page.goto(`/wardrobe/${id}`);
@@ -91,11 +91,15 @@ test('the share button copies the link and flashes', async ({
   // The garment page's Share is an item of its ⋯ menu (#84).
   const menu = await openGarmentMenu(page);
   const share = menu.getByRole('button', { name: 'Share' });
+  const link = /\/share\?shareableId=[^&]+&type=garment$/;
+  await expect(share).toHaveAttribute('data-copy', link);
   await share.click();
   await expect(share).toHaveClass(/\btext-success\b/);
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(
-    /\/share\?shareableId=[^&]+&type=garment$/,
-  );
+  if (readable) {
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(
+      link,
+    );
+  }
   await expect(share).toHaveClass(/\btext-base-content\b/);
 });
 

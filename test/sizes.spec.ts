@@ -1,5 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 import { signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Sizes at phone width (#24): Profile › Sizes, its editor (measurements in
@@ -19,8 +20,7 @@ async function expectNoSidewaysScroll(page: Page): Promise<void> {
 test('sizes on the phone: the Profile section, its editor and the form’s hint', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'sizes');
 
   await page.goto('/auth/profile');

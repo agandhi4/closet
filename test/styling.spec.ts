@@ -1,6 +1,8 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { createGarment, createOutfit } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
+import { MOBILE_WEBKIT_CANNOT_SWIPE } from './support/webkit-limits';
 
 /**
  * Styling (#42) in a phone-sized browser: the strips are the browser's own
@@ -12,15 +14,6 @@ import { signIn } from './support/e2e-session';
  */
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
-
-function collectErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') errors.push(msg.text());
-  });
-  return errors;
-}
 
 const row = (page: Page, role: string) =>
   page.locator(`[data-styling-row="${role}"]`).first();
@@ -115,8 +108,10 @@ async function wardrobe(page: Page) {
 test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', async ({
   page,
   browserName,
+  isMobile,
 }) => {
-  const errors = collectErrors(page);
+  test.skip(browserName === 'webkit' && isMobile, MOBILE_WEBKIT_CANNOT_SWIPE);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'styling-save');
   const g = await wardrobe(page);
 
@@ -163,6 +158,7 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
   await expect(chosen(row(page, 'bottom'))).toHaveValue(String(g.jeans));
   await expect(chosen(row(page, 'footwear'))).toHaveValue(String(g.boots));
 
+  // The listeners are read through the DevTools protocol, Chromium's alone.
   if (browserName === 'chromium') {
     expect(await blockingScrollListeners(page)).toEqual([]);
   }
@@ -235,8 +231,11 @@ async function wheel(page: Page, strip: Locator, deltaX: number) {
 
 test('the chosen garment is ringed, and a locked row is frozen until unlocked (#106)', async ({
   page,
+  browserName,
+  isMobile,
 }) => {
-  const errors = collectErrors(page);
+  test.skip(browserName === 'webkit' && isMobile, MOBILE_WEBKIT_CANNOT_SWIPE);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'styling-freeze');
   const g = await wardrobe(page);
   await page.goto('/styling');
@@ -340,7 +339,7 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
 test('an outfit opened in Styling saves its changes in place', async ({
   page,
 }) => {
-  const errors = collectErrors(page);
+  const errors = pageErrors(page, { console: true });
   await signIn(page, 'styling-edit');
   const g = await wardrobe(page);
   const outfit = await createOutfit(page, 'Monday', g.oldTee);

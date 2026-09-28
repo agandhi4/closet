@@ -10,7 +10,8 @@ import { openPhotoSheet } from './support/garment-page';
  * photo-input.js, imported by the photo sheet's inputs): to 1600 px on its
  * long side as a JPEG, or unchanged when it is small or the browser cannot
  * decode it (HEIC in Chromium; the server decodes it). Choosing a photo
- * uploads it at once, so the spec reads the file off the upload itself.
+ * uploads it at once, so the spec reads the file's name and type off the
+ * upload itself, and its bytes off the input it was posted from.
  */
 
 const bigPhoto = () =>
@@ -52,13 +53,31 @@ async function openSheetAndCatchUpload(
   });
   await page.route(`**/wardrobe/${id}/photo`, async (route) => {
     const request = route.request();
+    let file: File;
     try {
       const body = request.postDataBuffer();
       const form = await new Response(body && new Uint8Array(body), {
         headers: { 'content-type': request.headers()['content-type'] },
       }).formData();
-      const file = form.get('photo') as File;
-      const bytes = Buffer.from(await file.arrayBuffer());
+      file = form.get('photo') as File;
+    } catch (error) {
+      fail(error as Error);
+      return route.fulfill({ status: 204 });
+    }
+    // The bytes are read from the file the form posted from, what
+    // preparePhoto left in the input: Playwright's WebKit reports a
+    // multipart body without its files' contents, only their names and
+    // types. Once answered, as WebKit refuses to read a file while its
+    // form's post is in flight.
+    await route.fulfill({ status: 204 });
+    try {
+      const bytes = Buffer.from(
+        await page.evaluate(async () => {
+          const input =
+            document.querySelector<HTMLInputElement>('#photoInput')!;
+          return [...new Uint8Array(await input.files![0].arrayBuffer())];
+        }),
+      );
       const { width, height } = await sharp(bytes)
         .metadata()
         .catch(() => ({ width: undefined, height: undefined }));
@@ -66,7 +85,6 @@ async function openSheetAndCatchUpload(
     } catch (error) {
       fail(error as Error);
     }
-    await route.fulfill({ status: 204 });
   });
   return { uploaded };
 }

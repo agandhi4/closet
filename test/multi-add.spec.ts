@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import sharp from 'sharp';
 import { signIn } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 /**
  * Adding several garments from photos at once (#200) at phone width: the
@@ -32,12 +33,11 @@ async function saveDraft(page: Page, category: string, name: string) {
 test('four photos from the library become four drafts, saved one by one into select mode', async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const errors = pageErrors(page);
   await signIn(page, 'multi-add');
 
   await page.goto('/wardrobe');
-  await page.getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
   const sheet = page.locator('#add-sheet');
   await expect(sheet).toBeVisible();
   const [chooser] = await Promise.all([

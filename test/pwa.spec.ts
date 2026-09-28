@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { cachedPaths, waitForServiceWorker } from './support/service-worker';
 import { openPhotoSheet } from './support/garment-page';
+import { WEBKIT_CANNOT_NAVIGATE_OFFLINE } from './support/webkit-limits';
 
 /**
  * What only a browser can show about the installed app: the service worker
@@ -11,8 +12,8 @@ import { openPhotoSheet } from './support/garment-page';
  * or WASM (the server removes backgrounds). test/stale-pages.spec.ts covers
  * the tab roots' stale-while-revalidate and the freshness indicator.
  *
- * Needs a server started with PWA_ENABLED=true (and VAPID keys); Chromium
- * only, the one Playwright engine with usable service worker support.
+ * Needs a server started with PWA_ENABLED=true (and VAPID keys). Chromium
+ * runs every test, the Safari projects (nightly) all but the offline ones.
  */
 test.describe('installed app delivery', () => {
   test.skip(
@@ -20,8 +21,8 @@ test.describe('installed app delivery', () => {
     'needs a server started with PWA_ENABLED=true',
   );
   test.skip(
-    ({ browserName }) => browserName !== 'chromium',
-    'service workers are only reliable in chromium here',
+    ({ browserName }) => browserName === 'firefox',
+    'service workers are untested in Firefox here',
   );
 
   // Login is always required: without a session every page below would be
@@ -57,7 +58,9 @@ test.describe('installed app delivery', () => {
   test('renders the cached shell with the offline banner when offline', async ({
     page,
     context,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_NAVIGATE_OFFLINE);
     await waitForServiceWorker(page);
     // Visit the wardrobe through the worker once so a copy is in its page
     // cache.
@@ -80,7 +83,9 @@ test.describe('installed app delivery', () => {
   test('navigations use the preload online and the cache or offline page offline', async ({
     page,
     context,
+    browserName,
   }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_NAVIGATE_OFFLINE);
     await waitForServiceWorker(page);
     // Enabled in the worker's activate event (views/assets/src-sw.ts).
     await expect

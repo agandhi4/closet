@@ -185,7 +185,7 @@ test('demo: Theo, every feature with real data', async ({ page }) => {
   await page.locator('#wardrobe-menu summary').click();
   await shot(page, '67-demo-wardrobe-menu');
   await page.goto('/wardrobe');
-  await page.getByRole('button', { name: 'Add' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.locator('#add-sheet')).toBeVisible();
   await shot(page, '68-demo-wardrobe-add');
   await page.goto('/wardrobe?category=tops');
@@ -578,7 +578,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     }) => {
       await signInAs(page, 'demo');
       await page.goto('/wardrobe');
-      await page.getByRole('button', { name: 'Add' }).click();
+      await page.getByRole('button', { name: 'Add', exact: true }).click();
       const [chooser] = await Promise.all([
         page.waitForEvent('filechooser'),
         page.locator('#add-sheet [data-photo-source="camera"]').click(),
