@@ -201,6 +201,31 @@ const frames = (page: Page, count: number) =>
     count,
   );
 
+/**
+ * The strip items Tab reaches from `rowLocator`'s lock until the focus
+ * leaves the row (#146): their `data-garment-id`s, "" for "No garment".
+ * Items only: Firefox also stops on the strip itself (a scroll container),
+ * Chromium does not.
+ */
+async function tabbedItems(page: Page, rowLocator: Locator) {
+  await rowLocator.locator('.styling-lock').focus();
+  const reached: string[] = [];
+  for (let presses = 0; presses < 20; presses++) {
+    await page.keyboard.press('Tab');
+    const focus = await rowLocator.evaluate((row) => {
+      const el = document.activeElement;
+      if (!el || !row.contains(el)) return { left: true, item: null };
+      const item = el.matches('.styling-item')
+        ? el.getAttribute('data-garment-id')
+        : null;
+      return { left: false, item };
+    });
+    if (focus.left) return reached;
+    if (focus.item !== null) reached.push(focus.item);
+  }
+  throw new Error('Tab never left the row');
+}
+
 /** A sideways wheel over the middle of `strip`: what a swipe is to it. */
 async function wheel(page: Page, strip: Locator, deltaX: number) {
   const box = (await strip.boundingBox())!;
@@ -253,17 +278,16 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
   await expect(page).toHaveURL(/\/styling$/);
   expect(await scrollLeft(strip)).toBe(frozenAt);
   await expect(chosen(tops)).toHaveValue(String(g.newTee));
-  // Nor does the keyboard: Tab from the lock goes through "No garment" and
-  // the garments, and a browser may scroll even a hidden-overflow strip to
-  // reveal the one focused (Firefox does, for one out of view; Chromium
-  // does not). Whatever scrolled it, the strip comes back and the choice
-  // never moves: the scroll is made here, where the reveal would put it.
+  // Nor does the keyboard (#146): the frozen strip could not reveal a
+  // focused neighbour, so the neighbours are inert and Tab goes from the
+  // lock to the chosen garment, then on to the next row.
+  expect(await tabbedItems(page, tops)).toEqual([String(g.newTee)]);
+  // Whatever else scrolls it (a script can, even a hidden-overflow strip),
+  // the strip comes back and the choice never moves.
   for (const item of [
     tops.locator('.styling-item').first(),
     tops.locator(`[data-garment-id="${g.oldTee}"]`),
   ]) {
-    await item.focus();
-    await expect(item).toBeFocused();
     await item.evaluate((el) =>
       el.scrollIntoView({ inline: 'center', block: 'nearest' }),
     );
@@ -293,6 +317,8 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
   await wheel(page, row(page, 'bottom').locator('.styling-strip'), -200);
   await expect(chosen(row(page, 'bottom'))).toHaveValue('');
   expect(await scrollLeft(shuffledStrip)).toBe(shuffledAt);
+  // The server rendered it locked: the keyboard still skips the neighbours.
+  expect(await tabbedItems(page, shuffledTops)).toEqual([String(g.newTee)]);
 
   // Unlocked, it swipes again from the same item: one on is the old tee.
   await shuffledTops.locator('label.swap').click();
@@ -300,6 +326,13 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
   await wheel(page, shuffledStrip, 200);
   await expect(chosen(shuffledTops)).toHaveValue(String(g.oldTee));
   expect(await scrollLeft(shuffledStrip)).toBeGreaterThan(shuffledAt);
+  // And Tab reaches every item again, "No garment" first. Last: focusing
+  // one may scroll the unlocked strip to it, and so choose it.
+  expect(await tabbedItems(page, shuffledTops)).toEqual([
+    '',
+    String(g.newTee),
+    String(g.oldTee),
+  ]);
 
   expect(errors, errors.join('\n')).toEqual([]);
 });
@@ -344,9 +377,10 @@ test('"Style this" opens Styling locked on the garment', async ({ page }) => {
   await expect(page).toHaveURL(new RegExp(`/styling\\?with=${g.jeans}$`));
   const bottoms = row(page, 'bottom');
   await expect(chosen(bottoms)).toHaveValue(String(g.jeans));
-  await expect(
-    bottoms.getByRole('checkbox', { name: 'Lock Bottom' }),
-  ).toBeChecked();
+  const lockBottom = bottoms.getByRole('checkbox', { name: 'Lock Bottom' });
+  await expect(lockBottom).toBeChecked();
+  // Locked from the server's first paint (#146): Tab skips the neighbours.
+  expect(await tabbedItems(page, bottoms)).toEqual([String(g.jeans)]);
 });
 
 /**

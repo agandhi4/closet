@@ -50,15 +50,33 @@ function rowsOf(html: string): Row[] {
   return roles.map((role, i) => [role, garments[i], locks[i]]);
 }
 
-/** A row's strip: the garment ids after "No garment", in order. */
-function stripOf(html: string, role: string): number[] {
+/** The first `role` row's markup. */
+function rowOf(html: string, role: string): string {
   const start = html.indexOf(`data-styling-row="${role}"`);
   expect(start, `a ${role} row`).toBeGreaterThan(-1);
   const end = html.indexOf('data-styling-row="', start + 1);
-  const section = html.slice(start, end === -1 ? undefined : end);
-  return [...section.matchAll(/data-garment-id="(\d+)"/g)].map((m) =>
+  return html.slice(start, end === -1 ? undefined : end);
+}
+
+/** A row's strip: the garment ids after "No garment", in order. */
+function stripOf(html: string, role: string): number[] {
+  return [...rowOf(html, role).matchAll(/data-garment-id="(\d+)"/g)].map((m) =>
     Number(m[1]),
   );
+}
+
+/**
+ * The strip's items the keyboard and assistive tech can reach (#146): the
+ * ones not inert. A garment by its id, "No garment" as null.
+ */
+function reachableOf(html: string, role: string): (number | null)[] {
+  return [...rowOf(html, role).matchAll(/<(?:a|button) [^>]*>/g)]
+    .map((m) => m[0])
+    .filter((tag) => tag.includes('styling-item') && !tag.includes(' inert'))
+    .map((tag) => {
+      const id = /data-garment-id="(\d*)"/.exec(tag)![1];
+      return id ? Number(id) : null;
+    });
 }
 
 /** The rows' fields as Shuffle and "Add row" send them (a GET query). */
@@ -319,6 +337,9 @@ describe('Styling', () => {
         );
         expect(rest).toEqual([socks[1], socks[0], belt]);
         expect(next.body).not.toContain('/styling/garments');
+        // The request does not carry the row's lock: styling.js makes these
+        // inert as they land in a locked row.
+        expect(next.body).not.toContain(' inert');
       });
 
       it('?capsule= cycles only its garments; not an id is a 400, not the wardrobe’s a 404', async () => {
@@ -340,6 +361,14 @@ describe('Styling', () => {
         expect(res.statusCode).toBe(200);
         const rows = rowsOf(res.body);
         expect(rows).toContainEqual(['bottom', bottoms[0], true]);
+        // Locked from the first paint: its neighbours are inert in the
+        // server's markup, so Tab reaches the chosen garment alone. An
+        // unlocked row's items are all reachable.
+        expect(reachableOf(res.body, 'bottom')).toEqual([bottoms[0]]);
+        expect(reachableOf(res.body, 'top')).toEqual([
+          null,
+          ...stripOf(res.body, 'top'),
+        ]);
         // The generator's idea fills the other worn rows: a clean top and
         // the shoes; never the dirty tee, never a dress beside jeans.
         const top = rows.find(([role]) => role === 'top')![1];
@@ -389,6 +418,11 @@ describe('Styling', () => {
         expect(res.body).toMatch(/^<div id="styling-rows"/);
         const rows = rowsOf(res.body);
         expect(rows).toContainEqual(['top', tops[1], true]);
+        expect(reachableOf(res.body, 'top')).toEqual([tops[1]]);
+        expect(reachableOf(res.body, 'footwear')).toEqual([
+          null,
+          ...stripOf(res.body, 'footwear'),
+        ]);
         expect(rows).toContainEqual(['accessory', belt, false]);
         expect(rows).toContainEqual(['one-piece', null, false]);
         expect(rows).toContainEqual(['footwear', shoes[0], false]);

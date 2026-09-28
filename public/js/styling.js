@@ -16,11 +16,14 @@
  * - A tap on a neighbour centres it instead of opening it; a tap on the
  *   chosen garment opens its page (a boosted link).
  * - A locked row is frozen (#106): CSS stops its strip scrolling under a
- *   finger (styling-row.tsx), a tap on a neighbour does nothing, since a
- *   script's scroll would still move it, and whatever else scrolls it
- *   (keyboard focus revealing a neighbour) is undone rather than chosen.
- *   Centring on load still runs, so a row opened locked ("Style this") sits
- *   on its garment.
+ *   finger (styling-row.tsx), its neighbours are inert (#146: out of the tab
+ *   order, the accessibility tree and hit testing, so neither Tab nor a tap
+ *   reaches one), and whatever else scrolls it is undone rather than
+ *   chosen. Centring on load still runs, so a row opened locked ("Style
+ *   this") sits on its garment. The server renders a locked row's inert
+ *   neighbours; setLocked owns every change after that (the lock's field,
+ *   its attribute and the neighbours), and watch() makes a strip's next
+ *   page inert as it lands in a locked row.
  *
  * Evaluated once per document: the listeners below sit on the document and
  * serve every page's rows.
@@ -38,29 +41,34 @@ function watch(strip) {
   let observer = watched.get(strip);
   if (!observer) {
     centre(strip, strip.querySelector('[data-selected]'), 'instant');
-    observer = new IntersectionObserver((entries) => chooseFrom(strip, entries), {
-      root: strip,
-      // A zero-width band down the middle: an item intersects it only while
-      // it covers the centre, which is where scroll-snap parks the choice.
-      rootMargin: '0px -50% 0px -50%',
-      threshold: 0,
-    });
+    observer = new IntersectionObserver(
+      (entries) => chooseFrom(strip, entries),
+      {
+        root: strip,
+        // A zero-width band down the middle: an item intersects it only while
+        // it covers the centre, which is where scroll-snap parks the choice.
+        rootMargin: '0px -50% 0px -50%',
+        threshold: 0,
+      },
+    );
     watched.set(strip, observer);
   }
   // A strip's next page arrives as new items: observing one twice is a no-op.
   for (const item of strip.querySelectorAll('.styling-item')) {
     observer.observe(item);
   }
+  // The next page's request does not carry the row's lock.
+  syncLock(strip.closest('[data-styling-row]'));
 }
 
 function chooseFrom(strip, entries) {
   const crossing = entries.find((entry) => entry.isIntersecting);
   if (!crossing) return;
   // A locked row keeps its garment whatever moved the strip. Its hidden
-  // overflow stops fingers and wheels, but a browser may still scroll it to
-  // reveal a focused descendant (Firefox does, as Tab goes from the lock
-  // through "No garment" and the garments), so put the choice back in the
-  // middle instead.
+  // overflow stops fingers and wheels and its inert neighbours take no
+  // focus, but a script's scroll still moves it (scrollIntoView, or a
+  // browser revealing a focused descendant, as Firefox did before #146), so
+  // put the choice back in the middle instead.
   if (isLocked(strip)) {
     if (!crossing.target.hasAttribute('data-selected')) {
       centre(strip, strip.querySelector('[data-selected]'), 'instant');
@@ -86,8 +94,37 @@ function choose(strip, item) {
 
 /** The row's lock, the same state the strip's CSS freezes on. */
 function isLocked(strip) {
-  return Boolean(
-    strip.closest('[data-styling-row]')?.querySelector('.styling-lock:checked'),
+  return rowLocked(strip.closest('[data-styling-row]'));
+}
+
+function rowLocked(row) {
+  return row.querySelector('.styling-lock:checked') !== null;
+}
+
+/**
+ * A locked row's neighbours are inert, its chosen item is not; unlocked,
+ * none is. The `inert` property reflects to its attribute, so htmx's
+ * history snapshot (innerHTML) keeps it.
+ */
+function syncLock(row) {
+  const locked = rowLocked(row);
+  for (const item of row.querySelectorAll('.styling-item')) {
+    item.inert = locked && !item.hasAttribute('data-selected');
+  }
+}
+
+/**
+ * The lock was toggled: the row's `lock` field (what Shuffle and Save
+ * post), the checkbox's `checked` attribute (htmx's history snapshot is
+ * innerHTML, which drops the property) and its neighbours' inert, together.
+ */
+function setLocked(lock) {
+  const row = lock.closest('[data-styling-row]');
+  row.querySelector('input[name="lock"]').value = lock.checked ? '1' : '';
+  lock.toggleAttribute('checked', lock.checked);
+  syncLock(row);
+  console.debug(
+    `[styling] ${row.dataset.stylingRow} row ${lock.checked ? 'locked' : 'unlocked'}`,
   );
 }
 
@@ -108,7 +145,8 @@ function smooth() {
 // chooses it); only the chosen garment's tap opens its page. In the capture
 // phase: a garment is a boosted link, and htmx's own click listener on it
 // would start the navigation before a listener on the document heard the
-// click bubble up.
+// click bubble up. A locked row's neighbours are inert: a tap on one lands on
+// the strip, not the item, so it neither centres nor opens anything.
 document.addEventListener(
   'click',
   (event) => {
@@ -118,11 +156,17 @@ document.addEventListener(
     if (!strip) return;
     event.preventDefault();
     event.stopPropagation();
-    if (isLocked(strip)) return;
     centre(strip, item, smooth());
   },
   { capture: true },
 );
+
+document.addEventListener('change', (event) => {
+  const target = event.target;
+  if (target instanceof HTMLInputElement && target.matches('.styling-lock')) {
+    setLocked(target);
+  }
+});
 
 // Rows swapped in after the page loaded, and history restores.
 document.addEventListener('htmx:load', (event) => {

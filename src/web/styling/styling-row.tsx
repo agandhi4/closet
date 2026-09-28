@@ -22,8 +22,8 @@ import { STYLING_GARMENTS_PATH, type StylingState, stylingUrl } from './urls';
  * scrolling sideways (`overflow-x: hidden`, `touch-action: pan-y
  * pinch-zoom`, so the page still scrolls under a thumb and still zooms under
  * two; `pan-y` alone turned pinch-zoom off over the strip) and its
- * neighbours fade, until the lock
- * is lifted and the strip swipes again from the same item.
+ * neighbours fade, until the lock is lifted and the strip swipes again from
+ * the same item. The neighbours are also `inert` (#146, see `itemState`).
  */
 
 const ROLE_LABELS: Record<GarmentRole, StringKey> = {
@@ -66,6 +66,25 @@ function sizing(role: GarmentRole): { item: string; strip: string } {
 const PLINTH_STATE =
   'ring-inset group-data-selected/item:ring-2 group-data-selected/item:ring-primary group-data-selected/item:group-has-[.styling-lock:checked]/row:ring-accent group-not-data-selected/item:group-has-[.styling-lock:checked]/row:opacity-40';
 
+/**
+ * An item's choice attributes. In a locked row the neighbours are `inert`
+ * (#146): a frozen strip cannot scroll to reveal one, so Tab reaching it
+ * left the focus off-screen; inert takes them out of the tab order, out of
+ * the accessibility tree (they are not choosable, so the listbox offers the
+ * chosen garment alone, beside a checked "Lock <role>") and out of hit
+ * testing (a tap on one lands on the strip). The server renders it so a row
+ * opened locked is right from the first paint; styling.js keeps it in step
+ * when the lock is toggled and when a strip's next page arrives
+ * (`syncLock`).
+ */
+function itemState(props: { selected: boolean; locked: boolean }) {
+  return {
+    'data-selected': props.selected ? '' : undefined,
+    'aria-selected': props.selected ? 'true' : 'false',
+    inert: props.locked && !props.selected,
+  } as const;
+}
+
 /** What a row's links and sentinel need of the page. */
 export interface RowContext {
   state: StylingState;
@@ -97,12 +116,17 @@ export function StylingRowView(props: {
         role="listbox"
         aria-label={t('styling.STRIP_LABEL', { role: label })}
       >
-        <NoGarment role={row.role} selected={row.garmentId === null} />
+        <NoGarment
+          role={row.role}
+          selected={row.garmentId === null}
+          locked={row.locked}
+        />
         {row.garments.map((garment) => (
           <GarmentItem
             garment={garment}
             role={row.role}
             selected={garment.id === row.garmentId}
+            locked={row.locked}
             detached={garment.id === row.detachedId}
             viewOwner={context.viewOwner}
           />
@@ -124,11 +148,12 @@ export function StylingRowView(props: {
 
 /**
  * Lock: the row is frozen (no swiping, see the header) and Shuffle leaves
- * it as it is. The checkbox has no name: it writes the row's `lock` field,
- * which posts in step with its `role` and `garmentId` (an unchecked box
- * would post nothing and shift the lists), and mirrors its state into its
- * `checked` attribute, which htmx's history snapshot (innerHTML) keeps, so
- * a row restored by Back is still frozen and still reads locked.
+ * it as it is. The checkbox has no name: styling.js (`setLocked`) writes
+ * the row's `lock` field, which posts in step with its `role` and
+ * `garmentId` (an unchecked box would post nothing and shift the lists),
+ * mirrors its state into its `checked` attribute, which htmx's history
+ * snapshot (innerHTML) keeps, so a row restored by Back is still frozen and
+ * still reads locked, and makes the neighbours inert or not.
  */
 function LockToggle(props: { locked: boolean; label: string }) {
   return (
@@ -140,7 +165,6 @@ function LockToggle(props: { locked: boolean; label: string }) {
         class="styling-lock"
         checked={props.locked}
         aria-label={t('styling.LOCK', { role: props.label })}
-        onchange="this.closest('[data-styling-row]').querySelector('input[name=lock]').value = this.checked ? '1' : ''; this.toggleAttribute('checked', this.checked)"
       />
       {/* Heroicons' lock-closed and lock-open, outline. */}
       <svg
@@ -178,7 +202,11 @@ function LockToggle(props: { locked: boolean; label: string }) {
 }
 
 /** The builder's position 0: the row adds nothing to the outfit. */
-function NoGarment(props: { role: GarmentRole; selected: boolean }) {
+function NoGarment(props: {
+  role: GarmentRole;
+  selected: boolean;
+  locked: boolean;
+}) {
   const { item } = sizing(props.role);
   return (
     <button
@@ -186,8 +214,7 @@ function NoGarment(props: { role: GarmentRole; selected: boolean }) {
       class={`styling-item group/item snap-center snap-always shrink-0 ${item} flex flex-col gap-1`}
       role="option"
       data-garment-id=""
-      data-selected={props.selected ? '' : undefined}
-      aria-selected={props.selected ? 'true' : 'false'}
+      {...itemState(props)}
     >
       <span
         class={`aspect-square w-full rounded-box border border-dashed border-base-300 flex items-center justify-center text-faint text-2xl ${PLINTH_STATE}`}
@@ -208,6 +235,7 @@ function GarmentItem(props: {
   garment: RowGarment;
   role: GarmentRole;
   selected: boolean;
+  locked: boolean;
   detached: boolean;
   viewOwner: number | undefined;
 }) {
@@ -219,8 +247,7 @@ function GarmentItem(props: {
       class={`styling-item group/item snap-center snap-always shrink-0 ${item} flex flex-col gap-1 no-underline`}
       role="option"
       data-garment-id={garment.id}
-      data-selected={props.selected ? '' : undefined}
-      aria-selected={props.selected ? 'true' : 'false'}
+      {...itemState(props)}
     >
       <span
         class={`aspect-square w-full rounded-box bg-base-200 flex items-center justify-center p-2 ${PLINTH_STATE}`}
@@ -280,7 +307,11 @@ function StripSentinel(props: {
   );
 }
 
-/** GET /styling/garments: the next page of a strip, and its sentinel when more follow. */
+/**
+ * GET /styling/garments: the next page of a strip, and its sentinel when
+ * more follow. Never chosen and never inert: the request does not carry the
+ * row's lock, so styling.js makes them inert as they land in a locked row.
+ */
 export function StripPage(props: {
   role: GarmentRole;
   garments: RowGarment[];
@@ -295,6 +326,7 @@ export function StripPage(props: {
           garment={garment}
           role={props.role}
           selected={false}
+          locked={false}
           detached={false}
           viewOwner={props.context.viewOwner}
         />
