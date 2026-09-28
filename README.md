@@ -315,7 +315,7 @@ For most self-hosters: deploy to a VPS via [Coolify](https://coolify.io/) or Por
 
 ## Contributing
 
-Fixes that would benefit the upstream project belong in [Lazztech's repository](https://github.com/lazztech/libre-closet). Everything specific to this fork goes here. This project is licensed under AGPL-3.0 - contributions must be compatible with that license.
+Closet is a hard fork and does not track upstream. This project is licensed under AGPL-3.0 - contributions must be compatible with that license.
 
 ---
 
