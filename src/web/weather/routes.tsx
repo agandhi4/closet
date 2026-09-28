@@ -40,7 +40,12 @@ import {
   WeatherLocation,
 } from './settings';
 import { dayChips, todayLine } from './summary';
-import { WeatherDay, WeatherLine, WeatherPrompt } from './views';
+import {
+  WeatherCellDay,
+  WeatherDay,
+  WeatherLine,
+  WeatherPrompt,
+} from './views';
 
 /** The widest range of day chips one summary answers: a calendar month and a half. */
 const MAX_SUMMARY_DAYS = 42;
@@ -53,6 +58,9 @@ const Longitude = Type.Number({ minimum: -180, maximum: 180 });
 const SummaryQuery = Type.Object({
   from: Type.Optional(IsoDateSchema),
   to: Type.Optional(IsoDateSchema),
+  // The month grid's ask (WeatherMonthLoader): compact chips, no line. The
+  // page builds the URL, so any other value is a 400.
+  view: Type.Optional(Type.Literal('month')),
 });
 
 /**
@@ -85,9 +93,11 @@ export interface WeatherRouteOptions extends WebOptions {
  * can store a location). The signed-in user's own settings and forecast;
  * shares never reach them.
  *
- * - GET /weather/summary[?from=&to=]: the header line (WeatherLine, or
- *   the prompt to set a location) and, for a calendar's days, their chips
- *   out of band. Always a fragment: the pages load it in place.
+ * - GET /weather/summary[?from=&to=[&view=month]]: the header line
+ *   (WeatherLine, or the prompt to set a location) and, for a calendar's
+ *   days, their chips out of band; with view=month (the month grid, #201)
+ *   only the cells' compact chips. Always a fragment: the pages load it in
+ *   place. The same cached forecast as every other reader.
  * - GET /weather/places?q=: the city search (Open-Meteo geocoding through
  *   the server), WEATHER_SEARCH_LIMIT. `secretPath`: the request log shows
  *   the route, never the typed city.
@@ -141,6 +151,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
     { schema: { querystring: SummaryQuery } },
     async (request, reply) => {
       const days = summaryDays(request.query.from, request.query.to);
+      const month = request.query.view === 'month';
       const now = new Date();
       const { settings, active, cached } = await userWeather(
         db,
@@ -148,8 +159,21 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
         sessionUserId(request),
         now,
       );
-      if (!active) return renderFragment(reply, <WeatherPrompt />);
+      if (!active) {
+        return renderFragment(reply, month ? <></> : <WeatherPrompt />);
+      }
       if (!cached) return renderFragment(reply, <></>);
+      const chips = dayChips(cached, days, settings.unit);
+      if (month) {
+        return renderFragment(
+          reply,
+          <>
+            {chips.map((chip) => (
+              <WeatherCellDay chip={chip} />
+            ))}
+          </>,
+        );
+      }
       const line = todayLine({
         cached,
         active,
@@ -163,7 +187,7 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
           {line && (
             <WeatherLine line={line} timeZone={config.timeZone} now={now} />
           )}
-          {dayChips(cached, days, settings.unit).map((chip) => (
+          {chips.map((chip) => (
             <WeatherDay chip={chip} />
           ))}
         </>,

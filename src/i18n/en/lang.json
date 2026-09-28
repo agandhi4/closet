@@ -686,6 +686,7 @@
   "weather": {
     "RANGE": "{low}–{high} {unit}",
     "DAY_RANGE": "{low}–{high}°",
+    "DAY_HIGH": "{high}°",
     "RAIN_FROM": "rain from {hour}",
     "RAIN_NOW": "rain now",
     "TAKE_LAYER": "take a layer",

@@ -304,6 +304,52 @@ describe('calendar view (America/New_York)', () => {
       ]);
       expect(days.flatMap((d) => d.entries.map((e) => e.id))).not.toContain(4);
     });
+
+    // Sixteen forecast days from Friday 25 September end on 10 October.
+    it("keeps room for the weather on the forecast's days alone (#201)", () => {
+      const inForecast = (vm: MonthView) =>
+        vm.weeks
+          .flat()
+          .filter((day) => day?.inForecast)
+          .map((day) => day!.date);
+
+      const september = month({ year: 2026, month: 9 });
+      expect(september.forecast).toEqual({
+        from: '2026-09-25',
+        to: '2026-09-30',
+      });
+      expect(inForecast(september)).toEqual([
+        '2026-09-25',
+        '2026-09-26',
+        '2026-09-27',
+        '2026-09-28',
+        '2026-09-29',
+        '2026-09-30',
+      ]);
+
+      const october = month({ year: 2026, month: 10 });
+      expect(october.forecast).toEqual({
+        from: '2026-10-01',
+        to: '2026-10-10',
+      });
+      expect(inForecast(october)).toHaveLength(10);
+
+      for (const outside of [
+        month({ year: 2026, month: 8 }),
+        month({ year: 2026, month: 11 }),
+      ]) {
+        expect(outside.forecast).toBeNull();
+        expect(inForecast(outside)).toEqual([]);
+      }
+
+      // The last day of a month: that day alone, then the next month's.
+      expect(
+        month({ year: 2026, month: 9 }, { today: '2026-09-30' }).forecast,
+      ).toEqual({ from: '2026-09-30', to: '2026-09-30' });
+      expect(
+        month({ year: 2026, month: 10 }, { today: '2026-09-30' }).forecast,
+      ).toEqual({ from: '2026-10-01', to: '2026-10-15' });
+    });
   });
 
   describe('year boundary (December to January)', () => {

@@ -1,5 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
+import { createGarment, createOutfit } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { householdToday } from './support/household-today';
 import {
   cachedPaths,
   cachePage,
@@ -68,6 +70,66 @@ test('a city from the search, then the line and the week', async ({ page }) => {
 
   await page.goto('/calendar');
   await expect(page.locator('[data-weather-day]')).not.toHaveCount(0);
+  await expectNoSideScroll(page);
+  expect(errors).toEqual([]);
+});
+
+/** Every month cell's box, rounded to the pixel. */
+async function monthCellBoxes(page: Page): Promise<number[][]> {
+  return page.locator('[data-month-day]').evaluateAll((cells) =>
+    cells.map((cell) => {
+      const box = cell.getBoundingClientRect();
+      return [box.x, box.y, box.width, box.height].map(Math.round);
+    }),
+  );
+}
+
+test("the month grid's forecast days get their weather without moving (#201)", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await signIn(page, 'weather-month');
+  await setHome(page);
+  // Today holds a collage: the tallest kind of cell a chip joins.
+  const today = householdToday();
+  const tee = await createGarment(page, 'Month tee');
+  await createOutfit(page, 'Month look', tee, today);
+
+  // Keep the month's weather back until the grid has been measured.
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/weather\/summary\?.*view=month/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  const asked = page.waitForRequest(/\/weather\/summary\?.*view=month/);
+  await page.goto('/calendar/month');
+  await asked;
+  await expect(page.locator('#weather-line')).toHaveCount(0);
+  const before = await monthCellBoxes(page);
+
+  release();
+  const chip = page.locator(`[data-weather-day="${today}"]`);
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveText(/^\S+\s*-?\d+°$/);
+  expect(await monthCellBoxes(page)).toEqual(before);
+
+  // Days the forecast reaches only, and each chip inside its cell.
+  const cell = page.locator(`[data-month-day="${today}"]`);
+  const [chipBox, cellBox] = [
+    await chip.boundingBox(),
+    await cell.boundingBox(),
+  ];
+  expect(chipBox!.width).toBeLessThanOrEqual(cellBox!.width);
+  const days = await page
+    .locator('[data-weather-day]')
+    .evaluateAll((chips) =>
+      chips.map((one) => (one as HTMLElement).dataset.weatherDay ?? ''),
+    );
+  expect(days.length).toBeGreaterThan(0);
+  expect(days.length).toBeLessThanOrEqual(16);
+  for (const day of days) expect(day >= today, day).toBe(true);
   await expectNoSideScroll(page);
   expect(errors).toEqual([]);
 });

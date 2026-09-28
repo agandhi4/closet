@@ -11,7 +11,9 @@ import type { DayChip, TodayLine } from './summary';
  * its header and, on the calendar, a WeatherDaySlot per day; the slot loads
  * GET /weather/summary once in place (hx-trigger="load"), which answers the
  * WeatherLine (or the prompt to set a location) and, out of band, the day
- * chips. Loading it separately keeps the pages' own HTML free of the weather:
+ * chips. The month grid (#201) is the same load without the line:
+ * WeatherMonthLoader asks for its forecast days' compact chips, which land
+ * in each cell's WeatherCellSlot. Loading it separately keeps the pages' own HTML free of the weather:
  * a tab root must render byte for byte the same while nothing changes (the
  * service worker's revalidation, CLAUDE.md PWA), and a forecast refreshed
  * every hour would otherwise mark it changed. Offline, the service worker
@@ -37,10 +39,21 @@ export const UNIT_SYMBOLS: Readonly<Record<TemperatureUnit, string>> = {
   fahrenheit: '°F',
 };
 
-export function summaryUrl(days?: { from: IsoDate; to: IsoDate }): string {
-  return days
-    ? `/weather/summary?from=${days.from}&to=${days.to}`
-    : '/weather/summary';
+export const WEATHER_MONTH_ID = 'weather-month';
+
+/**
+ * Who asks: the header (the line, and the calendar week's chips) or the month
+ * grid (its cells' compact chips alone, SummaryQuery's `view`).
+ */
+export type SummaryView = 'line' | 'month';
+
+export function summaryUrl(
+  days?: { from: IsoDate; to: IsoDate },
+  view: SummaryView = 'line',
+): string {
+  if (!days) return '/weather/summary';
+  const range = `/weather/summary?from=${days.from}&to=${days.to}`;
+  return view === 'month' ? `${range}&view=month` : range;
 }
 
 /**
@@ -66,14 +79,51 @@ export function WeatherSlot(props: {
   );
 }
 
-function dayChipId(day: IsoDate): string {
+/**
+ * The month grid's weather: the summary for the grid's forecast days, loaded
+ * once after the page like WeatherSlot, answering only the cells' chips (out
+ * of band; `hx-swap="none"` keeps the fragment itself out of the page, so
+ * no line appears and nothing above the grid moves). Nothing for a month the
+ * forecast does not reach, so paging through the history asks for nothing.
+ */
+export function WeatherMonthLoader(props: {
+  ctx: ViewContext;
+  days: { from: IsoDate; to: IsoDate } | null;
+}) {
+  if (!props.ctx.weatherEnabled || !props.days) return null;
+  return (
+    <div
+      id={WEATHER_MONTH_ID}
+      hidden
+      hx-get={summaryUrl(props.days, 'month')}
+      hx-trigger="load"
+      hx-swap="none"
+      hx-indicator={`#${WEATHER_MONTH_ID}`}
+    ></div>
+  );
+}
+
+/** A day's chip's id, for its slot and for a cell's `aria-describedby`. */
+export function weatherDayId(day: IsoDate): string {
   return `weather-day-${day}`;
 }
 
 /** A calendar day's place for its chip, filled out of band by the summary. */
 export function WeatherDaySlot(props: { ctx: ViewContext; day: IsoDate }) {
   if (!props.ctx.weatherEnabled) return null;
-  return <span id={dayChipId(props.day)} class="ml-auto"></span>;
+  return <span id={weatherDayId(props.day)} class="ml-auto"></span>;
+}
+
+/**
+ * The month cell's chip box: the slot and the chip that replaces it are the
+ * same height, so a chip arriving moves nothing in the grid (#201).
+ */
+const CELL_CHIP_BOX = 'h-4 leading-4';
+
+/** A month cell's place for its compact chip (WeatherCellDay). */
+export function WeatherCellSlot(props: { ctx: ViewContext; day: IsoDate }) {
+  if (!props.ctx.weatherEnabled) return null;
+  return <span id={weatherDayId(props.day)} class={CELL_CHIP_BOX}></span>;
 }
 
 export function conditionLabel(condition: Condition): string {
@@ -186,13 +236,33 @@ export function WeatherPrompt() {
 export function WeatherDay({ chip }: { chip: DayChip }) {
   return (
     <span
-      id={dayChipId(chip.day)}
+      id={weatherDayId(chip.day)}
       hx-swap-oob="true"
       class="ml-auto flex items-baseline gap-1 text-xs text-muted"
       data-weather-day={chip.day}
     >
       <ConditionIcon condition={chip.condition} />
       {t('weather.DAY_RANGE', { low: chip.low, high: chip.high })}
+    </span>
+  );
+}
+
+/**
+ * A month cell's chip, swapped into its WeatherCellSlot out of band: the
+ * icon and the high alone. A cell is about 46 px wide at 390 px, where the
+ * week's low–high range does not fit beside the icon; the high is the
+ * figure a glance at the month is for (the week has the range).
+ */
+export function WeatherCellDay({ chip }: { chip: DayChip }) {
+  return (
+    <span
+      id={weatherDayId(chip.day)}
+      hx-swap-oob="true"
+      class={`${CELL_CHIP_BOX} flex items-center gap-0.5 text-xs whitespace-nowrap text-muted`}
+      data-weather-day={chip.day}
+    >
+      <ConditionIcon condition={chip.condition} />
+      {t('weather.DAY_HIGH', { high: chip.high })}
     </span>
   );
 }

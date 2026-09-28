@@ -366,12 +366,85 @@ describe('weather', () => {
       ]);
     });
 
+    it("gives the month grid compact chips from the week's forecast, and asks Open-Meteo for nothing more (#201)", async () => {
+      // An account at a place of its own: its forecast row starts cold here
+      // and goes stale below without moving the owner's, which the specs
+      // after this one read.
+      const cookie = await t.register('month-grid@example.com');
+      const post = form({
+        name: 'Chicago',
+        latitude: '41.88',
+        longitude: '-87.63',
+      });
+      const home = await t.inject({
+        method: 'POST',
+        url: '/weather/home',
+        headers: { ...post.headers, cookie },
+        payload: post.payload,
+      });
+      expect(home.statusCode).toBe(200);
+      const ask = (query: string) =>
+        t.inject({
+          method: 'GET',
+          url: `/weather/summary${query}`,
+          headers: { ...HX_FRAGMENT, cookie },
+        });
+      const chicagoHits = () =>
+        forecastHits(stub).filter((hit) => hit.get('latitude') === '41.88');
+      const WEEK = '?from=2026-09-20&to=2026-09-26';
+      // What GET /calendar/month asks for September: its forecast days.
+      const MONTH = '?from=2026-09-26&to=2026-09-30&view=month';
+
+      // The week, then the month: the month is served the week's forecast.
+      await ask(WEEK);
+      await t.weather!.settled();
+      expect(chicagoHits()).toHaveLength(1);
+      const afterWeek = stub.hits.length;
+      const month = unescapeHtml((await ask(MONTH)).body);
+      await t.weather!.settled();
+      expect(stub.hits).toHaveLength(afterWeek);
+
+      // The cells' chips alone: no line, icon and high only.
+      expect(month).not.toContain('id="weather-line"');
+      expect(month.match(/data-weather-day="[\d-]+"/g)).toEqual([
+        'data-weather-day="2026-09-26"',
+        'data-weather-day="2026-09-27"',
+        'data-weather-day="2026-09-28"',
+        'data-weather-day="2026-09-29"',
+        'data-weather-day="2026-09-30"',
+      ]);
+      const today = forecastDayOf('demo', weatherFor('demo', TODAY, 1)[0]);
+      const chip = month
+        .split('<span id="weather-day-')
+        .find((part) => part.startsWith('2026-09-26"'))!;
+      expect(chip).toContain('hx-swap-oob="true"');
+      expect(chip).toContain(
+        `${displayTemperature(today.high, 'fahrenheit')}°</span>`,
+      );
+      expect(chip).not.toContain('–');
+
+      // Once the forecast is stale, the week and the month asking together
+      // cost the one refresh the week alone would.
+      at(61 * MINUTE);
+      stub.hold(true);
+      const both = await Promise.all([ask(WEEK), ask(MONTH)]);
+      stub.hold(false);
+      expect(both.map((res) => res.statusCode)).toEqual([200, 200]);
+      await t.weather!.settled();
+      expect(chicagoHits()).toHaveLength(2);
+      // The calendar never asks for climate normals.
+      expect(stub.hits.filter((hit) => hit.startsWith('/v1/archive'))).toEqual(
+        [],
+      );
+    });
+
     it('refuses a malformed range', async () => {
       for (const query of [
         '?from=2026-09-20',
         '?from=2026-09-27&to=2026-09-20',
         '?from=2026-09-01&to=2026-12-01',
         '?from=2026-02-30&to=2026-03-01',
+        '?from=2026-09-26&to=2026-09-30&view=week',
       ]) {
         expect((await summary(query)).statusCode).toBe(400);
       }
@@ -389,6 +462,37 @@ describe('weather', () => {
       );
       expect(body).toContain('id="weather-day-2026-09-20"');
       expect(body).not.toContain('°C');
+
+      // The month (#201): one hidden load for the days the forecast reaches,
+      // each of them with room for its chip; no line, and nothing for a
+      // month the forecast does not reach.
+      const hits = stub.hits.length;
+      const september = await t.inject({
+        method: 'GET',
+        url: '/calendar/month?month=2026-09',
+      });
+      expectFullPage(september);
+      const grid = unescapeHtml(september.body);
+      expect(grid).toMatch(
+        /<div id="weather-month" hidden="" hx-get="\/weather\/summary\?from=2026-09-26&to=2026-09-30&view=month" hx-trigger="load" hx-swap="none"/,
+      );
+      expect(grid).not.toContain('id="weather-line"');
+      expect(grid.match(/<span id="weather-day-[\d-]+"/g)).toEqual(
+        ['26', '27', '28', '29', '30'].map(
+          (day) => `<span id="weather-day-2026-09-${day}"`,
+        ),
+      );
+      expect(grid).toContain('aria-describedby="weather-day-2026-09-26"');
+      expect(grid).not.toContain('°');
+      for (const month of ['2026-08', '2026-11']) {
+        const outside = await t.inject({
+          method: 'GET',
+          url: `/calendar/month?month=${month}`,
+        });
+        expect(outside.body).not.toContain('/weather/');
+        expect(outside.body).not.toContain('id="weather');
+      }
+      expect(stub.hits).toHaveLength(hits);
 
       const wardrobe = await t.inject({ method: 'GET', url: '/wardrobe' });
       expectFullPage(wardrobe);
@@ -735,7 +839,12 @@ describe('weather off (WEATHER_ENABLED=false)', () => {
       const res = await t.inject({ method: 'POST', url, ...form(fields) });
       expect(res.statusCode).toBe(404);
     }
-    for (const url of ['/wardrobe', '/calendar', '/auth/profile']) {
+    for (const url of [
+      '/wardrobe',
+      '/calendar',
+      '/calendar/month',
+      '/auth/profile',
+    ]) {
       const res = await t.inject({ method: 'GET', url });
       expect(res.statusCode).toBe(200);
       expect(res.body).not.toContain('/weather/');

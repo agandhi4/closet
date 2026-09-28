@@ -1,4 +1,5 @@
 import { compareOccasions, type Occasion } from '../../wardrobe/occasions';
+import { FORECAST_DAYS } from '../../weather/forecast';
 import type { PlannedBy, TemplateSlot } from '../../wardrobe/week';
 import { emptySlots } from '../../wardrobe/week-planner';
 import type { CollageGarment } from '../outfits/collage';
@@ -130,12 +131,21 @@ export interface MonthDayView {
   isToday: boolean;
   /** In occasion order: the cell shows the first. */
   entries: CalendarEntry[];
+  /** Within `MonthView.forecast`: the cell keeps room for its weather chip. */
+  inForecast: boolean;
 }
 
 export interface MonthView {
   month: YearMonth;
   /** Sunday-to-Saturday rows; null is a day of the month before or after. */
   weeks: (MonthDayView | null)[][];
+  /**
+   * The month's days the forecast can reach (today to FORECAST_DAYS on), the
+   * range the grid asks the weather summary for; null for a month wholly
+   * before or past it, which asks for nothing. Depends on today alone, so the
+   * page stays the same all day (src/web/weather/views.tsx).
+   */
+  forecast: { from: IsoDate; to: IsoDate } | null;
   /** 'YYYY-MM' of the neighbouring months, for ‹ and ›. */
   prev: string;
   next: string;
@@ -160,6 +170,7 @@ export function buildMonthView(input: {
 }): MonthView {
   const { month, today, entries } = input;
   const first = firstOfMonth(month);
+  const forecast = forecastRange(month, today);
   const cells: (MonthDayView | null)[] = [
     ...Array.from({ length: dayOfWeek(first) }, () => null),
     ...Array.from({ length: daysInMonth(month) }, (_, i): MonthDayView => {
@@ -169,16 +180,31 @@ export function buildMonthView(input: {
         dayNum: dateParts(date).day,
         isToday: date === today,
         entries: entriesOn(entries, date),
+        inForecast:
+          forecast !== null && date >= forecast.from && date <= forecast.to,
       };
     }),
   ];
   while (cells.length % 7 !== 0) cells.push(null);
   return {
     month,
+    forecast,
     weeks: Array.from({ length: cells.length / 7 }, (_, row) =>
       cells.slice(row * 7, row * 7 + 7),
     ),
     prev: formatYearMonth(addMonths(month, -1)),
     next: formatYearMonth(addMonths(month, 1)),
   };
+}
+
+// ISO dates order as strings, so the overlap is two string comparisons.
+function forecastRange(
+  month: YearMonth,
+  today: IsoDate,
+): { from: IsoDate; to: IsoDate } | null {
+  const { first, last } = monthRange(month);
+  const forecastLast = addDays(today, FORECAST_DAYS - 1);
+  const from = first > today ? first : today;
+  const to = last < forecastLast ? last : forecastLast;
+  return from <= to ? { from, to } : null;
 }
