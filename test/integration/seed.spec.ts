@@ -761,6 +761,38 @@ describe('seed personas', () => {
     expect((await snapshot(EMAILS[2])).shares).toBe(1);
   });
 
+  it('checks every input before --reset deletes anything (#119)', async () => {
+    const ids = await personaIds();
+    const files = await storedFiles();
+    const before = await snapshot(EMAILS[0]);
+    const reset = (stdin: string, ...extra: string[]) =>
+      run(
+        [
+          '--persona',
+          'demo',
+          '--reset',
+          '--anchor',
+          ANCHOR,
+          '--password-stdin',
+          ...extra,
+        ],
+        stdin,
+      );
+
+    const weak = await reset('short\n');
+    expect(weak.status).toBe(1);
+    expect(weak.stderr).not.toBe('');
+    expect(weak.stdout).not.toContain('demo: removed');
+
+    const itself = await reset(`${PASSWORD}\n`, '--share-with', EMAILS[0]);
+    expect(itself.status).toBe(1);
+    expect(itself.stderr).toContain('cannot be shared with itself');
+
+    expect(await personaIds()).toEqual(ids);
+    expect(await storedFiles()).toEqual(files);
+    expect(await snapshot(EMAILS[0])).toEqual(before);
+  });
+
   it('--share-with gives an existing account a view of the persona, and refuses an unknown one before writing', async () => {
     const unknown = await seedAll('--share-with', 'nobody@example.com');
     expect(unknown).toMatchObject({ status: 1 });

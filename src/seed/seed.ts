@@ -921,10 +921,16 @@ async function seedCommand(
   command: SeedCommand,
   options: SeedOptions,
 ): Promise<void> {
-  // Every bible is read (and checked) first: a broken one writes nothing.
+  // Every input is read and checked before the first write, --reset's and
+  // --remove's deletions included: a broken bible, an unknown --share-with
+  // or a password the rules refuse leaves every persona as it was (#119).
   const personas = PERSONA_KEYS.map(loadPersona);
   const chosen = personas.filter((p) => options.personas.includes(p.key));
-  const grantee = await shareTarget(command, options.shareWith);
+  const grantee = await shareTarget(command, options.shareWith, chosen);
+  const password =
+    options.mode === 'remove'
+      ? undefined
+      : await newPassword(command, options.passwordStdin);
   if (options.mode !== 'seed') {
     for (const persona of chosen) {
       const removed = await removePersona(command, persona);
@@ -932,10 +938,9 @@ async function seedCommand(
         `${persona.key}: ${removed ? 'removed' : 'not seeded, nothing to remove'}\n`,
       );
     }
-    if (options.mode === 'remove') return;
   }
+  if (password === undefined) return;
   const anchor = options.anchor ?? todayIn(command.timeZone, command.now);
-  const password = await newPassword(command, options.passwordStdin);
   for (const persona of chosen) {
     await seedOne(
       command,
@@ -947,13 +952,25 @@ async function seedCommand(
   await linkPersonas(command, personas);
 }
 
-// The --share-with account, which must exist before anything is written.
+// The --share-with account, which must exist before anything is written and
+// be none of the personas seeded: a wardrobe cannot be shared with its own
+// owner, and --reset would delete the account it names.
 async function shareTarget(
   { db }: SeedCommand,
   email: string | undefined,
+  chosen: Persona[],
 ): Promise<{ id: number; email: string } | undefined> {
   if (email === undefined) return undefined;
-  const account = await findUserByEmail(db, normalizeEmail(email));
+  const normalized = normalizeEmail(email);
+  const persona = chosen.find(
+    (p) => normalizeEmail(p.account.email) === normalized,
+  );
+  if (persona) {
+    throw new SeedRefused(
+      `${email} is the ${persona.key} persona: it cannot be shared with itself`,
+    );
+  }
+  const account = await findUserByEmail(db, normalized);
   if (!account) throw new SeedRefused(`No account uses ${email}`);
   return { id: account.id, email };
 }
@@ -987,8 +1004,12 @@ async function seedOne(
     );
   }
   if (!grantee) return;
-  await share(command, account!.id, grantee.id, 'VIEW');
-  output.write(`${persona.key}: shared (VIEW) with ${grantee.email}\n`);
+  const shared = await share(command, account!.id, grantee.id, 'VIEW');
+  output.write(
+    shared
+      ? `${persona.key}: shared (VIEW) with ${grantee.email}\n`
+      : `${persona.key}: not shared with ${grantee.email} (refused, see the log)\n`,
+  );
 }
 
 /** The seed's tokens, by name on the persona's Agent access page. */

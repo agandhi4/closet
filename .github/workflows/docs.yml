@@ -1,0 +1,28 @@
+name: Docs
+
+# The half of a push to main that ci.yml's paths-ignore skips: a docs-only
+# commit needs no tests and no redeploy, but its CLAUDE.md budgets and area
+# index still hold (npm run docs:check, #119). These paths are exactly
+# ci.yml's paths-ignore, so every push to main is checked by one workflow or
+# both. Pull requests run docs:check in ci.yml's static job.
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "**/*.md", "LICENSE"]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: docs check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run docs:check
