@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { createCapsule, createGarment } from './support/e2e-data';
+import { createCapsule } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
+import { seedGarments } from './support/server-db';
 
 /**
  * Capsules in a browser at phone width (#8): the Capsules tab, creating a
@@ -90,13 +91,16 @@ test('the picker counts members on a page the grid appends', async ({
   page,
 }) => {
   const errors = pageErrors(page);
-  await signIn(page, 'capsule-count');
-  // Created first, so newest-first it lands on the grid's second page.
-  const old = await createGarment(page, 'Old member');
-  let newest = old;
-  for (let i = 1; i <= 48; i += 1) {
-    newest = await createGarment(page, `Filler ${i}`);
-  }
+  const email = await signIn(page, 'capsule-count');
+  // Created first, so newest-first it lands on the grid's second page. Seeded
+  // straight into the database: 49 posts took most of the test's 30 s under
+  // a full parallel suite (#247).
+  const ids = await seedGarments(email, [
+    'Old member',
+    ...Array.from({ length: 48 }, (_, i) => `Filler ${i + 1}`),
+  ]);
+  const old = ids[0];
+  const newest = ids[ids.length - 1];
   const capsule = await createCapsule(page, 'Two pages');
   const members = new URLSearchParams([
     ['ids', String(old)],

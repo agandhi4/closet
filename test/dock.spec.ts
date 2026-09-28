@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createCapsule, createGarment, createOutfit } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
+import { seedGarments } from './support/server-db';
 
 /**
  * The dock at phone width (src/web/layout/dock.tsx): nothing on a page draws
@@ -187,12 +188,13 @@ async function scrollToBottom(page: Page): Promise<void> {
 }
 
 test('nothing on a page draws over the dock', async ({ page }) => {
-  await signIn(page, 'dock-overlap');
+  const email = await signIn(page, 'dock-overlap');
   // Three tiles a row (R3's grid): six rows run the grid past the fold.
-  const garments: number[] = [];
-  for (let i = 1; i <= 18; i++) {
-    garments.push(await createGarment(page, `Stack tee ${i}`));
-  }
+  // Seeded straight into the database, not posted one at a time (#247).
+  const garments = await seedGarments(
+    email,
+    Array.from({ length: 18 }, (_, i) => `Stack tee ${i + 1}`),
+  );
   // One outfit a day of WEEK (a chip, with its delete form, per day) and a
   // few more, so the outfit list and the week both run past the fold.
   for (let i = 0; i < 10; i++) {

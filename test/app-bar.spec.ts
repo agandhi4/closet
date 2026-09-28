@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import { createCapsule, createGarment, createOutfit } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
+import { seedGarments } from './support/server-db';
 
 /**
  * The app bar at phone width (src/web/layout/app-bar.tsx, #82): every
@@ -133,12 +134,13 @@ test('every section carries the bar with its own title, fitting the phone', asyn
 });
 
 test('nothing scrolled under the bar draws over it', async ({ page }) => {
-  await signIn(page, 'app-bar-overlap');
+  const email = await signIn(page, 'app-bar-overlap');
   // Three tiles a row (R3's grid): six rows, so the grid scrolls.
-  const garments: number[] = [];
-  for (let i = 1; i <= 18; i++) {
-    garments.push(await createGarment(page, `Under tee ${i}`));
-  }
+  // Seeded straight into the database, not posted one at a time (#247).
+  const garments = await seedGarments(
+    email,
+    Array.from({ length: 18 }, (_, i) => `Under tee ${i + 1}`),
+  );
   for (let i = 0; i < 6; i++) {
     await createOutfit(page, `Under outfit ${i + 1}`, garments[i]);
   }

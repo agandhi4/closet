@@ -1243,7 +1243,7 @@ const BULK_FORM_ID = 'bulk-form';
  * it too) and the bar above the dock with the live count and the mode's
  * action. A native post carrying what the page needs back in its action's
  * query. The count is the one line of script: it re-counts the checked
- * boxes on every change.
+ * boxes on every change, and once when it loads.
  */
 const SELECT_COUNT_IMPORT = "import 'select-count';";
 

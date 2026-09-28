@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
+import { seedGarments } from './support/server-db';
 
 /**
  * The wardrobe grid and the garment form in a browser: what only htmx and
@@ -13,17 +14,14 @@ const PAGE = 48;
 const TOTAL = PAGE + 5;
 
 test('scrolling the grid loads the next page into it', async ({ page }) => {
-  test.slow();
   const errors = pageErrors(page);
 
-  await signIn(page, 'wardrobe-grid');
-  for (let i = 1; i <= TOTAL; i++) {
-    const res = await page.request.post('/wardrobe', {
-      form: { name: `Scroll ${i}`, category: 'tops' },
-      headers: SAME_ORIGIN,
-    });
-    expect(res.ok(), `create garment ${i}`).toBe(true);
-  }
+  const email = await signIn(page, 'wardrobe-grid');
+  // Seeded straight into the database, not posted one at a time (#247).
+  await seedGarments(
+    email,
+    Array.from({ length: TOTAL }, (_, i) => `Scroll ${i + 1}`),
+  );
 
   await page.goto('/wardrobe');
   const tiles = page.locator('#wardrobe-grid > a');

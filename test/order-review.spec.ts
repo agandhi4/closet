@@ -1,12 +1,10 @@
 import { expect, type Page, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
-import pino from 'pino';
-import { loadConfig } from '../src/config';
-import { createDb, dbConfig } from '../src/db/client';
-import { orderEmail, orderItem, user } from '../src/db/schema';
+import type { Db } from '../src/db/client';
+import { orderEmail, orderItem } from '../src/db/schema';
 import { ORDER_REVIEW_OWNER, signInAs } from './support/e2e-session';
 import { householdToday } from './support/household-today';
+import { userIdOf, withServerDb } from './support/server-db';
 
 /**
  * "From your orders" (#25) at phone width. The poll's own path (JMAP, the
@@ -21,15 +19,14 @@ import { householdToday } from './support/household-today';
 
 test.use({ viewport: { width: 390, height: 844 } });
 
-const db = createDb(dbConfig(loadConfig()), pino({ level: 'silent' }));
-
-test.afterAll(async () => {
-  await db.$client.end();
-});
-
 /** Two pending items from one order email of the owner's, with unique links. */
 async function seedOrder(ownerId: number): Promise<{ run: string }> {
   const run = randomUUID().slice(0, 8);
+  await withServerDb((db) => insertOrder(db, ownerId, run));
+  return { run };
+}
+
+async function insertOrder(db: Db, ownerId: number, run: string) {
   const [email] = await db
     .insert(orderEmail)
     .values({
@@ -57,7 +54,6 @@ async function seedOrder(ownerId: number): Promise<{ run: string }> {
       orderedOn: householdToday(),
     })),
   );
-  return { run };
 }
 
 /**
@@ -68,11 +64,7 @@ async function seedOrder(ownerId: number): Promise<{ run: string }> {
  */
 async function signInAsOwner(page: Page): Promise<number> {
   await signInAs(page, ORDER_REVIEW_OWNER);
-  const [owner] = await db
-    .select({ id: user.id })
-    .from(user)
-    .where(eq(sql`lower(${user.email})`, ORDER_REVIEW_OWNER));
-  return owner.id;
+  return withServerDb((db) => userIdOf(db, ORDER_REVIEW_OWNER));
 }
 
 test('the review list fits a phone, and dismissing takes an item off it', async ({
