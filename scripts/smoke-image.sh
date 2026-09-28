@@ -23,6 +23,11 @@
 # On failure the container's log is printed.
 set -euo pipefail
 
+# Match against a snapshot of the container log, never `docker logs | grep -q`: with pipefail,
+# grep -q exits on its first match, docker logs dies of SIGPIPE, and the pipeline reports a
+# failure for text that was found (the first publish run on main failed this way, 2026-09-28).
+log_has() { docker logs "$NAME" >"$WORK/container.log" 2>&1; grep -q "$@" "$WORK/container.log"; }
+
 IMAGE=${1:?usage: scripts/smoke-image.sh <image>}
 : "${DATABASE_HOST:?} ${DATABASE_USER:?} ${DATABASE_SCHEMA:?}"
 PORT=${SMOKE_PORT:-3000}
@@ -126,8 +131,8 @@ if [ -n "${MODELS_DIR:-}" ]; then
   log "uploaded a photo to garment $garment; waiting for its cutout"
 
   queued=$SECONDS
-  until docker logs "$NAME" 2>&1 | grep -q "Cutout ready: garment $garment "; do
-    if docker logs "$NAME" 2>&1 | grep -qE "Cutout (failed|discarded)[^:]*: garment $garment "; then
+  until log_has "Cutout ready: garment $garment "; do
+    if log_has -E "Cutout (failed|discarded)[^:]*: garment $garment "; then
       fail "the model did not cut out garment $garment's photo"
     fi
     [ $((SECONDS - queued)) -lt $CUTOUT_TIMEOUT_S ] || fail "no cutout for garment $garment within ${CUTOUT_TIMEOUT_S}s"
@@ -139,6 +144,6 @@ fi
 docker stop -t 15 "$NAME" >/dev/null
 code=$(docker inspect -f '{{.State.ExitCode}}' "$NAME")
 [ "$code" = 0 ] || fail "docker stop: the process exited $code, not 0"
-docker logs "$NAME" 2>&1 | grep -q 'SIGTERM: shutting down' || fail "the log does not show the SIGTERM shutdown"
+log_has 'SIGTERM: shutting down' || fail "the log does not show the SIGTERM shutdown"
 log "ok: SIGTERM shut it down with exit 0"
 log "PASS $IMAGE in $((SECONDS - started))s"
