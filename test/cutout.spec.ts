@@ -1,17 +1,20 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import sharp from 'sharp';
+import { test } from './support/cutout-hold';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { openPhotoSheet } from './support/garment-page';
 
 /**
- * A garment photo in a browser, against the test server (its model stubbed
- * to answer in 3 s, test/support/test-server.ts): the photo sheet uploads
- * the photo it is given, the page shows the cutout pending, the polling
- * fragment swaps the cutout in, and the pencil that arrives with it edits it
+ * A garment photo in a browser, against the test server (its model stubbed,
+ * the cutout held pending until the spec has seen it:
+ * test/support/cutout-stub.ts): the photo sheet uploads the photo it is
+ * given, the page shows the cutout pending, the polling fragment swaps the
+ * cutout in, and the pencil that arrives with it edits it
  * (public/js/mask-editor.js), saving a new photo version.
  */
 test('an uploaded photo shows "Removing background", then its cutout, which the pencil edits', async ({
   page,
+  cutouts,
 }) => {
   // The mask editor draws from blob: URLs; the CSP must still allow that.
   const cspViolations: string[] = [];
@@ -21,7 +24,8 @@ test('an uploaded photo shows "Removing background", then its cutout, which the 
     }
   });
 
-  await signIn(page, 'cutout');
+  const email = await signIn(page, 'cutout');
+  await cutouts.hold(email);
   const created = await page.request.post('/wardrobe', {
     form: { name: 'Cutout shirt', category: 'shirt' },
     headers: SAME_ORIGIN,
@@ -51,7 +55,8 @@ test('an uploaded photo shows "Removing background", then its cutout, which the 
   );
   await expect(page.locator('#editMaskBtn')).toHaveCount(0);
 
-  // The stub answers after 3 s; the page polls every 2 s.
+  // Released, the stub answers at once; the page polls every 2 s.
+  await cutouts.release(email);
   await expect(photo.locator('img')).toHaveAttribute(
     'src',
     /^\/file\/nobg\/[0-9a-f-]+\.webp\?v=2&k=[0-9a-f]{12}&s=[\w-]{16}$/,

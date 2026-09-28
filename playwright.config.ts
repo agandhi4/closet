@@ -127,7 +127,8 @@ export default defineConfig({
   webServer: {
     // Serves the existing build (the npm scripts test:e2e and verify:push,
     // and CI, build first) with background removal stubbed: an upload's
-    // cutout arrives 3 s later without the model (test/support/test-server.ts).
+    // cutout arrives at once without the model, unless a spec holds it
+    // pending (test/support/cutout-stub.ts).
     command: 'npm run start:test',
     url: `${APP_ORIGIN}/healthz`,
     reuseExistingServer: !process.env.CI,

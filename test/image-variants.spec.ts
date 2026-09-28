@@ -1,5 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import sharp from 'sharp';
+import { test } from './support/cutout-hold';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
@@ -7,11 +8,15 @@ import { SAME_ORIGIN, signIn } from './support/e2e-session';
  * by /file/{,nobg/,thumb/}<fileName>?v=<version>. The wardrobe grid must use
  * the thumb variant and the server must answer it with long-lived cache
  * headers, otherwise the grid re-downloads full-size images on every visit.
+ * The cutout is held pending, so the photo is the one stored with the upload
+ * (version 1, unkeyed) however fast the queue is.
  */
 test('wardrobe grid uses versioned thumb URLs served as immutable webp', async ({
   page,
+  cutouts,
 }) => {
-  await signIn(page, 'image-test');
+  const email = await signIn(page, 'image-test');
+  await cutouts.hold(email);
 
   const name = `Image Variant Garment ${Date.now()}`;
   const photo = await sharp({

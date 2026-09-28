@@ -11,7 +11,7 @@ import { openPhotoSheet } from './support/garment-page';
  * pixels. test/cutout.spec.ts covers opening and saving without a stroke.
  *
  * The cutout comes from the test server's stub model (an ellipse of the
- * photo, 3 s after the upload, test/support/test-server.ts). Positions are
+ * photo, as soon as the queue reaches it, test/support/cutout-stub.ts). Positions are
  * fractions of the cutout's padded square, which the canvas shows whole.
  */
 

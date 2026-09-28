@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
 import { addDays } from '../src/web/calendar/calendar-date';
+import { test } from './support/cutout-hold';
 import { signUpHeaders } from './support/e2e-session';
 import { openGarmentMenu, openPhotoSheet } from './support/garment-page';
 import { householdToday } from './support/household-today';
@@ -50,9 +51,11 @@ test.beforeAll(() => {
   seed('--persona', 'all', '--anchor', ANCHOR);
 });
 
+const personaEmail = (persona: string) => `${persona}@closet.invalid`;
+
 async function signInAs(page: Page, persona: string): Promise<void> {
   const res = await page.request.post('/auth/login', {
-    form: { email: `${persona}@closet.invalid`, password: PASSWORD },
+    form: { email: personaEmail(persona), password: PASSWORD },
     headers: signUpHeaders(),
     maxRedirects: 0,
   });
@@ -575,8 +578,11 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     test(`demo: Theo adds a garment from a photo (${colorScheme})`, async ({
       page,
+      cutouts,
     }) => {
       await signInAs(page, 'demo');
+      // This shot is the cutout pending: held until it is taken.
+      await cutouts.hold(personaEmail('demo'));
       await page.goto('/wardrobe');
       await page.getByRole('button', { name: 'Add', exact: true }).click();
       const [chooser] = await Promise.all([
@@ -606,13 +612,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await expect(page.locator('#garment-photo-status')).toHaveText(
         /Removing background/,
       );
-      // At once, not through shot(): waiting for the network to settle
-      // could outlast the stub's 3 s, and this shot is the cutout pending.
-      await page.screenshot({
-        path: `${DIR}/76-demo-add-from-photo-saved${suffix}.png`,
-        fullPage: true,
-        animations: 'disabled',
-      });
+      await shot(page, `76-demo-add-from-photo-saved${suffix}`);
+      await cutouts.release(personaEmail('demo'));
     });
   });
 }

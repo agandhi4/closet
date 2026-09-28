@@ -1,5 +1,6 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
+import { test } from './support/cutout-hold';
 import { signIn } from './support/e2e-session';
 
 /**
@@ -7,8 +8,8 @@ import { signIn } from './support/e2e-session';
  * Wardrobe's ＋ opens the add sheet, the camera row opens the camera
  * (`capture=environment`) or the library row the picker, the chosen photo
  * is prepared on the phone and posted, the new garment form opens with it,
- * and saving lands on the garment with its cutout under way (the test
- * server's stub model answers in 3 s).
+ * and saving lands on the garment with its cutout under way (held pending
+ * until the page has shown it, test/support/cutout-stub.ts).
  */
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -34,8 +35,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     test('the camera row takes a photo, the form opens with it, and saving lands on the garment with its cutout under way', async ({
       page,
+      cutouts,
     }) => {
-      await signIn(page, `add-photo-${colorScheme}`);
+      const email = await signIn(page, `add-photo-${colorScheme}`);
+      await cutouts.hold(email);
       const sheet = await openAddSheet(page);
 
       const camera = sheet.locator('[data-photo-source="camera"]');
@@ -78,6 +81,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await expect(page.locator('#garment-photo-status')).toHaveText(
         /Removing background/,
       );
+      await cutouts.release(email);
       await expect(page.locator('#garment-photo img')).toHaveAttribute(
         'src',
         /^\/file\/nobg\/[0-9a-f-]+\.webp\?v=2&k=[0-9a-f]{12}&s=[\w-]{16}$/,

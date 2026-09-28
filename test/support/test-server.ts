@@ -1,8 +1,9 @@
 import { join, resolve } from 'node:path';
 import type * as ConfigModule from '../../src/config';
-import type { CutoutRunner } from '../../src/cutout/runner';
+import type * as DbClientModule from '../../src/db/client';
 import type * as LoggerModule from '../../src/logger';
 import type * as ServerModule from '../../src/server';
+import { CUTOUT_STUB_ORIGIN, startCutoutStub } from './cutout-stub';
 import { startJmapStub } from './jmap-stub';
 import { startWeatherStub } from './weather-stub';
 
@@ -10,8 +11,9 @@ import { startWeatherStub } from './weather-stub';
  * The built server (dist/, `npm run build` first) as src/main.ts boots it,
  * with one difference: background removal runs a stub instead of the 940 MB
  * model, which no test downloads. Playwright (playwright.config.ts) and
- * Lighthouse (lighthouserc.js) start it with `npm run start:test`; an upload goes pending and its cutout
- * arrives STUB_DELAY_MS later, as in production. And the weather comes from
+ * Lighthouse (lighthouserc.js) start it with `npm run start:test`; an upload
+ * goes pending, as in production, and its cutout arrives as soon as the queue
+ * reaches it, unless a spec holds it pending (cutout-stub.ts). And the weather comes from
  * a stand-in for Open-Meteo (weather-stub.ts: the seed's simulated New York
  * weather), so no test run calls the real service and the screenshots'
  * weather is the same on every run of a date. Configuration is the
@@ -19,34 +21,6 @@ import { startWeatherStub } from './weather-stub';
  */
 
 const DIST = join(resolve(__dirname, '..', '..'), 'dist');
-
-// Long enough that the page after an upload always sees the cutout pending
-// and polls at least once (every 2 s).
-const STUB_DELAY_MS = 3000;
-const SIZE = 64;
-
-// An ellipse of garment on background.
-function ellipseMask(): Buffer {
-  const mask = Buffer.alloc(SIZE * SIZE);
-  for (let y = 0; y < SIZE; y++) {
-    for (let x = 0; x < SIZE; x++) {
-      const dx = (x - SIZE / 2) / (SIZE * 0.35);
-      const dy = (y - SIZE / 2) / (SIZE * 0.45);
-      if (dx * dx + dy * dy <= 1) mask[y * SIZE + x] = 255;
-    }
-  }
-  return mask;
-}
-
-const stubRunner: CutoutRunner = {
-  inputSize: SIZE,
-  ready: () => Promise.resolve(),
-  async mask() {
-    await new Promise((done) => setTimeout(done, STUB_DELAY_MS));
-    return { mask: ellipseMask(), inferenceMs: STUB_DELAY_MS };
-  },
-  close: () => Promise.resolve(),
-};
 
 async function main(): Promise<void> {
   // The build, not src/: the tests run what the image ships.
@@ -59,8 +33,15 @@ async function main(): Promise<void> {
   const { serve } = (await import(
     join(DIST, 'server.js')
   )) as typeof ServerModule;
+  const { connectionOptions, dbConfig } = (await import(
+    join(DIST, 'db', 'client.js')
+  )) as typeof DbClientModule;
   const config = loadConfig();
   const logger = createLogger(config);
+  const cutouts = await startCutoutStub(
+    connectionOptions(dbConfig(config)),
+    logger,
+  );
   const weather = await startWeatherStub();
   // The order mail's poll (with ORDER_MAIL_JMAP_TOKEN, as playwright.config.ts
   // sets it) reads an empty stand-in inbox, never Fastmail.
@@ -68,9 +49,9 @@ async function main(): Promise<void> {
     ? await startJmapStub(config.ORDER_MAIL_JMAP_TOKEN)
     : undefined;
   logger.info(
-    `Test server: background removal stubbed (${STUB_DELAY_MS} ms a photo), weather from ${weather.options.endpoints.forecast}${jmap ? `, order mail from ${jmap.options.sessionUrl}` : ''}`,
+    `Test server: background removal stubbed (at once; holds on ${CUTOUT_STUB_ORIGIN}), weather from ${weather.options.endpoints.forecast}${jmap ? `, order mail from ${jmap.options.sessionUrl}` : ''}`,
   );
-  const { app } = await serve(config, logger, stubRunner, {
+  const { app } = await serve(config, logger, cutouts.runner, {
     weather: weather.options,
     orderMail: jmap?.options,
   });
@@ -80,6 +61,7 @@ async function main(): Promise<void> {
   app.server.once('close', () => {
     void weather.close();
     void jmap?.close();
+    void cutouts.close();
   });
 }
 

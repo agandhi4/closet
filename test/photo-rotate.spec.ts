@@ -1,6 +1,6 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import sharp from 'sharp';
-import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { APP_ORIGIN, SAME_ORIGIN, signIn } from './support/e2e-session';
 import { openPhotoSheet } from './support/garment-page';
 
 /**
@@ -32,6 +32,27 @@ function twoTone(): Promise<Buffer> {
     ])
     .jpeg()
     .toBuffer();
+}
+
+/**
+ * The stored photo a hero src shows, whichever variant: a turn stores a new
+ * photo, while its cutout arriving only swaps the variant and its query, so
+ * a turn is a change of this, not of the src.
+ */
+const photoName = (src: string) =>
+  new URL(src, APP_ORIGIN).pathname.split('/').pop();
+
+/**
+ * Waits until the hero shows its photo's cutout (keyed: the job is done). A
+ * turn that lands while a job saves its result is refused, 409 "The photo
+ * changed meanwhile" (rotateGarmentPhoto), so each tap turns a settled photo.
+ */
+async function cutoutShown(hero: Locator): Promise<void> {
+  await expect(hero).toHaveAttribute(
+    'src',
+    /^\/file\/nobg\/[0-9a-f-]+\.webp\?v=\d+&k=[0-9a-f]{12}&/,
+    { timeout: 15_000 },
+  );
 }
 
 /** The hero's original, as stored: its size and whether x, y is red. */
@@ -75,7 +96,9 @@ test('two taps on ↻ in the photo sheet turn the photo 180° at 390 px', async 
 
   await page.goto(`/wardrobe/${garmentId}`);
   const hero = page.locator('#garment-photo img');
-  const first = (await hero.getAttribute('src'))!;
+  const heroPhoto = async () => photoName((await hero.getAttribute('src'))!);
+  await cutoutShown(hero);
+  const first = await heroPhoto();
 
   const sheet = await openPhotoSheet(page);
   const right = sheet.getByRole('button', { name: 'Rotate right' });
@@ -97,7 +120,7 @@ test('two taps on ↻ in the photo sheet turn the photo 180° at 390 px', async 
 
   // First tap: a quarter turn, and the sheet is open again for the next.
   await right.tap();
-  await expect(hero).not.toHaveAttribute('src', first);
+  await expect.poll(heroPhoto).not.toBe(first);
   await expect(sheet).toBeVisible();
   // The marker is gone from the address: a reload does not reopen it.
   expect(new URL(page.url()).searchParams.has('photoRotated')).toBe(false);
@@ -106,9 +129,11 @@ test('two taps on ↻ in the photo sheet turn the photo 180° at 390 px', async 
   expect(quarter.size).toEqual([720, 1080]);
   expect(quarter.redAt(360, 100)).toBe(true);
 
-  // Second tap, straight from the reopened sheet: 180° in all.
+  // Second tap, from the reopened sheet once the turned photo's cutout is
+  // in: 180° in all.
+  await cutoutShown(hero);
   await right.tap();
-  await expect(hero).not.toHaveAttribute('src', second);
+  await expect.poll(heroPhoto).not.toBe(photoName(second));
   await expect(sheet).toBeVisible();
   const half = await heroOriginal(page, (await hero.getAttribute('src'))!);
   expect(half.size).toEqual([1080, 720]);
