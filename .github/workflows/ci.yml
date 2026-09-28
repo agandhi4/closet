@@ -156,12 +156,25 @@ jobs:
   publish:
     name: publish image
     # No `needs`: the tree was gated on its PR by the local gate (strict up-to-date
-    # protection makes the squash commit's tree the gated head's tree).
+    # protection makes the squash commit's tree the gated head's tree). What the gate
+    # never runs is the image itself: it is booted here before it is pushed (#181).
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
       packages: write
+    # The smoke test's empty database.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: Password123
+          POSTGRES_DB: postgres-test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d postgres-test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
     env:
       GHCR_REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository }}
@@ -186,18 +199,35 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || inputs.version != '' }}
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             type=sha,prefix=sha-
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      # Built once, into the runner's Docker with every tag, so the image the smoke
+      # test boots is the image pushed: `docker push` sends those exact bytes, where a
+      # second buildx run (even all cache hits) would export a new config and digest.
+      # cache-to here, so a build the smoke test refuses still warms the next one.
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: docker/Dockerfile
           # Names the commit in the static-asset cache key (public/build.json).
           build-args: |
             GIT_SHA=${{ github.sha }}
-          # amd64 only: the sole deploy target is the Synology NAS, and emulated
-          # arm64 builds of sharp would turn commit-to-deploy into a 30+ minute wait.
+          # amd64 only: the sole deploy target is linux-box, and emulated arm64
+          # builds of sharp would turn commit-to-deploy into a 30+ minute wait.
           platforms: linux/amd64
-          push: true
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # Boots it as production does (health, migrations, a page, SIGTERM); a failure
+      # here publishes nothing. docs/deployment.md, CI and publishing.
+      - name: Smoke-test the image
+        env:
+          IMAGE_ID: ${{ steps.build.outputs.imageid }}
+          DATABASE_HOST: localhost
+          DATABASE_USER: test
+          DATABASE_PASS: Password123
+          DATABASE_SCHEMA: postgres-test
+        run: scripts/smoke-image.sh "$IMAGE_ID"
+      - name: Push
+        run: docker push --all-tags "$GHCR_REGISTRY/$IMAGE_NAME"

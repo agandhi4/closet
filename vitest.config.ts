@@ -19,7 +19,20 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.spec.{ts,tsx}', 'src/main.ts'],
+      // Process entry points no Vitest worker runs, so line coverage would
+      // only report them as 0%: main.ts and server.ts (listen, timers,
+      // SIGTERM), the CLIs' wrappers around specced code, and the model's
+      // child process (forked and type-stripped, never instrumented).
+      // scripts/smoke-image.sh covers them in the built image: booted,
+      // served and stopped before every publish (ci.yml), and nightly the
+      // fetch CLI plus a real cutout through child.ts (nightly.yml).
+      exclude: [
+        'src/**/*.spec.{ts,tsx}',
+        'src/**/*.cli.ts',
+        'src/main.ts',
+        'src/server.ts',
+        'src/cutout/child.ts',
+      ],
       reportsDirectory: 'coverage',
     },
     projects: [

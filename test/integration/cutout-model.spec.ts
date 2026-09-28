@@ -18,11 +18,18 @@ import { createTestApp, type TestApp } from './harness';
  * The real model end to end: the queue, the child process (src/cutout/
  * child.ts under Node's type stripping), onnxruntime and BiRefNet. Runs
  * only where the 940 MB model file already is: MODELS_PATH (as the server
- * reads it) or ./models. CI never downloads it, so there this is skipped.
- * Seed it with `npm run cutout:fetch-model`.
+ * reads it) or ./models. The PR gate never downloads it, so there this is
+ * skipped. Seed it with `npm run cutout:fetch-model`. The nightly
+ * (nightly.yml, real cutout model) sets CUTOUT_MODEL_REQUIRED, so a model
+ * missing there fails the run instead of skipping it green.
  */
 const modelsPath = process.env.MODELS_PATH ?? join(PROJECT_ROOT, 'models');
 const present = existsSync(join(modelsPath, BIREFNET_512.fileName));
+if (!present && process.env.CUTOUT_MODEL_REQUIRED === '1') {
+  throw new Error(
+    `CUTOUT_MODEL_REQUIRED is set but ${join(modelsPath, BIREFNET_512.fileName)} does not exist`,
+  );
+}
 
 // A red garment shape on a pale, slightly noisy backdrop: plain enough to
 // judge, textured enough that the model is not handed a trivial image.

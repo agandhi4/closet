@@ -1,7 +1,9 @@
 name: Nightly
 
-# Slow, trend-shaped checks that used to run on every push: the autocannon
-# load test and Lighthouse. Neither gates a deploy.
+# Slow checks that no PR or publish pays for: the autocannon load test and
+# Lighthouse (trend-shaped, used to run on every push), and the real
+# background-removal model, too big for the per-merge publish job (#181).
+# Nothing here gates a deploy.
 on:
   schedule:
     - cron: "30 8 * * *" # 04:30 US Eastern
@@ -51,3 +53,92 @@ jobs:
           path: scripts/results/
       # test:load built dist/; lighthouse starts it with start:prod.
       - run: npm run lighthouse
+
+  # The 940 MB BiRefNet model on real photos: cutout-model.spec (the queue, the
+  # child process, onnxruntime-node from node_modules), then one cutout in the
+  # built image (its own onnxruntime-node and sharp: what a Dependabot bump or
+  # a Dockerfile change breaks, and the publish job's smoke test never loads).
+  # ~6 min with the model and the image layers cached; a cold cache adds the
+  # download and a full image build.
+  cutout-model:
+    name: real cutout model
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: Password123
+          POSTGRES_DB: postgres-test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d postgres-test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      CI: true
+      # The spec's scratch databases are made from here; the image's smoke
+      # test boots on postgres-test itself, which nothing else migrates.
+      TEST_DATABASE_URL: postgres://test:Password123@localhost:5432/postgres-test
+      DATABASE_HOST: localhost
+      DATABASE_USER: test
+      DATABASE_PASS: Password123
+      DATABASE_SCHEMA: postgres-test
+      # Required, 32+ characters (src/config.ts): the fetch CLI checks the
+      # whole configuration, though it opens no database.
+      ACCESS_TOKEN_SECRET: ci-only-access-token-secret-not-for-deployment
+      # cutout-model.spec fails instead of skipping when the model is missing.
+      CUTOUT_MODEL_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # The cache is keyed by the checksum the app verifies (BIREFNET_512 in
+      # src/cutout/model.ts), so a new pinned model is a new entry.
+      - id: model
+        name: Pinned model checksum
+        run: echo "sha256=$(node -r ts-node/register/transpile-only -p "require('./src/cutout/model').BIREFNET_512.sha256")" >> "$GITHUB_OUTPUT"
+      - id: model-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: models
+          key: birefnet-512-${{ steps.model.outputs.sha256 }}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      # main's publish job wrote these layers (type=gha); read-only here.
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          platforms: linux/amd64
+          load: true
+          tags: closet:nightly
+          cache-from: type=gha
+      # The image's own `npm run cutout:fetch-model`: downloads the model on a
+      # cache miss, and on a hit re-hashes the restored file against the pin
+      # (a mismatch is replaced), so nothing below loads unverified bytes.
+      - name: Fetch or verify the model
+        env:
+          IMAGE_ID: ${{ steps.build.outputs.imageid }}
+        run: |
+          mkdir -p models
+          docker run --rm -v "$PWD/models:/app/models" \
+            -e DATABASE_HOST -e DATABASE_USER -e DATABASE_PASS -e DATABASE_SCHEMA -e ACCESS_TOKEN_SECRET \
+            "$IMAGE_ID" npm run cutout:fetch-model
+      # Saved at once, not in a post step, so a red run below still keeps it.
+      - if: steps.model-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: models
+          key: ${{ steps.model-cache.outputs.cache-primary-key }}
+      - name: The image cuts out a photo with the model
+        env:
+          IMAGE_ID: ${{ steps.build.outputs.imageid }}
+          MODELS_DIR: models
+        run: scripts/smoke-image.sh "$IMAGE_ID"
+      - run: npx vitest run --project integration test/integration/cutout-model.spec.ts
