@@ -255,24 +255,47 @@ export class Metrics {
   }
 
   /**
-   * The background-removal queue's pending photos, read from the database
-   * at each scrape (a gauge that is never stale). A failed read is logged
-   * and the scrape keeps the last value rather than failing whole.
+   * The background-removal queue's pending photos, counted in the database
+   * (any server's writes count). Each scrape starts a count and answers
+   * with the last one that finished, so the value is at most one scrape
+   * interval old. Only the first scrape waits, for the first count's
+   * attempt: if that fails, the gauge stays at 0 until a count succeeds,
+   * and no later scrape waits. The scrape never waits on the database
+   * otherwise: in production that is a round trip to pgvault on the NAS,
+   * which was most of every scrape's time (#174). One count at a time: a
+   * scrape while one is still out starts none. A failed count is logged and
+   * the last value stands.
    */
   trackCutoutQueue(pending: () => Promise<number>): void {
     const logger = this.logger;
+    let counting: Promise<void> | undefined;
+    let attempted = false;
     new Gauge({
       name: 'cutout_queue_depth',
       help: 'Photos waiting for background removal (pending cutouts).',
       registers: [this.registry],
       async collect() {
-        try {
-          this.set(await pending());
-        } catch (error) {
-          logger.warn(
-            `Could not read the cutout queue's depth: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+        // Never rejects: past the first scrape nothing awaits it, and an
+        // unhandled rejection is a crash (main.ts, createCrashHandler).
+        // The reset is a .finally() so it always runs after the assignment,
+        // even when `pending` throws synchronously.
+        counting ??= (async () => {
+          try {
+            const depth = await pending();
+            if (!Number.isFinite(depth)) {
+              throw new Error(`not a count: ${String(depth)}`);
+            }
+            this.set(depth);
+          } catch (error) {
+            logger.warn(
+              `Could not read the cutout queue's depth: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+          attempted = true;
+        })().finally(() => {
+          counting = undefined;
+        });
+        if (!attempted) await counting;
       },
     });
   }

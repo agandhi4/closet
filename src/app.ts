@@ -287,16 +287,9 @@ export async function createApp(
   });
 
   // Security headers on all responses
-  app.addHook('onSend', async (_request, reply, payload) => {
-    reply.header('X-Content-Type-Options', 'nosniff');
-    reply.header('X-Frame-Options', 'DENY');
-    reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    reply.header(
-      'Strict-Transport-Security',
-      'max-age=31536000; includeSubDomains',
-    );
-    reply.header('Content-Security-Policy', CONTENT_SECURITY_POLICY);
-    return payload;
+  app.addHook('onSend', (_request, reply, payload, done) => {
+    reply.headers(SECURITY_HEADERS);
+    done(null, payload);
   });
 
   // One line per request, never its headers (the session cookie is a
@@ -304,11 +297,13 @@ export async function createApp(
   // heartbeat) stay out: logging them cost ~16% of image throughput. Routes
   // with a secret in the path log their pattern (loggableUrl).
   const http = logger.child({ context: 'Http' });
-  app.addHook('onResponse', async (request, reply) => {
-    if (isStaticPath(request.url)) return;
-    http.info(
-      `${request.method} ${loggableUrl(request)} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms`,
-    );
+  app.addHook('onResponse', (request, reply, done) => {
+    if (!isStaticPath(request.url)) {
+      http.info(
+        `${request.method} ${loggableUrl(request)} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms`,
+      );
+    }
+    done();
   });
 
   await app.register(fastifyCookie);
@@ -458,3 +453,12 @@ function createWeather(
 // background-removal model's, removed on 2026-09-26.
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none';";
+
+// Every response's, set by the root onSend hook.
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'Content-Security-Policy': CONTENT_SECURITY_POLICY,
+} as const;
