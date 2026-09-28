@@ -24,6 +24,7 @@ import {
   saveForecast,
   saveNormals,
   type WeatherSettings,
+  type WeatherWithForecast,
 } from './queries';
 
 /**
@@ -214,7 +215,22 @@ export async function userWeather(
   /** `{ fresh: true }` for a job's one-shot decision (location-cache.ts). */
   read?: ReadOptions,
 ): Promise<UserWeather> {
-  const { settings, forecast } = await findWeatherWithForecast(db, userId, now);
+  const found = await findWeatherWithForecast(db, userId, now);
+  return userWeatherFrom(weather, found, now, read);
+}
+
+/**
+ * userWeather from settings and a cache row already read, in a statement
+ * of the caller's (weatherWithForecastSql in the outfit gallery's ideasFor,
+ * #168). Reads the database again only when the row says the forecast
+ * must be fetched.
+ */
+export async function userWeatherFrom(
+  weather: WeatherService,
+  { settings, forecast }: WeatherWithForecast,
+  now: Date,
+  read?: ReadOptions,
+): Promise<UserWeather> {
   const active = activeLocation(settings, now);
   const cached = active
     ? await weather.forecastFor(active.location, read, forecast ?? undefined)

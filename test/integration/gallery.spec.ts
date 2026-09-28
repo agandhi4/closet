@@ -11,7 +11,13 @@ import { addDays } from '../../src/web/calendar/calendar-date';
 import { pickIdea } from '../../src/web/gallery/ideas';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import { createWishlistItem } from './garments';
-import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
+import {
+  createTestApp,
+  recordQueries,
+  type TestApp,
+  unescapeHtml,
+  userIdOf,
+} from './harness';
 import { callTool, createAccessToken } from './mcp';
 import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
 
@@ -817,6 +823,111 @@ describe('outfit gallery', () => {
       expect(page).not.toMatch(/>\s*\+ /);
     });
   });
+
+  // Production reaches Postgres over a link where each statement is a round
+  // trip (#156), so each route's count is pinned: a new read shows up here.
+  // Every request's first statement is the session's user.
+  describe('statements per request (#168)', () => {
+    it('the page: the session, then the pool, saved outfits, clashes and the capsule menu in one', async () => {
+      const read = await recordQueries(() => get('/outfits/ideas'));
+      expect(read.statements).toBe(2);
+      const [, ideas] = read.sql;
+      for (const table of [
+        '"garment_wear"',
+        '"outfit_slot"',
+        '"generator_avoid"',
+        '"capsule"',
+      ]) {
+        expect(ideas).toContain(table);
+      }
+      const more = await recordQueries(() =>
+        t.inject({
+          method: 'GET',
+          url: '/outfits/ideas/more?seed=7&page=2',
+          headers: HX_FRAGMENT,
+        }),
+      );
+      // The same, without the capsule menu: a fragment has none.
+      expect(more.statements).toBe(2);
+      expect(more.sql[1]).not.toContain('"capsule"');
+    });
+
+    it('?capsule= and ?with= each validate first, a statement before the ideas', async () => {
+      const scoped = await recordQueries(() =>
+        get(`/outfits/ideas?capsule=${capsuleId}`),
+      );
+      expect(scoped.statements).toBe(3);
+      const styled = await recordQueries(() =>
+        get(`/outfits/ideas?with=${tops[0]}`),
+      );
+      expect(styled.statements).toBe(3);
+    });
+
+    it('a clash is one statement, and refuses a wishlist item in it', async () => {
+      const [a, b] = [tops[2], shoes[0]];
+      const clash = (ids: number[]) =>
+        t.inject({
+          method: 'POST',
+          url: '/outfits/ideas/avoid',
+          ...form({ garmentId: ids.map(String) }),
+        });
+      const added = await recordQueries(() => clash([a, b]));
+      expect(added.statements).toBe(2);
+      const again = await recordQueries(() => clash([b, a]));
+      expect(again.statements).toBe(2);
+      expect((await clash([a, wishlistTee])).statusCode).toBe(404);
+      // An archived garment is still owned: it may come back.
+      expect((await clash([a, archivedTee])).statusCode).toBe(303);
+      const pairs = await t.db
+        .select({ b: generatorAvoid.garmentBId })
+        .from(generatorAvoid)
+        .where(eq(generatorAvoid.garmentAId, Math.min(a, b)));
+      expect(pairs.map((pair) => pair.b).sort()).toEqual(
+        [Math.max(a, b), archivedTee].sort(),
+      );
+      for (const pair of [
+        [a, b],
+        [a, archivedTee],
+      ]) {
+        const allowed = await t.inject({
+          method: 'POST',
+          url: '/outfits/ideas/allow',
+          ...form({ garmentId: pair.map(String) }),
+        });
+        expect(allowed.statusCode).toBe(303);
+      }
+    });
+
+    it('a pick reads its garments and the outfit they already are in one statement', async () => {
+      const garments = [tops[0], bottoms[1], shoes[1]].map(String);
+      const pick = () =>
+        t.inject({
+          method: 'POST',
+          url: '/outfits/ideas/pick',
+          ...form({ garmentId: garments }),
+        });
+      const first = await recordQueries(pick);
+      const again = await recordQueries(pick);
+      const reads = (sql: string[]) =>
+        sql.filter((q) => /^select .* from "garment"/.test(q));
+      // One read of the garments (FOR SHARE) with the outfit they already
+      // are; the slots check their garments in their own insert.
+      for (const record of [first, again]) {
+        expect(reads(record.sql)).toHaveLength(1);
+        expect(reads(record.sql)[0]).toMatch(/for share of "garment"$/);
+      }
+      // The session; begin, and the owner lock with its timeout (#215);
+      // the read; the outfit within createOutfit's savepoint (savepoint,
+      // outfit, slots, release; #213); commit.
+      expect(first.statements).toBe(9);
+      expect(again.sql.some((q) => q.startsWith('insert into "outfit"'))).toBe(
+        false,
+      );
+      // Already saved: the session; begin and the lock; the read; the
+      // planner's take-over; commit.
+      expect(again.statements).toBe(6);
+    });
+  });
 });
 
 describe('outfit gallery with the weather', () => {
@@ -870,6 +981,20 @@ describe('outfit gallery with the weather', () => {
     expect(stub.hits.filter((hit) => hit.startsWith('/v1/archive'))).toEqual(
       [],
     );
+  });
+
+  it('reads the weather settings and the cached forecast in the ideas’ one statement (#168)', async () => {
+    await t.inject({ method: 'GET', url: '/outfits/ideas' });
+    const hits = stub.hits.length;
+    const read = await recordQueries(() =>
+      t.inject({ method: 'GET', url: '/outfits/ideas' }),
+    );
+    // The session, then the pool, the generator's memory, the capsule menu
+    // and the settings with their location's forecast row. A fresh row read
+    // back from JSON (its timestamps as strings) is served, not fetched.
+    expect(read.statements).toBe(2);
+    expect(read.sql[1]).toContain('"weather_forecast"');
+    expect(stub.hits).toHaveLength(hits);
   });
 
   it('"too warm" nudges the offset and comes back to the same ideas', async () => {

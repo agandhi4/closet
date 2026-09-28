@@ -184,26 +184,145 @@ export function generateIdeas<G extends IdeaGarment>(
   const lockedRoles = new Set(locked.map((g) => g.role));
   const byRole = drawableByRole(request.pool, locked);
   const templates = templatesFor(byRole, lockedRoles);
-  if (templates.length === 0) return { ideas: [], more: false };
+  const rules = hardRules(request);
+  // Every idea holds the locked garments, and a garment added never mends a
+  // broken rule: locks that break one can make no idea, however long drawn.
+  if (templates.length === 0 || !rules.compatible(locked)) {
+    return { ideas: [], more: false };
+  }
 
   // A layer only when the weather asks (and none is locked).
   const layers =
-    request.needs && !lockedRoles.has('layer') ? layersOf(byRole) : [];
-  const draw = drawer(request.seed, templates, byRole, locked);
-  const rules = hardRules(request);
+    request.needs && !lockedRoles.has('layer')
+      ? byLayerPreference(byRole.get('layer') ?? [])
+      : [];
+  return drawPage(request, {
+    draw: drawer(request.seed, templates, byRole, locked),
+    bases: baseCount(templates, byRole, lockedRoles),
+    floor: scoreFloor(
+      templates,
+      byRole,
+      locked,
+      lockedRoles,
+      request.formality,
+    ),
+    layers,
+    rules,
+  });
+}
+
+/** generateIdeas' draws: until the page is settled, then the page. */
+function drawPage<G extends IdeaGarment>(
+  request: IdeaRequest<G>,
+  {
+    draw,
+    bases,
+    floor,
+    layers,
+    rules,
+  }: {
+    draw: () => G[];
+    bases: number;
+    floor: number;
+    layers: readonly G[];
+    rules: HardRules;
+  },
+): IdeaPage<G> {
   const want = request.offset + request.limit + 1;
   const fitting: Idea<G>[] = [];
   const nearMisses: Idea<G>[] = [];
+  let atFloor = 0;
   const drawn = new Set<string>();
-  for (let n = 0; n < MAX_DRAWS && fitting.length < want; n += 1) {
+  // The page is settled, and drawing stops, once `want` ideas score the
+  // floor: no later draw scores lower, and one that ties ranks after them
+  // (ideas that fit keep draw order; near misses sort stably). With a floor
+  // of 0 those are the ideas that fit. Past `bases` distinct draws every
+  // further draw is a repeat, skipped. Either way the page is the one
+  // MAX_DRAWS would give, sooner.
+  for (
+    let n = 0;
+    n < MAX_DRAWS && atFloor < want && drawn.size < bases;
+    n += 1
+  ) {
     const base = draw();
     const key = keyOf(base);
     if (drawn.has(key)) continue;
     drawn.add(key);
     const idea = bestIdea(base, layers, request, rules);
-    if (idea) (idea.score === 0 ? fitting : nearMisses).push(idea);
+    if (!idea) continue;
+    (idea.score === 0 ? fitting : nearMisses).push(idea);
+    if (idea.score === floor) atFloor += 1;
   }
   return pageOf(fitting, nearMisses, request);
+}
+
+/**
+ * The lowest score any idea can reach: its formality misses, since those
+ * add up garment by garment (formalityMiss) and the weather's part is never
+ * below 0. The locked garments' misses plus, per template, the smallest
+ * miss each open role offers. Above 0 when no idea can fit: the locks
+ * already miss the range ("Goes with my closet" locks a wishlist item and
+ * asks for its own formality, and a layer of another formality can never
+ * make it), or a role has nothing within it.
+ */
+function scoreFloor(
+  templates: readonly Template[],
+  byRole: Map<GarmentRole, readonly IdeaGarment[]>,
+  locked: readonly IdeaGarment[],
+  lockedRoles: Set<GarmentRole>,
+  range: IdeaRequest['formality'],
+): number {
+  if (!range) return 0;
+  const missOf = (garments: readonly IdeaGarment[]) =>
+    garments.reduce((sum, g) => sum + formalityMiss(g, range), 0);
+  const leastMiss = (role: GarmentRole) =>
+    Math.min(...(byRole.get(role) ?? []).map((g) => formalityMiss(g, range)));
+  return (
+    missOf(locked) +
+    Math.min(
+      ...templates.map((template) =>
+        template.roles
+          .filter((role) => !lockedRoles.has(role))
+          .reduce((sum, role) => sum + leastMiss(role), 0),
+      ),
+    )
+  );
+}
+
+/** Formality steps a garment sits outside the range, below or above (0 without one). */
+function formalityMiss(
+  { formality }: Pick<IdeaGarment, 'formality'>,
+  range: { min: Formality; max: Formality },
+): number {
+  if (formality === null) return 0;
+  return (
+    Math.max(0, range.min - formality) + Math.max(0, formality - range.max)
+  );
+}
+
+/**
+ * How many distinct bases the templates can draw: per template, the
+ * product of its open roles' garments. Templates never share a base (their
+ * roles differ), and a role's garments are distinct, so this is the count
+ * of distinct keys the draws can reach.
+ */
+function baseCount(
+  templates: readonly Template[],
+  byRole: Map<GarmentRole, readonly IdeaGarment[]>,
+  lockedRoles: Set<GarmentRole>,
+): number {
+  return templates.reduce(
+    (sum, template) =>
+      sum +
+      template.roles.reduce(
+        (product, role) =>
+          lockedRoles.has(role)
+            ? product
+            : product * (byRole.get(role)?.length ?? 0),
+        1,
+      ),
+    0,
+  );
 }
 
 /**
@@ -222,10 +341,6 @@ function pageOf<G extends IdeaGarment>(
       ? fitting
       : [...fitting, ...nearMisses.sort((a, b) => a.score - b.score)];
   return { ideas: ranked.slice(offset, end), more: ranked.length > end };
-}
-
-function layersOf<G extends IdeaGarment>(byRole: Map<GarmentRole, G[]>): G[] {
-  return byRole.get('layer') ?? [];
 }
 
 /**
@@ -247,7 +362,9 @@ function drawableByRole<G extends IdeaGarment>(
     if (lockedIds.has(garment.id) || !DRAWN_ROLES.includes(garment.role)) {
       continue;
     }
-    byRole.set(garment.role, [...(byRole.get(garment.role) ?? []), garment]);
+    const role = byRole.get(garment.role);
+    if (role) role.push(garment);
+    else byRole.set(garment.role, [garment]);
   }
   return byRole;
 }
@@ -265,6 +382,11 @@ function drawer<G extends IdeaGarment>(
   const random = seededRandom('generator', GENERATOR_VERSION, seed);
   const templateWeights = templates.map((template) => template.weight);
   const lockedRoles = new Set(locked.map((g) => g.role));
+  // Weighed once, not on every draw: a garment's weight never changes
+  // within a request.
+  const weights = new Map(
+    [...byRole].map(([role, choices]) => [role, choices.map(rotationWeight)]),
+  );
   return () => {
     const template = templates[random.weighted(templateWeights)];
     const base = [...locked];
@@ -272,7 +394,7 @@ function drawer<G extends IdeaGarment>(
       if (lockedRoles.has(role)) continue;
       // templatesFor offers a role only when the pool has some.
       const choices = byRole.get(role)!;
-      base.push(choices[random.weighted(choices.map(rotationWeight))]);
+      base.push(choices[random.weighted(weights.get(role)!)]);
     }
     return base;
   };
@@ -333,15 +455,30 @@ function pairKey(a: number, b: number): string {
 
 type HardRule = (garments: readonly IdeaGarment[]) => boolean;
 
-function hardRules(request: IdeaRequest<IdeaGarment>): HardRule {
+interface HardRules {
+  /**
+   * The colour, pattern and clash rules: a garment added never mends one
+   * they break (colours and patterns only add up, a clashing pair stays),
+   * so what fails here fails with anything added to it.
+   */
+  compatible: HardRule;
+  /** compatible, and not equal to a saved outfit (which a layer can change). */
+  passes: HardRule;
+}
+
+function hardRules(request: IdeaRequest<IdeaGarment>): HardRules {
   const avoided = new Set((request.avoid ?? []).map(([a, b]) => pairKey(a, b)));
   const saved = new Set((request.saved ?? []).map(drawnKey));
-  return (garments) =>
+  const compatible: HardRule = (garments) =>
     colorsGoTogether(garments) &&
     !garments.some((a, i) =>
       garments.slice(i + 1).some((b) => avoided.has(pairKey(a.id, b.id))),
-    ) &&
-    !saved.has(drawnKey(garments));
+    );
+  return {
+    compatible,
+    passes: (garments) =>
+      compatible(garments) && !saved.has(drawnKey(garments)),
+  };
 }
 
 export function isLoud(garment: Pick<IdeaGarment, 'pattern' | 'colors'>) {
@@ -368,52 +505,65 @@ export function colorsGoTogether(
   return accents.size <= MAX_ACCENT_COLORS && loud <= MAX_LOUD_PATTERNS;
 }
 
-interface LayerOption<G> {
-  layer: G | null;
+/**
+ * The layers in the order a tie between them goes: the most rested, then
+ * the oldest id. A total order that does not depend on the base, so
+ * bestIdea can try them in it once for every base.
+ */
+function byLayerPreference<G extends IdeaGarment>(layers: readonly G[]): G[] {
+  return [...layers].sort(
+    (a, b) => rotationWeight(b) - rotationWeight(a) || a.id - b.id,
+  );
+}
+
+interface Option<G> {
+  garments: G[];
   score: number;
   problems: IdeaProblem[];
 }
 
-/** Among equal scores: no layer first, then the most rested, then the oldest. */
-function layerPreference(a: IdeaGarment | null, b: IdeaGarment | null): number {
-  if (a === null || b === null) return (a ? 1 : 0) - (b ? 1 : 0);
-  return rotationWeight(b) - rotationWeight(a) || a.id - b.id;
-}
-
 /**
- * The drawn base with its best layer (or none): the options are scored
- * (the weather and the formality), the best that passes the hard rules
- * wins, and among equals no layer, then the most rested, then the oldest
- * id. Deterministic for a base, so a base is one idea however often it is
- * drawn. Undefined when no option passes the hard rules.
+ * The drawn base with its best layer (or none): of the options that pass
+ * the hard rules, the lowest score (the weather and the formality), and
+ * among equals no layer, then the layers in preference order
+ * (byLayerPreference). Deterministic for a base, so a base is one idea
+ * however often it is drawn. Undefined when no option passes the hard
+ * rules. Two shortcuts that cannot change the answer: a base that breaks a
+ * colour, pattern or clash rule on its own is never scored (no layer mends
+ * it), and, trying the options in preference order, the first that scores
+ * 0 and passes wins (nothing scores lower). Checking the rules costs about
+ * what scoring does, so the rest are scored first and checked best first.
  */
 function bestIdea<G extends IdeaGarment>(
   base: readonly G[],
-  /** The layers to try: none without a forecast. */
+  /** The layers to try, in byLayerPreference order: none without a forecast. */
   layers: readonly G[],
   request: IdeaRequest<G>,
-  passes: HardRule,
+  rules: HardRules,
 ): Idea<G> | undefined {
-  const options: LayerOption<G>[] = [
-    { layer: null, ...judge(base, request) },
-    ...layers.map((layer) => ({ layer, ...judge([...base, layer], request) })),
-  ];
-  options.sort(
-    (a, b) => a.score - b.score || layerPreference(a.layer, b.layer),
-  );
-  for (const option of options) {
-    const garments = option.layer ? [...base, option.layer] : [...base];
-    if (!passes(garments)) continue;
-    return {
-      garments: inOutfitOrder(garments),
-      score: option.score,
-      problems: option.problems,
-      rested: garments
-        .filter((g) => g.idleDays === null || g.idleDays >= REST_DAYS)
-        .map((g) => g.id),
-    };
+  if (!rules.compatible(base)) return undefined;
+  const options: Option<G>[] = [];
+  for (const layer of [null, ...layers]) {
+    const garments = layer ? [...base, layer] : [...base];
+    const option = { garments, ...judge(garments, request) };
+    if (option.score === 0 && rules.passes(garments)) return ideaOf(option);
+    options.push(option);
   }
-  return undefined;
+  // Stable: equal scores keep preference order.
+  options.sort((a, b) => a.score - b.score);
+  const best = options.find((option) => rules.passes(option.garments));
+  return best && ideaOf(best);
+}
+
+function ideaOf<G extends IdeaGarment>(option: Option<G>): Idea<G> {
+  return {
+    garments: inOutfitOrder(option.garments),
+    score: option.score,
+    problems: option.problems,
+    rested: option.garments
+      .filter((g) => g.idleDays === null || g.idleDays >= REST_DAYS)
+      .map((g) => g.id),
+  };
 }
 
 function judge(
@@ -430,6 +580,8 @@ function judge(
     problems.push(...fit.problems);
     score += fit.score;
   }
+  // casual + dressy is the sum of formalityMiss over the garments, never
+  // below it: scoreFloor's bound depends on it.
   const range = request.formality;
   if (range) {
     let casual = 0;

@@ -201,6 +201,11 @@ describe('outfits', () => {
         { category: 'tops', garmentId: top },
         { category: 'bottoms', garmentId: null },
       ]);
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        expect.stringContaining(
+          `Outfit ${id} created by user ${t.owner.id}: 2 row(s), 1 garment id(s) not in the wardrobe ignored`,
+        ),
+      );
     });
 
     it('accepts a single row (scalar fields, not arrays) and an empty outfit', async () => {

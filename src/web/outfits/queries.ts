@@ -320,7 +320,8 @@ export async function findOutfitFields(
  * hand-made request; the form only offers their own) is dropped and its row
  * kept empty, so a slot never names another user's garment, nor a wishlist
  * item (not owned yet). Archived garments were owned and stay. Returns how
- * many ids it dropped.
+ * many ids it dropped. One statement: each slot's garment is looked up in
+ * the insert itself (#168: it was a read before the insert on every save).
  */
 async function insertSlots(
   tx: Queryable,
@@ -329,37 +330,30 @@ async function insertSlots(
   slots: SlotInput[],
 ): Promise<number> {
   if (slots.length === 0) return 0;
-  const requested = [...new Set(slots.flatMap((slot) => slot.garmentId ?? []))];
-  const owned = new Set(
-    requested.length === 0
-      ? []
-      : (
-          await tx
-            .select({ id: garment.id })
-            .from(garment)
-            .where(
-              and(
-                eq(garment.ownerId, ownerId),
-                inArray(garment.id, requested),
-                ownedGarment(),
-              ),
-            )
-        ).map((row) => row.id),
-  );
-  let refused = 0;
-  await tx.insert(outfitSlot).values(
-    slots.map((slot, position) => {
-      const keep = slot.garmentId !== null && owned.has(slot.garmentId);
-      if (slot.garmentId !== null && !keep) refused += 1;
-      return {
+  const ownedId = (id: number) =>
+    sql<number>`(select ${garment.id} from ${garment} where ${and(
+      eq(garment.id, id),
+      eq(garment.ownerId, ownerId),
+      ownedGarment(),
+    )})`;
+  const inserted = await tx
+    .insert(outfitSlot)
+    .values(
+      slots.map((slot, position) => ({
         outfitId,
         position,
         category: slot.category,
-        garmentId: keep ? slot.garmentId : null,
-      };
-    }),
-  );
-  return refused;
+        garmentId: slot.garmentId === null ? null : ownedId(slot.garmentId),
+      })),
+    )
+    .returning({
+      position: outfitSlot.position,
+      garmentId: outfitSlot.garmentId,
+    });
+  const kept = new Map(inserted.map((row) => [row.position, row.garmentId]));
+  return slots.filter(
+    (slot, position) => slot.garmentId !== null && kept.get(position) === null,
+  ).length;
 }
 
 /**

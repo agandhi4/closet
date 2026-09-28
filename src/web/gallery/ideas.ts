@@ -14,17 +14,28 @@ import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
 import { normalsOn, typicalDay } from '../../weather/normals';
 import type { TemperatureUnit } from '../../weather/temperature';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
-import { type CapsuleDetail, findCapsule } from '../capsules/queries';
+import {
+  type CapsuleDetail,
+  capsuleNamesSql,
+  type CapsuleRef,
+  findCapsule,
+} from '../capsules/queries';
 import { capsuleNotFound } from '../capsules/validation';
 import { HttpError } from '../errors';
 import { ownerTransaction } from '../auth/queries';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import { createOutfit, OUTFIT_NAME_MAX } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
-import { findWeatherSettings } from '../weather/queries';
+import { selectScalars } from '../../db/select-scalars';
 import {
-  userWeather,
+  readWeatherWithForecast,
+  type WeatherSettings,
+  weatherWithForecastSql,
+  type WeatherWithForecast,
+} from '../weather/queries';
+import {
   type UserWeather,
+  userWeatherFrom,
   type WeatherService,
 } from '../weather/service';
 import { adoptPlannerOutfit } from '../week-plan/queries';
@@ -39,11 +50,12 @@ import {
   avoidedPairs,
   type ClosetGarment,
   closetGarments,
-  generatorMemory,
-  ideaPool,
-  outfitOfGarments,
+  generatorMemorySql,
+  ideaPoolSql,
   pickedGarments,
   type PoolGarment,
+  readGeneratorMemory,
+  readPool,
   styledGarment,
   styledGarments,
   type WishlistGarment,
@@ -111,6 +123,11 @@ export interface IdeasInput {
   ownWeather?: UserWeather;
   /** Only this capsule's garments (the owner's own capsule; the route checks). */
   capsuleId?: number;
+  /**
+   * Also read the owner's capsules for a scope menu (the gallery page's),
+   * in the same statement as the pool: IdeasResult.capsules.
+   */
+  capsuleMenu?: boolean;
   /** In every idea: `?with=`'s garment, Styling's locked rows (styledGarments). */
   locked?: readonly PoolGarment[];
   seed: number;
@@ -163,6 +180,8 @@ export interface IdeasResult {
   more: boolean;
   /** Null: no weather service, no location, no forecast for the day. */
   weather: IdeasWeather | null;
+  /** The owner's capsules by name, with `capsuleMenu`; else undefined. */
+  capsules: CapsuleRef[] | undefined;
 }
 
 export async function ideasFor(
@@ -172,14 +191,32 @@ export async function ideasFor(
   now: Date,
 ): Promise<IdeasResult> {
   const { db } = deps;
-  const [pool, { saved, avoid }, weather] = await Promise.all([
-    ideaPool(db, ownerId, { today: input.today, capsuleId: input.capsuleId }),
-    generatorMemory(db, ownerId),
-    dayWeather(deps, ownerId, input, now),
-  ]);
+  const row = await selectScalars(db, {
+    pool: ideaPoolSql(ownerId, {
+      today: input.today,
+      capsuleId: input.capsuleId,
+    }),
+    ...generatorMemorySql(ownerId),
+    weather: readsWeather(deps, input)
+      ? weatherWithForecastSql(ownerId, now)
+      : undefined,
+    capsules: input.capsuleMenu ? capsuleNamesSql(ownerId) : undefined,
+  });
+  const { saved, avoid } = readGeneratorMemory(row);
+  const weather = await dayWeather(
+    deps,
+    input,
+    row.weather === undefined
+      ? input.ownWeather && {
+          settings: input.ownWeather.settings,
+          forecast: null,
+        }
+      : readWeatherWithForecast(row.weather, now),
+    now,
+  );
   const page = generateIdeas({
     seed: input.seed,
-    pool,
+    pool: readPool(row.pool),
     locked: input.locked ?? [],
     needs: weather?.needs ?? null,
     formality: OCCASION_HINTS[input.occasion].formality,
@@ -188,7 +225,7 @@ export async function ideasFor(
     offset: input.offset,
     limit: input.limit,
   });
-  return { ...page, weather };
+  return { ...page, weather, capsules: row.capsules };
 }
 
 /**
@@ -217,43 +254,64 @@ export async function ideasPage(
 }
 
 /**
+ * Whether ideasFor reads the person's weather row (weatherWithForecastSql)
+ * with the pool: when dayWeather could use it (the service on, a day from
+ * today on) and the caller has not read it already (`ownWeather`). A trip
+ * reads it too, for the offset and the unit; one past its forecast without
+ * a destination reads it for nothing, a column in a statement it sends
+ * anyway.
+ */
+function readsWeather(
+  deps: { weather: WeatherService | undefined },
+  input: IdeasInput,
+): boolean {
+  return (
+    deps.weather !== undefined &&
+    input.day >= input.today &&
+    input.ownWeather === undefined
+  );
+}
+
+/**
  * What the day's weather asks for the occasion, with the person's offset.
  * The forecast only for days it covers (today to FORECAST_DAYS ahead), so a
  * past day never makes the request wait on Open-Meteo; it is the person's
  * own location's, or `input.place`'s (a trip's destination) through the
  * same cache. Past the forecast, a trip's destination has its typical day
  * (climate normals, src/weather/normals.ts) and nothing else does: the
- * person's own days (the gallery, Today) stay forecast-only.
+ * person's own days (the gallery, Today) stay forecast-only. `own` is the
+ * person's weather row as ideasFor read it (readsWeather), or the settings
+ * of the caller's `ownWeather`; undefined when no weather applies.
  */
 async function dayWeather(
-  deps: { db: Db; weather: WeatherService | undefined },
-  ownerId: number,
+  deps: { weather: WeatherService | undefined },
   input: IdeasInput,
+  own: WeatherWithForecast | undefined,
   now: Date,
 ): Promise<IdeasWeather | null> {
-  const { db, weather } = deps;
-  if (!weather || input.day < input.today) return null;
-  const { place } = input;
+  const { weather } = deps;
+  if (!weather || !own || input.day < input.today) return null;
   if (input.day <= addDays(input.today, FORECAST_DAYS - 1)) {
-    return forecastWeather({ db, weather }, ownerId, input, now);
+    return forecastWeather(weather, input, own, now);
   }
-  return place ? typicalWeather({ db, weather }, ownerId, input, place) : null;
+  const { place } = input;
+  return place ? typicalWeather(weather, input, own.settings, place) : null;
 }
 
+/** A day the forecast covers: the person's own location's, or the trip's. */
 async function forecastWeather(
-  deps: { db: Db; weather: WeatherService },
-  ownerId: number,
+  weather: WeatherService,
   input: IdeasInput,
+  own: WeatherWithForecast,
   now: Date,
 ): Promise<IdeasWeather | null> {
   const { place } = input;
   const { settings, cached } =
     place === undefined
-      ? (input.ownWeather ??
-        (await userWeather(deps.db, deps.weather, ownerId, now)))
+      ? (input.ownWeather ?? (await userWeatherFrom(weather, own, now)))
       : {
-          settings: await findWeatherSettings(deps.db, ownerId),
-          cached: place && (await deps.weather.forecastFor(place)),
+          settings: own.settings,
+          cached: place && (await weather.forecastFor(place)),
         };
   const forecast = cached && forecastDay(cached.forecast, input.day);
   const needs =
@@ -263,15 +321,12 @@ async function forecastWeather(
 
 /** A trip day past the forecast: the destination's typical day for it. */
 async function typicalWeather(
-  deps: { db: Db; weather: WeatherService },
-  ownerId: number,
+  weather: WeatherService,
   input: IdeasInput,
+  settings: WeatherSettings,
   place: Location,
 ): Promise<IdeasWeather | null> {
-  const [settings, cached] = await Promise.all([
-    findWeatherSettings(deps.db, ownerId),
-    deps.weather.normalsFor(place),
-  ]);
+  const cached = await weather.normalsFor(place);
   const normals = cached && normalsOn(cached.normals, input.day);
   const needs =
     normals &&
@@ -389,9 +444,12 @@ export function pickIdea(
 ): Promise<PickResult | 'not-found'> {
   const wanted = [...new Set(input.garmentIds)];
   return ownerTransaction(db, ownerId, 'pickIdea', async (tx) => {
-    const found = await pickedGarments(tx, ownerId, wanted);
+    const { garments: found, existing } = await pickedGarments(
+      tx,
+      ownerId,
+      wanted,
+    );
     if (found.length !== wanted.length) return 'not-found';
-    const existing = await outfitOfGarments(tx, ownerId, wanted);
     if (existing) return reusePicked(tx, ownerId, existing, input.plan);
     const byId = new Map(found.map((g) => [g.id, g]));
     const garments = topToToe(wanted.map((id) => byId.get(id)!));

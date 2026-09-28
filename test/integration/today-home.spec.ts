@@ -223,13 +223,14 @@ describe('Today', () => {
 
     // #158: production pays a ~114 ms round trip per statement. The session,
     // then today's entries, then (undressed) the pool and the generator's
-    // memory (saved outfits and clashes, one statement) together. With the
-    // weather on, its read joins the entries' round (weather.spec.ts).
+    // memory (saved outfits and clashes) in one statement (ideasFor's
+    // selectScalars, #168). With the weather on, its read joins the
+    // entries' round (weather.spec.ts).
     // Nothing reads "worn today": the page never shows it.
-    it('reads in four statements, two when the day is dressed', async () => {
+    it('reads in three statements, two when the day is dressed', async () => {
       await clearToday();
       const undressed = await recordQueries(() => get('/'));
-      expect(undressed.statements).toBe(4);
+      expect(undressed.statements).toBe(3);
       // somethingWornOn's statement is gone from the page.
       expect(undressed.sql.join('\n')).not.toMatch(/select exists/);
 
@@ -276,10 +277,10 @@ describe('Today', () => {
       expect(url).toMatch(/page=1$/);
     });
 
-    it('reads in three statements: the session, then the pool and the generator’s memory', async () => {
+    it('reads in two statements: the session, then the pool and the generator’s memory together', async () => {
       const url = refreshUrl((await get('/')).body)!;
       const record = await recordQueries(() => get(url, HX_FRAGMENT));
-      expect(record.statements).toBe(3);
+      expect(record.statements).toBe(2);
     });
 
     it('reads a malformed occasion or page as all day, page 1', async () => {
@@ -367,15 +368,15 @@ describe('Today', () => {
     // #158: the owner lock is taken once, by wearIdea; pickIdea, insertEntry
     // and setEntryWorn join its transaction (ownerTransaction) instead of
     // each opening a savepoint and locking again (25 statements before).
-    it('a tap is one transaction that locks once: ten statements for a repeat', async () => {
+    it('a tap is one transaction that locks once: nine statements for a repeat', async () => {
       await clearToday();
       const [idea] = cardsOf((await get('/')).body);
       expect((await wear(idea)).statusCode).toBe(303);
       const again = await recordQueries(() => wear(idea));
-      // Session; begin, the lock (with its timeout), the garments, the
-      // outfit found, its planner take-over, the entry kept, found, locked
-      // and already worn; commit.
-      expect(again.statements).toBe(10);
+      // Session; begin, the lock (with its timeout), the garments with the
+      // outfit they already are (one statement, #168), its planner
+      // take-over, the entry kept, found, locked and already worn; commit.
+      expect(again.statements).toBe(9);
       const sql = again.sql.join('\n');
       expect(sql).not.toMatch(/savepoint/i);
       expect(sql.match(/for no key update/g)).toHaveLength(1);

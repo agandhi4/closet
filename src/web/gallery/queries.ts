@@ -9,6 +9,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import {
   file,
   garment,
@@ -42,8 +43,8 @@ export interface PoolGarment extends IdeaGarment {
   photo: ImageRef | null;
 }
 
-/** What the generator judges a garment by, and what a card shows. */
-const drawnColumns = {
+/** What the generator judges a garment by, and what a card names. */
+const garmentColumns = {
   id: garment.id,
   name: garment.name,
   category: garment.category,
@@ -54,16 +55,25 @@ const drawnColumns = {
   type: garment.type,
   fabricWeight: garment.fabricWeight,
   waterResistant: garment.waterResistant,
+};
+
+/** garmentColumns and the card's photo. */
+const drawnColumns = {
+  ...garmentColumns,
   photo: { fileName: file.fileName, version: file.version },
 };
+
+/** Days since the last day worn (wears count by day); null when never. */
+function idleDaysSql(today: IsoDate): SQL<number | null> {
+  return sql<
+    number | null
+  >`(select (${today}::date - max(${garmentWear.day}))::int from ${garmentWear} where ${garmentWear.garmentId} = ${garment.id})`;
+}
 
 /** drawnColumns and the rotation's input, for a pool that rotates. */
 const poolColumns = (today: IsoDate) => ({
   ...drawnColumns,
-  // Days since the last day worn (wears count by day); null when never.
-  idleDays: sql<
-    number | null
-  >`(select (${today}::date - max(${garmentWear.day}))::int from ${garmentWear} where ${garmentWear.garmentId} = ${garment.id})`,
+  idleDays: idleDaysSql(today),
 });
 
 function poolQuery(db: Queryable, today: IsoDate, where: SQL | undefined) {
@@ -74,7 +84,7 @@ function poolQuery(db: Queryable, today: IsoDate, where: SQL | undefined) {
     .where(where);
 }
 
-type PoolRow = Awaited<ReturnType<typeof poolQuery>>[number];
+export type PoolRow = Awaited<ReturnType<typeof poolQuery>>[number];
 
 function poolGarment(row: PoolRow): PoolGarment {
   return {
@@ -102,26 +112,41 @@ async function selectPool(
 /**
  * What the generator may draw: the owner's garments that are available
  * (availableGarment: in the closet, not away, a clean copy left), within
- * the capsule when one is given. One statement; the last-worn day is a
- * correlated subquery per garment (the garment_wear (garment_id, day)
- * index).
+ * the capsule when one is given, as a scalar subquery (a JSON array of
+ * poolColumns' rows, the same keys), so ideasFor reads it in one statement
+ * with the rest of what the generator needs (selectScalars, #168). The
+ * last-worn day is a correlated subquery per garment (the garment_wear
+ * (garment_id, day) index). Read it with readPool.
  */
-export function ideaPool(
-  db: Db,
+export function ideaPoolSql(
   ownerId: number,
   options: { today: IsoDate; capsuleId?: number },
-): Promise<PoolGarment[]> {
-  return selectPool(
-    db,
-    options.today,
-    and(
+): SQL<PoolRow[]> {
+  const fields = Object.entries({
+    ...garmentColumns,
+    idleDays: idleDaysSql(options.today),
+  }).map(([key, column]) => sql`${sql.raw(`'${key}'`)}, ${column}`);
+  // A garment without a photo has none, as drizzle's left join answers it.
+  const photo = sql`case when ${file.id} is null then null else json_build_object('fileName', ${file.fileName}, 'version', ${file.version}) end`;
+  return sql<PoolRow[]>`(
+    select coalesce(json_agg(json_build_object(
+      ${sql.join(fields, sql`, `)}, 'photo', ${photo}
+    )), '[]')
+    from ${garment}
+    left join ${file} on ${eq(file.id, garment.photoId)}
+    where ${and(
       eq(garment.ownerId, ownerId),
       availableGarment(),
       options.capsuleId === undefined
         ? undefined
         : inCapsule(options.capsuleId),
-    ),
-  );
+    )}
+  )`;
+}
+
+/** ideaPoolSql's value as the generator's garments. */
+export function readPool(rows: readonly PoolRow[]): PoolGarment[] {
+  return rows.map(poolGarment);
 }
 
 /** A garment as the week planner (#16) draws it: the pool's, with its wash state today. */
@@ -226,7 +251,7 @@ function unrotatedGarment(row: Omit<PoolRow, 'idleDays'>): ClosetGarment {
  * move on laundry day; Styling's Shuffle over a shared wardrobe (#42,
  * browseIdea) draws from it because a grantee never learns the owner's
  * wash and away state. Never the owner's own gallery pool: ideas draw from
- * ideaPool. One statement, without the pool's last-worn subquery: both
+ * ideaPoolSql. One statement, without the pool's last-worn subquery: both
  * readers draw uniformly, so it fed nothing (#167: one garment_wear lookup
  * per closet garment on every wishlist item's page).
  */
@@ -287,48 +312,73 @@ export interface GeneratorMemory {
   avoid: [number, number][];
 }
 
+/** Each saved slot's outfit, garment and category (savedSlotsSql). */
+type SavedSlot = [outfitId: number, garmentId: number, category: string];
+
+/**
+ * The owner's saved outfits' chosen garments, as a scalar subquery (arrays,
+ * not objects: json_agg of rows would carry the column names in every
+ * element). The duplicate rule's input; read with readGeneratorMemory.
+ */
+function savedSlotsSql(ownerId: number): SQL<SavedSlot[]> {
+  return sql<SavedSlot[]>`(
+    select coalesce(json_agg(json_build_array(${outfitSlot.outfitId}, ${garment.id}, ${garment.category})), '[]')
+    from ${outfitSlot}
+    inner join ${outfit} on ${eq(outfit.id, outfitSlot.outfitId)}
+    inner join ${garment} on ${eq(garment.id, outfitSlot.garmentId)}
+    where ${eq(outfit.ownerId, ownerId)}
+  )`;
+}
+
+/** The owner's avoided pairs ("Clashes"), as a scalar subquery. */
+function avoidedPairsSql(ownerId: number): SQL<[number, number][]> {
+  return sql<[number, number][]>`(
+    select coalesce(json_agg(json_build_array(${generatorAvoid.garmentAId}, ${generatorAvoid.garmentBId})), '[]')
+    from ${generatorAvoid}
+    where ${eq(generatorAvoid.ownerId, ownerId)}
+  )`;
+}
+
+/**
+ * What the generator must not repeat or pair, as scalar subqueries for a
+ * caller's selectScalars (ideasFor reads them with the pool, the weather
+ * and the page's own reads, #168); readGeneratorMemory reads them back.
+ */
+export function generatorMemorySql(ownerId: number) {
+  return { saved: savedSlotsSql(ownerId), avoid: avoidedPairsSql(ownerId) };
+}
+
+export function readGeneratorMemory(row: {
+  saved: SavedSlot[];
+  avoid: [number, number][];
+}): GeneratorMemory {
+  const outfits = new Map<
+    number,
+    { id: number; role: IdeaGarment['role'] }[]
+  >();
+  for (const [outfitId, id, category] of row.saved) {
+    const outfitSlots = outfits.get(outfitId) ?? [];
+    outfitSlots.push({ id, role: categoryRole(category) });
+    outfits.set(outfitId, outfitSlots);
+  }
+  return { saved: [...outfits.values()], avoid: row.avoid };
+}
+
 /**
  * The owner's saved outfits as the generator's duplicate rule reads them
  * (each outfit's chosen garments with their roles) and their avoided
- * pairs, in one statement: two json_agg subqueries, one row. They were two
- * statements beside the pool on every ideas surface (#158: statements, not
- * their size, are what a page pays for over production's ~114 ms link).
+ * pairs, in one statement (generatorMemorySql), for the week planner. They
+ * were two statements beside the pool on every ideas surface (#158:
+ * statements, not their size, are what a page pays for over production's
+ * ~114 ms link).
  */
 export async function generatorMemory(
   db: Queryable,
   ownerId: number,
 ): Promise<GeneratorMemory> {
-  // Each slot's outfit, garment and category, and each pair, as arrays:
-  // json_agg of rows would carry the column names in every element.
-  const slots = db
-    .select({
-      slots: sql`coalesce(json_agg(json_build_array(${outfitSlot.outfitId}, ${garment.id}, ${garment.category})), '[]')`,
-    })
-    .from(outfitSlot)
-    .innerJoin(outfit, eq(outfit.id, outfitSlot.outfitId))
-    .innerJoin(garment, eq(garment.id, outfitSlot.garmentId))
-    .where(eq(outfit.ownerId, ownerId));
-  const pairs = db
-    .select({
-      pairs: sql`coalesce(json_agg(json_build_array(${generatorAvoid.garmentAId}, ${generatorAvoid.garmentBId})), '[]')`,
-    })
-    .from(generatorAvoid)
-    .where(eq(generatorAvoid.ownerId, ownerId));
-  const { rows } = await db.execute<{
-    slots: [number, number, string][];
-    avoid: [number, number][];
-  }>(sql`select (${slots}) as slots, (${pairs}) as avoid`);
-  const [{ slots: slotRows, avoid }] = rows;
-  const outfits = new Map<
-    number,
-    { id: number; role: IdeaGarment['role'] }[]
-  >();
-  for (const [outfitId, id, category] of slotRows) {
-    const outfitSlots = outfits.get(outfitId) ?? [];
-    outfitSlots.push({ id, role: categoryRole(category) });
-    outfits.set(outfitId, outfitSlots);
-  }
-  return { saved: [...outfits.values()], avoid };
+  return readGeneratorMemory(
+    await selectScalars(db, generatorMemorySql(ownerId)),
+  );
 }
 
 /**
@@ -355,38 +405,47 @@ export type AvoidOutcome = 'added' | 'already' | 'not-found';
  * 'not-found' and writes nothing. Stored once, smaller id first, so asking
  * twice (either way round) is 'already'. Takes a Queryable: the seed writes
  * a persona's pairs inside its transaction.
+ *
+ * One statement (#168; it was a transaction of four: begin, the check, the
+ * insert, commit): the check locks both garments FOR SHARE, in id order, and
+ * the insert runs only when it found both, so a delete of either waits for
+ * the pair (then cascades it away) and never leaves it naming a missing
+ * garment. The outcome is read from what the statement saw.
  */
-export function avoidPair(
+export async function avoidPair(
   db: Queryable,
   ownerId: number,
   first: number,
   second: number,
 ): Promise<AvoidOutcome> {
   const [a, b] = first < second ? [first, second] : [second, first];
-  if (a === b) return Promise.resolve('not-found');
-  return db.transaction(async (tx) => {
-    // FOR SHARE: a delete of either garment waits for this insert (or
-    // cascades it away after), never leaving it to name a missing garment.
-    const owned = await tx
-      .select({ id: garment.id })
-      .from(garment)
-      .where(
-        and(
-          eq(garment.ownerId, ownerId),
-          inArray(garment.id, [a, b]),
-          ownedGarment(),
-        ),
-      )
-      .orderBy(garment.id)
-      .for('share');
-    if (owned.length !== 2) return 'not-found';
-    const inserted = await tx
-      .insert(generatorAvoid)
-      .values({ ownerId, garmentAId: a, garmentBId: b })
-      .onConflictDoNothing()
-      .returning({ ownerId: generatorAvoid.ownerId });
-    return inserted.length > 0 ? 'added' : 'already';
-  });
+  if (a === b) return 'not-found';
+  const owned = db
+    .select({ id: garment.id })
+    .from(garment)
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        inArray(garment.id, [a, b]),
+        ownedGarment(),
+      ),
+    )
+    .orderBy(garment.id)
+    .for('share');
+  const { rows } = await db.execute<{ owned: number; added: number }>(sql`
+    with owned as (${owned}),
+    added as (
+      insert into ${generatorAvoid} (owner_id, garment_a_id, garment_b_id)
+      select ${ownerId}::int, ${a}::int, ${b}::int
+      where (select count(*) from owned) = 2
+      on conflict do nothing
+      returning 1
+    )
+    select (select count(*) from owned)::int as owned,
+      (select count(*) from added)::int as added`);
+  const [{ owned: found, added }] = rows;
+  if (found !== 2) return 'not-found';
+  return added > 0 ? 'added' : 'already';
 }
 
 /** Undo from the garment page: the pair may be combined again. False when there was no such pair of the owner's. */
@@ -443,19 +502,19 @@ export async function avoidedWith(
 /**
  * The owner's outfit whose chosen garments are exactly `garmentIds` (empty
  * slots aside), the oldest if several: what a pick of those garments is
- * already saved as. One statement over the owner's slots.
+ * already saved as. A subquery of pickedGarments.
  */
-export async function outfitOfGarments(
+function outfitOfGarments(
   db: Queryable,
   ownerId: number,
   garmentIds: readonly number[],
-): Promise<{ id: number; name: string | null } | undefined> {
+) {
   const sorted = [...new Set(garmentIds)].sort((a, b) => a - b);
   const wanted = sql`array[${sql.join(
     sorted.map((id) => sql`${id}`),
     sql`, `,
   )}]::int[]`;
-  const [found] = await db
+  return db
     .select({ id: outfit.id, name: outfit.name })
     .from(outfit)
     .innerJoin(outfitSlot, eq(outfitSlot.outfitId, outfit.id))
@@ -465,13 +524,19 @@ export async function outfitOfGarments(
       sql`array_agg(distinct ${outfitSlot.garmentId} order by ${outfitSlot.garmentId}) = ${wanted}`,
     )
     .orderBy(outfit.id)
-    .limit(1);
-  return found;
+    .limit(1)
+    .as('existing');
+}
+
+/** A pick's garments, and the outfit they already are, if any. */
+export interface PickedGarments {
+  garments: { id: number; name: string | null; category: string }[];
+  existing: { id: number; name: string | null } | undefined;
 }
 
 /**
  * A pick's garments: the owner's, in the closet, with what a slot and a
- * name need. Fewer rows than ids when any is not (a card from before the
+ * name need. Fewer than ids when any is not (a card from before the
  * garment was archived or deleted). Locked FOR SHARE until the pick
  * commits: an archive or a delete (setGarmentStatus, deleteGarment: FOR
  * UPDATE) waits for the outfit to be saved, and one that got there first
@@ -479,16 +544,26 @@ export async function outfitOfGarments(
  * locked row again as that transaction committed it), so a pick never
  * saves an archived garment or a slot emptied by a delete (#122). In id
  * order, as bulkSetProperty locks them, so two such lockers cannot
- * deadlock.
+ * deadlock. With them, in the same statement (#168: a round trip less on
+ * every pick), the outfit they already are (outfitOfGarments), joined to
+ * each row; only the garments are locked (FOR SHARE OF garment).
  */
 export async function pickedGarments(
   db: Queryable,
   ownerId: number,
   garmentIds: readonly number[],
-): Promise<{ id: number; name: string | null; category: string }[]> {
-  return db
-    .select({ id: garment.id, name: garment.name, category: garment.category })
+): Promise<PickedGarments> {
+  const existing = outfitOfGarments(db, ownerId, garmentIds);
+  const rows = await db
+    .select({
+      id: garment.id,
+      name: garment.name,
+      category: garment.category,
+      existingId: existing.id,
+      existingName: existing.name,
+    })
     .from(garment)
+    .leftJoin(existing, sql`true`)
     .where(
       and(
         eq(garment.ownerId, ownerId),
@@ -497,5 +572,14 @@ export async function pickedGarments(
       ),
     )
     .orderBy(garment.id)
-    .for('share');
+    .for('share', { of: garment });
+  // The outfit is the same on every row; none when no garment was found.
+  const [first] = rows;
+  return {
+    garments: rows.map(({ id, name, category }) => ({ id, name, category })),
+    existing:
+      first === undefined || first.existingId === null
+        ? undefined
+        : { id: first.existingId, name: first.existingName },
+  };
 }
