@@ -28,6 +28,8 @@ import type { ReplaceableGarment } from '../wishlist/queries';
 import type { BrandSize } from '../sizes/queries';
 import { BRAND_SIZE_HINT_TRIGGER, BrandSizeHint } from '../sizes/views';
 import type { CandidateFor } from './destination';
+import { RepairEditor } from './repair-log';
+import type { RepairPanel } from './repairs';
 import {
   type Destination,
   destinationParams,
@@ -106,6 +108,11 @@ export interface GarmentFormModel {
    * (renderGarmentForm).
    */
   brandSize?: BrandSize;
+  /**
+   * The repair log's editor (#23), below the form: the owner's edit of an
+   * owned garment only (repairPanel, repairs.ts).
+   */
+  repairs?: RepairPanel;
 }
 
 const TITLES = {
@@ -242,6 +249,7 @@ export function GarmentFormPage(props: {
             </button>
           </div>
         </PostForm>
+        {model.repairs && <RepairEditor panel={model.repairs} />}
       </main>
       <Dock ctx={ctx} />
     </Layout>

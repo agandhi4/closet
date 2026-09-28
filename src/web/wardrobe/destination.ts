@@ -11,10 +11,12 @@ import { findGarment, type GarmentDetail } from './queries';
 import { TO_CLOSET, type Destination } from './urls';
 import {
   BLANK_CARE,
+  BLANK_CARE_LABEL,
   BLANK_GARMENT_VALUES,
   type DestinationQuery,
   type GarmentBody,
   type GarmentFormValues,
+  type PropertyFormValues,
   storedPropertyValues,
 } from './validation';
 
@@ -128,8 +130,21 @@ export function destinationValues(
     brand: replaced.brand ?? '',
     colors: replaced.colors ?? [],
     size: replaced.size ?? '',
-    properties: storedPropertyValues(replaced),
+    properties: withoutCareLabel(storedPropertyValues(replaced)),
     care: BLANK_CARE,
     replaces,
+  };
+}
+
+/**
+ * A replacement's properties without the old one's care label, which is
+ * that garment's own: none chosen, and no materials behind the presets, so
+ * the form's first refresh fills the label from the materials.
+ */
+function withoutCareLabel(values: PropertyFormValues): PropertyFormValues {
+  return {
+    ...values,
+    ...BLANK_CARE_LABEL,
+    preset: { ...values.preset, materials: '' },
   };
 }

@@ -17,7 +17,13 @@ export type LabelledProperty =
   | 'fit'
   | 'sleeve'
   | 'length'
-  | 'condition';
+  | 'condition'
+  | 'careWash'
+  | 'careBleach'
+  | 'careDry'
+  | 'careIron'
+  | 'careDryClean'
+  | 'repairKind';
 
 export function valueLabel(
   property: LabelledProperty,

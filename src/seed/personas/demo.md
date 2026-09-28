@@ -499,6 +499,37 @@ them. Written by the garment page's "Where it is" (`setAway`). Neither is in an 
 | G04 | lent | Dana has it for her October wedding weekend |
 | F07 | repair | Sent back to L.L.Bean for a resole before winter |
 
+## Care labels
+
+What the label inside says (#23), where it differs from what the materials suggest. Every other garment
+with a label (not shoes or bags) carries its materials' usual care, as the garment form's material chips
+fill it in (`carePresetsFor`, `src/wardrobe/care.ts`); `—` keeps that suggestion. Values are the app's
+(`CARE_WASH`, `CARE_BLEACH`, `CARE_DRY`, `CARE_IRON`, `CARE_DRY_CLEAN`). Dry cleaning is never suggested:
+only these rows say it.
+
+| Garment | Wash | Bleach | Dry | Iron | Dry cleaning |
+|---|---|---|---|---|---|
+| O03 | do_not_wash | — | — | — | only |
+| O04 | do_not_wash | — | — | — | only |
+| B07 | do_not_wash | — | — | — | only |
+| T22 | — | — | — | — | allowed |
+| O05 | — | — | — | — | never |
+
+## Repairs
+
+What has been mended or altered (#23): the garment page's log, the owner's own record. Dated as the
+bible's acquisitions are (they move with the anchor), never before the garment was bought; costs are
+what he paid, shown beside the log and not added to cost per wear. B02's torn belt loop (Condition) and
+F07's resole (Away) are not done yet, so not here.
+
+| Garment | Day | Kind | What was done | Cost |
+|---|---|---|---|---|
+| O03 | 2025-03-22 | alteration | Sleeves shortened 1 cm, the tailor on DeKalb Av | $25 |
+| B07 | 2025-03-22 | alteration | Hemmed to a no-break length | $20 |
+| B01 | 2026-05-09 | alteration | Chain-stitch hem, 5 cm off, keeping the selvedge | $15 |
+| F07 | 2025-02-08 | repair | New laces and the heel re-glued | $12 |
+| T13 | 2025-11-08 | repair | Collar button sewn back on | — |
+
 ## Clashes
 
 Pairs Theo told the outfit gallery never to put together (#9: "Not this", then the two that clash),
@@ -602,3 +633,5 @@ plan and ideas for the day. Outfit selfies (#19, done): his recent evenings carr
 6), so the calendar's history weeks and his date-night outfits' Worn strips show the looks.
 The weekly auto-plan (#16, done): his week template is the week table, and the planned week is "Plan my week"'s (step 7).
 Sizes (#24, done): his measurements and brand notes are the His sizes tables, so the wishlist shows his size in Uniqlo and Allbirds.
+Care labels and repairs (#23, done): every labelled garment carries its materials' care, the Care labels table
+where the label says otherwise (the blazer, coat and flannels dry clean only), and the Repairs table's log.

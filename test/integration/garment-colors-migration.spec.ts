@@ -151,12 +151,14 @@ describe('garment colours (the garment_colors migration)', () => {
     expect(after.rows.map(({ id, colors }) => ({ id, colors }))).toEqual(
       cases.map(([, colors], i) => ({ id: ids[i], colors })),
     );
-    // Every other column as it was.
-    const without = (row: Record<string, unknown>, column: string) =>
-      Object.fromEntries(Object.entries(row).filter(([key]) => key !== column));
-    expect(after.rows.map((row) => without(row, 'colors'))).toEqual(
-      before.rows.map((row) => without(row, 'color')),
+    // Every other column as it was (columns later migrations add are
+    // theirs to judge).
+    const unchanged = Object.keys(before.rows[0]).filter(
+      (key) => key !== 'color',
     );
+    const only = (row: Record<string, unknown>) =>
+      Object.fromEntries(unchanged.map((key) => [key, row[key]]));
+    expect(after.rows.map(only)).toEqual(before.rows.map(only));
   });
 
   it('drops the old column and keeps the colour set in the database', async () => {

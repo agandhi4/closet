@@ -35,6 +35,8 @@ import type { BrandSize } from '../sizes/queries';
 import { BrandSizeNote } from '../sizes/views';
 import { categoryLabel, priceLabel } from './garment';
 import { GarmentCondition } from './garment-condition';
+import { RepairLogSection } from './repair-log';
+import type { RepairEntry } from './repairs';
 import { fabricWeightLabel, valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
 import {
@@ -78,6 +80,11 @@ export interface GarmentPageModel {
    * outfits. Undefined for a grantee and for a wishlist item.
    */
   outfits: GarmentOutfits | undefined;
+  /**
+   * The repair and alteration log (#23), the owner's own record like the
+   * wears. Undefined for a grantee and for a wishlist item.
+   */
+  repairs: RepairEntry[] | undefined;
   /** Edit, photo, mask, condition and "Bought it": the owner and a MANAGE grantee. */
   canEdit: boolean;
   /** Archive, restore and delete: the owner only. */
@@ -85,6 +92,7 @@ export interface GarmentPageModel {
   justCreated: boolean;
   justSavedPhoto: boolean;
   justBought: boolean;
+  justLoggedRepair: boolean;
 }
 
 const PHOTO_SHEET_ID = 'garment-photo-sheet';
@@ -101,7 +109,12 @@ const MASK_SCRIPT = `import { wireUpEditMask } from 'mask-editor';
 wireUpEditMask(document.getElementById('garment-photo-slot'));`;
 
 /** The one-shot flags the garment page's toasts read (GarmentPageQuery). */
-const GARMENT_PAGE_FLAGS = ['created', 'photoSaved', 'bought'] as const;
+const GARMENT_PAGE_FLAGS = [
+  'created',
+  'photoSaved',
+  'bought',
+  'repairSaved',
+] as const;
 
 /**
  * GET /wardrobe/:id (redesign plan, "Garment page"; #84): the hero, the
@@ -186,19 +199,64 @@ function Summary({ model }: { model: GarmentPageModel }) {
   );
 }
 
-/** The condition, and where it is (the owner's): a closet garment's care. */
+/**
+ * The care label (anyone's who sees the garment: a garment property), then
+ * for an owned garment the condition, and the owner's "Where it is" and
+ * repair log.
+ */
 function Care({ model }: { model: GarmentPageModel }) {
   const { garment } = model;
-  if (garment.status === 'wishlist') return null;
   return (
     <>
-      <GarmentCondition
-        garment={garment}
-        viewOwner={model.viewOwner}
-        canEdit={model.canEdit}
-      />
+      <CareLabelSection garment={garment} />
+      {garment.status !== 'wishlist' && (
+        <GarmentCondition
+          garment={garment}
+          viewOwner={model.viewOwner}
+          canEdit={model.canEdit}
+        />
+      )}
       {model.wear && <WhereaboutsSection garment={garment} />}
+      {model.repairs && (
+        <RepairLogSection garmentId={garment.id} entries={model.repairs} />
+      )}
     </>
+  );
+}
+
+/**
+ * The care label (#23): each instruction the label gives, in the label's
+ * order, and the free-text care notes; nothing when neither is set.
+ */
+function CareLabelSection({ garment }: { garment: GarmentDetail }) {
+  const instructions = (
+    [
+      ['careWash', garment.careWash],
+      ['careBleach', garment.careBleach],
+      ['careDry', garment.careDry],
+      ['careIron', garment.careIron],
+      ['careDryClean', garment.careDryClean],
+    ] as const
+  ).flatMap(([property, value]) =>
+    value === null ? [] : [valueLabel(property, value)],
+  );
+  if (instructions.length === 0 && !garment.washingDetails) return null;
+  return (
+    <section id="garment-care" aria-labelledby="garment-care-title">
+      <h2 id="garment-care-title" class="text-sm text-muted mb-2">
+        {t('care.LABEL')}
+      </h2>
+      {instructions.length > 0 && (
+        <ul class="flex flex-wrap gap-2">
+          {instructions.map((instruction) => (
+            <li class="badge badge-outline">{instruction}</li>
+          ))}
+        </ul>
+      )}
+      {garment.washingDetails && (
+        <p class="whitespace-pre-line text-sm mt-2">{garment.washingDetails}</p>
+      )}
+    </section>
   );
 }
 
@@ -225,7 +283,7 @@ function PhotoTools({ model }: { model: GarmentPageModel }) {
   );
 }
 
-/** The one-shot toasts after a create, a photo or "Bought it". */
+/** The one-shot toasts after a create, a photo, "Bought it" or a logged repair. */
 function Toasts({ model }: { model: GarmentPageModel }) {
   return (
     <>
@@ -237,6 +295,9 @@ function Toasts({ model }: { model: GarmentPageModel }) {
       )}
       {model.justBought && (
         <SavedToast id="bought-toast" text={t('wishlist.BOUGHT_TOAST')} />
+      )}
+      {model.justLoggedRepair && (
+        <SavedToast id="repair-saved-toast" text={t('care.REPAIR_SAVED')} />
       )}
       <StripFlags names={GARMENT_PAGE_FLAGS} />
     </>
@@ -607,8 +668,8 @@ function PropertyChips({ garment }: { garment: GarmentDetail }) {
 
 /**
  * The rest, a plain list: what the facts line leaves out (colours, price,
- * when it was acquired, washing, notes) and the product link. Nothing when
- * none is set.
+ * when it was acquired, notes) and the product link. Nothing when none is
+ * set. The care notes are the care label's (CareLabelSection).
  */
 function GarmentDetails({ garment }: { garment: GarmentDetail }) {
   const rows = [
@@ -622,11 +683,6 @@ function GarmentDetails({ garment }: { garment: GarmentDetail }) {
     ),
     garment.acquiredOn && (
       <Detail label={t('DATE_ACQUIRED')}>{garment.acquiredOn}</Detail>
-    ),
-    garment.washingDetails && (
-      <Detail label={t('WASHING_DETAILS')} block>
-        <p class="whitespace-pre-line">{garment.washingDetails}</p>
-      </Detail>
     ),
     garment.notes && (
       <Detail label={t('NOTES')} block>

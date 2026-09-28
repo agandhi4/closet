@@ -489,6 +489,43 @@ const ROUTES: Route[] = [
       },
     }),
   ),
+  // The repair log (#23) is the owner's own record, like wears: a grantee
+  // who sees the garment gets a 403 with ?ownerId=, a 404 without it.
+  {
+    name: 'POST /wardrobe/:id/repairs',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.garmentId}/repairs${q}`,
+      payload: { day: f.today, kind: 'alteration', note: 'Planted hem' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'forbidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/:id/repairs/:repairId/delete',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.garmentId}/repairs/${f.repairId}/delete${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'forbidden'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
   {
     // Condition is a garment property: the owner and a MANAGE grantee.
     name: 'POST /wardrobe/:id/condition',

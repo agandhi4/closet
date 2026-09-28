@@ -118,6 +118,9 @@ describe('migrations', () => {
         'trip_item_trip_id_lower_label_unique',
         'trip_garment_packed_pkey',
         'trip_garment_packed_garment_id_index',
+        // A garment's repair log, newest first (#23; also garment_id's
+        // foreign key).
+        'garment_repair_garment_id_day_index',
       ]),
     );
   });
@@ -155,6 +158,7 @@ describe('migrations', () => {
             outfitSlots: true,
             capsuleGarments: true,
             wears: true,
+            repairs: true,
             planCandidacies: true,
           },
         }),
@@ -175,6 +179,7 @@ describe('migrations', () => {
         t.db.query.garmentWear.findMany({
           with: { garment: true, entry: true },
         }),
+        t.db.query.garmentRepair.findMany({ with: { garment: true } }),
         t.db.query.wardrobeShare.findMany({
           with: { grantor: true, grantee: true },
         }),

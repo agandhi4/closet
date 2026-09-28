@@ -54,6 +54,20 @@ import {
 import { PLAN_PRIORITIES, type PlanPriority } from '../wardrobe/plans';
 import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
 import {
+  CARE_BLEACH,
+  CARE_DRY,
+  CARE_DRY_CLEAN,
+  CARE_IRON,
+  CARE_WASH,
+  type CareBleach,
+  type CareDry,
+  type CareDryClean,
+  type CareIron,
+  type CareWash,
+  REPAIR_KINDS,
+  type RepairKind,
+} from '../wardrobe/care';
+import {
   type BudgetBand,
   BUDGET_BANDS,
   type Style,
@@ -462,6 +476,14 @@ export const garment = pgTable(
     // of availability. The note says what is wrong, so only with a problem.
     condition: text('condition').$type<Condition>().default('good').notNull(),
     conditionNote: text('condition_note'),
+    // The care label (src/wardrobe/care.ts, #23): each instruction optional,
+    // a garment property like the others (the garment form, owner and
+    // MANAGE), stored null for a role that has none (shoes, bags).
+    careWash: text('care_wash').$type<CareWash>(),
+    careBleach: text('care_bleach').$type<CareBleach>(),
+    careDry: text('care_dry').$type<CareDry>(),
+    careIron: text('care_iron').$type<CareIron>(),
+    careDryClean: text('care_dry_clean').$type<CareDryClean>(),
   },
   (table) => [
     check(
@@ -522,6 +544,26 @@ export const garment = pgTable(
     check(
       'garment_condition_note_check',
       sql`${table.conditionNote} is null or ${table.condition} <> 'good'`,
+    ),
+    check(
+      'garment_care_wash_check',
+      sql`${table.careWash} in (${sqlList(CARE_WASH)})`,
+    ),
+    check(
+      'garment_care_bleach_check',
+      sql`${table.careBleach} in (${sqlList(CARE_BLEACH)})`,
+    ),
+    check(
+      'garment_care_dry_check',
+      sql`${table.careDry} in (${sqlList(CARE_DRY)})`,
+    ),
+    check(
+      'garment_care_iron_check',
+      sql`${table.careIron} in (${sqlList(CARE_IRON)})`,
+    ),
+    check(
+      'garment_care_dry_clean_check',
+      sql`${table.careDryClean} in (${sqlList(CARE_DRY_CLEAN)})`,
     ),
     check(
       'garment_fabric_weight_check',
@@ -764,6 +806,49 @@ export const garmentWear = pgTable(
       name: 'garment_wear_outfit_calendar_id_foreign',
       columns: [table.outfitCalendarId],
       foreignColumns: [outfitCalendar.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+/**
+ * A garment's repair and alteration log (#23): what was done to it, on which
+ * day, and what it cost. The owner's own record, like wears: only the owner
+ * reads or writes it (src/web/wardrobe/repairs.ts, under the owner lock),
+ * and deleting the garment takes it. The cost is kept beside the price, not
+ * added to it: cost per wear stays the price's (docs/plans, section 17).
+ */
+export const garmentRepair = pgTable(
+  'garment_repair',
+  {
+    id: serial('id').primaryKey(),
+    garmentId: integer('garment_id').notNull(),
+    // The day it was done ('YYYY-MM-DD', APP_TIMEZONE's date), never after
+    // the day it was logged.
+    day: date('day', { mode: 'string' }).notNull(),
+    kind: text('kind').$type<RepairKind>().notNull(),
+    // What was done: a line, trimmed, never blank.
+    note: text('note').notNull(),
+    // What it cost, in the household's currency; a string like price.
+    cost: numeric('cost', { precision: 10, scale: 2 }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      'garment_repair_kind_check',
+      sql`${table.kind} in (${sqlList(REPAIR_KINDS)})`,
+    ),
+    check('garment_repair_cost_check', sql`${table.cost} >= 0`),
+    check('garment_repair_note_check', sql`length(trim(${table.note})) > 0`),
+    // The log, newest first. Also the index of the garment_id foreign key.
+    index('garment_repair_garment_id_day_index').on(table.garmentId, table.day),
+    foreignKey({
+      name: 'garment_repair_garment_id_foreign',
+      columns: [table.garmentId],
+      foreignColumns: [garment.id],
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
@@ -1845,7 +1930,15 @@ export const garmentRelations = relations(garment, ({ one, many }) => ({
   outfitSlots: many(outfitSlot),
   capsuleGarments: many(capsuleGarment),
   wears: many(garmentWear),
+  repairs: many(garmentRepair),
   planCandidacies: many(planItemCandidate),
+}));
+
+export const garmentRepairRelations = relations(garmentRepair, ({ one }) => ({
+  garment: one(garment, {
+    fields: [garmentRepair.garmentId],
+    references: [garment.id],
+  }),
 }));
 
 export const garmentWearRelations = relations(garmentWear, ({ one }) => ({

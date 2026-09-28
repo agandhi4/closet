@@ -19,6 +19,7 @@ import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
 import type { AwayReason } from '../../wardrobe/availability';
+import type { CareLabel, CareWash } from '../../wardrobe/care';
 import type { EntryStatus, GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef, PlinthPhoto } from '../files/image-url';
@@ -75,6 +76,8 @@ export interface GridFilters {
   formality?: Formality;
   /** Garments made (partly) of this material. */
   material?: Material;
+  /** Garments whose care label says to wash them this way (#23). */
+  wash?: CareWash;
   /**
    * Which garments: the closet, the closet and the archive (the modal's
    * "Show archived"), or the wishlist.
@@ -161,6 +164,7 @@ function propertyConditions(filters: GridFilters): SQL[] {
   if (filters.material) {
     conditions.push(arrayContains(garment.materials, [filters.material]));
   }
+  if (filters.wash) conditions.push(eq(garment.careWash, filters.wash));
   return conditions;
 }
 
@@ -311,11 +315,13 @@ export interface FilterOptions {
   warmths: Warmth[];
   formalities: Formality[];
   materials: Material[];
+  washes: CareWash[];
 }
 
 /**
  * The wardrobe's distinct categories (sorted), sizes (in wearing order),
- * types, warmths, formalities and materials, in one statement (materials
+ * types, warmths, formalities, care labels' washes and materials, in one
+ * statement (materials
  * through a subquery over their unnested arrays). There is no brand filter
  * in the UI, so no brand list.
  */
@@ -340,6 +346,9 @@ export async function filterOptions(
       formalities: sql<
         Formality[]
       >`coalesce(array_agg(distinct ${garment.formality}) filter (where ${garment.formality} is not null), '{}')`,
+      washes: sql<
+        CareWash[]
+      >`coalesce(array_agg(distinct ${garment.careWash}) filter (where ${garment.careWash} is not null), '{}')`,
       // Its own scan of the wardrobe, deliberately uncorrelated: unnesting
       // in the outer query would multiply its rows (harmless to the distinct
       // aggregates above, but a trap for anything added later).
@@ -358,6 +367,7 @@ export async function filterOptions(
     warmths: [...row.warmths].sort(),
     formalities: [...row.formalities].sort(),
     materials: row.materials,
+    washes: row.washes,
   };
 }
 
@@ -371,9 +381,13 @@ export interface GarmentDetail
   extends
     Omit<
       GarmentFields,
-      keyof GarmentPropertyFields | keyof ProductFields | keyof CareFields
+      | keyof GarmentPropertyFields
+      | keyof CareLabel
+      | keyof ProductFields
+      | keyof CareFields
     >,
     GarmentPropertyFields,
+    CareLabel,
     ProductFields,
     CareFields {
   id: number;
@@ -412,6 +426,11 @@ const detailColumns = {
   length: garment.length,
   fabricWeight: garment.fabricWeight,
   waterResistant: garment.waterResistant,
+  careWash: garment.careWash,
+  careBleach: garment.careBleach,
+  careDry: garment.careDry,
+  careIron: garment.careIron,
+  careDryClean: garment.careDryClean,
   sourceUrl: garment.sourceUrl,
   price: garment.price,
   quantity: garment.quantity,
@@ -794,7 +813,7 @@ export async function updateGarmentProperties(
   db: Db,
   id: number,
   ownerId: number,
-  fields: Partial<GarmentPropertyFields>,
+  fields: Partial<GarmentPropertyFields & CareLabel>,
 ): Promise<boolean> {
   const updated = await db
     .update(garment)

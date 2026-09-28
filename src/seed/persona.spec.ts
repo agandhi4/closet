@@ -142,6 +142,34 @@ describe('persona bibles', () => {
     expect(demo.garments.filter((g) => g.away)).toHaveLength(2);
   });
 
+  it('gives every labelled garment its materials’ care, the Care labels table overriding, and the Repairs log (#23)', () => {
+    const demo = loadPersona('demo');
+    const garment = (id: string) => demo.garments.find((g) => g.id === id)!;
+    // Cotton's usual care; shoes have no label.
+    expect(garment('T01').fields).toMatchObject({
+      careWash: 'warm',
+      careDry: 'tumble',
+      careDryClean: null,
+    });
+    expect(garment('F01').fields.careWash).toBeNull();
+    // The coat's label says otherwise; `—` keeps wool and cashmere's.
+    expect(garment('O04').fields).toMatchObject({
+      careWash: 'do_not_wash',
+      careDry: 'flat',
+      careDryClean: 'only',
+    });
+    expect(garment('O03').repairs).toEqual([
+      {
+        day: '2025-03-22',
+        kind: 'alteration',
+        note: expect.stringMatching(/Sleeves shortened/),
+        cost: '25.00',
+      },
+    ]);
+    expect(garment('T13').repairs[0].cost).toBeNull();
+    expect(demo.garments.flatMap((g) => g.repairs)).toHaveLength(5);
+  });
+
   it('gives Dana and Riley no capsules', () => {
     expect(loadPersona('sparse').capsules).toEqual([]);
     expect(loadPersona('fresh').capsules).toEqual([]);
@@ -349,6 +377,16 @@ describe('persona bibles', () => {
         '| Last name | Y |\n| Weather home | Here |\n| Weather location | 40.69, -73.97 |\n| Temperature unit | kelvin |',
       ),
       /Temperature unit is not one: kelvin/,
+    ],
+    [
+      'a care label on shoes',
+      `${bible('| F01 | Shoes | sneakers | white | — |')}\n## Care labels\n\n| Garment | Wash | Bleach | Dry | Iron | Dry cleaning |\n|---|---|---|---|---|---|\n| F01 | hand | — | — | — | — |\n`,
+      /a care label on a role without one/,
+    ],
+    [
+      'a repair logged before the garment was bought',
+      `${bible('| F01 | Shoes | sneakers | white | — |').replace('| Last name | Y |', '| Last name | Y |')}\n## Repairs\n\n| Garment | Day | Kind | What was done | Cost |\n|---|---|---|---|---|\n| F01 | 2099-01-01 | repair | Resoled | $40 |\n`,
+      /Log it on the day it was done/,
     ],
     [
       'a type from another category',

@@ -274,6 +274,12 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       replaces_garment_id: 'integer',
       // 0023_garment_colors: the comma-joined color became a set.
       colors: 'ARRAY',
+      // 0028_care_label_repair_log: the care label (#23).
+      care_wash: 'text',
+      care_bleach: 'text',
+      care_dry: 'text',
+      care_iron: 'text',
+      care_dry_clean: 'text',
     });
     expect(Object.keys(await columnsOf(env, 'user')).sort()).toEqual([
       'email',

@@ -1,5 +1,12 @@
 import type { Child } from 'hono/jsx';
 import {
+  CARE_BLEACH,
+  CARE_DRY,
+  CARE_DRY_CLEAN,
+  CARE_IRON,
+  CARE_WASH,
+} from '../../wardrobe/care';
+import {
   FITS,
   FORMALITIES,
   LENGTHS,
@@ -209,6 +216,67 @@ function PropertiesMoreFields(props: PropertiesProps) {
           />
           <span class="label-text">{t('PROPERTY_WATER_RESISTANT')}</span>
         </label>
+      )}
+      <CareLabelFields {...props} />
+    </>
+  );
+}
+
+/**
+ * The care label (#23), under the other properties: the washing, bleach,
+ * drying, ironing and dry cleaning chips, for a role that has a label. The
+ * materials fill it in (withCarePresets) where nothing was chosen. The
+ * marker and the materials the presets came from are rendered for every
+ * role, so a garment recategorised as shoes has its label cleared.
+ */
+function CareLabelFields(props: PropertiesProps) {
+  const { category, values } = props;
+  const groups = [
+    { name: 'careWash', label: t('care.WASH'), options: CARE_WASH },
+    { name: 'careBleach', label: t('care.BLEACH'), options: CARE_BLEACH },
+    { name: 'careDry', label: t('care.DRY'), options: CARE_DRY },
+    { name: 'careIron', label: t('care.IRON'), options: CARE_IRON },
+    {
+      name: 'careDryClean',
+      label: t('care.DRY_CLEAN'),
+      options: CARE_DRY_CLEAN,
+    },
+  ] as const;
+  return (
+    <>
+      {/* The save writes the care label only when this is posted (see GarmentBody.careLabel). */}
+      <input type="hidden" name="careLabel" value="1" />
+      {/* The materials the label's presets came from (withCarePresets'
+          `from`), redrawn with the chips they describe, as presetType. */}
+      <input
+        type="hidden"
+        name="presetMaterials"
+        value={values.preset.materials}
+      />
+      {propertyApplies('careWash', category) && (
+        <div
+          id="garment-care-label"
+          role="group"
+          aria-labelledby="garment-care-label-title"
+          class="flex flex-col gap-4"
+        >
+          <div>
+            <h3 id="garment-care-label-title" class="font-medium">
+              {t('care.LABEL')}
+            </h3>
+            <p class="text-xs text-muted">{t('care.LABEL_HINT')}</p>
+          </div>
+          {groups.map((group) => (
+            <ChipGroup label={group.label}>
+              <Chips
+                name={group.name}
+                property={group.name}
+                options={group.options}
+                selected={values[group.name]}
+              />
+            </ChipGroup>
+          ))}
+        </div>
       )}
     </>
   );

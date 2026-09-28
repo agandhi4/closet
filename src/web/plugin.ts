@@ -29,6 +29,7 @@ import { sharingRoutes } from './sharing/routes';
 import { todayRoutes } from './today/routes';
 import { tripRoutes } from './trips/routes';
 import { linkImportRoutes } from './wardrobe/link-import/routes';
+import { repairRoutes } from './wardrobe/repair-routes';
 import { wardrobeRoutes } from './wardrobe/routes';
 import type { WeatherService } from './weather/service';
 import { weatherRoutes } from './weather/routes';
@@ -123,6 +124,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(shoppingRoutes, options);
   await app.register(insightsRoutes, options);
   await app.register(wearRoutes, options);
+  await app.register(repairRoutes, options);
   await app.register(calendarRoutes, options);
   await app.register(tripRoutes, options);
   await app.register(selfieRoutes, options);

@@ -33,11 +33,17 @@ import {
 } from '../web/sizes/validation';
 import { normalizeCategory } from '../web/wardrobe/garment';
 import {
+  type NewRepair,
+  readRepairForm,
+  RepairBody,
+} from '../web/wardrobe/repairs';
+import {
   CARE_NOTE_MAX,
   GarmentBody,
   type GarmentFields,
   readGarmentForm,
 } from '../web/wardrobe/validation';
+import { carePresetsFor, type CareLabel } from '../wardrobe/care';
 import {
   AWAY_REASONS,
   type AwayReason,
@@ -63,6 +69,9 @@ import {
   GARMENT_ROLES,
   GarmentCategory,
   type GarmentRole,
+  MATERIALS,
+  propertyApplies,
+  storedSet,
 } from '../wardrobe/properties';
 import { type Location, roundedLocation } from '../weather/location';
 import {
@@ -77,6 +86,7 @@ import {
   plain,
   readTables,
 } from './bible';
+import { REFERENCE_ANCHOR } from './simulate';
 import { BANDS, type Band } from './weather';
 
 /**
@@ -131,6 +141,11 @@ export interface SeedGarment {
   photo: boolean;
   /** Out of the closet at the anchor (the Away table), written by setAway. */
   away: { reason: AwayReason; note: string | null } | null;
+  /**
+   * Its repair and alteration log (the Repairs table, #23), days as the
+   * bible dates them (moved with the acquisitions), written by addRepair.
+   */
+  repairs: NewRepair[];
 }
 
 /**
@@ -316,6 +331,8 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
     ),
     conditions: garmentNotes(source, find('Garment', 'Condition'), ids),
     away: garmentNotes(source, find('Garment', 'Away'), ids),
+    labels: garmentRows(source, find('Garment', 'Wash', 'Dry cleaning'), ids),
+    repairs: repairRows(source, find('Garment', 'Kind', 'What was done'), ids),
   };
   const garments = garmentTables.flatMap((table) =>
     table.rows.map((row) => readGarment(source, table, row, care)),
@@ -581,6 +598,8 @@ const NO_CARE: GarmentCare = {
   laundry: [],
   conditions: new Map(),
   away: new Map(),
+  labels: new Map(),
+  repairs: new Map(),
 };
 
 // A Wishlist row: a garment row through the same form (no acquired date:
@@ -606,13 +625,64 @@ function readWishlistItem(
   return { id, fields, photo, replaces };
 }
 
-/** The tables that add to garments by id: Laundry, Condition, Away. */
+/**
+ * The tables that add to garments by id: Laundry, Condition, Away, Care
+ * labels and Repairs.
+ */
 interface GarmentCare {
   laundry: LaundryRule[];
   /** Garment id to its Condition row's value and note. */
   conditions: Map<string, { value: string; note: string }>;
   /** Garment id to its Away row's value and note. */
   away: Map<string, { value: string; note: string }>;
+  /** Garment id to its Care labels row: where the label differs from its materials. */
+  labels: Map<string, Record<string, string>>;
+  /** Garment id to its Repairs rows. */
+  repairs: Map<string, Record<string, string>[]>;
+}
+
+// A table with one row per garment id (the Care labels), rows as read.
+function garmentRows(
+  source: string,
+  tables: BibleTable[],
+  garmentIds: Set<string>,
+): Map<string, Record<string, string>> {
+  const rows = new Map<string, Record<string, string>>();
+  for (const table of tables) {
+    for (const row of table.rows) {
+      const id = plain(row.Garment);
+      if (!garmentIds.has(id) || rows.has(id)) {
+        throw new BibleError(
+          source,
+          `${table.heading}: "${id}" is not a garment, or is listed twice`,
+        );
+      }
+      rows.set(id, row);
+    }
+  }
+  return rows;
+}
+
+// The Repairs table's rows by garment id, several a garment.
+function repairRows(
+  source: string,
+  tables: BibleTable[],
+  garmentIds: Set<string>,
+): Map<string, Record<string, string>[]> {
+  const rows = new Map<string, Record<string, string>[]>();
+  for (const table of tables) {
+    for (const row of table.rows) {
+      const id = plain(row.Garment);
+      if (!garmentIds.has(id)) {
+        throw new BibleError(
+          source,
+          `${table.heading}: "${id}" is not a garment`,
+        );
+      }
+      rows.set(id, [...(rows.get(id) ?? []), row]);
+    }
+  }
+  return rows;
 }
 
 // A table of (Garment, <value>, Note) rows by garment id: the Condition
@@ -740,6 +810,10 @@ function readGarment(
     sourceUrl: linkUrl(cell('Product')) ?? '',
     price: /\$[\d,]+(?:\.\d{1,2})?/.exec(cell('Price'))?.[0] ?? '',
     ...carePost(care, { id, category: normalizeCategory(category), type }),
+    ...careLabelPost(where, care.labels.get(id), {
+      category: normalizeCategory(category),
+      materials: list(cell('Materials')),
+    }),
     quantity: plain(cell('Qty')) || '1',
   });
   const fields = storedFields(where, post);
@@ -750,7 +824,81 @@ function readGarment(
     archivedOn: readDate(where, plain(cell('Archived'))),
     photo: plain(cell('Photo')) !== 'no',
     away: readAway(where, care.away.get(id)),
+    repairs: readRepairs(where, care.repairs.get(id) ?? [], fields.acquiredOn),
   };
+}
+
+// The Care labels table's columns and the form field each fills.
+const CARE_LABEL_COLUMNS: Record<string, keyof CareLabel> = {
+  Wash: 'careWash',
+  Bleach: 'careBleach',
+  Dry: 'careDry',
+  Iron: 'careIron',
+  'Dry cleaning': 'careDryClean',
+};
+
+/**
+ * The care label as the form posts it: what the materials suggest, as the
+ * form's material chips fill it (carePresetsFor), then the Care labels
+ * table's row where the label says otherwise (`—` keeps the suggestion).
+ * Shoes and bags have no label: a row for one is an error.
+ */
+function careLabelPost(
+  where: string,
+  row: Record<string, string> | undefined,
+  garment: { category: string; materials: string[] },
+): Record<string, string> {
+  if (!propertyApplies('careWash', garment.category)) {
+    if (row) throw new BibleError(where, 'a care label on a role without one');
+    // As the form posts it for shoes: the marker, which stores none.
+    return { careLabel: '1' };
+  }
+  const presets = carePresetsFor(storedSet(MATERIALS, garment.materials) ?? []);
+  const post: Record<string, string> = { careLabel: '1' };
+  for (const [column, field] of Object.entries(CARE_LABEL_COLUMNS)) {
+    const given = plain(row?.[column] ?? '');
+    const preset = field === 'careDryClean' ? undefined : presets[field];
+    post[field] = given || preset || '';
+  }
+  return post;
+}
+
+// A Repairs row as the edit page's form posts it.
+function repairPost(row: Record<string, string>): Record<string, string> {
+  return {
+    day: plain(row.Day ?? ''),
+    kind: plain(row.Kind ?? ''),
+    note: plain(row['What was done'] ?? ''),
+    cost: /\$[\d,]+(?:\.\d{1,2})?/.exec(row.Cost ?? '')?.[0] ?? '',
+  };
+}
+
+/**
+ * The Repairs rows through the log's own form (readRepairForm: a real day,
+ * not after the reference anchor, a note, a cost as a price), and never
+ * before the garment was acquired.
+ */
+function readRepairs(
+  where: string,
+  rows: Record<string, string>[],
+  acquiredOn: IsoDate | null,
+): NewRepair[] {
+  return rows.map((row) => {
+    let body: RepairBody;
+    try {
+      body = Value.Parse(RepairBody, repairPost(row));
+    } catch (error) {
+      throw new BibleError(where, `not a repair: ${String(error)}`);
+    }
+    const form = readRepairForm(body, REFERENCE_ANCHOR);
+    if (!form.ok) {
+      throw new BibleError(where, `repair: ${JSON.stringify(form.errors)}`);
+    }
+    if (acquiredOn !== null && form.entry.day < acquiredOn) {
+      throw new BibleError(where, `a repair before it was acquired`);
+    }
+    return form.entry;
+  });
 }
 
 /** The care fields as the form posts them, from the Laundry and Condition tables. */
@@ -871,6 +1019,7 @@ function storedFields(
     'sourceUrl',
     'price',
     'conditionNote',
+    ...Object.values(CARE_LABEL_COLUMNS),
   ].filter(
     (name) => post[name] && form.fields[name as keyof GarmentFields] === null,
   );

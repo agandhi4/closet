@@ -10,6 +10,7 @@ import { insertItems, saveStyleProfile } from '../../src/web/plans/queries';
 import { EMPTY_STYLE_PROFILE } from '../../src/web/plans/validation';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addBrandSize } from '../../src/web/sizes/queries';
+import { addRepair } from '../../src/web/wardrobe/repairs';
 import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
 import {
   createGarment,
@@ -142,6 +143,8 @@ export interface Fixture {
    */
   brandSizeId: number;
   brand: string;
+  /** A repair log entry on the garment (#23), the owner's own record. */
+  repairId: number;
   /** A phone photo and a cutout to upload, the file's own for every test. */
   photo: Buffer;
   cutout: Buffer;
@@ -198,6 +201,7 @@ const TABLES = [
   'capsule',
   'capsule_garment',
   'garment_wear',
+  'garment_repair',
   'file',
   'pending_photo',
   'outfit',
@@ -477,6 +481,13 @@ export function describeMatrix(
         .select({ id: tripItem.id })
         .from(tripItem)
         .where(eq(tripItem.tripId, tripId));
+      const repairId = await addRepair(t.db, t.owner.id, garmentId, {
+        day: today,
+        kind: 'repair',
+        note: `Mended ${tag}`,
+        cost: '12.00',
+      });
+      if (repairId === undefined) throw new Error('No repair logged');
       return {
         garmentId,
         garmentName,
@@ -504,6 +515,7 @@ export function describeMatrix(
         otherTripId,
         brand,
         brandSizeId,
+        repairId,
         photo,
         cutout,
         shopPhotoUrl: sites.url('/photo.jpg'),

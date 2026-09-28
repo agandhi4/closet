@@ -663,6 +663,56 @@ purpose: one table of numbers, one of notes, and the places a brand is already o
   gift-giver's use: later, if asked); notes on closet garments' pages and the shopping list; MCP
   writes.
 
+## 17. Care label and repair log (#23)
+
+Save Your Wardrobe's idea, from "Later" below: what the label inside says, and what has been mended or
+altered, kept with the garment so the laundry pile and the tailor's ticket have a home.
+
+- **The care label is five garment properties**, section 6's model: typed, nullable `garment` columns,
+  each a fixed set checked by a constraint built from `src/wardrobe/care.ts`. The five are the symbol
+  groups every care label carries (ISO 3758, and the US labels read the same way): **wash** (machine hot
+  60 °C, warm 40 °C, cold 30 °C, hand, do not wash), **bleach** (any, non-chlorine only, do not),
+  **dry** (tumble, tumble low, do not tumble, line, flat), **iron** (hot, warm, cool, do not) and **dry
+  cleaning** (can be, only, never). Research supported all five; five small chip rows are still one
+  screen on a phone. Shoes and bags have none (`propertyApplies`: the label roles are the worn ones,
+  accessories and custom categories), so recategorising drops it, as a sleeve is dropped.
+- **Presets from the materials**, as a type presets warmth: wool fills hand wash, no bleach, dry flat,
+  iron cool; a blend takes the most careful of each (cotton and wool is washed as wool). They fill only
+  what is unset or still at the previous materials' preset (`applyCarePresets`, the same `followPreset`
+  rule), carried by a hidden `presetMaterials` beside the chips. Dry cleaning is never preset: only the
+  label knows "dry clean only".
+- **Where it shows.** The garment form's "More details", under the other properties (the properties
+  fragment redraws it when a material is tapped); its own marker `careLabel=1`, so a form cached before
+  it leaves the label alone. The garment page's "Care label" section: the instructions as chips, then
+  the free-text care notes (the old `washing_details`, relabelled "Care notes"). The grid filters by the
+  wash (`?wash=`, only washes the wardrobe holds: the laundry sort), `search_garments` too.
+  `get_garment` answers the label and `update_garment` writes it (new materials bring their presets,
+  explicit values win).
+- **The repair log** is a table, `garment_repair` (garment, day, kind `repair` or `alteration`, what
+  was done, an optional cost; deleting the garment takes it). **The owner's own record, like wears**:
+  read by the garment page's `ownerRecords`, written only by the owner (a grantee's post is a 403 or
+  404, the wears' rule), never on a wishlist item (409: nothing is owned to mend). Both writes hold the
+  owner lock (`ownerTransaction`). A day is never after today; a cost is read as a price.
+- **Where it shows.** The garment page's "Repairs and alterations": the log newest first and "Spent on
+  it" (the costs summed in cents), with "Log a repair" to the edit page. The edit page, below the
+  garment form (forms cannot nest): each entry with Remove, then "Log a repair or alteration" (kind
+  chips, what was done, the day defaulting to today, the cost), native posts, disabled offline. Adding
+  lands on the garment page with the entry and a toast; a refusal re-renders the edit page with the
+  messages. `get_garment` lists the log for the owner.
+- **Cost per wear stays the price's.** Insights has a cost concept (price ÷ wear days, the one rule
+  `perWearCost` that the garment page shares), so a repair's cost belongs in it in principle. Folding it
+  in means the insights page's query sums each garment's repairs, and that page is another slice's
+  work in flight; the log shows its own total meanwhile, and the follow-up is the insights query plus
+  `perWearCost` taking the total.
+- **Seed.** Theo's garments carry their materials' care, a Care labels table where the label differs
+  (the blazer, the wool coat and the flannels dry clean only) and a Repairs table (the blazer's and
+  flannels' alterations, the raw denim's chain-stitch hem, the Bean Boots' laces, the oxford's button).
+  Dana's untagged closet gets presets only where it has materials; Riley has nothing.
+- **Out of scope.** Bulk edit of the label (the dialog has nine tabs already; a follow-up if the laundry
+  sort asks for it), tagging mode (it asks for the essentials), reading a label from its photo, a
+  per-garment laundry routine built from the label, editing an entry (remove and log it again), a
+  repair write tool over MCP, and reminders ("the boots are due a resole").
+
 ## Delivery
 
 Each feature is its own GitHub issue (six) and ships alone. The work for each: its schema and migration
@@ -707,8 +757,8 @@ auto-plan and outfit selfies. The summaries below were the proposals; the sectio
   later.
 
 **Later** (worth doing, not yet): duplicate detection with image embeddings (Wardrowbe); generator rules ("never X with
-Y"); an inspiration library with "recreate this look"; care label and repair log (Save Your
-Wardrobe); order email import. (Measurements and per-brand sizes, from Stylebook, became section 16.)
+Y"); an inspiration library with "recreate this look"; order email import. (Care label and repair log,
+from Save Your Wardrobe, became section 17.) (Measurements and per-brand sizes, from Stylebook, became section 16.)
 
 **Skipped:** avatar try-on (a gimmick at household scale), and social feeds, polls and resale
 marketplaces (they need a user base).

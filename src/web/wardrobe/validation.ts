@@ -39,6 +39,15 @@ import {
   type Warmth,
   WARMTHS,
 } from '../../wardrobe/properties';
+import {
+  applyCarePresets,
+  CARE_BLEACH,
+  CARE_DRY,
+  CARE_DRY_CLEAN,
+  CARE_IRON,
+  CARE_WASH,
+  type CareLabel,
+} from '../../wardrobe/care';
 import { normalizeCategory, normalizeSize } from './garment';
 
 /**
@@ -63,6 +72,9 @@ export const SOURCE_URL_MAX = 2048;
 export const PRICE_INPUT_MAX = 20;
 /** "Hole in the left elbow", "At the cobbler on Fulton St": a line, not a story. */
 export const CARE_NOTE_MAX = 200;
+
+// Every material's name, comma-joined, with room to spare.
+const PRESET_MATERIALS_MAX = 400;
 
 // Room for a hostile value to reach readGarmentForm and be named in its
 // message; every real colour is a few letters.
@@ -112,12 +124,23 @@ export const PropertyFields = {
   fabricWeight: Type.Optional(Type.String({ maxLength: 12 })),
   fabricWeightUnit: Type.Optional(FabricWeightUnit),
   waterResistant: Type.Optional(Type.Literal('true')),
+  // The care label (#23, src/wardrobe/care.ts): read by a save only beside
+  // its own marker (GarmentBody.careLabel).
+  careWash: choice(CARE_WASH),
+  careBleach: choice(CARE_BLEACH),
+  careDry: choice(CARE_DRY),
+  careIron: choice(CARE_IRON),
+  careDryClean: choice(CARE_DRY_CLEAN),
   // Hidden: the category, type and weight (gsm) the shown presets came
   // from, so a type change replaces only values still at their preset
-  // (applyPresets, src/wardrobe/properties.ts). Never stored.
+  // (applyPresets, src/wardrobe/properties.ts), and the materials the care
+  // label's presets came from (comma-joined; applyCarePresets). Never stored.
   presetCategory: Type.Optional(Type.String({ maxLength: CATEGORY_MAX })),
   presetType: Type.Optional(Type.String({ maxLength: 40 })),
   presetWeight: Type.Optional(Type.String({ maxLength: 12 })),
+  presetMaterials: Type.Optional(
+    Type.String({ maxLength: PRESET_MATERIALS_MAX }),
+  ),
 };
 const PostedProperties = Type.Object(PropertyFields);
 type PostedProperties = Static<typeof PostedProperties>;
@@ -176,6 +199,9 @@ export const GarmentBody = Type.Object({
   // app cached before they existed posts none, and its save must leave the
   // stored ones alone rather than clear them (an edit writes every field).
   props: Type.Optional(Type.Literal('1')),
+  // '1' from every form that renders the care label (#23), for the same
+  // reason: forms cached before it post props=1 without its fields.
+  careLabel: Type.Optional(Type.Literal('1')),
   sourceUrl: Type.Optional(Type.String({ maxLength: SOURCE_URL_MAX })),
   price: Type.Optional(Type.String({ maxLength: PRICE_INPUT_MAX })),
   // '1' from every form that renders the product link and price, for the
@@ -238,6 +264,15 @@ export const BLANK_CARE: CareFormValues = {
   conditionNote: '',
 };
 
+/** The care label's fields as the form shows them: none chosen. */
+export const BLANK_CARE_LABEL = {
+  careWash: '',
+  careBleach: '',
+  careDry: '',
+  careIron: '',
+  careDryClean: '',
+} as const satisfies Record<keyof CareLabel, string>;
+
 /** The property fields as the form shows them (strings as posted). */
 export interface PropertyFormValues {
   type: string;
@@ -252,8 +287,13 @@ export interface PropertyFormValues {
   fabricWeight: string;
   fabricWeightUnit: FabricWeightUnit;
   waterResistant: boolean;
+  careWash: string;
+  careBleach: string;
+  careDry: string;
+  careIron: string;
+  careDryClean: string;
   /** Where the shown presets came from (hidden fields; see PropertyFields). */
-  preset: { category: string; type: string; weight: string };
+  preset: { category: string; type: string; weight: string; materials: string };
 }
 
 export const BLANK_PROPERTIES: PropertyFormValues = {
@@ -268,7 +308,8 @@ export const BLANK_PROPERTIES: PropertyFormValues = {
   fabricWeight: '',
   fabricWeightUnit: 'oz',
   waterResistant: false,
-  preset: { category: '', type: '', weight: '' },
+  ...BLANK_CARE_LABEL,
+  preset: { category: '', type: '', weight: '', materials: '' },
 };
 
 /** A new garment's form: every field empty. */
@@ -337,12 +378,13 @@ export interface CareFields extends ConditionFields {
 
 /**
  * A garment's fields as stored: trimmed, null when blank. The properties,
- * the product fields and the care fields are absent (left as stored) when
- * the posting form predates them.
+ * the care label, the product fields and the care fields are absent (left
+ * as stored) when the posting form predates them.
  */
 export interface GarmentFields
   extends
     Partial<GarmentPropertyFields>,
+    Partial<CareLabel>,
     Partial<ProductFields>,
     Partial<CareFields> {
   name: string | null;
@@ -425,6 +467,12 @@ export function formPost(values: GarmentFormValues): GarmentBody {
     fabricWeight: properties.fabricWeight,
     fabricWeightUnit: properties.fabricWeightUnit,
     ...(properties.waterResistant && { waterResistant: 'true' }),
+    careLabel: '1',
+    careWash: choiceValue(CARE_WASH, properties.careWash),
+    careBleach: choiceValue(CARE_BLEACH, properties.careBleach),
+    careDry: choiceValue(CARE_DRY, properties.careDry),
+    careIron: choiceValue(CARE_IRON, properties.careIron),
+    careDryClean: choiceValue(CARE_DRY_CLEAN, properties.careDryClean),
     product: '1',
     sourceUrl: values.sourceUrl,
     price: values.price,
@@ -563,17 +611,23 @@ export function propertyFormValues(
     fabricWeight: orEmpty(posted.fabricWeight),
     fabricWeightUnit: posted.fabricWeightUnit ?? 'oz',
     waterResistant: posted.waterResistant === 'true',
+    careWash: orEmpty(posted.careWash),
+    careBleach: orEmpty(posted.careBleach),
+    careDry: orEmpty(posted.careDry),
+    careIron: orEmpty(posted.careIron),
+    careDryClean: orEmpty(posted.careDryClean),
     preset: {
       category: orEmpty(posted.presetCategory),
       type: orEmpty(posted.presetType),
       weight: orEmpty(posted.presetWeight),
+      materials: orEmpty(posted.presetMaterials),
     },
   };
 }
 
-/** A stored garment's properties as the form shows them (weight in oz). */
+/** A stored garment's properties and care label as the form shows them (weight in oz). */
 export function storedPropertyValues(
-  stored: GarmentPropertyFields & { category: string },
+  stored: GarmentPropertyFields & CareLabel & { category: string },
 ): PropertyFormValues {
   return {
     type: orEmpty(stored.type),
@@ -587,14 +641,30 @@ export function storedPropertyValues(
     fabricWeight: asText(stored.fabricWeight, gsmToOz),
     fabricWeightUnit: 'oz',
     waterResistant: stored.waterResistant,
-    // The stored values that still equal the stored type's presets follow
-    // a type change; the rest were chosen.
+    careWash: orEmpty(stored.careWash),
+    careBleach: orEmpty(stored.careBleach),
+    careDry: orEmpty(stored.careDry),
+    careIron: orEmpty(stored.careIron),
+    careDryClean: orEmpty(stored.careDryClean),
+    // The stored values that still equal the stored type's (and
+    // materials') presets follow a change; the rest were chosen.
     preset: {
       category: stored.category,
       type: orEmpty(stored.type),
       weight: asText(stored.fabricWeight),
+      materials: presetMaterialsText(stored.materials ?? []),
     },
   };
+}
+
+/** The materials the care presets came from, as the hidden field carries them. */
+export function presetMaterialsText(materials: readonly Material[]): string {
+  return materials.join(',');
+}
+
+/** The hidden field's materials; anything not a material is dropped. */
+function presetMaterials(text: string): Material[] {
+  return storedSet(MATERIALS, text.split(',')) ?? [];
 }
 
 /** A stored garment as its edit and clone forms show it to `audience`. */
@@ -698,11 +768,67 @@ export function readProperties(
 }
 
 /**
- * The form's properties after the category, type or weight changed (the
- * properties fragment): a type outside the category is dropped, values
- * still at the previous presets follow the new ones (applyPresets), and
- * the hidden preset fields move to what the presets now come from. An
- * unreadable weight counts as none here; the save names it.
+ * The posted care label as stored for a garment of `category`: every
+ * instruction null when the role has no label (shoes, bags), so
+ * recategorising drops it. Only the form's own chips post these (the
+ * schema), so there is nothing to message.
+ */
+export function readCareLabel(
+  values: PropertyFormValues,
+  category: string,
+): CareLabel {
+  const labelled = propertyApplies('careWash', category);
+  const only = <T extends string>(set: readonly T[], posted: string) =>
+    labelled ? pick(set, posted) : null;
+  return {
+    careWash: only(CARE_WASH, values.careWash),
+    careBleach: only(CARE_BLEACH, values.careBleach),
+    careDry: only(CARE_DRY, values.careDry),
+    careIron: only(CARE_IRON, values.careIron),
+    careDryClean: only(CARE_DRY_CLEAN, values.careDryClean),
+  };
+}
+
+/**
+ * The form's care label after the materials changed: instructions still at
+ * the previous materials' presets (the hidden presetMaterials) follow the
+ * new ones, unset ones are filled (applyCarePresets), and the hidden field
+ * moves to the materials now shown. Nothing is preset for a role without a
+ * label. Also update_garment's, when it changes the materials.
+ */
+export function withCarePresets(
+  values: PropertyFormValues,
+  category: string,
+): PropertyFormValues {
+  const materials = storedSet(MATERIALS, values.materials) ?? [];
+  const preset = {
+    ...values.preset,
+    materials: presetMaterialsText(materials),
+  };
+  if (!propertyApplies('careWash', category)) return { ...values, preset };
+  const next = applyCarePresets(
+    readCareLabel(values, category),
+    values.preset.materials ? presetMaterials(values.preset.materials) : null,
+    materials,
+  );
+  return {
+    ...values,
+    careWash: orEmpty(next.careWash),
+    careBleach: orEmpty(next.careBleach),
+    careDry: orEmpty(next.careDry),
+    careIron: orEmpty(next.careIron),
+    careDryClean: orEmpty(next.careDryClean),
+    preset,
+  };
+}
+
+/**
+ * The form's properties after the category, type, weight or materials
+ * changed (the properties fragment): a type outside the category is
+ * dropped, values still at the previous presets follow the new ones
+ * (applyPresets, and withCarePresets for the care label), and the hidden
+ * preset fields move to what the presets now come from. An unreadable
+ * weight counts as none here; the save names it.
  */
 export function withPresets(
   values: PropertyFormValues,
@@ -722,16 +848,24 @@ export function withPresets(
     presetSource(values.preset),
     { category, type, fabricWeight: gsm },
   );
-  return {
-    ...values,
-    type: orEmpty(type),
-    warmth: asText(next.warmth),
-    formality: asText(next.formality),
-    sleeve: orEmpty(next.sleeve),
-    length: orEmpty(next.length),
-    waterResistant: next.waterResistant,
-    preset: { category, type: orEmpty(type), weight: asText(gsm) },
-  };
+  return withCarePresets(
+    {
+      ...values,
+      type: orEmpty(type),
+      warmth: asText(next.warmth),
+      formality: asText(next.formality),
+      sleeve: orEmpty(next.sleeve),
+      length: orEmpty(next.length),
+      waterResistant: next.waterResistant,
+      preset: {
+        ...values.preset,
+        category,
+        type: orEmpty(type),
+        weight: asText(gsm),
+      },
+    },
+    category,
+  );
 }
 
 /** The hidden preset fields as applyPresets reads them; null before any. */
@@ -866,6 +1000,11 @@ export function readGarmentForm(
   const colors = readColors(body.color);
   const acquiredOn = readDay(body.dateAquired);
   const properties = readPostedProperties(body, category);
+  // Beside its own marker only (GarmentBody.careLabel).
+  const careLabel =
+    body.careLabel === '1'
+      ? readCareLabel(propertyFormValues(body), category)
+      : {};
   const product = readProductFields(body);
   const care = readCareFields(body, audience);
   const errors = formErrors({
@@ -884,6 +1023,7 @@ export function readGarmentForm(
     ok: true,
     fields: {
       ...(properties?.ok ? properties.fields : {}),
+      ...careLabel,
       ...(product.ok && product.fields),
       ...(care.ok && care.fields),
       ...readReplaces(body),
@@ -971,6 +1111,8 @@ const GridFilters = {
       ...MATERIALS.map((material) => Type.Literal(material)),
     ]),
   ),
+  // The care label's wash (#23), a stored value like the material.
+  wash: choice(CARE_WASH),
   archived: Type.Optional(Type.String({ maxLength: 10 })),
   // 'true' filters, like archived: garments with a copy that needs a wash
   // (the owner's own wardrobe only: a share never reveals wears; gridSearch
@@ -1008,6 +1150,7 @@ export const GarmentPageQuery = Type.Object({
   created: Type.Optional(Type.String()),
   photoSaved: Type.Optional(Type.String()),
   bought: Type.Optional(Type.String()),
+  repairSaved: Type.Optional(Type.String()),
 });
 
 /**

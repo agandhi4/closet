@@ -15,6 +15,7 @@ import {
   MATERIALS,
   WARMTHS,
 } from '../../wardrobe/properties';
+import { CARE_WASH } from '../../wardrobe/care';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
@@ -49,6 +50,7 @@ import {
 } from './garment-page';
 import { pendingPhotoView } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
+import { repairLog, repairPanel } from './repairs';
 import {
   bulkSetProperty,
   countToTag,
@@ -205,12 +207,13 @@ function careSearch(
 function propertySearch(
   query: GridQuery,
   category: string,
-): Pick<GridSearch, 'type' | 'warmth' | 'formality' | 'material'> {
+): Pick<GridSearch, 'type' | 'warmth' | 'formality' | 'material' | 'wash'> {
   return {
     type: findType(category, query.type)?.value ?? '',
     warmth: query.warmth ?? '',
     formality: query.formality ?? '',
     material: query.material ?? '',
+    wash: query.wash ?? '',
   };
 }
 
@@ -220,14 +223,24 @@ function gridFilters(search: GridSearch): GridFilters {
     category: search.category || undefined,
     color: pick(GARMENT_COLORS, search.color) ?? undefined,
     size: search.size || undefined,
-    type: search.type || undefined,
-    warmth: pick(WARMTHS, search.warmth) ?? undefined,
-    formality: pick(FORMALITIES, search.formality) ?? undefined,
-    material: pick(MATERIALS, search.material) ?? undefined,
+    ...propertyFilters(search),
     scope: scopeOf(search),
     capsule: search.capsule ? Number(search.capsule) : undefined,
     needsWash: search.needsWash === 'true',
     attention: search.attention === 'true',
+  };
+}
+
+/** The property filters as the query layer takes them (propertySearch's). */
+function propertyFilters(
+  search: GridSearch,
+): Pick<GridFilters, 'type' | 'warmth' | 'formality' | 'material' | 'wash'> {
+  return {
+    type: search.type || undefined,
+    warmth: pick(WARMTHS, search.warmth) ?? undefined,
+    formality: pick(FORMALITIES, search.formality) ?? undefined,
+    material: pick(MATERIALS, search.material) ?? undefined,
+    wash: pick(CARE_WASH, search.wash) ?? undefined,
   };
 }
 
@@ -743,19 +756,25 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     access: { isOwner: boolean; ownerId: number },
     today: IsoDate,
   ): Promise<
-    Pick<GarmentPageModel, 'wear' | 'outfits'> & {
+    Pick<GarmentPageModel, 'wear' | 'outfits' | 'repairs'> & {
       avoided: GarmentPageModel['styling']['avoided'];
     }
   > {
     if (garment.status === 'wishlist' || !access.isOwner) {
-      return { wear: undefined, outfits: undefined, avoided: [] };
+      return {
+        wear: undefined,
+        outfits: undefined,
+        repairs: undefined,
+        avoided: [],
+      };
     }
-    const [summary, outfits, avoided] = await Promise.all([
+    const [summary, outfits, avoided, repairs] = await Promise.all([
       wearSummary(db, garment.id, today),
       outfitsWithGarment(db, access.ownerId, garment.id, GARMENT_OUTFITS_SHOWN),
       avoidedWith(db, access.ownerId, garment.id),
+      repairLog(db, garment.id),
     ]);
-    return { wear: { summary, today }, outfits, avoided };
+    return { wear: { summary, today }, outfits, avoided, repairs };
   }
 
   app.get(
@@ -814,11 +833,13 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             goesWith,
             brandSize,
             outfits: own.outfits,
+            repairs: own.repairs,
             canEdit: access.canManage,
             canDelete: access.isOwner,
             justCreated: request.query.created === '1',
             justSavedPhoto: request.query.photoSaved === '1',
             justBought: request.query.bought === '1',
+            justLoggedRepair: request.query.repairSaved === '1',
           }}
         />,
       );
@@ -945,6 +966,12 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         suggestionsFrom: access.ownerId,
         viewOwner,
         values: storedFormValues(garment, { owner: access.isOwner }),
+        repairs: await repairPanel(
+          db,
+          garment,
+          access.isOwner,
+          todayIn(config.timeZone, new Date()),
+        ),
       });
     },
   );
@@ -983,6 +1010,12 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           viewOwner,
           values: form.values,
           errors: form.errors,
+          repairs: await repairPanel(
+            db,
+            stored,
+            access.isOwner,
+            todayIn(config.timeZone, new Date()),
+          ),
         });
       }
       if (!(await updateGarmentFields(db, id, access.ownerId, form.fields))) {

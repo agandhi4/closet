@@ -10,6 +10,14 @@ import {
   SLEEVES,
   WARMTHS,
 } from '../../wardrobe/properties';
+import {
+  CARE_BLEACH,
+  CARE_DRY,
+  CARE_DRY_CLEAN,
+  CARE_IRON,
+  CARE_WASH,
+  REPAIR_KINDS,
+} from '../../wardrobe/care';
 import { fabricWeightLabel, type LabelledProperty, valueLabel } from './labels';
 
 // tKey throws on a missing string, so a value added to a set without its
@@ -24,6 +32,12 @@ const SETS: [LabelledProperty, readonly (string | number)[]][] = [
   ['sleeve', SLEEVES],
   ['length', LENGTHS],
   ['condition', CONDITIONS],
+  ['careWash', CARE_WASH],
+  ['careBleach', CARE_BLEACH],
+  ['careDry', CARE_DRY],
+  ['careIron', CARE_IRON],
+  ['careDryClean', CARE_DRY_CLEAN],
+  ['repairKind', REPAIR_KINDS],
 ];
 
 describe('property labels', () => {

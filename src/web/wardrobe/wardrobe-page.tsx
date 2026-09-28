@@ -11,6 +11,7 @@ import {
   typesOf,
   WARMTHS,
 } from '../../wardrobe/properties';
+import { CARE_WASH } from '../../wardrobe/care';
 import { PostForm } from '../auth/form';
 import type { CapsuleRef } from '../capsules/queries';
 import { type StringKey, t } from '../i18n';
@@ -53,6 +54,8 @@ export interface GridSearch {
   warmth: string;
   formality: string;
   material: string;
+  /** The care label's wash (#23). */
+  wash: string;
   /** 'true' when archived garments are shown too; '' otherwise. */
   archived: string;
   /** A capsule's id: its members only. */
@@ -73,6 +76,7 @@ export const EMPTY_SEARCH: GridSearch = {
   warmth: '',
   formality: '',
   material: '',
+  wash: '',
   archived: '',
   capsule: '',
   needsWash: '',
@@ -664,6 +668,9 @@ function PropertyPills(props: {
       label: valueLabel('materials', search.material),
     });
   }
+  if (search.wash) {
+    pills.push({ drop: 'wash', label: valueLabel('careWash', search.wash) });
+  }
   return (
     <>
       {pills.map((pill) => (
@@ -1081,6 +1088,12 @@ function PropertyFilterGroups(props: {
       property: 'materials',
       title: t('PROPERTY_MATERIALS'),
       values: MATERIALS.filter((m) => options.materials.includes(m)),
+    },
+    {
+      name: 'wash',
+      property: 'careWash',
+      title: t('care.WASH'),
+      values: CARE_WASH.filter((w) => options.washes.includes(w)),
     },
   ];
   return (

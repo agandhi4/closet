@@ -88,8 +88,8 @@
   "ARCHIVED": "Archived",
   "SHOW_ARCHIVED": "Show archived",
   "CONFIRM_ARCHIVE": "Archive this garment? It will be hidden from your wardrobe.",
-  "WASHING_DETAILS": "Washing Details",
-  "WASHING_DETAILS_PLACEHOLDER": "Wash at 30°C, do not tumble dry, do not iron…",
+  "WASHING_DETAILS": "Care notes",
+  "WASHING_DETAILS_PLACEHOLDER": "Wash inside out, reshape while damp…",
   "DATE_ACQUIRED": "Date Acquired",
   "CONFIRM_DELETE": "Are you sure you want to delete this?",
   "SEARCH_PLACEHOLDER": "Search garments...",
@@ -222,7 +222,10 @@
     "PLAN_CATEGORY_REQUIRED": "Choose a category",
     "PLAN_TYPE_OF_CATEGORY": "Choose a type of this category, or any type",
     "PLAN_TYPE_NONE": "This category has no types: choose any type",
-    "PLAN_RANGE_ORDER": "The first end must not be above the second"
+    "PLAN_RANGE_ORDER": "The first end must not be above the second",
+    "REPAIR_NOTE_REQUIRED": "Say what was done",
+    "REPAIR_DAY_FUTURE": "Log it on the day it was done, not before",
+    "REPAIR_DAY_REQUIRED": "Enter the day it was done"
   },
   "WARDROBE_SHARING": "Wardrobe Sharing",
   "agentAccess": {
@@ -429,6 +432,40 @@
       "good": "Good",
       "needs_repair": "Needs repair",
       "replace_soon": "Replace soon"
+    },
+    "careWash": {
+      "hot": "Machine wash hot (60 °C)",
+      "warm": "Machine wash warm (40 °C)",
+      "cold": "Machine wash cold (30 °C)",
+      "hand": "Hand wash",
+      "do_not_wash": "Do not wash"
+    },
+    "careBleach": {
+      "any": "Any bleach",
+      "non_chlorine": "Non-chlorine bleach only",
+      "do_not_bleach": "Do not bleach"
+    },
+    "careDry": {
+      "tumble": "Tumble dry",
+      "tumble_low": "Tumble dry low",
+      "do_not_tumble": "Do not tumble dry",
+      "line": "Line dry",
+      "flat": "Dry flat"
+    },
+    "careIron": {
+      "high": "Iron hot",
+      "medium": "Iron warm",
+      "low": "Iron cool",
+      "do_not_iron": "Do not iron"
+    },
+    "careDryClean": {
+      "allowed": "Can be dry cleaned",
+      "only": "Dry clean only",
+      "never": "Do not dry clean"
+    },
+    "repairKind": {
+      "repair": "Repair",
+      "alteration": "Alteration"
     }
   },
   "PROPERTY_TYPE": "Type",
@@ -1296,5 +1333,32 @@
       "brand": "Brand saved",
       "removed": "Brand removed"
     }
+  },
+  "care": {
+    "LABEL": "Care label",
+    "LABEL_HINT": "What the label inside says. Materials fill in the usual care; change anything that differs.",
+    "WASH": "Wash",
+    "BLEACH": "Bleach",
+    "DRY": "Dry",
+    "IRON": "Iron",
+    "DRY_CLEAN": "Dry cleaning",
+    "REPAIRS": "Repairs and alterations",
+    "REPAIRS_HINT": "What was mended or altered, and when. Only you see this log.",
+    "REPAIRS_EMPTY": "Nothing logged yet.",
+    "REPAIRS_TOTAL": "Spent on it: {total}",
+    "REPAIRS_EDIT": "Log a repair",
+    "REPAIR_ADD_TITLE": "Log a repair or alteration",
+    "REPAIR_DAY": "Date",
+    "REPAIR_KIND": "Kind",
+    "REPAIR_NOTE": "What was done",
+    "REPAIR_NOTE_PLACEHOLDER": "Resoled, hemmed 2 cm, new zip…",
+    "REPAIR_COST": "Cost",
+    "REPAIR_COST_PLACEHOLDER": "e.g. 25",
+    "REPAIR_ADD": "Log it",
+    "REPAIR_DELETE": "Remove",
+    "REPAIR_CONFIRM_DELETE": "Remove this entry from the log?",
+    "REPAIR_SAVED": "Logged",
+    "REPAIR_REMOVED": "Removed from the log",
+    "REPAIR_DAY_VALUE": "{day}, {year}"
   }
 }

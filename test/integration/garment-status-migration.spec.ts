@@ -149,16 +149,14 @@ describe('garment status (the garment_status migration)', () => {
       { id: archived, status: 'archived', replaces_garment_id: null },
     ]);
     // Every other column as it was (the colours are a later migration's:
-    // garment-colors-migration.spec.ts).
-    const without = (row: Record<string, unknown>, columns: string[]) =>
-      Object.fromEntries(
-        Object.entries(row).filter(([column]) => !columns.includes(column)),
-      );
-    expect(
-      after.rows.map((row) =>
-        without(row, ['status', 'replaces_garment_id', 'colors']),
-      ),
-    ).toEqual(before.rows.map((row) => without(row, ['archived', 'color'])));
+    // garment-colors-migration.spec.ts; so are the columns later
+    // migrations add).
+    const unchanged = Object.keys(before.rows[0]).filter(
+      (column) => !['archived', 'color'].includes(column),
+    );
+    const only = (row: Record<string, unknown>) =>
+      Object.fromEntries(unchanged.map((column) => [column, row[column]]));
+    expect(after.rows.map(only)).toEqual(before.rows.map(only));
   });
 
   it('rebuilds the grid index on the status and drops the old column', async () => {

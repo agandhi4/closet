@@ -16,6 +16,13 @@ import {
   typesOf,
   WARMTHS,
 } from '../../../wardrobe/properties';
+import {
+  CARE_BLEACH,
+  CARE_DRY,
+  CARE_DRY_CLEAN,
+  CARE_IRON,
+  CARE_WASH,
+} from '../../../wardrobe/care';
 import { todayIn } from '../../calendar/calendar-date';
 import { capsulesOfGarment, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
@@ -32,14 +39,17 @@ import {
   setCondition,
   updateGarmentProperties,
 } from '../../wardrobe/queries';
+import { repairLog } from '../../wardrobe/repairs';
 import {
   CATEGORY_MAX,
   NAME_MAX,
   CARE_NOTE_MAX,
   type PropertyFormValues,
+  readCareLabel,
   readCondition,
   readProperties,
   storedPropertyValues,
+  withCarePresets,
   withPresets,
 } from '../../wardrobe/validation';
 import { wearSummary } from '../../wears/queries';
@@ -77,7 +87,8 @@ export function summaryOut(garment: GarmentSummary) {
 
 /**
  * A garment in full, as its page shows it, without the photo. The owner's
- * own records (wears, washes, away) only on their own wardrobe, as the page.
+ * own records (wears, washes, away, the repair log) only on their own
+ * wardrobe, as the page.
  */
 async function garmentOut(
   ctx: ToolContext,
@@ -85,10 +96,13 @@ async function garmentOut(
   ownerId: number,
   isOwner: boolean,
 ) {
-  const [capsules, wears] = await Promise.all([
+  const [capsules, wears, repairs] = await Promise.all([
     capsulesOfGarment(ctx.db, ownerId, garment.id),
     isOwner
       ? wearSummary(ctx.db, garment.id, todayIn(ctx.timeZone, new Date()))
+      : undefined,
+    isOwner && garment.status !== 'wishlist'
+      ? repairLog(ctx.db, garment.id)
       : undefined,
   ]);
   return {
@@ -117,6 +131,14 @@ async function garmentOut(
       fabricWeightGsm: garment.fabricWeight,
       waterResistant: garment.waterResistant,
     },
+    careLabel: {
+      wash: garment.careWash,
+      bleach: garment.careBleach,
+      dry: garment.careDry,
+      iron: garment.careIron,
+      dryClean: garment.careDryClean,
+      notes: garment.washingDetails,
+    },
     sourceUrl: garment.sourceUrl,
     price: garment.price,
     quantity: garment.quantity,
@@ -136,6 +158,7 @@ async function garmentOut(
         lastWorn: wears.lastWorn,
       },
     }),
+    ...(repairs && { repairs }),
   };
 }
 
@@ -193,6 +216,17 @@ const PropertyInput = {
     .boolean()
     .optional()
     .describe('Water resistant (layers, footwear, accessories).'),
+  careWash: property(
+    z.enum(CARE_WASH),
+    "The care label's washing: machine hot (60 °C), warm (40 °C) or cold (30 °C), hand, or do not wash. Changing `materials` fills the label's washing, bleach, drying and ironing where they were unset or still at the old materials' usual care.",
+  ),
+  careBleach: property(z.enum(CARE_BLEACH), "The care label's bleach."),
+  careDry: property(z.enum(CARE_DRY), "The care label's drying."),
+  careIron: property(z.enum(CARE_IRON), "The care label's ironing."),
+  careDryClean: property(
+    z.enum(CARE_DRY_CLEAN),
+    "The care label's dry cleaning: allowed, only, never.",
+  ),
 };
 
 type PropertyChanges = {
@@ -211,13 +245,20 @@ const PROPERTY_OF: Record<keyof typeof PropertyInput, GarmentProperty> = {
   length: 'length',
   fabricWeightGsm: 'fabricWeight',
   waterResistant: 'waterResistant',
+  careWash: 'careWash',
+  careBleach: 'careBleach',
+  careDry: 'careDry',
+  careIron: 'careIron',
+  careDryClean: 'careDryClean',
 };
 
 /**
  * The stored properties with the changes, through the form's own readers:
  * a new type first brings its presets (withPresets, as the form's type
- * chip), then the explicit values win, then readProperties stores what the
- * garment's role has. Returns the fields and the names the role ignored.
+ * chip), new materials the care label's (withCarePresets, as the form's
+ * material chips), then the explicit values win, then readProperties and
+ * readCareLabel store what the garment's role has. Returns the fields and
+ * the names the role ignored.
  */
 function changedProperties(garment: GarmentDetail, changes: PropertyChanges) {
   const { category } = garment;
@@ -231,10 +272,14 @@ function changedProperties(garment: GarmentDetail, changes: PropertyChanges) {
       category,
     );
   }
-  const read = readProperties(
-    { ...values, ...explicitValues(changes) },
-    category,
-  );
+  if (changes.materials !== undefined) {
+    values = withCarePresets(
+      { ...values, materials: changes.materials ?? [] },
+      category,
+    );
+  }
+  const changed = { ...values, ...explicitValues(changes) };
+  const read = readProperties(changed, category);
   if (!read.ok) throw new HttpError(400, read.error);
   const ignored = (Object.keys(changes) as (keyof PropertyChanges)[]).filter(
     (name) =>
@@ -242,7 +287,10 @@ function changedProperties(garment: GarmentDetail, changes: PropertyChanges) {
       name !== 'type' &&
       !propertyApplies(PROPERTY_OF[name], category),
   );
-  return { fields: read.fields, ignored };
+  return {
+    fields: { ...read.fields, ...readCareLabel(changed, category) },
+    ignored,
+  };
 }
 
 /** The single-choice properties, posted as text like the form's chips. */
@@ -253,6 +301,11 @@ const CHOICES = [
   'fit',
   'sleeve',
   'length',
+  'careWash',
+  'careBleach',
+  'careDry',
+  'careIron',
+  'careDryClean',
 ] as const;
 
 /** The given changes but the type, as the form's values; null is the reset chip. */
@@ -299,6 +352,10 @@ const SearchInput = z.object({
   warmth: z.union(WARMTHS.map((w) => z.literal(w))).optional(),
   formality: z.union(FORMALITIES.map((f) => z.literal(f))).optional(),
   material: z.enum(MATERIALS).optional(),
+  wash: z
+    .enum(CARE_WASH)
+    .optional()
+    .describe('Only garments whose care label says to wash them this way.'),
   capsuleId: rowId().optional().describe('Members of this capsule only.'),
   needsWash: z
     .boolean()
@@ -342,6 +399,7 @@ function searchFilters(args: SearchArgs): GridFilters {
     warmth: args.warmth,
     formality: args.formality,
     material: args.material,
+    wash: args.wash,
     capsule: args.capsuleId,
     scope: args.includeArchived ? 'owned' : 'closet',
     needsWash: args.needsWash,
@@ -405,7 +463,7 @@ export const garmentTools = [
     name: 'get_garment',
     title: 'Get a garment',
     description:
-      'One garment in full: its status (closet, archived, or wishlist: not bought yet) and fields, every property, product link and price, what it replaces (a wishlist item), quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes. No photo: get_garment_photo has it.',
+      'One garment in full: its status (closet, archived, or wishlist: not bought yet) and fields, every property, its care label, product link and price, what it replaces (a wishlist item), quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes and its repair and alteration log (each with its day, kind, note and cost; not part of cost per wear). No photo: get_garment_photo has it.',
     input: z.object({ id: rowId(), ownerId: ownerIdInput }),
     writes: false,
     async run({ id, ownerId }, ctx) {
@@ -449,7 +507,7 @@ export const garmentTools = [
     name: 'update_garment',
     title: 'Update a garment',
     description:
-      "WRITES: changes a garment's properties and condition; anything not given stays as stored. Properties the garment's role does not have (a sleeve on shoes) are ignored and named in the answer. Needs your own wardrobe or a MANAGE share. Does not archive or delete.",
+      "WRITES: changes a garment's properties, care label and condition; anything not given stays as stored. Properties the garment's role does not have (a sleeve on shoes) are ignored and named in the answer. Needs your own wardrobe or a MANAGE share. Does not archive or delete.",
     input: z.object({
       id: rowId(),
       ownerId: ownerIdInput,

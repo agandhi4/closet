@@ -43,6 +43,7 @@ import {
 import { changeCandidates } from '../web/plans/candidates';
 import { setEntrySelfie } from '../web/selfies/queries';
 import { markWashed, setAway, setEntryWorn } from '../web/wears/queries';
+import { addRepair } from '../web/wardrobe/repairs';
 import {
   acceptInvite,
   createInvite,
@@ -399,6 +400,12 @@ async function writeGarments(
     );
     if (garment.archivedOn) await archive(tx, id, userId, garment.id);
     if (garment.away) await setAway(tx, userId, id, garment.away);
+    for (const repair of garment.repairs) {
+      await addRepair(tx, userId, id, {
+        ...repair,
+        day: addDays(repair.day, art.shiftDays),
+      });
+    }
     ids.set(garment.id, id);
   }
   // After the owned garments: an item names the one it replaces.

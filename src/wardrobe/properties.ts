@@ -2,7 +2,7 @@
  * What a garment is, beyond its name and photo: its category's role in an
  * outfit, and the properties stored on the garment row (type, warmth,
  * formality, materials, pattern, fit, sleeve, length, fabric weight, water
- * resistance). The one definition of every value set: src/db/schema.ts
+ * resistance; the care label's value sets are care.ts'). The one definition of every value set: src/db/schema.ts
  * builds the check constraints from these lists, the wardrobe's validation
  * (src/web/wardrobe/validation.ts) accepts only them, and the form offers
  * only the properties that apply to the garment's role. Pure: no database,
@@ -220,11 +220,19 @@ export const GARMENT_PROPERTIES = [
   'length',
   'fabricWeight',
   'waterResistant',
+  // The care label (care.ts, #23): one rule for all five.
+  'careWash',
+  'careBleach',
+  'careDry',
+  'careIron',
+  'careDryClean',
 ] as const;
 export type GarmentProperty = (typeof GARMENT_PROPERTIES)[number];
 
 const ALL_ROLES = GARMENT_ROLES;
 const WORN: readonly GarmentRole[] = ['top', 'bottom', 'one-piece', 'layer'];
+// What is laundered and carries a care label: not shoes or bags.
+const LABELLED: readonly GarmentRole[] = [...WORN, 'accessory', 'none'];
 
 /**
  * Which roles each property applies to. The form shows only these, and a
@@ -245,6 +253,11 @@ const APPLIES: Record<
   length: ['bottom', 'one-piece'],
   fabricWeight: WORN,
   waterResistant: ['layer', 'footwear', 'accessory', 'bag'],
+  careWash: LABELLED,
+  careBleach: LABELLED,
+  careDry: LABELLED,
+  careIron: LABELLED,
+  careDryClean: LABELLED,
 };
 
 export function propertyApplies(
@@ -483,12 +496,12 @@ export function applyPresets(
   const was = from ? presetsFor(from) : {};
   const now = presetsFor(to);
   return {
-    warmth: follow(current.warmth, was.warmth, now.warmth),
-    formality: follow(current.formality, was.formality, now.formality),
-    sleeve: follow(current.sleeve, was.sleeve, now.sleeve),
-    length: follow(current.length, was.length, now.length),
+    warmth: followPreset(current.warmth, was.warmth, now.warmth),
+    formality: followPreset(current.formality, was.formality, now.formality),
+    sleeve: followPreset(current.sleeve, was.sleeve, now.sleeve),
+    length: followPreset(current.length, was.length, now.length),
     waterResistant:
-      follow(
+      followPreset(
         current.waterResistant || null,
         was.waterResistant || undefined,
         now.waterResistant || undefined,
@@ -496,8 +509,11 @@ export function applyPresets(
   };
 }
 
-/** A value left unset or still at the old preset takes the new one. */
-function follow<T>(
+/**
+ * A value left unset or still at the old preset takes the new one. Also the
+ * care label's rule (care.ts applyCarePresets, presets from the materials).
+ */
+export function followPreset<T>(
   value: T | null,
   was: T | undefined,
   now: T | undefined,
