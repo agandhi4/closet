@@ -155,6 +155,21 @@ export function sentToLogin(response: {
   );
 }
 
+/**
+ * Whether an answer to a page request is a page the page cache may keep:
+ * HTML, which send() in src/web/render.ts renders and stamps with its
+ * account. A navigation also reaches images (a photo or a selfie opened in a
+ * tab); those carry no account, so storing one would claim the cache for
+ * nobody, dropping the signed-in account's pages, and keep the image where
+ * the next session could be served it.
+ */
+export function isRenderedPage(headers: {
+  get(name: string): string | null;
+}): boolean {
+  const mediaType = headers.get('Content-Type')?.split(';')[0];
+  return mediaType?.trim().toLowerCase() === 'text/html';
+}
+
 /** The account a response says it was rendered for; '' when signed out. */
 export function pageAccount(headers: {
   get(name: string): string | null;

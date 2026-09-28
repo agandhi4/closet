@@ -23,6 +23,7 @@ import {
   cachedAt,
   endedSession,
   type FreshPage,
+  isRenderedPage,
   pageAccount,
   type Revalidation,
   revalidationOutcome,
@@ -50,12 +51,14 @@ import {
  *    none. Fragments are keyed apart from pages. Navigations use the
  *    navigation preload response, so the request is already on the wire
  *    while a cold worker boots.
- *  - The page cache holds one account's pages (src/web/page-cache.ts): it is
- *    dropped when a session starts or ends here, and when a page rendered
+ *  - The page cache holds one account's pages (src/web/page-cache.ts). It
+ *    and the image cache are the session's caches (SESSION_CACHES), dropped
+ *    together when a session starts or ends here, and when a page rendered
  *    for another account arrives. Every drop starts a new generation, and an
  *    answer to a request started in an older one is never stored.
  *  - Versioned scripts and styles are StaleWhileRevalidate; garment images
- *    are CacheFirst so recently viewed items render offline.
+ *    are CacheFirst so recently viewed items render offline. Outfit selfies
+ *    are never the worker's to cache (the browser's HTTP cache holds them).
  *  - Anything unmatched (other POSTs, /healthz) goes straight to the network.
  *
  * Built by `npm run generate:sw` with NODE_ENV=production, which strips
@@ -86,6 +89,19 @@ const FALLBACK_HTML_URL = '/offline.html';
 // v2 since 2026-09-26: copies are stamped and owned (pageStore below);
 // pages-v1 held neither and is retired on activate.
 const PAGES_CACHE = 'pages-v2';
+// v2 since 2026-09-28 (#226): dropped with the session. images-v1 outlived
+// every sign-out, so it may hold a previous account's photos; it is retired
+// on activate.
+const IMAGES_CACHE = 'images-v2';
+
+/**
+ * Every cache that holds what a session loaded: nothing one account's pages
+ * showed may reach the next. dropSession empties them all at once, so a
+ * cache added here is dropped on every session change; one that holds an
+ * account's pages or photos and is missing here outlives the session. Each
+ * strategy writing into one refuses an answer from an older generation.
+ */
+const SESSION_CACHES = [PAGES_CACHE, IMAGES_CACHE];
 
 // Static URLs carry `?v=<build>` (src/web/layout/layout.tsx); the precache is already keyed
 // by content hash, so the query must not stop a precached file matching.
@@ -164,15 +180,29 @@ function takeServed(
 }
 
 /**
- * The page cache's generation (#121). Every drop starts a new one; a page
- * request records the one it started in (pageStore's handlerWillStart), and
- * its answer is stored, or claims the cache, only while that generation is
- * still current. So a slow answer rendered for the account before a
- * sign-out, a sign-in or an account switch never lands in the next session's
- * cache. In memory on purpose: a stopped worker takes its in-flight requests
- * with it, so a new one has nothing older to refuse.
+ * The session caches' generation (#121, #226). Every drop starts a new one; a
+ * page or image request records the one it started in (handlerWillStart in
+ * pageStore and imageStore), and its answer is stored, or claims the cache,
+ * only while that generation is still current. So a slow answer fetched for
+ * the account before a sign-out, a sign-in or an account switch never lands
+ * in the next session's cache. In memory on purpose: a stopped worker takes
+ * its in-flight requests with it, so a new one has nothing older to refuse.
  */
 let generation = 0;
+
+/** The generation a request recorded in its handlerWillStart. */
+function startedIn(state: { generation?: unknown } | undefined): number {
+  return Number(state?.generation ?? -1);
+}
+
+/** True, and logged, when an answer's request started before the last drop. */
+function isStale(since: number, path: string): boolean {
+  if (since === generation) return false;
+  console.info(
+    `[sw] ${path} answered from generation ${since}, now ${generation}: not stored`,
+  );
+  return true;
+}
 
 // Serializes the drops and the owner claims, so a claim's generation check
 // and its owner write never straddle a drop. The chain swallows a failure so
@@ -186,26 +216,29 @@ function serialized<T>(work: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Empties the page cache, whoever's pages it held, and warms the offline
- * page again for whoever is signed in now (it is a rendered view, with the
- * signed-in chrome). The new generation starts at once, before the drop
- * waits its turn: a request that starts from here on is the new session's.
+ * Drops everything this device holds for the previous session: every
+ * session cache, whoever's pages and photos they held. Then warms the
+ * offline page again for whoever is signed in now (it is a rendered view,
+ * with the signed-in chrome). The new generation starts at once, before the
+ * drop waits its turn: a request that starts from here on is the new
+ * session's. Every session change goes through here, or through
+ * emptySessionCaches when the lock is already held (claimPageCache).
  */
-function dropPages(event: ExtendableEvent, reason: string): Promise<void> {
+function dropSession(event: ExtendableEvent, reason: string): Promise<void> {
   generation += 1;
-  return serialized(() => emptyPageCache(event, reason));
+  return serialized(() => emptySessionCaches(event, reason));
 }
 
 /** Holds the ownership lock; the caller has started the new generation. */
-async function emptyPageCache(
+async function emptySessionCaches(
   event: ExtendableEvent,
   reason: string,
 ): Promise<void> {
   // servedPages stays: a page served a moment ago may not have asked yet,
   // and its answer (the revalidation) is what makes it reload.
-  await self.caches.delete(PAGES_CACHE);
+  await Promise.all(SESSION_CACHES.map((name) => self.caches.delete(name)));
   console.info(
-    `[sw] ${reason}: cached pages dropped (generation ${generation})`,
+    `[sw] ${reason}: ${SESSION_CACHES.join(', ')} dropped (generation ${generation})`,
   );
   event.waitUntil(rewarmOfflinePage(event));
 }
@@ -241,19 +274,14 @@ function claimPageCache(
   event: ExtendableEvent,
 ): Promise<boolean> {
   return serialized(async () => {
-    if (since !== generation) {
-      console.info(
-        `[sw] ${path} answered from generation ${since}, now ${generation}: not stored`,
-      );
-      return false;
-    }
+    if (isStale(since, path)) return false;
     const owner = await readRecord(OWNER_KEY);
     if (owner === account) return true;
     if (owner !== undefined) {
       // This answer is the new session's first word and keeps its place;
       // every other request of the old generation is refused.
       generation += 1;
-      await emptyPageCache(
+      await emptySessionCaches(
         event,
         account === ''
           ? 'a signed-out page arrived'
@@ -265,7 +293,9 @@ function claimPageCache(
   });
 }
 
-// Every page either strategy stores, after the 200 filter: answering a
+// Every page either strategy stores, after the 200 filter: a rendered page
+// (isRenderedPage: an image or a download opened as a document says nothing
+// about who is signed in, and a selfie must never be stored), answering a
 // request of the current generation, owner-checked and stamped with when it
 // arrived. A followed redirect is not stored under the URL that redirected:
 // the body is another page's. One that landed on the login page (a boosted
@@ -284,12 +314,13 @@ const pageStore: WorkboxPlugin = {
     if (state) state.generation = generation;
   },
   cacheWillUpdate: async ({ request, response, event, state }) => {
-    const since = Number(state?.generation ?? -1);
+    const since = startedIn(state);
     const path = new URL(request.url).pathname;
     if (response.redirected) {
       if (sentToLogin(response)) await claimPageCache('', since, path, event);
       return null;
     }
+    if (!isRenderedPage(response.headers)) return null;
     const claimed = await claimPageCache(
       pageAccount(response.headers),
       since,
@@ -390,7 +421,7 @@ async function revalidate(
     fresh,
   );
   if (outcome === 'signed-out' || outcome === 'account-changed') {
-    await dropPages(handler.event, `${path} revalidated ${outcome}`);
+    await dropSession(handler.event, `${path} revalidated ${outcome}`);
   }
   if (outcome !== 'current') {
     console.info(`[sw] ${path} revalidated: ${outcome}`);
@@ -451,11 +482,12 @@ const isPageRequest = ({ request, url }: { request: Request; url: URL }) =>
   (request.mode === 'navigate' || request.headers.get('HX-Request') === 'true');
 
 // Signing in (POST /auth/login, /auth/register) and out (POST /auth/logout,
-// /auth/delete-account) change whose pages this device may show: once the
-// server has answered, the cached pages go, so no session is ever served the
-// previous one's, online or off. The server also sends Clear-Site-Data:
-// "cache" whenever a session ends, which not every browser applies to Cache
-// Storage. Registered before the page routes: the first match wins.
+// /auth/delete-account) change whose pages and photos this device may show:
+// once the server has answered, the session caches go, so no session is ever
+// served the previous one's, online or off. The server also sends
+// Clear-Site-Data: "cache" whenever a session ends, which not every browser
+// applies to Cache Storage. Registered before the page routes: the first
+// match wins.
 const SESSION_STARTS = new Set(['/auth/login', '/auth/register']);
 const SESSION_ENDS = new Set(['/auth/logout', '/auth/delete-account']);
 
@@ -500,7 +532,7 @@ const sessionBoundaryHandler = async ({
   const change = sessionChange(url, response);
   // Dropped before answering, so the redirect's next page cannot race it.
   if (change) {
-    await dropPages(event, change);
+    await dropSession(event, change);
     if (change !== 'session started') {
       event.waitUntil(dropPushSubscription());
     }
@@ -556,16 +588,45 @@ registerRoute(
   }),
 );
 
-// Garment photos: src/web/files/routes.ts serves them immutable under a versioned
-// URL, so cached bytes are never stale. Only <img> loads are cached, so a
-// watermark preview fetched by a share scraper never fills the quota.
+// An image is stored only for a request of the current generation (#226): a
+// photo the previous account's page asked for, landing after a sign-out, a
+// sign-in or an account switch, never enters the next session's cache.
+// Workbox writes after cacheWillUpdate, so a drop can still fall between the
+// two; cacheDidUpdate then takes the copy out again. Either that check sees
+// the new generation, or the write finished before the drop began, which
+// deletes it with the cache.
+const imageStore: WorkboxPlugin = {
+  handlerWillStart: async ({ state }) => {
+    if (state) state.generation = generation;
+  },
+  cacheWillUpdate: async ({ request, response, state }) =>
+    isStale(startedIn(state), new URL(request.url).pathname) ? null : response,
+  cacheDidUpdate: async ({ cacheName, request, state }) => {
+    if (startedIn(state) === generation) return;
+    const cache = await self.caches.open(cacheName);
+    await cache.delete(request);
+    console.info(
+      `[sw] ${new URL(request.url).pathname} stored across a drop: deleted`,
+    );
+  },
+};
+
+// Garment photos, cutouts, thumbs and share previews (/file/**): public and
+// immutable under a versioned URL (src/web/files/routes.ts), so cached bytes
+// are never stale, but a session's all the same (SESSION_CACHES). Only <img>
+// loads are cached, so a watermark preview fetched by a share scraper never
+// fills the quota. Outfit selfies (/selfies/**, their owner's alone) match no
+// route: the worker never stores one.
 registerRoute(
   ({ url, request }) =>
-    url.pathname.startsWith('/file/') && request.destination === 'image',
+    url.origin === self.location.origin &&
+    url.pathname.startsWith('/file/') &&
+    request.destination === 'image',
   new CacheFirst({
-    cacheName: 'images-v1',
+    cacheName: IMAGES_CACHE,
     plugins: [
       new CacheableResponsePlugin({ statuses: [200] }),
+      imageStore,
       new ExpirationPlugin({
         maxEntries: 500,
         maxAgeSeconds: 30 * DAY,
@@ -577,13 +638,15 @@ registerRoute(
 
 // Caches nothing reads any more: the in-browser background-removal model's
 // (its runtime and ~42 MB of model and WASM, filled by workers before
-// 2026-09-26, when the server took over background removal), and pages-v1
-// (unstamped, unowned pages; see PAGES_CACHE).
+// 2026-09-26, when the server took over background removal), pages-v1
+// (unstamped, unowned pages; see PAGES_CACHE) and images-v1 (kept across
+// sessions; see IMAGES_CACHE).
 const RETIRED_CACHES = [
   'bg-removal-models',
   'bg-removal-models-v2',
   'bg-removal-runtime-modules-v1',
   'pages-v1',
+  'images-v1',
 ];
 
 self.addEventListener('activate', (event) => {

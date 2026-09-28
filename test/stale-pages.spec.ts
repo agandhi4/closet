@@ -1,23 +1,18 @@
-import {
-  type BrowserContext,
-  expect,
-  type Page,
-  type PlaywrightWorkerArgs,
-  test,
-} from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
 import {
-  APP_ORIGIN,
-  E2E_PASSWORD,
+  registerElsewhere,
   signIn,
-  signUpHeaders,
+  switchAccount,
 } from './support/e2e-session';
 import {
   ageCachedPage,
   cachedPaths,
   cachePage,
+  networkSwitch,
   PAGES_CACHE,
   waitForServiceWorker,
+  workerLogs,
 } from './support/service-worker';
 
 declare global {
@@ -57,49 +52,6 @@ function cachedKeys(page: Page): Promise<string[]> {
   }, PAGES_CACHE);
 }
 
-/** Registers an account outside this browser; returns its email. */
-async function registerElsewhere(
-  playwright: PlaywrightWorkerArgs['playwright'],
-  prefix: string,
-): Promise<string> {
-  const api = await playwright.request.newContext({ baseURL: APP_ORIGIN });
-  const email = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
-  const registered = await api.post('/auth/register', {
-    form: {
-      email,
-      password: E2E_PASSWORD,
-      confirmPassword: E2E_PASSWORD,
-    },
-    headers: signUpHeaders(),
-  });
-  expect(registered.ok()).toBe(true);
-  await api.dispose();
-  return email;
-}
-
-/** Signs out through Profile and in again as `email`, in the app. */
-async function switchAccount(page: Page, email: string): Promise<void> {
-  // Signing out is Profile's, reached through the avatar (#82).
-  await page.locator('#avatar').click();
-  await page
-    .locator('#sign-out')
-    .getByRole('button', { name: 'Logout' })
-    .click();
-  await expect(page).toHaveURL(/\/auth\/login$/);
-  // The browser posts from the address every spec shares, and login allows
-  // 5 a minute per address: the post names a client of its own, as signIn's
-  // registration does.
-  await page.context().route('**/auth/login', (route) =>
-    route.fallback({
-      headers: { ...route.request().headers(), ...signUpHeaders() },
-    }),
-  );
-  await page.locator('#email').fill(email);
-  await page.locator('#password').fill(E2E_PASSWORD);
-  await page.getByRole('button', { name: 'Login' }).click();
-  await expect(page).toHaveURL(/\/auth\/profile$/);
-}
-
 /** Searches the wardrobe: an htmx fragment into #wardrobe-main. */
 async function searchWardrobe(page: Page, keyword: string): Promise<void> {
   // Search is its icon until tapped (the scope row, R3).
@@ -108,32 +60,6 @@ async function searchWardrobe(page: Page, keyword: string): Promise<void> {
   await field.fill(keyword);
   await field.press('Enter');
   await expect(page).toHaveURL(new RegExp(`keyword=${keyword}`));
-}
-
-/**
- * Takes the device off the network and puts it back. Chromium's setOffline
- * cuts the page's requests and the navigation preload but not a request the
- * worker makes itself (NetworkFirst for an htmx request, REVALIDATE_PAGE),
- * which the route fails meanwhile.
- */
-async function networkSwitch(context: BrowserContext) {
-  let offline = false;
-  await context.route('**/*', async (route) => {
-    if (offline) await route.abort('internetdisconnected');
-    else await route.fallback();
-  });
-  return async (state: 'offline' | 'online') => {
-    offline = state === 'offline';
-    await context.setOffline(offline);
-  };
-}
-
-/** Resolves once the worker logs a line containing `text`. */
-function workerLogs(context: BrowserContext, text: string) {
-  return context.waitForEvent('console', {
-    predicate: (message) => message.text().includes(text),
-    timeout: 15_000,
-  });
 }
 
 /**

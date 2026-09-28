@@ -1,7 +1,36 @@
-import { expect, type Page } from '@playwright/test';
+import { type BrowserContext, expect, type Page } from '@playwright/test';
 
 /** The worker's page cache (views/assets/src-sw.ts, PAGES_CACHE). */
 export const PAGES_CACHE = 'pages-v2';
+
+/** The worker's image cache (views/assets/src-sw.ts, IMAGES_CACHE). */
+export const IMAGES_CACHE = 'images-v2';
+
+/**
+ * Takes the device off the network and puts it back. Chromium's setOffline
+ * cuts the page's requests and the navigation preload but not a request the
+ * worker makes itself (NetworkFirst for an htmx request, REVALIDATE_PAGE,
+ * CacheFirst for an image), which the route fails meanwhile.
+ */
+export async function networkSwitch(context: BrowserContext) {
+  let offline = false;
+  await context.route('**/*', async (route) => {
+    if (offline) await route.abort('internetdisconnected');
+    else await route.fallback();
+  });
+  return async (state: 'offline' | 'online') => {
+    offline = state === 'offline';
+    await context.setOffline(offline);
+  };
+}
+
+/** Resolves once the worker logs a line containing `text`. */
+export function workerLogs(context: BrowserContext, text: string) {
+  return context.waitForEvent('console', {
+    predicate: (message) => message.text().includes(text),
+    timeout: 15_000,
+  });
+}
 
 /**
  * Loads /wardrobe and waits until the service worker controls the page, so

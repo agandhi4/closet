@@ -45,10 +45,10 @@ const FileParams = Type.Object({ fileName: Type.String() });
  * garment's, and an unguessable name is a capability anyone it reaches
  * holds for good. The URL carries `?v=<file.version>` like every photo URL
  * (selfieUrl), so the bytes are immutable for a year; `private` keeps them
- * out of any shared cache. The service worker leaves /selfies/ alone (no
- * route matches), so the browser's own HTTP cache holds them: offline they
- * still show, and signing out empties it (Clear-Site-Data: "cache"), where
- * the worker's images-v1 outlives the session.
+ * out of any shared cache. The service worker never stores one (no image
+ * route matches /selfies/, and its page cache keeps only HTML), so the
+ * browser's own HTTP cache holds them: offline they still show, and signing
+ * out empties it (Clear-Site-Data: "cache").
  */
 const PRIVATE_IMMUTABLE_YEAR = 'private, max-age=31536000, immutable';
 

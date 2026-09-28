@@ -4,6 +4,7 @@ import {
   CACHED_AT_HEADER,
   cachedAt,
   endedSession,
+  isRenderedPage,
   PAGE_ACCOUNT_HEADER,
   pageAccount,
   revalidationOutcome,
@@ -104,6 +105,26 @@ describe('cachedAt and pageAccount', () => {
     expect(cachedAt(new Headers())).toBe(0);
     expect(cachedAt(new Headers({ [CACHED_AT_HEADER]: 'soon' }))).toBe(0);
     expect(pageAccount(new Headers())).toBe('');
+  });
+});
+
+describe('isRenderedPage', () => {
+  it.each(['text/html; charset=utf-8', 'text/html', 'Text/HTML ; charset=x'])(
+    'is a page answered as %s',
+    (type) => {
+      expect(isRenderedPage(new Headers({ 'Content-Type': type }))).toBe(true);
+    },
+  );
+
+  it.each(['image/webp', 'image/jpeg', 'text/csv', 'application/json'])(
+    'is not an answer of %s (an image or a download opened as a document)',
+    (type) => {
+      expect(isRenderedPage(new Headers({ 'Content-Type': type }))).toBe(false);
+    },
+  );
+
+  it('is not an answer without a type', () => {
+    expect(isRenderedPage(new Headers())).toBe(false);
   });
 });
 

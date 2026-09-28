@@ -52,7 +52,7 @@ Three findings shape the plan:
 | Route class | Change | What it saves |
 | --- | --- | --- |
 | Static, `sw.js` | None. Already immutable, precompressed and precached. | |
-| `/file/*` photos | In the worker, **drop `maxAgeSeconds`** from `images-v1` and size it by entries (section 2). The URLs are immutable, so an age limit only forces a refetch, and each refetch is a statement. | one statement per photo per month, per device |
+| `/file/*` photos | In the worker, **drop `maxAgeSeconds`** from `images-v2` and size it by entries (section 2). The URLs are immutable, so an age limit only forces a refetch, and each refetch is a statement. | one statement per photo per month, per device |
 | `/file/*` photos | No ETag. Browsers never revalidate `immutable`, and the worker never asks. | |
 | Pages and fragments | Send **`Cache-Control: private, no-cache`** from `send()` (`src/web/render.ts`). Today the header is missing: nothing may store an account's page in a shared cache, and any browser cache must revalidate. `no-cache` keeps the back-forward cache (`no-store` would block it). | correctness, not speed |
 | Pages: short `max-age` | **No.** The worker's fetch goes through the HTTP cache, so a page cached for even 10 s would hide the user's own write, which `HX-Location` lands on at once. | |
@@ -131,7 +131,7 @@ follow-up if it bites.
 | Cache | Demo (83 garments, 26 outfits) | Cap |
 | --- | --- | --- |
 | Pages (decoded) | 4 roots about 250 KB, 2 weeks 100 KB, 83 garments × 27 KB = 2.2 MB, 26 outfits × 41 KB = 1.1 MB: **about 3.7 MB** | `pages-v2` 50 → **400 entries**; the list is capped at 300 garments and 80 outfits (most recently added or worn first) |
-| Thumbs | 86 × 2.5 KB (seed art); real 400 px photos estimated at 20–30 KB: **about 2.2 MB** | `images-v1` 500 → **600 entries**, no age limit |
+| Thumbs | 86 × 2.5 KB (seed art); real 400 px photos estimated at 20–30 KB: **about 2.2 MB** | `images-v2` 500 → **600 entries**, no age limit |
 | Precache | 370 KB | |
 | **Total** | **about 6.5 MB**; at the cap about 20 MB | warming stops when `navigator.storage.estimate()` reports usage above 50 MB |
 
@@ -164,9 +164,10 @@ them into 304s.
 
 Two additions:
 
-- **`dropPages` also deletes `images-v1`.** A warmed wardrobe's photos must not outlive the session
-  on a shared device, even though their names are unguessable. The cost is re-downloading thumbs after
-  a sign-in.
+- **The image cache is dropped with the session.** Done in #226: `dropSession` deletes every cache in
+  `SESSION_CACHES` (`pages-v2` and `images-v2`, which replaced `images-v1`), so a warmed wardrobe's
+  photos never outlive the session on a shared device, even though their names are unguessable. The
+  cost is re-downloading thumbs after a sign-in.
 - **The warm list is the session's own wardrobe.** It is never computed from `?ownerId=`, so warming
   never widens what a grantee's device holds.
 
@@ -257,9 +258,9 @@ ETag, and it changes nothing about writes.
   - `send()` adds `Cache-Control: private, no-cache` to every HTML answer.
 - **Worker.**
   - `WARM_PAGES` with the rules and the `warmed-at` record.
-  - `pages-v2` goes to 400 entries; `images-v1` to 600, with no age limit.
+  - `pages-v2` goes to 400 entries; `images-v2` to 600, with no age limit.
   - The thumb stands in for a missing cutout offline.
-  - `dropPages` also deletes `images-v1`.
+  - The warm's image fetches keep `imageStore` (the generation guard, #226).
   - One log line per run.
 - **Page.**
   - `pwa.js` posts `WARM_PAGES` under the conditions in section 2.
@@ -275,7 +276,7 @@ ETag, and it changes nothing about writes.
 2. A second open within 24 h warms nothing: the server log shows no `X-Closet-Warm` request. After
    24 h only the stale copies are fetched. A deleted garment's page is gone from the cache after the
    next run.
-3. Signing out, or signing in as another account, empties `pages-v2` and `images-v1`, and a warm
+3. Signing out, or signing in as another account, empties `pages-v2` and `images-v2`, and a warm
    already running stores nothing after the drop (the generation check).
    `stale-pages.spec.ts` gains the images and mid-warm cases.
 4. A grantee's warm list holds only their own wardrobe: an integration spec on `/offline/warm`.

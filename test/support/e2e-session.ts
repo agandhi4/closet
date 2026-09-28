@@ -3,6 +3,7 @@ import {
   type BrowserContext,
   expect,
   type Page,
+  type PlaywrightWorkerArgs,
 } from '@playwright/test';
 
 export const E2E_PASSWORD = 'Password123!';
@@ -64,6 +65,52 @@ export async function signIn(page: Page, prefix: string): Promise<string> {
     throw new Error(`Registering ${email} failed: ${res.status()}`);
   }
   return email;
+}
+
+/** Registers an account outside this browser; returns its email. */
+export async function registerElsewhere(
+  playwright: PlaywrightWorkerArgs['playwright'],
+  prefix: string,
+): Promise<string> {
+  const api = await playwright.request.newContext({ baseURL: APP_ORIGIN });
+  const email = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
+  const registered = await api.post('/auth/register', {
+    form: {
+      email,
+      password: E2E_PASSWORD,
+      confirmPassword: E2E_PASSWORD,
+    },
+    headers: signUpHeaders(),
+  });
+  expect(registered.ok()).toBe(true);
+  await api.dispose();
+  return email;
+}
+
+/**
+ * Signs out through Profile and in again as `email`, in the app: the posts
+ * the service worker sees, which drop its session caches.
+ */
+export async function switchAccount(page: Page, email: string): Promise<void> {
+  // Signing out is Profile's, reached through the avatar (#82).
+  await page.locator('#avatar').click();
+  await page
+    .locator('#sign-out')
+    .getByRole('button', { name: 'Logout' })
+    .click();
+  await expect(page).toHaveURL(/\/auth\/login$/);
+  // The browser posts from the address every spec shares, and login allows
+  // 5 a minute per address: the post names a client of its own, as signIn's
+  // registration does.
+  await page.context().route('**/auth/login', (route) =>
+    route.fallback({
+      headers: { ...route.request().headers(), ...signUpHeaders() },
+    }),
+  );
+  await page.locator('#email').fill(email);
+  await page.locator('#password').fill(E2E_PASSWORD);
+  await page.getByRole('button', { name: 'Login' }).click();
+  await expect(page).toHaveURL(/\/auth\/profile$/);
 }
 
 /**

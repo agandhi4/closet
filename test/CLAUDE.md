@@ -40,7 +40,8 @@ The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
 ```
                               # test/pwa.spec.ts (service worker, offline shell, no model requests),
                               # test/stale-pages.spec.ts (stale-while-revalidate tab roots, freshness,
-                              # page cache ownership),
+                              # page cache ownership), test/image-cache-privacy.spec.ts (the image
+                              # cache and selfies across sessions),
                               # test/install-dialog.spec.ts (what the install dialog costs, where it shows) and
                               # test/push-settings.spec.ts (the profile's notification controls and a device's reminders) skip
                               # unless the server was started with PWA_ENABLED=true (+ VAPID keys,
