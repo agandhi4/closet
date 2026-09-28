@@ -170,7 +170,8 @@ describe('garment status (the garment_status migration)', () => {
       await indexDefinition('garment_owner_id_archived_id_index'),
     ).toBeUndefined();
     expect(await indexDefinition('garment_owner_id_status_id_index')).toMatch(
-      /USING btree \(owner_id, status, id DESC NULLS LAST\)/,
+      // 0014 built it id DESC NULLS LAST; 0031 (#175) rebuilt it as id DESC.
+      /USING btree \(owner_id, status, id DESC\)/,
     );
   });
 

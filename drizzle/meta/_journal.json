@@ -218,6 +218,13 @@
       "when": 1790573984317,
       "tag": "0030_pending_photo_batch",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790583340915,
+      "tag": "0031_index_audit",
+      "breakpoints": true
     }
   ]
 }

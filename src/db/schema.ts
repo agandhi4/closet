@@ -610,17 +610,21 @@ export const garment = pgTable(
     // [AND id < cursor] ORDER BY id DESC LIMIT n, read in index order; the
     // wishlist page the same with 'wishlist'. Also the index of the
     // owner_id foreign key.
+    // `.nullsFirst()` is what makes it `id DESC`: Drizzle's index `.desc()`
+    // alone is DESC NULLS LAST, an order no `orderBy(desc(garment.id))` asks
+    // for, so the planner could not read it in order (#175; see
+    // src/db/CLAUDE.md). test/integration/garment-index-order.spec.ts.
     index('garment_owner_id_status_id_index').on(
       table.ownerId,
       table.status,
-      table.id.desc(),
+      table.id.desc().nullsFirst(),
     ),
     // The grid's category filter and the outfit builder's category cycles
     // (owner, category, newest first; the status is a filter on top).
     index('garment_owner_id_category_id_index').on(
       table.ownerId,
       table.category,
-      table.id.desc(),
+      table.id.desc().nullsFirst(),
     ),
     uniqueIndex('garment_shareable_id_unique').on(table.shareableId),
     foreignKey({
@@ -1715,7 +1719,6 @@ export const wardrobeShare = pgTable(
   },
   (table) => [
     index('wardrobe_share_grantee_id_index').on(table.granteeId),
-    index('wardrobe_share_grantor_id_index').on(table.grantorId),
     foreignKey({
       name: 'wardrobe_share_grantor_id_foreign',
       columns: [table.grantorId],
@@ -1732,6 +1735,9 @@ export const wardrobeShare = pgTable(
       .onDelete('cascade'),
     // Also the acceptInvite lookup index.
     unique('wardrobe_share_invite_token_unique').on(table.inviteToken),
+    // Also the grantor_id foreign key's index and the grantor's lookups: a
+    // separate grantor_id index duplicated its leading column (dropped in
+    // 0031, #175).
     unique(SHARE_GRANTEE_UNIQUE).on(table.grantorId, table.granteeId),
   ],
 );

@@ -55,7 +55,8 @@ describe('migrations', () => {
         'pending_photo_user_id_created_at_index',
         // A draft batch's wardrobe (#200): the foreign key's.
         'pending_photo_batch_owner_id_index',
-        'wardrobe_share_grantor_id_index',
+        // Also the grantor_id foreign key's index (#175).
+        'wardrobe_share_grantor_id_grantee_id_unique',
         'wardrobe_share_grantee_id_index',
         'wardrobe_share_invite_token_unique',
         // One name per owner, any case; also the owner_id foreign key's.
