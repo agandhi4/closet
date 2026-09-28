@@ -415,6 +415,13 @@ async function unmarkWorn(tx: Queryable, entryId: number): Promise<number> {
  * entries are locked first, so a worn pill tapped meanwhile waits and then
  * finds its entry gone. Returns the wears kept.
  *
+ * One statement, whether the outfit has entries or not (#164; up to three
+ * before): the entries locked, the copies inserted, the entry wears
+ * deleted. The insert and the delete read the same snapshot, so the
+ * insert copies the rows the delete removes, and the copies (no entry)
+ * are not among them. No other writer of these wears can run meanwhile:
+ * they all hold the owner lock, which the caller holds.
+ *
  * Used by deleteOutfit (src/web/outfits/queries.ts) only. Deleting one
  * calendar entry (deleteEntry) still removes its wears: that is the user
  * saying the entry was wrong, and the issue's rule. Deleting the outfit is
@@ -425,7 +432,7 @@ export async function detachOutfitWears(
   outfitId: number,
   ownerId: number,
 ): Promise<number> {
-  const entries = await tx
+  const entries = tx
     .select({ id: outfitCalendar.id })
     .from(outfitCalendar)
     .where(
@@ -435,21 +442,25 @@ export async function detachOutfitWears(
       ),
     )
     .for('update');
-  if (entries.length === 0) return 0;
-  const entryIds = entries.map((entry) => entry.id);
+  const ofEntries = sql`${garmentWear.outfitCalendarId} in (select id from entries)`;
   // ON CONFLICT DO NOTHING: the partial unique index on (garment_id, day)
   // for day-level wears keeps an existing one. An outfit has one entry a
-  // day at most, so the select itself holds no two rows for one key.
-  const kept = await tx.execute(sql`
-    insert into ${garmentWear} (garment_id, owner_id, day, outfit_calendar_id, created_at)
-    select ${garmentWear.garmentId}, ${garmentWear.ownerId}, ${garmentWear.day}, null, ${garmentWear.createdAt}
-    from ${garmentWear}
-    where ${inArray(garmentWear.outfitCalendarId, entryIds)}
-    on conflict do nothing`);
-  await tx
-    .delete(garmentWear)
-    .where(inArray(garmentWear.outfitCalendarId, entryIds));
-  return kept.rowCount ?? 0;
+  // day at most, so the select itself holds no two rows for one key. The
+  // final select counts the entries so they are locked even when no wear
+  // needs them read.
+  const { rows } = await tx.execute<{ kept: number }>(sql`
+    with entries as materialized (${entries}),
+    kept as (
+      insert into ${garmentWear} (garment_id, owner_id, day, outfit_calendar_id, created_at)
+      select ${garmentWear.garmentId}, ${garmentWear.ownerId}, ${garmentWear.day}, null, ${garmentWear.createdAt}
+      from ${garmentWear}
+      where ${ofEntries}
+      on conflict do nothing
+      returning 1
+    ),
+    moved as (delete from ${garmentWear} where ${ofEntries})
+    select (select count(*)::int from kept) as kept, (select count(*) from entries) as entries`);
+  return rows[0].kept;
 }
 
 /**

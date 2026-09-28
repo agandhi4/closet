@@ -97,42 +97,40 @@ export async function findEntries(
   return entries;
 }
 
+/** An entry of a day as a picker reads it (entriesOfDaySql). */
+export interface DayEntry {
+  id: number;
+  occasion: Occasion;
+  outfitId: number;
+  outfitName: string | null;
+  /** Marked worn (worn_at set). */
+  worn: boolean;
+}
+
 /**
  * The owner's entries on `day`, bare: which outfits are on it and for which
  * occasion, and each entry's outfit name and worn state. What picking an
  * outfit for the day needs (dayChoice), without findEntries' collages and
- * selfies, which no picker draws (#165).
+ * selfies, which no picker draws (#165). A scalar subquery (a JSON list),
+ * so the Saved tab reads it in one statement with its grid (#164,
+ * savedContext in src/web/outfits/page-context.ts).
  */
-export async function entriesOfDay(
-  db: Db,
+export function entriesOfDaySql(
   ownerId: number,
   day: IsoDate,
-): Promise<
-  {
-    id: number;
-    occasion: Occasion;
-    outfitId: number;
-    outfitName: string | null;
-    worn: boolean;
-  }[]
-> {
-  const rows = await db
-    .select({
-      id: outfitCalendar.id,
-      occasion: outfitCalendar.occasion,
-      outfitId: outfitCalendar.outfitId,
-      outfitName: outfit.name,
-      wornAt: outfitCalendar.wornAt,
-    })
-    .from(outfitCalendar)
-    .innerJoin(outfit, eq(outfit.id, outfitCalendar.outfitId))
-    .where(
-      and(eq(outfitCalendar.ownerId, ownerId), eq(outfitCalendar.day, day)),
-    );
-  return rows.map(({ wornAt, ...entry }) => ({
-    ...entry,
-    worn: wornAt !== null,
-  }));
+): SQL<DayEntry[]> {
+  return sql<DayEntry[]>`(
+    select coalesce(json_agg(json_build_object(
+      'id', ${outfitCalendar.id},
+      'occasion', ${outfitCalendar.occasion},
+      'outfitId', ${outfitCalendar.outfitId},
+      'outfitName', ${outfit.name},
+      'worn', ${outfitCalendar.wornAt} is not null
+    )), '[]')
+    from ${outfitCalendar}
+    inner join ${outfit} on ${outfit.id} = ${outfitCalendar.outfitId}
+    where ${outfitCalendar.ownerId} = ${ownerId}
+      and ${outfitCalendar.day} = ${day})`;
 }
 
 export type ScheduleOutcome = 'scheduled' | 'already-scheduled';

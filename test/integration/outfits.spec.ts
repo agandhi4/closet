@@ -466,7 +466,7 @@ describe('outfits', () => {
         expect(alts).toEqual(['Order top', 'Order pants', 'Order shoes']);
       });
 
-      it('lists outfits newest first, one statement for them all and one for their entries', async () => {
+      it('lists outfits newest first, in one statement with their activity', async () => {
         const load = () => t.inject({ method: 'GET', url: '/outfits' });
         const res = await load();
         const ids = [...res.body.matchAll(/data-outfit-id="(\d+)"/g)].map((m) =>
@@ -474,9 +474,9 @@ describe('outfits', () => {
         );
         expect(ids.length).toBeGreaterThan(3);
         expect(ids).toEqual([...ids].sort((a, b) => b - a));
-        // The session's user row, every outfit with its garments, and the
-        // entries' activity (worn counts, next plans) grouped by outfit.
-        expect((await recordQueries(load)).statements).toBe(3);
+        // The session's user row, then every outfit with its garments and
+        // the entries' activity (worn counts, next plans) in one (#164).
+        expect((await recordQueries(load)).statements).toBe(2);
       });
     });
   });

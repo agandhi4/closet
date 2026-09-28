@@ -14,6 +14,7 @@ import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { OutfitCollage } from './collage';
 import type {
+  OutfitDetail,
   OutfitEntries,
   OutfitSummary,
   PlannedDay,
@@ -36,7 +37,7 @@ const OPEN_PLAN_SHEET = `document.getElementById('${PLAN_SHEET_ID}').showModal()
  */
 export function OutfitPage(props: {
   ctx: ViewContext;
-  outfit: OutfitSummary & { shareableId: string };
+  outfit: OutfitDetail;
   entries: OutfitEntries;
   /** The household's today: the Plan sheet's first day. */
   today: IsoDate;
@@ -98,10 +99,7 @@ export function OutfitPage(props: {
  * The ⋯ menu: Share (the public link) and Delete. Buttons only: a form
  * inside a daisyUI menu item loses its styling (the garment page's menu).
  */
-function OutfitMenu(props: {
-  ctx: ViewContext;
-  outfit: OutfitSummary & { shareableId: string };
-}) {
+function OutfitMenu(props: { ctx: ViewContext; outfit: OutfitDetail }) {
   const { ctx, outfit } = props;
   return (
     <details class="dropdown dropdown-end" id="outfit-menu">

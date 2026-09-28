@@ -259,7 +259,7 @@ describe('Saved outfits and the outfit page (R5)', () => {
       }
     });
 
-    it('reads the day in one more statement than the grid', async () => {
+    it('reads the day in the same statement as the grid', async () => {
       const day = addDays(today, 8);
       const plain = await recordQueries(() =>
         t.inject({ method: 'GET', url: '/outfits' }),
@@ -267,7 +267,8 @@ describe('Saved outfits and the outfit page (R5)', () => {
       const picking = await recordQueries(() =>
         t.inject({ method: 'GET', url: `/outfits?for=day:${day}` }),
       );
-      expect(picking.statements).toBe(plain.statements + 1);
+      // #164: the day's entries are a column of the grid's statement.
+      expect(picking.statements).toBe(plain.statements);
     });
   });
 

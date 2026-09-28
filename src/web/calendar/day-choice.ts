@@ -1,9 +1,10 @@
 import type { Db } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import type { Occasion } from '../../wardrobe/occasions';
 import { t } from '../i18n';
 import type { DayDestination } from '../outfits/destination';
 import { occasionLabel } from './labels';
-import { entriesOfDay } from './queries';
+import { type DayEntry, entriesOfDaySql } from './queries';
 
 /**
  * What a list of saved outfits needs to pick one for a day: the plan page
@@ -22,12 +23,27 @@ export interface DayChoice {
   replacing?: { entryId: number; outfitName: string | null; worn: boolean };
 }
 
+/** The plan page's read of the day: entriesOfDaySql alone, one statement. */
 export async function dayChoice(
   db: Db,
   ownerId: number,
   destination: DayDestination,
 ): Promise<DayChoice> {
-  const entries = await entriesOfDay(db, ownerId, destination.day);
+  const { entries } = await selectScalars(db, {
+    entries: entriesOfDaySql(ownerId, destination.day),
+  });
+  return readDayChoice(entries, destination);
+}
+
+/**
+ * The DayChoice of the day's entries (entriesOfDaySql): dayChoice's, and
+ * the Saved tab's, which reads the entries in its grid's statement
+ * (savedContext, src/web/outfits/page-context.ts).
+ */
+export function readDayChoice(
+  entries: readonly DayEntry[],
+  destination: DayDestination,
+): DayChoice {
   const replacing = entries.find(
     (entry) =>
       entry.id === destination.replace &&

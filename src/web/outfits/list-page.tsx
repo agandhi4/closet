@@ -13,7 +13,7 @@ import { OutfitCollage } from './collage';
 import { DayDestinationLine } from './day-destination';
 import type { DayDestination } from './destination';
 import { OutfitTabs } from './outfit-tabs';
-import type { OutfitActivity, OutfitSummary } from './queries';
+import type { OutfitActivity, GarmentOutfit } from './queries';
 import { outfitUrl } from './urls';
 
 /** Tiles above the fold on a phone (two rows of two): their images load at once. */
@@ -21,7 +21,7 @@ const EAGER_TILES = 4;
 
 export interface SavedModel {
   /** Every outfit of the owner's, newest first. */
-  outfits: OutfitSummary[];
+  outfits: GarmentOutfit[];
   /** Worn counts and next plans, by outfit id (absent: never planned). */
   activity: Map<number, OutfitActivity>;
   /**
@@ -174,7 +174,7 @@ function PickingGrid(props: {
  * tile dims its collage only: text is never dimmed (Conventions).
  */
 function OutfitTile(props: {
-  outfit: OutfitSummary;
+  outfit: GarmentOutfit;
   eager: boolean;
   line: string | undefined;
   dimmed?: boolean;
@@ -214,7 +214,7 @@ function activityLine(
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
-function outfitName(outfit: OutfitSummary): string {
+function outfitName(outfit: GarmentOutfit): string {
   return outfit.name || t('UNTITLED_OUTFIT');
 }
 

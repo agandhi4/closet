@@ -10,6 +10,7 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
 import {
@@ -19,6 +20,7 @@ import {
   outfitCalendar,
   outfitSlot,
   selfie,
+  tripOutfit,
 } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
@@ -26,7 +28,7 @@ import { ownerTransaction } from '../auth/queries';
 import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
-import type { SelfieRef } from '../selfies/queries';
+import { entrySelfieSql, type SelfieRef } from '../selfies/queries';
 import { ownedGarment } from '../wardrobe/status';
 import { prunePacked, tripsOfOutfit } from '../trips/packed';
 import { detachOutfitWears } from '../wears/queries';
@@ -111,7 +113,7 @@ export interface CreateResult extends SaveResult {
 async function outfitsWithGarments(
   db: Db,
   where: SQL | undefined,
-): Promise<(OutfitSummary & { shareableId: string })[]> {
+): Promise<OutfitDetail[]> {
   const rows = await db.query.outfit.findMany({
     columns: { id: true, name: true, notes: true, shareableId: true },
     where,
@@ -136,14 +138,17 @@ async function outfitsWithGarments(
   }));
 }
 
-/** The list page: every outfit of the owner's. */
+/**
+ * Every outfit of the owner's, with its notes: the calendar's plan page and
+ * list_outfits. The Saved tab and a trip's add page read savedOutfitsSql.
+ */
 export function listOutfits(db: Db, ownerId: number): Promise<OutfitSummary[]> {
   return outfitsWithGarments(db, eq(outfit.ownerId, ownerId));
 }
-
 /**
- * An outfit as a thumb collage or a saved-outfit button shows it: the
- * garment page's strip, a trip's add page (savedOutfitsSql).
+ * An outfit as a collage or a saved-outfit button shows it, without its
+ * notes or share link: the Saved tab's tiles, the garment page's strip, a
+ * trip's add page (savedOutfitsSql).
  */
 export type GarmentOutfit = Pick<OutfitSummary, 'id' | 'name' | 'garments'>;
 
@@ -157,8 +162,9 @@ export interface GarmentOutfits {
  * The chosen garments of the enclosing query's outfit row in slot order,
  * as a JSON list (an empty slot shows nothing, as in outfitsWithGarments).
  * Correlated with `"outfit"."id"`: the caller's FROM names the outfit
- * table unaliased. The scalar subqueries below, and a trip's outfits
- * (tripModel, src/web/trips/model.ts).
+ * table unaliased. The scalar subqueries below (the Saved tab, the outfit
+ * page, the garment page's strip), and a trip's outfits (tripModel,
+ * src/web/trips/model.ts).
  */
 export function outfitGarmentsSql(): SQL<OutfitGarment[]> {
   return sql<OutfitGarment[]>`(
@@ -184,9 +190,11 @@ export function outfitGarmentsSql(): SQL<OutfitGarment[]> {
 }
 
 /**
- * Every outfit of the owner's, newest first, as a saved-outfit button
- * shows it (listOutfits' notes and shareable id feed nothing there), as
- * one scalar subquery: a trip's add page reads it with the trip.
+ * Every outfit of the owner's, newest first, as a tile or a saved-outfit
+ * button shows it (listOutfits' notes and shareable id feed nothing
+ * there), as one scalar subquery: the Saved tab reads it with the
+ * outfits' activity (savedContext, page-context.ts, #164), a trip's add
+ * page with the trip.
  */
 export function savedOutfitsSql(ownerId: number): SQL<GarmentOutfit[]> {
   return sql<GarmentOutfit[]>`(
@@ -239,12 +247,36 @@ export function outfitsWithGarmentSql(
   )`;
 }
 
+/** The outfit page's outfit: what it shows, and its share link. */
+export type OutfitDetail = OutfitSummary & { shareableId: string };
+
+/**
+ * The owner's outfit `id` as the outfit page shows it, as JSON; null when
+ * it is not theirs (a column of outfitContext's statement, page-context.ts).
+ */
+export function outfitDetailSql(
+  id: number,
+  ownerId: number,
+): SQL<OutfitDetail | null> {
+  return sql<OutfitDetail | null>`(
+    select json_build_object(
+      'id', ${outfit.id},
+      'name', ${outfit.name},
+      'notes', ${outfit.notes},
+      'shareableId', ${outfit.shareableId},
+      'garments', ${outfitGarmentsSql()}
+    )
+    from ${outfit}
+    where ${and(eq(outfit.id, id), eq(outfit.ownerId, ownerId))}
+  )`;
+}
+
 /** The detail page's outfit, or undefined when it is not the owner's. */
 export async function findOutfit(
   db: Db,
   id: number,
   ownerId: number,
-): Promise<(OutfitSummary & { shareableId: string }) | undefined> {
+): Promise<OutfitDetail | undefined> {
   const [found] = await outfitsWithGarments(
     db,
     and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)),
@@ -282,58 +314,58 @@ export interface OutfitEntries {
 /**
  * An entry the outfit was worn on: marked worn, or with a selfie (one
  * taken and the entry unmarked later is still the record of the day). The
- * one definition for the Worn strip (outfitEntries) and the Saved tile's
- * count (outfitActivity), so the two never disagree; both left join the
- * entry's selfie.
+ * one definition for the Worn strip (outfitEntriesSql) and the Saved
+ * tile's count (outfitActivitySql), so the two never disagree; both left
+ * join the entry's selfie.
  */
 const entryWorn = sql<boolean>`(${outfitCalendar.wornAt} is not null or ${selfie.id} is not null)`;
 
+/** An entry of the outfit's as outfitEntriesSql reads it, before readOutfitEntries splits them. */
+export interface OutfitEntryRow {
+  entryId: number;
+  day: IsoDate;
+  occasion: Occasion;
+  worn: boolean;
+  selfie: SelfieRef | null;
+}
+
 /**
- * The owner's outfit's entries (OutfitEntries), in one statement served by
+ * The owner's outfit's entries worn or from `today` on, newest first, as
+ * a JSON list (a column of outfitContext's statement, page-context.ts;
+ * readOutfitEntries makes them OutfitEntries). Served by
  * outfit_calendar_outfit_id_index and the selfie's unique entry key.
  */
-export async function outfitEntries(
-  db: Db,
+export function outfitEntriesSql(
   outfitId: number,
   ownerId: number,
   today: IsoDate,
-): Promise<OutfitEntries> {
-  const rows = await db
-    .select({
-      entryId: outfitCalendar.id,
-      day: outfitCalendar.day,
-      occasion: outfitCalendar.occasion,
-      worn: entryWorn,
-      selfieId: selfie.id,
-      fileName: file.fileName,
-      version: file.version,
-    })
-    .from(outfitCalendar)
-    .leftJoin(selfie, eq(selfie.outfitCalendarId, outfitCalendar.id))
-    .leftJoin(file, eq(file.id, selfie.photoId))
-    .where(
-      and(
-        eq(outfitCalendar.outfitId, outfitId),
-        eq(outfitCalendar.ownerId, ownerId),
-        or(entryWorn, gte(outfitCalendar.day, today)),
-      ),
-    )
-    .orderBy(desc(outfitCalendar.day), desc(outfitCalendar.id));
+): SQL<OutfitEntryRow[]> {
+  return sql<OutfitEntryRow[]>`(
+    select coalesce(json_agg(json_build_object(
+      'entryId', ${outfitCalendar.id},
+      'day', ${outfitCalendar.day},
+      'occasion', ${outfitCalendar.occasion},
+      'worn', ${entryWorn},
+      'selfie', ${entrySelfieSql(outfitCalendar.id)}
+    ) order by ${outfitCalendar.day} desc, ${outfitCalendar.id} desc), '[]')
+    from ${outfitCalendar}
+    left join ${selfie} on ${eq(selfie.outfitCalendarId, outfitCalendar.id)}
+    where ${and(
+      eq(outfitCalendar.outfitId, outfitId),
+      eq(outfitCalendar.ownerId, ownerId),
+      or(entryWorn, gte(outfitCalendar.day, today)),
+    )}
+  )`;
+}
+
+/** OutfitEntries of outfitEntriesSql's rows (newest first): worn as they come, planned reversed. */
+export function readOutfitEntries(
+  rows: readonly OutfitEntryRow[],
+): OutfitEntries {
   const entries: OutfitEntries = { worn: [], planned: [] };
-  for (const row of rows) {
-    const { entryId, day, selfieId, fileName, version } = row;
-    if (!row.worn) {
-      entries.planned.unshift({ entryId, day, occasion: row.occasion });
-      continue;
-    }
-    entries.worn.push({
-      entryId,
-      day,
-      selfie:
-        selfieId !== null && fileName !== null && version !== null
-          ? { id: selfieId, photo: { fileName, version } }
-          : null,
-    });
+  for (const { entryId, day, occasion, worn, selfie: taken } of rows) {
+    if (worn) entries.worn.push({ entryId, day, selfie: taken });
+    else entries.planned.unshift({ entryId, day, occasion });
   }
   return entries;
 }
@@ -350,53 +382,39 @@ export interface OutfitActivity {
 
 /**
  * Every outfit of the owner's that has a calendar entry, with its
- * OutfitActivity: one grouped statement over the owner's entries (served
- * by outfit_calendar_owner_id_day_outfit_id_unique) and their selfies.
- * Worn is outfitEntries' (entryWorn), so the tile's count is the outfit
- * page's Worn strip. An outfit never planned is absent. Depends on the
- * day, never the hour, so the Saved tab (a stale-while-revalidate tab
- * root) stays byte-stable within a day.
+ * OutfitActivity, as a JSON list (a column of savedContext's statement,
+ * page-context.ts): grouped over the owner's entries (served by
+ * outfit_calendar_owner_id_day_outfit_id_unique) and their selfies. Worn
+ * is the Worn strip's (entryWorn), so the tile's count is the outfit
+ * page's. An outfit never planned is absent. Depends on the day, never
+ * the hour, so the Saved tab (a stale-while-revalidate tab root) stays
+ * byte-stable within a day.
  */
-export async function outfitActivity(
-  db: Db,
+export function outfitActivitySql(
   ownerId: number,
   today: IsoDate,
-): Promise<Map<number, OutfitActivity>> {
-  const rows = await db
-    .select({
-      outfitId: outfitCalendar.outfitId,
-      wornCount: sql<number>`(count(*) filter (where ${entryWorn}))::int`,
-      nextPlanned: sql<IsoDate | null>`(min(${outfitCalendar.day}) filter (where not ${entryWorn} and ${outfitCalendar.day} >= ${today}))::text`,
-    })
-    .from(outfitCalendar)
-    .leftJoin(selfie, eq(selfie.outfitCalendarId, outfitCalendar.id))
-    .where(eq(outfitCalendar.ownerId, ownerId))
-    .groupBy(outfitCalendar.outfitId);
-  return new Map(rows.map(({ outfitId, ...activity }) => [outfitId, activity]));
-}
-
-/** The edit form's fields, or undefined when the outfit is not the owner's. */
-export async function findOutfitFields(
-  db: Db,
-  id: number,
-  ownerId: number,
-): Promise<
-  { id: number; name: string | null; notes: string | null } | undefined
-> {
-  const [row] = await db
-    .select({ id: outfit.id, name: outfit.name, notes: outfit.notes })
-    .from(outfit)
-    .where(and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)));
-  return row;
+): SQL<(OutfitActivity & { outfitId: number })[]> {
+  const perOutfit = sql`(
+    select
+      ${outfitCalendar.outfitId} as "outfitId",
+      (count(*) filter (where ${entryWorn}))::int as "wornCount",
+      min(${outfitCalendar.day}) filter (where not ${entryWorn} and ${outfitCalendar.day} >= ${today}) as "nextPlanned"
+    from ${outfitCalendar}
+    left join ${selfie} on ${eq(selfie.outfitCalendarId, outfitCalendar.id)}
+    where ${eq(outfitCalendar.ownerId, ownerId)}
+    group by ${outfitCalendar.outfitId}
+  )`;
+  return sql<(OutfitActivity & { outfitId: number })[]>`(
+    select coalesce(json_agg(activity), '[]') from ${perOutfit} activity
+  )`;
 }
 
 /**
- * Writes `slots` as the outfit's positions 0..n-1 (the caller has removed
- * any old ones), or refuses the save whole (#219): a garment id that is
- * not one of the owner's owned garments (deleted, another user's, a
- * wishlist item) throws OutfitGarmentsGone, naming it, and the caller's
- * transaction rolls back. Never a slot stored empty behind the save's
- * back. Archived garments were owned and stay.
+ * Makes `slots` the outfit's positions 0..n-1, or refuses the save whole
+ * (#219): a garment id that is not one of the owner's owned garments
+ * (deleted, another user's, a wishlist item) throws OutfitGarmentsGone,
+ * naming it, and the caller's transaction rolls back. Never a slot stored
+ * empty behind the save's back. Archived garments were owned and stay.
  *
  * One statement (#168: a read before the insert used to cost a round
  * trip): the named garments are locked FOR SHARE in id order (as
@@ -405,26 +423,33 @@ export async function findOutfitFields(
  * wishlist in flight either waits for the save, or commits first and
  * makes the save refuse; without the lock the slot's foreign key check
  * waited on the delete and failed after it, a 500.
+ *
+ * `replace` (an edit, updateOutfit) swaps the old slots in the same
+ * statement (#164: a delete before the insert cost a round trip): the
+ * positions past the new last are deleted and the rest overwritten in
+ * place, on the (outfit_id, position) key. The two touch disjoint
+ * positions, so no row is written twice. The caller holds the outfit's
+ * lock, so no other save writes its slots meanwhile. A new outfit
+ * (createOutfit) has no slots to replace.
  */
 async function insertSlots(
   tx: Queryable,
   outfitId: number,
   ownerId: number,
   slots: SlotInput[],
+  { replace = false }: { replace?: boolean } = {},
 ): Promise<void> {
-  if (slots.length === 0) return;
-  const requested = [...new Set(slots.flatMap((slot) => slot.garmentId ?? []))];
-  if (requested.length === 0) {
-    await tx.insert(outfitSlot).values(
-      slots.map((slot, position) => ({
-        outfitId,
-        position,
-        category: slot.category,
-        garmentId: null,
-      })),
-    );
+  const trim = sql`delete from ${outfitSlot} where ${and(
+    eq(outfitSlot.outfitId, outfitId),
+    gte(outfitSlot.position, slots.length),
+  )}`;
+  if (slots.length === 0) {
+    if (replace) await tx.execute(trim);
     return;
   }
+  // No garment named (every row empty): inArray is `false`, so the CTE
+  // reads and locks nothing.
+  const requested = [...new Set(slots.flatMap((slot) => slot.garmentId ?? []))];
   const held = tx
     .select({ id: garment.id })
     .from(garment)
@@ -446,17 +471,19 @@ async function insertSlots(
   );
   // MATERIALIZED: the locks are taken whole, in the CTE's id order, before
   // any slot is joined to them.
-  const { rows: inserted } = await tx.execute<{
+  const { rows: written } = await tx.execute<{
     position: number;
     garmentId: number | null;
   }>(sql`
-    with held as materialized (${held})
+    with ${replace ? sql`trimmed as (${trim}),` : sql``}
+    held as materialized (${held})
     insert into ${outfitSlot} (outfit_id, position, category, garment_id)
     select ${outfitId}::int, slot.position, slot.category, held.id
     from (values ${rows}) as slot (position, category, garment_id)
     left join held on held.id = slot.garment_id
+    ${replace ? sql`on conflict (outfit_id, position) do update set category = excluded.category, garment_id = excluded.garment_id` : sql``}
     returning position, garment_id as "garmentId"`);
-  const kept = new Map(inserted.map((row) => [row.position, row.garmentId]));
+  const kept = new Map(written.map((row) => [row.position, row.garmentId]));
   const gone = slots.flatMap((slot, position) =>
     slot.garmentId !== null && kept.get(position) === null
       ? [slot.garmentId]
@@ -651,6 +678,10 @@ export async function reuseOutfit(
  * (OutfitGarmentsGone, insertSlots). An edit may leave it with another
  * outfit's garments: once per garment set is createOutfit's rule for what
  * a save creates, not a key (see there).
+ *
+ * Statements (#164): the outfit's lock with its fields and the take-over
+ * (lockForEdit), the slots (insertSlots), the trips it is on, then the
+ * prune (only when on one) and the plan (only when asked).
  */
 export function updateOutfit(
   db: Db,
@@ -659,35 +690,15 @@ export function updateOutfit(
   input: OutfitInput,
 ): Promise<SaveResult | 'not-found'> {
   return ownerTransaction(db, ownerId, 'updateOutfit', async (tx) => {
-    // FOR UPDATE: two saves of one outfit take turns. Without the lock both
-    // delete the old slots and the second insert collides with the first's
-    // new rows on the (outfit_id, position) key.
-    const [found] = await tx
-      .select({ id: outfit.id })
-      .from(outfit)
-      .where(and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)))
-      .for('update');
-    if (!found) return 'not-found';
-    const fields = {
+    const edited = await lockForEdit(tx, id, ownerId, {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.notes !== undefined && { notes: input.notes }),
-    };
-    if (Object.keys(fields).length > 0) {
-      await tx.update(outfit).set(fields).where(eq(outfit.id, id));
-    }
-    await tx.delete(outfitSlot).where(eq(outfitSlot.outfitId, id));
-    await insertSlots(tx, id, ownerId, input.slots);
-    const claimed = await tx
-      .update(outfitCalendar)
-      .set({ plannedBy: 'user' })
-      .where(
-        and(
-          eq(outfitCalendar.outfitId, id),
-          eq(outfitCalendar.plannedBy, 'auto'),
-        ),
-      )
-      .returning({ id: outfitCalendar.id });
+    });
+    if (!edited) return 'not-found';
+    await insertSlots(tx, id, ownerId, input.slots, { replace: true });
     // A garment the edit took out may have left a trip's packing list (#10).
+    // Read after the lock: a trip that added the outfit meanwhile waited on
+    // it and committed first, so it is seen.
     await prunePacked(tx, await tripsOfOutfit(tx, id));
     const schedule = input.plan
       ? (await insertEntry(tx, { ownerId, outfitId: id, ...input.plan }))
@@ -697,9 +708,59 @@ export function updateOutfit(
       id,
       slots: input.slots.length,
       schedule,
-      entriesClaimed: claimed.length,
+      entriesClaimed: edited.claimed,
     };
   });
+}
+
+/**
+ * updateOutfit's first statement: the owner's outfit locked FOR UPDATE
+ * (two saves of one outfit take turns; without the lock both replace the
+ * slots and collide on the (outfit_id, position) key), then, only once it
+ * is, its `fields` written and the week planner's entries of it made the
+ * person's (the claim). Undefined when the outfit is not the owner's:
+ * nothing written. One statement (#164; three before): each write reads
+ * the locked row, so neither runs ahead of the lock, and no writer of
+ * outfit_calendar can slip between the lock and the claim (they all hold
+ * the owner lock, which the caller holds).
+ */
+async function lockForEdit(
+  tx: Queryable,
+  id: number,
+  ownerId: number,
+  fields: { name?: string | null; notes?: string | null },
+): Promise<{ claimed: number } | undefined> {
+  const locked = tx
+    .select({ id: outfit.id })
+    .from(outfit)
+    .where(and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)))
+    .for('update');
+  const isLocked = (column: AnyPgColumn) =>
+    sql`${column} in (select id from locked)`;
+  const renamed =
+    Object.keys(fields).length > 0 &&
+    tx.update(outfit).set(fields).where(isLocked(outfit.id));
+  const claimed = tx
+    .update(outfitCalendar)
+    .set({ plannedBy: 'user' })
+    .where(
+      and(
+        isLocked(outfitCalendar.outfitId),
+        eq(outfitCalendar.plannedBy, 'auto'),
+      ),
+    )
+    .returning({ id: outfitCalendar.id });
+  // getSQL(): Drizzle wraps an embedded builder in parentheses, which
+  // Postgres takes around a select but not around an update.
+  const { rows } = await tx.execute<{ found: number; claimed: number }>(sql`
+    with locked as materialized (${locked}),
+    ${renamed ? sql`renamed as (${renamed.getSQL()}),` : sql``}
+    claimed as (${claimed.getSQL()})
+    select
+      (select count(*)::int from locked) as found,
+      (select count(*)::int from claimed) as claimed`);
+  const [row] = rows;
+  return row.found > 0 ? { claimed: row.claimed } : undefined;
 }
 
 /**
@@ -716,6 +777,11 @@ export function updateOutfit(
  * Undefined when the outfit is not the owner's; else the wears kept.
  * Under the owner lock, before the outfit's (its entries go with it; the
  * re-plan and Undo call it holding the lock already).
+ *
+ * Statements (#164): the outfit's lock, the wears detached, the trips it
+ * is on read and the outfit deleted in one (the read sees the trip_outfit
+ * rows the delete's cascade then removes), and the prune only when it was
+ * on a trip.
  */
 export function deleteOutfit(
   db: Queryable,
@@ -723,7 +789,10 @@ export function deleteOutfit(
   ownerId: number,
 ): Promise<{ wearsKept: number } | undefined> {
   return ownerTransaction(db, ownerId, 'deleteOutfit', async (tx) => {
-    // Locked like updateOutfit's: a save of this outfit takes its turn.
+    // Locked like updateOutfit's: a save of this outfit takes its turn, and
+    // a trip adding it meanwhile (addTripOutfit, #234) commits first, and
+    // the trips read below sees it, or waits on its FOR KEY SHARE lock of
+    // the outfit and then answers 'no-outfit'.
     const [found] = await tx
       .select({ id: outfit.id })
       .from(outfit)
@@ -731,10 +800,15 @@ export function deleteOutfit(
       .for('update');
     if (!found) return undefined;
     const wearsKept = await detachOutfitWears(tx, id, ownerId);
-    // Its trips lose it (trip_outfit cascades) and maybe garments with it.
-    const trips = await tripsOfOutfit(tx, id);
-    await tx.delete(outfit).where(eq(outfit.id, id));
-    await prunePacked(tx, trips);
+    const { rows } = await tx.execute<{ trips: number[] }>(sql`
+      with trips as (
+        select distinct ${tripOutfit.tripId} as id from ${tripOutfit}
+        where ${eq(tripOutfit.outfitId, id)}
+      ),
+      deleted as (delete from ${outfit} where ${eq(outfit.id, id)})
+      select coalesce(json_agg(trips.id), '[]') as trips from trips`);
+    // Its trips lost it (trip_outfit cascades) and maybe garments with it.
+    await prunePacked(tx, rows[0].trips);
     return { wearsKept };
   });
 }

@@ -2,7 +2,7 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { type Static, Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
 import { parseIsoDate, todayIn } from '../calendar/calendar-date';
-import { dayChoice, pickDestination } from '../calendar/day-choice';
+import { pickDestination } from '../calendar/day-choice';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderPage } from '../render';
@@ -13,17 +13,14 @@ import { stylingUrl } from '../styling/urls';
 import { viewContext } from '../view-context';
 import { type OutfitDestination, parseDestination } from './destination';
 import { OutfitsPage } from './list-page';
+import { outfitContext, savedContext } from './page-context';
 import {
   createOutfit,
   deleteOutfit,
-  findOutfit,
-  listOutfits,
   OUTFIT_NAME_MAX,
   OUTFIT_NOTES_MAX,
   type OutfitInput,
   type SaveResult,
-  outfitActivity,
-  outfitEntries,
   updateOutfit,
 } from './queries';
 import { OutfitPage } from './show-page';
@@ -221,11 +218,12 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const day = destination.kind === 'day' ? destination : undefined;
-      const [outfits, activity, choice] = await Promise.all([
-        listOutfits(db, ownerId),
-        outfitActivity(db, ownerId, today),
-        day && dayChoice(db, ownerId, day),
-      ]);
+      const { outfits, activity, choice } = await savedContext(
+        db,
+        ownerId,
+        today,
+        day,
+      );
       if (day?.replace !== undefined && !choice?.replacing) {
         logger.debug(
           `GET /outfits: entry ${day.replace} is not user ${ownerId}'s on ${day.day} (${day.occasion}), picking another`,
@@ -278,17 +276,14 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
-      const [outfit, entries] = await Promise.all([
-        findOutfit(db, id, ownerId),
-        outfitEntries(db, id, ownerId, today),
-      ]);
-      if (!outfit) throw outfitNotFound();
+      const found = await outfitContext(db, id, ownerId, today);
+      if (!found) throw outfitNotFound();
       return renderPage(
         reply,
         <OutfitPage
           ctx={viewContext(reply)}
-          outfit={outfit}
-          entries={entries}
+          outfit={found.outfit}
+          entries={found.entries}
           today={today}
           alreadySaved={request.query.alreadySaved === '1'}
         />,
