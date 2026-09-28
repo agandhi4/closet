@@ -9,11 +9,8 @@ import { type DayDestination, parseDestination } from '../outfits/destination';
 import { listOutfits } from '../outfits/queries';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
-import { detachedLooks } from '../selfies/queries';
 import { viewContext } from '../view-context';
 import { setEntryWorn } from '../wears/queries';
-import { plannedBanner } from '../week-plan/plan';
-import { findWeekTemplate } from '../week-plan/template';
 import {
   hourIn,
   parseIsoDate,
@@ -44,6 +41,7 @@ import {
   CALENDAR_PLAN_PATH,
   weekUrl,
 } from './urls';
+import { weekContext } from './week-context';
 import { WornButton } from './worn-button';
 import { removeEntry } from './writes';
 
@@ -165,22 +163,19 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           `GET /calendar: malformed week ${JSON.stringify(week)}, showing the current week`,
         );
       }
-      const { start, end } = weekOf(anchor ?? today);
+      const shown = weekOf(anchor ?? today);
       const planned = parsePlanned(request.query.planned);
-      const [entries, looks, template, banner] = await Promise.all([
-        findEntries(db, ownerId, start, end),
-        detachedLooks(db, ownerId, start, end),
-        findWeekTemplate(db, ownerId),
+      const { entries, looks, template, banner } = await weekContext(
+        db,
+        ownerId,
+        shown,
         planned === undefined
           ? undefined
-          : plannedBanner(db, ownerId, planned, {
-              today,
-              hour: hourIn(config.timeZone, new Date()),
-            }),
-      ]);
+          : { planned, today, hour: hourIn(config.timeZone, new Date()) },
+      );
       const undone = request.query.undone;
       const view = buildCalendarView({
-        weekStart: start,
+        weekStart: shown.start,
         today,
         entries,
         looks,

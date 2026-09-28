@@ -186,7 +186,13 @@ export function countNeedingWash(db: Db, ownerId: number): Promise<number> {
 }
 
 export type EntryWornOutcome =
-  | { worn: boolean; changed: boolean; wears: number }
+  | {
+      worn: boolean;
+      changed: boolean;
+      wears: number;
+      /** The entry's day: the selfie that marked it is filed under it. */
+      day: IsoDate;
+    }
   | 'not-found'
   | 'future';
 
@@ -206,6 +212,10 @@ export type EntryWornOutcome =
  * lock like every calendar write (src/web/calendar/CLAUDE.md): the re-plan
  * must see the entry as the person's before it judges it, not swap it
  * while the tap commits.
+ *
+ * Three statements in its transaction (#165; production pays a ~114 ms
+ * round trip per statement): the owner lock, the entry locked and read,
+ * then the change and its wears together (markWorn, unmarkWorn).
  */
 export function setEntryWorn(
   db: Queryable,
@@ -234,53 +244,71 @@ export function setEntryWorn(
       )
       .for('update');
     if (!entry) return 'not-found';
+    const { day } = entry;
     const was = entry.wornAt !== null;
     const worn = input.worn ?? !was;
-    if (worn === was) return { worn, changed: false, wears: 0 };
+    if (worn === was) return { worn, changed: false, wears: 0, day };
     if (!worn) {
-      await tx
-        .update(outfitCalendar)
-        .set({ wornAt: null, plannedBy: 'user' })
-        .where(eq(outfitCalendar.id, entry.id));
-      const deleted = await tx
-        .delete(garmentWear)
-        .where(eq(garmentWear.outfitCalendarId, entry.id))
-        .returning({ id: garmentWear.id });
-      return { worn, changed: true, wears: deleted.length };
+      const wears = await unmarkWorn(tx, entry.id);
+      return { worn, changed: true, wears, day };
     }
-    if (entry.day > input.today) return 'future';
-    await tx
-      .update(outfitCalendar)
-      .set({ wornAt: input.at, plannedBy: 'user' })
-      .where(eq(outfitCalendar.id, entry.id));
-    // A slot only ever names a garment of the outfit's owner (the outfit
-    // form's rule); the join keeps it so here too.
-    const garments = await tx
-      .selectDistinct({ id: garment.id })
-      .from(outfitSlot)
-      .innerJoin(garment, eq(garment.id, outfitSlot.garmentId))
-      .where(
-        and(
-          eq(outfitSlot.outfitId, entry.outfitId),
-          eq(garment.ownerId, input.ownerId),
-        ),
-      );
-    if (garments.length > 0) {
-      await tx
-        .insert(garmentWear)
-        .values(
-          garments.map(({ id }) => ({
-            garmentId: id,
-            ownerId: input.ownerId,
-            day: entry.day,
-            outfitCalendarId: entry.id,
-            createdAt: input.at,
-          })),
-        )
-        .onConflictDoNothing();
-    }
-    return { worn, changed: true, wears: garments.length };
+    if (day > input.today) return 'future';
+    const wears = await markWorn(
+      tx,
+      { ...entry, ownerId: input.ownerId },
+      input.at,
+    );
+    return { worn, changed: true, wears, day };
   });
+}
+
+/**
+ * The entry worn at `at` (and the person's), and one wear per garment of its
+ * outfit on its day: the outfit's garments as they are now, so a later edit
+ * of the outfit never changes this history. One statement; data-modifying
+ * CTEs run to completion whether or not the final select reads them.
+ * Answers how many garments were recorded. A slot only ever names a garment
+ * of the outfit's owner (the outfit form's rule); the join keeps it so here
+ * too.
+ */
+async function markWorn(
+  tx: Queryable,
+  entry: { id: number; day: IsoDate; outfitId: number; ownerId: number },
+  at: Date,
+): Promise<number> {
+  const { rows } = await tx.execute<{ wears: number }>(sql`
+    with marked as (
+      update ${outfitCalendar} set worn_at = ${at}, planned_by = 'user'
+      where ${outfitCalendar.id} = ${entry.id}
+    ), worn as (
+      select distinct ${garment.id} as garment_id
+      from ${outfitSlot} inner join ${garment} on ${garment.id} = ${outfitSlot.garmentId}
+      where ${outfitSlot.outfitId} = ${entry.outfitId} and ${garment.ownerId} = ${entry.ownerId}
+    ), logged as (
+      insert into ${garmentWear} (garment_id, owner_id, day, outfit_calendar_id, created_at)
+      select garment_id, ${entry.ownerId}::integer, ${entry.day}::date, ${entry.id}::integer, ${at}::timestamptz
+      from worn
+      on conflict do nothing
+    )
+    select count(*)::int as wears from worn`);
+  return rows[0].wears;
+}
+
+/**
+ * The entry no longer worn (and the person's), and exactly its wears gone,
+ * in one statement. Answers how many wears went.
+ */
+async function unmarkWorn(tx: Queryable, entryId: number): Promise<number> {
+  const { rows } = await tx.execute<{ wears: number }>(sql`
+    with unmarked as (
+      update ${outfitCalendar} set worn_at = null, planned_by = 'user'
+      where ${outfitCalendar.id} = ${entryId}
+    ), removed as (
+      delete from ${garmentWear} where ${garmentWear.outfitCalendarId} = ${entryId}
+      returning 1
+    )
+    select count(*)::int as wears from removed`);
+  return rows[0].wears;
 }
 
 /**

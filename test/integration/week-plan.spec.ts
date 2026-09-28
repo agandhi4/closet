@@ -56,7 +56,12 @@ import {
   type ReplanDeps,
   replanWeeks,
 } from '../../src/web/week-plan/replan';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  recordQueries,
+  type TestApp,
+  unescapeHtml,
+} from './harness';
 import { callTool, createAccessToken, tool } from './mcp';
 import {
   expectFullPage,
@@ -416,12 +421,17 @@ describe('the weekly auto-plan', () => {
           ),
       ).toBe(true);
 
-      // The banner: what was planned, and Undo.
-      const banner = await get(String(res.headers.location));
-      expectFullPage(banner);
-      expectNativePostForms(banner);
-      expectNoScriptNavigation(banner);
-      const html = unescapeHtml(banner.body);
+      // The banner: what was planned, and Undo. #165: read with the week in
+      // one statement after the session (five in parallel before).
+      let banner: Awaited<ReturnType<typeof get>> | undefined;
+      const bannerRead = await recordQueries(async () => {
+        banner = await get(String(res.headers.location));
+      });
+      expect(bannerRead.statements).toBe(2);
+      expectFullPage(banner!);
+      expectNativePostForms(banner!);
+      expectNoScriptNavigation(banner!);
+      const html = unescapeHtml(banner!.body);
       expect(html).toContain('Planned 8 outfits for your week');
       expect(html.match(/data-entry-id="/g)).toHaveLength(8);
       expect(html).toContain(`action="/calendar/plan-week/${planId}/undo"`);
@@ -431,9 +441,16 @@ describe('the weekly auto-plan', () => {
         (await get('/calendar')).body.match(/data-auto/g)?.length,
       ).toBeGreaterThanOrEqual(1);
 
-      // Again: every slot is filled, so nothing new.
-      const again = await post('/calendar/plan-week');
-      expect(again.headers.location).toBe('/calendar?planned=none');
+      // Again: every slot is filled, so nothing new. #165: and nothing read
+      // that only filling a slot needs (the pool, the generator's memory):
+      // the session, then begin, the owner lock, the template, the window's
+      // entries, commit.
+      let again: Awaited<ReturnType<typeof post>> | undefined;
+      const repeat = await recordQueries(async () => {
+        again = await post('/calendar/plan-week');
+      });
+      expect(repeat.statements).toBe(6);
+      expect(again!.headers.location).toBe('/calendar?planned=none');
       expect(await weekEntries()).toHaveLength(8);
       expect(await t.db.$count(weekPlan)).toBe(1);
       expect(
@@ -542,11 +559,19 @@ describe('the weekly auto-plan', () => {
       expect(byId.get(todays.id)!.plannedBy).toBe('user');
       expect(byId.get(tomorrows.id)!.plannedBy).toBe('user');
 
-      // Undo removes the rest and the outfits it made for them.
+      // Undo removes the rest and the outfits it made for them. #165: in
+      // as many statements whatever the batch's size: the session, begin,
+      // the owner lock, the batch's auto entries deleted, their outfits
+      // locked, the unheld ones deleted, the empty batch, commit (6 outfits
+      // were 3 + 4 each through deleteOutfit).
       const outfitsBefore = await t.db.$count(outfit);
-      const undo = await post(`/calendar/plan-week/${planId}/undo`);
-      expect(undo.statusCode).toBe(303);
-      expect(undo.headers.location).toBe('/calendar?undone=6');
+      let undo: Awaited<ReturnType<typeof post>> | undefined;
+      const undone = await recordQueries(async () => {
+        undo = await post(`/calendar/plan-week/${planId}/undo`);
+      });
+      expect(undone.statements).toBe(8);
+      expect(undo!.statusCode).toBe(303);
+      expect(undo!.headers.location).toBe('/calendar?undone=6');
       const left = await weekEntries();
       expect(left.map((e) => e.id).sort()).toEqual(
         [todays.id, tomorrows.id].sort(),
@@ -680,6 +705,24 @@ describe('the weekly auto-plan', () => {
       );
     });
 
+    // #165: Undo deletes first and asks whose the batch is only when that
+    // found nothing, so a batch of the person's own with nothing left to
+    // take back is not mistaken for another's.
+    it('an Undo with every entry taken over removes nothing, and is no 404', async () => {
+      const res = await post('/calendar/plan-week');
+      const planId = Number(
+        /planned=(\d+)/.exec(String(res.headers.location))![1],
+      );
+      await t.db.update(outfitCalendar).set({ plannedBy: 'user' });
+      const outfitsBefore = await t.db.$count(outfit);
+      const undo = await post(`/calendar/plan-week/${planId}/undo`);
+      expect(undo.statusCode).toBe(303);
+      expect(undo.headers.location).toBe('/calendar?undone=0');
+      expect(await weekEntries()).toHaveLength(8);
+      expect(await t.db.$count(outfit)).toBe(outfitsBefore);
+      expect(await t.db.$count(weekPlan)).toBe(1);
+    });
+
     it("refuses another user's plan", async () => {
       const res = await post('/calendar/plan-week');
       const planId = Number(
@@ -787,7 +830,15 @@ describe('the weekly auto-plan', () => {
         { claimed: 0 },
       );
       expect(await t.db.$count(weekReplan)).toBe(0);
-      const run = await replanWeeks(deps, at(TODAY, REPLAN_HOUR));
+      let run: Awaited<ReturnType<typeof replanWeeks>> | undefined;
+      // #165: who is due, then every candidate's weather in one statement
+      // (the refresh's answer is the re-plan's: not read again), then one
+      // transaction: begin, the owner lock, the auto entries, the claim,
+      // the window, the pool, the generator's memory, the outfits' garments,
+      // commit. The candidate is not asked about again.
+      const recorded = await recordQueries(async () => {
+        run = await replanWeeks(deps, at(TODAY, REPLAN_HOUR));
+      });
       expect(run).toEqual({
         claimed: 1,
         swapped: 0,
@@ -795,6 +846,10 @@ describe('the weekly auto-plan', () => {
         failed: 0,
         pushed: 0,
       });
+      expect(recorded.statements).toBe(11);
+      expect(
+        recorded.sql.filter((q) => q.includes('"user_weather"')),
+      ).toHaveLength(1);
       expect(sends).toEqual([]);
     });
 

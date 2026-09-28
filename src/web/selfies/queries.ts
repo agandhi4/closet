@@ -1,7 +1,9 @@
-import { and, asc, between, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { initialCutoutState } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
-import { file, outfitCalendar, selfie } from '../../db/schema';
+import { file, selfie } from '../../db/schema';
+import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../calendar/calendar-date';
 import type { ImageRef } from '../files/image-url';
 import { insertPhotoRow, type NewPhotoRow } from '../files/queries';
@@ -46,6 +48,10 @@ export type SelfieOutcome =
  * the first. 'not-found' (not the owner's entry) and 'future' (a day after
  * `today`) write nothing; the caller deletes the stored bytes.
  *
+ * An owner transaction itself, so setEntryWorn joins it: one lock, no
+ * savepoint (#165: three round trips fewer than a plain transaction that
+ * setEntryWorn nested a savepoint in and then read the day again).
+ *
  * Used by POST /calendar/:id/selfie (attachSelfie, writes.ts) and the seed.
  */
 export function setEntrySelfie(
@@ -59,7 +65,7 @@ export function setEntrySelfie(
   },
 ): Promise<SelfieOutcome> {
   const { entryId, ownerId } = input;
-  return q.transaction(async (tx) => {
+  return ownerTransaction(q, ownerId, 'setEntrySelfie', async (tx) => {
     const worn = await setEntryWorn(tx, {
       entryId,
       ownerId,
@@ -68,10 +74,7 @@ export function setEntrySelfie(
       today: input.today,
     });
     if (worn === 'not-found' || worn === 'future') return worn;
-    const [entry] = await tx
-      .select({ day: outfitCalendar.day })
-      .from(outfitCalendar)
-      .where(eq(outfitCalendar.id, entryId));
+    const { day } = worn;
     const [previous] = await tx
       .select({
         id: selfie.id,
@@ -93,7 +96,7 @@ export function setEntrySelfie(
       await tx.delete(file).where(eq(file.id, previous.photoId));
       return {
         selfieId: previous.id,
-        day: entry.day,
+        day,
         replaced: previous.fileName,
         worn,
       };
@@ -102,13 +105,13 @@ export function setEntrySelfie(
       .insert(selfie)
       .values({
         ownerId,
-        day: entry.day,
+        day,
         outfitCalendarId: entryId,
         photoId,
         createdAt: input.at,
       })
       .returning({ id: selfie.id });
-    return { selfieId: created.id, day: entry.day, replaced: null, worn };
+    return { selfieId: created.id, day, replaced: null, worn };
   });
 }
 
@@ -140,15 +143,17 @@ export async function deleteSelfie(
 }
 
 /**
- * Removes the selfie of a calendar entry about to be deleted (deleteEntry,
- * in its transaction, before the entry: the foreign key would otherwise
- * keep it as a detached look, which is what deleting the outfit wants and
- * deleting the entry does not). Answers the photo names to unlink after
- * commit. The caller has found the entry to be the owner's.
+ * Removes the owner's selfie of a calendar entry about to be deleted
+ * (deleteEntry, in its transaction, before the entry: the foreign key would
+ * otherwise keep it as a detached look, which is what deleting the outfit
+ * wants and deleting the entry does not). Answers the photo names to unlink
+ * after commit. Scoped to the owner itself, so deleteEntry need not look
+ * the entry up first: another's entry has none of the owner's selfies.
  */
 export async function deleteEntrySelfie(
   tx: Queryable,
   entryId: number,
+  ownerId: number,
 ): Promise<string[]> {
   const deleted = await tx
     .delete(file)
@@ -158,7 +163,12 @@ export async function deleteEntrySelfie(
         tx
           .select({ id: selfie.photoId })
           .from(selfie)
-          .where(eq(selfie.outfitCalendarId, entryId)),
+          .where(
+            and(
+              eq(selfie.outfitCalendarId, entryId),
+              eq(selfie.ownerId, ownerId),
+            ),
+          ),
       ),
     )
     .returning({ fileName: file.fileName });
@@ -212,45 +222,39 @@ export interface DetachedLook extends SelfieRef {
 
 /**
  * The owner's looks without an entry from `first` to `last` (inclusive), by
- * day then when they were taken: the calendar shows them on their day.
- * Served by selfie_owner_id_day_index.
+ * day then when they were taken: the calendar shows them on their day. A
+ * scalar subquery (a JSON list) for the week's one statement (weekContext,
+ * src/web/calendar/week-context.ts). Served by selfie_owner_id_day_index.
  */
-export async function detachedLooks(
-  db: Db,
+export function detachedLooksSql(
   ownerId: number,
   first: IsoDate,
   last: IsoDate,
-): Promise<DetachedLook[]> {
-  const rows = await db
-    .select({
-      id: selfie.id,
-      day: selfie.day,
-      fileName: file.fileName,
-      version: file.version,
-    })
-    .from(selfie)
-    .innerJoin(file, eq(file.id, selfie.photoId))
-    .where(
-      and(
-        eq(selfie.ownerId, ownerId),
-        between(selfie.day, first, last),
-        isNull(selfie.outfitCalendarId),
-      ),
-    )
-    .orderBy(asc(selfie.day), asc(selfie.id));
-  return rows.map(({ id, day, fileName, version }) => ({
-    id,
-    day,
-    photo: { fileName, version },
-  }));
+): SQL<DetachedLook[]> {
+  return sql<DetachedLook[]>`(
+    select coalesce(json_agg(json_build_object(
+      'id', ${selfie.id},
+      'day', ${selfie.day},
+      'photo', json_build_object('fileName', ${file.fileName}, 'version', ${file.version})
+    ) order by ${selfie.day}, ${selfie.id}), '[]')
+    from ${selfie} inner join ${file} on ${file.id} = ${selfie.photoId}
+    where ${selfie.ownerId} = ${ownerId}
+      and ${selfie.day} between ${first} and ${last}
+      and ${selfie.outfitCalendarId} is null)`;
 }
 
 /**
- * An entry's selfie in a relational query (`with: { selfie: SELFIE_WITH }`
- * on outfit_calendar): a SelfieRef, or null without one. The calendar week,
- * Today and get_calendar read it this way.
+ * The selfie of the calendar entry `entryId` names (a column of an
+ * enclosing query over outfit_calendar), as JSON: a SelfieRef, or null
+ * without one. The calendar week, Today and get_calendar read it inside
+ * entriesSql (src/web/calendar/queries.ts).
  */
-export const SELFIE_WITH = {
-  columns: { id: true },
-  with: { photo: { columns: { fileName: true, version: true } } },
-} as const;
+export function entrySelfieSql(entryId: AnyPgColumn): SQL<SelfieRef | null> {
+  return sql<SelfieRef | null>`(
+    select json_build_object(
+      'id', ${selfie.id},
+      'photo', json_build_object('fileName', ${file.fileName}, 'version', ${file.version})
+    )
+    from ${selfie} inner join ${file} on ${file.id} = ${selfie.photoId}
+    where ${selfie.outfitCalendarId} = ${entryId})`;
+}

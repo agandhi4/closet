@@ -12,6 +12,7 @@ import {
   extractImgSrcs,
   hasText,
   hxLocationPath,
+  recordQueries,
   TestApp,
   unescapeHtml,
 } from './harness';
@@ -123,6 +124,16 @@ describe('calendar', () => {
       // No day in 2030 is today.
       expect(html).not.toContain('aria-current="date"');
       expect(html).not.toMatch(/<h2[^>]*text-primary/);
+    });
+
+    // #165: production pays a ~114 ms round trip per statement. The session,
+    // then the week's entries, its looks and the week template together in
+    // one statement (weekContext; three in parallel before).
+    it('reads the week in two statements', async () => {
+      const read = await recordQueries(() =>
+        t.inject({ method: 'GET', url: WEEK_URL }),
+      );
+      expect(read.statements).toBe(2);
     });
 
     it('steps a week at a time and strips the days down to their blocks', async () => {
@@ -605,6 +616,38 @@ describe('calendar', () => {
       expect(res.statusCode).toBe(404);
     });
 
+    // #165: production pays a ~114 ms round trip per statement. The session,
+    // then begin, the owner lock, the entry's selfie, the entry, commit: no
+    // look-up of the entry first (the deletes are the owner's own).
+    it('deletes in six statements, and 404s another user’s entry in as many', async () => {
+      const outfit = await createOutfit('Counted delete');
+      const entry = await schedule(outfit, '2030-10-10');
+      const stranger = await t.register('delete-stranger@example.com');
+      const refused = await recordQueries(async () => {
+        const res = await t.inject({
+          method: 'POST',
+          url: `/calendar/${entry}/delete`,
+          ...form({ week: '2030-10-10' }),
+          headers: { ...form({}).headers, cookie: stranger },
+        });
+        expect(res.statusCode).toBe(404);
+      });
+      expect(refused.statements).toBe(6);
+      expect(await entryById(entry)).toBeDefined();
+
+      const deleted = await recordQueries(async () => {
+        const res = await t.inject({
+          method: 'POST',
+          url: `/calendar/${entry}/delete`,
+          ...form({ week: '2030-10-10' }),
+        });
+        expect(res.statusCode).toBe(303);
+      });
+      expect(deleted.statements).toBe(6);
+      expect(deleted.sql.join('\n')).not.toMatch(/for update/);
+      expect(await entryById(entry)).toBeUndefined();
+    });
+
     it('without a body still deletes and sends the page to the current week', async () => {
       const outfit = await createOutfit('Bodiless delete');
       const entry = await schedule(outfit, '2030-10-08');
@@ -691,6 +734,24 @@ describe('calendar', () => {
       const off = await post(entry, { htmx: true, worn: '0' });
       expect(off.body).not.toContain('bg-success');
       expect(hasText(off.body, 'Worn?')).toBe(true);
+      expect(await wornAt(entry)).toBeNull();
+    });
+
+    // #165: the session, then begin, the owner lock, the entry locked and
+    // read, the change and its wears together (one statement each way),
+    // commit.
+    it('marks worn, and not worn, in six statements each', async () => {
+      const outfit = await createOutfit('Counted worn');
+      const entry = await schedule(outfit, PAST);
+      const on = await recordQueries(() =>
+        post(entry, { htmx: true, worn: '1' }),
+      );
+      expect(on.statements).toBe(6);
+      expect(await wornAt(entry)).toBeInstanceOf(Date);
+      const off = await recordQueries(() =>
+        post(entry, { htmx: true, worn: '0' }),
+      );
+      expect(off.statements).toBe(6);
       expect(await wornAt(entry)).toBeNull();
     });
 

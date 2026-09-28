@@ -1,7 +1,8 @@
 import { type Static, type TSchema, Type } from '@sinclair/typebox';
-import { eq } from 'drizzle-orm';
+import { eq, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import { weekTemplate } from '../../db/schema';
+import { selectScalars } from '../../db/select-scalars';
 import {
   compareOccasions,
   DAY_OCCASIONS,
@@ -30,12 +31,32 @@ export async function findWeekTemplate(
   db: Queryable,
   userId: number,
 ): Promise<TemplateSlot[]> {
-  // week_template_pkey (user_id, weekday, occasion).
-  const rows = await db
-    .select({ weekday: weekTemplate.weekday, occasion: weekTemplate.occasion })
-    .from(weekTemplate)
-    .where(eq(weekTemplate.userId, userId));
-  return rows.sort(
+  const { template } = await selectScalars(db, {
+    template: weekTemplateSql(userId),
+  });
+  return inTemplateOrder(template);
+}
+
+/**
+ * The user's template slots as a scalar subquery (a JSON list, in no
+ * order: inTemplateOrder sorts them), for a page that reads it with the
+ * rest of what it shows (the calendar week, weekContext). Served by
+ * week_template_pkey (user_id, weekday, occasion).
+ */
+export function weekTemplateSql(userId: number): SQL<TemplateSlot[]> {
+  return sql<TemplateSlot[]>`(
+    select coalesce(json_agg(json_build_object(
+      'weekday', ${weekTemplate.weekday},
+      'occasion', ${weekTemplate.occasion}
+    )), '[]')
+    from ${weekTemplate} where ${weekTemplate.userId} = ${userId})`;
+}
+
+/** Weekday, then the occasions' display order (compareOccasions). */
+export function inTemplateOrder(
+  slots: readonly TemplateSlot[],
+): TemplateSlot[] {
+  return [...slots].sort(
     (a, b) => a.weekday - b.weekday || compareOccasions(a.occasion, b.occasion),
   );
 }

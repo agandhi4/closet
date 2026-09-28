@@ -28,6 +28,7 @@ import type * as PushScheduleModule from '../../src/push/reminders';
 import type * as PushQueriesModule from '../../src/web/push/queries';
 import type * as RemindersModule from '../../src/web/push/reminders';
 import type * as ReplanModule from '../../src/web/week-plan/replan';
+import type * as WeekTemplateModule from '../../src/web/week-plan/template';
 import type * as WeatherServiceModule from '../../src/web/weather/service';
 import {
   html,
@@ -90,6 +91,7 @@ export interface Build {
   pushSchedule: typeof PushScheduleModule;
   reminders: typeof RemindersModule;
   replan: typeof ReplanModule;
+  weekTemplate: typeof WeekTemplateModule;
   weather: typeof WeatherServiceModule;
   reconcile: typeof ReconcileModule;
   cutoutQueue: typeof CutoutQueueModule;
@@ -113,6 +115,7 @@ async function loadBuild(): Promise<Build> {
     pushSchedule: await load('push/reminders.js'),
     reminders: await load('web/push/reminders.js'),
     replan: await load('web/week-plan/replan.js'),
+    weekTemplate: await load('web/week-plan/template.js'),
     weather: await load('web/weather/service.js'),
     reconcile: await load('maintenance/reconcile.js'),
     cutoutQueue: await load('cutout/queue.js'),

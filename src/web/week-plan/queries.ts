@@ -9,6 +9,7 @@ import {
   isNull,
   lt,
   not,
+  type SQL,
   sql,
 } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
@@ -33,7 +34,6 @@ import type {
 } from '../../wardrobe/week-planner';
 import { matchGarment } from '../../weather/match';
 import type { IsoDate } from '../calendar/calendar-date';
-import { deleteOutfit } from '../outfits/queries';
 import { outfitIsHeld } from '../outfits/references';
 import { wearsSinceWashSql } from '../wears/queries';
 
@@ -254,29 +254,46 @@ function needsColumns(needs: PlannedNeeds | null) {
   return needs ?? { torso: null, limbs: null, layer: null, rain: null };
 }
 
-/** A batch's entries the planner still owns: what Undo takes back. */
-export async function batchAutoEntries(
-  db: Queryable,
+/**
+ * Deletes the entries of the owner's batch `weekPlanId` that the planner
+ * still owns (planned_by 'auto': one the person took over stays): what Undo
+ * takes back. One statement, where reading the batch, then its entries,
+ * then deleting them were three (#165). Answers each deleted entry's
+ * outfit and whether the planner created it, for removeUnheldOutfits.
+ * Nothing for another's batch, a missing one, or one with no auto entry
+ * left: the caller tells those apart (weekPlanOf) only then.
+ */
+export async function removeBatchAutoEntries(
+  tx: Queryable,
+  ownerId: number,
   weekPlanId: number,
-): Promise<AutoEntryRow[]> {
-  const rows = await db
-    .select(entryColumns)
-    .from(weekPlanEntry)
-    .innerJoin(outfitCalendar, eq(outfitCalendar.id, weekPlanEntry.entryId))
-    .where(
-      and(
-        eq(weekPlanEntry.weekPlanId, weekPlanId),
-        eq(outfitCalendar.plannedBy, 'auto'),
-      ),
-    );
-  return rows.map(autoEntryOf);
+): Promise<{ entryId: number; outfitId: number; outfitCreated: boolean }[]> {
+  const { rows } = await tx.execute<{
+    entry_id: number;
+    outfit_id: number;
+    outfit_created: boolean;
+  }>(sql`
+    delete from ${outfitCalendar}
+    using ${weekPlanEntry}, ${weekPlan}
+    where ${weekPlanEntry.entryId} = ${outfitCalendar.id}
+      and ${weekPlan.id} = ${weekPlanEntry.weekPlanId}
+      and ${weekPlan.id} = ${weekPlanId}
+      and ${weekPlan.ownerId} = ${ownerId}
+      and ${outfitCalendar.ownerId} = ${ownerId}
+      and ${outfitCalendar.plannedBy} = 'auto'
+    returning ${outfitCalendar.id} as entry_id, ${outfitCalendar.outfitId} as outfit_id,
+      ${weekPlanEntry.outfitCreated} as outfit_created`);
+  return rows.map((row) => ({
+    entryId: row.entry_id,
+    outfitId: row.outfit_id,
+    outfitCreated: row.outfit_created,
+  }));
 }
 
 /**
  * Removes auto entries (only those still 'auto': one the person took over
  * meanwhile stays) and then each outfit the planner created for them that
- * no calendar entry holds any more, through deleteOutfit (its wears rule;
- * an auto entry has none, being unworn). An outfit the planner found
+ * nothing holds any more (removeUnheldOutfits). An outfit the planner found
  * already saved is the person's and stays. Returns what went.
  */
 export async function removeAutoEntries(
@@ -312,17 +329,24 @@ export async function removeAutoEntries(
 /**
  * Deletes each of `outfitIds` (outfits the planner created, which the
  * caller has just taken off their entries) that nothing holds any more
- * (outfitIsHeld: no calendar entry, no trip), through deleteOutfit (its
- * wears rule). One held elsewhere, or one the planner found already saved
- * (never passed here), is the person's and stays. The one rule for Undo,
- * the re-plan's swap (removeAutoEntries) and changing an auto entry's
- * outfit (replaceEntryOutfit, #69). Returns how many went.
+ * (outfitIsHeld: no calendar entry, no trip). One held elsewhere, or one
+ * the planner found already saved (never passed here), is the person's and
+ * stays. The one rule for Undo, the re-plan's swap (removeAutoEntries) and
+ * changing an auto entry's outfit (replaceEntryOutfit, #69). Returns how
+ * many went.
  *
  * The outfits are locked (FOR UPDATE, in id order) before the question is
  * asked: a trip or calendar row being added for one meanwhile needs the
  * outfit's key lock for its foreign key, so it either committed before the
  * lock (and is seen here) or waits and then fails on the deleted outfit,
- * never silently cascaded away.
+ * never silently cascaded away. So two statements, never one: a delete
+ * whose own WHERE asks outfitIsHeld would wait on that row lock and then
+ * judge by the snapshot it started with.
+ *
+ * A plain delete, not deleteOutfit per outfit (#165: four statements
+ * each): an unheld outfit has no calendar entry (so no wears or selfies of
+ * its entries to keep) and no trip (so no packing list to prune), which is
+ * everything deleteOutfit's rules keep; its slots cascade.
  */
 export async function removeUnheldOutfits(
   tx: Queryable,
@@ -338,9 +362,8 @@ export async function removeUnheldOutfits(
     .orderBy(outfit.id)
     .for('update');
   if (locked.length === 0) return 0;
-  const unheld = await tx
-    .select({ id: outfit.id })
-    .from(outfit)
+  const deleted = await tx
+    .delete(outfit)
     .where(
       and(
         inArray(
@@ -349,9 +372,9 @@ export async function removeUnheldOutfits(
         ),
         not(outfitIsHeld(outfit.id)),
       ),
-    );
-  for (const { id } of unheld) await deleteOutfit(tx, id, ownerId);
-  return unheld.length;
+    )
+    .returning({ id: outfit.id });
+  return deleted.length;
 }
 
 /**
@@ -493,30 +516,48 @@ export interface BatchEntry {
   outfitName: string | null;
 }
 
-/** Batch `id`'s entries still on the calendar (auto or taken over), by day. */
-export async function batchEntries(
-  db: Queryable,
+/**
+ * Batch `id`'s entries still on the calendar (auto or taken over), by day,
+ * as a scalar subquery (a JSON list): the calendar's banner after "Plan my
+ * week", read in the week's one statement (weekContext).
+ */
+export function batchEntriesSql(
   ownerId: number,
   id: number,
-): Promise<BatchEntry[]> {
-  return db
-    .select({
-      entryId: outfitCalendar.id,
-      day: outfitCalendar.day,
-      occasion: outfitCalendar.occasion,
-      plannedBy: outfitCalendar.plannedBy,
-      outfitName: outfit.name,
-    })
-    .from(weekPlanEntry)
-    .innerJoin(outfitCalendar, eq(outfitCalendar.id, weekPlanEntry.entryId))
-    .innerJoin(outfit, eq(outfit.id, outfitCalendar.outfitId))
-    .where(
-      and(
-        eq(weekPlanEntry.weekPlanId, id),
-        eq(outfitCalendar.ownerId, ownerId),
-      ),
-    )
-    .orderBy(outfitCalendar.day, outfitCalendar.id);
+): SQL<BatchEntry[]> {
+  return sql<BatchEntry[]>`(
+    select coalesce(json_agg(json_build_object(
+      'entryId', ${outfitCalendar.id},
+      'day', ${outfitCalendar.day},
+      'occasion', ${outfitCalendar.occasion},
+      'plannedBy', ${outfitCalendar.plannedBy},
+      'outfitName', ${outfit.name}
+    ) order by ${outfitCalendar.day}, ${outfitCalendar.id}), '[]')
+    from ${weekPlanEntry}
+    inner join ${outfitCalendar} on ${outfitCalendar.id} = ${weekPlanEntry.entryId}
+    inner join ${outfit} on ${outfit.id} = ${outfitCalendar.outfitId}
+    where ${weekPlanEntry.weekPlanId} = ${id}
+      and ${outfitCalendar.ownerId} = ${ownerId})`;
+}
+
+/**
+ * The day and occasion of each of the owner's entries from `first` to
+ * `last`, as a scalar subquery (a JSON list): all emptySlots needs of them,
+ * for the banner's slots still empty (weekContext).
+ */
+export function entrySlotsSql(
+  ownerId: number,
+  first: IsoDate,
+  last: IsoDate,
+): SQL<Pick<WeekEntry, 'day' | 'occasion'>[]> {
+  return sql<Pick<WeekEntry, 'day' | 'occasion'>[]>`(
+    select coalesce(json_agg(json_build_object(
+      'day', ${outfitCalendar.day},
+      'occasion', ${outfitCalendar.occasion}
+    )), '[]')
+    from ${outfitCalendar}
+    where ${outfitCalendar.ownerId} = ${ownerId}
+      and ${outfitCalendar.day} between ${first} and ${last})`;
 }
 
 // ---- The daily re-plan's claims ---------------------------------------------

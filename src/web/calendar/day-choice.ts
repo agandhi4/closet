@@ -3,7 +3,7 @@ import type { Occasion } from '../../wardrobe/occasions';
 import { t } from '../i18n';
 import type { DayDestination } from '../outfits/destination';
 import { occasionLabel } from './labels';
-import { findEntries } from './queries';
+import { entriesOfDay } from './queries';
 
 /**
  * What a list of saved outfits needs to pick one for a day: the plan page
@@ -27,22 +27,17 @@ export async function dayChoice(
   ownerId: number,
   destination: DayDestination,
 ): Promise<DayChoice> {
-  const entries = await findEntries(
-    db,
-    ownerId,
-    destination.day,
-    destination.day,
-  );
+  const entries = await entriesOfDay(db, ownerId, destination.day);
   const replacing = entries.find(
     (entry) =>
       entry.id === destination.replace &&
       entry.occasion === destination.occasion,
   );
   return {
-    planned: new Map(entries.map((entry) => [entry.outfit.id, entry.occasion])),
+    planned: new Map(entries.map((entry) => [entry.outfitId, entry.occasion])),
     replacing: replacing && {
       entryId: replacing.id,
-      outfitName: replacing.outfit.name,
+      outfitName: replacing.outfitName,
       worn: replacing.worn,
     },
   };

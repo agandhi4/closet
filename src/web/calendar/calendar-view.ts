@@ -89,7 +89,7 @@ export function buildCalendarView(input: {
   today: IsoDate;
   /** Entries in the week, by day then id; others are ignored. */
   entries: CalendarEntry[];
-  /** Detached looks in the week (detachedLooks); none when absent. */
+  /** Detached looks in the week (detachedLooksSql, read by weekContext); none when absent. */
   looks?: DetachedLook[];
   /** The owner's week template (#16); no open slots when absent. */
   template?: readonly TemplateSlot[];

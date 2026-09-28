@@ -25,8 +25,12 @@ import { t, type StringKey } from '../i18n';
 import type { PushPayload } from '../push/payload';
 import { morningReminderDevices } from '../push/queries';
 import type { PushSender } from '../push/sender';
-import { refreshForecastsFor, type WeatherService } from '../weather/service';
-import { readWeek, weekForecast, writeAutoPick } from './plan';
+import {
+  refreshForecastsFor,
+  type UserWeather,
+  type WeatherService,
+} from '../weather/service';
+import { forecastOf, readWeek, weekForecast, writeAutoPick } from './plan';
 import {
   autoEntries,
   type AutoEntryRow,
@@ -140,15 +144,13 @@ export async function replanWeeks(
   if (hourIn(deps.timeZone, now) < REPLAN_HOUR) return run;
   const today = todayIn(deps.timeZone, now);
   const candidates = await replanCandidates(deps.db, today);
-  if (deps.weather && candidates.length > 0) {
-    await refreshForecastsFor(
-      { db: deps.db, weather: deps.weather, logger: deps.logger },
-      candidates,
-      now,
-    );
-  }
+  const weather = await candidatesWeather(deps, candidates, now);
   for (const userId of candidates) {
-    const outcome = await replanToday(deps, userId, now);
+    const outcome = await replanOnce(deps, userId, now, {
+      announcesToday: false,
+      listed: true,
+      weather: weather.get(userId),
+    });
     if (outcome.kind === 'skipped' || outcome.kind === 'deferred') continue;
     run.claimed += 1;
     if (outcome.kind === 'failed') {
@@ -168,6 +170,24 @@ export async function replanWeeks(
 }
 
 /**
+ * The candidates' weather, refreshed together (refreshForecastsFor) and
+ * handed on, so no re-plan reads its own again (#165). Empty without
+ * WEATHER_ENABLED: the re-plan then judges availability alone.
+ */
+async function candidatesWeather(
+  deps: ReplanDeps,
+  candidates: readonly number[],
+  now: Date,
+): Promise<ReadonlyMap<number, UserWeather>> {
+  if (!deps.weather || candidates.length === 0) return new Map();
+  return refreshForecastsFor(
+    { db: deps.db, weather: deps.weather, logger: deps.logger },
+    candidates,
+    now,
+  );
+}
+
+/**
  * `userId`'s re-plan for today, once a day whoever asks (see the module
  * comment): the judgement and its writes in one transaction with the
  * day's claim, then the swap notice. With `announcesToday` (the morning
@@ -178,21 +198,44 @@ export async function replanWeeks(
  * not retried every minute; only an owner lock timeout leaves the day
  * unclaimed, for the next minute.
  */
-export async function replanToday(
+export function replanToday(
   deps: ReplanDeps,
   userId: number,
   now: Date,
   { announcesToday = false }: { announcesToday?: boolean } = {},
+): Promise<ReplanOutcome> {
+  return replanOnce(deps, userId, now, { announcesToday, listed: false });
+}
+
+interface ReplanOptions {
+  announcesToday: boolean;
+  /**
+   * The minutely run listed the user as due a moment ago
+   * (replanCandidates): not asked again. The claim decides either way.
+   */
+  listed: boolean;
+  /** The run's batch refresh answered the user's weather (refreshForecastsFor). */
+  weather?: UserWeather;
+}
+
+async function replanOnce(
+  deps: ReplanDeps,
+  userId: number,
+  now: Date,
+  { announcesToday, listed, weather }: ReplanOptions,
 ): Promise<ReplanOutcome> {
   const today = todayIn(deps.timeZone, now);
   const started = performance.now();
   try {
     // A cheap look first: the forecast read below is for users with
     // something to judge. The claim decides.
-    if ((await replanCandidates(deps.db, today, userId)).length === 0) {
+    if (
+      !listed &&
+      (await replanCandidates(deps.db, today, userId)).length === 0
+    ) {
       return { kind: 'skipped' };
     }
-    const result = await replanUser(deps, userId, now);
+    const result = await replanUser(deps, userId, now, weather);
     if (!result) return { kind: 'skipped' };
     const { swaps, kept } = result;
     const swapped = swaps
@@ -262,12 +305,16 @@ async function replanUser(
   deps: Pick<ReplanDeps, 'db' | 'weather' | 'timeZone' | 'logger'>,
   userId: number,
   now: Date,
+  weather: UserWeather | undefined,
 ): Promise<{ swaps: Swap[]; kept: number } | undefined> {
   const today = todayIn(deps.timeZone, now);
-  // Not `fresh`: its callers (the minutely run, the morning reminder)
-  // refreshed their batch's forecasts together first (refreshForecastsFor).
-  // Read before the owner lock: a network wait must never hold it.
-  const forecast = await weekForecast(deps, userId, now, {});
+  // The batch's answer, else read here, not `fresh`: its callers (the
+  // minutely run, the morning reminder) refreshed their batch's forecasts
+  // together first (refreshForecastsFor). Before the owner lock: a network
+  // wait must never hold it.
+  const forecast = weather
+    ? forecastOf(weather)
+    : await weekForecast(deps, userId, now, {});
   return ownerTransaction(deps.db, userId, 'replanUser', async (tx) => {
     const auto = await autoEntries(tx, userId, today);
     if (auto.length === 0) return undefined;

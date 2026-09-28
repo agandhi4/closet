@@ -17,8 +17,9 @@ import {
   activeLocation,
   findForecastRow,
   findNormalsRow,
-  findWeatherSettings,
+  findWeathersWithForecast,
   findWeatherWithForecast,
+  NO_WEATHER_SETTINGS,
   recordFailedForecast,
   recordFailedNormals,
   saveForecast,
@@ -242,42 +243,70 @@ export async function userWeatherFrom(
  * Refreshes, together, the forecasts a batch job is about to decide on:
  * the distinct active locations of `userIds`, each through the cache's
  * fresh read (its single flight), BATCH_REFRESH_CONCURRENCY at a time,
- * within BATCH_REFRESH_DEADLINE_MS in all. The job then reads each person's
- * forecast without `fresh` (a refreshed row, or the stale one where the
- * refresh failed or overran), so N people at N places cost about one fetch,
- * not N one after another: the minutely timers skip a minute a slow run
- * overran. Used by the morning reminders and the daily re-plan. Never
- * throws: a location that fails is logged and left to its stale row.
+ * within BATCH_REFRESH_DEADLINE_MS in all, so N people at N places cost
+ * about one fetch, not N one after another: the minutely timers skip a
+ * minute a slow run overran. Used by the morning reminders and the daily
+ * re-plan.
+ *
+ * Answers each user's weather as userWeather would now (the refreshed
+ * answer, or the stale one where the refresh failed or overran the
+ * deadline), so a job need not read it again per person: the daily
+ * re-plan decides from it. Every user's settings and row come from one
+ * statement (findWeathersWithForecast; a read per user was an N+1, #165),
+ * handed to the cache as `known`. A location that fails never throws: it
+ * is logged and its users left out of the answer, for the job to read as
+ * it would without the batch.
  */
 export async function refreshForecastsFor(
   deps: { db: Db; weather: WeatherService; logger: Logger },
   userIds: readonly number[],
   now: Date,
-): Promise<void> {
-  const locations = new Map<string, Location>();
+): Promise<Map<number, UserWeather>> {
+  const users = new Map<number, UserWeather>();
+  const found = await findWeathersWithForecast(deps.db, userIds, now);
+  const locations = new Map<
+    string,
+    { location: Location; known: KnownRow<Forecast> | undefined }
+  >();
+  const actives = new Map<number, ActiveLocation>();
   for (const userId of new Set(userIds)) {
-    const active = activeLocation(
-      await findWeatherSettings(deps.db, userId),
-      now,
-    );
-    if (active) locations.set(locationLabel(active.location), active.location);
+    const { settings, forecast } = found.get(userId) ?? {
+      settings: NO_WEATHER_SETTINGS,
+      forecast: null,
+    };
+    const active = activeLocation(settings, now);
+    if (!active) {
+      users.set(userId, { settings, active: null, cached: null });
+      continue;
+    }
+    actives.set(userId, active);
+    const label = locationLabel(active.location);
+    if (!locations.has(label)) {
+      locations.set(label, {
+        location: active.location,
+        known: forecast ?? undefined,
+      });
+    }
   }
-  if (locations.size === 0) return;
+  if (locations.size === 0) return users;
   const started = performance.now();
-  const queue = [...locations.values()];
+  const answers = new Map<string, CachedForecast | null>();
+  const queue = [...locations.entries()];
   let expired = false;
   let pending = queue.length;
   const worker = async () => {
     // No new fetch once the deadline has passed: the job reads stale rows.
     while (!expired) {
-      const location = queue.shift();
-      if (!location) return;
+      const next = queue.shift();
+      if (!next) return;
+      const [label, { location, known }] = next;
       await deps.weather
-        .forecastFor(location, { fresh: true })
+        .forecastFor(location, { fresh: true }, known)
+        .then((cached) => answers.set(label, cached))
         .catch((error: unknown) =>
           deps.logger.error(
             { err: error },
-            `Forecast refresh for ${locationLabel(location)} failed`,
+            `Forecast refresh for ${label} failed`,
           ),
         );
       pending -= 1;
@@ -302,4 +331,14 @@ export async function refreshForecastsFor(
       pending > 0 ? `; ${pending} not done by the deadline, read stale` : ''
     }`,
   );
+  for (const [userId, active] of actives) {
+    const label = locationLabel(active.location);
+    if (!answers.has(label)) continue;
+    users.set(userId, {
+      settings: found.get(userId)!.settings,
+      active,
+      cached: answers.get(label)!,
+    });
+  }
+  return users;
 }

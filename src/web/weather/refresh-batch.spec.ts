@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureLogs } from '../../../test/support/log-capture';
 import type { Db } from '../../db/client';
 import type { Location } from '../../weather/location';
-import type { ReadOptions } from './location-cache';
-import { findWeatherSettings } from './queries';
+import type { Forecast } from '../../weather/forecast';
+import type { KnownRow, ReadOptions } from './location-cache';
+import { findWeathersWithForecast } from './queries';
 import {
   BATCH_REFRESH_CONCURRENCY,
   BATCH_REFRESH_DEADLINE_MS,
@@ -13,7 +14,7 @@ import {
 
 vi.mock('./queries', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./queries')>()),
-  findWeatherSettings: vi.fn(),
+  findWeathersWithForecast: vi.fn(),
 }));
 
 /**
@@ -32,10 +33,14 @@ const placeOf = (userId: number): Location => ({
 });
 
 function slowWeather() {
-  const asked: { location: Location; read: ReadOptions | undefined }[] = [];
+  const asked: {
+    location: Location;
+    read: ReadOptions | undefined;
+    known: KnownRow<Forecast> | undefined;
+  }[] = [];
   const weather: WeatherService = {
-    forecastFor: (location, read) => {
-      asked.push({ location, read });
+    forecastFor: (location, read, known) => {
+      asked.push({ location, read, known });
       return new Promise((resolve) =>
         setTimeout(
           () =>
@@ -54,18 +59,30 @@ function slowWeather() {
   return { weather, asked };
 }
 
+// Every user's settings, in the one statement the batch reads them in; no
+// place has a cache row yet.
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.mocked(findWeatherSettings).mockImplementation((_db, userId) =>
-    Promise.resolve({
-      home:
-        userId === 0
-          ? null
-          : { name: `Place ${userId}`, location: placeOf(userId) },
-      here: null,
-      unit: 'fahrenheit',
-      offset: 0,
-    }),
+  vi.mocked(findWeathersWithForecast).mockImplementation((_db, userIds) =>
+    Promise.resolve(
+      new Map(
+        userIds.map((userId) => [
+          userId,
+          {
+            settings: {
+              home:
+                userId === 0
+                  ? null
+                  : { name: `Place ${userId}`, location: placeOf(userId) },
+              here: null,
+              unit: 'fahrenheit',
+              offset: userId,
+            },
+            forecast: userId === 0 ? null : { row: undefined },
+          },
+        ]),
+      ),
+    ),
   );
 });
 
@@ -84,15 +101,28 @@ describe('refreshForecastsFor', () => {
       // Users asked twice (two devices, both kinds) are one place.
       [...users, 1, 2],
       new Date('2030-01-15T12:00:00Z'),
-    ).then(() => {
+    ).then((answered) => {
       done = true;
+      return answered;
     });
     await vi.advanceTimersByTimeAsync(FETCH_MS);
-    await batch;
+    const answered = await batch;
     expect(done).toBe(true);
-    // Four places (user 0 has none), each asked once, fresh, all at once.
+    // Four places (user 0 has none), each asked once, fresh, all at once,
+    // with the row the batch read (none yet), so the cache reads nothing.
     expect(asked).toHaveLength(4);
     expect(asked.every(({ read }) => read?.fresh === true)).toBe(true);
+    expect(asked.every(({ known }) => known?.row === undefined)).toBe(true);
+    expect(asked.every(({ known }) => known !== undefined)).toBe(true);
+    // Each user's weather, for the job to decide from without reading it.
+    expect([...answered.keys()].sort()).toEqual(users);
+    expect(answered.get(0)).toMatchObject({ active: null, cached: null });
+    expect(answered.get(3)).toMatchObject({
+      settings: { offset: 3 },
+      active: { location: placeOf(3), source: 'home' },
+      cached: { forecast: { days: [] } },
+    });
+    expect(findWeathersWithForecast).toHaveBeenCalledTimes(1);
     expect(logs.messages('info')).toEqual([
       expect.stringMatching(
         /^Forecasts for 4 location\(s\) refreshed for a batch in \d+ ms$/,
@@ -109,14 +139,17 @@ describe('refreshForecastsFor', () => {
       { db: {} as Db, weather, logger },
       users,
       new Date('2030-01-15T12:00:00Z'),
-    ).then(() => {
+    ).then((answered) => {
       done = true;
+      return answered;
     });
     await vi.advanceTimersByTimeAsync(BATCH_REFRESH_DEADLINE_MS - 1);
     expect(done).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    await batch;
+    const answered = await batch;
     expect(done).toBe(true);
+    // The first round's four answered; the rest read on their own.
+    expect([...answered.keys()]).toEqual([1, 2, 3, 4]);
     // Two rounds of four started by 12 s (0 s and 10 s); none after it.
     expect(asked).toHaveLength(2 * BATCH_REFRESH_CONCURRENCY);
     await vi.advanceTimersByTimeAsync(3 * FETCH_MS);
@@ -132,9 +165,10 @@ describe('refreshForecastsFor', () => {
       ...slowWeather().weather,
       forecastFor: () => Promise.reject(new Error('pool ended')),
     };
+    // Left out of the answer: the job reads that user's weather itself.
     await expect(
       refreshForecastsFor({ db: {} as Db, weather, logger }, [1], new Date()),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual(new Map());
     expect(logs.messages('error')).toEqual([
       'Forecast refresh for 40.01,-73.98 failed',
     ]);

@@ -633,6 +633,21 @@ const pages: Step[] = [
   }),
   http({
     ...CALENDAR,
+    name: 'Month weather chips',
+    kind: 'fragment',
+    route: 'GET /weather/summary',
+    // WeatherMonthLoader's ask (#201), as this month's page makes it.
+    prepare: async (f) => {
+      const month = await f.send(get('/calendar/month'), 200);
+      const url = /hx-get="(\/weather\/summary[^"]*)"/.exec(month.body)?.[1];
+      if (!url) throw new Error('No month weather loader on /calendar/month');
+      return url.replaceAll('&amp;', '&');
+    },
+    request: (_f, url: string) => get(url, { htmx: true }),
+    expect: 200,
+  }),
+  http({
+    ...CALENDAR,
     name: '+ Plan sheet',
     kind: 'page',
     route: 'GET /calendar/plan',
@@ -1787,11 +1802,15 @@ const writes: Step[] = [
     name: 'Save the week template',
     kind: 'action',
     route: 'POST /auth/profile/week',
-    request: () =>
-      post('/auth/profile/week', {
-        'day-mon': 'work',
-        'around-mon': 'workout',
-      }),
+    // Theo's own template posted back as the form posts it: a save that
+    // changes nothing, so the steps after it (plan_week) still plan his
+    // week. The form's fields are by weekday number (`day-1`); names it
+    // does not have are stripped, which saved an empty template.
+    prepare: async (f) =>
+      f.build.weekTemplate.weekTemplatePost(
+        await f.build.weekTemplate.findWeekTemplate(f.closet.db, f.theo.id),
+      ),
+    request: (_f, form) => post('/auth/profile/week', form),
     expect: 303,
   }),
   http({
@@ -3061,8 +3080,8 @@ const jobs: Step[] = [
     name: 'Forecast refresh',
     kind: 'job',
     target: 'job weather refresh',
-    run: (f) =>
-      f.build.weather.refreshForecastsFor(
+    run: async (f) => {
+      await f.build.weather.refreshForecastsFor(
         {
           db: f.closet.db,
           weather: f.closet.weather!,
@@ -3070,7 +3089,8 @@ const jobs: Step[] = [
         },
         [f.theo.id, f.ids.dana.id],
         new Date(),
-      ),
+      );
+    },
   }),
   job({
     ...JOBS,

@@ -4,7 +4,13 @@ import { outfitCalendar } from '../../src/db/schema';
 import { OCCASIONS } from '../../src/wardrobe/occasions';
 import { dayColumns, planButtonLabel } from './calendar-page';
 import { createGarment } from './garments';
-import { createTestApp, hasText, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  hasText,
+  recordQueries,
+  type TestApp,
+  unescapeHtml,
+} from './harness';
 import { expectFullPage, expectNativePostForms } from './pages';
 
 /**
@@ -214,13 +220,21 @@ describe('occasions', () => {
       const other = await newOutfit('Plan other');
       await plan({ outfitId: String(desk), date: day, occasion: 'work' });
 
-      const res = await t.inject({
-        method: 'GET',
-        url: `/calendar/plan?for=day:${day}&occasion=evening`,
+      let res: Awaited<ReturnType<typeof t.inject>> | undefined;
+      // #165: the session, then the saved outfits and the day's entries
+      // together; the day's entries bare (which outfits, for which
+      // occasion), with no collage or selfie the page does not draw.
+      const read = await recordQueries(async () => {
+        res = await t.inject({
+          method: 'GET',
+          url: `/calendar/plan?for=day:${day}&occasion=evening`,
+        });
       });
-      expectFullPage(res);
-      expectNativePostForms(res);
-      const html = unescapeHtml(res.body);
+      expect(read.statements).toBe(3);
+      expect(read.sql.join('\n')).not.toMatch(/"selfie"/);
+      expectFullPage(res!);
+      expectNativePostForms(res!);
+      const html = unescapeHtml(res!.body);
       expect(hasText(html, 'Wednesday, Oct 16')).toBe(true);
       // The occasions as links, the chosen one marked.
       for (const occasion of [

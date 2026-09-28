@@ -1,4 +1,4 @@
-import { and, eq, type SQL, sql } from 'drizzle-orm';
+import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import { userWeather, weatherForecast, weatherNormals } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
@@ -116,14 +116,37 @@ export function weatherWithForecastSql(
   userId: number,
   now: Date,
 ): SQL<WeatherWithForecastJson | null> {
+  const { json, from } = weatherWithForecastParts(now);
+  return sql<WeatherWithForecastJson | null>`(
+    select ${json} ${from} where ${eq(userWeather.userId, userId)})`;
+}
+
+/**
+ * weatherWithForecastSql for several users, as one scalar subquery (a JSON
+ * list, one element per user with a settings row): a batch job's read
+ * (findWeathersWithForecast, #165), where a read per user was an N+1.
+ */
+export function weathersWithForecastSql(
+  userIds: readonly number[],
+  now: Date,
+): SQL<WeatherWithForecastJson[]> {
+  const { json, from } = weatherWithForecastParts(now);
+  return sql<WeatherWithForecastJson[]>`(
+    select coalesce(json_agg(${json}), '[]') ${from}
+    where ${inArray(userWeather.userId, [...userIds])})`;
+}
+
+// The one definition of a user's weather-with-forecast value and the join
+// it is read from; the two subqueries above differ only in their WHERE.
+function weatherWithForecastParts(now: Date): { json: SQL; from: SQL } {
   const hereSince = new Date(now.getTime() - HERE_FRESH_HOURS * 3_600_000);
   const hereFresh = sql`${userWeather.hereLocatedAt} > ${hereSince}`;
   const latitude = sql`case when ${hereFresh}
     then ${userWeather.hereLatitude} else ${userWeather.homeLatitude} end`;
   const longitude = sql`case when ${hereFresh}
     then ${userWeather.hereLongitude} else ${userWeather.homeLongitude} end`;
-  return sql<WeatherWithForecastJson | null>`(
-    select json_build_object(
+  return {
+    json: sql`json_build_object(
       'settings', json_build_object(
         'userId', ${userWeather.userId},
         'homeName', ${userWeather.homeName},
@@ -140,13 +163,12 @@ export function weatherWithForecastSql(
       'value', ${weatherForecast.forecast},
       'fetchedAt', ${weatherForecast.fetchedAt},
       'attemptedAt', ${weatherForecast.attemptedAt}
-    )
-    from ${userWeather}
+    )`,
+    from: sql`from ${userWeather}
     left join ${weatherForecast}
       on ${weatherForecast.latitude} = ${latitude}
-      and ${weatherForecast.longitude} = ${longitude}
-    where ${eq(userWeather.userId, userId)}
-  )`;
+      and ${weatherForecast.longitude} = ${longitude}`,
+  };
 }
 
 /**
@@ -207,6 +229,27 @@ export async function findWeatherWithForecast(
     weather: weatherWithForecastSql(userId, now),
   });
   return readWeatherWithForecast(weather, now);
+}
+
+/**
+ * findWeatherWithForecast for several users in one statement
+ * (weathersWithForecastSql): the batch job's (refreshForecastsFor). A user
+ * without a settings row is absent from the map.
+ */
+export async function findWeathersWithForecast(
+  db: Queryable,
+  userIds: readonly number[],
+  now: Date,
+): Promise<Map<number, WeatherWithForecast>> {
+  const found = new Map<number, WeatherWithForecast>();
+  if (userIds.length === 0) return found;
+  const { weathers } = await selectScalars(db, {
+    weathers: weathersWithForecastSql([...new Set(userIds)], now),
+  });
+  for (const json of weathers) {
+    found.set(json.settings.userId, readWeatherWithForecast(json, now));
+  }
+  return found;
 }
 
 function sameLocation(a: Location, b: Location): boolean {

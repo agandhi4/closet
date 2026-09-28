@@ -9,6 +9,7 @@ import { variantFileName } from '../../src/web/files/image-variant';
 import { createGarment } from './garments';
 import {
   createTestApp,
+  recordQueries,
   type TestApp,
   TEST_PASSWORD,
   unescapeHtml,
@@ -258,6 +259,30 @@ describe('outfit selfies', () => {
       url: `/selfies/${second.id}/delete`,
     });
     expect(again.statusCode).toBe(404);
+  });
+
+  // #165: production pays a ~114 ms round trip per statement. The session,
+  // the entry looked up before the upload is read, then one owner
+  // transaction that setEntryWorn joins (no savepoint, no second lock):
+  // begin, the lock, the entry locked, (marked worn,) the previous selfie,
+  // the photo row, the selfie, (the replaced photo row,) commit.
+  it('takes a selfie in ten statements, and replaces one in as many', async () => {
+    const { entryId } = await outfitOn('Counted');
+    const photo = { data: await mirrorPhoto() };
+    const taken = await recordQueries(async () => {
+      expect((await postSelfie(t, entryId, photo)).statusCode).toBe(303);
+    });
+    expect(taken.statements).toBe(10);
+    // Worn already: nothing to mark, and the old photo row goes instead.
+    const replaced = await recordQueries(async () => {
+      expect((await postSelfie(t, entryId, photo)).statusCode).toBe(303);
+    });
+    expect(replaced.statements).toBe(10);
+    for (const record of [taken, replaced]) {
+      const sql = record.sql.join('\n');
+      expect(sql).not.toMatch(/savepoint/);
+      expect(sql.match(/for no key update/g)).toHaveLength(1);
+    }
   });
 
   it('refuses a planned day (409), a missing photo (400) and anyone else (404), storing nothing', async () => {
