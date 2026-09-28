@@ -12,7 +12,11 @@ import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
 import { deleteEntrySelfie, entrySelfieSql } from '../selfies/queries';
-import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
+import {
+  changeEntryWorn,
+  type EntryWornOutcome,
+  type LockedEntry,
+} from '../wears/queries';
 import type { IsoDate } from './calendar-date';
 import type { CalendarEntry } from './calendar-view';
 
@@ -191,8 +195,10 @@ export async function ownsOutfit(
  * form's "Add to calendar", inside its save transaction
  * (src/web/outfits/queries.ts), the gallery's pick (which the week planner,
  * #16, calls with plannedBy 'auto') and the seed's simulated history. An entry
- * starts unworn: setEntryWorn (src/web/wears/queries.ts) is the only way to
- * mark one, because its wear rows change with it.
+ * starts unworn: setEntryWorn's change (changeEntryWorn, src/web/wears/queries.ts)
+ * is the only way to mark one, because its wear rows change with it; "Wearing
+ * this" plans through its own form of this insert (planToWear), which takes
+ * the entry over as marking it does.
  *
  * The outfit already on that day keeps its entry and its occasion: planning
  * it again for another occasion changes nothing (an edit form re-saved with
@@ -247,8 +253,8 @@ async function upsertEntry(tx: Queryable, entry: NewEntry): Promise<Scheduled> {
 /**
  * The owner's entry for `outfitId` on `day` (an outfit is on a day once, so
  * there is at most one), for a caller that planned it through insertEntry
- * and must act on the entry whether it was new or already there
- * (wearOutfitOn; the week planner), or that must
+ * and must act on the entry whether it was new or already there (the week
+ * planner), or that must
  * not plan it twice (replaceEntryOutfit, which names the occasion it is
  * on). Served by the unique (owner_id, day, outfit_id) index.
  */
@@ -352,8 +358,14 @@ export interface WornOutfit {
  * was worn when (plan section 1). Today's "Wear this" (wearIdea, after
  * pickIdea) and a trip's "Wearing this today" (#10, src/web/trips). Safe
  * to repeat: a second call finds the entry (a concurrent one waits on the
- * owner lock, then reads it) and setEntryWorn finds it worn (`changed`
- * false). 'future' for a day after `today`, before anything is written.
+ * owner lock, then reads it) and changeEntryWorn finds it worn
+ * (`changed` false). 'future' for a day after `today`, before anything is
+ * written.
+ *
+ * Two statements under the owner lock (#166; production pays a round trip
+ * per statement): planning the entry locks and reads it (planToWear), and
+ * marking it is setEntryWorn's own change (changeEntryWorn), not run at all
+ * when it is worn already.
  */
 export function wearOutfitOn(
   db: Queryable,
@@ -369,30 +381,62 @@ export function wearOutfitOn(
   const { ownerId, outfitId, day, occasion } = input;
   if (day > input.today) return Promise.resolve('future');
   return ownerTransaction(db, ownerId, 'wearOutfitOn', async (tx) => {
-    const scheduled = await insertEntry(tx, {
+    const { inserted, ...entry } = await planToWear(tx, {
       ownerId,
       outfitId,
       day,
       occasion,
     });
-    // Planned just now or already on the day: either way there is one.
-    const entryId =
-      scheduled.outcome === 'scheduled'
-        ? scheduled.id
-        : (await entryOf(tx, ownerId, day, outfitId))!.id;
-    const worn = await setEntryWorn(tx, {
-      entryId,
+    const worn = await changeEntryWorn(tx, entry, {
       ownerId,
       worn: true,
       at: input.at,
       today: input.today,
     });
-    // Neither can happen: the entry was just found, and its day is not ahead.
-    if (worn === 'not-found' || worn === 'future') {
-      throw new Error(`Entry ${entryId} on ${day} could not be marked worn`);
+    // Cannot happen: the day is not ahead of today.
+    if (worn === 'future') {
+      throw new Error(`Entry ${entry.id} on ${day} could not be marked worn`);
     }
-    return { entryId, scheduled: scheduled.outcome, worn };
+    return {
+      entryId: entry.id,
+      scheduled: inserted ? 'scheduled' : 'already-scheduled',
+      worn,
+    };
   });
+}
+
+/**
+ * insertEntry for an entry about to be marked worn (wearOutfitOn): the
+ * same insert, and the outfit already on the day keeps its entry and its
+ * occasion, but a conflict always takes the entry over (planned_by 'user',
+ * as marking it worn does anyway), so the statement locks and returns the
+ * entry, new or not. One round trip where insertEntry, entryOf and
+ * setEntryWorn's lock were three. The caller holds the owner lock.
+ */
+async function planToWear(
+  tx: Queryable,
+  entry: NewEntry,
+): Promise<LockedEntry & { inserted: boolean }> {
+  const [row] = await tx
+    .insert(outfitCalendar)
+    .values(entry)
+    .onConflictDoUpdate({
+      target: [
+        outfitCalendar.ownerId,
+        outfitCalendar.day,
+        outfitCalendar.outfitId,
+      ],
+      set: { plannedBy: 'user' },
+    })
+    .returning({
+      id: outfitCalendar.id,
+      day: outfitCalendar.day,
+      outfitId: outfitCalendar.outfitId,
+      wornAt: outfitCalendar.wornAt,
+      // As in upsertEntry: xmax is 0 on a row this statement inserted.
+      inserted: sql<boolean>`(xmax = 0)`,
+    });
+  return row;
 }
 
 /** The day of the owner's entry; undefined when it is not theirs. */

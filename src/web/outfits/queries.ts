@@ -141,7 +141,10 @@ export function listOutfits(db: Db, ownerId: number): Promise<OutfitSummary[]> {
   return outfitsWithGarments(db, eq(outfit.ownerId, ownerId));
 }
 
-/** An outfit in the garment page's strip: what a thumb collage shows. */
+/**
+ * An outfit as a thumb collage or a saved-outfit button shows it: the
+ * garment page's strip, a trip's add page (savedOutfitsSql).
+ */
 export type GarmentOutfit = Pick<OutfitSummary, 'id' | 'name' | 'garments'>;
 
 /** The garment page's "In N outfits" (#84): how many, and the newest few. */
@@ -151,24 +154,14 @@ export interface GarmentOutfits {
 }
 
 /**
- * The owner's outfits that hold `garmentId` (any slot), counted, and the
- * newest `limit` of them with their chosen garments in slot order, as one
- * scalar subquery: the garment page reads it with its other lists in one
- * statement (garmentContext, src/web/wardrobe/garment-context.ts). Only
- * what the strip shows (outfitsWithGarments' notes and shareable id feed
- * nothing there). `outfit_slot_garment_id_index` finds the outfits.
+ * The chosen garments of the enclosing query's outfit row in slot order,
+ * as a JSON list (an empty slot shows nothing, as in outfitsWithGarments).
+ * Correlated with `"outfit"."id"`: the caller's FROM names the outfit
+ * table unaliased. The scalar subqueries below, and a trip's outfits
+ * (tripModel, src/web/trips/model.ts).
  */
-export function outfitsWithGarmentSql(
-  ownerId: number,
-  garmentId: number,
-  limit: number,
-): SQL<GarmentOutfits> {
-  const holds = and(
-    eq(outfit.ownerId, ownerId),
-    sql`${outfit.id} in (select ${outfitSlot.outfitId} from ${outfitSlot} where ${eq(outfitSlot.garmentId, garmentId)})`,
-  );
-  // An empty slot shows nothing, as in outfitsWithGarments.
-  const garments = sql`(
+export function outfitGarmentsSql(): SQL<OutfitGarment[]> {
+  return sql<OutfitGarment[]>`(
     select coalesce(
       json_agg(
         json_build_object(
@@ -188,8 +181,50 @@ export function outfitsWithGarmentSql(
     left join ${file} on ${eq(file.id, garment.photoId)}
     where ${eq(outfitSlot.outfitId, outfit.id)}
   )`;
+}
+
+/**
+ * Every outfit of the owner's, newest first, as a saved-outfit button
+ * shows it (listOutfits' notes and shareable id feed nothing there), as
+ * one scalar subquery: a trip's add page reads it with the trip.
+ */
+export function savedOutfitsSql(ownerId: number): SQL<GarmentOutfit[]> {
+  return sql<GarmentOutfit[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'id', ${outfit.id},
+          'name', ${outfit.name},
+          'garments', ${outfitGarmentsSql()}
+        )
+        order by ${outfit.id} desc
+      ),
+      '[]'
+    )
+    from ${outfit}
+    where ${eq(outfit.ownerId, ownerId)}
+  )`;
+}
+
+/**
+ * The owner's outfits that hold `garmentId` (any slot), counted, and the
+ * newest `limit` of them with their chosen garments in slot order, as one
+ * scalar subquery: the garment page reads it with its other lists in one
+ * statement (garmentContext, src/web/wardrobe/garment-context.ts). Only
+ * what the strip shows (outfitsWithGarments' notes and shareable id feed
+ * nothing there). `outfit_slot_garment_id_index` finds the outfits.
+ */
+export function outfitsWithGarmentSql(
+  ownerId: number,
+  garmentId: number,
+  limit: number,
+): SQL<GarmentOutfits> {
+  const holds = and(
+    eq(outfit.ownerId, ownerId),
+    sql`${outfit.id} in (select ${outfitSlot.outfitId} from ${outfitSlot} where ${eq(outfitSlot.garmentId, garmentId)})`,
+  );
   const newest = sql`(
-    select ${outfit.id}, ${outfit.name}, ${garments} as garments
+    select ${outfit.id}, ${outfit.name}, ${outfitGarmentsSql()} as garments
     from ${outfit}
     where ${holds}
     order by ${outfit.id} desc

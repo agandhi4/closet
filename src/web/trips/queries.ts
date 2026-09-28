@@ -1,13 +1,4 @@
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  inArray,
-  isNotNull,
-  isNull,
-  sql,
-} from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import {
   outfit,
@@ -20,7 +11,7 @@ import type { Occasion } from '../../wardrobe/occasions';
 import type { Location } from '../../weather/location';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
 import { pickIdea, type PickResult } from '../gallery/ideas';
-import { lockTrip, prunePacked } from './packed';
+import { intArray, lockedTripCte, lockTrip, prunePacked } from './packed';
 
 /**
  * Trips' reads and writes (#10; docs/plans/2026-09-26-wardrobe-features.md,
@@ -60,12 +51,17 @@ const tripColumns = {
   notes: trip.notes,
 };
 
-type TripSelect = {
+/** A trip as it is read: its columns, or ownTripSql's JSON (the same shape). */
+export type TripSelect = {
   latitude: number | null;
   longitude: number | null;
 } & Omit<TripRow, 'location'>;
 
-function tripRow({ latitude, longitude, ...fields }: TripSelect): TripRow {
+export function tripRow({
+  latitude,
+  longitude,
+  ...fields
+}: TripSelect): TripRow {
   // trip_location_check keeps the two together.
   return {
     ...fields,
@@ -109,8 +105,47 @@ export async function findTrip(
   const [row] = await db
     .select(tripColumns)
     .from(trip)
-    .where(and(eq(trip.id, id), eq(trip.ownerId, ownerId)));
+    .where(ownsTripWhere(id, ownerId));
   return row && tripRow(row);
+}
+
+/**
+ * findTrip as a scalar subquery (null when the trip is not the owner's),
+ * so a page reads the trip in one statement with what it shows beside it
+ * (selectScalars: tripModel, the add page, the forecast fragment). JSON
+ * gives the dates as ISO strings and the numerics as numbers: TripSelect.
+ */
+export function ownTripSql(
+  id: number,
+  ownerId: number,
+): SQL<TripSelect | null> {
+  return sql<TripSelect | null>`(
+    select json_build_object(
+      'id', ${trip.id},
+      'name', ${trip.name},
+      'destination', ${trip.destination},
+      'latitude', ${trip.latitude},
+      'longitude', ${trip.longitude},
+      'startsOn', ${trip.startsOn},
+      'endsOn', ${trip.endsOn},
+      'notes', ${trip.notes}
+    )
+    from ${trip}
+    where ${ownsTripWhere(id, ownerId)}
+  )`;
+}
+
+function ownsTripWhere(id: number, ownerId: number): SQL {
+  return and(eq(trip.id, id), eq(trip.ownerId, ownerId))!;
+}
+
+/**
+ * Whether the trip is the owner's, as a condition uncorrelated with the
+ * enclosing query: the reads of a trip's rows (its extras, its outfits'
+ * days) carry it, so another user's trip reads nothing.
+ */
+function ownsTrip(id: number, ownerId: number): SQL {
+  return sql`exists (select 1 from ${trip} where ${ownsTripWhere(id, ownerId)})`;
 }
 
 export interface TripSummary extends TripRow {
@@ -174,6 +209,14 @@ export async function createTrip(
  * one that would then be the outfit's second undated row goes, since the
  * outfit is on the trip already. 'not-found' when the trip is not the
  * owner's.
+ *
+ * Two statements in its transaction (#166): the trip locked and its
+ * destination read, then every write in one. The writes judge the trip's
+ * outfits, so they read them after the lock, never in its statement
+ * (lockedTripCte). They touch disjoint rows: an outfit's rows leaving the
+ * dates are all deleted but its first, which loses its day unless the
+ * outfit has an undated row already (then that one goes too); so no row
+ * is both deleted and undated, and no two undated rows collide.
  */
 export function updateTrip(
   db: Db,
@@ -185,35 +228,42 @@ export function updateTrip(
     const [current] = await tx
       .select({ destination: trip.destination })
       .from(trip)
-      .where(and(eq(trip.id, id), eq(trip.ownerId, ownerId)))
+      .where(ownsTripWhere(id, ownerId))
       .for('update');
     if (!current) return 'not-found';
     const locationCleared = current.destination !== fields.destination;
-    await tx
-      .update(trip)
-      .set({
-        ...fields,
-        ...(locationCleared && { latitude: null, longitude: null }),
-      })
-      .where(eq(trip.id, id));
-    const outside = sql`(${tripOutfit.day} < ${fields.startsOn} or ${tripOutfit.day} > ${fields.endsOn})`;
-    // An outfit's rows about to lose their day: all but one would collide
-    // with each other, or with a row it has without a day already.
-    await tx.execute(sql`
-      delete from ${tripOutfit} o
-      where o.trip_id = ${id} and o.day is not null
-      and (o.day < ${fields.startsOn} or o.day > ${fields.endsOn})
-      and exists (
-        select 1 from ${tripOutfit} u
-        where u.trip_id = o.trip_id and u.outfit_id = o.outfit_id and u.id <> o.id
-        and (u.day is null or ((u.day < ${fields.startsOn} or u.day > ${fields.endsOn}) and u.id < o.id))
-      )`);
-    const undated = await tx
-      .update(tripOutfit)
-      .set({ day: null })
-      .where(and(eq(tripOutfit.tripId, id), isNotNull(tripOutfit.day), outside))
-      .returning({ id: tripOutfit.id });
-    return { undated: undated.length, locationCleared };
+    const { startsOn, endsOn } = fields;
+    const outside = (row: string) =>
+      sql`(${sql.raw(row)}.day < ${startsOn} or ${sql.raw(row)}.day > ${endsOn})`;
+    // Another row of the outfit keeps it on the trip: an undated one, or
+    // an earlier one leaving the dates too.
+    const kept = sql`exists (
+      select 1 from ${tripOutfit} u
+      where u.trip_id = o.trip_id and u.outfit_id = o.outfit_id and u.id <> o.id
+      and (u.day is null or (${outside('u')} and u.id < o.id))
+    )`;
+    const leaving = sql`o.trip_id = ${id} and o.day is not null and ${outside('o')}`;
+    const { rows } = await tx.execute<{ undated: number }>(sql`
+      with saved as (
+        update ${trip} set
+          name = ${fields.name},
+          destination = ${fields.destination},
+          starts_on = ${startsOn},
+          ends_on = ${endsOn},
+          notes = ${fields.notes}
+          ${locationCleared ? sql`, latitude = null, longitude = null` : sql.empty()}
+        where ${eq(trip.id, id)}
+      ),
+      removed as (
+        delete from ${tripOutfit} o where ${leaving} and ${kept}
+      ),
+      undated as (
+        update ${tripOutfit} o set day = null
+        where ${leaving} and not ${kept}
+        returning 1
+      )
+      select count(*)::int as undated from undated`);
+    return { undated: rows[0].undated, locationCleared };
   });
 }
 
@@ -234,7 +284,7 @@ export async function setTripDestination(
       latitude: place.location.latitude,
       longitude: place.location.longitude,
     })
-    .where(and(eq(trip.id, id), eq(trip.ownerId, ownerId)))
+    .where(ownsTripWhere(id, ownerId))
     .returning({ id: trip.id });
   return updated.length > 0;
 }
@@ -247,7 +297,7 @@ export async function deleteTrip(
 ): Promise<boolean> {
   const deleted = await db
     .delete(trip)
-    .where(and(eq(trip.id, id), eq(trip.ownerId, ownerId)))
+    .where(ownsTripWhere(id, ownerId))
     .returning({ id: trip.id });
   return deleted.length > 0;
 }
@@ -287,6 +337,17 @@ async function insertTripOutfit(
   return inserted.length > 0 ? 'added' : 'already';
 }
 
+/**
+ * Whether a trip outfit may be for `day`: any day (none given) or one of
+ * the trip's. addTripOutfit's statement asks the same in SQL.
+ */
+function isTripDay(
+  trip: { startsOn: IsoDate; endsOn: IsoDate },
+  day: IsoDate | undefined,
+): boolean {
+  return day === undefined || (day >= trip.startsOn && day <= trip.endsOn);
+}
+
 /** The trip locked, and `day` one of its days (when given). */
 async function lockTripFor(
   tx: Queryable,
@@ -296,39 +357,63 @@ async function lockTripFor(
 ): Promise<TripRefusal | undefined> {
   const locked = await lockTrip(tx, tripId, ownerId);
   if (!locked) return 'no-trip';
-  if (day !== undefined && (day < locked.startsOn || day > locked.endsOn)) {
-    return 'not-a-trip-day';
-  }
-  return undefined;
+  return isTripDay(locked, day) ? undefined : 'not-a-trip-day';
 }
 
 /**
  * Adds the owner's saved outfit to their trip, for a day and occasion when
  * given (the add page, plan_trip_outfit). Idempotent: the same outfit on the
  * same day (or without one) again adds nothing and keeps the occasion it
- * has ('already'), the calendar's rule.
+ * has ('already'), the calendar's rule. One statement (lockedTripCte): the
+ * insert happens only for the owner's outfit on a day of the locked trip,
+ * and the refusal is told from what it read, in the order the checks were
+ * made one by one: the trip, the day, the outfit.
+ *
+ * The outfit is read from outside the trip, so the statement's snapshot
+ * (taken before it waited for the trip lock) may still hold one deleted
+ * meanwhile: `owned` locks it FOR KEY SHARE (what the insert's foreign key
+ * takes anyway), and a row locked after a wait is read again, so a deleted
+ * outfit drops out and the answer is 'no-outfit', never the foreign key's
+ * 500. `exists (select 1 from locked)` is a one-time filter that takes the
+ * trip lock before the outfit's, the order every trip write keeps
+ * (deleteOutfit locks the outfit and never a trip, so they cannot deadlock).
  */
-export function addTripOutfit(
+export async function addTripOutfit(
   db: Queryable,
   input: { tripId: number; ownerId: number; outfitId: number } & TripSlot,
 ): Promise<TripOutfitAdded | TripRefusal | 'no-outfit'> {
-  return db.transaction(async (tx) => {
-    const refused = await lockTripFor(
-      tx,
-      input.tripId,
-      input.ownerId,
-      input.day,
-    );
-    if (refused) return refused;
-    const [owned] = await tx
-      .select({ id: outfit.id })
-      .from(outfit)
-      .where(
-        and(eq(outfit.id, input.outfitId), eq(outfit.ownerId, input.ownerId)),
-      );
-    if (!owned) return 'no-outfit';
-    return insertTripOutfit(tx, input.tripId, input.outfitId, input);
-  });
+  const day = sql`${input.day ?? null}::date`;
+  const { rows } = await db.execute<{
+    startsOn: IsoDate;
+    endsOn: IsoDate;
+    owned: boolean;
+    added: boolean;
+  }>(sql`
+    with ${lockedTripCte(input.tripId, input.ownerId)},
+    owned as (
+      select ${outfit.id} as id from ${outfit}
+      where ${and(eq(outfit.id, input.outfitId), eq(outfit.ownerId, input.ownerId))}
+      and exists (select 1 from locked)
+      for key share
+    ),
+    added as (
+      insert into ${tripOutfit} (trip_id, outfit_id, day, occasion)
+      select locked.id, owned.id, ${day}, ${input.occasion ?? null}::text
+      from locked, owned
+      where ${day} is null or ${day} between locked.starts_on and locked.ends_on
+      on conflict do nothing
+      returning 1
+    )
+    select to_char(locked.starts_on, 'YYYY-MM-DD') as "startsOn",
+      to_char(locked.ends_on, 'YYYY-MM-DD') as "endsOn",
+      exists (select 1 from owned) as owned,
+      exists (select 1 from added) as added
+    from locked`);
+  const [found] = rows;
+  if (!found) return 'no-trip';
+  if (!isTripDay(found, input.day)) return 'not-a-trip-day';
+  if (!found.owned) return 'no-outfit';
+  return found.added ? 'added' : 'already';
 }
 
 /**
@@ -365,23 +450,27 @@ export function pickForTrip(
 
 /**
  * Takes an outfit off the owner's trip (the outfit itself stays), and with
- * it the packed marks of garments no other outfit of the trip holds.
+ * it the packed marks of garments no other outfit of the trip holds. Two
+ * statements in its transaction (#166): the trip locked and the row
+ * deleted (by its id, which a stale read cannot mistake), then the prune,
+ * which judges the trip's outfits and so reads them after the lock
+ * (lockedTripCte).
  */
 export function removeTripOutfit(
   db: Db,
   input: { tripId: number; tripOutfitId: number; ownerId: number },
 ): Promise<{ outfitId: number; unpacked: number } | 'not-found'> {
   return db.transaction(async (tx) => {
-    if (!(await lockTrip(tx, input.tripId, input.ownerId))) return 'not-found';
-    const [removed] = await tx
-      .delete(tripOutfit)
-      .where(
-        and(
-          eq(tripOutfit.id, input.tripOutfitId),
-          eq(tripOutfit.tripId, input.tripId),
-        ),
-      )
-      .returning({ outfitId: tripOutfit.outfitId });
+    const { rows } = await tx.execute<{ outfitId: number }>(sql`
+      with ${lockedTripCte(input.tripId, input.ownerId)}
+      delete from ${tripOutfit}
+      where ${and(
+        eq(tripOutfit.id, input.tripOutfitId),
+        eq(tripOutfit.tripId, input.tripId),
+      )}
+      and exists (select 1 from locked)
+      returning ${tripOutfit.outfitId} as "outfitId"`);
+    const [removed] = rows;
     if (!removed) return 'not-found';
     const unpacked = await prunePacked(tx, [input.tripId]);
     return { outfitId: removed.outfitId, unpacked };
@@ -428,44 +517,54 @@ export async function findTripOutfit(
   );
 }
 
-/**
- * The outfits on the trip for `day` (null: without a day), which the add
- * page offers disabled. The caller has found the trip to be the owner's.
- */
-export async function outfitsOnTripDay(
-  db: Db,
-  tripId: number,
-  day: IsoDate | null,
-): Promise<Set<number>> {
-  const rows = await db
-    .select({ outfitId: tripOutfit.outfitId })
-    .from(tripOutfit)
-    .where(
-      and(
-        eq(tripOutfit.tripId, tripId),
-        day === null ? isNull(tripOutfit.day) : eq(tripOutfit.day, day),
-      ),
-    );
-  return new Set(rows.map((row) => row.outfitId));
+/** A trip outfit's outfit and day (null: any day). */
+export interface TripOutfitDay {
+  outfitId: number;
+  day: IsoDate | null;
 }
 
-/** The outfits of the owner's marked worn on `day`: the trip page's "Worn today". */
-export async function outfitsWornOn(
-  db: Db,
+/**
+ * The owner's trip's outfits and their days, as a scalar subquery: the add
+ * page reads it with the trip and offers those on the chosen day disabled
+ * (outfitsOnDay). Every row, since which day is chosen depends on the
+ * trip's dates: a trip holds a handful.
+ */
+export function tripOutfitDaysSql(
+  tripId: number,
   ownerId: number,
-  day: IsoDate,
-): Promise<Set<number>> {
-  const rows = await db
-    .select({ outfitId: outfitCalendar.outfitId })
-    .from(outfitCalendar)
-    .where(
-      and(
-        eq(outfitCalendar.ownerId, ownerId),
-        eq(outfitCalendar.day, day),
-        isNotNull(outfitCalendar.wornAt),
-      ),
-    );
-  return new Set(rows.map((row) => row.outfitId));
+): SQL<TripOutfitDay[]> {
+  return sql<TripOutfitDay[]>`(
+    select coalesce(
+      json_agg(json_build_object('outfitId', ${tripOutfit.outfitId}, 'day', ${tripOutfit.day})),
+      '[]'
+    )
+    from ${tripOutfit}
+    where ${tripOutfit.tripId} = ${tripId} and ${ownsTrip(tripId, ownerId)}
+  )`;
+}
+
+/** The outfits on the trip for `day` (null: without a day). */
+export function outfitsOnDay(
+  outfits: readonly TripOutfitDay[],
+  day: IsoDate | null,
+): Set<number> {
+  return new Set(outfits.flatMap((o) => (o.day === day ? [o.outfitId] : [])));
+}
+
+/**
+ * The outfits of the owner's marked worn on `day`, as a scalar subquery:
+ * the trip page's "Worn today" (outfit_calendar_owner_id_day_outfit_id_unique).
+ */
+export function outfitsWornOnSql(ownerId: number, day: IsoDate): SQL<number[]> {
+  return sql<number[]>`(
+    select coalesce(json_agg(${outfitCalendar.outfitId}), '[]')
+    from ${outfitCalendar}
+    where ${and(
+      eq(outfitCalendar.ownerId, ownerId),
+      eq(outfitCalendar.day, day),
+      isNotNull(outfitCalendar.wornAt),
+    )}
+  )`;
 }
 
 // ---- Extras -------------------------------------------------------------------
@@ -489,64 +588,105 @@ export function tripItems(
 }
 
 /**
+ * The owner's trip's extras in the order added, as a scalar subquery: the
+ * trip page reads them with the rest of the trip (tripModel).
+ */
+export function tripItemsSql(
+  tripId: number,
+  ownerId: number,
+): SQL<TripItemRow[]> {
+  return sql<TripItemRow[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object('id', ${tripItem.id}, 'label', ${tripItem.label}, 'packed', ${tripItem.packed})
+        order by ${tripItem.id}
+      ),
+      '[]'
+    )
+    from ${tripItem}
+    where ${tripItem.tripId} = ${tripId} and ${ownsTrip(tripId, ownerId)}
+  )`;
+}
+
+/**
+ * Inserts `labels` (in their order, so their ids ascend in it) on the
+ * locked trip of the statement's `locked` CTE (lockedTripCte), unpacked; a
+ * label the trip has, in any case, is skipped by the unique index. The
+ * CTE `added`, a row per extra added.
+ */
+function addedItemsCte(labels: SQL): SQL {
+  return sql`added as (
+    insert into ${tripItem} (trip_id, label)
+    select locked.id, given.label from locked, ${labels} as given(label, n)
+    order by given.n
+    on conflict do nothing
+    returning 1
+  )`;
+}
+
+/**
  * Adds extras (labels trimmed, never blank) unpacked; a label already on the
  * trip, in any case, adds nothing. The count added; 'not-found' when the
- * trip is not the owner's.
+ * trip is not the owner's. One statement (lockedTripCte).
  */
-export function addTripItems(
+export async function addTripItems(
   db: Queryable,
   tripId: number,
   ownerId: number,
   labels: readonly string[],
 ): Promise<number | 'not-found'> {
-  return db.transaction(async (tx) => {
-    if (!(await lockTrip(tx, tripId, ownerId))) return 'not-found';
-    const values = labels
-      .map((label) => label.trim())
-      .filter((label) => label.length > 0)
-      .map((label) => ({ tripId, label }));
-    if (values.length === 0) return 0;
-    const inserted = await tx
-      .insert(tripItem)
-      .values(values)
-      .onConflictDoNothing()
-      .returning({ id: tripItem.id });
-    return inserted.length;
-  });
+  const given = labels
+    .map((label) => label.trim())
+    .filter((label) => label.length > 0);
+  const list = sql`unnest(array[${sql.join(
+    given.map((label) => sql`${label}`),
+    sql`, `,
+  )}]::text[]) with ordinality`;
+  const { rows } = await db.execute<{ found: boolean; added: number }>(sql`
+    with ${lockedTripCte(tripId, ownerId)}, ${addedItemsCte(list)}
+    select exists (select 1 from locked) as found,
+      (select count(*)::int from added) as added`);
+  const [{ found, added }] = rows;
+  return found ? added : 'not-found';
 }
 
 /**
  * "Copy extras from a previous trip": the other trip's labels, unpacked, in
  * its order, those this trip has already skipped (so copying twice adds
- * nothing). Both trips must be the owner's; the count added.
+ * nothing). Both trips must be the owner's, and not the same one; the count
+ * added. One statement: the other trip's extras are read where they are
+ * copied (lockedTripCte locks only this one, as the copy writes only here).
  */
-export function copyTripItems(
-  db: Db,
+export async function copyTripItems(
+  db: Queryable,
   input: { fromTripId: number; toTripId: number; ownerId: number },
 ): Promise<number | 'not-found'> {
-  return db.transaction(async (tx) => {
-    const from = await findTrip(tx, input.fromTripId, input.ownerId);
-    if (!from || input.fromTripId === input.toTripId) return 'not-found';
-    const labels = await tx
-      .select({ label: tripItem.label })
-      .from(tripItem)
-      .where(eq(tripItem.tripId, input.fromTripId))
-      .orderBy(asc(tripItem.id));
-    return addTripItems(
-      tx,
-      input.toTripId,
-      input.ownerId,
-      labels.map((row) => row.label),
-    );
-  });
+  const { fromTripId, toTripId, ownerId } = input;
+  const from = sql`(
+    select ${tripItem.label}, ${tripItem.id}
+    from ${tripItem}
+    where ${tripItem.tripId} = ${fromTripId} and ${ownsTrip(fromTripId, ownerId)}
+    and ${fromTripId}::int <> ${toTripId}::int
+  )`;
+  const { rows } = await db.execute<{ found: boolean; added: number }>(sql`
+    with ${lockedTripCte(toTripId, ownerId)}, ${addedItemsCte(from)}
+    select exists (select 1 from locked)
+        and ${ownsTrip(fromTripId, ownerId)}
+        and ${fromTripId}::int <> ${toTripId}::int as found,
+      (select count(*)::int from added) as added`);
+  const [{ found, added }] = rows;
+  return found ? added : 'not-found';
 }
 
 /**
- * The extras' autosave: checked ones packed, shown and unchecked ones not;
- * ids of another trip's extras are ignored. 'not-found' when the trip is
- * not the owner's.
+ * The extras' autosave: checked ones packed, shown and unchecked ones not
+ * (an id in both ends unpacked); ids of another trip's extras are ignored.
+ * Answers the counts changed and the trip's extras as they now are (the
+ * summary the autosave answers), in one statement (lockedTripCte): the
+ * extras read from before the change, with the changed rows' new values.
+ * 'not-found' when the trip is not the owner's.
  */
-export function setItemsPacked(
+export async function setItemsPacked(
   db: Queryable,
   input: {
     tripId: number;
@@ -554,30 +694,43 @@ export function setItemsPacked(
     packed: readonly number[];
     unpacked: readonly number[];
   },
-): Promise<{ packed: number; unpacked: number } | 'not-found'> {
-  return db.transaction(async (tx) => {
-    if (!(await lockTrip(tx, input.tripId, input.ownerId))) return 'not-found';
-    const mark = async (ids: readonly number[], packed: boolean) =>
-      ids.length === 0
-        ? 0
-        : (
-            await tx
-              .update(tripItem)
-              .set({ packed })
-              .where(
-                and(
-                  eq(tripItem.tripId, input.tripId),
-                  inArray(tripItem.id, [...ids]),
-                  eq(tripItem.packed, !packed),
-                ),
-              )
-              .returning({ id: tripItem.id })
-          ).length;
-    return {
-      packed: await mark(input.packed, true),
-      unpacked: await mark(input.unpacked, false),
-    };
-  });
+): Promise<
+  { packed: number; unpacked: number; items: TripItemRow[] } | 'not-found'
+> {
+  const { tripId } = input;
+  const unpacked = intArray(input.unpacked);
+  const shown = intArray([...input.packed, ...input.unpacked]);
+  const { rows } = await db.execute<{
+    found: boolean;
+    packed: number;
+    unpacked: number;
+    items: TripItemRow[];
+  }>(sql`
+    with ${lockedTripCte(tripId, input.ownerId)},
+    changed as (
+      update ${tripItem} set packed = not (${tripItem.id} = any(${unpacked}))
+      where ${tripItem.tripId} = ${tripId} and exists (select 1 from locked)
+      and ${tripItem.id} = any(${shown})
+      -- only the rows it changes
+      and ${tripItem.packed} = (${tripItem.id} = any(${unpacked}))
+      returning ${tripItem.id} as id, ${tripItem.packed} as packed
+    )
+    select exists (select 1 from locked) as found,
+      (select count(*)::int from changed where packed) as packed,
+      (select count(*)::int from changed where not packed) as unpacked,
+      (
+        select coalesce(
+          json_agg(
+            json_build_object('id', i.id, 'label', i.label, 'packed', coalesce(changed.packed, i.packed))
+            order by i.id
+          ),
+          '[]'
+        )
+        from ${tripItem} i left join changed on changed.id = i.id
+        where i.trip_id = ${tripId} and exists (select 1 from locked)
+      ) as items`);
+  const [{ found, ...change }] = rows;
+  return found ? change : 'not-found';
 }
 
 /** Removes one extra of the owner's trip; false when it is not theirs. */
@@ -598,22 +751,36 @@ export async function removeTripItem(
   return removed.length > 0;
 }
 
-/** The owner's other trips that have extras: "Copy extras from". */
-export function tripsWithItems(
-  db: Db,
+/** Another trip to copy extras from: its name and how many it has. */
+export interface TripCopySource {
+  id: number;
+  name: string;
+  extras: number;
+}
+
+/**
+ * The owner's other trips that have extras, latest first: "Copy extras
+ * from", as a scalar subquery the trip page reads with the trip.
+ */
+export function tripsWithItemsSql(
   ownerId: number,
   exceptTripId: number,
-): Promise<{ id: number; name: string; startsOn: IsoDate; extras: number }[]> {
-  return db
-    .select({
-      id: trip.id,
-      name: trip.name,
-      startsOn: trip.startsOn,
-      extras: sql<number>`count(${tripItem.id})::int`,
-    })
-    .from(trip)
-    .innerJoin(tripItem, eq(tripItem.tripId, trip.id))
-    .where(and(eq(trip.ownerId, ownerId), sql`${trip.id} <> ${exceptTripId}`))
-    .groupBy(trip.id)
-    .orderBy(desc(trip.startsOn), desc(trip.id));
+): SQL<TripCopySource[]> {
+  const others = sql`(
+    select ${trip.id}, ${trip.name}, ${trip.startsOn}, count(${tripItem.id})::int as extras
+    from ${trip}
+    inner join ${tripItem} on ${eq(tripItem.tripId, trip.id)}
+    where ${and(eq(trip.ownerId, ownerId), sql`${trip.id} <> ${exceptTripId}`)}
+    group by ${trip.id}
+  )`;
+  return sql<TripCopySource[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object('id', other.id, 'name', other.name, 'extras', other.extras)
+        order by other.starts_on desc, other.id desc
+      ),
+      '[]'
+    )
+    from ${others} other
+  )`;
 }

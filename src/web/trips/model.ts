@@ -1,6 +1,13 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, type SQL, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
-import { file, garment, tripGarmentPacked, tripOutfit } from '../../db/schema';
+import {
+  file,
+  garment,
+  outfit,
+  tripGarmentPacked,
+  tripOutfit,
+} from '../../db/schema';
+import { selectScalars } from '../../db/select-scalars';
 import { compareOccasions, type Occasion } from '../../wardrobe/occasions';
 import {
   type GarmentUse,
@@ -13,14 +20,19 @@ import {
 import type { IsoDate } from '../calendar/calendar-date';
 import type { ImageRef } from '../files/image-url';
 import type { CollageGarment } from '../outfits/collage';
+import { outfitGarmentsSql } from '../outfits/queries';
 import { wearsSinceWashSql } from '../wears/queries';
+import { listGarmentIdsSql } from './packed';
 import {
-  findTrip,
-  outfitsWornOn,
+  outfitsWornOnSql,
+  ownTripSql,
+  type TripCopySource,
   tripDays,
   type TripItemRow,
-  tripItems,
+  tripItemsSql,
   type TripRow,
+  tripRow,
+  tripsWithItemsSql,
 } from './queries';
 
 /**
@@ -28,7 +40,10 @@ import {
  * their outfits (occasion order), the outfits without a day, the packing
  * list (derived: src/wardrobe/packing.ts over the outfits' garments, their
  * wash state now and their packed marks), the extras, and which outfits
- * were worn today. Five statements, whatever the trip holds.
+ * were worn today. **One statement, whatever the trip holds** (#166;
+ * selectScalars: five before, one round trip each on production's link):
+ * every part is a subquery scoped to the owner, so another user's trip
+ * reads nothing but the null that makes it a 404.
  */
 
 /** An outfit on the trip, with its garments for the collage. */
@@ -81,96 +96,73 @@ function byDayAndOccasion(a: TripOutfitView, b: TripOutfitView): number {
   return a.id - b.id;
 }
 
-/** The trip's outfits with their garments in slot order, sorted for reading. */
-async function tripOutfitViews(
-  db: Db,
-  tripId: number,
-): Promise<TripOutfitView[]> {
-  const rows = await db.query.tripOutfit.findMany({
-    columns: { id: true, day: true, occasion: true },
-    where: eq(tripOutfit.tripId, tripId),
-    with: {
-      outfit: {
-        columns: { id: true, name: true },
-        with: {
-          slots: {
-            columns: {},
-            where: (slot, { isNotNull }) => isNotNull(slot.garmentId),
-            orderBy: (slot, { asc }) => [asc(slot.position)],
-            with: {
-              garment: {
-                columns: { id: true, name: true, category: true },
-                with: { photo: { columns: { fileName: true, version: true } } },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
-  return rows
-    .map((row) => ({
-      id: row.id,
-      outfitId: row.outfit.id,
-      name: row.outfit.name,
-      day: row.day,
-      occasion: row.occasion,
-      garments: row.outfit.slots.flatMap(({ garment: g }) => (g ? [g] : [])),
-    }))
-    .sort(byDayAndOccasion);
-}
-
 /**
- * The garments of the list with what the rule reads (quantity, wash limit,
- * wears since the wash now, status, away) and their packed mark, in the
- * order `ids` gives. One statement.
+ * The trip's outfits (the owner's: a trip only ever holds its owner's) with
+ * their garments in slot order, as a scalar subquery; sorted for reading
+ * in tripModel.
  */
-async function packingGarments(
-  db: Db,
+function tripOutfitViewsSql(
   tripId: number,
   ownerId: number,
-  ids: readonly number[],
-): Promise<{ garments: PackingGarmentView[]; packed: Set<number> }> {
-  if (ids.length === 0) return { garments: [], packed: new Set() };
-  const rows = await db
-    .select({
-      id: garment.id,
-      name: garment.name,
-      category: garment.category,
-      quantity: garment.quantity,
-      washAfterWears: garment.washAfterWears,
-      status: garment.status,
-      away: garment.away,
-      photo: { fileName: file.fileName, version: file.version },
-      wearsSinceWash: wearsSinceWashSql(),
-      packed: sql<boolean>`exists (select 1 from ${tripGarmentPacked} where ${tripGarmentPacked.tripId} = ${tripId} and ${tripGarmentPacked.garmentId} = ${garment.id})`,
-    })
-    .from(garment)
-    .leftJoin(file, eq(file.id, garment.photoId))
-    .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, [...ids])));
-  const byId = new Map(rows.map((row) => [row.id, row]));
-  const garments = ids.flatMap((id): PackingGarmentView[] => {
-    const row = byId.get(id);
-    return row
-      ? [
-          {
-            id: row.id,
-            name: row.name,
-            category: row.category,
-            quantity: row.quantity,
-            washAfterWears: row.washAfterWears,
-            status: row.status,
-            away: row.away,
-            photo: row.photo,
-            wearsSinceWash: row.wearsSinceWash,
-          },
-        ]
-      : [];
-  });
-  return {
-    garments,
-    packed: new Set(rows.filter((row) => row.packed).map((row) => row.id)),
-  };
+): SQL<TripOutfitView[]> {
+  return sql<TripOutfitView[]>`(
+    select coalesce(
+      json_agg(json_build_object(
+        'id', ${tripOutfit.id},
+        'outfitId', ${outfit.id},
+        'name', ${outfit.name},
+        'day', ${tripOutfit.day},
+        'occasion', ${tripOutfit.occasion},
+        'garments', ${outfitGarmentsSql()}
+      )),
+      '[]'
+    )
+    from ${tripOutfit}
+    inner join ${outfit} on ${eq(outfit.id, tripOutfit.outfitId)}
+    where ${and(eq(tripOutfit.tripId, tripId), eq(outfit.ownerId, ownerId))}
+  )`;
+}
+
+/** A packing list garment as packingGarmentsSql reads it: the rule's inputs and the mark. */
+type PackingGarmentRow = PackingGarmentView & { packed: boolean };
+
+/**
+ * The owner's garments on the trip's list (in a slot of one of its
+ * outfits) with what the rule reads (quantity, wash limit, wears since the
+ * wash now, status, away) and their packed mark, as a scalar subquery.
+ * The list's order is the outfits' (tripModel).
+ */
+function packingGarmentsSql(
+  tripId: number,
+  ownerId: number,
+): SQL<PackingGarmentRow[]> {
+  return sql<PackingGarmentRow[]>`(
+    select coalesce(
+      json_agg(json_build_object(
+        'id', ${garment.id},
+        'name', ${garment.name},
+        'category', ${garment.category},
+        'quantity', ${garment.quantity},
+        'washAfterWears', ${garment.washAfterWears},
+        'status', ${garment.status},
+        'away', ${garment.away},
+        'photo', case when ${file.id} is null then null else json_build_object(
+          'fileName', ${file.fileName}, 'version', ${file.version}
+        ) end,
+        'wearsSinceWash', ${wearsSinceWashSql()},
+        'packed', exists (
+          select 1 from ${tripGarmentPacked}
+          where ${tripGarmentPacked.tripId} = ${tripId}
+          and ${tripGarmentPacked.garmentId} = ${garment.id}
+        )
+      )),
+      '[]'
+    )
+    from ${garment}
+    left join ${file} on ${eq(file.id, garment.photoId)}
+    where ${eq(garment.ownerId, ownerId)}
+    and ${garment.id} in ${listGarmentIdsSql(tripId)}
+  )`;
 }
 
 /** The owner's trip on `today`; undefined when it is not theirs. */
@@ -180,16 +172,45 @@ export async function tripModel(
   tripId: number,
   today: IsoDate,
 ): Promise<TripModel | undefined> {
-  const trip = await findTrip(db, tripId, ownerId);
-  if (!trip) return undefined;
+  const found = await readTrip(db, ownerId, tripId, today, false);
+  return found?.model;
+}
+
+/**
+ * tripModel and "Copy extras from"'s other trips, the trip page's whole
+ * read, in the same one statement.
+ */
+export async function tripPageModel(
+  db: Db,
+  ownerId: number,
+  tripId: number,
+  today: IsoDate,
+): Promise<(TripModel & { copyFrom: TripCopySource[] }) | undefined> {
+  const found = await readTrip(db, ownerId, tripId, today, true);
+  return found && { ...found.model, copyFrom: found.copyFrom };
+}
+
+async function readTrip(
+  db: Db,
+  ownerId: number,
+  tripId: number,
+  today: IsoDate,
+  withCopyFrom: boolean,
+): Promise<{ model: TripModel; copyFrom: TripCopySource[] } | undefined> {
+  const row = await selectScalars(db, {
+    trip: ownTripSql(tripId, ownerId),
+    outfits: tripOutfitViewsSql(tripId, ownerId),
+    garments: packingGarmentsSql(tripId, ownerId),
+    items: tripItemsSql(tripId, ownerId),
+    // Read whatever the phase (which needs the trip's dates): a lookup on
+    // the owner's day, used only while the trip is on.
+    wornToday: outfitsWornOnSql(ownerId, today),
+    copyFrom: withCopyFrom ? tripsWithItemsSql(ownerId, tripId) : undefined,
+  });
+  if (!row.trip) return undefined;
+  const trip = tripRow(row.trip);
   const phase = tripPhase(trip, today);
-  const [outfits, items, wornToday] = await Promise.all([
-    tripOutfitViews(db, tripId),
-    tripItems(db, tripId),
-    phase === 'current'
-      ? outfitsWornOn(db, ownerId, today)
-      : Promise.resolve(new Set<number>()),
-  ]);
+  const outfits = row.outfits.sort(byDayAndOccasion);
   // Each garment's uses, in reading order (the order the list keeps).
   const uses = new Map<number, GarmentUse[]>();
   for (const view of outfits) {
@@ -197,21 +218,41 @@ export async function tripModel(
       uses.set(g.id, [...(uses.get(g.id) ?? []), { day: view.day }]);
     }
   }
-  const { garments, packed } = await packingGarments(db, tripId, ownerId, [
-    ...uses.keys(),
-  ]);
+  const byId = new Map(row.garments.map((g) => [g.id, g]));
+  const garments = [...uses.keys()].flatMap((id): PackingGarmentView[] => {
+    const g = byId.get(id);
+    return g
+      ? [
+          {
+            id: g.id,
+            name: g.name,
+            category: g.category,
+            quantity: g.quantity,
+            washAfterWears: g.washAfterWears,
+            status: g.status,
+            away: g.away,
+            photo: g.photo,
+            wearsSinceWash: g.wearsSinceWash,
+          },
+        ]
+      : [];
+  });
+  const packed = new Set(row.garments.filter((g) => g.packed).map((g) => g.id));
   const days = tripDays(trip).map((day) => ({
     day,
     outfits: outfits.filter((o) => o.day === day),
   }));
   return {
-    trip,
-    today,
-    phase,
-    days,
-    undated: outfits.filter((o) => o.day === null),
-    packing: packingList({ garments, uses, packed, trip, today }),
-    items,
-    wornToday,
+    model: {
+      trip,
+      today,
+      phase,
+      days,
+      undated: outfits.filter((o) => o.day === null),
+      packing: packingList({ garments, uses, packed, trip, today }),
+      items: row.items,
+      wornToday: new Set(phase === 'current' ? row.wornToday : []),
+    },
+    copyFrom: row.copyFrom ?? [],
   };
 }

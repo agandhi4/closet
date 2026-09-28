@@ -9,14 +9,19 @@ import {
   tripOutfit,
 } from '../../src/db/schema';
 import { addDays } from '../../src/web/calendar/calendar-date';
+import { deleteOutfit } from '../../src/web/outfits/queries';
+import { lockTrip } from '../../src/web/trips/packed';
+import { addTripOutfit } from '../../src/web/trips/queries';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import {
   createTestApp,
   hasText,
   hxLocationPath,
+  recordQueries,
   type TestApp,
   unescapeHtml,
 } from './harness';
+import { interleave } from './interleave';
 import { callTool, createAccessToken, tool } from './mcp';
 import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
 
@@ -373,6 +378,28 @@ describe('trips', () => {
         /^\/outfits\/(\d+)$/.exec(String(theirs.headers.location))![1],
       );
       expect((await addOutfit(id, theirOutfit)).statusCode).toBe(404);
+    });
+
+    // addTripOutfit is one statement, whose snapshot predates its wait for
+    // the trip lock: an outfit deleted during that wait must be read again
+    // (owned, FOR KEY SHARE), or the insert dies on the foreign key (500).
+    it('answers no-outfit, writing nothing, for an outfit deleted while it waited for the trip', async () => {
+      const doomed = await outfitOf('Deleted meanwhile', [['tops', polo]]);
+      const [, added] = await interleave(
+        t.db,
+        (tx) => lockTrip(tx, id, t.owner.id),
+        () =>
+          addTripOutfit(t.db, {
+            tripId: id,
+            ownerId: t.owner.id,
+            outfitId: doomed,
+          }),
+        () => deleteOutfit(t.db, doomed, t.owner.id),
+      );
+      expect(added).toBe('no-outfit');
+      expect(
+        await t.db.$count(tripOutfit, eq(tripOutfit.outfitId, doomed)),
+      ).toBe(0);
     });
 
     it('offers the saved outfits on the add page, those on the day disabled', async () => {
@@ -795,6 +822,48 @@ describe('trips', () => {
       expect(after).toContain('Worn today');
     });
 
+    it('marks the entry already planned today worn, keeping its occasion and taking it over from the week planner', async () => {
+      const today = t.today();
+      const layers = await outfitOf('Evening layers', [
+        ['outerwear', jacket],
+        ['footwear', sneakers],
+      ]);
+      await t.db.insert(outfitCalendar).values({
+        ownerId: t.owner.id,
+        outfitId: layers,
+        day: today,
+        occasion: 'evening',
+        plannedBy: 'auto',
+      });
+      const id = await newTrip({ name: 'Planned already', startsOn: today });
+      await addOutfit(id, layers, { day: today, occasion: 'work' });
+      const [row] = await t.db
+        .select({ id: tripOutfit.id })
+        .from(tripOutfit)
+        .where(eq(tripOutfit.tripId, id));
+      const res = await post(`/trips/${id}/outfits/${row.id}/wear`, {});
+      expect(res.statusCode).toBe(303);
+      const entries = await t.db
+        .select({
+          occasion: outfitCalendar.occasion,
+          plannedBy: outfitCalendar.plannedBy,
+          wornAt: outfitCalendar.wornAt,
+        })
+        .from(outfitCalendar)
+        .where(
+          and(
+            eq(outfitCalendar.outfitId, layers),
+            eq(outfitCalendar.day, today),
+          ),
+        );
+      expect(entries).toEqual([
+        { occasion: 'evening', plannedBy: 'user', wornAt: expect.any(Date) },
+      ]);
+      expect(t.logs.messages('info', 'Web').at(-1)).toMatch(
+        /already planned, marked worn \(2 wears logged\)$/,
+      );
+    });
+
     it('is refused (409) for an outfit of another day of the trip, as a page left open past midnight posts it', async () => {
       const today = t.today();
       const yesterday = addDays(today, -1);
@@ -1071,6 +1140,187 @@ describe('trips', () => {
         outfitId: dayOutfit,
       });
       expect(theirAdd.value.error).toBe('Trip not found');
+    });
+  });
+
+  // #166: production reaches Postgres at about 114 ms a statement (#156),
+  // so each route's count is held here. The session is one; a read is one
+  // more (selectScalars); a trip write is one statement under the trip's
+  // lock (lockedTripCte) where its outcome allows, else begin, the lock,
+  // the writes, commit.
+  describe('statements per request', () => {
+    const htmx = { ...HX_FRAGMENT };
+    let id: number;
+    let itemId: number;
+
+    const count = async (request: () => Promise<{ statusCode: number }>) => {
+      let status = 0;
+      const record = await recordQueries(async () => {
+        status = (await request()).statusCode;
+      });
+      return { status, statements: record.statements, sql: record.sql };
+    };
+
+    beforeAll(async () => {
+      const today = t.today();
+      id = await newTrip({
+        name: 'Counted',
+        destination: 'Austin',
+        startsOn: today,
+        endsOn: addDays(today, 3),
+      });
+      await addOutfit(id, dayOutfit, { day: today, occasion: 'daytime' });
+      await addOutfit(id, dinnerOutfit, { day: addDays(today, 1) });
+      await post(`/trips/${id}/items`, { label: 'Charger' });
+      [{ id: itemId }] = await t.db
+        .select({ id: tripItem.id })
+        .from(tripItem)
+        .where(eq(tripItem.tripId, id));
+      // Located without the rate-limited route, which specs above spend.
+      await t.db
+        .update(trip)
+        .set({ latitude: 30.27, longitude: -97.74 })
+        .where(eq(trip.id, id));
+    });
+
+    it('reads each page in one statement after the session', async () => {
+      for (const url of [
+        '/trips',
+        `/trips/${id}`,
+        `/trips/${id}/edit`,
+        `/trips/${id}/outfits/new?day=${t.today()}`,
+      ]) {
+        const read = await count(() => get(url));
+        expect(read, url).toMatchObject({ status: 200, statements: 2 });
+      }
+      expect(await count(() => get('/trips/new'))).toMatchObject({
+        status: 200,
+        statements: 1,
+      });
+      // The trip page's one statement holds every part of it.
+      const page = await count(() => get(`/trips/${id}`));
+      const [read] = page.sql.filter((text) => text.includes('json_agg'));
+      for (const table of [
+        'trip',
+        'trip_outfit',
+        'outfit_slot',
+        'garment_wear',
+        'trip_garment_packed',
+        'trip_item',
+        'outfit_calendar',
+      ]) {
+        expect(read).toContain(`"${table}"`);
+      }
+    });
+
+    it('reads a located trip’s forecast in one statement after the trip', async () => {
+      // The first read fetches and saves the place's forecast and normals.
+      expect((await get(`/trips/${id}/weather`)).statusCode).toBe(200);
+      await t.weather?.settled();
+      const read = await count(() =>
+        t.inject({ method: 'GET', url: `/trips/${id}/weather`, headers: htmx }),
+      );
+      expect(read).toMatchObject({ status: 200, statements: 3 });
+      // The person's offset and unit, never where they are.
+      const all = read.sql.join('\n');
+      expect(all).toContain('"temperature_offset"');
+      expect(all).not.toContain('"home_latitude"');
+      expect(all).not.toContain('"here_latitude"');
+    });
+
+    it('writes the packing list, the extras and outfits in one statement each', async () => {
+      const shown = [tee, jeans].map(String);
+      const writes: [
+        url: string,
+        fields: Fields,
+        headers: object,
+        statements: number,
+      ][] = [
+        [`/trips/${id}/packed`, { packed: [String(tee)], shown }, {}, 2],
+        // The autosave's answer: the write, then the summary's one read.
+        [`/trips/${id}/packed`, { packed: shown, shown }, htmx, 3],
+        [`/trips/${id}/items`, { label: 'Adapter' }, {}, 2],
+        [
+          `/trips/${id}/items/packed`,
+          { packed: [String(itemId)], shown: [String(itemId)] },
+          {},
+          2,
+        ],
+        // Its summary comes from the write itself.
+        [`/trips/${id}/items/packed`, { shown: [String(itemId)] }, htmx, 2],
+        [`/trips/${id}/outfits`, { outfitId: String(poloOutfit) }, {}, 2],
+      ];
+      for (const [url, fields, headers, statements] of writes) {
+        const write = await count(() => post(url, fields, headers));
+        expect(write, `${url} ${JSON.stringify(fields)}`).toMatchObject({
+          statements,
+        });
+        expect(write.status).toBeLessThan(400);
+      }
+      const other = await newTrip({ name: 'Copy target' });
+      expect(
+        await count(() =>
+          post(`/trips/${other}/items/copy`, { from: String(id) }),
+        ),
+      ).toMatchObject({ status: 303, statements: 2 });
+      expect(await t.db.$count(tripItem, eq(tripItem.tripId, other))).toBe(2);
+    });
+
+    it('edits a trip in a transaction of two statements, and takes an outfit off in two', async () => {
+      const [row] = await t.db.select().from(trip).where(eq(trip.id, id));
+      const edit = await count(() =>
+        post(`/trips/${id}`, {
+          name: 'Counted again',
+          destination: row.destination ?? '',
+          startsOn: row.startsOn,
+          endsOn: row.endsOn,
+          notes: '',
+        }),
+      );
+      // The session, begin, the lock, the writes, commit.
+      expect(edit).toMatchObject({ status: 303, statements: 5 });
+      // A refused form asks whose trip it is only then.
+      const refused = await count(() =>
+        post(`/trips/${id}`, {
+          name: '',
+          destination: '',
+          startsOn: row.startsOn,
+          endsOn: row.endsOn,
+          notes: '',
+        }),
+      );
+      expect(refused).toMatchObject({ status: 400, statements: 2 });
+      const [polo] = await t.db
+        .select({ id: tripOutfit.id })
+        .from(tripOutfit)
+        .where(
+          and(eq(tripOutfit.tripId, id), eq(tripOutfit.outfitId, poloOutfit)),
+        );
+      const removed = await count(() =>
+        post(`/trips/${id}/outfits/${polo.id}/delete`, {}),
+      );
+      expect(removed).toMatchObject({ status: 303, statements: 5 });
+    });
+
+    it('wears a trip outfit today in seven statements, and a second tap in six', async () => {
+      const [day] = await t.db
+        .select({ id: tripOutfit.id })
+        .from(tripOutfit)
+        .where(
+          and(eq(tripOutfit.tripId, id), eq(tripOutfit.outfitId, dayOutfit)),
+        );
+      const url = `/trips/${id}/outfits/${day.id}/wear`;
+      // The session, the trip outfit, begin, the owner lock, the entry
+      // planned and locked, its mark and wears, commit.
+      expect(await count(() => post(url, {}))).toMatchObject({
+        status: 303,
+        statements: 7,
+      });
+      // Worn already: nothing to mark.
+      expect(await count(() => post(url, {}))).toMatchObject({
+        status: 303,
+        statements: 6,
+      });
     });
   });
 

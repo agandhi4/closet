@@ -6,7 +6,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import type { OutfitSummary } from '../outfits/queries';
+import type { GarmentOutfit } from '../outfits/queries';
 import { SavedOutfitButton } from '../outfits/saved-outfit-button';
 import type { ViewContext } from '../view-context';
 import { shortDate } from './labels';
@@ -21,7 +21,7 @@ export interface AddOutfitModel {
   day: IsoDate | undefined;
   occasion: Occasion | undefined;
   /** Every outfit of the owner's, newest first. */
-  outfits: OutfitSummary[];
+  outfits: GarmentOutfit[];
   /** Outfits already on the trip for the chosen day (or without one): adding again changes nothing. */
   onTrip: ReadonlySet<number>;
 }

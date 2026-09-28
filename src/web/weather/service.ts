@@ -97,7 +97,11 @@ export interface WeatherService {
    * a trip's days past the forecast only: Today, the calendar and the
    * weekly plan stay forecast-only (src/weather/normals.ts).
    */
-  normalsFor(location: Location): Promise<CachedNormals | null>;
+  normalsFor(
+    location: Location,
+    /** The row the caller read in a statement of its own (tripForecast). */
+    known?: KnownRow<ClimateNormals>,
+  ): Promise<CachedNormals | null>;
   searchPlaces(query: string): Promise<Place[]>;
   /**
    * Resolves once no background refresh is running: the app's close awaits
@@ -173,8 +177,8 @@ export function createWeatherService(options: {
       return cached && { forecast: cached.value, fetchedAt: cached.fetchedAt };
     },
 
-    async normalsFor(location) {
-      const cached = await normals.get(location);
+    async normalsFor(location, known) {
+      const cached = await normals.get(location, undefined, known);
       return cached && { normals: cached.value, fetchedAt: cached.fetchedAt };
     },
 

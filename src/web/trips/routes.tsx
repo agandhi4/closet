@@ -1,6 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply } from 'fastify';
+import { selectScalars } from '../../db/select-scalars';
 import {
   DEFAULT_OCCASION,
   isOccasion,
@@ -14,7 +15,7 @@ import { addDays, parseIsoDate, todayIn } from '../calendar/calendar-date';
 import { wearOutfitOn } from '../calendar/queries';
 import { unchecked } from '../capsules/validation';
 import { HttpError } from '../errors';
-import { listOutfits } from '../outfits/queries';
+import { savedOutfitsSql } from '../outfits/queries';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import {
@@ -26,7 +27,7 @@ import { AddOutfitPage } from './add-page';
 import { tripForecast } from './forecast';
 import { TripFormPage, type TripFormModel } from './form-page';
 import { TripsPage } from './list-page';
-import { tripModel } from './model';
+import { tripModel, tripPageModel } from './model';
 import { setPacked } from './packed';
 import {
   addTripItems,
@@ -37,14 +38,15 @@ import {
   findTrip,
   findTripOutfit,
   listTrips,
-  outfitsOnTripDay,
+  outfitsOnDay,
+  ownTripSql,
   removeTripItem,
   removeTripOutfit,
   setItemsPacked,
   setTripDestination,
   tripDays,
-  tripItems,
-  tripsWithItems,
+  tripOutfitDaysSql,
+  tripRow,
   updateTrip,
 } from './queries';
 import { ItemsSummary, PackedSummary, TripPage } from './trip-page';
@@ -175,9 +177,8 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const { id } = request.params;
       const started = performance.now();
-      const model = await tripModel(db, ownerId, id, today());
+      const model = await tripPageModel(db, ownerId, id, today());
       if (!model) throw tripNotFound();
-      const copyFrom = await tripsWithItems(db, ownerId, id);
       logger.debug(
         `Trip ${id} for user ${ownerId}: ${model.days.length} day(s), ${model.packing.garments} garment(s) to pack (${model.packing.packed} packed, ${model.packing.warned} warned), ${model.items.length} extra(s) in ${Math.round(performance.now() - started)} ms`,
       );
@@ -187,7 +188,6 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ctx={viewContext(reply)}
           model={{
             ...model,
-            copyFrom,
             created: request.query.created === '1',
             picked: request.query.picked === '1',
             copied: request.query.copied,
@@ -223,9 +223,13 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const { id } = request.params;
-      if (!(await findTrip(db, id, ownerId))) throw tripNotFound();
       const form = readTripForm(request.body);
-      if (!form.ok) return refuseForm(reply, form, id);
+      if (!form.ok) {
+        // The form again only for the owner's trip; anyone else's is a 404
+        // whatever was posted. A valid post asks updateTrip instead.
+        if (!(await findTrip(db, id, ownerId))) throw tripNotFound();
+        return refuseForm(reply, form, id);
+      }
       const saved = await updateTrip(db, id, ownerId, form.fields);
       if (saved === 'not-found') throw tripNotFound();
       logger.info(
@@ -256,8 +260,14 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const { id } = request.params;
-      const trip = await findTrip(db, id, ownerId);
-      if (!trip) throw tripNotFound();
+      // One statement: the trip, the saved outfits and the trip's.
+      const found = await selectScalars(db, {
+        trip: ownTripSql(id, ownerId),
+        outfits: savedOutfitsSql(ownerId),
+        onTrip: tripOutfitDaysSql(id, ownerId),
+      });
+      if (!found.trip) throw tripNotFound();
+      const trip = tripRow(found.trip);
       const days = tripDays(trip);
       const asked = parseIsoDate(request.query.day);
       const day = asked && days.includes(asked) ? asked : undefined;
@@ -266,10 +276,6 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         isOccasion(request.query.occasion)
           ? request.query.occasion
           : undefined;
-      const [outfits, onTrip] = await Promise.all([
-        listOutfits(db, ownerId),
-        outfitsOnTripDay(db, id, day ?? null),
-      ]);
       return renderPage(
         reply,
         <AddOutfitPage
@@ -279,8 +285,8 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             days,
             day,
             occasion,
-            outfits,
-            onTrip,
+            outfits: found.outfits,
+            onTrip: outfitsOnDay(found.onTrip, day ?? null),
           }}
         />,
       );
@@ -457,7 +463,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         reply,
         <>
           <AutosaveSaved />
-          <ItemsSummary items={await tripItems(db, id)} oob />
+          <ItemsSummary items={change.items} oob />
         </>,
       );
     },

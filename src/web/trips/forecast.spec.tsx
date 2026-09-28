@@ -8,15 +8,13 @@ import { tripForecast } from './forecast';
 import type { TripRow } from './queries';
 import { TripWeather } from './weather';
 
-vi.mock('../weather/queries', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../weather/queries')>();
-  return {
-    ...actual,
-    findWeatherSettings: vi.fn(() =>
-      Promise.resolve(actual.NO_WEATHER_SETTINGS),
-    ),
-  };
-});
+// The one statement tripForecast reads: no settings row (the defaults) and
+// no cache rows (the service's stand-ins below answer).
+vi.mock('../../db/select-scalars', () => ({
+  selectScalars: vi.fn(() =>
+    Promise.resolve({ prefs: null, forecast: null, normals: null }),
+  ),
+}));
 
 /**
  * A trip whose near days the forecast reaches and whose far days it does

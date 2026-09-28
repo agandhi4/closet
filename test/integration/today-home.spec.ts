@@ -368,15 +368,16 @@ describe('Today', () => {
     // #158: the owner lock is taken once, by wearIdea; pickIdea, insertEntry
     // and setEntryWorn join its transaction (ownerTransaction) instead of
     // each opening a savepoint and locking again (25 statements before).
-    it('a tap is one transaction that locks once: nine statements for a repeat', async () => {
+    it('a tap is one transaction that locks once: seven statements for a repeat', async () => {
       await clearToday();
       const [idea] = cardsOf((await get('/')).body);
       expect((await wear(idea)).statusCode).toBe(303);
       const again = await recordQueries(() => wear(idea));
       // Session; begin, the lock (with its timeout), the garments with the
       // outfit they already are (one statement, #168), its planner
-      // take-over, the entry kept, found, locked and already worn; commit.
-      expect(again.statements).toBe(9);
+      // take-over, the entry kept, locked and read already worn (one
+      // statement, planToWear, #166); commit.
+      expect(again.statements).toBe(7);
       const sql = again.sql.join('\n');
       expect(sql).not.toMatch(/savepoint/i);
       expect(sql.match(/for no key update/g)).toHaveLength(1);

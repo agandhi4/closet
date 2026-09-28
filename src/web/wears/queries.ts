@@ -309,22 +309,50 @@ export function setEntryWorn(
       )
       .for('update');
     if (!entry) return 'not-found';
-    const { day } = entry;
-    const was = entry.wornAt !== null;
-    const worn = input.worn ?? !was;
-    if (worn === was) return { worn, changed: false, wears: 0, day };
-    if (!worn) {
-      const wears = await unmarkWorn(tx, entry.id);
-      return { worn, changed: true, wears, day };
-    }
-    if (day > input.today) return 'future';
-    const wears = await markWorn(
-      tx,
-      { ...entry, ownerId: input.ownerId },
-      input.at,
-    );
-    return { worn, changed: true, wears, day };
+    return changeEntryWorn(tx, entry, input);
   });
+}
+
+/** An entry of the owner's as marking it worn reads it, locked by the caller. */
+export interface LockedEntry {
+  id: number;
+  day: IsoDate;
+  outfitId: number;
+  wornAt: Date | null;
+}
+
+/**
+ * setEntryWorn's change, on an entry its caller holds locked under the
+ * owner lock: setEntryWorn (which locks it by id) and wearOutfitOn
+ * (src/web/calendar/queries.ts, whose planning statement locks and reads
+ * it, #166). The one place the worn rule is decided: idempotent, a day
+ * after `today` is never marked ('future'), and the wears change with it.
+ */
+export async function changeEntryWorn(
+  tx: Queryable,
+  entry: LockedEntry,
+  input: {
+    ownerId: number;
+    worn: boolean | undefined;
+    at: Date;
+    today: IsoDate;
+  },
+): Promise<Exclude<EntryWornOutcome, 'not-found'>> {
+  const { day } = entry;
+  const was = entry.wornAt !== null;
+  const worn = input.worn ?? !was;
+  if (worn === was) return { worn, changed: false, wears: 0, day };
+  if (!worn) {
+    const wears = await unmarkWorn(tx, entry.id);
+    return { worn, changed: true, wears, day };
+  }
+  if (day > input.today) return 'future';
+  const wears = await markWorn(
+    tx,
+    { ...entry, ownerId: input.ownerId },
+    input.at,
+  );
+  return { worn, changed: true, wears, day };
 }
 
 /**

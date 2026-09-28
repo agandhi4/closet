@@ -1,4 +1,5 @@
 import type { Db } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import {
   type DayForecast,
   FORECAST_DAYS,
@@ -6,9 +7,17 @@ import {
 } from '../../weather/forecast';
 import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
 import { type DayNormals, normalsOn, typicalDay } from '../../weather/normals';
+import type { Location } from '../../weather/location';
 import type { TemperatureUnit } from '../../weather/temperature';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
-import { findWeatherSettings } from '../weather/queries';
+import {
+  forecastRowSql,
+  normalsRowSql,
+  readCacheRow,
+  readTemperaturePrefs,
+  type TemperaturePrefs,
+  temperaturePrefsSql,
+} from '../weather/queries';
 import type {
   CachedForecast,
   CachedNormals,
@@ -117,13 +126,13 @@ export async function tripForecast(
   const { location } = trip;
   if (!location) return { kind: 'no-location' };
   const { within, later } = tripSpan(trip, today);
-  const [settings, cached, normals] = await Promise.all([
-    findWeatherSettings(deps.db, ownerId),
-    // Nothing is fetched for a part of the trip that is not there.
-    within && deps.weather.forecastFor(location),
-    later && deps.weather.normalsFor(location),
-  ]);
-  const { offset, unit } = settings;
+  const { prefs, cached, normals } = await readWeather(
+    deps,
+    ownerId,
+    location,
+    { forecast: within !== null, normals: later !== null },
+  );
+  const { offset, unit } = prefs;
   return {
     kind: 'forecast',
     days: forecastDays(cached, within, offset),
@@ -134,6 +143,42 @@ export async function tripForecast(
     offset,
     fetchedAt: cached?.fetchedAt ?? null,
   };
+}
+
+/**
+ * The person's offset and unit (never where they are: the forecast is the
+ * destination's) and the cache rows of the parts the trip needs, in one
+ * statement (#166), handed to the service as the rows it knows; nothing is
+ * read or fetched for a part of the trip that is not there.
+ */
+async function readWeather(
+  deps: { db: Db; weather: WeatherService },
+  ownerId: number,
+  location: Location,
+  needs: { forecast: boolean; normals: boolean },
+): Promise<{
+  prefs: TemperaturePrefs;
+  cached: CachedForecast | null;
+  normals: CachedNormals | null;
+}> {
+  const read = await selectScalars(deps.db, {
+    prefs: temperaturePrefsSql(ownerId),
+    forecast: needs.forecast ? forecastRowSql(location) : undefined,
+    normals: needs.normals ? normalsRowSql(location) : undefined,
+  });
+  const [cached, normals] = await Promise.all([
+    needs.forecast
+      ? deps.weather.forecastFor(location, undefined, {
+          row: readCacheRow(read.forecast ?? null),
+        })
+      : null,
+    needs.normals
+      ? deps.weather.normalsFor(location, {
+          row: readCacheRow(read.normals ?? null),
+        })
+      : null,
+  ]);
+  return { prefs: readTemperaturePrefs(read.prefs), cached, normals };
 }
 
 /** The forecast's days in `span`, each with what it asks. */

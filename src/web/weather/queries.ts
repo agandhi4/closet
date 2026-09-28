@@ -394,6 +394,86 @@ export interface CacheRow<T> {
   attemptedAt: Date;
 }
 
+/** A cache row as JSON has it: the timestamps ISO strings (readCacheRow). */
+export interface CacheRowJson<T> {
+  value: T | null;
+  fetchedAt: string | null;
+  attemptedAt: string;
+}
+
+/**
+ * The forecast cache row at `location` as a scalar subquery (null: none),
+ * for a caller that reads it with its other reads and hands it to
+ * forecastFor as the row it knows (tripForecast).
+ */
+export function forecastRowSql(
+  location: Location,
+): SQL<CacheRowJson<Forecast> | null> {
+  return sql<CacheRowJson<Forecast> | null>`(
+    select json_build_object(
+      'value', ${weatherForecast.forecast},
+      'fetchedAt', ${weatherForecast.fetchedAt},
+      'attemptedAt', ${weatherForecast.attemptedAt}
+    )
+    from ${weatherForecast} where ${forecastAt(location)})`;
+}
+
+/** forecastRowSql for the climate normals (normalsFor). */
+export function normalsRowSql(
+  location: Location,
+): SQL<CacheRowJson<ClimateNormals> | null> {
+  return sql<CacheRowJson<ClimateNormals> | null>`(
+    select json_build_object(
+      'value', ${weatherNormals.normals},
+      'fetchedAt', ${weatherNormals.fetchedAt},
+      'attemptedAt', ${weatherNormals.attemptedAt}
+    )
+    from ${weatherNormals} where ${normalsAt(location)})`;
+}
+
+/** A cache row read as JSON, as the service reads one (undefined: none). */
+export function readCacheRow<T>(
+  json: CacheRowJson<T> | null,
+): CacheRow<T> | undefined {
+  if (!json) return undefined;
+  return {
+    value: json.value,
+    fetchedAt: json.fetchedAt === null ? null : new Date(json.fetchedAt),
+    attemptedAt: new Date(json.attemptedAt),
+  };
+}
+
+/** How the user feels temperatures and reads them: the settings' offset and unit. */
+export type TemperaturePrefs = Pick<WeatherSettings, 'offset' | 'unit'>;
+
+/**
+ * The user's offset and unit as a scalar subquery (null without a settings
+ * row), for a read that needs no location of theirs: a trip's forecast is
+ * the destination's, so their home and phone stay unread (tripForecast).
+ */
+export function temperaturePrefsSql(
+  userId: number,
+): SQL<TemperaturePrefs | null> {
+  return sql<TemperaturePrefs | null>`(
+    select json_build_object(
+      'offset', ${userWeather.temperatureOffset},
+      'unit', ${userWeather.temperatureUnit}
+    )
+    from ${userWeather} where ${eq(userWeather.userId, userId)})`;
+}
+
+/** temperaturePrefsSql's value, a user who never set anything's defaults for none. */
+export function readTemperaturePrefs(
+  json: TemperaturePrefs | null,
+): TemperaturePrefs {
+  return (
+    json ?? {
+      offset: NO_WEATHER_SETTINGS.offset,
+      unit: NO_WEATHER_SETTINGS.unit,
+    }
+  );
+}
+
 function forecastAt(location: Location) {
   return and(
     eq(weatherForecast.latitude, location.latitude),

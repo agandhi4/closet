@@ -1,7 +1,7 @@
 import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
 import { HangerIcon } from '../layout/parts';
-import type { OutfitSummary } from './queries';
+import type { GarmentOutfit } from './queries';
 
 /** Garments shown per saved outfit: three fit beside the name at phone width. */
 const THUMBS = 3;
@@ -13,7 +13,7 @@ const THUMBS = 3;
  * on the trip), since picking it again would change nothing.
  */
 export function SavedOutfitButton(props: {
-  outfit: OutfitSummary;
+  outfit: GarmentOutfit;
   note: string | undefined;
 }) {
   const { outfit, note } = props;
