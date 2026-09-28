@@ -445,6 +445,59 @@ describe('outbound fetch (SSRF guard)', () => {
       expect(other.hits).toEqual([]);
     });
 
+    it("sends a fixed API's credential and JSON body to its hosts, and follows no redirect with them (#25)", async () => {
+      const bodies: string[] = [];
+      const api = await serve(PUBLIC_IP, (req, res) => {
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk: Buffer) => chunks.push(chunk));
+        req.on('end', () => {
+          bodies.push(Buffer.concat(chunks).toString('utf8'));
+          if (req.url === '/moved') {
+            // Same host, even: a credential is never carried past a redirect.
+            res.writeHead(307, { location: `/jmap` });
+            res.end();
+            return;
+          }
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end('{"ok":true}');
+        });
+      });
+      const fetcher = createOutboundFetcher({
+        logger: captureLogs().logger,
+        resolve: scriptedResolver({ 'api.test': PUBLIC_IP }).resolve,
+        destinations: TEST_INTERNET,
+      });
+      const request = {
+        accept: ['json'],
+        hosts: ['api.test'],
+        authorization: 'Bearer fmu1-secret',
+        json: { using: ['core'] },
+      } as const;
+
+      await fetcher.fetch(`http://api.test:${api.port}/jmap`, request);
+      const [hit] = api.hits;
+      expect(hit.headers.authorization).toBe('Bearer fmu1-secret');
+      expect(hit.headers['content-type']).toBe('application/json');
+      expect(bodies[0]).toBe('{"using":["core"]}');
+
+      const moved = await expectRefused(
+        fetcher.fetch(`http://api.test:${api.port}/moved`, request),
+        'http-status',
+      );
+      expect(moved.status).toBe(307);
+      expect(api.hits.map((h) => h.path)).toEqual(['/jmap', '/moved']);
+
+      // A credential for a URL anyone could name is a programming error,
+      // thrown before anything is resolved.
+      await expect(
+        fetcher.fetch(`http://api.test:${api.port}/jmap`, {
+          accept: ['json'],
+          authorization: 'Bearer fmu1-secret',
+        }),
+      ).rejects.toThrow('must name its hosts');
+      expect(api.hits).toHaveLength(2);
+    });
+
     it('refuses a redirect to another scheme', async () => {
       const shop = await serve(PUBLIC_IP, (_req, res) => {
         res.writeHead(301, { location: 'file:///etc/passwd' });

@@ -6,7 +6,8 @@
   maintenance/         reconcile.ts (reconcileStorage: storage and the file table kept in step, with
                        the deletion guard; abandoned pending photos in a pass of their own), nightly.ts (a daily timer at an APP_TIMEZONE hour, started
                        by server.ts when MAINTENANCE_ENABLED), minutely.ts (a timer a second past every
-                       minute, never overlapping: the push reminders, the week's re-plan),
+                       minute, or every `everyMinutes`, never overlapping: the push reminders, the
+                       week's re-plan, the order mail's poll),
                        scheduled.ts (what both timers share: ScheduledJob, whose stop() waits for a
                        run in flight at most STOP_WAIT_MS, and stopBeforeClose, the preClose hook
                        that stops them all before the pool ends), cli.ts (runCli: config, logger, schema check,

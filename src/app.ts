@@ -4,7 +4,7 @@ import fastifyFormbody from '@fastify/formbody';
 import fastifyMultipart from '@fastify/multipart';
 import Fastify, { type FastifyInstance, LogController } from 'fastify';
 import { BUILD_INFO } from './build-info';
-import { type Config, trustedProxies } from './config';
+import { type Config, orderMailSenders, trustedProxies } from './config';
 import { countPendingCutouts } from './cutout/queries';
 import { CutoutQueue } from './cutout/queue';
 import { createDb, type Db, dbConfig } from './db/client';
@@ -15,6 +15,7 @@ import { registerHttpMetrics } from './metrics/http';
 import { Metrics } from './metrics/metrics';
 import { registerStaticAssets } from './static-assets';
 import { isStaticPath } from './static-prefixes';
+import { normalizeEmail } from './web/auth/queries';
 import { createSessionResolver } from './web/auth/session';
 import { createSessionTokens } from './web/auth/tokens';
 import { createErrorHandler, HttpError } from './web/errors';
@@ -24,11 +25,14 @@ import { webPlugin } from './web/plugin';
 import { createPushSender, type PushSender } from './web/push/sender';
 import {
   createOutboundFetcher,
+  type OutboundFetcher,
   type OutboundFetcherOptions,
 } from './web/security/outbound-fetch';
 import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
 import { createViewContextBuilder } from './web/view-context';
+import { createJmapClient } from './web/wardrobe/order-mail/jmap';
+import type { OrderMailDeps } from './web/wardrobe/order-mail/poll';
 import {
   createOpenMeteoClient,
   type WeatherEndpoints,
@@ -62,6 +66,11 @@ export interface ClosetApp {
   /** The weather, when WEATHER_ENABLED: the reminders' forecast line. */
   weather: WeatherService | undefined;
   /**
+   * The order mail's poll (#25), when ORDER_MAIL_JMAP_TOKEN is set:
+   * server.ts schedules it, the specs run it (pollOrderMail).
+   */
+  orderMail: OrderMailDeps | undefined;
+  /**
    * The process's metrics (src/metrics/): recorded always, exposed at
    * GET /metrics only with METRICS_ENABLED; server.ts times its jobs here.
    */
@@ -88,6 +97,15 @@ export interface AppOptions {
    */
   weather?: {
     endpoints: WeatherEndpoints;
+    fetch: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
+  };
+  /**
+   * Fastmail's stand-in (test/support/jmap-stub.ts): its session URL and
+   * the address policy that admits it. The specs pass it; production never
+   * does, so no test reaches Fastmail.
+   */
+  orderMail?: {
+    sessionUrl: string;
     fetch: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
   };
 }
@@ -168,6 +186,13 @@ export async function createApp(
     ...options.outboundFetch,
   });
   const weather = createWeather(config, logger, db, options.weather);
+  const orderMail = createOrderMail(
+    config,
+    logger,
+    db,
+    fetcher,
+    options.orderMail,
+  );
   // loadConfig requires both keys when PWA_ENABLED; the sender checks them
   // (and SITE_URL as the https subject) here, so a bad pair fails the boot.
   const vapid = config.PWA_ENABLED
@@ -240,6 +265,7 @@ export async function createApp(
     weatherEnabled: weather !== undefined,
     metricsEnabled: config.METRICS_ENABLED,
     errorTrackingEnabled: errors.enabled,
+    orderMailOwner: orderMail?.ownerEmail,
   });
   // Declared up front so every request object has the same shape; the hook
   // below fills them (both stay undefined on static paths).
@@ -319,6 +345,7 @@ export async function createApp(
       timeZone: config.APP_TIMEZONE,
       registrationDisabled: config.DISABLE_REGISTRATION,
       vapid,
+      orderMailOwner: orderMail?.ownerEmail,
     },
     logger: web,
     db,
@@ -333,7 +360,60 @@ export async function createApp(
     errors,
   });
 
-  return { app, db, photos, cutouts, push, weather, metrics, errors };
+  return {
+    app,
+    db,
+    photos,
+    cutouts,
+    push,
+    weather,
+    orderMail,
+    metrics,
+    errors,
+  };
+}
+
+/**
+ * The order mail's poll (#25), or nothing without ORDER_MAIL_JMAP_TOKEN:
+ * no timer, no review list, no menu entry. Its JMAP client has an outbound
+ * fetcher of its own, pinned to the session's host (the only one that may
+ * see the token), so a spec's stand-in for Fastmail is admitted for it
+ * alone; each link in an email goes through `fetcher`, the one for user
+ * URLs, like a link the owner pasted.
+ */
+function createOrderMail(
+  config: Config,
+  logger: Logger,
+  db: Db,
+  fetcher: OutboundFetcher,
+  stub: AppOptions['orderMail'],
+): OrderMailDeps | undefined {
+  const boot = logger.child({ context: 'Bootstrap' });
+  if (!config.ORDER_MAIL_JMAP_TOKEN) {
+    boot.info('Order mail: off (ORDER_MAIL_JMAP_TOKEN unset)');
+    return undefined;
+  }
+  const senders = orderMailSenders(config);
+  // The token is never logged; the owner and senders are the owner's own.
+  boot.info(
+    `Order mail: on (${stub ? 'a stand-in for Fastmail' : 'Fastmail'}, every ${config.ORDER_MAIL_POLL_MINUTES} min, ${senders.length} trusted senders)`,
+  );
+  return {
+    db,
+    jmap: createJmapClient({
+      fetcher: createOutboundFetcher({
+        logger: logger.child({ context: 'OutboundFetch' }),
+        ...stub?.fetch,
+      }),
+      token: config.ORDER_MAIL_JMAP_TOKEN,
+      sessionUrl: stub?.sessionUrl,
+    }),
+    fetcher,
+    senders,
+    ownerEmail: normalizeEmail(config.ORDER_MAIL_OWNER),
+    timeZone: config.APP_TIMEZONE,
+    logger: logger.child({ context: 'OrderMail' }),
+  };
 }
 
 /**

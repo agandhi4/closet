@@ -14,6 +14,7 @@ import type { SharedWardrobe } from '../sharing/access';
 import { PermissionBadge } from '../sharing/pages';
 import { SHARING_PATH } from '../sharing/urls';
 import type { ViewContext } from '../view-context';
+import { ORDERS_PATH } from './order-mail/urls';
 import {
   capsuleUrl,
   destinationParams,
@@ -89,6 +90,7 @@ export function WardrobeHeader(props: WardrobeHeaderProps) {
               viewOwner={viewOwner}
               canEdit={canEdit}
               selectUrl={props.selectUrl}
+              orders={ctx.orderReview}
             />
             {canAdd && (
               <button
@@ -180,6 +182,11 @@ export function WardrobeMenu(props: {
   viewOwner: number | undefined;
   canEdit: boolean;
   selectUrl?: string;
+  /**
+   * "From your orders" (#25): the signed-in user is the order mail's owner
+   * (shown on their own wardrobe, like the year in review).
+   */
+  orders: boolean;
   oob?: boolean;
 }) {
   const { viewOwner, canEdit } = props;
@@ -220,6 +227,11 @@ export function WardrobeMenu(props: {
         {viewOwner === undefined && (
           <li>
             <a href={RECAP_PATH}>{t('recap.TITLE')}</a>
+          </li>
+        )}
+        {props.orders && viewOwner === undefined && (
+          <li>
+            <a href={ORDERS_PATH}>{t('orders.TITLE')}</a>
           </li>
         )}
       </ul>

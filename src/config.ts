@@ -126,6 +126,23 @@ export const ConfigSchema = Type.Object({
     default: '',
     pattern: '^(https?://[^\\s@/]+@[^\\s/]+(/[^\\s]*)?/[0-9]+)?$',
   }),
+  // Order email import (#25, src/web/wardrobe/order-mail/): the read-only
+  // Fastmail API token of the account the owner forwards order emails to.
+  // Empty or unset: off, nothing polled, no review list. A secret: never
+  // logged, and ConfigError names it without its value.
+  ORDER_MAIL_JMAP_TOKEN: Type.String({ default: '' }),
+  // The owner's own addresses, comma-separated: only mail they forwarded is
+  // read. Required with the token.
+  ORDER_MAIL_SENDERS: Type.String({ default: '' }),
+  // The sign-in email of the closet account the imported items belong to.
+  // Required with the token.
+  ORDER_MAIL_OWNER: Type.String({ default: '' }),
+  // How often the account is polled.
+  ORDER_MAIL_POLL_MINUTES: Type.Integer({
+    minimum: 1,
+    maximum: 60,
+    default: 5,
+  }),
 });
 
 export type Config = Static<typeof ConfigSchema>;
@@ -248,7 +265,41 @@ function crossFieldProblems(config: Config): string[] {
       }
     }
   }
+  if (config.ORDER_MAIL_JMAP_TOKEN) {
+    const senders = orderMailSenders(config);
+    if (senders.length === 0) {
+      problems.push(
+        'ORDER_MAIL_SENDERS: is required when ORDER_MAIL_JMAP_TOKEN is set',
+      );
+    } else if (!senders.every(looksLikeAddress)) {
+      problems.push(
+        'ORDER_MAIL_SENDERS: must be email addresses, comma-separated',
+      );
+    }
+    if (!config.ORDER_MAIL_OWNER.trim()) {
+      problems.push(
+        'ORDER_MAIL_OWNER: is required when ORDER_MAIL_JMAP_TOKEN is set',
+      );
+    } else if (!looksLikeAddress(config.ORDER_MAIL_OWNER.trim())) {
+      problems.push('ORDER_MAIL_OWNER: must be an email address');
+    }
+  }
   return problems;
+}
+
+/** ORDER_MAIL_SENDERS as lower-case addresses, blanks dropped. */
+export function orderMailSenders(
+  config: Pick<Config, 'ORDER_MAIL_SENDERS'>,
+): string[] {
+  return config.ORDER_MAIL_SENDERS.split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+// The shape only (one @, something on each side, no spaces): the check that
+// matters is the sender's authentication (order-mail/trust.ts).
+function looksLikeAddress(value: string): boolean {
+  return /^[^\s@,]+@[^\s@,]+$/.test(value);
 }
 
 /** TRUSTED_PROXIES as Fastify's trustProxy list. */

@@ -280,6 +280,8 @@ const SECRET_KEYS = new Set([
   'confirmpassword',
   'token',
   'secret',
+  // The order mail's Fastmail API token (#25), by its config key.
+  'order_mail_jmap_token',
 ]);
 
 // Credentials inside any string of an event (an error message, a stack's
@@ -294,6 +296,8 @@ const SECRET_PATTERNS: [RegExp, string][] = [
   ],
   [new RegExp(`\\b${TOKEN_PREFIX}[\\w-]+`, 'g'), `${TOKEN_PREFIX}${FILTERED}`],
   [/\bBearer\s+[^\s"']+/gi, `Bearer ${FILTERED}`],
+  // Fastmail API tokens (the order mail's, #25): `fmu1-` and hex groups.
+  [/\bfm[a-z]\d-[\w-]+/gi, FILTERED],
   // Drizzle's failed-query message ends with the query's parameters: what
   // a user sent (an email, a hash, a note), never needed to group an error.
   [/\nparams: [\s\S]*$/, `\nparams: ${FILTERED}`],

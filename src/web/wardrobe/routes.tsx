@@ -389,7 +389,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         bulkResult: bulkResult(request.query),
       };
       if (wantsFragment(request, reply)) {
-        return renderFragment(reply, <WardrobeFragment model={model} />);
+        return renderFragment(
+          reply,
+          <WardrobeFragment ctx={viewContext(reply)} model={model} />,
+        );
       }
       return renderPage(
         reply,
@@ -549,7 +552,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { linkPhoto } = request.body;
       // A plan item's "Add a candidate" (34b) is checked before anything is
       // read or stored, and linked in the garment's transaction.
-      const { destination, candidateFor, linkCandidate } =
+      const { destination, candidateFor, withGarment } =
         await postedDestination(db, request.body, access);
       const status = destination.to;
       const again = {
@@ -579,14 +582,14 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             form.fields,
             linkPhoto,
             status,
-            linkCandidate,
+            withGarment,
           )
         : await createGarment(
             deps,
             access.ownerId,
             form.fields,
             status,
-            linkCandidate,
+            withGarment,
           );
       if (id === undefined) {
         return refuseForm(reply, {
@@ -601,7 +604,11 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           form.fields.replacesGarmentId
             ? `, asked to replace garment ${form.fields.replacesGarmentId}`
             : ''
-        }${candidateFor ? `, a candidate for plan item ${candidateFor.id}` : ''}`,
+        }${candidateFor ? `, a candidate for plan item ${candidateFor.id}` : ''}${
+          destination.orderItem
+            ? `, from order item ${destination.orderItem}`
+            : ''
+        }`,
       );
       return reply.redirect(garmentUrl(id, viewOwner, '', { created: 1 }), 302);
     },

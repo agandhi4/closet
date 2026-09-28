@@ -1,0 +1,34 @@
+{
+  "id": "Mf0a7c1e2b3d4",
+  "receivedAt": "2026-09-26T13:20:04Z",
+  "from": [
+    {
+      "name": "Sam Owner",
+      "email": "Owner.Forwarder@gmail.com"
+    }
+  ],
+  "subject": "Fwd: Your Northfield order #NF-204817 is confirmed",
+  "authenticationResults": [
+    "mx6.messagingengine.com; arc=none (no signatures); dkim=pass (2048-bit rsa key sha256) header.d=gmail.com header.i=@gmail.com header.b=Xk3pQ2aB header.a=rsa-sha256 header.s=20230601 x-bits=2048; dmarc=pass policy.published-domain-policy=none (p=none,sp=quarantine,d=none,d.eval=none) policy.policy-from=p header.from=gmail.com; iprev=pass smtp.remote-ip=209.85.221.54 (mail-wr1-f54.google.com); spf=pass smtp.mailfrom=owner.forwarder@gmail.com smtp.helo=mail-wr1-f54.google.com; x-aligned-from=pass (Address match); x-google-dkim=pass (2048-bit rsa key) header.d=1e100.net header.i=@1e100.net header.b=Rt5sYw1c; x-me-sender=none; x-tls=pass smtp.version=TLSv1.3 smtp.cipher=TLS_AES_256_GCM_SHA384 smtp.bits=256/256; x-vs=clean score=-100 state=0"
+  ],
+  "textBody": [
+    {
+      "partId": "1",
+      "type": "text/plain"
+    }
+  ],
+  "htmlBody": [
+    {
+      "partId": "2",
+      "type": "text/html"
+    }
+  ],
+  "bodyValues": {
+    "1": {
+      "value": "---------- Forwarded message ---------\nFrom: Northfield Outfitters <orders@email.northfield.test>\nDate: Sat, Sep 26, 2026 at 9:14 AM\nSubject: Your Northfield order #NF-204817 is confirmed\nTo: <owner.forwarder@gmail.com>\n\nThanks for your order, Sam!\n\nRelaxed Linen Shirt - Sage, M, Qty 1 - $49.90\nMerino Crew Socks (3-pack) - Charcoal, M/L, Qty 1 - $24.00\n\nTotal $79.81\n"
+    },
+    "2": {
+      "value": "<div dir=\"ltr\"><br><br><div class=\"gmail_quote gmail_quote_container\"><div dir=\"ltr\" class=\"gmail_attr\">---------- Forwarded message ---------<br>From: <strong class=\"gmail_sendername\" dir=\"auto\">Northfield Outfitters</strong> <span dir=\"auto\">&lt;orders@email.northfield.test&gt;</span><br>Date: Sat, Sep 26, 2026 at 9:14 AM<br>Subject: Your Northfield order #NF-204817 is confirmed<br>To: &lt;owner.forwarder@gmail.com&gt;<br></div><br><br>\n<div style=\"margin:0;padding:0;background-color:#f4f1ec\">\n<img src=\"{{SHOP}}/open.gif?e=eyJ1IjoiMTIzIn0\" width=\"1\" height=\"1\" alt=\"\" style=\"display:none\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n<tr><td align=\"center\" style=\"padding:24px 0\">\n  <a href=\"{{SHOP}}/?utm_source=order_confirmation&amp;utm_medium=email\" target=\"_blank\"><img src=\"{{SHOP}}/img/logo.png\" alt=\"Northfield Outfitters\" width=\"180\"></a>\n</td></tr>\n<tr><td style=\"font-family:Helvetica,Arial,sans-serif;font-size:13px\">\n  <a href=\"{{SHOP}}/collections/women?utm_source=order_confirmation\" target=\"_blank\">Women</a> |\n  <a href=\"{{SHOP}}/collections/men?utm_source=order_confirmation\" target=\"_blank\">Men</a> |\n  <a href=\"{{SHOP}}/collections/new-arrivals?utm_source=order_confirmation\" target=\"_blank\">New arrivals</a>\n</td></tr>\n<tr><td style=\"padding:16px 24px;font-family:Georgia,serif;font-size:22px\">Thanks for your order, Sam!</td></tr>\n<tr><td style=\"padding:0 24px 16px;font-family:Helvetica,Arial,sans-serif;font-size:14px\">\n  Order <strong>#NF-204817</strong> &middot; placed September 26, 2026.\n  <a href=\"{{SHOP}}/account/orders/NF-204817?utm_source=order_confirmation\" target=\"_blank\" style=\"color:#6b4f2a\">View or manage your order</a>\n</td></tr>\n<tr><td style=\"padding:0 24px\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-top:1px solid #ddd\">\n<tr>\n  <td width=\"96\" style=\"padding:12px 0\"><a href=\"{{SHOP}}/ls/click?upn=u001.Qp9x7-2FbT0kL3rN8vYh-2BsE4eZ1aJ6cG5mW-3D&amp;utm_campaign=order\" target=\"_blank\"><img src=\"{{SHOP}}/img/linen-shirt-thumb.jpg\" width=\"80\" alt=\"Relaxed Linen Shirt\"></a></td>\n  <td style=\"padding:12px;font-family:Helvetica,Arial,sans-serif;font-size:14px\"><a href=\"{{SHOP}}/ls/click?upn=u001.Qp9x7-2FbT0kL3rN8vYh-2BsE4eZ1aJ6cG5mW-3D&amp;utm_campaign=order\" target=\"_blank\" style=\"color:#222;text-decoration:none\"><strong>Relaxed Linen Shirt</strong></a><br>Color: Sage &middot; Size: M &middot; Qty: 1</td>\n  <td align=\"right\" style=\"padding:12px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px\">$49.90</td>\n</tr>\n<tr>\n  <td width=\"96\" style=\"padding:12px 0\"><a href=\"https://www.google.com/url?q={{SHOP_ENCODED}}%2Fproducts%2Fmerino-crew-socks%3Futm_source%3Dorder_confirmation&amp;source=gmail&amp;ust=1790000000000000&amp;usg=AOvVaw0abc\" target=\"_blank\"><img src=\"{{SHOP}}/img/socks-thumb.jpg\" width=\"80\" alt=\"Merino Crew Socks\"></a></td>\n  <td style=\"padding:12px;font-family:Helvetica,Arial,sans-serif;font-size:14px\"><a href=\"https://www.google.com/url?q={{SHOP_ENCODED}}%2Fproducts%2Fmerino-crew-socks%3Futm_source%3Dorder_confirmation&amp;source=gmail&amp;ust=1790000000000000&amp;usg=AOvVaw0abc\" target=\"_blank\" style=\"color:#222;text-decoration:none\"><strong>Merino Crew Socks (3-pack)</strong></a><br>Color: Charcoal &middot; Size: M/L &middot; Qty: 1</td>\n  <td align=\"right\" style=\"padding:12px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px\">$24.00</td>\n</tr>\n</table>\n</td></tr>\n<tr><td style=\"padding:16px 24px;font-family:Helvetica,Arial,sans-serif;font-size:14px\">\n  Subtotal $73.90<br>Shipping FREE<br><strong>Total $79.81</strong>\n</td></tr>\n<tr><td style=\"padding:16px 24px;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#777\">\n  Questions? Visit our <a href=\"{{SHOP}}/help?utm_source=order_confirmation\" target=\"_blank\">Help Center</a> or reply to this email.<br>\n  <a href=\"https://www.instagram.com/northfield.test\" target=\"_blank\">Instagram</a> &middot;\n  <a href=\"https://www.pinterest.com/northfield/\" target=\"_blank\">Pinterest</a><br>\n  <a href=\"mailto:care@northfield.test\">care@northfield.test</a> &middot;\n  <a href=\"{{SHOP}}/unsubscribe?e=eyJ1IjoiMTIzIn0&amp;list=transactional\" target=\"_blank\">Unsubscribe</a> &middot;\n  <a href=\"{{SHOP}}/pages/privacy\" target=\"_blank\">Privacy</a>\n</td></tr>\n</table>\n</div>\n</div></div>\n"
+    }
+  }
+}

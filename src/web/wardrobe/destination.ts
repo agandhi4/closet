@@ -6,6 +6,7 @@ import { itemNotFound } from '../plans/validation';
 import type { WardrobeAccess } from '../sharing/access';
 import type { EntryStatus } from '../../wardrobe/status';
 import { linkNewCandidate, requireCandidateRoom } from '../plans/candidates';
+import { decideOrderItem, findPendingOrderItem } from './order-mail/queries';
 import type { WithGarment } from './writes';
 import { findGarment, type GarmentDetail } from './queries';
 import { TO_CLOSET, type Destination } from './urls';
@@ -53,26 +54,60 @@ export async function resolveCandidateFor(
  * A new garment's post's destination (POST /wardrobe): the closet or the
  * wishlist, and for a plan item's "Add a candidate" (34b) the item, checked
  * before anything is stored (resolveCandidateFor), with its candidate link
- * to write in the garment's own transaction.
+ * to write in the garment's own transaction; for an order's "Add to
+ * closet" (#25) the order item, checked the same way (resolveOrderItem),
+ * marked added in that transaction.
  */
 export async function postedDestination(
   db: Db,
-  body: Pick<GarmentBody, 'to' | 'planItem'>,
+  body: Pick<GarmentBody, 'to' | 'planItem' | 'orderItem'>,
   access: WardrobeAccess,
 ): Promise<{
   destination: Destination & { to: EntryStatus };
   candidateFor?: CandidateFor;
-  linkCandidate?: WithGarment;
+  withGarment?: WithGarment;
 }> {
   const to = body.to ?? 'closet';
+  if (to === 'closet' && body.orderItem) {
+    const orderItem = await resolveOrderItem(db, body.orderItem, access);
+    return {
+      destination: { to, orderItem },
+      withGarment: async (tx, garmentId) => {
+        const added = await decideOrderItem(tx, orderItem, access.ownerId, {
+          event: 'add',
+          garmentId,
+        });
+        // Dismissed, or added by an earlier save of the same form, since
+        // the check above: the garment rolls back with this.
+        if (!added) throw new HttpError(409, 'Already added from your orders');
+      },
+    };
+  }
   if (to !== 'wishlist' || !body.planItem) return { destination: { to } };
   const candidateFor = await resolveCandidateFor(db, body.planItem, access);
   return {
     destination: { to, planItem: candidateFor.id },
     candidateFor,
-    linkCandidate: (tx, garmentId) =>
+    withGarment: (tx, garmentId) =>
       linkNewCandidate(tx, access.ownerId, candidateFor.id, garmentId),
   };
+}
+
+/**
+ * The order item `orderItemId` a new closet garment is added from: the
+ * requester's own pending one, in their own wardrobe; anything else a 404
+ * like an unknown id, before anything is stored.
+ */
+async function resolveOrderItem(
+  db: Db,
+  orderItemId: number,
+  access: WardrobeAccess,
+): Promise<number> {
+  const item = access.isOwner
+    ? await findPendingOrderItem(db, orderItemId, access.ownerId)
+    : undefined;
+  if (!item) throw new HttpError(404, 'Order item not found');
+  return item.id;
 }
 
 /**

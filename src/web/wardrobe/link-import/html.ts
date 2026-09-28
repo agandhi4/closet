@@ -1,6 +1,8 @@
 /**
  * The parts of an HTML document the link import reads: `<title>`, `<meta>`
- * tags, `<base href>` and JSON-LD scripts. Not an HTML parser: one linear
+ * tags, `<base href>` and JSON-LD scripts; and the links (`<a href>`) the
+ * order mail reads in an email's body (#25, ../order-mail/links.ts). Not an
+ * HTML parser: one linear
  * pass over the tags that skips comments and the bodies of script, style
  * and textarea, which is all metadata extraction needs. The input is a
  * stranger's page (at most 2 MB, outbound-fetch.ts), so nothing here may
@@ -20,9 +22,12 @@ export interface DocumentMetadata {
   metas: ReadonlyMap<string, readonly string[]>;
   /** The text of each `<script type="application/ld+json">`, unparsed. */
   jsonLd: readonly string[];
+  /** Each `<a href>`, decoded and trimmed, in document order, at most MAX_HREFS. */
+  hrefs: readonly string[];
 }
 
 const MAX_JSON_LD_BLOCKS = 20;
+export const MAX_HREFS = 200;
 const TAG_NAME = /[a-zA-Z][a-zA-Z0-9-]*/y;
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style', 'textarea']);
 
@@ -31,6 +36,7 @@ interface Scan {
   baseHref: string | null;
   metas: Map<string, string[]>;
   jsonLd: string[];
+  hrefs: string[];
 }
 
 export function scanDocument(html: string): DocumentMetadata {
@@ -39,6 +45,7 @@ export function scanDocument(html: string): DocumentMetadata {
     baseHref: null,
     metas: new Map(),
     jsonLd: [],
+    hrefs: [],
   };
   // Each step returns where the next starts, strictly further on, or -1.
   for (let pos = 0; pos >= 0 && pos < html.length; ) {
@@ -77,6 +84,9 @@ function readEmptyElement(
     addMeta(scan.metas, attributes);
   } else if (name === 'base') {
     scan.baseHref ??= attributes.get('href')?.trim() ?? null;
+  } else if (name === 'a' && scan.hrefs.length < MAX_HREFS) {
+    const href = attributes.get('href');
+    if (href) scan.hrefs.push(decodeEntities(href).trim());
   }
 }
 

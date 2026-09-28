@@ -1403,5 +1403,16 @@
     "REPAIR_SAVED": "Logged",
     "REPAIR_REMOVED": "Removed from the log",
     "REPAIR_DAY_VALUE": "{day}, {year}"
+  },
+  "orders": {
+    "TITLE": "From your orders",
+    "INTRO": "Products from the order emails you forwarded. Add what you kept to your closet; dismiss gifts, returns and anything that isn't clothes.",
+    "EMPTY": "Nothing to review. Forward an order confirmation to your order address and its products show up here.",
+    "BACK_TO_CLOSET": "Back to the closet",
+    "ORDERED_ON": "ordered {date}",
+    "ADD_TO_CLOSET": "Add to closet",
+    "DISMISS": "Dismiss",
+    "FROM_ORDER": "From your orders: saving adds it to your closet and takes it off the list.",
+    "PAGE_UNAVAILABLE": "The product page couldn't be read just now, so these are the details from your order email. Add a photo after saving."
   }
 }

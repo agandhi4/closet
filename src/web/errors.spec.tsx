@@ -26,6 +26,7 @@ const ctx: ViewContext = {
   weatherEnabled: false,
   metricsEnabled: false,
   errorTrackingEnabled: false,
+  orderReview: false,
   buildSha: undefined,
   appVersion: '1.0.0+test',
   appRelease: '1.0.0',

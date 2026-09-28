@@ -16,8 +16,10 @@ import { isPublicAddress } from './public-address';
 /**
  * The only way the server fetches anything from the internet: a URL a user
  * supplied (the link import, issue #6; docs/plans/2026-09-26-wardrobe-features.md,
- * section 0) and the weather's fixed API (#14, src/web/weather/open-meteo.ts,
- * which names its hosts in `FetchRequest.hosts`). The server sits on the
+ * section 0), the weather's fixed API (#14, src/web/weather/open-meteo.ts,
+ * which names its hosts in `FetchRequest.hosts`) and the order mail's JMAP
+ * API (#25, src/web/wardrobe/order-mail/jmap.ts, the one caller that sends a
+ * credential). The server sits on the
  * homelab LAN, so a URL is a way to make it connect to the NAS, pgvault or
  * the router (SSRF). Every fetch:
  *
@@ -33,7 +35,10 @@ import { isPublicAddress } from './public-address';
  * - is bounded as a whole by one timeout (DNS, connects, redirects, body);
  * - reads the body only for a content type the caller accepts, and stops
  *   reading the moment the decoded bytes pass the cap for that type;
- * - sends no cookie or credentials and keeps none between hops;
+ * - sends no cookie and keeps none between hops; a credential
+ *   (`authorization`) only to a request that names its `hosts`, which then
+ *   follows no redirect, so the credential reaches those hosts and nothing
+ *   else;
  * - logs one line naming the host(s), never the path or query (a product
  *   link can carry a tracking or session token).
  *
@@ -113,6 +118,17 @@ export interface FetchRequest {
    * resolved. Absent for a user's URL, which may go anywhere public.
    */
   hosts?: readonly string[];
+  /**
+   * A fixed API's credential, sent as `Authorization`. Only with `hosts`
+   * (a programming error otherwise), and such a request follows no
+   * redirect: a redirect answer is an `http-status` refusal.
+   */
+  authorization?: string;
+  /**
+   * A JSON body, which makes the request a POST. Only with `hosts`, and it
+   * follows no redirect either (a redirected POST would drop or resend it).
+   */
+  json?: unknown;
 }
 
 export interface FetchedResource {
@@ -277,10 +293,18 @@ export function createOutboundFetcher(
     let url = start;
     for (let redirects = 0; ; redirects++) {
       const target = await pin(url, request, signal);
-      const response = await send(target, request.accept, signal);
+      const response = await send(target, request, signal);
+      const status = response.statusCode ?? 0;
       const location = response.headers.location;
-      if (REDIRECT_STATUSES.has(response.statusCode ?? 0) && location) {
+      if (REDIRECT_STATUSES.has(status) && location) {
         response.destroy();
+        if (carriesCredentialOrBody(request)) {
+          throw new OutboundFetchError(
+            'http-status',
+            `The API answered a redirect (${status}), which is not followed`,
+            status,
+          );
+        }
         if (redirects === MAX_REDIRECTS) {
           throw new OutboundFetchError(
             'too-many-redirects',
@@ -301,6 +325,13 @@ export function createOutboundFetcher(
 
   return {
     async fetch(rawUrl, request) {
+      // Outside the refusals: a caller that sends a credential or a body
+      // must pin its hosts, or the credential could follow a user's URL.
+      if (carriesCredentialOrBody(request) && !request.hosts) {
+        throw new Error(
+          'An outbound fetch with a credential or a body must name its hosts',
+        );
+      }
       const started = performance.now();
       const timeout = AbortSignal.timeout(timeoutMs);
       const hosts: string[] = [];
@@ -321,6 +352,10 @@ export function createOutboundFetcher(
       }
     },
   };
+}
+
+function carriesCredentialOrBody(request: FetchRequest): boolean {
+  return request.authorization !== undefined || request.json !== undefined;
 }
 
 function parseUrl(value: string, base?: URL): URL {
@@ -352,12 +387,13 @@ function pinnedLookup({ address, family }: ResolvedAddress): LookupFunction {
 
 function send(
   { url, host, address }: PinnedTarget,
-  accept: readonly ContentKind[],
+  { accept, authorization, json }: FetchRequest,
   signal: AbortSignal,
 ): Promise<IncomingMessage> {
   const secure = url.protocol === 'https:';
+  const body = json === undefined ? undefined : JSON.stringify(json);
   const options: RequestOptions & { servername?: string } = {
-    method: 'GET',
+    method: body === undefined ? 'GET' : 'POST',
     host,
     port: url.port || (secure ? 443 : 80),
     path: `${url.pathname}${url.search}`,
@@ -366,6 +402,11 @@ function send(
       accept: accept.map((kind) => ACCEPT_HEADERS[kind]).join(','),
       'accept-encoding': 'gzip, deflate, br',
       'accept-language': 'en',
+      ...(authorization !== undefined && { authorization }),
+      ...(body !== undefined && {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+      }),
     },
     lookup: pinnedLookup(address),
     // A fresh socket per request: a pooled one could carry another pin.
@@ -379,7 +420,7 @@ function send(
     const request = (secure ? httpsRequest : httpRequest)(options);
     request.once('response', resolve);
     request.once('error', reject);
-    request.end();
+    request.end(body);
   });
 }
 

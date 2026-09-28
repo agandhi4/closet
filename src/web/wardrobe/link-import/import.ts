@@ -192,6 +192,25 @@ export async function importLink(
 }
 
 /**
+ * The product page at `url`, read as importLink reads one (fetched through
+ * the outbound fetcher, extractProduct), with where it ended after
+ * redirects; nothing fetched past the page, nothing stored. The order
+ * mail's poll (#25, ../order-mail/poll.ts) reads each link of an order
+ * email so; "Add to closet" then runs importLink on the one it keeps.
+ * Throws OutboundFetchError (logged by the fetcher) for a refusal.
+ */
+export async function readProductPage(
+  fetcher: OutboundFetcher,
+  url: string,
+): Promise<{ product: ExtractedProduct; url: URL }> {
+  const resource = await fetcher.fetch(url, { accept: ['html'] });
+  return {
+    product: extractProduct(pageText(resource), resource.url),
+    url: resource.url,
+  };
+}
+
+/**
  * The photo at `url` (a choice the form offered, or any image link) stored
  * as a pending photo for `userId`; its stored name.
  */

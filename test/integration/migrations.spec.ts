@@ -121,6 +121,14 @@ describe('migrations', () => {
         // A garment's repair log, newest first (#23; also garment_id's
         // foreign key).
         'garment_repair_garment_id_day_index',
+        // The order mail (#25): the processed ids and the watermark; the
+        // review list, one listing per product (also owner_id's foreign
+        // key), an email's items and a garment's item (their foreign keys).
+        'order_email_account_id_email_id_unique',
+        'order_email_received_at_index',
+        'order_item_owner_id_product_url_unique',
+        'order_item_order_email_id_index',
+        'order_item_garment_id_index',
       ]),
     );
   });

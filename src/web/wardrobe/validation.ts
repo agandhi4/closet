@@ -238,6 +238,10 @@ export const GarmentBody = Type.Object({
   // it (POST /wardrobe only; the requester's own item in their own
   // wardrobe, else a 404).
   planItem: Type.Optional(Type.Union([Type.Literal(''), RowId])),
+  // A new closet garment's order item (#25, "From your orders"): marked
+  // added with it (POST /wardrobe only; the requester's own pending item,
+  // else a 404).
+  orderItem: Type.Optional(Type.Union([Type.Literal(''), RowId])),
   // The duplicate check's "Not the same" list (#20, lookalikes.ts): never
   // stored, only carried back into a refused form's region.
   lookalikesDismissed: LookalikesDismissed,

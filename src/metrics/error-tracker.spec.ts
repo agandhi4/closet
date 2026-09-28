@@ -79,6 +79,19 @@ describe('scrubEvent', () => {
     );
   });
 
+  it("filters the order mail's Fastmail token, bare or by its config key (#25)", () => {
+    const token = 'fmu1-0a1b2c3d-4e5f60718293a4b5c6d7e8f9a0b1c2d3-0-e4f5a6b7';
+    const scrubbed = scrubEvent(
+      event({
+        message: `JMAP refused with ${token}`,
+        extra: { ORDER_MAIL_JMAP_TOKEN: token },
+      }),
+    );
+    expect(JSON.stringify(scrubbed)).not.toContain(token.slice('fmu1-'.length));
+    expect(scrubbed.message).toBe('JMAP refused with [Filtered]');
+    expect(scrubbed.extra).toEqual({ ORDER_MAIL_JMAP_TOKEN: '[Filtered]' });
+  });
+
   it('filters secret keys wherever they are', () => {
     const scrubbed = scrubEvent(
       event({

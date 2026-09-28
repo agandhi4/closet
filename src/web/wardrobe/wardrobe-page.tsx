@@ -191,7 +191,13 @@ export function WardrobePage(props: {
  * chips and scope menu, the filter modal): the main, and the ⋯ menu out
  * of band, so its Select keeps the filters the grid now shows.
  */
-export function WardrobeFragment({ model }: { model: WardrobeModel }) {
+export function WardrobeFragment({
+  ctx,
+  model,
+}: {
+  ctx: ViewContext;
+  model: WardrobeModel;
+}) {
   return (
     <>
       <WardrobeMain model={model} />
@@ -200,6 +206,7 @@ export function WardrobeFragment({ model }: { model: WardrobeModel }) {
           viewOwner={model.viewOwner}
           canEdit={model.canEdit}
           selectUrl={selectUrl(model)}
+          orders={ctx.orderReview}
           oob
         />
       )}

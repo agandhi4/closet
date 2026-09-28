@@ -43,6 +43,12 @@ export interface Destination {
    * the garment is saved (changeCandidates, src/web/plans/candidates.ts).
    */
   planItem?: number;
+  /**
+   * The owner's order item a new closet garment is added from (#25, "From
+   * your orders"): marked added when the garment is saved, in its
+   * transaction. Posted by the form (GarmentBody.orderItem), never in a URL.
+   */
+  orderItem?: number;
 }
 
 export const TO_CLOSET: Destination = { to: 'closet' };

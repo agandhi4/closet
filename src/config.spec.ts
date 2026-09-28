@@ -2,7 +2,13 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig, trustedProxies, type Env } from './config';
+import {
+  ConfigError,
+  type Env,
+  loadConfig,
+  orderMailSenders,
+  trustedProxies,
+} from './config';
 
 // Everything without a default.
 const REQUIRED: Env = {
@@ -159,6 +165,44 @@ describe('loadConfig', () => {
       expect(problems[0]).toMatch(/^SENTRY_DSN: /);
       expect(problems[0]).not.toContain(bad);
     }
+  });
+
+  it('turns the order mail on with its token, and then needs its senders and owner (#25)', () => {
+    expect(load({}).ORDER_MAIL_JMAP_TOKEN).toBe('');
+    expect(load({}).ORDER_MAIL_POLL_MINUTES).toBe(5);
+    expect(
+      problemsOf({ ...REQUIRED, ORDER_MAIL_JMAP_TOKEN: 'fmu1-secret' }),
+    ).toEqual([
+      'ORDER_MAIL_SENDERS: is required when ORDER_MAIL_JMAP_TOKEN is set',
+      'ORDER_MAIL_OWNER: is required when ORDER_MAIL_JMAP_TOKEN is set',
+    ]);
+    // The poll interval fails the schema, so the cross-field checks wait.
+    expect(
+      problemsOf({
+        ...REQUIRED,
+        ORDER_MAIL_JMAP_TOKEN: 'fmu1-secret',
+        ORDER_MAIL_POLL_MINUTES: '0',
+      }),
+    ).toEqual([expect.stringMatching(/^ORDER_MAIL_POLL_MINUTES: /)]);
+    const problems = problemsOf({
+      ...REQUIRED,
+      ORDER_MAIL_JMAP_TOKEN: 'fmu1-secret',
+      ORDER_MAIL_SENDERS: 'me@gmail.com, not an address',
+      ORDER_MAIL_OWNER: 'me',
+    });
+    expect(problems).toEqual([
+      'ORDER_MAIL_SENDERS: must be email addresses, comma-separated',
+      'ORDER_MAIL_OWNER: must be an email address',
+    ]);
+    const config = load({
+      ORDER_MAIL_JMAP_TOKEN: 'fmu1-secret',
+      ORDER_MAIL_SENDERS: ' Me@Gmail.com ,me@work.example,',
+      ORDER_MAIL_OWNER: 'me@gmail.com',
+    });
+    expect(orderMailSenders(config)).toEqual([
+      'me@gmail.com',
+      'me@work.example',
+    ]);
   });
 
   it('never puts a value in the message', () => {

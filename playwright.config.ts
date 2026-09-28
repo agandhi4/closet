@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseEnv } from 'node:util';
-import { APP_ORIGIN } from './test/support/e2e-session';
+import { APP_ORIGIN, ORDER_REVIEW_OWNER } from './test/support/e2e-session';
 
 // The committed .env's public defaults (APP_NAME) for the specs, under
 // whatever the environment sets, as the server reads them (src/config.ts).
@@ -20,6 +20,12 @@ process.env.ACCESS_TOKEN_SECRET ??= randomBytes(32).toString('hex');
 // Production runs with the metrics on: the pages load the timing beacon
 // (public/js/vitals.js), and test/metrics.spec.ts reads /metrics.
 process.env.METRICS_ENABLED ??= 'true';
+// The order mail on (#25), against the test server's JMAP stand-in
+// (test/support/jmap-stub.ts, never Fastmail), for the review list's spec
+// (test/order-review.spec.ts), whose fixed account is the owner.
+process.env.ORDER_MAIL_JMAP_TOKEN ??= 'fmu1-e2e-stand-in';
+process.env.ORDER_MAIL_SENDERS ??= 'orders-owner@example.com';
+process.env.ORDER_MAIL_OWNER ??= ORDER_REVIEW_OWNER;
 
 /**
  * See https://playwright.dev/docs/test-configuration.

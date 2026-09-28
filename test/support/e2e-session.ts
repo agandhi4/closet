@@ -57,6 +57,33 @@ export async function signIn(page: Page, prefix: string): Promise<string> {
   return email;
 }
 
+/**
+ * The order mail's owner on the e2e server (playwright.config.ts sets
+ * ORDER_MAIL_OWNER to it): the one account with a review list (#25).
+ */
+export const ORDER_REVIEW_OWNER = 'orders-owner@example.com';
+
+/**
+ * Signs in as `email`, registering it the first time: a fixed account the
+ * server's config names (ORDER_REVIEW_OWNER), which a retry or a second
+ * run on the same database finds already registered.
+ */
+export async function signInAs(page: Page, email: string): Promise<void> {
+  const form = { email, password: E2E_PASSWORD, confirmPassword: E2E_PASSWORD };
+  const registered = await page.request.post('/auth/register', {
+    form,
+    headers: signUpHeaders(),
+  });
+  if (registered.ok()) return;
+  const login = await page.request.post('/auth/login', {
+    form: { email, password: E2E_PASSWORD },
+    headers: signUpHeaders(),
+  });
+  if (!login.ok()) {
+    throw new Error(`Signing in as ${email} failed: ${login.status()}`);
+  }
+}
+
 /** The password changePasswordElsewhere sets. */
 export const E2E_NEW_PASSWORD = 'NewPassword456!';
 

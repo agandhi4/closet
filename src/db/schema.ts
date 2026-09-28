@@ -51,6 +51,12 @@ import {
   LENGTH_MIN_CM,
   LENGTH_UNITS,
 } from '../wardrobe/measurements';
+import {
+  ORDER_EMAIL_OUTCOMES,
+  ORDER_ITEM_STATES,
+  type OrderEmailOutcome,
+  type OrderItemState,
+} from '../wardrobe/order-items';
 import { PLAN_PRIORITIES, type PlanPriority } from '../wardrobe/plans';
 import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
 import {
@@ -1868,6 +1874,117 @@ export const weatherNormals = pgTable(
       'weather_normals_fetched_check',
       sql`(${table.normals} is null) = (${table.fetchedAt} is null)`,
     ),
+  ],
+);
+
+// One row per email the order mail read (#25, src/web/wardrobe/order-mail/):
+// the processed ids, so closet never marks, moves or deletes mail (its
+// token is read-only). Written with that email's items in one transaction,
+// after its links were fetched (recordOrderEmail); an email a run did not
+// finish has no row and is read again. The newest received_at is the next
+// poll's watermark.
+export const orderEmail = pgTable(
+  'order_email',
+  {
+    id: serial('id').primaryKey(),
+    // JMAP ids are unique within their account only.
+    accountId: text('account_id').notNull(),
+    emailId: text('email_id').notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    outcome: text('outcome').$type<OrderEmailOutcome>().notNull(),
+    // How many products it added to the review list.
+    items: smallint('items').notNull().default(0),
+  },
+  (table) => [
+    unique('order_email_account_id_email_id_unique').on(
+      table.accountId,
+      table.emailId,
+    ),
+    // The watermark: max(received_at).
+    index('order_email_received_at_index').on(table.receivedAt),
+    check(
+      'order_email_outcome_check',
+      sql`${table.outcome} in (${sqlList(ORDER_EMAIL_OUTCOMES)})`,
+    ),
+  ],
+);
+
+// "From your orders" (#25): a product found in a forwarded order email,
+// waiting for its owner to add it to the closet (through the link import's
+// garment form) or dismiss it. Never a garment until then, and never on the
+// wishlist, which grantees read. `state` moves once, pending to added (the
+// garment saved with it, in its transaction: markOrderItemAdded) or to
+// dismissed (dismissOrderItem); decided_at is set exactly then.
+export const orderItem = pgTable(
+  'order_item',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    orderEmailId: integer('order_email_id').notNull(),
+    // The product page's address after redirects, tracking parameters
+    // stripped (order-mail/links.ts).
+    productUrl: text('product_url').notNull(),
+    name: text('name'),
+    brand: text('brand'),
+    price: numeric('price', { precision: 10, scale: 2 }),
+    // ISO 4217 when the page said.
+    currency: varchar('currency', { length: 3 }),
+    // The day the email arrived, in APP_TIMEZONE: the acquired date the
+    // garment form is prefilled with.
+    orderedOn: date('ordered_on', { mode: 'string' }).notNull(),
+    state: text('state').$type<OrderItemState>().notNull().default('pending'),
+    garmentId: integer('garment_id'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+  },
+  (table) => [
+    // A product listed once per owner: its confirmation and shipping
+    // emails both name it. Also the index of the owner_id foreign key.
+    unique('order_item_owner_id_product_url_unique').on(
+      table.ownerId,
+      table.productUrl,
+    ),
+    index('order_item_order_email_id_index').on(table.orderEmailId),
+    index('order_item_garment_id_index').on(table.garmentId),
+    check(
+      'order_item_state_check',
+      sql`${table.state} in (${sqlList(ORDER_ITEM_STATES)})`,
+    ),
+    check(
+      'order_item_decided_check',
+      sql`(${table.state} = 'pending') = (${table.decidedAt} is null)`,
+    ),
+    check(
+      'order_item_product_url_check',
+      sql`${table.productUrl} ~* '^https?://'`,
+    ),
+    check('order_item_price_check', sql`${table.price} >= 0`),
+    foreignKey({
+      name: 'order_item_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'order_item_order_email_id_foreign',
+      columns: [table.orderEmailId],
+      foreignColumns: [orderEmail.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'order_item_garment_id_foreign',
+      columns: [table.garmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
   ],
 );
 

@@ -11,6 +11,7 @@ import { reconcileStorage } from './maintenance/reconcile';
 import { type ScheduledJob, stopBeforeClose } from './maintenance/scheduled';
 import { addDays, todayIn } from './web/calendar/calendar-date';
 import { pruneReminders, sendDueReminders } from './web/push/reminders';
+import { pollOrderMail } from './web/wardrobe/order-mail/poll';
 import type { PushSender } from './web/push/sender';
 import {
   pruneReplans,
@@ -24,7 +25,8 @@ const RECONCILE_HOUR = 3;
 
 /**
  * The server process: createApp(), the nightly jobs, the push reminders
- * (with PWA_ENABLED), the week's daily re-plan (the planner's entries
+ * (with PWA_ENABLED), the order mail's poll (with ORDER_MAIL_JMAP_TOKEN),
+ * the week's daily re-plan (the planner's entries
  * judged against the forecast with WEATHER_ENABLED, and always against
  * what can still be worn), the background-removal queue started with
  * `runner`,
@@ -45,8 +47,17 @@ export async function serve(
   runner: CutoutRunner,
   options: AppOptions = {},
 ): Promise<Pick<ClosetApp, 'app' | 'errors'>> {
-  const { app, db, photos, cutouts, push, weather, metrics, errors } =
-    await createApp(config, logger, options);
+  const {
+    app,
+    db,
+    photos,
+    cutouts,
+    push,
+    weather,
+    orderMail,
+    metrics,
+    errors,
+  } = await createApp(config, logger, options);
 
   // Every timer, stopped together at preClose (a run in flight waited for)
   // before onClose ends the queue and the pool (#78).
@@ -83,6 +94,16 @@ export async function serve(
     jobs.push(...startReminders(config, logger, metrics, push, replan));
   }
   jobs.push(...startReplans(config, metrics, replan));
+  if (orderMail) {
+    jobs.push(
+      scheduleMinutely({
+        name: 'Order mail poll',
+        everyMinutes: config.ORDER_MAIL_POLL_MINUTES,
+        run: metrics.timeJob('order_mail', () => pollOrderMail(orderMail)),
+        logger: orderMail.logger,
+      }),
+    );
+  }
   // Before listen(): Fastify takes no hooks once it is ready.
   stopBeforeClose(app, jobs, logger.child({ context: 'Scheduler' }));
 

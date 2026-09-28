@@ -204,6 +204,13 @@
       "when": 1790562335185,
       "tag": "0028_care_label_repair_log",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790567791445,
+      "tag": "0029_order_mail",
+      "breakpoints": true
     }
   ]
 }

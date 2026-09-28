@@ -3,6 +3,7 @@ import type * as ConfigModule from '../../src/config';
 import type { CutoutRunner } from '../../src/cutout/runner';
 import type * as LoggerModule from '../../src/logger';
 import type * as ServerModule from '../../src/server';
+import { startJmapStub } from './jmap-stub';
 import { startWeatherStub } from './weather-stub';
 
 /**
@@ -62,17 +63,24 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config);
   const weather = await startWeatherStub();
+  // The order mail's poll (with ORDER_MAIL_JMAP_TOKEN, as playwright.config.ts
+  // sets it) reads an empty stand-in inbox, never Fastmail.
+  const jmap = config.ORDER_MAIL_JMAP_TOKEN
+    ? await startJmapStub(config.ORDER_MAIL_JMAP_TOKEN)
+    : undefined;
   logger.info(
-    `Test server: background removal stubbed (${STUB_DELAY_MS} ms a photo), weather from ${weather.options.endpoints.forecast}`,
+    `Test server: background removal stubbed (${STUB_DELAY_MS} ms a photo), weather from ${weather.options.endpoints.forecast}${jmap ? `, order mail from ${jmap.options.sessionUrl}` : ''}`,
   );
   const { app } = await serve(config, logger, stubRunner, {
     weather: weather.options,
+    orderMail: jmap?.options,
   });
-  // serve() closes the app on SIGTERM; the stub's own server would keep the
-  // process alive after it (the load test waited forever, #112). Its HTTP
-  // server closes after the timers have stopped, so nothing asks for weather.
+  // serve() closes the app on SIGTERM; the stubs' own servers would keep the
+  // process alive after it (the load test waited forever, #112). Their HTTP
+  // servers close after the timers have stopped, so nothing asks them.
   app.server.once('close', () => {
     void weather.close();
+    void jmap?.close();
   });
 }
 

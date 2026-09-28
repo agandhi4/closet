@@ -313,8 +313,20 @@ function OwnershipFields(props: {
       />
     );
   }
+  const orderItem =
+    mode.kind === 'new' ? mode.destination.orderItem : undefined;
   return (
     <>
+      {orderItem !== undefined && (
+        // "Add to closet" from the order mail's review list (#25): the save
+        // marks the order item added with the garment.
+        <>
+          <input type="hidden" name="orderItem" value={String(orderItem)} />
+          <p class="alert alert-info text-sm" id="garment-order-item">
+            {t('orders.FROM_ORDER')}
+          </p>
+        </>
+      )}
       {/* The save writes the care fields only when this is posted (see GarmentBody.care). */}
       <input type="hidden" name="care" value="1" />
       <QuantityField value={values.care.quantity} errors={errors.quantity} />

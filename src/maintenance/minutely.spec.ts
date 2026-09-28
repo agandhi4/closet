@@ -26,6 +26,16 @@ describe('untilNextMinute', () => {
   ])('from %s is %i ms', (now, expected) => {
     expect(untilNextMinute(at(now))).toBe(expected);
   });
+
+  it.each([
+    // Every 5 minutes (the order mail's poll): a second past :30, :35 ...
+    ['2026-01-15T07:29:30.000Z', 31_000],
+    ['2026-01-15T07:30:00.500Z', 500],
+    ['2026-01-15T07:30:01.000Z', 5 * MINUTE],
+    ['2026-01-15T07:33:00.000Z', 2 * MINUTE + 1_000],
+  ])('every 5 minutes, from %s is %i ms', (now, expected) => {
+    expect(untilNextMinute(at(now), 5)).toBe(expected);
+  });
 });
 
 describe('scheduleMinutely', () => {

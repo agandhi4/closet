@@ -25,6 +25,11 @@ export interface ViewContext {
   metricsEnabled: boolean;
   /** SENTRY_DSN: signed-in pages load the error beacon (public/js/errors.js). */
   errorTrackingEnabled: boolean;
+  /**
+   * The signed-in user is ORDER_MAIL_OWNER, with the order mail on (#25):
+   * the Wardrobe's ⋯ menu links "From your orders".
+   */
+  orderReview: boolean;
   /** The build's full git sha (the error tracker's release), when known. */
   buildSha: string | undefined;
   /** `?v=` on every first-party static URL; see src/build-info.ts. */
@@ -62,6 +67,8 @@ export interface ViewContextConfig {
   weatherEnabled: boolean;
   metricsEnabled: boolean;
   errorTrackingEnabled: boolean;
+  /** ORDER_MAIL_OWNER, normalized, when the order mail is on. */
+  orderMailOwner: string | undefined;
 }
 
 /**
@@ -89,6 +96,9 @@ export function createViewContextBuilder(config: ViewContextConfig) {
       weatherEnabled: config.weatherEnabled,
       metricsEnabled: config.metricsEnabled,
       errorTrackingEnabled: config.errorTrackingEnabled,
+      orderReview:
+        config.orderMailOwner !== undefined &&
+        auth?.user.email?.toLowerCase() === config.orderMailOwner,
       buildSha: BUILD_INFO.sha,
       appVersion: BUILD_INFO.assetVersion,
       appRelease: BUILD_INFO.version,

@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { Client, type QueryResult } from 'pg';
 import { expect, vi } from 'vitest';
 import { type AppOptions, createApp } from '../../src/app';
-import { loadConfig } from '../../src/config';
+import { type Config, loadConfig } from '../../src/config';
 import type { CutoutQueue } from '../../src/cutout/queue';
 import { type Db, dbConfig, type DbConfig } from '../../src/db/client';
 import { user } from '../../src/db/schema';
@@ -22,6 +22,7 @@ import { type IsoDate, todayIn } from '../../src/web/calendar/calendar-date';
 import type { Photos } from '../../src/web/files/photos';
 import type { PushSender } from '../../src/web/push/sender';
 import type { Metrics } from '../../src/metrics/metrics';
+import type { OrderMailDeps } from '../../src/web/wardrobe/order-mail/poll';
 import { LogCapture } from '../support/log-capture';
 import { createScratchDatabase } from '../support/scratch-database';
 
@@ -155,6 +156,11 @@ export interface TestApp {
   push: PushSender | undefined;
   /** The app's metrics (what GET /metrics exposes with METRICS_ENABLED). */
   metrics: Metrics;
+  /**
+   * The order mail's poll (ORDER_MAIL_JMAP_TOKEN and the JMAP stub only):
+   * a spec runs it with pollOrderMail; nothing schedules it here.
+   */
+  orderMail: OrderMailDeps | undefined;
   /** The user registered at boot, whose session t.inject() sends by default. */
   owner: TestUser;
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
@@ -213,6 +219,25 @@ export interface TestAppOptions {
    * weather-stub.ts): required with WEATHER_ENABLED=true.
    */
   weather?: AppOptions['weather'];
+  /**
+   * Fastmail's stand-in (startJmapStub().options, test/support/
+   * jmap-stub.ts): required with ORDER_MAIL_JMAP_TOKEN.
+   */
+  orderMail?: AppOptions['orderMail'];
+}
+
+/** A spec never reaches a real third party: each one it turns on needs its stand-in. */
+function missingStandIn(
+  config: Config,
+  options: TestAppOptions,
+): string | undefined {
+  if (config.WEATHER_ENABLED && !options.weather) {
+    return 'WEATHER_ENABLED=true needs the weather stub (options.weather): a spec must never call Open-Meteo';
+  }
+  if (config.ORDER_MAIL_JMAP_TOKEN && !options.orderMail) {
+    return 'ORDER_MAIL_JMAP_TOKEN needs the JMAP stub (options.orderMail): a spec must never call Fastmail';
+  }
+  return undefined;
 }
 
 export async function createTestApp(
@@ -225,12 +250,11 @@ export async function createTestApp(
     env: { ...BASE_ENV, ...database.env, DATA_PATH: dataPath, ...overrides },
     envFiles: [],
   });
-  if (config.WEATHER_ENABLED && !options.weather) {
+  const missing = missingStandIn(config, options);
+  if (missing) {
     await database.drop();
     await rm(dataPath, { recursive: true, force: true });
-    throw new Error(
-      'WEATHER_ENABLED=true needs the weather stub (options.weather): a spec must never call Open-Meteo',
-    );
+    throw new Error(missing);
   }
   const logs = new LogCapture();
   const logger = options.appLog
@@ -243,14 +267,16 @@ export async function createTestApp(
   let cutouts: CutoutQueue;
   let push: PushSender | undefined;
   let metrics: Metrics;
+  let orderMail: OrderMailDeps | undefined;
   try {
     await options.beforeBoot?.(database.env);
-    ({ app, db, photos, cutouts, push, metrics } = await createApp(
+    ({ app, db, photos, cutouts, push, metrics, orderMail } = await createApp(
       config,
       logger,
       {
         outboundFetch: options.outboundFetch,
         weather: options.weather,
+        orderMail: options.orderMail,
       },
     ));
     await app.ready();
@@ -335,6 +361,7 @@ export async function createTestApp(
     cutouts,
     push,
     metrics,
+    orderMail,
     owner,
     inject,
     db,

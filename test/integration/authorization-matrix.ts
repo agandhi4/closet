@@ -223,6 +223,8 @@ const TABLES = [
   'trip_garment_packed',
   'brand_size',
   'body_measurements',
+  // POST /wardrobe marks an order item added (#25).
+  'order_item',
 ];
 
 interface Case {
