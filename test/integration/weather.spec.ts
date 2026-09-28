@@ -13,7 +13,13 @@ import { user, userWeather, weatherForecast } from '../../src/db/schema';
 import { forecastDayOf, weatherFor } from '../../src/seed/weather';
 import { displayTemperature } from '../../src/weather/temperature';
 import { createOutfit } from '../../src/web/outfits/queries';
-import { createTestApp, hasText, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  hasText,
+  recordQueries,
+  type TestApp,
+  unescapeHtml,
+} from './harness';
 import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
 import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
@@ -509,6 +515,31 @@ describe('weather', () => {
         url: '/wardrobe?select=1',
       });
       expect(selecting.body).not.toContain('/weather/summary');
+    });
+
+    // #158: Today is the day's own data (network first, not a byte-stable
+    // tab root), so it renders the line itself from the weather read its
+    // ideas are matched with: no second request, no second read.
+    it('Today renders the line in the page, the one the summary answers, from one read', async () => {
+      const hits = stub.hits.length;
+      const today = await t.inject({ method: 'GET', url: '/' });
+      expectFullPage(today);
+      const page = unescapeHtml(today.body);
+      expect(page).not.toContain('/weather/summary');
+      const line = unescapeHtml((await summary()).body);
+      expect(line).toContain('id="weather-line"');
+      expect(page).toContain(line);
+
+      // The session; the entries beside the settings and forecast (one
+      // statement, findWeatherWithForecast); the pool beside the
+      // generator's memory.
+      const page158 = await recordQueries(() =>
+        t.inject({ method: 'GET', url: '/' }),
+      );
+      expect(page158.statements).toBe(5);
+      // The session, then the settings and forecast together.
+      expect((await recordQueries(() => summary())).statements).toBe(2);
+      expect(stub.hits).toHaveLength(hits);
     });
 
     it('reads in °F when the user asks', async () => {

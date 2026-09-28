@@ -8,6 +8,7 @@ import {
   createLocationCache,
   elapsed,
   failureReason,
+  type KnownRow,
   type ReadOptions,
 } from './location-cache';
 import type { Place, WeatherClient } from './open-meteo';
@@ -17,6 +18,7 @@ import {
   findForecastRow,
   findNormalsRow,
   findWeatherSettings,
+  findWeatherWithForecast,
   recordFailedForecast,
   recordFailedNormals,
   saveForecast,
@@ -85,6 +87,8 @@ export interface WeatherService {
   forecastFor(
     location: Location,
     read?: ReadOptions,
+    /** The row userWeather read with the settings (LocationCache.get). */
+    known?: KnownRow<Forecast>,
   ): Promise<CachedForecast | null>;
   /**
    * The location's climate normals, null if Open-Meteo never answered. For
@@ -162,8 +166,8 @@ export function createWeatherService(options: {
   });
 
   return {
-    async forecastFor(location, read) {
-      const cached = await forecasts.get(location, read);
+    async forecastFor(location, read, known) {
+      const cached = await forecasts.get(location, read, known);
       return cached && { forecast: cached.value, fetchedAt: cached.fetchedAt };
     },
 
@@ -195,7 +199,13 @@ export function createWeatherService(options: {
   };
 }
 
-/** The user's settings, where their weather is for now, and its forecast. */
+/**
+ * The user's settings, where their weather is for now, and its forecast.
+ * One statement reads the settings and that location's cache row together
+ * (findWeatherWithForecast), which the cache decides from rather than
+ * reading the row again (#158: every weather line, Today and its ideas
+ * paid two round trips here).
+ */
 export async function userWeather(
   db: Db,
   weather: WeatherService,
@@ -204,10 +214,10 @@ export async function userWeather(
   /** `{ fresh: true }` for a job's one-shot decision (location-cache.ts). */
   read?: ReadOptions,
 ): Promise<UserWeather> {
-  const settings = await findWeatherSettings(db, userId);
+  const { settings, forecast } = await findWeatherWithForecast(db, userId, now);
   const active = activeLocation(settings, now);
   const cached = active
-    ? await weather.forecastFor(active.location, read)
+    ? await weather.forecastFor(active.location, read, forecast ?? undefined)
     : null;
   return { settings, active, cached };
 }

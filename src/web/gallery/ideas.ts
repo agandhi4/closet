@@ -22,7 +22,11 @@ import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import { createOutfit, OUTFIT_NAME_MAX } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
 import { findWeatherSettings } from '../weather/queries';
-import { userWeather, type WeatherService } from '../weather/service';
+import {
+  userWeather,
+  type UserWeather,
+  type WeatherService,
+} from '../weather/service';
 import { adoptPlannerOutfit } from '../week-plan/queries';
 import {
   goesWith,
@@ -35,11 +39,11 @@ import {
   avoidedPairs,
   type ClosetGarment,
   closetGarments,
+  generatorMemory,
   ideaPool,
   outfitOfGarments,
   pickedGarments,
   type PoolGarment,
-  savedOutfits,
   styledGarment,
   styledGarments,
   type WishlistGarment,
@@ -99,6 +103,12 @@ export interface IdeasInput {
    * rather than home's.
    */
   place?: Location | null;
+  /**
+   * The person's own weather, when the caller has read it already (Today
+   * reads it with its entries for its line, #158): not read again. Only
+   * for the person's own days (`place` absent).
+   */
+  ownWeather?: UserWeather;
   /** Only this capsule's garments (the owner's own capsule; the route checks). */
   capsuleId?: number;
   /** In every idea: `?with=`'s garment, Styling's locked rows (styledGarments). */
@@ -162,10 +172,9 @@ export async function ideasFor(
   now: Date,
 ): Promise<IdeasResult> {
   const { db } = deps;
-  const [pool, saved, avoid, weather] = await Promise.all([
+  const [pool, { saved, avoid }, weather] = await Promise.all([
     ideaPool(db, ownerId, { today: input.today, capsuleId: input.capsuleId }),
-    savedOutfits(db, ownerId),
-    avoidedPairs(db, ownerId),
+    generatorMemory(db, ownerId),
     dayWeather(deps, ownerId, input, now),
   ]);
   const page = generateIdeas({
@@ -240,7 +249,8 @@ async function forecastWeather(
   const { place } = input;
   const { settings, cached } =
     place === undefined
-      ? await userWeather(deps.db, deps.weather, ownerId, now)
+      ? (input.ownWeather ??
+        (await userWeather(deps.db, deps.weather, ownerId, now)))
       : {
           settings: await findWeatherSettings(deps.db, ownerId),
           cached: place && (await deps.weather.forecastFor(place)),

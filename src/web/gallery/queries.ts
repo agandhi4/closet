@@ -279,37 +279,62 @@ export async function wishlistGarments(
   }));
 }
 
+/** What the generator must not repeat or pair, beside its pool. */
+export interface GeneratorMemory {
+  /** The owner's saved outfits, for the duplicate rule. */
+  saved: SavedOutfit[];
+  /** The owner's avoided pairs ("Clashes", generator_avoid). */
+  avoid: [number, number][];
+}
+
 /**
- * The owner's saved outfits as the generator's duplicate rule reads them:
- * each outfit's chosen garments with their roles. One statement.
+ * The owner's saved outfits as the generator's duplicate rule reads them
+ * (each outfit's chosen garments with their roles) and their avoided
+ * pairs, in one statement: two json_agg subqueries, one row. They were two
+ * statements beside the pool on every ideas surface (#158: statements, not
+ * their size, are what a page pays for over production's ~114 ms link).
  */
-export async function savedOutfits(
+export async function generatorMemory(
   db: Queryable,
   ownerId: number,
-): Promise<SavedOutfit[]> {
-  const rows = await db
+): Promise<GeneratorMemory> {
+  // Each slot's outfit, garment and category, and each pair, as arrays:
+  // json_agg of rows would carry the column names in every element.
+  const slots = db
     .select({
-      outfitId: outfitSlot.outfitId,
-      id: garment.id,
-      category: garment.category,
+      slots: sql`coalesce(json_agg(json_build_array(${outfitSlot.outfitId}, ${garment.id}, ${garment.category})), '[]')`,
     })
     .from(outfitSlot)
     .innerJoin(outfit, eq(outfit.id, outfitSlot.outfitId))
     .innerJoin(garment, eq(garment.id, outfitSlot.garmentId))
     .where(eq(outfit.ownerId, ownerId));
+  const pairs = db
+    .select({
+      pairs: sql`coalesce(json_agg(json_build_array(${generatorAvoid.garmentAId}, ${generatorAvoid.garmentBId})), '[]')`,
+    })
+    .from(generatorAvoid)
+    .where(eq(generatorAvoid.ownerId, ownerId));
+  const { rows } = await db.execute<{
+    slots: [number, number, string][];
+    avoid: [number, number][];
+  }>(sql`select (${slots}) as slots, (${pairs}) as avoid`);
+  const [{ slots: slotRows, avoid }] = rows;
   const outfits = new Map<
     number,
     { id: number; role: IdeaGarment['role'] }[]
   >();
-  for (const row of rows) {
-    const slots = outfits.get(row.outfitId) ?? [];
-    slots.push({ id: row.id, role: categoryRole(row.category) });
-    outfits.set(row.outfitId, slots);
+  for (const [outfitId, id, category] of slotRows) {
+    const outfitSlots = outfits.get(outfitId) ?? [];
+    outfitSlots.push({ id, role: categoryRole(category) });
+    outfits.set(outfitId, outfitSlots);
   }
-  return [...outfits.values()];
+  return { saved: [...outfits.values()], avoid };
 }
 
-/** The owner's avoided pairs, for the generator. */
+/**
+ * The owner's avoided pairs alone, for the searches that never compare
+ * saved outfits ("Goes with my closet": goesWithCloset, goesWithCount).
+ */
 export async function avoidedPairs(
   db: Queryable,
   ownerId: number,

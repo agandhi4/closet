@@ -11,8 +11,11 @@ import type { CalendarEntry } from '../calendar/calendar-view';
 import { findEntries } from '../calendar/queries';
 import { dailySeed, ideasFor, type IdeasWeather } from '../gallery/ideas';
 import type { PoolGarment } from '../gallery/queries';
-import type { WeatherService } from '../weather/service';
-import { somethingWornOn } from './queries';
+import {
+  userWeather,
+  type UserWeather,
+  type WeatherService,
+} from '../weather/service';
 
 /**
  * Today (#15; plan section 9): the household's day for one person, as a
@@ -26,6 +29,12 @@ import { somethingWornOn } from './queries';
  *   TODAY_IDEAS from ideasFor for today's forecast, the day's seed
  *   (dailySeed, as the gallery opens with), so a reload shows the same
  *   three and Refresh walks the pages.
+ * - The person's weather (settings and forecast), read once beside the
+ *   entries: the page's line and the ideas' matching share it.
+ *
+ * Whether anything was worn today is not in it: the page never shows it,
+ * so its readers that need it (get_today, the evening reminder) ask
+ * somethingWornOn themselves (#158).
  */
 
 /** Ideas a suggestions row shows at once. */
@@ -56,8 +65,8 @@ export type TodayRow = PlannedRow | IdeasRow;
 export interface TodayModel {
   today: IsoDate;
   rows: TodayRow[];
-  /** Anything marked worn today (an entry, a garment's "Wore today"). */
-  wornToday: boolean;
+  /** Null with WEATHER_ENABLED=false. */
+  weather: UserWeather | null;
 }
 
 export interface TodayDeps {
@@ -72,9 +81,11 @@ export async function todayFor(
   now: Date,
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  const [entries, wornToday] = await Promise.all([
+  // Together: the page waits for one round trip here, not two in turn, and
+  // the ideas below start with the weather in hand.
+  const [entries, weather] = await Promise.all([
     findEntries(deps.db, ownerId, today, today),
-    somethingWornOn(deps.db, ownerId, today),
+    deps.weather && userWeather(deps.db, deps.weather, ownerId, now),
   ]);
   // Occasion order, the calendar's; a stable sort keeps the planned first.
   entries.sort((a, b) => compareOccasions(a.occasion, b.occasion));
@@ -94,15 +105,18 @@ export async function todayFor(
   const dressed = entries.some((e) => DAY_OCCASIONS.includes(e.occasion));
   if (!dressed) {
     // All day sorts first among occasions, so it opens the list.
-    rows.unshift(await todayIdeas(deps, ownerId, now, DEFAULT_OCCASION, 1));
+    rows.unshift(
+      await todayIdeas(deps, ownerId, now, DEFAULT_OCCASION, 1, weather),
+    );
   }
-  return { today, rows, wornToday };
+  return { today, rows, weather: weather ?? null };
 }
 
 /**
  * A page of today's ideas for `occasion` (Refresh's fragment asks for the
  * next). A page past the end (the closet changed since the page was drawn)
- * starts over at the first.
+ * starts over at the first. `ownWeather`: the person's weather when the
+ * caller read it already (todayFor); else ideasFor reads it.
  */
 export async function todayIdeas(
   deps: TodayDeps,
@@ -110,6 +124,7 @@ export async function todayIdeas(
   now: Date,
   occasion: Occasion,
   page: number,
+  ownWeather?: UserWeather,
 ): Promise<IdeasRow> {
   const today = todayIn(deps.timeZone, now);
   const ask = (asked: number) =>
@@ -123,6 +138,7 @@ export async function todayIdeas(
         seed: dailySeed(today),
         offset: (asked - 1) * TODAY_IDEAS,
         limit: TODAY_IDEAS,
+        ownWeather,
       },
       now,
     );

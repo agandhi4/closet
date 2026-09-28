@@ -2,7 +2,12 @@ import { and, count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garmentWear, outfit, outfitCalendar } from '../../src/db/schema';
 import { wearIdea } from '../../src/web/today/queries';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  recordQueries,
+  type TestApp,
+  unescapeHtml,
+} from './harness';
 import { tool, createAccessToken } from './mcp';
 import {
   expectFragment,
@@ -216,6 +221,25 @@ describe('Today', () => {
       await clearToday();
     });
 
+    // #158: production pays a ~114 ms round trip per statement. The session,
+    // then today's entries, then (undressed) the pool and the generator's
+    // memory (saved outfits and clashes, one statement) together. With the
+    // weather on, its read joins the entries' round (weather.spec.ts).
+    // Nothing reads "worn today": the page never shows it.
+    it('reads in four statements, two when the day is dressed', async () => {
+      await clearToday();
+      const undressed = await recordQueries(() => get('/'));
+      expect(undressed.statements).toBe(4);
+      // somethingWornOn's statement is gone from the page.
+      expect(undressed.sql.join('\n')).not.toMatch(/select exists/);
+
+      const office = await saveOutfit('Office again', [tops[2], bottoms[0]]);
+      await planToday(office, 'work');
+      const dressed = await recordQueries(() => get('/'));
+      expect(dressed.statements).toBe(2);
+      await clearToday();
+    });
+
     it('an empty closet says what ideas need', async () => {
       const cookie = await t.register('empty-today@example.com');
       const res = await get('/', { cookie });
@@ -250,6 +274,12 @@ describe('Today', () => {
       expect(new Set(keys).size).toBe(keys.length);
       expect(seen.length).toBeGreaterThan(3);
       expect(url).toMatch(/page=1$/);
+    });
+
+    it('reads in three statements: the session, then the pool and the generator’s memory', async () => {
+      const url = refreshUrl((await get('/')).body)!;
+      const record = await recordQueries(() => get(url, HX_FRAGMENT));
+      expect(record.statements).toBe(3);
     });
 
     it('reads a malformed occasion or page as all day, page 1', async () => {
@@ -332,6 +362,23 @@ describe('Today', () => {
       ).toBe(1);
       expect(await t.db.$count(garmentWear)).toBe(before + idea.length);
       expect(t.logs.messages('info', 'Web').at(-1)).toMatch(/already worn$/);
+    });
+
+    // #158: the owner lock is taken once, by wearIdea; pickIdea, insertEntry
+    // and setEntryWorn join its transaction (ownerTransaction) instead of
+    // each opening a savepoint and locking again (25 statements before).
+    it('a tap is one transaction that locks once: ten statements for a repeat', async () => {
+      await clearToday();
+      const [idea] = cardsOf((await get('/')).body);
+      expect((await wear(idea)).statusCode).toBe(303);
+      const again = await recordQueries(() => wear(idea));
+      // Session; begin, the lock (with its timeout), the garments, the
+      // outfit found, its planner take-over, the entry kept, found, locked
+      // and already worn; commit.
+      expect(again.statements).toBe(10);
+      const sql = again.sql.join('\n');
+      expect(sql).not.toMatch(/savepoint/i);
+      expect(sql.match(/for no key update/g)).toHaveLength(1);
     });
 
     it('two taps at the same moment make one outfit, one entry, one set of wears', async () => {

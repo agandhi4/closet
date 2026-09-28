@@ -16,8 +16,7 @@ import { addDays, type IsoDate } from '../calendar/calendar-date';
 import { entryOf } from '../calendar/queries';
 import { pickIdea } from '../gallery/ideas';
 import {
-  avoidedPairs,
-  savedOutfits,
+  generatorMemory,
   weekPool,
   type WeekPoolGarment,
 } from '../gallery/queries';
@@ -185,9 +184,10 @@ export function planMyWeek(
 
 /**
  * What the planner and the re-plan judge a week by, read inside their
- * locked transaction: the entries from today to `last`, the pool, the saved
- * outfits and the avoided pairs. In turn, not at once: a transaction is one
- * connection, which runs one query at a time (pg deprecates queuing more).
+ * locked transaction: the entries from today to `last`, the pool, and the
+ * saved outfits with the avoided pairs (generatorMemory, one statement). In
+ * turn, not at once: a transaction is one connection, which runs one query
+ * at a time (pg deprecates queuing more).
  */
 export async function readWeek(
   tx: Queryable,
@@ -197,8 +197,7 @@ export async function readWeek(
 ): Promise<Omit<WeekContext<WeekPoolGarment>, 'forecast' | 'offset'>> {
   const entries = await windowEntries(tx, ownerId, today, last);
   const pool = await weekPool(tx, ownerId, today);
-  const saved = await savedOutfits(tx, ownerId);
-  const avoid = await avoidedPairs(tx, ownerId);
+  const { saved, avoid } = await generatorMemory(tx, ownerId);
   return { today, entries, pool, saved, avoid };
 }
 

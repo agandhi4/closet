@@ -2,6 +2,7 @@ import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { garmentWear, outfitCalendar } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
+import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../calendar/calendar-date';
 import { wearOutfitOn, type WornOutfit } from '../calendar/queries';
 import { pickIdea, type PickResult } from '../gallery/ideas';
@@ -51,12 +52,15 @@ export interface WoreIdea {
 /**
  * "Wear this" on one of Today's ideas: the idea becomes an outfit (pickIdea,
  * which reuses an outfit of exactly these garments), planned today for
- * `occasion` and marked worn (wearOutfitOn), in one transaction: a failure
- * in either leaves neither. Idempotent: pickIdea runs under lockOwner, so a
- * double tap's second transaction waits for the first, finds its outfit and
- * its entry, and setEntryWorn finds it worn already (`worn.changed` false).
- * 'not-found' when a garment is not the owner's or not in the closet (a card
- * from before an archive), and nothing is written.
+ * `occasion` and marked worn (wearOutfitOn), in one owner transaction: a
+ * failure in either leaves neither. The lock is taken once, here, so the
+ * writers below join this transaction rather than each opening a savepoint
+ * and locking again (ownerTransaction; #158: 25 statements became 10).
+ * Idempotent: a double tap's second transaction waits on the owner lock,
+ * finds the first's outfit and entry, and setEntryWorn finds it worn
+ * already (`worn.changed` false). 'not-found' when a garment is not the
+ * owner's or not in the closet (a card from before an archive), and nothing
+ * is written.
  */
 export function wearIdea(
   db: Queryable,
@@ -69,7 +73,7 @@ export function wearIdea(
   },
 ): Promise<WoreIdea | 'not-found'> {
   const { today } = input;
-  return db.transaction(async (tx) => {
+  return ownerTransaction(db, ownerId, 'wearIdea', async (tx) => {
     const outfit = await pickIdea(tx, ownerId, {
       garmentIds: input.garmentIds,
     });

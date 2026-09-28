@@ -26,7 +26,13 @@ import type { CacheRow } from './queries';
  *   started from (or joins it, on a cold miss), so an ask that read the
  *   stale row just before the refresh saved can never fetch again. The pages
  *   of one household ask for the same place together. Across processes a
- *   duplicate fetch is harmless.
+ *   duplicate fetch is harmless;
+ * - a caller may hand in the row it read itself (`known`: userWeather joins
+ *   it to the settings, one round trip instead of two). It is decided from
+ *   only while no read or refresh of the location is under way and this
+ *   process has not written the row since (`written`: a row whose
+ *   attempted_at is older was read before that write); otherwise the ask is
+ *   an ordinary one, so the rule above still holds.
  * A page is the same whether the refresh succeeds, fails or is still
  * running: it shows what it was served, and the next ask the new answer.
  *
@@ -70,13 +76,30 @@ export interface ReadOptions {
   fresh?: boolean;
 }
 
+/**
+ * The location's row as the caller already read it, in a statement of its
+ * own (userWeather reads it joined to the user's settings, #158): `row`
+ * undefined when there was none.
+ */
+export interface KnownRow<T> {
+  row: CacheRow<T> | undefined;
+}
+
 export interface LocationCache<T> {
   /**
    * The location's kept answer, stale or not (a stale one starts a
    * background refresh; `fresh` waits for it); the provider's, waited for,
-   * when none is kept; null if the provider never answered.
+   * when none is kept; null if the provider never answered. With `known`,
+   * decided from that row instead of reading it again, unless this process
+   * wrote the row since it was read or a read or refresh of it is under
+   * way: then as without it, so a row read just before a refresh saved
+   * never starts a second one.
    */
-  get(location: Location, read?: ReadOptions): Promise<Cached<T> | null>;
+  get(
+    location: Location,
+    read?: ReadOptions,
+    known?: KnownRow<T>,
+  ): Promise<Cached<T> | null>;
   /**
    * Resolves once no refresh is running. The app's close awaits it before
    * ending the pool (a background refresh still has a row to save); specs
@@ -112,9 +135,27 @@ export function createLocationCache<T>(
   // its own promise settles, so no ask reads the row while a refresh runs.
   const reading = new Map<string, Promise<Decision<T>>>();
   const refreshing = new Map<string, Refresh<T>>();
+  // When this process last wrote each location's row (a saved answer or a
+  // failed attempt, both stamping attempted_at): a caller's row older than
+  // that was read before the write and is not decided from.
+  const written = new Map<string, number>();
 
   async function lookup(location: Location): Promise<Decision<T>> {
-    const row = await options.read(location);
+    return decide(location, await options.read(location));
+  }
+
+  /** Whether a caller's row predates this process's last write of it. */
+  function outdated(key: string, row: CacheRow<T> | undefined): boolean {
+    const at = written.get(key);
+    return at !== undefined && (!row || row.attemptedAt.getTime() < at);
+  }
+
+  // Synchronous from the row to startRefresh, which enters `refreshing`
+  // before any other ask can look.
+  function decide(
+    location: Location,
+    row: CacheRow<T> | undefined,
+  ): Decision<T> {
     const at = now().getTime();
     const kept = answering(location, lastGood(row));
     if (kept && at - kept.fetchedAt.getTime() < options.freshForMs) {
@@ -184,6 +225,7 @@ export function createLocationCache<T>(
       const value = await options.fetch(location);
       const fetchedAt = now();
       await options.save(location, value, fetchedAt);
+      written.set(label, fetchedAt.getTime());
       logger.info(
         `${name} for ${label}: ${options.describe(value)} in ${elapsed(started)} ms`,
       );
@@ -198,18 +240,22 @@ export function createLocationCache<T>(
       );
       // Nobody awaits a background refresh, so it must never reject: an
       // unhandled rejection ends the process.
-      await options.recordFailure(location, now()).catch((failure: unknown) => {
-        logger.error(
-          { err: failure },
-          `${name} for ${label}: recording the failed attempt failed`,
-        );
-      });
+      const attemptedAt = now();
+      await options
+        .recordFailure(location, attemptedAt)
+        .then(() => written.set(label, attemptedAt.getTime()))
+        .catch((failure: unknown) => {
+          logger.error(
+            { err: failure },
+            `${name} for ${label}: recording the failed attempt failed`,
+          );
+        });
       return kept;
     }
   }
 
   return {
-    async get(location, read = {}) {
+    async get(location, read = {}, known) {
       const fresh = read.fresh ?? false;
       const key = locationLabel(location);
       const running = refreshing.get(key);
@@ -217,6 +263,9 @@ export function createLocationCache<T>(
         return served({ kept: running.kept, refresh: running.done }, fresh);
       }
       let looking = reading.get(key);
+      if (!looking && known && !outdated(key, known.row)) {
+        return served(decide(location, known.row), fresh);
+      }
       if (!looking) {
         looking = lookup(location).finally(() => reading.delete(key));
         reading.set(key, looking);

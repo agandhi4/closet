@@ -16,31 +16,45 @@ import { Layout } from '../layout/layout';
 import { OutfitCollage } from '../outfits/collage';
 import { EntrySelfie } from '../selfies/views';
 import type { ViewContext } from '../view-context';
-import { WeatherSlot } from '../weather/views';
+import { UserWeatherLine } from '../weather/views';
 import { PlanWeekForm } from '../week-plan/views';
 import type { IdeasRow, PlannedRow, TodayModel } from './today';
 import { TODAY_PATH, todayIdeasUrl, WEAR_THIS_PATH } from './urls';
 
 /**
  * Today (#15; docs/plans/2026-09-26-redesign.md, "Today"): the day's date,
- * its weather line (the #14 fragment, loaded in place like the other
- * pages'), then a row per occasion: a planned outfit with "Wore it" and
- * "Change", or three ideas to swipe with "Wear this" and Refresh. A summary
- * with one decision on it: every card leads into another tab's page with
- * the destination set, and Today stores nothing of its own.
+ * its weather line, then a row per occasion: a planned outfit with "Wore
+ * it" and "Change", or three ideas to swipe with "Wear this" and Refresh. A
+ * summary with one decision on it: every card leads into another tab's page
+ * with the destination set, and Today stores nothing of its own.
  *
  * Network-first, not a stale-while-revalidate tab root (src/web/page-cache.ts):
  * all of it is the day's (the plan, the ideas, what was worn), so a copy
  * from yesterday would offer yesterday's decision. Offline, the worker's
  * last copy shows with its age, and every write is data-needs-network.
+ * Being the day's anyway, it renders the weather line itself, from the
+ * read its ideas are matched with, where the stale-while-revalidate pages
+ * load it after them (WeatherSlot): one request and one weather read
+ * fewer on every open of the app (#158).
  */
-export function TodayPage(props: { ctx: ViewContext; model: TodayModel }) {
+export function TodayPage(props: {
+  ctx: ViewContext;
+  model: TodayModel;
+  timeZone: string;
+  now: Date;
+}) {
   const { ctx, model } = props;
   return (
     <Layout ctx={ctx} title={t('today.TITLE')}>
       <AppBar ctx={ctx} title={dayLabel(model.today)} />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
-        <WeatherSlot ctx={ctx} />
+        {model.weather && (
+          <UserWeatherLine
+            weather={model.weather}
+            timeZone={props.timeZone}
+            now={props.now}
+          />
+        )}
         <p
           data-offline-note=""
           class="alert alert-warning alert-soft py-2 text-sm"

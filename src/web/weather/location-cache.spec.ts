@@ -293,4 +293,87 @@ describe('createLocationCache', () => {
       expect.stringMatching(/failed \(timeout\) after \d+ ms; none to serve$/),
     ]);
   });
+
+  describe("a row the caller read itself (userWeather's one statement, #158)", () => {
+    it('is decided from without reading it again: fresh served, stale served and refreshed', async () => {
+      const fetchedAt = new Date(NOW.getTime() - 59 * MINUTE);
+      const fresh = { value: 'kept', fetchedAt, attemptedAt: fetchedAt };
+      const s = setup(fresh);
+      await expect(s.cache.get(HERE, {}, { row: fresh })).resolves.toEqual({
+        value: 'kept',
+        fetchedAt,
+      });
+      expect(s.calls).toMatchObject({ read: 0, fetch: 0 });
+
+      s.at(2 * HOUR);
+      await expect(s.cache.get(HERE, {}, { row: fresh })).resolves.toEqual({
+        value: 'kept',
+        fetchedAt,
+      });
+      expect(s.calls).toMatchObject({ read: 0, fetch: 1 });
+      // While the refresh runs, an ask with the same old row joins it.
+      const joined = s.cache.get(HERE, { fresh: true }, { row: fresh });
+      s.pending[0].resolve('new');
+      await expect(joined).resolves.toEqual({
+        value: 'new',
+        fetchedAt: new Date(NOW.getTime() + 2 * HOUR),
+      });
+      expect(s.calls).toMatchObject({ read: 0, fetch: 1 });
+    });
+
+    it('is read again when this process wrote the row since it was read: no second fetch', async () => {
+      const s = setup(staleRow());
+      const before = staleRow();
+      await s.cache.get(HERE);
+      await flush();
+      s.pending[0].resolve('new');
+      await s.cache.settled();
+      expect(s.calls).toMatchObject({ read: 1, fetch: 1 });
+
+      // A statement that read the row before the save hands in the old row.
+      await expect(s.cache.get(HERE, {}, { row: before })).resolves.toEqual({
+        value: 'new',
+        fetchedAt: NOW,
+      });
+      expect(s.calls).toMatchObject({ read: 2, fetch: 1 });
+      // Or no row at all, from before the first save: read again too.
+      await expect(s.cache.get(HERE, {}, { row: undefined })).resolves.toEqual({
+        value: 'new',
+        fetchedAt: NOW,
+      });
+      expect(s.calls).toMatchObject({ read: 3, fetch: 1 });
+      // A row read after the save is decided from.
+      await expect(s.cache.get(HERE, {}, { row: s.row() })).resolves.toEqual({
+        value: 'new',
+        fetchedAt: NOW,
+      });
+      expect(s.calls).toMatchObject({ read: 3, fetch: 1 });
+    });
+
+    it('is read again after a failed attempt was recorded since', async () => {
+      const s = setup(staleRow());
+      const before = staleRow();
+      await s.cache.get(HERE);
+      await flush();
+      s.pending[0].reject(new OutboundFetchError('timeout', 'timed out'));
+      await s.cache.settled();
+      await s.cache.get(HERE, {}, { row: before });
+      // The attempt just recorded holds the next fetch back.
+      expect(s.calls).toMatchObject({ read: 2, fetch: 1 });
+    });
+
+    it('joins a read of the row already under way', async () => {
+      const s = setup(staleRow());
+      const asks = [
+        s.cache.get(HERE),
+        s.cache.get(HERE, {}, { row: undefined }),
+      ];
+      await Promise.all(asks);
+      // The second joined the first's read: it did not take its missing row
+      // for a cold miss.
+      expect(s.calls).toMatchObject({ read: 1, fetch: 1 });
+      s.pending[0].resolve('new');
+      await s.cache.settled();
+    });
+  });
 });

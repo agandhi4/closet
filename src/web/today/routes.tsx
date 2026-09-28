@@ -65,13 +65,19 @@ export const todayRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app.get(TODAY_PATH, async (request, reply) => {
     const ownerId = sessionUserId(request);
     const started = performance.now();
-    const model = await todayFor(deps, ownerId, new Date());
+    const now = new Date();
+    const model = await todayFor(deps, ownerId, now);
     logger.debug(
-      `Today for user ${ownerId} (${model.today}): ${model.rows.map((row) => `${row.occasion} ${row.kind === 'planned' ? `planned ${row.entries.length}` : `${row.ideas.length} ideas`}`).join(', ')}${model.wornToday ? ', worn' : ''} in ${Math.round(performance.now() - started)} ms`,
+      `Today for user ${ownerId} (${model.today}): ${model.rows.map((row) => `${row.occasion} ${row.kind === 'planned' ? `planned ${row.entries.length}` : `${row.ideas.length} ideas`}`).join(', ')} in ${Math.round(performance.now() - started)} ms`,
     );
     return renderPage(
       reply,
-      <TodayPage ctx={viewContext(reply)} model={model} />,
+      <TodayPage
+        ctx={viewContext(reply)}
+        model={model}
+        timeZone={config.timeZone}
+        now={now}
+      />,
     );
   });
 

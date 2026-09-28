@@ -10,7 +10,7 @@ import {
   weekReplan,
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
-import { lockOwner } from '../../src/web/auth/queries';
+import { lockOwner, lockOwnerQuery } from '../../src/web/auth/queries';
 import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
 import { deleteEntry, scheduleOutfit } from '../../src/web/calendar/queries';
 import {
@@ -48,6 +48,13 @@ function formPayload(fields: Fields) {
     payload: body.toString(),
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
   };
+}
+
+/** A node of EXPLAIN (VERBOSE, FORMAT JSON)'s plan. */
+interface PlanNode {
+  'Node Type': string;
+  Output?: string[];
+  Plans?: PlanNode[];
 }
 
 describe('the owner lock', () => {
@@ -439,6 +446,57 @@ describe('the owner lock', () => {
         kind: 'replanned',
       });
       expect((await entriesOn(day))[0].outfitId).not.toBe(outfitId);
+    });
+  });
+
+  describe('the lock timeout (#134, #158)', () => {
+    // lockOwner sets lock_timeout in the lock's own statement: it bounds the
+    // wait only while set_config is computed in the scan below LockRows.
+    it('is set below LockRows, in the same statement as the lock', async () => {
+      const query = lockOwnerQuery(t.db, t.owner.id).toSQL();
+      const { rows } = await t.db.$client.query<{
+        'QUERY PLAN': [{ Plan: PlanNode }];
+      }>(`explain (verbose, format json) ${query.sql}`, query.params);
+      const [{ Plan: top }] = rows[0]['QUERY PLAN'];
+      expect(top['Node Type']).toBe('LockRows');
+      const scan = top.Plans![0];
+      expect(scan.Output!.join(' ')).toContain('set_config');
+    });
+
+    it("names the joined writer that waited, not its caller's", async () => {
+      // Another transaction holds a garment of the idea: pickIdea's FOR
+      // SHARE, inside wearIdea's owner transaction, waits past the bound.
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      let held!: () => void;
+      const holding = new Promise<void>((resolve) => (held = resolve));
+      const holder = t.db.transaction(async (tx) => {
+        await tx
+          .select({ id: garment.id })
+          .from(garment)
+          .where(eq(garment.id, tops[0]))
+          .for('update');
+        held();
+        await released;
+      });
+      await Promise.race([holding, holder]);
+      t.logs.clear();
+      const res = await t.inject({
+        method: 'POST',
+        url: '/today/wear',
+        ...formPayload({
+          garmentId: [tops[0], bottoms[0]].map(String),
+          occasion: 'all-day',
+        }),
+      });
+      release();
+      await holder;
+      expect(res.statusCode).toBe(503);
+      expect(t.logs.messages('warn', 'Web')).toContainEqual(
+        expect.stringContaining(
+          `(pickIdea for owner ${t.owner.id} waited 5000 ms for a lock)`,
+        ),
+      );
     });
   });
 

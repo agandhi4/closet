@@ -4,13 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { JSX } from 'hono/jsx/jsx-runtime';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
-import {
-  addDays,
-  daysBetween,
-  hourIn,
-  type IsoDate,
-  todayIn,
-} from '../calendar/calendar-date';
+import { addDays, daysBetween, type IsoDate } from '../calendar/calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
@@ -39,13 +33,8 @@ import {
   WEATHER_SETTINGS_ID,
   WeatherLocation,
 } from './settings';
-import { dayChips, todayLine } from './summary';
-import {
-  WeatherCellDay,
-  WeatherDay,
-  WeatherLine,
-  WeatherPrompt,
-} from './views';
+import { dayChips } from './summary';
+import { UserWeatherLine, WeatherCellDay, WeatherDay } from './views';
 
 /** The widest range of day chips one summary answers: a calendar month and a half. */
 const MAX_SUMMARY_DAYS = 42;
@@ -153,17 +142,11 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
       const days = summaryDays(request.query.from, request.query.to);
       const month = request.query.view === 'month';
       const now = new Date();
-      const { settings, active, cached } = await userWeather(
-        db,
-        weather,
-        sessionUserId(request),
-        now,
-      );
-      if (!active) {
-        return renderFragment(reply, month ? <></> : <WeatherPrompt />);
-      }
-      if (!cached) return renderFragment(reply, <></>);
-      const chips = dayChips(cached, days, settings.unit);
+      const own = await userWeather(db, weather, sessionUserId(request), now);
+      // No location or no forecast: no chips (the line says which).
+      const chips = own.cached
+        ? dayChips(own.cached, days, own.settings.unit)
+        : [];
       if (month) {
         return renderFragment(
           reply,
@@ -174,19 +157,10 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
           </>,
         );
       }
-      const line = todayLine({
-        cached,
-        active,
-        settings,
-        today: todayIn(config.timeZone, now),
-        hour: hourIn(config.timeZone, now),
-      });
       return renderFragment(
         reply,
         <>
-          {line && (
-            <WeatherLine line={line} timeZone={config.timeZone} now={now} />
-          )}
+          <UserWeatherLine weather={own} timeZone={config.timeZone} now={now} />
           {chips.map((chip) => (
             <WeatherDay chip={chip} />
           ))}

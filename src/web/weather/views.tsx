@@ -1,10 +1,11 @@
 import type { IsoDate } from '../calendar/calendar-date';
-import { todayIn } from '../calendar/calendar-date';
+import { hourIn, todayIn } from '../calendar/calendar-date';
 import { t, tKey } from '../i18n';
 import type { ViewContext } from '../view-context';
 import type { Condition } from '../../weather/forecast';
 import type { TemperatureUnit } from '../../weather/temperature';
-import type { DayChip, TodayLine } from './summary';
+import type { UserWeather } from './service';
+import { type DayChip, type TodayLine, todayLine } from './summary';
 
 /**
  * The weather's pieces on other pages (#14). A page renders WeatherSlot in
@@ -219,6 +220,34 @@ export function weatherLineText(line: TodayLine): string {
     unit: UNIT_SYMBOLS[line.unit],
   });
   return [`${ICONS[line.condition]} ${range}`, ...lineNotes(line)].join(' · ');
+}
+
+/**
+ * The header line for a person's weather: the prompt to set a location
+ * without one, nothing without today's forecast, else WeatherLine. What
+ * GET /weather/summary answers into a WeatherSlot, and what Today renders
+ * in its page (#158: Today is the day's own data, not a byte-stable tab
+ * root, and its ideas read the same weather).
+ */
+export function UserWeatherLine(props: {
+  weather: UserWeather;
+  timeZone: string;
+  now: Date;
+}) {
+  const { settings, active, cached } = props.weather;
+  if (!active) return <WeatherPrompt />;
+  const line =
+    cached &&
+    todayLine({
+      cached,
+      active,
+      settings,
+      today: todayIn(props.timeZone, props.now),
+      hour: hourIn(props.timeZone, props.now),
+    });
+  return line ? (
+    <WeatherLine line={line} timeZone={props.timeZone} now={props.now} />
+  ) : null;
 }
 
 /** No location yet: the line is the way to set one. */

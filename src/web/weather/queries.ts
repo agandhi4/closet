@@ -79,7 +79,83 @@ export async function findWeatherSettings(
     .select()
     .from(userWeather)
     .where(eq(userWeather.userId, userId));
-  if (!row) return NO_WEATHER_SETTINGS;
+  return row ? settingsOf(row) : NO_WEATHER_SETTINGS;
+}
+
+/**
+ * The user's settings and, in the same statement, the forecast cache row
+ * of the location they make active at `now` (activeLocation's rule in SQL:
+ * the phone's location while younger than HERE_FRESH_HOURS, else home),
+ * for userWeather (service.ts). One round trip where settings then row
+ * were two, on every page's weather line, Today and its ideas (#158).
+ * `forecast` is null unless the location the statement joined is the one
+ * activeLocation picks, so the two rules can never serve one place's
+ * forecast for another; its `row` is undefined when that location has no
+ * cache row yet.
+ */
+export async function findWeatherWithForecast(
+  db: Queryable,
+  userId: number,
+  now: Date,
+): Promise<{
+  settings: WeatherSettings;
+  forecast: { row: CacheRow<Forecast> | undefined } | null;
+}> {
+  const hereSince = new Date(now.getTime() - HERE_FRESH_HOURS * 3_600_000);
+  const hereFresh = sql`${userWeather.hereLocatedAt} > ${hereSince}`;
+  // numeric arrives as text unless mapped, like the columns' own mode.
+  const latitude = sql<number | null>`case when ${hereFresh}
+    then ${userWeather.hereLatitude} else ${userWeather.homeLatitude} end`.mapWith(
+    Number,
+  );
+  const longitude = sql<number | null>`case when ${hereFresh}
+    then ${userWeather.hereLongitude} else ${userWeather.homeLongitude} end`.mapWith(
+    Number,
+  );
+  const [row] = await db
+    .select({
+      settings: userWeather,
+      joinedLatitude: latitude,
+      joinedLongitude: longitude,
+      value: weatherForecast.forecast,
+      fetchedAt: weatherForecast.fetchedAt,
+      attemptedAt: weatherForecast.attemptedAt,
+    })
+    .from(userWeather)
+    .leftJoin(
+      weatherForecast,
+      and(
+        eq(weatherForecast.latitude, latitude),
+        eq(weatherForecast.longitude, longitude),
+      ),
+    )
+    .where(eq(userWeather.userId, userId));
+  if (!row) return { settings: NO_WEATHER_SETTINGS, forecast: null };
+  const settings = settingsOf(row.settings);
+  const active = activeLocation(settings, now);
+  const joined = row.joinedLatitude !== null &&
+    row.joinedLongitude !== null && {
+      latitude: row.joinedLatitude,
+      longitude: row.joinedLongitude,
+    };
+  if (!active || !joined || !sameLocation(joined, active.location)) {
+    return { settings, forecast: null };
+  }
+  const { value, fetchedAt, attemptedAt } = row;
+  return {
+    settings,
+    forecast: {
+      // attempted_at is never null in a row: null is "none joined".
+      row: attemptedAt === null ? undefined : { value, fetchedAt, attemptedAt },
+    },
+  };
+}
+
+function sameLocation(a: Location, b: Location): boolean {
+  return a.latitude === b.latitude && a.longitude === b.longitude;
+}
+
+function settingsOf(row: typeof userWeather.$inferSelect): WeatherSettings {
   // The check constraints keep each group all set or all null.
   return {
     home:

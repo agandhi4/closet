@@ -1,6 +1,7 @@
 import * as z from 'zod/v4';
 import { DEFAULT_OCCASION } from '../../../wardrobe/occasions';
 import { ideaName } from '../../gallery/ideas';
+import { somethingWornOn } from '../../today/queries';
 import { todayFor } from '../../today/today';
 import { defineTool } from '../tool';
 import { calendarWeather } from './weather';
@@ -24,10 +25,14 @@ export const todayTools = [
         ctx.userId,
         new Date(),
       );
-      const weather = await calendarWeather(ctx, model.today, model.today);
+      // Not in the model: the page never shows it (todayFor).
+      const [weather, wornToday] = await Promise.all([
+        calendarWeather(ctx, model.today, model.today),
+        somethingWornOn(ctx.db, ctx.userId, model.today),
+      ]);
       return {
         day: model.today,
-        wornToday: model.wornToday,
+        wornToday,
         weather: weather?.(model.today, DEFAULT_OCCASION) ?? null,
         rows: model.rows.map((row) =>
           row.kind === 'planned'

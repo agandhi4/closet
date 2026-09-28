@@ -5,13 +5,10 @@ import { hourIn, todayIn } from '../calendar/calendar-date';
 import { occasionLabel } from '../calendar/labels';
 import { ideaName } from '../gallery/ideas';
 import { t } from '../i18n';
+import { somethingWornOn } from '../today/queries';
 import { todayFor, type TodayModel } from '../today/today';
 import { TODAY_PATH } from '../today/urls';
-import {
-  refreshForecastsFor,
-  userWeather,
-  type WeatherService,
-} from '../weather/service';
+import { refreshForecastsFor, type WeatherService } from '../weather/service';
 import { todayLine } from '../weather/summary';
 import { weatherLineText } from '../weather/views';
 import {
@@ -232,14 +229,12 @@ export async function reminderPayload(
   now: Date,
   swapped: readonly Swap[],
 ): Promise<PushPayload | null> {
-  // The morning's forecast first (sendDueReminders refreshed the batch's
-  // rows), so the line and Today's ideas (todayFor) read the same row.
-  const weather =
-    kind === 'morning' ? await weatherText(deps, userId, now) : null;
-  const model = await todayFor(deps, userId, now);
   if (kind === 'evening') {
-    if (model.wornToday) return null;
-    const planned = plannedOutfits(model);
+    // Worn already: nothing to send, and nothing else to read.
+    if (await somethingWornOn(deps.db, userId, todayIn(deps.timeZone, now))) {
+      return null;
+    }
+    const planned = plannedOutfits(await todayFor(deps, userId, now));
     return {
       title: t('today.push.EVENING_TITLE'),
       body:
@@ -250,12 +245,15 @@ export async function reminderPayload(
       tag: REMINDER_TAGS.evening,
     };
   }
+  // The line and Today's ideas share todayFor's one weather read (the
+  // batch's rows, which sendDueReminders refreshed first).
+  const model = await todayFor(deps, userId, now);
   const outfits = [...morningIdea(model), ...plannedOutfits(model)];
   return {
     title: t('today.push.MORNING_TITLE'),
     body: [
       ...swapped.map(reminderSwapLine),
-      weather,
+      weatherText(model, deps.timeZone, now),
       outfits.length > 0
         ? outfits.join(' · ')
         : t('today.push.MORNING_NOTHING'),
@@ -291,18 +289,13 @@ function morningIdea(model: TodayModel): string[] {
 
 // Today's weather line as text, or null (weather off, no location, no
 // forecast yet).
-async function weatherText(
-  deps: ReminderDeps,
-  userId: number,
+function weatherText(
+  model: TodayModel,
+  timeZone: string,
   now: Date,
-): Promise<string | null> {
-  if (!deps.weather) return null;
-  const { settings, active, cached } = await userWeather(
-    deps.db,
-    deps.weather,
-    userId,
-    now,
-  );
+): string | null {
+  if (!model.weather) return null;
+  const { settings, active, cached } = model.weather;
   const line =
     active &&
     cached &&
@@ -310,8 +303,8 @@ async function weatherText(
       cached,
       active,
       settings,
-      today: todayIn(deps.timeZone, now),
-      hour: hourIn(deps.timeZone, now),
+      today: model.today,
+      hour: hourIn(timeZone, now),
     });
   return line ? weatherLineText(line) : null;
 }
