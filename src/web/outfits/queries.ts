@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNotNull,
   or,
   type SQL,
@@ -29,6 +30,8 @@ import type { SelfieRef } from '../selfies/queries';
 import { ownedGarment } from '../wardrobe/status';
 import { prunePacked, tripsOfOutfit } from '../trips/packed';
 import { detachOutfitWears } from '../wears/queries';
+import { adoptPlannerOutfit } from '../week-plan/adopt';
+import { goneGarments, OutfitGarmentsGone } from './gone-garments';
 
 /**
  * Outfits' reads and writes. Outfits are private: every query is scoped to
@@ -80,12 +83,24 @@ export interface OutfitInput {
 
 export interface SaveResult {
   id: number;
+  /** The slot rows written (none when an outfit was reused). */
   slots: number;
-  /** Posted garment ids that are not the owner's, stored as empty slots. */
-  refused: number;
   schedule?: ScheduleOutcome;
   /** An update: the week planner's entries of the outfit that became the person's. */
   entriesClaimed?: number;
+}
+
+/** createOutfit's answer: the outfit, new or the one the garments already were. */
+export interface CreateResult extends SaveResult {
+  name: string | null;
+  /** The garments were already an outfit of the owner's: it was reused, nothing was created. */
+  alreadySaved: boolean;
+  /**
+   * A person's save took over what the week planner had made of it: the
+   * reused outfit (no longer the planner's to remove) or the entry on the
+   * plan's day (now `user`). False for the planner's own saves.
+   */
+  adopted: boolean;
 }
 
 /**
@@ -342,83 +357,248 @@ export async function findOutfitFields(
 
 /**
  * Writes `slots` as the outfit's positions 0..n-1 (the caller has removed
- * any old ones). A garment id that is not one of the owner's garments (a
- * hand-made request; the form only offers their own) is dropped and its row
- * kept empty, so a slot never names another user's garment, nor a wishlist
- * item (not owned yet). Archived garments were owned and stay. Returns how
- * many ids it dropped. One statement: each slot's garment is looked up in
- * the insert itself (#168: it was a read before the insert on every save).
+ * any old ones), or refuses the save whole (#219): a garment id that is
+ * not one of the owner's owned garments (deleted, another user's, a
+ * wishlist item) throws OutfitGarmentsGone, naming it, and the caller's
+ * transaction rolls back. Never a slot stored empty behind the save's
+ * back. Archived garments were owned and stay.
+ *
+ * One statement (#168: a read before the insert used to cost a round
+ * trip): the named garments are locked FOR SHARE in id order (as
+ * pickedGarments and every multi-row garment locker take them, so none
+ * deadlock), then each slot joins its garment. A delete or a move to the
+ * wishlist in flight either waits for the save, or commits first and
+ * makes the save refuse; without the lock the slot's foreign key check
+ * waited on the delete and failed after it, a 500.
  */
 async function insertSlots(
   tx: Queryable,
   outfitId: number,
   ownerId: number,
   slots: SlotInput[],
-): Promise<number> {
-  if (slots.length === 0) return 0;
-  const ownedId = (id: number) =>
-    sql<number>`(select ${garment.id} from ${garment} where ${and(
-      eq(garment.id, id),
-      eq(garment.ownerId, ownerId),
-      ownedGarment(),
-    )})`;
-  const inserted = await tx
-    .insert(outfitSlot)
-    .values(
+): Promise<void> {
+  if (slots.length === 0) return;
+  const requested = [...new Set(slots.flatMap((slot) => slot.garmentId ?? []))];
+  if (requested.length === 0) {
+    await tx.insert(outfitSlot).values(
       slots.map((slot, position) => ({
         outfitId,
         position,
         category: slot.category,
-        garmentId: slot.garmentId === null ? null : ownedId(slot.garmentId),
+        garmentId: null,
       })),
+    );
+    return;
+  }
+  const held = tx
+    .select({ id: garment.id })
+    .from(garment)
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        inArray(garment.id, requested),
+        ownedGarment(),
+      ),
     )
-    .returning({
-      position: outfitSlot.position,
-      garmentId: outfitSlot.garmentId,
-    });
+    .orderBy(garment.id)
+    .for('share');
+  const rows = sql.join(
+    slots.map(
+      (slot, position) =>
+        sql`(${position}::smallint, ${slot.category}::text, ${slot.garmentId}::int)`,
+    ),
+    sql`, `,
+  );
+  // MATERIALIZED: the locks are taken whole, in the CTE's id order, before
+  // any slot is joined to them.
+  const { rows: inserted } = await tx.execute<{
+    position: number;
+    garmentId: number | null;
+  }>(sql`
+    with held as materialized (${held})
+    insert into ${outfitSlot} (outfit_id, position, category, garment_id)
+    select ${outfitId}::int, slot.position, slot.category, held.id
+    from (values ${rows}) as slot (position, category, garment_id)
+    left join held on held.id = slot.garment_id
+    returning position, garment_id as "garmentId"`);
   const kept = new Map(inserted.map((row) => [row.position, row.garmentId]));
-  return slots.filter(
-    (slot, position) => slot.garmentId !== null && kept.get(position) === null,
-  ).length;
+  const gone = slots.flatMap((slot, position) =>
+    slot.garmentId !== null && kept.get(position) === null
+      ? [slot.garmentId]
+      : [],
+  );
+  if (gone.length === 0) return;
+  const named = await goneGarments(tx, ownerId, gone, 'owned');
+  // Holdable again by the lookup (bought meanwhile): still refused as seen.
+  throw new OutfitGarmentsGone(
+    named.length > 0 ? named : gone.map((id) => ({ id })),
+  );
 }
 
 /**
- * POST /outfits: the outfit, its slots and the optional calendar entry
- * commit together or not at all. Inside a caller's transaction (the seed
- * writes a whole persona in one) this is a savepoint. Under the owner lock
- * when it plans (every calendar write, src/web/calendar/CLAUDE.md).
+ * The owner's outfit whose chosen garments are exactly `garmentIds` (empty
+ * slots aside), the oldest if several (a garment delete can leave two
+ * alike: ON DELETE SET NULL empties a slot): what a save of those garments
+ * already is. A query for another statement, never run alone: createOutfit's
+ * insert, and pickedGarments' read (src/web/gallery/queries.ts).
+ */
+export function sameGarmentsOutfit(
+  db: Queryable,
+  ownerId: number,
+  garmentIds: readonly number[],
+) {
+  const sorted = [...new Set(garmentIds)].sort((a, b) => a - b);
+  const wanted = sql`array[${sql.join(
+    sorted.map((id) => sql`${id}`),
+    sql`, `,
+  )}]::int[]`;
+  return db
+    .select({ id: outfit.id, name: outfit.name })
+    .from(outfit)
+    .innerJoin(outfitSlot, eq(outfitSlot.outfitId, outfit.id))
+    .where(and(eq(outfit.ownerId, ownerId), isNotNull(outfitSlot.garmentId)))
+    .groupBy(outfit.id)
+    .having(
+      sql`array_agg(distinct ${outfitSlot.garmentId} order by ${outfitSlot.garmentId}) = ${wanted}`,
+    )
+    .orderBy(outfit.id)
+    .limit(1);
+}
+
+/**
+ * The outfit row of a save, once: inserted only when no outfit of the
+ * owner's already has exactly these garments, else that one, in one
+ * statement (a CTE: the lookup, the insert where it found nothing, and
+ * whichever row there is). Race-free only under the owner lock, which
+ * createOutfit holds: two saves of the same garments take turns, and the
+ * second's statement sees the first's commit. Without garments (the
+ * outfit form's empty outfit) there is nothing to be the same as: a plain
+ * insert.
+ */
+async function insertOutfitOnce(
+  tx: Queryable,
+  ownerId: number,
+  fields: { name: string | null; notes: string | null },
+  garmentIds: readonly number[],
+): Promise<{ id: number; name: string | null; existing: boolean }> {
+  // Share links address outfits by this (the /share page).
+  const shareableId = randomUUID();
+  if (garmentIds.length === 0) {
+    const [created] = await tx
+      .insert(outfit)
+      .values({ shareableId, ownerId, ...fields })
+      .returning({ id: outfit.id, name: outfit.name });
+    return { ...created, existing: false };
+  }
+  const { rows } = await tx.execute<{
+    id: number;
+    name: string | null;
+    existing: boolean;
+  }>(sql`
+    with existing as (${sameGarmentsOutfit(tx, ownerId, garmentIds)}),
+    created as (
+      insert into ${outfit} (shareable_id, owner_id, name, notes)
+      select ${shareableId}::varchar, ${ownerId}::int, ${fields.name}::text, ${fields.notes}::text
+      where not exists (select from existing)
+      returning id, name
+    )
+    select id, name, false as existing from created
+    union all
+    select id, name, true as existing from existing`);
+  return rows[0];
+}
+
+/**
+ * Saves an outfit of `input.slots`, **once per garment set** (#219): when
+ * an outfit of the owner's already has exactly these garments (empty slots
+ * aside) it is the answer (`alreadySaved`: nothing is created, its name
+ * and notes stay), planned on `input.plan`'s day when given (an outfit is
+ * on a day once, so a second plan changes nothing), and a person's save
+ * (not `plannedBy: 'auto'`) of an outfit "Plan my week" created takes it
+ * over (adoptPlannerOutfit, #77). Otherwise the outfit, its slots and the
+ * optional calendar entry commit together or not at all. A slot naming a
+ * garment the owner does not own refuses the save whole
+ * (OutfitGarmentsGone, insertSlots).
+ *
+ * The one writer of new outfits: pickIdea (every pick: the gallery,
+ * Styling's Save, Today, trips, a replace, pick_outfit, the week planner),
+ * the outfit form (POST /outfits), create_outfit and the seed. Always
+ * under the owner lock (ownerTransaction: joined when the caller holds it,
+ * as pickIdea does; a savepoint inside another transaction, as the seed's),
+ * so a save and a pick of the same garments at the same moment make one
+ * outfit: the second waits and finds the first's.
+ *
+ * Not a unique constraint on the garment set: the set is not stable data.
+ * A garment delete empties its slots (ON DELETE SET NULL) and can leave
+ * two outfits alike, and an edit (updateOutfit) may make one match
+ * another; a key would have to refuse the delete or merge outfits that
+ * carry calendar entries, wears, selfies and trips. The rule is that no
+ * save creates a duplicate, and this function is where saves create.
  */
 export function createOutfit(
   db: Queryable,
   ownerId: number,
   input: OutfitInput,
-): Promise<SaveResult> {
-  const save = async (tx: Queryable): Promise<SaveResult> => {
-    const [created] = await tx
-      .insert(outfit)
-      .values({
-        // Share links address outfits by this (the /share page).
-        shareableId: randomUUID(),
-        ownerId,
-        name: input.name ?? null,
-        notes: input.notes ?? null,
-      })
-      .returning({ id: outfit.id });
-    const refused = await insertSlots(tx, created.id, ownerId, input.slots);
+): Promise<CreateResult> {
+  return ownerTransaction(db, ownerId, 'createOutfit', async (tx) => {
+    const garmentIds = input.slots.flatMap((slot) => slot.garmentId ?? []);
+    const saved = await insertOutfitOnce(
+      tx,
+      ownerId,
+      { name: input.name ?? null, notes: input.notes ?? null },
+      garmentIds,
+    );
+    if (saved.existing) return reuseOutfit(tx, ownerId, saved, input.plan);
+    await insertSlots(tx, saved.id, ownerId, input.slots);
     const schedule = input.plan
       ? (
           await insertEntry(tx, {
             ownerId,
-            outfitId: created.id,
+            outfitId: saved.id,
             ...input.plan,
           })
         ).outcome
       : undefined;
-    return { id: created.id, slots: input.slots.length, refused, schedule };
+    return {
+      id: saved.id,
+      name: saved.name,
+      slots: input.slots.length,
+      schedule,
+      alreadySaved: false,
+      adopted: false,
+    };
+  });
+}
+
+/**
+ * A save's answer when its garments already are an outfit of the owner's:
+ * planned on the plan's day when given, and, for a person's save, taken
+ * over from the week planner (the outfit and that day's entry, #77).
+ * createOutfit's, and pickIdea's, which found the outfit with its garments
+ * (pickedGarments) and so skips the insert. Under the owner lock.
+ */
+export async function reuseOutfit(
+  tx: Queryable,
+  ownerId: number,
+  existing: { id: number; name: string | null },
+  plan: OutfitInput['plan'],
+): Promise<CreateResult> {
+  const scheduled =
+    plan &&
+    (await insertEntry(tx, { ownerId, outfitId: existing.id, ...plan }));
+  const outfitAdopted =
+    plan?.plannedBy !== 'auto' &&
+    (await adoptPlannerOutfit(tx, ownerId, existing.id)) > 0;
+  const entryAdopted =
+    scheduled?.outcome === 'already-scheduled' && scheduled.adopted;
+  return {
+    id: existing.id,
+    name: existing.name,
+    slots: 0,
+    schedule: scheduled?.outcome,
+    alreadySaved: true,
+    adopted: outfitAdopted || entryAdopted,
   };
-  return input.plan
-    ? ownerTransaction(db, ownerId, 'createOutfit', save)
-    : db.transaction(save);
 }
 
 /**
@@ -431,7 +611,11 @@ export function createOutfit(
  * entries of it become the person's (planned_by 'user', #16): its re-plan
  * never swaps an outfit someone changed. Under the owner lock, taken
  * before the outfit's: the re-plan deletes outfits under it, so the other
- * order could deadlock, and the take-over must not land mid re-plan.
+ * order could deadlock, and the take-over must not land mid re-plan. A
+ * slot naming a garment the owner does not own refuses the edit whole
+ * (OutfitGarmentsGone, insertSlots). An edit may leave it with another
+ * outfit's garments: once per garment set is createOutfit's rule for what
+ * a save creates, not a key (see there).
  */
 export function updateOutfit(
   db: Db,
@@ -457,7 +641,7 @@ export function updateOutfit(
       await tx.update(outfit).set(fields).where(eq(outfit.id, id));
     }
     await tx.delete(outfitSlot).where(eq(outfitSlot.outfitId, id));
-    const refused = await insertSlots(tx, id, ownerId, input.slots);
+    await insertSlots(tx, id, ownerId, input.slots);
     const claimed = await tx
       .update(outfitCalendar)
       .set({ plannedBy: 'user' })
@@ -477,7 +661,6 @@ export function updateOutfit(
     return {
       id,
       slots: input.slots.length,
-      refused,
       schedule,
       entriesClaimed: claimed.length,
     };

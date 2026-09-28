@@ -8,7 +8,9 @@ import {
   replaceRefusal,
 } from '../../calendar/replace';
 import { HttpError } from '../../errors';
+import { garmentsGoneError } from '../../outfits/gone-garments';
 import {
+  type CreateResult,
   createOutfit,
   findOutfit,
   listOutfits,
@@ -29,6 +31,22 @@ function outfitOut(outfit: OutfitSummary) {
     notes: outfit.notes,
     garments: outfit.garments.map(({ id, name }) => ({ id, name })),
   };
+}
+
+/** create_outfit's log line: the outfit made, or the one its garments already were. */
+function createdMessage(
+  userId: number,
+  saved: CreateResult,
+  plan: { day: string; occasion: string } | undefined,
+): string {
+  const what = saved.alreadySaved
+    ? `Outfit ${saved.id} of the same garments reused`
+    : `Outfit ${saved.id} created (${saved.slots} slots)`;
+  const planned = plan
+    ? `, ${saved.schedule} ${plan.day} (${plan.occasion})`
+    : '';
+  const adopted = saved.adopted ? '; taken over from the week planner' : '';
+  return `${what} by user ${userId} (MCP)${planned}${adopted}`;
 }
 
 /**
@@ -67,7 +85,7 @@ export const outfitTools = [
     name: 'create_outfit',
     title: 'Create an outfit',
     description:
-      'WRITES: saves a new outfit of your own garments, in the order given (outer layer, top, bottom, shoes, accessories reads best), optionally planned on a day as schedule_outfit would. Garments must be in your own wardrobe (clone a shared one first in the app).',
+      'WRITES: saves a new outfit of your own garments, in the order given (outer layer, top, bottom, shoes, accessories reads best), optionally planned on a day as schedule_outfit would. Garments must be in your own wardrobe, owned (clone a shared one first in the app; a wishlist item is refused): nothing is saved if any is not. If you already have an outfit of exactly these garments it is the answer (alreadySaved: true, its own name and notes kept, nothing created), planned when a date is given, so a retry creates nothing.',
     input: z.object({
       garmentIds: z
         .array(rowId())
@@ -82,29 +100,18 @@ export const outfitTools = [
       occasion: occasionInput,
     }),
     writes: true,
-    idempotent: false,
+    // createOutfit reuses an outfit of the same garments: a retry creates nothing.
+    idempotent: true,
     async run({ garmentIds, name, notes, scheduleDate, occasion }, ctx) {
       // Each slot is its garment's category, as Styling saves them. A
-      // garment that is not the caller's is refused here rather than
-      // saved as an empty slot (the form's rule for a stale page).
+      // garment the caller does not own (another's, deleted, a wishlist
+      // item) refuses the save, named, as the pages refuse it (#219);
+      // createOutfit checks again as it writes.
       const garments = await Promise.all(
         garmentIds.map((id) => findGarment(ctx.db, id, ctx.userId)),
       );
-      const missing = garmentIds.filter((_id, i) => !garments[i]);
-      if (missing.length > 0) {
-        throw new HttpError(
-          404,
-          `Not in your wardrobe: garment ${missing.join(', ')}`,
-        );
-      }
-      // Wishlist items are not owned yet: an outfit never names one (the
-      // save would drop it; say so instead).
-      const wanted = garments.filter((g) => g!.status === 'wishlist');
-      if (wanted.length > 0) {
-        throw new HttpError(
-          409,
-          `On the wishlist, not bought yet: garment ${wanted.map((g) => g!.id).join(', ')}`,
-        );
+      if (garments.some((g) => !g || g.status === 'wishlist')) {
+        throw await garmentsGoneError(ctx.db, ctx.userId, garmentIds, 'owned');
       }
       const plan = scheduleDate
         ? { day: scheduleDate, occasion: occasion ?? DEFAULT_OCCASION }
@@ -118,10 +125,13 @@ export const outfitTools = [
         })),
         plan,
       });
-      ctx.webLogger.info(
-        `Outfit ${saved.id} created by user ${ctx.userId} (MCP): ${saved.slots} slots${plan ? `, planned ${plan.day} (${plan.occasion})` : ''}`,
-      );
-      return { id: saved.id, scheduled: plan ?? null };
+      ctx.webLogger.info(createdMessage(ctx.userId, saved, plan));
+      return {
+        id: saved.id,
+        name: saved.name,
+        alreadySaved: saved.alreadySaved,
+        scheduled: plan ?? null,
+      };
     },
   }),
 

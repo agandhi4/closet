@@ -1,13 +1,4 @@
-import {
-  and,
-  eq,
-  inArray,
-  isNotNull,
-  isNull,
-  or,
-  type SQL,
-  sql,
-} from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
 import {
@@ -26,6 +17,7 @@ import { matchGarment } from '../../weather/match';
 import type { IsoDate } from '../calendar/calendar-date';
 import { inCapsule } from '../capsules/queries';
 import type { ImageRef } from '../files/image-url';
+import { sameGarmentsOutfit } from '../outfits/queries';
 import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
 import { availableGarment, wearsSinceWashSql } from '../wears/queries';
 
@@ -603,35 +595,6 @@ export function avoidedWithSql(
   )`;
 }
 
-/**
- * The owner's outfit whose chosen garments are exactly `garmentIds` (empty
- * slots aside), the oldest if several: what a pick of those garments is
- * already saved as. A subquery of pickedGarments.
- */
-function outfitOfGarments(
-  db: Queryable,
-  ownerId: number,
-  garmentIds: readonly number[],
-) {
-  const sorted = [...new Set(garmentIds)].sort((a, b) => a - b);
-  const wanted = sql`array[${sql.join(
-    sorted.map((id) => sql`${id}`),
-    sql`, `,
-  )}]::int[]`;
-  return db
-    .select({ id: outfit.id, name: outfit.name })
-    .from(outfit)
-    .innerJoin(outfitSlot, eq(outfitSlot.outfitId, outfit.id))
-    .where(and(eq(outfit.ownerId, ownerId), isNotNull(outfitSlot.garmentId)))
-    .groupBy(outfit.id)
-    .having(
-      sql`array_agg(distinct ${outfitSlot.garmentId} order by ${outfitSlot.garmentId}) = ${wanted}`,
-    )
-    .orderBy(outfit.id)
-    .limit(1)
-    .as('existing');
-}
-
 /** A pick's garments, and the outfit they already are, if any. */
 export interface PickedGarments {
   garments: { id: number; name: string | null; category: string }[];
@@ -649,15 +612,16 @@ export interface PickedGarments {
  * saves an archived garment or a slot emptied by a delete (#122). In id
  * order, as bulkSetProperty locks them, so two such lockers cannot
  * deadlock. With them, in the same statement (#168: a round trip less on
- * every pick), the outfit they already are (outfitOfGarments), joined to
- * each row; only the garments are locked (FOR SHARE OF garment).
+ * every pick), the outfit they already are (sameGarmentsOutfit, the one
+ * definition createOutfit's insert also asks), joined to each row; only
+ * the garments are locked (FOR SHARE OF garment).
  */
 export async function pickedGarments(
   db: Queryable,
   ownerId: number,
   garmentIds: readonly number[],
 ): Promise<PickedGarments> {
-  const existing = outfitOfGarments(db, ownerId, garmentIds);
+  const existing = sameGarmentsOutfit(db, ownerId, garmentIds).as('existing');
   const rows = await db
     .select({
       id: garment.id,

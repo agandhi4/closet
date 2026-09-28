@@ -217,21 +217,18 @@ describe('the wishlist', () => {
       expect((await garmentRow(t, charcoal))?.lastWashedOn).toBeNull();
     });
 
-    it('an outfit save drops it, keeping the row empty', async () => {
+    it('an outfit save refuses it, naming it, and writes nothing (#219)', async () => {
+      const before = await t.db.$count(outfitSlot);
       const res = await post('/outfits', {
         name: 'Wishful',
         category: ['tops', 'bottoms'],
         garmentId: [String(charcoal), String(jeans)],
       });
-      const outfitId = Number(
-        /^\/outfits\/(\d+)$/.exec(res.headers.location as string)![1],
+      expect(res.statusCode).toBe(409);
+      expect(unescapeHtml(res.body)).toContain(
+        'Not saved: Charcoal merino is on your wishlist, not bought yet.',
       );
-      const slots = await t.db
-        .select({ garmentId: outfitSlot.garmentId })
-        .from(outfitSlot)
-        .where(eq(outfitSlot.outfitId, outfitId))
-        .orderBy(outfitSlot.position);
-      expect(slots).toEqual([{ garmentId: null }, { garmentId: jeans }]);
+      expect(await t.db.$count(outfitSlot)).toBe(before);
     });
   });
 

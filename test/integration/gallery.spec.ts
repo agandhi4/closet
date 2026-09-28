@@ -468,7 +468,18 @@ describe('outfit gallery', () => {
         url: '/outfits/ideas/pick',
         ...form({ garmentId: [String(tops[0]), String(archivedTee)] }),
       });
-      expect(archived.statusCode).toBe(404);
+      // Refused whole, the archived garment named (#219): a 409, since it
+      // is the owner's; an id that is not theirs stays a 404.
+      expect(archived.statusCode).toBe(409);
+      expect(unescapeHtml(archived.body)).toContain(
+        'Not saved: Old tee is archived.',
+      );
+      const foreign = await t.inject({
+        method: 'POST',
+        url: '/outfits/ideas/pick',
+        ...form({ garmentId: [String(tops[0]), '2147483000'] }),
+      });
+      expect(foreign.statusCode).toBe(404);
     });
   });
 
@@ -917,9 +928,10 @@ describe('outfit gallery', () => {
         expect(reads(record.sql)[0]).toMatch(/for share of "garment"$/);
       }
       // The session; begin, and the owner lock with its timeout (#215);
-      // the read; the outfit within createOutfit's savepoint (savepoint,
-      // outfit, slots, release; #213); commit.
-      expect(first.statements).toBe(9);
+      // the read; the outfit (inserted unless one of these garments exists,
+      // #219) and its slots, in createOutfit, which joins the pick's owner
+      // transaction (no savepoint); commit.
+      expect(first.statements).toBe(7);
       expect(again.sql.some((q) => q.startsWith('insert into "outfit"'))).toBe(
         false,
       );

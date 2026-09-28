@@ -7,7 +7,7 @@ import {
 } from '../../wardrobe/occasions';
 import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../calendar/calendar-date';
-import { HttpError } from '../errors';
+import { garmentsGoneError } from '../outfits/gone-garments';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { OccasionSchema, RowId } from '../schemas';
@@ -120,7 +120,7 @@ export const todayRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         at: now,
       });
       if (outcome === 'not-found') {
-        throw new HttpError(404, 'A garment is not in your closet');
+        throw await garmentsGoneError(db, ownerId, garmentId, 'closet');
       }
       const { outfit, entryId, worn } = outcome;
       logger.info(

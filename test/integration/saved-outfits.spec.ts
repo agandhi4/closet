@@ -48,14 +48,20 @@ describe('Saved outfits and the outfit page (R5)', () => {
   let jeans: number;
   let today: string;
 
+  // Each outfit its own shoes beside the tee and jeans: one garment set is
+  // one outfit (#219), so the same two garments would be the same outfit.
   const newOutfit = async (name: string) => {
+    const shoes = await createGarment(t, {
+      name: `${name} shoes`,
+      category: 'footwear',
+    });
     const res = await t.inject({
       method: 'POST',
       url: '/outfits',
       ...form({
         name,
-        category: ['tops', 'bottoms'],
-        garmentId: [String(top), String(jeans)],
+        category: ['tops', 'bottoms', 'footwear'],
+        garmentId: [String(top), String(jeans), String(shoes)],
       }),
     });
     expect(res.statusCode).toBe(302);

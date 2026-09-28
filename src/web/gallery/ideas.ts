@@ -23,8 +23,13 @@ import {
 import { capsuleNotFound } from '../capsules/validation';
 import { HttpError } from '../errors';
 import { ownerTransaction } from '../auth/queries';
-import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
-import { createOutfit, OUTFIT_NAME_MAX } from '../outfits/queries';
+import type { ScheduleOutcome } from '../calendar/queries';
+import {
+  type CreateResult,
+  createOutfit,
+  OUTFIT_NAME_MAX,
+  reuseOutfit,
+} from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
 import { selectScalars } from '../../db/select-scalars';
 import {
@@ -38,7 +43,6 @@ import {
   userWeatherFrom,
   type WeatherService,
 } from '../weather/service';
-import { adoptPlannerOutfit } from '../week-plan/queries';
 import {
   goesWith,
   type GoesWith,
@@ -418,8 +422,9 @@ export interface PickResult {
  * destination's day when given (an outfit is on a day once, so a second
  * plan changes nothing); otherwise the outfit (named by ideaName unless
  * `name` is given), its slots top to toe and the calendar entry are created
- * (createOutfit). A person's pick (not `plannedBy: 'auto'`) that reuses an
- * outfit the week planner created takes it over (adoptPlannerOutfit, #77):
+ * (createOutfit, the one writer of new outfits: once per garment set, #219).
+ * A person's pick (not `plannedBy: 'auto'`) that reuses an outfit the week
+ * planner created takes it over (reuseOutfit's adoptPlannerOutfit, #77):
  * "Already saved" is then true for good, and Undo or the re-plan never
  * delete it; planning it on a day where the planner has it takes that
  * entry over too (insertEntry). All in one transaction under the owner
@@ -450,51 +455,25 @@ export function pickIdea(
       wanted,
     );
     if (found.length !== wanted.length) return 'not-found';
-    if (existing) return reusePicked(tx, ownerId, existing, input.plan);
+    if (existing)
+      return pickResult(await reuseOutfit(tx, ownerId, existing, input.plan));
     const byId = new Map(found.map((g) => [g.id, g]));
     const garments = topToToe(wanted.map((id) => byId.get(id)!));
     const name = input.name ?? ideaName(garments);
+    // createOutfit asks again in its insert (a no-op here, under the lock).
     const saved = await createOutfit(tx, ownerId, {
       name,
       notes: null,
       slots: garments.map((g) => ({ category: g.category, garmentId: g.id })),
       plan: input.plan,
     });
-    return {
-      id: saved.id,
-      name,
-      alreadySaved: false,
-      adopted: false,
-      schedule: saved.schedule,
-    };
+    return pickResult(saved);
   });
 }
 
-/**
- * pickIdea's answer when the garments are already an outfit of the owner's:
- * planned on the destination's day when given, and, for the person's pick,
- * taken over from the week planner (the outfit and that day's entry, #77).
- */
-async function reusePicked(
-  tx: Queryable,
-  ownerId: number,
-  existing: { id: number; name: string | null },
-  plan: { day: IsoDate; occasion: Occasion; plannedBy?: PlannedBy } | undefined,
-): Promise<PickResult> {
-  const scheduled =
-    plan &&
-    (await insertEntry(tx, { ownerId, outfitId: existing.id, ...plan }));
-  const outfitAdopted =
-    plan?.plannedBy !== 'auto' &&
-    (await adoptPlannerOutfit(tx, ownerId, existing.id)) > 0;
-  const entryAdopted =
-    scheduled?.outcome === 'already-scheduled' && scheduled.adopted;
-  return {
-    ...existing,
-    alreadySaved: true,
-    adopted: outfitAdopted || entryAdopted,
-    schedule: scheduled?.outcome,
-  };
+function pickResult(saved: CreateResult): PickResult {
+  const { id, name, alreadySaved, adopted, schedule } = saved;
+  return { id, name, alreadySaved, adopted, schedule };
 }
 
 /** A closet garment near-identical to a wishlist item (nearDuplicates). */

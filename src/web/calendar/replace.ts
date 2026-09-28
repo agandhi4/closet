@@ -4,6 +4,12 @@ import { ownerTransaction } from '../auth/queries';
 import { HttpError } from '../errors';
 import { pickIdea } from '../gallery/ideas';
 import { t } from '../i18n';
+import {
+  describeGone,
+  type GoneGarment,
+  garmentsGoneRefusal,
+  goneGarments,
+} from '../outfits/gone-garments';
 import { detachEntrySelfie } from '../selfies/queries';
 import {
   plannerCreatedOutfit,
@@ -93,8 +99,11 @@ export type ReplaceRefused =
   | { outcome: 'entry-not-found' }
   /** The saved outfit is not the owner's. */
   | { outcome: 'outfit-not-found' }
-  /** An idea's garments are not all in the owner's closet (a card from before an archive). */
-  | { outcome: 'garments-not-found' }
+  /**
+   * An idea's garments are not all in the owner's closet (a card from
+   * before an archive): which, as the refused transaction saw them (#219).
+   */
+  | { outcome: 'garments-not-found'; gone: GoneGarment[] }
   | { outcome: 'worn' }
   | { outcome: 'already-on-day'; outfitId: number; occasion: Occasion };
 
@@ -111,10 +120,11 @@ export function replaceEntryOutfit(
     if (entry.worn) return { outcome: 'worn' };
     const chosen = await chosenOutfit(tx, ownerId, choice);
     if (!chosen) {
-      return {
-        outcome:
-          'outfitId' in choice ? 'outfit-not-found' : 'garments-not-found',
-      };
+      if ('outfitId' in choice) return { outcome: 'outfit-not-found' };
+      // Named in the refused transaction, so every caller of
+      // replaceRefusal answers the #219 rule (a named 409, or a 404).
+      const gone = await goneGarments(tx, ownerId, choice.garmentIds, 'closet');
+      return { outcome: 'garments-not-found', gone };
     }
     const result = {
       adopted: entry.plannedBy === 'auto',
@@ -179,7 +189,7 @@ function refusalReason(outcome: ReplaceRefused): string {
     case 'outfit-not-found':
       return 'the outfit is not theirs';
     case 'garments-not-found':
-      return 'a garment is not in their closet';
+      return `garments not in their closet: ${describeGone(outcome.gone)}`;
   }
 }
 
@@ -224,7 +234,9 @@ export function isRefused(outcome: ReplaceOutcome): outcome is ReplaceRefused {
 /**
  * The error a route or tool answers a refusal with. Another's entry is a
  * 404 like a missing one (ids reveal nothing); a worn entry and an outfit
- * already on the day are 409s that say what to do instead.
+ * already on the day are 409s that say what to do instead; an idea's
+ * garments that are gone are OutfitGarmentsGone (#219: a 409 naming the
+ * owner's archived or wishlist ones, else a 404).
  */
 export function replaceRefusal(outcome: ReplaceRefused): HttpError {
   switch (outcome.outcome) {
@@ -233,7 +245,7 @@ export function replaceRefusal(outcome: ReplaceRefused): HttpError {
     case 'outfit-not-found':
       return new HttpError(404, 'Outfit not found');
     case 'garments-not-found':
-      return new HttpError(404, 'Garment not found');
+      return garmentsGoneRefusal(outcome.gone);
     case 'worn':
       return new HttpError(409, t('changeEntry.REFUSED_WORN'));
     case 'already-on-day':

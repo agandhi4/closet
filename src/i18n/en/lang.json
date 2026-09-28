@@ -978,7 +978,13 @@
     "PLAN_TITLE": "Plan this outfit",
     "PLAN_DAY": "Day",
     "PLAN_SUBMIT": "Plan it",
-    "PLANNED_HEADING": "Planned"
+    "PLANNED_HEADING": "Planned",
+    "NOT_SAVED": "Not saved: {reasons}.",
+    "GONE_ARCHIVED": "{name} is archived",
+    "GONE_WISHLIST": "{name} is on your wishlist, not bought yet",
+    "GONE_ONE": "a garment you chose is no longer in your wardrobe",
+    "GONE_MANY": "{count} garments you chose are no longer in your wardrobe",
+    "UNNAMED_GARMENT": "An unnamed garment"
   },
   "insights": {
     "TITLE": "Insights",
@@ -1123,6 +1129,7 @@
     "NAME_PLACEHOLDER": "Named after its garments",
     "EMPTY": "Add some garments to your wardrobe to start styling outfits.",
     "EMPTY_CAPSULE": "No garments in this capsule yet.",
+    "REFUSED_HINT": "Those rows are back to None: choose again, then save.",
     "role": {
       "layer": "Layer",
       "one-piece": "Dress",

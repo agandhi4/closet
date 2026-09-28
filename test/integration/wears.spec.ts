@@ -236,7 +236,9 @@ describe('wears and washes', () => {
     it('counts two entries on one day with the same garment as one wear', async () => {
       const tee = await newGarment('Twice tee', 'tops');
       const morning = await newOutfit('Morning', [tee]);
-      const evening = await newOutfit('Evening', [tee]);
+      // Not the tee alone again: that would be the same outfit (#219).
+      const scarf = await newGarment('Evening scarf', 'accessories');
+      const evening = await newOutfit('Evening', [tee, scarf]);
       await markWorn(await schedule(morning, daysAgo(1)));
       await markWorn(await schedule(evening, daysAgo(1)));
 

@@ -695,7 +695,8 @@ describe('the MCP endpoint', () => {
         token,
         'create_outfit',
         {
-          garmentIds: [garments.tee.id],
+          // Not the tee alone again: that is `other`, reused (#219).
+          garmentIds: [garments.boots.id],
           scheduleDate: today(),
           occasion: 'workout',
         },

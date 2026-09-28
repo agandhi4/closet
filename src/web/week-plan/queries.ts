@@ -42,9 +42,9 @@ import { wearsSinceWashSql } from '../wears/queries';
  * the batches ("Plan my week" taps) and what each auto entry was planned
  * for, and the daily re-plan's claims. The signed-in owner's own, like the
  * calendar. The writes here run inside plan.ts's and replan.ts's
- * transactions (under lockOwner), and pickIdea's (adoptPlannerOutfit);
- * calendar entries themselves are only ever written through insertEntry
- * (pickIdea) and removed by removeAutoEntries.
+ * transactions (under lockOwner), and createOutfit's (adoptPlannerOutfit,
+ * adopt.ts); calendar entries themselves are only ever written through
+ * insertEntry (pickIdea) and removed by removeAutoEntries.
  */
 
 /** A calendar entry in the planner's window: what week-planner.ts reads, and who planned it. */
@@ -393,44 +393,6 @@ export async function plannerCreatedOutfit(
     .from(weekPlanEntry)
     .where(eq(weekPlanEntry.entryId, entryId));
   return row?.outfitCreated ?? false;
-}
-
-/**
- * The person picked outfit `outfitId` of garments the planner had already
- * saved as an outfit (pickIdea's reuse, "Already saved"): it is theirs now,
- * so no entry of it counts as planner-made any more and Undo, the re-plan's
- * swap and Change (removeUnheldOutfits) keep it once its entries go. The
- * entries themselves stay the planner's until the person touches them.
- * Runs in the pick's transaction, under lockOwner. Returns how many of the
- * planner's rows it took over (0 for an outfit the planner never made).
- */
-export async function adoptPlannerOutfit(
-  tx: Queryable,
-  ownerId: number,
-  outfitId: number,
-): Promise<number> {
-  const adopted = await tx
-    .update(weekPlanEntry)
-    .set({ outfitCreated: false })
-    .where(
-      and(
-        eq(weekPlanEntry.outfitCreated, true),
-        inArray(
-          weekPlanEntry.entryId,
-          tx
-            .select({ id: outfitCalendar.id })
-            .from(outfitCalendar)
-            .where(
-              and(
-                eq(outfitCalendar.ownerId, ownerId),
-                eq(outfitCalendar.outfitId, outfitId),
-              ),
-            ),
-        ),
-      ),
-    )
-    .returning({ entryId: weekPlanEntry.entryId });
-  return adopted.length;
 }
 
 /** A garment of an auto entry's outfit, as the re-plan judges and names it. */

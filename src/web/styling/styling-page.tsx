@@ -63,6 +63,18 @@ export interface StylingModel {
   shared?: { ownerId: number; name: string };
   /** What the last Shuffle found: nothing that fits the locks. */
   notice?: 'no-idea';
+  /**
+   * A Save refused for garments it could not hold (#219): its words, and
+   * the sheet as it was posted, so nothing typed is lost.
+   */
+  refusal?: { message: string; draft: SaveDraft };
+}
+
+/** What the Save sheet held when its post was refused. */
+export interface SaveDraft {
+  name?: string;
+  scheduleDate?: IsoDate;
+  scheduleOccasion?: Occasion;
 }
 
 // The page's own script (public/js/styling.js, through the importmap): an
@@ -188,6 +200,16 @@ function StateFields({ model }: { model: StylingModel }) {
 function Header({ model }: { model: StylingModel }) {
   return (
     <div class="flex flex-col gap-2 px-4">
+      {model.refusal && (
+        <div
+          class="alert alert-warning alert-soft flex-col items-start gap-1 text-sm"
+          role="alert"
+          data-styling-refused=""
+        >
+          <p>{model.refusal.message}</p>
+          <p>{t('styling.REFUSED_HINT')}</p>
+        </div>
+      )}
       {model.outfit && (
         <p class="text-sm" data-styling-outfit={model.outfit.id}>
           {t('styling.EDITING', {
@@ -380,13 +402,16 @@ function SaveSheet({ model }: { model: StylingModel }) {
             name="name"
             form="styling-form"
             class="input input-bordered w-full"
-            value={model.outfit?.name ?? ''}
+            value={model.refusal?.draft.name ?? model.outfit?.name ?? ''}
             maxlength={OUTFIT_NAME_MAX}
             placeholder={t('styling.NAME_PLACEHOLDER')}
           />
         </label>
         {destination.kind === 'none' ? (
-          <ScheduleFields />
+          <ScheduleFields
+            day={model.refusal?.draft.scheduleDate}
+            occasion={model.refusal?.draft.scheduleOccasion}
+          />
         ) : (
           <p class="text-sm" data-styling-save-for="">
             {destinationSummary(model, destination)}

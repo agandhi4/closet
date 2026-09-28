@@ -14,6 +14,7 @@ import {
   MAX_SEED,
   pickIdea,
 } from '../../gallery/ideas';
+import { garmentsGoneError } from '../../outfits/gone-garments';
 import { OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { defineTool } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
@@ -208,7 +209,7 @@ export const galleryTools = [
         name,
       });
       if (picked === 'not-found') {
-        throw new HttpError(404, 'A garment is not in your closet');
+        throw await garmentsGoneError(ctx.db, ctx.userId, garmentIds, 'closet');
       }
       ctx.webLogger.info(
         `Idea picked by user ${ctx.userId} (MCP): ${picked.alreadySaved ? `already outfit ${picked.id}, nothing created` : `outfit ${picked.id}`} of garments ${garmentIds.join(', ')}${plan ? `, ${picked.schedule} ${plan.day} (${plan.occasion})` : ''}${picked.adopted ? '; taken over from the week planner' : ''}`,

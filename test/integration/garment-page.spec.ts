@@ -198,8 +198,13 @@ describe('the garment page', () => {
     });
     await newOutfit('Other outfit', [other]);
     const ids: number[] = [];
+    // Each with a garment of its own: one garment set is one outfit (#219).
     for (let i = 1; i <= GARMENT_OUTFITS_SHOWN + 1; i++) {
-      ids.push(await newOutfit(`Boots ${i}`, [boots, other]));
+      const belt = await createGarment(t, {
+        name: `Belt ${i}`,
+        category: 'accessories',
+      });
+      ids.push(await newOutfit(`Boots ${i}`, [boots, other, belt]));
     }
     const html = await page(boots);
     const strip = sectionOf(html, 'garment-outfits');

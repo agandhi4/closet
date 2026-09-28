@@ -377,7 +377,11 @@ describe('goes with my closet', () => {
           String(closet['Brown loafers']),
         ],
       });
-      expect(res.statusCode).toBe(404);
+      // Refused whole and named: it is theirs, just not bought (#219).
+      expect(res.statusCode).toBe(409);
+      expect(unescapeHtml(res.body)).toContain(
+        'Not saved: Christmas sweater is on your wishlist, not bought yet.',
+      );
       expect(await outfits()).toBe(before);
     });
 

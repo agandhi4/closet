@@ -8,6 +8,7 @@ import type { WebOptions } from '../plugin';
 import { navigateTo, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
+import { ALREADY_SAVED_FLAG } from '../gallery/urls';
 import { stylingUrl } from '../styling/urls';
 import { viewContext } from '../view-context';
 import { type OutfitDestination, parseDestination } from './destination';
@@ -162,20 +163,24 @@ function linkedReturnTo(
     : query.returnTo;
 }
 
-/** Where a saved form goes: back to the calendar week it came from, else the outfit. */
-function afterSave(body: OutfitForm, id: number): string {
+/**
+ * Where a saved form goes: back to the calendar week it came from, else the
+ * outfit; either says "Already saved" when the garments were an outfit
+ * already (createOutfit reused it, ALREADY_SAVED_FLAG).
+ */
+function afterSave(body: OutfitForm, id: number, alreadySaved = false): string {
+  const flag = alreadySaved ? `${ALREADY_SAVED_FLAG}=1` : '';
   if (body.returnTo === '/calendar') {
     const week = body.returnToWeek || body.scheduleDate;
-    return week ? `/calendar?week=${week}` : '/calendar';
+    return week
+      ? `/calendar?week=${week}${flag && `&${flag}`}`
+      : `/calendar${flag && `?${flag}`}`;
   }
-  return `/outfits/${id}`;
+  return `/outfits/${id}${flag && `?${flag}`}`;
 }
 
 function describeSave(result: SaveResult, plan: OutfitInput['plan']): string {
   const parts = [`${result.slots} row(s)`];
-  if (result.refused > 0) {
-    parts.push(`${result.refused} garment id(s) not in the wardrobe ignored`);
-  }
   if (plan && result.schedule === 'scheduled') {
     parts.push(`scheduled on ${plan.day} (${plan.occasion})`);
   }
@@ -314,9 +319,14 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const input = outfitInput(request.body);
       const result = await createOutfit(db, ownerId, input);
       logger.info(
-        `Outfit ${result.id} created by user ${ownerId}: ${describeSave(result, input.plan)}`,
+        result.alreadySaved
+          ? `Outfit form by user ${ownerId}: its garments are already outfit ${result.id}, nothing created (${describeSave(result, input.plan)})${result.adopted ? '; taken over from the week planner' : ''}`
+          : `Outfit ${result.id} created by user ${ownerId}: ${describeSave(result, input.plan)}`,
       );
-      return reply.redirect(afterSave(request.body, result.id), 302);
+      return reply.redirect(
+        afterSave(request.body, result.id, result.alreadySaved),
+        302,
+      );
     },
   );
 

@@ -9,6 +9,7 @@ import {
   replaceRefusal,
 } from '../calendar/replace';
 import { HttpError } from '../errors';
+import { garmentsGoneError } from '../outfits/gone-garments';
 import {
   destinationTarget,
   type OutfitDestination,
@@ -32,10 +33,12 @@ import { ALREADY_SAVED_FLAG } from './urls';
  * - `none`: saved (pickIdea); to the outfit.
  * - `trip` (#10): saved and added to the trip, for its day and occasion
  *   when given (pickForTrip); to the trip.
- * Garments that are not all the owner's, in the closet, are a 404 with
- * nothing written. When they already were an outfit it is reused, and the
- * redirect says so (ALREADY_SAVED_FLAG). `name` names a new outfit;
- * without it pickIdea names it for its garments.
+ * Garments that are not all the owner's, in the closet, refuse the pick
+ * with nothing written: OutfitGarmentsGone, naming them (#219; a 409 for
+ * an archived one, a 404 for one that is not theirs), which Styling's Save
+ * answers with its page, the rows kept. When they already were an outfit
+ * it is reused, and the redirect says so (ALREADY_SAVED_FLAG). `name`
+ * names a new outfit; without it pickIdea names it for its garments.
  */
 
 export interface PickDeps {
@@ -93,10 +96,6 @@ export function postedDestination(body: {
   return destination;
 }
 
-function garmentNotFound(): HttpError {
-  return new HttpError(404, 'Garment not found');
-}
-
 async function pickInPlace(
   { db, logger }: PickDeps,
   reply: FastifyReply,
@@ -132,7 +131,9 @@ async function pickToDayOrSave(
     plan,
     name: options.name,
   });
-  if (picked === 'not-found') throw garmentNotFound();
+  if (picked === 'not-found') {
+    throw await garmentsGoneError(db, ownerId, garmentIds, 'closet');
+  }
   logger.info(pickMessage(options.source, ownerId, garmentIds, picked, plan));
   // A pick of an outfit that exists (a double tap, a retried post) is a
   // success too; the page it lands on says so.
@@ -165,7 +166,9 @@ async function pickToTrip(
   if (outcome === 'not-a-trip-day') {
     throw new HttpError(400, 'body/for must name a day of the trip');
   }
-  if (outcome === 'not-found') throw garmentNotFound();
+  if (outcome === 'not-found') {
+    throw await garmentsGoneError(db, ownerId, garmentIds, 'closet');
+  }
   logger.info(
     `${PICKED[options.source]} by user ${ownerId} for trip ${tripId}: ${outcome.outfit.alreadySaved ? 'existing ' : ''}outfit ${outcome.outfit.id} of garments ${garmentIds.join(', ')}, ${outcome.added === 'added' ? 'added' : 'already on the trip'} (${day ?? 'any day'}${occasion ? `, ${occasion}` : ''})`,
   );

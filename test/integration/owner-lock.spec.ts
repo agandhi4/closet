@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Queryable } from '../../src/db/client';
 import {
@@ -26,6 +26,7 @@ import {
 } from '../../src/web/week-plan/queries';
 import { type ReplanDeps, replanToday } from '../../src/web/week-plan/replan';
 import { createTestApp, type TestApp } from './harness';
+import { interleave as interleaveOn } from './interleave';
 
 /**
  * The owner lock (#122, src/web/calendar/CLAUDE.md): every writer of the
@@ -82,40 +83,11 @@ describe('the owner lock', () => {
     );
   };
 
-  /**
-   * Runs `first` in a transaction held open once it has written, starts
-   * `second` (which must then wait on a lock), lets the first commit and
-   * answers both.
-   */
-  async function interleave<A, B>(
+  /** Holds `first` open while `second` waits on it (interleave.ts). */
+  const interleave = <A, B>(
     first: (tx: Queryable) => Promise<A>,
     second: () => Promise<B>,
-  ): Promise<[A, B]> {
-    let wrote!: () => void;
-    const written = new Promise<void>((resolve) => (wrote = resolve));
-    let release!: () => void;
-    const released = new Promise<void>((resolve) => (release = resolve));
-    const a = t.db.transaction(async (tx) => {
-      const result = await first(tx);
-      wrote();
-      await released;
-      return result;
-    });
-    // A first writer that fails must not leave the spec waiting forever.
-    await Promise.race([written, a]);
-    const b = second();
-    await expect
-      .poll(async () => {
-        const { rows } = await t.db.execute<{ waiting: number }>(
-          sql`select count(*)::int as waiting from pg_stat_activity
-              where datname = current_database() and wait_event_type = 'Lock'`,
-        );
-        return rows[0].waiting;
-      })
-      .toBe(1);
-    release();
-    return Promise.all([a, b]);
-  }
+  ) => interleaveOn(t.db, first, second);
 
   /** A saved outfit of the owner's, of these garments. */
   const outfitOf = async (garmentIds: number[]) => {

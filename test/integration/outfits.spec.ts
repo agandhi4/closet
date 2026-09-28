@@ -191,21 +191,24 @@ describe('outfits', () => {
       expect(await calendarEntries(id)).toHaveLength(0);
     });
 
-    it('keeps the row but not a garment id that is not in the wardrobe', async () => {
+    // #219: never a slot stored empty behind the save's back. The garment
+    // is not theirs, so the answer is a 404 like any unknown id.
+    it('refuses a garment id that is not in the wardrobe, writing nothing', async () => {
       const top = await createGarment(t, { name: 'Polo', category: 'tops' });
-      const id = await createOutfit({ name: 'Tampered' }, [
-        ['tops', top],
-        ['bottoms', 999_999],
-      ]);
-      expect(await savedSlots(id)).toEqual([
-        { category: 'tops', garmentId: top },
-        { category: 'bottoms', garmentId: null },
-      ]);
-      expect(t.logs.messages('info', 'Web')).toContainEqual(
-        expect.stringContaining(
-          `Outfit ${id} created by user ${t.owner.id}: 2 row(s), 1 garment id(s) not in the wardrobe ignored`,
-        ),
+      const before = await outfitCount();
+      const res = await t.inject({
+        method: 'POST',
+        url: '/outfits',
+        ...outfitForm({ name: 'Tampered' }, [
+          ['tops', top],
+          ['bottoms', 999_999],
+        ]),
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.body).toContain(
+        'Not saved: a garment you chose is no longer in your wardrobe.',
       );
+      expect(await outfitCount()).toBe(before);
     });
 
     it('accepts a single row (scalar fields, not arrays) and an empty outfit', async () => {

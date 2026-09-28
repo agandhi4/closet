@@ -197,6 +197,13 @@ export async function seedPersona(
             garmentId: ids.get(g.id)!,
           })),
         });
+        // One outfit per garment set (createOutfit reuses one): a bible
+        // listing the same garments twice is a mistake in the bible.
+        if (saved.alreadySaved) {
+          throw new Error(
+            `Outfit "${outfit.name}" repeats the garments of an earlier outfit`,
+          );
+        }
         outfitIds.push(saved.id);
       }
       for (const capsule of persona.capsules) {

@@ -1,4 +1,4 @@
-import { count, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { expect, it } from 'vitest';
 import { outfit, outfitSlot } from '../../src/db/schema';
 import { addDays } from '../../src/web/calendar/calendar-date';
@@ -484,20 +484,19 @@ const ROUTES: Route[] = [
 ];
 
 describeMatrix('outfits', ROUTES, (m) => {
-  // The outfit form posts garment ids; ids outside the requester's own
-  // wardrobe are dropped (the row stays, empty), so no outfit can reference
-  // a shared garment.
-  const slotsOf = async (outfitId: number) => {
-    const [row] = await m.t.db
-      .select({ slots: count(), garments: count(outfitSlot.garmentId) })
-      .from(outfitSlot)
-      .where(eq(outfitSlot.outfitId, outfitId));
-    return row;
-  };
+  // The outfit form posts garment ids; an id outside the requester's own
+  // wardrobe refuses the save whole (#219): a 404 like an unknown id, the
+  // garment never named, nothing written. So no outfit can reference a
+  // shared garment.
+  const outfitsOf = (ownerId: number) =>
+    m.t.db.$count(outfit, eq(outfit.ownerId, ownerId));
 
   it.each(['manager', 'viewer', 'stranger'] as const)(
-    "POST /outfits as %s drops the owner's garment ids",
+    "POST /outfits as %s refuses the owner's garment ids",
     async (actor) => {
+      const { id, cookie } = m.actors[actor];
+      if (id === undefined) throw new Error(`${actor} has no account`);
+      const before = await outfitsOf(id);
       const res = await m.t.inject({
         method: 'POST',
         url: `/outfits?ownerId=${m.actors.owner.id}`,
@@ -506,27 +505,34 @@ describeMatrix('outfits', ROUTES, (m) => {
           category: 'shirt',
           garmentId: String(m.shared.garmentId),
         },
-        headers: { cookie: m.actors[actor].cookie },
+        headers: { cookie },
       });
-      expect(res.statusCode).toBe(302);
-      const outfitId = Number(
-        /^\/outfits\/(\d+)$/.exec(res.headers.location as string)?.[1],
-      );
-      const [created] = await m.t.db
-        .select({ ownerId: outfit.ownerId })
-        .from(outfit)
-        .where(eq(outfit.id, outfitId));
-      expect(created.ownerId).toBe(m.actors[actor].id);
-      expect(await slotsOf(outfitId)).toEqual({ slots: 1, garments: 0 });
+      expect(res.statusCode).toBe(404);
+      expect(res.body).not.toContain(m.shared.garmentName);
+      expect(await outfitsOf(id)).toBe(before);
 
+      // Their own empty outfit, then an edit naming the owner's garment.
+      const own = await m.t.inject({
+        method: 'POST',
+        url: '/outfits',
+        payload: { name: `Own ${actor}` },
+        headers: { cookie },
+      });
+      expect(own.statusCode).toBe(302);
+      const outfitId = Number(
+        /^\/outfits\/(\d+)$/.exec(own.headers.location as string)?.[1],
+      );
       const edit = await m.t.inject({
         method: 'POST',
         url: `/outfits/${outfitId}`,
         payload: { category: 'shirt', garmentId: String(m.shared.garmentId) },
-        headers: { cookie: m.actors[actor].cookie },
+        headers: { cookie },
       });
-      expect(edit.statusCode).toBe(302);
-      expect(await slotsOf(outfitId)).toEqual({ slots: 1, garments: 0 });
+      expect(edit.statusCode).toBe(404);
+      expect(edit.body).not.toContain(m.shared.garmentName);
+      expect(
+        await m.t.db.$count(outfitSlot, eq(outfitSlot.outfitId, outfitId)),
+      ).toBe(0);
     },
   );
 });

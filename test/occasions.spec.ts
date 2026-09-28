@@ -19,15 +19,21 @@ test('a three-outfit day: planned by occasion, stacked in order, each with its p
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await signIn(page, 'occasions');
-  const shoes = await createGarment(page, 'Loafers', 'footwear');
   const day = householdToday();
   // Planned in an order the page must not keep: evening, work, workout.
-  const plans: [string, string][] = [
-    ['Evening', 'Dinner'],
-    ['Work', 'Office'],
-    ['Workout', 'Run'],
+  // Each outfit its own garment: one garment set is one outfit (#219).
+  const plans: [string, string, string][] = [
+    ['Evening', 'Dinner', 'Loafers'],
+    ['Work', 'Office', 'Oxfords'],
+    ['Workout', 'Run', 'Trainers'],
   ];
-  for (const [, name] of plans) await createOutfit(page, name, shoes);
+  for (const [, name, shoes] of plans) {
+    await createOutfit(
+      page,
+      name,
+      await createGarment(page, shoes, 'footwear'),
+    );
+  }
 
   await page.goto(`/calendar?week=${day}`);
   // The day's "+ Plan" sheet (R6): the occasion, then "Pick a saved outfit"

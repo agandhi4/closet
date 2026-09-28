@@ -28,6 +28,11 @@ import {
   type OutfitDestination,
   parseDestination,
 } from '../outfits/destination';
+import {
+  describeGone,
+  garmentsGoneError,
+  OutfitGarmentsGone,
+} from '../outfits/gone-garments';
 import { OUTFIT_NAME_MAX, updateOutfit } from '../outfits/queries';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
@@ -46,6 +51,7 @@ import {
   type RoleWindow,
   type RowState,
   shuffledStates,
+  type StylingRow,
   stylingRows,
   topToToe,
   withEveryRole,
@@ -57,7 +63,12 @@ import {
   roleWindows,
   savedGarments,
 } from './queries';
-import { type StylingModel, StylingPage, StylingRows } from './styling-page';
+import {
+  type SaveDraft,
+  type StylingModel,
+  StylingPage,
+  StylingRows,
+} from './styling-page';
 import { type RowContext, StripPage } from './styling-row';
 import {
   STYLING_GARMENTS_PATH,
@@ -91,7 +102,11 @@ import {
  *   one of each per row) are the page's own: lists of unequal length are
  *   a 400, and a garment that is not the wardrobe's is dropped from its row.
  * - Save's post is data: malformed is a 400 and writes nothing; `for`
- *   must read back as posted (postedDestination).
+ *   must read back as posted (postedDestination). A garment it cannot
+ *   hold (archived for a new outfit, deleted, not the requester's) refuses
+ *   the whole save (OutfitGarmentsGone, #219): the page again, its rows
+ *   and sheet as posted, those rows back to "No garment" and the garments
+ *   named, with the refusal's status (409, or 404 for one not theirs).
  */
 
 const RoleSchema = Type.Union(GARMENT_ROLES.map((role) => Type.Literal(role)));
@@ -142,6 +157,8 @@ const SaveBody = Type.Object({
   ...DestinationFields,
   name: Type.Optional(Type.String({ maxLength: OUTFIT_NAME_MAX })),
   outfit: Type.Optional(RowId),
+  // The page's capsule: read only to show the page again when Save is refused.
+  capsule: Type.Optional(RowId),
   // The sheet's "Add to calendar" without a destination; '' when left empty.
   scheduleDate: Type.Optional(Type.Union([Type.Literal(''), IsoDateSchema])),
   scheduleOccasion: Type.Optional(OccasionSchema),
@@ -163,6 +180,22 @@ function postedStates(query: RowsInput): RowState[] {
     garmentId: garmentIds[i] === '' ? null : garmentIds[i],
     locked: locks[i] === '1',
   }));
+}
+
+/**
+ * Save's rows as states when the post carries the page's rows (a role and
+ * a lock per garment id); undefined for a hand-made post of ids alone.
+ */
+function savedStates(body: Static<typeof SaveBody>): RowState[] | undefined {
+  const { role, garmentId, lock } = body;
+  if (
+    !role ||
+    role.length !== garmentId?.length ||
+    role.length !== lock?.length
+  ) {
+    return undefined;
+  }
+  return postedStates({ role, garmentId, lock });
 }
 
 /** The posted garment ids, once each, blanks ("No garment") left out. */
@@ -218,13 +251,10 @@ function pageModel(input: {
   /** The shared wardrobe's owner's name; undefined for one's own. */
   owner: string | undefined;
   returnTo: string | undefined;
+  /** A refused Save: its rows as posted, instead of the opening ones. */
+  refused?: RefusedSave;
 }): StylingModel {
-  const { wardrobe, aim, opened, styled, windows } = input;
-  const states = openingStates(windows, {
-    saved: opened.saved?.garments,
-    with: opened.with,
-    idea: styled.idea?.garments,
-  });
+  const { wardrobe, aim, opened, styled, windows, refused } = input;
   return {
     state: {
       destination: aim.destination,
@@ -234,7 +264,7 @@ function pageModel(input: {
       returnTo: input.returnTo,
     },
     destination: aim.destination,
-    rows: stylingRows(states, windows, opened.saved?.garments ?? []),
+    rows: modelRows(input),
     roles: rolesOf(windows),
     seed: styled.seed,
     notice: styled.missed ? 'no-idea' : undefined,
@@ -246,7 +276,42 @@ function pageModel(input: {
       input.owner === undefined
         ? undefined
         : { ownerId: wardrobe.ownerId, name: input.owner },
+    refusal: refused && {
+      message: refused.error.message,
+      draft: refused.draft,
+    },
   };
+}
+
+/** The page's rows: a refused Save's as posted, else the opening ones. */
+function modelRows(input: {
+  opened: Opened;
+  styled: StyledOpening;
+  windows: RoleWindow[];
+  refused?: RefusedSave;
+}): StylingRow[] {
+  const { opened, windows, refused } = input;
+  if (refused) {
+    const states = withEveryRole(refused.states, windows);
+    return stylingRows(states, windows, refused.held);
+  }
+  const states = openingStates(windows, {
+    saved: opened.saved?.garments,
+    with: opened.with,
+    idea: input.styled.idea?.garments,
+  });
+  return stylingRows(states, windows, opened.saved?.garments ?? []);
+}
+
+/** A Save refused for its garments (OutfitGarmentsGone), as the page shows it again. */
+interface RefusedSave {
+  error: OutfitGarmentsGone;
+  /** The posted rows, those holding a gone garment back to "No garment". */
+  states: RowState[];
+  /** The posted garments the requester still owns (an archived one an edit keeps). */
+  held: RoledGarment[];
+  /** The sheet as it was posted. */
+  draft: SaveDraft;
 }
 
 /** The garments the opening rows hold: the strips' windows must reach them. */
@@ -675,38 +740,117 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // going, through the gallery's pick (pickTo: planned, added to a trip,
   // or in an entry's place, once however often it is tapped); a saved one
   // (`outfit`) is updated through the outfit writer, its slots replaced.
+  // Refused for a garment it cannot hold: the page again (refusedPage).
   app.post(
     STYLING_PATH,
     { schema: { body: SaveBody } },
     async (request, reply) => {
       const userId = sessionUserId(request);
       const { body } = request;
-      const garmentIds = chosenIds(body.garmentId);
-      if (garmentIds.length === 0) {
-        throw new HttpError(400, 'Choose at least one garment to save');
+      try {
+        return await save(reply, userId, body);
+      } catch (error) {
+        const states = savedStates(body);
+        if (!(error instanceof OutfitGarmentsGone) || !states) throw error;
+        return refusedPage(reply, userId, body, { error, states });
       }
-      const name = body.name?.trim() || undefined;
-      const destination = postedDestination(body);
-      if (body.outfit !== undefined) {
-        return saveEdit(reply, userId, body.outfit, {
-          garmentIds,
-          name,
-          destination,
-          schedule: scheduled(body),
-          returnTo: body.returnTo,
-        });
-      }
-      const schedule = scheduled(body);
-      const planned: OutfitDestination =
-        destination.kind === 'none' && schedule
-          ? { kind: 'day', ...schedule }
-          : destination;
-      return pickTo({ db, logger }, reply, userId, planned, garmentIds, {
-        source: 'styling',
-        name,
-      });
     },
   );
+
+  async function save(
+    reply: FastifyReply,
+    userId: number,
+    body: Static<typeof SaveBody>,
+  ) {
+    const garmentIds = chosenIds(body.garmentId);
+    if (garmentIds.length === 0) {
+      throw new HttpError(400, 'Choose at least one garment to save');
+    }
+    const name = body.name?.trim() || undefined;
+    const destination = postedDestination(body);
+    const schedule = scheduled(body);
+    if (body.outfit !== undefined) {
+      return saveEdit(reply, userId, body.outfit, {
+        garmentIds,
+        name,
+        destination,
+        schedule,
+        returnTo: body.returnTo,
+      });
+    }
+    const planned: OutfitDestination =
+      destination.kind === 'none' && schedule
+        ? { kind: 'day', ...schedule }
+        : destination;
+    return pickTo({ db, logger }, reply, userId, planned, garmentIds, {
+      source: 'styling',
+      name,
+    });
+  }
+
+  /**
+   * A refused Save's answer: Styling as it was posted (its destination,
+   * capsule, outfit and sheet), the rows holding a gone garment back to
+   * "No garment", and the refusal's words above them, with its status.
+   * Always the requester's own wardrobe: Save takes nothing else, so a
+   * garment of another's is cleared like a deleted one and never shown.
+   */
+  async function refusedPage(
+    reply: FastifyReply,
+    userId: number,
+    body: Static<typeof SaveBody>,
+    refused: Pick<RefusedSave, 'error' | 'states'>,
+  ) {
+    logger.info(
+      `Styling save by user ${userId} refused (${refused.error.statusCode}): garments ${describeGone(refused.error.gone)}${body.outfit === undefined ? '' : ` for outfit ${body.outfit}`}; the page again`,
+    );
+    const today = todayIn(config.timeZone, new Date());
+    const gone = new Set(refused.error.gone.map((g) => g.id));
+    const cleared = refused.states.map((state) =>
+      state.garmentId !== null && gone.has(state.garmentId)
+        ? { ...state, garmentId: null, locked: false }
+        : state,
+    );
+    const own: Wardrobe = { ownerId: userId, viewOwner: undefined };
+    const [wardrobe, aim, opened] = await Promise.all([
+      scopeOf(userId, { capsule: body.capsule }),
+      aimIdeas(db, userId, postedDestination(body), today),
+      openedWith(userId, own, { outfit: body.outfit }),
+    ]);
+    const { states, held } = await checkedStates(userId, cleared);
+    const [windows, capsules] = await Promise.all([
+      roleWindows(db, userId, {
+        capsuleId: wardrobe.capsule?.id,
+        selected: states.flatMap((s) => s.garmentId ?? []),
+      }),
+      capsuleNames(db, userId),
+    ]);
+    const model = pageModel({
+      wardrobe,
+      aim,
+      opened,
+      styled: {},
+      windows,
+      capsules,
+      owner: undefined,
+      returnTo: returnToOf(body.returnTo),
+      refused: {
+        error: refused.error,
+        states,
+        held,
+        draft: {
+          name: body.name,
+          scheduleDate: body.scheduleDate || undefined,
+          scheduleOccasion: body.scheduleOccasion,
+        },
+      },
+    });
+    return renderPage(
+      reply,
+      <StylingPage ctx={viewContext(reply)} model={model} />,
+      { status: refused.error.statusCode },
+    );
+  }
 
   /**
    * A saved outfit changed in Styling: its slots replaced by the rows'
@@ -715,8 +859,10 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    * also makes the week planner's entries of it the person's and prunes
    * the packed marks of garments it no longer holds). The garments must
    * all be the requester's own, in the closet or archived (an archived one
-   * the outfit held stays); else a 404 and nothing is written. It changes
-   * in place, so a trip or an entry to replace is a 400.
+   * the outfit held stays); else OutfitGarmentsGone and nothing is written
+   * (also when one goes between this check and the write: updateOutfit
+   * refuses it too). It changes in place, so a trip or an entry to replace
+   * is a 400.
    */
   async function saveEdit(
     reply: FastifyReply,
@@ -746,7 +892,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         : input.schedule;
     const garments = topToToe(await ownGarments(db, userId, input.garmentIds));
     if (garments.length !== input.garmentIds.length) {
-      throw new HttpError(404, 'Garment not found');
+      throw await garmentsGoneError(db, userId, input.garmentIds, 'owned');
     }
     const result = await updateOutfit(db, outfitId, userId, {
       name: input.name ?? ideaName(garments),

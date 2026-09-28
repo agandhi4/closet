@@ -660,11 +660,16 @@ describe('Styling', () => {
         expect(await outfitCount()).toBe(before);
       });
 
-      it('404s garments that are not the requester’s closet', async () => {
+      it('refuses garments that are not the requester’s closet', async () => {
         const before = await outfitCount();
-        expect(
-          (await save({ garmentId: [String(wishlistTee)] })).statusCode,
-        ).toBe(404);
+        // Their own wishlist item: named, a 409 (#219). A hand-made post
+        // without the page's rows gets the error page, not Styling.
+        const wanted = await save({ garmentId: [String(wishlistTee)] });
+        expect(wanted.statusCode).toBe(409);
+        expect(wanted.body).toContain(
+          'Not saved: Wanted tee is on your wishlist, not bought yet.',
+        );
+        expect(wanted.body).not.toContain('id="styling-form"');
         expect(
           (await save({ garmentId: [String(tops[0])] }, stranger)).statusCode,
         ).toBe(404);
