@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PUBLIC_DIR } from '../../src/static-assets';
 import { createGarment } from './garments';
 import { createTestApp, PWA_ENV, TestApp, unescapeHtml } from './harness';
 
@@ -17,7 +21,7 @@ describe('delivery (PWA_ENABLED=true)', () => {
   afterAll(() => t?.cleanup());
 
   describe('static cache policy', () => {
-    it('serves node_modules assets immutable for a year', async () => {
+    it('serves the client libraries immutable for a year', async () => {
       const res = await t.inject({
         method: 'GET',
         url: '/modules/htmx.min.js',
@@ -37,7 +41,13 @@ describe('delivery (PWA_ENABLED=true)', () => {
     });
 
     it('keeps the service worker revalidating', async () => {
-      const res = await t.inject({ method: 'GET', url: '/sw.js' });
+      // Asking for brotli: the precompressed worker (sw.js.br on disk) must
+      // get the worker's policy too, not the year the other files get.
+      const res = await t.inject({
+        method: 'GET',
+        url: '/sw.js',
+        headers: { 'accept-encoding': 'br' },
+      });
       // Built by `npm run generate:sw`; when it is absent the policy is still
       // what matters, and a 404 says nothing about it.
       if (res.statusCode === 200) {
@@ -61,6 +71,87 @@ describe('delivery (PWA_ENABLED=true)', () => {
       '/bg-removal-models/resources.json',
     ])('no longer serves the in-browser model: %s is a 404', async (url) => {
       expect((await t.inject({ method: 'GET', url })).statusCode).toBe(404);
+    });
+  });
+
+  // The build writes a .br and a .gz beside each static text file
+  // (scripts/static-assets.ts; the integration project's globalSetup does
+  // the same to public/), and @fastify/static serves the one asked for.
+  describe('precompressed static files', () => {
+    const file = (path: string) => readFileSync(join(PUBLIC_DIR, path));
+    // The source's type, never the variant's (application/octet-stream).
+    const JAVASCRIPT = 'application/javascript; charset=utf-8';
+
+    it.each([
+      ['/js/connectivity.js', 'js/connectivity.js'],
+      ['/modules/htmx.min.js', 'modules/htmx.min.js'],
+      // An importmap module: a wrong type and the browser refuses it.
+      ['/modules/workbox-window.prod.mjs', 'modules/workbox-window.prod.mjs'],
+    ])('serves %s as brotli to a client that accepts it', async (url, path) => {
+      const res = await t.inject({
+        method: 'GET',
+        url: `${url}?v=1`,
+        headers: { 'accept-encoding': 'gzip, deflate, br, zstd' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-encoding']).toBe('br');
+      expect(res.headers['content-type']).toBe(JAVASCRIPT);
+      expect(res.headers['vary']).toMatch(/accept-encoding/i);
+      expect(res.headers['cache-control']).toBe(
+        'public, max-age=31536000, immutable',
+      );
+      // The request metrics' onSend adds a header and leaves the body alone.
+      expect(res.headers['server-timing']).toBeDefined();
+      // The variant on disk, byte for byte: not compressed again on the way.
+      expect(res.rawPayload.equals(file(`${path}.br`))).toBe(true);
+      expect(brotliDecompressSync(res.rawPayload).equals(file(path))).toBe(
+        true,
+      );
+    });
+
+    it('serves gzip to a client without brotli', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/js/connectivity.js',
+        headers: { 'accept-encoding': 'gzip' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-encoding']).toBe('gzip');
+      expect(res.headers['content-type']).toBe(JAVASCRIPT);
+      expect(res.headers['vary']).toMatch(/accept-encoding/i);
+      expect(res.rawPayload.equals(file('js/connectivity.js.gz'))).toBe(true);
+      expect(
+        gunzipSync(res.rawPayload).equals(file('js/connectivity.js')),
+      ).toBe(true);
+    });
+
+    it('serves the file itself to a request without Accept-Encoding', async () => {
+      const res = await t.inject({ method: 'GET', url: '/js/connectivity.js' });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-encoding']).toBeUndefined();
+      expect(res.headers['content-type']).toBe(JAVASCRIPT);
+      // A shared cache must not hand this copy to a client that accepts br.
+      expect(res.headers['vary']).toMatch(/accept-encoding/i);
+      expect(res.rawPayload.equals(file('js/connectivity.js'))).toBe(true);
+    });
+
+    it('still compresses pages on the fly', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        headers: { 'accept-encoding': 'br' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-encoding']).toBe('br');
+      expect(brotliDecompressSync(res.rawPayload).toString()).toContain(
+        '<html',
+      );
+    });
+
+    it('boots serving the variants, none of them stale', () => {
+      expect(t.logs.messages('info', 'StaticAssets')).toContainEqual(
+        expect.stringMatching(/^Static assets: \d+ precompressed variant/),
+      );
     });
   });
 

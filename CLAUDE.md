@@ -74,9 +74,9 @@ src/
 views/
   assets/              main.css (Tailwind source), src-sw.ts (service worker source), fonts.css (the
                        webfonts' entry for `npm run generate:vendor`)
-public/                Static: sw.js, bundle.css and vendor/ (generated), js/, assets/ (icon.svg is the
-                       source; icon.png, icon-192.png, icon-512.png and favicon.ico come from
-                       `npm run generate:icons`)
+public/                Static: sw.js, bundle.css, vendor/, modules/, *.br/*.gz (generated), js/,
+                       assets/ (icon.svg is the source; icon.png, icon-192.png, icon-512.png and
+                       favicon.ico come from `npm run generate:icons`)
 test/                  Playwright specs (CI runs all of them in Chromium with the PWA on)
   support/, integration/  the harness and its helpers: test/CLAUDE.md
 drizzle/               Generated migrations (NNNN_name.sql) + meta/ (journal, snapshots). Shipped in the image
@@ -135,7 +135,7 @@ Each area's detail lives in a `CLAUDE.md` beside its code. Claude Code loads one
 Every request goes through the root hooks in `app.ts` (the same-origin check at onRequest; session into `req.auth` and `ViewContext` into `reply.locals` at preValidation, skipped on static paths), then:
 
 - **A route** (`src/web/<feature>/routes.tsx`): the plugin's `requireSession` preValidation hook → the route's schema validation (400 page on failure) → the handler → `renderPage(reply, <FeaturePage ctx={viewContext(reply)} />)` or `renderFragment(...)` → JSX components in the shared `Layout`.
-- **A static root** (`public/`, `/modules/*`, ...): `@fastify/static` with the cache policy in `registerStaticAssets`.
+- **A static file** (`public/`; `/modules/*` is `public/modules/`): `@fastify/static`, precompressed, with the cache policy in `src/static-assets.ts`.
 - **No route**: the not-found handler throws `HttpError(404, 'Cannot GET <url>')` into the error handler, which renders the 404 page (signed-in chrome included: the root hooks ran) or, on a static path, answers `{ statusCode, message }`.
 
 Every response gets the security headers (root onSend) and, off the static paths, one log line (root onResponse).
@@ -174,7 +174,7 @@ The detail of each rule, its code and its spec: `src/web/security/CLAUDE.md`. Wh
 
 ### Logging
 
-`createLogger(config)` (`src/logger.ts`) is the process's pino logger: LOG_LEVEL for both outputs, pino-pretty in a worker thread to stdout and to `DATA_PATH/app.log` (flushed on exit), `cookie`, `authorization` and `set-cookie` redacted wherever a `req`/`res` is logged. Every module takes a child named for it (`logger.child({ context: 'Photos' })`; contexts: Bootstrap, Migrations, Db, Photos, Cutout, CutoutModel, Security, RateLimit, Session, OutboundFetch, Weather, Push, WeekPlan, Web, Http, Fastify, Mcp, Reconciliation, Scheduler, Metrics, SetPassword, RevokePush, Seed), so lines are filterable in app.log and Loki. Fastify gets the `Fastify` child (its own startup and internal warnings) with its request logging off: the root onResponse hook writes the one header-free line per request, skipping static paths.
+`createLogger(config)` (`src/logger.ts`) is the process's pino logger: LOG_LEVEL for both outputs, pino-pretty in a worker thread to stdout and to `DATA_PATH/app.log` (flushed on exit), `cookie`, `authorization` and `set-cookie` redacted wherever a `req`/`res` is logged. Every module takes a child named for it (`logger.child({ context: 'Photos' })`; contexts: Bootstrap, Migrations, Db, Photos, Cutout, CutoutModel, Security, RateLimit, Session, OutboundFetch, Weather, Push, WeekPlan, Web, Http, Fastify, StaticAssets, Mcp, Reconciliation, Scheduler, Metrics, SetPassword, RevokePush, Seed), so lines are filterable in app.log and Loki. Fastify gets the `Fastify` child (its own startup and internal warnings) with its request logging off: the root onResponse hook writes the one header-free line per request, skipping static paths.
 
 ## Conventions
 
@@ -184,7 +184,7 @@ Upstream rules we keep (from `.github/prompts/boilerplate.prompt.md`), plus ours
 - **Locality of behavior.** Keep view logic beside its markup. Extract only when reused.
 - **Every user-facing string goes through i18n.** `t('KEY')` (or `tHtml` for the few with markup) from `src/web/i18n.ts`; add the key to `src/i18n/en/lang.json`, the only catalog.
 - **daisyUI components, not bespoke CSS.** Theme through daisyUI's semantic tokens. No hardcoded colors in templates: **enforced by ESLint** (Tailwind palette classes like `text-red-500`/`bg-white`, `chip-N`, and hex or colour functions in a JSX `style` are rejected). **Muted text is `text-muted`** (#88; `var(--color-muted)` in `main.css`'s own rules): the base content at 65%, the faintest tone that passes WCAG AA on base-100, base-200 and base-300 in both themes (4.79:1 at worst). `text-faint` (30%) is for decorative graphics only (a placeholder hanger where there is no photo), never text. ESLint refuses `text-base-content/0` to `/69`, so those two are the only ways below `/70`; don't dim text with `opacity-*` either (an archived tile dims its photo and says Archived).
-- **No runtime CDN imports.** Every client dependency is an npm package served by the `@fastify/static` registrations in `app.ts` (`registerStaticAssets`), from node_modules or, when the package ships no minified ES module, minified from it at build into `public/vendor/` (`npm run generate:vendor`). The installed PWA must boot with zero external requests: no preconnect, and the CSP names no other origin (`delivery.spec.ts` checks both).
+- **No runtime CDN imports.** Every client dependency is an npm package served from `public/`: copied at build into `public/modules/` (`CLIENT_MODULES`, `scripts/static-assets.ts`) or, when the package ships no minified ES module, minified from it into `public/vendor/` (`npm run generate:vendor`). The installed PWA must boot with zero external requests: no preconnect, and the CSP names no other origin (`delivery.spec.ts` checks both).
 - **Config via `loadConfig()`**, never `process.env` anywhere else in `src/`. New env vars: a schema entry in `src/config.ts` with a default (a secret gets none: required, with a minimum), a row in the README configuration table. `APP_TIMEZONE` (default `America/New_York`) is the household's zone for everything that asks "what day is it" (the calendar today); an unknown zone name fails the boot.
 - **One database: Postgres.** Every tier (integration, Playwright, load test, CI) runs on Postgres. Do not reintroduce a second driver for test speed: the scratch-database harness is as fast as in-memory SQLite was.
 - **Cookies stay `Secure`-less.** The `.box` name is HTTP by design (Tailscale encrypts). Adding `secure: true` to `setSessionCookie` (`src/web/auth/session.ts`) makes login silently never stick over `http://closet.box`. `SameSite=Lax` is set and must stay (CSRF). If a secure cookie is ever wanted it must be driven by a `COOKIE_SECURE` env var defaulting to false.
@@ -198,7 +198,7 @@ nvm use                       # Node 22.20.0
 npm ci                        # postinstall applies patches/ via patch-package
 
 npm run start:dev             # tsc --watch + node --watch dist/main.js + tailwind --watch
-npm run build                 # clean, tsc -p tsconfig.build.json (type-checks), generate (build-info, vendor, tailwind, sw)
+npm run build                 # clean, tsc -p tsconfig.build.json (type-checks), generate (build-info, vendor, tailwind, sw, precompress)
 npm run start:prod            # node dist/main.js (the image runs `node dist/main.js` as PID 1). Like start:dev it
                               # downloads the 940 MB model into MODELS_PATH (./models) on its first boot
 npm run start:test            # the build with background removal stubbed (test/support/test-server.ts): what

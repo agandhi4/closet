@@ -64,6 +64,10 @@ public/bundle.css
 public/sw.js
 public/build.json
 public/vendor/
+public/modules/
+# Precompressed variants (npm run generate:precompress)
+public/**/*.br
+public/**/*.gz
 views/assets/src-sw.js
 
 # Playwright

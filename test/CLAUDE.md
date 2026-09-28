@@ -15,6 +15,8 @@ The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
                        log-capture.ts (LogCapture, captureLogs: the app's log lines as records),
                        weather-stub.ts (Open-Meteo's stand-in on 127.0.0.2: the seed's weather,
                        forecast and archive),
+                       static-assets-setup.ts (globalSetup: public/modules/ and the precompressed
+                       variants, as the build lays them out),
                        schema-drift.ts (drizzle-kit pushSchema), legacy-migrations.ts + legacy-migrations/
                        (the frozen MikroORM tree; builds a MikroORM-era database)
   integration/         Vitest in-process specs + harness.ts (createTestApp: t.inject, t.db, t.logs, t.today; multipart,

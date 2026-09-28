@@ -15,6 +15,10 @@ module.exports = {
     'build.json',
     // The fonts' @font-face rules, already inlined into bundle.css.
     'vendor/fonts/fonts.css',
+    // The client libraries (/modules/, copied from node_modules): cached by
+    // the worker when a page loads them (assets-v1), never precached; the
+    // install dialog's bundle alone is 160 KB.
+    'modules/**',
   ],
   swDest: 'public/sw.js',
   swSrc: 'views/assets/src-sw.js',

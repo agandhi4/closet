@@ -2,9 +2,7 @@ import fastifyCompress from '@fastify/compress';
 import fastifyCookie from '@fastify/cookie';
 import fastifyFormbody from '@fastify/formbody';
 import fastifyMultipart from '@fastify/multipart';
-import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, LogController } from 'fastify';
-import { join } from 'node:path';
 import { BUILD_INFO } from './build-info';
 import { type Config, trustedProxies } from './config';
 import { countPendingCutouts } from './cutout/queries';
@@ -14,7 +12,7 @@ import { runMigrations } from './db/migrate';
 import type { Logger } from './logger';
 import { registerHttpMetrics } from './metrics/http';
 import { Metrics } from './metrics/metrics';
-import { PROJECT_ROOT } from './project-root';
+import { registerStaticAssets } from './static-assets';
 import { isStaticPath } from './static-prefixes';
 import { createSessionResolver } from './web/auth/session';
 import { createSessionTokens } from './web/auth/tokens';
@@ -38,10 +36,6 @@ import {
   createWeatherService,
   type WeatherService,
 } from './web/weather/service';
-
-const PUBLIC_DIR = join(PROJECT_ROOT, 'public');
-const nodeModule = (...segments: string[]) =>
-  join(PROJECT_ROOT, 'node_modules', ...segments);
 
 export interface ClosetApp {
   app: FastifyInstance;
@@ -269,6 +263,8 @@ export async function createApp(
   });
 
   await app.register(fastifyCookie);
+  // Pages and fragments; a static file goes out precompressed when it has
+  // a variant (static-assets.ts), which this leaves alone.
   await app.register(fastifyCompress);
   // Forms post urlencoded bodies; JSON is Fastify's own parser.
   await app.register(fastifyFormbody);
@@ -279,7 +275,11 @@ export async function createApp(
     },
   });
 
-  await registerStaticAssets(app, config);
+  await registerStaticAssets(
+    app,
+    config,
+    logger.child({ context: 'StaticAssets' }),
+  );
 
   const web = logger.child({ context: 'Web' });
   app.setErrorHandler(createErrorHandler(web));
@@ -354,59 +354,3 @@ function createWeather(
 // background-removal model's, removed on 2026-09-26.
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none';";
-
-// Every static URL is versioned (`?v=` from BUILD_INFO.assetVersion in
-// the layout and the importmap; `?v=<photo version>` on /file/**), so a deploy
-// changes URLs, never the bytes behind one: a year, immutable. The two files
-// whose URL cannot change keep revalidating: sw.js below (the browser must
-// see a new worker to update the app shell) and manifest.json (a route in
-// src/web/shell). NODE_ENV=development turns caching off so `tailwind
-// --watch` output shows up on a plain reload.
-const IMMUTABLE_YEAR = 'public, max-age=31536000, immutable';
-const REVALIDATE = 'public, max-age=0';
-const SERVICE_WORKER_CACHE_CONTROL = 'no-cache';
-
-// Keep in step with STATIC_PREFIXES in static-prefixes.ts: every root here
-// must be a path the session hook skips.
-async function registerStaticAssets(app: FastifyInstance, config: Config) {
-  const dev = config.NODE_ENV === 'development';
-  const cacheControl = dev ? REVALIDATE : IMMUTABLE_YEAR;
-  // Per-file policy: since @fastify/static 10, setHeaders receives the
-  // FastifyReply and runs after send's headers, so its Cache-Control wins.
-  // (Before 10 it was the raw response and send overwrote it afterwards.)
-  await app.register(fastifyStatic, {
-    root: PUBLIC_DIR,
-    decorateReply: false,
-    setHeaders: (reply, path) => {
-      reply.header(
-        'Cache-Control',
-        path.endsWith('sw.js') ? SERVICE_WORKER_CACHE_CONTROL : cacheControl,
-      );
-    },
-  });
-
-  const immutable = dev
-    ? { maxAge: 0, immutable: false }
-    : { maxAge: '1y', immutable: true };
-
-  /** Serve htmx and other libraries from node_modules
-   * https://htmx.org/docs/#installing
-   * https://blog.wesleyac.com/posts/why-not-javascript-cdn */
-  await app.register(fastifyStatic, {
-    root: [
-      nodeModule('htmx.org/dist'),
-      nodeModule('@khmyznikov/pwa-install/dist'),
-      nodeModule('workbox-window/build'),
-    ],
-    prefix: '/modules/',
-    decorateReply: false,
-    ...immutable,
-  });
-
-  await app.register(fastifyStatic, {
-    root: nodeModule('pulltorefreshjs/dist'),
-    prefix: '/modules/pulltorefresh',
-    decorateReply: false,
-    ...immutable,
-  });
-}
