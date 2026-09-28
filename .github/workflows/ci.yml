@@ -1,6 +1,12 @@
 name: CI
 
-# One workflow so publishing can wait for the tests. Until 2026-09-25 the
+# PRs are gated on linux-box, not here (owner, 2026-09-28: GitHub Actions limits):
+# ~/.claude/scripts/agent-worker/local_gate.sh runs the static, test and e2e jobs below
+# against the PR head and posts their results under these same job names, which branch
+# protection requires. On main this workflow only publishes the image; the test jobs
+# stay here for a manual cloud run (workflow_dispatch).
+#
+# History: one workflow so publishing can wait for the tests. Until 2026-09-25 the
 # image published from a separate workflow in parallel with CI: a red run
 # still shipped :latest, and the homelab updater deploys :latest.
 on:
@@ -11,11 +17,6 @@ on:
     # every client's static-asset cache key). Tag pushes ignore path filters.
     # docs.yml runs docs:check on exactly these paths; keep the two in step.
     paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
-  # Every PR runs the whole gate, docs-only ones included: main requires
-  # every job's check (branch protection), and a skipped workflow would
-  # leave a PR waiting on them forever.
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       version:
@@ -25,7 +26,7 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -37,6 +38,7 @@ jobs:
   # (#113). Their names are branch protection's required checks.
   static:
     name: format, lint, types
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -50,6 +52,7 @@ jobs:
 
   test:
     name: unit + integration
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -78,6 +81,7 @@ jobs:
 
   e2e:
     name: browser (production config)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -151,8 +155,8 @@ jobs:
 
   publish:
     name: publish image
-    needs: [static, test, e2e]
-    if: github.event_name != 'pull_request'
+    # No `needs`: the tree was gated on its PR by the local gate (strict up-to-date
+    # protection makes the squash commit's tree the gated head's tree).
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
