@@ -116,7 +116,7 @@ describe('sharing: statements per request', () => {
       ['a shared garment', () => `/wardrobe/${garmentId}?${ownerQuery()}`, 3],
       ['the shared capsules', () => `/capsules?${ownerQuery()}`, 2],
       ['the shared wishlist', () => `/wardrobe/wishlist?${ownerQuery()}`, 3],
-      ['Styling a shared wardrobe', () => `/styling?${ownerQuery()}`, 3],
+      ['Styling a shared wardrobe', () => `/styling?${ownerQuery()}`, 2],
     ])('%s: %i statements', async (_page, url, statements) => {
       const record = await recordQueries(async () => {
         const res = await get(url(), viewer);

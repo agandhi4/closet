@@ -2,7 +2,7 @@ import { type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from './client';
 
 /** Each column's value; undefined for a column that may be left out. */
-type ScalarValues<T extends Record<string, SQL | undefined>> = {
+export type ScalarValues<T extends Record<string, SQL | undefined>> = {
   [K in keyof T]: T[K] extends SQL<infer V>
     ? V
     : T[K] extends SQL<infer V> | undefined

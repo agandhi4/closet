@@ -93,6 +93,24 @@ export function capsuleNamesSql(ownerId: number): SQL<CapsuleRef[]> {
   )`;
 }
 
+/**
+ * The capsule `id` in `ownerId`'s wardrobe, by name, as a scalar subquery
+ * (null when it is not one), for a route that checks `?capsule=` in the
+ * statement that reads with it (Styling, #163): its reads through
+ * inCapsule match nothing for another's, so reading before the check
+ * shows nothing.
+ */
+export function capsuleRefSql(
+  id: number,
+  ownerId: number,
+): SQL<CapsuleRef | null> {
+  return sql<CapsuleRef | null>`(
+    select json_build_object('id', ${capsule.id}, 'name', ${capsule.name})
+    from ${capsule}
+    where ${and(eq(capsule.id, id), eq(capsule.ownerId, ownerId))}
+  )`;
+}
+
 /** The capsule in `ownerId`'s wardrobe, or undefined. */
 export async function findCapsule(
   db: Db,

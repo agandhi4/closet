@@ -1,6 +1,5 @@
 import {
   and,
-  asc,
   desc,
   eq,
   inArray,
@@ -10,6 +9,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { Db } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import { file, garment, outfit, outfitSlot } from '../../db/schema';
 import {
   builtInCategoriesOf,
@@ -17,16 +17,26 @@ import {
   GARMENT_ROLES,
   type GarmentRole,
 } from '../../wardrobe/properties';
+import type { GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
 import { inCloset, ownedGarment } from '../wardrobe/status';
-import { type RoleWindow, type RowGarment, STRIP_PAGE } from './rows';
+import {
+  type RoleWindow,
+  type RowGarment,
+  type RowState,
+  STRIP_PAGE,
+} from './rows';
 
 /**
  * Styling's reads (#42). Every function reads one wardrobe, `ownerId`: the
  * requester's own, or a wardrobe shared with them that the route
  * authorized (authorizeWardrobe, view). What an outfit holds is only ever
- * read for its owner (savedGarments); writes go through the outfit writers
+ * read for its owner (savedOutfitSql); writes go through the outfit writers
  * (src/web/outfits/queries.ts, src/web/gallery/pick.ts).
+ *
+ * Most are scalar subqueries (#163): production pays a round trip per
+ * statement (#156), so a request reads them together through selectScalars
+ * (reads.ts), each owned here and read back by its reader.
  */
 
 /** The garments a role's rows cycle through (none: `other` and every custom category). */
@@ -60,77 +70,110 @@ function cycleOf(ownerId: number, capsuleId: number | undefined): SQL {
 const photoColumns = { fileName: file.fileName, version: file.version };
 
 /**
+ * A RowGarment as JSON, an array in readRowGarment's order (no key per
+ * garment), from `garment` left joined to its `file`.
+ */
+type RowGarmentJson = [
+  id: number,
+  name: string | null,
+  category: string,
+  status: GarmentStatus,
+  fileName: string | null,
+  version: number | null,
+];
+
+const rowGarmentJson = sql`json_build_array(${garment.id}, ${garment.name}, ${garment.category}, ${garment.status}, ${file.fileName}, ${file.version})`;
+
+function readRowGarment([
+  id,
+  name,
+  category,
+  status,
+  fileName,
+  version,
+]: RowGarmentJson): RowGarment {
+  const photo =
+    fileName === null || version === null ? null : { fileName, version };
+  return { id, name, category, status, photo };
+}
+
+/** A garment with the role its category plays. */
+export type RoledGarment = RowGarment & { role: GarmentRole };
+
+function roled(garment: RowGarment): RoledGarment {
+  return { ...garment, role: categoryRole(garment.category) };
+}
+
+/** A garment a row holds, and that row's role: what the strips' windows must reach. */
+export type Chosen = Pick<RowState, 'role'> & { garmentId: number };
+
+/** A window's garment as roleWindowsSql's JSON has it: its role and count, then the garment. */
+type WindowJson = [role: GarmentRole, count: number, ...RowGarmentJson];
+
+/**
  * Every role the wardrobe (or the capsule) has closet garments of, each
  * with its count and the window a page shows: newest first, STRIP_PAGE
- * garments past the deepest of `selected` in that role (the rows' chosen
- * garments, so a chosen one deep in a long cycle is on the strip). One
- * statement, whatever the wardrobe holds: the ranks and counts are window
- * functions, and only the window's rows come back.
+ * garments past the deepest chosen one in that role, so a chosen garment
+ * deep in a long cycle is on its strip. Chosen is `chosen` (a garment in
+ * a row of its own role: a posted row whose garment was recategorised
+ * meanwhile, or is not the wardrobe's, reaches nothing, as its row falls
+ * back to "No garment") and, with `outfitId`, every garment the
+ * wardrobe's outfit holds (`?outfit=`, whose rows are its garments). One
+ * scalar subquery whatever the wardrobe holds: the ranks and counts are
+ * window functions, and only the windows' garments come back, in rank
+ * order. Read back with readRoleWindows.
  */
-export async function roleWindows(
-  db: Db,
+export function roleWindowsSql(
   ownerId: number,
-  options: { capsuleId?: number; selected: readonly number[] },
-): Promise<RoleWindow[]> {
-  const selected = sql`array[${sql.join(
-    options.selected.map((id) => sql`${id}`),
+  options: {
+    capsuleId?: number;
+    chosen: readonly Chosen[];
+    outfitId?: number;
+  },
+): SQL<WindowJson[]> {
+  const { chosen, outfitId } = options;
+  const ids = sql`array[${sql.join(
+    chosen.map((c) => sql`${c.garmentId}`),
     sql`, `,
   )}]::int[]`;
-  const ranked = db.$with('ranked').as(
-    db
-      .select({
-        id: garment.id,
-        name: garment.name,
-        category: garment.category,
-        status: garment.status,
-        photoId: sql<number | null>`${garment.photoId}`.as('photo_id'),
-        role: sql<GarmentRole>`${roleOf}`.as('role'),
-        rank: sql<number>`(row_number() over (partition by ${roleOf} order by ${garment.id} desc))::int`.as(
-          'rank',
-        ),
-        count: sql<number>`(count(*) over (partition by ${roleOf}))::int`.as(
-          'count',
-        ),
-      })
-      .from(garment)
-      .where(cycleOf(ownerId, options.capsuleId)),
-  );
-  const deepest = db
-    .select({
-      id: ranked.id,
-      name: ranked.name,
-      category: ranked.category,
-      status: ranked.status,
-      photoId: ranked.photoId,
-      role: ranked.role,
-      rank: ranked.rank,
-      count: ranked.count,
-      deepest:
-        sql<number>`coalesce(max(case when ${ranked.id} = any(${selected}) then ${ranked.rank} end) over (partition by ${ranked.role}), 0)`.as(
-          'deepest',
-        ),
-    })
-    .from(ranked)
-    .as('windowed');
-  const rows = await db
-    .with(ranked)
-    .select({
-      id: deepest.id,
-      name: deepest.name,
-      category: deepest.category,
-      status: deepest.status,
-      role: deepest.role,
-      count: deepest.count,
-      photo: photoColumns,
-    })
-    .from(deepest)
-    .leftJoin(file, eq(file.id, deepest.photoId))
-    .where(sql`${deepest.rank} <= ${deepest.deepest} + ${STRIP_PAGE}`)
-    .orderBy(asc(deepest.rank));
+  const roles = sql`array[${sql.join(
+    chosen.map((c) => sql`${c.role}`),
+    sql`, `,
+  )}]::text[]`;
+  const inRow = sql`exists (select from unnest(${ids}, ${roles}) as chosen (id, role) where chosen.id = ranked.id and chosen.role = ranked.role)`;
+  const inOutfit =
+    outfitId === undefined
+      ? undefined
+      : sql`ranked.id in (select ${outfitSlot.garmentId} from ${outfitSlot} inner join ${outfit} on ${eq(outfit.id, outfitSlot.outfitId)} where ${and(eq(outfit.id, outfitId), eq(outfit.ownerId, ownerId))})`;
+  const isChosen = inOutfit ? sql`(${inRow} or ${inOutfit})` : inRow;
+  return sql<WindowJson[]>`(
+    select coalesce(json_agg(json_build_array(
+      windowed.role, windowed.count, windowed.id, windowed.name,
+      windowed.category, windowed.status, ${file.fileName}, ${file.version}
+    ) order by windowed.rank), '[]')
+    from (
+      select ranked.*, coalesce(max(case when ${isChosen} then ranked.rank end) over (partition by ranked.role), 0) as deepest
+      from (
+        select ${garment.id} as id, ${garment.name} as name,
+          ${garment.category} as category, ${garment.status} as status,
+          ${garment.photoId} as photo_id, ${roleOf} as role,
+          (row_number() over (partition by ${roleOf} order by ${garment.id} desc))::int as rank,
+          (count(*) over (partition by ${roleOf}))::int as count
+        from ${garment}
+        where ${cycleOf(ownerId, options.capsuleId)}
+      ) ranked
+    ) windowed
+    left join ${file} on ${file.id} = windowed.photo_id
+    where windowed.rank <= windowed.deepest + ${STRIP_PAGE}
+  )`;
+}
+
+/** roleWindowsSql's value as the windows, each role's garments in cycle order. */
+export function readRoleWindows(rows: readonly WindowJson[]): RoleWindow[] {
   const windows = new Map<GarmentRole, RoleWindow>();
-  for (const { role, count, ...shown } of rows) {
+  for (const [role, count, ...shown] of rows) {
     const window = windows.get(role) ?? { role, count, garments: [] };
-    window.garments.push(shown);
+    window.garments.push(readRowGarment(shown));
     windows.set(role, window);
   }
   return [...windows.values()];
@@ -172,79 +215,89 @@ export async function roleGarmentsBefore(
   };
 }
 
-/** A garment with the role its category plays. */
-export type RoledGarment = RowGarment & { role: GarmentRole };
-
-function withRole(garments: RowGarment[]): RoledGarment[] {
-  return garments.map((g) => ({ ...g, role: categoryRole(g.category) }));
-}
-
 /**
  * The wardrobe's owned garments (in the closet or archived) among `ids`:
  * what a posted row may hold. Fewer than asked when any is someone else's,
- * a wishlist item or gone.
+ * a wishlist item or gone. A scalar subquery; read with readGarments.
  */
+export function ownGarmentsSql(
+  ownerId: number,
+  ids: readonly number[],
+): SQL<RowGarmentJson[]> {
+  return sql<RowGarmentJson[]>`(
+    select coalesce(json_agg(${rowGarmentJson}), '[]')
+    from ${garment}
+    left join ${file} on ${eq(file.id, garment.photoId)}
+    where ${and(
+      eq(garment.ownerId, ownerId),
+      inArray(garment.id, [...ids]),
+      ownedGarment(),
+    )}
+  )`;
+}
+
+/** ownGarmentsSql's (or an outfit's) garments, each with its role. */
+export function readGarments(rows: readonly RowGarmentJson[]): RoledGarment[] {
+  return rows.map((row) => roled(readRowGarment(row)));
+}
+
+/** ownGarmentsSql alone, in one statement: an edit's Save. */
 export async function ownGarments(
   db: Db,
   ownerId: number,
   ids: readonly number[],
 ): Promise<RoledGarment[]> {
   if (ids.length === 0) return [];
-  const rows = await db
-    .select({
-      id: garment.id,
-      name: garment.name,
-      category: garment.category,
-      status: garment.status,
-      photo: photoColumns,
-    })
-    .from(garment)
-    .leftJoin(file, eq(file.id, garment.photoId))
-    .where(
-      and(
-        eq(garment.ownerId, ownerId),
-        inArray(garment.id, [...ids]),
-        ownedGarment(),
-      ),
-    );
-  return withRole(rows);
+  const { owned } = await selectScalars(db, {
+    owned: ownGarmentsSql(ownerId, ids),
+  });
+  return readGarments(owned);
+}
+
+/** An outfit as Styling opens it (`?outfit=`). */
+export interface SavedOutfit {
+  id: number;
+  name: string | null;
+  garments: RoledGarment[];
+}
+
+interface SavedOutfitJson {
+  id: number;
+  name: string | null;
+  garments: RowGarmentJson[];
 }
 
 /**
  * The owner's outfit `outfitId` as Styling opens it (`?outfit=`): its name
  * and the garments its slots hold, in slot order (empty slots, whose
- * garment was deleted, hold nothing to show). Undefined when the outfit is
- * not the owner's. One statement.
+ * garment was deleted, hold nothing to show). Null when the outfit is not
+ * the owner's. A scalar subquery; read with readSavedOutfit.
  */
-export async function savedGarments(
-  db: Db,
+export function savedOutfitSql(
   outfitId: number,
   ownerId: number,
-): Promise<
-  { id: number; name: string | null; garments: RoledGarment[] } | undefined
-> {
-  const found = await db.query.outfit.findFirst({
-    columns: { id: true, name: true },
-    where: and(eq(outfit.id, outfitId), eq(outfit.ownerId, ownerId)),
-    with: {
-      slots: {
-        columns: {},
-        orderBy: asc(outfitSlot.position),
-        with: {
-          garment: {
-            columns: { id: true, name: true, category: true, status: true },
-            with: { photo: { columns: { fileName: true, version: true } } },
-          },
-        },
-      },
-    },
-  });
-  if (!found) return undefined;
-  return {
-    id: found.id,
-    name: found.name,
-    garments: withRole(
-      found.slots.flatMap(({ garment: held }) => (held ? [held] : [])),
-    ),
-  };
+): SQL<SavedOutfitJson | null> {
+  return sql<SavedOutfitJson | null>`(
+    select json_build_object(
+      'id', ${outfit.id},
+      'name', ${outfit.name},
+      'garments', (
+        select coalesce(json_agg(${rowGarmentJson} order by ${outfitSlot.position}), '[]')
+        from ${outfitSlot}
+        inner join ${garment} on ${eq(garment.id, outfitSlot.garmentId)}
+        left join ${file} on ${eq(file.id, garment.photoId)}
+        where ${eq(outfitSlot.outfitId, outfit.id)}
+      )
+    )
+    from ${outfit}
+    where ${and(eq(outfit.id, outfitId), eq(outfit.ownerId, ownerId))}
+  )`;
+}
+
+export function readSavedOutfit(
+  json: SavedOutfitJson | null,
+): SavedOutfit | undefined {
+  return json
+    ? { id: json.id, name: json.name, garments: readGarments(json.garments) }
+    : undefined;
 }

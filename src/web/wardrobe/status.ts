@@ -23,7 +23,7 @@ import type { IsoDate } from '../calendar/calendar-date';
  * the wash counts, availableGarment (src/web/wears/queries.ts), the MCP
  * tools' closet reads, the outfit generator (#9, through availableGarment),
  * insights (src/web/insights/queries.ts) and "Goes with my closet" (#18b:
- * closetGarments, src/web/gallery/queries.ts, with one wishlist item locked
+ * closetGarmentsSql, src/web/gallery/queries.ts, with one wishlist item locked
  * beside it, never mixed in).
  *
  * `status` is the column to test: garment.status, or an alias's (the outfit

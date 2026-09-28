@@ -1,30 +1,18 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { type Static, Type } from '@sinclair/typebox';
-import { selectScalars } from '../../db/select-scalars';
 import type { Idea } from '../../wardrobe/generator';
 import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
 import { GARMENT_ROLES, type GarmentRole } from '../../wardrobe/properties';
 import { sessionUserId } from '../auth/require-session';
 import { type IsoDate, todayIn } from '../calendar/calendar-date';
-import {
-  type CapsuleRef,
-  capsuleNamesSql,
-  findCapsule,
-} from '../capsules/queries';
+import type { CapsuleRef } from '../capsules/queries';
 import { capsuleNotFound } from '../capsules/validation';
 import { HttpError } from '../errors';
 import { aimIdeas, type IdeasAim } from '../gallery/aim';
-import {
-  browseIdea,
-  dailySeed,
-  ideaName,
-  ideasFor,
-  parseSeed,
-  shuffledSeed,
-} from '../gallery/ideas';
+import { dailySeed, ideaName, parseSeed, shuffledSeed } from '../gallery/ideas';
 import { pickTo, postedDestination } from '../gallery/pick';
-import { type PoolGarment, styledGarments } from '../gallery/queries';
+import type { PoolGarment } from '../gallery/queries';
 import {
   type OutfitDestination,
   parseDestination,
@@ -44,11 +32,7 @@ import {
   RowId,
 } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
-import {
-  authorizeWardrobe,
-  sharedWardrobesSql,
-  toSharedWardrobe,
-} from '../sharing/access';
+import { authorizeWardrobe } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
   MAX_ROWS,
@@ -62,12 +46,18 @@ import {
   withEveryRole,
 } from './rows';
 import {
+  type Chosen,
   ownGarments,
   type RoledGarment,
   roleGarmentsBefore,
-  roleWindows,
-  savedGarments,
+  type SavedOutfit,
 } from './queries';
+import {
+  ideaReads,
+  type StripsReads,
+  stripsReads,
+  type StylingScope,
+} from './reads';
 import {
   type SaveDraft,
   type StylingModel,
@@ -230,19 +220,36 @@ interface Wardrobe {
   capsule?: CapsuleRef;
 }
 
-/** What the page was opened with (openedWith). */
-interface Opened {
-  saved?: { id: number; name: string | null; garments: RoledGarment[] };
-  with?: RoledGarment;
+/** A request's scope (reads.ts) with the owner its links carry. */
+type Scope = StylingScope & Pick<Wardrobe, 'viewOwner'>;
+
+/** The wardrobe once the reads checked its capsule. */
+function wardrobeOf(scope: Scope, capsule: CapsuleRef | undefined): Wardrobe {
+  return { ownerId: scope.ownerId, viewOwner: scope.viewOwner, capsule };
 }
 
-/** "Style this"'s opening idea (styleThis); empty without `?with=`. */
+/** What the page was opened with: a saved outfit (`?outfit=`), "Style this"'s garment (`?with=`). */
+interface Opened {
+  saved?: SavedOutfit;
+  with?: { id: number; role: GarmentRole };
+}
+
+/** "Style this"'s opening idea (styledOpening); empty without `?with=`. */
 interface StyledOpening {
   idea?: Idea<PoolGarment>;
   /** Shuffle's next seed. */
   seed?: number;
   /** Nothing fits around the garment: the page says so. */
   missed?: boolean;
+}
+
+/** What GET /styling read to open the page (plainOpening, styledOpening). */
+interface Opening {
+  wardrobe: Wardrobe;
+  aim: IdeasAim;
+  opened: Opened;
+  styled: StyledOpening;
+  reads: StripsReads;
 }
 
 /** The page's model from what the handler read. */
@@ -319,16 +326,67 @@ interface RefusedSave {
   draft: SaveDraft;
 }
 
-/** The garments the opening rows hold: the strips' windows must reach them. */
-function openingGarments(
-  opened: Opened,
-  idea: Idea<PoolGarment> | undefined,
-): { id: number }[] {
-  return [
-    ...(opened.saved?.garments ?? []),
-    ...(opened.with ? [opened.with] : []),
-    ...(idea?.garments ?? []),
-  ];
+/** A garment in its role's row, as the strips' windows reach it. */
+function chosen(garment: { id: number; role: GarmentRole }): Chosen {
+  return { role: garment.role, garmentId: garment.id };
+}
+
+/** The rows' garments, each in its row's role (roleWindowsSql). */
+function chosenOf(states: readonly RowState[]): Chosen[] {
+  return states.flatMap(({ role, garmentId }) =>
+    garmentId === null ? [] : [{ role, garmentId }],
+  );
+}
+
+/** The garments the rows hold. */
+function heldIdsOf(states: readonly RowState[]): number[] {
+  return states.flatMap((state) => state.garmentId ?? []);
+}
+
+/**
+ * The posted rows, checked against `held` (the wardrobe's owned garments
+ * among theirs): a garment that is not one of its owned garments, or not
+ * of its row's role (recategorised meanwhile), leaves the row at "No
+ * garment", unlocked. An archived garment an edited outfit still holds
+ * stays (a detached row).
+ */
+function checkedStates(
+  posted: readonly RowState[],
+  held: readonly RoledGarment[],
+): RowState[] {
+  return posted.map((state) => {
+    if (state.garmentId === null) return state;
+    const garment = held.find((g) => g.id === state.garmentId);
+    // The lock was on that garment: gone, the row is free again.
+    return garment?.role === state.role
+      ? state
+      : { ...state, garmentId: null, locked: false };
+  });
+}
+
+/** The capsule a request named, as the reads found it: a 404 outside the wardrobe. */
+function checkedCapsule(
+  found: CapsuleRef | null | undefined,
+): CapsuleRef | undefined {
+  if (found === null) throw capsuleNotFound();
+  return found;
+}
+
+/** The outfit a request named (`asked`), as the reads found it: a 404 unless the requester's. */
+function checkedOutfit(
+  asked: number | undefined,
+  found: SavedOutfit | undefined,
+): SavedOutfit | undefined {
+  if (asked !== undefined && !found) {
+    throw new HttpError(404, 'Outfit not found');
+  }
+  return found;
+}
+
+/** A settled promise's value; its refusal, thrown. */
+function valueOf<T>(result: PromiseSettledResult<T>): T {
+  if (result.status === 'rejected') throw result.reason;
+  return result.value;
 }
 
 /** The debug line's account of what a page or a shuffle was over. */
@@ -375,13 +433,13 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 ) => {
   /**
    * The wardrobe a request addresses (its own, or one shared with the
-   * requester, 404 otherwise), and its capsule when one is named (404
-   * outside it).
+   * requester, 404 otherwise), with the capsule it names: the reads check
+   * that (reads.ts; a 404 outside it, checkedCapsule).
    */
   async function scopeOf(
     request: FastifyRequest,
     query: { ownerId?: number | ''; capsule?: number },
-  ): Promise<Wardrobe> {
+  ): Promise<Scope> {
     const { access, viewOwner } = await authorizeWardrobe(
       db,
       request,
@@ -389,28 +447,13 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       'view',
       'Wardrobe not found',
     );
-    const capsule =
-      query.capsule === undefined
-        ? undefined
-        : await findCapsule(db, query.capsule, access.ownerId);
-    if (query.capsule !== undefined && !capsule) throw capsuleNotFound();
-    return { ownerId: access.ownerId, viewOwner, capsule };
-  }
-
-  /**
-   * The capsule menu and, for a grantee, whose wardrobe the page browses,
-   * by name: one statement (#170; they were two).
-   */
-  async function menus(userId: number, wardrobe: Wardrobe) {
-    const { capsules, shares } = await selectScalars(db, {
-      capsules: capsuleNamesSql(wardrobe.ownerId),
-      shares:
-        wardrobe.viewOwner === undefined
-          ? undefined
-          : sharedWardrobesSql(userId),
-    });
-    const owner = shares?.find((share) => share.grantorId === wardrobe.ownerId);
-    return { capsules, owner: owner && toSharedWardrobe(owner).grantorName };
+    return {
+      userId: sessionUserId(request),
+      ownerId: access.ownerId,
+      shared: viewOwner !== undefined,
+      viewOwner,
+      capsuleId: query.capsule,
+    };
   }
 
   /**
@@ -429,98 +472,88 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   }
 
   /**
-   * The first idea for the rows' locks: through ideasFor (the generator
-   * fed from the owner's pool, saved outfits, clashes and the aimed day's
-   * weather) on one's own wardrobe, browseIdea over a shared one.
+   * The page without "Style this": the fresh stack, or a saved outfit's
+   * rows (`?outfit=`, the requester's own, never opened over a shared
+   * wardrobe), in one statement beside the aim (a trip's lookup): the
+   * windows reach the outfit's garments through its id. The capsule is
+   * refused before the trip or the outfit, as it always was.
    */
-  async function shuffleIdea(
-    userId: number,
-    wardrobe: Wardrobe,
-    input: {
-      aim: IdeasAim;
-      today: IsoDate;
-      capsuleId?: number;
-      lockedIds: number[];
-      seed: number;
-    },
-  ): Promise<Idea<PoolGarment> | undefined> {
-    const { today, capsuleId, lockedIds, seed } = input;
-    if (wardrobe.viewOwner !== undefined) {
-      return browseIdea(db, wardrobe.ownerId, {
-        today,
-        capsuleId,
-        lockedIds,
-        seed,
-      });
-    }
-    const locked = await styledGarments(db, userId, lockedIds, today);
-    const { ideas } = await ideasFor(
-      { db, weather },
-      userId,
-      {
-        today,
-        ...input.aim.planning,
-        ...input.aim.weatherAt,
-        capsuleId,
-        locked,
-        seed,
-        offset: 0,
-        limit: 1,
-      },
-      new Date(),
-    );
-    return ideas[0];
-  }
-
-  /**
-   * What the page was opened with, each the requester's to open: a saved
-   * outfit (`?outfit=`, their own, never over a shared wardrobe: its
-   * garments are theirs) and "Style this"'s garment (`?with=`, in the
-   * wardrobe's closet). Either named and not found is a 404.
-   */
-  async function openedWith(
-    userId: number,
-    wardrobe: Wardrobe,
-    query: { outfit?: number; with?: number; ownerId?: number | '' },
-  ): Promise<Opened> {
-    const [saved, styled] = await Promise.all([
-      query.outfit === undefined || isOther(query.ownerId, userId)
-        ? undefined
-        : savedGarments(db, query.outfit, userId),
-      query.with === undefined
-        ? []
-        : ownGarments(db, wardrobe.ownerId, [query.with]),
+  async function plainOpening(
+    scope: Scope,
+    query: Static<typeof PageQuery>,
+    today: IsoDate,
+    outfitId: number | undefined,
+  ): Promise<Opening> {
+    const [aimed, read] = await Promise.allSettled([
+      aimOf(scope.userId, scope.shared, query, today),
+      stripsReads(db, scope, {
+        checkCapsule: true,
+        outfitId,
+        chosen: [],
+        chosenOutfit: outfitId,
+        menu: true,
+      }),
     ]);
-    if (query.outfit !== undefined && !saved) {
-      throw new HttpError(404, 'Outfit not found');
-    }
-    const garment = styled.find((g) => g.status === 'closet');
-    if (query.with !== undefined && !garment) {
-      throw new HttpError(404, 'Garment not found');
-    }
-    return { saved, with: garment };
+    const reads = valueOf(read);
+    const capsule = checkedCapsule(reads.capsule);
+    const aim = valueOf(aimed);
+    const saved = checkedOutfit(query.outfit, reads.outfit);
+    return {
+      wardrobe: wardrobeOf(scope, capsule),
+      aim,
+      opened: { saved },
+      styled: {},
+      reads,
+    };
   }
 
   /**
-   * "Style this" opens on the day's first idea around the garment; the
-   * page then carries the next seed for Shuffle. Nothing else reads the
-   * day: the bare page's fresh stack stays byte-stable (page-cache.ts).
+   * "Style this" (`?with=`, a closet garment of the wardrobe: else a 404)
+   * opens on the day's first idea around the garment, locked; the page
+   * then carries the next seed for Shuffle. Nothing else reads the day:
+   * the bare page's fresh stack stays byte-stable (page-cache.ts). The
+   * garment, the outfit and the capsule are checked in the idea's
+   * statement (ideaReads); then the windows reach the idea (stripsReads).
    */
-  async function styleThis(
-    userId: number,
-    wardrobe: Wardrobe,
-    input: { aim: IdeasAim; today: IsoDate; garment?: RoledGarment },
-  ): Promise<StyledOpening> {
-    if (!input.garment) return {};
-    const seed = dailySeed(input.today);
-    const idea = await shuffleIdea(userId, wardrobe, {
-      aim: input.aim,
-      today: input.today,
-      capsuleId: wardrobe.capsule?.id,
-      lockedIds: [input.garment.id],
+  async function styledOpening(
+    scope: Scope,
+    query: Static<typeof PageQuery>,
+    today: IsoDate,
+    outfitId: number | undefined,
+    withId: number,
+  ): Promise<Opening> {
+    const aim = await aimOf(scope.userId, scope.shared, query, today);
+    const seed = dailySeed(today);
+    const read = await ideaReads({ db, weather }, scope, {
+      checkCapsule: true,
+      outfitId,
+      lockIds: [withId],
+      aim,
+      today,
       seed,
+      now: new Date(),
     });
-    return { idea, seed: shuffledSeed(seed), missed: !idea };
+    const capsule = checkedCapsule(read.capsule);
+    const saved = checkedOutfit(query.outfit, read.outfit);
+    const [garment] = read.lockable;
+    if (!garment) throw new HttpError(404, 'Garment not found');
+    const idea = await read.draw([garment]);
+    const opened: Opened = { saved, with: garment };
+    const reads = await stripsReads(db, scope, {
+      chosen: [
+        ...(saved?.garments ?? []),
+        garment,
+        ...(idea?.garments ?? []),
+      ].map(chosen),
+      menu: true,
+    });
+    return {
+      wardrobe: wardrobeOf(scope, capsule),
+      aim,
+      opened,
+      styled: { idea, seed: shuffledSeed(seed), missed: !idea },
+      reads,
+    };
   }
 
   app.get(
@@ -530,32 +563,23 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const { query } = request;
       const today = todayIn(config.timeZone, new Date());
-      const wardrobe = await scopeOf(request, query);
-      const shared = wardrobe.viewOwner !== undefined;
-      const [aim, opened] = await Promise.all([
-        aimOf(userId, shared, query, today),
-        openedWith(userId, wardrobe, query),
-      ]);
-      const styled = await styleThis(userId, wardrobe, {
-        aim,
-        today,
-        garment: opened.with,
-      });
-      const [windows, { capsules, owner }] = await Promise.all([
-        roleWindows(db, wardrobe.ownerId, {
-          capsuleId: wardrobe.capsule?.id,
-          selected: ids(openingGarments(opened, styled.idea)),
-        }),
-        menus(userId, wardrobe),
-      ]);
+      const scope = await scopeOf(request, query);
+      // A saved outfit is the requester's: over a shared wardrobe, a 404.
+      const outfitId = isOther(query.ownerId, userId)
+        ? undefined
+        : query.outfit;
+      const { wardrobe, aim, opened, styled, reads } =
+        query.with === undefined
+          ? await plainOpening(scope, query, today, outfitId)
+          : await styledOpening(scope, query, today, outfitId, query.with);
       const model = pageModel({
         wardrobe,
         aim,
         opened,
         styled,
-        windows,
-        capsules,
-        owner,
+        windows: reads.windows,
+        capsules: reads.capsules,
+        owner: reads.owner,
         returnTo: returnToOf(query.returnTo),
       });
       logger.debug(
@@ -567,32 +591,6 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
     },
   );
-
-  /**
-   * The rows a request posted back, checked against the wardrobe: a
-   * garment that is not one of its owned garments, or not of its row's role
-   * (recategorised meanwhile), leaves the row at "No garment", unlocked. An archived
-   * garment an edited outfit still holds stays (a detached row).
-   */
-  async function checkedStates(
-    ownerId: number,
-    posted: RowState[],
-  ): Promise<{ states: RowState[]; held: RoledGarment[] }> {
-    const held = await ownGarments(
-      db,
-      ownerId,
-      posted.flatMap((state) => state.garmentId ?? []),
-    );
-    const states = posted.map((state) => {
-      if (state.garmentId === null) return state;
-      const garment = held.find((g) => g.id === state.garmentId);
-      // The lock was on that garment: gone, the row is free again.
-      return garment?.role === state.role
-        ? state
-        : { ...state, garmentId: null, locked: false };
-    });
-    return { states, held };
-  }
 
   /** Shuffle and "Add row" answer the rows alone, with what the page carries on. */
   function renderRows(
@@ -632,7 +630,9 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     };
   }
 
-  // Shuffle: the generator fills the unlocked rows; a GET, as it reads.
+  // Shuffle: the generator fills the unlocked rows; a GET, as it reads. The
+  // posted rows are checked in the idea's statement (ideaReads), then the
+  // windows reach the idea (stripsReads).
   app.get(
     STYLING_SHUFFLE_PATH,
     { schema: { querystring: RowsQuery } },
@@ -641,29 +641,29 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { query } = request;
       const started = performance.now();
       const today = todayIn(config.timeZone, new Date());
-      const wardrobe = await scopeOf(request, query);
-      const shared = wardrobe.viewOwner !== undefined;
-      const [{ states, held }, aim] = await Promise.all([
-        checkedStates(wardrobe.ownerId, postedStates(query)),
-        aimOf(userId, shared, query, today),
-      ]);
+      const scope = await scopeOf(request, query);
+      const posted = postedStates(query);
+      const aim = await aimOf(userId, scope.shared, query, today);
       const seed = parseSeed(query.seed) ?? dailySeed(today);
+      const read = await ideaReads({ db, weather }, scope, {
+        checkCapsule: true,
+        heldIds: heldIdsOf(posted),
+        lockIds: heldIdsOf(posted.filter((state) => state.locked)),
+        aim,
+        today,
+        seed,
+        now: new Date(),
+      });
+      const wardrobe = wardrobeOf(scope, checkedCapsule(read.capsule));
+      const states = checkedStates(posted, read.held);
       const lockedIds = states.flatMap((s) =>
         s.locked && s.garmentId !== null ? [s.garmentId] : [],
       );
-      const idea = await shuffleIdea(userId, wardrobe, {
-        aim,
-        today,
-        capsuleId: wardrobe.capsule?.id,
-        lockedIds,
-        seed,
-      });
-      const windows = await roleWindows(db, wardrobe.ownerId, {
-        capsuleId: wardrobe.capsule?.id,
-        selected: [
-          ...states.flatMap((s) => s.garmentId ?? []),
-          ...ids(idea ? idea.garments : []),
-        ],
+      const idea = await read.draw(
+        read.lockable.filter((g) => lockedIds.includes(g.id)),
+      );
+      const { windows } = await stripsReads(db, scope, {
+        chosen: [...chosenOf(states), ...(idea?.garments ?? []).map(chosen)],
       });
       const rows = withEveryRole(states, windows);
       logger.debug(
@@ -672,7 +672,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       return renderRows(reply, {
         states: idea ? shuffledStates(rows, idea.garments) : rows,
         windows,
-        held,
+        held: read.held,
         seed: shuffledSeed(seed),
         notice: idea ? undefined : 'no-idea',
         context: {
@@ -683,28 +683,30 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // "Add row": the rows again, one more (empty) of the role asked for.
+  // "Add row": the rows again, one more (empty) of the role asked for. One
+  // statement: the windows reach each posted garment in its row's role,
+  // which is what checkedStates keeps.
   app.get(
     STYLING_ROW_PATH,
     { schema: { querystring: RowsQuery } },
     async (request, reply) => {
       const { query } = request;
-      const wardrobe = await scopeOf(request, query);
-      const { states, held } = await checkedStates(
-        wardrobe.ownerId,
-        postedStates(query),
-      );
+      const scope = await scopeOf(request, query);
+      const posted = postedStates(query);
+      const reads = await stripsReads(db, scope, {
+        checkCapsule: true,
+        heldIds: heldIdsOf(posted),
+        chosen: chosenOf(posted),
+      });
+      const wardrobe = wardrobeOf(scope, checkedCapsule(reads.capsule));
+      const states = checkedStates(posted, reads.held);
       if (query.add !== undefined && states.length < MAX_ROWS) {
         states.push({ role: query.add, garmentId: null, locked: false });
       }
-      const windows = await roleWindows(db, wardrobe.ownerId, {
-        capsuleId: wardrobe.capsule?.id,
-        selected: states.flatMap((s) => s.garmentId ?? []),
-      });
       return renderRows(reply, {
         states: topToToe(states),
-        windows,
-        held,
+        windows: reads.windows,
+        held: reads.held,
         seed: parseSeed(query.seed),
         context: {
           state: postedState(query, wardrobe),
@@ -824,33 +826,42 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         ? { ...state, garmentId: null, locked: false }
         : state,
     );
-    const own: Wardrobe = { ownerId: userId, viewOwner: undefined };
-    const [wardrobe, aim, opened] = await Promise.all([
-      scopeOf(request, { capsule: body.capsule }),
+    // One statement beside the aim, as the page without "Style this" reads
+    // (plainOpening); the windows reach the rows, not the outfit's garments.
+    const scope: Scope = {
+      userId,
+      ownerId: userId,
+      shared: false,
+      viewOwner: undefined,
+      capsuleId: body.capsule,
+    };
+    const [aimed, read] = await Promise.allSettled([
       aimIdeas(db, userId, postedDestination(body), today),
-      openedWith(userId, own, { outfit: body.outfit }),
-    ]);
-    const { states, held } = await checkedStates(userId, cleared);
-    const [windows, { capsules }] = await Promise.all([
-      roleWindows(db, userId, {
-        capsuleId: wardrobe.capsule?.id,
-        selected: states.flatMap((s) => s.garmentId ?? []),
+      stripsReads(db, scope, {
+        checkCapsule: true,
+        outfitId: body.outfit,
+        heldIds: heldIdsOf(cleared),
+        chosen: chosenOf(cleared),
+        menu: true,
       }),
-      menus(userId, own),
     ]);
+    const reads = valueOf(read);
+    const capsule = checkedCapsule(reads.capsule);
+    const aim = valueOf(aimed);
+    const saved = checkedOutfit(body.outfit, reads.outfit);
     const model = pageModel({
-      wardrobe,
+      wardrobe: wardrobeOf(scope, capsule),
       aim,
-      opened,
+      opened: { saved },
       styled: {},
-      windows,
-      capsules,
+      windows: reads.windows,
+      capsules: reads.capsules,
       owner: undefined,
       returnTo: returnToOf(body.returnTo),
       refused: {
         error: refused.error,
-        states,
-        held,
+        states: checkedStates(cleared, reads.held),
+        held: reads.held,
         draft: {
           name: body.name,
           scheduleDate: body.scheduleDate || undefined,

@@ -31,7 +31,7 @@ import {
   reuseOutfit,
 } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
-import { selectScalars } from '../../db/select-scalars';
+import { type ScalarValues, selectScalars } from '../../db/select-scalars';
 import {
   readWeatherWithForecast,
   type WeatherSettings,
@@ -52,7 +52,6 @@ import {
 } from '../../wardrobe/goes-with';
 import {
   type ClosetGarment,
-  closetGarments,
   generatorMemorySql,
   type GoesWithInputs,
   goesWithInputs,
@@ -62,7 +61,6 @@ import {
   readGeneratorMemory,
   readPool,
   styledGarment,
-  styledGarments,
   type WishlistGarment,
 } from './queries';
 
@@ -194,8 +192,28 @@ export async function ideasFor(
   input: IdeasInput,
   now: Date,
 ): Promise<IdeasResult> {
-  const { db } = deps;
-  const row = await selectScalars(db, {
+  const row = await selectScalars(
+    deps.db,
+    ideasColumns(deps, ownerId, input, now),
+  );
+  return ideasFrom(deps, input, row, now);
+}
+
+/**
+ * ideasFor's one statement, as selectScalars columns: for a caller that
+ * reads its own columns in the same round trip and answers with ideasFrom
+ * (Styling, #163: its rows, and the garments it locks, which it only knows
+ * from that statement; so `input.locked` may be filled in between, as it
+ * is not read here). Its keys (pool, saved, avoid, weather, capsules) are
+ * taken: a caller's own columns need other names.
+ */
+export function ideasColumns(
+  deps: { weather: WeatherService | undefined },
+  ownerId: number,
+  input: IdeasInput,
+  now: Date,
+) {
+  return {
     pool: ideaPoolSql(ownerId, {
       today: input.today,
       capsuleId: input.capsuleId,
@@ -205,7 +223,19 @@ export async function ideasFor(
       ? weatherWithForecastSql(ownerId, now)
       : undefined,
     capsules: input.capsuleMenu ? capsuleNamesSql(ownerId) : undefined,
-  });
+  };
+}
+
+/** ideasColumns' row, as selectScalars answers it. */
+export type IdeasRow = ScalarValues<ReturnType<typeof ideasColumns>>;
+
+/** ideasFor's answer from its statement's row (ideasColumns). */
+export async function ideasFrom(
+  deps: { weather: WeatherService | undefined },
+  input: IdeasInput,
+  row: IdeasRow,
+  now: Date,
+): Promise<IdeasResult> {
   const { saved, avoid } = readGeneratorMemory(row);
   const weather = await dayWeather(
     deps,
@@ -349,28 +379,21 @@ async function typicalWeather(
  * away state, which are the owner's own records), no rotation (idle days
  * nulled: when a garment was last worn is a wear), and none of the owner's
  * saved outfits, clashes or weather, which are theirs alone. Undefined when
- * nothing fits the locks.
+ * nothing fits the locks. Pure: Styling reads the closet
+ * (closetGarmentsSql, readCloset) and the locked garments
+ * (styledGarmentsSql without a day) in its own statement (#163).
  */
-export async function browseIdea(
-  db: Db,
-  wardrobeOwnerId: number,
-  input: {
-    today: IsoDate;
-    capsuleId?: number;
-    lockedIds: readonly number[];
-    seed: number;
-  },
-): Promise<Idea<PoolGarment> | undefined> {
-  const [closet, locked] = await Promise.all([
-    closetGarments(db, wardrobeOwnerId, input.capsuleId),
-    styledGarments(db, wardrobeOwnerId, input.lockedIds, input.today),
-  ]);
-  // closetGarments is never rotated; the locked rows are the pool's.
+export function browseIdea(input: {
+  closet: readonly ClosetGarment[];
+  locked: readonly PoolGarment[];
+  seed: number;
+}): Idea<PoolGarment> | undefined {
+  // The closet is never rotated, nor are the locked garments over a share.
   const unworn = (g: PoolGarment): PoolGarment => ({ ...g, idleDays: null });
-  const [idea] = generateIdeas({
+  const [idea] = generateIdeas<PoolGarment>({
     seed: input.seed,
-    pool: closet,
-    locked: locked.map(unworn),
+    pool: input.closet,
+    locked: input.locked.map(unworn),
     offset: 0,
     limit: 1,
   }).ideas;

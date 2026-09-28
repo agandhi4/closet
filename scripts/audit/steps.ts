@@ -1668,6 +1668,25 @@ const writes: Step[] = [
       }),
     expect: 303,
   }),
+  http({
+    ...STYLING,
+    name: 'Save refused, the page again (an archived garment)',
+    kind: 'action',
+    route: 'POST /styling',
+    prepare: async (f) => {
+      const id = await newGarment(f, 'Audit archived tee');
+      await f.send(post(`/wardrobe/${id}/archive`, {}, { htmx: true }), 200);
+      return id;
+    },
+    request: (f, id: number) =>
+      post('/styling', {
+        role: ['top', 'bottom'],
+        garmentId: [String(id), String(f.ids.outfitGarmentIds[1])],
+        lock: ['', ''],
+        name: 'Audit refused look',
+      }),
+    expect: 409,
+  }),
 
   // #164 Outfits
   http({
