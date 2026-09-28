@@ -425,7 +425,14 @@ export async function outfitOfGarments(
 /**
  * A pick's garments: the owner's, in the closet, with what a slot and a
  * name need. Fewer rows than ids when any is not (a card from before the
- * garment was archived or deleted).
+ * garment was archived or deleted). Locked FOR SHARE until the pick
+ * commits: an archive or a delete (setGarmentStatus, deleteGarment: FOR
+ * UPDATE) waits for the outfit to be saved, and one that got there first
+ * makes this wait and then leave the garment out (Postgres judges a
+ * locked row again as that transaction committed it), so a pick never
+ * saves an archived garment or a slot emptied by a delete (#122). In id
+ * order, as bulkSetProperty locks them, so two such lockers cannot
+ * deadlock.
  */
 export async function pickedGarments(
   db: Queryable,
@@ -441,5 +448,7 @@ export async function pickedGarments(
         inArray(garment.id, [...garmentIds]),
         inCloset(),
       ),
-    );
+    )
+    .orderBy(garment.id)
+    .for('share');
 }

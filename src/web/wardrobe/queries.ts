@@ -614,6 +614,9 @@ export function bulkSetProperty(
       })
       .from(garment)
       .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, ids)))
+      // Id order, as a pick locks them (pickedGarments): two multi-row
+      // lockers taking rows in different orders can deadlock.
+      .orderBy(garment.id)
       .for('update');
     const applicable = rows.filter((row) => bulkApplies(change, row.category));
     if (change.property === 'materials') {

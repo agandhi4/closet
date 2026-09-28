@@ -567,9 +567,9 @@ export async function replanCandidates(
  * (user, day) row, false when it was there. Called inside the re-plan's own
  * transaction, under lockOwner, so the claim commits with the work: whoever
  * finds it claimed finds the re-plan done, never half done (a second server,
- * the morning reminder's re-plan first). Also called alone after a failed
- * re-plan, so a user whose re-plan throws is tried once a day, not every
- * minute.
+ * the morning reminder's re-plan first). Also called in a transaction of
+ * its own (under the owner lock too) after a failed re-plan, so a user
+ * whose re-plan throws is tried once a day, not every minute.
  */
 export async function claimReplan(
   db: Queryable,

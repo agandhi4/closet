@@ -22,6 +22,7 @@ import {
 } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
+import { ownerTransaction } from '../auth/queries';
 import type { ImageRef } from '../files/image-url';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
@@ -356,14 +357,15 @@ async function insertSlots(
 /**
  * POST /outfits: the outfit, its slots and the optional calendar entry
  * commit together or not at all. Inside a caller's transaction (the seed
- * writes a whole persona in one) this is a savepoint.
+ * writes a whole persona in one) this is a savepoint. Under the owner lock
+ * when it plans (every calendar write, src/web/calendar/CLAUDE.md).
  */
 export function createOutfit(
   db: Queryable,
   ownerId: number,
   input: OutfitInput,
 ): Promise<SaveResult> {
-  return db.transaction(async (tx) => {
+  const save = async (tx: Queryable): Promise<SaveResult> => {
     const [created] = await tx
       .insert(outfit)
       .values({
@@ -385,7 +387,10 @@ export function createOutfit(
         ).outcome
       : undefined;
     return { id: created.id, slots: input.slots.length, refused, schedule };
-  });
+  };
+  return input.plan
+    ? ownerTransaction(db, ownerId, save)
+    : db.transaction(save);
 }
 
 /**
@@ -396,7 +401,9 @@ export function createOutfit(
  * written. Editing an outfit is editing the calendar entries that hold it
  * (the calendar chip's edit link is this form), so the week planner's
  * entries of it become the person's (planned_by 'user', #16): its re-plan
- * never swaps an outfit someone changed.
+ * never swaps an outfit someone changed. Under the owner lock, taken
+ * before the outfit's: the re-plan deletes outfits under it, so the other
+ * order could deadlock, and the take-over must not land mid re-plan.
  */
 export function updateOutfit(
   db: Db,
@@ -404,7 +411,7 @@ export function updateOutfit(
   ownerId: number,
   input: OutfitInput,
 ): Promise<SaveResult | 'not-found'> {
-  return db.transaction(async (tx) => {
+  return ownerTransaction(db, ownerId, async (tx) => {
     // FOR UPDATE: two saves of one outfit take turns. Without the lock both
     // delete the old slots and the second insert collides with the first's
     // new rows on the (outfit_id, position) key.
@@ -461,13 +468,15 @@ export function updateOutfit(
  * trips lose it by trip_outfit's cascade, and their packed marks for the
  * garments no other trip outfit holds go too (prunePacked, #10).
  * Undefined when the outfit is not the owner's; else the wears kept.
+ * Under the owner lock, before the outfit's (its entries go with it; the
+ * re-plan and Undo call it holding the lock already).
  */
 export function deleteOutfit(
   db: Queryable,
   id: number,
   ownerId: number,
 ): Promise<{ wearsKept: number } | undefined> {
-  return db.transaction(async (tx) => {
+  return ownerTransaction(db, ownerId, async (tx) => {
     // Locked like updateOutfit's: a save of this outfit takes its turn.
     const [found] = await tx
       .select({ id: outfit.id })

@@ -141,13 +141,17 @@ export async function deleteUserAndFileRows(
 
 /**
  * Serializes one owner's writes that must see each other for the rest of
- * the transaction: which plan is active (src/web/plans), whether an outfit
- * with a pick's garments already exists (pickIdea, src/web/gallery). The
- * lock is on the owner's user row, because what is being decided may have
- * no row of its own to lock yet (a user's first plan, the outfit a double
- * tap would save twice). NO KEY UPDATE leaves the row's key alone, so it
- * never blocks another table's foreign key check against the user (a
- * garment insert, a wear), only another such write of the same owner.
+ * the transaction. The lock is on the owner's user row, because what is
+ * being decided may have no row of its own to lock yet (a user's first
+ * plan, the outfit a double tap would save twice, the entry a re-plan is
+ * about to swap). NO KEY UPDATE leaves the row's key alone, so it never
+ * blocks another table's foreign key check against the user (a garment
+ * insert, a wear), only another such write of the same owner. Taking it
+ * again in the same transaction is free.
+ *
+ * Writers call it through ownerTransaction; the rule it serves (every
+ * writer of the calendar and the plan tables, the owner lock first) is in
+ * src/web/calendar/CLAUDE.md, Owner lock.
  */
 export async function lockOwner(tx: Queryable, ownerId: number): Promise<void> {
   await tx
@@ -155,4 +159,24 @@ export async function lockOwner(tx: Queryable, ownerId: number): Promise<void> {
     .from(user)
     .where(eq(user.id, ownerId))
     .for('no key update');
+}
+
+/**
+ * `work` in a transaction (a savepoint inside a caller's) that holds the
+ * owner lock from its first statement: the one way to write
+ * outfit_calendar, the week planner's tables, wardrobe plans and their
+ * items (src/web/calendar/CLAUDE.md, Owner lock). The lock comes before
+ * any row lock `work` takes (an outfit, a garment, an entry): the re-plan
+ * takes those under it too, so taking one first could deadlock. A trip's
+ * lock is the one taken before it (src/web/trips).
+ */
+export function ownerTransaction<T>(
+  db: Queryable,
+  ownerId: number,
+  work: (tx: Queryable) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await lockOwner(tx, ownerId);
+    return work(tx);
+  });
 }

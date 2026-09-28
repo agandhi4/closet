@@ -14,7 +14,7 @@ import {
   type Material,
   type Warmth,
 } from '../../wardrobe/properties';
-import { lockOwner } from '../auth/queries';
+import { ownerTransaction } from '../auth/queries';
 import { HttpError } from '../errors';
 import type { ImageRef } from '../files/image-url';
 import { t } from '../i18n';
@@ -94,10 +94,9 @@ export function changeCandidates(
   ownerId: number,
   change: CandidateChange,
 ): Promise<{ added: number; removed: number }> {
-  return db.transaction(async (tx) => {
-    // First, before the rows below: the cap's count must see every other
-    // change of this owner's candidates committed.
-    await lockOwner(tx, ownerId);
+  // The owner lock first, before the rows below: the cap's count must see
+  // every other change of this owner's candidates committed.
+  return ownerTransaction(db, ownerId, async (tx) => {
     const sets = [change.add, change.remove].flatMap((set) => set ?? []);
     const items = await ownedItems(
       tx,

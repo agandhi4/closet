@@ -14,6 +14,7 @@ import {
   MATERIALS,
   storedSet,
 } from '../../wardrobe/properties';
+import { ownerTransaction } from '../auth/queries';
 import { deleteGarment } from '../wardrobe/queries';
 import { buyGarment, type BuyOutcome, type Purchase } from '../wardrobe/status';
 import type { WardrobeDeps } from '../wardrobe/writes';
@@ -219,7 +220,10 @@ export async function buyCandidate(
   followUps: PlanFollowUps,
 ): Promise<CandidatePurchaseOutcome> {
   const { db, photos, logger } = deps;
-  const outcome = await db.transaction(async (tx) => {
+  // The owner lock before the garment locks below (buyGarment,
+  // deleteGarment): the plan items' writes need it, and a pick takes it
+  // before its garments, so the other order could deadlock.
+  const outcome = await ownerTransaction(db, ownerId, async (tx) => {
     // Read while the garment is still on the wishlist: its links are read
     // through onWishlist, and stop mattering once it is bought.
     const candidacies = await candidaciesOf(tx, ownerId, [garmentId]);

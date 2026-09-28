@@ -26,11 +26,11 @@ import {
   toTarget,
 } from '../../plans/gaps';
 import {
+  addItems,
   findActivePlan,
   findOwnedItem,
   findPlan,
   findStyleProfile,
-  insertItems,
   type PlanDetail,
   type PlanItemRow,
   updateItem,
@@ -414,9 +414,11 @@ export const planTools = [
     async run({ planId, ...args }, ctx) {
       const plan = await planFor(ctx, planId);
       const fields = readItem(itemPost(BLANK_ITEM_VALUES, args));
-      const [id] = await insertItems(ctx.db, plan.id, [fields], {
+      const added = await addItems(ctx.db, ctx.userId, plan.id, [fields], {
         proposed: true,
       });
+      if (!added) throw planNotFound();
+      const [id] = added;
       ctx.webLogger.info(
         `Plan item ${id} proposed for plan ${plan.id} by user ${ctx.userId} (MCP)`,
       );

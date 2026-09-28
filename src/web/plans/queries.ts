@@ -16,7 +16,7 @@ import {
   type Warmth,
 } from '../../wardrobe/properties';
 import { isUniqueViolation } from '../../db/errors';
-import { lockOwner } from '../auth/queries';
+import { ownerTransaction } from '../auth/queries';
 import type { ImageRef } from '../files/image-url';
 import { inCloset } from '../wardrobe/status';
 import type {
@@ -35,9 +35,12 @@ import type {
  *
  * One writer each: the plan's name and notes (createPlan, updatePlan), which
  * plan is active (setActivePlan; createPlan activates a first plan), the
- * items (insertItems, updateItem, acceptItem, deleteItem) and the style
+ * items (addItems, insertItems, updateItem, acceptItem, deleteItem) and the style
  * profile (saveStyleProfile; its rhythm is the week template's, #16,
- * src/web/week-plan/template.ts).
+ * src/web/week-plan/template.ts). Every plan and item write holds the
+ * owner lock (ownerTransaction; src/web/calendar/CLAUDE.md, Owner lock), so
+ * which plan is active and whether a plan still exists are decided with
+ * no other write of the owner's in between.
  */
 
 export interface PlanDetail {
@@ -275,8 +278,7 @@ export async function createPlan(
   items: PlanItemFields[] = [],
 ): Promise<number | NameTaken> {
   try {
-    return await db.transaction(async (tx) => {
-      await lockOwner(tx, ownerId);
+    return await ownerTransaction(db, ownerId, async (tx) => {
       const [row] = await tx
         .insert(wardrobePlan)
         .values({ ownerId, ...fields })
@@ -307,11 +309,13 @@ export async function updatePlan(
   fields: PlanFields,
 ): Promise<'updated' | 'not-found' | NameTaken> {
   try {
-    const updated = await db
-      .update(wardrobePlan)
-      .set(fields)
-      .where(and(eq(wardrobePlan.id, id), eq(wardrobePlan.ownerId, ownerId)))
-      .returning({ id: wardrobePlan.id });
+    const updated = await ownerTransaction(db, ownerId, (tx) =>
+      tx
+        .update(wardrobePlan)
+        .set(fields)
+        .where(and(eq(wardrobePlan.id, id), eq(wardrobePlan.ownerId, ownerId)))
+        .returning({ id: wardrobePlan.id }),
+    );
     return updated.length > 0 ? 'updated' : 'not-found';
   } catch (error) {
     if (isUniqueViolation(error, PLAN_NAME_UNIQUE)) return 'name-taken';
@@ -319,22 +323,28 @@ export async function updatePlan(
   }
 }
 
-/** Deletes it with its items; false when not the owner's. The garments are untouched. */
+/**
+ * Deletes it with its items; false when not the owner's. The garments are
+ * untouched. Under the owner lock: a first plan created meanwhile must
+ * see whether the active one is gone (createPlan's activation).
+ */
 export async function deletePlan(
   db: Db,
   id: number,
   ownerId: number,
 ): Promise<boolean> {
-  const deleted = await db
-    .delete(wardrobePlan)
-    .where(and(eq(wardrobePlan.id, id), eq(wardrobePlan.ownerId, ownerId)))
-    .returning({ id: wardrobePlan.id });
+  const deleted = await ownerTransaction(db, ownerId, (tx) =>
+    tx
+      .delete(wardrobePlan)
+      .where(and(eq(wardrobePlan.id, id), eq(wardrobePlan.ownerId, ownerId)))
+      .returning({ id: wardrobePlan.id }),
+  );
   return deleted.length > 0;
 }
 
 /**
  * Makes plan `id` the owner's active one, and no other: under
- * lockOwner (so two switches, or a switch and a first plan, queue
+ * the owner lock (so two switches, or a switch and a first plan, queue
  * instead of racing into the one-active index), the old one cleared before
  * the new one is set. False when not the owner's.
  */
@@ -343,8 +353,7 @@ export function setActivePlan(
   id: number,
   ownerId: number,
 ): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    await lockOwner(tx, ownerId);
+  return ownerTransaction(db, ownerId, async (tx) => {
     if (!(await findPlan(tx, id, ownerId))) return false;
     await tx
       .update(wardrobePlan)
@@ -391,8 +400,30 @@ export async function freePlanName(
 // ---- Item writes ------------------------------------------------------------
 
 /**
- * Inserts items into plan `planId` (the caller checked it is the owner's);
- * their ids in `items`' order (a duplicate maps each original to its copy).
+ * Adds items to the owner's plan `planId` (the item form, propose_plan_item):
+ * their ids, or undefined when the plan is not the owner's (any more: it
+ * is looked up under the owner lock, so a delete that committed first is
+ * a miss, never a foreign key error).
+ */
+export function addItems(
+  db: Queryable,
+  ownerId: number,
+  planId: number,
+  items: PlanItemFields[],
+  options: { proposed: boolean },
+): Promise<number[] | undefined> {
+  return ownerTransaction(db, ownerId, async (tx) =>
+    (await findPlan(tx, planId, ownerId))
+      ? insertItems(tx, planId, items, options)
+      : undefined,
+  );
+}
+
+/**
+ * Inserts items into plan `planId`, which the caller found to be the
+ * owner's under the owner lock it holds (createPlan, the duplicate, the
+ * seed; addItems for everyone else); their ids in `items`' order (a
+ * duplicate maps each original to its copy).
  */
 export async function insertItems(
   db: Queryable,
@@ -429,11 +460,13 @@ export async function updateItem(
   fields: PlanItemFields,
   { proposed }: { proposed: boolean },
 ): Promise<boolean> {
-  const updated = await db
-    .update(planItem)
-    .set({ ...fields, proposed })
-    .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
-    .returning({ id: planItem.id });
+  const updated = await ownerTransaction(db, ownerId, (tx) =>
+    tx
+      .update(planItem)
+      .set({ ...fields, proposed })
+      .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
+      .returning({ id: planItem.id }),
+  );
   return updated.length > 0;
 }
 
@@ -444,11 +477,13 @@ export async function acceptItem(
   planId: number,
   ownerId: number,
 ): Promise<boolean> {
-  const updated = await db
-    .update(planItem)
-    .set({ proposed: false })
-    .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
-    .returning({ id: planItem.id });
+  const updated = await ownerTransaction(db, ownerId, (tx) =>
+    tx
+      .update(planItem)
+      .set({ proposed: false })
+      .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
+      .returning({ id: planItem.id }),
+  );
   return updated.length > 0;
 }
 
@@ -459,10 +494,12 @@ export async function deleteItem(
   planId: number,
   ownerId: number,
 ): Promise<boolean> {
-  const deleted = await db
-    .delete(planItem)
-    .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
-    .returning({ id: planItem.id });
+  const deleted = await ownerTransaction(db, ownerId, (tx) =>
+    tx
+      .delete(planItem)
+      .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
+      .returning({ id: planItem.id }),
+  );
   return deleted.length > 0;
 }
 

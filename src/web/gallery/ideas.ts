@@ -17,7 +17,7 @@ import { addDays, type IsoDate } from '../calendar/calendar-date';
 import { type CapsuleDetail, findCapsule } from '../capsules/queries';
 import { capsuleNotFound } from '../capsules/validation';
 import { HttpError } from '../errors';
-import { lockOwner } from '../auth/queries';
+import { ownerTransaction } from '../auth/queries';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import { createOutfit, OUTFIT_NAME_MAX } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
@@ -328,10 +328,12 @@ export interface PickResult {
  * outfit the week planner created takes it over (adoptPlannerOutfit, #77):
  * "Already saved" is then true for good, and Undo or the re-plan never
  * delete it; planning it on a day where the planner has it takes that
- * entry over too (insertEntry). All in one transaction under lockOwner, so
- * a double tap, a retried post or a retried pick_outfit never makes a
- * second outfit: the second pick waits for the first to commit and finds
- * its outfit. Called by the gallery's pick, the MCP tool pick_outfit,
+ * entry over too (insertEntry). All in one transaction under the owner
+ * lock, so a double tap, a retried post or a retried pick_outfit never
+ * makes a second outfit: the second pick waits for the first to commit and
+ * finds its outfit. The garments stay locked (pickedGarments, FOR SHARE)
+ * until the outfit is saved, so one archived or deleted meanwhile is
+ * either refused here or waits for the pick. Called by the gallery's pick, the MCP tool pick_outfit,
  * Today's "Wear this" and the week planner (#16, src/web/week-plan/plan.ts,
  * inside its own locked transaction); takes a Queryable so a spec can hold
  * a pick's transaction open.
@@ -347,8 +349,7 @@ export function pickIdea(
   },
 ): Promise<PickResult | 'not-found'> {
   const wanted = [...new Set(input.garmentIds)];
-  return db.transaction(async (tx) => {
-    await lockOwner(tx, ownerId);
+  return ownerTransaction(db, ownerId, async (tx) => {
     const found = await pickedGarments(tx, ownerId, wanted);
     if (found.length !== wanted.length) return 'not-found';
     const existing = await outfitOfGarments(tx, ownerId, wanted);

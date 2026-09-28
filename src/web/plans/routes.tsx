@@ -16,6 +16,7 @@ import { PlanFormPage, type PlanFormModel } from './plan-form-page';
 import { PlanPage } from './plan-page';
 import {
   acceptItem,
+  addItems,
   closetCategories,
   closetPieces,
   createPlan,
@@ -430,9 +431,11 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const plan = await requirePlan(request, request.params.id);
       const form = readPlanItemForm(request.body);
       if (!form.ok) return refuseItemForm(reply, plan, form, userId);
-      const [itemId] = await insertItems(db, plan.id, [form.fields], {
+      const added = await addItems(db, userId, plan.id, [form.fields], {
         proposed: false,
       });
+      if (!added) throw planNotFound();
+      const [itemId] = added;
       logger.info(
         `Plan item ${itemId} added to plan ${plan.id} by user ${userId}`,
       );

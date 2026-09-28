@@ -11,7 +11,7 @@ import {
   type WeekContext,
 } from '../../wardrobe/week-planner';
 import type { DayForecast } from '../../weather/forecast';
-import { lockOwner } from '../auth/queries';
+import { ownerTransaction } from '../auth/queries';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
 import { entryOf } from '../calendar/queries';
 import { pickIdea } from '../gallery/ideas';
@@ -134,8 +134,7 @@ export function planMyWeek(
   ownerId: number,
   input: PlanWeekInput,
 ): Promise<WeekPlanResult> {
-  return db.transaction(async (tx) => {
-    await lockOwner(tx, ownerId);
+  return ownerTransaction(db, ownerId, async (tx) => {
     const template = await findWeekTemplate(tx, ownerId);
     if (template.length === 0) {
       return {
@@ -265,8 +264,7 @@ export function undoWeekPlan(
   ownerId: number,
   weekPlanId: number,
 ): Promise<{ entries: number; outfits: number } | 'not-found'> {
-  return db.transaction(async (tx) => {
-    await lockOwner(tx, ownerId);
+  return ownerTransaction(db, ownerId, async (tx) => {
     if (!(await weekPlanOf(tx, ownerId, weekPlanId))) return 'not-found';
     const removed = await removeAutoEntries(
       tx,

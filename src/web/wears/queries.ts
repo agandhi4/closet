@@ -12,6 +12,7 @@ import {
   defaultWashAfterByCategory,
   NEVER_WASH,
 } from '../../wardrobe/availability';
+import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../calendar/calendar-date';
 import type { ImageRef } from '../files/image-url';
 import { inCloset, ownedGarment } from '../wardrobe/status';
@@ -189,7 +190,10 @@ export type EntryWornOutcome =
  * 'user', #16): they have acted on it, so its re-plan never swaps it.
  * Idempotent: an entry already so is left alone. A day after `today` is
  * never marked worn ('future'). `at` is when it was worn (the tap; the seed's
- * evening). Used by POST /calendar/:id/worn and the seed.
+ * evening). Used by POST /calendar/:id/worn and the seed. Under the owner
+ * lock like every calendar write (src/web/calendar/CLAUDE.md): the re-plan
+ * must see the entry as the person's before it judges it, not swap it
+ * while the tap commits.
  */
 export function setEntryWorn(
   db: Queryable,
@@ -201,7 +205,7 @@ export function setEntryWorn(
     today: IsoDate;
   },
 ): Promise<EntryWornOutcome> {
-  return db.transaction(async (tx) => {
+  return ownerTransaction(db, input.ownerId, async (tx) => {
     const [entry] = await tx
       .select({
         id: outfitCalendar.id,

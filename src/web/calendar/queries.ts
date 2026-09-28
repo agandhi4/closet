@@ -3,6 +3,7 @@ import type { Db, Queryable } from '../../db/client';
 import { outfit, outfitCalendar } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
+import { ownerTransaction } from '../auth/queries';
 import { deleteEntrySelfie, SELFIE_WITH } from '../selfies/queries';
 import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
 import type { IsoDate } from './calendar-date';
@@ -14,6 +15,10 @@ import type { CalendarEntry } from './calendar-view';
  * exist. An entry that is not the caller's is a miss, the same as one that
  * does not exist: the route answers 404 either way, so entry ids reveal
  * nothing about other users (WardrobeAccess, src/web/sharing/access.ts).
+ * Every write holds the owner lock (ownerTransaction; CLAUDE.md, Owner
+ * lock): the re-plan and a replace judge several entries at once, and a
+ * write that slipped between their read and their write would be lost or
+ * would break the unique key.
  */
 
 export type EntryMiss = 'not-found';
@@ -108,15 +113,19 @@ export type Scheduled =
  * the same outfit on the same day again inserts nothing (the unique
  * (owner, day, outfit) constraint), whatever the occasion, and reports
  * 'already-scheduled', so a double tap or a replayed form is not an error.
+ * The ownership check and the write are one step under the owner lock, so
+ * a replace or a re-plan never sees the day half changed.
  */
-export async function scheduleOutfit(
-  db: Db,
+export function scheduleOutfit(
+  db: Queryable,
   entry: NewEntry,
 ): Promise<Scheduled | 'no-such-outfit'> {
-  if (!(await ownsOutfit(db, entry.ownerId, entry.outfitId))) {
-    return 'no-such-outfit';
-  }
-  return insertEntry(db, entry);
+  return ownerTransaction(db, entry.ownerId, async (tx) => {
+    if (!(await ownsOutfit(tx, entry.ownerId, entry.outfitId))) {
+      return 'no-such-outfit';
+    }
+    return insertEntry(tx, entry);
+  });
 }
 
 /** Whether `outfitId` is the owner's: outfits are private, another's is a miss. */
@@ -152,12 +161,21 @@ export async function ownsOutfit(
  * sets it to `user` (and nothing else), so the re-plan and Undo leave the
  * choice the person just made; the planner's own `auto` write never
  * downgrades a person's entry. Both still answer 'already-scheduled'.
+ *
+ * Under the owner lock (ownerTransaction: a savepoint in the caller's
+ * transaction, the lock free when the caller took it already). Without it
+ * a take-over could commit between the re-plan's read of the entry as
+ * `auto` and its swap, leaving two outfits in one slot (#122).
  */
-export async function insertEntry(
+export function insertEntry(
   db: Queryable,
   entry: NewEntry,
 ): Promise<Scheduled> {
-  const [row] = await db
+  return ownerTransaction(db, entry.ownerId, (tx) => upsertEntry(tx, entry));
+}
+
+async function upsertEntry(tx: Queryable, entry: NewEntry): Promise<Scheduled> {
+  const [row] = await tx
     .insert(outfitCalendar)
     .values(entry)
     .onConflictDoUpdate({
@@ -254,11 +272,13 @@ export async function lockEntryToReplace(
 }
 
 /**
- * Puts another outfit on an entry, keeping its day and occasion. Only
- * replaceEntryOutfit (src/web/calendar/replace.ts) calls it, having locked
- * the entry, refused a worn one and checked the outfit is not on the day
- * already (the unique key). The choice is the person's from now on
- * (planned_by 'user'), so the week's re-plan and Undo leave it alone (#16).
+ * Puts an outfit on an entry, keeping its day and occasion. Only
+ * replaceEntryOutfit (src/web/calendar/replace.ts) calls it, under the
+ * owner lock, having locked the entry, refused a worn one and checked the
+ * outfit is not on the day already (the unique key). The choice is the
+ * person's from now on (planned_by 'user'), so the week's re-plan and Undo
+ * leave it alone (#16), also when the outfit is the one the entry had (the
+ * person choosing what the planner chose takes it over).
  */
 export async function setEntryOutfit(
   tx: Queryable,
@@ -286,7 +306,7 @@ export interface WornOutfit {
  * was worn when (plan section 1). Today's "Wear this" (wearIdea, after
  * pickIdea) and a trip's "Wearing this today" (#10, src/web/trips). Safe
  * to repeat: a second call finds the entry (a concurrent one waits on the
- * unique key, then reads it) and setEntryWorn finds it worn (`changed`
+ * owner lock, then reads it) and setEntryWorn finds it worn (`changed`
  * false). 'future' for a day after `today`, before anything is written.
  */
 export function wearOutfitOn(
@@ -302,7 +322,7 @@ export function wearOutfitOn(
 ): Promise<WornOutfit | 'future'> {
   const { ownerId, outfitId, day, occasion } = input;
   if (day > input.today) return Promise.resolve('future');
-  return db.transaction(async (tx) => {
+  return ownerTransaction(db, ownerId, async (tx) => {
     const scheduled = await insertEntry(tx, {
       ownerId,
       outfitId,
@@ -348,14 +368,16 @@ export async function ownEntryDay(
  * (deleteEntrySelfie) and bytes after commit: the answer is the photo
  * names for the caller to unlink (removeEntry, writes.ts). Deleting the
  * outfit is different: its entries' wears and selfies are kept
- * (deleteOutfit, src/web/outfits/queries.ts).
+ * (deleteOutfit, src/web/outfits/queries.ts). Under the owner lock: a
+ * re-plan must not swap in an outfit for the entry the person just took
+ * off the day.
  */
 export function deleteEntry(
-  db: Db,
+  db: Queryable,
   id: number,
   ownerId: number,
 ): Promise<{ selfies: string[] } | EntryMiss> {
-  return db.transaction(async (tx) => {
+  return ownerTransaction(db, ownerId, async (tx) => {
     const [entry] = await tx
       .select({ id: outfitCalendar.id })
       .from(outfitCalendar)

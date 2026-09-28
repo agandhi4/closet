@@ -1,6 +1,6 @@
 import type { Queryable } from '../../db/client';
 import type { Occasion } from '../../wardrobe/occasions';
-import { lockOwner } from '../auth/queries';
+import { ownerTransaction } from '../auth/queries';
 import { HttpError } from '../errors';
 import { pickIdea } from '../gallery/ideas';
 import { t } from '../i18n';
@@ -35,15 +35,17 @@ import {
  *   deleting it would lose a record, the #19 rule for a deleted outfit. An
  *   unworn entry has one only when it was unmarked after the photo.
  * - **The choice becomes the person's** (planned_by 'user', setEntryOutfit):
- *   the re-plan and Undo leave it alone (#16).
+ *   the re-plan and Undo leave it alone (#16). Also when it is the outfit
+ *   the entry already had: choosing what the planner chose takes the entry
+ *   over (`adopted`), as planning it does (insertEntry).
  * - **An outfit "Plan my week" created for the entry goes** once nothing
  *   holds it (removeUnheldOutfits, Undo's rule), but only while the entry
  *   was still 'auto': one the person took over is theirs.
  * - **The new outfit already on that day** is refused ('already-on-day',
  *   naming its occasion): an outfit is on a day once (the unique key).
  *
- * Idempotent: everything runs in one transaction under lockOwner (the
- * gallery's pick and "Plan my week" take it too), so a double tap's second
+ * Idempotent: everything runs in one transaction under the owner lock
+ * (ownerTransaction, which every calendar writer takes), so a double tap's second
  * request waits for the first, finds the entry already holding the outfit
  * (a picked idea resolves to the outfit the first one created) and changes
  * nothing ('unchanged').
@@ -79,6 +81,8 @@ export interface Replaced {
   selfieDetached?: number;
   /** Planner-made outfits removed with the swap (0 or 1). */
   outfitsRemoved: number;
+  /** The entry was the week planner's ('auto') and is now the person's. */
+  adopted: boolean;
 }
 
 export type ReplaceOutcome = Replaced | ReplaceRefused;
@@ -100,8 +104,7 @@ export function replaceEntryOutfit(
   target: EntryTarget,
   choice: ReplacementChoice,
 ): Promise<ReplaceOutcome> {
-  return db.transaction(async (tx) => {
-    await lockOwner(tx, ownerId);
+  return ownerTransaction(db, ownerId, async (tx) => {
     const entry = await lockEntryToReplace(tx, ownerId, target);
     if (!entry) return { outcome: 'entry-not-found' };
     // Before the choice: a refused replace must not save an idea either.
@@ -114,6 +117,7 @@ export function replaceEntryOutfit(
       };
     }
     const result = {
+      adopted: entry.plannedBy === 'auto',
       entryId: entry.id,
       occasion: entry.occasion,
       outfitId: chosen.id,
@@ -121,6 +125,7 @@ export function replaceEntryOutfit(
       alreadySaved: chosen.alreadySaved,
     };
     if (chosen.id === entry.outfitId) {
+      if (result.adopted) await setEntryOutfit(tx, entry.id, chosen.id);
       return { outcome: 'unchanged', ...result, outfitsRemoved: 0 };
     }
     // Only an outfit that already existed can be on the day: a created one
@@ -134,7 +139,7 @@ export function replaceEntryOutfit(
       };
     }
     const plannerMade =
-      entry.plannedBy === 'auto' && (await plannerCreatedOutfit(tx, entry.id));
+      result.adopted && (await plannerCreatedOutfit(tx, entry.id));
     await setEntryOutfit(tx, entry.id, chosen.id);
     const selfieDetached = await detachEntrySelfie(tx, entry.id);
     const outfitsRemoved = plannerMade
@@ -205,7 +210,9 @@ export function replaceMessage(
     return `${entry} not changed for user ${ownerId}${via}: ${refusalReason(outcome)}`;
   }
   if (outcome.outcome === 'unchanged') {
-    return `${entry} already holds outfit ${outcome.outfitId} for user ${ownerId}${via}; nothing changed`;
+    return outcome.adopted
+      ? `${entry} already holds outfit ${outcome.outfitId}; taken over from the week planner by user ${ownerId}${via}`
+      : `${entry} already holds outfit ${outcome.outfitId} for user ${ownerId}${via}; nothing changed`;
   }
   return `${entry} changed by user ${ownerId}${via}: ${changeSummary(outcome)}`;
 }
