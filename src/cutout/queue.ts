@@ -7,9 +7,11 @@ import type { Photos } from '../web/files/photos';
 import { settlesWithin } from './deadline';
 import { CutoutListener } from './listener';
 import {
+  applyCutoutEventToRows,
   claimNextCutout,
   CUTOUT_LEASE_MS,
   type CutoutJob,
+  lockCutoutRows,
   recordCutoutEvent,
   retryableCutouts,
 } from './queries';
@@ -410,18 +412,26 @@ export class CutoutQueue {
 /**
  * The nightly retry (server.ts): every failed cutout below
  * MAX_CUTOUT_ATTEMPTS runs is requeued (`retry`). Returns how many were;
- * the caller wakes the queue.
+ * the caller wakes the queue. One statement when nothing failed (the usual
+ * night); else one transaction whatever the count (#173: it was four
+ * statements per photo): the rows locked, then the machine's verdicts
+ * written together. A row that changed since the look (a "Try again", a
+ * mask edited) is refused by the machine, as it was one at a time.
  */
 export async function retryFailedCutouts(
   db: Db,
   logger: Logger,
 ): Promise<number> {
   const fileNames = await retryableCutouts(db, MAX_CUTOUT_ATTEMPTS);
-  let requeued = 0;
-  for (const fileName of fileNames) {
-    const outcome = await recordCutoutEvent(db, fileName, { type: 'retry' });
-    if (outcome.ok) requeued += 1;
-  }
+  const outcomes =
+    fileNames.length === 0
+      ? []
+      : await db.transaction(async (tx) =>
+          applyCutoutEventToRows(tx, await lockCutoutRows(tx, fileNames), {
+            type: 'retry',
+          }),
+        );
+  const requeued = outcomes.filter((outcome) => outcome.ok).length;
   logger.info(
     `Cutout retry: requeued ${requeued} of ${fileNames.length} failed cutout(s) under ${MAX_CUTOUT_ATTEMPTS} attempts`,
   );

@@ -20,7 +20,11 @@ import {
   type IsoDate,
 } from '../../src/web/calendar/calendar-date';
 import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
-import { saveReminderSettings } from '../../src/web/push/queries';
+import {
+  revokeDevices,
+  saveReminderSettings,
+  upsertDevice,
+} from '../../src/web/push/queries';
 import { setHome } from '../../src/web/weather/queries';
 import type { WeatherService } from '../../src/web/weather/service';
 import {
@@ -591,6 +595,117 @@ describe('push reminders', () => {
       expect(fresh.sort()).toEqual([40, 41]);
       expect(asked.slice(0, 2).every((a) => a.fresh)).toBe(true);
       expect(asked.slice(2).some((a) => a.fresh)).toBe(false);
+    });
+
+    // The minute's messages are sent in one batch whose devices are read
+    // once, after the claim (#173). These wrap the app's real sender to act
+    // in that window: between the claim and that read.
+    const senderThat = (
+      before: () => Promise<void>,
+    ): ReminderDeps['sender'] => ({
+      ...t.push!,
+      sendEach: async (messages) => {
+        await before();
+        return t.push!.sendEach(messages);
+      },
+    });
+
+    it('gives back the claims when the batch cannot read its devices, and the next run sends them', async () => {
+      const cookie = await t.register('release@example.com');
+      const userId = await userIdOf(t, 'release@example.com');
+      const phone = await subscribe(cookie);
+      await remind(userId, phone, { morning: minute(10, 45) });
+      const day = addDays(DAY, 20);
+      let failures = 0;
+      const flaky = senderThat(() => {
+        if (failures > 0) return Promise.resolve();
+        failures += 1;
+        return Promise.reject(new Error('Connection terminated unexpectedly'));
+      });
+      t.logs.clear();
+
+      const failed = await sendDueReminders(
+        { ...deps, sender: flaky },
+        onTheMinute(day, 10, 45),
+      );
+      expect(failed).toMatchObject({ failed: failed.claimed, sent: 0 });
+      expect(failed.released).toBe(failed.claimed);
+      expect(sentTo(phone)).toEqual([]);
+      const [device] = await t.db
+        .select({ id: userDevice.id })
+        .from(userDevice)
+        .where(eq(userDevice.pushEndpoint, phone));
+      expect(
+        await t.db.$count(pushReminder, eq(pushReminder.deviceId, device.id)),
+      ).toBe(0);
+      expect(t.logs.messages('warn', 'Push')).toContainEqual(
+        expect.stringMatching(
+          /^Released \d+ reminder claim\(s\) for user\(s\) /,
+        ),
+      );
+
+      // The next minute finds it due and unclaimed, and it goes out, once.
+      const next = await sendDueReminders(
+        { ...deps, sender: flaky },
+        onTheMinute(day, 10, 46),
+      );
+      expect(next.failed).toBe(0);
+      expect(sentTo(phone)).toHaveLength(1);
+      await sendDueReminders(deps, onTheMinute(day, 10, 47));
+      expect(sentTo(phone)).toHaveLength(1);
+    });
+
+    it('sends nothing to a device signed in as someone else between the claim and the send', async () => {
+      const cookie = await t.register('moved-from@example.com');
+      const userId = await userIdOf(t, 'moved-from@example.com');
+      await t.register('moved-to@example.com');
+      const otherId = await userIdOf(t, 'moved-to@example.com');
+      const phone = await subscribe(cookie);
+      await remind(userId, phone, { evening: minute(22, 15) });
+      const day = addDays(DAY, 21);
+      // The same browser signs in as the other account: its row moves
+      // (upsertDevice), its reminders cleared.
+      const moving = senderThat(async () => {
+        await upsertDevice(t.db, otherId, subscription(phone), undefined);
+      });
+
+      const run = await sendDueReminders(
+        { ...deps, sender: moving },
+        onTheMinute(day, 22, 15),
+      );
+      // Claimed and composed (the message went to the send), yet no device
+      // of this user was left to receive it.
+      expect(run).toMatchObject({ failed: 0, skipped: 0 });
+      expect(run.sent).toBeGreaterThan(0);
+      expect(sentTo(phone)).toEqual([]);
+      const [row] = await t.db
+        .select({ userId: userDevice.userId })
+        .from(userDevice)
+        .where(eq(userDevice.pushEndpoint, phone));
+      expect(row.userId).toBe(otherId);
+    });
+
+    it('sends nothing to a device revoked between the claim and the send', async () => {
+      const cookie = await t.register('revoked@example.com');
+      const userId = await userIdOf(t, 'revoked@example.com');
+      const phone = await subscribe(cookie);
+      await remind(userId, phone, { evening: minute(22, 45) });
+      const day = addDays(DAY, 22);
+      // A new password (or push:revoke-all) removes the account's devices.
+      const revoking = senderThat(async () => {
+        await revokeDevices(t.db, userId);
+      });
+
+      const run = await sendDueReminders(
+        { ...deps, sender: revoking },
+        onTheMinute(day, 22, 45),
+      );
+      expect(run).toMatchObject({ failed: 0, skipped: 0 });
+      expect(run.sent).toBeGreaterThan(0);
+      expect(sentTo(phone)).toEqual([]);
+      expect(
+        await t.db.$count(userDevice, eq(userDevice.pushEndpoint, phone)),
+      ).toBe(0);
     });
 
     it('prunes the claims of past days', async () => {

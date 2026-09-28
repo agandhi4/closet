@@ -1,4 +1,5 @@
 import type { Db, Queryable } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import type { Logger } from '../../logger';
 import { REMINDER_WINDOWS } from '../../push/reminders';
 import { DAY_OCCASIONS } from '../../wardrobe/occasions';
@@ -23,20 +24,26 @@ import { ideaName } from '../gallery/ideas';
 import type { WeekPoolGarment } from '../gallery/queries';
 import { t, type StringKey } from '../i18n';
 import type { PushPayload } from '../push/payload';
-import { morningReminderDevices } from '../push/queries';
-import type { PushSender } from '../push/sender';
+import type { PushSender, SendReport } from '../push/sender';
 import {
   refreshForecastsFor,
   type UserWeather,
   type WeatherService,
 } from '../weather/service';
-import { forecastOf, readWeek, weekForecast, writeAutoPick } from './plan';
 import {
-  autoEntries,
+  forecastOf,
+  readWeekColumns,
+  weekForecast,
+  weekSql,
+  writeAutoPick,
+} from './plan';
+import {
   type AutoEntryRow,
+  claimAutoEntries,
   claimReplan,
-  outfitGarmentStates,
+  outfitGarmentStatesSql,
   pruneReplanClaims,
+  readOutfitGarmentStates,
   removeAutoEntries,
   replanCandidates,
   type SlotGarment,
@@ -60,7 +67,7 @@ import {
  * before describing the day, so a reminder always names the plan after
  * the re-plan, whatever time it is set to (#76). "Once" is week_replan's
  * primary key, claimed inside the work's own transaction under lockOwner
- * (claimReplan): a second caller (another minute, the reminder, a second
+ * (claimAutoEntries): a second caller (another minute, the reminder, a second
  * server in an overlapping deploy) waits on the owner lock and finds the
  * day claimed and the re-plan committed, never half done. server.ts
  * schedules the run, never createApp(), so the integration harness and the
@@ -119,6 +126,19 @@ export interface Swap {
 /** What replanToday did for one user. */
 export type ReplanOutcome =
   | { kind: 'replanned'; swaps: Swap[]; kept: number; pushed: boolean }
+  | NotReplanned;
+
+/**
+ * What replanOnce did, before any notice is sent: `notice` is the swaps the
+ * swap notice names (all of them, or other days' only with announcesToday).
+ * Its callers send the notices (pushSwaps), the minutely run for all its
+ * users at once.
+ */
+type ReplanResult =
+  | { kind: 'replanned'; swaps: Swap[]; kept: number; notice: Swap[] }
+  | NotReplanned;
+
+type NotReplanned =
   /** Nothing to do: re-planned today already (here or elsewhere), or no auto entry. */
   | { kind: 'skipped' }
   /** Logged, and the day claimed: not tried again until tomorrow. */
@@ -145,6 +165,7 @@ export async function replanWeeks(
   const today = todayIn(deps.timeZone, now);
   const candidates = await replanCandidates(deps.db, today);
   const weather = await candidatesWeather(deps, candidates, now);
+  const notices: SwapNotice[] = [];
   for (const userId of candidates) {
     const outcome = await replanOnce(deps, userId, now, {
       announcesToday: false,
@@ -159,8 +180,13 @@ export async function replanWeeks(
     }
     run.swapped += outcome.swaps.length;
     run.kept += outcome.kept;
-    if (outcome.pushed) run.pushed += 1;
+    if (outcome.notice.length > 0) {
+      notices.push({ userId, swaps: outcome.notice });
+    }
   }
+  // Every notice after every re-plan, in one batch: one read of the
+  // devices, not one per person told (#173).
+  run.pushed = (await pushSwaps(deps, notices)).size;
   if (run.claimed > 0) {
     deps.logger.info(
       `Week re-plan at ${now.toISOString()}: ${run.claimed} user(s), ${run.swapped} swapped, ${run.kept} kept, ${run.failed} failed, ${run.pushed} notified`,
@@ -196,25 +222,40 @@ async function candidatesWeather(
  * never two. The returned swaps are all of them, today's included. Never
  * throws: a failure is logged and the day claimed all the same, so it is
  * not retried every minute; only an owner lock timeout leaves the day
- * unclaimed, for the next minute.
+ * unclaimed, for the next minute. The morning reminders pass what their
+ * batch already knows (`listed`, `weather`), so a person's re-plan reads
+ * neither again (#173).
  */
-export function replanToday(
+export async function replanToday(
   deps: ReplanDeps,
   userId: number,
   now: Date,
-  { announcesToday = false }: { announcesToday?: boolean } = {},
+  {
+    announcesToday = false,
+    listed = false,
+    weather,
+  }: Partial<ReplanOptions> = {},
 ): Promise<ReplanOutcome> {
-  return replanOnce(deps, userId, now, { announcesToday, listed: false });
+  const result = await replanOnce(deps, userId, now, {
+    announcesToday,
+    listed,
+    weather,
+  });
+  if (result.kind !== 'replanned') return result;
+  const { notice, ...replanned } = result;
+  const told = await pushSwaps(deps, [{ userId, swaps: notice }]);
+  return { ...replanned, pushed: told.has(userId) };
 }
 
 interface ReplanOptions {
   announcesToday: boolean;
   /**
-   * The minutely run listed the user as due a moment ago
-   * (replanCandidates): not asked again. The claim decides either way.
+   * The caller listed the user as due a moment ago (replanCandidates: the
+   * minutely run, a minute's morning reminders): not asked again. The
+   * claim decides either way.
    */
   listed: boolean;
-  /** The run's batch refresh answered the user's weather (refreshForecastsFor). */
+  /** The caller's batch refresh answered the user's weather (refreshForecastsFor). */
   weather?: UserWeather;
 }
 
@@ -223,7 +264,7 @@ async function replanOnce(
   userId: number,
   now: Date,
   { announcesToday, listed, weather }: ReplanOptions,
-): Promise<ReplanOutcome> {
+): Promise<ReplanResult> {
   const today = todayIn(deps.timeZone, now);
   const started = performance.now();
   try {
@@ -231,7 +272,7 @@ async function replanOnce(
     // something to judge. The claim decides.
     if (
       !listed &&
-      (await replanCandidates(deps.db, today, userId)).length === 0
+      (await replanCandidates(deps.db, today, [userId])).length === 0
     ) {
       return { kind: 'skipped' };
     }
@@ -245,12 +286,10 @@ async function replanOnce(
     deps.logger.info(
       `Week re-plan for user ${userId} on ${today}: ${swaps.length} swapped (${swapped}), ${kept} kept in ${ms} ms`,
     );
-    const unannounced = announcesToday
+    const notice = announcesToday
       ? swaps.filter((s) => s.slot.day !== today)
       : swaps;
-    const pushed =
-      unannounced.length > 0 && (await pushSwaps(deps, userId, unannounced));
-    return { kind: 'replanned', swaps, kept, pushed };
+    return { kind: 'replanned', swaps, kept, notice };
   } catch (error) {
     // Another of the owner's writes held the lock past its timeout: nothing
     // was judged, so the day stays unclaimed and the next minute tries again
@@ -296,10 +335,13 @@ async function claimAfterFailure(
  * edit waits for the re-plan or the re-plan for it, so no entry turns the
  * person's between the judgement and the swap) that also claims the day:
  * undefined when there is no auto entry (nothing claimed: a week planned
- * later today is judged by a later run) or the day was claimed already. A kept entry records its new
- * targets; a swap plans the new idea in the same batch, then removes the
- * old entry (and the outfit the planner made for it, if nothing else holds
- * it). Its forecast is read first, outside the lock.
+ * later today is judged by a later run) or the day was claimed already. A
+ * kept entry records its new targets; a swap plans the new idea in the same
+ * batch, then removes the old entry (and the outfit the planner made for
+ * it, if nothing else holds it). Its forecast is read first, outside the
+ * lock. Under the lock, two statements read everything: the auto entries
+ * with the claim (claimAutoEntries), then the week, the pool, the
+ * generator's memory and the auto outfits' garment states (#173).
  */
 async function replanUser(
   deps: Pick<ReplanDeps, 'db' | 'weather' | 'timeZone' | 'logger'>,
@@ -316,15 +358,17 @@ async function replanUser(
     ? forecastOf(weather)
     : await weekForecast(deps, userId, now, {});
   return ownerTransaction(deps.db, userId, 'replanUser', async (tx) => {
-    const auto = await autoEntries(tx, userId, today);
-    if (auto.length === 0) return undefined;
-    if (!(await claimReplan(tx, userId, today, now))) return undefined;
-    const week = await readWeek(tx, userId, today, auto[auto.length - 1].day);
-    const outfits = await outfitGarmentStates(
-      tx,
-      auto.map((a) => a.outfitId),
-      today,
-    );
+    const auto = await claimAutoEntries(tx, userId, today, now);
+    if (!auto) return undefined;
+    const row = await selectScalars(tx, {
+      ...weekSql(userId, today, auto[auto.length - 1].day),
+      states: outfitGarmentStatesSql(
+        auto.map((a) => a.outfitId),
+        today,
+      ),
+    });
+    const week = readWeekColumns(today, row);
+    const outfits = readOutfitGarmentStates(row.states);
     const judged = auto.map((a) => {
       const slots = outfits.get(a.outfitId) ?? [];
       const { day, outfitCreated } = a;
@@ -519,30 +563,57 @@ function swapLine(swap: Swap): string {
   });
 }
 
+/** A person's swap notice: what their re-plan swapped that they are to be told. */
+interface SwapNotice {
+  userId: number;
+  swaps: readonly Swap[];
+}
+
 /**
- * Tells the person what swapped, on the devices that take the morning
+ * Tells each person what swapped, on the devices that take the morning
  * reminder: the swap notice is about what to wear, the reminder's
  * subject, and a device that asked for it is one that wants to hear about
  * the day's outfit. No new setting: a device without it hears nothing (the
- * calendar still shows the swap). False when nobody was told.
+ * calendar still shows the swap). One batch (PushSender.sendEach: the
+ * devices of everyone told read in one statement). The users told. Never
+ * throws: the swaps are committed whatever becomes of their notice, so a
+ * failed send is logged, not the re-plan's failure.
  */
 async function pushSwaps(
   deps: ReplanDeps,
-  userId: number,
-  swaps: readonly Swap[],
-): Promise<boolean> {
-  if (!deps.push) return false;
-  const devices = await morningReminderDevices(deps.db, userId);
-  if (devices.length === 0) {
+  notices: readonly SwapNotice[],
+): Promise<Set<number>> {
+  const told = new Set<number>();
+  const sent = notices.filter((notice) => notice.swaps.length > 0);
+  if (!deps.push || sent.length === 0) return told;
+  let reports: SendReport[];
+  try {
+    reports = await deps.push.sendEach(
+      sent.map(({ userId, swaps }) => ({
+        userId,
+        devices: 'morning-reminder',
+        payload: swapPayload(swaps),
+        options: { ttlSeconds: SWAP_TTL_SECONDS },
+      })),
+    );
+  } catch (error) {
+    deps.logger.error(
+      { err: error },
+      `Week re-plan: the swap notices for user(s) ${sent.map((n) => n.userId).join(', ')} failed`,
+    );
+    return told;
+  }
+  reports.forEach((report, index) => {
+    const { userId } = sent[index];
+    if (report.devices > 0) {
+      told.add(userId);
+      return;
+    }
     deps.logger.info(
       `Week re-plan for user ${userId}: no device takes the morning reminder, nobody told`,
     );
-    return false;
-  }
-  await deps.push.sendToDevices(userId, devices, swapPayload(swaps), {
-    ttlSeconds: SWAP_TTL_SECONDS,
   });
-  return true;
+  return told;
 }
 
 /** Removes the claims of days before `before`; server.ts calls it nightly with yesterday. */

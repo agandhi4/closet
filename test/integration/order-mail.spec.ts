@@ -20,6 +20,7 @@ import {
 import {
   createTestApp,
   OWNER_EMAIL,
+  recordQueries,
   type TestApp,
   unescapeHtml,
 } from './harness';
@@ -107,9 +108,16 @@ describe('order email import', () => {
       jmap.deliver(forwarded);
       sites.hits.length = 0;
 
-      const summary = await poll();
+      let summary: Awaited<ReturnType<typeof poll>> | undefined;
+      const recorded = await recordQueries(async () => {
+        summary = await poll();
+      });
 
       expect(summary).toEqual({ queried: 1, read: 1, listed: 2 });
+      // #173: the owner and the watermark in one statement, which of the
+      // inbox's ids are known, then the email: begin, the email and its
+      // items in one statement, its count and outcome, commit.
+      expect(recorded.statements).toBe(6);
       const rows = await items();
       expect(
         rows.map(({ productUrl, name, brand, price, currency, state }) => ({
@@ -175,9 +183,16 @@ describe('order email import', () => {
       const bodies = jmap.calls.filter((c) => c === 'Email/get body').length;
       sites.hits.length = 0;
 
-      const summary = await poll();
+      let summary: Awaited<ReturnType<typeof poll>> | undefined;
+      const recorded = await recordQueries(async () => {
+        summary = await poll();
+      });
 
       expect(summary).toEqual({ queried: 1, read: 0, listed: 0 });
+      // #173: the poll every few minutes is two statements (it was three):
+      // the owner with the watermark, then which ids are known.
+      expect(recorded.statements).toBe(2);
+      expect(recorded.sql.join('\n')).not.toMatch(/"password"/);
       expect(await items()).toEqual(before);
       expect(jmap.calls.filter((c) => c === 'Email/get body')).toHaveLength(
         bodies,
@@ -255,7 +270,9 @@ describe('order email import', () => {
           },
         }),
       );
-      await poll();
+      // #173: an email without products is one insert, no transaction.
+      const recorded = await recordQueries(() => poll());
+      expect(recorded.statements).toBe(3);
       expect(await emailRow('Mplain0001')).toMatchObject({
         outcome: 'no-products',
         items: 0,

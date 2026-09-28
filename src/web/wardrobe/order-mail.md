@@ -18,13 +18,15 @@ The owner forwards order emails to a dedicated Fastmail account. Closet polls it
 
 `scheduleMinutely({ everyMinutes: ORDER_MAIL_POLL_MINUTES })`, wrapped in `metrics.timeJob('order_mail')`: a failure is the job's `failure` outcome and a Bugsink event. Each run:
 
-1. Looks up `ORDER_MAIL_OWNER`'s account. None is `OrderMailOwnerError`.
-2. Opens the JMAP session and queries the inbox from the watermark, the newest `order_email.received_at`.
-3. Drops the ids already processed and takes at most `MAX_EMAILS_PER_POLL` (5).
+1. Opens the JMAP session.
+2. Reads `ORDER_MAIL_OWNER`'s account and the watermark (the newest `order_email.received_at` of the session's account) in one statement (`pollStart`, #173; the watermark needs the session's account id, so the owner is looked up after the session). No account is `OrderMailOwnerError`, before any email is read or recorded.
+3. Queries the inbox from the watermark, drops the ids already processed and takes at most `MAX_EMAILS_PER_POLL` (5).
 4. Fetches the envelopes (From, `Authentication-Results`) and judges each sender.
 5. Fetches the body of a trusted email only.
 6. Reads its links, fetches each through the link import's `readProductPage` (the user-URL fetcher), and keeps product pages.
-7. Records the email and its items in one transaction (`recordOrderEmail`).
+7. Records the email and its items atomically (`recordOrderEmail`): with products, one transaction of four statements (the email and its items in one CTE statement, then its count and outcome); without, one insert.
+
+Statements per run: 2 when nothing is new (the poll every few minutes), plus per new email 1 without products or 4 with them (`order-mail.spec.ts` pins them).
 
 An email a run did not finish has no row and is read again next time. `order_item`'s `(owner_id, product_url)` uniqueness makes a re-read, or a shipping email naming the same product, list nothing twice. Logs use context `OrderMail`.
 

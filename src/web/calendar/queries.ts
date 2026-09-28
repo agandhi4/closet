@@ -1,4 +1,4 @@
-import { and, eq, type SQL, sql } from 'drizzle-orm';
+import { and, type AnyColumn, eq, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import {
   file,
@@ -112,10 +112,12 @@ export interface DayEntry {
  * outfit for the day needs (dayChoice), without findEntries' collages and
  * selfies, which no picker draws (#165). A scalar subquery (a JSON list),
  * so the Saved tab reads it in one statement with its grid (#164,
- * savedContext in src/web/outfits/page-context.ts).
+ * savedContext in src/web/outfits/page-context.ts). `ownerId` may be an
+ * outer query's column: the evening reminders read every person's day in
+ * one statement (eveningDays, src/web/today/queries.ts; #173).
  */
 export function entriesOfDaySql(
-  ownerId: number,
+  ownerId: number | AnyColumn,
   day: IsoDate,
 ): SQL<DayEntry[]> {
   return sql<DayEntry[]>`(

@@ -34,6 +34,25 @@ npm run push:revoke-all       # removes every account's push subscriptions: the 
                               # ACCESS_TOKEN_SECRET (Deployment). docker exec closet npm run push:revoke-all
 ```
 
+## Statements per run
+
+What each job sends to Postgres (#173). Production pays a round trip per statement over the WiFi link (homelab #40), so a statement inside a loop over people or rows multiplies it: **read per batch, compose per person**. A job that loops per person keeps its per-person isolation (one person's failure is logged and counted, never the others'), and only reads that serve everyone move out of the loop. `test/integration/job-statements.spec.ts` pins each count for one person (or row) and for three; the page audit's `#173` steps measure them on the demo (`docs/perf/README.md`).
+
+| Job | Statements | Scales with | Whole-table reads |
+| --- | --- | --- | --- |
+| Morning reminders | 5 + 6 per person (+1 undressed day: the ideas) | people due; re-plan and Today stay per person | `user_device` rows with a reminder (a household's handful, no index) |
+| Evening reminders | 4, or 3 when all wore something | nothing | as above |
+| Reminders, nothing due | 1 | nothing | as above |
+| Week re-plan | 2 + 5 per person due (+ writes per swap or kept entry) | people due | none |
+| Forecast refresh | 1 (+1 upsert per location fetched) | locations, not people | none |
+| Cutout job | 8 per photo (claim 4, result 4), +3 for the look that finds the queue empty | photos | none (indexed claim) |
+| Cutout retry | 1, or 5 when anything failed | nothing | none |
+| Reconciliation | 3 (+1 per orphaned row, +1 per aged pending photo) | findings, which are rare | `pending_photo` and `file` (with `garment` and `selfie` for the references): the job is comparing storage with every row |
+| Order mail poll | 2, or 1 + per new email: 1 (no products) or 4 | new emails | none |
+| Prunes (reminder, re-plan claims) | 1 each | nothing | none |
+
+The morning reminders read the mornings' forecasts (`refreshForecastsFor`), who of them is due a re-plan (`replanCandidates` with their ids) and the evenings' days (`eveningDays`) once for the minute, in parallel, then send every message in one batch (`PushSender.sendEach`: the devices of all of them read in one statement at send time, never earlier, so a device revoked or moved meanwhile gets nothing). The re-plan's transaction reads its auto entries with the day's claim in one statement (`claimAutoEntries`, a data-modifying CTE) and its week, pool, memory and outfits' garments in a second (`weekSql`, `outfitGarmentStatesSql`). The cutout job's per-photo 8 is the lease's price: the claim and the result each lock the row, ask the state machine and write (see Background removal). Reconciliation's per-row deletes stay per row on purpose (`removeOrphanedRows`: one bad row must not cancel the sweep).
+
 ## Gotchas
 
 - **Reconciliation refuses wholesale deletions.** It deletes photo sets whose `file` row is gone, so a database that lost its rows (a restore, the wrong `DATABASE_*`) would have it wipe every photo. `guardRefusal` (`src/maintenance/reconcile.ts`) stops a run that would delete anything while the file table is empty and storage holds photos, more than 25 sets, or (above 5 sets) more than a fifth of the stored ones: it logs a warning, deletes nothing, reports `refused`, and the CLI exits 3. `--force` is the operator's override after a `--dry-run`. `test/integration/reconcile-guard.spec.ts` covers each rule. Pending photos are explained, not counted, and removed past their cutoff (the run's, or a week for a batch's drafts, #200: `pendingCutoffs`; see the link import gotcha above; `link-import.spec.ts` reconciles 27 abandoned imports and then a real mismatch). A live photo's day-old cutout and thumb files under another variant key than its row's (a cutout write that died before its swap, #141; see Images) are deleted as `supersededVariantsDeleted` and do count, one set per photo.

@@ -318,7 +318,8 @@ export const file = pgTable(
     // variant's bytes are rewritten in place.
     version: integer('version').default(1).notNull(),
     // The server-made cutout's state machine (src/cutout/state.ts), written
-    // only by applyCutoutEvent (src/cutout/queries.ts). Pending rows are the
+    // only by applyCutoutEvent and its batch form applyCutoutEventToRows
+    // (src/cutout/queries.ts). Pending rows are the
     // background-removal queue, oldest cutout_requested_at first.
     cutoutStatus: text('cutout_status', { enum: CUTOUT_STATUSES })
       .default('none')

@@ -86,15 +86,8 @@ export async function deleteDevice(
   return rows.length > 0;
 }
 
-/**
- * Every device the user receives notifications on, or only those of `ids`
- * among them (a reminder goes to the devices that chose its time).
- */
-export async function devicesOf(
-  db: Db,
-  userId: number,
-  ids?: readonly number[],
-): Promise<DeviceRow[]> {
+/** Every device the user receives notifications on (the profile's test send). */
+export async function devicesOf(db: Db, userId: number): Promise<DeviceRow[]> {
   // user_device_user_id_index.
   return db
     .select({
@@ -104,12 +97,39 @@ export async function devicesOf(
       keyAuth: userDevice.keyAuth,
     })
     .from(userDevice)
-    .where(
-      and(
-        eq(userDevice.userId, userId),
-        ids ? inArray(userDevice.id, [...ids]) : undefined,
-      ),
-    )
+    .where(eq(userDevice.userId, userId))
+    .orderBy(userDevice.id);
+}
+
+/** A device as a batch of sends reads it: whose it is, and whether it takes the morning reminder. */
+export interface UserDeviceRow extends DeviceRow {
+  userId: number;
+  morningReminder: boolean;
+}
+
+/**
+ * Every device of `userIds`, in one statement: the sender's batch
+ * (PushSender.sendEach), which picks each message's devices from them. Read
+ * at send time, never earlier in a job: a device signed in as someone else
+ * or revoked (#73) since the job started receives nothing of this user's.
+ * user_device_user_id_index.
+ */
+export async function devicesOfUsers(
+  db: Db,
+  userIds: readonly number[],
+): Promise<UserDeviceRow[]> {
+  if (userIds.length === 0) return [];
+  return db
+    .select({
+      id: userDevice.id,
+      userId: userDevice.userId,
+      pushEndpoint: userDevice.pushEndpoint,
+      keyP256dh: userDevice.keyP256dh,
+      keyAuth: userDevice.keyAuth,
+      morningReminder: sql<boolean>`${userDevice.morningReminder} is not null`,
+    })
+    .from(userDevice)
+    .where(inArray(userDevice.userId, [...new Set(userIds)]))
     .orderBy(userDevice.id);
 }
 
@@ -244,24 +264,6 @@ export function reminderDevices(db: Db): Promise<ReminderDevice[]> {
 }
 
 /**
- * The user's devices with the morning reminder on: the week re-plan's
- * swap notice goes to them (src/web/week-plan/replan.ts). user_device_user_id_index.
- */
-export async function morningReminderDevices(
-  db: Db,
-  userId: number,
-): Promise<number[]> {
-  const rows = await db
-    .select({ id: userDevice.id })
-    .from(userDevice)
-    .where(
-      and(eq(userDevice.userId, userId), isNotNull(userDevice.morningReminder)),
-    )
-    .orderBy(userDevice.id);
-  return rows.map((row) => row.id);
-}
-
-/**
  * Claims the due reminders for this process to send, in one statement:
  * each is inserted into push_reminder unless a row for its device, kind and
  * day exists, and only the inserted ones come back. Two servers claiming
@@ -294,6 +296,35 @@ export async function claimReminders(
       kind: pushReminder.kind,
       day: pushReminder.day,
     });
+}
+
+/**
+ * Gives back claims this process took and never sent on (the batch's
+ * device read failed, src/web/push/reminders.ts): the next minute's run
+ * finds them due again, while still within LATE_LIMIT_MINUTES, and claims
+ * them afresh. Safe only because nothing was sent on them. Returns how
+ * many were released.
+ */
+export async function releaseReminderClaims(
+  db: Db,
+  claims: readonly { deviceId: number; kind: ReminderKind; day: IsoDate }[],
+): Promise<number> {
+  if (claims.length === 0) return 0;
+  const released = await db
+    .delete(pushReminder)
+    .where(
+      or(
+        ...claims.map((claim) =>
+          and(
+            eq(pushReminder.deviceId, claim.deviceId),
+            eq(pushReminder.kind, claim.kind),
+            eq(pushReminder.day, claim.day),
+          ),
+        ),
+      ),
+    )
+    .returning({ deviceId: pushReminder.deviceId });
+  return released.length;
 }
 
 /** Removes claims for days before `before`: they only ever guard today. */

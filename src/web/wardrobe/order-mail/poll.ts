@@ -1,6 +1,5 @@
 import type { Db } from '../../../db/client';
 import type { Logger } from '../../../logger';
-import { findUserByEmail } from '../../auth/queries';
 import { todayIn } from '../../calendar/calendar-date';
 import {
   type OutboundFetcher,
@@ -12,7 +11,7 @@ import type { EmailEnvelope, JmapClient, JmapMailbox } from './jmap';
 import { normalizedLink, productLinkCandidates } from './links';
 import {
   type FoundProduct,
-  orderMailWatermark,
+  pollStart,
   processedEmailIds,
   recordOrderEmail,
 } from './queries';
@@ -72,10 +71,16 @@ export class OrderMailOwnerError extends Error {
 export async function pollOrderMail(deps: OrderMailDeps): Promise<PollSummary> {
   const { db, logger } = deps;
   const started = performance.now();
-  const owner = await findUserByEmail(db, deps.ownerEmail);
-  if (!owner) throw new OrderMailOwnerError();
   const mailbox = await deps.jmap.open();
-  const watermark = await orderMailWatermark(db, mailbox.accountId);
+  // The owner and the watermark in one statement, so the JMAP session comes
+  // first (#173: the watermark needs its account id). An unknown owner still
+  // fails the run before anything is read or written.
+  const { ownerId, watermark } = await pollStart(
+    db,
+    deps.ownerEmail,
+    mailbox.accountId,
+  );
+  if (ownerId === undefined) throw new OrderMailOwnerError();
   const ids = await mailbox.inboxIds(watermark);
   const processed = await processedEmailIds(db, mailbox.accountId, ids);
   const fresh = ids
@@ -83,10 +88,10 @@ export async function pollOrderMail(deps: OrderMailDeps): Promise<PollSummary> {
     .slice(0, MAX_EMAILS_PER_POLL);
   let listed = 0;
   for (const envelope of await mailbox.envelopes(fresh)) {
-    listed += await readEmail(deps, mailbox, envelope, owner.id);
+    listed += await readEmail(deps, mailbox, envelope, ownerId);
   }
   logger.info(
-    `Order mail poll: ${ids.length} queried, ${fresh.length} new read, ${listed} products listed for user ${owner.id} in ${Math.round(performance.now() - started)} ms`,
+    `Order mail poll: ${ids.length} queried, ${fresh.length} new read, ${listed} products listed for user ${ownerId} in ${Math.round(performance.now() - started)} ms`,
   );
   return { queried: ids.length, read: fresh.length, listed };
 }

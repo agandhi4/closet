@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, max, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../../db/client';
-import { orderEmail, orderItem } from '../../../db/schema';
+import { orderEmail, orderItem, user } from '../../../db/schema';
+import { selectScalars } from '../../../db/select-scalars';
 import type { IsoDate } from '../../calendar/calendar-date';
 import {
   type OrderEmailOutcome,
@@ -16,16 +17,41 @@ import {
  * Every read of an item names its owner, so another user's id is a 404.
  */
 
-/** The newest processed email's arrival in the account: the next query's `after`. */
-export async function orderMailWatermark(
+/** What a poll starts from (pollStart). */
+export interface PollStart {
+  /** ORDER_MAIL_OWNER's account; undefined when no account has the address. */
+  ownerId: number | undefined;
+  /** The newest processed email's arrival in the account: the next query's `after`. */
+  watermark: Date | undefined;
+}
+
+/**
+ * The owner's account and the account's watermark, in one statement (#173:
+ * a poll was a statement for each). `ownerEmail` must already be
+ * normalized (lower case), as findUserByEmail's is; only the id is read,
+ * never the password hash that lookup carries.
+ */
+export async function pollStart(
   db: Db,
+  ownerEmail: string,
   accountId: string,
-): Promise<Date | undefined> {
-  const [row] = await db
-    .select({ newest: max(orderEmail.receivedAt) })
-    .from(orderEmail)
-    .where(eq(orderEmail.accountId, accountId));
-  return row?.newest ?? undefined;
+): Promise<PollStart> {
+  const { ownerId, newest } = await selectScalars(db, {
+    ownerId: sql<number | null>`(
+      select ${user.id} from ${user}
+      where lower(${user.email}) = ${ownerEmail} limit 1
+    )`,
+    // As JSON: an ISO string, which Date reads (the raw row's timestamptz
+    // text is not ISO).
+    newest: sql<string | null>`(
+      select to_json(max(${orderEmail.receivedAt})) from ${orderEmail}
+      where ${orderEmail.accountId} = ${accountId}
+    )`,
+  });
+  return {
+    ownerId: ownerId ?? undefined,
+    watermark: newest === null ? undefined : new Date(newest),
+  };
 }
 
 /** Which of `emailIds` the account's emails were processed already. */
@@ -65,51 +91,75 @@ export interface ProcessedEmail {
 
 /**
  * Records one email as processed with the products it listed for
- * `ownerId`, in one transaction. A product the owner has listed before
- * (pending, added or dismissed) is skipped, so a confirmation and a
- * shipping email name it once; `imported` becomes `no-products` when every
- * product was such a repeat. How many were listed; 0 too when another run
- * recorded the email first (an overlapping deploy).
+ * `ownerId`, atomically. A product the owner has listed before (pending,
+ * added or dismissed) is skipped, so a confirmation and a shipping email
+ * name it once; `imported` becomes `no-products` when every product was
+ * such a repeat. How many were listed; 0 too when another run recorded the
+ * email first (an overlapping deploy).
+ *
+ * An email without products (untrusted, too large, none found) is one
+ * insert. With products, one transaction of four statements (#173; it was
+ * five): the email and its items in one statement (the items' insert reads
+ * the email's new id from a CTE, and inserts nothing when the email was
+ * recorded already), then the email's count and outcome, which only the
+ * items' insert can tell.
  */
-export function recordOrderEmail(
+export async function recordOrderEmail(
   db: Db,
   email: ProcessedEmail,
   ownerId: number,
   orderedOn: IsoDate,
   products: readonly FoundProduct[],
 ): Promise<number> {
-  return db.transaction(async (tx) => {
-    const [row] = await tx
+  const insertEmail = (tx: Queryable, outcome: OrderEmailOutcome) =>
+    tx
       .insert(orderEmail)
-      .values({ ...email, items: 0 })
+      .values({ ...email, outcome, items: 0 })
       .onConflictDoNothing()
       .returning({ id: orderEmail.id });
-    if (!row) return 0;
-    const listed =
-      products.length === 0
-        ? []
-        : await tx
-            .insert(orderItem)
-            .values(
-              products.map((product) => ({
-                ...product,
-                ownerId,
-                orderEmailId: row.id,
-                orderedOn,
-              })),
-            )
-            .onConflictDoNothing()
-            .returning({ id: orderItem.id });
+  if (products.length === 0) {
+    // Nothing listed: an `imported` email with no products is `no-products`.
+    await insertEmail(
+      db,
+      email.outcome === 'imported' ? 'no-products' : email.outcome,
+    );
+    return 0;
+  }
+  return db.transaction(async (tx) => {
+    const found = products.map(
+      (product) =>
+        sql`(${product.productUrl}::text, ${product.name}::text, ${product.brand}::text, ${product.price}::numeric, ${product.currency}::varchar)`,
+    );
+    const { rows } = await tx.execute<{
+      emailId: number | null;
+      listed: number;
+    }>(sql`
+      with email as (${insertEmail(tx, email.outcome).getSQL()}),
+      listed as (
+        insert into ${orderItem}
+          (owner_id, order_email_id, product_url, name, brand, price, currency, ordered_on)
+        select ${ownerId}::int, email.id, found.product_url, found.name,
+          found.brand, found.price, found.currency, ${orderedOn}::date
+        from email,
+          (values ${sql.join(found, sql`, `)})
+            as found(product_url, name, brand, price, currency)
+        on conflict do nothing
+        returning 1
+      )
+      select (select id from email) as "emailId",
+        (select count(*)::int from listed) as listed`);
+    const [{ emailId, listed }] = rows;
+    if (emailId === null) return 0;
     if (email.outcome === 'imported') {
       await tx
         .update(orderEmail)
         .set({
-          items: listed.length,
-          outcome: listed.length > 0 ? 'imported' : 'no-products',
+          items: listed,
+          outcome: listed > 0 ? 'imported' : 'no-products',
         })
-        .where(eq(orderEmail.id, row.id));
+        .where(eq(orderEmail.id, emailId));
     }
-    return listed.length;
+    return listed;
   });
 }
 

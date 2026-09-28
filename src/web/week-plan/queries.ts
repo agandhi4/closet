@@ -1,7 +1,5 @@
 import {
   and,
-  asc,
-  between,
   eq,
   exists,
   gte,
@@ -13,6 +11,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import {
   garment,
   garmentWear,
@@ -32,7 +31,7 @@ import type {
   PlannedNeeds,
   WeekEntry,
 } from '../../wardrobe/week-planner';
-import { matchGarment } from '../../weather/match';
+import { type GarmentWeatherFields, matchGarment } from '../../weather/match';
 import type { IsoDate } from '../calendar/calendar-date';
 import { outfitIsHeld } from '../outfits/references';
 import { wearsSinceWashSql } from '../wears/queries';
@@ -53,74 +52,75 @@ export interface WindowEntry extends WeekEntry {
   plannedBy: PlannedBy;
 }
 
+/** windowEntriesSql's element: an entry, its outfit's garments' weather fields. */
+export interface WindowEntryJson extends Omit<WindowEntry, 'garments'> {
+  garments: ({ id: number } & GarmentWeatherFields)[];
+}
+
 /**
  * The owner's entries from `first` to `last` (inclusive) with their
- * outfits' garments as the planner judges them (role, weather). One
- * statement, served by the unique (owner_id, day, outfit_id) index.
+ * outfits' garments as the planner judges them, as a scalar subquery (a
+ * JSON list, readWindowEntries), so the re-plan reads them in the statement
+ * that reads its pool (weekSql, plan.ts; #173). Served by the unique
+ * (owner_id, day, outfit_id) index.
  */
+export function windowEntriesSql(
+  ownerId: number,
+  first: IsoDate,
+  last: IsoDate,
+): SQL<WindowEntryJson[]> {
+  return sql<WindowEntryJson[]>`(
+    select coalesce(json_agg(json_build_object(
+      'id', ${outfitCalendar.id},
+      'day', ${outfitCalendar.day},
+      'occasion', ${outfitCalendar.occasion},
+      'worn', ${outfitCalendar.wornAt} is not null,
+      'plannedBy', ${outfitCalendar.plannedBy},
+      'outfitId', ${outfitCalendar.outfitId},
+      'garments', (
+        select coalesce(json_agg(json_build_object(
+          'id', ${garment.id},
+          'category', ${garment.category},
+          'type', ${garment.type},
+          'fabricWeight', ${garment.fabricWeight},
+          'warmth', ${garment.warmth},
+          'waterResistant', ${garment.waterResistant}
+        ) order by ${outfitSlot.position}), '[]')
+        from ${outfitSlot}
+        inner join ${garment} on ${garment.id} = ${outfitSlot.garmentId}
+        where ${outfitSlot.outfitId} = ${outfitCalendar.outfitId}
+      )
+    ) order by ${outfitCalendar.day}, ${outfitCalendar.id}), '[]')
+    from ${outfitCalendar}
+    where ${outfitCalendar.ownerId} = ${ownerId}
+      and ${outfitCalendar.day} between ${first} and ${last})`;
+}
+
+/** windowEntriesSql's value as the planner's entries (role and weather). */
+export function readWindowEntries(
+  rows: readonly WindowEntryJson[],
+): WindowEntry[] {
+  return rows.map(({ garments, ...entry }) => ({
+    ...entry,
+    garments: garments.map((garment) => ({
+      id: garment.id,
+      role: categoryRole(garment.category),
+      weather: matchGarment(garment),
+    })),
+  }));
+}
+
+/** windowEntriesSql alone, in one statement: "Plan my week" reads it before deciding anything else. */
 export async function windowEntries(
   db: Queryable,
   ownerId: number,
   first: IsoDate,
   last: IsoDate,
 ): Promise<WindowEntry[]> {
-  const rows = await db.query.outfitCalendar.findMany({
-    columns: {
-      id: true,
-      day: true,
-      occasion: true,
-      wornAt: true,
-      plannedBy: true,
-      outfitId: true,
-    },
-    where: and(
-      eq(outfitCalendar.ownerId, ownerId),
-      between(outfitCalendar.day, first, last),
-    ),
-    orderBy: (entry, { asc }) => [asc(entry.day), asc(entry.id)],
-    with: {
-      outfit: {
-        columns: {},
-        with: {
-          slots: {
-            columns: {},
-            where: (slot, { isNotNull }) => isNotNull(slot.garmentId),
-            with: {
-              garment: {
-                columns: {
-                  id: true,
-                  category: true,
-                  type: true,
-                  fabricWeight: true,
-                  warmth: true,
-                  waterResistant: true,
-                },
-              },
-            },
-          },
-        },
-      },
-    },
+  const { entries } = await selectScalars(db, {
+    entries: windowEntriesSql(ownerId, first, last),
   });
-  return rows.map((row) => ({
-    id: row.id,
-    day: row.day,
-    occasion: row.occasion,
-    worn: row.wornAt !== null,
-    plannedBy: row.plannedBy,
-    outfitId: row.outfitId,
-    garments: row.outfit.slots.flatMap(({ garment }) =>
-      garment
-        ? [
-            {
-              id: garment.id,
-              role: categoryRole(garment.category),
-              weather: matchGarment(garment),
-            },
-          ]
-        : [],
-    ),
-  }));
+  return readWindowEntries(entries);
 }
 
 /** An entry the planner wrote and still owns, with its batch and what it was planned for. */
@@ -133,34 +133,22 @@ export interface AutoEntryRow {
   plannedFor: PlannedNeeds | null;
 }
 
-const entryColumns = {
-  entryId: weekPlanEntry.entryId,
-  day: outfitCalendar.day,
-  outfitId: outfitCalendar.outfitId,
-  weekPlanId: weekPlanEntry.weekPlanId,
-  outfitCreated: weekPlanEntry.outfitCreated,
-  torso: weekPlanEntry.torso,
-  limbs: weekPlanEntry.limbs,
-  layer: weekPlanEntry.layer,
-  rain: weekPlanEntry.rain,
-};
-
-interface EntryRow extends Omit<AutoEntryRow, 'plannedFor'> {
+// A type, not an interface: execute's row type needs its implicit index signature.
+type EntryRow = Omit<AutoEntryRow, 'plannedFor'> & {
   torso: number | null;
   limbs: number | null;
   layer: boolean | null;
   rain: boolean | null;
-}
+};
 
-function autoEntryOf({
-  torso,
-  limbs,
-  layer,
-  rain,
-  ...row
-}: EntryRow): AutoEntryRow {
+function autoEntryOf(row: EntryRow): AutoEntryRow {
+  const { torso, limbs, layer, rain } = row;
   return {
-    ...row,
+    entryId: row.entryId,
+    day: row.day,
+    outfitId: row.outfitId,
+    weekPlanId: row.weekPlanId,
+    outfitCreated: row.outfitCreated,
     // The check constraint keeps the four together.
     plannedFor:
       torso === null || limbs === null || layer === null || rain === null
@@ -170,28 +158,53 @@ function autoEntryOf({
 }
 
 /**
- * The owner's auto entries (planned_by 'auto', not worn) from `from` on:
- * what the re-plan may judge. Entries the person has since edited or worn
+ * The owner's auto entries (planned_by 'auto', not worn) from `day` on,
+ * what the re-plan may judge, **and the day's claim**, in one statement
+ * (#173; they were two): the insert into week_replan runs only when there
+ * is an auto entry (none: nothing claimed, so a week planned later today
+ * is judged by a later run), `ON CONFLICT DO NOTHING`. The entries when
+ * this call claimed the day; undefined when there was none or the day was
+ * claimed already (another run, the morning reminder, a second server),
+ * which the caller treats alike: nothing to do. Called inside the
+ * re-plan's transaction under lockOwner, so the claim commits with the
+ * work (claimReplan's rule). Entries the person has since edited or worn
  * are 'user' and never come back here.
  */
-export async function autoEntries(
-  db: Queryable,
+export async function claimAutoEntries(
+  tx: Queryable,
   ownerId: number,
-  from: IsoDate,
-): Promise<AutoEntryRow[]> {
-  const rows = await db
-    .select(entryColumns)
-    .from(weekPlanEntry)
-    .innerJoin(outfitCalendar, eq(outfitCalendar.id, weekPlanEntry.entryId))
-    .where(
-      and(
-        eq(outfitCalendar.ownerId, ownerId),
-        eq(outfitCalendar.plannedBy, 'auto'),
-        isNull(outfitCalendar.wornAt),
-        gte(outfitCalendar.day, from),
-      ),
+  day: IsoDate,
+  now: Date,
+): Promise<AutoEntryRow[] | undefined> {
+  // The casts: an INSERT ... SELECT's parameters are otherwise text.
+  const { rows } = await tx.execute<EntryRow & { claimed: boolean }>(sql`
+    with auto as (
+      select ${weekPlanEntry.entryId} as "entryId",
+        ${outfitCalendar.day} as "day",
+        ${outfitCalendar.outfitId} as "outfitId",
+        ${weekPlanEntry.weekPlanId} as "weekPlanId",
+        ${weekPlanEntry.outfitCreated} as "outfitCreated",
+        ${weekPlanEntry.torso} as "torso",
+        ${weekPlanEntry.limbs} as "limbs",
+        ${weekPlanEntry.layer} as "layer",
+        ${weekPlanEntry.rain} as "rain"
+      from ${weekPlanEntry}
+      inner join ${outfitCalendar} on ${outfitCalendar.id} = ${weekPlanEntry.entryId}
+      where ${outfitCalendar.ownerId} = ${ownerId}
+        and ${outfitCalendar.plannedBy} = 'auto'
+        and ${outfitCalendar.wornAt} is null
+        and ${outfitCalendar.day} >= ${day}
+    ), claimed as (
+      insert into ${weekReplan} (user_id, day, claimed_at)
+      select ${ownerId}::int, ${day}::date, ${now}::timestamptz
+      where exists (select 1 from auto)
+      on conflict (user_id, day) do nothing
+      returning user_id
     )
-    .orderBy(outfitCalendar.day, outfitCalendar.id);
+    select auto.*, exists (select 1 from claimed) as claimed
+    from auto
+    order by auto.day, auto."entryId"`);
+  if (rows.length === 0 || !rows[0].claimed) return undefined;
   return rows.map(autoEntryOf);
 }
 
@@ -401,55 +414,69 @@ export interface SlotGarment extends OutfitGarmentState {
   category: string;
 }
 
+/** A slot as outfitGarmentStatesSql reads it: its outfit, and its garment or null. */
+type SlotStateJson = [
+  outfitId: number,
+  garment:
+    | (Omit<SlotGarment, 'limit'> & { washAfterWears: number | null })
+    | null,
+];
+
 /**
  * The slots of `outfitIds` in order, each its garment's state today (the
  * garment's status and away, its wash state, whether it was worn today) or
- * null for an empty slot: what unwearableOn judges an auto entry by. One
- * statement; the wash counts are wearsSinceWashSql's, the laundry's rule.
+ * null for an empty slot: what unwearableOn judges an auto entry by. A
+ * scalar subquery (a JSON list, readOutfitGarmentStates), so the re-plan
+ * reads it in the statement that reads its week (#173); the wash counts are
+ * wearsSinceWashSql's, the laundry's rule.
  */
-export async function outfitGarmentStates(
-  db: Queryable,
+export function outfitGarmentStatesSql(
   outfitIds: readonly number[],
   today: IsoDate,
-): Promise<Map<number, (SlotGarment | null)[]>> {
+): SQL<SlotStateJson[]> {
+  return sql<SlotStateJson[]>`(
+    select coalesce(json_agg(json_build_array(
+      ${outfitSlot.outfitId},
+      case when ${garment.id} is null then null else json_build_object(
+        'id', ${garment.id},
+        'name', ${garment.name},
+        'category', ${garment.category},
+        'status', ${garment.status},
+        'away', ${garment.away},
+        'quantity', ${garment.quantity},
+        'washAfterWears', ${garment.washAfterWears},
+        'wearsSinceWash', ${wearsSinceWashSql()},
+        -- "Wore today" or a worn entry (the ledger's idleDays === 0).
+        'wornToday', exists (
+          select 1 from ${garmentWear}
+          where ${garmentWear.garmentId} = ${garment.id}
+            and ${garmentWear.day} = ${today}
+        )
+      ) end
+    ) order by ${outfitSlot.outfitId}, ${outfitSlot.position}), '[]')
+    from ${outfitSlot}
+    left join ${garment} on ${garment.id} = ${outfitSlot.garmentId}
+    where ${inArray(outfitSlot.outfitId, [...new Set(outfitIds)])}
+  )`;
+}
+
+/** outfitGarmentStatesSql's value, by outfit. */
+export function readOutfitGarmentStates(
+  rows: readonly SlotStateJson[],
+): Map<number, (SlotGarment | null)[]> {
   const outfits = new Map<number, (SlotGarment | null)[]>();
-  if (outfitIds.length === 0) return outfits;
-  const rows = await db
-    .select({
-      outfitId: outfitSlot.outfitId,
-      id: garment.id,
-      name: garment.name,
-      category: garment.category,
-      status: garment.status,
-      away: garment.away,
-      quantity: garment.quantity,
-      washAfterWears: garment.washAfterWears,
-      wearsSinceWash: wearsSinceWashSql(),
-      // "Wore today" or a worn entry (the ledger's idleDays === 0).
-      wornToday: sql<boolean>`exists (select 1 from ${garmentWear} where ${garmentWear.garmentId} = ${garment.id} and ${garmentWear.day} = ${today})`,
-    })
-    .from(outfitSlot)
-    .leftJoin(garment, eq(garment.id, outfitSlot.garmentId))
-    .where(inArray(outfitSlot.outfitId, [...new Set(outfitIds)]))
-    .orderBy(asc(outfitSlot.outfitId), asc(outfitSlot.position));
-  for (const row of rows) {
-    const slots = outfits.get(row.outfitId) ?? [];
-    slots.push(
-      row.id === null
-        ? null
-        : {
-            id: row.id,
-            name: row.name,
-            category: row.category!,
-            status: row.status!,
-            away: row.away,
-            quantity: row.quantity!,
-            limit: washLimit(row.category!, row.washAfterWears),
-            wearsSinceWash: row.wearsSinceWash,
-            wornToday: row.wornToday,
-          },
-    );
-    outfits.set(row.outfitId, slots);
+  for (const [outfitId, slot] of rows) {
+    const slots = outfits.get(outfitId) ?? [];
+    if (slot === null) {
+      slots.push(null);
+    } else {
+      const { washAfterWears, ...state } = slot;
+      slots.push({
+        ...state,
+        limit: washLimit(state.category, washAfterWears),
+      });
+    }
+    outfits.set(outfitId, slots);
   }
   return outfits;
 }
@@ -526,23 +553,28 @@ export function entrySlotsSql(
 
 /**
  * Who is due today's re-plan: an auto entry (unworn, recorded in a batch:
- * what autoEntries reads) from `day` on and no claim for the day. `userId` asks about one user (the morning reminder's
- * re-plan first); without it, every user (the minutely run). A read only:
- * the claim itself is claimReplan's, inside the work's transaction, so a
- * user listed here may still turn out to be re-planned by another run.
+ * what claimAutoEntries reads) from `day` on and no claim for the day.
+ * `userIds` asks about those only (a minute's morning reminders, which
+ * re-plan their people first: one statement for all of them, #173);
+ * without it, every user (the minutely run). A read only: the claim itself
+ * is claimAutoEntries', inside the work's transaction, so a user listed
+ * here may still turn out to be re-planned by another run.
  */
 export async function replanCandidates(
   db: Queryable,
   day: IsoDate,
-  userId?: number,
+  userIds?: readonly number[],
 ): Promise<number[]> {
+  if (userIds?.length === 0) return [];
   const rows = await db
     .selectDistinct({ userId: outfitCalendar.ownerId })
     .from(outfitCalendar)
     .innerJoin(weekPlanEntry, eq(weekPlanEntry.entryId, outfitCalendar.id))
     .where(
       and(
-        userId === undefined ? undefined : eq(outfitCalendar.ownerId, userId),
+        userIds === undefined
+          ? undefined
+          : inArray(outfitCalendar.ownerId, [...new Set(userIds)]),
         eq(outfitCalendar.plannedBy, 'auto'),
         isNull(outfitCalendar.wornAt),
         gte(outfitCalendar.day, day),
@@ -567,12 +599,14 @@ export async function replanCandidates(
 
 /**
  * Claims `userId`'s re-plan for `day`: true when this call inserted the
- * (user, day) row, false when it was there. Called inside the re-plan's own
- * transaction, under lockOwner, so the claim commits with the work: whoever
- * finds it claimed finds the re-plan done, never half done (a second server,
- * the morning reminder's re-plan first). Also called in a transaction of
- * its own (under the owner lock too) after a failed re-plan, so a user
- * whose re-plan throws is tried once a day, not every minute.
+ * (user, day) row, false when it was there. The re-plan itself claims
+ * inside its own transaction, under lockOwner, with its read
+ * (claimAutoEntries), so the claim commits with the work: whoever finds it
+ * claimed finds the re-plan done, never half done (a second server, the
+ * morning reminder's re-plan first). This claims on its own, in a
+ * transaction of its own (under the owner lock too), after a failed
+ * re-plan, so a user whose re-plan throws is tried once a day, not every
+ * minute.
  */
 export async function claimReplan(
   db: Queryable,

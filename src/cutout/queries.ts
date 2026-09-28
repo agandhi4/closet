@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../db/client';
 import { file, garment } from '../db/schema';
 import { CUTOUT_TIMEOUT_MS } from './runner';
@@ -117,6 +117,65 @@ export async function applyCutoutEvent(
     await update;
   }
   return next;
+}
+
+/**
+ * applyCutoutEvent for many rows at once, locked by the caller's
+ * transaction: the machine decides each row (transition), and the accepted
+ * ones are written in one statement (an UPDATE from a VALUES list), with
+ * the same columns applyCutoutEvent writes. For an event that brings no
+ * bytes and takes no lease: the nightly retry (retryFailedCutouts, #173:
+ * it was a transaction of four statements per failed photo). Each row's
+ * transition, in the rows' order.
+ */
+export async function applyCutoutEventToRows(
+  tx: Queryable,
+  rows: readonly CutoutRow[],
+  event: Extract<CutoutEvent, { type: 'retry' }>,
+): Promise<Transition[]> {
+  const moves = rows.map((row) => ({ row, next: transition(row, event) }));
+  const values = moves.flatMap(({ row, next }) =>
+    next.ok
+      ? [
+          sql`(${row.id}::int, ${next.state.status}::text, ${next.state.version}::int, ${next.state.attempts}::int, ${next.state.jobVersion}::int, ${next.state.variantKey}::text)`,
+        ]
+      : [],
+  );
+  if (values.length > 0) {
+    // A retry queues every row it accepts: each is claimable, so the queues
+    // are told (Postgres folds the repeats into one notification).
+    await tx.execute(sql`
+      update ${file} set
+        cutout_status = next.status,
+        version = next.version,
+        cutout_attempts = next.attempts,
+        cutout_job_version = next.job_version,
+        cutout_worker = null,
+        cutout_started_at = null,
+        variant_key = next.variant_key,
+        cutout_requested_at = ${new Date()}::timestamptz
+      from (values ${sql.join(values, sql`, `)})
+        as next(id, status, version, attempts, job_version, variant_key)
+      where ${file.id} = next.id
+      returning ${CUTOUT_QUEUED_NOTIFY}`);
+  }
+  return moves.map(({ next }) => next);
+}
+
+/**
+ * The rows of `fileNames`, locked until the transaction ends, in id order
+ * (the order every batch locks in, so two never deadlock).
+ */
+export function lockCutoutRows(
+  tx: Queryable,
+  fileNames: readonly string[],
+): Promise<CutoutRow[]> {
+  return tx
+    .select(stateColumns)
+    .from(file)
+    .where(inArray(file.fileName, [...fileNames]))
+    .orderBy(asc(file.id))
+    .for('update');
 }
 
 /** applyCutoutEvent in a transaction of its own, for events that bring no bytes. */

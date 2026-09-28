@@ -75,17 +75,24 @@ export interface TodayDeps {
   timeZone: string;
 }
 
+/**
+ * `ownWeather`: the person's weather when the caller read it already (the
+ * morning reminders' batch refresh, refreshForecastsFor, #173); else read
+ * here.
+ */
 export async function todayFor(
   deps: TodayDeps,
   ownerId: number,
   now: Date,
+  ownWeather?: UserWeather,
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
   // Together: the page waits for one round trip here, not two in turn, and
   // the ideas below start with the weather in hand.
   const [entries, weather] = await Promise.all([
     findEntries(deps.db, ownerId, today, today),
-    deps.weather && userWeather(deps.db, deps.weather, ownerId, now),
+    ownWeather ??
+      (deps.weather && userWeather(deps.db, deps.weather, ownerId, now)),
   ]);
   // Occasion order, the calendar's; a stable sort keeps the planned first.
   entries.sort((a, b) => compareOccasions(a.occasion, b.occasion));

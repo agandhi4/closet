@@ -4,7 +4,13 @@ import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import type { Metrics, PushEnding } from '../../metrics/metrics';
 import type { PushPayload } from './payload';
-import { deleteDeviceById, type DeviceRow, devicesOf } from './queries';
+import {
+  deleteDeviceById,
+  type DeviceRow,
+  devicesOf,
+  devicesOfUsers,
+  type UserDeviceRow,
+} from './queries';
 
 /** VAPID identity (PUBLIC_VAPID_KEY, PRIVATE_VAPID_KEY, SITE_URL as subject). */
 export interface VapidConfig {
@@ -42,16 +48,39 @@ export interface PushSender {
     options: SendOptions,
   ): Promise<SendReport>;
   /**
-   * The same, to those of the user's devices in `deviceIds` only (a
-   * reminder goes to the devices that chose its time); ids that are not
-   * the user's are ignored.
+   * Several messages, each to some of its user's devices: every user's
+   * devices read in one statement (devicesOfUsers), then the messages sent
+   * together, so a job's batch (the minute's reminders, the re-plan's swap
+   * notices) pays one round trip, not one per person (#173). The reports
+   * are in the messages' order. Throws only when that read fails.
    */
-  sendToDevices(
-    userId: number,
-    deviceIds: readonly number[],
-    payload: PushPayload,
-    options: SendOptions,
-  ): Promise<SendReport>;
+  sendEach(messages: readonly DeviceMessage[]): Promise<SendReport[]>;
+}
+
+/** One message of a batch (PushSender.sendEach). */
+export interface DeviceMessage {
+  userId: number;
+  /**
+   * Which of the user's devices it goes to: these ids (a reminder goes to
+   * the devices that claimed it; ids that are not the user's are ignored),
+   * or every one with the morning reminder on (the re-plan's swap notice,
+   * src/web/week-plan/replan.ts).
+   */
+  devices: readonly number[] | 'morning-reminder';
+  payload: PushPayload;
+  options: SendOptions;
+}
+
+/** A message's devices among the batch's rows (week-plan.spec.ts's recording sender chooses the same way). */
+export function chosenDevices(
+  rows: readonly UserDeviceRow[],
+  { userId, devices }: DeviceMessage,
+): DeviceRow[] {
+  const ids = devices === 'morning-reminder' ? undefined : new Set(devices);
+  return rows.filter(
+    (row) =>
+      row.userId === userId && (ids ? ids.has(row.id) : row.morningReminder),
+  );
 }
 
 // The push service no longer knows the subscription: the browser dropped it,
@@ -178,9 +207,22 @@ export function createPushSender(options: {
     async sendToUser(userId, payload, sendOptions) {
       return send(userId, await devicesOf(db, userId), payload, sendOptions);
     },
-    async sendToDevices(userId, deviceIds, payload, sendOptions) {
-      const devices = await devicesOf(db, userId, deviceIds);
-      return send(userId, devices, payload, sendOptions);
+    async sendEach(messages) {
+      if (messages.length === 0) return [];
+      const rows = await devicesOfUsers(
+        db,
+        messages.map((message) => message.userId),
+      );
+      return Promise.all(
+        messages.map((message) =>
+          send(
+            message.userId,
+            chosenDevices(rows, message),
+            message.payload,
+            message.options,
+          ),
+        ),
+      );
     },
   };
 }

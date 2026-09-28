@@ -1,4 +1,13 @@
-import { and, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  type AnyColumn,
+  eq,
+  inArray,
+  isNull,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
 import {
@@ -50,12 +59,6 @@ const garmentColumns = {
   waterResistant: garment.waterResistant,
 };
 
-/** garmentColumns and the card's photo. */
-const drawnColumns = {
-  ...garmentColumns,
-  photo: photoRefJson,
-};
-
 /** Days since the last day worn (wears count by day); null when never. */
 function idleDaysSql(today: IsoDate): SQL<number | null> {
   return sql<
@@ -63,13 +66,7 @@ function idleDaysSql(today: IsoDate): SQL<number | null> {
   >`(select (${today}::date - max(${garmentWear.day}))::int from ${garmentWear} where ${garmentWear.garmentId} = ${garment.id})`;
 }
 
-/** drawnColumns and the rotation's input, for a pool that rotates. */
-const poolColumns = (today: IsoDate) => ({
-  ...drawnColumns,
-  idleDays: idleDaysSql(today),
-});
-
-/** A row of poolColumns: weekPool's, and poolJsonSql's JSON (the same keys). */
+/** A garment of poolJsonSql's JSON: garmentColumns, the card's photo and the rotation's input. */
 export type PoolRow = Pick<
   typeof garment.$inferSelect,
   keyof typeof garmentColumns
@@ -94,20 +91,23 @@ function poolGarment(row: PoolRow): PoolGarment {
 }
 
 /**
- * Garments `where` names as a scalar subquery: a JSON array of
- * poolColumns' rows (the same keys), read back with readPool. `today`
+ * Garments `where` names as a scalar subquery: a JSON array of PoolRow
+ * (and `extra`'s keys), read back with readPool. `today`
  * null reads no last-worn day (idleDays null): for a grantee, who never
  * learns the owner's wears.
  */
-function poolJsonSql(
+function poolJsonSql<Row extends PoolRow = PoolRow>(
   where: SQL | undefined,
   today: IsoDate | null,
-): SQL<PoolRow[]> {
+  /** More keys per garment (weekPoolSql's wash state). */
+  extra: Record<string, SQL | AnyColumn> = {},
+): SQL<Row[]> {
   const fields = Object.entries({
     ...garmentColumns,
     idleDays: today === null ? sql`null` : idleDaysSql(today),
+    ...extra,
   }).map(([key, column]) => sql`${sql.raw(`'${key}'`)}, ${column}`);
-  return sql<PoolRow[]>`(
+  return sql<Row[]>`(
     select coalesce(json_agg(json_build_object(
       ${sql.join(fields, sql`, `)}, 'photo', ${photoRefJson}
     )), '[]')
@@ -149,6 +149,13 @@ export function readPool(rows: readonly PoolRow[]): PoolGarment[] {
 /** A garment as the week planner (#16) draws it: the pool's, with its wash state today. */
 export type WeekPoolGarment = PoolGarment & PlannerGarment;
 
+/** A row of weekPoolSql: the pool's, and the wash state. */
+export interface WeekPoolRow extends PoolRow {
+  quantity: number;
+  washAfterWears: number | null;
+  wearsSinceWash: number;
+}
+
 /**
  * The week planner's pool (src/wardrobe/week-planner.ts): the owner's
  * garments in the closet and not away, **dirty ones included**, each with
@@ -156,23 +163,27 @@ export type WeekPoolGarment = PoolGarment & PlannerGarment;
  * wearsSinceWashSql counts them). The planner applies availability.ts's
  * cleanCopies per day, counting the week's own future wears, so a garment
  * clean today may be out by Thursday; filtering by availableGarment here
- * would decide as of today only. One statement.
+ * would decide as of today only. A scalar subquery (poolJsonSql, read back
+ * with readWeekPool), so "Plan my week" and the re-plan read it in one
+ * statement with the generator's memory (#173).
  */
-export async function weekPool(
-  db: Queryable,
+export function weekPoolSql(
   ownerId: number,
   today: IsoDate,
-): Promise<WeekPoolGarment[]> {
-  const rows = await db
-    .select({
-      ...poolColumns(today),
+): SQL<WeekPoolRow[]> {
+  return poolJsonSql<WeekPoolRow>(
+    and(eq(garment.ownerId, ownerId), inCloset(), isNull(garment.away)),
+    today,
+    {
       quantity: garment.quantity,
       washAfterWears: garment.washAfterWears,
       wearsSinceWash: wearsSinceWashSql(),
-    })
-    .from(garment)
-    .leftJoin(file, eq(file.id, garment.photoId))
-    .where(and(eq(garment.ownerId, ownerId), inCloset(), isNull(garment.away)));
+    },
+  );
+}
+
+/** weekPoolSql's value as the planner's garments. */
+export function readWeekPool(rows: readonly WeekPoolRow[]): WeekPoolGarment[] {
   return rows.map((row) => ({
     ...poolGarment(row),
     quantity: row.quantity,
@@ -244,11 +255,11 @@ export interface WishlistGarment extends ClosetGarment {
   replacesGarmentId: number | null;
 }
 
-/** A row of drawnColumns. */
+/** A pool garment without its rotation: garmentColumns and the photo. */
 type DrawnRow = Omit<PoolRow, 'idleDays'>;
 
 /**
- * A row of drawnColumns as JSON, an array in drawnGarment's order, so the
+ * A DrawnRow as JSON, an array in drawnGarment's order, so the
  * closet rides in one statement with the item and the pairs
  * (goesWithInputsSql) and carries no key per garment. Null photo fields
  * for a garment without one (the left join).
@@ -456,7 +467,10 @@ function avoidedPairsSql(ownerId: number): SQL<[number, number][]> {
 /**
  * What the generator must not repeat or pair, as scalar subqueries for a
  * caller's selectScalars (ideasFor reads them with the pool, the weather
- * and the page's own reads, #168); readGeneratorMemory reads them back.
+ * and the page's own reads, #168; the week planner with its pool, #173);
+ * readGeneratorMemory reads them back. They were two statements beside the
+ * pool on every ideas surface (#158: statements, not their size, are what a
+ * page pays for over production's ~114 ms link).
  */
 export function generatorMemorySql(ownerId: number) {
   return { saved: savedSlotsSql(ownerId), avoid: avoidedPairsSql(ownerId) };
@@ -476,23 +490,6 @@ export function readGeneratorMemory(row: {
     outfits.set(outfitId, outfitSlots);
   }
   return { saved: [...outfits.values()], avoid: row.avoid };
-}
-
-/**
- * The owner's saved outfits as the generator's duplicate rule reads them
- * (each outfit's chosen garments with their roles) and their avoided
- * pairs, in one statement (generatorMemorySql), for the week planner. They
- * were two statements beside the pool on every ideas surface (#158:
- * statements, not their size, are what a page pays for over production's
- * ~114 ms link).
- */
-export async function generatorMemory(
-  db: Queryable,
-  ownerId: number,
-): Promise<GeneratorMemory> {
-  return readGeneratorMemory(
-    await selectScalars(db, generatorMemorySql(ownerId)),
-  );
 }
 
 export type AvoidOutcome = 'added' | 'already' | 'not-found';

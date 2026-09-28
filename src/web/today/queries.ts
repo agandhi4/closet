@@ -1,10 +1,16 @@
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { type AnyColumn, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
-import { garmentWear, outfitCalendar } from '../../db/schema';
+import { garmentWear, outfitCalendar, user } from '../../db/schema';
+import { selectScalars } from '../../db/select-scalars';
 import type { Occasion } from '../../wardrobe/occasions';
 import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../calendar/calendar-date';
-import { wearOutfitOn, type WornOutfit } from '../calendar/queries';
+import {
+  type DayEntry,
+  entriesOfDaySql,
+  wearOutfitOn,
+  type WornOutfit,
+} from '../calendar/queries';
 import { pickIdea, type PickResult } from '../gallery/ideas';
 
 /**
@@ -15,32 +21,68 @@ import { pickIdea, type PickResult } from '../gallery/ideas';
 /**
  * Whether the owner marked anything worn on `day`: a calendar entry (its
  * worn pill, "Wore it", "Wear this") or a garment's "Wore today". The
- * evening reminder is skipped when so.
+ * evening reminder is skipped when so. `ownerId` may be an outer query's
+ * column (eveningDays).
  */
+function somethingWornSql(
+  ownerId: number | AnyColumn,
+  day: IsoDate,
+): SQL<boolean> {
+  // garment_wear_owner_id_index, then the day.
+  return sql<boolean>`(exists (
+      select 1 from ${outfitCalendar}
+      where ${outfitCalendar.ownerId} = ${ownerId}
+        and ${outfitCalendar.day} = ${day}
+        and ${outfitCalendar.wornAt} is not null
+    ) or exists (
+      select 1 from ${garmentWear}
+      where ${garmentWear.ownerId} = ${ownerId}
+        and ${garmentWear.day} = ${day}
+    ))`;
+}
+
+/** somethingWornSql alone, in one statement: get_today's. */
 export async function somethingWornOn(
   db: Db,
   ownerId: number,
   day: IsoDate,
 ): Promise<boolean> {
-  const entry = db
-    .select({ one: sql`1` })
-    .from(outfitCalendar)
-    .where(
-      and(
-        eq(outfitCalendar.ownerId, ownerId),
-        eq(outfitCalendar.day, day),
-        isNotNull(outfitCalendar.wornAt),
-      ),
-    );
-  // garment_wear_owner_id_index, then the day.
-  const wear = db
-    .select({ one: sql`1` })
-    .from(garmentWear)
-    .where(and(eq(garmentWear.ownerId, ownerId), eq(garmentWear.day, day)));
-  const { rows } = await db.execute<{ worn: boolean }>(
-    sql`select exists(${entry}) or exists(${wear}) as worn`,
-  );
-  return rows[0].worn;
+  const { worn } = await selectScalars(db, {
+    worn: somethingWornSql(ownerId, day),
+  });
+  return worn;
+}
+
+/**
+ * A person's `day` as the evening reminder reads it (eveningDays). A type,
+ * not an interface: execute's row type needs its implicit index signature.
+ */
+export type EveningDay = {
+  /** somethingWornSql: the reminder is skipped. */
+  worn: boolean;
+  /** The day's entries, bare (entriesOfDaySql): what the reminder names. */
+  entries: DayEntry[];
+};
+
+/**
+ * Each of `ownerIds`' `day` as the evening reminder reads it, in one
+ * statement whoever and however many they are (#173; it was a statement
+ * per person, then Today's whole model, weather and ideas included, for
+ * the planned outfits' names alone). A deleted account is simply absent.
+ */
+export async function eveningDays(
+  db: Db,
+  ownerIds: readonly number[],
+  day: IsoDate,
+): Promise<Map<number, EveningDay>> {
+  if (ownerIds.length === 0) return new Map();
+  const { rows } = await db.execute<{ ownerId: number } & EveningDay>(sql`
+    select ${user.id} as "ownerId",
+      ${somethingWornSql(user.id, day)} as worn,
+      ${entriesOfDaySql(user.id, day)} as entries
+    from ${user}
+    where ${inArray(user.id, [...new Set(ownerIds)])}`);
+  return new Map(rows.map(({ ownerId, ...evening }) => [ownerId, evening]));
 }
 
 export interface WoreIdea {

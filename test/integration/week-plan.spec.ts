@@ -40,8 +40,12 @@ import {
 import { tripModel } from '../../src/web/trips/model';
 import { addTripOutfit, createTrip } from '../../src/web/trips/queries';
 import { REMINDER_WINDOWS } from '../../src/push/reminders';
-import { saveReminderSettings, upsertDevice } from '../../src/web/push/queries';
-import type { PushSender } from '../../src/web/push/sender';
+import {
+  devicesOfUsers,
+  saveReminderSettings,
+  upsertDevice,
+} from '../../src/web/push/queries';
+import { chosenDevices, type PushSender } from '../../src/web/push/sender';
 import { setHome } from '../../src/web/weather/queries';
 import type { WeatherService } from '../../src/web/weather/service';
 import type { DayForecast } from '../../src/weather/forecast';
@@ -753,15 +757,31 @@ describe('the weekly auto-plan', () => {
     }[];
     let forecastDays: DayForecast[];
     let deps: ReplanDeps;
+    // The real sender's read and choice of devices; each message recorded
+    // instead of sent (one that finds no device reaches nobody).
     const push: PushSender = {
       sendToUser: () => Promise.reject(new Error('not used')),
-      sendToDevices: (userId, deviceIds, payload, options) => {
-        sends.push({ userId, deviceIds, payload, ttl: options.ttlSeconds });
-        return Promise.resolve({
-          devices: deviceIds.length,
-          delivered: deviceIds.length,
-          pruned: 0,
-          failed: 0,
+      sendEach: async (messages) => {
+        const rows = await devicesOfUsers(
+          t.db,
+          messages.map((message) => message.userId),
+        );
+        return messages.map((message) => {
+          const deviceIds = chosenDevices(rows, message).map((d) => d.id);
+          if (deviceIds.length > 0) {
+            sends.push({
+              userId: message.userId,
+              deviceIds,
+              payload: message.payload,
+              ttl: message.options.ttlSeconds,
+            });
+          }
+          return {
+            devices: deviceIds.length,
+            delivered: deviceIds.length,
+            pruned: 0,
+            failed: 0,
+          };
         });
       },
     };
@@ -833,9 +853,10 @@ describe('the weekly auto-plan', () => {
       let run: Awaited<ReturnType<typeof replanWeeks>> | undefined;
       // #165: who is due, then every candidate's weather in one statement
       // (the refresh's answer is the re-plan's: not read again), then one
-      // transaction: begin, the owner lock, the auto entries, the claim,
-      // the window, the pool, the generator's memory, the outfits' garments,
-      // commit. The candidate is not asked about again.
+      // transaction: begin, the owner lock, the auto entries with the
+      // claim, then the window, the pool, the generator's memory and the
+      // outfits' garments in one statement (#173: they were six), commit.
+      // The candidate is not asked about again.
       const recorded = await recordQueries(async () => {
         run = await replanWeeks(deps, at(TODAY, REPLAN_HOUR));
       });
@@ -846,7 +867,7 @@ describe('the weekly auto-plan', () => {
         failed: 0,
         pushed: 0,
       });
-      expect(recorded.statements).toBe(11);
+      expect(recorded.statements).toBe(7);
       expect(
         recorded.sql.filter((q) => q.includes('"user_weather"')),
       ).toHaveLength(1);

@@ -1,4 +1,5 @@
 import type { Db, Queryable } from '../../db/client';
+import { type ScalarValues, selectScalars } from '../../db/select-scalars';
 import type { IdeaProblem } from '../../wardrobe/generator';
 import type { Occasion } from '../../wardrobe/occasions';
 import {
@@ -18,9 +19,11 @@ import { addDays, type IsoDate } from '../calendar/calendar-date';
 import { entryOf } from '../calendar/queries';
 import { pickIdea } from '../gallery/ideas';
 import {
-  generatorMemory,
-  weekPool,
+  generatorMemorySql,
+  readGeneratorMemory,
+  readWeekPool,
   type WeekPoolGarment,
+  weekPoolSql,
 } from '../gallery/queries';
 import type { ReadOptions } from '../weather/location-cache';
 import {
@@ -35,8 +38,10 @@ import {
   recordAutoEntry,
   removeBatchAutoEntries,
   removeUnheldOutfits,
+  readWindowEntries,
   weekPlanOf,
   windowEntries,
+  windowEntriesSql,
 } from './queries';
 import { findWeekTemplate } from './template';
 
@@ -195,36 +200,57 @@ export function planMyWeek(
 }
 
 /**
- * What the planner and the re-plan judge a week by, read inside their
- * locked transaction: the entries from today to `last`, then what the
- * generator draws from (readGenerator). In turn, not at once: a
- * transaction is one connection, which runs one query at a time (pg
- * deprecates queuing more).
+ * What the re-plan judges a week by, as scalar subqueries for one
+ * selectScalars inside its locked transaction: the entries from today to
+ * `last` and what the generator draws from (generatorSql). The re-plan
+ * reads its auto entries' outfit states in the same statement (#173: they
+ * were four); readWeekColumns reads them back.
  */
-export async function readWeek(
-  tx: Queryable,
-  ownerId: number,
+export function weekSql(ownerId: number, today: IsoDate, last: IsoDate) {
+  return {
+    entries: windowEntriesSql(ownerId, today, last),
+    ...generatorSql(ownerId, today),
+  };
+}
+
+export function readWeekColumns(
   today: IsoDate,
-  last: IsoDate,
-): Promise<Omit<WeekContext<WeekPoolGarment>, 'forecast' | 'offset'>> {
-  const entries = await windowEntries(tx, ownerId, today, last);
-  return { today, entries, ...(await readGenerator(tx, ownerId, today)) };
+  row: ScalarValues<ReturnType<typeof weekSql>>,
+): Omit<WeekContext<WeekPoolGarment>, 'forecast' | 'offset'> {
+  return {
+    today,
+    entries: readWindowEntries(row.entries),
+    ...readGeneratorColumns(row),
+  };
 }
 
 /**
- * The pool and the saved outfits with the avoided pairs (generatorMemory,
- * one statement): what the planner fills slots from. Two statements,
- * independent of each other: one through selectScalars once weekPool is a
- * scalar subquery (src/web/gallery/queries.ts, the generator's own).
+ * The pool and the saved outfits with the avoided pairs: what the planner
+ * fills slots from, as scalar subqueries (the generator's own, in
+ * src/web/gallery/queries.ts).
  */
+function generatorSql(ownerId: number, today: IsoDate) {
+  return {
+    pool: weekPoolSql(ownerId, today),
+    ...generatorMemorySql(ownerId),
+  };
+}
+
+function readGeneratorColumns(
+  row: ScalarValues<ReturnType<typeof generatorSql>>,
+): Pick<WeekContext<WeekPoolGarment>, 'pool' | 'saved' | 'avoid'> {
+  return { pool: readWeekPool(row.pool), ...readGeneratorMemory(row) };
+}
+
+/** generatorSql in one statement: "Plan my week" once it found a slot to fill. */
 async function readGenerator(
   tx: Queryable,
   ownerId: number,
   today: IsoDate,
 ): Promise<Pick<WeekContext<WeekPoolGarment>, 'pool' | 'saved' | 'avoid'>> {
-  const pool = await weekPool(tx, ownerId, today);
-  const { saved, avoid } = await generatorMemory(tx, ownerId);
-  return { pool, saved, avoid };
+  return readGeneratorColumns(
+    await selectScalars(tx, generatorSql(ownerId, today)),
+  );
 }
 
 /**
