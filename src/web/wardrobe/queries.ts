@@ -18,7 +18,6 @@ import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
-import { selectScalars } from '../../db/select-scalars';
 import { file, garment } from '../../db/schema';
 import type { AwayReason } from '../../wardrobe/availability';
 import type { CareLabel, CareWash } from '../../wardrobe/care';
@@ -394,15 +393,18 @@ export function readFilterOptions(values: FilterOptions): FilterOptions {
   };
 }
 
-/** The garment form's suggestions (render-form.tsx): filterOptionsSql alone. */
-export async function filterOptions(
-  db: Db,
-  ownerId: number,
-): Promise<FilterOptions> {
-  const { options } = await selectScalars(db, {
-    options: filterOptionsSql(ownerId),
-  });
-  return readFilterOptions(options);
+/**
+ * The wardrobe's distinct categories, a scalar subquery: the garment
+ * form's suggestions (formContext, form-context.ts), which need none of
+ * filterOptionsSql's other lists (#161). Unsorted: categorySuggestions
+ * orders them.
+ */
+export function wardrobeCategoriesSql(ownerId: number): SQL<string[]> {
+  return sql<string[]>`(
+    select ${distinctValues(garment.category)}
+    from ${garment}
+    where ${and(eq(garment.ownerId, ownerId), ownedGarment())}
+  )`;
 }
 
 /** A garment's photo on its page: the cutout's state decides what shows. */
@@ -642,25 +644,38 @@ async function deletePhotoRow(
 }
 
 /**
- * Deletes the garment and its photo's row together; returns the photo's
- * files (for the caller to unlink after commit), null without one,
- * undefined when the garment is not in `ownerId`'s wardrobe, or not (any
- * more) in `status` when one is given: buyCandidate's clean-up of other
- * candidates deletes only what is still on the wishlist, so a candidate
- * bought meanwhile is kept. Outfit slots that wore it are emptied by their
- * foreign key.
+ * Deletes the garment and its photo's row together; returns the status it
+ * had and the photo's files (for the caller to unlink after commit), null
+ * without one; undefined when the garment is not in `ownerId`'s wardrobe,
+ * or not (any more) in `status` when one is given: buyCandidate's clean-up
+ * of other candidates deletes only what is still on the wishlist, so a
+ * candidate bought meanwhile is kept. The DELETE locks the row and judges
+ * `status` as a transaction it waited on committed it, as lockGarment
+ * would, without a statement of its own (#161). Outfit slots that wore it
+ * are emptied by their foreign key.
  */
 export function deleteGarment(
   db: Queryable,
   id: number,
   ownerId: number,
   status?: GarmentStatus,
-): Promise<StoredPhoto | null | undefined> {
+): Promise<{ status: GarmentStatus; photo: StoredPhoto | null } | undefined> {
   return db.transaction(async (tx) => {
-    const locked = await lockGarment(tx, id, ownerId, status);
-    if (!locked) return undefined;
-    await tx.delete(garment).where(eq(garment.id, id));
-    return deletePhotoRow(tx, locked.photoId);
+    const [deleted] = await tx
+      .delete(garment)
+      .where(
+        and(
+          eq(garment.id, id),
+          eq(garment.ownerId, ownerId),
+          status && eq(garment.status, status),
+        ),
+      )
+      .returning({ photoId: garment.photoId, status: garment.status });
+    if (!deleted) return undefined;
+    return {
+      status: deleted.status,
+      photo: await deletePhotoRow(tx, deleted.photoId),
+    };
   });
 }
 

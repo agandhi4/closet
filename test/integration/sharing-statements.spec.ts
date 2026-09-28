@@ -125,7 +125,7 @@ describe('sharing: statements per request', () => {
       expect(record.statements).toBe(statements);
     });
 
-    it('a MANAGE grantee’s edit: the session with the share, the garment, the write', async () => {
+    it('a MANAGE grantee’s edit: the session with the share, the write (#161)', async () => {
       const record = await recordQueries(async () => {
         const res = await post(
           `/wardrobe/${garmentId}?${ownerQuery()}`,
@@ -137,7 +137,7 @@ describe('sharing: statements per request', () => {
         );
         expect(res.statusCode).toBe(302);
       });
-      expect(record.statements).toBe(3);
+      expect(record.statements).toBe(2);
       expect(shareStatements(record.sql)).toEqual([]);
     });
 

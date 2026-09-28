@@ -406,7 +406,7 @@ describe('Photos.copy', () => {
     await put('a.webp', await png(1000));
     await put('a-nobg.webp', await png(300));
 
-    const row = await photos.copy('a.webp', 7);
+    const row = await photos.copy({ fileName: 'a.webp', variantKey: null }, 7);
 
     expect(row).toMatchObject({ createdById: 7 });
     expect(row!.fileName).toMatch(/^[0-9a-f-]{36}\.webp$/);
@@ -431,9 +431,11 @@ describe('Photos.copy', () => {
       variantFileName('a.webp', 'nobg', '0123456789ab'),
       await png(300),
     );
-    findKeyMock.mockResolvedValue('0123456789ab');
 
-    const row = await photos.copy('a.webp', 7);
+    const row = await photos.copy(
+      { fileName: 'a.webp', variantKey: '0123456789ab' },
+      7,
+    );
 
     const base = row!.fileName.replace('.webp', '');
     expect(
@@ -441,19 +443,22 @@ describe('Photos.copy', () => {
         await stored(variantFileName('a.webp', 'nobg', '0123456789ab')),
       ),
     ).toBe(true);
+    // The caller's row named the key: nothing read it again (#161).
+    expect(findKeyMock).not.toHaveBeenCalled();
   });
 
   it('reads the cutout again when a swap deleted the one it was about to open', async () => {
     const photos = build();
     await put('a.webp', await png(1000));
-    // The row read first names a set a swap has deleted since.
+    // The caller's row names a set a swap has deleted since.
     const swappedIn = variantFileName('a.webp', 'nobg', 'fedcba987654');
     await put(swappedIn, await png(300));
-    findKeyMock
-      .mockResolvedValueOnce('0123456789ab')
-      .mockResolvedValue('fedcba987654');
+    findKeyMock.mockResolvedValue('fedcba987654');
 
-    const row = await photos.copy('a.webp', 7);
+    const row = await photos.copy(
+      { fileName: 'a.webp', variantKey: '0123456789ab' },
+      7,
+    );
 
     const base = row!.fileName.replace('.webp', '');
     expect(
@@ -466,15 +471,20 @@ describe('Photos.copy', () => {
     await put('a.webp', await png(1000));
     findKeyMock.mockResolvedValue('0123456789ab');
 
-    const row = await photos.copy('a.webp', 7);
+    const row = await photos.copy(
+      { fileName: 'a.webp', variantKey: '0123456789ab' },
+      7,
+    );
 
     expect(has(`${row!.fileName.replace('.webp', '')}-nobg.webp`)).toBe(false);
-    expect(findKeyMock).toHaveBeenCalledTimes(2);
+    expect(findKeyMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns undefined when the source is gone', async () => {
     const photos = build();
-    await expect(photos.copy('a.webp', 7)).resolves.toBeUndefined();
+    await expect(
+      photos.copy({ fileName: 'a.webp', variantKey: null }, 7),
+    ).resolves.toBeUndefined();
     expect(stores).toEqual([]);
   });
 });

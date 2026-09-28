@@ -1,6 +1,6 @@
 import { readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, ne } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { multipart } from '../../test/support/multipart';
 import {
@@ -76,17 +76,55 @@ function idFrom(res: LightMyRequestResponse, pattern: RegExp): number {
   return Number(match[1]);
 }
 
-function photoUpload(f: Fixture, field = 'photo') {
+function photoUpload(f: Fixture, field = 'photo', count = 1) {
+  const photo = {
+    data: f.photo,
+    filename: 'photo.jpg',
+    contentType: 'image/jpeg',
+  };
   return multipart(
     {},
     {
-      [field]: {
-        data: f.photo,
-        filename: 'photo.jpg',
-        contentType: 'image/jpeg',
-      },
+      [field]: count === 1 ? photo : Array.from({ length: count }, () => photo),
     },
   );
+}
+
+/**
+ * The add sheet's upload of `count` photos (#97, #200): the pending photo,
+ * or a batch's first draft, that its redirect opens.
+ */
+async function uploadedPhoto(f: Fixture, count = 1): Promise<string> {
+  const res = await f.send(
+    {
+      method: 'POST',
+      url: '/wardrobe/new/photo',
+      raw: await photoUpload(f, 'photo', count),
+    },
+    303,
+  );
+  const photo = new URL(
+    String(res.headers.location),
+    'http://audit',
+  ).searchParams.get('photo');
+  if (!photo) throw new Error(`No photo in "${res.headers.location}"`);
+  return photo;
+}
+
+/**
+ * Theo's drafts gone (their bytes left to reconciliation), so a step's runs
+ * never reach MAX_DRAFTS_PER_USER: each run uploads a batch.
+ */
+async function clearDrafts(f: Fixture): Promise<void> {
+  const s = f.build.schema;
+  await f.closet.db
+    .delete(s.pendingPhoto)
+    .where(
+      and(
+        eq(s.pendingPhoto.userId, f.theo.id),
+        isNotNull(s.pendingPhoto.batchId),
+      ),
+    );
 }
 
 async function newGarment(f: Fixture, name = 'Audit tee'): Promise<number> {
@@ -1612,6 +1650,81 @@ const writes: Step[] = [
       htmx: true,
     }),
     expect: 200,
+  }),
+  http({
+    ...FORM,
+    name: 'Save with a pending photo',
+    kind: 'action',
+    route: 'POST /wardrobe',
+    prepare: (f) => uploadedPhoto(f),
+    request: (_f, photo: string) =>
+      post('/wardrobe', {
+        name: 'Audit upload',
+        category: 'tops',
+        linkPhoto: photo,
+      }),
+    expect: 302,
+  }),
+  // Several photos at once (#200): a batch of drafts, each draft's form,
+  // its save (on to the next draft) and its discard.
+  http({
+    ...FORM,
+    name: 'Add several photos (a batch of drafts)',
+    kind: 'action',
+    route: 'POST /wardrobe/new/photo',
+    prepare: async (f) => {
+      await clearDrafts(f);
+      return photoUpload(f, 'photo', 2);
+    },
+    request: (_f, body) => ({
+      method: 'POST',
+      url: '/wardrobe/new/photo',
+      raw: body,
+    }),
+    expect: 303,
+  }),
+  http({
+    ...FORM,
+    name: 'A draft’s form',
+    kind: 'page',
+    route: 'GET /wardrobe/new',
+    prepare: async (f) => {
+      await clearDrafts(f);
+      return uploadedPhoto(f, 2);
+    },
+    request: (_f, photo: string) =>
+      get(`/wardrobe/new?photo=${encodeURIComponent(photo)}`),
+    expect: 200,
+  }),
+  http({
+    ...FORM,
+    name: 'Save a draft',
+    kind: 'action',
+    route: 'POST /wardrobe',
+    prepare: async (f) => {
+      await clearDrafts(f);
+      return uploadedPhoto(f, 2);
+    },
+    request: (_f, photo: string) =>
+      post('/wardrobe', {
+        name: 'Audit draft',
+        category: 'tops',
+        linkPhoto: photo,
+      }),
+    expect: 303,
+  }),
+  http({
+    ...FORM,
+    name: 'Discard a draft',
+    kind: 'action',
+    route: 'POST /wardrobe/new/drafts/discard',
+    prepare: async (f) => {
+      await clearDrafts(f);
+      return uploadedPhoto(f, 2);
+    },
+    request: (_f, photo: string) =>
+      post('/wardrobe/new/drafts/discard', { photo }),
+    expect: 303,
   }),
 
   // #162 Photos: uploads, mask edit, retry

@@ -95,7 +95,7 @@ export function isWishlistForm(mode: GarmentFormMode): boolean {
  * owner, and the routes read them from the post only for the owner.
  */
 export function formAudience(
-  mode: GarmentFormMode,
+  mode: Pick<GarmentFormMode, 'kind'>,
   viewOwner: number | undefined,
 ): FormAudience {
   return { owner: mode.kind === 'clone' || viewOwner === undefined };

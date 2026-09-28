@@ -8,12 +8,15 @@ import {
   isNotNull,
   isNull,
   lt,
+  ne,
   or,
   type SQL,
   sql,
 } from 'drizzle-orm';
+import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
-import { pendingPhoto } from '../../db/schema';
+import { file, pendingPhoto } from '../../db/schema';
+import { selectScalars } from '../../db/select-scalars';
 
 /**
  * Pending photos: bytes stored before the garment form that will own them
@@ -84,12 +87,16 @@ export function isAgedPending(
 
 /**
  * Serializes one user's pending-photo writes: two uploads at once cannot
- * both keep an eleventh unbatched photo or a thirty-first draft.
+ * both keep an eleventh unbatched photo or a thirty-first draft. What
+ * each judges under it (the eviction, the drafts' count) is a statement
+ * after the one that waited, so its snapshot sees what the other committed.
  */
+function userPendingLock(userId: number): SQL {
+  return sql`pg_advisory_xact_lock(hashtext(${`closet:pending-photos:${userId}`}))`;
+}
+
 async function lockUserPending(tx: Queryable, userId: number): Promise<void> {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${`closet:pending-photos:${userId}`}))`,
-  );
+  await tx.execute(sql`select ${userPendingLock(userId)}`);
 }
 
 /**
@@ -104,8 +111,14 @@ export function recordPendingPhoto(
   userId: number,
 ): Promise<string[]> {
   return db.transaction(async (tx) => {
-    await lockUserPending(tx, userId);
-    await tx.insert(pendingPhoto).values({ fileName, userId });
+    // The insert takes the user's lock as it returns (#161: a round trip
+    // less than a statement of its own). Before the lock is enough for the
+    // insert, which judges nothing; the eviction below is what the lock
+    // orders, and it is the next statement.
+    await tx
+      .insert(pendingPhoto)
+      .values({ fileName, userId })
+      .returning({ locked: userPendingLock(userId) });
     const unbatched = and(
       eq(pendingPhoto.userId, userId),
       isNull(pendingPhoto.batchId),
@@ -171,32 +184,48 @@ export function recordDraftBatch(
   });
 }
 
-/** A draft: which batch, and its place there. */
-export interface Draft {
-  batchId: string;
+/** A draft of a batch still waiting (#200), as the queue lists it. */
+export interface WaitingDraft {
+  fileName: string;
   position: number;
 }
 
-/** The drafts of `batchId` still waiting, in the order they were picked. */
-export async function batchDrafts(
-  db: Queryable,
+/**
+ * A draft: which batch, its place there, and the batch's drafts waiting,
+ * in picked order (read with it, so the queue costs no statement of its
+ * own: the form's, the save's next draft, the discard's).
+ */
+export interface Draft {
+  batchId: string;
+  position: number;
+  waiting: WaitingDraft[];
+}
+
+/** The drafts of `batchId` still waiting, but `except`, in picked order: a JSON array. */
+function waitingSql(
   userId: number,
-  batchId: string,
-): Promise<{ fileName: string; position: number }[]> {
-  const rows = await db
-    .select({
-      fileName: pendingPhoto.fileName,
-      position: pendingPhoto.batchPosition,
-    })
-    .from(pendingPhoto)
-    .where(
-      and(eq(pendingPhoto.userId, userId), eq(pendingPhoto.batchId, batchId)),
+  batchId: SQL | AnyPgColumn,
+  except?: string,
+): SQL<WaitingDraft[]> {
+  const waiting = alias(pendingPhoto, 'waiting');
+  return sql<WaitingDraft[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'fileName', ${waiting.fileName},
+          'position', coalesce(${waiting.batchPosition}, 0)
+        )
+        order by ${waiting.batchPosition}
+      ),
+      '[]'
     )
-    .orderBy(asc(pendingPhoto.batchPosition));
-  return rows.map((row) => ({
-    fileName: row.fileName,
-    position: row.position ?? 0,
-  }));
+    from ${pendingPhoto} as ${waiting}
+    where ${and(
+      eq(waiting.userId, userId),
+      eq(waiting.batchId, batchId),
+      except === undefined ? undefined : ne(waiting.fileName, except),
+    )}
+  )`;
 }
 
 /** The grid's drafts prompt (#200): how many wait, and where Continue opens. */
@@ -266,61 +295,125 @@ function inScope(fileName: string, { userId, ownerId }: PendingScope) {
   );
 }
 
+/** A pending photo in scope as a lookup or a take finds it: a draft with its queue, or not a draft. */
+export interface PendingPhoto {
+  draft: Draft | undefined;
+}
+
+/** pendingPhotoSql's JSON: the row's batch and whether it is in scope. */
+interface PendingPhotoJson {
+  inScope: boolean;
+  batchId: string | null;
+  position: number | null;
+  waiting: WaitingDraft[] | null;
+}
+
+function draftOf(row: Omit<PendingPhotoJson, 'inScope'>): Draft | undefined {
+  const { batchId, position, waiting } = row;
+  return batchId !== null && position !== null
+    ? { batchId, position, waiting: waiting ?? [] }
+    : undefined;
+}
+
 /**
- * Deletes the pending row of `fileName` when it is in `scope`; false when
- * there is none (someone else's, a draft of another wardrobe, claimed,
- * discarded, evicted or reconciled). Inside the claim's or the discard's
- * transaction: the row lock orders it against any other taker, so exactly
- * one wins.
+ * Deletes the pending row of `fileName` when it is in `scope` and no
+ * `file` row has the name, and answers what it was (a draft with the
+ * batch's drafts still waiting after it went, #200); undefined when there
+ * was none (someone else's, a draft of another wardrobe, claimed,
+ * discarded, evicted or reconciled; with `draftsOnly`, not a draft).
+ * Inside the claim's or the discard's transaction, after lockPhotoName:
+ * the row lock orders it against any other taker, so exactly one wins,
+ * and this statement's snapshot, taken after the name's lock, sees any
+ * `file` row a claimant committed meanwhile. One statement (#161): the
+ * `file` check, the delete and the batch left, whose subquery reads the
+ * rows as they were before this delete, so it leaves the taken one out
+ * by name.
  */
 export async function takePendingPhoto(
   tx: Queryable,
   fileName: string,
   scope: PendingScope,
-): Promise<boolean> {
-  const taken = await tx
-    .delete(pendingPhoto)
-    .where(inScope(fileName, scope))
-    .returning({ fileName: pendingPhoto.fileName });
-  return taken.length > 0;
+  { draftsOnly = false }: { draftsOnly?: boolean } = {},
+): Promise<PendingPhoto | undefined> {
+  const { rows } = await tx.execute<Omit<PendingPhotoJson, 'inScope'>>(sql`
+    with taken as (
+      delete from ${pendingPhoto}
+      where ${and(
+        inScope(fileName, scope),
+        draftsOnly ? isNotNull(pendingPhoto.batchId) : undefined,
+        sql`not exists (select 1 from ${file} where ${eq(file.fileName, fileName)})`,
+      )}
+      returning ${pendingPhoto.batchId} as batch_id, ${pendingPhoto.batchPosition} as batch_position
+    )
+    select
+      batch_id as "batchId",
+      batch_position as "position",
+      case when batch_id is null then null
+        else ${waitingSql(scope.userId, sql`taken.batch_id`, fileName)}
+      end as "waiting"
+    from taken
+  `);
+  const [row] = rows;
+  return row && { draft: draftOf(row) };
 }
 
 /**
- * `fileName` while it is still a pending photo in `scope`, with its batch
- * and place when it is a draft (#200); `otherWardrobe` when it is the
- * user's draft for another wardrobe than the one addressed (the routes'
- * 404); undefined when it is not the user's pending photo at all (claimed,
- * discarded, evicted, reconciled). The new garment form started from an
- * upload shows the photo only when it is in scope (GET
- * /wardrobe/new?photo=), and a save reads the batch before its claim to
- * know where the queue goes next. Only a hint: the claim
- * (takePendingPhoto, the same scope) is the check that counts.
+ * `fileName` as a pending photo of `scope`'s user, as a scalar subquery
+ * (a JSON object, null for none) for readPendingPhoto: whether it is in
+ * scope, and a draft's batch, place and queue. The new garment form reads
+ * it with its other lists in one statement (formContext,
+ * src/web/wardrobe/form-context.ts).
+ */
+export function pendingPhotoSql(
+  fileName: string,
+  scope: PendingScope,
+): SQL<PendingPhotoJson | null> {
+  return sql<PendingPhotoJson | null>`(
+    select json_build_object(
+      'inScope', ${addsTo(scope.ownerId)},
+      'batchId', ${pendingPhoto.batchId},
+      'position', ${pendingPhoto.batchPosition},
+      'waiting', case when ${pendingPhoto.batchId} is null then null
+        else ${waitingSql(scope.userId, pendingPhoto.batchId)} end
+    )
+    from ${pendingPhoto}
+    where ${and(
+      eq(pendingPhoto.fileName, fileName),
+      eq(pendingPhoto.userId, scope.userId),
+    )}
+  )`;
+}
+
+/**
+ * pendingPhotoSql's answer: the photo while it is still a pending photo in
+ * scope, with its draft (its queue includes it) when it is one;
+ * `otherWardrobe` when it is the user's draft for another wardrobe than
+ * the one addressed (the routes' 404); undefined when it is not the user's
+ * pending photo at all (claimed, discarded, evicted, reconciled). Only a
+ * hint: the take (takePendingPhoto, the same scope) is the check that
+ * counts.
+ */
+export function readPendingPhoto(
+  row: PendingPhotoJson | null | undefined,
+): PendingPhoto | 'otherWardrobe' | undefined {
+  if (!row) return undefined;
+  if (!row.inScope) return 'otherWardrobe';
+  return { draft: draftOf(row) };
+}
+
+/**
+ * pendingPhotoSql alone: why a take found nothing (the save's and the
+ * discard's refusal: a draft of another wardrobe is their 404).
  */
 export async function pendingPhotoOf(
   db: Queryable,
   fileName: string,
   scope: PendingScope,
-): Promise<{ draft: Draft | undefined } | 'otherWardrobe' | undefined> {
-  const [row] = await db
-    .select({
-      batchId: pendingPhoto.batchId,
-      position: pendingPhoto.batchPosition,
-      inScope: sql<boolean>`${addsTo(scope.ownerId)}`,
-    })
-    .from(pendingPhoto)
-    .where(
-      and(
-        eq(pendingPhoto.fileName, fileName),
-        eq(pendingPhoto.userId, scope.userId),
-      ),
-    );
-  if (!row) return undefined;
-  if (!row.inScope) return 'otherWardrobe';
-  const { batchId, position } = row;
-  return {
-    draft:
-      batchId !== null && position !== null ? { batchId, position } : undefined,
-  };
+): Promise<PendingPhoto | 'otherWardrobe' | undefined> {
+  const { pending } = await selectScalars(db, {
+    pending: pendingPhotoSql(fileName, scope),
+  });
+  return readPendingPhoto(pending);
 }
 
 /**

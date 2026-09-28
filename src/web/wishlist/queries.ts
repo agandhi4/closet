@@ -162,33 +162,41 @@ export interface ReplaceableGarment {
  * whose condition is not good first (what "replace soon" is for), then by
  * category and name; and `chosen`, the one an edited item already names,
  * when it has left the closet since (archived after the item was added),
- * so saving the form keeps it.
+ * so saving the form keeps it. A scalar subquery (a JSON array): the
+ * wishlist form reads it with its other lists in one statement
+ * (formContext, src/web/wardrobe/form-context.ts).
  */
-export function replaceableGarments(
-  db: Db,
+export function replaceableGarmentsSql(
   ownerId: number,
   chosen: number | undefined,
-): Promise<ReplaceableGarment[]> {
-  return db
-    .select({
-      id: garment.id,
-      name: garment.name,
-      category: garment.category,
-      condition: garment.condition,
-    })
-    .from(garment)
-    .where(
-      and(
-        eq(garment.ownerId, ownerId),
-        chosen === undefined
-          ? inCloset()
-          : or(inCloset(), and(eq(garment.id, chosen), ownedGarment())),
+): SQL<ReplaceableGarment[]> {
+  return sql<ReplaceableGarment[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'id', ${garment.id},
+          'name', ${garment.name},
+          'category', ${garment.category},
+          'condition', ${garment.condition}
+        )
+        order by ${sql.join(
+          [
+            desc(ne(garment.condition, 'good')),
+            asc(garment.category),
+            asc(sql`lower(${garment.name})`),
+            asc(garment.id),
+          ],
+          sql`, `,
+        )}
       ),
+      '[]'
     )
-    .orderBy(
-      desc(ne(garment.condition, 'good')),
-      asc(garment.category),
-      asc(sql`lower(${garment.name})`),
-      asc(garment.id),
-    );
+    from ${garment}
+    where ${and(
+      eq(garment.ownerId, ownerId),
+      chosen === undefined
+        ? inCloset()
+        : or(inCloset(), and(eq(garment.id, chosen), ownedGarment())),
+    )}
+  )`;
 }

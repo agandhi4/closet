@@ -18,11 +18,10 @@ import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
 import { imageUrl } from '../files/image-url';
 import {
-  batchDrafts,
+  type Draft,
   draftsHeld,
   MAX_DRAFTS_PER_USER,
   pendingPhotoOf,
-  type PendingScope,
 } from '../files/pending-photos';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
@@ -44,7 +43,7 @@ import type { GoesWithInputs } from '../gallery/queries';
 import { normalizeCategory, normalizeSize } from './garment';
 import { garmentContext } from './garment-context';
 import { GarmentPage, GarmentPhotoView } from './garment-page';
-import { type DraftQueue, nextDraft } from './draft-queue';
+import { nextDraft } from './draft-queue';
 import { pendingPhotoView } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
 import { repairPanel } from './repairs';
@@ -67,7 +66,11 @@ import {
 } from './destination';
 import { formAudience } from './garment-form';
 import { type GridContextPart, gridContext } from './grid-context';
-import { type GarmentFormRequest, renderGarmentForm } from './render-form';
+import {
+  draftNotFound,
+  type GarmentFormRequest,
+  renderGarmentForm,
+} from './render-form';
 import {
   type GarmentScope,
   setGarmentStatus,
@@ -154,14 +157,6 @@ function resolve(
 }
 
 const GARMENT_NOT_FOUND = 'Garment not found';
-
-/**
- * The requester's draft addressed through another wardrobe than its
- * batch's (#200): not found there, like a garment outside the wardrobe.
- */
-function draftNotFound(): HttpError {
-  return new HttpError(404, 'Photo not found');
-}
 
 function notFound(): HttpError {
   return new HttpError(404, GARMENT_NOT_FOUND);
@@ -332,88 +327,27 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   }
 
   /**
-   * What GET /wardrobe/new shows for `?photo=`: the pending photo while it
-   * is still in `scope` (else "no longer available"), and a draft's queue
-   * (#200). The requester's draft for another wardrobe is a 404.
+   * Where a batch's queue goes once its draft `photo` is saved as garment
+   * `id` (#200): the next draft after it in picked order, wrapping round
+   * (so one skipped earlier comes back once the rest are done), else
+   * select mode with the batch checked. The claim answered the drafts
+   * still waiting (takePendingPhoto), so this reads nothing.
    */
-  async function formPhoto(
-    scope: PendingScope,
-    photo: string,
-    query: { saved?: string; leftOut?: string[] },
-  ): Promise<Pick<GarmentFormRequest, 'link' | 'errors' | 'draft'>> {
-    const pending = await pendingPhotoOf(db, photo, scope);
-    if (pending === 'otherWardrobe') throw draftNotFound();
-    if (!pending) {
-      return {
-        link: pendingPhotoView(undefined),
-        errors: { linkPhoto: [t('add.PHOTO_GONE')] },
-      };
-    }
-    return {
-      link: pendingPhotoView(photo),
-      draft:
-        pending.draft &&
-        (await draftQueue(scope.userId, photo, pending.draft.batchId, {
-          saved: readIdList(query.saved),
-          leftOut: query.leftOut ?? [],
-        })),
-    };
-  }
-
-  /** A draft's queue (#200): its batch's drafts still waiting, in picked order. */
-  async function draftQueue(
-    userId: number,
-    current: string,
-    batchId: string,
-    carried: Pick<DraftQueue, 'saved' | 'leftOut'>,
-  ): Promise<DraftQueue> {
-    return {
-      current,
-      waiting: await batchDrafts(db, userId, batchId),
-      ...carried,
-    };
-  }
-
-  /**
-   * The draft a save's pending photo is (#200), read before the save claims
-   * it; undefined without a photo or for one that is no draft. Its queue for
-   * a refused form, and where the queue goes once garment `id` is saved: the
-   * next draft after it in picked order, wrapping round (so one skipped
-   * earlier comes back once the rest are done), else select mode with the
-   * batch checked.
-   */
-  async function postedDraft(
-    scope: PendingScope,
-    body: { linkPhoto?: string; draftsSaved?: string },
+  function afterDraft(
     viewOwner: number | undefined,
-  ) {
-    const photo = body.linkPhoto;
-    if (!photo) return undefined;
-    const { userId } = scope;
-    const pending = await pendingPhotoOf(db, photo, scope);
-    // Never saved into another wardrobe than its batch's (#200); the claim
-    // is scoped the same way, so this is the answer, not the guard.
-    if (pending === 'otherWardrobe') throw draftNotFound();
-    const draft = pending?.draft;
-    if (!draft) return undefined;
-    const saved = readIdList(body.draftsSaved);
-    return {
-      queue: () =>
-        draftQueue(userId, photo, draft.batchId, { saved, leftOut: [] }),
-      after: async (id: number): Promise<string> => {
-        logger.info(
-          `Garment ${id} saved from draft ${photo} of batch ${draft.batchId.slice(0, 8)}`,
-        );
-        const next = nextDraft(
-          await batchDrafts(db, userId, draft.batchId),
-          draft.position,
-        );
-        const savedNow = [...saved, id];
-        return next
-          ? draftUrl(viewOwner, next, savedNow)
-          : batchEnd(viewOwner, savedNow);
-      },
-    };
+    photo: string,
+    draft: Draft,
+    saved: readonly number[],
+    id: number,
+  ): string {
+    logger.info(
+      `Garment ${id} saved from draft ${photo} of batch ${draft.batchId.slice(0, 8)}`,
+    );
+    const next = nextDraft(draft.waiting, draft.position);
+    const savedNow = [...saved, id];
+    return next
+      ? draftUrl(viewOwner, next, savedNow)
+      : batchEnd(viewOwner, savedNow);
   }
 
   /** Where a batch's queue ends: select mode with what it saved checked. */
@@ -575,12 +509,20 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         viewOwner,
         values: destinationValues(destination, replaced),
         candidateFor,
-        ...(photo &&
-          (await formPhoto(
-            { userId: sessionUserId(request), ownerId: access.ownerId },
-            photo,
-            request.query,
-          ))),
+        pendingPhoto: photo
+          ? {
+              fileName: photo,
+              scope: {
+                userId: sessionUserId(request),
+                ownerId: access.ownerId,
+              },
+              sayGone: true,
+              carried: {
+                saved: readIdList(request.query.saved),
+                leftOut: request.query.leftOut ?? [],
+              },
+            }
+          : undefined,
       });
     },
   );
@@ -638,21 +580,23 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'manage',
       );
-      const userId = sessionUserId(request);
-      const scope = { userId, ownerId: access.ownerId };
+      const scope = { userId: sessionUserId(request), ownerId: access.ownerId };
       const { photo } = request.body;
       const saved = readIdList(request.body.saved);
-      const pending = await pendingPhotoOf(db, photo, scope);
-      if (pending === 'otherWardrobe') throw draftNotFound();
-      const draft = pending?.draft;
-      if (draft) await discardPendingPhoto(deps, photo, scope);
-      const next =
-        draft &&
-        nextDraft(
-          await batchDrafts(db, userId, draft.batchId),
-          draft.position,
-          photo,
-        );
+      // Drafts only: a single pending photo is never this button's. The
+      // take answers the drafts still waiting, so the next is read with it.
+      const discarded = await discardPendingPhoto(deps, photo, scope, {
+        draftsOnly: true,
+      });
+      const draft = discarded?.draft;
+      // Nothing taken: a draft of another wardrobe is a 404, as on the form.
+      if (
+        !draft &&
+        (await pendingPhotoOf(db, photo, scope)) === 'otherWardrobe'
+      ) {
+        throw draftNotFound();
+      }
+      const next = draft && nextDraft(draft.waiting, draft.position);
       return reply.redirect(
         next ? draftUrl(viewOwner, next, saved) : batchEnd(viewOwner, saved),
         303,
@@ -682,7 +626,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // A new garment. A form holding a pending photo (prefilled from a link, or
   // started from an add-sheet upload) also posts it as `linkPhoto` (stored,
   // no row yet), which is claimed here with the garment
-  // (createGarmentWithPendingPhoto); a refused form keeps it.
+  // (createGarmentWithPendingPhoto); a refused form keeps it. A draft of a
+  // batch (#200) moves the queue on to the batch's next draft (afterDraft).
+  // Statements after the session: the insert alone; with a pending photo,
+  // the claim's transaction; a refused form, its one statement.
   app.post(
     '/wardrobe',
     { schema: { querystring: OwnerQuery, body: GarmentBody } },
@@ -695,13 +642,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const { linkPhoto } = request.body;
       const userId = sessionUserId(request);
-      // A draft of a batch (#200) is read before the save claims it: the
-      // queue moves on to the batch's next draft afterwards.
-      const draft = await postedDraft(
-        { userId, ownerId: access.ownerId },
-        request.body,
-        viewOwner,
-      );
+      const scope = { userId, ownerId: access.ownerId };
+      const saved = readIdList(request.body.draftsSaved);
       // A plan item's "Add a candidate" (34b) is checked before anything is
       // read or stored, and linked in the garment's transaction.
       const { destination, candidateFor, withGarment } =
@@ -724,27 +666,58 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ...again,
           values: form.values,
           errors: form.errors,
-          draft: await draft?.queue(),
+          // Its draft's queue, and a draft of another wardrobe's 404.
+          pendingPhoto: linkPhoto
+            ? {
+                fileName: linkPhoto,
+                scope,
+                sayGone: false,
+                carried: { saved, leftOut: [] },
+              }
+            : undefined,
         });
       }
-      const id = linkPhoto
-        ? await createGarmentWithPendingPhoto(
-            deps,
-            access.ownerId,
-            userId,
-            form.fields,
-            linkPhoto,
-            status,
-            withGarment,
-          )
-        : await createGarment(
-            deps,
-            access.ownerId,
-            form.fields,
-            status,
-            withGarment,
-          );
-      if (id === undefined) {
+      const created = (id: number) =>
+        logger.info(
+          `Garment ${id} created (${status}) by user ${userId} in wardrobe ${access.ownerId}${
+            form.fields.replacesGarmentId
+              ? `, asked to replace garment ${form.fields.replacesGarmentId}`
+              : ''
+          }${candidateFor ? `, a candidate for plan item ${candidateFor.id}` : ''}${
+            destination.orderItem
+              ? `, from order item ${destination.orderItem}`
+              : ''
+          }`,
+        );
+      if (!linkPhoto) {
+        const id = await createGarment(
+          deps,
+          access.ownerId,
+          form.fields,
+          status,
+          withGarment,
+        );
+        created(id);
+        return reply.redirect(
+          garmentUrl(id, viewOwner, '', { created: 1 }),
+          302,
+        );
+      }
+      const claimed = await createGarmentWithPendingPhoto(
+        deps,
+        access.ownerId,
+        userId,
+        form.fields,
+        linkPhoto,
+        status,
+        withGarment,
+      );
+      if (!claimed) {
+        // Why the claim found nothing: a draft of another wardrobe is a
+        // 404 (#200), anything else no longer available.
+        if ((await pendingPhotoOf(db, linkPhoto, scope)) === 'otherWardrobe') {
+          throw draftNotFound();
+        }
         return refuseForm(reply, {
           ...again,
           link: pendingPhotoView(undefined),
@@ -752,19 +725,14 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           errors: { linkPhoto: [t('add.PHOTO_GONE')] },
         });
       }
-      logger.info(
-        `Garment ${id} created (${status}) by user ${userId} in wardrobe ${access.ownerId}${
-          form.fields.replacesGarmentId
-            ? `, asked to replace garment ${form.fields.replacesGarmentId}`
-            : ''
-        }${candidateFor ? `, a candidate for plan item ${candidateFor.id}` : ''}${
-          destination.orderItem
-            ? `, from order item ${destination.orderItem}`
-            : ''
-        }`,
-      );
-      if (draft) return reply.redirect(await draft.after(id), 303);
-      return reply.redirect(garmentUrl(id, viewOwner, '', { created: 1 }), 302);
+      const { id, draft } = claimed;
+      created(id);
+      return draft
+        ? reply.redirect(
+            afterDraft(viewOwner, linkPhoto, draft, saved, id),
+            303,
+          )
+        : reply.redirect(garmentUrl(id, viewOwner, '', { created: 1 }), 302);
     },
   );
 
@@ -1081,8 +1049,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         suggestionsFrom: access.ownerId,
         viewOwner,
         values: storedFormValues(garment, { owner: access.isOwner }),
-        repairs: await repairPanel(
-          db,
+        repairs: repairPanel(
           garment,
           access.isOwner,
           todayIn(config.timeZone, new Date()),
@@ -1093,6 +1060,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // Every field is posted: the stored garment becomes what the form says
   // (a cleared field is null). A malformed or refused form writes nothing.
+  // A save is the update alone (a garment gone is its 404); only a refused
+  // form reads the garment, for the form again (#161).
   app.post(
     '/wardrobe/:id',
     {
@@ -1110,23 +1079,24 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { id } = request.params;
-      const stored = await requireGarment(options, id, access.ownerId);
-      const mode = {
-        kind: 'edit',
-        garmentId: id,
-        wishlist: stored.status === 'wishlist',
-      } as const;
       // A MANAGE grantee's post leaves the owner-only fields as stored.
-      const form = readGarmentForm(request.body, formAudience(mode, viewOwner));
+      const form = readGarmentForm(
+        request.body,
+        formAudience({ kind: 'edit' }, viewOwner),
+      );
       if (!form.ok) {
+        const stored = await requireGarment(options, id, access.ownerId);
         return refuseForm(reply, {
-          mode,
+          mode: {
+            kind: 'edit',
+            garmentId: id,
+            wishlist: stored.status === 'wishlist',
+          },
           suggestionsFrom: access.ownerId,
           viewOwner,
           values: form.values,
           errors: form.errors,
-          repairs: await repairPanel(
-            db,
+          repairs: repairPanel(
             stored,
             access.isOwner,
             todayIn(config.timeZone, new Date()),
@@ -1386,6 +1356,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // htmx (hx-delete): owner only. The photo's bytes go after the rows commit.
+  // The delete answers the status it had: no read before it (#161).
   app.delete(
     '/wardrobe/:id',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
@@ -1397,15 +1368,15 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'own',
       );
       const { id } = request.params;
-      const garment = await requireGarment(options, id, access.ownerId);
-      if (!(await removeGarment(deps, id, access.ownerId))) throw notFound();
+      const status = await removeGarment(deps, id, access.ownerId);
+      if (!status) throw notFound();
       logger.info(
-        `Garment ${id} (${garment.status}) deleted by user ${access.ownerId}`,
+        `Garment ${id} (${status}) deleted by user ${access.ownerId}`,
       );
       // A wishlist item's delete is "not buying it": back to the wishlist.
       return navigateTo(
         reply,
-        garment.status === 'wishlist' ? WISHLIST_PATH : '/wardrobe',
+        status === 'wishlist' ? WISHLIST_PATH : '/wardrobe',
       );
     },
   );

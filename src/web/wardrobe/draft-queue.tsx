@@ -1,5 +1,6 @@
 import { PostForm } from '../auth/form';
 import { imageUrl } from '../files/image-url';
+import type { WaitingDraft } from '../files/pending-photos';
 import { pendingPhotoRef } from '../files/queries';
 import { t } from '../i18n';
 import { DRAFT_DISCARD_PATH, draftUrl, wardrobeUrl } from './urls';
@@ -23,11 +24,6 @@ export interface DraftQueue {
   saved: readonly number[];
   /** The photos the upload could not read (the first draft only). */
   leftOut: readonly string[];
-}
-
-export interface WaitingDraft {
-  fileName: string;
-  position: number;
 }
 
 /**

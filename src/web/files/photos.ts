@@ -364,12 +364,15 @@ export class Photos {
    * source's row points at, under a fresh name (unkeyed: the copy has no
    * row yet), with a new thumb; returns the row to insert, as storeUpload
    * does. Undefined when the source is gone from storage (a row can outlive
-   * its bytes).
+   * its bytes). `source` is the photo as the caller read its row (the
+   * clone's garment): its variant key is the cutout's first guess, read
+   * again only when a swap moved it meanwhile.
    */
   async copy(
-    sourceFileName: string,
+    source: StoredPhoto,
     userId: number,
   ): Promise<NewPhotoRow | undefined> {
+    const sourceFileName = source.fileName;
     const original = await this.storage.get(sourceFileName);
     if (!original) {
       this.logger.warn(`Photo copy: source ${sourceFileName} is missing`);
@@ -379,7 +382,10 @@ export class Photos {
     const copied = unkeyedPhoto(`${randomUUID()}.webp`);
     try {
       await this.storage.store(copied.fileName, original);
-      const nobgSource = await this.openCurrentCutout(sourceFileName);
+      const nobgSource = await this.openCurrentCutout(
+        sourceFileName,
+        source.variantKey,
+      );
       if (nobgSource) {
         await this.storage.store(
           variantFileName(copied.fileName, 'nobg'),
@@ -454,11 +460,17 @@ export class Photos {
   // between reading the key and opening its file deletes the set it
   // replaced, so a missing file under a key the row no longer names is
   // read again under the new one: a copy (a clone keeps the source's
-  // ready or edited status) must not lose the cutout to that race.
+  // ready or edited status) must not lose the cutout to that race. A
+  // caller that read the row already passes its key (`known`), sparing
+  // the first read.
   private async openCurrentCutout(
     fileName: string,
+    known?: string | null,
   ): Promise<Readable | undefined> {
-    let key = (await findVariantKey(this.db, fileName)) ?? null;
+    let key =
+      known === undefined
+        ? ((await findVariantKey(this.db, fileName)) ?? null)
+        : known;
     for (let attempt = 1; ; attempt++) {
       const opened = await this.storage.get(
         variantFileName(fileName, 'nobg', key),

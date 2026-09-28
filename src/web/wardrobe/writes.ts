@@ -12,6 +12,7 @@ import {
   draftsHeld,
   MAX_DRAFTS_PER_USER,
   MAX_PENDING_PER_USER,
+  type PendingPhoto,
   type PendingScope,
   recordDraftBatch,
   recordPendingPhoto,
@@ -22,10 +23,13 @@ import {
   insertPhotoRow,
   lockPhotoName,
   type NewPhotoRow,
-  photoRowExists,
 } from '../files/queries';
 import type { Logger } from '../../logger';
-import { type EntryStatus, statusOfClone } from '../../wardrobe/status';
+import {
+  type EntryStatus,
+  type GarmentStatus,
+  statusOfClone,
+} from '../../wardrobe/status';
 import {
   deleteGarment,
   findGarment,
@@ -86,7 +90,9 @@ export type WithGarment = (
 
 /**
  * A new garment in `ownerId`'s wardrobe, in the closet or on the wishlist
- * (the form has no photo; it comes next), with `withGarment`'s rows.
+ * (the form has no photo; it comes next), with `withGarment`'s rows. The
+ * insert alone is one statement: a transaction only when rows ride with
+ * it (#161: begin and commit are two more round trips).
  */
 export function createGarment(
   { db }: WardrobeDeps,
@@ -95,9 +101,10 @@ export function createGarment(
   status: EntryStatus,
   withGarment?: WithGarment,
 ): Promise<number> {
+  if (!withGarment) return insertGarment(db, ownerId, fields, null, status);
   return db.transaction(async (tx) => {
     const id = await insertGarment(tx, ownerId, fields, null, status);
-    await withGarment?.(tx, id);
+    await withGarment(tx, id);
     return id;
   });
 }
@@ -285,6 +292,13 @@ function draftsFull(held: number): HttpError {
   );
 }
 
+/** A garment saved with the pending photo it claimed, and the draft that photo was (#200). */
+export interface ClaimedGarment {
+  id: number;
+  /** The draft's batch and the drafts still waiting after it; undefined for a single photo. */
+  draft: PendingPhoto['draft'];
+}
+
 /**
  * A new garment whose photo was stored before its form was saved: a
  * pending photo (keepPendingPhoto), fetched from a link or uploaded from
@@ -308,7 +322,7 @@ export async function createGarmentWithPendingPhoto(
   fileName: string,
   status: EntryStatus,
   withGarment?: WithGarment,
-): Promise<number | undefined> {
+): Promise<ClaimedGarment | undefined> {
   // The wardrobe's owner owns the row, whoever saves (as replacePhoto).
   // Its bytes are checked before the transaction: storage I/O never runs
   // under the name's lock (#141). Checked early is still true at the
@@ -316,70 +330,63 @@ export async function createGarmentWithPendingPhoto(
   // pending row first (a discard, an eviction, reconciliation, account
   // deletion), and then takePendingPhoto below finds none.
   const photo = await photos.pendingPhotoRow(fileName, ownerId);
-  const id =
+  const claimed =
     photo &&
-    (await db.transaction(async (tx) => {
+    (await db.transaction(async (tx): Promise<ClaimedGarment | undefined> => {
       await lockPhotoName(tx, fileName);
-      if (await photoRowExists(tx, fileName)) return undefined;
-      if (!(await takePendingPhoto(tx, fileName, { userId, ownerId }))) {
-        return undefined;
-      }
+      const taken = await takePendingPhoto(tx, fileName, { userId, ownerId });
+      if (!taken) return undefined;
       const photoId = await insertPhotoRow(tx, {
         ...photo,
         ...initialCutoutState('pending'),
       });
-      const garmentId = await insertGarment(
-        tx,
-        ownerId,
-        fields,
-        photoId,
-        status,
-      );
-      await withGarment?.(tx, garmentId);
-      return garmentId;
+      const id = await insertGarment(tx, ownerId, fields, photoId, status);
+      await withGarment?.(tx, id);
+      return { id, draft: taken.draft };
     }));
-  if (id === undefined) {
+  if (!claimed) {
     logger.warn(
       `Pending photo ${fileName} could not be claimed by user ${userId}`,
     );
     return undefined;
   }
   logger.info(
-    `Garment ${id} photo ${fileName} (a pending photo) queued for background removal`,
+    `Garment ${claimed.id} photo ${fileName} (a pending photo) queued for background removal`,
   );
   cutouts.wake();
-  return id;
+  return claimed;
 }
 
 /**
  * Deletes a pending photo the form no longer shows (link import: another
- * photo was picked, or none; a draft's Discard, #200). False, deleting
- * nothing, unless it is still pending in `scope` (takePendingPhoto: the
- * user's own, a draft only from its batch's wardrobe) with no `file` row:
- * only a photo of theirs that no garment was saved with goes. Under the
- * name's lock, so a save claiming it at the same moment either wins
+ * photo was picked, or none; a draft's Discard, #200, `draftsOnly`) and
+ * answers what it was (a draft with the drafts still waiting). Undefined,
+ * deleting nothing, unless it is still pending in `scope` (takePendingPhoto:
+ * the user's own, a draft only from its batch's wardrobe) with no `file`
+ * row: only a photo of theirs that no garment was saved with goes. Under
+ * the name's lock, so a save claiming it at the same moment either wins
  * (nothing is deleted) or finds it gone. The bytes go after the commit.
  */
 export async function discardPendingPhoto(
   { db, photos, logger }: WardrobeDeps,
   fileName: string,
   scope: PendingScope,
-): Promise<boolean> {
-  if (parseStoredName(fileName)?.variant !== 'original') return false;
+  options: { draftsOnly?: boolean } = {},
+): Promise<PendingPhoto | undefined> {
+  if (parseStoredName(fileName)?.variant !== 'original') return undefined;
   const discarded = await db.transaction(async (tx) => {
     await lockPhotoName(tx, fileName);
-    if (await photoRowExists(tx, fileName)) return false;
-    return takePendingPhoto(tx, fileName, scope);
+    return takePendingPhoto(tx, fileName, scope, options);
   });
   if (!discarded) {
     logger.warn(
       `Pending photo ${fileName} not discarded: not pending for user ${scope.userId} in wardrobe ${scope.ownerId}`,
     );
-    return false;
+    return undefined;
   }
   await photos.deleteVariants(unkeyedPhoto(fileName));
   logger.info(`Discarded pending photo ${fileName} of user ${scope.userId}`);
-  return true;
+  return discarded;
 }
 
 /**
@@ -397,7 +404,7 @@ export async function cloneGarment(
 ): Promise<number> {
   // copy() is undefined when the source's bytes are gone: a clone without a photo.
   const photo = source.photo
-    ? await deps.photos.copy(source.photo.fileName, requesterId)
+    ? await deps.photos.copy(source.photo, requesterId)
     : undefined;
   const entry = statusOfClone(source.status);
   if (!photo || !source.photo) {
@@ -548,17 +555,17 @@ async function swapPhoto(
 }
 
 /**
- * Deletes the garment and its photo's row, then the photo's bytes. False
- * when the garment is not in `ownerId`'s wardrobe.
+ * Deletes the garment and its photo's row, then the photo's bytes; the
+ * status it had. Undefined when the garment is not in `ownerId`'s wardrobe.
  */
 export async function removeGarment(
   deps: WardrobeDeps,
   id: number,
   ownerId: number,
-): Promise<boolean> {
-  const photo = await deleteGarment(deps.db, id, ownerId);
-  if (photo === undefined) return false;
+): Promise<GarmentStatus | undefined> {
+  const deleted = await deleteGarment(deps.db, id, ownerId);
+  if (!deleted) return undefined;
   // Only after commit: an unlink cannot be rolled back.
-  if (photo) await deps.photos.deleteVariants(photo);
-  return true;
+  if (deleted.photo) await deps.photos.deleteVariants(deleted.photo);
+  return deleted.status;
 }

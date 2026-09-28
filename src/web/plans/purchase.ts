@@ -346,9 +346,9 @@ export async function buyCandidate(
       const kept: number[] = [];
       for (const id of new Set(followUps.removeCandidates)) {
         if (!others.includes(id)) continue;
-        const photo = await deleteGarment(tx, id, ownerId, 'wishlist');
-        if (photo === undefined) kept.push(id);
-        else removed.push({ id, photo });
+        const deleted = await deleteGarment(tx, id, ownerId, 'wishlist');
+        if (deleted === undefined) kept.push(id);
+        else removed.push({ id, photo: deleted.photo });
       }
       return {
         ok: true as const,

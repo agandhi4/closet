@@ -1,0 +1,26 @@
+# Adding and editing a garment: what each request reads
+
+Part of the Wardrobe (`CLAUDE.md` in this directory); #161, epic #156. Production reaches Postgres over a link of about 114 ms a round trip, so the count of statements is the latency; `test/integration/garment-form-statements.spec.ts` pins every count below. Read this before adding a read to the form or a statement to a save.
+
+## The forms
+
+- **Every garment form reads what it shows in one statement**: `formContext` (`form-context.ts`, over `selectScalars`), called only by `renderGarmentForm` (`render-form.tsx`), which decides the parts from the form's mode and audience: the category suggestions (`wardrobeCategoriesSql`: the categories alone; the grid's other filter options fed nothing here), a wishlist form's "Replaces" (`replaceableGarmentsSql`), the requester's own brand note (`brandSizeSql`, own wardrobe only), the duplicate check's candidates for a form that adds to the closet (`closetLookalikesSql`, `lookalikes.md`), the edit page's repair log (`repairLogSql`; `repairPanel` in `repairs.ts` is still the one rule of who gets the editor, and now reads nothing) and the pending photo a new form holds (`pendingPhotoSql`: still the requester's, in scope, and a draft's queue). A new read the form needs joins `FormContextParts`, never a second statement.
+- **Counts** (the session's statement included): the add form 2, with a pending photo or a draft 2; the edit page and the clone form 3 (the garment first: what the form reads depends on it, as on the garment page); the properties fragment 1 (reads nothing); the lookalike refresh 2; the link page 1.
+- **The pending photo is judged after the statement** (`pendingPhotoOnForm`): a draft of another wardrobe is the 404 it always was (`draftNotFound`), a photo no longer the requester's says "no longer available" on `GET /wardrobe/new?photo=` (`sayGone`), while a refused save keeps showing the photo it posted (its claim is the check that counts).
+
+## The saves
+
+- **A new garment without a photo is its insert alone** (2): `createGarment` opens a transaction only when rows ride with the garment (`withGarment`: a plan candidate's link, an order item). A refused form is 2 (the form's statement).
+- **An edit is its update alone** (2): `updateGarmentFields` answers whether the garment was there (its 404). Only a refused form reads the garment (3), for the wishlist mode and the repair editor; `formAudience` needs the mode's kind alone.
+- **A pending photo's save** (7): the session, then begin, the name's lock (`lockPhotoName`), the take, the `file` row, the garment, commit. The take (`takePendingPhoto`) is one statement: the `file` check (its snapshot is taken after the lock, so it sees a row a claimant committed meanwhile), the delete, and a draft's batch still waiting, read from the rows as they were before the delete. The route reads nothing before the claim; only when the claim found nothing does it read the photo (`pendingPhotoOf`), to tell a draft of another wardrobe (404) from one no longer available (the form again). A draft's next is `afterDraft` over what the take answered.
+- **An upload** (6 for one photo): the session, the drafts held (the parser's `files` limit, set before the body is read), then begin, the insert that takes the user's pending lock in its `RETURNING`, the eviction, commit. The insert judges nothing, so taking the lock as it returns is enough: the eviction is the next statement, whose snapshot sees what another upload committed. A batch (7) keeps its separate lock: its count must be judged under it before anything is inserted. The link import's photo (the import 6, the photo choice 5) keeps its pending photo the same way.
+- **A discard** (5): begin, the lock, the take with `draftsOnly`, commit; its queue came with the take.
+- **A clone** (6): the garment, then begin, the `file` row, the garment, commit. `Photos.copy` takes the source's `StoredPhoto` from the garment the route read, so the cutout's variant key is not read again (it is only when the file under it is gone: a swap landed meanwhile).
+- **Add a copy** (5): the owner lock's transaction around one guarded UPDATE (`addCopies`).
+- **A delete** (4 without a photo, 5 with): the DELETE answers the status the route navigates by and the photo id, and takes the row lock itself, so neither the route's read nor `lockGarment` is needed (`deleteGarment`).
+
+## Not changed, and why
+
+- `GET /wardrobe/new?to=wishlist&replaces=&planItem=` reads the replaced garment and the plan item (`resolveDestination`) before the form: each can 404 the page, and they are the plans' and wishlist's reads (#167).
+- The batch upload's count before the body is read: it sets the parser's `files` limit, so a pick past the room left stops at the first photo past it and stores nothing more.
+- The claim's transaction keeps `lockPhotoName` as its own statement: the take's `file` check needs a snapshot taken after it.

@@ -81,21 +81,26 @@ export interface RepairPanel {
 }
 
 /**
+ * The edit page's repair editor before its log is read: renderGarmentForm
+ * reads the entries (repairLogSql) with the form's other lists, in one
+ * statement (formContext, form-context.ts).
+ */
+export type RepairPanelRequest = Omit<RepairPanel, 'entries'>;
+
+/**
  * The edit page's repair editor for `garment`, or undefined where there is
  * none: for anyone but its owner, and for a wishlist item (not owned yet).
  * The one rule for the edit page, its refused save and a refused entry.
  */
-export async function repairPanel(
-  db: Db,
+export function repairPanel(
   garment: { id: number; status: GarmentStatus },
   isOwner: boolean,
   today: IsoDate,
   refused?: { values: RepairFormValues; errors: FieldErrors<RepairField> },
-): Promise<RepairPanel | undefined> {
+): RepairPanelRequest | undefined {
   if (!isOwner || garment.status === 'wishlist') return undefined;
   return {
     garmentId: garment.id,
-    entries: await repairLog(db, garment.id),
     draft: refused?.values ?? blankRepair(today),
     errors: refused?.errors,
     today,
@@ -182,7 +187,7 @@ export function repairLogSql(garmentId: number): SQL<RepairEntry[]> {
   )`;
 }
 
-/** repairLogSql alone: the edit page's panel (repairPanel) and get_garment. */
+/** repairLogSql alone: get_garment (MCP). */
 export async function repairLog(
   db: Queryable,
   garmentId: number,

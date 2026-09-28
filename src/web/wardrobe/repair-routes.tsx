@@ -89,7 +89,7 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             suggestionsFrom: userId,
             viewOwner: undefined,
             values: storedFormValues(garment, { owner: true }),
-            repairs: await repairPanel(db, garment, true, today, form),
+            repairs: repairPanel(garment, true, today, form),
           },
           400,
         );

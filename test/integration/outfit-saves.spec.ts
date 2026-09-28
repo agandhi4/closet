@@ -450,7 +450,8 @@ describe('outfit saves', () => {
         (tx) => deleteGarment(tx, doomed, t.owner.id),
         () => formSave([doomed, bottom], { name: 'Raced' }),
       );
-      expect(deleted).toBeNull();
+      // Deleted (it had no photo).
+      expect(deleted).toEqual({ status: 'closet', photo: null });
       expect(res.statusCode).toBe(404);
       expect(
         hasText(

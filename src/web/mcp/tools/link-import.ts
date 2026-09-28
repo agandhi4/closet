@@ -10,6 +10,7 @@ import {
 import { importedForm } from '../../wardrobe/link-import/prefill';
 import {
   formPost,
+  type GarmentFields,
   type GarmentFormValues,
   readGarmentForm,
   withPresets,
@@ -104,23 +105,11 @@ export async function addGarmentFromLink(
     );
     throw new HttpError(400, messages.join('; '));
   }
-  const id = photo
-    ? await createGarmentWithPendingPhoto(
-        deps,
-        ownerId,
-        ctx.userId,
-        read.fields,
-        photo,
-        overrides.destination,
-        withGarment,
-      )
-    : await createGarment(
-        deps,
-        ownerId,
-        read.fields,
-        overrides.destination,
-        withGarment,
-      );
+  const id = await saveImported(deps, ownerId, ctx.userId, read.fields, {
+    photo,
+    destination: overrides.destination,
+    withGarment,
+  });
   if (id === undefined) {
     // Claimed or evicted between the import and the save (the same user's
     // tenth import meanwhile): nothing was written.
@@ -130,6 +119,41 @@ export async function addGarmentFromLink(
     `Garment ${id} added from a link by user ${ctx.userId} into wardrobe ${ownerId} (${overrides.destination}, MCP): ${imported.kind}${photo ? `, photo ${photo}` : ', no photo'}`,
   );
   return { id, notices: form.link.notices };
+}
+
+/**
+ * The imported garment saved in `ownerId`'s wardrobe, claiming its pending
+ * photo when it has one; undefined when that photo was claimed or evicted
+ * meanwhile (nothing was written).
+ */
+async function saveImported(
+  deps: WardrobeDeps,
+  ownerId: number,
+  userId: number,
+  fields: GarmentFields,
+  {
+    photo,
+    destination,
+    withGarment,
+  }: {
+    photo: string | undefined;
+    destination: EntryStatus;
+    withGarment: WithGarment | undefined;
+  },
+): Promise<number | undefined> {
+  if (!photo) {
+    return createGarment(deps, ownerId, fields, destination, withGarment);
+  }
+  const claimed = await createGarmentWithPendingPhoto(
+    deps,
+    ownerId,
+    userId,
+    fields,
+    photo,
+    destination,
+    withGarment,
+  );
+  return claimed?.id;
 }
 
 function withOverrides(
