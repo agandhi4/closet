@@ -16,7 +16,13 @@ Each failing spec is one of two things:
 - **An app bug on Safari.** Fix the app, or give it its own issue. The
   first local run (#179) found the Styling strips unable to scroll a row
   of one garment (WebKit leaves a flex scroller's end padding out of its
-  scroll width; `src/web/styling/CLAUDE.md`).
+  scroll width; `src/web/styling/CLAUDE.md`). The same run found signing
+  out hanging for good (#239): WebKit never settles a fetch whose opaque
+  redirect carries `Clear-Site-Data`, which the service worker's re-fetch
+  of the sign-out post was (`src/web/shell/session-caches.md`). That one
+  is WebKit's own code, not the Linux build's, so it was a real iPhone's
+  bug too; when a failure might be the Linux build only, reproduce it in a
+  page and worker of a few lines before skipping it.
 - **Something Playwright's WebKit cannot do.** The spec skips in WebKit with
   one of the reasons in `test/support/webkit-limits.ts`, each seen failing
   with the app working: offline navigations (setOffline fails them before
@@ -68,10 +74,16 @@ PORT=3107 DATABASE_HOST=localhost DATABASE_USER=postgres DATABASE_PASS=postgres 
 docker run --rm --network host --ipc host -u "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD:$PWD" -w "$PWD" -e PORT=3107 -e DATABASE_HOST=localhost \
   -e DATABASE_USER=postgres -e DATABASE_PASS=postgres -e DATABASE_SCHEMA=closet_webkit \
-  -e PWA_ENABLED=true mcr.microsoft.com/playwright:v1.60.0-noble \
+  -e PWA_ENABLED=true -e PUBLIC_VAPID_KEY=.. -e PRIVATE_VAPID_KEY=.. \
+  mcr.microsoft.com/playwright:v1.60.0-noble \
   npx playwright test --project=webkit --project="Mobile Safari" --workers=4
 ```
 
 The specs reuse the running server (not CI) and read the same database for
-their own rows. Stop the server by its PID, never by a pattern (other
+their own rows; a few load the server's config themselves
+(`order-review.spec.ts`), which refuses `PWA_ENABLED` without the VAPID
+keys, hence the same keys in both. Worktrees side by side each take a
+port and a database of their own. Under four workers a spec that builds
+many rows through the API (`capsules.spec.ts`'s appended grid page) can
+time out; rerun it alone before reading it as a failure. Stop the server by its PID, never by a pattern (other
 worktrees run the same command line), and drop the database.

@@ -498,29 +498,71 @@ const isSessionBoundary = ({ url }: { url: URL }) =>
 type SessionChange = 'session started' | 'session ended' | 'session revoked';
 
 /**
- * What an auth POST's answer did to this device's session. A redirect means
- * it changed (a navigation sees an opaque redirect, whose headers it cannot
- * read; htmx's XHR a followed one). A refusal (a wrong password, a taken
- * email) re-renders the form with a 4xx and changes nothing, unless it
- * says X-Session-Ended (endedSession): the cookie it was sent with no
- * longer opened a session (revoked elsewhere, expired), and the server
- * cleared it on this very answer (#131). The login form stays open to a
- * signed-in user, so this is a wrong password typed after the account's
- * password changed on another device.
+ * What an auth POST's answer did to this device's session, read from the
+ * page its redirect landed on (sessionBoundaryHandler follows it). A
+ * redirect means it changed. A refusal (a wrong password, a taken email)
+ * re-renders the form with a 4xx and changes nothing, unless it says
+ * X-Session-Ended (endedSession): the cookie it was sent with no longer
+ * opened a session (revoked elsewhere, expired), and the server cleared it
+ * on this very answer (#131). The login form stays open to a signed-in
+ * user, so this is a wrong password typed after the account's password
+ * changed on another device.
  *
  * A sign-in keeps the push subscription even when its redirect also ended
- * a dead session (X-Session-Ended beside the new cookie): the auth forms
- * are native posts, so the worker sees an opaque redirect whose headers it
- * cannot read, and it need not. The next signed-in page re-sends the
- * subscription (syncSubscription, public/js/push.js), which moves the
- * device's row to the new account with its reminders off (upsertDevice,
+ * a dead session (X-Session-Ended beside the new cookie): the worker sees
+ * the page the redirect landed on, not the redirect's own headers, and it
+ * need not. The next signed-in page re-sends the subscription
+ * (syncSubscription, public/js/push.js), which moves the device's row to
+ * the new account with its reminders off (upsertDevice,
  * src/web/push/queries.ts), so the previous account's notifications stop.
  */
 function sessionChange(url: URL, response: Response): SessionChange | null {
-  if (response.type === 'opaqueredirect' || response.redirected) {
+  if (response.redirected) {
     return SESSION_ENDS.has(url.pathname) ? 'session ended' : 'session started';
   }
   return endedSession(response.headers) ? 'session revoked' : null;
+}
+
+/**
+ * Follows the redirect in the worker, never as the navigation's opaque
+ * redirect (#239). A navigation's request has redirect mode 'manual', so
+ * fetching it as is answers with an opaque redirect, and WebKit (Safari,
+ * every iOS browser) loses an opaque redirect that carries
+ * Clear-Site-Data: the fetch never settles, and signing out, deleting the
+ * account or signing in over another account hung on the POST
+ * (NetworkResourceLoader::didFinishWithRedirectResponse finishes the load
+ * while the header's clearing still holds the response back). A followed
+ * one settles everywhere, and Chromium applies Clear-Site-Data on a
+ * followed redirect too. `new Request` with an init turns 'navigate' into
+ * 'same-origin'; every auth redirect is same-origin.
+ */
+async function fetchFollowingRedirects(request: Request): Promise<Response> {
+  return fetch(new Request(request, { redirect: 'follow' }));
+}
+
+/**
+ * The answer for the request the page made. A navigation may not be
+ * answered with a followed redirect's page (its redirect mode is 'manual':
+ * the browser would fail the load, and the URL would stay the POST's), so
+ * it gets a 303 to where the redirect landed, which the browser follows
+ * like the server's own: a GET, through the page routes. That page is
+ * fetched twice, once here to learn the outcome; its body is dropped. An
+ * htmx request follows redirects itself and takes the page as it is.
+ */
+function answerFor(request: Request, response: Response): Response {
+  if (!response.redirected || request.redirect === 'follow') return response;
+  void response.body?.cancel();
+  return Response.redirect(response.url, 303);
+}
+
+/** Dropped before answering, so the redirect's next page cannot race it. */
+async function changeSession(
+  event: ExtendableEvent,
+  reason: string,
+  ended: boolean,
+): Promise<void> {
+  await dropSession(event, reason);
+  if (ended) event.waitUntil(dropPushSubscription());
 }
 
 const sessionBoundaryHandler = async ({
@@ -528,16 +570,29 @@ const sessionBoundaryHandler = async ({
   url,
   event,
 }: RouteHandlerCallbackOptions) => {
-  const response = await fetch(request);
-  const change = sessionChange(url, response);
-  // Dropped before answering, so the redirect's next page cannot race it.
-  if (change) {
-    await dropSession(event, change);
-    if (change !== 'session started') {
-      event.waitUntil(dropPushSubscription());
-    }
+  let response: Response;
+  try {
+    response = await fetchFollowingRedirects(request);
+  } catch (error) {
+    // No answer, but the server may have acted on the post: the connection
+    // can drop after it signed out (or in) and before the followed page
+    // arrived. Fail safe: a needless drop costs a refetch, a missed one
+    // leaves another session's pages and photos cached. Then the catch
+    // handler answers, as for any unreachable server (the offline page for
+    // a navigation, if the drop's re-warm has put it back; else an error).
+    console.warn(`[sw] ${url.pathname} got no answer`, error);
+    await changeSession(
+      event,
+      `${url.pathname} got no answer, the session may have changed`,
+      SESSION_ENDS.has(url.pathname),
+    );
+    throw error;
   }
-  return response;
+  const change = sessionChange(url, response);
+  if (change) {
+    await changeSession(event, change, change !== 'session started');
+  }
+  return answerFor(request, response);
 };
 
 // A signed-out device receives nobody's notifications: the subscription goes

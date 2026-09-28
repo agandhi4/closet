@@ -196,6 +196,46 @@ test.describe('stale-while-revalidate tab roots', () => {
     await expect(page.getByText('First account coat')).toHaveCount(0);
   });
 
+  test('a sign-out the server took but whose answer never arrived still drops the cached pages', async ({
+    page,
+    context,
+    browserName,
+  }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
+    await signIn(page, 'swr-lost-answer');
+    await waitForServiceWorker(page);
+    await cachePage(page, '/wardrobe');
+
+    // The server signs out; the connection drops before its answer arrives,
+    // so the worker's fetch rejects.
+    let signedOut = false;
+    await context.route('**/auth/logout', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.fallback();
+        return;
+      }
+      const response = await route.fetch({ maxRedirects: 0 });
+      signedOut = response.status() === 303;
+      await route.abort('connectionreset');
+    });
+    const noAnswer = workerLogs(context, '/auth/logout got no answer');
+    await page.locator('#avatar').click();
+    await page
+      .locator('#sign-out')
+      .getByRole('button', { name: 'Logout' })
+      .click();
+    await noAnswer;
+    expect(signedOut).toBe(true);
+
+    // The tapped page is left on whatever the catch handler answered; a
+    // second tab reads the cache from a document that is no page, so no
+    // page of its own (signed out now: the cookie went with the answer
+    // route.fetch received) can drop the cache in the worker's place.
+    const probe = await context.newPage();
+    await probe.goto('/manifest.json');
+    await expect.poll(() => cachedPaths(probe)).not.toContain('/wardrobe');
+  });
+
   test('a slow page for the previous account never reaches the next one (#121)', async ({
     page,
     context,

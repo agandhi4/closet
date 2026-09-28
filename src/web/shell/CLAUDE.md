@@ -19,6 +19,8 @@ Delivery model (audit fixes, see `src-sw.ts`, `public/js/pwa.js`, `public/js/con
 
 ## Gotchas
 
+- **WebKit never settles a fetch whose opaque redirect carries `Clear-Site-Data`** (#239): the worker must not `fetch()` a navigation's own request (redirect mode `manual`) where the answer can be a redirect with that header. The auth POSTs follow it and answer with `Response.redirect` (`session-caches.md`); GET navigations go through the navigation preload, which is unaffected.
+
 - **Chromium hides `Clear-Site-Data` from the response it applies**, the worker's own `fetch` included, so the worker cannot read it: `endSession` also sends `X-Session-Ended` (`SESSION_ENDED_HEADER`, `page-cache.ts`), which it reads (#131).
 
 - **Playwright's `context.setOffline` does not cut the worker's own fetches** (Chromium): the page's requests and the navigation preload fail, but NetworkFirst for an htmx request, a `REVALIDATE_PAGE` or an image the worker fetches still reaches the server. `networkSwitch` (`test/support/service-worker.ts`) also fails them through `context.route`, which does see a worker's requests (and turns the HTTP cache off).
