@@ -7,8 +7,8 @@ import { Client } from 'pg';
  * may CREATE DATABASE; CI sets it) or else the shared local pgvault-dev.
  *
  * Used by the integration harness (one per spec file, so files stay isolated
- * and run in parallel) and by scripts/load-test.ts (so a local run never
- * seeds the development database).
+ * and run in parallel) and by the page audit (scripts/audit/, so a run never
+ * seeds or changes the development database).
  */
 export interface ScratchDatabase {
   /** DATABASE_* values that point the app at this database. */
@@ -70,7 +70,7 @@ export function scratchDatabaseName(prefix: string, nowMs: number): string {
   return `${prefix}_${created}_${randomBytes(4).toString('hex')}`;
 }
 
-const SCRATCH_NAME = /^closet_(?:it|load)_([0-9a-z]+)_[0-9a-f]{8}$/;
+const SCRATCH_NAME = /^closet_(?:it|audit)_([0-9a-z]+)_[0-9a-f]{8}$/;
 
 /** Creation time in ms from a scratch database name, or undefined. */
 export function scratchDatabaseCreatedAt(name: string): number | undefined {
@@ -94,7 +94,7 @@ export async function sweepStaleScratchDatabases(
   try {
     const { rows } = await client.query<{ datname: string }>(
       `select datname from pg_database d
-        where datname ~ '^closet_(it|load)_'
+        where datname ~ '^closet_(it|audit)_'
           and not exists (select 1 from pg_stat_activity a where a.datname = d.datname)`,
     );
     const stale = rows

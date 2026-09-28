@@ -9,9 +9,8 @@ import { startWeatherStub } from './weather-stub';
 /**
  * The built server (dist/, `npm run build` first) as src/main.ts boots it,
  * with one difference: background removal runs a stub instead of the 940 MB
- * model, which no test downloads. Playwright (playwright.config.ts), the
- * load test (scripts/load-test.ts) and Lighthouse (lighthouserc.js) start
- * it with `npm run start:test`; an upload goes pending and its cutout
+ * model, which no test downloads. Playwright (playwright.config.ts) and
+ * Lighthouse (lighthouserc.js) start it with `npm run start:test`; an upload goes pending and its cutout
  * arrives STUB_DELAY_MS later, as in production. And the weather comes from
  * a stand-in for Open-Meteo (weather-stub.ts: the seed's simulated New York
  * weather), so no test run calls the real service and the screenshots'
@@ -76,7 +75,7 @@ async function main(): Promise<void> {
     orderMail: jmap?.options,
   });
   // serve() closes the app on SIGTERM; the stubs' own servers would keep the
-  // process alive after it (the load test waited forever, #112). Their HTTP
+  // process alive after it (a caller waited forever, #112). Their HTTP
   // servers close after the timers have stopped, so nothing asks them.
   app.server.once('close', () => {
     void weather.close();

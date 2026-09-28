@@ -8,8 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import type { OutgoingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Client, type QueryResult } from 'pg';
-import { expect, vi } from 'vitest';
+import { expect } from 'vitest';
 import { type AppOptions, createApp } from '../../src/app';
 import { type Config, loadConfig } from '../../src/config';
 import type { CutoutQueue } from '../../src/cutout/queue';
@@ -25,6 +24,7 @@ import type { WeatherService } from '../../src/web/weather/service';
 import type { Metrics } from '../../src/metrics/metrics';
 import type { OrderMailDeps } from '../../src/web/wardrobe/order-mail/poll';
 import { LogCapture } from '../support/log-capture';
+import { recordStatements } from '../support/query-recorder';
 import { createScratchDatabase } from '../support/scratch-database';
 
 /**
@@ -74,20 +74,7 @@ const BASE_ENV: Env = {
   ACCESS_TOKEN_SECRET: 'integration-test-secret-0123456789abcdef',
 };
 
-/**
- * Overrides for an app with the PWA on, as production runs: the service
- * worker, the install prompt and Web Push (/push/*). The VAPID pair is a
- * throwaway from `npx web-push generate-vapid-keys`, never used by a
- * deployment; the sender checks it at boot and needs an https: subject,
- * hence SITE_URL.
- */
-export const PWA_ENV: Env = {
-  PWA_ENABLED: 'true',
-  SITE_URL: 'https://closet.test',
-  PUBLIC_VAPID_KEY:
-    'BIaV1uMypSUEcMFNiKX5wdEPfTc7liQhw-iTn3WN5TjIc-A0CiCF8jqaef8Vo1jB89cMgxM-FR7ghq0EVO2HlhE',
-  PRIVATE_VAPID_KEY: 'xznGX5XpEHzBpfVxnrNyUPBjBbQwl4gtu8inPxMNQws',
-};
+export { PWA_ENV } from '../support/pwa-env';
 
 export const TEST_PASSWORD = 'Password123!';
 export const OWNER_EMAIL = 'owner@example.com';
@@ -396,40 +383,7 @@ export async function userIdOf(t: TestApp, email: string): Promise<number> {
   return row.id;
 }
 
-export interface MultipartFile {
-  data: Buffer;
-  filename: string;
-  contentType: string;
-}
-
-/**
- * Serialises a multipart/form-data body through the platform FormData so
- * the boundary and part headers are exactly what a browser would send.
- * Spread the result into inject(): `inject({ method: 'POST', url, ...body })`.
- */
-export async function multipart(
-  fields: Record<string, string>,
-  files: Record<string, MultipartFile> = {},
-): Promise<{ payload: Buffer; headers: Record<string, string> }> {
-  const form = new FormData();
-  for (const [name, value] of Object.entries(fields)) {
-    form.append(name, value);
-  }
-  for (const [name, file] of Object.entries(files)) {
-    form.append(
-      name,
-      // A Uint8Array view: Node's Buffer<ArrayBufferLike> is not a BlobPart
-      // in the DOM lib's types (it may sit on a SharedArrayBuffer).
-      new Blob([new Uint8Array(file.data)], { type: file.contentType }),
-      file.filename,
-    );
-  }
-  const encoded = new Response(form);
-  return {
-    payload: Buffer.from(await encoded.arrayBuffer()),
-    headers: { 'content-type': encoded.headers.get('content-type')! },
-  };
-}
+export { multipart, type MultipartFile } from '../support/multipart';
 
 /** Full `<img ...>` tags in document order. */
 export function imgTags(html: string): string[] {
@@ -486,58 +440,19 @@ export interface QueryRecord {
   sql: string[];
 }
 
-type QueryCallback = (error: Error | null, result?: QueryResult) => void;
-
 /**
  * Runs `work` and counts the SQL statements the app sends meanwhile and the
- * rows they return. The app runs in this process and its pool goes through
- * node-postgres's Client class, so wrapping Client.prototype.query sees every
- * statement. For proving a page reads what it shows rather than a
- * whole table: rows, not only statements, since one statement can return
- * everything.
+ * rows they return (recordStatements, test/support/query-recorder.ts). For
+ * proving a page reads what it shows rather than a whole table: rows, not
+ * only statements, since one statement can return everything.
  */
 export async function recordQueries(
   work: () => Promise<unknown>,
 ): Promise<QueryRecord> {
-  const record: QueryRecord = { statements: 0, rows: 0, sql: [] };
-  const tally = (result: QueryResult | undefined) => {
-    record.rows += result?.rows.length ?? 0;
+  const { statements } = await recordStatements(work);
+  return {
+    statements: statements.length,
+    rows: statements.reduce((sum, statement) => sum + statement.rows, 0),
+    sql: statements.map((statement) => statement.sql),
   };
-  // The original, called below with the Client the app called it on.
-  // eslint-disable-next-line @typescript-eslint/unbound-method
-  const query = Client.prototype.query;
-  const spy = vi
-    .spyOn(Client.prototype, 'query')
-    // Client.query is overloaded (promise, callback, Submittable); the
-    // wrapper forwards whatever it is given, so it is typed as the original.
-    .mockImplementation(function (this: Client, ...args: unknown[]) {
-      record.statements += 1;
-      // A query is a string or a config object ({ text, values }: Drizzle's).
-      const [config] = args;
-      const text =
-        typeof config === 'string'
-          ? config
-          : (config as { text?: unknown } | undefined)?.text;
-      record.sql.push(typeof text === 'string' ? text : '');
-      const callback = args.at(-1);
-      if (typeof callback === 'function') {
-        args[args.length - 1] = ((error, result) => {
-          tally(result);
-          (callback as QueryCallback)(error, result);
-        }) satisfies QueryCallback;
-      }
-      const returned: unknown = Reflect.apply(query, this, args);
-      return returned instanceof Promise
-        ? returned.then((result: QueryResult) => {
-            tally(result);
-            return result;
-          })
-        : returned;
-    });
-  try {
-    await work();
-  } finally {
-    spy.mockRestore();
-  }
-  return record;
 }

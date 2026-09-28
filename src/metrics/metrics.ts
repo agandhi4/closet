@@ -191,6 +191,11 @@ export class Metrics {
     return this.routeTemplates.has(template);
   }
 
+  /** Every route template, sorted: the page audit's coverage check (scripts/audit/). */
+  routes(): string[] {
+    return [...this.routeTemplates].sort();
+  }
+
   observeRequest(
     route: string,
     method: string,

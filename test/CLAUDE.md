@@ -2,15 +2,18 @@
 
 The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
 
-- **Tests**: three tiers. Vitest unit (`src/**/*.spec.ts`, and `scripts/**/*.spec.ts` for the tooling's rules; mocks everything, verifies wiring); Vitest integration (`test/integration/`, the real app in-process on a scratch Postgres database per spec file, driven through `app.inject()`, verifies behavior: HTML, headers, rows, files); Playwright e2e (`test/*.spec.ts`, real browser against a built server). Both Vitest tiers are projects of one `vitest.config.ts` (Vite's esbuild transform, JSX settings from `tsconfig.json`; specs import `describe`/`it`/`expect`/`vi` from `'vitest'`, no globals). Integration specs assert rows through `t.db` (Drizzle) and log lines through `t.logs` (what the app really wrote; `captureLogs()` in `test/support/log-capture.ts` for a unit). `recordQueries(work)` (harness) counts the statements and rows a request reads, with their SQL text, for proving a page reads what it shows. Plus autocannon load test (`scripts/load-test.ts`) and Lighthouse CI. Vitest replaced Jest on 2026-09-25, the first step of the platform migration that ended with NestJS's removal on 2026-09-26.
+- **Tests**: three tiers. Vitest unit (`src/**/*.spec.ts`, and `scripts/**/*.spec.ts` for the tooling's rules; mocks everything, verifies wiring); Vitest integration (`test/integration/`, the real app in-process on a scratch Postgres database per spec file, driven through `app.inject()`, verifies behavior: HTML, headers, rows, files); Playwright e2e (`test/*.spec.ts`, real browser against a built server). Both Vitest tiers are projects of one `vitest.config.ts` (Vite's esbuild transform, JSX settings from `tsconfig.json`; specs import `describe`/`it`/`expect`/`vi` from `'vitest'`, no globals). Integration specs assert rows through `t.db` (Drizzle) and log lines through `t.logs` (what the app really wrote; `captureLogs()` in `test/support/log-capture.ts` for a unit). `recordQueries(work)` (harness, over `test/support/query-recorder.ts`) counts the statements and rows a request reads, with their SQL text, for proving a page reads what it shows. Plus the page audit (`npm run audit:pages`, `scripts/audit/`: every page and action timed and counted as the demo persona against `docs/perf/`'s baseline; `docs/perf/README.md`) and Lighthouse CI. Vitest replaced Jest on 2026-09-25, the first step of the platform migration that ended with NestJS's removal on 2026-09-26.
 
 ## Layout
 
 ```
-  support/             scratch-database.ts (integration tier + load test), e2e-session.ts (Playwright signIn),
+  support/             scratch-database.ts (integration tier + page audit), e2e-session.ts (Playwright signIn),
                        e2e-data.ts (Playwright's garments, outfits, capsules through the app's POSTs),
                        test-server.ts (`npm run start:test`: the build served with a stubbed cutout runner,
-                       for Playwright, the load test and Lighthouse),
+                       for Playwright and Lighthouse),
+                       query-recorder.ts (recordStatements: every SQL statement this process sends
+                       while a callback runs, with rows and time; recordQueries and the page audit),
+                       multipart.ts, pwa-env.ts (PWA_ENV: the PWA's config with a throwaway VAPID pair),
                        household-today.ts (householdToday: the server's "today" for Playwright),
                        log-capture.ts (LogCapture, captureLogs: the app's log lines as records),
                        weather-stub.ts (Open-Meteo's stand-in on 127.0.0.2: the seed's weather,
@@ -18,6 +21,8 @@ The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
                        jmap-stub.ts (Fastmail's JMAP stand-in on 127.0.0.2 as `jmap.test`: session, inbox
                        query, Email/get; createTestApp's `orderMail`, required with ORDER_MAIL_JMAP_TOKEN;
                        test-server.ts starts it when the token is set),
+                       order-mail-shop.ts (the forwarded order email and the shop its links reach:
+                       order-mail.spec.ts and the page audit),
                        sentry-stub.ts (Bugsink's stand-in: a local DSN the real Sentry transport posts to;
                        recordErrors, an in-memory ErrorTracker for unit specs),
                        static-assets-setup.ts (globalSetup: public/modules/ and the precompressed

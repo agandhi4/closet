@@ -1,7 +1,5 @@
 import { eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { garment, orderEmail, orderItem } from '../../src/db/schema';
 import { t as text } from '../../src/web/i18n';
@@ -16,18 +14,16 @@ import {
   type StubEmail,
 } from '../support/jmap-stub';
 import {
+  ORDER_SENDER as SENDER,
+  serveForwardedOrder,
+} from '../support/order-mail-shop';
+import {
   createTestApp,
   OWNER_EMAIL,
   type TestApp,
   unescapeHtml,
 } from './harness';
-import {
-  html,
-  jpeg,
-  type LinkSites,
-  productShot,
-  startLinkSites,
-} from './link-sites';
+import { type LinkSites, startLinkSites } from './link-sites';
 import {
   expectAppBar,
   expectFullPage,
@@ -48,43 +44,6 @@ import {
 // Fastmail's shape (fmu1- and hex groups): the scrubbing and log checks
 // look for exactly this.
 const TOKEN = 'fmu1-0a1b2c3d-4e5f60718293a4b5c6d7e8f9a0b1c2d3-0-e4f5a6b7c8d9';
-const SENDER = 'owner.forwarder@gmail.com';
-
-const FIXTURE = join(
-  __dirname,
-  '..',
-  'fixtures',
-  'order-mail',
-  'forwarded-order.json',
-);
-
-const LINEN_PAGE = (image: string) => `<!doctype html>
-<html><head><title>Relaxed Linen Shirt | Northfield</title>
-<script type="application/ld+json">${JSON.stringify({
-  '@context': 'https://schema.org',
-  '@type': 'Product',
-  name: 'Relaxed Linen Shirt',
-  brand: { '@type': 'Brand', name: 'Northfield' },
-  color: 'Sage green',
-  material: '100% linen',
-  image: [image],
-  offers: { '@type': 'Offer', price: '49.90', priceCurrency: 'USD' },
-})}</script></head><body><h1>Relaxed Linen Shirt</h1></body></html>`;
-
-const SOCKS_PAGE = `<!doctype html>
-<html><head><title>Merino Crew Socks</title>
-<meta property="og:type" content="product">
-<meta property="og:title" content="Merino Crew Socks (3-pack)">
-<meta property="product:price:amount" content="24.00">
-<meta property="product:price:currency" content="USD">
-</head><body></body></html>`;
-
-// A category page: a title and no product data, so never listed.
-const COLLECTION_PAGE = `<!doctype html><html><head><title>New arrivals</title>
-<meta property="og:title" content="New arrivals"></head><body></body></html>`;
-
-const TRACKER =
-  '/ls/click?upn=u001.Qp9x7-2FbT0kL3rN8vYh-2BsE4eZ1aJ6cG5mW-3D&utm_campaign=order';
 
 /** The rules every page keeps (pages.spec.ts), for pages only this feature has. */
 function expectPageRules(res: LightMyRequestResponse): void {
@@ -121,44 +80,7 @@ describe('order email import', () => {
   beforeAll(async () => {
     sites = await startLinkSites();
     jmap = await startJmapStub(TOKEN);
-    const shop = sites.url('');
-    forwarded = JSON.parse(
-      (await readFile(FIXTURE, 'utf8'))
-        .replaceAll('{{SHOP_ENCODED}}', encodeURIComponent(shop))
-        .replaceAll('{{SHOP}}', shop),
-    ) as StubEmail;
-
-    // The tracker redirects to the product page with its campaign tags,
-    // as a retailer's click tracking does.
-    sites.serve(TRACKER, {
-      status: 302,
-      type: 'text/plain',
-      body: '',
-      headers: {
-        location: sites.url(
-          '/products/relaxed-linen-shirt?utm_source=email&utm_medium=order&variant=sage#reviews',
-        ),
-      },
-    });
-    const image = sites.url('/img/linen-shirt.jpg');
-    // Where the tracker lands, and the stored link "Add to closet" reads.
-    for (const path of [
-      '/products/relaxed-linen-shirt?utm_source=email&utm_medium=order&variant=sage',
-      '/products/relaxed-linen-shirt?variant=sage',
-    ]) {
-      sites.serve(path, html(LINEN_PAGE(image)));
-    }
-    sites.serve('/img/linen-shirt.jpg', jpeg(await productShot('#8a9a7b')));
-    sites.serve(
-      '/products/merino-crew-socks?utm_source=order_confirmation',
-      html(SOCKS_PAGE),
-    );
-    for (const path of ['women', 'men', 'new-arrivals']) {
-      sites.serve(
-        `/collections/${path}?utm_source=order_confirmation`,
-        html(COLLECTION_PAGE),
-      );
-    }
+    forwarded = await serveForwardedOrder(sites);
 
     t = await createTestApp(
       {

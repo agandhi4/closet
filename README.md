@@ -154,7 +154,7 @@ ENV
 npm run start:dev
 ```
 
-The integration tier and the load test never touch `closet_db`: each run
+The integration tier and the page audit never touch `closet_db`: each run
 creates scratch databases on the server named by `TEST_DATABASE_URL`
 (default `postgres://postgres@localhost:5432/postgres`, pgvault-dev) and drops
 them afterwards.
@@ -165,14 +165,14 @@ them afterwards.
 npm run start:dev       # tsc --watch + node --watch + tailwind --watch
 npm run build           # tsc (type-checked) to dist/, plus Tailwind, the service worker and the cache key
 npm run start:prod      # node dist/main.js
-npm run start:test      # the build with background removal stubbed (what Playwright,
-                        # the load test and Lighthouse start; no model download)
+npm run start:test      # the build with background removal stubbed (what Playwright
+                        # and Lighthouse start; no model download)
 npm run test            # Vitest unit tests (test:watch to rerun on change)
 npm run test:int        # Vitest integration tests (real app in-process, scratch Postgres database per file)
 npm run test:all        # both Vitest tiers in one run
 npm run test:e2e        # build, then Playwright end-to-end
 npm run test:cov        # both Vitest tiers with v8 coverage (coverage/)
-npm run test:load       # autocannon load test, see below
+npm run audit:pages     # every page and action measured as the demo persona, see below
 npm run generate:icons  # regenerate public/assets/icon.png, icon-192.png, icon-512.png and favicon.ico from icon.svg
 npm run check           # format, lint, types, unit + integration in parallel (the pre-commit hook; check:static is the first four)
 npm run verify:push     # build + Chromium Playwright (the pre-push hook, for a push to main; PRs are verified by CI)
@@ -250,21 +250,15 @@ docker exec closet npm run cutout:fetch-model   # download or verify; prints the
 Photos stored before background removal moved to the server (it ran in the
 browser until 2026-09-26) keep the cutouts the browser made.
 
-### Load test
+### Page audit
 
-`npm run test:load` builds the app, starts it on a scratch Postgres database
-and a temporary `DATA_PATH`, registers a user and seeds one garment with a
-photo through the real endpoints, and runs autocannon against `/wardrobe`
-(full page and htmx fragment) and `/styling` with that user's session, and
-against the seeded `/file/thumb/...` image. Results
-land in `scripts/results/load-test-results.json`, one entry per target.
-
-| Variable             | Description                       | Default |
-| -------------------- | --------------------------------- | ------- |
-| `LOAD_TEST_DURATION` | Seconds of load per target        | `5`     |
-
-`npm run test:load:baseline` saves the run as the baseline;
-`npm run test:load:compare` reports the change per target against it.
+`npm run audit:pages` builds the app, boots it in process on a scratch
+Postgres database with the demo persona seeded, and measures every page,
+fragment, action, MCP tool and background job as Theo: server time p50/p95,
+SQL statements and rows per request, response bytes. It writes
+`scripts/results/audit.md` and `.json`; `-- --compare docs/perf/baseline.json`
+prints what changed against the committed baseline. How a page PR uses it:
+[docs/perf/README.md](docs/perf/README.md).
 
 ### Migrations
 

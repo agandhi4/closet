@@ -1,0 +1,322 @@
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cpus, loadavg } from 'node:os';
+import { basename, dirname, join, relative, resolve } from 'node:path';
+import { parseArgs } from 'node:util';
+import { Client } from 'pg';
+import sharp from 'sharp';
+import { createFixture, type Fixture } from './audit/fixture';
+import {
+  type AuditReport,
+  compareReports,
+  parseReport,
+  renderComparison,
+  renderReport,
+  REPORT_VERSION,
+  type StepResult,
+} from './audit/report';
+import { AUDIT_PHASES } from './audit/steps';
+import {
+  assertUniqueIds,
+  type Explained,
+  explainSlowest,
+  measurePhase,
+  type Outcome,
+  type Phase,
+  type Step,
+} from './audit/walk';
+
+/**
+ * `npm run audit:pages` (#157): every page, fragment, action, MCP tool and
+ * job the page audits (#158-#174) name, measured as the demo persona on the
+ * production build: server time p50/p95 over repeated runs after warm-up,
+ * SQL statements and rows per request, response bytes. Writes a markdown
+ * table and a JSON report a later run diffs against (`--compare`).
+ * docs/perf/README.md is the guide; the committed baseline lives there too.
+ *
+ *   --runs N            timed runs per step (default 20)
+ *   --warmup N          untimed runs first (default 3)
+ *   --out PREFIX        writes PREFIX.md and PREFIX.json (default scripts/results/audit);
+ *                       the app's log goes to scripts/results/<name>.app.log
+ *   --only TEXT         only steps whose issue (#159), name or target contains TEXT
+ *   --compare FILE      diff this run against a report (PREFIX.compare.md, and stdout)
+ *   --explain           EXPLAIN (ANALYZE, BUFFERS) each step's slowest statements (PREFIX.explain.md)
+ *
+ * SQL is recorded by wrapping node-postgres in this process
+ * (test/support/query-recorder.ts); nothing is added to the app.
+ */
+
+const PROJECT_ROOT = resolve(__dirname, '..');
+/** Gitignored: the default output, and every run's app log. */
+const RESULTS = join(PROJECT_ROOT, 'scripts', 'results');
+
+const OPTIONS = {
+  runs: { type: 'string', default: '20' },
+  warmup: { type: 'string', default: '3' },
+  out: { type: 'string', default: 'scripts/results/audit' },
+  only: { type: 'string' },
+  compare: { type: 'string' },
+  explain: { type: 'boolean', default: false },
+} as const;
+
+function count(value: string, name: string, minimum: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum) {
+    throw new Error(`--${name} must be a whole number of at least ${minimum}`);
+  }
+  return parsed;
+}
+
+function selected(step: Step, only: string | undefined): boolean {
+  if (!only) return true;
+  const needle = only.toLowerCase();
+  return [`#${step.issue}`, step.name, step.target].some((text) =>
+    text.toLowerCase().includes(needle),
+  );
+}
+
+/** A 1200x800 JPEG, the photo every upload step posts and the shop serves. */
+function testPhoto(): Promise<Buffer> {
+  return sharp({
+    create: { width: 1200, height: 800, channels: 3, background: '#4a6' },
+  })
+    .jpeg()
+    .toBuffer();
+}
+
+async function explainConnection(fixture: Fixture): Promise<Client> {
+  const client = new Client(
+    fixture.build.db.connectionOptions(
+      fixture.build.db.dbConfig(fixture.config),
+    ),
+  );
+  await client.connect();
+  return client;
+}
+
+function renderExplained(
+  explained: { result: StepResult; plans: Explained[] }[],
+): string {
+  const lines = ['# Page audit: slowest statements', ''];
+  for (const { result, plans } of explained) {
+    if (plans.length === 0) continue;
+    lines.push(`## #${result.issue} ${result.name} (\`${result.target}\`)`, '');
+    for (const plan of plans) {
+      lines.push(
+        `${plan.ms.toFixed(1)} ms:`,
+        '',
+        '```sql',
+        plan.sql,
+        '```',
+        '',
+        '```',
+        plan.plan,
+        '```',
+        '',
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
+interface Walked {
+  results: StepResult[];
+  sql: Record<string, string>;
+  explained: { result: StepResult; plans: Explained[] }[];
+  failures: string[];
+}
+
+/** Each phase in turn; a failing step is reported and the walk goes on. */
+async function walk(
+  fixture: Fixture,
+  phases: readonly Phase[],
+  options: { runs: number; warmup: number; explain: boolean },
+  interrupted: AbortSignal,
+): Promise<Walked> {
+  const walked: Walked = { results: [], sql: {}, explained: [], failures: [] };
+  const explainClient = options.explain
+    ? await explainConnection(fixture)
+    : undefined;
+  try {
+    for (const phase of phases) {
+      if (interrupted.aborted) break;
+      console.log(
+        `${phase.name}: ${phase.steps.length} steps${phase.interleave ? ', in rounds' : ''}`,
+      );
+      const outcomes = await measurePhase(
+        fixture,
+        phase,
+        options,
+        walked.sql,
+        interrupted,
+      );
+      for (const outcome of outcomes) {
+        await record(outcome, explainClient, walked);
+      }
+    }
+  } finally {
+    await explainClient?.end();
+  }
+  return walked;
+}
+
+async function record(
+  outcome: Outcome,
+  explainClient: Client | undefined,
+  walked: Walked,
+): Promise<void> {
+  const { step } = outcome;
+  const label = `#${step.issue} ${step.name} (${step.target})`;
+  if ('error' in outcome) {
+    walked.failures.push(`${label}: ${outcome.error.message}`);
+    console.error(`${label}: FAILED ${outcome.error.message}`);
+    return;
+  }
+  const { result, last } = outcome.measured;
+  walked.results.push(result);
+  console.log(
+    `${label}: p50 ${result.serverMs.p50.toFixed(1)} ms, ${result.statements.median} statements`,
+  );
+  if (explainClient) {
+    walked.explained.push({
+      result,
+      plans: await explainSlowest(explainClient, last),
+    });
+  }
+}
+
+/** Route templates and MCP tools no step reached. */
+async function notWalked(
+  fixture: Fixture,
+  steps: readonly Step[],
+): Promise<string[]> {
+  const reached = new Set(steps.flatMap((step) => [step.route, step.target]));
+  const tools = (await fixture.mcpTools()).map((tool) => `mcp ${tool}`);
+  return [...fixture.closet.metrics.routes(), ...tools].filter(
+    (target) => !reached.has(target),
+  );
+}
+
+/** PREFIX.md and .json, and .explain.md and .compare.md when asked; their paths. */
+async function writeOutputs(
+  out: string,
+  report: AuditReport,
+  walked: Walked,
+  options: { explain: boolean; baseline: AuditReport | undefined },
+): Promise<string[]> {
+  await writeFile(`${out}.json`, `${JSON.stringify(report, null, 1)}\n`);
+  await writeFile(`${out}.md`, renderReport(report));
+  const written = [`${out}.md`, `${out}.json`];
+  if (options.explain) {
+    await writeFile(`${out}.explain.md`, renderExplained(walked.explained));
+    written.push(`${out}.explain.md`);
+  }
+  if (options.baseline) {
+    const comparison = renderComparison(
+      options.baseline,
+      report,
+      compareReports(options.baseline, report),
+    );
+    await writeFile(`${out}.compare.md`, comparison);
+    written.push(`${out}.compare.md`);
+    console.log(`\n${comparison}`);
+  }
+  return written;
+}
+
+async function main(): Promise<void> {
+  const { values } = parseArgs({ options: OPTIONS, strict: true });
+  const runs = count(values.runs, 'runs', 1);
+  const warmup = count(values.warmup, 'warmup', 0);
+  const out = resolve(PROJECT_ROOT, values.out);
+  const baseline = values.compare
+    ? parseReport(
+        await readFile(resolve(PROJECT_ROOT, values.compare), 'utf8'),
+        values.compare,
+      )
+    : undefined;
+  assertUniqueIds(AUDIT_PHASES.flatMap((phase) => phase.steps));
+  const phases = AUDIT_PHASES.map((phase) => ({
+    ...phase,
+    steps: phase.steps.filter((step) => selected(step, values.only)),
+  })).filter((phase) => phase.steps.length > 0);
+  if (phases.length === 0) throw new Error(`No step matches "${values.only}"`);
+
+  console.log('Booting dist/ on a scratch database and seeding Theo...');
+  const bootStarted = performance.now();
+  await mkdir(dirname(out), { recursive: true });
+  // Beside the other runs' output, never in docs/perf/ with a baseline.
+  await mkdir(RESULTS, { recursive: true });
+  const appLog = join(RESULTS, `${basename(out)}.app.log`);
+  const fixture = await createFixture({ photo: await testPhoto(), appLog });
+  console.log(
+    `Ready in ${((performance.now() - bootStarted) / 1000).toFixed(1)} s (data in ${fixture.dataPath}).`,
+  );
+  // Ctrl-C mid-walk still drops the scratch database (a kill does not; the
+  // integration tier's sweep drops those after an hour).
+  const interrupted = new AbortController();
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      console.error(`${signal}: dropping the scratch database`);
+      interrupted.abort();
+      void fixture.close().finally(() => process.exit(130));
+    });
+  }
+  const walkStarted = performance.now();
+  const [loadAtStart] = loadavg();
+  let walked: Walked;
+  let unwalked: string[];
+  try {
+    walked = await walk(
+      fixture,
+      phases,
+      { runs, warmup, explain: values.explain },
+      interrupted.signal,
+    );
+    unwalked = values.only
+      ? []
+      : await notWalked(
+          fixture,
+          phases.flatMap((phase) => phase.steps),
+        );
+  } finally {
+    await fixture.close();
+  }
+  const cpu = cpus();
+  const report: AuditReport = {
+    version: REPORT_VERSION,
+    createdAt: new Date().toISOString(),
+    commit: fixture.build.buildInfo.BUILD_INFO.commit ?? 'unknown',
+    machine: {
+      cpus: cpu.length,
+      model: cpu[0]?.model.trim() ?? 'unknown',
+      node: process.version,
+      load: { start: loadAtStart, end: loadavg()[0] },
+    },
+    runs,
+    warmup,
+    steps: walked.results,
+    sql: walked.sql,
+    unwalked,
+  };
+  const written = await writeOutputs(out, report, walked, {
+    explain: values.explain,
+    baseline,
+  });
+  console.log(
+    `\n${walked.results.length} steps in ${((performance.now() - walkStarted) / 1000).toFixed(0)} s; ` +
+      `${unwalked.length} route(s) or tool(s) not walked${unwalked.length ? `: ${unwalked.join(', ')}` : ''}.`,
+  );
+  console.log(
+    `Wrote ${written.map((path) => relative(process.cwd(), path)).join(', ')}`,
+  );
+  if (walked.failures.length > 0) {
+    throw new Error(
+      `${walked.failures.length} step(s) failed:\n${walked.failures.join('\n')}\nThe app's log: ${relative(process.cwd(), appLog)}`,
+    );
+  }
+}
+
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exit(1);
+});

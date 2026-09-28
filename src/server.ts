@@ -31,8 +31,8 @@ const RECONCILE_HOUR = 3;
  * what can still be worn), the background-removal queue started with
  * `runner`,
  * signal handling, listen. main.ts passes the model (ModelRunner);
- * test/support/test-server.ts, which Playwright, the load test and
- * Lighthouse boot on the build, passes a stub, so no test downloads or runs
+ * test/support/test-server.ts, which Playwright and Lighthouse boot on
+ * the build, passes a stub, so no test downloads or runs
  * the 940 MB model. createApp() itself never starts the queue or a timer:
  * the integration harness and the CLIs never run jobs or send anything.
  * `options` are createApp's test-only ones (the test server's stand-in for
