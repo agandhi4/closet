@@ -635,3 +635,4 @@ The weekly auto-plan (#16, done): his week template is the week table, and the p
 Sizes (#24, done): his measurements and brand notes are the His sizes tables, so the wishlist shows his size in Uniqlo and Allbirds.
 Care labels and repairs (#23, done): every labelled garment carries its materials' care, the Care labels table
 where the label says otherwise (the blazer, coat and flannels dry clean only), and the Repairs table's log.
+The year in review (#26, done): the thirteen weeks and the year's acquisitions are his "2026 so far"; nothing is added for it.

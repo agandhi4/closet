@@ -110,13 +110,14 @@ describe('the Wardrobe header and tabs', () => {
     expect(tabs).not.toContain('/laundry');
   });
 
-  it('puts Select (with the grid’s filters), tagging, Plans, Shopping and Insights in ⋯', async () => {
+  it('puts Select (with the grid’s filters), tagging, Plans, Shopping, Insights and the year in review in ⋯', async () => {
     const menu = menuOf(await get('/wardrobe?category=tops'))!;
     expect(menu).toContain('href="/wardrobe?category=tops&select=1"');
     expect(menu).toContain('href="/wardrobe/tag"');
     expect(menu).toContain('href="/wardrobe/plans"');
     expect(menu).toContain('href="/wardrobe/shopping"');
     expect(menu).toContain('href="/wardrobe/insights"');
+    expect(menu).toContain('href="/wardrobe/recap"');
   });
 
   it('gives a filtered grid’s fragment the ⋯ menu out of band, so Select keeps the new filters', async () => {
@@ -127,13 +128,15 @@ describe('the Wardrobe header and tabs', () => {
     expect(menu).toContain('href="/wardrobe?category=bottoms&select=1"');
   });
 
-  it('offers a VIEW grantee no Select, tagging or add, and their own Plans and Insights', async () => {
+  it('offers a VIEW grantee no Select, tagging or add, their own Plans and Insights, and no year in review', async () => {
     const html = await get(`/wardrobe?ownerId=${ownerId}`, viewer);
     const menu = menuOf(html)!;
     expect(menu).not.toContain('select=1');
     expect(menu).not.toContain('/wardrobe/tag');
     expect(menu).toContain('href="/wardrobe/plans"');
     expect(menu).toContain('href="/wardrobe/insights"');
+    // The recap is the wear log: never offered inside someone else's wardrobe.
+    expect(menu).not.toContain('/wardrobe/recap');
     expect(sheetOf(html)).toBeUndefined();
     expect(html).not.toContain('aria-label="Add"');
   });

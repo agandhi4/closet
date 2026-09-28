@@ -421,6 +421,24 @@ test('demo: Theo, insights', async ({ page }) => {
   await shot(page, '52-demo-insights-style-this');
 });
 
+test('demo: Theo, his year in review (#26)', async ({ page }) => {
+  await signInAs(page, 'demo');
+  // The anchor's year, whatever year the run is in: the history is 2026's.
+  await shot(
+    page,
+    '80-demo-recap',
+    `/wardrobe/recap?year=${ANCHOR.slice(0, 4)}`,
+  );
+  // "Save image" downloads the card in Chromium (no file sharing on Linux).
+  const save = page.locator('#recap-export');
+  await expect(save).toBeEnabled();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    save.click(),
+  ]);
+  await download.saveAs(`${DIR}/80b-demo-recap-card.png`);
+});
+
 test('demo: Theo, his Austin conference (#10)', async ({ page }) => {
   await signInAs(page, 'demo');
   await shot(page, '61-demo-trips', '/trips');
@@ -460,6 +478,7 @@ test('fresh: Riley, the empty states', async ({ page }) => {
   await shot(page, '45-fresh-shopping-list', '/wardrobe/shopping');
   await shot(page, '49-fresh-ideas', '/outfits/ideas');
   await shot(page, '54-fresh-insights', '/wardrobe/insights');
+  await shot(page, '81-fresh-recap', '/wardrobe/recap');
   // Today with nothing in the closet: what ideas need.
   await shot(page, '57-fresh-today', '/');
   await shot(page, '64-fresh-trips', '/trips');

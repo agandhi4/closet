@@ -335,6 +335,24 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // The year in review (#26) reads the wear log like insights: the
+    // requester's own whatever `?ownerId=` says. (The fixture's garment is
+    // never worn, so no year is recapped; recap.spec.ts proves a grantee
+    // with `?ownerId=` sees their own figures, never the owner's.)
+    name: 'GET /wardrobe/recap',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/wardrobe/recap${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
     name: 'POST /laundry',
     kind: 'write',
     ok: 303,

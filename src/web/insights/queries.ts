@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
 import { file, garment, garmentWear } from '../../db/schema';
 import {
@@ -11,66 +11,102 @@ import {
   wardrobeInsights,
   type WardrobeInsights,
 } from '../../wardrobe/insights';
-import type { IsoDate } from '../calendar/calendar-date';
-import { inCloset } from '../wardrobe/status';
+import { addDays, type IsoDate } from '../calendar/calendar-date';
+import { type GarmentScope, inScope } from '../wardrobe/status';
 
 /**
- * Insights' two statements (#17): the closet's garments with their wear
- * counts, and the pairs most worn together. The owner's own, like wears:
- * both are scoped to `ownerId` and read only garments in the closet
- * (inCloset). Wears count distinct days, never rows (a garment in two
- * entries on one day is one wear). `today` is the household's
- * (todayIn(APP_TIMEZONE)); every day count is taken against it here, in
+ * Insights' two statements (#17): the garments with their wear counts, and
+ * the pairs most worn together. Both are scoped to `ownerId` (wears are the
+ * owner's records) and read a window of days (InsightsWindow). Wears count
+ * distinct days, never rows (a garment in two entries on one day is one
+ * wear). Every day count is taken against the window's last day here, in
  * Postgres' date arithmetic (date - date is whole days), so the pure
- * computation (src/wardrobe/insights.ts) does none.
+ * computations (src/wardrobe/insights.ts, src/wardrobe/recap.ts) do none.
  */
 
-/** One row per garment in the owner's closet, newest first. */
-export function insightGarments(
-  db: Db,
-  ownerId: number,
-  today: IsoDate,
-): Promise<InsightGarment[]> {
-  const recentFrom = sql`${today}::date - ${RECENT_DAYS}::int`;
-  return db
-    .select({
-      id: garment.id,
-      name: garment.name,
-      category: garment.category,
-      brand: garment.brand,
-      colors: garment.colors,
-      quantity: garment.quantity,
-      price: garment.price,
-      condition: garment.condition,
-      photo: { fileName: file.fileName, version: file.version },
-      wearDays: sql<number>`count(distinct ${garmentWear.day})::int`,
-      recentWearDays: sql<number>`(count(distinct ${garmentWear.day}) filter (where ${garmentWear.day} > ${recentFrom}))::int`,
-      lastWorn: sql<IsoDate | null>`max(${garmentWear.day})::text`,
-      daysSinceWorn: sql<
-        number | null
-      >`(${today}::date - max(${garmentWear.day}))`,
-      daysOwned: sql<number | null>`(${today}::date - ${garment.acquiredOn})`,
-    })
-    .from(garment)
-    .leftJoin(file, eq(file.id, garment.photoId))
-    .leftJoin(garmentWear, eq(garmentWear.garmentId, garment.id))
-    .where(and(eq(garment.ownerId, ownerId), inCloset()))
-    .groupBy(garment.id, file.id)
-    .orderBy(desc(garment.id));
+/**
+ * The days and garments the two statements read. `to` is the last day
+ * read: no wear after it counts, and every "days since" is taken to it.
+ * `from` starts the recent figures (`recentWearDays`, the pairs). `scope`
+ * is which garments: the closet (insights: what one can wear now) or
+ * everything owned now or once (a recap looks back, and a garment archived
+ * since was still worn that year).
+ */
+export interface InsightsWindow {
+  from: IsoDate;
+  to: IsoDate;
+  scope: Exclude<GarmentScope, 'wishlist'>;
 }
 
 /**
- * The pairs of closet garments worn on the most of the same days in the
- * last RECENT_DAYS (at least PAIR_MIN_DAYS), at most PAIRS_LIMIT, the
+ * Insights' window: the closet over the last RECENT_DAYS, today (the
+ * household's, todayIn(APP_TIMEZONE)) and the RECENT_DAYS - 1 days before.
+ */
+export function recentWindow(today: IsoDate): InsightsWindow {
+  return {
+    from: addDays(today, -(RECENT_DAYS - 1)),
+    to: today,
+    scope: 'closet',
+  };
+}
+
+/** One row per garment of the owner's in the window's scope, newest first. */
+export function insightGarments(
+  db: Db,
+  ownerId: number,
+  window: InsightsWindow,
+): Promise<InsightGarment[]> {
+  const to = sql`${window.to}::date`;
+  return (
+    db
+      .select({
+        id: garment.id,
+        name: garment.name,
+        category: garment.category,
+        brand: garment.brand,
+        colors: garment.colors,
+        quantity: garment.quantity,
+        price: garment.price,
+        condition: garment.condition,
+        photo: { fileName: file.fileName, version: file.version },
+        acquiredOn: garment.acquiredOn,
+        wearDays: sql<number>`count(distinct ${garmentWear.day})::int`,
+        recentWearDays: sql<number>`(count(distinct ${garmentWear.day}) filter (where ${garmentWear.day} >= ${window.from}::date))::int`,
+        lastWorn: sql<IsoDate | null>`max(${garmentWear.day})::text`,
+        daysSinceWorn: sql<number | null>`(${to} - max(${garmentWear.day}))`,
+        daysOwned: sql<number | null>`(${to} - ${garment.acquiredOn})`,
+      })
+      .from(garment)
+      .leftJoin(file, eq(file.id, garment.photoId))
+      // No wear after the window's last day is read: a past year's recap
+      // stops at its December 31. For insights `to` is today, and this caps
+      // nothing only because setEntryWorn (src/web/calendar/queries.ts)
+      // refuses a future day.
+      .leftJoin(
+        garmentWear,
+        and(
+          eq(garmentWear.garmentId, garment.id),
+          lte(garmentWear.day, window.to),
+        ),
+      )
+      .where(and(eq(garment.ownerId, ownerId), inScope(window.scope)))
+      .groupBy(garment.id, file.id)
+      .orderBy(desc(garment.id))
+  );
+}
+
+/**
+ * The pairs of garments in the window's scope worn on the most of the same
+ * days in the window (at least PAIR_MIN_DAYS), at most PAIRS_LIMIT, the
  * lower id first in each. Days, not entries: a pair counts once a day
  * whichever outfits held them (the shoes of the office outfit and the
  * dinner jacket that evening are worn together). Bounded by the window:
- * the self-join is over one year's (garment, day) pairs of one owner.
+ * the self-join is over at most a year's (garment, day) pairs of one owner.
  */
 export async function wornPairs(
   db: Db,
   ownerId: number,
-  today: IsoDate,
+  window: InsightsWindow,
 ): Promise<PairRow[]> {
   const result = await db.execute<{ a: number; b: number; days: number }>(sql`
     with worn as (
@@ -78,9 +114,9 @@ export async function wornPairs(
       from ${garmentWear}
       join ${garment} on ${garment.id} = ${garmentWear.garmentId}
       where ${garmentWear.ownerId} = ${ownerId}
-        and ${inCloset()}
-        and ${garmentWear.day} > ${today}::date - ${RECENT_DAYS}::int
-        and ${garmentWear.day} <= ${today}::date
+        and ${inScope(window.scope)}
+        and ${gte(garmentWear.day, window.from)}
+        and ${lte(garmentWear.day, window.to)}
     )
     select one.garment_id as a, other.garment_id as b, count(*)::int as days
     from worn one
@@ -92,16 +128,30 @@ export async function wornPairs(
   return result.rows;
 }
 
-/** The owner's insights: both statements at once, then the computation. */
+/** Both statements over `window`, at once: insights' and a recap's rows. */
+export async function readInsightRows(
+  db: Db,
+  ownerId: number,
+  window: InsightsWindow,
+): Promise<{ garments: InsightGarment[]; pairs: PairRow[] }> {
+  const [garments, pairs] = await Promise.all([
+    insightGarments(db, ownerId, window),
+    wornPairs(db, ownerId, window),
+  ]);
+  return { garments, pairs };
+}
+
+/** The owner's insights: the rows over the recent window, then the computation. */
 export async function readInsights(
   db: Db,
   ownerId: number,
   today: IsoDate,
   unwornDays: UnwornDays,
 ): Promise<WardrobeInsights> {
-  const [garments, pairs] = await Promise.all([
-    insightGarments(db, ownerId, today),
-    wornPairs(db, ownerId, today),
-  ]);
+  const { garments, pairs } = await readInsightRows(
+    db,
+    ownerId,
+    recentWindow(today),
+  );
   return wardrobeInsights(garments, pairs, unwornDays);
 }

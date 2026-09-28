@@ -260,6 +260,8 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app(`/outfits/ideas?for=trip:${f.tripId}`),
     app('/wardrobe/insights'),
     app('/wardrobe/insights?unworn=30'),
+    app('/wardrobe/recap'),
+    app('/wardrobe/recap?year=2025'),
     app('/auth/profile'),
     form('/auth/profile/style'),
     form('/auth/profile/sizes'),

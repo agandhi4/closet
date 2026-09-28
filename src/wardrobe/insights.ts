@@ -76,14 +76,19 @@ export interface InsightGarment {
   price: string | null;
   condition: Condition;
   photo: { fileName: string; version: number } | null;
-  /** Distinct days worn, ever. */
+  /** 'YYYY-MM-DD', null without a date (a recap's new additions). */
+  acquiredOn: string | null;
+  /** Distinct days worn, ever (up to the window's last day). */
   wearDays: number;
-  /** Distinct days worn in the last RECENT_DAYS. */
+  /**
+   * Distinct days worn in the window: the last RECENT_DAYS for insights, the
+   * year for a recap (src/wardrobe/recap.ts).
+   */
   recentWearDays: number;
   lastWorn: string | null;
-  /** Days from the last wear to today; null when never worn. */
+  /** Days from the last wear to today (the window's last day); null when never worn. */
   daysSinceWorn: number | null;
-  /** Days from acquired_on to today; null without a date. */
+  /** Days from acquired_on to today (the window's last day); null without a date. */
   daysOwned: number | null;
 }
 
@@ -228,7 +233,14 @@ function costPerWear(garment: InsightGarment): CostPerWear {
   };
 }
 
-function costs(garments: InsightGarment[]): WardrobeInsights['cost'] {
+/**
+ * Cost per wear over `garments`: the best and worst values, the priced ones
+ * not worn yet, the closet's value. Insights' card, and a recap's best value
+ * (src/wardrobe/recap.ts) over the pieces worn that year.
+ */
+export function costFigures(
+  garments: InsightGarment[],
+): WardrobeInsights['cost'] {
   const priced = garments.filter((g) => g.price !== null).map(costPerWear);
   const worn = priced
     .filter((c) => c.perWear !== null)
@@ -259,9 +271,10 @@ function costs(garments: InsightGarment[]): WardrobeInsights['cost'] {
  * Each colour's share of the whole closet and of all the recent wear days.
  * A garment in k colours counts 1/k to each; one without a colour counts
  * to `uncoloured`, so the colours and it add up to the closet (a closet
- * half untagged is not all its colours at 100%).
+ * half untagged is not all its colours at 100%). A recap's colours worn
+ * are the `worn` shares over the pieces worn that year.
  */
-function colourShares(
+export function colourShares(
   garments: InsightGarment[],
 ): Pick<WardrobeInsights, 'colours' | 'uncoloured'> {
   const shares = new Map<GarmentColor, { closet: number; worn: number }>();
@@ -426,7 +439,7 @@ export function wardrobeInsights(
     unworn: { days: unwornDays, garments: unwornList(garments, unwornDays) },
     mostWorn,
     leastWorn,
-    cost: costs(garments),
+    cost: costFigures(garments),
     pairs,
     ...colourShares(garments),
     categories: breakdown(garments, (g) => ({

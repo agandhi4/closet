@@ -285,6 +285,15 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(page.statusCode).toBe(200);
     });
 
+    it("the year in review (#26) is the household's year, run to today", async () => {
+      // On New Year's Eve in New York the year is still the old one, though
+      // UTC is in January.
+      const page = await get('/wardrobe/recap');
+      expect(page.statusCode).toBe(200);
+      expect(page.body).toContain(`data-year="${today.slice(0, 4)}"`);
+      expect(page.body).toContain(`data-to="${today}"`);
+    });
+
     it('MCP: get_calendar starts today; mark_worn and mark_washed record today', async () => {
       const token = await createAccessToken(t, {
         cookie,

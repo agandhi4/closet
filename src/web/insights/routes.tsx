@@ -5,20 +5,30 @@ import {
   isUnwornDays,
   type UnwornDays,
 } from '../../wardrobe/insights';
+import { yearRecap } from '../../wardrobe/recap';
 import { sessionUserId } from '../auth/require-session';
-import { todayIn } from '../calendar/calendar-date';
+import { dateParts, todayIn } from '../calendar/calendar-date';
 import type { WebOptions } from '../plugin';
 import { renderPage } from '../render';
 import { viewContext } from '../view-context';
 import { InsightsPage } from './insights-page';
-import { readInsights } from './queries';
-import { INSIGHTS_PATH } from './urls';
+import { readInsightRows, readInsights } from './queries';
+import { RecapPage } from './recap-page';
+import { recapPeriod, recapYear } from './recap-period';
+import { INSIGHTS_PATH, RECAP_PATH } from './urls';
 
 // Navigation state (the unworn list's window chips): anything but one of
 // the choices falls back to the default, never a 400, so no length limit
 // either (one answered a long value 400 before the fallback, #123).
 const InsightsQuery = Type.Object({
   unworn: Type.Optional(Type.String()),
+});
+
+// `?year=` is navigation state like `?unworn=` (recapYear: anything but a
+// four-digit year up to this one is this one). No `?ownerId=`: the schema
+// strips it, like every parameter it does not list.
+const RecapQuery = Type.Object({
+  year: Type.Optional(Type.String()),
 });
 
 function unwornDays(value: string | undefined): UnwornDays {
@@ -31,6 +41,11 @@ function unwornDays(value: string | undefined): UnwornDays {
  * the owner's own wears, so the signed-in user's only, like /laundry:
  * `?ownerId=` is ignored and a share never reaches it. Two statements
  * (src/web/insights/queries.ts), computed on request, nothing stored.
+ *
+ * The year in review (#26, docs/plans/2026-09-28-yearly-recap.md): the
+ * same two statements over a calendar year, and owner-only for the same
+ * reason: it is the wear log. `?ownerId=` is ignored; a grantee who passes
+ * one sees their own recap.
  */
 export const insightsRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -52,6 +67,33 @@ export const insightsRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       return renderPage(
         reply,
         <InsightsPage ctx={viewContext(reply)} model={{ insights, today }} />,
+      );
+    },
+  );
+
+  app.get(
+    RECAP_PATH,
+    { schema: { querystring: RecapQuery } },
+    async (request, reply) => {
+      const userId = sessionUserId(request);
+      const today = todayIn(config.timeZone, new Date());
+      const period = recapPeriod(recapYear(request.query.year, today), today);
+      const started = performance.now();
+      const { garments, pairs } = await readInsightRows(db, userId, {
+        from: period.from,
+        to: period.to,
+        scope: 'owned',
+      });
+      const recap = yearRecap(garments, pairs, period);
+      logger.debug(
+        `Recap ${period.year} for user ${userId}: ${recap.wears} wear(s), ${recap.piecesWorn} piece(s), ${recap.additions.count} added in ${Math.round(performance.now() - started)} ms`,
+      );
+      return renderPage(
+        reply,
+        <RecapPage
+          ctx={viewContext(reply)}
+          model={{ recap, currentYear: dateParts(today).year }}
+        />,
       );
     },
   );

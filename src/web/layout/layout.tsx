@@ -27,8 +27,8 @@ const HTMX_CONFIG = { disableInheritance: true, historyCacheSize: 3 };
 
 // Bare specifiers for every ES module the pages import, so the versioned URL
 // lives here once. Page-specific modules (Styling's styling, the garment
-// page's mask-editor and photo-input, select mode's select-count) are only
-// fetched by the page that imports them.
+// page's mask-editor and photo-input, select mode's select-count, the
+// recap's recap-export) are only fetched by the page that imports them.
 function importMap(version: string) {
   const v = `?v=${version}`;
   return {
@@ -46,6 +46,7 @@ function importMap(version: string) {
       freshness: `/js/freshness.js${v}`,
       'age-label': `/js/age-label.js${v}`,
       'select-count': `/js/select-count.js${v}`,
+      'recap-export': `/js/recap-export.js${v}`,
     },
   };
 }

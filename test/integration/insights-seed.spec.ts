@@ -133,4 +133,39 @@ describe('insights over the seed personas', () => {
     });
     expect(res.body).toContain('Nothing to measure yet.');
   });
+
+  // The year in review (#26): the thirteen weeks all fall in 2026 at the
+  // anchor, so Theo's "2026 so far" is a real recap, and 2025, before any
+  // wear, is the empty state.
+  it('gives Theo a year in review worth sharing', async () => {
+    const recap = (query = '') =>
+      t.inject({
+        method: 'GET',
+        url: `/wardrobe/recap${query}`,
+        headers: { cookie: demoCookie },
+      });
+    const res = await recap();
+    expect(res.statusCode).toBe(200);
+    const html = res.body;
+    for (const id of [
+      'recap-summary',
+      'recap-most-worn',
+      'recap-additions',
+      'recap-best-value',
+      'recap-colours',
+      'recap-pair',
+      'recap-export',
+      'recap-card-data',
+    ]) {
+      expect(html, id).toContain(`id="${id}"`);
+    }
+    const stat = (key: string) =>
+      Number(new RegExp(`data-stat="${key}"[^]*?>(\\d+)<`).exec(html)![1]);
+    expect(stat('wears')).toBeGreaterThan(400);
+    expect(stat('pieces')).toBeGreaterThan(40);
+    expect(stat('additions')).toBeGreaterThan(10);
+    // Nothing worn before 2026: no year to go back to.
+    expect(html).not.toContain('rel="prev"');
+    expect((await recap('?year=2025')).body).toContain('id="recap-empty"');
+  });
 });

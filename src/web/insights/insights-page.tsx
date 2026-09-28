@@ -1,4 +1,3 @@
-import type { Child } from 'hono/jsx';
 import {
   type Breakdown,
   type CostPerWear,
@@ -20,7 +19,8 @@ import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
 import { relativeDay } from '../wears/wear-section';
 import { styleThisUrl } from '../styling/urls';
-import { insightsUrl, NEEDS_ATTENTION_URL } from './urls';
+import { Card, GarmentList, garmentName, perWearLine, Strip } from './parts';
+import { insightsUrl, NEEDS_ATTENTION_URL, RECAP_PATH } from './urls';
 
 export interface InsightsPageModel {
   insights: WardrobeInsights;
@@ -47,6 +47,13 @@ export function InsightsPage(props: {
       <AppBar ctx={ctx} title={t('insights.TITLE')} back="/wardrobe" />
       <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
         <p class="text-sm text-muted">{t('insights.INTRO')}</p>
+        <a
+          href={RECAP_PATH}
+          class="btn btn-outline btn-sm self-start"
+          id="insights-recap"
+        >
+          {t('recap.TITLE')}
+        </a>
         {insights.closet.garments === 0 ? (
           <EmptyState message={t('insights.EMPTY')}>
             <a href="/wardrobe/new" class="btn btn-primary btn-sm">
@@ -136,17 +143,6 @@ function Figures({ model }: { model: InsightsPageModel }) {
   );
 }
 
-function Card(props: { id: string; title: string; children: Child }) {
-  return (
-    <section class="card bg-base-100 shadow-sm" id={props.id}>
-      <div class="card-body p-3 gap-2">
-        <h2 class="font-semibold">{props.title}</h2>
-        {props.children}
-      </div>
-    </section>
-  );
-}
-
 function WornLately({ insights }: { insights: WardrobeInsights }) {
   return (
     <Card id="insights-worn" title={t('insights.WORN_LATELY')}>
@@ -229,56 +225,12 @@ function wornDetail(garment: InsightGarment, today: IsoDate): string {
   ].join(' · ');
 }
 
-function garmentName(garment: InsightGarment): string {
-  return garment.name ?? categoryLabel(garment.category);
-}
-
-/** A row per garment: its thumb and name (linking to its page), a line, an action. */
-function GarmentList(props: {
-  rows: { garment: InsightGarment; detail: string }[];
-  action?: (garment: InsightGarment) => Child;
-}) {
-  if (props.rows.length === 0) return null;
-  return (
-    <ul class="flex flex-col gap-2">
-      {props.rows.map(({ garment, detail }) => (
-        <li class="flex items-center gap-3" data-garment-id={garment.id}>
-          <a
-            href={garmentUrl(garment.id, undefined)}
-            class="flex items-center gap-3 flex-1 min-w-0"
-          >
-            <GarmentThumb garment={garment} class="rounded-box shrink-0" />
-            <span class="flex flex-col min-w-0">
-              <span class="font-medium truncate">{garmentName(garment)}</span>
-              <span class="text-xs text-muted">{detail}</span>
-            </span>
-          </a>
-          {props.action?.(garment)}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 /** Garments with the worn line. */
 function wornRows(garments: InsightGarment[], today: IsoDate) {
   return garments.map((garment) => ({
     garment,
     detail: wornDetail(garment, today),
   }));
-}
-
-function perWearLine(entry: CostPerWear): string {
-  const cost = priceLabel(entry.cost);
-  if (entry.perWear === null) return t('insights.NOT_WORN_LINE', { cost });
-  const perWear = priceLabel(entry.perWear);
-  return entry.garment.wearDays === 1
-    ? t('insights.PER_WEAR_ONCE', { perWear })
-    : t('insights.PER_WEAR_LINE', {
-        perWear,
-        cost,
-        days: entry.garment.wearDays,
-      });
 }
 
 function CostList(props: {
@@ -374,8 +326,6 @@ function Pairs({ insights }: { insights: WardrobeInsights }) {
   );
 }
 
-type ColourShare = WardrobeInsights['colours'][number];
-
 /**
  * The palette: the closet's colours and the worn ones as strips, each
  * segment as wide as its share (flex-grow over a zero basis, so rounding
@@ -431,48 +381,6 @@ function Colours({ insights }: { insights: WardrobeInsights }) {
         </p>
       )}
     </Card>
-  );
-}
-
-function Strip(props: {
-  name: string;
-  title: string;
-  colours: ColourShare[];
-  share: (colour: ColourShare) => number;
-  /** The garments without a colour's percent: the strip's plain end. */
-  uncoloured: number;
-}) {
-  const { share, uncoloured } = props;
-  return (
-    <div data-strip={props.name}>
-      <h3 class="text-sm text-muted mb-1">{props.title}</h3>
-      <div
-        class="flex h-5 w-full rounded-full overflow-hidden ring-1 ring-base-300"
-        role="img"
-        aria-label={props.title}
-      >
-        {props.colours
-          .filter((colour) => share(colour) > 0)
-          .map((colour) => (
-            <span
-              class={`basis-0 ms-swatch--${colour.colour}`}
-              style={`flex-grow:${share(colour)}`}
-              title={`${colour.colour} ${share(colour)}%`}
-              data-colour={colour.colour}
-              data-share={share(colour)}
-            />
-          ))}
-        {uncoloured > 0 && (
-          <span
-            class="basis-0 bg-base-300"
-            style={`flex-grow:${uncoloured}`}
-            title={`${t('insights.NO_COLOUR')} ${uncoloured}%`}
-            data-uncoloured=""
-            data-share={uncoloured}
-          />
-        )}
-      </div>
-    </div>
   );
 }
 

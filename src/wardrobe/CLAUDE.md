@@ -28,7 +28,8 @@
                        they are read in; brands.ts: brandKey, the one brand comparison
                        (insights, sizes). See Sizes
                        insights.ts: every insights figure from the closet's rows
-                       (wardrobeInsights), pure. See Insights
+                       (wardrobeInsights), pure; recap.ts: the year in review
+                       (yearRecap) from the same rows over a year, pure. See Insights
                        packing.ts: a trip's packing list (the copies-needed rule,
                        the warnings, tripPhase), pure. See Trips
                        care.ts: the care label's value sets, its presets from the
