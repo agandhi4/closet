@@ -3,7 +3,11 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseEnv } from 'node:util';
-import { APP_ORIGIN, ORDER_REVIEW_OWNER } from './test/support/e2e-session';
+import {
+  APP_ORIGIN,
+  E2E_SENTRY_DSN,
+  ORDER_REVIEW_OWNER,
+} from './test/support/e2e-session';
 
 // The committed .env's public defaults (APP_NAME) for the specs, under
 // whatever the environment sets, as the server reads them (src/config.ts).
@@ -26,6 +30,11 @@ process.env.METRICS_ENABLED ??= 'true';
 process.env.ORDER_MAIL_JMAP_TOKEN ??= 'fmu1-e2e-stand-in';
 process.env.ORDER_MAIL_SENDERS ??= 'orders-owner@example.com';
 process.env.ORDER_MAIL_OWNER ??= ORDER_REVIEW_OWNER;
+// Error tracking on, as production runs it (Bugsink): signed-in pages load
+// public/js/errors.js. The DSN is Bugsink's stand-in, which only
+// test/client-errors.spec.ts listens on while it runs; the server's events
+// meanwhile fail to send, logged and dropped, never reaching a real tracker.
+process.env.SENTRY_DSN ??= E2E_SENTRY_DSN;
 
 /**
  * See https://playwright.dev/docs/test-configuration.

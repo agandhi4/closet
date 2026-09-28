@@ -15,6 +15,15 @@ export const E2E_PASSWORD = 'Password123!';
 export const APP_ORIGIN = `http://localhost:${process.env.PORT ?? '3000'}`;
 
 /**
+ * The port Bugsink's stand-in (test/support/sentry-stub.ts) listens on
+ * while test/client-errors.spec.ts runs: playwright.config.ts points
+ * the server's SENTRY_DSN here, as production points it at Bugsink.
+ * Derived from PORT so worktrees running side by side never share one.
+ */
+export const SENTRY_STUB_PORT = Number(process.env.PORT ?? '3000') + 10000;
+export const E2E_SENTRY_DSN = `http://publickey@127.0.0.1:${SENTRY_STUB_PORT}/1`;
+
+/**
  * Headers for a POST made through `page.request` (the API context), which,
  * unlike the browser, sends no Origin: the app refuses a state-changing
  * request that does not name the site (the CSRF check,

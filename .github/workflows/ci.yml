@@ -77,7 +77,8 @@ jobs:
           cache: npm
       - run: npm ci
       # Every core: vitest.config.ts gives the tests all of them under CI.
-      - run: npm run test:all
+      # test:cov is test:all with v8 coverage, failing below its thresholds.
+      - run: npm run test:cov
 
   e2e:
     name: browser (production config)

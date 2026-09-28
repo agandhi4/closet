@@ -7,10 +7,15 @@ import { fakeSubscription, stubPushManager } from './support/push-stub';
  * push.js) in a real browser: the state it shows for this device, and
  * enabling, disabling and the test send through the real routes.
  *
- * Headless Chromium has no push service to subscribe with, so where a
+ * Playwright's contexts are incognito, where Chromium refuses every push
+ * subscription (AbortError, "Registration failed - permission denied",
+ * crbug.com/41124656) whatever the permission says. A persistent context
+ * does subscribe, but through Google's push service on the internet, which
+ * no spec may depend on. So the real PushManager is exercised as far as it
+ * goes (its empty getSubscription, its refused subscribe); where a
  * subscription is needed the page's PushManager is replaced by a stand-in
- * (test/support/push-stub.ts); everything after it (the server's upsert,
- * the reminders, the sender, web-push's encryption) is real. The test
+ * (test/support/push-stub.ts), and everything after it (the server's
+ * upsert, the reminders, the sender, web-push's encryption) is real. The test
  * send's endpoint is an unresolvable name under push.apple.com (subscribe
  * only accepts push-service hosts), so delivery fails at DNS and the answer
  * says so. A real delivery is out of scope.
@@ -60,6 +65,42 @@ test.describe('notification settings on the profile page', () => {
     await expect(
       page.getByRole('button', { name: 'Turn off on this device' }),
     ).toBeHidden();
+  });
+
+  test("shows an error, not on, when the browser's push service refuses to subscribe", async ({
+    page,
+    context,
+  }) => {
+    // The real PushManager: permission granted, the subscription refused.
+    await context.grantPermissions(['notifications']);
+    const subscribes: string[] = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/push/subscribe') {
+        subscribes.push(request.method());
+      }
+    });
+    await page.goto('/auth/profile');
+    await expect(shown(page, 'off')).toBeVisible();
+
+    const enable = page.getByRole('button', {
+      name: 'Enable notifications on this device',
+    });
+    await enable.click();
+
+    await expect(shown(page, 'error')).toBeVisible();
+    await expect(shown(page, 'on')).toBeHidden();
+    // Nothing reached the server, and the tap can be tried again.
+    expect(subscribes).toEqual([]);
+    await expect(enable).toBeEnabled();
+    expect(
+      await page.evaluate(async () =>
+        (await navigator.serviceWorker.ready).pushManager.getSubscription(),
+      ),
+    ).toBeNull();
+
+    // A new visit finds no subscription: off, not a stale "on".
+    await page.reload();
+    await expect(shown(page, 'off')).toBeVisible();
   });
 
   test('enables on a tap, sends a test, and turns off', async ({

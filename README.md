@@ -171,7 +171,7 @@ npm run test            # Vitest unit tests (test:watch to rerun on change)
 npm run test:int        # Vitest integration tests (real app in-process, scratch Postgres database per file)
 npm run test:all        # both Vitest tiers in one run
 npm run test:e2e        # build, then Playwright end-to-end
-npm run test:cov        # both Vitest tiers with v8 coverage (coverage/)
+npm run test:cov        # both Vitest tiers with v8 coverage (coverage/), failing below vitest.config.ts thresholds
 npm run audit:pages     # every page and action measured as the demo persona, see below
 npm run generate:icons  # regenerate public/assets/icon.png, icon-192.png, icon-512.png and favicon.ico from icon.svg
 npm run check           # format, lint, types, unit + integration in parallel (the pre-commit hook; check:static is the first four)

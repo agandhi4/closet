@@ -2,7 +2,8 @@ import type { Page } from '@playwright/test';
 import { createECDH, randomBytes, randomUUID } from 'node:crypto';
 
 /**
- * A browser push subscription for Playwright, which has no push service:
+ * A browser push subscription for Playwright, whose incognito contexts
+ * Chromium never lets subscribe (test/push-settings.spec.ts says why):
  * test/push-settings.spec.ts and the screenshots' notification settings.
  * The page's PushManager is replaced by a stand-in holding a subscription
  * with real key sizes; everything after it (the server's upsert, the

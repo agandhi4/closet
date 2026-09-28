@@ -64,7 +64,11 @@ function eventsIn(envelope: string): SentryEvent[] {
   return events;
 }
 
-export async function startSentryStub(): Promise<SentryStub> {
+/**
+ * `port` 0 (the integration specs) takes a free one; Playwright's is fixed
+ * (SENTRY_STUB_PORT), because the server's DSN is set before it boots.
+ */
+export async function startSentryStub(port = 0): Promise<SentryStub> {
   const bodies: string[] = [];
   const events: SentryEvent[] = [];
   const server = createServer((request, response) => {
@@ -80,12 +84,12 @@ export async function startSentryStub(): Promise<SentryStub> {
         response.end();
       });
   });
-  await new Promise<void>((resolve) =>
-    server.listen(0, '127.0.0.1', () => resolve()),
+  await new Promise<void>((resolve, reject) =>
+    server.once('error', reject).listen(port, '127.0.0.1', () => resolve()),
   );
-  const { port } = server.address() as AddressInfo;
+  const { port: listening } = server.address() as AddressInfo;
   return {
-    dsn: `http://publickey@127.0.0.1:${port}/1`,
+    dsn: `http://publickey@127.0.0.1:${listening}/1`,
     bodies,
     events,
     async waitForEvents(count) {

@@ -38,11 +38,75 @@ describe('cutout queue', () => {
 
   beforeAll(async () => {
     t = await createTestApp();
+    // The database failing a job's own write (a dropped connection, a
+    // failover): every UPDATE of a photo listed here raises.
+    await t.db.execute(
+      sql`create table spec_refused_update (file_name text primary key)`,
+    );
+    await t.db.execute(sql`
+      create function spec_refuse_update() returns trigger language plpgsql as $$
+      begin
+        if exists (select 1 from spec_refused_update where file_name = old.file_name) then
+          raise exception 'spec: update refused for %', old.file_name;
+        end if;
+        return new;
+      end $$`);
+    await t.db.execute(sql`
+      create trigger spec_refuse_update before update on file
+      for each row execute function spec_refuse_update()`);
   });
 
   afterEach(async () => {
     await t.cutouts.stop();
+    await allowUpdates();
   });
+
+  /** From now on, every write to the photo's row fails. */
+  async function refuseUpdates(fileName: string) {
+    await t.db.execute(
+      sql`insert into spec_refused_update (file_name) values (${fileName})`,
+    );
+  }
+
+  /** The database is back: every photo's row takes writes again. */
+  async function allowUpdates() {
+    await t.db.execute(sql`delete from spec_refused_update`);
+  }
+
+  /**
+   * A runner whose one job hangs until stop() closes it, as the model child
+   * killed by a shutdown does: `during` runs first, inside the job, while
+   * this server holds the lease. `running` resolves once the job hangs.
+   */
+  function interruptibleRunner(
+    during: () => Promise<void> = () => Promise.resolve(),
+  ) {
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    let kill!: (error: Error) => void;
+    const runner = fakeRunner(async () => {
+      await during();
+      return new Promise<Buffer>((_resolve, reject) => {
+        kill = reject;
+        started();
+      });
+    });
+    runner.close = () => {
+      kill(new Error('Model process exited (SIGTERM)'));
+      return Promise.resolve();
+    };
+    return { runner, running };
+  }
+
+  /** Ages the row's lease past CUTOUT_LEASE_MS: its holder is presumed dead. */
+  async function lapseLease(fileName: string) {
+    await t.db
+      .update(file)
+      .set({
+        cutoutStartedAt: sql`now() - make_interval(secs => ${CUTOUT_LEASE_MS / 1000 + 1})`,
+      })
+      .where(eq(file.fileName, fileName));
+  }
 
   afterAll(() => t?.cleanup());
 
@@ -251,20 +315,7 @@ describe('cutout queue', () => {
 
   it('leases the row while the job runs, and releases it when the server stops mid-run', async () => {
     const { fileName } = await queuedPhoto('Shutdown shirt');
-    let started!: () => void;
-    const running = new Promise<void>((resolve) => (started = resolve));
-    let kill!: (error: Error) => void;
-    const runner = fakeRunner(
-      () =>
-        new Promise<Buffer>((_resolve, reject) => {
-          kill = reject;
-          started();
-        }),
-    );
-    runner.close = () => {
-      kill(new Error('Model process exited (SIGTERM)'));
-      return Promise.resolve();
-    };
+    const { runner, running } = interruptibleRunner();
 
     t.cutouts.start(runner);
     await running;
@@ -461,6 +512,250 @@ describe('cutout queue', () => {
     expect(await photoRow(t, exhausted.fileName)).toMatchObject({
       cutoutStatus: 'failed',
       cutoutAttempts: 3,
+    });
+
+    // The requeued photo runs: nothing is left pending for later cases.
+    t.cutouts.start(fakeRunner());
+    await t.cutouts.whenIdle();
+    expect(await photoRow(t, retried.fileName)).toMatchObject({
+      cutoutStatus: 'ready',
+    });
+  });
+
+  /**
+   * Releasing is best effort. A job that ends without a result gives its
+   * lease back so the photo runs again at once; when it cannot, the lease
+   * still keeps a second run from starting beside a job that may be alive,
+   * and its lapse is what runs the photo again. Each case leaves nothing
+   * pending, as the cases above expect.
+   */
+  describe('when a lease cannot be released', () => {
+    it('keeps the lease when the database fails the release at shutdown, and runs the photo once it lapses', async () => {
+      const { fileName } = await queuedPhoto('Unreleased shirt');
+      const { runner, running } = interruptibleRunner(() =>
+        refuseUpdates(fileName),
+      );
+
+      t.cutouts.start(runner);
+      await running;
+      const { cutoutWorker: worker } = (await photoRow(t, fileName))!;
+      await t.cutouts.stop();
+
+      expect(await photoRow(t, fileName)).toMatchObject({
+        cutoutStatus: 'pending',
+        cutoutAttempts: 1,
+        cutoutJobVersion: 1,
+        cutoutWorker: worker,
+      });
+      expect(t.logs.messages('error', 'Cutout')).toContainEqual(
+        expect.stringMatching(
+          new RegExp(
+            `^Could not release the lease on garment \\d+ photo \\d+ \\(${fileName.slice(0, 8)}\\); its lease lapses in 5 min$`,
+          ),
+        ),
+      );
+      expect(t.logs.messages('info', 'Cutout')).toContainEqual(
+        expect.stringMatching(
+          /interrupted by shutdown: .*; stays pending, its lease lapses in 5 min$/,
+        ),
+      );
+
+      // The database back, the next start leaves the leased photo alone...
+      await allowUpdates();
+      const next = fakeRunner();
+      t.cutouts.start(next);
+      await t.cutouts.whenIdle();
+      expect(next.calls).toBe(0);
+
+      // ...until the lease has lapsed.
+      await lapseLease(fileName);
+      await t.cutouts.whenIdle();
+      expect(next.calls).toBe(1);
+      expect(await photoRow(t, fileName)).toMatchObject({
+        cutoutStatus: 'ready',
+        cutoutAttempts: 2,
+        ...NO_LEASE,
+      });
+      expect(t.logs.messages('warn', 'Cutout')).toContainEqual(
+        expect.stringMatching(
+          new RegExp(`^Cutout lease of worker ${worker} lapsed after 5 min;`),
+        ),
+      );
+    });
+
+    it('never releases a lease another server took over meanwhile', async () => {
+      const { fileName } = await queuedPhoto('Taken-over shirt');
+      // This job's lease lapsed (a stalled server) and another server
+      // claimed the photo; then this job ends with the shutdown.
+      const { runner, running } = interruptibleRunner(() =>
+        leasedElsewhere(fileName, 0),
+      );
+
+      t.cutouts.start(runner);
+      await running;
+      await t.cutouts.stop();
+
+      expect(t.logs.messages('info', 'Cutout')).toContainEqual(
+        expect.stringMatching(
+          /interrupted by shutdown: .*; stays pending, its lease is another worker's now$/,
+        ),
+      );
+      expect(await photoRow(t, fileName)).toMatchObject({
+        cutoutStatus: 'pending',
+        cutoutWorker: 'other-box:1:0badf00d',
+      });
+
+      // The other server "crashes": its lease lapses and the photo runs.
+      await lapseLease(fileName);
+      t.cutouts.start(fakeRunner());
+      await t.cutouts.whenIdle();
+      expect(await photoRow(t, fileName)).toMatchObject({
+        cutoutStatus: 'ready',
+        ...NO_LEASE,
+      });
+    });
+
+    it.each([
+      {
+        change: 'the user saved a mask',
+        answer: 'no lease left to release',
+        during: async (garmentId: number) => {
+          const body = await multipart(
+            {},
+            {
+              nobgPhoto: {
+                data: await pngCutout(),
+                filename: 'cutout.png',
+                contentType: 'image/png',
+              },
+            },
+          );
+          const res = await t.inject({
+            method: 'POST',
+            url: `/wardrobe/${garmentId}/nobg`,
+            payload: body.payload,
+            headers: body.headers,
+          });
+          expect(res.statusCode).toBe(200);
+        },
+        row: { cutoutStatus: 'edited', ...NO_LEASE },
+      },
+      {
+        change: 'the photo was replaced',
+        answer: 'the photo is gone',
+        during: async (garmentId: number) => {
+          await uploadPhoto(t, garmentId, await jpegPhoto(900, 900));
+        },
+        row: undefined,
+      },
+    ])(
+      'has no lease to release at shutdown when $change during the job',
+      async ({ answer, during, row }) => {
+        const { garmentId, fileName } = await queuedPhoto(`Shirt: ${answer}`);
+        const { runner, running } = interruptibleRunner(() =>
+          during(garmentId),
+        );
+
+        t.cutouts.start(runner);
+        await running;
+        await t.cutouts.stop();
+
+        expect(t.logs.messages('info', 'Cutout')).toContainEqual(
+          expect.stringMatching(
+            new RegExp(
+              `\\(${fileName.slice(0, 8)}\\); stays pending, ${answer}$`,
+            ),
+          ),
+        );
+        if (row) {
+          expect(await photoRow(t, fileName)).toMatchObject(row);
+        } else {
+          expect(await photoRow(t, fileName)).toBeUndefined();
+        }
+        // A replacement is queued in its own right: run it, so the queue
+        // is empty for the next case.
+        t.cutouts.start(fakeRunner());
+        await t.cutouts.whenIdle();
+      },
+    );
+
+    it('leaves a failed job leased when its failure cannot be recorded, and runs it again once the lease lapses', async () => {
+      const { fileName } = await queuedPhoto('Unrecorded shirt');
+      const runner = fakeRunner(async (call) => {
+        if (call === 1) {
+          await refuseUpdates(fileName);
+          throw new Error('model exploded');
+        }
+        return halfMask();
+      });
+
+      t.cutouts.start(runner);
+      await t.cutouts.whenIdle();
+
+      const errors = t.logs.messages('error', 'Cutout');
+      expect(errors).toContainEqual(
+        expect.stringMatching(
+          /^Cutout failed: garment \d+ .*, attempt 1, after \d+ ms$/,
+        ),
+      );
+      expect(errors).toContainEqual(
+        expect.stringMatching(
+          new RegExp(
+            `^Could not record failure of garment \\d+ photo \\d+ \\(${fileName.slice(0, 8)}\\)$`,
+          ),
+        ),
+      );
+      expect(await photoRow(t, fileName)).toMatchObject({
+        cutoutStatus: 'pending',
+        cutoutAttempts: 1,
+        cutoutJobVersion: 1,
+        cutoutWorker: expect.any(String) as unknown,
+      });
+
+      // Neither failed nor free: nothing runs it until the lease lapses.
+      await allowUpdates();
+      await t.cutouts.whenIdle();
+      expect(runner.calls).toBe(1);
+      await lapseLease(fileName);
+      await t.cutouts.whenIdle();
+      expect(runner.calls).toBe(2);
+      expect(await photoRow(t, fileName)).toMatchObject({
+        cutoutStatus: 'ready',
+        cutoutAttempts: 2,
+        ...NO_LEASE,
+      });
+    });
+
+    it('releases a failed job for a photo version that changed meanwhile, and runs the new version', async () => {
+      const { fileName } = await queuedPhoto('Changed failing shirt');
+      const runner = fakeRunner(async (call) => {
+        if (call === 1) {
+          await t.db
+            .update(file)
+            .set({ version: sql`${file.version} + 1` })
+            .where(eq(file.fileName, fileName));
+          throw new Error('model exploded');
+        }
+        return halfMask();
+      });
+
+      t.cutouts.start(runner);
+      await t.cutouts.whenIdle();
+
+      // Not a failure of the version the photo is now: not recorded, and
+      // the row is free for its new version at once.
+      expect(t.logs.messages('error', 'Cutout')).toContainEqual(
+        expect.stringMatching(
+          /^Cutout failed: .*, attempt 1, after \d+ ms \(not recorded: stale; lease released\)$/,
+        ),
+      );
+      expect(runner.calls).toBe(2);
+      expect(await photoRow(t, fileName)).toMatchObject({
+        cutoutStatus: 'ready',
+        version: 3,
+        cutoutAttempts: 2,
+        ...NO_LEASE,
+      });
     });
   });
 });
