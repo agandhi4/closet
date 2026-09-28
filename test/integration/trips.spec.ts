@@ -249,6 +249,21 @@ describe('trips', () => {
       expect(page.body).toContain('data-trip-day="any"');
     });
 
+    it('is disabled offline, new and edit alike: a cached copy must not post into the offline page', async () => {
+      const id = await newTrip();
+      for (const [url, action] of [
+        ['/trips/new', '/trips'],
+        [`/trips/${id}/edit`, `/trips/${id}`],
+      ]) {
+        const res = await get(url);
+        expect(res.statusCode).toBe(200);
+        const forms = res.body.match(/<form method="post"[^>]*>/g) ?? [];
+        expect(forms, url).toHaveLength(1);
+        expect(forms[0]).toContain(`action="${action}"`);
+        expect(forms[0]).toContain('data-needs-network=""');
+      }
+    });
+
     it('refuses a blank name, a backward range or a trip past 60 days, with messages', async () => {
       const today = t.today();
       const before = await t.db.$count(trip);
@@ -778,6 +793,34 @@ describe('trips', () => {
       expect(t.logs.messages('info', 'Web').at(-1)).toMatch(/already worn$/);
       const after = unescapeHtml((await get(`/trips/${id}`)).body);
       expect(after).toContain('Worn today');
+    });
+
+    it('is refused (409) for an outfit of another day of the trip, as a page left open past midnight posts it', async () => {
+      const today = t.today();
+      const yesterday = addDays(today, -1);
+      const id = await newTrip({
+        name: 'Over midnight',
+        startsOn: yesterday,
+        endsOn: addDays(today, 1),
+      });
+      expect(
+        (await addOutfit(id, dinnerOutfit, { day: yesterday })).statusCode,
+      ).toBe(303);
+      const [row] = await t.db
+        .select({ id: tripOutfit.id })
+        .from(tripOutfit)
+        .where(eq(tripOutfit.tripId, id));
+      const entriesBefore = await t.db.$count(outfitCalendar);
+      const wearsBefore = await t.db.$count(garmentWear);
+      const res = await post(`/trips/${id}/outfits/${row.id}/wear`, {});
+      expect(res.statusCode).toBe(409);
+      expect(res.body).toContain('This outfit is for another day of the trip');
+      expect(await t.db.$count(outfitCalendar)).toBe(entriesBefore);
+      expect(await t.db.$count(garmentWear)).toBe(wearsBefore);
+      // The page never offered it.
+      expect(unescapeHtml((await get(`/trips/${id}`)).body)).not.toContain(
+        `/outfits/${row.id}/wear"`,
+      );
     });
 
     it('is refused (409) while the trip is not on', async () => {

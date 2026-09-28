@@ -7,7 +7,7 @@ import type { IsoDate } from './calendar-date';
 import type { CalendarEntry } from './calendar-view';
 import { occasionLabel } from './labels';
 import { OPEN_PLAN_SHEET, planSheetChoice } from './plan-sheet';
-import { planPageUrl, weekUrl } from './urls';
+import { dayUrl, planPageUrl } from './urls';
 import { WornButton } from './worn-button';
 
 /**
@@ -28,11 +28,10 @@ export function OccasionRow(props: {
 }) {
   const { entry, future } = props;
   const name = entry.outfit.name || t('UNTITLED_OUTFIT');
-  // Editing the outfit is Styling with it open (#42), back to this week.
-  const editUrl = stylingUrl({
-    outfitId: entry.outfit.id,
-    returnTo: weekUrl(entry.day),
-  });
+  // Back from Styling (#42) and from a selfie lands on this entry's day
+  // (`#day-D`), not the top of its week: a later day is a long scroll down.
+  const back = dayUrl(entry.day);
+  const editUrl = stylingUrl({ outfitId: entry.outfit.id, returnTo: back });
   return (
     <div class="flex flex-col gap-1 py-2" data-occasion={entry.occasion}>
       <div class="flex items-center gap-1 min-h-6">
@@ -80,7 +79,7 @@ export function OccasionRow(props: {
           day={entry.day}
           selfie={entry.selfie}
           canTake={!future}
-          returnTo={weekUrl(entry.day)}
+          returnTo={back}
           size="row"
         />
         {/* A planned day has no pill (it cannot be worn yet), unless an

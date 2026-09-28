@@ -7,6 +7,7 @@ import {
   packingList,
   tripPhase,
   tripWears,
+  wearableToday,
 } from './packing';
 
 const TRIP = { startsOn: '2026-10-05', endsOn: '2026-10-09' };
@@ -240,5 +241,19 @@ describe('trip phase', () => {
     expect(tripPhase(TRIP, TRIP.startsOn)).toBe('current');
     expect(tripPhase(TRIP, TRIP.endsOn)).toBe('current');
     expect(tripPhase(TRIP, '2026-10-10')).toBe('past');
+  });
+});
+
+describe('wearable today', () => {
+  it('is an outfit for today or for no day, while the trip is on', () => {
+    const today = '2026-10-07';
+    expect(wearableToday(TRIP, today, today)).toBe(true);
+    expect(wearableToday(TRIP, null, today)).toBe(true);
+    // Yesterday's outfit, on a page left open past midnight, and tomorrow's.
+    expect(wearableToday(TRIP, '2026-10-06', today)).toBe(false);
+    expect(wearableToday(TRIP, '2026-10-08', today)).toBe(false);
+    // Not while the trip is ahead or over, dated or not.
+    expect(wearableToday(TRIP, null, '2026-10-04')).toBe(false);
+    expect(wearableToday(TRIP, null, '2026-10-10')).toBe(false);
   });
 });

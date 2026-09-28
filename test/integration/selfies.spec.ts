@@ -163,6 +163,16 @@ describe('outfit selfies', () => {
       expect(html).toContain('/selfies/');
       expect(html).toMatch(/capture="environment"/);
     }
+    // The calendar's row sends a new photo or a removal back to its day,
+    // not the top of its week.
+    const back = encodeURIComponent(`/calendar?week=${today()}#day-${today()}`);
+    const week = unescapeHtml(calendar.body);
+    expect(week).toContain(
+      `action="/calendar/${entryId}/selfie?returnTo=${back}"`,
+    );
+    expect(week).toContain(
+      `name="returnTo" value="/calendar?week=${today()}#day-${today()}"`,
+    );
     const strip = unescapeHtml(outfitPage.body);
     expect(strip).toContain('data-worn-strip');
     expect(strip).toContain(`data-worn-day="${today()}"`);

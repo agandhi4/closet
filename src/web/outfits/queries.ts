@@ -204,6 +204,15 @@ export interface OutfitEntries {
 }
 
 /**
+ * An entry the outfit was worn on: marked worn, or with a selfie (one
+ * taken and the entry unmarked later is still the record of the day). The
+ * one definition for the Worn strip (outfitEntries) and the Saved tile's
+ * count (outfitActivity), so the two never disagree; both left join the
+ * entry's selfie.
+ */
+const entryWorn = sql<boolean>`(${outfitCalendar.wornAt} is not null or ${selfie.id} is not null)`;
+
+/**
  * The owner's outfit's entries (OutfitEntries), in one statement served by
  * outfit_calendar_outfit_id_index and the selfie's unique entry key.
  */
@@ -218,7 +227,7 @@ export async function outfitEntries(
       entryId: outfitCalendar.id,
       day: outfitCalendar.day,
       occasion: outfitCalendar.occasion,
-      wornAt: outfitCalendar.wornAt,
+      worn: entryWorn,
       selfieId: selfie.id,
       fileName: file.fileName,
       version: file.version,
@@ -230,18 +239,14 @@ export async function outfitEntries(
       and(
         eq(outfitCalendar.outfitId, outfitId),
         eq(outfitCalendar.ownerId, ownerId),
-        or(
-          isNotNull(outfitCalendar.wornAt),
-          isNotNull(selfie.id),
-          gte(outfitCalendar.day, today),
-        ),
+        or(entryWorn, gte(outfitCalendar.day, today)),
       ),
     )
     .orderBy(desc(outfitCalendar.day), desc(outfitCalendar.id));
   const entries: OutfitEntries = { worn: [], planned: [] };
   for (const row of rows) {
     const { entryId, day, selfieId, fileName, version } = row;
-    if (row.wornAt === null && selfieId === null) {
+    if (!row.worn) {
       entries.planned.unshift({ entryId, day, occasion: row.occasion });
       continue;
     }
@@ -270,9 +275,11 @@ export interface OutfitActivity {
 /**
  * Every outfit of the owner's that has a calendar entry, with its
  * OutfitActivity: one grouped statement over the owner's entries (served
- * by outfit_calendar_owner_id_day_outfit_id_unique). An outfit never
- * planned is absent. Depends on the day, never the hour, so the Saved tab
- * (a stale-while-revalidate tab root) stays byte-stable within a day.
+ * by outfit_calendar_owner_id_day_outfit_id_unique) and their selfies.
+ * Worn is outfitEntries' (entryWorn), so the tile's count is the outfit
+ * page's Worn strip. An outfit never planned is absent. Depends on the
+ * day, never the hour, so the Saved tab (a stale-while-revalidate tab
+ * root) stays byte-stable within a day.
  */
 export async function outfitActivity(
   db: Db,
@@ -282,10 +289,11 @@ export async function outfitActivity(
   const rows = await db
     .select({
       outfitId: outfitCalendar.outfitId,
-      wornCount: sql<number>`(count(*) filter (where ${outfitCalendar.wornAt} is not null))::int`,
-      nextPlanned: sql<IsoDate | null>`(min(${outfitCalendar.day}) filter (where ${outfitCalendar.wornAt} is null and ${outfitCalendar.day} >= ${today}))::text`,
+      wornCount: sql<number>`(count(*) filter (where ${entryWorn}))::int`,
+      nextPlanned: sql<IsoDate | null>`(min(${outfitCalendar.day}) filter (where not ${entryWorn} and ${outfitCalendar.day} >= ${today}))::text`,
     })
     .from(outfitCalendar)
+    .leftJoin(selfie, eq(selfie.outfitCalendarId, outfitCalendar.id))
     .where(eq(outfitCalendar.ownerId, ownerId))
     .groupBy(outfitCalendar.outfitId);
   return new Map(rows.map(({ outfitId, ...activity }) => [outfitId, activity]));

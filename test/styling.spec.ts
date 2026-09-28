@@ -189,6 +189,18 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
 const scrollLeft = (strip: Locator) =>
   strip.evaluate((el) => Math.round(el.scrollLeft));
 
+/** Waits `count` animation frames: what an IntersectionObserver needs to report. */
+const frames = (page: Page, count: number) =>
+  page.evaluate(
+    (n) =>
+      new Promise<void>((resolve) => {
+        const step = (left: number) =>
+          left === 0 ? resolve() : requestAnimationFrame(() => step(left - 1));
+        step(n);
+      }),
+    count,
+  );
+
 /** A sideways wheel over the middle of `strip`: what a swipe is to it. */
 async function wheel(page: Page, strip: Locator, deltaX: number) {
   const box = (await strip.boundingBox())!;
@@ -225,7 +237,8 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
   const strip = tops.locator('.styling-strip');
   await tops.locator('label.swap').click();
   await expect(strip).toHaveCSS('overflow-x', 'hidden');
-  await expect(strip).toHaveCSS('touch-action', 'pan-y');
+  // Frozen sideways, but the page still scrolls and zooms over it.
+  await expect(strip).toHaveCSS('touch-action', 'pan-y pinch-zoom');
   const frozenAt = await scrollLeft(strip);
   await wheel(page, strip, 200);
   // The same wheel on an unlocked row moves it: the attempt was real, and
@@ -240,6 +253,29 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
   await expect(page).toHaveURL(/\/styling$/);
   expect(await scrollLeft(strip)).toBe(frozenAt);
   await expect(chosen(tops)).toHaveValue(String(g.newTee));
+  // Nor does the keyboard: Tab from the lock goes through "No garment" and
+  // the garments, and a browser may scroll even a hidden-overflow strip to
+  // reveal the one focused (Firefox does, for one out of view; Chromium
+  // does not). Whatever scrolled it, the strip comes back and the choice
+  // never moves: the scroll is made here, where the reveal would put it.
+  for (const item of [
+    tops.locator('.styling-item').first(),
+    tops.locator(`[data-garment-id="${g.oldTee}"]`),
+  ]) {
+    await item.focus();
+    await expect(item).toBeFocused();
+    await item.evaluate((el) =>
+      el.scrollIntoView({ inline: 'center', block: 'nearest' }),
+    );
+    // The strip's observer reports within a frame or two of the scroll.
+    await frames(page, 5);
+    expect(await scrollLeft(strip)).toBe(frozenAt);
+    expect(await chosen(tops).inputValue()).toBe(String(g.newTee));
+  }
+  await expect(tops.locator('[aria-selected="true"]')).toHaveAttribute(
+    'data-garment-id',
+    String(g.newTee),
+  );
 
   // Shuffle keeps the locked row, still frozen on the same garment.
   await page.getByRole('button', { name: /Shuffle/ }).click();

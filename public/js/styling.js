@@ -16,9 +16,11 @@
  * - A tap on a neighbour centres it instead of opening it; a tap on the
  *   chosen garment opens its page (a boosted link).
  * - A locked row is frozen (#106): CSS stops its strip scrolling under a
- *   finger (styling-row.tsx), and a tap on a neighbour does nothing, since
- *   a script's scroll would still move it. Centring on load still runs, so
- *   a row opened locked ("Style this") sits on its garment.
+ *   finger (styling-row.tsx), a tap on a neighbour does nothing, since a
+ *   script's scroll would still move it, and whatever else scrolls it
+ *   (keyboard focus revealing a neighbour) is undone rather than chosen.
+ *   Centring on load still runs, so a row opened locked ("Style this") sits
+ *   on its garment.
  *
  * Evaluated once per document: the listeners below sit on the document and
  * serve every page's rows.
@@ -53,7 +55,19 @@ function watch(strip) {
 
 function chooseFrom(strip, entries) {
   const crossing = entries.find((entry) => entry.isIntersecting);
-  if (crossing) choose(strip, crossing.target);
+  if (!crossing) return;
+  // A locked row keeps its garment whatever moved the strip. Its hidden
+  // overflow stops fingers and wheels, but a browser may still scroll it to
+  // reveal a focused descendant (Firefox does, as Tab goes from the lock
+  // through "No garment" and the garments), so put the choice back in the
+  // middle instead.
+  if (isLocked(strip)) {
+    if (!crossing.target.hasAttribute('data-selected')) {
+      centre(strip, strip.querySelector('[data-selected]'), 'instant');
+    }
+    return;
+  }
+  choose(strip, crossing.target);
 }
 
 function choose(strip, item) {

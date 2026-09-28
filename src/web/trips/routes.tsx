@@ -6,6 +6,7 @@ import {
   isOccasion,
   type Occasion,
 } from '../../wardrobe/occasions';
+import { tripPhase, wearableToday } from '../../wardrobe/packing';
 import { roundedLocation } from '../../weather/location';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
@@ -335,7 +336,8 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // "Wearing this today": through the calendar's writers (wearOutfitOn:
   // planned today and marked worn, once), so the calendar stays the one
-  // history of what was worn. Only while the trip is on.
+  // history of what was worn. Only while the trip is on, and only an
+  // outfit for today or for no day (wearableToday); else 409.
   app.post(
     `${TRIPS_PATH}/:id/outfits/:tripOutfitId/wear`,
     { schema: { params: TripOutfitParams } },
@@ -350,8 +352,18 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (!found) throw tripNotFound();
       const now = new Date();
       const day = todayIn(config.timeZone, now);
-      if (day < found.trip.startsOn || day > found.trip.endsOn) {
-        throw new HttpError(409, 'The trip is not on today');
+      // The page offers the button by the same rule, but a page left open
+      // past midnight still shows yesterday's.
+      if (!wearableToday(found.trip, found.day, day)) {
+        throw new HttpError(
+          409,
+          tripPhase(found.trip, day) === 'current'
+            ? 'This outfit is for another day of the trip'
+            : 'The trip is not on today',
+          {
+            logDetail: `outfit ${found.outfitId} for ${found.day ?? 'any day'} of ${found.trip.startsOn} to ${found.trip.endsOn}, today ${day}`,
+          },
+        );
       }
       const occasion = found.occasion ?? DEFAULT_OCCASION;
       const outcome = await wearOutfitOn(db, {

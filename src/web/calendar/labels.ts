@@ -81,6 +81,34 @@ export function shortDayLabel(date: IsoDate): string {
   return t('calendar.SHORT_DAY', { month: t(MONTH_NAMES[month - 1]), day });
 }
 
+/**
+ * The week's heading: "Sep 27 – Oct 3, 2026", or "Dec 29, 2030 – Jan 4,
+ * 2031" across a new year. Always with the year: the app bar says only
+ * "Calendar", so a `?week=` of another year would otherwise read like this
+ * one's. The same for every week, so `/calendar` stays byte-stable.
+ */
+export function weekRangeLabel(first: IsoDate, last: IsoDate): string {
+  const from = dateParts(first);
+  const to = dateParts(last);
+  if (from.year === to.year) {
+    return t('calendar.WEEK_RANGE', {
+      from: shortDayLabel(first),
+      to: shortDayLabel(last),
+      year: to.year,
+    });
+  }
+  const withYear = ({ year, month, day }: typeof from) =>
+    t('calendar.SHORT_DAY_YEAR', {
+      month: t(MONTH_NAMES[month - 1]),
+      day,
+      year,
+    });
+  return t('calendar.WEEK_RANGE_YEARS', {
+    from: withYear(from),
+    to: withYear(to),
+  });
+}
+
 /** "September 2026" (a month page's title). */
 export function monthLabel({ year, month }: YearMonth): string {
   return t('calendar.MONTH_TITLE', {

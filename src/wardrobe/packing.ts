@@ -109,6 +109,24 @@ export function tripPhase(
   return today > trip.endsOn ? 'past' : 'current';
 }
 
+/**
+ * Whether a trip outfit can be worn on `today` ("Wearing this today"):
+ * while the trip is on, and only if it is for today or for no day in
+ * particular. The trip page offers the button by it and the wear route
+ * refuses by it, so a page left open past midnight cannot mark yesterday's
+ * outfit worn today.
+ */
+export function wearableToday(
+  trip: { startsOn: IsoDate; endsOn: IsoDate },
+  outfitDay: IsoDate | null,
+  today: IsoDate,
+): boolean {
+  return (
+    tripPhase(trip, today) === 'current' &&
+    (outfitDay === null || outfitDay === today)
+  );
+}
+
 export interface PackingList<G extends PackingGarment> {
   groups: PackingGroup<G>[];
   /** Garments on the list, and how many of them are marked packed. */

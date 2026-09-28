@@ -77,10 +77,10 @@ test('tapping a calendar chip opens the outfit in Styling without a reload', asy
 
   await page.getByRole('link', { name: 'Chip outfit', exact: true }).click();
 
-  // Editing an outfit is Styling with it open (#42), back to this week.
+  // Editing an outfit is Styling with it open (#42), back to this day.
   await expect(page).toHaveURL(
     new RegExp(
-      `/styling\\?outfit=${outfit}&returnTo=%2Fcalendar%3Fweek%3D${today}$`,
+      `/styling\\?outfit=${outfit}&returnTo=%2Fcalendar%3Fweek%3D${today}%23day-${today}$`,
     ),
   );
   await expect(page.getByText('Changing Chip outfit')).toBeVisible();

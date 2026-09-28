@@ -16,7 +16,13 @@ import {
 import { dateParts } from './calendar-date';
 import type { CalendarDayView, CalendarView } from './calendar-view';
 import { CalendarTabs } from './calendar-tabs';
-import { DAY_LETTERS, DAY_NAMES, dayLabel, shortDayLabel } from './labels';
+import {
+  DAY_LETTERS,
+  DAY_NAMES,
+  dayLabel,
+  shortDayLabel,
+  weekRangeLabel,
+} from './labels';
 import { OccasionRow, OpenSlotRow } from './occasion-row';
 import { OPEN_PLAN_SHEET, PlanSheet, planSheetChoice } from './plan-sheet';
 import { dayAnchor, weekUrl } from './urls';
@@ -66,10 +72,7 @@ export function CalendarPage(props: {
             ‹
           </a>
           <p class="font-semibold" data-week={first}>
-            {t('calendar.WEEK_RANGE', {
-              from: shortDayLabel(first),
-              to: shortDayLabel(last),
-            })}
+            {weekRangeLabel(first, last)}
           </p>
           <a
             href={weekUrl(view.nextWeek)}

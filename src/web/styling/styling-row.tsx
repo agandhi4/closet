@@ -19,8 +19,10 @@ import { STYLING_GARMENTS_PATH, type StylingState, stylingUrl } from './urls';
  *
  * What the row shows is CSS off that state (#106): the chosen item's plinth
  * wears a ring (PLINTH_STATE), and a locked row is frozen: its strip stops
- * scrolling sideways (`overflow-x: hidden`, `touch-action: pan-y`, so the
- * page still scrolls under a thumb) and its neighbours fade, until the lock
+ * scrolling sideways (`overflow-x: hidden`, `touch-action: pan-y
+ * pinch-zoom`, so the page still scrolls under a thumb and still zooms under
+ * two; `pan-y` alone turned pinch-zoom off over the strip) and its
+ * neighbours fade, until the lock
  * is lifted and the strip swipes again from the same item.
  */
 
@@ -91,7 +93,7 @@ export function StylingRowView(props: {
         <LockToggle locked={row.locked} label={label} />
       </div>
       <div
-        class={`styling-strip relative flex gap-3 overflow-x-auto snap-x snap-mandatory overscroll-x-contain group-has-[.styling-lock:checked]/row:overflow-x-hidden group-has-[.styling-lock:checked]/row:touch-pan-y ${strip}`}
+        class={`styling-strip relative flex gap-3 overflow-x-auto snap-x snap-mandatory overscroll-x-contain group-has-[.styling-lock:checked]/row:overflow-x-hidden group-has-[.styling-lock:checked]/row:touch-pan-y group-has-[.styling-lock:checked]/row:touch-pinch-zoom ${strip}`}
         role="listbox"
         aria-label={t('styling.STRIP_LABEL', { role: label })}
       >

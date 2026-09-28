@@ -127,7 +127,8 @@ describe('calendar', () => {
 
     it('steps a week at a time and strips the days down to their blocks', async () => {
       const html = await weekPage();
-      expect(html).toMatch(/>\s*Oct 6 – Oct 12\s*</);
+      // With its year: nothing else on the page says which (#99).
+      expect(html).toMatch(/>\s*Oct 6 – Oct 12, 2030\s*</);
       expect(html).toContain('href="/calendar?week=2030-09-29"');
       expect(html).toContain('href="/calendar?week=2030-10-13"');
       expect(
@@ -143,7 +144,7 @@ describe('calendar', () => {
 
     it('a week across the new year is labelled across it', async () => {
       const html = await weekPage('/calendar?week=2030-12-31');
-      expect(html).toMatch(/>\s*Dec 29 – Jan 4\s*</);
+      expect(html).toMatch(/>\s*Dec 29, 2030 – Jan 4, 2031\s*</);
       expect([...dayColumns(html).keys()].at(-1)).toBe('2031-01-04');
     });
 
@@ -220,9 +221,10 @@ describe('calendar', () => {
 
       expect(hasText(tuesday, 'Brunch look')).toBe(true);
       expect(tuesday).toContain(`action="/calendar/${brunchEntry}/delete"`);
-      // The chip edits the outfit in Styling (#42), back to this week.
+      // The chip edits the outfit in Styling (#42), back to this day of
+      // the week, not the top of it (selfies.spec.ts: a selfie's too).
       expect(unescapeHtml(tuesday)).toContain(
-        `/styling?outfit=${brunch}&returnTo=%2Fcalendar%3Fweek%3D2030-10-08`,
+        `/styling?outfit=${brunch}&returnTo=%2Fcalendar%3Fweek%3D2030-10-08%23day-2030-10-08"`,
       );
       expect(hasText(saturday, 'Untitled Outfit')).toBe(true);
       expect(saturday).toContain(`action="/calendar/${untitledEntry}/delete"`);

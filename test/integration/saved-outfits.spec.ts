@@ -12,6 +12,7 @@ import {
   unescapeHtml,
 } from './harness';
 import { expectFullPage, expectNativePostForms } from './pages';
+import { takeSelfie } from './selfies';
 
 /**
  * Redesign R5 (#85; plan "Outfits"): the Saved tab as a grid of collage
@@ -137,6 +138,27 @@ describe('Saved outfits and the outfit page (R5)', () => {
       ).toBe(true);
       expect(hasText(ahead, 'Worn')).toBe(false);
       expect(tileOf(html, lapsed)).not.toMatch(/Planned|Worn/);
+    });
+
+    it('counts an entry kept by its selfie as worn, as the outfit page’s Worn strip does', async () => {
+      const outfit = await newOutfit('Selfie then unmarked');
+      await plan(outfit, today);
+      const entry = await entryOf(outfit, today);
+      await takeSelfie(t, entry.id);
+      // Unmarked: the selfie stays, and with it the day's record.
+      const unmark = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry.id}/worn`,
+        ...form({ worn: '0' }),
+      });
+      expect(unmark.statusCode).toBe(303);
+
+      const tile = tileOf(await page('/outfits'), outfit);
+      expect(hasText(tile, 'Worn 1×')).toBe(true);
+      // Today's entry is not also the next plan.
+      expect(tile).not.toMatch(/Planned/);
+      const strip = await page(`/outfits/${outfit}`);
+      expect(strip).toContain(`data-worn-day="${today}"`);
     });
 
     it('is a stale-while-revalidate tab root: two renders are the same bytes', async () => {

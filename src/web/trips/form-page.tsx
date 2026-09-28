@@ -30,7 +30,9 @@ export interface TripFormModel {
 /**
  * GET /trips/new and /trips/:id/edit, and their re-render with the messages
  * when a post is refused (400): a native post (PostForm), since htmx drops a
- * boosted 4xx. The destination is a name here; the trip page finds it on the
+ * boosted 4xx. Disabled offline (`needsNetwork`): a cached copy opened in
+ * the installed app without a connection would otherwise post into the
+ * worker's offline page and lose what was typed. The destination is a name here; the trip page finds it on the
  * map (the weather's geocoding) for its forecast, and a new name clears the
  * old location. The edit form also deletes the trip (its outfits stay).
  */
@@ -50,6 +52,7 @@ export function TripFormPage(props: {
         <PostForm
           action={editing ? tripUrl(tripId) : TRIPS_PATH}
           class="flex flex-col gap-4"
+          needsNetwork
         >
           <RequiredField
             field="name"

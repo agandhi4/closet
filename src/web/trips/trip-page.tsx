@@ -1,4 +1,8 @@
-import type { PackingRow, PackingWarning } from '../../wardrobe/packing';
+import {
+  type PackingRow,
+  type PackingWarning,
+  wearableToday,
+} from '../../wardrobe/packing';
 import { PostForm } from '../auth/form';
 import { AutosaveForm } from '../autosave';
 import type { IsoDate } from '../calendar/calendar-date';
@@ -253,10 +257,7 @@ function TripOutfitRow(props: {
   const { model, outfit } = props;
   const tripId = model.trip.id;
   const name = outfit.name || t('UNTITLED_OUTFIT');
-  // "Wearing this today": an outfit of today or of any day, while the trip is on.
-  const wearable =
-    model.phase === 'current' &&
-    (outfit.day === null || outfit.day === model.today);
+  const wearable = wearableToday(model.trip, outfit.day, model.today);
   const worn = model.wornToday.has(outfit.outfitId);
   return (
     <article
