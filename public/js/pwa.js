@@ -12,9 +12,11 @@
  * views/assets/src-sw.ts no longer calls skipWaiting() on install, so a new
  * build sits in `waiting` until the user taps Reload. The toast then posts
  * SKIP_WAITING and this tab reloads on `controlling`. Other tabs keep their
- * page: the old hard-navigate-on-next-boosted-GET hack existed only because
- * the worker used to seize control mid-session; with the user choosing the
- * moment there is nothing to work around.
+ * page and the toast, whose Reload then only reloads (the new worker already
+ * controls them): the old hard-navigate-on-next-boosted-GET hack existed only
+ * because the worker used to seize control mid-session; with the user
+ * choosing the moment there is nothing to work around. test/sw-update.spec.ts
+ * walks both.
  */
 import { Workbox } from 'workbox-window';
 import { showToast } from 'toast';
@@ -24,7 +26,13 @@ const strings = () => document.getElementById('app-status')?.dataset ?? {};
 
 function registerServiceWorker() {
   const wb = new Workbox('/sw.js');
-  let updateWaiting = false;
+  // What this window knows of an update: 'none'; 'waiting' (a new worker is
+  // installed and the toast offers it); 'active' (the new worker already
+  // controls this page: another window of the app accepted it, and
+  // clientsClaim took this one too, without reloading it). Reload then has
+  // nothing left to activate and only reloads; messageSkipWaiting would
+  // find no waiting worker and the tap would do nothing.
+  let update = 'none';
   let reloadRequested = false;
   let toast = null;
 
@@ -36,6 +44,11 @@ function registerServiceWorker() {
       action: {
         label: strings().textReload,
         onClick: () => {
+          if (update === 'active') {
+            console.info('[pwa] update already active, reloading');
+            window.location.reload();
+            return;
+          }
           reloadRequested = true;
           console.info('[pwa] update accepted, activating new worker');
           wb.messageSkipWaiting();
@@ -45,17 +58,31 @@ function registerServiceWorker() {
   };
 
   wb.addEventListener('waiting', () => {
-    updateWaiting = true;
+    update = 'waiting';
     console.info('[pwa] update waiting');
     showUpdateToast();
   });
-  wb.addEventListener('controlling', (event) => {
-    if (event.isUpdate && reloadRequested) window.location.reload();
+  // A new controller is the update only once this window has seen it
+  // waiting; before that it is the first worker taking the page (the app's
+  // first visit, clientsClaim). Not Workbox's `isUpdate`: that says whether
+  // a worker controlled the page when pwa.js registered, so a page opened
+  // before the first worker never reloaded onto a later update.
+  wb.addEventListener('controlling', () => {
+    if (update === 'none') return;
+    if (reloadRequested) {
+      window.location.reload();
+      return;
+    }
+    // Accepted in another window: this page keeps running until the user
+    // reloads it (never force a reload), so the toast stays on offer.
+    update = 'active';
+    console.info('[pwa] update activated by another window');
+    if (!toast?.element.isConnected) showUpdateToast();
   });
   // The toast lives in the body and is lost on every boosted navigation;
   // keep it until the user acts.
   document.addEventListener('htmx:afterSettle', () => {
-    if (updateWaiting && !toast?.element.isConnected) showUpdateToast();
+    if (update !== 'none' && !toast?.element.isConnected) showUpdateToast();
   });
 
   // A browser that refuses workers (a policy, some private modes, a test

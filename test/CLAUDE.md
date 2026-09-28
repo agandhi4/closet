@@ -48,8 +48,9 @@ The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
                               # test/stale-pages.spec.ts (stale-while-revalidate tab roots, freshness,
                               # page cache ownership), test/image-cache-privacy.spec.ts (the image
                               # cache and selfies across sessions),
-                              # test/install-dialog.spec.ts (what the install dialog costs, where it shows) and
-                              # test/push-settings.spec.ts (the profile's notification controls and a device's reminders) skip
+                              # test/install-dialog.spec.ts (what the install dialog costs, where it shows),
+                              # test/push-settings.spec.ts (the profile's notification controls and a device's reminders),
+                              # and sw-update + push-notification (docs/testing-service-worker.md) skip
                               # unless the server was started with PWA_ENABLED=true (+ VAPID keys,
                               # https: SITE_URL). Production config locally, as CI's e2e job runs it:
                               # SITE_URL=https://closet.test PWA_ENABLED=true \

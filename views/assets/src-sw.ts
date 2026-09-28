@@ -30,11 +30,8 @@ import {
   sentToLogin,
   servesStaleWhileRevalidate,
 } from '../../src/web/page-cache';
-import {
-  notificationTarget,
-  parsePushPayload,
-  type PushPayload,
-} from '../../src/web/push/payload';
+import { openNotification } from '../../src/web/push/notification-click';
+import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
 
 /**
  * Caching model (public/js/pwa.js and public/js/freshness.js are the page
@@ -878,32 +875,14 @@ function readPushPayload(
 
 // A tap opens the notification's page: in a window already showing it, else
 // in the first open window of the app, else a new one. Never off-origin
-// (notificationTarget).
+// (openNotification).
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const data: unknown = event.notification.data;
-  const url =
-    typeof data === 'object' && data !== null && 'url' in data
-      ? String(data.url)
-      : '/';
-  event.waitUntil(openWindow(notificationTarget(url, self.location.origin)));
+  event.waitUntil(
+    openNotification(
+      self.clients,
+      event.notification.data,
+      self.location.origin,
+    ),
+  );
 });
-
-async function openWindow(url: string): Promise<void> {
-  // Controlled windows only (clientsClaim makes that every open page):
-  // navigate() is refused for the others.
-  const windows = await self.clients.matchAll({ type: 'window' });
-  const showing = windows.find((client) => client.url === url);
-  if (showing) {
-    await showing.focus();
-    return;
-  }
-  const [open] = windows;
-  if (open) {
-    const focused = await open.focus();
-    // Null when the browser declines to navigate it (older WebKit): open a
-    // window instead.
-    if (await focused.navigate(url)) return;
-  }
-  await self.clients.openWindow(url);
-}
