@@ -305,3 +305,99 @@ describe('a revoked session clears the device', () => {
     expect(profile.statusCode).toBe(200);
   });
 });
+
+/**
+ * The login form stays open to a signed-in user, so B can sign in over A's
+ * live session (#229). That ends A's session on the device like a sign-out:
+ * B's cookie replaces A's and `Clear-Site-Data: "cache"` drops what the HTTP
+ * cache holds for A (photos, selfies). Not `X-Session-Ended`: the worker
+ * drops its own caches on any sign-in's redirect. The same account signing
+ * in again keeps its cache.
+ */
+describe('signing in over a live session', () => {
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp({ ACCESS_TOKEN_SECRET: SECRET });
+  });
+
+  afterAll(() => t?.cleanup());
+
+  const signIn = (email: string, password: string, cookie: string) =>
+    t.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password },
+      headers: { ...uniqueClient(), cookie },
+    });
+
+  /** The one session cookie the answer sets, ready for a `cookie` header. */
+  const issuedCookie = (res: LightMyRequestResponse) => {
+    const tokens = res.cookies.filter((c) => c.name === 'access_token');
+    expect(tokens).toHaveLength(1);
+    return `access_token=${tokens[0].value}`;
+  };
+
+  it("as another account clears the previous account's cache and opens the new session", async () => {
+    const email = 'switcher@example.com';
+    await t.register(email);
+    const switcherId = await userIdOf(t, email);
+
+    const res = await signIn(email, TEST_PASSWORD, t.owner.cookie);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['clear-site-data']).toBe('"cache"');
+    expect(res.headers['x-session-ended']).toBeUndefined();
+    const profile = await t.inject({
+      method: 'GET',
+      url: '/auth/profile',
+      headers: { cookie: issuedCookie(res) },
+    });
+    expect(profile.statusCode).toBe(200);
+    expect(profile.headers['x-page-account']).toBe(String(switcherId));
+    expect(t.logs.messages('info', 'Web')).toContain(
+      `User ${switcherId} signed in, replacing user ${t.owner.id}'s session: Clear-Site-Data sent`,
+    );
+  });
+
+  it('as the same account keeps its cache', async () => {
+    const email = 'same-again@example.com';
+    const cookie = await t.register(email);
+
+    const res = await signIn(email, TEST_PASSWORD, cookie);
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['clear-site-data']).toBeUndefined();
+    expect(res.headers['x-session-ended']).toBeUndefined();
+    issuedCookie(res);
+  });
+
+  it('refused, leaves the live session and its cache alone', async () => {
+    const email = 'refused-switch@example.com';
+    await t.register(email);
+
+    const res = await signIn(email, 'NotThePassword1', t.owner.cookie);
+
+    expect(res.statusCode).toBe(401);
+    expectNothingCleared(res);
+    const still = await t.inject({ method: 'GET', url: '/wardrobe' });
+    expect(still.statusCode).toBe(200);
+  });
+
+  it("registering over a live session clears the previous account's cache", async () => {
+    const res = await t.inject({
+      method: 'POST',
+      url: '/auth/register',
+      payload: {
+        email: 'newcomer@example.com',
+        password: TEST_PASSWORD,
+        confirmPassword: TEST_PASSWORD,
+      },
+      headers: { ...uniqueClient(), cookie: t.owner.cookie },
+    });
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['clear-site-data']).toBe('"cache"');
+    issuedCookie(res);
+  });
+});

@@ -56,7 +56,7 @@ test('wardrobe grid uses versioned thumb URLs served as immutable webp', async (
     expect(response.status(), url).toBe(200);
     expect(response.headers()['content-type'], url).toBe('image/webp');
     expect(response.headers()['cache-control'], url).toBe(
-      'public, max-age=31536000, immutable',
+      'private, max-age=31536000, immutable',
     );
     const meta = await sharp(await response.body()).metadata();
     expect(meta.format, url).toBe('webp');

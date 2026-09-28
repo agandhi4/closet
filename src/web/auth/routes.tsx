@@ -38,7 +38,12 @@ import {
 } from './queries';
 import { sessionUserId } from './require-session';
 import { findWeekTemplate } from '../week-plan/template';
-import { endSession, sessionAccount, setSessionCookie } from './session';
+import {
+  endSession,
+  sessionAccount,
+  setSessionCookie,
+  startSession,
+} from './session';
 import {
   ChangePasswordBody,
   DeleteAccountBody,
@@ -62,6 +67,12 @@ const ProfileQuery = Type.Object({
   // Why an invite could not be accepted (Sharing, src/web/sharing).
   [SHARE_ERROR_PARAM]: Type.Optional(Type.String()),
 });
+
+/** The sign-in log line's note when it replaced another account's session. */
+const replacedNote = (replaced: number | undefined) =>
+  replaced === undefined
+    ? ''
+    : `, replacing user ${replaced}'s session: Clear-Site-Data sent`;
 
 /**
  * /auth: sign in and out, registration, and the account pages (profile,
@@ -109,8 +120,13 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           { status: 401 },
         );
       }
-      setSessionCookie(reply, tokens.issue(account));
-      logger.info(`User ${account.id} signed in`);
+      const replaced = startSession(
+        request,
+        reply,
+        account.id,
+        tokens.issue(account),
+      );
+      logger.info(`User ${account.id} signed in${replacedNote(replaced)}`);
       return reply.redirect(PROFILE_PATH, 302);
     },
   );
@@ -177,8 +193,13 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         logger.info('Registration refused: the email is taken');
         return refuse({ email: [t('EMAIL_IN_USE')] });
       }
-      setSessionCookie(reply, tokens.issue(account));
-      logger.info(`User ${account.id} registered`);
+      const replaced = startSession(
+        request,
+        reply,
+        account.id,
+        tokens.issue(account),
+      );
+      logger.info(`User ${account.id} registered${replacedNote(replaced)}`);
       return reply.redirect(PROFILE_PATH, 302);
     },
   );

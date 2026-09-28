@@ -79,7 +79,7 @@ describe('wardrobe', () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers['content-type']).toBe('image/webp');
       expect(res.headers['cache-control']).toBe(
-        'public, max-age=31536000, immutable',
+        'private, max-age=31536000, immutable',
       );
       expect(res.rawPayload.equals(await readFile(filePath('thumb')))).toBe(
         true,

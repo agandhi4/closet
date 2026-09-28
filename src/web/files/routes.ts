@@ -9,10 +9,16 @@ import { publicPhoto } from './references';
 
 // Variant URLs carry `?v=<file.version>` (imageUrl()), which is what makes a
 // year of immutable caching safe: rewritten bytes are only ever reached
-// through a new version.
-const IMMUTABLE_YEAR = 'public, max-age=31536000, immutable';
+// through a new version. `private` (#229): a photo is its owner's wardrobe,
+// reachable without a session only by its unguessable name, so no shared
+// cache (a proxy, a CDN) may keep a copy; a share showing it can end, and a
+// year-long public copy would outlive it. The browser's own cache still keeps
+// it, and is emptied with Clear-Site-Data when the session ends or another
+// account signs in over it (src/web/security/CLAUDE.md).
+const PRIVATE_IMMUTABLE_YEAR = 'private, max-age=31536000, immutable';
 // Share previews are addressed by the photo's share id, which never changes
 // with its bytes: a day, so a crawler's copy catches up with a mask edit.
+// Public: made for link-preview crawlers, and it carries the watermark.
 const SHARE_PREVIEW_CACHE = 'public, max-age=86400';
 
 // Validated by the handler, not the schema: anything that is not a photo
@@ -57,7 +63,7 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       throw new HttpError(404);
     }
     const stream = await photos.getVariant(photo, variant);
-    return sendImage(reply, stream, 'image/webp', IMMUTABLE_YEAR);
+    return sendImage(reply, stream, 'image/webp', PRIVATE_IMMUTABLE_YEAR);
   };
 
   // Fastify answers a stream that fails before its headers through the

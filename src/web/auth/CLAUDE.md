@@ -4,4 +4,4 @@
 
 ## Layout
 
-`/auth/*`: the session resolver (`session.ts`, and `endSession`), tokens, passwords, `requireSession` (`require-session.ts`) and `session-access.ts` (its decision), `login-path.ts` (`LOGIN_PATH`, which the service worker imports), `personal-tokens.ts` and `token-routes.tsx` (`/auth/tokens`: the MCP endpoint's tokens), `pages.tsx` (Profile, `/auth/profile`), `form.tsx` (`PostForm`, the only native-post form), `logout.tsx`.
+`/auth/*`: the session resolver (`session.ts`, with `startSession` and `endSession`), tokens, passwords, `requireSession` (`require-session.ts`) and `session-access.ts` (its decision), `login-path.ts` (`LOGIN_PATH`, which the service worker imports), `personal-tokens.ts` and `token-routes.tsx` (`/auth/tokens`: the MCP endpoint's tokens), `pages.tsx` (Profile, `/auth/profile`), `form.tsx` (`PostForm`, the only native-post form), `logout.tsx`.

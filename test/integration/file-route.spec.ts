@@ -43,7 +43,9 @@ describe('/file route and request logging', () => {
     expect(await status(`/file/nobg/${photoName}?v=1`)).toBe(200);
   });
 
-  it('serves every variant as immutable WebP for a year', async () => {
+  // `private` (#229): no shared cache may keep a user's photo, while the
+  // browser keeps it immutable for a year (the #162 caching model).
+  it('serves every variant as private, immutable WebP for a year', async () => {
     for (const prefix of ['/file', '/file/nobg', '/file/thumb']) {
       const res = await t.inject({
         method: 'GET',
@@ -53,7 +55,7 @@ describe('/file route and request logging', () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers['content-type']).toBe('image/webp');
       expect(res.headers['cache-control']).toBe(
-        'public, max-age=31536000, immutable',
+        'private, max-age=31536000, immutable',
       );
     }
   });
