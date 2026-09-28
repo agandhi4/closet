@@ -134,6 +134,43 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // The item forms show the plan they belong to.
+    name: 'GET /wardrobe/plans/:id/items/new',
+    kind: 'read',
+    ok: 200,
+    secret: planName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/plans/${f.planId}/items/new${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /wardrobe/plans/:id/items/:itemId/edit',
+    kind: 'read',
+    ok: 200,
+    secret: planName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/plans/${f.planId}/items/${f.planItemId}/edit${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
     name: 'POST /wardrobe/plans/:id/items',
     kind: 'write',
     ok: 303,

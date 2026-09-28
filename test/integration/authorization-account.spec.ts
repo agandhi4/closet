@@ -9,7 +9,7 @@ import {
   OWNER_TOKEN_NAME,
 } from './authorization-matrix';
 
-// The authorization matrix (authorization-matrix.ts): sizes and agent access.
+// The authorization matrix (authorization-matrix.ts): sizes, agent access and sharing.
 const ROUTES: Route[] = [
   // Sizes (#24): everyone's own, like the style profile; the owner's note
   // never reaches a grantee, on the editor, the hint or a shared page.
@@ -165,6 +165,27 @@ const ROUTES: Route[] = [
     request: async (f) => ({
       method: 'POST',
       url: `/auth/tokens/${await f.ownerToken()}/revoke`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // Revoking the owner's open invite link (Profile › Sharing): a share
+    // row is its grantor's and grantee's, so a grantee of the same
+    // wardrobe gets the 404 of an unknown id like anyone else.
+    // share-lifecycle.spec.ts covers the grantee leaving.
+    name: 'POST /wardrobe-share/:id/remove',
+    kind: 'write',
+    ok: 302,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe-share/${f.inviteShareId}/remove${q}`,
     }),
     expect: {
       owner: 'ok',

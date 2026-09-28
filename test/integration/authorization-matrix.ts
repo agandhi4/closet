@@ -3,7 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { outfitCalendar, tripItem, tripOutfit } from '../../src/db/schema';
+import { recordCutoutEvent } from '../../src/cutout/queries';
+import {
+  orderItem,
+  outfitCalendar,
+  tripItem,
+  tripOutfit,
+  wardrobeShare,
+  weekPlan,
+} from '../../src/db/schema';
 import { createToken } from '../../src/web/auth/personal-tokens';
 import { changeCandidates } from '../../src/web/plans/candidates';
 import { insertItems, saveStyleProfile } from '../../src/web/plans/queries';
@@ -11,18 +19,29 @@ import { EMPTY_STYLE_PROFILE } from '../../src/web/plans/validation';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addBrandSize } from '../../src/web/sizes/queries';
 import { addRepair } from '../../src/web/wardrobe/repairs';
+import { recordOrderEmail } from '../../src/web/wardrobe/order-mail/queries';
 import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
 import {
   createGarment,
   createWishlistItem,
   garmentRow,
   jpegPhoto,
+  photoFileName,
   pngCutout,
   uploadPhoto,
 } from './garments';
-import { createTestApp, TestApp, userIdOf } from './harness';
+import {
+  createTestApp,
+  type Env,
+  OWNER_EMAIL,
+  TestApp,
+  type TestAppOptions,
+  userIdOf,
+} from './harness';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
 import { planEntry, takeSelfie } from './selfies';
+import { startJmapStub } from '../support/jmap-stub';
+import { startWeatherStub } from '../support/weather-stub';
 
 /**
  * The object-level authorization matrix, split by route group into
@@ -63,6 +82,13 @@ import { planEntry, takeSelfie } from './selfies';
  * routes refuse a selfie's name and share id to everyone, the owner too.
  * Trips (#10) are the owner's like outfits: every refusal is a 404 (or the
  * requester's own list), including a gallery pick for someone else's trip.
+ * So are the weekly auto-plan's batches and the order mail's review list
+ * (#25: ORDER_MAIL_OWNER's alone, a 404 like a missing route for anyone
+ * else). A share row is its two parties' (grantor and grantee): anyone
+ * else, a grantee of the same wardrobe included, gets a 404.
+ *
+ * authorization-coverage.spec.ts fails when a route that takes an id is in
+ * no group here (#182).
  */
 
 export type SignedIn = 'owner' | 'manager' | 'viewer' | 'stranger';
@@ -145,6 +171,16 @@ export interface Fixture {
   brand: string;
   /** A repair log entry on the garment (#23), the owner's own record. */
   repairId: number;
+  /**
+   * A pending item of the owner's order mail (#25), whose product page the
+   * link sites do not serve (the add form opens with the order's details).
+   */
+  orderItemId: number;
+  orderItemName: string;
+  /** A batch of the weekly auto-plan of the owner's, all its entries gone. */
+  weekPlanId: number;
+  /** An open invite link to the owner's wardrobe, not yet accepted. */
+  inviteShareId: number;
   /** A phone photo and a cutout to upload, the file's own for every test. */
   photo: Buffer;
   cutout: Buffer;
@@ -157,6 +193,11 @@ export interface Route {
   kind: 'read' | 'write' | 'clone';
   /** Status the route answers on success. */
   ok: number;
+  /**
+   * An optional feature the route exists only with: the group's app runs
+   * with it on, against its stand-in (featureApp).
+   */
+  feature?: Feature;
   /** Text naming the owner's row: must appear on success, never on a refusal. */
   secret: (f: Fixture) => string;
   /** Success renders the secret (detail pages, lists, forms). */
@@ -180,6 +221,7 @@ export const capsuleName = (f: Fixture) => f.capsuleName;
 export const outfitName = (f: Fixture) => f.outfitName;
 export const planName = (f: Fixture) => f.planName;
 export const tripName = (f: Fixture) => f.tripName;
+export const orderItemName = (f: Fixture) => f.orderItemName;
 // One style profile per user, so one note every fixture saves again.
 export const OWNER_STYLE_NOTE = 'Owner style notes, never shared';
 export const styleNote = () => OWNER_STYLE_NOTE;
@@ -194,6 +236,44 @@ export const calendarEntry = (f: Fixture) =>
   `/styling?outfit=${f.outfitId}&amp;returnTo=`;
 export const selfieName = (f: Fixture) => f.selfieFileName;
 export const OWNER_TOKEN_NAME = 'Owner laptop token';
+
+/** A feature off by default whose routes exist only with it on. */
+export type Feature = 'weather' | 'orderMail';
+
+const ORDER_MAIL_TOKEN = 'authorization-matrix';
+
+/**
+ * The environment and stand-ins that turn `features` on for createTestApp
+ * (the weather against weather-stub.ts, the order mail against
+ * jmap-stub.ts, with the harness's owner as ORDER_MAIL_OWNER); `close`
+ * stops the stand-ins. authorization-coverage.spec.ts boots with every one.
+ */
+export async function featureApp(features: ReadonlySet<Feature>): Promise<{
+  env: Env;
+  options: TestAppOptions;
+  close: () => Promise<void>;
+}> {
+  const [weather, jmap] = await Promise.all([
+    features.has('weather') ? startWeatherStub() : undefined,
+    features.has('orderMail') ? startJmapStub(ORDER_MAIL_TOKEN) : undefined,
+  ]);
+  return {
+    env: {
+      ...(weather ? { WEATHER_ENABLED: 'true' } : {}),
+      ...(jmap
+        ? {
+            ORDER_MAIL_JMAP_TOKEN: ORDER_MAIL_TOKEN,
+            ORDER_MAIL_SENDERS: 'orders@example.com',
+            ORDER_MAIL_OWNER: OWNER_EMAIL,
+          }
+        : {}),
+    },
+    options: { weather: weather?.options, orderMail: jmap?.options },
+    close: async () => {
+      await Promise.all([weather?.close(), jmap?.close()]);
+    },
+  };
+}
 
 /** Every table a wardrobe request could touch. */
 const TABLES = [
@@ -269,6 +349,38 @@ export interface Matrix {
   shared: Fixture;
 }
 
+/** One authorization-<group>.spec.ts's routes, as describeMatrix received them. */
+export interface MatrixGroup {
+  group: string;
+  routes: Route[];
+}
+
+/**
+ * Set while collectMatrix loads the group files: describeMatrix records its
+ * routes here instead of describing them.
+ */
+let collecting: MatrixGroup[] | undefined;
+
+/**
+ * Every group's routes, without running the matrix: loads each
+ * authorization-<group>.spec.ts with describeMatrix recording instead of
+ * describing (so no suite and no `extras` test is registered in the
+ * caller's file). The route-coverage spec (authorization-coverage.spec.ts)
+ * holds the app's routes against them.
+ */
+export async function collectMatrix(
+  load: () => Promise<unknown>,
+): Promise<MatrixGroup[]> {
+  const groups: MatrixGroup[] = [];
+  collecting = groups;
+  try {
+    await load();
+  } finally {
+    collecting = undefined;
+  }
+  return groups;
+}
+
 /**
  * The matrix for one group of routes: five actors, each route by each via,
  * on its own scratch database (one spec file each, so Vitest runs the groups
@@ -280,6 +392,10 @@ export function describeMatrix(
   routes: Route[],
   extras?: (matrix: Matrix) => void,
 ): void {
+  if (collecting) {
+    collecting.push({ group, routes });
+    return;
+  }
   describe(`authorization matrix: ${group}`, () => {
     let t: TestApp;
     const actors = {} as Record<ActorName, { id?: number; cookie?: string }>;
@@ -289,6 +405,8 @@ export function describeMatrix(
     let cutout: Buffer;
     /** The link import's "internet": a shop serving /photo.jpg. */
     let sites: LinkSites;
+    /** The stand-ins of the features the group's routes need. */
+    let features: Awaited<ReturnType<typeof featureApp>> | undefined;
 
     const signUp = async (email: string) => {
       const cookie = await t.register(email);
@@ -296,7 +414,8 @@ export function describeMatrix(
       return { id, cookie };
     };
 
-    const share = async (grantee: SignedIn, permission: 'VIEW' | 'MANAGE') => {
+    /** A new open invite link to the owner's wardrobe; its token. */
+    const createInviteLink = async (permission: 'VIEW' | 'MANAGE') => {
       const res = await t.inject({
         method: 'POST',
         url: '/wardrobe-share/create-invite-link',
@@ -305,9 +424,14 @@ export function describeMatrix(
       });
       const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(res.body);
       if (!token) throw new Error(`No invite URL in partial:\n${res.body}`);
+      return token[1];
+    };
+
+    const share = async (grantee: SignedIn, permission: 'VIEW' | 'MANAGE') => {
+      const token = await createInviteLink(permission);
       const accept = await t.inject({
         method: 'POST',
-        url: `/wardrobe-share/invite/${token[1]}/accept`,
+        url: `/wardrobe-share/invite/${token}/accept`,
         headers: { cookie: actors[grantee].cookie },
       });
       expect(accept.headers.location).toBe('/auth/profile#sharing');
@@ -321,6 +445,21 @@ export function describeMatrix(
       const outfitName = `Look ${tag}`;
       const garmentId = await createGarment(t, { name: garmentName, cookie });
       await uploadPhoto(t, garmentId, photo, cookie);
+      // Its cutout failed (no queue runs here), so "Try again" requeues it:
+      // a job taken and failed through the cutout's state machine.
+      const fileName = await photoFileName(t, garmentId);
+      const started = await recordCutoutEvent(t.db, fileName, {
+        type: 'start',
+        worker: 'authorization-matrix',
+      });
+      if (!started.ok || started.state.jobVersion === null) {
+        throw new Error(`The cutout of ${fileName} did not start`);
+      }
+      const failed = await recordCutoutEvent(t.db, fileName, {
+        type: 'fail',
+        jobVersion: started.state.jobVersion,
+      });
+      if (!failed.ok) throw new Error(`The cutout of ${fileName} did not fail`);
       const wishlistName = `Wish ${tag}`;
       const brand = `Brand ${tag}`;
       const wishlistId = await createWishlistItem(t, {
@@ -490,6 +629,42 @@ export function describeMatrix(
         cost: '12.00',
       });
       if (repairId === undefined) throw new Error('No repair logged');
+
+      const orderItemName = `Ordered ${tag}`;
+      const listed = await recordOrderEmail(
+        t.db,
+        {
+          accountId: 'authorization-matrix',
+          emailId: `order-${tag}`,
+          receivedAt: new Date(),
+          outcome: 'imported',
+        },
+        t.owner.id,
+        today,
+        [
+          {
+            productUrl: sites.url(`/products/${tag}`),
+            name: orderItemName,
+            brand: null,
+            price: '30.00',
+            currency: 'USD',
+          },
+        ],
+      );
+      expect(listed).toBe(1);
+      const [{ id: orderItemId }] = await t.db
+        .select({ id: orderItem.id })
+        .from(orderItem)
+        .where(eq(orderItem.name, orderItemName));
+      const [{ id: weekPlanId }] = await t.db
+        .insert(weekPlan)
+        .values({ ownerId: t.owner.id })
+        .returning({ id: weekPlan.id });
+      const inviteToken = await createInviteLink('VIEW');
+      const [{ id: inviteShareId }] = await t.db
+        .select({ id: wardrobeShare.id })
+        .from(wardrobeShare)
+        .where(eq(wardrobeShare.inviteToken, inviteToken));
       return {
         garmentId,
         garmentName,
@@ -518,6 +693,10 @@ export function describeMatrix(
         brand,
         brandSizeId,
         repairId,
+        orderItemId,
+        orderItemName,
+        weekPlanId,
+        inviteShareId,
         photo,
         cutout,
         shopPhotoUrl: sites.url('/photo.jpg'),
@@ -666,7 +845,13 @@ export function describeMatrix(
 
     beforeAll(async () => {
       sites = await startLinkSites();
-      t = await createTestApp({}, { outboundFetch: sites.outboundFetch });
+      features = await featureApp(
+        new Set(routes.flatMap(({ feature }) => feature ?? [])),
+      );
+      t = await createTestApp(features.env, {
+        ...features.options,
+        outboundFetch: sites.outboundFetch,
+      });
       [photo, cutout] = await Promise.all([
         jpegPhoto(320, 240),
         pngCutout(320, 240),
@@ -686,6 +871,7 @@ export function describeMatrix(
     afterAll(async () => {
       await t?.cleanup();
       await sites?.close();
+      await features?.close();
     });
 
     it.each(casesOf(routes))(

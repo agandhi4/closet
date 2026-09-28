@@ -276,6 +276,64 @@ const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  // The destination's weather (WEATHER_ENABLED only): where someone
+  // travels is theirs, so a trip's forecast, its place search and setting
+  // its destination are the owner's alone.
+  {
+    name: 'GET /trips/:id/weather',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    feature: 'weather',
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/trips/${f.tripId}/weather${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /trips/:id/places',
+    kind: 'read',
+    ok: 200,
+    secret: tripName,
+    feature: 'weather',
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/trips/${f.tripId}/places${q ? `${q}&` : '?'}q=Paris`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /trips/:id/destination',
+    kind: 'write',
+    ok: 303,
+    secret: tripName,
+    feature: 'weather',
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/trips/${f.tripId}/destination${q}`,
+      payload: { name: 'Paris', latitude: '48.85', longitude: '2.35' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
   {
     name: 'POST /outfits/ideas/pick for a trip',
     kind: 'write',

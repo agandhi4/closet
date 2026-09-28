@@ -13,7 +13,7 @@ import {
   selfieName,
 } from './authorization-matrix';
 
-// The authorization matrix (authorization-matrix.ts): outfits, the calendar, laundry, insights, selfies and images.
+// The authorization matrix (authorization-matrix.ts): outfits, Styling, the calendar and its weekly auto-plan, laundry, insights, selfies and images.
 const ROUTES: Route[] = [
   // Outfits and calendar are not shared and ignore ?ownerId; the ownerId
   // via proves a grantee cannot reach them by naming the owner.
@@ -95,6 +95,46 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // Shuffle over the rows as posted back, the owner's garment locked in
+    // one: a grantee's own wardrobe holds no such garment (the row comes
+    // back empty); through `?ownerId=` they browse the owner's.
+    name: 'GET /styling/shuffle',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/styling/shuffle${q ? `${q}&` : '?'}role=top&garmentId=${f.garmentId}&lock=1`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['hidden', 'ok'],
+      viewer: ['hidden', 'ok'],
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
+    // "Add row": the rows again, the owner's garment in one.
+    name: 'GET /styling/row',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/styling/row${q ? `${q}&` : '?'}role=top&garmentId=${f.garmentId}&lock=&add=bottom`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['hidden', 'ok'],
+      viewer: ['hidden', 'ok'],
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
     // Save: the requester's own garments only, whatever the share.
     name: 'POST /styling',
     kind: 'write',
@@ -129,6 +169,25 @@ const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+  },
+  {
+    // Only a redirect into Styling (`?outfit=`, below), which checks the
+    // outfit: anyone else is sent there too and learns nothing.
+    name: 'GET /outfits/:id/edit',
+    kind: 'read',
+    ok: 302,
+    secret: outfitName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/outfits/${f.outfitId}/edit${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'ignored',
+      viewer: 'ignored',
+      stranger: 'ignored',
     },
   },
   {
@@ -292,6 +351,24 @@ const ROUTES: Route[] = [
       method: 'POST',
       url: `/calendar/${f.entryId}/delete${q}`,
       payload: { week: f.today },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // The weekly auto-plan's Undo: the batch is its owner's alone.
+    name: 'POST /calendar/plan-week/:id/undo',
+    kind: 'write',
+    ok: 303,
+    secret: calendarEntry,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/calendar/plan-week/${f.weekPlanId}/undo${q}`,
     }),
     expect: {
       owner: 'ok',

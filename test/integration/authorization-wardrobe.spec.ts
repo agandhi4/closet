@@ -7,9 +7,10 @@ import {
   garmentName,
   wishlistName,
   archivedName,
+  orderItemName,
 } from './authorization-matrix';
 
-// The authorization matrix (authorization-matrix.ts): the wardrobe, garments, link import, the wishlist, wears.
+// The authorization matrix (authorization-matrix.ts): the wardrobe, garments, link import, the wishlist, wears, the order mail.
 const ROUTES: Route[] = [
   // Wardrobe-level routes: the only id they take is ?ownerId.
   {
@@ -20,6 +21,25 @@ const ROUTES: Route[] = [
     shows: true,
     vias: BOTH,
     request: (_, q) => ({ method: 'GET', url: `/wardrobe${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: ['hidden', 'ok'],
+      viewer: ['hidden', 'ok'],
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
+    // The grid's next page (its "load more" sentinel).
+    name: 'GET /wardrobe/tiles',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: BOTH,
+    request: (_, q) => ({
+      method: 'GET',
+      url: `/wardrobe/tiles${q ? `${q}&` : '?'}before=2147483647`,
+    }),
     expect: {
       owner: 'ok',
       manager: ['hidden', 'ok'],
@@ -441,6 +461,42 @@ const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  {
+    // The garment page's photo, polled while its cutout is pending.
+    name: 'GET /wardrobe/:id/cutout',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/${f.garmentId}/cutout${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
+    },
+  },
+  {
+    // "Try again" on the fixture's failed cutout: requeues it.
+    name: 'POST /wardrobe/:id/cutout/retry',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.garmentId}/cutout/retry${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
   // The wishlist (#18): shared like capsules. Without ?ownerId a grantee
   // sees their own (empty) wishlist.
   {
@@ -456,6 +512,25 @@ const ROUTES: Route[] = [
       manager: ['hidden', 'ok'],
       viewer: ['hidden', 'ok'],
       stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
+    // "Goes with my closet"'s count on the shopping list (#18b): the
+    // owner's own wishlist item, whoever shares the wardrobe.
+    name: 'GET /wardrobe/:id/outfit-count',
+    kind: 'read',
+    ok: 200,
+    secret: wishlistName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/${f.wishlistId}/outfit-count${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
     },
   },
   {
@@ -667,6 +742,46 @@ const ROUTES: Route[] = [
       owner: 'ok',
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'forbidden'],
+      stranger: 'notFound',
+    },
+  },
+  // The order mail's review list (#25) is ORDER_MAIL_OWNER's alone: anyone
+  // else gets the 404 of a route that is not there, whatever the share.
+  {
+    // "Add to closet" opens the prefilled garment form: nothing is saved.
+    name: 'POST /wardrobe/orders/:id/add',
+    kind: 'read',
+    ok: 200,
+    secret: orderItemName,
+    shows: true,
+    feature: 'orderMail',
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/orders/${f.orderItemId}/add${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/orders/:id/dismiss',
+    kind: 'write',
+    ok: 303,
+    secret: orderItemName,
+    feature: 'orderMail',
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/orders/${f.orderItemId}/dismiss${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
       stranger: 'notFound',
     },
   },
