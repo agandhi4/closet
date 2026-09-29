@@ -133,6 +133,34 @@ export function probe(reason) {
 
 export const getState = () => state;
 
+// A native form post cancels any htmx request in flight (WebKit hardest,
+// #241): the resulting htmx:sendError is not evidence the server is
+// unreachable, it's the page leaving. pagehide/beforeunload catch a
+// navigation actually starting; document.hidden also covers a backgrounded
+// tab, where a cancelled request is just as unreliable and the banner is
+// not shown anyway.
+// A cancelled beforeunload (the user dismisses a confirm dialog) leaves this
+// true with no unload to clear it; bounded on purpose, since the heartbeat
+// (HEARTBEAT_MS) still probes while visible either way.
+let leaving = false;
+function isPageLeaving() {
+  return leaving || document.hidden;
+}
+window.addEventListener('pagehide', () => {
+  leaving = true;
+});
+window.addEventListener('beforeunload', () => {
+  leaving = true;
+});
+window.addEventListener('pageshow', (event) => {
+  leaving = false;
+  // bfcache restores this module's state exactly as it was at pagehide
+  // (#241): a request cancelled by the navigation may have left `state`
+  // 'offline' with the banner shown, frozen until unfrozen. Probe now
+  // instead of waiting for the next heartbeat or visibilitychange.
+  if (event.persisted) probe('pageshow');
+});
+
 // Browser events are hints that something changed; the probe decides.
 window.addEventListener('online', () => probe('online-event'));
 window.addEventListener('offline', () => probe('offline-event'));
@@ -140,11 +168,14 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') probe('visible');
   else clearTimeout(timer);
 });
-// A request that never reached the server is the strongest offline signal.
-document.addEventListener('htmx:sendError', () => probe('htmx:sendError'));
-document.addEventListener('htmx:responseError', () =>
-  probe('htmx:responseError'),
-);
+// A request that never reached the server is the strongest offline signal,
+// unless the page itself is what cancelled it.
+document.addEventListener('htmx:sendError', () => {
+  if (!isPageLeaving()) probe('htmx:sendError');
+});
+document.addEventListener('htmx:responseError', () => {
+  if (!isPageLeaving()) probe('htmx:responseError');
+});
 // hx-boost replaces the whole body, banner included.
 document.addEventListener('htmx:afterSettle', () => {
   render();
