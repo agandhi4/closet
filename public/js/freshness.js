@@ -9,20 +9,26 @@
  * failed) or htmx's history snapshots. For a cached copy a minute old or
  * more, #freshness in the app bar says "Updated 3 minutes ago".
  *
- * A tab root's revalidation lands moments after it opens. When the server's
- * page differs it is swapped in at once if the page is untouched (no tap, key
- * or wheel yet, scrolled to the top, no dialog open); otherwise a toast
- * offers it ("Newer version of this page", Refresh), so content never moves
- * under a thumb or a half-typed form. When the session turned out to be gone
- * or to be another account's, the page reloads: what is on screen is not this
- * session's. Back online after showing a cached copy, the page asks for the
- * server's again and handles it the same way.
+ * A cached page asks the worker to revalidate itself as soon as this script
+ * runs (checkDocument), and again whenever the device comes back online
+ * while showing one (connectivity:change): the same REVALIDATE_PAGE request
+ * either way. When the server's page differs it is swapped in at once if
+ * the page is untouched (no tap, key or wheel yet, scrolled to the top, no
+ * dialog open); otherwise a toast offers it ("Newer version of this page",
+ * Refresh), so content never moves under a thumb or a half-typed form. When
+ * the session turned out to be gone or to be another account's, the page
+ * reloads: what is on screen is not this session's.
  */
 import { ageLabel } from 'age-label';
 import { showToast } from 'toast';
 
 // Stamped by the worker on the copies it caches (src/web/page-cache.ts).
 const CACHED_AT_HEADER = 'X-SW-Cached-At';
+// The same stamp, but as a Server-Timing entry (page-cache.ts's
+// CACHED_AT_TIMING_NAME, duplicated here: this file cannot import a TS
+// module), for a full navigation a document's own script cannot read any
+// other way (#240).
+const CACHED_AT_TIMING_NAME = 'cache';
 // Online, a revalidation lands within a few hundred ms: the age waits this
 // long so a copy about to be replaced does not flash it.
 const REVALIDATION_GRACE_MS = 1_000;
@@ -178,23 +184,31 @@ function ask(message, onAnswer) {
   worker.postMessage(message, [channel.port2]);
 }
 
-/** How this document was served: the worker's PAGE_FRESHNESS answers. */
+/**
+ * How this document was served: a Server-Timing entry the worker adds when
+ * it answers from its cache (page-cache.ts's cacheWillUpdate), read through
+ * Navigation Timing. Not asking the worker: it once had to remember what it
+ * served, keyed by the navigation's resultingClientId, for this ask to
+ * collect later, and WebKit can free that memory once the fetch event's own
+ * waitUntil settles, before the page's script has even run (#240). A cached
+ * page asks for REVALIDATE_PAGE itself at once instead, the same
+ * self-contained request a reconnect makes below: nothing needs to survive
+ * between the two.
+ */
 function checkDocument() {
+  const entry = performance
+    .getEntriesByType('navigation')[0]
+    ?.serverTiming?.find((timing) => timing.name === CACHED_AT_TIMING_NAME);
+  if (!entry) return; // answered live: nothing to say
   const id = display.id;
-  ask({ type: 'PAGE_FRESHNESS', url: display.url }, (answer) => {
-    if (id !== display.id) return;
-    if (answer.state === 'cached') {
-      update({
-        fetchedAt: answer.cachedAt,
-        fromCache: true,
-        quietUntil: answer.revalidating
-          ? Date.now() + REVALIDATION_GRACE_MS
-          : 0,
-      });
-    } else if (answer.state === 'revalidated') {
-      onRevalidated(id, answer);
-    }
+  update({
+    fetchedAt: Number(entry.description),
+    fromCache: true,
+    quietUntil: Date.now() + REVALIDATION_GRACE_MS,
   });
+  ask({ type: 'REVALIDATE_PAGE', url: display.url, fragment: false }, (answer) =>
+    onRevalidated(id, answer),
+  );
 }
 
 export function watchFreshness() {

@@ -29,6 +29,21 @@ export const PAGE_ACCOUNT_HEADER = 'X-Page-Account';
 export const CACHED_AT_HEADER = 'X-SW-Cached-At';
 
 /**
+ * The Server-Timing metric name the worker appends to a page it caches,
+ * `desc` the same epoch ms as CACHED_AT_HEADER (#240). A document's own
+ * script cannot read an arbitrary response header, only Server-Timing
+ * (Navigation Timing's `serverTiming`, already how src/metrics reads the
+ * route template), and reading it this way needs nothing the worker must
+ * remember until the page asks: asking its own memory for what it served,
+ * keyed by the navigation's resultingClientId, did not survive a worker
+ * WebKit had stopped meanwhile (public/js/freshness.js duplicates this
+ * name; it cannot import a TS module). Once the page sees this, it asks for
+ * REVALIDATE_PAGE itself (src-sw.ts), a fresh, self-contained request that
+ * needs nothing remembered either.
+ */
+export const CACHED_AT_TIMING_NAME = 'cache';
+
+/**
  * Set by endSession (src/web/auth/session.ts) on every answer that ends a
  * session on this device: sign-out, account deletion, and a cookie that no
  * longer opens a session (revoked elsewhere, expired), whatever the answer

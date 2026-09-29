@@ -20,6 +20,7 @@ import { pageCacheKey } from '../../src/htmx/fragment-request';
 import {
   bypassesWorker,
   CACHED_AT_HEADER,
+  CACHED_AT_TIMING_NAME,
   cachedAt,
   endedSession,
   type FreshPage,
@@ -39,9 +40,10 @@ import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
  *  - App shell files under public/ are precached by content hash
  *    (workbox-config.js), so a repeat visit paints from cache.
  *  - The tab roots (/wardrobe, /outfits, /calendar) opened as a document are
- *    stale-while-revalidate: the cached copy at once, the server's behind
- *    it. The page asks what it was given (PAGE_FRESHNESS), says how old it
- *    is, and swaps in or offers the server's copy when it differs.
+ *    stale-while-revalidate: the cached copy at once, kept only until the
+ *    page (freshness.js) reads it was cached through Navigation Timing and
+ *    asks for the server's behind it (REVALIDATE_PAGE), which swaps it in
+ *    or offers it when it differs.
  *  - Every other page and every htmx request is NetworkFirst with a short
  *    timeout: fresh when the server is quick, the last copy (stamped, so the
  *    page can say how old it is) when it is not, /offline.html when there is
@@ -129,53 +131,6 @@ interface RevalidationResult {
   html?: string;
 }
 
-interface ServedFromCache {
-  cachedAt: number;
-  /** A tab root's revalidation; NetworkFirst fallbacks have none. */
-  revalidation?: Promise<RevalidationResult>;
-}
-
-// The documents this worker answered from its cache, for the page's
-// question (PAGE_FRESHNESS below), keyed by the document each navigation
-// creates (servedKey): two tabs opening the same tab root each get their own
-// answer. A page asks as soon as its script runs, so a short list is plenty;
-// a document the network answered has no entry and is told it is fresh.
-// htmx requests read the stamp from their own response instead.
-const SERVED_PAGES_KEPT = 20;
-const servedPages = new Map<string, ServedFromCache>();
-
-/**
- * The key a navigation's answer is noted under: the id of the client
- * (document) it creates, which is the client its PAGE_FRESHNESS comes from.
- * A browser without FetchEvent.resultingClientId gets the URL, and with it
- * the old limit: two tabs opening one URL at the same moment share an entry.
- */
-function servedKey(event: ExtendableEvent, url: string): string {
-  return (event instanceof FetchEvent && event.resultingClientId) || url;
-}
-
-function noteServed(key: string, served: ServedFromCache | undefined): void {
-  servedPages.delete(key);
-  if (!served) return;
-  servedPages.set(key, served);
-  const oldest = servedPages.keys().next().value;
-  if (servedPages.size > SERVED_PAGES_KEPT && oldest !== undefined) {
-    servedPages.delete(oldest);
-  }
-}
-
-/** A document's entry, removed: each document's question is answered once. */
-function takeServed(
-  clientId: string | undefined,
-  url: string,
-): ServedFromCache | undefined {
-  const key =
-    clientId !== undefined && servedPages.has(clientId) ? clientId : url;
-  const served = servedPages.get(key);
-  servedPages.delete(key);
-  return served;
-}
-
 /**
  * The session caches' generation (#121, #226). Every drop starts a new one; a
  * page or image request records the one it started in (handlerWillStart in
@@ -231,8 +186,6 @@ async function emptySessionCaches(
   event: ExtendableEvent,
   reason: string,
 ): Promise<void> {
-  // servedPages stays: a page served a moment ago may not have asked yet,
-  // and its answer (the revalidation) is what makes it reload.
   await Promise.all(SESSION_CACHES.map((name) => self.caches.delete(name)));
   console.info(
     `[sw] ${reason}: ${SESSION_CACHES.join(', ')} dropped (generation ${generation})`,
@@ -327,7 +280,15 @@ const pageStore: WorkboxPlugin = {
     if (!claimed) return null;
     return copyResponse(response, (init) => {
       const headers = new Headers(init.headers);
-      headers.set(CACHED_AT_HEADER, String(Date.now()));
+      const cachedAtMs = String(Date.now());
+      headers.set(CACHED_AT_HEADER, cachedAtMs);
+      // A document's own script cannot read this header directly, only
+      // Server-Timing (page-cache.ts's CACHED_AT_TIMING_NAME): freshness.js
+      // reads it back through Navigation Timing and asks for
+      // REVALIDATE_PAGE itself once it does.
+      const timing = headers.get('Server-Timing');
+      const cacheEntry = `${CACHED_AT_TIMING_NAME};desc="${cachedAtMs}"`;
+      headers.set('Server-Timing', timing ? `${timing}, ${cacheEntry}` : cacheEntry);
       return { ...init, headers };
     });
   },
@@ -353,22 +314,6 @@ async function isOwned(copy: Response, path: string): Promise<boolean> {
   return false;
 }
 
-// A document NetworkFirst answered from its cache (the network timed out or
-// failed) is noted for the page's question; one from the network clears the
-// note.
-const noteNavigations: WorkboxPlugin = {
-  handlerWillRespond: async ({ request, response, event }) => {
-    if (request.mode === 'navigate') {
-      const stamp = cachedAt(response.headers);
-      noteServed(
-        servedKey(event, request.url),
-        stamp ? { cachedAt: stamp } : undefined,
-      );
-    }
-    return response;
-  },
-};
-
 // Shared by both page strategies, which share the cache: the key rule (a
 // fragment `|hx` never answers a page and the other way round), the store
 // and read rules and one expiration.
@@ -386,7 +331,7 @@ const pagePlugins: WorkboxPlugin[] = [
 const pages = new NetworkFirst({
   cacheName: PAGES_CACHE,
   networkTimeoutSeconds: 3,
-  plugins: [...pagePlugins, noteNavigations],
+  plugins: pagePlugins,
 });
 
 /**
@@ -432,12 +377,20 @@ async function revalidate(
 
 /**
  * The tab roots on a document load (servesStaleWhileRevalidate): the cached
- * copy at once and the server's behind it, through the navigation preload.
- * Without a copy it is NetworkFirst. So is a copy stored before this worker
- * activated, once deleted: an older build rendered it, and its <head> (the
- * importmap, the asset URLs) must not meet this build's precached scripts,
- * not even as NetworkFirst's answer when the network is slow or gone (the
- * offline page answers then).
+ * copy at once. Without a copy it is NetworkFirst. So is a copy stored
+ * before this worker activated, once deleted: an older build rendered it,
+ * and its <head> (the importmap, the asset URLs) must not meet this build's
+ * precached scripts, not even as NetworkFirst's answer when the network is
+ * slow or gone (the offline page answers then).
+ *
+ * Nothing here starts a revalidation: public/js/freshness.js reads the
+ * served-from-cache stamp itself, through Navigation Timing (Server-Timing,
+ * CACHED_AT_TIMING_NAME in page-cache.ts), and asks for REVALIDATE_PAGE
+ * itself, the same request a reconnect makes (#240). A worker that instead
+ * started one here and remembered its promise, for the page to collect
+ * later by asking with the navigation's resultingClientId, lost that memory
+ * on WebKit, which can stop an idle worker between this fetch event and the
+ * page's next message; asking fresh needs nothing to have survived.
  */
 class StaleTabRoot extends Strategy {
   protected async _handle(
@@ -455,12 +408,6 @@ class StaleTabRoot extends Strategy {
       console.info(`[sw] ${path}: copy from before activation deleted`);
       return pages.handle({ event: handler.event, request });
     }
-    const revalidation = revalidate(handler, request, cached.clone());
-    void handler.waitUntil(revalidation);
-    noteServed(servedKey(handler.event, request.url), {
-      cachedAt: stamp,
-      revalidation,
-    });
     const ageSeconds = Math.round((Date.now() - stamp) / 1000);
     console.info(`[sw] ${path} opened from the cache (${ageSeconds} s old)`);
     return cached;
@@ -738,31 +685,6 @@ setCatchHandler(async ({ request }) => {
   return Response.error();
 });
 
-/**
- * PAGE_FRESHNESS: a document asks how it was served. Answers `fresh`, or
- * `cached` with the stamp and then, for a tab root, `revalidated` with the
- * outcome (and the server's page when it differs).
- */
-async function answerFreshness(
-  clientId: string | undefined,
-  url: string,
-  port: MessagePort,
-): Promise<void> {
-  const served = takeServed(clientId, url);
-  if (!served) {
-    port.postMessage({ state: 'fresh' });
-    return;
-  }
-  port.postMessage({
-    state: 'cached',
-    cachedAt: served.cachedAt,
-    revalidating: served.revalidation !== undefined,
-  });
-  if (served.revalidation) {
-    port.postMessage({ state: 'revalidated', ...(await served.revalidation) });
-  }
-}
-
 // URL.canParse is Safari 17+; the installed app still meets iOS 16.
 function isOwnUrl(value: string): boolean {
   try {
@@ -818,18 +740,14 @@ async function revalidateForPage(
 // SKIP_WAITING when the user taps Reload. No skipWaiting() on install: a
 // worker that seizes control mid-session leaves pages holding stale asset
 // URLs, which is the black-screen bug the old hard-navigate hack papered over.
-// The page questions come from public/js/freshness.js, each with a
-// MessagePort for the answers.
+// The page's own questions come from public/js/freshness.js, each with a
+// MessagePort for the answer.
 self.addEventListener('message', (event) => {
   const type: unknown = event.data?.type;
   const [port] = event.ports;
   if (type === 'SKIP_WAITING') {
     console.log('[sw] SKIP_WAITING received');
     void self.skipWaiting();
-  } else if (type === 'PAGE_FRESHNESS' && port) {
-    const clientId =
-      event.source instanceof Client ? event.source.id : undefined;
-    event.waitUntil(answerFreshness(clientId, String(event.data.url), port));
   } else if (type === 'REVALIDATE_PAGE' && port) {
     event.waitUntil(
       revalidateForPage(

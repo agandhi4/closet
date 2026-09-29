@@ -19,13 +19,6 @@ import {
   WEBKIT_CANNOT_WATCH_WORKER,
 } from './support/webkit-limits';
 
-declare global {
-  interface Window {
-    /** Lets the page's held worker messages go (the two-tab test). */
-    releaseWorkerMessages?: () => void;
-  }
-}
-
 /**
  * ageCachedPage, for a copy this build's worker stored: its activation moves
  * back with the copy. A copy older than the activation is an older build's,
@@ -108,9 +101,12 @@ test.describe('stale-while-revalidate tab roots', () => {
     await page.waitForTimeout(1_500); // past the revalidation's grace
     await expect(page.locator('#freshness')).toBeHidden();
 
-    // Offline, five minutes later: the copy, and how old it is.
+    // Offline, five minutes later: the copy, and how old it is. networkSwitch,
+    // not context.setOffline: the page's own REVALIDATE_PAGE ask (#240) is
+    // the worker's own fetch, which setOffline alone does not cut (test/CLAUDE.md).
     await ageCopy(page, '/wardrobe', FIVE_MINUTES);
-    await context.setOffline(true);
+    const network = await networkSwitch(context);
+    await network('offline');
     const offline = await page.goto('/wardrobe');
     expect(cachedStamp(offline)).toBeTruthy();
     await expect(page.getByText('Cached coat')).toBeVisible();
@@ -121,7 +117,7 @@ test.describe('stale-while-revalidate tab roots', () => {
 
     // Back online the page asks the server again; nothing changed, so it
     // simply stops saying it is old.
-    await context.setOffline(false);
+    await network('online');
     await expect(page.locator('#freshness')).toBeHidden({ timeout: 15_000 });
     await expect(page.getByText('Cached coat')).toBeVisible();
   });
@@ -155,7 +151,11 @@ test.describe('stale-while-revalidate tab roots', () => {
     await ageCopy(page, '/wardrobe', FIVE_MINUTES);
 
     // Opened offline: the old copy, nothing to compare it with yet.
-    await context.setOffline(true);
+    // networkSwitch, not context.setOffline: the page's own REVALIDATE_PAGE
+    // ask (#240) is the worker's own fetch, which setOffline alone does not
+    // cut (test/CLAUDE.md).
+    const network = await networkSwitch(context);
+    await network('offline');
     await page.goto('/wardrobe');
     await expect(page.locator('#freshness')).toHaveText(
       'Updated 5 minutes ago',
@@ -163,7 +163,7 @@ test.describe('stale-while-revalidate tab roots', () => {
     // The user is on it.
     await page.keyboard.press('Shift');
 
-    await context.setOffline(false);
+    await network('online');
     const offer = page.getByRole('status').filter({
       hasText: 'Newer version of this page',
     });
@@ -311,30 +311,15 @@ test.describe('stale-while-revalidate tab roots', () => {
     await cachePage(page, '/wardrobe');
     await ageCopy(page, '/wardrobe', FIVE_MINUTES);
 
-    // Each document's question to the worker waits until both documents
-    // have been served: two opens racing each other.
-    await context.addInitScript(() => {
-      const prototype = ServiceWorker.prototype;
-      const post = Reflect.get(prototype, 'postMessage') as (
-        ...args: unknown[]
-      ) => void;
-      const open = new Promise<void>((resolve) => {
-        window.releaseWorkerMessages = resolve;
-      });
-      Reflect.set(
-        prototype,
-        'postMessage',
-        function (this: ServiceWorker, ...args: unknown[]) {
-          void open.then(() => Reflect.apply(post, this, args));
-        },
-      );
-    });
+    // Each tab reads its own document's Server-Timing and asks for its own
+    // REVALIDATE_PAGE (#240): nothing shared between them to race, unlike
+    // the worker's own former in-memory record of what it served, keyed by
+    // the navigation's resultingClientId, which two opens racing each other
+    // could once have crossed.
     const second = await context.newPage();
-    await context.setOffline(true);
+    const network = await networkSwitch(context);
+    await network('offline');
     await Promise.all([page.goto('/wardrobe'), second.goto('/wardrobe')]);
-    for (const tab of [page, second]) {
-      await tab.evaluate(() => window.releaseWorkerMessages?.());
-    }
 
     for (const tab of [page, second]) {
       await expect(tab.locator('#freshness')).toHaveText(

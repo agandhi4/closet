@@ -59,7 +59,10 @@ export async function cachePage(page: Page, path: string): Promise<void> {
 
 /**
  * Makes the cached copy of `path` look `ageMs` old, as if the app had last
- * fetched it then (the stamp the worker writes, X-SW-Cached-At).
+ * fetched it then: the stamp the worker writes, X-SW-Cached-At, and the same
+ * stamp as its Server-Timing entry (page-cache.ts's CACHED_AT_TIMING_NAME;
+ * freshness.js reads that one through Navigation Timing, #240), which must
+ * age together or a full navigation reads the original, unaged stamp.
  */
 export async function ageCachedPage(
   page: Page,
@@ -73,7 +76,13 @@ export async function ageCachedPage(
       const cached = await cache.match(key);
       if (!cached) throw new Error(`${path} is not cached`);
       const headers = new Headers(cached.headers);
-      headers.set('X-SW-Cached-At', String(Date.now() - ageMs));
+      const agedAt = String(Date.now() - ageMs);
+      headers.set('X-SW-Cached-At', agedAt);
+      const timing = headers.get('Server-Timing') ?? '';
+      headers.set(
+        'Server-Timing',
+        timing.replace(/cache;desc="\d+"/, `cache;desc="${agedAt}"`),
+      );
       await cache.put(
         key,
         new Response(await cached.blob(), {
