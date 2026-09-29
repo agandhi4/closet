@@ -5,7 +5,7 @@
 // new knowledge goes to its area's doc, and an area that outgrows its budget splits.
 // The index check keeps the root's area index and the docs on disk in step.
 export const ROOT_DOC = 'CLAUDE.md';
-export const ROOT_BUDGET = 48 * 1024;
+export const ROOT_BUDGET = 30 * 1024;
 export const AREA_BUDGET = 16 * 1024;
 const INDEX_HEADING = '### Area index';
 

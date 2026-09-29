@@ -1,0 +1,37 @@
+# Conventions, config, logging and tooling in full
+
+Read on demand (not auto-loaded). The root `CLAUDE.md` keeps each rule here as one line with its guard; this is the detail. The web layer's own rules (forms, htmx, Fastify, JSX, colours, client scripts) are in `docs/web-layer.md`. Moved out of the root in #259.
+
+## Config
+
+`loadConfig()` (`src/config.ts`) is the only reader of `process.env`: one TypeBox schema declares every variable with its default and rule, the values are merged from `.env` under `.env.local` under the real environment (the environment wins), booleans and numbers are converted only when they spell one exactly, and anything wrong stops the boot with every offending key named, never its value (`ConfigError`); `APP_TIMEZONE` must be an IANA zone and `PUBLIC_VAPID_KEY`/`PRIVATE_VAPID_KEY` are required with `PWA_ENABLED`. Secrets have no default: `ACCESS_TOKEN_SECRET` is required and at least 32 characters (the old `ChangeMe!` default let anyone who read the repo mint a session for any user id; the refusal says `openssl rand -hex 32`), and the database credentials are required too. Every process that boots the server passes one: the integration harness (`BASE_ENV`), `playwright.config.ts` (a random one unless the environment has it), the page audit, CI and nightly (a CI-only value), `.env.local` for development. The result is a typed `Config` with the env names as keys (`config.DATABASE_HOST`), handed to `createApp()` and the CLIs, which pass slices on (`dbConfig`, `photosConfig`, `WebConfig`). `.env` is committed and holds public defaults; `.env.local` is gitignored and is for local development only. **The Docker image bakes `.env` and never sees `.env.local`**, so production configuration is real container environment variables, nothing else.
+
+New env vars: a schema entry in `src/config.ts` with a default (a secret gets none: required, with a minimum), a row in the README configuration table. `APP_TIMEZONE` (default `America/New_York`) is the household's zone for everything that asks "what day is it" (the calendar today); an unknown zone name fails the boot.
+
+## Logging
+
+`createLogger(config)` (`src/logger.ts`) is the process's pino logger: LOG_LEVEL for both outputs, pino-pretty in a worker thread to stdout and to `DATA_PATH/app.log` (flushed on exit), `cookie`, `authorization` and `set-cookie` redacted wherever a `req`/`res` is logged. Every module takes a child named for it (`logger.child({ context: 'Photos' })`; contexts: Bootstrap, Migrations, Db, Photos, Cutout, CutoutModel, Security, RateLimit, Session, OutboundFetch, Weather, Push, WeekPlan, Web, Http, Fastify, StaticAssets, Mcp, Reconciliation, Scheduler, Metrics, SetPassword, RevokePush, Seed), so lines are filterable in app.log and Loki. Fastify gets the `Fastify` child (its own startup and internal warnings) with its request logging off: the root onResponse hook writes the one header-free line per request, skipping static paths.
+
+Use the pino child the module was given (`logger.child({ context })` in `createApp()`). Log at operation boundaries with garment/outfit IDs and user IDs; errors as `logger.error({ err }, message)`. Nothing inside template rendering or loops.
+
+## Conventions
+
+The root's Conventions are upstream rules we keep (from `.github/prompts/boilerplate.prompt.md`), plus ours. The ones with more to say than the root's line:
+
+- **One database: Postgres.** Every tier (integration, Playwright, page audit, CI) runs on Postgres. Do not reintroduce a second driver for test speed: the scratch-database harness is as fast as in-memory SQLite was.
+- **Cookies stay `Secure`-less.** The `.box` name is HTTP by design (Tailscale encrypts). Adding `secure: true` to `setSessionCookie` (`src/web/auth/session.ts`) makes login silently never stick over `http://closet.box`. `SameSite=Lax` is set and must stay (CSRF). If a secure cookie is ever wanted it must be driven by a `COOKIE_SECURE` env var defaulting to false.
+- **Offline-first UX per `frontend-pwa.md`.** Reads render from cache with a freshness indicator, writes that cannot reach the server are disabled with an explanation, never silently dropped. Connectivity detection is active (heartbeat), not `navigator.onLine`.
+
+## "Today"
+
+"Today" always comes from `todayIn(APP_TIMEZONE, now)`, in app code and in tests. Never `new Date().toISOString().slice(0, 10)`, `toLocaleDateString` or a UTC getter: from 19:00 or 20:00 in New York until midnight that is tomorrow's date, on Saturday evening next week's, and a day after today cannot be marked worn (409). main went red at 00:01 UTC on Sunday 27 Sep 2026 because the authorization matrix planned its fixture entry on UTC's today; the same PR had passed before midnight UTC. Routes and tools call `todayIn(config.timeZone, new Date())` / `todayIn(ctx.timeZone, ...)`; integration specs use `t.today()` (the harness's app zone, read at the call so a faked Date moves it); Playwright specs use `householdToday()` (`test/support/household-today.ts`, the server's `loadConfig()` zone). ESLint's `no-restricted-syntax` refuses `toISOString().slice/substring/split` and `toLocaleDateString` in `src/`, `test/` and `scripts/`. `test/integration/today.spec.ts` pins the clock (`vi.useFakeTimers({ toFake: ['Date'] })`) where UTC and the household disagree: a UTC Sunday that is Saturday evening in New York, UTC midnight on a month boundary, the week and month turning on the day DST ends, New Year's Eve, and Auckland (ahead of UTC); it covers the calendar week and highlight, the plan page, worn and its 409, Wore today, Washed, laundry, "Bought it"'s purchase day, Today (#15: its plan, "Wear this", `get_today`) and the MCP tools. A new "today" consumer gets a row there.
+
+## Tooling gotchas
+
+- **`prettier --write` on a directory formats the persona bibles too.** `src/seed/personas/*.md` are the seed's data; prettier re-pads their tables and the seed stops parsing (`persona.spec.ts` fails with "not a garment"). Format `"{src,test,scripts}/**/*.{ts,tsx}"` (`npm run format`), never a bare directory.
+- **Upstream references are limited to attribution.** The only permitted mentions of the upstream project are the attribution link in the About page and README and code comments citing upstream issues or PRs. Any other occurrence of the upstream company or project name (assets, links, config defaults, CI values, marketing copy) is a rebrand regression; grep for it before a PR.
+- **`npm install <package>` does not run the project's own `postinstall`**, so `patch-package` never applies `patches/` to a fresh `node_modules` built that way, and the drift test fails in drizzle-kit ("there is no parameter $1"). After adding a dependency to a new worktree, run `npx patch-package` (or `npm ci`, which does run it).
+- **Regenerate `package-lock.json` only with Node 22 / npm 10** (`nvm use`, or `docker run --rm -v $PWD:/app -w /app node:22 npm install --package-lock-only`). npm 11 prunes nested entries that npm 10's `npm ci` in the Docker build then reports as missing, so the image build fails while local installs look fine.
+- **pgvault-dev and production run Postgres 18; CI runs 17.** Features new in 18 pass locally and fail in CI.
+- **`precommit:full` is minutes long** (Lighthouse and the page audit included); CI runs those two nightly, not per push.
+- **`public/build.json` lingers after `npm run build`.** `start:dev` then serves assets with that build's cache key; set `NODE_ENV=development` in `.env.local` (caching off) or delete the file if styles look stale.
