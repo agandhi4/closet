@@ -15,7 +15,8 @@ on:
     tags: ["v*"]
     # Docs-only commits neither need tests nor a redeploy (a new image rolls
     # every client's static-asset cache key). Tag pushes ignore path filters.
-    # docs.yml runs docs:check on exactly these paths; keep the two in step.
+    # No docs check on main: the local gate runs docs:check (check:static) on
+    # every PR head, and strict protection makes the merged tree that tree.
     paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
   workflow_dispatch:
     inputs:
