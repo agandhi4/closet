@@ -32,10 +32,6 @@ export const DEFAULT_PLANNED_BY: PlannedBy = 'user';
 export const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
-export function isWeekday(value: number): value is Weekday {
-  return (WEEKDAYS as readonly number[]).includes(value);
-}
-
 /** The occasions that come around the day's outfit: any number of them per weekday. */
 export const AROUND_OCCASIONS: readonly Occasion[] = OCCASIONS.filter(
   (occasion) => !DAY_OCCASIONS.includes(occasion),

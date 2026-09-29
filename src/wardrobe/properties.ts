@@ -103,10 +103,6 @@ export const MATERIALS = [
 ] as const;
 export type Material = (typeof MATERIALS)[number];
 
-export function isMaterial(value: string): value is Material {
-  return (MATERIALS as readonly string[]).includes(value);
-}
-
 export const PATTERNS = [
   'solid',
   'stripes',

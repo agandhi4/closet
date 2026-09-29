@@ -836,9 +836,6 @@ export function shapeOf(subject: ArtSubject): string {
   );
 }
 
-/** Every shape the art can draw (the art spec draws each once). */
-export const ART_SHAPES: readonly string[] = Object.keys(SHAPES);
-
 // ---- Rendering ------------------------------------------------------------------
 
 /** The garment as an SVG document on a transparent ART_SIZE square. */

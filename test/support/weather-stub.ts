@@ -1,11 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { AppOptions } from '../../src/app';
-import {
-  addDays,
-  daysBetween,
-  todayIn,
-} from '../../src/web/calendar/calendar-date';
+import { daysBetween, todayIn } from '../../src/web/calendar/calendar-date';
 import { forecastDayOf, weatherFor } from '../../src/seed/weather';
 import type { DayForecast } from '../../src/weather/forecast';
 
@@ -241,9 +237,4 @@ export async function startWeatherStub(): Promise<WeatherStub> {
         server.close(() => resolve());
       }),
   };
-}
-
-/** Today's date in `timeZone` plus `days`: what a spec expects the stub to cover. */
-export function stubDay(timeZone: string, days = 0): string {
-  return addDays(todayIn(timeZone, new Date()), days);
 }

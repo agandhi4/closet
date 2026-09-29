@@ -75,11 +75,6 @@ export async function wishlistItems(
   return rows;
 }
 
-/** How many items the wardrobe's wishlist holds (the tab's count). */
-export function countWishlist(db: Db, ownerId: number): Promise<number> {
-  return db.$count(garment, and(eq(garment.ownerId, ownerId), onWishlist()));
-}
-
 /**
  * The garment `id` of `ownerId`'s wardrobe as a link shows it (null when
  * it is not there), as a scalar subquery: the garment page reads what it

@@ -151,15 +151,6 @@ export function readBrandSizeForm(body: BrandSizeBody): BrandSizeForm {
     : { ok: true, fields: { brand, size, note } };
 }
 
-/** A stored row as the form posts it (the editor's values, the seed's post). */
-export function brandSizePost(fields: BrandSizeFields): BrandSizeBody {
-  return {
-    brand: fields.brand,
-    size: fields.size ?? '',
-    note: fields.note ?? '',
-  };
-}
-
 // Navigation state for a fragment: a brand too long for the field is a 400
 // (the input carries the same maxlength), anything else answers.
 export const BrandSizeHintQuery = Type.Object({
