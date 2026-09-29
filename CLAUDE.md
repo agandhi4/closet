@@ -187,7 +187,7 @@ npm run verify:push           # build + Chromium Playwright against the fresh bu
 npm run precommit:full        # check + verify:push + page audit + lighthouse (minutes)
 
 # Git hooks live in .githooks/ and are installed by `npm install` (the prepare script sets
-# core.hooksPath; skipped where there is no .git, e.g. the Docker build). They need pgvault-dev.
+# core.hooksPath; skipped where there is no .git, e.g. the Docker build). They need pgvault-dev; their quiet output: docs/git-hooks.md.
 
 # Schema change: edit src/db/schema.ts, then write drizzle/NNNN_<name>.sql + snapshot (no database
 # needed). The next boot applies it. See Changing the schema.

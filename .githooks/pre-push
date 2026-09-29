@@ -5,10 +5,11 @@
 # (branch protection): running the browser suite here too would double the
 # work, and parallel agents' pushes would race for :3000, where Playwright
 # reuses whatever server is listening. Stop `npm run start:dev` first when
-# it does run, or it tests that instead of this build.
+# it does run, or it tests that instead of this build. Its output goes to a log:
+# one line on success, its tail on failure (scripts/git-hook.ts, docs/git-hooks.md).
 while read -r _local_ref _local_sha remote_ref _remote_sha; do
   if [ "$remote_ref" = "refs/heads/main" ]; then
-    exec npm run -s verify:push
+    exec node -r ts-node/register/transpile-only scripts/git-hook.ts pre-push
   fi
 done
 exit 0
