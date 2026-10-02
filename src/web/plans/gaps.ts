@@ -63,7 +63,8 @@ export function toTarget(item: PlanItemRow): PlanTarget {
 
 const PRIORITY_ORDER: readonly string[] = PLAN_PRIORITIES;
 
-function byPriority(a: PlanItemRow, b: PlanItemRow): number {
+/** Highest priority first, then oldest: the gap view's groups and the plan review (#271). */
+export function byPriority(a: PlanItemRow, b: PlanItemRow): number {
   return (
     PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority) ||
     a.id - b.id

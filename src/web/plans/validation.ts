@@ -111,6 +111,45 @@ export const FromWardrobeBody = Type.Object({ ownerId: RowId });
 export const PlanPageQuery = Type.Object({
   created: Type.Optional(Type.String({ maxLength: 5 })),
   saved: Type.Optional(Type.String({ maxLength: 5 })),
+  reviewed: Type.Optional(Type.String({ maxLength: 5 })),
+  /** With `reviewed`: how many products the review removed from the wishlist. A hand-made bad value is the 400 page. */
+  removed: Type.Optional(Type.Integer({ minimum: 1, maximum: 2_147_483_647 })),
+});
+
+// ---- The plan review (#271) -------------------------------------------------
+
+/** Proposals one review posts at most: far past any agent's plan. */
+const REVIEW_MAX = 500;
+/**
+ * Candidates one review posts at most: a strip offers a few
+ * (MAX_CANDIDATES_PER_ITEM, 5, not imported: candidates.ts imports this
+ * file), with room for an item past the cap from before it.
+ */
+const OFFERED_MAX = REVIEW_MAX * 10;
+
+/**
+ * "Accept these": the items the page showed (`shown`, the capsule picker's
+ * rule: only these are touched) and each one's pick, its strip's hidden
+ * input, `<itemId>:skip|keep|<garmentId>` (review.ts, pickValue), and the
+ * candidates each strip drew, `<itemId>:<garmentId>` (offeredValue; none
+ * when no strip had any). readPicks holds both to `shown`. The boxes post
+ * "1" when ticked.
+ */
+export const ReviewBody = Type.Object({
+  shown: Type.Array(RowId, { minItems: 1, maxItems: REVIEW_MAX }),
+  pick: Type.Array(
+    Type.String({
+      pattern: '^[1-9][0-9]{0,9}:(skip|keep|[1-9][0-9]{0,9})$',
+    }),
+    { minItems: 1, maxItems: REVIEW_MAX },
+  ),
+  offered: Type.Optional(
+    Type.Array(Type.String({ pattern: '^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$' }), {
+      maxItems: OFFERED_MAX,
+    }),
+  ),
+  removeUnpicked: Type.Optional(Type.Literal('1')),
+  activate: Type.Optional(Type.Literal('1')),
 });
 
 // ---- The plan item form -----------------------------------------------------

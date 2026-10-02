@@ -225,6 +225,47 @@ const ROUTES: Route[] = [
     },
   },
   {
+    name: 'GET /wardrobe/plans/:id/review',
+    kind: 'read',
+    ok: 200,
+    secret: planName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/plans/${f.planId}/review${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // Picks the fixture's candidate for its proposed item (#271), so it
+    // writes; no removal box, so the wishlist item stays for the rows after.
+    name: 'POST /wardrobe/plans/:id/review',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/review${q}`,
+      payload: {
+        shown: [String(f.planItemId)],
+        pick: [`${f.planItemId}:${f.wishlistId}`],
+      },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
     name: 'DELETE /wardrobe/plans/:id/items/:itemId',
     kind: 'write',
     ok: 200,

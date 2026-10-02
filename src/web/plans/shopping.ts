@@ -47,16 +47,21 @@ export async function planShoppingList(
     ]),
   );
   const listed = (itemId: number): ListedCandidate[] =>
-    (candidates.get(itemId) ?? []).map((candidate) => {
-      const differences = targetDifferences(
-        toTarget(items.get(itemId)!),
-        candidate,
-      );
-      return { ...candidate, matches: differences.length === 0, differences };
-    });
+    (candidates.get(itemId) ?? []).map((candidate) =>
+      listedCandidate(items.get(itemId)!, candidate),
+    );
   const entries = shoppingList(
     [...gaps.groups.missing, ...gaps.groups.partly],
     listed,
   );
   return { gaps, entries, totals: shoppingTotals(entries) };
+}
+
+/** `candidate` judged against `item`: the shopping list's and the plan review's. */
+export function listedCandidate(
+  item: PlanItemRow,
+  candidate: CandidateGarment,
+): ListedCandidate {
+  const differences = targetDifferences(toTarget(item), candidate);
+  return { ...candidate, matches: differences.length === 0, differences };
 }

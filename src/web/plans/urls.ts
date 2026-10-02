@@ -15,6 +15,15 @@ export function planUrl(id: number, suffix = ''): string {
   return `${PLANS_PATH}/${id}${suffix}`;
 }
 
+/**
+ * A plan's review (#271): its proposals as strips, decided in one post.
+ * Linked from the gap view, the plans list and "Drafted by" while
+ * proposals remain.
+ */
+export function reviewUrl(planId: number): string {
+  return planUrl(planId, '/review');
+}
+
 /** A plan's items: where the add form posts. */
 export function itemsUrl(planId: number): string {
   return planUrl(planId, '/items');

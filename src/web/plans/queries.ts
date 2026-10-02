@@ -40,7 +40,7 @@ import {
  * createGeneratedPlan for a name the app makes up; updatePlan), which
  * plan is active (setActivePlan; createPlan activates a first plan, never
  * one an agent drafted), the items (addItems, insertItems, updateItem,
- * acceptItem, deleteItem) and the style profile (saveStyleProfile; its rhythm is the week template's, #16,
+ * acceptItems, deleteItems) and the style profile (saveStyleProfile; its rhythm is the week template's, #16,
  * src/web/week-plan/template.ts). Every plan and item write holds the
  * owner lock (ownerTransaction; src/web/calendar/CLAUDE.md, Owner lock), so
  * which plan is active and whether a plan still exists are decided with
@@ -558,37 +558,48 @@ export async function updateItem(
   return updated.length > 0;
 }
 
-/** The owner accepts what their agent proposed: it joins the plan's matching. */
-export async function acceptItem(
-  db: Db,
-  itemId: number,
+/**
+ * The owner accepts what their agent proposed: the items join the plan's
+ * matching. The ids of those accepted, none when not the owner's. One
+ * statement however many: the item's Accept and the plan review's
+ * "Accept these" (#271).
+ */
+export async function acceptItems(
+  db: Queryable,
+  itemIds: readonly number[],
   planId: number,
   ownerId: number,
-): Promise<boolean> {
-  const updated = await ownerTransaction(db, ownerId, 'acceptItem', (tx) =>
+): Promise<number[]> {
+  if (itemIds.length === 0) return [];
+  const updated = await ownerTransaction(db, ownerId, 'acceptItems', (tx) =>
     tx
       .update(planItem)
       .set({ proposed: false })
-      .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
+      .where(and(inArray(planItem.id, [...itemIds]), ownsPlan(planId, ownerId)))
       .returning({ id: planItem.id }),
   );
-  return updated.length > 0;
+  return updated.map((row) => row.id);
 }
 
-/** Deletes it (a proposal dismissed, an item dropped); false when not the owner's. */
-export async function deleteItem(
-  db: Db,
-  itemId: number,
+/**
+ * Deletes them (a proposal dismissed, an item dropped, the review's
+ * skipped items); the ids of those deleted, none when not the owner's.
+ * Their candidate links go with them (the foreign key cascades).
+ */
+export async function deleteItems(
+  db: Queryable,
+  itemIds: readonly number[],
   planId: number,
   ownerId: number,
-): Promise<boolean> {
-  const deleted = await ownerTransaction(db, ownerId, 'deleteItem', (tx) =>
+): Promise<number[]> {
+  if (itemIds.length === 0) return [];
+  const deleted = await ownerTransaction(db, ownerId, 'deleteItems', (tx) =>
     tx
       .delete(planItem)
-      .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
+      .where(and(inArray(planItem.id, [...itemIds]), ownsPlan(planId, ownerId)))
       .returning({ id: planItem.id }),
   );
-  return deleted.length > 0;
+  return deleted.map((row) => row.id);
 }
 
 // ---- The style profile ------------------------------------------------------

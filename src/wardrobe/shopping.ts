@@ -121,19 +121,31 @@ export function shoppingList<
       item,
       match,
       toBuy: match.need - match.have,
-      candidates: candidatesOf(item.id)
-        .map((candidate) => ({
-          candidate,
-          budget: budgetFit(candidate.price, item.budget),
-        }))
-        .sort(
-          (x, y) =>
-            Number(y.candidate.matches) - Number(x.candidate.matches) ||
-            FIT_RANK[x.budget] - FIT_RANK[y.budget] ||
-            comparePrices(x.candidate.price, y.candidate.price) ||
-            x.candidate.garmentId - y.candidate.garmentId,
-        ),
+      candidates: rankCandidates(item, candidatesOf(item.id)),
     }));
+}
+
+/**
+ * An item's candidates the likeliest bought first (ShoppingEntry's
+ * `candidates`), each with its price against the item's budget: the
+ * shopping list's order, and the plan review's tiles (#271).
+ */
+export function rankCandidates<C extends ShoppingCandidate>(
+  item: Pick<ShoppingItem, 'budget'>,
+  candidates: readonly C[],
+): { candidate: C; budget: BudgetFit }[] {
+  return candidates
+    .map((candidate) => ({
+      candidate,
+      budget: budgetFit(candidate.price, item.budget),
+    }))
+    .sort(
+      (x, y) =>
+        Number(y.candidate.matches) - Number(x.candidate.matches) ||
+        FIT_RANK[x.budget] - FIT_RANK[y.budget] ||
+        comparePrices(x.candidate.price, y.candidate.price) ||
+        x.candidate.garmentId - y.candidate.garmentId,
+    );
 }
 
 /** What the list adds up to (the page's summary and get_shopping_list's). */

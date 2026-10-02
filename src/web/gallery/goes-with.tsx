@@ -197,14 +197,20 @@ export function OutfitCountLink(props: {
  * rendered: each count is a search over the closet, and a plan's items are
  * unbounded, so the page's cost stays the list's and each chip pays for
  * itself only once seen. Its own hx-indicator keeps the app bar's spinner
- * still, as the cutout's polling does.
+ * still, as the cutout's polling does. `inStrip` for a slot inside a
+ * horizontal snap strip (the plan review, #271): `revealed` watches only the
+ * window's scroll, never a strip's, so a tile swiped into view would never
+ * load; `intersect` sees the strip's clipping.
  */
-export function OutfitCountSlot(props: { garmentId: number }) {
+export function OutfitCountSlot(props: {
+  garmentId: number;
+  inStrip?: boolean;
+}) {
   return (
     <span
       class="text-xs text-muted"
       hx-get={garmentUrl(props.garmentId, undefined, '/outfit-count')}
-      hx-trigger="revealed"
+      hx-trigger={props.inStrip ? 'intersect once' : 'revealed'}
       hx-swap="outerHTML"
       hx-indicator="this"
       data-outfit-count-slot=""

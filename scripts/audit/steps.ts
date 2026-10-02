@@ -924,6 +924,15 @@ const pages: Step[] = [
     request: () => get('/wardrobe/orders'),
     expect: 200,
   }),
+  // The plan review (#271): 4 statements, pinned in plan-review.spec.ts.
+  http({
+    ...PLANS,
+    name: 'Plan review',
+    kind: 'page',
+    route: 'GET /wardrobe/plans/:id/review',
+    request: (f) => get(`/wardrobe/plans/${f.ids.planId}/review`),
+    expect: 200,
+  }),
 
   // #168 Ideas
   http({

@@ -10,6 +10,7 @@ import {
   COMPARE_PATH,
   PLANS_PATH,
   planUrl,
+  reviewUrl,
   SHOPPING_PATH,
   STYLE_PROFILE_PATH,
 } from './urls';
@@ -118,7 +119,7 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
 /**
  * A plan: its name (a stretched link to the gap view), the closet's tally,
  * the agent that drafted it (its token's name) and its proposals awaiting
- * the owner.
+ * the owner, with Review (#271).
  */
 function PlanCard({ gaps }: { gaps: PlanGaps }) {
   const { plan, tally, proposed } = gaps;
@@ -145,8 +146,15 @@ function PlanCard({ gaps }: { gaps: PlanGaps }) {
           </p>
         )}
         {proposed.length > 0 && (
-          <p class="text-xs text-primary">
+          <p class="text-xs text-primary flex items-center justify-between gap-2">
             {t('plans.PROPOSED_COUNT', { count: proposed.length })}
+            {/* Above the card's stretched link. */}
+            <a
+              href={reviewUrl(plan.id)}
+              class="btn btn-primary btn-xs relative z-10"
+            >
+              {t('plans.REVIEW')}
+            </a>
           </p>
         )}
       </div>
