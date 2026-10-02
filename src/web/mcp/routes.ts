@@ -34,7 +34,8 @@ const INSTRUCTIONS = [
   "4. propose_plan_item per item, with the new plan's planId. An item is a target in the garment model's terms (category, type, colours, materials, warmth and formality ranges, quantity, priority, budget), not a product; its note says why the wardrobe needs it.",
   `5. add_candidate with product URLs for an item, at most ${MAX_CANDIDATES_PER_ITEM} per item.`,
   '6. goes_with_closet on each candidate: how it pairs with what the closet holds, and what it would duplicate.',
-  'The owner reviews the plan, accepts or dismisses each item, and buys in the app. Never assume a purchase: a candidate stays on the wishlist until the owner marks it bought.',
+  'To iterate on an existing plan (a new conversation about it): read get_plan_feedback first, before anything else. It lists only what waits on you. Change each `revise` item as its ownerNote asks with update_plan_item (it returns to the owner as proposed). Replace the rejected products of an item (`replace`, and `new: true` ones) with others through add_candidate, and never add a rejected product again, by url or by garment. Never re-propose an item listed under `declined`, nor add candidates to it.',
+  'The owner reviews the plan, accepts, changes or declines each item, and buys in the app. Never assume a purchase: a candidate stays on the wishlist until the owner marks it bought.',
 ].join('\n');
 
 /**

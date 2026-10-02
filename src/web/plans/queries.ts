@@ -75,6 +75,8 @@ export interface PlanItemRow extends PlanItemFields {
   review: PlanItemReview;
   /** The owner's word to the agent with Change this or Don't buy; apart from the agent's `note`. */
   ownerNote: string | null;
+  /** When the agent last wrote it (null: never); a rejection after it is news to the agent (get_plan_feedback). The owner's writes never touch it. */
+  agentChangedAt: Date | null;
 }
 
 /** A stored item's fields, as a write takes them (duplicating a plan). */
@@ -167,6 +169,7 @@ const ITEM_COLUMNS = {
   note: planItem.note,
   review: planItem.review,
   ownerNote: planItem.ownerNote,
+  agentChangedAt: planItem.agentChangedAt,
 };
 
 /** The items of the plans `planIds` (the owner's, checked by the caller), oldest first. */
@@ -531,7 +534,14 @@ export function insertItems(
 ): Promise<number[]> {
   return insertRows(
     db,
-    items.map((item) => ({ ...item, planId, review, ownerNote: null })),
+    items.map((item) => ({
+      ...item,
+      planId,
+      review,
+      ownerNote: null,
+      // 'proposed' is the agent's entry; the owner's own items were never its work.
+      agentChangedAt: review === 'proposed' ? sql`now()` : null,
+    })),
   );
 }
 
@@ -554,13 +564,16 @@ export function copyItems(
       planId,
       review: item.review,
       ownerNote: item.ownerNote,
+      agentChangedAt: item.agentChangedAt,
     })),
   );
 }
 
 async function insertRows(
   db: Queryable,
-  rows: (typeof planItem.$inferInsert)[],
+  rows: (Omit<typeof planItem.$inferInsert, 'agentChangedAt'> & {
+    agentChangedAt: Date | SQL | null;
+  })[],
 ): Promise<number[]> {
   if (rows.length === 0) return [];
   const inserted = await db
@@ -643,7 +656,7 @@ export async function updateItem(
         ...fields,
         review: move.to,
         ownerNote: move.note === 'keep' ? row.ownerNote : null,
-        changedAt: sql`now()`,
+        ...(author === 'agent' ? { agentChangedAt: sql`now()` } : {}),
       })
       .where(eq(planItem.id, itemId));
     return { ok: true as const, from: move.from, to: move.to };
@@ -720,7 +733,6 @@ export async function reviewItems(
       .set({
         review: to,
         ...ownerNoteSet(effect, moved, notes),
-        changedAt: sql`now()`,
       })
       .where(inArray(planItem.id, moved));
     return { moved, refused };

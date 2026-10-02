@@ -113,10 +113,7 @@ describe('plan item review (the plan-item-review migrations)', () => {
       review: string;
       owner_note: string | null;
       note: string;
-      changed_at: Date;
-    }>(
-      `select id, review, owner_note, note, changed_at from plan_item order by id`,
-    );
+    }>(`select id, review, owner_note, note from plan_item order by id`);
     expect(
       rows.map(({ id, review, owner_note, note }) => ({
         id,
@@ -128,13 +125,14 @@ describe('plan item review (the plan-item-review migrations)', () => {
       { id: accepted, review: 'accepted', owner_note: null, note: 'why' },
       { id: proposed, review: 'proposed', owner_note: null, note: 'why' },
     ]);
-    for (const row of rows) {
-      expect(row.changed_at.toISOString()).toBe('2026-09-01T10:00:00.000Z');
-    }
     const { rows: columns } = await client.query<{ column_name: string }>(
       `select column_name from information_schema.columns where table_name = 'plan_item'`,
     );
-    expect(columns.map((c) => c.column_name)).not.toContain('proposed');
+    const names = columns.map((c) => c.column_name);
+    expect(names).not.toContain('proposed');
+    // changed_at (0033) gave way to the agent's own stamp (#278 part 2).
+    expect(names).not.toContain('changed_at');
+    expect(names).toContain('agent_changed_at');
 
     // The new constraints: a review outside the machine, and revise without the owner's note.
     await expect(

@@ -264,7 +264,7 @@ describe('seed personas', () => {
             'id',
             'planId',
             'createdAt',
-            'changedAt',
+            'agentChangedAt',
           ] as const) {
             delete fields[key];
           }

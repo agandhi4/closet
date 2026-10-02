@@ -16,7 +16,7 @@ The detail behind `src/web/plans/CLAUDE.md`'s review bullets (#271, #278, epic #
 
 - **Every other pair is refused, self-moves included.** `src/wardrobe/plan-review.spec.ts` covers all 20 pairs.
 - **The owner's note.** `owner_note` is kept apart from the agent's `note`. The check `plan_item_owner_note_check` refuses `revise` without one.
-- **When the item last changed.** `changed_at` is written by every content write and every move. `get_plan_feedback`, which comes in the next slice, reads it.
+- **When the agent last wrote the item.** `agent_changed_at` (null: never) is set only by the agent: `propose_plan_item`'s insert and `update_plan_item`. The owner's moves, form saves and purchase adjustments never touch it, so a later owner action cannot hide feedback. `get_plan_feedback` flags a rejection `new` when `agent_changed_at` is null or older than it. It is not `changed_at > ...` of any owner write: a review post stamps its rejection and its move in one transaction, whose `now()` is equal.
 - **Who writes what.** `reviewItems` (`queries.ts`) is the owner's moves, one event per call: two statements, the read and one update, with each note a `case`. `updateItem` is a content rewrite whose move depends on who wrote it (`rewriteEvent`):
   - The owner's form save accepts what is not accepted yet.
   - The agent's `update_plan_item` reproposes what is not a proposal.

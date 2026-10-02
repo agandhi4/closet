@@ -3160,6 +3160,7 @@ const tools: Step[] = [
   // A name per run: the repeat of a taken name is refused (#269).
   mcp('create_plan', () => ({ name: `Audit draft ${++auditDrafts}` })),
   mcp('get_plan_gaps', () => ({})),
+  mcp('get_plan_feedback', () => ({})),
   mcp('propose_plan_item', () => ({
     category: 'tops',
     name: 'Audit proposal',

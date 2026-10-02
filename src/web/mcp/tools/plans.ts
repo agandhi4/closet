@@ -33,6 +33,7 @@ import {
   findActivePlan,
   findOwnedItem,
   findPlan,
+  itemsOf,
   type PlanDetail,
   type PlanItemRow,
   styleProfileSql,
@@ -265,16 +266,20 @@ export function itemOut(item: PlanItemRow) {
   };
 }
 
-/** The products the owner turned down for an item, as the agent reads them. */
-function rejectedOut(rejections: ReadonlyMap<number, Rejection[]>, id: number) {
-  return (rejections.get(id) ?? []).map((rejection) => ({
+/** A product the owner turned down for an item, as the agent reads it. */
+function rejectionOut(rejection: Rejection) {
+  return {
     name: rejection.name,
     brand: rejection.brand,
     url: rejection.url,
     price: rejection.price,
     reason: rejection.reason,
     at: rejection.at.toISOString(),
-  }));
+  };
+}
+
+function rejectedOut(rejections: ReadonlyMap<number, Rejection[]>, id: number) {
+  return (rejections.get(id) ?? []).map(rejectionOut);
 }
 
 /** Why an item is short, in a sentence the agent can pass on or reason from. */
@@ -373,6 +378,11 @@ function gapItemOut(
   };
 }
 
+/** A rejection the agent has not answered: made after it last wrote the item, or it never has. */
+function isNewRejection(rejection: Rejection, item: PlanItemRow): boolean {
+  return item.agentChangedAt === null || rejection.at > item.agentChangedAt;
+}
+
 function planOut(gaps: PlanGaps) {
   const { plan } = gaps;
   return {
@@ -454,6 +464,46 @@ export const planTools = [
         proposed: gaps.review.proposed.map(apart),
         revise: gaps.review.revise.map(apart),
         declined: gaps.review.declined.map(apart),
+      };
+    },
+  }),
+
+  defineTool({
+    name: 'get_plan_feedback',
+    title: 'Get the owner’s feedback on a plan',
+    description:
+      'What waits on you in a wardrobe plan (the active one when planId is omitted), and nothing else: the items the owner sent back for a change (revise: ownerNote says what; change them with update_plan_item, which returns them to the owner), the items the owner declined (declined: never propose them again, never add a candidate to them), and the items with products the owner rejected since the item last changed (replace: swap those products for others with add_candidate). Every item lists the products the owner rejected for it (rejected: name, brand, url, price, reason, when, and new: true for a rejection you have not answered yet); never add a rejected product again, by url or by garment. Read this first in a conversation about an existing plan.',
+    input: z.object({ planId: planIdInput }),
+    writes: false,
+    async run({ planId }, ctx) {
+      const plan = await planFor(ctx, planId);
+      const [items, rejections] = await Promise.all([
+        itemsOf(ctx.db, [plan.id]),
+        rejectionsOfPlan(ctx.db, plan.id),
+      ]);
+      // `new`: made since the item last changed, so the agent has not answered it.
+      const out = (item: PlanItemRow) => ({
+        ...itemOut(item),
+        rejected: (rejections.get(item.id) ?? []).map((rejection) => ({
+          ...rejectionOut(rejection),
+          new: isNewRejection(rejection, item),
+        })),
+      });
+      const hasNew = (item: PlanItemRow) =>
+        (rejections.get(item.id) ?? []).some((rejection) =>
+          isNewRejection(rejection, item),
+        );
+      return {
+        planId: plan.id,
+        revise: items.filter((item) => item.review === 'revise').map(out),
+        declined: items.filter((item) => item.review === 'declined').map(out),
+        replace: items
+          .filter(
+            (item) =>
+              (item.review === 'proposed' || item.review === 'accepted') &&
+              hasNew(item),
+          )
+          .map(out),
       };
     },
   }),

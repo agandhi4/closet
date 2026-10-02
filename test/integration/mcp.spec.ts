@@ -265,6 +265,7 @@ describe('the MCP endpoint', () => {
           'get_garment_photo',
           'get_outfit',
           'get_plan_gaps',
+          'get_plan_feedback',
           'get_shopping_list',
           'get_sizes',
           'get_style_profile',

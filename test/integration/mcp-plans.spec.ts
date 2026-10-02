@@ -4,6 +4,7 @@ import {
   personalAccessToken,
   planItem,
   planItemCandidate,
+  planItemRejection,
   wardrobePlan,
 } from '../../src/db/schema';
 import { createTestApp, type TestApp, unescapeHtml } from './harness';
@@ -302,6 +303,116 @@ describe('MCP: wardrobe plans', () => {
     await post(`/wardrobe/plans/${planId}/items/${tees.id}/accept`, {});
     const after = await tool<Gaps>(t, token, 'get_plan_gaps');
     expect(after.owned.map((item) => item.id)).toContain(tees.id);
+  });
+
+  it('get_plan_feedback lists only what waits on the agent, with the rejections since each item changed', async () => {
+    const draft = await tool<{ id: number }>(t, token, 'create_plan', {
+      name: 'Feedback plan',
+    });
+    const propose = async (name: string) =>
+      (
+        await tool<{ id: number }>(t, token, 'propose_plan_item', {
+          planId: draft.id,
+          category: 'tops',
+          name,
+        })
+      ).id;
+    const [quiet, revise, declined, replace] = [
+      await propose('Quiet'),
+      await propose('Revise me'),
+      await propose('Declined'),
+      await propose('Replace products'),
+    ];
+    // When the agent last wrote the items, between the two rejection times (the real review post is plan-item-review.spec.ts's).
+    const wrote = new Date('2026-01-01T00:00:00Z');
+    const item = (id: number) => eq(planItem.id, id);
+    await t.db
+      .update(planItem)
+      .set({ review: 'revise', ownerNote: 'Warmer', agentChangedAt: wrote })
+      .where(item(revise));
+    await t.db
+      .update(planItem)
+      .set({
+        review: 'declined',
+        ownerNote: 'Not my style',
+        agentChangedAt: wrote,
+      })
+      .where(item(declined));
+    await t.db
+      .update(planItem)
+      .set({ review: 'accepted', agentChangedAt: wrote })
+      .where(item(replace));
+    await t.db.insert(planItemRejection).values([
+      {
+        planItemId: replace,
+        name: 'Old tee',
+        url: 'https://shop.example/old',
+        reason: 'too tight',
+        createdAt: new Date('2025-12-01T00:00:00Z'),
+      },
+      {
+        planItemId: replace,
+        name: 'New tee',
+        url: 'https://shop.example/new',
+        reason: 'wrong white',
+        createdAt: new Date('2026-02-01T00:00:00Z'),
+      },
+      {
+        planItemId: declined,
+        name: 'Declined tee',
+        createdAt: new Date('2026-02-01T00:00:00Z'),
+      },
+    ]);
+
+    const feedback = await tool<{
+      planId: number;
+      revise: { id: number; ownerNote: string | null }[];
+      declined: {
+        id: number;
+        ownerNote: string | null;
+        rejected: { new: boolean }[];
+      }[];
+      replace: {
+        id: number;
+        rejected: { name: string; reason: string; new: boolean }[];
+      }[];
+    }>(t, token, 'get_plan_feedback', { planId: draft.id });
+    expect(feedback.planId).toBe(draft.id);
+    expect(feedback.revise).toMatchObject([
+      { id: revise, ownerNote: 'Warmer' },
+    ]);
+    expect(feedback.declined).toMatchObject([
+      { id: declined, ownerNote: 'Not my style', rejected: [{ new: true }] },
+    ]);
+    expect(feedback.replace).toMatchObject([
+      {
+        id: replace,
+        rejected: [
+          { name: 'Old tee', reason: 'too tight', new: false },
+          { name: 'New tee', reason: 'wrong white', new: true },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(feedback)).not.toContain(`"id":${quiet},`);
+
+    // The agent answers: the item changes, so its rejections are old news.
+    await tool(t, token, 'update_plan_item', { itemId: replace, note: 'Swap' });
+    const after = await tool<{ replace: unknown[] }>(
+      t,
+      token,
+      'get_plan_feedback',
+      { planId: draft.id },
+    );
+    expect(after.replace).toEqual([]);
+    // Later specs list the plans: leave none of this one behind.
+    await t.db.delete(wardrobePlan).where(eq(wardrobePlan.id, draft.id));
+  });
+
+  it('get_plan_feedback is the caller’s own plans only', async () => {
+    const stranger = await callTool(t, strangerToken, 'get_plan_feedback', {
+      planId,
+    });
+    expect(stranger.value.error).toBe('Plan not found');
   });
 
   it('keeps plans the caller’s own: another user’s plan and item are not found', async () => {

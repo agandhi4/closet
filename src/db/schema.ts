@@ -1375,8 +1375,9 @@ export const wardrobePlan = pgTable(
 // every read. `review`: where it is in the owner's review of their agent's
 // work (src/wardrobe/plan-review.ts, #278); only `accepted` is matched.
 // `owner_note`: the owner's word to the agent with a review move (Change
-// this, Don't buy), apart from the agent's `note`; `changed_at`: the last
-// content write or review move.
+// this, Don't buy), apart from the agent's `note`; `agent_changed_at`: when the
+// agent last wrote it (null: never), never the owner's moves, so a rejection
+// after it is news to the agent (get_plan_feedback).
 export const planItem = pgTable(
   'plan_item',
   {
@@ -1412,9 +1413,7 @@ export const planItem = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
-    changedAt: timestamp('changed_at', { withTimezone: true })
-      .defaultNow()
-      .notNull(),
+    agentChangedAt: timestamp('agent_changed_at', { withTimezone: true }),
   },
   (table) => [
     index('plan_item_plan_id_index').on(table.planId),

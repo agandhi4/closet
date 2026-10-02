@@ -1,0 +1,1 @@
+ALTER TABLE "plan_item" ADD COLUMN "agent_changed_at" timestamp with time zone;

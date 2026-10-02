@@ -593,4 +593,73 @@ describe('the plan item review', () => {
       expect(await candidatesOf(declined)).toEqual([linked]);
     });
   });
+
+  describe('get_plan_feedback after the real review post (#278)', () => {
+    interface Feedback {
+      revise: { id: number; rejected: { name: string; new: boolean }[] }[];
+      declined: { id: number; rejected: { new: boolean }[] }[];
+      replace: { id: number; rejected: { name: string; new: boolean }[] }[];
+    }
+    const feedback = (planId: number) =>
+      tool<Feedback>(t, token, 'get_plan_feedback', { planId });
+
+    it('flags a review-post rejection new until the agent writes the item, whatever the owner does after', async () => {
+      const planId = await createPlan();
+      const kept = await propose(planId);
+      const changed = await propose(planId);
+      const keptPick = await addWishlist('Kept pick');
+      const changedPick = await addWishlist('Changed pick');
+      await link(kept, [keptPick]);
+      await link(changed, [changedPick]);
+      // One post: Not this one on the centred pick (Keep), and on the
+      // candidate of an item sent back with Change this.
+      const res = await review(planId, [
+        {
+          itemId: kept,
+          pick: keptPick,
+          offered: [keptPick],
+          rejects: [[keptPick, 'Too pale']],
+        },
+        {
+          itemId: changed,
+          pick: 'change',
+          note: 'Warmer please',
+          offered: [changedPick],
+          rejects: [[changedPick, 'Wrong cut']],
+        },
+      ]);
+      expect(res.statusCode, res.body).toBe(303);
+
+      const first = await feedback(planId);
+      expect(first.replace).toMatchObject([
+        { id: kept, rejected: [{ new: true }] },
+      ]);
+      expect(first.revise).toMatchObject([
+        { id: changed, rejected: [{ new: true }] },
+      ]);
+
+      // The agent answers the revise item: its rejection is old news, the
+      // other item's stays new.
+      await tool(t, token, 'update_plan_item', {
+        itemId: changed,
+        note: 'Warmer now',
+      });
+      const second = await feedback(planId);
+      expect(second.revise).toEqual([]);
+      expect(second.replace.map((entry) => entry.id)).toEqual([kept]);
+
+      // Owner actions after the rejection do not hide it.
+      const item = `/wardrobe/plans/${planId}/items/${kept}`;
+      expect((await post(`${item}/change`, { note: 'Again' })).statusCode).toBe(
+        303,
+      );
+      expect((await post(`${item}/decline`, {})).statusCode).toBe(303);
+      expect((await post(`${item}/reconsider`, {})).statusCode).toBe(303);
+      expect((await post(`${item}/accept`, {})).statusCode).toBe(303);
+      const third = await feedback(planId);
+      expect(third.replace).toMatchObject([
+        { id: kept, rejected: [{ new: true }] },
+      ]);
+    });
+  });
 });
