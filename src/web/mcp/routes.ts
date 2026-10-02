@@ -7,6 +7,7 @@ import type {
 } from 'fastify';
 import { BUILD_INFO } from '../../build-info';
 import { authenticateToken } from '../auth/personal-tokens';
+import { MAX_CANDIDATES_PER_ITEM } from '../plans/candidates';
 import { MCP_PATH } from '../page-cache';
 import type { WebOptions } from '../plugin';
 import { MCP_LIMIT, MCP_LINK_IMPORT_LIMIT } from '../security/rate-limit';
@@ -21,8 +22,19 @@ const BEARER = /^Bearer\s+(\S+)\s*$/i;
 // learns nothing about which tokens exist.
 const UNAUTHORIZED = { statusCode: 401, message: 'Unauthorized' };
 
-const INSTRUCTIONS =
-  "Closet is the user's self-hosted wardrobe: garments with properties, capsules, outfits, a calendar of planned and worn outfits, wardrobes shared with them, and the user's own wardrobe plans with their gaps and shopping list. Every tool acts as the user; a shared wardrobe is addressed by its owner's id (ownerId, from list_shared_wardrobes). Tools that write say so; nothing deletes.";
+// What the client's model reads first: the server, and how to style a
+// wardrobe with the tools (#269). The README's "Styling with an agent" is
+// the owner's side of the same workflow; keep the two in step.
+const INSTRUCTIONS = [
+  "Closet is the user's self-hosted wardrobe: garments with properties, capsules, outfits, a calendar of planned and worn outfits, wardrobes shared with them, and the user's own wardrobe plans with their gaps and shopping list. Every tool acts as the user; a shared wardrobe is addressed by its owner's id (ownerId, from list_shared_wardrobes). Tools that write say so; nothing deletes.",
+  'To style the wardrobe (what to add, what to buy):',
+  "1. Read first: get_style_profile (styles, budget band, palette, the week's occasions), search_garments (the closet), get_garment_photo for the pieces you need to see, and get_plan_gaps (what the active plan already asks for and lacks).",
+  '2. create_plan with a name and notes giving your rationale. It is your draft, never active, and the owner sees which connection drafted it; do not propose into a plan the owner made unless asked.',
+  "3. propose_plan_item per item, with the new plan's planId. An item is a target in the garment model's terms (category, type, colours, materials, warmth and formality ranges, quantity, priority, budget), not a product; its note says why the wardrobe needs it.",
+  `4. add_candidate with product URLs for an item, at most ${MAX_CANDIDATES_PER_ITEM} per item.`,
+  '5. goes_with_closet on each candidate: how it pairs with what the closet holds, and what it would duplicate.',
+  'The owner reviews the plan, accepts or dismisses each item, and buys in the app. Never assume a purchase: a candidate stays on the wishlist until the owner marks it bought.',
+].join('\n');
 
 /**
  * POST /mcp, the MCP endpoint (#33): Streamable HTTP in stateless mode,
@@ -93,6 +105,7 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
         webLogger: logger,
         timeZone: config.timeZone,
         userId: auth.user.id,
+        tokenId: auth.tokenId,
         // `isAllowed` is the plugin's allow list; the count is isExceeded.
         allowLinkImport: async () => {
           const verdict = await linkImportLimit(request);
@@ -105,7 +118,6 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
       );
       registerTools(server, tools, context, {
         logger: mcpLogger,
-        tokenId: auth.tokenId,
         metrics,
       });
       const transport = new WebStandardStreamableHTTPServerTransport({

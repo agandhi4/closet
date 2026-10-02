@@ -84,9 +84,10 @@ describe('migrations', () => {
         'user_lower_email_unique',
         // Wardrobe plans (#34): one name per owner, any case (also the
         // owner_id foreign key's); one active plan per owner; a plan's
-        // items.
+        // items; the drafting token's foreign key (#269).
         'wardrobe_plan_owner_id_lower_name_unique',
         'wardrobe_plan_owner_id_active_unique',
+        'wardrobe_plan_drafted_by_token_id_index',
         'plan_item_plan_id_index',
         // The week template (#16): a user's (also its user_id foreign
         // key's), one outfit for the day per weekday; a user's plans and a

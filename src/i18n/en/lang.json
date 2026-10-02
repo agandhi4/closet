@@ -801,6 +801,7 @@
     "PROPOSED": "Proposed by your agent",
     "PROPOSED_HINT": "Not part of the plan until you accept it.",
     "PROPOSED_COUNT": "{count} proposed by your agent",
+    "DRAFTED_BY": "Drafted by {name}",
     "PROPOSED_EDIT_HINT": "Your agent proposed this. Saving it accepts it into the plan.",
     "ACCEPT": "Accept",
     "DISMISS": "Dismiss",

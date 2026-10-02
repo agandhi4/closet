@@ -115,7 +115,11 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
   );
 }
 
-/** A plan: its name (a stretched link to the gap view) and the closet's tally. */
+/**
+ * A plan: its name (a stretched link to the gap view), the closet's tally,
+ * the agent that drafted it (its token's name) and its proposals awaiting
+ * the owner.
+ */
 function PlanCard({ gaps }: { gaps: PlanGaps }) {
   const { plan, tally, proposed } = gaps;
   return (
@@ -135,6 +139,11 @@ function PlanCard({ gaps }: { gaps: PlanGaps }) {
           )}
         </div>
         <p class="text-sm text-base-content/70">{t('plans.TALLY', tally)}</p>
+        {plan.draftedBy !== null && (
+          <p class="text-xs text-muted">
+            {t('plans.DRAFTED_BY', { name: plan.draftedBy })}
+          </p>
+        )}
         {proposed.length > 0 && (
           <p class="text-xs text-primary">
             {t('plans.PROPOSED_COUNT', { count: proposed.length })}

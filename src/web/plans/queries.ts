@@ -3,6 +3,7 @@ import type { Db, Queryable } from '../../db/client';
 import {
   file,
   garment,
+  personalAccessToken,
   PLAN_NAME_UNIQUE,
   planItem,
   styleProfile,
@@ -37,9 +38,9 @@ import {
  *
  * One writer each: the plan's name and notes (createPlan, or
  * createGeneratedPlan for a name the app makes up; updatePlan), which
- * plan is active (setActivePlan; createPlan activates a first plan), the
- * items (addItems, insertItems, updateItem, acceptItem, deleteItem) and the style
- * profile (saveStyleProfile; its rhythm is the week template's, #16,
+ * plan is active (setActivePlan; createPlan activates a first plan, never
+ * one an agent drafted), the items (addItems, insertItems, updateItem,
+ * acceptItem, deleteItem) and the style profile (saveStyleProfile; its rhythm is the week template's, #16,
  * src/web/week-plan/template.ts). Every plan and item write holds the
  * owner lock (ownerTransaction; src/web/calendar/CLAUDE.md, Owner lock), so
  * which plan is active and whether a plan still exists are decided with
@@ -51,6 +52,12 @@ export interface PlanDetail {
   name: string;
   notes: string | null;
   active: boolean;
+  /**
+   * The name of the personal access token whose agent drafted it
+   * (create_plan, #269), or null for the owner's own. Only the name: the
+   * pages never show a token's prefix or hash.
+   */
+  draftedBy: string | null;
 }
 
 /** A stored plan item. */
@@ -87,6 +94,12 @@ const PLAN_COLUMNS = {
   name: wardrobePlan.name,
   notes: wardrobePlan.notes,
   active: wardrobePlan.active,
+  // A scalar subquery rather than a join, so every plan read (findPlanItem's
+  // left join included) takes the column as it is, read by the token's
+  // primary key.
+  draftedBy: sql<
+    string | null
+  >`(select ${personalAccessToken.name} from ${personalAccessToken} where ${personalAccessToken.id} = ${wardrobePlan.draftedByTokenId})`,
 };
 
 /** Active first, then by name: the list page and list_plans. */
@@ -268,20 +281,32 @@ export async function closetCategories(
 // ---- Plan writes ------------------------------------------------------------
 
 /**
- * A new plan of `ownerId`'s named by the owner (the plan form, the seed),
- * with `items`. 'name-taken' only for the name index (another of their
- * plans has the name in any case); any other violation is a bug and
- * rethrown. A savepoint, so a caller's transaction survives.
+ * Who drafted a new plan: absent, the owner; `draftedByTokenId`, the agent
+ * holding that personal access token (create_plan). An agent's draft is
+ * never made active, even as the owner's first plan: the active plan is
+ * the owner's choice ("Make active").
+ */
+export interface PlanDraft {
+  draftedByTokenId?: number;
+}
+
+/**
+ * A new plan of `ownerId`'s under a name given by the owner or their agent
+ * (the plan form, create_plan, the seed), with `items`. 'name-taken' only
+ * for the name index (another of their plans has the name in any case);
+ * any other violation is a bug and rethrown. A savepoint, so a caller's
+ * transaction survives.
  */
 export async function createPlan(
   db: Queryable,
   ownerId: number,
   fields: PlanFields,
   items: PlanItemFields[] = [],
+  draft: PlanDraft = {},
 ): Promise<number | NameTaken> {
   try {
     return await ownerTransaction(db, ownerId, 'createPlan', (tx) =>
-      insertPlan(tx, ownerId, fields, items),
+      insertPlan(tx, ownerId, fields, items, draft),
     );
   } catch (error) {
     if (isUniqueViolation(error, PLAN_NAME_UNIQUE)) return 'name-taken';
@@ -324,15 +349,17 @@ export function createGeneratedPlan(
 
 /**
  * Inserts the plan with its items, under the owner lock the caller holds:
- * active when the owner has no active plan yet (their first, or after
- * deleting the active one), so the gap view always has one to show once
- * any exists; the lock makes that check and the activation one step.
+ * the owner's own is active when they have no active plan yet (their
+ * first, or after deleting the active one), so the gap view always has
+ * one to show once any exists; the lock makes that check and the
+ * activation one step. An agent's draft never is (PlanDraft).
  */
 async function insertPlan(
   tx: Queryable,
   ownerId: number,
   fields: PlanFields,
   items: PlanItemFields[],
+  { draftedByTokenId }: PlanDraft = {},
 ): Promise<number> {
   // Decided in the insert itself: the subquery reads the owner's plans as
   // they were before this row, and the owner lock keeps them so.
@@ -341,7 +368,11 @@ async function insertPlan(
     .values({
       ownerId,
       ...fields,
-      active: sql`not exists (select 1 from ${wardrobePlan} where ${wardrobePlan.ownerId} = ${ownerId} and ${wardrobePlan.active})`,
+      draftedByTokenId,
+      active:
+        draftedByTokenId === undefined
+          ? sql`not exists (select 1 from ${wardrobePlan} where ${wardrobePlan.ownerId} = ${ownerId} and ${wardrobePlan.active})`
+          : false,
     })
     .returning({ id: wardrobePlan.id });
   await insertItems(tx, row.id, items, { proposed: false });

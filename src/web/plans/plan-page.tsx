@@ -45,8 +45,9 @@ const GROUP_TITLES = {
  * GET /wardrobe/plans/:id, the gap view (#34, slice 34a): a plan's items
  * against the owner's closet, grouped missing, partly owned and owned
  * (the gaps first: what the page is for), each with what fulfils it and,
- * when it is not owned, why. Items the owner's agent proposed come first,
- * unmatched, with Accept and Dismiss. Private: the signed-in owner's plan
+ * when it is not owned, why. A plan an agent drafted (create_plan) names
+ * its token. Items the owner's agent proposed come first, unmatched, with
+ * Accept and Dismiss, their count in the heading. Private: the signed-in owner's plan
  * and closet only. A gap shows its candidate products (34b) and links to
  * adding one; the shopping list is the gaps with their candidates.
  */
@@ -70,6 +71,11 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
           )}
           {t('plans.TALLY', tally)}
         </p>
+        {plan.draftedBy !== null && (
+          <p class="text-sm text-muted" id="plan-drafted-by">
+            {t('plans.DRAFTED_BY', { name: plan.draftedBy })}
+          </p>
+        )}
         {plan.notes && (
           <p class="text-sm whitespace-pre-line text-base-content/80">
             {plan.notes}

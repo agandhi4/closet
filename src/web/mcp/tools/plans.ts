@@ -14,6 +14,7 @@ import {
   WARMTHS,
 } from '../../../wardrobe/properties';
 import { HttpError } from '../../errors';
+import { t } from '../../i18n';
 import {
   type CandidateGarment,
   type CandidatesByItem,
@@ -28,6 +29,7 @@ import {
 } from '../../plans/gaps';
 import {
   addItems,
+  createPlan,
   findActivePlan,
   findOwnedItem,
   findPlan,
@@ -43,8 +45,11 @@ import {
   itemNotFound,
   ITEM_NAME_MAX,
   ITEM_NOTE_MAX,
+  PLAN_NAME_MAX,
+  PLAN_NOTES_MAX,
   type PlanItemFormValues,
   planNotFound,
+  readPlanForm,
   readPlanItemForm,
   scaleText,
   storedItemValues,
@@ -60,7 +65,9 @@ import { rowId } from './common';
  * soon"), and propose items. Plans and the profile are the caller's own,
  * like outfits: no ownerId, and a plan of anyone else's is "not found".
  *
- * The agent proposes; the owner decides. propose_plan_item adds an item
+ * The agent proposes; the owner decides. create_plan drafts a plan of the
+ * agent's own (#269), never active and marked with the calling token, so
+ * its work stays apart from the plan the owner keeps; propose_plan_item adds an item
  * marked proposed, and update_plan_item leaves the item it changes marked
  * proposed again: a proposed item is shown apart on the gap view, left out
  * of the matching, until the owner accepts it (or saves it in the form) or
@@ -93,7 +100,9 @@ export async function planFor(
 
 export const planIdInput = rowId()
   .optional()
-  .describe('A plan id from list_plans. Omit for your active plan.');
+  .describe(
+    'A plan id from list_plans or create_plan. Omit for your active plan.',
+  );
 
 const Warmth = z.union(WARMTHS.map((w) => z.literal(w)));
 const Formality = z.union(FORMALITIES.map((f) => z.literal(f)));
@@ -341,6 +350,7 @@ function planOut(gaps: PlanGaps) {
     name: plan.name,
     notes: plan.notes,
     active: plan.active,
+    draftedBy: plan.draftedBy,
     ...gaps.tally,
     proposed: gaps.proposed.length,
   };
@@ -410,6 +420,43 @@ export const planTools = [
           ),
         })),
       };
+    },
+  }),
+
+  defineTool({
+    name: 'create_plan',
+    title: 'Draft a wardrobe plan',
+    description:
+      'WRITES: creates a wardrobe plan of your own to propose items into, marked as drafted by this connection (the owner sees its name on the plan) and never active: the owner decides whether it becomes the plan they keep. name must be one none of their plans has (any case); notes is your rationale (the brief, the style read, what the plan is for), shown on the plan. Then propose_plan_item with its id.',
+    input: z.object({
+      name: z
+        .string()
+        .min(1)
+        .max(PLAN_NAME_MAX)
+        .describe('The plan’s name ("Muse: spring capsule").'),
+      notes: z
+        .string()
+        .max(PLAN_NOTES_MAX)
+        .optional()
+        .describe('Why this plan: the owner reads it on the plan’s page.'),
+    }),
+    writes: true,
+    async run({ name, notes }, ctx) {
+      // The plan form's own reader: trimmed, never blank, empty notes null.
+      const form = readPlanForm({ name, notes });
+      if (!form.ok) {
+        throw new HttpError(400, Object.values(form.errors).flat().join('. '));
+      }
+      const id = await createPlan(ctx.db, ctx.userId, form.fields, [], {
+        draftedByTokenId: ctx.tokenId,
+      });
+      if (id === 'name-taken') {
+        throw new HttpError(409, t('validation.PLAN_NAME_TAKEN'));
+      }
+      ctx.webLogger.info(
+        `Plan ${id} drafted for user ${ctx.userId} by token ${ctx.tokenId} (MCP)`,
+      );
+      return { id, name: form.fields.name, active: false };
     },
   }),
 

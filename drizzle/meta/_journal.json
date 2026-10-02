@@ -225,6 +225,13 @@
       "when": 1790583340915,
       "tag": "0031_index_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790958349179,
+      "tag": "0032_plan-drafted-by-token",
+      "breakpoints": true
     }
   ]
 }

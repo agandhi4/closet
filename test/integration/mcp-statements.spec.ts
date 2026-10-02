@@ -229,21 +229,27 @@ describe('MCP statements per tool (#172)', () => {
   /**
    * The tool called once (a write's first effect, a forecast's first
    * fetch), then again, counted: the statements of the second call, the
-   * token's last-use mark left out (LAST_USED).
+   * token's last-use mark left out (LAST_USED). `againArgs` for a write
+   * that refuses its own repeat (create_plan's name is taken by then).
    */
-  async function statementsOf(name: string, args: Record<string, unknown>) {
+  async function statementsOf(
+    name: string,
+    args: Record<string, unknown>,
+    againArgs = args,
+  ) {
     const token = tokens[turn++ % tokens.length];
     const first = await callTool(t, token, name, args);
     expect(first.isError, JSON.stringify(first.value)).toBe(false);
     const record = await recordQueries(async () => {
-      const again = await callTool(t, token, name, args);
+      const again = await callTool(t, token, name, againArgs);
       expect(again.isError, JSON.stringify(again.value)).toBe(false);
     });
     return record.sql.filter((statement) => !LAST_USED.test(statement));
   }
 
-  // The tool, its arguments and its statements (the token's read included).
-  // Before #172 in the comment where it changed.
+  // The tool, its arguments (made anew for each call) and its statements
+  // (the token's read included). Before #172 in the comment where it changed.
+  let drafts = 0;
   const cases: [string, () => Record<string, unknown>, number][] = [
     ['get_today', () => ({}), 3], // 6: the weather twice, worn apart
     ['search_garments', () => ({ category: 'tops' }), 3],
@@ -301,6 +307,7 @@ describe('MCP statements per tool (#172)', () => {
     ['compare_with_shared_wardrobe', () => ({ ownerId: ids.dana }), 4],
     ['get_style_profile', () => ({}), 2], // 3
     ['list_plans', () => ({}), 4],
+    ['create_plan', () => ({ name: `Statements ${++drafts}` }), 5],
     ['get_plan_gaps', () => ({}), 5],
     ['propose_plan_item', () => ({ category: 'tops', name: 'Statements' }), 7],
     ['update_plan_item', () => ({ itemId: ids.planItem, category: 'tops' }), 6],
@@ -315,7 +322,7 @@ describe('MCP statements per tool (#172)', () => {
   ];
 
   it.each(cases)('%s', async (name, args, expected) => {
-    const statements = await statementsOf(name, args());
+    const statements = await statementsOf(name, args(), args());
     expect(statements, statements.join('\n\n')).toHaveLength(expected);
   });
 

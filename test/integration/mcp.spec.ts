@@ -234,6 +234,9 @@ describe('the MCP endpoint', () => {
       }>();
       expect(result.serverInfo.name).toBe('Closet');
       expect(result.instructions).toContain('nothing deletes');
+      // The styling workflow (#269): the agent drafts its own plan.
+      expect(result.instructions).toContain('create_plan');
+      expect(result.instructions).toContain('Never assume a purchase');
     });
 
     it('lists every tool; each write says it writes and none is destructive', async () => {
@@ -255,6 +258,7 @@ describe('the MCP endpoint', () => {
           'compare_plans',
           'compare_with_shared_wardrobe',
           'create_outfit',
+          'create_plan',
           'get_calendar',
           'get_capsule',
           'get_garment',

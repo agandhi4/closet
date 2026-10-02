@@ -1,0 +1,3 @@
+ALTER TABLE "wardrobe_plan" ADD COLUMN "drafted_by_token_id" integer;--> statement-breakpoint
+ALTER TABLE "wardrobe_plan" ADD CONSTRAINT "wardrobe_plan_drafted_by_token_id_foreign" FOREIGN KEY ("drafted_by_token_id") REFERENCES "public"."personal_access_token"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+CREATE INDEX "wardrobe_plan_drafted_by_token_id_index" ON "wardrobe_plan" USING btree ("drafted_by_token_id");

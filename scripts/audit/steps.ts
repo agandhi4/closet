@@ -183,6 +183,7 @@ function mcpRefusal(body: string): string | undefined {
 
 let mcpCall = 0;
 let mcpTool = 0;
+let auditDrafts = 0;
 
 /** One tool, called as Claude Code calls it: a token, JSON-RPC, no cookie or Origin. */
 function mcp<P = undefined>(
@@ -3087,6 +3088,8 @@ const tools: Step[] = [
   mcp('compare_with_shared_wardrobe', (f) => ({ ownerId: f.ids.dana.id })),
   mcp('get_style_profile', () => ({})),
   mcp('list_plans', () => ({})),
+  // A name per run: the repeat of a taken name is refused (#269).
+  mcp('create_plan', () => ({ name: `Audit draft ${++auditDrafts}` })),
   mcp('get_plan_gaps', () => ({})),
   mcp('propose_plan_item', () => ({
     category: 'tops',

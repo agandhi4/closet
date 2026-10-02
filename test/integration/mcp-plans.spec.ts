@@ -1,7 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { planItem } from '../../src/db/schema';
-import { createTestApp, type TestApp } from './harness';
+import {
+  personalAccessToken,
+  planItem,
+  planItemCandidate,
+  wardrobePlan,
+} from '../../src/db/schema';
+import { createTestApp, type TestApp, unescapeHtml } from './harness';
 import { callTool, createAccessToken, tool } from './mcp';
 
 /**
@@ -9,7 +14,8 @@ import { callTool, createAccessToken, tool } from './mcp';
  * the style profile, the plans with their tallies, a plan's gaps as data
  * (with why an item is short), and the two writes, which leave what they
  * write proposed for the owner to accept in the app. Plans are the
- * caller's own: another user's plan or item is "not found".
+ * caller's own: another user's plan or item is "not found". create_plan
+ * (#269) drafts an agent's own plan, never active, marked with its token.
  */
 
 interface GapItemOut {
@@ -157,6 +163,7 @@ describe('MCP: wardrobe plans', () => {
           name: 'Basics',
           notes: null,
           active: true,
+          draftedBy: null,
           owned: 0,
           partly: 1,
           missing: 2,
@@ -349,5 +356,151 @@ describe('MCP: wardrobe plans', () => {
     expect(sweaters.why).toBe(
       `1 of 2 copies owned; Grey merino (garment ${merinoId}) is marked replace_soon (worn out) and counted as the gap to refill`,
     );
+  });
+
+  describe('create_plan: an agent drafts its own plan (#269)', () => {
+    const DRAFTER = 'drafter-mcp-plans@example.com';
+    let cookie: string;
+    let muse: string;
+    let museRow: { id: number; tokenPrefix: string; userId: number };
+    let drafterId: number;
+
+    beforeAll(async () => {
+      cookie = await t.register(DRAFTER);
+      muse = await createAccessToken(t, { cookie, name: 'Muse' });
+      [museRow] = await t.db
+        .select({
+          id: personalAccessToken.id,
+          tokenPrefix: personalAccessToken.tokenPrefix,
+          userId: personalAccessToken.userId,
+        })
+        .from(personalAccessToken)
+        .where(eq(personalAccessToken.name, 'Muse'));
+      drafterId = museRow.userId;
+    });
+
+    it('drafts, proposes into and links a candidate to its own plan, which the owner sees by the token’s name', async () => {
+      const created = await tool<{ id: number; name: string; active: boolean }>(
+        t,
+        muse,
+        'create_plan',
+        { name: '  Spring capsule ', notes: 'Lighter layers for April.' },
+      );
+      expect(created).toEqual({
+        id: expect.any(Number) as number,
+        name: 'Spring capsule',
+        active: false,
+      });
+      // Never active, even as the owner's first plan.
+      const [row] = await t.db
+        .select()
+        .from(wardrobePlan)
+        .where(eq(wardrobePlan.id, created.id));
+      expect(row).toMatchObject({
+        ownerId: drafterId,
+        name: 'Spring capsule',
+        notes: 'Lighter layers for April.',
+        active: false,
+        draftedByTokenId: museRow.id,
+      });
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        `Plan ${created.id} drafted for user ${drafterId} by token ${museRow.id} (MCP)`,
+      );
+
+      // propose_plan_item takes the new plan's id unchanged.
+      const proposed = await tool<{ id: number; planId: number }>(
+        t,
+        muse,
+        'propose_plan_item',
+        {
+          planId: created.id,
+          name: 'Light trench',
+          category: 'outerwear',
+          type: 'trench',
+          note: 'A layer for spring rain',
+        },
+      );
+      expect(proposed.planId).toBe(created.id);
+
+      const wishlist = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        headers: { cookie },
+        payload: {
+          name: 'Beige trench',
+          category: 'outerwear',
+          type: 'trench',
+          color: 'beige',
+          to: 'wishlist',
+          wishlist: '1',
+          props: '1',
+          product: '1',
+          price: '120',
+          sourceUrl: 'https://shop.example/trench',
+        },
+      });
+      const trenchId = Number(
+        /\/wardrobe\/(\d+)/.exec(String(wishlist.headers.location))![1],
+      );
+      const candidate = await tool<{ itemId: number }>(
+        t,
+        muse,
+        'add_candidate',
+        { itemId: proposed.id, garmentId: trenchId },
+      );
+      expect(candidate.itemId).toBe(proposed.id);
+      const links = await t.db
+        .select({ garmentId: planItemCandidate.garmentId })
+        .from(planItemCandidate)
+        .where(eq(planItemCandidate.planItemId, proposed.id));
+      expect(links).toEqual([{ garmentId: trenchId }]);
+
+      expect(await tool(t, muse, 'list_plans')).toMatchObject({
+        plans: [
+          { id: created.id, active: false, draftedBy: 'Muse', proposed: 1 },
+        ],
+      });
+
+      // Both pages name the token (never its prefix or hash) and count
+      // its proposals.
+      const page = async (url: string) => {
+        const res = await t.inject({ method: 'GET', url, headers: { cookie } });
+        expect(res.statusCode).toBe(200);
+        return unescapeHtml(res.body);
+      };
+      const list = await page('/wardrobe/plans');
+      const plan = await page(`/wardrobe/plans/${created.id}`);
+      for (const body of [list, plan]) {
+        expect(body).toContain('Drafted by Muse');
+        expect(body).not.toContain(museRow.tokenPrefix);
+      }
+      expect(list).toContain('1 proposed by your agent');
+      expect(plan).toContain('Proposed by your agent · 1');
+    });
+
+    it('refuses a name another of the owner’s plans holds, in any case, and a blank one', async () => {
+      const taken = await callTool(t, muse, 'create_plan', {
+        name: 'SPRING CAPSULE',
+      });
+      expect(taken).toEqual({
+        value: { error: 'You already have a plan with this name' },
+        isError: true,
+      });
+      const blank = await callTool(t, muse, 'create_plan', { name: '   ' });
+      expect(blank).toEqual({
+        value: { error: 'Give the plan a name' },
+        isError: true,
+      });
+      const plans = await t.db
+        .select({ id: wardrobePlan.id })
+        .from(wardrobePlan)
+        .where(eq(wardrobePlan.ownerId, drafterId));
+      expect(plans).toHaveLength(1);
+    });
+
+    it('shows no drafter on the owner’s own plans', async () => {
+      const page = await t.inject({ method: 'GET', url: '/wardrobe/plans' });
+      expect(unescapeHtml(page.body)).not.toContain('Drafted by');
+    });
   });
 });

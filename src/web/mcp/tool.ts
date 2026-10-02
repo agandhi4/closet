@@ -37,6 +37,11 @@ export interface ToolContext {
   /** The token's user: every tool acts exactly as them. */
   userId: number;
   /**
+   * The token's row id: the call's log line, and create_plan's provenance
+   * (wardrobe_plan.drafted_by_token_id). Never the token itself.
+   */
+  tokenId: number;
+  /**
    * add_garment_from_link's budget (MCP_LINK_IMPORT_LIMIT, per user): false
    * when this call would pass it.
    */
@@ -144,7 +149,7 @@ export function registerTools(
   server: McpServer,
   tools: readonly ClosetTool<z.ZodObject>[],
   ctx: ToolContext,
-  log: { logger: Logger; tokenId: number; metrics: Metrics },
+  log: { logger: Logger; metrics: Metrics },
 ): void {
   for (const tool of tools) {
     server.registerTool(
@@ -184,7 +189,7 @@ export function registerTools(
         } finally {
           const elapsedMs = performance.now() - started;
           log.logger.info(
-            `MCP ${tool.name} by user ${ctx.userId} (token ${log.tokenId}): ${outcome} ${elapsedMs.toFixed(1)}ms`,
+            `MCP ${tool.name} by user ${ctx.userId} (token ${ctx.tokenId}): ${outcome} ${elapsedMs.toFixed(1)}ms`,
           );
           log.metrics.observeMcpCall(
             tool.name,

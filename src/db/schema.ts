@@ -1315,7 +1315,11 @@ export const weekReplan = pgTable(
 // outfits: every route and tool is the signed-in owner's, shares never reach
 // it. At most one is active per owner (the partial unique index; setActivePlan
 // in src/web/plans/queries.ts moves it in one transaction). Names are one per
-// owner whatever the case, as capsules'.
+// owner whatever the case, as capsules'. `drafted_by_token_id` is the
+// personal access token whose agent drafted it (create_plan, #269): the
+// pages name the token (never its prefix or hash). Revoking keeps the token's
+// row, so the name stays; were a token row ever deleted, the plan would stay
+// and lose only its provenance (set null).
 export const wardrobePlan = pgTable(
   'wardrobe_plan',
   {
@@ -1325,6 +1329,7 @@ export const wardrobePlan = pgTable(
     name: text('name').notNull(),
     notes: text('notes'),
     active: boolean('active').default(false).notNull(),
+    draftedByTokenId: integer('drafted_by_token_id'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -1347,6 +1352,14 @@ export const wardrobePlan = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
+    index('wardrobe_plan_drafted_by_token_id_index').on(table.draftedByTokenId),
+    foreignKey({
+      name: 'wardrobe_plan_drafted_by_token_id_foreign',
+      columns: [table.draftedByTokenId],
+      foreignColumns: [personalAccessToken.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
   ],
 );
 
@@ -2119,6 +2132,10 @@ export const wardrobePlanRelations = relations(
   wardrobePlan,
   ({ one, many }) => ({
     owner: one(user, { fields: [wardrobePlan.ownerId], references: [user.id] }),
+    draftedBy: one(personalAccessToken, {
+      fields: [wardrobePlan.draftedByTokenId],
+      references: [personalAccessToken.id],
+    }),
     items: many(planItem),
   }),
 );

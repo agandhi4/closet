@@ -75,6 +75,14 @@ Closet is an MCP server: your own Claude (Claude Code, Claude Desktop) can searc
 
 The token acts as you, shares included: a wardrobe shared with you read-only stays read-only. Tools that write say so, and none deletes anything. Revoke a token on the same page; changing your password revokes every token. The endpoint is rate-limited per token and, like the app, reachable only over the tailnet: it is not on the public internet, so Claude's hosted connectors (claude.ai) cannot reach it.
 
+### Styling with an agent
+
+An agent connected this way (Claude, or a styling agent such as Muse) can draft a wardrobe plan for you without touching the plan you keep.
+
+1. **Connect** it as above, with a token of its own named for it (`Muse`): the name is how the app tells you who drafted what.
+2. **The workflow** the server describes to the agent: it reads your style profile, your closet (and a garment's photo where it needs to see one) and your active plan's gaps; it creates a plan of its own with its rationale in the notes; it proposes each item that plan should hold, as a target (category, type, colours, materials, warmth, formality, budget) with a note on why, not as a product; it attaches up to five product links per item as candidates, which land on your wishlist; and it checks each candidate against what you already own.
+3. **What you see in the app**: the new plan under **Wardrobe › ⋯ › Plans**, never made active on its own, marked "Drafted by Muse" with a count of its proposals. On the plan, accept or dismiss each proposed item; make the plan active if you want to keep it. Buying stays yours: an agent never marks anything bought, so a candidate stays on the wishlist until you tap **Bought it**.
+
 ---
 
 ## Configuration
