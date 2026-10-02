@@ -38,6 +38,7 @@ import {
   styleProfileSql,
   updateItem,
 } from '../../plans/queries';
+import { type Rejection, rejectionsOfPlan } from '../../plans/rejections';
 import { templateDays, weeklyRhythm } from '../../../wardrobe/week';
 import { inTemplateOrder, weekTemplateSql } from '../../week-plan/template';
 import {
@@ -67,16 +68,19 @@ import { rowId } from './common';
  *
  * The agent proposes; the owner decides. create_plan drafts a plan of the
  * agent's own (#269), never active and marked with the calling token, so
- * its work stays apart from the plan the owner keeps; propose_plan_item adds an item
- * marked proposed, and update_plan_item leaves the item it changes marked
- * proposed again: a proposed item is shown apart on the gap view, left out
- * of the matching, until the owner accepts it (or saves it in the form) or
- * dismisses it. Items go through the plan item form's own reader
- * (readPlanItemForm), so the tools store exactly what the form would.
+ * its work stays apart from the plan the owner keeps; propose_plan_item
+ * adds an item at review `proposed`, and update_plan_item puts an item the
+ * owner sent back (`revise`) or had accepted back to `proposed` (the
+ * review machine, src/wardrobe/plan-review.ts, #278); a declined item it
+ * refuses (409). Only accepted items are matched. Items go through the
+ * plan item form's own reader (readPlanItemForm), so the tools store
+ * exactly what the form would.
  *
- * get_plan_gaps also lists each item's candidate products (34b: wishlist
- * garments linked to it, each judged against the item); the shopping list,
- * adding a candidate and comparing plans are tools/shopping.ts's.
+ * get_plan_gaps also lists each item's review, the owner's note, its
+ * candidate products (34b: wishlist garments linked to it, each judged
+ * against the item) and the products the owner rejected for it ("Not this
+ * one", with the reason); the shopping list, adding a candidate and
+ * comparing plans are tools/shopping.ts's.
  */
 
 const NO_ACTIVE_PLAN = 'No active plan: pass a planId from list_plans';
@@ -256,8 +260,21 @@ export function itemOut(item: PlanItemRow) {
     priority: item.priority,
     budget: item.budget,
     note: item.note,
-    proposed: item.proposed,
+    review: item.review,
+    ownerNote: item.ownerNote,
   };
+}
+
+/** The products the owner turned down for an item, as the agent reads them. */
+function rejectedOut(rejections: ReadonlyMap<number, Rejection[]>, id: number) {
+  return (rejections.get(id) ?? []).map((rejection) => ({
+    name: rejection.name,
+    brand: rejection.brand,
+    url: rejection.url,
+    price: rejection.price,
+    reason: rejection.reason,
+    at: rejection.at.toISOString(),
+  }));
 }
 
 /** Why an item is short, in a sentence the agent can pass on or reason from. */
@@ -313,10 +330,25 @@ export function candidateOut(candidate: CandidateGarment, item: PlanItemRow) {
   };
 }
 
+/** An item's candidates and rejected products: every get_plan_gaps item carries them. */
+function productsOut(
+  item: PlanItemRow,
+  candidates: CandidatesByItem,
+  rejections: ReadonlyMap<number, Rejection[]>,
+) {
+  return {
+    candidates: (candidates.get(item.id) ?? []).map((candidate) =>
+      candidateOut(candidate, item),
+    ),
+    rejected: rejectedOut(rejections, item.id),
+  };
+}
+
 function gapItemOut(
   { item, match }: GapItem,
   gaps: PlanGaps,
   candidates: CandidatesByItem,
+  rejections: ReadonlyMap<number, Rejection[]>,
 ) {
   const garment = (id: number) => gaps.closet.get(id)!;
   return {
@@ -337,9 +369,7 @@ function gapItemOut(
     takenBy: match.takenBy,
     reason: match.reason,
     why: why(match, gaps),
-    candidates: (candidates.get(item.id) ?? []).map((candidate) =>
-      candidateOut(candidate, item),
-    ),
+    ...productsOut(item, candidates, rejections),
   };
 }
 
@@ -352,7 +382,9 @@ function planOut(gaps: PlanGaps) {
     active: plan.active,
     draftedBy: plan.draftedBy,
     ...gaps.tally,
-    proposed: gaps.proposed.length,
+    proposed: gaps.review.proposed.length,
+    revise: gaps.review.revise.length,
+    declined: gaps.review.declined.length,
   };
 }
 
@@ -385,7 +417,7 @@ export const planTools = [
     name: 'list_plans',
     title: 'List my wardrobe plans',
     description:
-      'Your wardrobe plans (the wardrobes you are building toward), the active one first: each with how many items your closet owns, partly owns and misses, and how many items proposed by an agent await your acceptance. get_plan_gaps has a plan in full.',
+      'Your wardrobe plans (the wardrobes you are building toward), the active one first: each with how many items your closet owns, partly owns and misses, how many items proposed by an agent await your review, how many you sent back for a change (revise) and how many you declined. get_plan_gaps has a plan in full.',
     input: z.object({}),
     writes: false,
     async run(_args, ctx) {
@@ -398,27 +430,30 @@ export const planTools = [
     name: 'get_plan_gaps',
     title: 'Get a plan’s gaps',
     description:
-      "A wardrobe plan measured against your closet (garments in it: not archived, not the wishlist): every item with its status (owned, partly, missing), copies had and needed, the garments that fulfil it, and for what is not owned the reason and a sentence why: replace-soon (matching copies marked replace_soon are worn out: the gap to refill; usable copies beside them still count, so the item may be partly owned), too-few-copies, taken-by-other-items (each garment fulfils one item), nothing-matches. A needs_repair garment still counts, flagged. A garment matches an item when it has the item's category, type if named, every colour and material named, and warmth and formality inside the item's ranges. Each item lists its candidate products: wishlist garments being considered for it, with price, link and whether each matches the item (and how not). Items proposed by an agent and not accepted are listed apart and not matched.",
+      "A wardrobe plan measured against your closet (garments in it: not archived, not the wishlist): every item with its status (owned, partly, missing), copies had and needed, the garments that fulfil it, and for what is not owned the reason and a sentence why: replace-soon (matching copies marked replace_soon are worn out: the gap to refill; usable copies beside them still count, so the item may be partly owned), too-few-copies, taken-by-other-items (each garment fulfils one item), nothing-matches. A needs_repair garment still counts, flagged. A garment matches an item when it has the item's category, type if named, every colour and material named, and warmth and formality inside the item's ranges. Every item has its review: accepted (part of the plan, the only items matched), proposed (by an agent, awaiting the owner), revise (the owner asked for a change: ownerNote says what; change it with update_plan_item) or declined (the owner does not want it: ownerNote may say why; never propose it again). Items not accepted are listed apart (proposed, revise, declined) and not matched. Each item lists its candidate products (wishlist garments being considered for it, with price, link and whether each matches the item, and how not) and the products the owner rejected for it (rejected: name, brand, url, price, reason, when; never add one again).",
     input: z.object({ planId: planIdInput }),
     writes: false,
     async run({ planId }, ctx) {
       const plan = await planFor(ctx, planId);
-      const [gaps, candidates] = await Promise.all([
+      const [gaps, candidates, rejections] = await Promise.all([
         planGaps(ctx.db, plan, ctx.userId),
         candidatesOfPlan(ctx.db, ctx.userId, plan.id),
+        rejectionsOfPlan(ctx.db, plan.id),
       ]);
-      const out = (entry: GapItem) => gapItemOut(entry, gaps, candidates);
+      const out = (entry: GapItem) =>
+        gapItemOut(entry, gaps, candidates, rejections);
+      const apart = (item: PlanItemRow) => ({
+        ...itemOut(item),
+        ...productsOut(item, candidates, rejections),
+      });
       return {
         plan: planOut(gaps),
         missing: gaps.groups.missing.map(out),
         partly: gaps.groups.partly.map(out),
         owned: gaps.groups.owned.map(out),
-        proposed: gaps.proposed.map((item) => ({
-          ...itemOut(item),
-          candidates: (candidates.get(item.id) ?? []).map((candidate) =>
-            candidateOut(candidate, item),
-          ),
-        })),
+        proposed: gaps.review.proposed.map(apart),
+        revise: gaps.review.revise.map(apart),
+        declined: gaps.review.declined.map(apart),
       };
     },
   }),
@@ -464,21 +499,21 @@ export const planTools = [
     name: 'propose_plan_item',
     title: 'Propose a plan item',
     description:
-      'WRITES: adds an item to one of your wardrobe plans (the active one when planId is omitted), marked proposed: the owner sees it apart on the plan and accepts or dismisses it in the app; until then it is not part of the plan. An item is a target in the garment model’s own terms, not a product: category, optional type, colours, materials, warmth and formality ranges, quantity, priority, a budget and a note on why.',
+      'WRITES: adds an item to one of your wardrobe plans (the active one when planId is omitted), at review proposed: the owner sees it apart on the plan and accepts it, asks for a change or declines it in the app; until accepted it is not part of the plan. Never propose again an item the owner declined (get_plan_gaps lists them). An item is a target in the garment model’s own terms, not a product: category, optional type, colours, materials, warmth and formality ranges, quantity, priority, a budget and a note on why.',
     input: z.object({ planId: planIdInput, ...ItemFields }),
     writes: true,
     async run({ planId, ...args }, ctx) {
       const plan = await planFor(ctx, planId);
       const fields = readItem(itemPost(BLANK_ITEM_VALUES, args));
       const added = await addItems(ctx.db, ctx.userId, plan.id, [fields], {
-        proposed: true,
+        review: 'proposed',
       });
       if (!added) throw planNotFound();
       const [id] = added;
       ctx.webLogger.info(
         `Plan item ${id} proposed for plan ${plan.id} by user ${ctx.userId} (MCP)`,
       );
-      return { id, planId: plan.id, proposed: true };
+      return { id, planId: plan.id, review: 'proposed' as const };
     },
   }),
 
@@ -486,7 +521,7 @@ export const planTools = [
     name: 'update_plan_item',
     title: 'Update a plan item',
     description:
-      'WRITES: changes an item of one of your wardrobe plans; fields not given stay as stored, null clears one. The changed item is marked proposed again: it leaves the plan’s matching until the owner accepts the change in the app. Use it to refine an item after talking it through, not to decide for the owner.',
+      'WRITES: changes an item of one of your wardrobe plans; fields not given stay as stored, null clears one. The changed item is at review proposed again (an item the owner sent back for a change, review revise, goes back to them this way; their ownerNote stays for them to compare): it leaves the plan’s matching until the owner accepts the change in the app. An item the owner declined is refused (409). Use it to refine an item after talking it through, not to decide for the owner.',
     input: z.object({
       itemId: rowId().describe('The item id, from get_plan_gaps.'),
       ...ItemFields,
@@ -498,17 +533,28 @@ export const planTools = [
       const item = await findOwnedItem(ctx.db, itemId, ctx.userId);
       if (!item) throw itemNotFound();
       const fields = readItem(itemPost(storedItemValues(item), args));
-      if (
-        !(await updateItem(ctx.db, item.id, item.planId, ctx.userId, fields, {
-          proposed: true,
-        }))
-      ) {
-        throw itemNotFound();
+      const updated = await updateItem(
+        ctx.db,
+        item.id,
+        item.planId,
+        ctx.userId,
+        fields,
+        'agent',
+      );
+      if (!updated.ok) {
+        if (updated.reason === 'not-found') throw itemNotFound();
+        ctx.webLogger.warn(
+          `Plan item ${item.id} of plan ${item.planId}: update by user ${ctx.userId} (MCP) refused, the item is ${updated.review}`,
+        );
+        throw new HttpError(
+          409,
+          'The owner declined this item: do not propose it again',
+        );
       }
       ctx.webLogger.info(
-        `Plan item ${item.id} of plan ${item.planId} changed by user ${ctx.userId} (MCP), proposed for acceptance`,
+        `Plan item ${item.id} of plan ${item.planId} changed by user ${ctx.userId} (MCP), ${updated.from} to ${updated.to}`,
       );
-      return { id: item.id, planId: item.planId, proposed: true };
+      return { id: item.id, planId: item.planId, review: updated.to };
     },
   }),
 ];

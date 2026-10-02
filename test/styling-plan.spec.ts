@@ -46,7 +46,7 @@ test('style a candidate with the closet from the review: badge, swipe, refused s
   const [item] = await withServerDb((db) =>
     db
       .update(planItem)
-      .set({ proposed: true })
+      .set({ review: 'proposed' })
       .where(eq(planItem.planId, planId))
       .returning({ id: planItem.id }),
   );

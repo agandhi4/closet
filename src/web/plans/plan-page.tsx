@@ -67,14 +67,18 @@ const GROUP_TITLES = {
  * (the gaps first: what the page is for), each with what fulfils it and,
  * when it is not owned, why. A plan an agent drafted (create_plan) names
  * its token. Items the owner's agent proposed come first, unmatched, with
- * Accept and Dismiss, their count in the heading, and Review (#271) to
- * decide them all as strips. Private: the signed-in owner's plan
+ * Accept, Change this… and Don't buy, their count in the heading, and
+ * Review (#271) to decide them all as strips; then those sent back to the
+ * agent (revise) and those declined, each with the owner's note (#278),
+ * Reconsider bringing a declined one back. Every accepted item has Change
+ * this… too. Private: the signed-in owner's plan
  * and closet only. A gap shows its candidate products (34b) and links to
  * adding one; the shopping list is the gaps with their candidates.
  */
 export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
   const { ctx, model } = props;
-  const { plan, tally, proposed } = model.gaps;
+  const { plan, tally } = model.gaps;
+  const { proposed, revise, declined } = model.gaps.review;
   return (
     <Layout ctx={ctx} title={plan.name}>
       <AppBar
@@ -136,7 +140,33 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
             </div>
             <ul class="flex flex-col gap-2">
               {proposed.map((item) => (
-                <ProposedCard item={item} />
+                <ReviewCard item={item} />
+              ))}
+            </ul>
+          </section>
+        )}
+        {revise.length > 0 && (
+          <section aria-labelledby="group-revise" id="plan-revise">
+            <GroupHeading id="group-revise" count={revise.length}>
+              {t('plans.REVISE')}
+            </GroupHeading>
+            <p class="text-xs text-muted mb-2">{t('plans.REVISE_HINT')}</p>
+            <ul class="flex flex-col gap-2">
+              {revise.map((item) => (
+                <ReviewCard item={item} />
+              ))}
+            </ul>
+          </section>
+        )}
+        {declined.length > 0 && (
+          <section aria-labelledby="group-declined" id="plan-declined">
+            <GroupHeading id="group-declined" count={declined.length}>
+              {t('plans.DECLINED')}
+            </GroupHeading>
+            <p class="text-xs text-muted mb-2">{t('plans.DECLINED_HINT')}</p>
+            <ul class="flex flex-col gap-2">
+              {declined.map((item) => (
+                <ReviewCard item={item} />
               ))}
             </ul>
           </section>
@@ -377,6 +407,12 @@ function ItemCard(props: {
         {match.status !== 'owned' && (
           <Candidates item={item} candidates={props.candidates} />
         )}
+        <a
+          href={itemUrl(plan.id, item.id, '/change')}
+          class="link link-hover text-xs text-muted self-start mt-1"
+        >
+          {t('plans.CHANGE_THIS')}
+        </a>
       </div>
     </li>
   );
@@ -450,35 +486,64 @@ function reasonText(match: ItemMatch, gaps: PlanGaps): string {
   }
 }
 
-/** An item the agent proposed: what it is, and the owner's Accept or Dismiss. */
-function ProposedCard({ item }: { item: PlanItemRow }) {
+/**
+ * An item outside the plan, by its review (#278): a proposal with Accept,
+ * Change this… and Don't buy; one sent back for a change (the owner's
+ * note) with Accept as it is and Don't buy; a declined one (the note, if
+ * any) with Reconsider. Each button is its own small native post (no swipe
+ * state to keep here, unlike the review page).
+ */
+function ReviewCard({ item }: { item: PlanItemRow }) {
+  const action = (suffix: string) => itemUrl(item.planId, item.id, suffix);
   return (
     <li
       class="card bg-base-100 shadow-sm border border-dashed border-primary/40"
       id={`plan-item-${item.id}`}
-      data-status="proposed"
+      data-status={item.review}
     >
       <div class="card-body p-3 gap-1">
-        <ItemHead item={item} href={itemUrl(item.planId, item.id, '/edit')} />
+        <ItemHead item={item} href={action('/edit')} />
         <ItemBody item={item} />
-        <div class="flex gap-2 mt-2">
-          <PostForm
-            action={itemUrl(item.planId, item.id, '/accept')}
-            class="flex-1"
-            needsNetwork
-          >
-            <button type="submit" class="btn btn-sm btn-primary w-full">
-              {t('plans.ACCEPT')}
-            </button>
-          </PostForm>
-          <button
-            type="button"
-            class="btn btn-sm btn-ghost flex-1"
-            hx-delete={itemUrl(item.planId, item.id)}
-            data-needs-network
-          >
-            {t('plans.DISMISS')}
-          </button>
+        {item.ownerNote && (
+          <p class="text-xs" data-owner-note>
+            {t('plans.YOUR_NOTE', { note: item.ownerNote })}
+          </p>
+        )}
+        <div class="flex flex-wrap gap-2 mt-2">
+          {item.review !== 'declined' && (
+            <PostForm action={action('/accept')} class="flex-1" needsNetwork>
+              <button type="submit" class="btn btn-sm btn-primary w-full">
+                {t(
+                  item.review === 'revise'
+                    ? 'plans.ACCEPT_AS_IS'
+                    : 'plans.ACCEPT',
+                )}
+              </button>
+            </PostForm>
+          )}
+          {item.review === 'proposed' && (
+            <a href={action('/change')} class="btn btn-sm btn-ghost flex-1">
+              {t('plans.CHANGE_THIS')}
+            </a>
+          )}
+          {item.review !== 'declined' && (
+            <PostForm action={action('/decline')} class="flex-1" needsNetwork>
+              <button type="submit" class="btn btn-sm btn-ghost w-full">
+                {t('plans.DONT_BUY')}
+              </button>
+            </PostForm>
+          )}
+          {item.review === 'declined' && (
+            <PostForm
+              action={action('/reconsider')}
+              class="flex-1"
+              needsNetwork
+            >
+              <button type="submit" class="btn btn-sm btn-outline w-full">
+                {t('plans.RECONSIDER')}
+              </button>
+            </PostForm>
+          )}
         </div>
       </div>
     </li>

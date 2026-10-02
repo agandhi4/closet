@@ -27,7 +27,9 @@ interface GapItemOut {
   why: string | null;
   fulfilledBy: { garmentId: number; needsRepair: boolean }[];
   replaceSoon: { garmentId: number; name: string }[];
-  proposed: boolean;
+  review: string;
+  ownerNote: string | null;
+  rejected: { name: string | null; reason: string | null }[];
 }
 
 interface Gaps {
@@ -38,11 +40,15 @@ interface Gaps {
     partly: number;
     missing: number;
     proposed: number;
+    revise: number;
+    declined: number;
   };
   missing: GapItemOut[];
   partly: GapItemOut[];
   owned: GapItemOut[];
-  proposed: { id: number; name: string | null; proposed: boolean }[];
+  proposed: { id: number; name: string | null; review: string }[];
+  revise: { id: number; review: string; ownerNote: string | null }[];
+  declined: { id: number; review: string; ownerNote: string | null }[];
 }
 
 describe('MCP: wardrobe plans', () => {
@@ -168,6 +174,8 @@ describe('MCP: wardrobe plans', () => {
           partly: 1,
           missing: 2,
           proposed: 0,
+          revise: 0,
+          declined: 0,
         },
       ],
     });
@@ -198,7 +206,7 @@ describe('MCP: wardrobe plans', () => {
     const proposed = await tool<{
       id: number;
       planId: number;
-      proposed: boolean;
+      review: string;
     }>(t, token, 'propose_plan_item', {
       name: 'Navy blazer',
       category: 'outerwear',
@@ -209,7 +217,7 @@ describe('MCP: wardrobe plans', () => {
       budget: 299,
       note: 'Meeting Wednesdays',
     });
-    expect(proposed).toMatchObject({ planId, proposed: true });
+    expect(proposed).toMatchObject({ planId, review: 'proposed' });
     const [row] = await t.db
       .select()
       .from(planItem)
@@ -223,7 +231,7 @@ describe('MCP: wardrobe plans', () => {
       formalityMax: 4,
       warmthMin: null,
       budget: '299.00',
-      proposed: true,
+      review: 'proposed',
     });
     const gaps = await tool<Gaps>(t, token, 'get_plan_gaps', { planId });
     expect(gaps.proposed.map((item) => item.id)).toEqual([proposed.id]);
@@ -266,7 +274,7 @@ describe('MCP: wardrobe plans', () => {
       quantity: 3,
       note: 'Three is enough',
     });
-    expect(updated).toEqual({ id: tees.id, planId, proposed: true });
+    expect(updated).toEqual({ id: tees.id, planId, review: 'proposed' });
     const [row] = await t.db
       .select()
       .from(planItem)
@@ -277,7 +285,7 @@ describe('MCP: wardrobe plans', () => {
       colors: ['white'],
       quantity: 3,
       note: 'Three is enough',
-      proposed: true,
+      review: 'proposed',
     });
     // Null clears a field.
     await tool(t, token, 'update_plan_item', {

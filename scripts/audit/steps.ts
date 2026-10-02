@@ -2360,6 +2360,65 @@ const writes: Step[] = [
   }),
   http({
     ...PLANS,
+    name: 'Change this… (the form)',
+    kind: 'page',
+    route: 'GET /wardrobe/plans/:id/items/:itemId/change',
+    prepare: async (f) => {
+      await f.send(proposeItem(f), 200);
+      return newestPlanItem(f);
+    },
+    request: (f, id: number) =>
+      get(`/wardrobe/plans/${f.ids.planId}/items/${id}/change`),
+    expect: 200,
+  }),
+  http({
+    ...PLANS,
+    name: 'Change this… (send to the agent)',
+    kind: 'action',
+    route: 'POST /wardrobe/plans/:id/items/:itemId/change',
+    prepare: async (f) => {
+      await f.send(proposeItem(f), 200);
+      return newestPlanItem(f);
+    },
+    request: (f, id: number) =>
+      post(`/wardrobe/plans/${f.ids.planId}/items/${id}/change`, {
+        note: 'Darker, please',
+      }),
+    expect: 303,
+  }),
+  http({
+    ...PLANS,
+    name: "Don't buy a proposed item",
+    kind: 'action',
+    route: 'POST /wardrobe/plans/:id/items/:itemId/decline',
+    prepare: async (f) => {
+      await f.send(proposeItem(f), 200);
+      return newestPlanItem(f);
+    },
+    request: (f, id: number) =>
+      post(`/wardrobe/plans/${f.ids.planId}/items/${id}/decline`),
+    expect: 303,
+  }),
+  http({
+    ...PLANS,
+    name: 'Reconsider a declined item',
+    kind: 'action',
+    route: 'POST /wardrobe/plans/:id/items/:itemId/reconsider',
+    prepare: async (f) => {
+      await f.send(proposeItem(f), 200);
+      const id = await newestPlanItem(f);
+      await f.send(
+        post(`/wardrobe/plans/${f.ids.planId}/items/${id}/decline`),
+        303,
+      );
+      return id;
+    },
+    request: (f, id: number) =>
+      post(`/wardrobe/plans/${f.ids.planId}/items/${id}/reconsider`),
+    expect: 303,
+  }),
+  http({
+    ...PLANS,
     name: 'Delete a plan item',
     kind: 'action',
     route: 'DELETE /wardrobe/plans/:id/items/:itemId',

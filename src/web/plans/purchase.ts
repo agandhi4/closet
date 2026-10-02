@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import { garment } from '../../db/schema';
+import { isAccepted } from '../../wardrobe/plan-review';
 import {
   type ClosetPiece,
   fitTargetTo,
@@ -66,8 +67,8 @@ export interface PlanPurchase {
   differences: TargetDifference[];
   /**
    * The item's status once the garment is in the closet (matchPlan over the
-   * closet with it); null for an item the owner's agent proposed and the
-   * owner has not accepted (outside matching).
+   * closet with it); null for an item not accepted (proposed, sent back
+   * for a change or declined: outside matching).
    */
   after: ItemStatus | null;
   /**
@@ -197,7 +198,9 @@ export async function planPurchases(
   const byId = new Map(items.map((item) => [item.id, item]));
   return candidacies.map((candidacy: Candidacy) => {
     const item = byId.get(candidacy.itemId)!;
-    const status = item.proposed ? null : (after.get(item.id) ?? null);
+    const status = isAccepted(item.review)
+      ? (after.get(item.id) ?? null)
+      : null;
     const archiving = afterArchiving.get(item.id);
     return {
       item,
@@ -228,7 +231,9 @@ function statusesIn(
 ): Map<number, ItemStatus> {
   const statuses = new Map<number, ItemStatus>();
   for (const planId of planIds) {
-    const accepted = items.filter((i) => i.planId === planId && !i.proposed);
+    const accepted = items.filter(
+      (i) => i.planId === planId && isAccepted(i.review),
+    );
     for (const match of matchPlan(accepted.map(toTarget), closet)) {
       statuses.set(match.itemId, match.status);
     }
@@ -275,7 +280,7 @@ export type CandidatePurchaseOutcome =
 /**
  * "Bought it" with the owner's plan follow-ups, in one transaction: the
  * buy (buyGarment), then the items to change to match (the garment's own
- * candidacies only; the owner's save, so not proposed), then the other
+ * candidacies only; the owner's save, so accepted unless declined), then the other
  * candidates to remove (wishlist items that are candidates of those
  * items only; anything else posted is ignored). The removed photos' bytes
  * go after the commit. `ownerId` is the wardrobe's owner (the owner lock's
@@ -325,17 +330,17 @@ export async function buyCandidate(
             targetDifferences(toTarget(i), piece).length > 0,
         );
         for (const item of mismatched) {
-          await updateItem(
+          // The owner's rewrite: it accepts a proposal or a revise item; a
+          // declined one takes no rewrite (reconsidered first) and stays.
+          const updated = await updateItem(
             tx,
             item.id,
             item.planId,
             ownerId,
             fittedItem(item, piece),
-            {
-              proposed: false,
-            },
+            'owner',
           );
-          adjusted.push(item.id);
+          if (updated.ok) adjusted.push(item.id);
         }
       }
 

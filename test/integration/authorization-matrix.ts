@@ -14,7 +14,11 @@ import {
 } from '../../src/db/schema';
 import { createToken } from '../../src/web/auth/personal-tokens';
 import { changeCandidates } from '../../src/web/plans/candidates';
-import { insertItems, saveStyleProfile } from '../../src/web/plans/queries';
+import {
+  insertItems,
+  reviewItems,
+  saveStyleProfile,
+} from '../../src/web/plans/queries';
 import { EMPTY_STYLE_PROFILE } from '../../src/web/plans/validation';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addBrandSize } from '../../src/web/sizes/queries';
@@ -143,6 +147,8 @@ export interface Fixture {
   planName: string;
   /** An item of it their agent proposed (so accepting it writes). */
   planItemId: number;
+  /** An item of it the owner declined (#278: so reconsidering it writes). */
+  planDeclinedItemId: number;
   /**
    * A trip of the owner's (#10) on today and tomorrow: the outfit on it for
    * today, the garment packed, one extra; and another trip with an extra.
@@ -550,28 +556,30 @@ export function describeMatrix(
         )?.[1],
       );
       expect(planId).toBeGreaterThan(0);
-      const [planItemId] = await insertItems(
+      const item = {
+        name: `Item ${tag}`,
+        category: 'tops',
+        type: null,
+        colors: null,
+        materials: null,
+        warmthMin: null,
+        warmthMax: null,
+        formalityMin: null,
+        formalityMax: null,
+        quantity: 1,
+        priority: 'medium',
+        budget: null,
+        note: null,
+      } as const;
+      const [planItemId, planDeclinedItemId] = await insertItems(
         t.db,
         planId,
-        [
-          {
-            name: `Item ${tag}`,
-            category: 'tops',
-            type: null,
-            colors: null,
-            materials: null,
-            warmthMin: null,
-            warmthMax: null,
-            formalityMin: null,
-            formalityMax: null,
-            quantity: 1,
-            priority: 'medium',
-            budget: null,
-            note: null,
-          },
-        ],
-        { proposed: true },
+        [item, { ...item, name: `Declined ${tag}` }],
+        { review: 'proposed' },
       );
+      await reviewItems(t.db, t.owner.id, planId, 'decline', [
+        { itemId: planDeclinedItemId },
+      ]);
       // The wishlist item is a candidate for it (#34b).
       await changeCandidates(t.db, t.owner.id, {
         add: { itemIds: [planItemId], garmentIds: [wishlistId] },
@@ -685,6 +693,7 @@ export function describeMatrix(
         planId,
         planName,
         planItemId,
+        planDeclinedItemId,
         tripId,
         tripName,
         tripOutfitId,

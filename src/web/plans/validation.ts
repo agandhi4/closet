@@ -127,30 +127,69 @@ const REVIEW_MAX = 500;
  */
 const OFFERED_MAX = REVIEW_MAX * 10;
 
+/** A reason given with "Not this one": a line, not an essay. */
+export const REJECT_REASON_MAX = 300;
+
+const ITEM_GARMENT = '^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$';
+
 /**
  * "Accept these": the items the page showed (`shown`, the capsule picker's
  * rule: only these are touched) and each one's pick, its strip's hidden
- * input, `<itemId>:skip|keep|<garmentId>` (review.ts, pickValue), and the
- * candidates each strip drew, `<itemId>:<garmentId>` (offeredValue; none
- * when no strip had any). readPicks holds both to `shown`. The boxes post
- * "1" when ticked.
+ * input, `<itemId>:decline|change|keep|<garmentId>` (review.ts, pickValue);
+ * the candidates each strip drew, `<itemId>:<garmentId>` (offeredValue;
+ * none when no strip had any); each strip's note for the agent (`note`, one
+ * per strip in `shown`'s order, blank allowed); the candidates ticked "Not
+ * this one" (`reject`, as `offered`) and each tile's reason (`rejectReason`,
+ * one per offered candidate in its order). readReview holds them all to
+ * `shown` and to each other. The boxes post "1" when ticked.
  */
 export const ReviewBody = Type.Object({
   shown: Type.Array(RowId, { minItems: 1, maxItems: REVIEW_MAX }),
   pick: Type.Array(
     Type.String({
-      pattern: '^[1-9][0-9]{0,9}:(skip|keep|[1-9][0-9]{0,9})$',
+      pattern: '^[1-9][0-9]{0,9}:(decline|change|keep|[1-9][0-9]{0,9})$',
     }),
     { minItems: 1, maxItems: REVIEW_MAX },
   ),
   offered: Type.Optional(
-    Type.Array(Type.String({ pattern: '^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$' }), {
+    Type.Array(Type.String({ pattern: ITEM_GARMENT }), {
+      maxItems: OFFERED_MAX,
+    }),
+  ),
+  note: Type.Optional(
+    Type.Array(Type.String({ maxLength: ITEM_NOTE_MAX }), {
+      maxItems: REVIEW_MAX,
+    }),
+  ),
+  reject: Type.Optional(
+    Type.Array(Type.String({ pattern: ITEM_GARMENT }), {
+      maxItems: OFFERED_MAX,
+    }),
+  ),
+  rejectReason: Type.Optional(
+    Type.Array(Type.String({ maxLength: REJECT_REASON_MAX }), {
       maxItems: OFFERED_MAX,
     }),
   ),
   removeUnpicked: Type.Optional(Type.Literal('1')),
   activate: Type.Optional(Type.Literal('1')),
 });
+
+/**
+ * "Change this…" from the plan page (its own small form): the note for the
+ * agent, required (a blank one is the form again, 400).
+ */
+export const ChangeItemBody = Type.Object({
+  note: Type.String({ maxLength: ITEM_NOTE_MAX }),
+});
+
+/** "Don't buy" from the plan page: an optional note for the agent. */
+export const DeclineItemBody = Type.Union([
+  Type.Object({
+    note: Type.Optional(Type.String({ maxLength: ITEM_NOTE_MAX })),
+  }),
+  Type.Null(),
+]);
 
 // ---- The plan item form -----------------------------------------------------
 

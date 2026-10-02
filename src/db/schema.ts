@@ -58,6 +58,10 @@ import {
   type OrderEmailOutcome,
   type OrderItemState,
 } from '../wardrobe/order-items';
+import {
+  PLAN_ITEM_REVIEWS,
+  type PlanItemReview,
+} from '../wardrobe/plan-review';
 import { PLAN_PRIORITIES, type PlanPriority } from '../wardrobe/plans';
 import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
 import {
@@ -1368,8 +1372,11 @@ export const wardrobePlan = pgTable(
 // tee ×3" is tops / t-shirt, white, warmth 3 to 5, quantity 3. Every
 // constraint but the category is optional (null: any). Which garments
 // fulfil it is never stored: matchPlan (src/wardrobe/plans.ts) derives it on
-// every read. `proposed`: written by the owner's agent (the MCP tools) and
-// not yet accepted in the app, so matching leaves it out.
+// every read. `review`: where it is in the owner's review of their agent's
+// work (src/wardrobe/plan-review.ts, #278); only `accepted` is matched.
+// `owner_note`: the owner's word to the agent with a review move (Change
+// this, Don't buy), apart from the agent's `note`; `changed_at`: the last
+// content write or review move.
 export const planItem = pgTable(
   'plan_item',
   {
@@ -1397,13 +1404,29 @@ export const planItem = pgTable(
     budget: numeric('budget', { precision: 10, scale: 2 }),
     // Why it is in the plan.
     note: text('note'),
-    proposed: boolean('proposed').default(false).notNull(),
+    review: text('review')
+      .$type<PlanItemReview>()
+      .default('accepted')
+      .notNull(),
+    ownerNote: text('owner_note'),
     createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    changedAt: timestamp('changed_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
   },
   (table) => [
     index('plan_item_plan_id_index').on(table.planId),
+    check(
+      'plan_item_review_check',
+      sql`${table.review} in (${sqlList(PLAN_ITEM_REVIEWS)})`,
+    ),
+    // "Change this" is the owner's note: the agent has nothing to go on without it.
+    check(
+      'plan_item_owner_note_check',
+      sql`${table.review} <> 'revise' or ${table.ownerNote} is not null`,
+    ),
     check(
       'plan_item_type_check',
       sql`${table.type} in (${sqlList(ALL_GARMENT_TYPES)})`,
@@ -1481,6 +1504,38 @@ export const planItemCandidate = pgTable(
       name: 'plan_item_candidate_garment_id_foreign',
       columns: [table.garmentId],
       foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// A product the owner turned down for a plan item ("Not this one", #278):
+// a snapshot of the candidate as it was (its wishlist garment is usually
+// deleted with the rejection, so no foreign key to it) and the owner's
+// reason, kept for the agent so it never adds the product again. Written
+// by rejectCandidates (src/web/plans/rejections.ts) and copied with a
+// duplicated plan; goes with its item.
+export const planItemRejection = pgTable(
+  'plan_item_rejection',
+  {
+    id: serial('id').primaryKey(),
+    planItemId: integer('plan_item_id').notNull(),
+    name: text('name'),
+    brand: text('brand'),
+    url: text('url'),
+    price: numeric('price', { precision: 10, scale: 2 }),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('plan_item_rejection_plan_item_id_index').on(table.planItemId),
+    foreignKey({
+      name: 'plan_item_rejection_plan_item_id_foreign',
+      columns: [table.planItemId],
+      foreignColumns: [planItem.id],
     })
       .onUpdate('cascade')
       .onDelete('cascade'),

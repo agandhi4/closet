@@ -4,6 +4,7 @@ import {
   eq,
   inArray,
   lt,
+  ne,
   notInArray,
   type SQL,
   sql,
@@ -331,14 +332,15 @@ interface StyledPlanJson {
  * garments of the owner linked to any of its items, newest first. Null when
  * the plan is not the owner's. Read through `onWishlist`, so a bought
  * candidate's link stops mattering (Wardrobe plans, Gotchas); a garment
- * that is a candidate of two items comes once. A scalar subquery; read
- * with readStyledPlan.
+ * that is a candidate of two items comes once. A declined item's links are
+ * inert (#278: "Don't buy"), so its candidates are left out. A scalar
+ * subquery; read with readStyledPlan.
  */
 export function styledPlanSql(
   planId: number,
   ownerId: number,
 ): SQL<StyledPlanJson | null> {
-  const linked = sql`${garment.id} in (select ${planItemCandidate.garmentId} from ${planItemCandidate} inner join ${planItem} on ${eq(planItem.id, planItemCandidate.planItemId)} where ${eq(planItem.planId, wardrobePlan.id)})`;
+  const linked = sql`${garment.id} in (select ${planItemCandidate.garmentId} from ${planItemCandidate} inner join ${planItem} on ${eq(planItem.id, planItemCandidate.planItemId)} where ${and(eq(planItem.planId, wardrobePlan.id), ne(planItem.review, 'declined'))})`;
   return sql<StyledPlanJson | null>`(
     select json_build_object(
       'name', ${wardrobePlan.name},

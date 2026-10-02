@@ -312,9 +312,10 @@ describe('MCP statements per tool (#172)', () => {
     ['get_style_profile', () => ({}), 2], // 3
     ['list_plans', () => ({}), 4],
     ['create_plan', () => ({ name: `Statements ${++drafts}` }), 5],
-    ['get_plan_gaps', () => ({}), 5],
+    ['get_plan_gaps', () => ({}), 6], // 5; #278 reads the rejected products
     ['propose_plan_item', () => ({ category: 'tops', name: 'Statements' }), 7],
-    ['update_plan_item', () => ({ itemId: ids.planItem, category: 'tops' }), 6],
+    // #278: 6, plus the review read under the lock that the machine judges.
+    ['update_plan_item', () => ({ itemId: ids.planItem, category: 'tops' }), 7],
     ['get_sizes', () => ({}), 3],
     ['get_shopping_list', () => ({}), 5],
     [

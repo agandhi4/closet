@@ -17,6 +17,13 @@ import {
   type Warmth,
 } from '../../wardrobe/properties';
 import { isUniqueViolation } from '../../db/errors';
+import {
+  type EntryReview,
+  type OwnerNoteEffect,
+  type PlanItemReview,
+  type PlanItemReviewEvent,
+  planItemReviewTransition,
+} from '../../wardrobe/plan-review';
 import { ownerTransaction } from '../auth/queries';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
@@ -39,8 +46,8 @@ import {
  * One writer each: the plan's name and notes (createPlan, or
  * createGeneratedPlan for a name the app makes up; updatePlan), which
  * plan is active (setActivePlan; createPlan activates a first plan, never
- * one an agent drafted), the items (addItems, insertItems, updateItem,
- * acceptItems, deleteItems) and the style profile (saveStyleProfile; its rhythm is the week template's, #16,
+ * one an agent drafted), the items (addItems, insertItems, copyItems,
+ * updateItem, reviewItems, deleteItems) and the style profile (saveStyleProfile; its rhythm is the week template's, #16,
  * src/web/week-plan/template.ts). Every plan and item write holds the
  * owner lock (ownerTransaction; src/web/calendar/CLAUDE.md, Owner lock), so
  * which plan is active and whether a plan still exists are decided with
@@ -64,8 +71,10 @@ export interface PlanDetail {
 export interface PlanItemRow extends PlanItemFields {
   id: number;
   planId: number;
-  /** Written by the owner's agent and not accepted yet (matching leaves it out). */
-  proposed: boolean;
+  /** Where the owner's review of it stands (src/wardrobe/plan-review.ts); only accepted is matched. */
+  review: PlanItemReview;
+  /** The owner's word to the agent with Change this or Don't buy; apart from the agent's `note`. */
+  ownerNote: string | null;
 }
 
 /** A stored item's fields, as a write takes them (duplicating a plan). */
@@ -156,7 +165,8 @@ const ITEM_COLUMNS = {
   priority: planItem.priority,
   budget: planItem.budget,
   note: planItem.note,
-  proposed: planItem.proposed,
+  review: planItem.review,
+  ownerNote: planItem.ownerNote,
 };
 
 /** The items of the plans `planIds` (the owner's, checked by the caller), oldest first. */
@@ -375,7 +385,7 @@ async function insertPlan(
           : false,
     })
     .returning({ id: wardrobePlan.id });
-  await insertItems(tx, row.id, items, { proposed: false });
+  await insertItems(tx, row.id, items, { review: 'accepted' });
   return row.id;
 }
 
@@ -498,7 +508,7 @@ export function addItems(
   ownerId: number,
   planId: number,
   items: PlanItemFields[],
-  options: { proposed: boolean },
+  options: { review: EntryReview },
 ): Promise<number[] | undefined> {
   return ownerTransaction(db, ownerId, 'addItems', async (tx) =>
     (await findPlan(tx, planId, ownerId))
@@ -509,24 +519,57 @@ export function addItems(
 
 /**
  * Inserts items into plan `planId`, which the caller found to be the
- * owner's under the owner lock it holds (createPlan, the duplicate, the
- * seed; addItems for everyone else); their ids in `items`' order (a
- * duplicate maps each original to its copy).
+ * owner's under the owner lock it holds (createPlan, the seed; addItems for
+ * everyone else), each at its entry review: the agent's proposal or the
+ * owner's own. Their ids in `items`' order.
  */
-export async function insertItems(
+export function insertItems(
   db: Queryable,
   planId: number,
   items: PlanItemFields[],
-  { proposed }: { proposed: boolean },
+  { review }: { review: EntryReview },
 ): Promise<number[]> {
-  if (items.length === 0) return [];
-  const rows = await db
+  return insertRows(
+    db,
+    items.map((item) => ({ ...item, planId, review, ownerNote: null })),
+  );
+}
+
+/**
+ * Copies `originals` into plan `planId` (the duplicate, under the owner
+ * lock it holds), each with its review and the owner's note as they stand,
+ * so a declined item stays declined in the copy and the agent working on
+ * it never proposes it again. Ids in `originals`' order (the duplicate maps
+ * each original to its copy).
+ */
+export function copyItems(
+  db: Queryable,
+  planId: number,
+  originals: readonly PlanItemRow[],
+): Promise<number[]> {
+  return insertRows(
+    db,
+    originals.map((item) => ({
+      ...itemFields(item),
+      planId,
+      review: item.review,
+      ownerNote: item.ownerNote,
+    })),
+  );
+}
+
+async function insertRows(
+  db: Queryable,
+  rows: (typeof planItem.$inferInsert)[],
+): Promise<number[]> {
+  if (rows.length === 0) return [];
+  const inserted = await db
     .insert(planItem)
-    .values(items.map((item) => ({ ...item, planId, proposed })))
+    .values(rows)
     .returning({ id: planItem.id });
   // One statement draws its serials in VALUES order; RETURNING's own order
   // is not promised, so the ids are put back in that order.
-  return rows.map((row) => row.id).sort((a, b) => a - b);
+  return inserted.map((row) => row.id).sort((a, b) => a - b);
 }
 
 /** The owner's plan `planId` exists: the item writers' guard. */
@@ -534,11 +577,35 @@ function ownsPlan(planId: number, ownerId: number) {
   return sql`${planItem.planId} in (select ${wardrobePlan.id} from ${wardrobePlan} where ${wardrobePlan.id} = ${planId} and ${wardrobePlan.ownerId} = ${ownerId})`;
 }
 
+/** Who rewrote an item: the owner's form, or their agent's update_plan_item. */
+export type ItemAuthor = 'owner' | 'agent';
+
+export type ItemUpdate =
+  | { ok: true; from: PlanItemReview; to: PlanItemReview }
+  | { ok: false; reason: 'not-found' }
+  /** A declined item: the owner reconsiders it first (a 409). */
+  | { ok: false; reason: 'not-allowed'; review: PlanItemReview };
+
 /**
- * Rewrites item `itemId` of the owner's plan `planId` whole. `proposed`
- * says who wrote it: the owner's form accepts it (false), the agent's
- * update_plan_item leaves it for the owner to accept (true). False when
- * not the owner's.
+ * The review move a rewrite by `author` makes, or none for a content edit:
+ * the owner's save accepts what is not accepted yet; the agent's change
+ * puts an item back to the owner unless it is still a proposal.
+ */
+function rewriteEvent(
+  author: ItemAuthor,
+  review: PlanItemReview,
+): PlanItemReviewEvent | null {
+  if (author === 'owner') return review === 'accepted' ? null : 'accept';
+  return review === 'proposed' ? null : 'repropose';
+}
+
+/**
+ * Rewrites item `itemId` of the owner's plan `planId` whole, moving its
+ * review as `author` does (rewriteEvent, asked of the machine): the owner's
+ * form accepts it, the agent's update_plan_item leaves it for the owner.
+ * A declined item takes neither. The row is read under the owner lock,
+ * which every item writer holds, so the review judged is the one written
+ * over.
  */
 export async function updateItem(
   db: Queryable,
@@ -546,45 +613,149 @@ export async function updateItem(
   planId: number,
   ownerId: number,
   fields: PlanItemFields,
-  { proposed }: { proposed: boolean },
-): Promise<boolean> {
-  const updated = await ownerTransaction(db, ownerId, 'updateItem', (tx) =>
-    tx
+  author: ItemAuthor,
+): Promise<ItemUpdate> {
+  return ownerTransaction(db, ownerId, 'updateItem', async (tx) => {
+    const [row] = await tx
+      .select({ review: planItem.review, ownerNote: planItem.ownerNote })
+      .from(planItem)
+      .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)));
+    if (!row) return { ok: false as const, reason: 'not-found' as const };
+    const event = rewriteEvent(author, row.review);
+    const move = event
+      ? planItemReviewTransition(row.review, event)
+      : ({
+          ok: true,
+          from: row.review,
+          to: row.review,
+          note: 'keep',
+        } as const);
+    if (!move.ok) {
+      return {
+        ok: false as const,
+        reason: 'not-allowed' as const,
+        review: move.review,
+      };
+    }
+    await tx
       .update(planItem)
-      .set({ ...fields, proposed })
-      .where(and(eq(planItem.id, itemId), ownsPlan(planId, ownerId)))
-      .returning({ id: planItem.id }),
-  );
-  return updated.length > 0;
+      .set({
+        ...fields,
+        review: move.to,
+        ownerNote: move.note === 'keep' ? row.ownerNote : null,
+        changedAt: sql`now()`,
+      })
+      .where(eq(planItem.id, itemId));
+    return { ok: true as const, from: move.from, to: move.to };
+  });
+}
+
+/** One item a review move names, with the owner's note when the move writes one. */
+export interface ReviewMove {
+  itemId: number;
+  note?: string | null;
+}
+
+export interface ReviewMoves {
+  /** The items moved, in id order. */
+  moved: number[];
+  /** Items of the plan whose review does not take the event, with where they stay. */
+  refused: { itemId: number; review: PlanItemReview }[];
 }
 
 /**
- * The owner accepts what their agent proposed: the items join the plan's
- * matching. The ids of those accepted, none when not the owner's. One
- * statement however many: the item's Accept and the plan review's
- * "Accept these" (#271).
+ * The one writer of the owner's review moves (src/wardrobe/plan-review.ts):
+ * `event` on the owner's plan `planId`'s items `moves`, each asked of the
+ * machine against its stored review, under the owner lock (every item
+ * writer holds it, so nothing moves the item in between). Ids that are no
+ * item of the plan are in neither list (the route's 404). Two statements
+ * however many: the read, and one update (each item's note a case of it).
+ * The item's Accept, Change this, Don't buy and Reconsider, and the plan
+ * review's post (#271, #278), one call per event. A `change` needs a note
+ * (the caller's 400; the column's check backs it).
  */
-export async function acceptItems(
+export async function reviewItems(
   db: Queryable,
-  itemIds: readonly number[],
-  planId: number,
   ownerId: number,
-): Promise<number[]> {
-  if (itemIds.length === 0) return [];
-  const updated = await ownerTransaction(db, ownerId, 'acceptItems', (tx) =>
-    tx
+  planId: number,
+  event: PlanItemReviewEvent,
+  moves: readonly ReviewMove[],
+): Promise<ReviewMoves> {
+  if (moves.length === 0) return { moved: [], refused: [] };
+  return ownerTransaction(db, ownerId, 'reviewItems', async (tx) => {
+    const rows = await tx
+      .select({ id: planItem.id, review: planItem.review })
+      .from(planItem)
+      .where(
+        and(
+          inArray(
+            planItem.id,
+            moves.map((move) => move.itemId),
+          ),
+          ownsPlan(planId, ownerId),
+        ),
+      )
+      .orderBy(asc(planItem.id));
+    const moved: number[] = [];
+    const refused: ReviewMoves['refused'] = [];
+    let to: PlanItemReview | undefined;
+    let effect: OwnerNoteEffect = 'keep';
+    for (const row of rows) {
+      const move = planItemReviewTransition(row.review, event);
+      if (move.ok) {
+        moved.push(row.id);
+        // One event: every move leads to the same review, with the same effect.
+        to = move.to;
+        effect = move.note;
+      } else {
+        refused.push({ itemId: row.id, review: move.review });
+      }
+    }
+    if (to === undefined) return { moved, refused };
+    const notes = new Map(
+      moves.map((move) => [move.itemId, move.note ?? null]),
+    );
+    await tx
       .update(planItem)
-      .set({ proposed: false })
-      .where(and(inArray(planItem.id, [...itemIds]), ownsPlan(planId, ownerId)))
-      .returning({ id: planItem.id }),
-  );
-  return updated.map((row) => row.id);
+      .set({
+        review: to,
+        ...ownerNoteSet(effect, moved, notes),
+        changedAt: sql`now()`,
+      })
+      .where(inArray(planItem.id, moved));
+    return { moved, refused };
+  });
+}
+
+/** What a move's note effect sets: nothing, null, or each item's own note. */
+function ownerNoteSet(
+  effect: OwnerNoteEffect,
+  itemIds: readonly number[],
+  notes: ReadonlyMap<number, string | null>,
+): { ownerNote?: SQL | null } {
+  switch (effect) {
+    case 'keep':
+      return {};
+    case 'clear':
+      return { ownerNote: null };
+    case 'write':
+      return {
+        ownerNote: sql`case ${planItem.id} ${sql.join(
+          itemIds.map(
+            (id) => sql`when ${id} then ${notes.get(id) ?? null}::text`,
+          ),
+          sql` `,
+        )} end`,
+      };
+  }
 }
 
 /**
- * Deletes them (a proposal dismissed, an item dropped, the review's
- * skipped items); the ids of those deleted, none when not the owner's.
- * Their candidate links go with them (the foreign key cascades).
+ * Deletes them (an item dropped from its edit form); the ids of those
+ * deleted, none when not the owner's. Their candidate links and rejections
+ * go with them (the foreign keys cascade). Declining an agent's proposal
+ * is a review move instead (reviewItems, "Don't buy"), kept so the agent
+ * sees it.
  */
 export async function deleteItems(
   db: Queryable,

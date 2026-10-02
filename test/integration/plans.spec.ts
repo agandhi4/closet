@@ -473,7 +473,7 @@ describe('wardrobe plans', () => {
         priority: 'high',
         budget: '48.00',
         note: 'Holds its shape',
-        proposed: false,
+        review: 'accepted',
       });
       items.tees = await addItem(planId, {
         category: 'tops',
@@ -606,8 +606,8 @@ describe('wardrobe plans', () => {
       expect(statuses(html)[items.boots]).toBe('owned');
     });
 
-    it('shows what the agent proposed apart, unmatched, until accepted or dismissed', async () => {
-      const [proposal, dismissed] = await insertItems(
+    it('shows what the agent proposed apart, unmatched, until accepted or declined', async () => {
+      const [proposal, declined] = await insertItems(
         t.db,
         planId,
         [
@@ -642,7 +642,7 @@ describe('wardrobe plans', () => {
             note: null,
           },
         ],
-        { proposed: true },
+        { review: 'proposed' },
       );
       const page = unescapeHtml((await get(`/wardrobe/plans/${planId}`)).body);
       expect(statuses(page)[proposal]).toBe('proposed');
@@ -655,16 +655,28 @@ describe('wardrobe plans', () => {
         {},
       );
       expect(accepted.statusCode).toBe(303);
-      const dismiss = await t.inject({
-        method: 'DELETE',
-        url: `/wardrobe/plans/${planId}/items/${dismissed}`,
-        headers: { 'hx-request': 'true' },
-      });
-      expect(hxLocationPath(dismiss)).toBe(`/wardrobe/plans/${planId}`);
+      // Don't buy keeps the row, apart and unmatched, for the agent to see.
+      const decline = await post(
+        `/wardrobe/plans/${planId}/items/${declined}/decline`,
+        { note: 'One parka is enough' },
+      );
+      expect(decline.statusCode).toBe(303);
       const after = unescapeHtml((await get(`/wardrobe/plans/${planId}`)).body);
       expect(statuses(after)[proposal]).toBe('missing');
-      expect(statuses(after)[dismissed]).toBeUndefined();
+      expect(after).toMatch(
+        new RegExp(`id="plan-item-${declined}" data-status="declined"`),
+      );
+      expect(after).toContain('Your note: One parka is enough');
+      // The accepted blazer counts; the declined parka does not.
+      expect(after).toContain('4 owned · 0 partly · 3 missing');
       expect(after).not.toContain('Proposed by your agent');
+      // Deleting stays the edit form's.
+      const dropped = await t.inject({
+        method: 'DELETE',
+        url: `/wardrobe/plans/${planId}/items/${declined}`,
+        headers: { 'hx-request': 'true' },
+      });
+      expect(hxLocationPath(dropped)).toBe(`/wardrobe/plans/${planId}`);
     });
 
     it('duplicates a plan with its items, naming each copy apart', async () => {

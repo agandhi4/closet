@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 import { eq } from 'drizzle-orm';
-import { planItem } from '../src/db/schema';
+import { planItem, planItemRejection } from '../src/db/schema';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
@@ -10,8 +10,10 @@ import { withServerDb } from './support/server-db';
  * The plan review in a browser at phone width (#271): an agent's proposals
  * as strips, a swipe to another candidate, "Accept these", and the gap view
  * with the choices made (the pick kept, the unpicked candidate gone from
- * the wishlist). The rules and the data-safety cases are
- * test/integration/plan-review.spec.ts's.
+ * the wishlist); and (#278) Change this with a note and Not this one with
+ * a reason, kept through the swipes into the one post. The rules and the
+ * data-safety cases are test/integration/plan-review.spec.ts's and
+ * plan-item-review.spec.ts's.
  */
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -60,7 +62,7 @@ test('review an agent’s proposals as strips, swipe to a candidate, accept', as
   const [boots, coat] = await withServerDb(async (db) => {
     const rows = await db
       .update(planItem)
-      .set({ proposed: true })
+      .set({ review: 'proposed' })
       .where(eq(planItem.planId, planId))
       .returning({ id: planItem.id, name: planItem.name });
     const id = (name: string) => rows.find((row) => row.name === name)!.id;
@@ -137,5 +139,122 @@ test('review an agent’s proposals as strips, swipe to a candidate, accept', as
   // The unpicked candidate stood for nothing else: off the wishlist.
   const gone = await page.request.get(`/wardrobe/${cheap}`);
   expect(gone.status()).toBe(404);
+  expect(errors).toEqual([]);
+});
+
+test('Change this with a note, and Not this one on a candidate, in one post', async ({
+  page,
+}) => {
+  const errors = pageErrors(page);
+  await signIn(page, 'plan-review-iterate');
+  const plan = await post(page, '/wardrobe/plans', { name: 'Muse’s second' });
+  const items: Record<string, string>[] = [
+    { name: 'Black boots', category: 'footwear', colors: 'black' },
+    { name: 'Camel coat', category: 'outerwear' },
+  ];
+  for (const item of items) {
+    await post(page, `${plan}/items`, {
+      quantity: '1',
+      priority: 'medium',
+      ...item,
+    });
+  }
+  const wishlist = { to: 'wishlist', wishlist: '1', props: '1', product: '1' };
+  const shiny = await createGarment(page, 'Shiny black boots', 'footwear', {
+    ...wishlist,
+    color: 'black',
+    price: '120',
+  });
+  const matte = await createGarment(page, 'Matte black boots', 'footwear', {
+    ...wishlist,
+    color: 'black',
+    price: '160',
+  });
+  const planId = Number(plan.split('/').pop());
+  const [boots, coat] = await withServerDb(async (db) => {
+    const rows = await db
+      .update(planItem)
+      .set({ review: 'proposed' })
+      .where(eq(planItem.planId, planId))
+      .returning({ id: planItem.id, name: planItem.name });
+    const id = (name: string) => rows.find((row) => row.name === name)!.id;
+    return [id('Black boots'), id('Camel coat')];
+  });
+  for (const garmentId of [shiny, matte]) {
+    await post(page, `${plan}/items/${boots}/candidates`, {
+      garmentIds: String(garmentId),
+    });
+  }
+
+  await page.goto(`${plan}/review`);
+  /** Scrolls a strip `items` tiles on (negative: back), as a swipe does. */
+  const swipe = async (itemId: number, items: number) => {
+    const strip = page.locator(`#review-item-${itemId} [data-snap-strip]`);
+    await strip.scrollIntoViewIfNeeded();
+    const box = (await strip.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel((items * box.width) / 3, 0);
+  };
+
+  // The coat goes back to the agent: Change this…, with what to change.
+  const coatPick = page.locator(`#review-item-${coat} input[name="pick"]`);
+  await expect(coatPick).toHaveValue(`${coat}:keep`);
+  await swipe(coat, -1);
+  await expect(coatPick).toHaveValue(`${coat}:change`);
+  await page.locator(`#review-note-${coat}`).fill('Wool, and longer');
+
+  // The boots: the cheaper pair starts centred; turn that very pair down with
+  // a reason, without swiping away. A rejected pick reads as Keep.
+  const bootsPick = page.locator(`#review-item-${boots} input[name="pick"]`);
+  await expect(bootsPick).toHaveValue(`${boots}:${shiny}`);
+  const shinyTile = page.locator(
+    `#review-item-${boots} [data-snap-value="${boots}:${shiny}"]`,
+  );
+  // A tap as a finger does: the box brought to the middle of the screen
+  // (clear of the dock) without scrolling the strip, then its middle
+  // clicked. locator.check() scrolls the strip onto a neighbour
+  // (test/CLAUDE.md, scroll-snap strips).
+  const notThisOne = shinyTile.getByLabel('Not this one');
+  await notThisOne.evaluate((box) =>
+    box.scrollIntoView({ block: 'center', inline: 'nearest' }),
+  );
+  const tick = (await notThisOne.boundingBox())!;
+  await page.mouse.click(tick.x + tick.width / 2, tick.y + tick.height / 2);
+  await expect(notThisOne).toBeChecked();
+  await expect(bootsPick).toHaveValue(`${boots}:${shiny}`);
+  await shinyTile
+    .getByRole('textbox', { name: 'Why not Shiny black boots' })
+    .fill('Too shiny');
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+
+  await page.getByRole('button', { name: 'Accept these' }).click();
+  await expect(page).toHaveURL(plan);
+  await expect(page.locator('#plan-toast')).toContainText(
+    'Review saved. 1 product removed from your wishlist',
+  );
+  const coatCard = page.locator(`#plan-item-${coat}`);
+  await expect(coatCard).toHaveAttribute('data-status', 'revise');
+  await expect(coatCard).toContainText('Your note: Wool, and longer');
+  const bootsCard = page.locator(`#plan-item-${boots}`);
+  await expect(bootsCard).toHaveAttribute('data-status', 'missing');
+  await expect(bootsCard.locator('[data-candidates]')).toContainText(
+    'Matte black boots',
+  );
+  // The rejected pair stood for nothing else: off the wishlist, its reason kept.
+  expect((await page.request.get(`/wardrobe/${shiny}`)).status()).toBe(404);
+  const rejected = await withServerDb((db) =>
+    db
+      .select({
+        name: planItemRejection.name,
+        reason: planItemRejection.reason,
+      })
+      .from(planItemRejection)
+      .where(eq(planItemRejection.planItemId, boots)),
+  );
+  expect(rejected).toEqual([
+    { name: 'Shiny black boots', reason: 'Too shiny' },
+  ]);
   expect(errors).toEqual([]);
 });

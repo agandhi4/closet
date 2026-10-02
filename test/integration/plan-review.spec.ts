@@ -15,9 +15,9 @@ import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
 import { expectFullPage } from './pages';
 
 /**
- * The plan review (#271): an agent's proposals as strips (Skip, Keep, the
- * candidates in the shopping list's order), and "Accept these", which
- * accepts, dismisses, removes the unpicked candidates that stand for
+ * The plan review (#271, #278): an agent's proposals as strips (Don't buy,
+ * Change this…, Keep, the candidates in the shopping list's order), and
+ * "Accept these", which accepts, declines, removes the unpicked candidates that stand for
  * nothing else and activates the plan, in one owner transaction. The
  * data-safety cases each have an `it` below: a candidate of another item
  * is kept, a pick is never deleted, only `shown` items are touched, only
@@ -73,7 +73,7 @@ describe('the plan review', () => {
     if (proposed) {
       await t.db
         .update(planItem)
-        .set({ proposed: true })
+        .set({ review: 'proposed' })
         .where(eq(planItem.id, id));
     }
     return id;
@@ -116,14 +116,14 @@ describe('the plan review', () => {
       .map((row) => row.id)
       .sort((a, b) => a - b);
 
-  const proposedOf = async (ids: number[]) =>
+  const reviewOf = async (ids: number[]) =>
     new Map(
       (
         await t.db
-          .select({ id: planItem.id, proposed: planItem.proposed })
+          .select({ id: planItem.id, review: planItem.review })
           .from(planItem)
           .where(inArray(planItem.id, ids))
-      ).map((row) => [row.id, row.proposed]),
+      ).map((row) => [row.id, row.review]),
     );
 
   const candidatesOf = async (itemId: number) =>
@@ -279,7 +279,7 @@ describe('the plan review', () => {
       expect(html).toMatch(/Oxford shirt<span class="text-muted"> ×2/);
     });
 
-    it('offers Skip and Keep on every strip, then the candidates in the shopping list’s order', async () => {
+    it('offers Don’t buy, Change this and Keep on every strip, then the candidates in the shopping list’s order', async () => {
       const html = unescapeHtml(
         (await get(`/wardrobe/plans/${planId}/review`, owner.cookie)).body,
       );
@@ -293,14 +293,16 @@ describe('the plan review', () => {
         );
       // Matching first, within budget before over, then cheapest.
       expect(values(items.boots)).toEqual([
-        `${items.boots}:skip`,
+        `${items.boots}:decline`,
+        `${items.boots}:change`,
         `${items.boots}:keep`,
         `${items.boots}:${wish.cheapBlack}`,
         `${items.boots}:${wish.black}`,
         `${items.boots}:${wish.navy}`,
       ]);
       expect(values(items.coat)).toEqual([
-        `${items.coat}:skip`,
+        `${items.coat}:decline`,
+        `${items.coat}:change`,
         `${items.coat}:keep`,
       ]);
       // The strip starts on its best candidate, else on Keep.
@@ -386,7 +388,7 @@ describe('the plan review', () => {
   });
 
   describe('Accept these', () => {
-    it('accepts the picks and Keep, dismisses Skip, removes what stands for nothing else, activates the plan', async () => {
+    it('accepts the picks and Keep, declines Don’t buy, removes what stands for nothing else, activates the plan', async () => {
       const owner = await newOwner();
       const mine = await createPlan('Mine', owner.cookie);
       const planId = await createPlan('Draft', owner.cookie);
@@ -440,7 +442,7 @@ describe('the plan review', () => {
         planId,
         [
           [picked, choice],
-          [skipped, 'skip'],
+          [skipped, 'decline'],
           [kept, 'keep'],
           [second, crossPicked],
         ],
@@ -452,11 +454,11 @@ describe('the plan review', () => {
         `/wardrobe/plans/${planId}?reviewed=1&removed=2`,
       );
 
-      const states = await proposedOf([picked, skipped, kept, second]);
-      expect(states.get(picked)).toBe(false);
-      expect(states.get(kept)).toBe(false);
-      expect(states.get(second)).toBe(false);
-      expect(states.has(skipped)).toBe(false);
+      const states = await reviewOf([picked, skipped, kept, second]);
+      expect(states.get(picked)).toBe('accepted');
+      expect(states.get(kept)).toBe('accepted');
+      expect(states.get(second)).toBe('accepted');
+      expect(states.get(skipped)).toBe('declined');
       // Gone: what stood only for the picked item or the skipped one. Kept:
       // the pick, one that stands for another plan's item, and one picked
       // for another strip of this post.
@@ -477,7 +479,7 @@ describe('the plan review', () => {
       );
       expect(page.body).not.toContain('id="plan-review"');
       expect(t.logs.messages('info', 'Web')).toContain(
-        `Plan ${planId} reviewed by user ${owner.id}: accepted ${[picked, kept, second].sort((a, b) => a - b).join(', ')}, dismissed ${skipped}, candidates ${[loser, skippedOnly].sort((a, b) => a - b).join(', ')} removed from the wishlist, made active`,
+        `Plan ${planId} reviewed by user ${owner.id}: accepted ${[picked, kept, second].sort((a, b) => a - b).join(', ')}, changes asked for none, declined ${skipped}, 0 candidates turned down, candidates ${[loser, skippedOnly].sort((a, b) => a - b).join(', ')} removed from the wishlist, made active`,
       );
     });
 
@@ -509,7 +511,7 @@ describe('the plan review', () => {
         planId,
         [
           [item, a],
-          [skipped, 'skip'],
+          [skipped, 'decline'],
         ],
         owner.cookie,
         { removeUnpicked: false },
@@ -554,7 +556,7 @@ describe('the plan review', () => {
 
       const res = await review(planId, [[shown, pick]], owner.cookie);
       expect(res.statusCode, res.body).toBe(303);
-      expect((await proposedOf([later])).get(later)).toBe(true);
+      expect((await reviewOf([later])).get(later)).toBe('proposed');
       expect(await existing([both])).toEqual([both]);
       expect(await candidatesOf(later)).toEqual([both]);
     });
@@ -592,22 +594,22 @@ describe('the plan review', () => {
         planId,
         [
           [picked, pick],
-          [skipped, 'skip'],
+          [skipped, 'decline'],
         ],
         owner.cookie,
         { offered },
       );
       expect(res.statusCode, res.body).toBe(303);
       // The drawn unpicked ones go; the late one, never shown, survives
-      // Accept (still linked to the picked item) and Skip (its link to the
-      // dismissed item goes with the item).
+      // Accept (still linked to the picked item) and Don't buy (still linked
+      // to the declined item, inert).
       expect(await existing([pick, loser, ofSkipped, late])).toEqual(
         [pick, late].sort((a, b) => a - b),
       );
       expect(await candidatesOf(picked)).toEqual(
         [pick, late].sort((a, b) => a - b),
       );
-      expect((await proposedOf([skipped])).has(skipped)).toBe(false);
+      expect((await reviewOf([skipped])).get(skipped)).toBe('declined');
 
       // An offered candidate of an item the post did not show: a 400.
       const refused = await post(
@@ -636,7 +638,7 @@ describe('the plan review', () => {
 
       const res = await review(planId, [[item, 'keep']], owner.cookie);
       expect(res.statusCode, res.body).toBe(303);
-      expect((await proposedOf([item])).get(item)).toBe(false);
+      expect((await reviewOf([item])).get(item)).toBe('accepted');
       expect(await existing([a, b])).toEqual([a, b].sort((x, y) => x - y));
       expect(await candidatesOf(item)).toEqual([a, b].sort((x, y) => x - y));
     });
@@ -739,7 +741,7 @@ describe('the plan review', () => {
         `Plan ${planId} review by user ${owner.id}: items ${item} left as they are, no longer proposed`,
       );
 
-      // A second post after a Skip names an item gone: the page again, 400.
+      // A second post after a Don't buy: declined already, left as it is.
       const skipped = await addItem(
         planId,
         { name: 'Shorts', category: 'bottoms' },
@@ -752,11 +754,11 @@ describe('the plan review', () => {
       );
       await link(owner.id, skipped, [ofSkipped]);
       expect(
-        (await review(planId, [[skipped, 'skip']], owner.cookie)).statusCode,
+        (await review(planId, [[skipped, 'decline']], owner.cookie)).statusCode,
       ).toBe(303);
-      const twice = await review(planId, [[skipped, 'skip']], owner.cookie);
-      expect(twice.statusCode).toBe(400);
-      expect(unescapeHtml(twice.body)).toContain('Some of these items changed');
+      const twice = await review(planId, [[skipped, 'decline']], owner.cookie);
+      expect(twice.statusCode).toBe(303);
+      expect((await reviewOf([skipped])).get(skipped)).toBe('declined');
       expect(await existing([pick, added])).toEqual(
         [pick, added].sort((a, b) => a - b),
       );
@@ -781,7 +783,7 @@ describe('the plan review', () => {
         planId,
         [
           [item, 'keep'],
-          [foreign, 'skip'],
+          [foreign, 'decline'],
         ],
         owner.cookie,
       );
@@ -789,15 +791,15 @@ describe('the plan review', () => {
       expectFullPage(res);
       expect(unescapeHtml(res.body)).toContain('Some of these items changed');
       expect(res.body).toContain(`id="review-item-${item}"`);
-      const states = await proposedOf([item, foreign]);
-      expect(states.get(item)).toBe(true);
-      expect(states.get(foreign)).toBe(true);
+      const states = await reviewOf([item, foreign]);
+      expect(states.get(item)).toBe('proposed');
+      expect(states.get(foreign)).toBe('proposed');
 
       // A pick for an item not shown, and a shown item without a pick.
       for (const payload of [
-        { shown: [String(item)], pick: [`${foreign}:skip`] },
+        { shown: [String(item)], pick: [`${foreign}:decline`] },
         { shown: [String(item), String(foreign)], pick: [`${item}:keep`] },
-        { shown: [String(item)], pick: [`${item}:keep`, `${item}:skip`] },
+        { shown: [String(item)], pick: [`${item}:keep`, `${item}:decline`] },
       ]) {
         const refused = await post(
           `/wardrobe/plans/${planId}/review`,
@@ -809,7 +811,7 @@ describe('the plan review', () => {
           'Some of these items changed',
         );
       }
-      expect((await proposedOf([item])).get(item)).toBe(true);
+      expect((await reviewOf([item])).get(item)).toBe('proposed');
     });
 
     it("is a 404 for another user's plan, before anything is read or written", async () => {
@@ -825,9 +827,9 @@ describe('the plan review', () => {
         (await get(`/wardrobe/plans/${planId}/review`, stranger.cookie))
           .statusCode,
       ).toBe(404);
-      const res = await review(planId, [[item, 'skip']], stranger.cookie);
+      const res = await review(planId, [[item, 'decline']], stranger.cookie);
       expect(res.statusCode).toBe(404);
-      expect((await proposedOf([item])).get(item)).toBe(true);
+      expect((await reviewOf([item])).get(item)).toBe('proposed');
     });
   });
 });

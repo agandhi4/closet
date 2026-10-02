@@ -7,6 +7,7 @@ import {
   planItemCandidate,
   wardrobePlan,
 } from '../../db/schema';
+import type { PlanItemReview } from '../../wardrobe/plan-review';
 import type { PieceSpec } from '../../wardrobe/plans';
 import {
   type Formality,
@@ -80,13 +81,26 @@ export class TooManyCandidates extends HttpError {
 }
 
 /**
+ * An add to an item the owner declined ("Don't buy", #278): nothing was
+ * written. A 409 with the reason; the owner reconsiders the item first,
+ * and the agent never works on a declined item. Thrown, like
+ * TooManyCandidates, so a garment saved with the link rolls back.
+ */
+export class CandidateForDeclinedItem extends HttpError {
+  constructor(readonly itemIds: number[]) {
+    super(409, t('plans.DECLINED_NO_CANDIDATES'));
+    this.name = 'CandidateForDeclinedItem';
+  }
+}
+
+/**
  * The one writer of plan_item_candidate: removes every pairing in `remove`,
  * then adds every pairing in `add` (one already there is kept), in one
  * transaction. Only items of `ownerId`'s plans and garments of their
  * wardrobe take part, and only wishlist garments are added (a candidate is
  * something not owned yet); any other id is dropped. An add that would take
- * an item past MAX_CANDIDATES_PER_ITEM throws TooManyCandidates before
- * anything is written, counted under lockOwner (the owner's user row), so
+ * an item past MAX_CANDIDATES_PER_ITEM throws TooManyCandidates, and one
+ * to a declined item CandidateForDeclinedItem, before anything is written, counted under lockOwner (the owner's user row), so
  * two adds at once (two tabs, an agent beside the app) cannot both pass the
  * count. Both sides are locked FOR SHARE, so an item or garment deleted
  * meanwhile waits for this to commit rather than failing a foreign key
@@ -128,6 +142,10 @@ export function changeCandidates(
       ),
     };
     const add = addedPairings(adds, items, garments);
+    const declined = [...add.keys()].filter(
+      (id) => items.get(id) === 'declined',
+    );
+    if (declined.length > 0) throw new CandidateForDeclinedItem(declined);
     const over = await itemsPastCap(tx, add, remove);
     if (over.length > 0) throw new TooManyCandidates(over);
     let removed = 0;
@@ -169,7 +187,7 @@ export function changeCandidates(
  */
 function addedPairings(
   adds: readonly CandidateSet[],
-  items: Set<number>,
+  items: ReadonlyMap<number, PlanItemReview>,
   garments: Map<number, boolean>,
 ): Map<number, Set<number>> {
   const byItem = new Map<number, Set<number>>();
@@ -270,21 +288,21 @@ export async function requireCandidateRoom(
   }
 }
 
-/** Which of `ids` are items of `ownerId`'s plans, locked FOR SHARE. */
+/** Which of `ids` are items of `ownerId`'s plans, locked FOR SHARE, each with its review. */
 async function ownedItems(
   tx: Queryable,
   ownerId: number,
   ids: number[],
-): Promise<Set<number>> {
-  if (ids.length === 0) return new Set();
+): Promise<Map<number, PlanItemReview>> {
+  if (ids.length === 0) return new Map();
   const rows = await tx
-    .select({ id: planItem.id })
+    .select({ id: planItem.id, review: planItem.review })
     .from(planItem)
     .innerJoin(wardrobePlan, eq(wardrobePlan.id, planItem.planId))
     .where(and(eq(wardrobePlan.ownerId, ownerId), inArray(planItem.id, ids)))
     .orderBy(planItem.id)
     .for('share', { of: planItem });
-  return new Set(rows.map((row) => row.id));
+  return new Map(rows.map((row) => [row.id, row.review]));
 }
 
 /**

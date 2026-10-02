@@ -232,6 +232,20 @@
       "when": 1790958349179,
       "tag": "0032_plan-drafted-by-token",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790963846246,
+      "tag": "0033_plan-item-review",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790963850142,
+      "tag": "0034_plan-item-drop-proposed",
+      "breakpoints": true
     }
   ]
 }

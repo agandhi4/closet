@@ -28,7 +28,7 @@ import { candidateOut, itemOut, planFor, planIdInput } from './plans';
  * A candidate link is not a proposal: it adds a product to consider, never
  * changes what the plan is, and never counts toward it (matching reads the
  * closet), so add_candidate writes it as the owner's form would, where 34a's
- * rule marks what the agent adds to a plan itself (items) as proposed. The
+ * rule puts what the agent adds to a plan itself (items) up for review. The
  * owner decides by buying one ("Bought it") or removing it from the item.
  */
 

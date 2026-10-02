@@ -5,7 +5,11 @@ import { findOwnedItem, findPlan } from '../plans/queries';
 import { itemNotFound } from '../plans/validation';
 import type { WardrobeAccess } from '../sharing/access';
 import type { EntryStatus } from '../../wardrobe/status';
-import { linkNewCandidate, requireCandidateRoom } from '../plans/candidates';
+import {
+  CandidateForDeclinedItem,
+  linkNewCandidate,
+  requireCandidateRoom,
+} from '../plans/candidates';
 import { decideOrderItem, findPendingOrderItem } from './order-mail/queries';
 import type { WithGarment } from './writes';
 import { findGarment, type GarmentDetail } from './queries';
@@ -47,6 +51,7 @@ export async function resolveCandidateFor(
   // A new garment is never already one of its candidates: a full item is
   // refused before the form is filled in, or a garment or photo stored.
   await requireCandidateRoom(db, item.id);
+  if (item.review === 'declined') throw new CandidateForDeclinedItem([item.id]);
   return { id: item.id, title: itemTitle(item), planName: plan.name };
 }
 

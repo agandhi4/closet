@@ -1,4 +1,5 @@
 import type { Db } from '../../db/client';
+import { isAccepted, type PlanItemReview } from '../../wardrobe/plan-review';
 import {
   type ItemMatch,
   type ItemStatus,
@@ -23,6 +24,9 @@ import {
  * matchPlan (src/wardrobe/plans.ts); nothing is stored.
  */
 
+/** The reviews outside the plan: shown apart, never matched. */
+export type OpenReview = Exclude<PlanItemReview, 'accepted'>;
+
 /** An accepted item and how the closet answers it. */
 export interface GapItem {
   item: PlanItemRow;
@@ -34,8 +38,12 @@ export interface PlanGaps {
   /** Accepted items, each group in priority then age order. */
   groups: Record<ItemStatus, GapItem[]>;
   tally: Record<ItemStatus, number>;
-  /** What the owner's agent proposed and the owner has not accepted: not matched. */
-  proposed: PlanItemRow[];
+  /**
+   * Items not part of the plan (yet), by review, each in priority then age
+   * order: the agent's proposals, those the owner sent back with a note
+   * (revise), and those declined. None is matched.
+   */
+  review: Record<OpenReview, PlanItemRow[]>;
   /** The closet's garments by id, for the names and photos a match points at. */
   closet: Map<number, ClosetGarment>;
 }
@@ -76,7 +84,8 @@ function measure(
   items: PlanItemRow[],
   closet: ClosetGarment[],
 ): PlanGaps {
-  const accepted = items.filter((item) => !item.proposed).sort(byPriority);
+  const sorted = [...items].sort(byPriority);
+  const accepted = sorted.filter((item) => isAccepted(item.review));
   const matches = matchPlan(accepted.map(toTarget), closet);
   const groups: Record<ItemStatus, GapItem[]> = {
     owned: [],
@@ -91,7 +100,11 @@ function measure(
     plan,
     groups,
     tally: planTally(matches),
-    proposed: items.filter((item) => item.proposed).sort(byPriority),
+    review: {
+      proposed: sorted.filter((item) => item.review === 'proposed'),
+      revise: sorted.filter((item) => item.review === 'revise'),
+      declined: sorted.filter((item) => item.review === 'declined'),
+    },
     closet: new Map(closet.map((garment) => [garment.id, garment])),
   };
 }

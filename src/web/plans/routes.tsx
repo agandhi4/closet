@@ -4,7 +4,7 @@ import { categorySuggestions } from '../wardrobe/garment';
 import { ownerTransaction } from '../auth/queries';
 import { selectScalars } from '../../db/select-scalars';
 import { sessionUserId } from '../auth/require-session';
-import type { HttpError } from '../errors';
+import { HttpError } from '../errors';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderPage } from '../render';
@@ -21,22 +21,31 @@ import { ItemFormPage, type ItemFormModel } from './item-form-page';
 import { PlansPage } from './list-page';
 import { PlanFormPage, type PlanFormModel } from './plan-form-page';
 import { PlanPage } from './plan-page';
-import { applyReview, planReview, readPicks } from './review';
+import type { PlanItemReviewEvent } from '../../wardrobe/plan-review';
+import { ChangeItemPage } from './change-page';
+import { copyRejections } from './rejections';
+import {
+  applyReview,
+  planReview,
+  readReview,
+  type ReviewChoice,
+  type ReviewError,
+} from './review';
 import { ReviewPage } from './review-page';
 import {
-  acceptItems,
   addItems,
   closetCategories,
   closetPieces,
   createGeneratedPlan,
+  copyItems,
   createPlan,
   deleteItems,
   deletePlan,
   findPlan,
-  insertItems,
-  itemFields,
   itemsOf,
   type PlanDetail,
+  type PlanItemRow,
+  reviewItems,
   saveStyleProfile,
   setActivePlan,
   styleProfileSql,
@@ -51,6 +60,8 @@ import { requirePlan as requireOwnPlan, requirePlanItem } from './require';
 import { PLANS_PATH, planUrl, STYLE_PROFILE_PATH } from './urls';
 import {
   BLANK_ITEM_VALUES,
+  ChangeItemBody,
+  DeclineItemBody,
   EMPTY_STYLE_PROFILE,
   FromWardrobeBody,
   ItemParams,
@@ -161,7 +172,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     plan: PlanDetail,
     refused: PlanItemForm & { ok: false },
     ownerId: number,
-    item?: { id: number; proposed: boolean },
+    item?: PlanItemRow,
   ): Promise<FastifyReply> {
     logger.warn(
       `Plan item form refused (plan ${plan.id}, ${item ? `item ${item.id}` : 'new'}): ${Object.keys(refused.errors).join(', ')}`,
@@ -171,7 +182,8 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       plan,
       {
         itemId: item?.id,
-        proposed: item?.proposed,
+        review: item?.review,
+        ownerNote: item?.ownerNote,
         values: refused.values,
         errors: refused.errors,
       },
@@ -307,17 +319,38 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // ---- The review (#271) -------------------------------------------------------
 
+  /**
+   * The review page: as it stands (200), as it stands now after a post the
+   * page could not have sent (`changed`, 400), or as posted with each
+   * strip's error (`refused`, 400).
+   */
   async function renderReview(
     reply: FastifyReply,
     plan: PlanDetail,
     userId: number,
-    changed = false,
+    state: {
+      changed?: boolean;
+      refused?: {
+        posted: Map<number, ReviewChoice>;
+        errors: Map<number, ReviewError>;
+      };
+    } = {},
   ): Promise<FastifyReply> {
-    const strips = await planReview(db, plan, userId);
+    const review = await planReview(db, plan, userId);
+    const { changed = false, refused } = state;
     return renderPage(
       reply,
-      <ReviewPage ctx={viewContext(reply)} model={{ plan, strips, changed }} />,
-      { status: changed ? 400 : 200 },
+      <ReviewPage
+        ctx={viewContext(reply)}
+        model={{
+          plan,
+          review,
+          changed,
+          posted: refused?.posted,
+          errors: refused?.errors,
+        }}
+      />,
+      { status: changed || refused ? 400 : 200 },
     );
   }
 
@@ -331,22 +364,42 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // "Accept these" (review.ts has the rule): a post the page could not have
-  // sent, or naming an item no longer the plan's (a skip already done by a
-  // first tap), comes back as the page as it stands now, 400, with nothing
-  // written; another user's plan is a 404 first.
+  // sent, or naming an item no longer the plan's (deleted meanwhile), comes
+  // back as the page as it stands now, 400, with nothing written; one with
+  // a strip's error (Change this without a note, a rejected candidate as
+  // the pick) comes back as posted, 400, nothing written; another user's
+  // plan is a 404 first.
   app.post(
     `${PLANS_PATH}/:id/review`,
     { schema: { params: PlanParams, body: ReviewBody } },
     async (request, reply) => {
       const userId = sessionUserId(request);
       const { id } = request.params;
-      const { shown, pick, offered, removeUnpicked, activate } = request.body;
-      const choices = readPicks(shown, pick, offered ?? []);
-      if (!choices) {
+      const { body } = request;
+      const read = readReview({
+        shown: body.shown,
+        picks: body.pick,
+        offered: body.offered ?? [],
+        notes: body.note ?? [],
+        rejects: body.reject ?? [],
+        reasons: body.rejectReason ?? [],
+      });
+      if (!read.ok) {
         const plan = await requirePlan(request, id);
         logger.warn(`Plan ${id} review refused: picks do not match shown`);
-        return renderReview(reply, plan, userId, true);
+        return renderReview(reply, plan, userId, { changed: true });
       }
+      const { choices, errors } = read;
+      if (errors.size > 0) {
+        const plan = await requirePlan(request, id);
+        logger.warn(
+          `Plan ${id} review refused: ${[...errors].map(([item, error]) => `item ${item} ${error}`).join(', ')}`,
+        );
+        return renderReview(reply, plan, userId, {
+          refused: { posted: choices, errors },
+        });
+      }
+      const { removeUnpicked, activate } = body;
       const outcome = await applyReview(options, userId, id, {
         shown: [...choices.keys()],
         choices,
@@ -358,12 +411,9 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         logger.warn(
           `Plan ${id} review refused: items ${outcome.itemIds.join(', ')} are not the plan's`,
         );
-        return renderReview(
-          reply,
-          await requirePlan(request, id),
-          userId,
-          true,
-        );
+        return renderReview(reply, await requirePlan(request, id), userId, {
+          changed: true,
+        });
       }
       const removed = outcome.removed.length;
       return reply.redirect(
@@ -469,25 +519,23 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             },
             plan.notes,
           );
-          // Each copy with its original's candidates, all in one change.
+          // Each item copied with its review, the owner's note and its
+          // rejections (#278: the agent working on the copy never proposes a
+          // declined item or adds a rejected product again), and with its
+          // original's candidates, all in one change; a declined item's
+          // candidates are inert and take no new link, so they stay behind.
+          const copies = await copyItems(tx, id, items);
+          const copyOf = new Map(
+            items.map((item, index) => [item.id, copies[index]]),
+          );
+          await copyRejections(tx, copyOf);
           const links: CandidateSet[] = [];
-          for (const proposed of [false, true]) {
-            const originals = items.filter(
-              (item) => item.proposed === proposed,
+          for (const original of items) {
+            const garmentIds = (candidates.get(original.id) ?? []).map(
+              (candidate) => candidate.garmentId,
             );
-            const copies = await insertItems(
-              tx,
-              id,
-              originals.map(itemFields),
-              { proposed },
-            );
-            for (const [index, original] of originals.entries()) {
-              const garmentIds = (candidates.get(original.id) ?? []).map(
-                (candidate) => candidate.garmentId,
-              );
-              if (garmentIds.length > 0) {
-                links.push({ itemIds: [copies[index]], garmentIds });
-              }
+            if (garmentIds.length > 0 && original.review !== 'declined') {
+              links.push({ itemIds: [copyOf.get(original.id)!], garmentIds });
             }
           }
           if (links.length > 0) {
@@ -532,7 +580,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       }
       // addItems looks the plan up under the owner lock: no read before it.
       const added = await addItems(db, userId, planId, [form.fields], {
-        proposed: false,
+        review: 'accepted',
       });
       if (!added) throw planNotFound();
       const [itemId] = added;
@@ -582,7 +630,8 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         plan,
         {
           itemId: item.id,
-          proposed: item.proposed,
+          review: item.review,
+          ownerNote: item.ownerNote,
           values: storedItemValues(item),
         },
         userId,
@@ -591,7 +640,8 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // The owner's save rewrites the item whole and accepts it if their agent
-  // proposed it: reviewing a proposal in the form is accepting it.
+  // proposed it or it waits on a change: reviewing it in the form is
+  // accepting it. A declined item takes no save (a 409): Reconsider first.
   app.post(
     `${PLANS_PATH}/:id/items/:itemId`,
     { schema: { params: ItemParams, body: PlanItemBody } },
@@ -609,35 +659,118 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         plan.id,
         userId,
         form.fields,
-        {
-          proposed: false,
-        },
+        'owner',
       );
-      if (!saved) throw itemNotFound();
+      if (!saved.ok) {
+        if (saved.reason === 'not-found') throw itemNotFound();
+        throw new HttpError(409, t('plans.DECLINED_EDIT_HINT'));
+      }
       logger.info(
-        `Plan item ${item.id} of plan ${plan.id} updated by user ${userId}${item.proposed ? ' (proposal accepted)' : ''}`,
+        `Plan item ${item.id} of plan ${plan.id} updated by user ${userId}${saved.from === saved.to ? '' : ` (${saved.from} to ${saved.to})`}`,
       );
       return reply.redirect(`${planUrl(plan.id)}?saved=1`, 303);
     },
   );
 
+  /**
+   * The owner's review move `event` on item `itemId` of plan `id`
+   * (reviewItems asks the machine): its 404 when no item of the owner's
+   * plan, a 409 when the item's review does not take the move (a second
+   * tap, a stale page: it moved already), else back to the plan.
+   */
+  async function moveItem(
+    request: FastifyRequest,
+    { id, itemId }: { id: number; itemId: number },
+    reply: FastifyReply,
+    event: PlanItemReviewEvent,
+    note: string | null = null,
+  ): Promise<FastifyReply> {
+    const userId = sessionUserId(request);
+    const { moved, refused } = await reviewItems(db, userId, id, event, [
+      { itemId, note },
+    ]);
+    if (refused.length > 0) {
+      logger.warn(
+        `Plan item ${itemId} of plan ${id}: ${event} refused for user ${userId}, the item is ${refused[0].review}`,
+      );
+      throw new HttpError(409, t('plans.ALREADY_MOVED'));
+    }
+    if (moved.length === 0) throw await itemMiss(request, id);
+    logger.info(
+      `Plan item ${itemId} of plan ${id}: ${event} by user ${userId}${note ? ' with a note' : ''}`,
+    );
+    return reply.redirect(`${planUrl(id)}?saved=1`, 303);
+  }
+
   app.post(
     `${PLANS_PATH}/:id/items/:itemId/accept`,
     { schema: { params: ItemParams } },
+    (request, reply) => moveItem(request, request.params, reply, 'accept'),
+  );
+
+  // "Don't buy" (#278): declined, kept so the agent never proposes it again.
+  app.post(
+    `${PLANS_PATH}/:id/items/:itemId/decline`,
+    { schema: { params: ItemParams, body: DeclineItemBody } },
+    (request, reply) =>
+      moveItem(
+        request,
+        request.params,
+        reply,
+        'decline',
+        request.body?.note?.trim() || null,
+      ),
+  );
+
+  app.post(
+    `${PLANS_PATH}/:id/items/:itemId/reconsider`,
+    { schema: { params: ItemParams } },
+    (request, reply) => moveItem(request, request.params, reply, 'reconsider'),
+  );
+
+  // "Change this…" (#278): the note for the agent is required, so a form of
+  // its own (a blank note is the form again, 400).
+  app.get(
+    `${PLANS_PATH}/:id/items/:itemId/change`,
+    { schema: { params: ItemParams } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
-      const { id, itemId } = request.params;
-      if ((await acceptItems(db, [itemId], id, userId)).length === 0) {
-        throw await itemMiss(request, id);
-      }
-      logger.info(
-        `Plan item ${itemId} of plan ${id} accepted by user ${userId}`,
+      const { plan, item } = await requireItem(
+        request,
+        request.params.id,
+        request.params.itemId,
       );
-      return reply.redirect(`${planUrl(id)}?saved=1`, 303);
+      return renderPage(
+        reply,
+        <ChangeItemPage ctx={viewContext(reply)} model={{ plan, item }} />,
+      );
     },
   );
 
-  // htmx: the edit form's Delete and a proposal's Dismiss; back to the plan.
+  app.post(
+    `${PLANS_PATH}/:id/items/:itemId/change`,
+    { schema: { params: ItemParams, body: ChangeItemBody } },
+    async (request, reply) => {
+      const note = request.body.note.trim();
+      if (note === '') {
+        const { plan, item } = await requireItem(
+          request,
+          request.params.id,
+          request.params.itemId,
+        );
+        return renderPage(
+          reply,
+          <ChangeItemPage
+            ctx={viewContext(reply)}
+            model={{ plan, item, note: request.body.note, error: true }}
+          />,
+          { status: 400 },
+        );
+      }
+      return moveItem(request, request.params, reply, 'change', note);
+    },
+  );
+
+  // htmx: the edit form's Delete; back to the plan.
   app.delete(
     `${PLANS_PATH}/:id/items/:itemId`,
     { schema: { params: ItemParams } },

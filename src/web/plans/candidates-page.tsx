@@ -228,10 +228,13 @@ export function GarmentPlanItemsPage(props: {
                   ...STATUS_ORDER.flatMap((status) =>
                     gaps.groups[status].map(({ item }) => ({ item, status })),
                   ),
-                  ...gaps.proposed.map((item) => ({
-                    item,
-                    status: 'proposed' as const,
-                  })),
+                  // Not a declined item: it takes no candidate (#278).
+                  ...(['proposed', 'revise'] as const).flatMap((review) =>
+                    gaps.review[review].map((item) => ({
+                      item,
+                      status: review,
+                    })),
+                  ),
                 ].map(({ item, status }) => (
                   <ItemChoice
                     item={item}
@@ -257,11 +260,12 @@ const STATUS_LABELS = {
   partly: 'plans.PARTLY',
   owned: 'plans.OWNED',
   proposed: 'plans.PROPOSED',
+  revise: 'plans.REVISE',
 } as const;
 
 function ItemChoice(props: {
   item: PlanItemRow;
-  status: ItemStatus | 'proposed';
+  status: ItemStatus | 'proposed' | 'revise';
   checked: boolean;
 }) {
   const { item, status } = props;

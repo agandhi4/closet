@@ -260,7 +260,12 @@ describe('seed personas', () => {
         active: p.active,
         items: p.items.map(({ candidates, ...item }) => {
           const fields: Partial<typeof item> = { ...item };
-          for (const key of ['id', 'planId', 'createdAt'] as const) {
+          for (const key of [
+            'id',
+            'planId',
+            'createdAt',
+            'changedAt',
+          ] as const) {
             delete fields[key];
           }
           // Candidate products (#34b) by name: ids differ between runs.

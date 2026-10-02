@@ -199,6 +199,23 @@ describe('Styling with a plan (#273)', () => {
       expect(page).toContain('name="plan"');
     });
 
+    it('leaves out the candidates of an item the owner declined (#278)', async () => {
+      const declinedPlan = await planWithItems(undefined, 'Declined boots');
+      const items = await itemIds(declinedPlan);
+      const sneakers = await wishlistGarment('Sneakers', 'footwear');
+      await changeCandidates(t.db, ownerId, {
+        add: { itemIds: [items.get('footwear')!], garmentIds: [sneakers] },
+      });
+      await t.db
+        .update(planItem)
+        .set({ review: 'declined' })
+        .where(eq(planItem.id, items.get('footwear')!));
+      const page = (await get(`/styling?plan=${declinedPlan}`)).body;
+      // Not on any strip: the closet has no footwear, so no row at all.
+      expect(page).not.toContain(`data-snap-value="${sneakers}"`);
+      expect(page).not.toContain('data-to-buy');
+    });
+
     it('a role the closet has nothing of still gets its row, opened on No garment', async () => {
       const page = (await get(`/styling?plan=${planId}`)).body;
       const footwear = page.slice(page.indexOf('data-styling-row="footwear"'));

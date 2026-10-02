@@ -225,6 +225,78 @@ const ROUTES: Route[] = [
     },
   },
   {
+    name: 'GET /wardrobe/plans/:id/items/:itemId/change',
+    kind: 'read',
+    ok: 200,
+    secret: planName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/plans/${f.planId}/items/${f.planItemId}/change${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // #278: the fixture's proposal goes back to the agent with a note.
+    name: 'POST /wardrobe/plans/:id/items/:itemId/change',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/items/${f.planItemId}/change${q}`,
+      payload: { note: 'Darker, please' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/plans/:id/items/:itemId/decline',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/items/${f.planItemId}/decline${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // The fixture's declined item comes back as a proposal.
+    name: 'POST /wardrobe/plans/:id/items/:itemId/reconsider',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/items/${f.planDeclinedItemId}/reconsider${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
     name: 'GET /wardrobe/plans/:id/review',
     kind: 'read',
     ok: 200,

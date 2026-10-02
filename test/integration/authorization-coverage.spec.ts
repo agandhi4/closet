@@ -180,6 +180,7 @@ const ADDRESS: Fixture = {
   orderItemName: 'Ordered',
   weekPlanId: 118,
   inviteShareId: 119,
+  planDeclinedItemId: 120,
   photo: Buffer.alloc(0),
   cutout: Buffer.alloc(0),
   shopPhotoUrl: 'http://shop.test/photo.jpg',

@@ -355,7 +355,7 @@ async function writePlans(
       tx,
       id,
       plan.items.map((item) => item.fields),
-      { proposed: false },
+      { review: 'accepted' },
     );
     const links = plan.items.flatMap((item, index) =>
       item.candidates.length === 0

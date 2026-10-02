@@ -1,0 +1,1 @@
+ALTER TABLE "plan_item" DROP COLUMN "proposed";

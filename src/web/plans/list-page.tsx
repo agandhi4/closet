@@ -122,7 +122,8 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
  * the owner, with Review (#271).
  */
 function PlanCard({ gaps }: { gaps: PlanGaps }) {
-  const { plan, tally, proposed } = gaps;
+  const { plan, tally } = gaps;
+  const { proposed } = gaps.review;
   return (
     <li class="card bg-base-100 shadow-sm relative">
       <div class="card-body p-3 gap-1">

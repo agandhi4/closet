@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import type { PlanItemReview } from '../../wardrobe/plan-review';
 import { PLAN_PRIORITIES } from '../../wardrobe/plans';
 import {
   FORMALITIES,
@@ -29,13 +30,25 @@ import {
 } from './validation';
 import { CancelLink } from '../layout/parts';
 
+const EDIT_HINT = {
+  proposed: 'plans.PROPOSED_EDIT_HINT',
+  revise: 'plans.REVISE_EDIT_HINT',
+  declined: 'plans.DECLINED_EDIT_HINT',
+} as const;
+
 export interface ItemFormModel {
   planId: number;
   planName: string;
   /** Absent for a new item. */
   itemId?: number;
-  /** Proposed by the owner's agent: saving it here accepts it. */
-  proposed?: boolean;
+  /**
+   * Its review (absent for a new item): saving a proposal or an item sent
+   * back for a change accepts it; a declined one takes no save until the
+   * owner reconsiders it (the plan page).
+   */
+  review?: PlanItemReview;
+  /** The owner's note to the agent, shown with a revise or declined item. */
+  ownerNote?: string | null;
   values: PlanItemFormValues;
   errors?: FieldErrors<PlanItemField>;
   /** The category suggestions: the built-in ones, then the owner's closet's own (categorySuggestions). */
@@ -64,9 +77,14 @@ export function ItemFormPage(props: {
       <AppBar ctx={ctx} title={title} back={back} formPage />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         <p class="text-sm text-muted truncate mb-2">{model.planName}</p>
-        {model.proposed && (
+        {model.review !== undefined && model.review !== 'accepted' && (
           <p role="status" class="alert alert-info alert-soft text-sm my-3">
-            {t('plans.PROPOSED_EDIT_HINT')}
+            {t(EDIT_HINT[model.review])}
+            {model.ownerNote && (
+              <span class="block italic">
+                {t('plans.YOUR_NOTE', { note: model.ownerNote })}
+              </span>
+            )}
           </p>
         )}
         <PostForm
@@ -189,9 +207,15 @@ export function ItemFormPage(props: {
             </textarea>
           </Labelled>
           <div class="flex gap-2 mt-2">
-            <button type="submit" class="btn btn-primary flex-1">
-              {t(model.proposed ? 'plans.SAVE_AND_ACCEPT' : 'SAVE')}
-            </button>
+            {model.review !== 'declined' && (
+              <button type="submit" class="btn btn-primary flex-1">
+                {t(
+                  model.review === 'proposed' || model.review === 'revise'
+                    ? 'plans.SAVE_AND_ACCEPT'
+                    : 'SAVE',
+                )}
+              </button>
+            )}
             <CancelLink href={back} />
           </div>
         </PostForm>

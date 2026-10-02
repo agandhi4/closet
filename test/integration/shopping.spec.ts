@@ -766,7 +766,7 @@ describe('the shopping loop', () => {
       expect(item).toMatchObject({
         colors: ['red'],
         category: 'accessories',
-        proposed: false,
+        review: 'accepted',
       });
       const gaps = await get(`/wardrobe/plans/${planId}`, shopper);
       expect(gaps.body).toMatch(

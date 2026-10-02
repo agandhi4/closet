@@ -13,23 +13,35 @@ import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
 import { differencesText, itemFacts, itemTitle, priorityLabel } from './labels';
-import type { PlanDetail } from './queries';
+import type { PlanDetail, PlanItemRow } from './queries';
 import {
   defaultPick,
   offeredValue,
+  type PlanReview,
   pickValue,
+  type ReviewChoice,
+  type ReviewError,
   type ReviewPick,
   type ReviewStrip,
 } from './review';
+import { ITEM_NOTE_MAX, REJECT_REASON_MAX } from './validation';
 import type { ListedCandidate } from './shopping';
 import { planUrl, reviewUrl } from './urls';
 
 export interface ReviewPageModel {
   plan: PlanDetail;
-  strips: ReviewStrip[];
+  review: PlanReview;
   /** The post named items that changed since its page was drawn (a 400). */
   changed?: boolean;
+  /** A refused post's choices, by item (a 400): the strips start where the owner left them. */
+  posted?: ReadonlyMap<number, ReviewChoice>;
+  /** Why the post was refused, by item. */
+  errors?: ReadonlyMap<number, ReviewError>;
 }
+
+const ERROR_TEXT = {
+  'note-required': 'plans.REVIEW_NOTE_REQUIRED',
+} as const;
 
 export const REVIEW_FORM_ID = 'review-form';
 
@@ -44,15 +56,21 @@ initSnapStrips(document.getElementById('review-form'));`;
  * GET /wardrobe/plans/:id/review (#271): what the owner's agent proposed,
  * one strip per item (review.ts has the rule and the order), the centred
  * tile its pick, and one native post, "Accept these", deciding them all.
- * Each strip posts its item in `shown` beside its pick and the candidates
- * it drew in `offered`, so only what the page showed is decided or removed. Private: the signed-in owner's plan only.
+ * Each strip posts its item in `shown` beside its pick, its note for the
+ * agent and the candidates it drew in `offered`, each with its "Not this
+ * one" box and reason, so only what the page showed is decided or removed.
+ * Below, what waits apart (#278): the items sent back to the agent and
+ * those declined, with the owner's notes; Reconsider is the plan page's
+ * (a post of its own would lose the swipes made here). Private: the
+ * signed-in owner's plan only.
  */
 export function ReviewPage(props: {
   ctx: ViewContext;
   model: ReviewPageModel;
 }) {
   const { ctx, model } = props;
-  const { plan, strips } = model;
+  const { plan } = model;
+  const { strips, revise, declined } = model.review;
   const title = t('plans.REVIEW_TITLE', { name: plan.name });
   const anyCandidates = strips.some((strip) => strip.candidates.length > 0);
   return (
@@ -66,6 +84,11 @@ export function ReviewPage(props: {
             id="review-changed"
           >
             {t('plans.REVIEW_CHANGED')}
+          </div>
+        )}
+        {model.errors && model.errors.size > 0 && (
+          <div role="alert" class="alert alert-error mx-4" id="review-errors">
+            {t('plans.REVIEW_FIX_ERRORS')}
           </div>
         )}
         {strips.length === 0 ? (
@@ -99,7 +122,11 @@ export function ReviewPage(props: {
               )}
             </div>
             {strips.map((strip) => (
-              <ItemStrip strip={strip} />
+              <ItemStrip
+                strip={strip}
+                posted={model.posted?.get(strip.item.id)}
+                error={model.errors?.get(strip.item.id)}
+              />
             ))}
             <div class="px-4 flex flex-col gap-3">
               {anyCandidates && (
@@ -144,6 +171,18 @@ export function ReviewPage(props: {
             />
           </PostForm>
         )}
+        <WaitingApart
+          id="review-revise"
+          title={t('plans.REVISE')}
+          hint={t('plans.REVISE_HINT')}
+          items={revise}
+        />
+        <WaitingApart
+          id="review-declined"
+          title={t('plans.DECLINED')}
+          hint={t('plans.DECLINED_HINT')}
+          items={declined}
+        />
       </main>
       <Dock ctx={ctx} />
     </Layout>
@@ -151,14 +190,83 @@ export function ReviewPage(props: {
 }
 
 /**
- * An item's strip: what it is (title, quantity, facts, budget, priority,
- * the agent's note), then Skip, Keep and its candidates. The strip's input
- * is the item's `pick`; `shown` says the page showed it, `offered` which
- * candidates it drew.
+ * Items outside the strips, by review (revise, declined), each with the
+ * owner's note: read-only here, decided on the plan page. Nothing when
+ * there are none.
  */
-function ItemStrip({ strip }: { strip: ReviewStrip }) {
+function WaitingApart(props: {
+  id: string;
+  title: string;
+  hint: string;
+  items: PlanItemRow[];
+}) {
+  if (props.items.length === 0) return null;
+  return (
+    <section
+      class="px-4 flex flex-col gap-2"
+      id={props.id}
+      aria-labelledby={`${props.id}-title`}
+    >
+      <h2
+        id={`${props.id}-title`}
+        class="text-xs font-semibold uppercase tracking-wide text-muted"
+      >
+        {props.title} · {props.items.length}
+      </h2>
+      <p class="text-xs text-muted">{props.hint}</p>
+      <ul class="flex flex-col gap-1">
+        {props.items.map((item) => (
+          <li id={`review-item-${item.id}`} data-review={item.review}>
+            <a
+              href={planUrl(item.planId)}
+              class="link link-hover text-sm font-medium"
+            >
+              {itemTitle(item)}
+            </a>
+            {item.ownerNote && (
+              <p class="text-xs" data-owner-note>
+                {t('plans.YOUR_NOTE', { note: item.ownerNote })}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** The pick a strip starts on: the posted one when the page is drawn again, else its default. */
+function startingPick(
+  strip: ReviewStrip,
+  posted: ReviewChoice | undefined,
+): ReviewPick {
+  if (!posted) return defaultPick(strip);
+  const { pick } = posted;
+  // A posted candidate gone since (bought, unlinked) has no tile to start on.
+  return pick.kind !== 'candidate' ||
+    strip.candidates.some((c) => c.candidate.garmentId === pick.garmentId)
+    ? pick
+    : defaultPick(strip);
+}
+
+/**
+ * An item's strip: what it is (title, quantity, facts, budget, priority,
+ * the agent's note), then Don't buy, Change this…, Keep and its
+ * candidates, then the note for the agent (required with Change this,
+ * optional with Don't buy). The strip's input is the item's `pick`;
+ * `shown` says the page showed it, `offered` which candidates it drew.
+ * The note follows `shown` in the form's order, as each reason follows its
+ * `offered`, so the post pairs them (readReview).
+ */
+function ItemStrip(props: {
+  strip: ReviewStrip;
+  posted?: ReviewChoice;
+  error?: ReviewError;
+}) {
+  const { strip, posted, error } = props;
   const { item, candidates } = strip;
-  const chosen = pickValue(item.id, defaultPick(strip));
+  const chosen = pickValue(item.id, startingPick(strip, posted));
+  const noteId = `review-note-${item.id}`;
   const tile = (pick: ReviewPick) => {
     const value = pickValue(item.id, pick);
     return { value, selected: value === chosen, size: 'regular' as const };
@@ -216,15 +324,27 @@ function ItemStrip({ strip }: { strip: ReviewStrip }) {
       >
         <button
           type="button"
-          {...snapItem({ ...tile({ kind: 'skip' }), class: TILE })}
+          {...snapItem({ ...tile({ kind: 'decline' }), class: TILE })}
         >
           <span
             class={`${PLINTH} border border-dashed border-base-300 text-2xl text-muted`}
           >
             ✕
           </span>
-          <span class="text-xs font-medium">{t('plans.REVIEW_SKIP')}</span>
-          <span class={DETAILS}>{t('plans.REVIEW_SKIP_HINT')}</span>
+          <span class="text-xs font-medium">{t('plans.DONT_BUY')}</span>
+          <span class={DETAILS}>{t('plans.REVIEW_DECLINE_HINT')}</span>
+        </button>
+        <button
+          type="button"
+          {...snapItem({ ...tile({ kind: 'change' }), class: TILE })}
+        >
+          <span
+            class={`${PLINTH} border border-dashed border-base-300 text-2xl text-muted`}
+          >
+            ✎
+          </span>
+          <span class="text-xs font-medium">{t('plans.CHANGE_THIS')}</span>
+          <span class={DETAILS}>{t('plans.REVIEW_CHANGE_HINT')}</span>
         </button>
         <button
           type="button"
@@ -240,12 +360,36 @@ function ItemStrip({ strip }: { strip: ReviewStrip }) {
         </button>
         {candidates.map(({ candidate, budget }) => (
           <CandidateTile
+            itemId={item.id}
             candidate={candidate}
             budget={budget}
             tile={tile({ kind: 'candidate', garmentId: candidate.garmentId })}
+            rejected={posted?.rejected.has(candidate.garmentId) ?? false}
+            reason={posted?.rejected.get(candidate.garmentId) ?? ''}
           />
         ))}
       </SnapStrip>
+      <div class="px-4 flex flex-col gap-1">
+        <label for={noteId} class="text-xs text-muted">
+          {t('plans.REVIEW_NOTE_LABEL')}
+        </label>
+        <textarea
+          id={noteId}
+          name="note"
+          rows={2}
+          maxlength={ITEM_NOTE_MAX}
+          class={`textarea textarea-sm w-full ${error === 'note-required' ? 'textarea-error' : ''}`}
+          placeholder={t('plans.REVIEW_NOTE_PLACEHOLDER')}
+          aria-describedby={error ? `${noteId}-error` : undefined}
+        >
+          {posted?.note ?? ''}
+        </textarea>
+        {error && (
+          <p id={`${noteId}-error`} class="text-xs text-error" data-error>
+            {t(ERROR_TEXT[error])}
+          </p>
+        )}
+      </div>
     </section>
   );
 }
@@ -274,13 +418,18 @@ const BUDGET_TEXT: Record<
  * A candidate: its photo and name (a link to its wishlist page, which a
  * tap on the centred tile opens) and, under it while centred, its price
  * against the budget, whether it is the kind the item asks for and how
- * many outfits it makes with the closet (loaded once seen). A `div`, not
- * a link, so the count's own link is not nested in one.
+ * many outfits it makes with the closet (loaded once seen), and "Not this
+ * one" with an optional reason (#278). A `div`, not a link, so the count's
+ * own link is not nested in one. The reason input is drawn on every tile,
+ * centred or not, so each `offered` has its `rejectReason` to pair with.
  */
 function CandidateTile(props: {
+  itemId: number;
   candidate: ListedCandidate;
   budget: BudgetFit;
   tile: { value: string; selected: boolean; size: 'regular' };
+  rejected: boolean;
+  reason: string;
 }) {
   const { candidate, budget } = props;
   const name = candidate.name ?? categoryLabel(candidate.category);
@@ -334,6 +483,25 @@ function CandidateTile(props: {
           </span>
         )}
         <OutfitCountSlot garmentId={candidate.garmentId} inStrip />
+        <label class="flex items-center gap-1 text-base-content">
+          <input
+            type="checkbox"
+            name="reject"
+            value={offeredValue(props.itemId, candidate.garmentId)}
+            checked={props.rejected}
+            class="checkbox checkbox-xs"
+          />
+          {t('plans.NOT_THIS_ONE')}
+        </label>
+        <input
+          type="text"
+          name="rejectReason"
+          value={props.reason}
+          maxlength={REJECT_REASON_MAX}
+          class="input input-xs w-full"
+          placeholder={t('plans.REJECT_REASON_PLACEHOLDER')}
+          aria-label={t('plans.REJECT_REASON_LABEL', { name })}
+        />
       </span>
     </div>
   );
