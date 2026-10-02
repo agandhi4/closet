@@ -3034,6 +3034,7 @@ const tools: Step[] = [
   mcp('search_garments', () => ({ keyword: 'shirt' }), {
     label: 'search_garments (keyword)',
   }),
+  mcp('get_wardrobe', () => ({})),
   mcp('get_garment', (f) => ({ id: f.ids.garmentId })),
   mcp('get_garment_photo', (f) => ({ id: f.ids.garmentId })),
   mcp('update_garment', (f) => ({ id: f.ids.otherGarmentId, warmth: 3 })),

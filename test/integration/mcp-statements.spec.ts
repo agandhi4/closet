@@ -253,6 +253,10 @@ describe('MCP statements per tool (#172)', () => {
   const cases: [string, () => Record<string, unknown>, number][] = [
     ['get_today', () => ({}), 3], // 6: the weather twice, worn apart
     ['search_garments', () => ({ category: 'tops' }), 3],
+    // get_wardrobe: the garments, then every garment's wears in one
+    // grouped statement (`wearCountsByGarment`); a grantee's has the share read and no wears.
+    ['get_wardrobe', () => ({}), 3],
+    ['get_wardrobe', () => ({ ownerId: ids.dana }), 3],
     ['get_garment', () => ({ id: ids.garment }), 3], // 5
     ['get_garment_photo', () => ({ id: ids.garment }), 3],
     ['update_garment', () => ({ id: ids.other, warmth: 3 }), 5], // 7

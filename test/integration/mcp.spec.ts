@@ -270,6 +270,7 @@ describe('the MCP endpoint', () => {
           'get_style_profile',
           'get_today',
           'get_trip',
+          'get_wardrobe',
           'goes_with_closet',
           'laundry_status',
           'list_capsules',

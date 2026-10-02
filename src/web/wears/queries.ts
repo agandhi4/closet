@@ -132,6 +132,29 @@ export function wearSummarySql(
   )`;
 }
 
+/**
+ * Every garment of the owner's wears in one grouped read: the days worn
+ * (distinct days, as WearSummary.worn) and the last (WearSummary.lastWorn),
+ * keyed by garment id. A garment never worn has no entry. get_wardrobe
+ * (src/web/mcp/tools/garments.ts) reads it instead of a wearSummarySql per
+ * garment; insights' insightGarments counts the same way.
+ */
+export async function wearCountsByGarment(
+  db: Queryable,
+  ownerId: number,
+): Promise<Map<number, Pick<WearSummary, 'worn' | 'lastWorn'>>> {
+  const rows = await db
+    .select({
+      garmentId: garmentWear.garmentId,
+      worn: sql<number>`count(distinct ${garmentWear.day})::int`,
+      lastWorn: sql<IsoDate | null>`max(${garmentWear.day})::text`,
+    })
+    .from(garmentWear)
+    .where(eq(garmentWear.ownerId, ownerId))
+    .groupBy(garmentWear.garmentId);
+  return new Map(rows.map(({ garmentId, ...counts }) => [garmentId, counts]));
+}
+
 /** A garment as the wear line reads it (WearStatus, wear-section.tsx). */
 export type WearGarment = Pick<
   GarmentDetail,

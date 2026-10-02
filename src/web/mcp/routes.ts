@@ -28,11 +28,12 @@ const UNAUTHORIZED = { statusCode: 401, message: 'Unauthorized' };
 const INSTRUCTIONS = [
   "Closet is the user's self-hosted wardrobe: garments with properties, capsules, outfits, a calendar of planned and worn outfits, wardrobes shared with them, and the user's own wardrobe plans with their gaps and shopping list. Every tool acts as the user; a shared wardrobe is addressed by its owner's id (ownerId, from list_shared_wardrobes). Tools that write say so; nothing deletes.",
   'To style the wardrobe (what to add, what to buy):',
-  "1. Read first: get_style_profile (styles, budget band, palette, the week's occasions), search_garments (the closet), get_garment_photo for the pieces you need to see, and get_plan_gaps (what the active plan already asks for and lacks).",
-  '2. create_plan with a name and notes giving your rationale. It is your draft, never active, and the owner sees which connection drafted it; do not propose into a plan the owner made unless asked.',
-  "3. propose_plan_item per item, with the new plan's planId. An item is a target in the garment model's terms (category, type, colours, materials, warmth and formality ranges, quantity, priority, budget), not a product; its note says why the wardrobe needs it.",
-  `4. add_candidate with product URLs for an item, at most ${MAX_CANDIDATES_PER_ITEM} per item.`,
-  '5. goes_with_closet on each candidate: how it pairs with what the closet holds, and what it would duplicate.',
+  "1. Read first: get_style_profile (styles, budget band, palette, the week's occasions), get_wardrobe (the whole closet in one read; search_garments filters it), get_garment_photo for the pieces you need to see, and get_plan_gaps (what the active plan already asks for and lacks).",
+  "2. Build on what is owned: read wardrobe_stats too (what is worn, what idles). Do not propose what the closet already covers (get_plan_gaps shows what fulfils each item); propose real gaps, and treat pieces in replace_soon condition as gaps. In each item's note, name the closet pieces it is meant to pair with.",
+  '3. create_plan with a name and notes giving your rationale. It is your draft, never active, and the owner sees which connection drafted it; do not propose into a plan the owner made unless asked.',
+  "4. propose_plan_item per item, with the new plan's planId. An item is a target in the garment model's terms (category, type, colours, materials, warmth and formality ranges, quantity, priority, budget), not a product; its note says why the wardrobe needs it.",
+  `5. add_candidate with product URLs for an item, at most ${MAX_CANDIDATES_PER_ITEM} per item.`,
+  '6. goes_with_closet on each candidate: how it pairs with what the closet holds, and what it would duplicate.',
   'The owner reviews the plan, accepts or dismisses each item, and buys in the app. Never assume a purchase: a candidate stays on the wishlist until the owner marks it bought.',
 ].join('\n');
 
