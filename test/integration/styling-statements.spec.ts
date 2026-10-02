@@ -89,7 +89,7 @@ describe('Styling statements (#163)', () => {
     return [
       ...html
         .slice(start, end === -1 ? undefined : end)
-        .matchAll(/data-garment-id="(\d+)"/g),
+        .matchAll(/data-snap-value="(\d+)"/g),
     ].map((m) => Number(m[1]));
   };
 

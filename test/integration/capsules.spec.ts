@@ -692,8 +692,8 @@ describe('capsules', () => {
       // Tops: the oxford alone (the tee is newer but not in the capsule);
       // no bottoms in the capsule, so no bottoms row.
       expect(html).toContain('data-styling-row="top"');
-      expect(html).toContain(`data-garment-id="${ids.shirt}"`);
-      expect(html).not.toContain(`data-garment-id="${ids.tee}"`);
+      expect(html).toContain(`data-snap-value="${ids.shirt}"`);
+      expect(html).not.toContain(`data-snap-value="${ids.tee}"`);
       expect(html).not.toContain('data-styling-row="bottom"');
     });
 
@@ -704,12 +704,12 @@ describe('capsules', () => {
       );
       expect(inside.statusCode).toBe(200);
       expectFragment(inside);
-      expect(inside.body).toContain(`data-garment-id="${ids.shirt}"`);
-      expect(inside.body).not.toContain(`data-garment-id="${ids.tee}"`);
+      expect(inside.body).toContain(`data-snap-value="${ids.shirt}"`);
+      expect(inside.body).not.toContain(`data-snap-value="${ids.tee}"`);
       const closet = await get('/styling/garments?role=top&before=2147483647', {
         'hx-request': 'true',
       });
-      expect(closet.body).toContain(`data-garment-id="${ids.tee}"`);
+      expect(closet.body).toContain(`data-snap-value="${ids.tee}"`);
     });
 
     it('refuses someone else’s capsule and a malformed one', async () => {

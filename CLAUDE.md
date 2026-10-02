@@ -69,6 +69,7 @@ Each area's detail lives in a `CLAUDE.md` beside its code. Claude Code loads one
 | Weather | `src/weather/CLAUDE.md` | the forecast, climate normals, `/weather/*` |
 | Outfits | `src/web/outfits/CLAUDE.md` | outfits, deleting one, what holds one |
 | Styling | `src/web/styling/CLAUDE.md` | the outfit composer |
+| Snap strip | `src/web/strip/CLAUDE.md` | the scroll-snap carousel (`SnapStrip`, `snap-strip.js`) Styling and the plan review share |
 | Outfit gallery | `src/web/gallery/CLAUDE.md` | the Ideas tab and anything that suggests outfits (`ideasFor`) |
 | Today | `src/web/today/CLAUDE.md` | the home screen |
 | Weekly auto-plan | `src/web/week-plan/CLAUDE.md` | "Plan my week", the daily re-plan, `planned_by` |

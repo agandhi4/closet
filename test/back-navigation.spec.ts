@@ -89,11 +89,11 @@ test('Styling, a garment, back: Styling with its rows as they were', async ({
   const tops = page.locator('[data-styling-row="top"]').first();
   const chosen = tops.locator('input[name="garmentId"]');
   await expect(chosen).toHaveValue(String(newTee));
-  await tops.locator(`[data-garment-id="${oldTee}"]`).click();
+  await tops.locator(`[data-snap-value="${oldTee}"]`).click();
   await expect(chosen).toHaveValue(String(oldTee));
 
   // A tap on the chosen garment opens its page.
-  await tapCentredItem(page, tops.locator(`[data-garment-id="${oldTee}"]`));
+  await tapCentredItem(page, tops.locator(`[data-snap-value="${oldTee}"]`));
   await expect(page).toHaveURL(new RegExp(`/wardrobe/${oldTee}$`));
   await expect(page.locator('h1')).toHaveText('Old tee');
 
@@ -152,7 +152,7 @@ test('Styling, a garment, Edit, Save, back: Styling, never the form', async ({
   await page.goto('/styling');
 
   const tops = page.locator('[data-styling-row="top"]').first();
-  await tapCentredItem(page, tops.locator(`[data-garment-id="${tee}"]`));
+  await tapCentredItem(page, tops.locator(`[data-snap-value="${tee}"]`));
   await expect(page).toHaveURL(new RegExp(`/wardrobe/${tee}$`));
 
   const menu = await openGarmentMenu(page);

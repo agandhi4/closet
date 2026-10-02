@@ -26,9 +26,10 @@ import { AppStatus } from './app-status';
 const HTMX_CONFIG = { disableInheritance: true, historyCacheSize: 3 };
 
 // Bare specifiers for every ES module the pages import, so the versioned URL
-// lives here once. Page-specific modules (Styling's styling, the garment
-// page's mask-editor and photo-input, select mode's select-count, the
-// recap's recap-export) are only fetched by the page that imports them.
+// lives here once. Page-specific modules (the snap strip's snap-strip, which
+// Styling's styling imports, the garment page's mask-editor and photo-input,
+// select mode's select-count, the recap's recap-export) are only fetched by
+// the page that imports them.
 function importMap(version: string) {
   const v = `?v=${version}`;
   return {
@@ -40,6 +41,7 @@ function importMap(version: string) {
       toast: `/js/toast.js${v}`,
       'mask-editor': `/js/mask-editor.js${v}`,
       'photo-input': `/js/photo-input.js${v}`,
+      'snap-strip': `/js/snap-strip.js${v}`,
       styling: `/js/styling.js${v}`,
       locate: `/js/locate.js${v}`,
       push: `/js/push.js${v}`,

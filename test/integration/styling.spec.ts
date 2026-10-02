@@ -60,7 +60,7 @@ function rowOf(html: string, role: string): string {
 
 /** A row's strip: the garment ids after "No garment", in order. */
 function stripOf(html: string, role: string): number[] {
-  return [...rowOf(html, role).matchAll(/data-garment-id="(\d+)"/g)].map((m) =>
+  return [...rowOf(html, role).matchAll(/data-snap-value="(\d+)"/g)].map((m) =>
     Number(m[1]),
   );
 }
@@ -74,7 +74,7 @@ function reachableOf(html: string, role: string): (number | null)[] {
     .map((m) => m[0])
     .filter((tag) => tag.includes('styling-item') && !tag.includes(' inert'))
     .map((tag) => {
-      const id = /data-garment-id="(\d*)"/.exec(tag)![1];
+      const id = /data-snap-value="(\d*)"/.exec(tag)![1];
       return id ? Number(id) : null;
     });
 }
@@ -283,7 +283,7 @@ describe('Styling', () => {
         // wishlist item is in none.
         expect(stripOf(res.body, 'top')).toEqual([dirtyTee, tops[1], tops[0]]);
         expect(stripOf(res.body, 'none')).toEqual([umbrella]);
-        expect(res.body).not.toContain(`data-garment-id="${wishlistTee}"`);
+        expect(res.body).not.toContain(`data-snap-value="${wishlistTee}"`);
         // Save opens the sheet; the dock lights Style.
         expect(res.body).toContain('id="styling-save"');
         expect(res.body).toMatch(
@@ -332,7 +332,7 @@ describe('Styling', () => {
         });
         expect(next.statusCode).toBe(200);
         expectFragment(next);
-        const rest = [...next.body.matchAll(/data-garment-id="(\d+)"/g)].map(
+        const rest = [...next.body.matchAll(/data-snap-value="(\d+)"/g)].map(
           (m) => Number(m[1]),
         );
         expect(rest).toEqual([socks[1], socks[0], belt]);
@@ -458,7 +458,7 @@ describe('Styling', () => {
         });
         const res = await shuffle([['top', theirs, true]]);
         expect(res.statusCode).toBe(200);
-        expect(res.body).not.toContain(`data-garment-id="${theirs}"`);
+        expect(res.body).not.toContain(`data-snap-value="${theirs}"`);
         expect(rowsOf(res.body)).toContainEqual([
           'top',
           expect.any(Number),

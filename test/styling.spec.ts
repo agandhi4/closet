@@ -48,7 +48,7 @@ async function tap(page: Page, rowLocator: Locator, garmentId: string) {
   );
   const box = (await strip.boundingBox())!;
   const item = (await strip
-    .locator(`[data-garment-id="${garmentId}"]`)
+    .locator(`[data-snap-value="${garmentId}"]`)
     .boundingBox())!;
   const left = Math.max(box.x, item.x);
   const right = Math.min(box.x + box.width, item.x + item.width);
@@ -122,7 +122,7 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
   const tops = row(page, 'top');
   await expect(chosen(tops)).toHaveValue(String(g.newTee));
   await expect(tops.locator('[data-selected]')).toHaveAttribute(
-    'data-garment-id',
+    'data-snap-value',
     String(g.newTee),
   );
 
@@ -199,7 +199,7 @@ const frames = (page: Page, count: number) =>
 
 /**
  * The strip items Tab reaches from `rowLocator`'s lock until the focus
- * leaves the row (#146): their `data-garment-id`s, "" for "No garment".
+ * leaves the row (#146): their `data-snap-value`s, "" for "No garment".
  * Items only: Firefox also stops on the strip itself (a scroll container),
  * Chromium does not.
  */
@@ -212,7 +212,7 @@ async function tabbedItems(page: Page, rowLocator: Locator) {
       const el = document.activeElement;
       if (!el || !row.contains(el)) return { left: true, item: null };
       const item = el.matches('.styling-item')
-        ? el.getAttribute('data-garment-id')
+        ? el.getAttribute('data-snap-value')
         : null;
       return { left: false, item };
     });
@@ -244,9 +244,9 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
   // fling on its own, so a swipe moves one item at a time.
   const tops = row(page, 'top');
   const plinth = (id: number) =>
-    tops.locator(`[data-garment-id="${id}"] > span`).first();
+    tops.locator(`[data-snap-value="${id}"] > span`).first();
   await expect(tops.locator('[aria-selected="true"]')).toHaveAttribute(
-    'data-garment-id',
+    'data-snap-value',
     String(g.newTee),
   );
   await expect(plinth(g.newTee)).not.toHaveCSS('box-shadow', 'none');
@@ -285,7 +285,7 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
   // the strip comes back and the choice never moves.
   for (const item of [
     tops.locator('.styling-item').first(),
-    tops.locator(`[data-garment-id="${g.oldTee}"]`),
+    tops.locator(`[data-snap-value="${g.oldTee}"]`),
   ]) {
     await item.evaluate((el) =>
       el.scrollIntoView({ inline: 'center', block: 'nearest' }),
@@ -296,7 +296,7 @@ test('the chosen garment is ringed, and a locked row is frozen until unlocked (#
     expect(await chosen(tops).inputValue()).toBe(String(g.newTee));
   }
   await expect(tops.locator('[aria-selected="true"]')).toHaveAttribute(
-    'data-garment-id',
+    'data-snap-value',
     String(g.newTee),
   );
 

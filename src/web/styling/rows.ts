@@ -15,7 +15,7 @@ import type { SignablePhotoRef } from '../files/image-url';
  * A row is a role and its state: which garment is centred (null: "No
  * garment") and whether it is locked (Shuffle leaves it alone). The rows
  * are the state; the browser moves the centred garment by scrolling
- * (public/js/styling.js) and posts the state back for Shuffle and Save.
+ * (public/js/snap-strip.js) and posts the state back for Shuffle and Save.
  */
 
 /** Garments per strip page: one centred at phone width, its neighbours, and room to swipe. */

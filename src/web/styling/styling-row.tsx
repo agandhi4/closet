@@ -3,6 +3,7 @@ import { imageUrl } from '../files/image-url';
 import { t, type StringKey } from '../i18n';
 import { HangerIcon } from '../layout/parts';
 import { categoryLabel } from '../wardrobe/garment';
+import { SnapStrip, snapItem, type SnapSize } from '../strip/snap-strip';
 import { garmentUrl } from '../wardrobe/urls';
 import type { RowGarment, StylingRow } from './rows';
 import { STYLING_GARMENTS_PATH, type StylingState, stylingUrl } from './urls';
@@ -10,12 +11,12 @@ import { STYLING_GARMENTS_PATH, type StylingState, stylingUrl } from './urls';
 /**
  * A Styling row (#42): a role's strip of garments, scroll-snap with the
  * neighbours peeking, "No garment" first; the centred garment is the row's
- * choice. Swiping is the browser's own scrolling (no touch handlers): the
- * page's module (public/js/styling.js) watches which item crosses the
- * strip's centre line and writes it into the row's `garmentId`, which is
- * what Save and Shuffle post, with `role` and `lock`, one of each per row
- * in document order. The server marks the chosen item `data-selected`; the
- * module centres it on load, after a swap and after a history restore.
+ * choice. The strip is the shared snap strip (src/web/strip/): swiping is
+ * the browser's own scrolling (no touch handlers) and its observer writes
+ * the centred item into the row's `garmentId`, which is what Save and
+ * Shuffle post, with `role` and `lock`, one of each per row in document
+ * order. The server marks the chosen item `data-selected`; the observer
+ * centres it on load, after a swap and after a history restore.
  *
  * What the row shows is CSS off that state (#106): the chosen item's plinth
  * wears a ring (PLINTH_STATE), and a locked row is frozen: its strip stops
@@ -44,29 +45,9 @@ export function roleLabel(role: GarmentRole): string {
 /** Accessories, bags and the rest ride along: smaller items, so the outfit leads. */
 const SMALL: readonly GarmentRole[] = ['accessory', 'bag', 'none'];
 
-/**
- * An item's width and the strip's end spacers go together: each spacer is
- * half the strip less half an item and the strip's gap (`gap-3`, 0.75rem,
- * also falls between a spacer and its item), so the first and last items
- * can be centred and the neighbours peek in what is left. Spacers, not
- * padding (#179): WebKit leaves a flex scroller's end padding out of its
- * scrollable width when the items alone fit, so a row of "No garment" and
- * one garment could not scroll at all in Safari and the garment was never
- * chosen. The width is fixed, not a percentage: a flex item's percentage
- * would resolve against the strip, not the item's share of it.
- */
-function sizing(role: GarmentRole): { item: string; strip: string } {
-  return SMALL.includes(role)
-    ? {
-        item: 'w-20',
-        strip:
-          'before:w-[calc(50%-3.25rem)] after:w-[calc(50%-3.25rem)] before:shrink-0 after:shrink-0',
-      }
-    : {
-        item: 'w-28',
-        strip:
-          'before:w-[calc(50%-4.25rem)] after:w-[calc(50%-4.25rem)] before:shrink-0 after:shrink-0',
-      };
+/** The strip's item size; see `SnapSize` for how it and the end spacers go together. */
+function sizing(role: GarmentRole): SnapSize {
+  return SMALL.includes(role) ? 'small' : 'regular';
 }
 
 /**
@@ -79,7 +60,7 @@ const PLINTH_STATE =
   'ring-inset group-data-selected/item:ring-2 group-data-selected/item:ring-primary group-data-selected/item:group-has-[.styling-lock:checked]/row:ring-accent group-not-data-selected/item:group-has-[.styling-lock:checked]/row:opacity-40';
 
 /**
- * An item's choice attributes. In a locked row the neighbours are `inert`
+ * An item's lock attribute. In a locked row the neighbours are `inert`
  * (#146): a frozen strip cannot scroll to reveal one, so Tab reaching it
  * left the focus off-screen; inert takes them out of the tab order, out of
  * the accessibility tree (they are not choosable, so the listbox offers the
@@ -89,12 +70,8 @@ const PLINTH_STATE =
  * when the lock is toggled and when a strip's next page arrives
  * (`syncLock`).
  */
-function itemState(props: { selected: boolean; locked: boolean }) {
-  return {
-    'data-selected': props.selected ? '' : undefined,
-    'aria-selected': props.selected ? 'true' : 'false',
-    inert: props.locked && !props.selected,
-  } as const;
+function itemInert(props: { selected: boolean; locked: boolean }) {
+  return { inert: props.locked && !props.selected } as const;
 }
 
 /** What a row's links and sentinel need of the page. */
@@ -110,7 +87,7 @@ export function StylingRowView(props: {
 }) {
   const { row, context } = props;
   const label = roleLabel(row.role);
-  const { strip } = sizing(row.role);
+  const size = sizing(row.role);
   return (
     <section
       class="group/row flex flex-col gap-1"
@@ -123,10 +100,12 @@ export function StylingRowView(props: {
         </h2>
         <LockToggle locked={row.locked} label={label} />
       </div>
-      <div
-        class={`styling-strip relative flex gap-3 overflow-x-auto snap-x snap-mandatory overscroll-x-contain group-has-[.styling-lock:checked]/row:overflow-x-hidden group-has-[.styling-lock:checked]/row:touch-pan-y group-has-[.styling-lock:checked]/row:touch-pinch-zoom ${strip}`}
-        role="listbox"
-        aria-label={t('styling.STRIP_LABEL', { role: label })}
+      <SnapStrip
+        name="garmentId"
+        value={row.garmentId?.toString() ?? ''}
+        size={size}
+        label={t('styling.STRIP_LABEL', { role: label })}
+        class="styling-strip group-has-[.styling-lock:checked]/row:overflow-x-hidden group-has-[.styling-lock:checked]/row:touch-pan-y group-has-[.styling-lock:checked]/row:touch-pinch-zoom"
       >
         <NoGarment
           role={row.role}
@@ -150,9 +129,8 @@ export function StylingRowView(props: {
             context={context}
           />
         )}
-      </div>
+      </SnapStrip>
       <input type="hidden" name="role" value={row.role} />
-      <input type="hidden" name="garmentId" value={row.garmentId ?? ''} />
       <input type="hidden" name="lock" value={row.locked ? '1' : ''} />
     </section>
   );
@@ -219,14 +197,16 @@ function NoGarment(props: {
   selected: boolean;
   locked: boolean;
 }) {
-  const { item } = sizing(props.role);
   return (
     <button
       type="button"
-      class={`styling-item group/item snap-center snap-always shrink-0 ${item} flex flex-col gap-1`}
-      role="option"
-      data-garment-id=""
-      {...itemState(props)}
+      {...snapItem({
+        value: '',
+        selected: props.selected,
+        size: sizing(props.role),
+        class: 'styling-item flex flex-col gap-1',
+      })}
+      {...itemInert(props)}
     >
       <span
         class={`aspect-square w-full rounded-box border border-dashed border-base-300 flex items-center justify-center text-faint text-2xl ${PLINTH_STATE}`}
@@ -241,7 +221,7 @@ function NoGarment(props: {
 /**
  * A garment on the plinth, its cutout contained (never cropped). A tap on
  * the centred one opens its page; a tap on a neighbour centres it
- * (styling.js). The strips show the 400 px thumb, made from the cutout.
+ * (snap-strip.js). The strips show the 400 px thumb, made from the cutout.
  */
 function GarmentItem(props: {
   garment: RowGarment;
@@ -252,14 +232,16 @@ function GarmentItem(props: {
   viewOwner: number | undefined;
 }) {
   const { garment } = props;
-  const { item } = sizing(props.role);
   return (
     <a
       href={garmentUrl(garment.id, props.viewOwner)}
-      class={`styling-item group/item snap-center snap-always shrink-0 ${item} flex flex-col gap-1 no-underline`}
-      role="option"
-      data-garment-id={garment.id}
-      {...itemState(props)}
+      {...snapItem({
+        value: String(garment.id),
+        selected: props.selected,
+        size: sizing(props.role),
+        class: 'styling-item flex flex-col gap-1 no-underline',
+      })}
+      {...itemInert(props)}
     >
       <span
         class={`aspect-square w-full rounded-box bg-base-200 flex items-center justify-center p-2 ${PLINTH_STATE}`}
