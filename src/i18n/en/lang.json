@@ -820,7 +820,7 @@
     "YOUR_NOTE": "Your note: {note}",
     "ALREADY_MOVED": "This item has already moved on. Go back to the plan to see where it stands.",
     "NOT_THIS_ONE": "Not this one",
-    "REJECT_REASON_PLACEHOLDER": "Why not? (optional)",
+    "REJECT_REASON_PLACEHOLDER": "Why not?",
     "REJECT_REASON_LABEL": "Why not {name}",
     "REVIEW": "Review",
     "REVIEW_TITLE": "Review {name}",

@@ -201,7 +201,14 @@ test('Change this with a note, and Not this one on a candidate, in one post', as
   await expect(coatPick).toHaveValue(`${coat}:keep`);
   await swipe(coat, -1);
   await expect(coatPick).toHaveValue(`${coat}:change`);
-  await page.locator(`#review-note-${coat}`).fill('Wool, and longer');
+  // A non-product tile centred: the products' reserved details are dropped,
+  // so the note sits right under the tiles (#284).
+  const coatStrip = page.locator(`#review-item-${coat} [data-snap-strip]`);
+  const coatNote = page.locator(`#review-note-${coat}`);
+  const stripBox = (await coatStrip.boundingBox())!;
+  const noteBox = (await coatNote.boundingBox())!;
+  expect(noteBox.y - (stripBox.y + stripBox.height)).toBeLessThan(60);
+  await coatNote.fill('Wool, and longer');
 
   // The boots: the cheaper pair starts centred; turn that very pair down with
   // a reason, without swiping away. A rejected pick reads as Keep.
@@ -222,9 +229,15 @@ test('Change this with a note, and Not this one on a candidate, in one post', as
   await page.mouse.click(tick.x + tick.width / 2, tick.y + tick.height / 2);
   await expect(notThisOne).toBeChecked();
   await expect(bootsPick).toHaveValue(`${boots}:${shiny}`);
-  await shinyTile
-    .getByRole('textbox', { name: 'Why not Shiny black boots' })
-    .fill('Too shiny');
+  const reason = shinyTile.getByRole('textbox', {
+    name: 'Why not Shiny black boots',
+  });
+  await expect(reason).toHaveAttribute('placeholder', 'Why not?');
+  // The placeholder fits the field.
+  expect(await reason.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+    true,
+  );
+  await reason.fill('Too shiny');
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);

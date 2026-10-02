@@ -327,6 +327,7 @@ function ItemStrip(props: {
         value={chosen}
         size="regular"
         label={t('plans.REVIEW_STRIP_LABEL', { item: title })}
+        class="group/review"
       >
         <button
           type="button"
@@ -401,6 +402,15 @@ function ItemStrip(props: {
 }
 
 /**
+ * A product's details reserve their height on its neighbours so the strip
+ * does not jump between products, but are dropped while Don't buy, Change
+ * this or Keep is centred: those tiles' hints are short, and the reserved
+ * height would be an empty gap under them. Needs `group/review` on the strip.
+ */
+const HIDE_UNLESS_CENTRED =
+  'group-not-has-[[data-candidate][data-selected]]/review:hidden';
+
+/**
  * A candidate: its photo and name (a link to its wishlist page, which a
  * tap on the centred tile opens) and, under it while centred, its price
  * against the budget, whether it is the kind the item asks for and how
@@ -426,7 +436,7 @@ function CandidateTile(props: {
       data-matches={String(candidate.matches)}
     >
       <CandidateFace candidate={candidate} selected={props.tile.selected} />
-      <span class={DETAILS}>
+      <span class={`${DETAILS} ${HIDE_UNLESS_CENTRED}`}>
         <PriceLine candidate={candidate} budget={budget} />
         {candidate.matches ? (
           <span>{t('plans.REVIEW_MATCHES')}</span>
@@ -444,7 +454,7 @@ function CandidateTile(props: {
             name="reject"
             value={offeredValue(props.itemId, candidate.garmentId)}
             checked={props.rejected}
-            class="checkbox checkbox-xs"
+            class="checkbox checkbox-sm"
           />
           {t('plans.NOT_THIS_ONE')}
         </label>
