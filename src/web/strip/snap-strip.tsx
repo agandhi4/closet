@@ -39,16 +39,25 @@ export type SnapSize = keyof typeof SIZES;
  * chosen item's value into. The observer pairs them by position (the input is
  * the strip's `nextElementSibling`), so any number of strips can share a
  * container. `value` is the item chosen on the
- * server (`data-selected`, see `snapItem`); "" when none is.
+ * server (`data-selected`, see `snapItem`); "" when none is. A strip given no
+ * `name` has no input: the observer still marks the centred item and writes
+ * nothing.
  *
  * `class` adds to the strip (a page's own freezing or hooks); the strip is
  * `relative`, a flex row and `overscroll-x-contain`.
  */
 export function SnapStrip(props: {
-  name: string;
-  value: string;
+  /** The hidden input's name; none when nothing reads the choice. */
+  name?: string;
+  value?: string;
   size: SnapSize;
   label: string;
+  /**
+   * False for a strip that is not a choice (the shopping list's: its tiles
+   * hold links, which an `option` would hide from screen readers): a plain
+   * group, and `snapItem({ listbox: false })` on its items.
+   */
+  listbox?: boolean;
   class?: string;
   children?: Child;
 }) {
@@ -61,13 +70,15 @@ export function SnapStrip(props: {
     <>
       <div
         class={classes.filter(Boolean).join(' ')}
-        role="listbox"
+        role={props.listbox === false ? 'group' : 'listbox'}
         aria-label={props.label}
         data-snap-strip=""
       >
         {props.children}
       </div>
-      <input type="hidden" name={props.name} value={props.value} />
+      {props.name !== undefined && (
+        <input type="hidden" name={props.name} value={props.value ?? ''} />
+      )}
     </>
   );
 }
@@ -83,8 +94,11 @@ export function snapItem(props: {
   value: string;
   selected: boolean;
   size: SnapSize;
+  /** False in a strip that is not a listbox: no `option` role or `aria-selected`. */
+  listbox?: boolean;
   class?: string;
 }) {
+  const option = props.listbox !== false;
   return {
     class: [
       'snap-item group/item snap-center snap-always shrink-0',
@@ -93,10 +107,10 @@ export function snapItem(props: {
     ]
       .filter(Boolean)
       .join(' '),
-    role: 'option',
+    role: option ? 'option' : undefined,
     'data-snap-item': '',
     'data-snap-value': props.value,
     'data-selected': props.selected ? '' : undefined,
-    'aria-selected': props.selected ? 'true' : 'false',
+    'aria-selected': option ? (props.selected ? 'true' : 'false') : undefined,
   } as const;
 }

@@ -609,6 +609,36 @@ describe('the shopping loop', () => {
           `id="candidate-${wish.navyBoots}" data-budget="within" data-matches="false"`,
         ),
       );
+      // Each item with candidates is a strip (#272) of them in that order,
+      // the first centred; the item without any has "Add a product" and no
+      // strip. Nothing is posted: no form on the page.
+      const strip = (itemId: number) =>
+        new RegExp(
+          `id="shopping-item-${itemId}"[^]*?(?=id="shopping-item-|</ul>)`,
+        ).exec(html)![0];
+      const tiles = (itemId: number) =>
+        [...strip(itemId).matchAll(/data-snap-value="(\d+)"/g)].map(([, id]) =>
+          Number(id),
+        );
+      expect(tiles(items.merino)).toEqual([wish.merino, wish.merino2]);
+      expect(tiles(items.boots)).toEqual([wish.blackBoots, wish.navyBoots]);
+      expect(tiles(items.oxford)).toEqual([]);
+      expect(html.match(/data-snap-strip/g)).toHaveLength(2);
+      expect(html).toContain('Candidates for Grey merino crewneck');
+      expect(strip(items.boots)).toMatch(
+        new RegExp(`data-snap-value="${wish.blackBoots}" data-selected`),
+      );
+      expect(strip(items.boots)).not.toMatch(
+        new RegExp(`data-snap-value="${wish.navyBoots}" data-selected`),
+      );
+      // Not a choice: a group of tiles holding links, and nothing hidden to post.
+      expect(strip(items.boots)).toContain('role="group"');
+      expect(strip(items.boots)).not.toContain('role="option"');
+      expect(strip(items.boots)).not.toContain('type="hidden"');
+      expect(strip(items.oxford)).toContain('+ Add a product');
+      expect(strip(items.merino)).toContain('+ Add a candidate');
+      expect(html).not.toContain('<form');
+      expect(html).toContain(`href="/styling?plan=${planId}"`);
       expect(html).toContain('Doesn’t match the item: blue vs black');
       expect(html).toContain('href="https://shop.example/merino"');
       expect(html).toContain(`href="/wardrobe/${wish.merino}/bought"`);

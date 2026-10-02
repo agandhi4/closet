@@ -1,17 +1,23 @@
 import type { BudgetFit } from '../../wardrobe/shopping';
 import { PostForm } from '../auth/form';
-import { imageUrl } from '../files/image-url';
 import { OutfitCountSlot } from '../gallery/goes-with';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { EmptyState, HangerIcon } from '../layout/parts';
+import { EmptyState } from '../layout/parts';
 import { SnapStrip, snapItem } from '../strip/snap-strip';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
-import { categoryLabel, priceLabel } from '../wardrobe/garment';
-import { garmentUrl } from '../wardrobe/urls';
+import { priceLabel } from '../wardrobe/garment';
+import {
+  CandidateFace,
+  candidateName,
+  DETAILS,
+  PLINTH,
+  PriceLine,
+  TILE,
+} from './candidate-tile';
 import { differencesText, itemFacts, itemTitle, priorityLabel } from './labels';
 import type { PlanDetail, PlanItemRow } from './queries';
 import {
@@ -394,26 +400,6 @@ function ItemStrip(props: {
   );
 }
 
-const TILE = 'flex flex-col gap-1 text-left';
-/** The square every tile draws on; ringed when it is the strip's pick. */
-const PLINTH =
-  'aspect-square w-full rounded-box flex items-center justify-center ring-inset group-data-selected/item:ring-2 group-data-selected/item:ring-primary';
-/**
- * What is said under the centred tile only: the neighbours keep the space
- * (invisible, not hidden), so the strip does not jump as the pick moves.
- */
-const DETAILS =
-  'text-xs text-muted invisible group-data-selected/item:visible flex flex-col gap-0.5';
-
-const BUDGET_TEXT: Record<
-  BudgetFit,
-  'shopping.WITHIN_BUDGET' | 'shopping.OVER_BUDGET' | null
-> = {
-  within: 'shopping.WITHIN_BUDGET',
-  over: 'shopping.OVER_BUDGET',
-  unknown: null,
-};
-
 /**
  * A candidate: its photo and name (a link to its wishlist page, which a
  * tap on the centred tile opens) and, under it while centred, its price
@@ -432,47 +418,16 @@ function CandidateTile(props: {
   reason: string;
 }) {
   const { candidate, budget } = props;
-  const name = candidate.name ?? categoryLabel(candidate.category);
-  const budgetText = BUDGET_TEXT[budget];
+  const name = candidateName(candidate);
   return (
     <div
       {...snapItem({ ...props.tile, class: TILE })}
       data-candidate={String(candidate.garmentId)}
       data-matches={String(candidate.matches)}
     >
-      <a
-        href={garmentUrl(candidate.garmentId, undefined)}
-        class="flex flex-col gap-1 no-underline"
-      >
-        <span class={`${PLINTH} bg-base-200 p-2`}>
-          {candidate.photo ? (
-            <img
-              src={imageUrl(candidate.photo, 'thumb')}
-              alt=""
-              class="max-h-full max-w-full object-contain"
-              width="200"
-              height="200"
-              loading={props.tile.selected ? 'eager' : 'lazy'}
-              decoding="async"
-            />
-          ) : (
-            <HangerIcon class="size-10 text-faint" strokeWidth="1" />
-          )}
-        </span>
-        <span class="text-xs font-medium truncate">{name}</span>
-      </a>
+      <CandidateFace candidate={candidate} selected={props.tile.selected} />
       <span class={DETAILS}>
-        {candidate.price && (
-          <span class="text-base-content">
-            {priceLabel(candidate.price)}
-            {budgetText && (
-              <span class={budget === 'over' ? 'text-warning' : 'text-success'}>
-                {' · '}
-                {t(budgetText)}
-              </span>
-            )}
-          </span>
-        )}
+        <PriceLine candidate={candidate} budget={budget} />
         {candidate.matches ? (
           <span>{t('plans.REVIEW_MATCHES')}</span>
         ) : (

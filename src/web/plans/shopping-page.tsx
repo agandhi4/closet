@@ -8,10 +8,13 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { EmptyState, GarmentThumb } from '../layout/parts';
+import { EmptyState } from '../layout/parts';
+import { SnapStrip, snapItem } from '../strip/snap-strip';
+import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
-import { categoryLabel, priceLabel } from '../wardrobe/garment';
+import { priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
+import { CandidateFace, DETAILS, PriceLine, TILE } from './candidate-tile';
 import { differencesText, itemFacts, itemTitle, priorityLabel } from './labels';
 import type { PlanDetail, PlanItemRow } from './queries';
 import type { ListedCandidate, PlanShoppingList } from './shopping';
@@ -25,15 +28,23 @@ export interface ShoppingPageModel {
 
 type Entry = ShoppingEntry<PlanItemRow, ListedCandidate>;
 
+// The shared strip's observer (public/js/snap-strip.js): an inline module, so
+// it runs again after a boosted navigation brings the page (a <script src>
+// module runs once per document). A fixed string with nothing interpolated.
+const SHOPPING_INIT = `import { initSnapStrips } from 'snap-strip';
+initSnapStrips(document.getElementById('shopping-list'));`;
+
 /**
  * GET /wardrobe/shopping (34b): what the owner opens in a store. The active
  * plan's missing and partly owned items (another plan's with `?plan=`),
  * the highest priority first, each with how many to buy, the budget per
- * piece and its candidate products (photo, name, price against the
- * budget, the product link, "Bought it"), and at the top what it all adds
- * up to. Phone-first: one column of cards, every action a plain link. A
- * candidate is added from the item ("Add a candidate": a link, a photo, or
- * something already on the wishlist). Private: the signed-in owner's.
+ * piece and its candidate products as a snap strip (#272, the plan
+ * review's pattern): the centred tile carries its price against the
+ * budget, the product link and "Bought it". At the top what it all adds up
+ * to and "Style with my closet". Phone-first: one column of cards, every
+ * action a plain link. A candidate is added from the item ("Add a product"
+ * when it has none: a link, a photo, or something already on the
+ * wishlist). Private: the signed-in owner's.
  */
 export function ShoppingPage(props: {
   ctx: ViewContext;
@@ -41,6 +52,7 @@ export function ShoppingPage(props: {
 }) {
   const { ctx, model } = props;
   const { plan, list } = model;
+  const anyCandidates = list?.entries.some((e) => e.candidates.length > 0);
   return (
     <Layout ctx={ctx} title={t('shopping.TITLE')}>
       <AppBar
@@ -78,11 +90,24 @@ export function ShoppingPage(props: {
         ) : (
           <>
             <Summary list={list} />
+            {anyCandidates && (
+              <a
+                href={stylingUrl({ planId: plan.id })}
+                class="btn btn-outline btn-sm self-start"
+                data-style-with-closet=""
+              >
+                {t('plans.STYLE_WITH_CLOSET')}
+              </a>
+            )}
             <ul class="flex flex-col gap-3" id="shopping-list">
               {list.entries.map((entry) => (
                 <ItemCard entry={entry} plan={plan} />
               ))}
             </ul>
+            <script
+              type="module"
+              dangerouslySetInnerHTML={{ __html: SHOPPING_INIT }}
+            />
           </>
         )}
       </main>
@@ -136,7 +161,7 @@ function ItemCard(props: { entry: Entry; plan: PlanDetail }) {
       id={`shopping-item-${item.id}`}
       data-status={match.status}
     >
-      <div class="card-body p-3 gap-2">
+      <div class="card-body p-3 pb-0 gap-2">
         <div class="flex items-start justify-between gap-2">
           <h2 class="font-semibold min-w-0 break-words">{itemTitle(item)}</h2>
           <span class="flex items-center gap-1 shrink-0">
@@ -166,108 +191,103 @@ function ItemCard(props: { entry: Entry; plan: PlanDetail }) {
             .join(' · ')}
         </p>
         {item.note && <p class="text-xs italic">{item.note}</p>}
-        {entry.candidates.length === 0 ? (
+      </div>
+      {entry.candidates.length > 0 && (
+        // Full card width (the body's padding undone), so the end spacers can
+        // centre the first and last tile. Not a listbox, and no input: the
+        // tiles hold links (an `option` hides them from screen readers) and
+        // the list has no form to post a choice.
+        <SnapStrip
+          size="regular"
+          listbox={false}
+          label={t('shopping.STRIP_LABEL', { item: itemTitle(item) })}
+        >
+          {entry.candidates.map(({ candidate, budget }, index) => (
+            <CandidateTile
+              candidate={candidate}
+              budget={budget}
+              selected={index === 0}
+            />
+          ))}
+        </SnapStrip>
+      )}
+      <div class="card-body p-3 gap-2">
+        {entry.candidates.length === 0 && (
           <p class="text-sm text-muted">{t('shopping.NO_CANDIDATES')}</p>
-        ) : (
-          <ul class="flex flex-col gap-2" aria-label={t('shopping.CANDIDATES')}>
-            {entry.candidates.map(({ candidate, budget }) => (
-              <CandidateRow candidate={candidate} budget={budget} />
-            ))}
-          </ul>
         )}
         <a
           href={candidatesUrl(plan.id, item.id, shoppingUrl(plan))}
           class="btn btn-outline btn-sm"
         >
-          + {t('shopping.ADD_CANDIDATE')}
+          +{' '}
+          {t(
+            entry.candidates.length === 0
+              ? 'shopping.ADD_PRODUCT'
+              : 'shopping.ADD_CANDIDATE',
+          )}
         </a>
       </div>
     </li>
   );
 }
 
-const BUDGET_BADGES: Record<BudgetFit, string | null> = {
-  within: 'badge-success',
-  over: 'badge-warning',
-  unknown: null,
-};
-
 /**
- * A candidate: its photo, name and brand linking to its page, its price
- * against the budget, whether it is the kind of thing the item asks for,
- * how many outfits it makes with the closet, the product link and "Bought
- * it".
+ * A candidate as a tile of the item's strip: its photo and name (a link to
+ * its wishlist page) and, under the centred one, its price against the
+ * budget, whether it is the kind the item asks for, how many outfits it
+ * makes with the closet (loaded once seen), the product link and "Bought
+ * it". A `div`, not a link, so the count's own link is not nested in one.
  */
-function CandidateRow(props: {
+function CandidateTile(props: {
   candidate: ListedCandidate;
   budget: BudgetFit;
+  selected: boolean;
 }) {
-  const { candidate, budget } = props;
-  const name = candidate.name ?? categoryLabel(candidate.category);
-  const badge = BUDGET_BADGES[budget];
+  const { candidate, budget, selected } = props;
   return (
-    <li
-      class="flex gap-3 items-start"
+    <div
+      {...snapItem({
+        value: String(candidate.garmentId),
+        selected,
+        size: 'regular',
+        listbox: false,
+        class: TILE,
+      })}
       id={`candidate-${candidate.garmentId}`}
       data-budget={budget}
       data-matches={String(candidate.matches)}
     >
-      <a href={garmentUrl(candidate.garmentId, undefined)} class="shrink-0">
-        <GarmentThumb garment={candidate} class="rounded-box" />
-      </a>
-      <div class="flex-1 min-w-0 flex flex-col gap-1">
-        <a
-          href={garmentUrl(candidate.garmentId, undefined)}
-          class="font-medium text-sm link link-hover break-words"
-        >
-          {name}
-        </a>
-        {candidate.brand && (
-          <span class="text-xs text-muted">{candidate.brand}</span>
-        )}
-        <span class="flex flex-wrap items-center gap-1 text-sm">
-          {candidate.price && (
-            <span class="font-medium">{priceLabel(candidate.price)}</span>
-          )}
-          {badge && (
-            <span class={`badge badge-sm ${badge}`}>
-              {t(
-                budget === 'within'
-                  ? 'shopping.WITHIN_BUDGET'
-                  : 'shopping.OVER_BUDGET',
-              )}
-            </span>
-          )}
-        </span>
-        <OutfitCountSlot garmentId={candidate.garmentId} />
+      <CandidateFace candidate={candidate} selected={selected} />
+      <span class={DETAILS}>
+        {candidate.brand && <span>{candidate.brand}</span>}
+        <PriceLine candidate={candidate} budget={budget} />
         {!candidate.matches && (
-          <p class="text-xs text-warning" data-mismatch>
+          <span class="text-warning" data-mismatch>
             {t('shopping.DOESNT_MATCH', {
               differences: differencesText(candidate.differences),
             })}
-          </p>
+          </span>
         )}
-        <span class="flex flex-wrap gap-2 mt-1">
-          {candidate.sourceUrl && (
-            // http(s) only (readSourceUrl and the column's check); a new tab,
-            // as on the garment page.
-            <a
-              href={candidate.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="btn btn-ghost btn-xs"
-            >
-              {t('VIEW_PRODUCT')}
-            </a>
-          )}
+        <OutfitCountSlot garmentId={candidate.garmentId} inStrip />
+        {candidate.sourceUrl && (
+          // http(s) only (readSourceUrl and the column's check); a new tab,
+          // as on the garment page.
           <a
-            href={garmentUrl(candidate.garmentId, undefined, '/bought')}
-            class="btn btn-primary btn-xs"
+            href={candidate.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-ghost btn-xs"
           >
-            {t('wishlist.BOUGHT_IT')}
+            {t('VIEW_PRODUCT')}
           </a>
-        </span>
-      </div>
-    </li>
+        )}
+        <a
+          href={garmentUrl(candidate.garmentId, undefined, '/bought')}
+          class="btn btn-primary btn-xs"
+        >
+          {t('wishlist.BOUGHT_IT')}
+        </a>
+      </span>
+    </div>
   );
 }

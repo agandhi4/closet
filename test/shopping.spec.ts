@@ -122,8 +122,35 @@ test('shop for a plan’s gap on the phone, buy the candidate', async ({
   ]);
   await expectNoSidewaysScroll(page);
 
+  // The item is a strip (#272): the first candidate centred, its details
+  // and "Bought it" under it alone; the neighbour's are out of reach until a
+  // swipe (a tap on the peeking tile) centres it.
+  const tiles = merino.locator('[data-snap-item]');
+  await expect(tiles).toHaveCount(2);
+  await expect(tiles.first()).toHaveAttribute('data-selected', '');
+  // The links are reachable by role: the tile is not an `option`.
+  await expect(
+    tiles.first().getByRole('link', { name: 'Bought it' }),
+  ).toBeVisible();
+  await expect(merino.getByRole('link', { name: 'Bought it' })).toHaveCount(1);
+  await expect(
+    tiles.nth(1).getByRole('link', { name: 'Bought it' }),
+  ).toBeHidden();
+  await tiles.nth(1).getByRole('link', { name: 'Cashmere crew' }).click();
+  await expect(tiles.nth(1)).toHaveAttribute('data-selected', '');
+  await expect(page).toHaveURL(/\/wardrobe\/shopping$/);
+  await expect(
+    tiles.nth(1).getByRole('link', { name: 'Bought it' }),
+  ).toBeVisible();
+  await tiles
+    .first()
+    .getByRole('link', { name: /Uniqlo merino/ })
+    .click();
+  await expect(tiles.first()).toHaveAttribute('data-selected', '');
+  await expectNoSidewaysScroll(page);
+
   // Bought it: it fulfils the item; the other candidate is offered, ticked.
-  await merino.getByRole('link', { name: 'Bought it' }).first().click();
+  await tiles.first().getByRole('link', { name: 'Bought it' }).click();
   await expect(page.locator('#bought-plans')).toContainText(
     'It fulfils this item.',
   );

@@ -74,17 +74,20 @@ function chooseFrom(strip, entries) {
 function choose(strip, item) {
   // SnapStrip emits its input directly after the strip, so strips sharing a
   // container each write to their own.
+  // A strip without a `name` has no input and writes nothing.
   const field = strip.nextElementSibling;
-  if (!(field instanceof HTMLInputElement)) {
-    throw new Error('snap-strip: the strip is not followed by its input');
+  if (field instanceof HTMLInputElement && field.type === 'hidden') {
+    // A hidden input's value is its attribute, so htmx's history snapshot
+    // keeps the choice too.
+    field.value = item.dataset.snapValue;
   }
-  // A hidden input's value is its attribute, so htmx's history snapshot
-  // keeps the choice too.
-  field.value = item.dataset.snapValue;
   for (const other of strip.querySelectorAll('[data-snap-item]')) {
     const chosen = other === item;
     other.toggleAttribute('data-selected', chosen);
-    other.setAttribute('aria-selected', String(chosen));
+    // Only an `option` has a selected state (snapItem's `listbox: false`).
+    if (other.hasAttribute('aria-selected')) {
+      other.setAttribute('aria-selected', String(chosen));
+    }
   }
 }
 
