@@ -10,7 +10,15 @@ import {
 } from 'drizzle-orm';
 import type { Db } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
-import { file, garment, outfit, outfitSlot } from '../../db/schema';
+import {
+  file,
+  garment,
+  outfit,
+  outfitSlot,
+  planItem,
+  planItemCandidate,
+  wardrobePlan,
+} from '../../db/schema';
 import { photoRefJson, readPhotoRef } from '../files/queries';
 import {
   builtInCategoriesOf,
@@ -20,7 +28,7 @@ import {
 } from '../../wardrobe/properties';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
-import { inCloset, ownedGarment } from '../wardrobe/status';
+import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
 import {
   type RoleWindow,
   type RowGarment,
@@ -304,4 +312,50 @@ export function readSavedOutfit(
   return json
     ? { id: json.id, name: json.name, garments: readGarments(json.garments) }
     : undefined;
+}
+
+/** A plan as `?plan=` opens it: its name and the candidates still to buy. */
+export interface StyledPlan {
+  name: string;
+  /** Wishlist garments linked to any of the plan's items, each with its role. */
+  candidates: RoledGarment[];
+}
+
+interface StyledPlanJson {
+  name: string;
+  candidates: RowGarmentJson[];
+}
+
+/**
+ * The owner's plan `planId` with its candidates (`?plan=`, #273): wishlist
+ * garments of the owner linked to any of its items, newest first. Null when
+ * the plan is not the owner's. Read through `onWishlist`, so a bought
+ * candidate's link stops mattering (Wardrobe plans, Gotchas); a garment
+ * that is a candidate of two items comes once. A scalar subquery; read
+ * with readStyledPlan.
+ */
+export function styledPlanSql(
+  planId: number,
+  ownerId: number,
+): SQL<StyledPlanJson | null> {
+  const linked = sql`${garment.id} in (select ${planItemCandidate.garmentId} from ${planItemCandidate} inner join ${planItem} on ${eq(planItem.id, planItemCandidate.planItemId)} where ${eq(planItem.planId, wardrobePlan.id)})`;
+  return sql<StyledPlanJson | null>`(
+    select json_build_object(
+      'name', ${wardrobePlan.name},
+      'candidates', (
+        select coalesce(json_agg(${rowGarmentJson} order by ${garment.id} desc), '[]')
+        from ${garment}
+        left join ${file} on ${eq(file.id, garment.photoId)}
+        where ${and(eq(garment.ownerId, ownerId), onWishlist(), linked)}
+      )
+    )
+    from ${wardrobePlan}
+    where ${and(eq(wardrobePlan.id, planId), eq(wardrobePlan.ownerId, ownerId))}
+  )`;
+}
+
+export function readStyledPlan(json: StyledPlanJson | null): StyledPlan | null {
+  return json
+    ? { name: json.name, candidates: readGarments(json.candidates) }
+    : null;
 }

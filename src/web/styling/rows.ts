@@ -41,6 +41,12 @@ export interface RoleWindow {
   role: GarmentRole;
   count: number;
   garments: RowGarment[];
+  /**
+   * `?plan=`'s candidates of this role (status `wishlist`), shown before
+   * the cycle on the strip and never chosen by default, nor counted in
+   * `count`, nor paged: they are not the cycle (withCandidates).
+   */
+  candidates?: RowGarment[];
 }
 
 /** What a row holds, as the page posts it back. */
@@ -90,9 +96,53 @@ export function freshStates(windows: readonly RoleWindow[]): RowState[] {
   const has = (role: GarmentRole) => windows.some((w) => w.role === role);
   const separates = has('top') && has('bottom');
   return topToToe(windows).map(({ role, garments }) => {
+    // A role of candidates alone has no cycle to open on.
     const empty =
-      !DRAWN_ROLES.includes(role) || (role === 'one-piece' && separates);
+      !DRAWN_ROLES.includes(role) ||
+      (role === 'one-piece' && separates) ||
+      garments.length === 0;
     return { role, garmentId: empty ? null : garments[0].id, locked: false };
+  });
+}
+
+/**
+ * `windows` with the plan's candidates on their roles' strips (`?plan=`).
+ * A role the closet has nothing of gets a window of candidates alone, so
+ * its row exists to hold them.
+ */
+export function withCandidates(
+  windows: readonly RoleWindow[],
+  candidates: readonly (RowGarment & { role: GarmentRole })[],
+): RoleWindow[] {
+  const result = windows.map((w): RoleWindow => ({ ...w }));
+  for (const { role, ...candidate } of candidates) {
+    let window = result.find((w) => w.role === role);
+    if (!window) {
+      window = { role, count: 0, garments: [] };
+      result.push(window);
+    }
+    window.candidates = [...(window.candidates ?? []), candidate];
+  }
+  return result;
+}
+
+/**
+ * `checked` (the posted rows once judged against the wardrobe's owned
+ * garments, which a wishlist candidate never is) with the rows posted on a
+ * candidate of their role put back: choosing a "To buy" piece survives
+ * Shuffle's and "Add row"'s round trips. `checked` is `posted` row for row.
+ */
+export function keepingCandidates(
+  posted: readonly RowState[],
+  checked: readonly RowState[],
+  candidates: readonly { id: number; role: GarmentRole }[],
+): RowState[] {
+  return checked.map((state, i) => {
+    const row = posted[i];
+    const onCandidate = candidates.some(
+      (c) => c.id === row.garmentId && c.role === row.role,
+    );
+    return state.garmentId === null && onCandidate ? row : state;
   });
 }
 
@@ -198,9 +248,10 @@ export function stylingRows(
 ): StylingRow[] {
   return states.map((state) => {
     const window = windows.find((w) => w.role === state.role);
+    const strip = [...(window?.candidates ?? []), ...(window?.garments ?? [])];
     return {
       ...state,
-      ...stripOf(state.garmentId, window?.garments ?? [], detached),
+      ...stripOf(state.garmentId, strip, detached),
       moreBefore: window && nextPageBefore(window),
     };
   });

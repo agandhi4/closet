@@ -266,6 +266,11 @@ function GarmentItem(props: {
       {props.detached && (
         <span class="badge badge-ghost badge-xs">{t('ARCHIVED')}</span>
       )}
+      {garment.status === 'wishlist' && (
+        <span class="badge badge-accent badge-xs" data-to-buy="">
+          {t('styling.TO_BUY')}
+        </span>
+      )}
     </a>
   );
 }

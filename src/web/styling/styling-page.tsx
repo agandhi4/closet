@@ -21,6 +21,7 @@ import {
 import { OUTFIT_NAME_MAX } from '../outfits/queries';
 import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
+import { garmentUrl } from '../wardrobe/urls';
 import type { StylingRow } from './rows';
 import { type RowContext, roleLabel, StylingRowView } from './styling-row';
 import {
@@ -53,6 +54,8 @@ export interface StylingModel {
   /** Shuffle's next seed; absent until something shuffled (the bare page stays byte-stable). */
   seed?: number;
   capsule?: CapsuleRef;
+  /** `?plan=`: the plan whose candidates are on the strips, badged "To buy". */
+  plan?: { id: number; name: string };
   /** The addressed wardrobe's capsules, for the scope menu. */
   capsules: CapsuleRef[];
   /** `?outfit=`: the saved outfit being changed. */
@@ -67,7 +70,12 @@ export interface StylingModel {
    * A Save refused for garments it could not hold (#219): its words, and
    * the sheet as it was posted, so nothing typed is lost.
    */
-  refusal?: { message: string; draft: SaveDraft };
+  refusal?: {
+    message: string;
+    draft: SaveDraft;
+    /** The wishlist pieces it named: each is saved once bought ("Bought it"). */
+    toBuy: { id: number; name: string | null }[];
+  };
 }
 
 /** What the Save sheet held when its post was refused. */
@@ -180,6 +188,9 @@ function StateFields({ model }: { model: StylingModel }) {
       {state.capsuleId !== undefined && (
         <input type="hidden" name="capsule" value={String(state.capsuleId)} />
       )}
+      {state.planId !== undefined && (
+        <input type="hidden" name="plan" value={String(state.planId)} />
+      )}
       {state.ownerId !== undefined && (
         <input type="hidden" name="ownerId" value={String(state.ownerId)} />
       )}
@@ -208,7 +219,28 @@ function Header({ model }: { model: StylingModel }) {
         >
           <p>{model.refusal.message}</p>
           <p>{t('styling.REFUSED_HINT')}</p>
+          {model.refusal.toBuy.length > 0 && (
+            <ul class="flex flex-col gap-1" data-styling-refused-buy="">
+              {model.refusal.toBuy.map((piece) => (
+                <li>
+                  <a
+                    href={garmentUrl(piece.id, undefined, '/bought')}
+                    class="link"
+                  >
+                    {t('styling.BOUGHT_IT', {
+                      name: piece.name ?? t('outfits.UNNAMED_GARMENT'),
+                    })}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
+      )}
+      {model.plan && (
+        <p class="text-sm" data-styling-plan={model.plan.id}>
+          {t('styling.PLAN', { name: model.plan.name })}
+        </p>
       )}
       {model.outfit && (
         <p class="text-sm" data-styling-outfit={model.outfit.id}>

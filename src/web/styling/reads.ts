@@ -29,12 +29,15 @@ import {
   readGarments,
   readRoleWindows,
   readSavedOutfit,
+  readStyledPlan,
   type RoledGarment,
   roleWindowsSql,
   type SavedOutfit,
   savedOutfitSql,
+  type StyledPlan,
+  styledPlanSql,
 } from './queries';
-import type { RoleWindow } from './rows';
+import { type RoleWindow, withCandidates } from './rows';
 
 /**
  * What a Styling request reads, in as few statements as the reads allow
@@ -63,6 +66,12 @@ export interface StylingScope {
   ownerId: number;
   shared: boolean;
   capsuleId?: number;
+  /**
+   * `?plan=`: the plan whose candidates join the strips (unchecked, read
+   * by stripsReads). Only on the requester's own wardrobe: plans are never
+   * shared, so a shared wardrobe's scope has none.
+   */
+  planId?: number;
 }
 
 /** Checks every request may ask of either statement. */
@@ -111,7 +120,10 @@ function readChecks(
 }
 
 export interface StripsReads extends CheckedReads {
+  /** The strips' windows, with the plan's candidates on them (`plan`). */
   windows: RoleWindow[];
+  /** Undefined when no plan was asked; null when it is not the requester's. */
+  plan: StyledPlan | null | undefined;
   /** The capsule menu (`menu`); empty otherwise. */
   capsules: CapsuleRef[];
   /** A shared wardrobe's owner by name (`menu`); undefined for one's own. */
@@ -123,7 +135,8 @@ export interface StripsReads extends CheckedReads {
  * `chosenOutfit` every garment of that outfit, the requester's, whose rows
  * the page opens on), the checks, and with `menu` what a full page shows
  * around the rows (the capsule menu, whose wardrobe a grantee browses).
- * One statement.
+ * With the scope's `planId`, the plan's name and candidates ride in the
+ * same statement (styledPlanSql). One statement.
  */
 export async function stripsReads(
   db: Db,
@@ -142,12 +155,21 @@ export async function stripsReads(
       chosen: ask.chosen,
       outfitId: ask.chosenOutfit,
     }),
+    plan:
+      scope.planId === undefined
+        ? undefined
+        : styledPlanSql(scope.planId, ownerId),
     capsules: ask.menu ? capsuleNamesSql(ownerId) : undefined,
     shares: ask.menu && shared ? sharedWardrobesSql(userId) : undefined,
   });
+  const plan = row.plan === undefined ? undefined : readStyledPlan(row.plan);
   return {
     ...readChecks(row),
-    windows: readRoleWindows(row.windows),
+    windows: withCandidates(
+      readRoleWindows(row.windows),
+      plan?.candidates ?? [],
+    ),
+    plan,
     capsules: row.capsules ?? [],
     owner: row.shares
       ?.map(toSharedWardrobe)

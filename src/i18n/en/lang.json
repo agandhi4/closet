@@ -808,6 +808,7 @@
     "REVIEW": "Review",
     "REVIEW_TITLE": "Review {name}",
     "REVIEW_INTRO": "Swipe each item to the product you want, to Keep, or to Skip. Accept these saves every choice at once.",
+    "STYLE_WITH_CLOSET": "Style with my closet",
     "REVIEW_NONE": "Nothing left to review: every proposal is decided.",
     "REVIEW_CHANGED": "Some of these items changed since the page was drawn. Here they are as they stand now.",
     "REVIEW_STRIP_LABEL": "Choices for {item}",
@@ -1149,6 +1150,9 @@
     "EMPTY": "Add some garments to your wardrobe to start styling outfits.",
     "EMPTY_CAPSULE": "No garments in this capsule yet.",
     "REFUSED_HINT": "Those rows are back to None: choose again, then save.",
+    "PLAN": "Styling with the pieces to buy from {name}. They carry a To buy badge and can't be saved in an outfit until you've bought them.",
+    "TO_BUY": "To buy",
+    "BOUGHT_IT": "Bought it: {name}",
     "role": {
       "layer": "Layer",
       "one-piece": "Dress",

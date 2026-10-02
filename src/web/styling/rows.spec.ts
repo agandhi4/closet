@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GarmentRole } from '../../wardrobe/properties';
 import {
   freshStates,
+  keepingCandidates,
   lockedOn,
   openingStates,
   type RoleWindow,
@@ -10,6 +11,7 @@ import {
   savedStates,
   shuffledStates,
   stylingRows,
+  withCandidates,
   withEveryRole,
 } from './rows';
 
@@ -223,5 +225,52 @@ describe('stylingRows', () => {
     const [top] = stylingRows([row('top', 99)], [window('top', [5])], []);
     expect(top.garmentId).toBeNull();
     expect(top.garments.map((g) => g.id)).toEqual([5]);
+  });
+});
+
+describe('a plan’s candidates (#273)', () => {
+  const toBuy = (id: number, role: GarmentRole) => ({
+    ...garment(id, 'wishlist'),
+    role,
+  });
+
+  it('withCandidates puts them on their role’s window, and makes one for a role the closet lacks', () => {
+    const windows = withCandidates(
+      [window('top', [5, 4], 7)],
+      [toBuy(20, 'top'), toBuy(21, 'footwear')],
+    );
+    expect(windows.map((w) => [w.role, w.count, w.candidates?.length])).toEqual(
+      [
+        ['top', 7, 1],
+        ['footwear', 0, 1],
+      ],
+    );
+  });
+
+  it('a candidate leads its strip but is neither opened on nor counted in paging', () => {
+    const windows = withCandidates(
+      [window('top', [5, 4], 7)],
+      [toBuy(20, 'top'), toBuy(21, 'footwear')],
+    );
+    const states = freshStates(windows);
+    expect(states).toEqual([row('top', 5), row('footwear', null)]);
+    const rows = stylingRows(states, windows, []);
+    expect(rows[0].garments.map((g) => g.id)).toEqual([20, 5, 4]);
+    expect(rows[0].moreBefore).toBe(4);
+    expect(rows[1].garments.map((g) => g.id)).toEqual([21]);
+  });
+
+  it('a row posted on a candidate of its role is put back, any other stays cleared', () => {
+    const posted = [row('top', 20, true), row('bottom', 20), row('top', 99)];
+    const checked = posted.map((state) => ({
+      ...state,
+      garmentId: null,
+      locked: false,
+    }));
+    expect(keepingCandidates(posted, checked, [toBuy(20, 'top')])).toEqual([
+      row('top', 20, true),
+      row('bottom', null),
+      row('top', null),
+    ]);
   });
 });
