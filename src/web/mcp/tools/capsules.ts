@@ -5,11 +5,8 @@ import {
   listCapsules,
 } from '../../capsules/queries';
 import { HttpError } from '../../errors';
-import {
-  CLOSET_FILTERS,
-  garmentSummaries,
-  GRID_PAGE_SIZE,
-} from '../../wardrobe/queries';
+import { GRID_PAGE_SIZE } from '../../wardrobe/grid-page-size';
+import { CLOSET_FILTERS, garmentSummaries } from '../../wardrobe/queries';
 import { defineTool, type ToolContext, wardrobeFor } from '../tool';
 import { ownerIdInput, rowId } from './common';
 import { summaryOut } from './garments';

@@ -1,8 +1,8 @@
 /**
  * Installed-app plumbing, loaded by the layout when PWA_ENABLED: service
  * worker registration and the update flow, the freshness indicator of pages
- * served from the worker's cache (freshness.js), Web Push on signed-in pages
- * (push.js), the install dialog in a browser tab that can install the app,
+ * served from the worker's cache (freshness.js), warming the wardrobe for
+ * offline reading and Web Push on signed-in pages (push.js), the install dialog in a browser tab that can install the app,
  * and pull to refresh for iOS standalone (which has none of its own). Lives
  * in the head so hx-boost body swaps never re-run it; anything that touches
  * the body re-applies itself after a swap. The last two libraries are
@@ -191,17 +191,61 @@ async function installPullToRefresh() {
   document.addEventListener('htmx:historyRestore', bind);
 }
 
+// Asks the worker to warm this account's whole wardrobe for offline reading
+// (WARM_PAGES, #286; src/web/shell/offline-warm.md). The worker decides
+// whether a run is due (at most one a day, its warmed-at record) and what it
+// lacks, so asking is cheap: after load, and again whenever the app comes
+// back to the foreground or online (iOS has no background sync, so a warm
+// only runs while the app is open, and resumes where it stopped), and when
+// a worker takes control: the app's first load has no controller to ask.
+// Never in the background, offline (the heartbeat's state, never
+// navigator.onLine) or when the user asked to save data.
+function warmForOffline() {
+  const ask = () => {
+    const online =
+      (document.documentElement.dataset.connectivity ?? 'online') === 'online';
+    if (document.visibilityState !== 'visible' || !online) return;
+    if (navigator.connection?.saveData) return;
+    navigator.serviceWorker.controller?.postMessage({ type: 'WARM_PAGES' });
+  };
+  if (document.readyState === 'complete') ask();
+  else window.addEventListener('load', ask, { once: true });
+  document.addEventListener('visibilitychange', ask);
+  navigator.serviceWorker.addEventListener('controllerchange', ask);
+  document.addEventListener('connectivity:change', (event) => {
+    if (event.detail.state === 'online') ask();
+  });
+}
+
+// A Home Screen app asks once per launch to be kept out of the browser's
+// eviction (WebKit grants it to an installed web app by heuristics), so a
+// warmed wardrobe survives storage pressure. The answer is only logged.
+async function persistStorage() {
+  if (!navigator.storage?.persist || (await navigator.storage.persisted())) {
+    return;
+  }
+  const granted = await navigator.storage.persist();
+  console.info(`[pwa] persistent storage ${granted ? 'granted' : 'refused'}`);
+}
+
 const standalone =
   window.navigator.standalone === true ||
   window.matchMedia('(display-mode: standalone)').matches;
+const signedIn = document.documentElement.hasAttribute('data-signed-in');
 
 if ('serviceWorker' in navigator) {
   registerServiceWorker();
   watchFreshness();
+  if (signedIn) warmForOffline();
+}
+if (standalone && signedIn) {
+  persistStorage().catch((error) =>
+    console.warn('[pwa] persistent storage request failed', error),
+  );
 }
 // Also without a service worker (an http: origin): the profile page then
 // says this browser cannot receive notifications.
-if (document.documentElement.hasAttribute('data-signed-in')) startPush();
+if (signedIn) startPush();
 else if (document.querySelector('push-signed-out')) endPush();
 if (!standalone) offerInstall();
 if (window.navigator.standalone === true) {

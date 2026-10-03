@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { isWarmRequest } from '../web/shell/offline-warm';
 import type { Metrics } from './metrics';
 import {
   newRequestTiming,
@@ -16,7 +17,9 @@ export const UNMATCHED_ROUTE = 'unmatched';
  * in async context, answers with `Server-Timing` (db, render, the route
  * template; not once a secret was checked, markSecretChecked) and lands in
  * http_request_duration_seconds under its route template, never its URL, so
- * ids never become series.
+ * ids never become series. A request the service worker made to warm the
+ * offline caches (#286: hundreds of renders a day per device, no one
+ * waiting) is left out, so the latencies stay a person's.
  *
  * Hooks, not a plugin: added to the root, they apply to every route
  * registered after them (CLAUDE.md Gotchas, plugin inheritance).
@@ -52,6 +55,10 @@ export function registerHttpMetrics(
     done(null, payload);
   });
   app.addHook('onResponse', (request, reply, done) => {
+    if (isWarmRequest(request.headers)) {
+      done();
+      return;
+    }
     metrics.observeRequest(
       request.routeOptions.url ?? UNMATCHED_ROUTE,
       request.method,

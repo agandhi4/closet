@@ -6,6 +6,9 @@ import { PAGE_ACCOUNT_HEADER } from './page-cache';
 
 const HTML = 'text/html; charset=utf-8';
 
+/** Every HTML answer's policy unless its route set one (send below). */
+export const PAGE_CACHE_CONTROL = 'private, no-cache';
+
 interface RenderOptions {
   status?: number;
 }
@@ -96,5 +99,12 @@ function send(
   // (src/web/page-cache.ts): it keeps one account's pages at a time.
   const { auth } = reply.request;
   if (auth) reply.header(PAGE_ACCOUNT_HEADER, String(auth.user.id));
+  // An account's page: no shared cache may store it, and a browser's copy
+  // is revalidated before use. no-cache, not no-store, keeps the
+  // back-forward cache. A route's own stricter policy (the token page's
+  // no-store) stands.
+  if (!reply.hasHeader('Cache-Control')) {
+    reply.header('Cache-Control', PAGE_CACHE_CONTROL);
+  }
   return reply.status(status).type(HTML).send(html);
 }

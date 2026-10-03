@@ -33,6 +33,7 @@ import {
 } from '../files/queries';
 import { dirtyCopiesSql, needsWash } from '../wears/queries';
 import { compareSizes } from './garment';
+import { GRID_PAGE_SIZE } from './grid-page-size';
 import { type GarmentScope, inCloset, inScope, ownedGarment } from './status';
 import {
   type Condition,
@@ -62,9 +63,6 @@ import type {
  * and the routes answer 404 either way. Reads return plain rows shaped for
  * the page, never whole entities.
  */
-
-/** Tiles per grid page; the "load more" sentinel fetches the next one. */
-export const GRID_PAGE_SIZE = 48;
 
 /** The grid's filters, as the query string gives them (already validated). */
 export interface GridFilters {

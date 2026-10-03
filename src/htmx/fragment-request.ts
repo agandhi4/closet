@@ -40,12 +40,27 @@ export function isFragmentRequest(headers: HeaderSource): boolean {
   );
 }
 
+const FRAGMENT_KEY_SUFFIX = '|hx';
+
 /**
  * Runtime cache key for a page URL: fragments get a `|hx` suffix so they live
  * beside, never instead of, the full page for the same URL.
  */
 export function pageCacheKey(url: string, headers: HeaderSource): string {
-  return isFragmentRequest(headers) ? `${url}|hx` : url;
+  return isFragmentRequest(headers) ? `${url}${FRAGMENT_KEY_SUFFIX}` : url;
+}
+
+// The suffix as Cache Storage hands a key back: a Request's URL, where a
+// `|` in the path may come back percent-encoded.
+const STORED_FRAGMENT_SUFFIX = /(?:\||%7C)hx$/i;
+
+/**
+ * The page URL a cache key (pageCacheKey, read back from `cache.keys()`) was
+ * made for, without the fragment suffix: `/wardrobe/12|hx` is a fragment of
+ * `/wardrobe/12`.
+ */
+export function pageUrlOfCacheKey(key: string): string {
+  return key.replace(STORED_FRAGMENT_SUFFIX, '');
 }
 
 /** Response header telling caches that the body depends on these headers. */

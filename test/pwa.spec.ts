@@ -1,7 +1,11 @@
 import { test, expect } from '@playwright/test';
 import sharp from 'sharp';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
-import { cachedPaths, waitForServiceWorker } from './support/service-worker';
+import {
+  cachedPaths,
+  waitForServiceWorker,
+  withoutWarming,
+} from './support/service-worker';
 import { openPhotoSheet } from './support/garment-page';
 import { WEBKIT_CANNOT_NAVIGATE_OFFLINE } from './support/webkit-limits';
 
@@ -28,7 +32,9 @@ test.describe('installed app delivery', () => {
   // Login is always required: without a session every page below would be
   // the login page (which also loads bundle.css, so the first test passed
   // on the wrong page).
-  test.beforeEach(async ({ page }) => {
+  // What the offline specs find cached is their own visits' alone.
+  test.beforeEach(async ({ page, context }) => {
+    await withoutWarming(context);
     await signIn(page, 'pwa-test');
   });
 

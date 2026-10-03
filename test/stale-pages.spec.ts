@@ -1,17 +1,30 @@
-import { expect, type Page, test } from '@playwright/test';
-import { createGarment } from './support/e2e-data';
+import { type BrowserContext, expect, type Page, test } from '@playwright/test';
 import {
+  parseWarmList,
+  WARM_LIST_PATH,
+  WARM_REQUEST_HEADER,
+  type WarmList,
+} from '../src/web/shell/offline-warm';
+import { addPhotographedGarment, createGarment } from './support/e2e-data';
+import {
+  changePasswordElsewhere,
   registerElsewhere,
   signIn,
+  signInAs,
   switchAccount,
 } from './support/e2e-session';
+import { seedDemoAs } from './support/seed-demo';
 import {
   ageCachedPage,
+  cachedImages,
+  cachedKeys,
   cachedPaths,
   cachePage,
   networkSwitch,
   PAGES_CACHE,
   waitForServiceWorker,
+  warmFinished,
+  withoutWarming,
   workerLogs,
 } from './support/service-worker';
 import {
@@ -36,17 +49,6 @@ async function ageCopy(page: Page, path: string, ageMs: number) {
     },
     { cacheName: PAGES_CACHE, ageMs },
   );
-}
-
-/** Every key in the page cache, query and fragment suffix included. */
-function cachedKeys(page: Page): Promise<string[]> {
-  return page.evaluate(async (cacheName) => {
-    const cache = await caches.open(cacheName);
-    return (await cache.keys()).map((request) => {
-      const url = new URL(request.url);
-      return `${url.pathname}${url.search}`;
-    });
-  }, PAGES_CACHE);
 }
 
 /** Searches the wardrobe: an htmx fragment into #wardrobe-main. */
@@ -77,6 +79,10 @@ test.describe('stale-while-revalidate tab roots', () => {
     ({ browserName }) => browserName === 'firefox',
     'service workers are untested in Firefox here',
   );
+  // What this spec caches is its own visits' alone (withoutWarming).
+  test.beforeEach(async ({ context }) => {
+    await withoutWarming(context);
+  });
 
   const FIVE_MINUTES = 5 * 60_000;
 
@@ -422,5 +428,272 @@ test.describe('stale-while-revalidate tab roots', () => {
       timeout: 10_000,
     });
     await expect(page.locator('#wardrobe-main')).toBeVisible();
+  });
+});
+
+/**
+ * The offline warm (#286, src/web/shell/offline-warm.md) fills both session
+ * caches with a whole wardrobe: they go together at every session boundary,
+ * like a visited page, and a warm under way when one passes stores nothing
+ * more (the generation check).
+ */
+test.describe('a warmed wardrobe and the session', () => {
+  test.skip(
+    process.env.PWA_ENABLED !== 'true',
+    'needs a server started with PWA_ENABLED=true',
+  );
+  test.skip(
+    ({ browserName }) => browserName === 'firefox',
+    'service workers are untested in Firefox here',
+  );
+
+  test('a warmed wardrobe’s pages and photos go when another account signs in', async ({
+    page,
+    context,
+    playwright,
+    browserName,
+  }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
+    await signIn(page, 'swr-warm-a');
+    const garmentId = await addPhotographedGarment(page, 'Warmed coat');
+    const warmed = warmFinished(context);
+    await waitForServiceWorker(page);
+    await page.goto('/outfits');
+    await warmed;
+    const thumbs = (await cachedImages(page)).filter((url) =>
+      url.startsWith('/file/thumb/'),
+    );
+    expect(thumbs).toHaveLength(1);
+    expect(await cachedPaths(page)).toContain(`/wardrobe/${garmentId}`);
+
+    await switchAccount(
+      page,
+      await registerElsewhere(playwright, 'swr-warm-b'),
+    );
+    await expect
+      .poll(() => cachedPaths(page))
+      .not.toContain(`/wardrobe/${garmentId}`);
+    expect(await cachedImages(page)).not.toContain(thumbs[0]);
+  });
+
+  test('a warm under way when the account changes stores nothing more (#286)', async ({
+    page,
+    context,
+    playwright,
+    browserName,
+  }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
+    await signIn(page, 'swr-midwarm-a');
+    const garmentId = await addPhotographedGarment(page, 'Mid-warm coat');
+    const second = await registerElsewhere(playwright, 'swr-midwarm-b');
+    const network = await networkSwitch(context);
+
+    // Every fetch of the warm (but its list) is answered by the server at
+    // once and reaches the worker only after the other tab has switched
+    // accounts and the device has gone offline. Registered after
+    // networkSwitch, so it goes first.
+    const held: string[] = [];
+    let answered!: () => void;
+    const rendered = new Promise<void>((resolve) => (answered = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    await context.route('**/*', async (route) => {
+      const url = new URL(route.request().url());
+      if (
+        !route.request().headers()['x-closet-warm'] ||
+        url.pathname === '/offline/warm'
+      ) {
+        await route.fallback();
+        return;
+      }
+      held.push(`${url.pathname}${url.search}`);
+      const response = await route.fetch();
+      answered();
+      await released;
+      await route.fulfill({ response });
+    });
+    // Profile shows no photo, so the garment's thumb is the warm's to fetch.
+    // The worker installs on the first load; the warm starts on whichever
+    // load it controls.
+    await page.goto('/auth/profile');
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+    await page.reload();
+    await rendered;
+
+    const other = await context.newPage();
+    await other.goto('/auth/profile');
+    await switchAccount(other, second);
+    await expect.poll(() => cachedPaths(other)).toContain('/auth/profile');
+    await network('offline');
+
+    const stopped = workerLogs(
+      context,
+      '[sw] warm stopped, the session changed',
+    );
+    release();
+    await stopped;
+
+    // Pages and thumbs side by side: both kinds were in flight.
+    expect(held.some((url) => url.startsWith('/file/thumb/'))).toBe(true);
+    expect(held.some((url) => !url.startsWith('/file/'))).toBe(true);
+    const keys = await cachedKeys(other);
+    const images = await cachedImages(other);
+    for (const url of held) {
+      expect(keys).not.toContain(url);
+      expect(images).not.toContain(url);
+    }
+    expect(keys).not.toContain(`/wardrobe/${garmentId}`);
+    expect(images.filter((url) => url.startsWith('/file/thumb/'))).toEqual([]);
+  });
+
+  /** The signed-in account's warm list and its id (X-Page-Account). */
+  async function warmListOf(
+    page: Page,
+  ): Promise<{ list: WarmList; account: string }> {
+    const res = await page.request.get(WARM_LIST_PATH);
+    expect(res.ok()).toBe(true);
+    const list = parseWarmList(await res.json());
+    if (!list) throw new Error('not a warm list');
+    return { list, account: res.headers()['x-page-account'] };
+  }
+
+  /**
+   * Every warm fetch but the list goes out 100 ms late, so a warm is always
+   * between fetches and in the middle of some. Once ten have gone (`midway`),
+   * the next thumb is held (`held`) until `release` is called. The browser
+   * sends each (route.fallback), with its own Sec-Fetch-Mode: route.fetch
+   * would send none, and the gate would redirect it to the login page.
+   */
+  async function slowWarm(context: BrowserContext) {
+    let sent = 0;
+    let reachedMidway!: () => void;
+    const midway = new Promise<void>((resolve) => (reachedMidway = resolve));
+    let holding = false;
+    let heldThumb!: (path: string) => void;
+    const held = new Promise<string>((resolve) => (heldThumb = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    await context.route('**/*', async (route) => {
+      const url = new URL(route.request().url());
+      const warm =
+        route.request().headers()[WARM_REQUEST_HEADER.toLowerCase()] !==
+        undefined;
+      if (!warm || url.pathname === WARM_LIST_PATH) {
+        await route.fallback();
+        return;
+      }
+      if (holding && url.pathname.startsWith('/file/thumb/')) {
+        holding = false;
+        heldThumb(url.pathname);
+        await released;
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await route.fallback();
+      sent += 1;
+      if (sent === 10) {
+        holding = true;
+        reachedMidway();
+      }
+    });
+    return { midway, held, release };
+  }
+
+  /** The accounts the cached pages were rendered for, records aside. */
+  function cachedAccounts(page: Page): Promise<string[]> {
+    return page.evaluate(async (cacheName) => {
+      const cache = await caches.open(cacheName);
+      const accounts: string[] = [];
+      for (const key of await cache.keys()) {
+        if (key.url.startsWith('https://page-cache.invalid/')) continue;
+        const copy = await cache.match(key);
+        accounts.push(copy?.headers.get('X-Page-Account') ?? '');
+      }
+      return accounts;
+    }, PAGES_CACHE);
+  }
+
+  /** Nothing the warm list of `account` names is in either cache. */
+  async function expectNothingOf(
+    page: Page,
+    { list, account }: { list: WarmList; account: string },
+  ): Promise<void> {
+    expect(await cachedAccounts(page)).not.toContain(account);
+    const keys = await cachedKeys(page);
+    for (const path of [...list.pages, ...list.fragments]) {
+      if (!/^\/(?:wardrobe|outfits)\/\d+$|^\/wardrobe\/tiles/.test(path))
+        continue;
+      expect(keys).not.toContain(path);
+    }
+    const images = await cachedImages(page);
+    for (const thumb of list.images) expect(images).not.toContain(thumb);
+  }
+
+  test('a session dropped between a warm’s fetches and during a thumb’s leaves nothing of the account (#286)', async ({
+    page,
+    context,
+    playwright,
+    browserName,
+  }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
+    await signInAs(page, await seedDemoAs('swr-dropwarm-a'));
+    const first = await warmListOf(page);
+    const second = await registerElsewhere(playwright, 'swr-dropwarm-b');
+    const { midway, held, release } = await slowWarm(context);
+    await page.goto('/auth/profile');
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+    await page.reload();
+    await midway;
+    // A thumb of this account's run is held before the account changes:
+    // dropping first would let the run stop with none in flight (no
+    // "answered from generation" line), or hold the next account's thumb.
+    const heldPath = await held;
+
+    // The other worker loop keeps starting fetches while the account
+    // changes; the held thumb is in flight across the drop (the sign-out
+    // post's), and the run ends once it lands.
+    const other = await context.newPage();
+    await other.goto('/auth/profile');
+    await switchAccount(other, second);
+    const refused = workerLogs(context, `${heldPath} answered from generation`);
+    const stopped = workerLogs(
+      context,
+      '[sw] warm stopped, the session changed',
+    );
+    release();
+    await refused;
+    await stopped;
+
+    await expectNothingOf(other, first);
+  });
+
+  test('a session revoked elsewhere mid-warm drops what the warm stored (#286)', async ({
+    page,
+    context,
+    browser,
+    browserName,
+  }) => {
+    test.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
+    const email = await seedDemoAs('swr-revokewarm');
+    await signInAs(page, email);
+    const warmed = await warmListOf(page);
+    const { midway, release } = await slowWarm(context);
+    release();
+    await page.goto('/auth/profile');
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+    await page.reload();
+    await midway;
+
+    // The next page the warm asks for carries the revoked cookie: a 401
+    // with X-Session-Ended, which drops the session caches.
+    const ended = workerLogs(context, '(warm): the session ended');
+    const stopped = workerLogs(context, '[sw] warm stopped, the session ended');
+    const elsewhere = await changePasswordElsewhere(browser, email);
+    await ended;
+    await stopped;
+    await elsewhere.close();
+
+    await expectNothingOf(page, warmed);
+    expect(await cachedImages(page)).toEqual([]);
   });
 });

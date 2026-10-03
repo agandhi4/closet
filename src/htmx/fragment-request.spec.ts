@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isFragmentRequest, pageCacheKey } from './fragment-request';
+import {
+  isFragmentRequest,
+  pageCacheKey,
+  pageUrlOfCacheKey,
+} from './fragment-request';
 
 describe('fragment-request', () => {
   const url = 'https://closet.example/wardrobe?keyword=blue';
@@ -31,6 +35,16 @@ describe('fragment-request', () => {
     const boosted = new Headers({ 'HX-Request': 'true', 'HX-Boosted': 'true' });
     expect(pageCacheKey(url, fragment)).toBe(`${url}|hx`);
     expect(pageCacheKey(url, boosted)).toBe(url);
+  });
+
+  it('reads the page URL back from a stored key, the suffix encoded or not', () => {
+    const fragment = new Headers({ 'HX-Request': 'true' });
+    const key = pageCacheKey('https://closet.example/wardrobe/12', fragment);
+    expect(pageUrlOfCacheKey(key)).toBe('https://closet.example/wardrobe/12');
+    expect(pageUrlOfCacheKey(new Request(key).url)).toBe(
+      'https://closet.example/wardrobe/12',
+    );
+    expect(pageUrlOfCacheKey(url)).toBe(url);
   });
 
   it('takes the first value of a repeated header', () => {

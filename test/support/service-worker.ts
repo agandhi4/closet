@@ -51,6 +51,17 @@ export function cachedPaths(page: Page): Promise<string[]> {
   }, PAGES_CACHE);
 }
 
+/** Every key in the page cache, query and fragment suffix included. */
+export function cachedKeys(page: Page): Promise<string[]> {
+  return page.evaluate(async (cacheName) => {
+    const cache = await caches.open(cacheName);
+    return (await cache.keys()).map((request) => {
+      const url = new URL(request.url);
+      return `${url.pathname}${url.search}`;
+    });
+  }, PAGES_CACHE);
+}
+
 /** Visits `path` through the worker until its page is in the cache. */
 export async function cachePage(page: Page, path: string): Promise<void> {
   await page.goto(path);
@@ -93,5 +104,69 @@ export async function ageCachedPage(
       );
     },
     { cacheName: PAGES_CACHE, path, ageMs },
+  );
+}
+
+/** The images the worker's image cache holds, as path and query. */
+export function cachedImages(page: Page): Promise<string[]> {
+  return page.evaluate(async (cacheName) => {
+    const cache = await caches.open(cacheName);
+    return (await cache.keys()).map((request) => {
+      const url = new URL(request.url);
+      return `${url.pathname}${url.search}`;
+    });
+  }, IMAGES_CACHE);
+}
+
+/**
+ * Resolves with the worker's one line for a warm (WARM_PAGES, src-sw.ts):
+ * `[sw] warmed ...`, `[sw] warm incomplete, ...` or `[sw] warm stopped, <why>: ...`. A longer wait than
+ * workerLogs': the demo wardrobe's first warm is about 200 fetches.
+ */
+export async function warmFinished(context: BrowserContext): Promise<string> {
+  const message = await context.waitForEvent('console', {
+    predicate: (line) =>
+      /^\[sw\] warm(ed| stopped| incomplete)\b/.test(line.text()),
+    timeout: 120_000,
+  });
+  return message.text();
+}
+
+/**
+ * The context's pages never post WARM_PAGES (pwa.js, #286), so the worker
+ * never warms the wardrobe. For a spec whose cache contents or offline
+ * pages are its own visits' alone: a warm running beside it would fill the
+ * caches with every page and thumb. The message itself is held back, not a
+ * record in the cache: every sign-in drops the caches, and the next page
+ * would warm again.
+ */
+export async function withoutWarming(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    const post = Reflect.get(ServiceWorker.prototype, 'postMessage') as (
+      ...args: unknown[]
+    ) => void;
+    ServiceWorker.prototype.postMessage = function (
+      this: ServiceWorker,
+      message: unknown,
+      ...rest: unknown[]
+    ) {
+      const type = (message as { type?: unknown } | null)?.type;
+      if (type === 'WARM_PAGES') return;
+      Reflect.apply(post, this, [message, ...rest]);
+    };
+  });
+}
+
+/** Makes the worker's last warm look `ageMs` ago (its warmed-at record). */
+export async function ageLastWarm(page: Page, ageMs: number): Promise<void> {
+  await page.evaluate(
+    async ({ cacheName, ageMs }) => {
+      const cache = await caches.open(cacheName);
+      await cache.put(
+        'https://page-cache.invalid/warmed-at',
+        new Response(String(Date.now() - ageMs)),
+      );
+    },
+    { cacheName: PAGES_CACHE, ageMs },
   );
 }

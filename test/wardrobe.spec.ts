@@ -9,7 +9,7 @@ import { seedGarments } from './support/server-db';
  * integration tier's (test/integration/wardrobe-grid.spec.ts, colors.spec.ts).
  */
 
-// GRID_PAGE_SIZE (src/web/wardrobe/queries.ts) and a few more.
+// GRID_PAGE_SIZE (src/web/wardrobe/grid-page-size.ts) and a few more.
 const PAGE = 48;
 const TOTAL = PAGE + 5;
 

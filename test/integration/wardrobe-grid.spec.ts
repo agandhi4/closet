@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { capsule, capsuleGarment, file, garment } from '../../src/db/schema';
-import { GRID_PAGE_SIZE } from '../../src/web/wardrobe/queries';
+import { GRID_PAGE_SIZE } from '../../src/web/wardrobe/grid-page-size';
 import { HX_FRAGMENT } from './pages';
 import {
   createTestApp,

@@ -11,6 +11,8 @@ The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
                        e2e-data.ts (Playwright's garments, outfits, capsules through the app's POSTs),
                        server-db.ts (withServerDb: the server's database, a pool per call, never per
                        file; seedGarments: dozens in one transaction, as posting 49 timed out, #247),
+                       seed-demo.ts (seedDemoAs: the demo persona's wardrobe under a new account of
+                       its own, never the persona's, which screenshots.spec.ts resets; #286),
                        test-server.ts (`npm run start:test`: the build served with a stubbed cutout runner,
                        for Playwright and Lighthouse), cutout-stub.ts + cutout-hold.ts (that runner, and
                        the `cutouts` fixture that holds an owner's cutouts pending),
@@ -46,8 +48,9 @@ The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
 ```
                               # test/pwa.spec.ts (service worker, offline shell, no model requests),
                               # test/stale-pages.spec.ts (stale-while-revalidate tab roots, freshness,
-                              # page cache ownership), test/image-cache-privacy.spec.ts (the image
-                              # cache and selfies across sessions),
+                              # page cache ownership, a warm across sessions), test/image-cache-privacy.spec.ts
+                              # (the image cache and selfies across sessions), test/offline-warm.spec.ts
+                              # (the whole wardrobe offline after one warm, #286),
                               # test/install-dialog.spec.ts (what the install dialog costs, where it shows),
                               # test/push-settings.spec.ts (the profile's notification controls and a device's reminders),
                               # and sw-update + push-notification (docs/testing-service-worker.md) skip
@@ -61,6 +64,7 @@ The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
 
 - **The integration tier's harness, scratch databases and authorization matrix** have their own gotchas: `docs/testing-integration.md` (how createTestApp configures and signs in, how scratch databases are dated and swept, how the matrix and its coverage check work). Read it before changing `test/integration/harness.ts`, `test/support/scratch-database.ts` or an `authorization-*.spec.ts`.
 - **Playwright serves whatever is on :3000** (or on `PORT`, which `playwright.config.ts`'s `baseURL`, the spec's `APP_ORIGIN` and the started server all follow: `PORT=3107` runs a worktree's specs beside another's). Its webServer is `npm run start:test` (`test/support/test-server.ts`): the existing build (the npm scripts build first; it imports `dist/`, so a stale or missing build is what runs) served by `serve()` with a stub cutout runner (`cutout-stub.ts`), so an upload goes pending and its cutout arrives without the model. `reuseExistingServer` is on outside CI, so a running `start:dev`/`start:prod` is tested instead, with the real model on uploads. Stop it before `verify:push`.
+- **A signed-in page in the PWA specs warms the whole wardrobe** (#286): after `load`, the worker fetches every page and thumb into the session caches. A spec asserting what is cached, or that an unvisited page is the offline page, calls `withoutWarming(context)` (`test/support/service-worker.ts`: the pages never post `WARM_PAGES`) first, as `pwa.spec.ts`, `stale-pages.spec.ts` and `image-cache-privacy.spec.ts` do; `warmFinished(context)` waits for a warm's line.
 - **The stub cutout answers at once; a spec that shows a cutout pending holds it** (`cutouts.hold(email)`, `cutout-hold.ts`, #230), and a spec that needs the cutout waits for the page's `?v=2`: `docs/testing-cutouts.md`.
 - **The Safari projects (`webkit`, `Mobile Safari`) run nightly, not on PRs** (#179). A spec Playwright's WebKit cannot run skips with a reason from `webkit-limits.ts`, never on `browserName !== 'chromium'`; page errors go through `pageErrors(page)`, which drops a WebKit line that is no error. Running WebKit on linux-box and reading a failure: `docs/testing-webkit.md`.
 - **Playwright runs two workers in CI** (`playwright.config.ts`), all specs at once against one server and database, so a spec owns its data: its own users, or, for `screenshots.spec.ts` (serial, one worker), personas reset at the start of every attempt (src/seed/CLAUDE.md, CI screenshots).

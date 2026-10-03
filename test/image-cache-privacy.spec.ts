@@ -1,19 +1,19 @@
 import { expect, type Page, test } from '@playwright/test';
 import sharp from 'sharp';
-import { createOutfit } from './support/e2e-data';
+import { addPhotographedGarment, createOutfit } from './support/e2e-data';
 import {
   registerElsewhere,
-  SAME_ORIGIN,
   signIn,
   switchAccount,
 } from './support/e2e-session';
 import { householdToday } from './support/household-today';
 import {
+  cachedImages,
   cachedPaths,
   cachePage,
-  IMAGES_CACHE,
   networkSwitch,
   waitForServiceWorker,
+  withoutWarming,
   workerLogs,
 } from './support/service-worker';
 import { WEBKIT_CANNOT_WATCH_WORKER } from './support/webkit-limits';
@@ -40,40 +40,11 @@ test.describe('the image cache belongs to one session', () => {
     ({ browserName }) => browserName === 'firefox',
     'service workers are untested in Firefox here',
   );
-
-  /** A garment with a photo, made through the app's own posts; its id. */
-  async function addPhotographedGarment(
-    page: Page,
-    name: string,
-  ): Promise<number> {
-    const created = await page.request.post('/wardrobe', {
-      form: { name, category: 'coats' },
-      headers: SAME_ORIGIN,
-    });
-    expect(created.ok()).toBe(true);
-    const garmentId = Number(new URL(created.url()).pathname.split('/').pop());
-    const uploaded = await page.request.post(`/wardrobe/${garmentId}/photo`, {
-      multipart: {
-        photo: {
-          name: 'coat.jpg',
-          mimeType: 'image/jpeg',
-          buffer: await sharp({
-            create: {
-              width: 800,
-              height: 600,
-              channels: 3,
-              background: '#6a4',
-            },
-          })
-            .jpeg()
-            .toBuffer(),
-        },
-      },
-      headers: SAME_ORIGIN,
-    });
-    expect(uploaded.ok()).toBe(true);
-    return garmentId;
-  }
+  // What this spec caches is its own visits' alone (withoutWarming); the
+  // warm's own photos are stale-pages.spec.ts's.
+  test.beforeEach(async ({ context }) => {
+    await withoutWarming(context);
+  });
 
   /**
    * The photo's thumb, cutout and original, from its tile on the wardrobe
@@ -129,17 +100,6 @@ test.describe('the image cache belongs to one session', () => {
       }
       return found;
     }, urls);
-  }
-
-  /** The image cache's keys, path and query. */
-  function cachedImages(page: Page): Promise<string[]> {
-    return page.evaluate(async (cacheName) => {
-      const cache = await caches.open(cacheName);
-      return (await cache.keys()).map((request) => {
-        const url = new URL(request.url);
-        return `${url.pathname}${url.search}`;
-      });
-    }, IMAGES_CACHE);
   }
 
   /** Loads the photos through the worker until the image cache holds them. */

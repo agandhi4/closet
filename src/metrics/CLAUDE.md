@@ -20,7 +20,7 @@ public/js/     vitals.js (device timings, METRICS_ENABLED), errors.js (script er
 
 | Metric | Labels | Recorded by |
 | --- | --- | --- |
-| `http_request_duration_seconds` (histogram) | `route` (the route template; `unmatched` for a 404 no route matched), `method`, `status_class` (`2xx`) | `registerHttpMetrics`' onResponse hook, every request |
+| `http_request_duration_seconds` (histogram) | `route` (the route template; `unmatched` for a 404 no route matched), `method`, `status_class` (`2xx`) | `registerHttpMetrics`' onResponse hook, every request but a warm's (below) |
 | `job_duration_seconds` (histogram) | `name` (`JobName`: reconciliation, cutout, cutout_retry, reminders, reminder_prune, replan, replan_prune, order_mail), `outcome` (success, failure; a cutout also discarded, interrupted) | `metrics.timeJob` around every timer's run in `server.ts`; `CutoutQueue` per photo |
 | `cutout_queue_depth` (gauge) | none | the pending cutouts; a scrape answers the last finished count (Gotchas) |
 | `push_sends_total` | `outcome` (delivered, pruned, failed) | the Web Push sender, per device |
@@ -57,6 +57,7 @@ Batches of up to 20 go out with `navigator.sendBeacon` 5 s after their first sam
 - **`/metrics` must never be public.** Caddy proxies every path, so the route answers only a direct request: one with `X-Forwarded-For` or `Forwarded` is a 404 with a warning (context `Web`). It is a static path (`static-prefixes.ts`), so a scrape costs no session lookup and writes no request line. **A scrape never waits on the database** (pgvault on the NAS is a 5 to 500 ms round trip): `cutout_queue_depth` starts a count each scrape and answers the last one finished; only the first scrape waits, for the first attempt (failed, the gauge stays 0 until a count succeeds). The count's chain never rejects: nothing awaits it, and an unhandled rejection is a crash. A new database-read gauge does the same. Off (the default), the route does not exist: a 404, which the homelab's `expect_up` label turns into a TargetDown.
 - **One registry per app, never the library's global one.** The integration specs boot many apps per process; the global registry would refuse the second `http_request_duration_seconds`. Metrics are recorded with METRICS_ENABLED off too; only exposure is gated.
 - **`@prometheus-io/client` is prom-client renamed** (`prom-client@15` is deprecated). Same API; needs Node 22+. Pre-1.0: read its changelog before a minor bump, and let the contract snapshot judge it.
+- **The service worker's warm requests are not observed** (`X-Closet-Warm`, `isWarmRequest`, `src/web/shell/offline-warm.md`): a device warms up to ~390 pages a day nobody waits for, which filed under `/wardrobe/:id` and `/outfits/:id` would skew their p95. Not a label (the RED dashboard reads the histogram's labels as they are) and not counted: the request log marks them `(warm)`.
 - **A new label value must come from a closed set.** A route template, a `JobName`, a tool name, an outcome: never a URL, id, email or user agent. A new timer in `server.ts` wraps its run in `metrics.timeJob(<JobName>, run)`.
 
 ## Error tracking (Bugsink)

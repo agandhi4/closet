@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PUBLIC_DIR } from '../../src/static-assets';
-import { createGarment } from './garments';
+import { createGarment, jpegPhoto, uploadPhoto } from './garments';
 import { createTestApp, PWA_ENV, TestApp, unescapeHtml } from './harness';
 
 /**
@@ -379,6 +379,55 @@ describe('delivery (PWA_ENABLED=true)', () => {
       >;
       expect(imports.freshness).toMatch(/^\/js\/freshness\.js\?v=/);
       expect(imports['age-label']).toMatch(/^\/js\/age-label\.js\?v=/);
+    });
+  });
+
+  // An account's page may sit in no shared cache, and a browser revalidates
+  // its copy before use (send(), src/web/render.ts; #286). no-cache, not
+  // no-store: the back-forward cache keeps working.
+  describe('HTML cache policy', () => {
+    it.each([
+      ['a page', '/wardrobe', {}],
+      ['a fragment', '/wardrobe?keyword=x', { 'hx-request': 'true' }],
+      ['a grid page', '/wardrobe/tiles?before=1', { 'hx-request': 'true' }],
+      ['the offline page', '/offline.html', {}],
+      ['the 404 page', '/wardrobe/999999', {}],
+    ])('sends %s private, no-cache', async (_name, url, headers) => {
+      const res = await t.inject({ method: 'GET', url, headers });
+      expect(res.headers['content-type']).toMatch(/^text\/html/);
+      expect(res.headers['cache-control']).toBe('private, no-cache');
+    });
+
+    it('sends a signed-out page private, no-cache', async () => {
+      const res = await t.inject({
+        method: 'GET',
+        url: '/auth/login',
+        anonymous: true,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['cache-control']).toBe('private, no-cache');
+    });
+
+    it('leaves a photo and a static file as they were', async () => {
+      const id = await createGarment(t, { name: 'Cache policy coat' });
+      await uploadPhoto(t, id, await jpegPhoto());
+      const grid = unescapeHtml(
+        (await t.inject({ method: 'GET', url: '/wardrobe' })).body,
+      );
+      const thumb = /<img[^>]*src="(\/file\/thumb\/[^"]+)"/.exec(grid)?.[1];
+      expect(thumb).toBeDefined();
+      const photo = await t.inject({ method: 'GET', url: thumb! });
+      expect(photo.statusCode).toBe(200);
+      expect(photo.headers['cache-control']).toBe(
+        'private, max-age=31536000, immutable',
+      );
+      const script = await t.inject({
+        method: 'GET',
+        url: '/js/pwa.js?v=1',
+      });
+      expect(script.headers['cache-control']).toBe(
+        'public, max-age=31536000, immutable',
+      );
     });
   });
 });

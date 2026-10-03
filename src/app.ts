@@ -31,6 +31,7 @@ import {
 } from './web/security/outbound-fetch';
 import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
+import { isWarmRequest } from './web/shell/offline-warm';
 import { createViewContextBuilder } from './web/view-context';
 import { createJmapClient } from './web/wardrobe/order-mail/jmap';
 import type { OrderMailDeps } from './web/wardrobe/order-mail/poll';
@@ -298,12 +299,14 @@ export async function createApp(
   // One line per request, never its headers (the session cookie is a
   // bearer credential). Static paths (every thumbnail, script and the 30 s
   // heartbeat) stay out: logging them cost ~16% of image throughput. Routes
-  // with a secret in the path log their pattern (loggableUrl).
+  // with a secret in the path log their pattern (loggableUrl). A request
+  // the service worker made to warm the offline caches (#286) says so.
   const http = logger.child({ context: 'Http' });
   app.addHook('onResponse', (request, reply, done) => {
     if (!isStaticPath(request.url)) {
+      const warm = isWarmRequest(request.headers) ? ' (warm)' : '';
       http.info(
-        `${request.method} ${loggableUrl(request)} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms`,
+        `${request.method} ${loggableUrl(request)} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms${warm}`,
       );
     }
     done();

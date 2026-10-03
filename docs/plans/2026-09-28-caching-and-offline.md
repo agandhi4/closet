@@ -66,13 +66,17 @@ revalidation still renders. Section 4 explains why it waits for #187 and #196.
 
 **What is warmed.** Only the signed-in user's own wardrobe:
 
-- the four tab roots;
-- the calendar's current week and the next one (`/calendar?week=<next Sunday>`, the planned week);
+- the calendar's next week (`/calendar?week=<next Sunday>`, the planned week);
 - each wardrobe garment's page (`/wardrobe/:id`, archived ones excluded);
 - each saved outfit's page (`/outfits/:id`);
 - the wardrobe grid's later tile pages (`/wardrobe/tiles?before=`, as htmx requests, so they land under
   their `|hx` key);
 - the thumb of every garment and outfit on those pages.
+
+Not the four tab roots (the current week is `/calendar`'s): they open stale-while-revalidate, so a
+warmed copy would open stale after the user's own edits (Back after a save,
+`test/back-navigation.spec.ts`). They are cached when first opened, as before the warm (owner decision
+on #287).
 
 The following are **not** warmed:
 
@@ -269,8 +273,8 @@ ETag, and it changes nothing about writes.
 **Acceptance criteria.**
 
 1. After sign-in as the demo persona, with the device then offline, these open from the cache with
-   their age shown: every garment page, every outfit page, the four tab roots, the current and next
-   calendar week, and every wardrobe grid page scrolled. Each shows its thumbs.
+   their age shown: every garment page, every outfit page, the next calendar week, and every wardrobe
+   grid page scrolled from an opened `/wardrobe`; a tab root only once opened. Each shows its thumbs.
    `test/offline-warm.spec.ts` (Chromium, with `networkSwitch` from `stale-pages.spec.ts`, since
    `setOffline` does not cut the worker's fetches).
 2. A second open within 24 h warms nothing: the server log shows no `X-Closet-Warm` request. After

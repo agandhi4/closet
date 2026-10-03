@@ -115,9 +115,10 @@ const OPENS_STALE: readonly Section[] = [
 /**
  * The tab roots the worker opens from its cache. Exact paths without a
  * query: a filtered wardrobe or another calendar week is a place the user
- * navigated to, and goes to the network first like every other page.
+ * navigated to, and goes to the network first like every other page. Never
+ * warmed (src/web/shell/warm-list.ts, parseWarmList): cached when opened.
  */
-const TAB_ROOTS: ReadonlySet<string> = new Set(
+export const TAB_ROOTS: ReadonlySet<string> = new Set(
   OPENS_STALE.map((section) => SECTION_HOME[section]),
 );
 

@@ -513,16 +513,10 @@ export function GarmentTiles(props: {
       {page.before !== undefined && (
         <div
           class="col-span-full flex justify-center py-6"
-          hx-get={wardrobeUrl(
-            viewOwner,
-            {
-              ...searchParams(search),
-              select: selecting && !picking ? '1' : undefined,
-              pick: picking?.capsuleId,
-              before: page.before,
-            },
-            '/wardrobe/tiles',
-          )}
+          hx-get={tilesUrl(viewOwner, search, page.before, {
+            selecting,
+            picking,
+          })}
           hx-trigger="revealed"
           hx-swap="outerHTML"
           data-wardrobe-more=""
@@ -534,6 +528,30 @@ export function GarmentTiles(props: {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * The grid's next page after `before`, with the same filters: the
+ * sentinel's GET, and the warm list's for the closet's later pages
+ * (src/web/shell/warm-list.ts), which must be the same URL for the service
+ * worker's copy to answer the scroll offline.
+ */
+export function tilesUrl(
+  viewOwner: number | undefined,
+  search: GridSearch,
+  before: number,
+  mode: { selecting: boolean; picking?: Picking } = { selecting: false },
+): string {
+  return wardrobeUrl(
+    viewOwner,
+    {
+      ...searchParams(search),
+      select: mode.selecting && !mode.picking ? '1' : undefined,
+      pick: mode.picking?.capsuleId,
+      before,
+    },
+    '/wardrobe/tiles',
   );
 }
 
