@@ -12,6 +12,11 @@ import {
 } from '../gallery/queries';
 import { GARMENT_OUTFITS_SHOWN } from '../outfits/garment-outfits';
 import { type GarmentOutfits, outfitsWithGarmentSql } from '../outfits/queries';
+import {
+  type BoughtLook,
+  boughtLooks,
+  looksWithGarmentSql,
+} from '../plans/looks';
 import { type BrandSize, brandSizeSql } from '../sizes/queries';
 import { type WearSummary, wearSummarySql } from '../wears/queries';
 import {
@@ -47,7 +52,9 @@ export interface OwnerRecords {
  * - `goesWith`: "Goes with my closet"'s inputs for a wishlist item (#18b),
  *   the owner's alone: it reads their closet and clashes;
  * - `brandSize`: the owner's size in a wishlist item's brand (#24), their
- *   body, so never read for a grantee.
+ *   body, so never read for a grantee;
+ * - `completedLooks`: on the owner's Bought it result (`justBought`), the
+ *   plan looks the purchase completed (#292); plans are the owner's alone.
  */
 export interface GarmentContext {
   capsules: GarmentCapsule[];
@@ -56,6 +63,7 @@ export interface GarmentContext {
   own: OwnerRecords | undefined;
   goesWith: GoesWithInputs | undefined;
   brandSize: BrandSize | undefined;
+  completedLooks: BoughtLook[];
 }
 
 /**
@@ -74,8 +82,12 @@ export async function garmentContext(
   garment: GarmentDetail,
   access: { isOwner: boolean; ownerId: number },
   today: IsoDate,
+  justBought = false,
 ): Promise<GarmentContext> {
-  const row = await selectScalars(db, contextColumns(garment, access, today));
+  const row = await selectScalars(
+    db,
+    contextColumns(garment, access, today, justBought),
+  );
   const own = row.own && {
     ...row.own,
     // "Spent on it" is the wear line's repair sum, one figure for both.
@@ -88,6 +100,7 @@ export async function garmentContext(
     own,
     goesWith: row.goesWith && readGoesWithInputs(row.goesWith),
     brandSize: row.brandSize ?? undefined,
+    completedLooks: row.completedLooks ? boughtLooks(row.completedLooks) : [],
   };
 }
 
@@ -96,6 +109,7 @@ function contextColumns(
   { id, status, replacesGarmentId, brand }: GarmentDetail,
   { isOwner, ownerId }: { isOwner: boolean; ownerId: number },
   today: IsoDate,
+  justBought: boolean,
 ) {
   const owned = status !== 'wishlist';
   const when = <T>(read: boolean, column: () => T) =>
@@ -111,6 +125,9 @@ function contextColumns(
     goesWith: when(!owned && isOwner, () => goesWithInputsSql(ownerId, id)),
     brandSize:
       !owned && isOwner && brand ? brandSizeSql(ownerId, brand) : undefined,
+    completedLooks: when(status === 'closet' && isOwner && justBought, () =>
+      looksWithGarmentSql(ownerId, id),
+    ),
   };
 }
 

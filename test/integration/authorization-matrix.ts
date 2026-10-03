@@ -154,6 +154,8 @@ export interface Fixture {
   planLookId: number;
   /** A look of it the owner turned down (so reconsidering it writes). */
   planDeclinedLookId: number;
+  /** A look of it of closet garments only (#292: so Save as outfit writes). */
+  planCompleteLookId: number;
   /**
    * A trip of the owner's (#10) on today and tomorrow: the outfit on it for
    * today, the garment packed, one extra; and another trip with an extra.
@@ -611,6 +613,9 @@ export function describeMatrix(
       await reactToLooks(t.db, t.owner.id, planId, 'decline', [
         { lookId: planDeclinedLookId },
       ]);
+      const planCompleteLookId = (
+        await look('Complete look', [garmentId, lookScarfId])
+      ).id;
       await saveStyleProfile(t.db, t.owner.id, {
         ...EMPTY_STYLE_PROFILE,
         notes: OWNER_STYLE_NOTE,
@@ -723,6 +728,7 @@ export function describeMatrix(
         planDeclinedItemId,
         planLookId,
         planDeclinedLookId,
+        planCompleteLookId,
         tripId,
         tripName,
         tripOutfitId,

@@ -29,6 +29,9 @@ export function lookOut(look: PlanLookView) {
       reason: slot.reason,
     })),
     complete: look.complete,
+    // The owner's outfit once they saved the look (#292); never changed by
+    // update_look, which only clears this when the pieces change.
+    outfitId: look.outfitId,
   };
 }
 

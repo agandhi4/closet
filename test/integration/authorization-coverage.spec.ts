@@ -183,6 +183,7 @@ const ADDRESS: Fixture = {
   planDeclinedItemId: 120,
   planLookId: 121,
   planDeclinedLookId: 122,
+  planCompleteLookId: 123,
   photo: Buffer.alloc(0),
   cutout: Buffer.alloc(0),
   shopPhotoUrl: 'http://shop.test/photo.jpg',

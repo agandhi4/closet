@@ -5,6 +5,8 @@ import {
   garment,
   planItem,
   planItemCandidate,
+  planLook,
+  planLookSlot,
   wardrobePlan,
 } from '../../db/schema';
 import type { PlanItemReview } from '../../wardrobe/plan-review';
@@ -491,6 +493,34 @@ export interface CandidateGarment extends PieceSpec {
   note: string | null;
   /** The agent's place for it among the item's options, 1 the pick; null: unranked. */
   rank: number | null;
+  /** The looks of its item's plan holding it, declined ones aside, and how many are loved (#292). */
+  looks: LookCount;
+}
+
+export interface LookCount {
+  total: number;
+  loved: number;
+}
+
+/**
+ * How many looks of the candidate's own plan (its item's) hold it, declined
+ * ones left out, and how many of those the owner loved: "In 3 looks, 2
+ * loved" on the review and shopping strips (#292), which product unlocks
+ * the most outfits. A column of candidateRows, correlated on the joined
+ * plan_item and garment (a joined select, so drizzle keeps their tables;
+ * src/db/CLAUDE.md), over plan_look_slot_garment_id_index: no statement of
+ * its own on any page. Looks are owner-only like their plan, which
+ * candidateRows already holds to the owner.
+ */
+function lookCountSql(): SQL<LookCount> {
+  return sql<LookCount>`(select json_build_object(
+    'total', count(*)::int,
+    'loved', (count(*) filter (where ${planLook.reaction} = 'loved'))::int
+  ) from ${planLookSlot}
+    inner join ${planLook} on ${planLook.id} = ${planLookSlot.lookId}
+    where ${planLookSlot.garmentId} = ${garment.id}
+      and ${planLook.planId} = ${planItem.planId}
+      and ${planLook.reaction} <> 'declined')`;
 }
 
 /**
@@ -516,6 +546,7 @@ function candidateRows(db: Queryable, ownerId: number, which: SQL) {
       photo: photoRefJson,
       note: planItemCandidate.note,
       rank: planItemCandidate.rank,
+      looks: lookCountSql(),
     })
     .from(planItemCandidate)
     .innerJoin(planItem, eq(planItem.id, planItemCandidate.planItemId))

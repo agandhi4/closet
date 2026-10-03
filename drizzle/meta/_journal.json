@@ -274,6 +274,13 @@
       "when": 1790998539566,
       "tag": "0038_candidate-research",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791002176447,
+      "tag": "0039_plan-look-outfit",
+      "breakpoints": true
     }
   ]
 }

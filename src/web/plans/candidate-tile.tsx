@@ -4,6 +4,7 @@ import { t } from '../i18n';
 import { HangerIcon } from '../layout/parts';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
+import type { LookCount } from './candidates';
 import type { ListedCandidate } from './shopping';
 
 /**
@@ -73,7 +74,42 @@ export function CandidateFace(props: {
         {candidateName(candidate)}
       </span>
       {isAgentsPick(candidate) && <AgentsPick />}
+      <InLooks looks={candidate.looks} />
     </a>
+  );
+}
+
+/** "In 3 looks, 2 loved"; nothing when no look holds it. */
+function inLooksText({ total, loved }: LookCount): string | null {
+  if (total === 0) return null;
+  if (total === 1) {
+    return t(
+      loved === 1
+        ? 'plans.looks.IN_LOOKS_ONE_LOVED'
+        : 'plans.looks.IN_LOOKS_ONE',
+    );
+  }
+  return loved > 0
+    ? t('plans.looks.IN_LOOKS_LOVED', { count: total, loved })
+    : t('plans.looks.IN_LOOKS_MANY', { count: total });
+}
+
+/**
+ * How many of the plan's looks hold the candidate (#292), on every tile, not
+ * only the centred one: it is how the options compare, which product
+ * unlocks the most outfits, the loved looks said apart.
+ */
+function InLooks({ looks }: { looks: LookCount }) {
+  const text = inLooksText(looks);
+  if (!text) return null;
+  return (
+    <span
+      class="text-xs text-muted"
+      data-in-looks={String(looks.total)}
+      data-loved-looks={String(looks.loved)}
+    >
+      {text}
+    </span>
   );
 }
 

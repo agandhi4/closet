@@ -892,7 +892,14 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
       const garment = await requireGarment(options, id, access.ownerId);
-      const context = await garmentContext(db, garment, access, today);
+      const justBought = request.query.bought === '1';
+      const context = await garmentContext(
+        db,
+        garment,
+        access,
+        today,
+        justBought,
+      );
       const { own } = context;
       return renderPage(
         reply,
@@ -920,7 +927,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             justCreated: request.query.created === '1',
             justSavedPhoto: request.query.photoSaved === '1',
             justRotatedPhoto: request.query.photoRotated === '1',
-            justBought: request.query.bought === '1',
+            justBought,
+            completedLooks: context.completedLooks,
             justLoggedRepair: request.query.repairSaved === '1',
             justAddedCopy: request.query.copyAdded === '1',
           }}

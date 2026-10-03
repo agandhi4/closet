@@ -17,7 +17,7 @@ import { candidateName, DETAILS, isAgentsPick, TILE } from './candidate-tile';
 import type { CandidatesByItem } from './candidates';
 import { awaitingReview, byPriority, type PlanGaps } from './gaps';
 import { itemTitle, priorityLabel } from './labels';
-import { LookFace, LooksApart, LooksStrip } from './look-tile';
+import { LookFace, LookSaveAction, LooksApart, LooksStrip } from './look-tile';
 import type { LookGroups, PlanLookView } from './looks';
 import type { ClosetGarment, PlanItemRow } from './queries';
 import { type ListedCandidate, listedCandidate } from './shopping';
@@ -737,20 +737,25 @@ function LookPlanTile(props: {
  * ("Love it as it is"), Change this… (its own form: the note is required)
  * while to review or loved, Not for me while not turned down already, and
  * Reconsider once it is. The machine (look-reaction.ts) has the same edges.
+ * Save as outfit (or the link to the outfit it became) leads, #292.
  */
 function LookMoves({ look }: { look: PlanLookView }) {
   const action = (suffix: string) => lookUrl(look.planId, look.id, suffix);
   if (look.reaction === 'declined') {
     return (
-      <PostForm action={action('/reconsider')} needsNetwork>
-        <button type="submit" class="btn btn-xs btn-outline">
-          {t('plans.RECONSIDER')}
-        </button>
-      </PostForm>
+      <div class="flex flex-wrap items-center gap-1">
+        <LookSaveAction look={look} />
+        <PostForm action={action('/reconsider')} needsNetwork>
+          <button type="submit" class="btn btn-xs btn-outline">
+            {t('plans.RECONSIDER')}
+          </button>
+        </PostForm>
+      </div>
     );
   }
   return (
     <div class="flex flex-wrap items-center gap-1">
+      <LookSaveAction look={look} />
       {(look.reaction === 'proposed' || look.reaction === 'revise') && (
         <PostForm action={action('/love')} needsNetwork>
           <button type="submit" class="btn btn-xs btn-primary">

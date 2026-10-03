@@ -903,6 +903,17 @@
       "REVISE": "Looks waiting on your agent",
       "DECLINED": "Looks you turned down",
       "ALREADY_MOVED": "This look has already moved on. Go back to the plan to see where it stands.",
+      "SAVE_AS_OUTFIT": "Save as outfit",
+      "SAVED_AS_OUTFIT": "Saved as outfit",
+      "READY_TO_SAVE": "Ready to save",
+      "IN_LOOKS_ONE": "In 1 look",
+      "IN_LOOKS_MANY": "In {count} looks",
+      "IN_LOOKS_ONE_LOVED": "In 1 loved look",
+      "IN_LOOKS_LOVED": "In {count} looks, {loved} loved",
+      "COMPLETED_ONE": "This completes a look",
+      "COMPLETED_MANY": "This completes {count} looks",
+      "COMPLETED_HINT": "Every piece is in your closet now. Save one as an outfit to wear and plan it.",
+      "FROM_PLAN": "From {plan}",
       "status": {
         "proposed": "To review",
         "loved": "Loved",
@@ -1538,6 +1549,11 @@
     "SAME_SET": "Look {id} already has exactly these pieces",
     "TOO_MANY": "A plan holds at most {max} looks the owner has not declined",
     "DECLINED_LOOK": "The owner declined this look: they reconsider it first",
-    "NOTE_REQUIRED": "Say what to change: Change this needs a note"
+    "NOTE_REQUIRED": "Say what to change: Change this needs a note",
+    "NOT_SAVED_AS_OUTFIT": "Not saved as an outfit: {reasons}.",
+    "PIECE_TO_BUY": "{name} is still to buy",
+    "PIECE_MISSING_ONE": "a piece is missing",
+    "PIECE_MISSING_MANY": "{count} pieces are missing",
+    "SAVE_DECLINED": "Not saved as an outfit: you turned this look down. Reconsider it first."
   }
 }

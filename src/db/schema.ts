@@ -1575,12 +1575,19 @@ export const planLook = pgTable(
       .notNull(),
     ownerNote: text('owner_note'),
     agentChangedAt: timestamp('agent_changed_at', { withTimezone: true }),
+    // The outfit the owner saved the look as (#292, saveLookAsOutfit): the
+    // plan owner's, by the writer's rule. Deleting the outfit clears it, so
+    // the look offers Save as outfit again; an agent's new set of pieces
+    // clears it too (the look is no longer that outfit). Not a holder of
+    // the outfit (outfitIsHeld): nothing is lost when it is cleared.
+    outfitId: integer('outfit_id'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
   },
   (table) => [
     index('plan_look_plan_id_index').on(table.planId),
+    index('plan_look_outfit_id_index').on(table.outfitId),
     check(
       'plan_look_reaction_check',
       sql`${table.reaction} in (${sqlList(LOOK_REACTIONS)})`,
@@ -1601,6 +1608,13 @@ export const planLook = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
+    foreignKey({
+      name: 'plan_look_outfit_id_foreign',
+      columns: [table.outfitId],
+      foreignColumns: [outfit.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
   ],
 );
 

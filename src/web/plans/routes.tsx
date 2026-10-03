@@ -10,6 +10,8 @@ import type { WebOptions } from '../plugin';
 import { navigateTo, renderPage } from '../render';
 import { authorizeWardrobe, sharedWardrobesOf } from '../sharing/access';
 import { viewContext } from '../view-context';
+import { ALREADY_SAVED_FLAG } from '../gallery/urls';
+import { outfitUrl } from '../outfits/urls';
 import {
   type CandidateAdd,
   candidatesOfPlan,
@@ -30,6 +32,7 @@ import {
   lookNotFound,
   looksOfPlan,
   reactToLooks,
+  saveLookAsOutfit,
 } from './looks';
 import { copyRejections } from './rejections';
 import {
@@ -861,6 +864,29 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${PLANS_PATH}/:id/looks/:lookId/reconsider`,
     { schema: { params: LookParams } },
     (request, reply) => moveLook(request, request.params, reply, 'reconsider'),
+  );
+
+  // Save as outfit (#292): a look whose every piece is owned becomes an
+  // outfit (saveLookAsOutfit, through createOutfit), then its page, saying
+  // "Already saved" when nothing was created. A piece to buy or missing, or
+  // a declined look, is a 409 with nothing written.
+  app.post(
+    `${PLANS_PATH}/:id/looks/:lookId/save`,
+    { schema: { params: LookParams } },
+    async (request, reply) => {
+      const userId = sessionUserId(request);
+      const { id, lookId } = request.params;
+      const saved = await saveLookAsOutfit(db, userId, id, lookId);
+      if (saved === 'not-found') {
+        await requirePlan(request, id);
+        throw lookNotFound();
+      }
+      logger.info(
+        `Look ${lookId} of plan ${id} saved as outfit ${saved.outfitId} by user ${userId}${saved.alreadySaved ? ' (nothing created: already an outfit)' : ''}`,
+      );
+      const flag = saved.alreadySaved ? `?${ALREADY_SAVED_FLAG}=1` : '';
+      return reply.redirect(`${outfitUrl(saved.outfitId)}${flag}`, 303);
+    },
   );
 
   /** The owner's plan and its look `lookId`, else the plan's 404, then the look's. */

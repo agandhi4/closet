@@ -25,7 +25,11 @@ import { HttpError } from '../errors';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import { t } from '../i18n';
-import { OUTFIT_GARMENTS_MAX } from '../outfits/queries';
+import {
+  createOutfit,
+  OUTFIT_GARMENTS_MAX,
+  OUTFIT_NOTES_MAX,
+} from '../outfits/queries';
 import { planNotFound } from './validation';
 
 /**
@@ -51,6 +55,12 @@ import { planNotFound } from './validation';
  * treats them). Whether a stored piece is owned, to buy or missing is
  * derived on every read (lookSlotState), never stored: a bought candidate
  * reads as owned, a deleted one empties its slot.
+ *
+ * A look becomes an outfit only by the owner's tap (#292,
+ * saveLookAsOutfit): through createOutfit, the one writer of outfits, and
+ * recorded in plan_look.outfit_id. The outfit is the owner's from then on:
+ * no write here ever changes it, and an agent's new set of pieces only
+ * clears the link.
  */
 
 export const LOOK_NOT_FOUND = 'Look not found';
@@ -155,6 +165,26 @@ export class LookDeclined extends HttpError {
   constructor() {
     super(409, t('looks.DECLINED_LOOK'));
     this.name = 'LookDeclined';
+  }
+}
+
+/**
+ * Save as outfit on a look with a piece still to buy or missing: a 409,
+ * nothing written. Names the pieces to buy (the owner's own wishlist
+ * items) and counts the missing ones.
+ */
+export class LookIncomplete extends HttpError {
+  constructor(look: PlanLookView) {
+    const toBuy = look.slots.flatMap((slot) =>
+      slot.state === 'to-buy' ? [slot.name ?? t('looks.UNNAMED_GARMENT')] : [],
+    );
+    const missing = look.missingPieces.length;
+    const reasons = toBuy.map((name) => t('looks.PIECE_TO_BUY', { name }));
+    if (missing === 1) reasons.push(t('looks.PIECE_MISSING_ONE'));
+    if (missing > 1)
+      reasons.push(t('looks.PIECE_MISSING_MANY', { count: missing }));
+    super(409, t('looks.NOT_SAVED_AS_OUTFIT', { reasons: reasons.join('; ') }));
+    this.name = 'LookIncomplete';
   }
 }
 
@@ -464,8 +494,15 @@ export async function updateLook(
       ? lookReactionTransition(look.reaction, event)
       : ({ ok: true, from: look.reaction, to: look.reaction } as const);
     if (!move.ok) throw new LookDeclined();
+    // A new set of pieces is no longer the outfit the look was saved as:
+    // the link goes, the outfit stays as the owner saved it (#292).
+    let unlink = false;
     if (garmentIds) {
       const looks = (await planLookSets(tx, ownerId, look.planId)) ?? [];
+      unlink = !sameSetLook(
+        looks.filter((other) => other.id === lookId),
+        garmentIds,
+      );
       const same = sameSetLook(
         looks.filter((other) => other.id !== lookId),
         garmentIds,
@@ -483,6 +520,7 @@ export async function updateLook(
         ...storedFields(fields),
         reaction: move.to,
         agentChangedAt: sql`now()`,
+        ...(unlink ? { outfitId: null } : {}),
       })
       .where(eq(planLook.id, lookId));
     return { planId: look.planId, from: move.from, to: move.to };
@@ -609,13 +647,84 @@ function ownerNoteSet(
   }
 }
 
+// ---- Save as outfit (#292) --------------------------------------------------
+
+export interface SavedLook {
+  outfitId: number;
+  /**
+   * Nothing was created: the look was saved already (a second tap), or its
+   * pieces already were an outfit of the owner's (createOutfit reused it).
+   */
+  alreadySaved: boolean;
+}
+
+/**
+ * The owner's Save as outfit on look `lookId` of their plan `planId`:
+ * an outfit of its slots, through createOutfit (the one writer of
+ * outfits, its rules unchanged), named after the look with the agent's
+ * note as its notes, and the look linked to it. Only a look whose every
+ * piece is in the closet and that is not declined (lookSaveState); else a
+ * 409, nothing written. 'not-found' when the look is not of the owner's
+ * plan (the caller tells the plan's 404 from the look's).
+ *
+ * Idempotent under the owner lock: a second post waits for the first and
+ * finds the link, answering that outfit before any other judgement (so it
+ * holds after a piece was archived since). createOutfit's once per garment
+ * set answers an outfit the owner already has of these pieces, kept with
+ * its own name. No calendar entry. A garment archived meanwhile is held by
+ * the outfit (outfits keep archived garments); one deleted meanwhile makes
+ * insertSlots refuse the whole save (OutfitGarmentsGone).
+ *
+ * Statements: the look read, the outfit (insertOutfitOnce), its slots (or
+ * a planner outfit's take-over when reused), the link, inside the owner
+ * transaction's own.
+ */
+export function saveLookAsOutfit(
+  db: Queryable,
+  ownerId: number,
+  planId: number,
+  lookId: number,
+): Promise<SavedLook | 'not-found'> {
+  return ownerTransaction(db, ownerId, 'saveLookAsOutfit', async (tx) => {
+    const look = (await looksOfPlan(tx, ownerId, planId)).find(
+      (candidate) => candidate.id === lookId,
+    );
+    if (!look) return 'not-found';
+    const state = lookSaveState(look);
+    if (state === 'saved') {
+      return { outfitId: look.outfitId!, alreadySaved: true };
+    }
+    if (look.reaction === 'declined') {
+      throw new HttpError(409, t('looks.SAVE_DECLINED'));
+    }
+    if (state === 'not-yet') throw new LookIncomplete(look);
+    const saved = await createOutfit(tx, ownerId, {
+      name: look.name,
+      // Stored trimmed. LOOK_NOTE_MAX is the tools' cap, not the column's,
+      // so the outfit's own is kept here.
+      notes: look.note?.slice(0, OUTFIT_NOTES_MAX) ?? null,
+      // outfit_slot's shape, top to toe as the look was written.
+      slots: look.slots.map((slot) => ({
+        category: slot.category,
+        garmentId: slot.garmentId,
+      })),
+    });
+    await tx
+      .update(planLook)
+      .set({ outfitId: saved.id })
+      .where(eq(planLook.id, lookId));
+    return { outfitId: saved.id, alreadySaved: saved.alreadySaved };
+  });
+}
+
 // ---- The duplicate ----------------------------------------------------------
 
 /**
  * Copies plan `fromPlanId`'s looks into `toPlanId` (the duplicate, under
  * the owner lock it holds): each with its reaction, notes and slots as
  * they stand, emptied slots included, so a declined look's set stays
- * remembered and the agent working on the copy never proposes it again.
+ * remembered and the agent working on the copy never proposes it again,
+ * and with the outfit it was saved as (the same pieces, the same owner's).
  * The duplicate copies the candidates of every item not declined, so a
  * piece valid in the original is valid in the copy. Three statements
  * (none when the plan has no looks): the read, the looks, the slots.
@@ -635,6 +744,7 @@ export async function copyLooks(
       reaction: planLook.reaction,
       ownerNote: planLook.ownerNote,
       agentChangedAt: planLook.agentChangedAt,
+      outfitId: planLook.outfitId,
       slots: sql<
         { position: number; category: string; garmentId: number | null }[]
       >`coalesce(json_agg(json_build_object('position', ${planLookSlot.position}, 'category', ${planLookSlot.category}, 'garmentId', ${planLookSlot.garmentId})) filter (where ${planLookSlot.position} is not null), '[]')`,
@@ -656,6 +766,7 @@ export async function copyLooks(
         reaction: look.reaction,
         ownerNote: look.ownerNote,
         agentChangedAt: look.agentChangedAt,
+        outfitId: look.outfitId,
       })),
     )
     .returning({ id: planLook.id });
@@ -731,8 +842,10 @@ export interface PlanLookView {
   slots: LookSlotView[];
   /** The slots holding nothing the look can use, each with its role and why. */
   missingPieces: MissingSlot[];
-  /** Every piece owned: the look can become an outfit (#292). */
+  /** Every piece owned (#292; lookSaveState adds the reaction and the link). */
   complete: boolean;
+  /** The outfit the owner saved it as (#292); null until then, or once that outfit is deleted. */
+  outfitId: number | null;
 }
 
 /**
@@ -756,6 +869,7 @@ export async function looksOfPlan(
         reaction: planLook.reaction,
         ownerNote: planLook.ownerNote,
         agentChangedAt: planLook.agentChangedAt,
+        outfitId: planLook.outfitId,
       },
       position: planLookSlot.position,
       category: planLookSlot.category,
@@ -776,14 +890,40 @@ export async function looksOfPlan(
     .leftJoin(file, eq(file.id, garment.photoId))
     .where(and(eq(planLook.planId, planId), eq(wardrobePlan.ownerId, ownerId)))
     .orderBy(asc(planLook.id), asc(planLookSlot.position));
-  const looks = new Map<number, PlanLookView>();
-  for (const row of rows) {
-    let look = looks.get(row.look.id);
-    if (!look) {
-      look = { ...row.look, slots: [], missingPieces: [], complete: true };
-      looks.set(row.look.id, look);
-    }
-    const slot: LookSlotView = {
+  const looks = new Map<
+    number,
+    { look: (typeof rows)[number]['look']; slots: SlotRow[] }
+  >();
+  for (const { look, ...slot } of rows) {
+    const read = looks.get(look.id);
+    if (read) read.slots.push(slot);
+    else looks.set(look.id, { look, slots: [slot] });
+  }
+  return [...looks.values()].map(({ look, slots }) => withSlots(look, slots));
+}
+
+/** A slot as read, before its state is derived. */
+interface SlotRow {
+  position: number;
+  category: string;
+  /** Null once the garment was deleted (or were it another owner's). */
+  garmentId: number | null;
+  name: string | null;
+  status: GarmentStatus | null;
+  candidate: boolean;
+  photo: SignablePhotoRef | null;
+}
+
+/** What a look's slots say of it, derived (lookSlotState) from `rows` in position order. */
+type LookSlots = Pick<PlanLookView, 'slots' | 'missingPieces' | 'complete'>;
+
+/** `look` with its slots judged: the one place slots become states (looksOfPlan, the Bought it page's looks). */
+function withSlots<T extends object>(
+  look: T,
+  rows: readonly SlotRow[],
+): T & LookSlots {
+  const slots = rows.map(
+    (row): LookSlotView => ({
       position: row.position,
       category: row.category,
       role: categoryRole(row.category),
@@ -795,12 +935,104 @@ export async function looksOfPlan(
           ? null
           : { status: row.status, candidate: row.candidate },
       ),
-    };
-    look.slots.push(slot);
-    if (slot.state === 'missing') look.missingPieces.push(slot);
-    if (slot.state !== 'owned') look.complete = false;
-  }
-  return [...looks.values()];
+    }),
+  );
+  return {
+    ...look,
+    slots,
+    missingPieces: slots.filter(
+      (slot): slot is MissingSlot => slot.state === 'missing',
+    ),
+    complete: slots.every((slot) => slot.state === 'owned'),
+  };
+}
+
+/** A look holding a garment just bought, as the Bought it result page lists it (#292). */
+export type BoughtLook = Pick<
+  PlanLookView,
+  'id' | 'planId' | 'name' | 'reaction' | 'outfitId'
+> &
+  LookSlots & { planName: string };
+
+type BoughtLookRow = Omit<BoughtLook, keyof LookSlots> & { slots: SlotRow[] };
+
+/**
+ * `ownerId`'s looks holding garment `garmentId`, declined ones aside, each
+ * with its slots as looksOfPlan reads them, oldest first: a scalar subquery
+ * for the garment page's one statement (garmentContext), read only on the
+ * owner's Bought it result. Pass it to boughtLooks. Every column is
+ * written with its table, so the correlations hold (src/db/CLAUDE.md);
+ * `plan_look_slot_garment_id_index` finds the looks.
+ */
+export function looksWithGarmentSql(
+  ownerId: number,
+  garmentId: number,
+): SQL<BoughtLookRow[]> {
+  const candidate = sql`exists (
+    select from ${planItemCandidate}
+    inner join ${planItem} on ${planItem.id} = ${planItemCandidate.planItemId}
+    where ${planItemCandidate.garmentId} = ${garment.id}
+      and ${planItem.planId} = ${planLook.planId}
+      and ${planItem.review} <> 'declined')`;
+  const slots = sql`(
+    select coalesce(json_agg(json_build_object(
+      'position', ${planLookSlot.position},
+      'category', ${planLookSlot.category},
+      'garmentId', ${garment.id},
+      'name', ${garment.name},
+      'status', ${garment.status},
+      'candidate', ${candidate},
+      'photo', ${photoRefJson}
+    ) order by ${planLookSlot.position}), '[]')
+    from ${planLookSlot}
+    left join ${garment} on ${garment.id} = ${planLookSlot.garmentId} and ${garment.ownerId} = ${ownerId}
+    left join ${file} on ${file.id} = ${garment.photoId}
+    where ${planLookSlot.lookId} = ${planLook.id})`;
+  return sql<BoughtLookRow[]>`(
+    select coalesce(json_agg(json_build_object(
+      'id', ${planLook.id},
+      'planId', ${planLook.planId},
+      'planName', ${wardrobePlan.name},
+      'name', ${planLook.name},
+      'reaction', ${planLook.reaction},
+      'outfitId', ${planLook.outfitId},
+      'slots', ${slots}
+    ) order by ${planLook.id}), '[]')
+    from ${planLook}
+    inner join ${wardrobePlan} on ${wardrobePlan.id} = ${planLook.planId}
+    where ${wardrobePlan.ownerId} = ${ownerId}
+      and ${planLook.reaction} <> 'declined'
+      and ${planLook.id} in (
+        select ${planLookSlot.lookId} from ${planLookSlot}
+        where ${planLookSlot.garmentId} = ${garmentId}))`;
+}
+
+/**
+ * What a purchase completed (#292): of looksWithGarmentSql's looks, those
+ * now saveable or saved (lookSaveState). Right after Bought it these are
+ * exactly the looks the purchase completed: the garment was a piece to buy
+ * in each until then.
+ */
+export function boughtLooks(rows: readonly BoughtLookRow[]): BoughtLook[] {
+  return rows
+    .map(({ slots, ...look }) => withSlots(look, slots))
+    .filter((look) => lookSaveState(look) !== 'not-yet');
+}
+
+/**
+ * Whether a look can become an outfit (#292): `saved` once it is one
+ * (whatever its pieces are now: an archived piece stays in the outfit),
+ * `saveable` when every piece is in the closet and the owner has not
+ * declined it (a look sent back is saveable as it is), else `not-yet`.
+ * Pure; the pages, the Bought it page and saveLookAsOutfit ask it.
+ */
+export type LookSaveState = 'saved' | 'saveable' | 'not-yet';
+
+export function lookSaveState(
+  look: Pick<PlanLookView, 'outfitId' | 'complete' | 'reaction'>,
+): LookSaveState {
+  if (look.outfitId !== null) return 'saved';
+  return look.complete && look.reaction !== 'declined' ? 'saveable' : 'not-yet';
 }
 
 /** A plan's looks as the review and the plan page draw them (#291). */

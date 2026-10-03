@@ -104,8 +104,10 @@ describe('migrations', () => {
         'plan_item_candidate_garment_id_index',
         // A plan's looks (also plan_id's foreign key), a look's slots in
         // order (also look_id's), a garment once per look, and a garment's
-        // looks (garment_id's), #290.
+        // looks (garment_id's), #290; the outfit a look was saved as
+        // (outfit_id's foreign key: a deleted outfit's set null), #292.
         'plan_look_plan_id_index',
+        'plan_look_outfit_id_index',
         'plan_look_slot_pkey',
         'plan_look_slot_look_id_garment_id_unique',
         'plan_look_slot_garment_id_index',

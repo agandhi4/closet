@@ -386,6 +386,24 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // #292: the fixture's look of closet garments becomes an outfit.
+    name: 'POST /wardrobe/plans/:id/looks/:lookId/save',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/looks/${f.planCompleteLookId}/save${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
     name: 'GET /wardrobe/plans/:id/review',
     kind: 'read',
     ok: 200,

@@ -22,7 +22,7 @@ import {
   TILE,
 } from './candidate-tile';
 import { differencesText, itemFacts, itemTitle, priorityLabel } from './labels';
-import { LookFace, LooksApart, LooksStrip } from './look-tile';
+import { LookFace, LookSaveChip, LooksApart, LooksStrip } from './look-tile';
 import type { PlanLookView } from './looks';
 import type { PlanDetail, PlanItemRow } from './queries';
 import {
@@ -604,6 +604,7 @@ function LookReviewTile(props: {
     >
       <input type="hidden" name="look" value={String(look.id)} />
       <LookFace look={look} eager={props.eager} />
+      <LookSaveChip look={look} />
       <div class={`${DETAILS} mt-1 gap-1.5`}>
         <div
           role="radiogroup"
