@@ -152,4 +152,12 @@ A look is an outfit the agent designs from a plan, mixing closet garments with t
 
 **The duplicate** copies every look (reaction, notes, slots as they stand, emptied ones included) after the candidates. A declined look's set is remembered in the copy, and a valid piece stays valid. It costs one more read, plus two inserts when there are looks.
 
+**The agent's tools** (`src/web/mcp/tools/looks.ts`, `look-out.ts`; `test/integration/mcp-looks.spec.ts`; plans are the caller's own, so another user's plan or look is a 404). They call the writers above and nothing else, and pass their refusals through as tool errors.
+
+- `list_looks` (read): the plan's looks by occasion (`OCCASIONS` order, none last), each with its slots top to toe (`garmentId`, `name`, `role`, `state` owned / to-buy / missing, and `reason` when missing), `reaction`, `ownerNote`, `missingPieces` (role, category, reason) and `complete`. 3 statements.
+- `propose_look` (WRITES): `planId?`, `name`, `occasion?`, `note?`, `garmentIds` (2 to 20). Answers `{ id, planId, reaction: 'proposed', alreadyProposed }`. A given `planId` costs no plan read (the writer answers a missing plan); an omitted one reads the active plan. 8 statements.
+- `update_look` (WRITES): `lookId`, and any of `name`, `occasion` / `note` (null clears), `garmentIds` (the whole new set). Answers `{ id, planId, reaction, from }`: always `proposed`, from `revise` or `loved` this is the repropose. 6 statements.
+- `get_plan_feedback` gains `looks: { revise, declined, incomplete }`, each entry in `list_looks`' shape: a declined look's slots are the exact set never to propose again, and `incomplete` is every look not declined with a missing slot (a candidate rejected or deleted empties its slot). One more statement (5).
+- `INSTRUCTIONS` step 7 and the iteration paragraph tell the agent to propose a few looks per occasion of the week with every candidate in at least one look, to change `revise` looks, mend `incomplete` ones and never re-propose a declined set. The README's "Styling with an agent" follows.
+
 `test/integration/plan-looks.spec.ts` covers every refusal, the derived states, the duplicate, the delete and two interleavings: a proposal waiting on a decline, and a garment delete waiting on a proposal.

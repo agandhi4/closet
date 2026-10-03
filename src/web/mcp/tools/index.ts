@@ -5,6 +5,7 @@ import { capsuleTools } from './capsules';
 import { galleryTools } from './gallery';
 import { garmentTools } from './garments';
 import { insightTools } from './insights';
+import { lookTools } from './looks';
 import { outfitTools } from './outfits';
 import { planTools } from './plans';
 import { sharingTools } from './sharing';
@@ -24,7 +25,8 @@ import { weekPlanTools } from './week-plan';
  * Wardrobe plans (#34) are tools/plans.ts (34a:
  * the style profile, plans, gaps, proposals) and tools/shopping.ts (34b:
  * the shopping list, candidates, comparing plans); "Bought it" stays the
- * owner's, in the app. The outfit gallery (#9) is tools/gallery.ts, with
+ * owner's, in the app. Looks (#290) are tools/looks.ts: list_looks,
+ * propose_look, update_look. The outfit gallery (#9) is tools/gallery.ts, with
  * "Goes with my closet" for a wishlist item (#18b, goes_with_closet),
  * insights (#17) tools/insights.ts's wardrobe_stats, Today (#15)
  * tools/today.ts. A garment's photo for tagging (#90) is tools/garments.ts's
@@ -47,6 +49,7 @@ export function mcpTools(options: {
     ...(options.weather ? weatherTools : []),
     ...sharingTools,
     ...planTools,
+    ...lookTools,
     ...sizeTools,
     ...shoppingTools,
   ];

@@ -76,7 +76,14 @@ describe('MCP statements per tool (#172)', () => {
     trip: 0,
     plan: 0,
     planItem: 0,
+    look: 0,
   };
+  let lookSets = 0;
+  /** A closet garment with the wishlist candidate: a new set at every call. */
+  const lookSet = () => [
+    [ids.garment, ids.other, ids.copies][lookSets++ % 3],
+    ids.wishlist,
+  ];
 
   beforeAll(async () => {
     stub = await startWeatherStub();
@@ -177,6 +184,13 @@ describe('MCP statements per tool (#172)', () => {
       .limit(1);
     ids.planItem = candidate.planItemId;
     ids.wishlist = candidate.garmentId;
+    const look = await callTool(t, tokens[0], 'propose_look', {
+      planId: plan.id,
+      name: 'Statements base',
+      garmentIds: [ids.garment, ids.other, ids.copies, ids.wishlist],
+    });
+    expect(look.isError, JSON.stringify(look.value)).toBe(false);
+    ids.look = look.value.id as number;
     const worn = sql<number>`count(*)`;
     const [favourite] = await t.db
       .select({ id: outfit.id, worn })
@@ -313,11 +327,27 @@ describe('MCP statements per tool (#172)', () => {
     ['list_plans', () => ({}), 4],
     ['create_plan', () => ({ name: `Statements ${++drafts}` }), 5],
     ['get_plan_gaps', () => ({}), 6], // 5; #278 reads the rejected products
-    // token, plan, items, rejections (#278) and candidates (#295: needsProducts)
-    ['get_plan_feedback', () => ({}), 5],
+    // token, plan, items, rejections (#278), candidates (#295: needsProducts) and looks (#290)
+    ['get_plan_feedback', () => ({}), 6],
     ['propose_plan_item', () => ({ category: 'tops', name: 'Statements' }), 7],
     // #278: 6, plus the review read under the lock that the machine judges.
     ['update_plan_item', () => ({ itemId: ids.planItem, category: 'tops' }), 7],
+    ['list_looks', () => ({}), 3], // token, plan, looks (one read, slots with their garments)
+    // The writers' own cost: begin, owner lock, the plan with its looks' sets,
+    // the garments, the look, its slots, commit. A given planId reads no plan.
+    // The untimed first call writes the look, so the counted repeat uses
+    // another set: a fresh proposal, not the repeat's cheaper answer.
+    [
+      'propose_look',
+      () => ({
+        planId: ids.plan,
+        name: 'Statements look',
+        garmentIds: lookSet(),
+      }),
+      8,
+    ],
+    // token, begin, owner lock, the look, its update, commit.
+    ['update_look', () => ({ lookId: ids.look, note: 'Statements' }), 6],
     ['get_sizes', () => ({}), 3],
     ['get_shopping_list', () => ({}), 5],
     [

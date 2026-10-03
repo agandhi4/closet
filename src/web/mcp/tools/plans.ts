@@ -39,6 +39,7 @@ import {
   styleProfileSql,
   updateItem,
 } from '../../plans/queries';
+import { looksOfPlan } from '../../plans/looks';
 import { type Rejection, rejectionsOfPlan } from '../../plans/rejections';
 import { templateDays, weeklyRhythm } from '../../../wardrobe/week';
 import { inTemplateOrder, weekTemplateSql } from '../../week-plan/template';
@@ -59,6 +60,7 @@ import {
 import { CATEGORY_MAX } from '../../wardrobe/validation';
 import { defineTool, type ToolContext } from '../tool';
 import { rowId } from './common';
+import { lookOut } from './look-out';
 
 /**
  * The wardrobe plans' tools (#34, slice 34a): the owner's style profile,
@@ -472,15 +474,16 @@ export const planTools = [
     name: 'get_plan_feedback',
     title: 'Get the owner’s feedback on a plan',
     description:
-      'What waits on you in a wardrobe plan (the active one when planId is omitted), and nothing else: the items the owner sent back for a change (revise: ownerNote says what; change them with update_plan_item, which returns them to the owner), the items the owner declined (declined: never propose them again, never add a candidate to them), the items with products the owner rejected since the item last changed (replace: swap those products for others with add_candidate), and the proposed or accepted items with no product option at all (needsProducts: give each 2 to 5 with add_candidate, or add_garment_from_link with planItemId). Every item lists the products the owner rejected for it (rejected: name, brand, url, price, reason, when, and new: true for a rejection you have not answered yet); never add a rejected product again, by url or by garment. Read this first in a conversation about an existing plan.',
+      'What waits on you in a wardrobe plan (the active one when planId is omitted), and nothing else: the items the owner sent back for a change (revise: ownerNote says what; change them with update_plan_item, which returns them to the owner), the items the owner declined (declined: never propose them again, never add a candidate to them), the items with products the owner rejected since the item last changed (replace: swap those products for others with add_candidate), and the proposed or accepted items with no product option at all (needsProducts: give each 2 to 5 with add_candidate, or add_garment_from_link with planItemId). And the plan’s looks: looks the owner sent back (looks.revise: ownerNote says what; change them with update_look, which returns them to the owner), looks the owner declined (looks.declined: never propose exactly that set of pieces again) and looks not declined that lost a piece (looks.incomplete: a candidate was rejected or removed, so a slot is missing; mend them with update_look). Every item lists the products the owner rejected for it (rejected: name, brand, url, price, reason, when, and new: true for a rejection you have not answered yet); never add a rejected product again, by url or by garment. Read this first in a conversation about an existing plan.',
     input: z.object({ planId: planIdInput }),
     writes: false,
     async run({ planId }, ctx) {
       const plan = await planFor(ctx, planId);
-      const [items, rejections, candidates] = await Promise.all([
+      const [items, rejections, candidates, looks] = await Promise.all([
         itemsOf(ctx.db, [plan.id]),
         rejectionsOfPlan(ctx.db, plan.id),
         candidatesOfPlan(ctx.db, ctx.userId, plan.id),
+        looksOfPlan(ctx.db, ctx.userId, plan.id),
       ]);
       // `new`: made since the item last changed, so the agent has not answered it.
       const out = (item: PlanItemRow) => ({
@@ -507,6 +510,21 @@ export const planTools = [
         needsProducts: items
           .filter((item) => open(item) && !candidates.has(item.id))
           .map(out),
+        looks: {
+          revise: looks
+            .filter((look) => look.reaction === 'revise')
+            .map(lookOut),
+          declined: looks
+            .filter((look) => look.reaction === 'declined')
+            .map(lookOut),
+          // A rejected or deleted candidate empties its slot: the look waits on a new piece.
+          incomplete: looks
+            .filter(
+              (look) =>
+                look.reaction !== 'declined' && look.missingPieces.length > 0,
+            )
+            .map(lookOut),
+        },
       };
     },
   }),

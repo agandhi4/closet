@@ -2,6 +2,7 @@ import { readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { and, desc, eq, isNotNull, ne } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
+import { proposeLook } from '../../src/web/plans/looks';
 import { multipart } from '../../test/support/multipart';
 import {
   ACCOUNT_PASSWORD,
@@ -3169,6 +3170,29 @@ const tools: Step[] = [
     itemId: f.ids.planItemId,
     category: 'tops',
   })),
+  // The looks (#290): the base look the update changes is the proposal's.
+  mcp('list_looks', () => ({})),
+  mcp('propose_look', (f) => ({
+    planId: f.ids.planId,
+    name: 'Audit look',
+    garmentIds: [f.ids.garmentId, f.ids.wishlistId],
+  })),
+  mcp(
+    'update_look',
+    (f, lookId: number) => ({ lookId, note: 'Audit revision' }),
+    {
+      prepare: async (f) =>
+        (
+          await proposeLook(
+            f.closet.db,
+            f.theo.id,
+            f.ids.planId,
+            { name: 'Audit base look', occasion: null, note: null },
+            [f.ids.otherGarmentId, f.ids.wishlistId],
+          )
+        ).id,
+    },
+  ),
   mcp('get_sizes', () => ({})),
   mcp('get_shopping_list', () => ({})),
   mcp('add_candidate', (f) => ({
