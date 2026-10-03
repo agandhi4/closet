@@ -1,5 +1,6 @@
 import { categoryRole, type GarmentRole } from '../../wardrobe/properties';
 import { type SignablePhotoRef, imageUrl } from '../files/image-url';
+import { t } from '../i18n';
 import { HangerIcon } from '../layout/parts';
 
 /**
@@ -10,14 +11,28 @@ import { HangerIcon } from '../layout/parts';
  * phone screen above the dock. The redesign's one OutfitCollage
  * (docs/plans/2026-09-26-redesign.md, sections 3 and 5): the gallery's
  * Ideas cards, the outfit page and Today (`card`), the Saved grid
- * (`tile`), the garment page's "In N outfits" and the calendar (`thumb`).
+ * (`tile`), the garment page's "In N outfits" and the calendar (`thumb`),
+ * and a plan's looks (`look`, #291), whose pieces carry marks.
  */
 
-export interface CollageGarment {
-  id: number;
+/**
+ * A plan look's piece that is not simply owned (#291): `to-buy`, a
+ * candidate product of the plan (its photo with Styling's To buy badge), or
+ * `missing`, a slot holding nothing the look can use (a dashed place where
+ * its role goes). An outfit's garments carry none.
+ */
+export type CollageMark = 'to-buy' | 'missing';
+
+/** What the collage draws of a piece; a look's emptied slot has no garment id. */
+export interface CollagePieceView {
   name: string | null;
   category: string;
   photo: SignablePhotoRef | null;
+  mark?: CollageMark;
+}
+
+export interface CollageGarment extends CollagePieceView {
+  id: number;
 }
 
 const UPPER: readonly GarmentRole[] = ['layer', 'one-piece', 'top'];
@@ -29,7 +44,9 @@ const SIDE: readonly GarmentRole[] = ['accessory', 'bag', 'none'];
  * when the outfit is all side pieces. Shares `SIDE` with the collage's own
  * layout so the two never disagree.
  */
-export function bodyOf<G extends CollageGarment>(garments: readonly G[]): G[] {
+export function bodyOf<G extends CollagePieceView>(
+  garments: readonly G[],
+): G[] {
   const body = garments.filter((g) => !SIDE.includes(categoryRole(g.category)));
   return body.length > 0 ? body : [...garments];
 }
@@ -39,7 +56,9 @@ export function bodyOf<G extends CollageGarment>(garments: readonly G[]): G[] {
  * phone screen holds whole, `tile` for the Saved grid's two columns (about
  * 170 px wide at 390 px: a 4:5 frame so the grid's rows line up, the
  * garments centred in it), `thumb` for a strip of small tiles (the garment
- * page's "In N outfits", about 96 px wide).
+ * page's "In N outfits", about 96 px wide), `look` for a plan look's card
+ * in a snap strip (224 px wide: a 4:5 frame, so every card of the strip is
+ * the same height, with pieces large enough to carry a badge).
  */
 const SIZES = {
   card: {
@@ -66,11 +85,19 @@ const SIZES = {
     feet: 'h-6',
     side: 'h-5',
   },
+  look: {
+    box: 'rounded-box p-2 gap-1.5 aspect-[4/5]',
+    column: 'justify-center',
+    upper: 'h-20',
+    lower: 'h-28',
+    feet: 'h-14',
+    side: 'h-12',
+  },
 } as const;
 export type CollageSize = keyof typeof SIZES;
 
 export function OutfitCollage(props: {
-  garments: readonly CollageGarment[];
+  garments: readonly CollagePieceView[];
   /** The first card on a page: its images load at once. */
   eager?: boolean;
   size?: CollageSize;
@@ -84,12 +111,13 @@ export function OutfitCollage(props: {
   const lower = of(['bottom']);
   const feet = of(['footwear']);
   const side = of(SIDE);
-  const piece = (garment: CollageGarment, height: string) => (
+  const piece = (garment: CollagePieceView, height: string) => (
     <CollagePiece
       garment={garment}
       class={height}
       eager={eager}
       labelled={size === 'card'}
+      words={size !== 'thumb'}
     />
   );
   return (
@@ -120,9 +148,63 @@ export function OutfitCollage(props: {
   );
 }
 
-/** A garment of the collage: its thumb, or a hanger (and its name on a card). */
+/**
+ * A garment of the collage: its thumb, or a hanger (and its name on a
+ * card). A missing piece is a dashed place of the same size; a piece to buy
+ * wears Styling's badge over its foot. A thumb's pieces are too small for
+ * words: the dashed place is empty and the badge a dot, each saying what
+ * it means to screen readers only.
+ */
 function CollagePiece(props: {
-  garment: CollageGarment;
+  garment: CollagePieceView;
+  class: string;
+  eager: boolean;
+  labelled: boolean;
+  words: boolean;
+}) {
+  const { garment, words } = props;
+  if (garment.mark === 'missing') {
+    return (
+      <span
+        class={`${props.class} aspect-square max-w-full rounded-box border border-dashed border-warning flex items-center justify-center p-1`}
+        data-missing-piece=""
+      >
+        <span
+          class={
+            words ? 'text-xs text-warning text-center leading-tight' : 'sr-only'
+          }
+        >
+          {t('plans.looks.MISSING')}
+        </span>
+      </span>
+    );
+  }
+  const face = <CollageFace {...props} />;
+  if (garment.mark !== 'to-buy') return face;
+  return (
+    <span class="relative flex justify-center max-w-full">
+      {face}
+      {words ? (
+        <span
+          class="badge badge-accent badge-xs absolute bottom-0 left-1/2 -translate-x-1/2 whitespace-nowrap"
+          data-to-buy=""
+        >
+          {t('plans.looks.TO_BUY')}
+        </span>
+      ) : (
+        <span
+          class="absolute bottom-0 right-0 size-2 rounded-full bg-accent"
+          data-to-buy=""
+        >
+          <span class="sr-only">{t('plans.looks.TO_BUY')}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function CollageFace(props: {
+  garment: CollagePieceView;
   class: string;
   eager: boolean;
   labelled: boolean;

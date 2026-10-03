@@ -6,7 +6,7 @@ import { EmptyState } from '../layout/parts';
 import type { SharedWardrobe } from '../sharing/access';
 import type { ViewContext } from '../view-context';
 import { WardrobeHeader, WardrobeTabs } from '../wardrobe/wardrobe-header';
-import type { PlanGaps } from './gaps';
+import { awaitingReview, type PlanGaps } from './gaps';
 import {
   COMPARE_PATH,
   NEW_PLAN_PATH,
@@ -129,7 +129,7 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
  */
 function PlanCard({ gaps }: { gaps: PlanGaps }) {
   const { plan, tally } = gaps;
-  const { proposed } = gaps.review;
+  const awaiting = awaitingReview(gaps);
   return (
     <li class="card bg-base-100 shadow-sm relative">
       <div class="card-body p-3 gap-1">
@@ -152,9 +152,9 @@ function PlanCard({ gaps }: { gaps: PlanGaps }) {
             {t('plans.DRAFTED_BY', { name: plan.draftedBy })}
           </p>
         )}
-        {proposed.length > 0 && (
+        {awaiting > 0 && (
           <p class="text-xs text-primary flex items-center justify-between gap-2">
-            {t('plans.PROPOSED_COUNT', { count: proposed.length })}
+            {t('plans.PROPOSED_COUNT', { count: awaiting })}
             {/* Above the card's stretched link. */}
             <a
               href={reviewUrl(plan.id)}

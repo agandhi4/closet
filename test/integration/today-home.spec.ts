@@ -299,6 +299,33 @@ describe('Today', () => {
       await t.db.delete(wardrobePlan);
     });
 
+    // A draft whose items are all decided but one look still proposed (#291)
+    // still has something to review: the card counts looks with items.
+    it('counts an agent’s proposed looks on the draft card, in the same three statements', async () => {
+      await clearToday();
+      const token = await createAccessToken(t, { name: 'Muse' });
+      const draft = await tool<{ id: number }>(t, token, 'create_plan', {
+        name: 'Autumn looks',
+      });
+      const pieces = [
+        await garmentIn('Look tee', 'tops', 'white'),
+        await garmentIn('Look trousers', 'bottoms', 'blue'),
+      ];
+      await tool(t, token, 'propose_look', {
+        planId: draft.id,
+        name: 'Monday',
+        garmentIds: pieces,
+      });
+
+      const record = await recordQueries(() => get('/'));
+      expect(record.statements).toBe(3);
+      const html = unescapeHtml((await get('/')).body);
+      expect(html).toContain(`data-plan-draft="${draft.id}"`);
+      expect(html).toContain('Muse drafted Autumn looks: 1 idea to review');
+      expect(html).toContain(`href="/wardrobe/plans/${draft.id}/review"`);
+      await t.db.delete(wardrobePlan);
+    });
+
     it('an empty closet says what ideas need', async () => {
       const cookie = await t.register('empty-today@example.com');
       const res = await get('/', { cookie });

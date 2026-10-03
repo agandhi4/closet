@@ -12,16 +12,20 @@ import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { roleGroupLabel } from '../wardrobe/labels';
 import { garmentUrl } from '../wardrobe/urls';
-import { candidateName, isAgentsPick } from './candidate-tile';
+import { snapItem } from '../strip/snap-strip';
+import { candidateName, DETAILS, isAgentsPick, TILE } from './candidate-tile';
 import type { CandidatesByItem } from './candidates';
-import { byPriority, type PlanGaps } from './gaps';
+import { awaitingReview, byPriority, type PlanGaps } from './gaps';
 import { itemTitle, priorityLabel } from './labels';
+import { LookFace, LooksApart, LooksStrip } from './look-tile';
+import type { LookGroups, PlanLookView } from './looks';
 import type { ClosetGarment, PlanItemRow } from './queries';
 import { type ListedCandidate, listedCandidate } from './shopping';
 import {
   candidatesUrl,
   compareUrl,
   itemUrl,
+  lookUrl,
   planUrl,
   PLANS_PATH,
   reviewUrl,
@@ -32,6 +36,8 @@ export interface PlanPageModel {
   gaps: PlanGaps;
   /** Each item's candidate products (34b): wishlist garments, by item id. */
   candidates: CandidatesByItem;
+  /** The plan's looks (#291), grouped for the page. */
+  looks: LookGroups;
   /** The one-shot toast after a write (PlanPageQuery). */
   toast?: 'created' | 'saved' | 'reviewed';
   /** With the review's toast: the products it removed from the wishlist. */
@@ -145,14 +151,19 @@ export function planSections(
  * what the owner asked first was what each thing is. The agent's proposals
  * are counted above with Review (#271), and each keeps Accept, Change
  * this… and Don't buy (#278); declined items are listed apart with
- * Reconsider. A plan an agent drafted (create_plan) names its token.
- * Private: the signed-in owner's plan and closet only.
+ * Reconsider. A plan an agent drafted (create_plan) names its token. Its
+ * looks (#291) lead, as a strip (loved first) whose centred look has its
+ * reactions as small native posts, with those sent back or turned down
+ * listed apart after the items. Private: the signed-in owner's plan and
+ * closet only.
  */
 export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
   const { ctx, model } = props;
   const { plan, tally } = model.gaps;
-  const { proposed, declined } = model.gaps.review;
+  const { declined } = model.gaps.review;
+  const awaiting = awaitingReview(model.gaps);
   const sections = planSections(model.gaps, model.candidates);
+  const { looks } = model;
   return (
     <Layout ctx={ctx} title={plan.name}>
       <AppBar
@@ -182,13 +193,13 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
             </p>
           )}
         </div>
-        {proposed.length > 0 && (
+        {awaiting > 0 && (
           <div
             class="flex items-center justify-between gap-3 rounded-box bg-base-200 px-3 py-2"
             id="plan-proposals"
           >
             <p class="text-sm">
-              {t('plans.PROPOSED_COUNT', { count: proposed.length })}
+              {t('plans.PROPOSED_COUNT', { count: awaiting })}
             </p>
             <a
               href={reviewUrl(plan.id)}
@@ -210,6 +221,7 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
           )}
         </div>
 
+        <PlanLooks looks={looks.strip} />
         {sections.length === 0 && declined.length === 0 ? (
           <p class="text-sm text-muted text-center pt-8">
             {t('plans.NO_ITEMS')}
@@ -220,6 +232,20 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
           ))
         )}
         {declined.length > 0 && <DeclinedList items={declined} />}
+        <LooksApart
+          id="plan-looks-revise"
+          title={t('plans.looks.REVISE')}
+          hint={t('plans.REVISE_HINT')}
+          looks={looks.revise}
+          moves={(look) => <LookMoves look={look} />}
+        />
+        <LooksApart
+          id="plan-looks-declined"
+          title={t('plans.looks.DECLINED')}
+          hint={t('plans.DECLINED_HINT')}
+          looks={looks.declined}
+          moves={(look) => <LookMoves look={look} />}
+        />
       </main>
       {model.toast && (
         <SavedToast
@@ -644,6 +670,109 @@ function DeclinedList({ items }: { items: PlanItemRow[] }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+// The shared strip's observer (public/js/snap-strip.js, through the
+// importmap): an inline module, so it runs again after a boosted navigation
+// brings the page and on a fresh load, where nothing else has loaded it. A
+// fixed string with nothing interpolated.
+const LOOKS_INIT = `import { initSnapStrips } from 'snap-strip';
+initSnapStrips(document.getElementById('plan-looks'));`;
+
+/** The plan's Looks strip (#291), edge to edge; nothing without looks in it. */
+function PlanLooks({ looks }: { looks: PlanLookView[] }) {
+  if (looks.length === 0) return null;
+  return (
+    <div class="-mx-4">
+      <LooksStrip
+        id="plan-looks"
+        count={looks.length}
+        hint={t('plans.looks.PLAN_HINT')}
+      >
+        {looks.map((look, index) => (
+          <LookPlanTile look={look} selected={index === 0} eager={index < 2} />
+        ))}
+      </LooksStrip>
+      <script type="module" dangerouslySetInnerHTML={{ __html: LOOKS_INIT }} />
+    </div>
+  );
+}
+
+/**
+ * A look of the plan's strip: its face and, under it while centred
+ * (DETAILS), its moves. Every tile keeps the space, so the strip's tiles
+ * are the same height.
+ */
+function LookPlanTile(props: {
+  look: PlanLookView;
+  selected: boolean;
+  eager: boolean;
+}) {
+  const { look } = props;
+  return (
+    <div
+      {...snapItem({
+        value: String(look.id),
+        selected: props.selected,
+        size: 'card',
+        listbox: false,
+        class: TILE,
+      })}
+      id={`look-${look.id}`}
+      data-look={String(look.id)}
+      data-reaction={look.reaction}
+    >
+      <LookFace look={look} eager={props.eager} />
+      <div class={`${DETAILS} mt-1`}>
+        <LookMoves look={look} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A look's reactions (#291), each its own small native post (the item
+ * moves' rule, ReviewMoves): Love it while it is to review or sent back
+ * ("Love it as it is"), Change this… (its own form: the note is required)
+ * while to review or loved, Not for me while not turned down already, and
+ * Reconsider once it is. The machine (look-reaction.ts) has the same edges.
+ */
+function LookMoves({ look }: { look: PlanLookView }) {
+  const action = (suffix: string) => lookUrl(look.planId, look.id, suffix);
+  if (look.reaction === 'declined') {
+    return (
+      <PostForm action={action('/reconsider')} needsNetwork>
+        <button type="submit" class="btn btn-xs btn-outline">
+          {t('plans.RECONSIDER')}
+        </button>
+      </PostForm>
+    );
+  }
+  return (
+    <div class="flex flex-wrap items-center gap-1">
+      {(look.reaction === 'proposed' || look.reaction === 'revise') && (
+        <PostForm action={action('/love')} needsNetwork>
+          <button type="submit" class="btn btn-xs btn-primary">
+            {t(
+              look.reaction === 'revise'
+                ? 'plans.looks.LOVE_AS_IS'
+                : 'plans.looks.LOVE',
+            )}
+          </button>
+        </PostForm>
+      )}
+      <PostForm action={action('/decline')} needsNetwork>
+        <button type="submit" class="btn btn-xs btn-ghost">
+          {t('plans.looks.DECLINE')}
+        </button>
+      </PostForm>
+      {look.reaction !== 'revise' && (
+        <a href={action('/change')} class="link link-hover text-xs">
+          {t('plans.looks.CHANGE')}
+        </a>
+      )}
+    </div>
   );
 }
 

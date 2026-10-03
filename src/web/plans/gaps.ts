@@ -69,6 +69,11 @@ export function toTarget(item: PlanItemRow): PlanTarget {
   };
 }
 
+/** What Review (#271) opens: the plan's proposed items and proposed looks (#291). The one rule behind the plan page, the list and Today's card (waitingDraftsSql counts the same in SQL). */
+export function awaitingReview(gaps: PlanGaps): number {
+  return gaps.review.proposed.length + gaps.plan.proposedLooks;
+}
+
 const PRIORITY_ORDER: readonly string[] = PLAN_PRIORITIES;
 
 /** Highest priority first, then oldest: the gap view's groups and the plan review (#271). */

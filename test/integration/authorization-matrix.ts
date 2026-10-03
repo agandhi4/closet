@@ -14,6 +14,7 @@ import {
 } from '../../src/db/schema';
 import { createToken } from '../../src/web/auth/personal-tokens';
 import { changeCandidates } from '../../src/web/plans/candidates';
+import { proposeLook, reactToLooks } from '../../src/web/plans/looks';
 import {
   insertItems,
   reviewItems,
@@ -149,6 +150,10 @@ export interface Fixture {
   planItemId: number;
   /** An item of it the owner declined (#278: so reconsidering it writes). */
   planDeclinedItemId: number;
+  /** A look of it their agent proposed (#291: so loving it writes). */
+  planLookId: number;
+  /** A look of it the owner turned down (so reconsidering it writes). */
+  planDeclinedLookId: number;
   /**
    * A trip of the owner's (#10) on today and tomorrow: the outfit on it for
    * today, the garment packed, one extra; and another trip with an extra.
@@ -299,6 +304,8 @@ const TABLES = [
   'wardrobe_plan',
   'plan_item',
   'plan_item_candidate',
+  'plan_look',
+  'plan_look_slot',
   'style_profile',
   'week_template',
   'week_plan',
@@ -584,6 +591,26 @@ export function describeMatrix(
       await changeCandidates(t.db, t.owner.id, {
         add: { itemIds: [planItemId], garmentIds: [wishlistId] },
       });
+      // Two looks of the garment with the candidate (#291), one turned down.
+      const lookScarfId = await createGarment(t, {
+        name: `Scarf ${tag}`,
+        cookie,
+      });
+      const look = (name: string, garmentIds: number[]) =>
+        proposeLook(
+          t.db,
+          t.owner.id,
+          planId,
+          { name: `${name} ${tag}`, occasion: null, note: null },
+          garmentIds,
+        );
+      const planLookId = (await look('Look', [garmentId, wishlistId])).id;
+      const planDeclinedLookId = (
+        await look('Declined look', [lookScarfId, wishlistId])
+      ).id;
+      await reactToLooks(t.db, t.owner.id, planId, 'decline', [
+        { lookId: planDeclinedLookId },
+      ]);
       await saveStyleProfile(t.db, t.owner.id, {
         ...EMPTY_STYLE_PROFILE,
         notes: OWNER_STYLE_NOTE,
@@ -694,6 +721,8 @@ export function describeMatrix(
         planName,
         planItemId,
         planDeclinedItemId,
+        planLookId,
+        planDeclinedLookId,
         tripId,
         tripName,
         tripOutfitId,

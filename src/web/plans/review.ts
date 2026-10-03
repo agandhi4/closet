@@ -1,3 +1,4 @@
+import type { Static } from '@sinclair/typebox';
 import type { Db, Queryable } from '../../db/client';
 import { OUTFIT_ORDER } from '../../wardrobe/generator';
 import type { PlanItemReviewEvent } from '../../wardrobe/plan-review';
@@ -16,6 +17,13 @@ import {
 } from './candidates';
 import { byPriority } from './gaps';
 import {
+  groupLooks,
+  type LookGroups,
+  type LookMoves,
+  looksOfPlan,
+  reactToLooks,
+} from './looks';
+import {
   findPlan,
   itemsOf,
   type PlanDetail,
@@ -25,6 +33,12 @@ import {
 } from './queries';
 import { type RejectedCandidate, recordRejections } from './rejections';
 import { type ListedCandidate, listedCandidate } from './shopping';
+import {
+  LOOK_PICKS,
+  type LookPick,
+  lookReactionName,
+  type ReviewBody,
+} from './validation';
 
 /**
  * The plan review (#271, #278, epic #268): what an agent proposed, reviewed
@@ -62,6 +76,14 @@ import { type ListedCandidate, listedCandidate } from './shopping';
  * - A changed item lets nothing go but what was rejected: the agent sees
  *   what it offered.
  * - With "Make this my plan" (an inactive plan only), setActivePlan.
+ * - The looks (#291): one strip of the plan's loved and proposed looks,
+ *   each tile with Love it, Change this… (its note required, as an item's)
+ *   and Not for me. Only looks the strip drew (`look`) are touched, each
+ *   through reactToLooks (looks.ts, src/wardrobe/look-reaction.ts), so a
+ *   look the agent added after the page was drawn waits for the next
+ *   review, one left alone keeps its reaction, and one that moved meanwhile
+ *   takes only what the machine allows from where it is. Nothing a look
+ *   does deletes or unlinks anything.
  *
  * The removed photos' bytes go after the commit (the photo contract), as
  * "Bought it"'s do (purchase.ts).
@@ -85,8 +107,15 @@ export interface ReviewChoice {
   rejected: Map<number, string | null>;
 }
 
-/** Why a post the page could have sent is still refused, per item: the page again, 400. */
+/** Why a post the page could have sent is still refused, per item or look: the page again, 400. */
 export type ReviewError = 'note-required';
+
+/** A look's posted reaction (none: left as it is) and the note with it. */
+export interface LookChoice {
+  pick: LookPick | null;
+  /** The note for the agent, trimmed; null when blank. */
+  note: string | null;
+}
 
 /** An item's strip: the item and its candidates, the likeliest first. */
 export interface ReviewStrip {
@@ -101,6 +130,8 @@ export interface PlanReview {
   revise: PlanItemRow[];
   /** "Don't buy": kept so the agent never proposes them again. */
   declined: PlanItemRow[];
+  /** The plan's looks (#291): the strip's, and those waiting apart. */
+  looks: LookGroups;
 }
 
 /** The category's role in OUTFIT_ORDER; a custom category plays none, so after every role. */
@@ -117,17 +148,18 @@ function reviewOrder(a: PlanItemRow, b: PlanItemRow): number {
 /**
  * The review page's strips: `plan`'s proposed items (the caller found it
  * the owner's) with their candidates in the shopping list's order
- * (rankCandidates), and the items sent back or declined. Two statements:
- * the items, the candidates.
+ * (rankCandidates), the items sent back or declined, and the plan's looks
+ * (groupLooks). Three statements: the items, the candidates, the looks.
  */
 export async function planReview(
   db: Db,
   plan: PlanDetail,
   ownerId: number,
 ): Promise<PlanReview> {
-  const [items, candidates] = await Promise.all([
+  const [items, candidates, looks] = await Promise.all([
     itemsOf(db, [plan.id]),
     candidatesOfPlan(db, ownerId, plan.id),
+    looksOfPlan(db, ownerId, plan.id),
   ]);
   const inReview = (review: PlanItemRow['review']) =>
     items.filter((item) => item.review === review).sort(reviewOrder);
@@ -143,6 +175,7 @@ export async function planReview(
     })),
     revise: inReview('revise'),
     declined: inReview('declined'),
+    looks: groupLooks(looks),
   };
 }
 
@@ -174,16 +207,43 @@ export interface ReviewPost {
   rejects: readonly string[];
   /** One per offered candidate, in `offered`'s order (each tile's reason). */
   reasons: readonly string[];
+  /** The looks the strip drew (#291). */
+  looks: readonly number[];
+  /** One per look, in `looks`' order (each tile's note). */
+  lookNotes: readonly string[];
+  /** One per look, in `looks`' order: its radios' value, absent when none was tapped. */
+  lookPicks: readonly (LookPick | '' | undefined)[];
+}
+
+/** "Accept these"'s body as readReview takes it: each absent list empty, each look's radios by its id. */
+export function reviewPostOf(body: Static<typeof ReviewBody>): ReviewPost {
+  const looks = body.look ?? [];
+  return {
+    shown: body.shown ?? [],
+    picks: body.pick ?? [],
+    offered: body.offered ?? [],
+    notes: body.note ?? [],
+    rejects: body.reject ?? [],
+    reasons: body.rejectReason ?? [],
+    looks,
+    lookNotes: body.lookNote ?? [],
+    lookPicks: looks.map((lookId) => body[lookReactionName(lookId)]),
+  };
 }
 
 export type ReadReview =
   /** Not a post the page could have sent: it is drawn again as it stands now. */
   | { ok: false; reason: 'mismatch' }
-  /** The choices by item id; `errors` (by item) non-empty refuses the post, 400, kept as posted. */
+  /**
+   * The choices by item id and by look id; `errors` (by item) or
+   * `lookErrors` (by look) non-empty refuses the post, 400, kept as posted.
+   */
   | {
       ok: true;
       choices: Map<number, ReviewChoice>;
       errors: Map<number, ReviewError>;
+      looks: Map<number, LookChoice>;
+      lookErrors: Map<number, ReviewError>;
     };
 
 /** A posted note or reason, trimmed; null when blank. */
@@ -196,20 +256,47 @@ const text = (value: string | undefined): string | null =>
  * an offered candidate or a rejection for an item not shown, a rejection
  * of a candidate its strip did not offer, two picks for one, a shown item
  * without one, notes or reasons that do not pair with their strips and
- * tiles): the route re-renders the page 400. Then each item's own errors:
- * Change this without a note. A garment
+ * tiles, a look drawn twice, look notes that do not pair with the looks):
+ * the route re-renders the page 400. Then each item's and each look's own
+ * errors: Change this without a note. A garment
  * id is only compared with the item's candidates, never queried, so one
  * past the column's range is simply not one of them.
  */
 export function readReview(post: ReviewPost): ReadReview {
   const choices = readChoices(post);
-  if (!choices) return { ok: false, reason: 'mismatch' };
+  const looks = readLooks(post);
+  if (!choices || !looks) return { ok: false, reason: 'mismatch' };
   const errors = new Map<number, ReviewError>();
   for (const [itemId, choice] of choices) {
     const error = choiceError(choice);
     if (error) errors.set(itemId, error);
   }
-  return { ok: true, choices, errors };
+  const lookErrors = new Map<number, ReviewError>();
+  for (const [lookId, choice] of looks) {
+    if (choice.pick === 'change' && choice.note === null) {
+      lookErrors.set(lookId, 'note-required');
+    }
+  }
+  return { ok: true, choices, errors, looks, lookErrors };
+}
+
+/** readReview's look choices, or undefined for a post the page could not have sent. */
+function readLooks(post: ReviewPost): Map<number, LookChoice> | undefined {
+  if (
+    post.lookNotes.length !== post.looks.length ||
+    new Set(post.looks).size !== post.looks.length
+  ) {
+    return undefined;
+  }
+  return new Map(
+    post.looks.map((lookId, index) => [
+      lookId,
+      {
+        pick: post.lookPicks[index] || null,
+        note: text(post.lookNotes[index]),
+      },
+    ]),
+  );
 }
 
 /** A pick as its tile posts it (`pickValue`'s part after the item). */
@@ -278,6 +365,8 @@ function choiceError({ pick, note }: ReviewChoice): ReviewError | undefined {
 export interface ReviewDecision {
   shown: number[];
   choices: Map<number, ReviewChoice>;
+  /** The looks the strip drew, each with its reaction (#291). */
+  looks: Map<number, LookChoice>;
   removeUnpicked: boolean;
   activate: boolean;
 }
@@ -299,6 +388,8 @@ export type ReviewOutcome =
       /** To remove, but no longer on the wishlist (bought meanwhile). */
       kept: number[];
       activated: boolean;
+      /** The looks moved by each reaction, and those whose reaction refused it. */
+      looks: Record<LookPick, number[]> & { refused: LookMoves['refused'] };
     };
 
 /** The machine's event each pick makes. */
@@ -388,6 +479,12 @@ export async function applyReview(
         if (deleted === undefined) kept.push(id);
         else removed.push({ id, photo: deleted.photo });
       }
+      const looks = await reactToLooksOfPost(
+        tx,
+        ownerId,
+        planId,
+        decision.looks,
+      );
       const activated =
         decision.activate &&
         !plan.active &&
@@ -402,6 +499,7 @@ export async function applyReview(
         removed,
         kept,
         activated,
+        looks,
       };
     },
   );
@@ -420,12 +518,58 @@ export async function applyReview(
       `Plan ${planId} review by user ${ownerId}: items ${outcome.decided.join(', ')} left as they are, no longer proposed`,
     );
   }
+  const { looks } = outcome;
+  if (decision.looks.size > 0) {
+    logger.info(
+      `Plan ${planId} review by user ${ownerId}: looks loved ${list(looks.love)}, changes asked for ${list(looks.change)}, declined ${list(looks.decline)}`,
+    );
+  }
+  if (looks.refused.length > 0) {
+    logger.info(
+      `Plan ${planId} review by user ${ownerId}: looks ${looks.refused.map((r) => `${r.lookId} (${r.reaction})`).join(', ')} not moved (already moved or not this plan's)`,
+    );
+  }
   if (outcome.kept.length > 0) {
     logger.info(
       `Plan ${planId} review by user ${ownerId}: candidates ${outcome.kept.join(', ')} kept, no longer on the wishlist`,
     );
   }
   return { ...outcome, removed };
+}
+
+/**
+ * The post's look reactions, one reactToLooks per reaction that some look
+ * chose (nested in the review's owner transaction): only `looks`, the ones
+ * the strip drew, are named. A look that is no look of the plan any more
+ * is in neither list, and so left out.
+ */
+async function reactToLooksOfPost(
+  tx: Queryable,
+  ownerId: number,
+  planId: number,
+  looks: ReadonlyMap<number, LookChoice>,
+): Promise<Record<LookPick, number[]> & { refused: LookMoves['refused'] }> {
+  const result = {
+    love: [] as number[],
+    change: [] as number[],
+    decline: [] as number[],
+    refused: [] as LookMoves['refused'],
+  };
+  for (const pick of LOOK_PICKS) {
+    const moves = [...looks]
+      .filter(([, choice]) => choice.pick === pick)
+      .map(([lookId, choice]) => ({ lookId, note: choice.note }));
+    const { moved, refused } = await reactToLooks(
+      tx,
+      ownerId,
+      planId,
+      pick,
+      moves,
+    );
+    result[pick] = moved;
+    result.refused.push(...refused);
+  }
+  return result;
 }
 
 /**

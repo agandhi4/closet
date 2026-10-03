@@ -171,3 +171,21 @@ A look is an outfit the agent designs from a plan, mixing closet garments with t
 - `INSTRUCTIONS` step 7 and the iteration paragraph tell the agent to propose a few looks per occasion of the week with every candidate in at least one look, to change `revise` looks, mend `incomplete` ones and never re-propose a declined set. The README's "Styling with an agent" follows.
 
 `test/integration/plan-looks.spec.ts` covers every refusal, the derived states, the duplicate, the delete and two interleavings: a proposal waiting on a decline, and a garment delete waiting on a proposal.
+
+### Looks in the app (#291)
+
+`look-tile.tsx` holds what both pages share: `LooksStrip` (a heading, a hint and a snap strip of `card` tiles, 224 px), `LookFace` and `LooksApart`. `groupLooks` (`looks.ts`) splits a plan's looks into the strip (loved first, then proposed, each oldest first), `revise` and `declined`.
+
+- **A tile.** The `OutfitCollage` in its `look` size: a 4:5 frame, so every tile of a strip is the same height. A piece to buy wears Styling's "To buy" badge. A missing slot is a dashed place in its role's position (`CollagePieceView.mark`; a `thumb` collage marks without words). Then the reaction chip, the name, the occasion with "1 to buy" and "1 piece missing", the agent's note and the owner's note. What a tile offers sits in `DETAILS`: it is invisible on the neighbours, which keep its space, so the strip does not jump and only the centred tile's controls can be reached. The strip is not a listbox, because its tiles hold controls (the shopping list's rule).
+- **Looks first on both pages.** They are the most visual thing a plan has (the owner's ask in #295), and one strip costs one row.
+- **The review page.** The form shows when there are proposed items or looks to react to. A page of looks alone posts no `shown`. Each tile posts:
+  - its `look` id;
+  - its `lookNote`, paired with `look` by order, as item notes pair with `shown`;
+  - its reaction, a radio group of its own named `look-<id>`. Radios group by name, so the body schema is a `Type.Intersect` with a `Type.Record` over the `look-${number}` template. The values are Love it, Change this…, Not for me, and `''` for Clear, which shows only once a reaction is checked. A loved look is not offered Love it.
+
+  A post whose notes do not pair with its looks, or that names a look twice, is a mismatch: the page as it stands, 400. Change this without a note is the page as posted, 400, with the marked look centred. Nothing is written in either case.
+- **`applyReview` reacts inside its own transaction.** It makes one `reactToLooks` per reaction chosen, naming only the looks the strip drew. So a look the agent proposed after the GET waits for the next review, and a look left alone keeps its reaction. A look whose reaction moved meanwhile takes only what the machine allows and is logged. A look deletes and unlinks nothing.
+- **The plan page.** The centred tile's moves are small native posts: `POST /wardrobe/plans/:id/looks/:lookId/love|decline|reconsider`, and Change this… on its own form (`GET|POST .../change`, `ChangeLookPage`, the item's `NoteForm`). A refused move is a 409 (`plans.looks.ALREADY_MOVED`). A look that is not the plan's is a 404, after the plan's own 404. Revise looks are listed apart with "Love it as it is" and Not for me; declined ones with Reconsider.
+- **Statements.** The review page reads 5 (the looks were added) and the plan page reads 6, `looksOfPlan` each.
+
+`test/integration/plan-look-reactions.spec.ts` covers the pages' HTML, the post's pinning and its refusals, and the plan page's posts. The matrix rows are in `authorization-plans.spec.ts`. `test/plan-looks.spec.ts` runs the flow at 390 px: swipe, Love one, Change another with a note, Accept, then the grouping.

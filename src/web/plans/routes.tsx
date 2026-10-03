@@ -22,13 +22,22 @@ import { PlansPage } from './list-page';
 import { PlanFormPage, type PlanFormModel } from './plan-form-page';
 import { PlanPage } from './plan-page';
 import type { PlanItemReviewEvent } from '../../wardrobe/plan-review';
-import { ChangeItemPage } from './change-page';
-import { copyLooks } from './looks';
+import type { LookReactionEvent } from '../../wardrobe/look-reaction';
+import { ChangeItemPage, ChangeLookPage } from './change-page';
+import {
+  copyLooks,
+  groupLooks,
+  lookNotFound,
+  looksOfPlan,
+  reactToLooks,
+} from './looks';
 import { copyRejections } from './rejections';
 import {
   applyReview,
+  type LookChoice,
   planReview,
   readReview,
+  reviewPostOf,
   type ReviewChoice,
   type ReviewError,
 } from './review';
@@ -61,12 +70,13 @@ import { requirePlan as requireOwnPlan, requirePlanItem } from './require';
 import { NEW_PLAN_PATH, PLANS_PATH, planUrl, STYLE_PROFILE_PATH } from './urls';
 import {
   BLANK_ITEM_VALUES,
-  ChangeItemBody,
-  DeclineItemBody,
+  ChangeBody,
+  DeclineBody,
   EMPTY_STYLE_PROFILE,
   FromWardrobeBody,
   ItemParams,
   itemNotFound,
+  LookParams,
   PlanBody,
   type PlanForm,
   planNameTaken,
@@ -293,9 +303,10 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const plan = await requirePlan(request, request.params.id);
       const { created, saved, reviewed, removed } = request.query;
-      const [gaps, candidates] = await Promise.all([
+      const [gaps, candidates, looks] = await Promise.all([
         planGaps(db, plan, userId),
         candidatesOfPlan(db, userId, plan.id),
+        looksOfPlan(db, userId, plan.id),
       ]);
       return renderPage(
         reply,
@@ -304,6 +315,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           model={{
             gaps,
             candidates,
+            looks: groupLooks(looks),
             toast:
               created === '1'
                 ? 'created'
@@ -335,6 +347,8 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       refused?: {
         posted: Map<number, ReviewChoice>;
         errors: Map<number, ReviewError>;
+        looks: Map<number, LookChoice>;
+        lookErrors: Map<number, ReviewError>;
       };
     } = {},
   ): Promise<FastifyReply> {
@@ -350,6 +364,8 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           changed,
           posted: refused?.posted,
           errors: refused?.errors,
+          postedLooks: refused?.looks,
+          lookErrors: refused?.lookErrors,
         }}
       />,
       { status: changed || refused ? 400 : 200 },
@@ -378,33 +394,35 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const { id } = request.params;
       const { body } = request;
-      const read = readReview({
-        shown: body.shown,
-        picks: body.pick,
-        offered: body.offered ?? [],
-        notes: body.note ?? [],
-        rejects: body.reject ?? [],
-        reasons: body.rejectReason ?? [],
-      });
+      const read = readReview(reviewPostOf(body));
       if (!read.ok) {
         const plan = await requirePlan(request, id);
         logger.warn(`Plan ${id} review refused: picks do not match shown`);
         return renderReview(reply, plan, userId, { changed: true });
       }
-      const { choices, errors } = read;
-      if (errors.size > 0) {
+      const { choices, errors, lookErrors } = read;
+      if (errors.size > 0 || lookErrors.size > 0) {
         const plan = await requirePlan(request, id);
         logger.warn(
-          `Plan ${id} review refused: ${[...errors].map(([item, error]) => `item ${item} ${error}`).join(', ')}`,
+          `Plan ${id} review refused: ${[
+            ...[...errors].map(([item, error]) => `item ${item} ${error}`),
+            ...[...lookErrors].map(([look, error]) => `look ${look} ${error}`),
+          ].join(', ')}`,
         );
         return renderReview(reply, plan, userId, {
-          refused: { posted: choices, errors },
+          refused: {
+            posted: choices,
+            errors,
+            looks: read.looks,
+            lookErrors,
+          },
         });
       }
       const { removeUnpicked, activate } = body;
       const outcome = await applyReview(options, userId, id, {
         shown: [...choices.keys()],
         choices,
+        looks: read.looks,
         removeUnpicked: removeUnpicked === '1',
         activate: activate === '1',
       });
@@ -724,7 +742,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // "Don't buy" (#278): declined, kept so the agent never proposes it again.
   app.post(
     `${PLANS_PATH}/:id/items/:itemId/decline`,
-    { schema: { params: ItemParams, body: DeclineItemBody } },
+    { schema: { params: ItemParams, body: DeclineBody } },
     (request, reply) =>
       moveItem(
         request,
@@ -761,7 +779,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   app.post(
     `${PLANS_PATH}/:id/items/:itemId/change`,
-    { schema: { params: ItemParams, body: ChangeItemBody } },
+    { schema: { params: ItemParams, body: ChangeBody } },
     async (request, reply) => {
       const note = request.body.note.trim();
       if (note === '') {
@@ -780,6 +798,117 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       return moveItem(request, request.params, reply, 'change', note);
+    },
+  );
+
+  // ---- A look's reactions from the plan page (#291) ----------------------------
+
+  /**
+   * The owner's reaction `event` on look `lookId` of plan `id` through
+   * reactToLooks (the machine, src/wardrobe/look-reaction.ts): the plan's
+   * 404 when it is not the owner's, the look's when it is no look of the
+   * plan, a 409 when the look's reaction does not take the move (a second
+   * tap, a stale page), else back to the plan.
+   */
+  async function moveLook(
+    request: FastifyRequest,
+    { id, lookId }: { id: number; lookId: number },
+    reply: FastifyReply,
+    event: Exclude<LookReactionEvent, 'repropose'>,
+    note: string | null = null,
+  ): Promise<FastifyReply> {
+    const userId = sessionUserId(request);
+    const { moved, refused } = await reactToLooks(db, userId, id, event, [
+      { lookId, note },
+    ]);
+    if (refused.length > 0) {
+      logger.warn(
+        `Look ${lookId} of plan ${id}: ${event} refused for user ${userId}, the look is ${refused[0].reaction}`,
+      );
+      throw new HttpError(409, t('plans.looks.ALREADY_MOVED'));
+    }
+    if (moved.length === 0) {
+      await requirePlan(request, id);
+      throw lookNotFound();
+    }
+    logger.info(
+      `Look ${lookId} of plan ${id}: ${event} by user ${userId}${note ? ' with a note' : ''}`,
+    );
+    return reply.redirect(`${planUrl(id)}?saved=1`, 303);
+  }
+
+  app.post(
+    `${PLANS_PATH}/:id/looks/:lookId/love`,
+    { schema: { params: LookParams } },
+    (request, reply) => moveLook(request, request.params, reply, 'love'),
+  );
+
+  // "Not for me": kept, so the agent never proposes the same pieces again.
+  app.post(
+    `${PLANS_PATH}/:id/looks/:lookId/decline`,
+    { schema: { params: LookParams, body: DeclineBody } },
+    (request, reply) =>
+      moveLook(
+        request,
+        request.params,
+        reply,
+        'decline',
+        request.body?.note?.trim() || null,
+      ),
+  );
+
+  app.post(
+    `${PLANS_PATH}/:id/looks/:lookId/reconsider`,
+    { schema: { params: LookParams } },
+    (request, reply) => moveLook(request, request.params, reply, 'reconsider'),
+  );
+
+  /** The owner's plan and its look `lookId`, else the plan's 404, then the look's. */
+  async function requireLook(
+    request: FastifyRequest,
+    { id, lookId }: { id: number; lookId: number },
+  ) {
+    const userId = sessionUserId(request);
+    const [plan, looks] = await Promise.all([
+      requirePlan(request, id),
+      looksOfPlan(db, userId, id),
+    ]);
+    const look = looks.find((candidate) => candidate.id === lookId);
+    if (!look) throw lookNotFound();
+    return { plan, look };
+  }
+
+  // "Change this…": the note for the agent is required, so a form of its own
+  // (a blank note is the form again, 400), as an item's.
+  app.get(
+    `${PLANS_PATH}/:id/looks/:lookId/change`,
+    { schema: { params: LookParams } },
+    async (request, reply) => {
+      const { plan, look } = await requireLook(request, request.params);
+      return renderPage(
+        reply,
+        <ChangeLookPage ctx={viewContext(reply)} model={{ plan, look }} />,
+      );
+    },
+  );
+
+  app.post(
+    `${PLANS_PATH}/:id/looks/:lookId/change`,
+    { schema: { params: LookParams, body: ChangeBody } },
+    async (request, reply) => {
+      const note = request.body.note.trim();
+      if (note === '') {
+        const { plan, look } = await requireLook(request, request.params);
+        return renderPage(
+          reply,
+          <ChangeLookPage
+            ctx={viewContext(reply)}
+            model={{ plan, look, note: request.body.note, error: true }}
+          />,
+          { status: 400 },
+        );
+      }
+      return moveLook(request, request.params, reply, 'change', note);
     },
   );
 

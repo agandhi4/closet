@@ -39,6 +39,15 @@ export function itemUrl(
   return `${itemsUrl(planId)}/${itemId}${suffix}`;
 }
 
+/** A look of a plan's sub-path (#291): `/love`, `/change`, `/decline`, `/reconsider`. */
+export function lookUrl(
+  planId: number,
+  lookId: number,
+  suffix: string,
+): string {
+  return planUrl(planId, `/looks/${lookId}${suffix}`);
+}
+
 /**
  * The shopping list (34b): the active plan's gaps and their candidates, or
  * another plan's (`?plan=`). The Wardrobe's ⋯ menu, the plans pages and the

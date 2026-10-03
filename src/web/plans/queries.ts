@@ -4,6 +4,7 @@ import {
   file,
   garment,
   personalAccessToken,
+  planLook,
   PLAN_NAME_UNIQUE,
   planItem,
   styleProfile,
@@ -65,6 +66,8 @@ export interface PlanDetail {
    * pages never show a token's prefix or hash.
    */
   draftedBy: string | null;
+  /** Its looks still `proposed` (#291); with the items still proposed, what Review opens (awaitingReview). */
+  proposedLooks: number;
 }
 
 /** A stored plan item. */
@@ -105,12 +108,14 @@ const PLAN_COLUMNS = {
   name: wardrobePlan.name,
   notes: wardrobePlan.notes,
   active: wardrobePlan.active,
-  // A scalar subquery rather than a join, so every plan read (findPlanItem's
-  // left join included) takes the column as it is, read by the token's
-  // primary key.
+  // Scalar subqueries rather than joins, so every plan read (findPlanItem's
+  // left join included) takes the columns as they are. `${wardrobePlan}.id`,
+  // not the column: a select over one table renders it unqualified, and
+  // inside plan_look's subquery `id` would be the look's.
   draftedBy: sql<
     string | null
   >`(select ${personalAccessToken.name} from ${personalAccessToken} where ${personalAccessToken.id} = ${wardrobePlan.draftedByTokenId})`,
+  proposedLooks: sql<number>`(select count(*)::int from ${planLook} where ${planLook.planId} = ${wardrobePlan}.id and ${planLook.reaction} = 'proposed')`,
 };
 
 /** Active first, then by name: the list page and list_plans. */
@@ -813,7 +818,7 @@ export interface WaitingDraft {
   plan: string;
   /** The drafting token's name ("Muse"). */
   agent: string;
-  /** Its items still `proposed`. */
+  /** Its items and looks still `proposed`. */
   proposed: number;
 }
 
@@ -836,9 +841,15 @@ export function waitingDraftsSql(ownerId: number): SQL<WaitingDraft[]> {
     join ${personalAccessToken}
       on ${personalAccessToken.id} = ${wardrobePlan.draftedByTokenId}
     cross join lateral (
-      select count(*)::int as proposed from ${planItem}
-      where ${planItem.planId} = ${wardrobePlan.id}
-        and ${planItem.review} = 'proposed'
+      select (
+        select count(*)::int from ${planItem}
+        where ${planItem.planId} = ${wardrobePlan.id}
+          and ${planItem.review} = 'proposed'
+      ) + (
+        select count(*)::int from ${planLook}
+        where ${planLook.planId} = ${wardrobePlan.id}
+          and ${planLook.reaction} = 'proposed'
+      ) as proposed
     ) waiting
     where ${wardrobePlan.ownerId} = ${ownerId} and waiting.proposed > 0)`;
 }

@@ -843,7 +843,7 @@
     "REVIEW_NOTE_LABEL": "Note for your agent (with Change this or Don’t buy)",
     "REVIEW_NOTE_PLACEHOLDER": "What to change, or why not",
     "REVIEW_NOTE_REQUIRED": "Say what to change: your agent has nothing to go on without a note.",
-    "REVIEW_FIX_ERRORS": "Nothing is saved yet: fix the items marked below.",
+    "REVIEW_FIX_ERRORS": "Nothing is saved yet: fix what is marked below.",
     "REVIEW_KEEP": "Keep",
     "REVIEW_KEEP_HINT": "Accept it without a product",
     "REVIEW_MATCHES": "Matches the item",
@@ -881,7 +881,35 @@
       "missing": "To buy",
       "owned": "Owned"
     },
-    "PRIORITY_BADGE": "{priority} priority"
+    "PRIORITY_BADGE": "{priority} priority",
+    "looks": {
+      "TITLE": "Looks",
+      "REVIEW_HINT": "Outfits your agent put together from this plan and your closet. Swipe to a look and say what you think: Accept these saves it with the rest.",
+      "PLAN_HINT": "Outfits your agent put together from this plan and your closet.",
+      "STRIP_LABEL": "Looks your agent designed",
+      "TO_BUY": "To buy",
+      "MISSING": "Missing",
+      "TO_BUY_COUNT": "{count} to buy",
+      "MISSING_ONE": "1 piece missing",
+      "MISSING_MANY": "{count} pieces missing",
+      "ANY_OCCASION": "Any occasion",
+      "LOVE": "Love it",
+      "LOVE_AS_IS": "Love it as it is",
+      "CHANGE": "Change this…",
+      "DECLINE": "Not for me",
+      "REACTION_LABEL": "What you think of {name}",
+      "NOTE_PLACEHOLDER": "What to change, or why not",
+      "NOTE_FOR": "Note for your agent about {name}",
+      "REVISE": "Looks waiting on your agent",
+      "DECLINED": "Looks you turned down",
+      "ALREADY_MOVED": "This look has already moved on. Go back to the plan to see where it stands.",
+      "status": {
+        "proposed": "To review",
+        "loved": "Loved",
+        "revise": "With your agent",
+        "declined": "Not for me"
+      }
+    }
   },
   "style": {
     "TITLE": "Style profile",

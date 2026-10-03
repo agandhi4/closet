@@ -30,6 +30,11 @@ const SIZES = {
     item: 'w-20',
     ends: 'before:w-[calc(50%-3.25rem)] after:w-[calc(50%-3.25rem)] before:shrink-0 after:shrink-0',
   },
+  // A plan look's card (#291): a collage with words and reactions under it.
+  card: {
+    item: 'w-56',
+    ends: 'before:w-[calc(50%-7.75rem)] after:w-[calc(50%-7.75rem)] before:shrink-0 after:shrink-0',
+  },
 } as const;
 
 export type SnapSize = keyof typeof SIZES;

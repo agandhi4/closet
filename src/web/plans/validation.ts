@@ -64,6 +64,7 @@ export const STYLE_NOTES_MAX = 2000;
 
 export const PlanParams = Type.Object({ id: RowId });
 export const ItemParams = Type.Object({ id: RowId, itemId: RowId });
+export const LookParams = Type.Object({ id: RowId, lookId: RowId });
 
 // ---- The plan form ----------------------------------------------------------
 
@@ -126,6 +127,11 @@ const REVIEW_MAX = 500;
  * file), with room for an item past the cap from before it.
  */
 const OFFERED_MAX = REVIEW_MAX * 10;
+/**
+ * Keys one review body has at most: a `look-<id>` radio group per look, and
+ * the dozen named fields. The Record's bound counts every key of the body.
+ */
+const REVIEW_KEYS_MAX = REVIEW_MAX + 16;
 
 /** A reason given with "Not this one": a line, not an essay. */
 export const REJECT_REASON_MAX = 300;
@@ -142,49 +148,83 @@ const ITEM_GARMENT = '^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$';
  * this one" (`reject`, as `offered`) and each tile's reason (`rejectReason`,
  * one per offered candidate in its order). readReview holds them all to
  * `shown` and to each other. The boxes post "1" when ticked.
+ *
+ * The looks (#291) ride in the same post: the looks the strip drew
+ * (`look`, one per tile), each tile's note (`lookNote`, one per look in
+ * `look`'s order, blank allowed) and each tile's reaction, a radio group of
+ * its own named `look-<lookId>` (radios group by name, so one per look):
+ * Love it, Change this, Not for me, or '' (cleared); no key at all when
+ * none was tapped. A page of looks and no proposed items posts no `shown`.
  */
-export const ReviewBody = Type.Object({
-  shown: Type.Array(RowId, { minItems: 1, maxItems: REVIEW_MAX }),
-  pick: Type.Array(
-    Type.String({
-      pattern: '^[1-9][0-9]{0,9}:(decline|change|keep|[1-9][0-9]{0,9})$',
-    }),
-    { minItems: 1, maxItems: REVIEW_MAX },
+export const LOOK_PICKS = ['love', 'change', 'decline'] as const;
+export type LookPick = (typeof LOOK_PICKS)[number];
+
+export const ReviewBody = Type.Intersect([
+  Type.Object({
+    shown: Type.Optional(Type.Array(RowId, { maxItems: REVIEW_MAX })),
+    pick: Type.Optional(
+      Type.Array(
+        Type.String({
+          pattern: '^[1-9][0-9]{0,9}:(decline|change|keep|[1-9][0-9]{0,9})$',
+        }),
+        { maxItems: REVIEW_MAX },
+      ),
+    ),
+    offered: Type.Optional(
+      Type.Array(Type.String({ pattern: ITEM_GARMENT }), {
+        maxItems: OFFERED_MAX,
+      }),
+    ),
+    note: Type.Optional(
+      Type.Array(Type.String({ maxLength: ITEM_NOTE_MAX }), {
+        maxItems: REVIEW_MAX,
+      }),
+    ),
+    reject: Type.Optional(
+      Type.Array(Type.String({ pattern: ITEM_GARMENT }), {
+        maxItems: OFFERED_MAX,
+      }),
+    ),
+    rejectReason: Type.Optional(
+      Type.Array(Type.String({ maxLength: REJECT_REASON_MAX }), {
+        maxItems: OFFERED_MAX,
+      }),
+    ),
+    look: Type.Optional(Type.Array(RowId, { maxItems: REVIEW_MAX })),
+    lookNote: Type.Optional(
+      Type.Array(Type.String({ maxLength: ITEM_NOTE_MAX }), {
+        maxItems: REVIEW_MAX,
+      }),
+    ),
+    removeUnpicked: Type.Optional(Type.Literal('1')),
+    activate: Type.Optional(Type.Literal('1')),
+  }),
+  Type.Record(
+    Type.TemplateLiteral('look-${number}'),
+    Type.Union([
+      ...LOOK_PICKS.map((pick) => Type.Literal(pick)),
+      Type.Literal(''),
+    ]),
+    { maxProperties: REVIEW_KEYS_MAX },
   ),
-  offered: Type.Optional(
-    Type.Array(Type.String({ pattern: ITEM_GARMENT }), {
-      maxItems: OFFERED_MAX,
-    }),
-  ),
-  note: Type.Optional(
-    Type.Array(Type.String({ maxLength: ITEM_NOTE_MAX }), {
-      maxItems: REVIEW_MAX,
-    }),
-  ),
-  reject: Type.Optional(
-    Type.Array(Type.String({ pattern: ITEM_GARMENT }), {
-      maxItems: OFFERED_MAX,
-    }),
-  ),
-  rejectReason: Type.Optional(
-    Type.Array(Type.String({ maxLength: REJECT_REASON_MAX }), {
-      maxItems: OFFERED_MAX,
-    }),
-  ),
-  removeUnpicked: Type.Optional(Type.Literal('1')),
-  activate: Type.Optional(Type.Literal('1')),
-});
+]);
+
+/** The name of look `lookId`'s reaction radios on the review page. */
+export function lookReactionName(lookId: number): `look-${number}` {
+  return `look-${lookId}`;
+}
 
 /**
- * "Change this…" from the plan page (its own small form): the note for the
- * agent, required (a blank one is the form again, 400).
+ * "Change this…" of an item or a look (#291) from the plan page (its own
+ * small form): the note for the agent, required (a blank one is the form
+ * again, 400).
  */
-export const ChangeItemBody = Type.Object({
+export const ChangeBody = Type.Object({
   note: Type.String({ maxLength: ITEM_NOTE_MAX }),
 });
 
-/** "Don't buy" from the plan page: an optional note for the agent. */
-export const DeclineItemBody = Type.Union([
+/** "Don't buy" (an item) or "Not for me" (a look) from the plan page: an optional note for the agent. */
+export const DeclineBody = Type.Union([
   Type.Object({
     note: Type.Optional(Type.String({ maxLength: ITEM_NOTE_MAX })),
   }),

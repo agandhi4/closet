@@ -297,6 +297,95 @@ const ROUTES: Route[] = [
     },
   },
   {
+    // #291: the fixture's proposed look is loved.
+    name: 'POST /wardrobe/plans/:id/looks/:lookId/love',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/looks/${f.planLookId}/love${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /wardrobe/plans/:id/looks/:lookId/change',
+    kind: 'read',
+    ok: 200,
+    secret: planName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/plans/${f.planId}/looks/${f.planLookId}/change${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/plans/:id/looks/:lookId/change',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/looks/${f.planLookId}/change${q}`,
+      payload: { note: 'Warmer, please' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /wardrobe/plans/:id/looks/:lookId/decline',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/looks/${f.planLookId}/decline${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    // The fixture's turned-down look comes back to review.
+    name: 'POST /wardrobe/plans/:id/looks/:lookId/reconsider',
+    kind: 'write',
+    ok: 303,
+    secret: planName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/plans/${f.planId}/looks/${f.planDeclinedLookId}/reconsider${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
     name: 'GET /wardrobe/plans/:id/review',
     kind: 'read',
     ok: 200,

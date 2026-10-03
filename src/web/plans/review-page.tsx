@@ -22,9 +22,12 @@ import {
   TILE,
 } from './candidate-tile';
 import { differencesText, itemFacts, itemTitle, priorityLabel } from './labels';
+import { LookFace, LooksApart, LooksStrip } from './look-tile';
+import type { PlanLookView } from './looks';
 import type { PlanDetail, PlanItemRow } from './queries';
 import {
   defaultPick,
+  type LookChoice,
   offeredValue,
   type PlanReview,
   pickValue,
@@ -33,7 +36,13 @@ import {
   type ReviewPick,
   type ReviewStrip,
 } from './review';
-import { ITEM_NOTE_MAX, REJECT_REASON_MAX } from './validation';
+import {
+  ITEM_NOTE_MAX,
+  LOOK_PICKS,
+  type LookPick,
+  lookReactionName,
+  REJECT_REASON_MAX,
+} from './validation';
 import type { ListedCandidate } from './shopping';
 import { planUrl, reviewUrl } from './urls';
 
@@ -46,6 +55,10 @@ export interface ReviewPageModel {
   posted?: ReadonlyMap<number, ReviewChoice>;
   /** Why the post was refused, by item. */
   errors?: ReadonlyMap<number, ReviewError>;
+  /** A refused post's look reactions and notes, by look (#291). */
+  postedLooks?: ReadonlyMap<number, LookChoice>;
+  /** Why the post was refused, by look. */
+  lookErrors?: ReadonlyMap<number, ReviewError>;
 }
 
 const ERROR_TEXT = {
@@ -69,10 +82,11 @@ initSnapStrips(document.getElementById('review-form'));`;
  * Each strip posts its item in `shown` beside its pick, its note for the
  * agent and the candidates it drew in `offered`, each with its "Not this
  * one" box and reason, so only what the page showed is decided or removed.
- * Below, what waits apart (#278): the items sent back to the agent and
- * those declined, with the owner's notes; Reconsider is the plan page's
- * (a post of its own would lose the swipes made here). Private: the
- * signed-in owner's plan only.
+ * Above them, the plan's looks (#291): one strip, loved first, each tile
+ * with its reactions in the same post. Below, what waits apart (#278): the
+ * items and looks sent back to the agent and those declined, with the
+ * owner's notes; Reconsider is the plan page's (a post of its own would
+ * lose the swipes made here). Private: the signed-in owner's plan only.
  */
 export function ReviewPage(props: {
   ctx: ViewContext;
@@ -80,9 +94,10 @@ export function ReviewPage(props: {
 }) {
   const { ctx, model } = props;
   const { plan } = model;
-  const { strips, revise, declined } = model.review;
+  const { strips, revise, declined, looks } = model.review;
   const title = t('plans.REVIEW_TITLE', { name: plan.name });
   const anyCandidates = strips.some((strip) => strip.candidates.length > 0);
+  const anyErrors = hasErrors(model);
   return (
     <Layout ctx={ctx} title={title}>
       <AppBar ctx={ctx} title={title} back={planUrl(plan.id)} formPage />
@@ -96,12 +111,12 @@ export function ReviewPage(props: {
             {t('plans.REVIEW_CHANGED')}
           </div>
         )}
-        {model.errors && model.errors.size > 0 && (
+        {anyErrors && (
           <div role="alert" class="alert alert-error mx-4" id="review-errors">
             {t('plans.REVIEW_FIX_ERRORS')}
           </div>
         )}
-        {strips.length === 0 ? (
+        {strips.length === 0 && looks.strip.length === 0 ? (
           <EmptyState message={t('plans.REVIEW_NONE')}>
             <a href={planUrl(plan.id)} class="btn btn-primary btn-sm">
               {plan.name}
@@ -131,6 +146,7 @@ export function ReviewPage(props: {
                 </a>
               )}
             </div>
+            <ReviewLooks model={model} />
             {topToToe(strips, (strip) => strip.item.category).map(
               ({ role, items }) => (
                 <section
@@ -211,6 +227,20 @@ export function ReviewPage(props: {
           hint={t('plans.DECLINED_HINT')}
           items={declined}
         />
+        <div class="px-4 flex flex-col gap-5">
+          <LooksApart
+            id="review-looks-revise"
+            title={t('plans.looks.REVISE')}
+            hint={t('plans.REVISE_HINT')}
+            looks={looks.revise}
+          />
+          <LooksApart
+            id="review-looks-declined"
+            title={t('plans.looks.DECLINED')}
+            hint={t('plans.DECLINED_HINT')}
+            looks={looks.declined}
+          />
+        </div>
       </main>
       <Dock ctx={ctx} />
     </Layout>
@@ -491,6 +521,135 @@ function CandidateTile(props: {
           aria-label={t('plans.REJECT_REASON_LABEL', { name })}
         />
       </span>
+    </div>
+  );
+}
+
+function hasErrors(model: ReviewPageModel): boolean {
+  return (model.errors?.size ?? 0) + (model.lookErrors?.size ?? 0) > 0;
+}
+
+/** The review's Looks strip (#291); nothing when no look waits on the owner. */
+function ReviewLooks({ model }: { model: ReviewPageModel }) {
+  const { strip } = model.review.looks;
+  if (strip.length === 0) return null;
+  const centred = centredLook(strip, model);
+  return (
+    <LooksStrip
+      id="review-looks"
+      count={strip.length}
+      hint={t('plans.looks.REVIEW_HINT')}
+    >
+      {strip.map((look, index) => (
+        <LookReviewTile
+          look={look}
+          selected={look.id === centred}
+          eager={index < 2}
+          posted={model.postedLooks?.get(look.id)}
+          error={model.lookErrors?.get(look.id)}
+        />
+      ))}
+    </LooksStrip>
+  );
+}
+
+/** The look the strip starts on: the first a refused post marked, else the first. */
+function centredLook(
+  strip: readonly PlanLookView[],
+  model: ReviewPageModel,
+): number {
+  const marked = strip.find((look) => model.lookErrors?.has(look.id));
+  return (marked ?? strip[0]).id;
+}
+
+const LOOK_PICK_TEXT: Record<
+  LookPick,
+  'plans.looks.LOVE' | 'plans.looks.CHANGE' | 'plans.looks.DECLINE'
+> = {
+  love: 'plans.looks.LOVE',
+  change: 'plans.looks.CHANGE',
+  decline: 'plans.looks.DECLINE',
+};
+
+/**
+ * A look of the review's strip: its face, then, under it while centred
+ * (DETAILS: the neighbours keep the space, so every tile is the same height
+ * and only the centred tile's controls can be reached), its reactions as
+ * chips, a radio group of its own (`look-<id>`), with Clear once one is
+ * chosen (radios cannot be unchecked), and the note for the agent. Every
+ * tile posts its `look` and its `lookNote`, paired by order (readReview).
+ */
+function LookReviewTile(props: {
+  look: PlanLookView;
+  selected: boolean;
+  eager: boolean;
+  posted?: LookChoice;
+  error?: ReviewError;
+}) {
+  const { look, posted, error } = props;
+  const name = lookReactionName(look.id);
+  const noteId = `review-look-note-${look.id}`;
+  return (
+    <div
+      {...snapItem({
+        value: String(look.id),
+        selected: props.selected,
+        size: 'card',
+        listbox: false,
+        class: TILE,
+      })}
+      id={`review-look-${look.id}`}
+      data-look={String(look.id)}
+      data-reaction={look.reaction}
+    >
+      <input type="hidden" name="look" value={String(look.id)} />
+      <LookFace look={look} eager={props.eager} />
+      <div class={`${DETAILS} mt-1 gap-1.5`}>
+        <div
+          role="radiogroup"
+          aria-label={t('plans.looks.REACTION_LABEL', { name: look.name })}
+          class="flex flex-wrap gap-1"
+        >
+          {LOOK_PICKS.filter(
+            // Loved already: Love it again would be a self-move the machine refuses.
+            (pick) => !(pick === 'love' && look.reaction === 'loved'),
+          ).map((pick) => (
+            <input
+              type="radio"
+              name={name}
+              value={pick}
+              class="btn btn-xs rounded-full"
+              aria-label={t(LOOK_PICK_TEXT[pick])}
+              checked={posted?.pick === pick}
+              data-look-pick={pick}
+            />
+          ))}
+          <input
+            type="radio"
+            name={name}
+            value=""
+            class="btn btn-xs btn-ghost rounded-full invisible group-data-selected/item:group-has-[[data-look-pick]:checked]/item:visible"
+            aria-label={`× ${t('CLEAR_CHOICE')}`}
+          />
+        </div>
+        <textarea
+          id={noteId}
+          name="lookNote"
+          rows={2}
+          maxlength={ITEM_NOTE_MAX}
+          class={`textarea textarea-sm w-full text-base-content ${error ? 'textarea-error' : ''}`}
+          placeholder={t('plans.looks.NOTE_PLACEHOLDER')}
+          aria-label={t('plans.looks.NOTE_FOR', { name: look.name })}
+          aria-describedby={error ? `${noteId}-error` : undefined}
+        >
+          {posted?.note ?? ''}
+        </textarea>
+        {error && (
+          <p id={`${noteId}-error`} class="text-xs text-error" data-error="">
+            {t(ERROR_TEXT[error])}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

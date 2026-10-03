@@ -181,6 +181,8 @@ const ADDRESS: Fixture = {
   weekPlanId: 118,
   inviteShareId: 119,
   planDeclinedItemId: 120,
+  planLookId: 121,
+  planDeclinedLookId: 122,
   photo: Buffer.alloc(0),
   cutout: Buffer.alloc(0),
   shopPhotoUrl: 'http://shop.test/photo.jpg',

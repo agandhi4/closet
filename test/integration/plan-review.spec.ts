@@ -393,13 +393,13 @@ describe('the plan review', () => {
       expect(list.body).toContain(`href="/wardrobe/plans/${planId}/review"`);
     });
 
-    it('reads the page in 4 statements', async () => {
+    it('reads the page in 5 statements', async () => {
       const { result, statements } = await recordStatements(() =>
         get(`/wardrobe/plans/${planId}/review`, owner.cookie),
       );
       expect(result.statusCode).toBe(200);
-      // The session, the plan, its items, its candidates.
-      expect(statements).toHaveLength(4);
+      // The session, the plan, its items, its candidates, its looks (#291).
+      expect(statements).toHaveLength(5);
     });
   });
 

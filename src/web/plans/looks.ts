@@ -802,3 +802,24 @@ export async function looksOfPlan(
   }
   return [...looks.values()];
 }
+
+/** A plan's looks as the review and the plan page draw them (#291). */
+export interface LookGroups {
+  /** The strip: loved first, then those still to review, each oldest first. */
+  strip: PlanLookView[];
+  /** "Change this": waiting on the agent, with the owner's note. */
+  revise: PlanLookView[];
+  /** "Not for me": kept so the agent never proposes the same pieces again. */
+  declined: PlanLookView[];
+}
+
+/** `looks` (looksOfPlan's order) grouped for the pages. Pure. */
+export function groupLooks(looks: readonly PlanLookView[]): LookGroups {
+  const of = (reaction: LookReaction) =>
+    looks.filter((look) => look.reaction === reaction);
+  return {
+    strip: [...of('loved'), ...of('proposed')],
+    revise: of('revise'),
+    declined: of('declined'),
+  };
+}
