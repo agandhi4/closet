@@ -8,7 +8,8 @@ import { expectFullPage, HX_FRAGMENT } from './pages';
 
 /**
  * The Wardrobe's header and tabs (redesign R3, #83): the switcher in the
- * title, the ⋯ menu, the add sheet and the four tabs on every tab page,
+ * title, the ⋯ menu, the add sheet and the tabs on every tab page (Plans
+ * the fifth, #295),
  * select mode as a task with its own bar, and the grid's tiles drawn on
  * the plinth. The grid's paging and filters are wardrobe-grid.spec.ts's,
  * the capsule scope capsules.spec.ts's, the switcher's wardrobes
@@ -75,12 +76,13 @@ describe('the Wardrobe header and tabs', () => {
 
   afterAll(() => t?.cleanup());
 
-  it('gives every tab the header and the four tabs, each tab its own page', async () => {
+  it('gives every tab the header and the five tabs, each tab its own page', async () => {
     const tabs: [path: string, label: string][] = [
       ['/wardrobe', 'Closet'],
       ['/capsules', 'Capsules'],
       ['/laundry', 'Laundry'],
       ['/wardrobe/wishlist', 'Wishlist'],
+      ['/wardrobe/plans', 'Plans'],
     ];
     for (const [path, label] of tabs) {
       const res = await t.inject({ method: 'GET', url: path });
@@ -89,7 +91,7 @@ describe('the Wardrobe header and tabs', () => {
       const html = unescapeHtml(res.body);
       expect(activeTab(html), path).toBe(label);
       expect(tabsOf(html), path).toMatch(
-        /href="\/wardrobe"[\s\S]*href="\/capsules"[\s\S]*href="\/laundry"[\s\S]*href="\/wardrobe\/wishlist"/,
+        /href="\/wardrobe"[\s\S]*href="\/capsules"[\s\S]*href="\/laundry"[\s\S]*href="\/wardrobe\/wishlist"[\s\S]*href="\/wardrobe\/plans"/,
       );
       expect(html, path).toContain('id="title-menu"');
       expect(menuOf(html), path).toBeDefined();
@@ -101,20 +103,32 @@ describe('the Wardrobe header and tabs', () => {
     }
   });
 
-  it('leaves Laundry out of a shared wardrobe’s tabs: it is the user’s own hamper', async () => {
+  it('leaves Laundry and Plans out of a shared wardrobe’s tabs: they are the user’s own', async () => {
     const html = await get(`/wardrobe?ownerId=${ownerId}`, viewer);
     const tabs = tabsOf(html)!;
     expect(tabs).toContain(`href="/wardrobe?ownerId=${ownerId}"`);
     expect(tabs).toContain(`href="/capsules?ownerId=${ownerId}"`);
     expect(tabs).toContain(`href="/wardrobe/wishlist?ownerId=${ownerId}"`);
     expect(tabs).not.toContain('/laundry');
+    expect(tabs).not.toContain('/wardrobe/plans');
   });
 
-  it('puts Select (with the grid’s filters), tagging, Plans, Shopping, Insights and the year in review in ⋯', async () => {
+  it('offers a new plan in the Plans tab’s add sheet', async () => {
+    const sheet = sheetOf(await get('/wardrobe/plans'))!;
+    expect(sheet).toContain('href="/wardrobe/plans/new"');
+    expect(sheet.indexOf('New plan')).toBeLessThan(
+      sheet.indexOf('To the closet'),
+    );
+    expect(sheetOf(await get('/wardrobe'))).not.toContain(
+      '/wardrobe/plans/new',
+    );
+  });
+
+  it('puts Select (with the grid’s filters), tagging, Shopping, Insights and the year in review in ⋯, Plans being a tab', async () => {
     const menu = menuOf(await get('/wardrobe?category=tops'))!;
     expect(menu).toContain('href="/wardrobe?category=tops&select=1"');
     expect(menu).toContain('href="/wardrobe/tag"');
-    expect(menu).toContain('href="/wardrobe/plans"');
+    expect(menu).not.toContain('href="/wardrobe/plans"');
     expect(menu).toContain('href="/wardrobe/shopping"');
     expect(menu).toContain('href="/wardrobe/insights"');
     expect(menu).toContain('href="/wardrobe/recap"');

@@ -1,17 +1,23 @@
+import { type RoleGroup, topToToe } from '../../wardrobe/generator';
 import type { ItemMatch, ItemStatus } from '../../wardrobe/plans';
+import { rankCandidates } from '../../wardrobe/shopping';
 import { PostForm } from '../auth/form';
+import { imageUrl, type SignablePhotoRef } from '../files/image-url';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { SavedToast, StripFlags } from '../layout/parts';
+import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
+import { roleGroupLabel } from '../wardrobe/labels';
 import { garmentUrl } from '../wardrobe/urls';
-import type { GapItem, PlanGaps } from './gaps';
-import { itemFacts, itemTitle, priorityLabel } from './labels';
+import { candidateName } from './candidate-tile';
+import type { CandidatesByItem } from './candidates';
+import { byPriority, type PlanGaps } from './gaps';
+import { itemTitle, priorityLabel } from './labels';
 import type { ClosetGarment, PlanItemRow } from './queries';
-import type { CandidateGarment, CandidatesByItem } from './candidates';
+import { type ListedCandidate, listedCandidate } from './shopping';
 import {
   candidatesUrl,
   compareUrl,
@@ -52,33 +58,101 @@ const TOASTS = {
   reviewed: 'plans.REVIEWED',
 } as const;
 
-/** The groups in the order the page shows them: the gaps first. */
-const GROUPS: readonly ItemStatus[] = ['missing', 'partly', 'owned'];
+/**
+ * Where an item stands, as its card's chip says it: a proposal or one sent
+ * back to the agent (#278), else how the closet answers it. A declined item
+ * has no card (it is listed apart, below the sections).
+ */
+export type CardStatus = 'proposed' | 'revise' | ItemStatus;
 
-const GROUP_TITLES = {
-  missing: 'plans.MISSING',
-  partly: 'plans.PARTLY',
-  owned: 'plans.OWNED',
-} as const;
+/** An item's card: the item, where it stands, and its products. */
+export interface PlanCard {
+  item: PlanItemRow;
+  status: CardStatus;
+  /** How the closet answers it: accepted items only. */
+  match?: ItemMatch;
+  /** Its candidate products, the likeliest bought first (rankCandidates). */
+  candidates: ListedCandidate[];
+}
 
 /**
- * GET /wardrobe/plans/:id, the gap view (#34, slice 34a): a plan's items
- * against the owner's closet, grouped missing, partly owned and owned
- * (the gaps first: what the page is for), each with what fulfils it and,
- * when it is not owned, why. A plan an agent drafted (create_plan) names
- * its token. Items the owner's agent proposed come first, unmatched, with
- * Accept, Change this… and Don't buy, their count in the heading, and
- * Review (#271) to decide them all as strips; then those sent back to the
- * agent (revise) and those declined, each with the owner's note (#278),
- * Reconsider bringing a declined one back. Every accepted item has Change
- * this… too. Private: the signed-in owner's plan
- * and closet only. A gap shows its candidate products (34b) and links to
- * adding one; the shopping list is the gaps with their candidates.
+ * Within a section, what asks for a decision first (the proposals, then
+ * what waits on the agent), then the gaps before what is owned: the gap
+ * view's order.
+ */
+const STATUS_ORDER: readonly CardStatus[] = [
+  'proposed',
+  'revise',
+  'missing',
+  'partly',
+  'owned',
+];
+
+/**
+ * The plan's items as cards in sections by role, top to toe (#295: the
+ * owner could not tell what each thing was in one flat list), each section
+ * in STATUS_ORDER, then priority. Declined items are left out: they are not
+ * part of the plan, and are listed apart.
+ */
+export function planSections(
+  gaps: PlanGaps,
+  candidates: CandidatesByItem,
+): RoleGroup<PlanCard>[] {
+  const ranked = (item: PlanItemRow) =>
+    rankCandidates(
+      item,
+      (candidates.get(item.id) ?? []).map((candidate) =>
+        listedCandidate(item, candidate),
+      ),
+    ).map(({ candidate }) => candidate);
+  const cards: PlanCard[] = [
+    ...gaps.review.proposed.map((item) => ({
+      item,
+      status: 'proposed' as const,
+      candidates: ranked(item),
+    })),
+    ...gaps.review.revise.map((item) => ({
+      item,
+      status: 'revise' as const,
+      candidates: ranked(item),
+    })),
+    ...(['missing', 'partly', 'owned'] as const).flatMap((status) =>
+      gaps.groups[status].map(({ item, match }) => ({
+        item,
+        status,
+        match,
+        candidates: ranked(item),
+      })),
+    ),
+  ];
+  cards.sort(
+    (a, b) =>
+      STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) ||
+      byPriority(a.item, b.item),
+  );
+  return topToToe(cards, (card) => card.item.category);
+}
+
+/**
+ * GET /wardrobe/plans/:id, the plan (#34, slice 34a; drawn as a lookbook
+ * in #295): its items as cards in sections by role, top to toe, as the
+ * Wardrobe's grid draws garments. Each card is a photo (its likeliest
+ * product, or for an owned item the closet garment that fulfils it; the
+ * garment glyph until there is one), the item in words, its budget, its
+ * options and a chip saying where it stands: to review, with your agent,
+ * to buy, partly owned, owned. The status is a chip, not a grouping: at
+ * 390 px a status grouping split each category into up to five places, and
+ * what the owner asked first was what each thing is. The agent's proposals
+ * are counted above with Review (#271), and each keeps Accept, Change
+ * this… and Don't buy (#278); declined items are listed apart with
+ * Reconsider. A plan an agent drafted (create_plan) names its token.
+ * Private: the signed-in owner's plan and closet only.
  */
 export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
   const { ctx, model } = props;
   const { plan, tally } = model.gaps;
-  const { proposed, revise, declined } = model.gaps.review;
+  const { proposed, declined } = model.gaps.review;
+  const sections = planSections(model.gaps, model.candidates);
   return (
     <Layout ctx={ctx} title={plan.name}>
       <AppBar
@@ -87,30 +161,43 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
         back={PLANS_PATH}
         actions={<PlanMenu gaps={model.gaps} />}
       />
-      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-5">
-        <p class="text-sm text-muted" id="plan-tally">
-          {plan.active && (
-            <span class="badge badge-primary badge-sm mr-2">
-              {t('plans.ACTIVE')}
-            </span>
-          )}
-          {t('plans.TALLY', tally)}
-        </p>
-        {plan.draftedBy !== null && (
-          <p class="text-sm text-muted" id="plan-drafted-by">
-            {proposed.length > 0 ? (
-              <a href={reviewUrl(plan.id)} class="link link-hover">
-                {t('plans.DRAFTED_BY', { name: plan.draftedBy })}
-              </a>
-            ) : (
-              t('plans.DRAFTED_BY', { name: plan.draftedBy })
+      <main class="p-4 pt-20 pb-24 w-full sm:max-w-lg sm:mx-auto flex flex-col gap-5">
+        <div class="flex flex-col gap-1">
+          <p class="text-sm text-muted" id="plan-tally">
+            {plan.active && (
+              <span class="badge badge-primary badge-sm mr-2">
+                {t('plans.ACTIVE')}
+              </span>
             )}
+            {t('plans.TALLY', tally)}
           </p>
-        )}
-        {plan.notes && (
-          <p class="text-sm whitespace-pre-line text-base-content/80">
-            {plan.notes}
-          </p>
+          {plan.draftedBy !== null && (
+            <p class="text-sm text-muted" id="plan-drafted-by">
+              {t('plans.DRAFTED_BY', { name: plan.draftedBy })}
+            </p>
+          )}
+          {plan.notes && (
+            <p class="text-sm whitespace-pre-line text-base-content/80">
+              {plan.notes}
+            </p>
+          )}
+        </div>
+        {proposed.length > 0 && (
+          <div
+            class="flex items-center justify-between gap-3 rounded-box bg-base-200 px-3 py-2"
+            id="plan-proposals"
+          >
+            <p class="text-sm">
+              {t('plans.PROPOSED_COUNT', { count: proposed.length })}
+            </p>
+            <a
+              href={reviewUrl(plan.id)}
+              class="btn btn-primary btn-sm shrink-0"
+              id="plan-review"
+            >
+              {t('plans.REVIEW')}
+            </a>
+          </div>
         )}
         <div class="flex gap-2">
           <a href={itemUrl(plan.id, 'new')} class="btn btn-primary flex-1">
@@ -123,85 +210,16 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
           )}
         </div>
 
-        {proposed.length > 0 && (
-          <section aria-labelledby="group-proposed">
-            <GroupHeading id="group-proposed" count={proposed.length}>
-              {t('plans.PROPOSED')}
-            </GroupHeading>
-            <div class="flex items-center justify-between gap-2 mb-2">
-              <p class="text-xs text-muted">{t('plans.PROPOSED_HINT')}</p>
-              <a
-                href={reviewUrl(plan.id)}
-                class="btn btn-primary btn-sm shrink-0"
-                id="plan-review"
-              >
-                {t('plans.REVIEW')}
-              </a>
-            </div>
-            <ul class="flex flex-col gap-2">
-              {proposed.map((item) => (
-                <ReviewCard item={item} />
-              ))}
-            </ul>
-          </section>
-        )}
-        {revise.length > 0 && (
-          <section aria-labelledby="group-revise" id="plan-revise">
-            <GroupHeading id="group-revise" count={revise.length}>
-              {t('plans.REVISE')}
-            </GroupHeading>
-            <p class="text-xs text-muted mb-2">{t('plans.REVISE_HINT')}</p>
-            <ul class="flex flex-col gap-2">
-              {revise.map((item) => (
-                <ReviewCard item={item} />
-              ))}
-            </ul>
-          </section>
-        )}
-        {declined.length > 0 && (
-          <section aria-labelledby="group-declined" id="plan-declined">
-            <GroupHeading id="group-declined" count={declined.length}>
-              {t('plans.DECLINED')}
-            </GroupHeading>
-            <p class="text-xs text-muted mb-2">{t('plans.DECLINED_HINT')}</p>
-            <ul class="flex flex-col gap-2">
-              {declined.map((item) => (
-                <ReviewCard item={item} />
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {tally.owned + tally.partly + tally.missing === 0 ? (
+        {sections.length === 0 && declined.length === 0 ? (
           <p class="text-sm text-muted text-center pt-8">
             {t('plans.NO_ITEMS')}
           </p>
         ) : (
-          GROUPS.map((status) =>
-            model.gaps.groups[status].length === 0 ? null : (
-              <section
-                aria-labelledby={`group-${status}`}
-                id={`plan-${status}`}
-              >
-                <GroupHeading
-                  id={`group-${status}`}
-                  count={model.gaps.groups[status].length}
-                >
-                  {t(GROUP_TITLES[status])}
-                </GroupHeading>
-                <ul class="flex flex-col gap-2">
-                  {model.gaps.groups[status].map((entry) => (
-                    <ItemCard
-                      entry={entry}
-                      gaps={model.gaps}
-                      candidates={model.candidates.get(entry.item.id) ?? []}
-                    />
-                  ))}
-                </ul>
-              </section>
-            ),
-          )
+          sections.map((section) => (
+            <RoleSection section={section} gaps={model.gaps} />
+          ))
         )}
+        {declined.length > 0 && <DeclinedList items={declined} />}
       </main>
       {model.toast && (
         <SavedToast
@@ -215,14 +233,25 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanPageModel }) {
   );
 }
 
-function GroupHeading(props: { id: string; count: number; children: string }) {
+/** A role's cards under its heading and count: "Shoes · 2". */
+function RoleSection(props: { section: RoleGroup<PlanCard>; gaps: PlanGaps }) {
+  const { role, items } = props.section;
   return (
-    <h2
-      id={props.id}
-      class="text-xs font-semibold uppercase tracking-wide text-muted mb-2"
+    <section
+      aria-labelledby={`plan-role-${role}-title`}
+      id={`plan-role-${role}`}
+      data-role={role}
     >
-      {props.children} · {props.count}
-    </h2>
+      <h2 id={`plan-role-${role}-title`} class="font-semibold mb-2">
+        {roleGroupLabel(role)}{' '}
+        <span class="font-normal text-muted">· {items.length}</span>
+      </h2>
+      <ul class="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3">
+        {items.map((card) => (
+          <ItemCard card={card} gaps={props.gaps} />
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -255,7 +284,7 @@ function PlanMenu({ gaps }: { gaps: PlanGaps }) {
         >
           ⋯
         </summary>
-        <ul class="menu dropdown-content bg-base-100 rounded-box shadow-lg z-20 w-52 p-2">
+        <ul class="menu dropdown-content bg-base-100 rounded-box border border-base-300 z-20 w-52 p-2">
           <li>
             <a href={planUrl(plan.id, '/edit')}>{t('plans.EDIT_PLAN')}</a>
           </li>
@@ -291,159 +320,322 @@ function PlanMenu({ gaps }: { gaps: PlanGaps }) {
   );
 }
 
-/** The item's title, quantity, priority and budget: the head of every card. */
-function ItemHead(props: {
-  item: PlanItemRow;
-  href: string;
-  progress?: string;
-}) {
-  const { item } = props;
-  return (
-    <div class="flex items-start justify-between gap-2">
-      <a
-        href={props.href}
-        class="font-medium link link-hover min-w-0 break-words"
-      >
-        {itemTitle(item)}
-        {item.quantity > 1 && props.progress === undefined && (
-          <span class="text-muted"> ×{item.quantity}</span>
-        )}
-      </a>
-      <span class="flex items-center gap-1 shrink-0">
-        {props.progress && (
-          <span class="text-sm font-medium">{props.progress}</span>
-        )}
-        {item.priority !== 'medium' && (
-          <span
-            class={`badge badge-sm ${item.priority === 'high' ? 'badge-warning' : 'badge-ghost'}`}
-          >
-            {priorityLabel(item.priority)}
-          </span>
-        )}
-      </span>
-    </div>
-  );
+/** The chip on a card's photo: where the item stands. */
+function statusChip(card: PlanCard): { text: string; class: string } {
+  switch (card.status) {
+    case 'proposed':
+      return { text: t('plans.status.proposed'), class: 'badge-primary' };
+    case 'revise':
+      return { text: t('plans.status.revise'), class: 'badge-info' };
+    case 'missing':
+      return { text: t('plans.status.missing'), class: 'badge-warning' };
+    case 'partly':
+      return {
+        text: t('plans.HAVE_OF', {
+          have: card.match!.have,
+          need: card.match!.need,
+        }),
+        class: 'badge-warning badge-outline bg-base-100',
+      };
+    case 'owned':
+      return { text: t('plans.status.owned'), class: 'badge-success' };
+  }
 }
 
-function ItemBody({ item }: { item: PlanItemRow }) {
-  const facts = itemFacts(item);
-  return (
-    <>
-      {(facts.length > 0 || item.budget) && (
-        <p class="text-xs text-muted">
-          {[
-            ...facts,
-            item.budget
-              ? t('plans.BUDGET_EACH', { price: priceLabel(item.budget) })
-              : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </p>
-      )}
-      {item.note && <p class="text-xs italic">{item.note}</p>}
-    </>
-  );
+/** The photo a card leads with, what it is of, and which product when it is one. */
+interface Lead {
+  photo: SignablePhotoRef;
+  name: string;
+  /** The candidate on the photo, left out of the thumbs under it. */
+  candidateId?: number;
 }
 
-function ItemCard(props: {
-  entry: GapItem;
-  gaps: PlanGaps;
-  candidates: CandidateGarment[];
-}) {
-  const { item, match } = props.entry;
-  const { plan, closet } = props.gaps;
-  const progress =
-    match.status === 'partly'
-      ? t('plans.HAVE_OF', { have: match.have, need: match.need })
-      : undefined;
+/**
+ * The photo a card leads with: for an item the closet answers, the first
+ * garment fulfilling it that has a photo; else, while it is still to buy,
+ * its likeliest product with one. Null: the garment glyph.
+ */
+function leadOf(
+  card: PlanCard,
+  closet: Map<number, ClosetGarment>,
+): Lead | null {
+  const owned = (card.match?.fulfilledBy ?? [])
+    .map(({ garmentId }) => closet.get(garmentId)!)
+    .find((garment) => garment.photo !== null);
+  if (owned) return { photo: owned.photo!, name: garmentName(owned) };
+  if (card.status === 'owned') return null;
+  const product = card.candidates.find((candidate) => candidate.photo !== null);
+  return product
+    ? {
+        photo: product.photo!,
+        name: candidateName(product),
+        candidateId: product.garmentId,
+      }
+    : null;
+}
+
+/**
+ * An item's card, the Wardrobe tile's language (the plinth, 4:5, its marks
+ * small over the corners, the words under it): the photo with its status
+ * chip and copies, the item in words (a stretched link to its edit form),
+ * the budget and priority, then its options while it is still to buy (the
+ * other products as small thumbs and their count, a link to its candidates
+ * page; "No options yet" and Add a product while it has none), what in the
+ * closet fulfils it, the owner's note to the agent, and its review moves.
+ * The links and buttons over the stretched link are `relative z-10`.
+ */
+function ItemCard(props: { card: PlanCard; gaps: PlanGaps }) {
+  const { card, gaps } = props;
+  const { item, match } = card;
+  const chip = statusChip(card);
+  const lead = leadOf(card, gaps.closet);
+  const meta = [
+    item.budget
+      ? t('plans.BUDGET_EACH', { price: priceLabel(item.budget) })
+      : null,
+    item.priority === 'medium'
+      ? null
+      : t('plans.PRIORITY_BADGE', { priority: priorityLabel(item.priority) }),
+  ].filter((part) => part !== null);
   return (
     <li
-      class="card bg-base-100 shadow-sm"
       id={`plan-item-${item.id}`}
-      data-status={match.status}
+      data-status={card.status}
+      class="relative flex min-w-0 flex-col gap-1"
     >
-      <div class="card-body p-3 gap-1">
-        <ItemHead
-          item={item}
-          href={itemUrl(plan.id, item.id, '/edit')}
-          progress={progress}
-        />
-        <ItemBody item={item} />
-        {match.fulfilledBy.length > 0 && (
-          <ul
-            class="flex flex-wrap gap-1 mt-1"
-            aria-label={t('plans.FULFILLED_BY')}
-          >
-            {match.fulfilledBy.map((fulfilment) => {
-              const garment = closet.get(fulfilment.garmentId)!;
-              return (
-                <li>
-                  <a
-                    href={garmentUrl(garment.id, undefined)}
-                    class="badge badge-outline badge-sm gap-1 h-auto py-0.5"
-                  >
-                    {garmentName(garment)}
-                    {fulfilment.copies > 1 && ` ×${fulfilment.copies}`}
-                    {fulfilment.needsRepair && (
-                      <span class="text-warning">
-                        · {t('plans.NEEDS_REPAIR')}
-                      </span>
-                    )}
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
+      <figure class="relative aspect-[4/5] overflow-hidden rounded-box bg-base-200 flex items-center justify-center">
+        {lead ? (
+          <img
+            src={imageUrl(lead.photo, 'thumb')}
+            alt={lead.name}
+            class="size-full object-contain p-2"
+            width="400"
+            height="400"
+            loading="lazy"
+            decoding="async"
+          />
+        ) : (
+          <HangerIcon class="size-1/3 text-faint" strokeWidth="1" />
         )}
-        {match.reason && (
-          <p
-            class="text-xs text-base-content/70 mt-1"
-            data-reason={match.reason}
-          >
-            {reasonText(match, props.gaps)}
-          </p>
-        )}
-        {match.status !== 'owned' && (
-          <Candidates item={item} candidates={props.candidates} />
-        )}
-        <a
-          href={itemUrl(plan.id, item.id, '/change')}
-          class="link link-hover text-xs text-muted self-start mt-1"
+        <span
+          class={`badge badge-sm absolute top-1.5 left-1.5 ${chip.class}`}
+          data-status-chip=""
         >
-          {t('plans.CHANGE_THIS')}
-        </a>
-      </div>
+          {chip.text}
+        </span>
+        {item.quantity > 1 && (
+          <span class="badge badge-xs badge-neutral absolute bottom-1.5 left-1.5">
+            {t('QUANTITY_BADGE', { quantity: item.quantity })}
+          </span>
+        )}
+      </figure>
+      <a
+        href={itemUrl(item.planId, item.id, '/edit')}
+        class="text-sm font-medium leading-snug line-clamp-2 break-words after:absolute after:inset-0"
+      >
+        {itemTitle(item)}
+      </a>
+      {meta.length > 0 && <p class="text-xs text-muted">{meta.join(' · ')}</p>}
+      {card.status !== 'owned' && (
+        <Options card={card} onPhoto={lead?.candidateId} />
+      )}
+      {match && match.fulfilledBy.length > 0 && (
+        <FulfilledBy match={match} closet={gaps.closet} />
+      )}
+      {match?.reason && match.reason !== 'nothing-matches' && (
+        <p class="text-xs text-muted" data-reason={match.reason}>
+          {reasonText(match, gaps)}
+        </p>
+      )}
+      {item.ownerNote && (
+        <p class="text-xs line-clamp-3" data-owner-note>
+          {t('plans.YOUR_NOTE', { note: item.ownerNote })}
+        </p>
+      )}
+      <ReviewMoves item={item} status={card.status} />
     </li>
   );
 }
 
+/** Thumbs of the products a card does not lead with: a few, then the count says the rest. */
+const OPTION_THUMBS = 3;
+
 /**
- * A gap's candidate products (34b): each by name and price, and the link
- * to its candidates page ("Add a candidate" while it has none).
+ * An item's options (its candidate products, 34b): the products but the
+ * one its photo shows (`onPhoto`) as small thumbs, each a link to its
+ * wishlist page, and "3 options", a link to the candidates page; while it
+ * has none, "No options yet" and Add a product.
  */
-function Candidates(props: {
-  item: PlanItemRow;
-  candidates: CandidateGarment[];
-}) {
-  const { item, candidates } = props;
+function Options(props: { card: PlanCard; onPhoto: number | undefined }) {
+  const { item, candidates } = props.card;
+  const href = candidatesUrl(item.planId, item.id);
+  if (candidates.length === 0) {
+    return (
+      <p
+        class="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+        data-candidates=""
+      >
+        <span class="badge badge-ghost badge-sm" data-no-options="">
+          {t('plans.NO_OPTIONS')}
+        </span>
+        <a href={href} class="link link-primary">
+          + {t('shopping.ADD_PRODUCT')}
+        </a>
+      </p>
+    );
+  }
+  const others = candidates
+    .filter((candidate) => candidate.garmentId !== props.onPhoto)
+    .slice(0, OPTION_THUMBS);
   return (
-    <p class="text-xs flex flex-wrap items-center gap-1 mt-1" data-candidates>
-      {candidates.map((candidate) => (
+    <div
+      class="relative z-10 flex items-center gap-1.5 text-xs"
+      data-candidates=""
+    >
+      {others.map((candidate) => (
         <a
           href={garmentUrl(candidate.garmentId, undefined)}
-          class="badge badge-ghost badge-sm h-auto py-0.5"
+          class="size-8 shrink-0 overflow-hidden rounded-field bg-base-200 flex items-center justify-center"
+          aria-label={candidateName(candidate)}
         >
-          {candidate.name ?? categoryLabel(candidate.category)}
-          {candidate.price && ` · ${priceLabel(candidate.price)}`}
+          {candidate.photo ? (
+            <img
+              src={imageUrl(candidate.photo, 'thumb')}
+              alt=""
+              class="size-full object-contain p-0.5"
+              width="64"
+              height="64"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <HangerIcon class="size-4 text-faint" strokeWidth="1.5" />
+          )}
         </a>
       ))}
-      <a href={candidatesUrl(item.planId, item.id)} class="link link-primary">
-        {candidates.length === 0
-          ? `+ ${t('shopping.ADD_CANDIDATE')}`
-          : t('shopping.CANDIDATES_COUNT', { count: candidates.length })}
+      <a href={href} class="link link-hover text-muted whitespace-nowrap">
+        {candidates.length === 1
+          ? t('plans.OPTIONS_ONE')
+          : t('plans.OPTIONS', { count: candidates.length })}
       </a>
+    </div>
+  );
+}
+
+/** What in the closet fulfils an item: "In your closet: White tee ×2". */
+function FulfilledBy(props: {
+  match: ItemMatch;
+  closet: Map<number, ClosetGarment>;
+}) {
+  return (
+    <p class="relative z-10 text-xs text-muted line-clamp-2">
+      {t('plans.FULFILLED_BY')}:{' '}
+      {props.match.fulfilledBy.map((fulfilment, index) => {
+        const garment = props.closet.get(fulfilment.garmentId)!;
+        return (
+          <>
+            {index > 0 && ', '}
+            <a
+              href={garmentUrl(garment.id, undefined)}
+              class="link link-hover text-base-content"
+            >
+              {garmentName(garment)}
+            </a>
+            {fulfilment.copies > 1 && ` ×${fulfilment.copies}`}
+            {fulfilment.needsRepair && (
+              <span class="text-warning"> ({t('plans.NEEDS_REPAIR')})</span>
+            )}
+          </>
+        );
+      })}
     </p>
+  );
+}
+
+/**
+ * An item's own review moves (#278), each its own small native post (no
+ * swipe state to keep here, unlike the review page): a proposal's Accept,
+ * Change this… and Don't buy; one sent back for a change, Accept as it is
+ * and Don't buy; an accepted one, Change this….
+ */
+function ReviewMoves(props: { item: PlanItemRow; status: CardStatus }) {
+  const { item, status } = props;
+  const action = (suffix: string) => itemUrl(item.planId, item.id, suffix);
+  const change = (
+    <a
+      href={action('/change')}
+      class="link link-hover text-xs text-muted self-start"
+    >
+      {t('plans.CHANGE_THIS')}
+    </a>
+  );
+  if (status !== 'proposed' && status !== 'revise') {
+    return <div class="relative z-10 flex">{change}</div>;
+  }
+  return (
+    <div class="relative z-10 mt-1 flex flex-col gap-1">
+      <div class="flex flex-wrap gap-1">
+        <PostForm action={action('/accept')} needsNetwork>
+          <button type="submit" class="btn btn-xs btn-primary">
+            {t(status === 'revise' ? 'plans.ACCEPT_AS_IS' : 'plans.ACCEPT')}
+          </button>
+        </PostForm>
+        <PostForm action={action('/decline')} needsNetwork>
+          <button type="submit" class="btn btn-xs btn-ghost">
+            {t('plans.DONT_BUY')}
+          </button>
+        </PostForm>
+      </div>
+      {status === 'proposed' && change}
+    </div>
+  );
+}
+
+/**
+ * The declined items ("Don't buy"), apart from the sections: not part of
+ * the plan, kept so the agent never proposes them again. Each with the
+ * owner's note, if any, and Reconsider.
+ */
+function DeclinedList({ items }: { items: PlanItemRow[] }) {
+  return (
+    <section aria-labelledby="plan-declined-title" id="plan-declined">
+      <h2 id="plan-declined-title" class="font-semibold">
+        {t('plans.DECLINED')}{' '}
+        <span class="font-normal text-muted">· {items.length}</span>
+      </h2>
+      <p class="text-xs text-muted mb-2">{t('plans.DECLINED_HINT')}</p>
+      <ul class="flex flex-col divide-y divide-base-300">
+        {items.map((item) => (
+          <li
+            id={`plan-item-${item.id}`}
+            data-status="declined"
+            class="flex items-center justify-between gap-3 py-2"
+          >
+            <div class="min-w-0">
+              <a
+                href={itemUrl(item.planId, item.id, '/edit')}
+                class="text-sm link link-hover break-words"
+              >
+                {itemTitle(item)}
+              </a>
+              {item.ownerNote && (
+                <p class="text-xs text-muted" data-owner-note>
+                  {t('plans.YOUR_NOTE', { note: item.ownerNote })}
+                </p>
+              )}
+            </div>
+            <PostForm
+              action={itemUrl(item.planId, item.id, '/reconsider')}
+              needsNetwork
+            >
+              <button type="submit" class="btn btn-xs btn-outline">
+                {t('plans.RECONSIDER')}
+              </button>
+            </PostForm>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -484,68 +676,4 @@ function reasonText(match: ItemMatch, gaps: PlanGaps): string {
     case null:
       return '';
   }
-}
-
-/**
- * An item outside the plan, by its review (#278): a proposal with Accept,
- * Change this… and Don't buy; one sent back for a change (the owner's
- * note) with Accept as it is and Don't buy; a declined one (the note, if
- * any) with Reconsider. Each button is its own small native post (no swipe
- * state to keep here, unlike the review page).
- */
-function ReviewCard({ item }: { item: PlanItemRow }) {
-  const action = (suffix: string) => itemUrl(item.planId, item.id, suffix);
-  return (
-    <li
-      class="card bg-base-100 shadow-sm border border-dashed border-primary/40"
-      id={`plan-item-${item.id}`}
-      data-status={item.review}
-    >
-      <div class="card-body p-3 gap-1">
-        <ItemHead item={item} href={action('/edit')} />
-        <ItemBody item={item} />
-        {item.ownerNote && (
-          <p class="text-xs" data-owner-note>
-            {t('plans.YOUR_NOTE', { note: item.ownerNote })}
-          </p>
-        )}
-        <div class="flex flex-wrap gap-2 mt-2">
-          {item.review !== 'declined' && (
-            <PostForm action={action('/accept')} class="flex-1" needsNetwork>
-              <button type="submit" class="btn btn-sm btn-primary w-full">
-                {t(
-                  item.review === 'revise'
-                    ? 'plans.ACCEPT_AS_IS'
-                    : 'plans.ACCEPT',
-                )}
-              </button>
-            </PostForm>
-          )}
-          {item.review === 'proposed' && (
-            <a href={action('/change')} class="btn btn-sm btn-ghost flex-1">
-              {t('plans.CHANGE_THIS')}
-            </a>
-          )}
-          {item.review !== 'declined' && (
-            <PostForm action={action('/decline')} class="flex-1" needsNetwork>
-              <button type="submit" class="btn btn-sm btn-ghost w-full">
-                {t('plans.DONT_BUY')}
-              </button>
-            </PostForm>
-          )}
-          {item.review === 'declined' && (
-            <PostForm
-              action={action('/reconsider')}
-              class="flex-1"
-              needsNetwork
-            >
-              <button type="submit" class="btn btn-sm btn-outline w-full">
-                {t('plans.RECONSIDER')}
-              </button>
-            </PostForm>
-          )}
-        </div>
-      </div>
-    </li>
-  );
 }

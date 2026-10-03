@@ -879,7 +879,12 @@ describe('the shopping loop', () => {
       expect(html).toContain(
         `href="/wardrobe/plans/${planId}/items/${items.boots}/candidates"`,
       );
-      expect(html).toContain('Black boots · $220.00');
+      // The boots' card (#295): its products as thumbs, and how many.
+      const boots = html
+        .split('<li id="plan-item-')
+        .find((card) => card.startsWith(`${items.boots}"`))!;
+      expect(boots).toContain('aria-label="Black boots"');
+      expect(boots).toMatch(/>(1 option|\d+ options)</);
       expect(html).toContain(
         `href="/wardrobe/plans/${planId}/items/${items.oxford}/candidates"`,
       );

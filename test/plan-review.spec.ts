@@ -126,12 +126,13 @@ test('review an agent’s proposals as strips, swipe to a candidate, accept', as
   await expect(page.locator('#plan-review')).toHaveCount(0);
   const bootsCard = page.locator(`#plan-item-${boots}`);
   await expect(bootsCard).toHaveAttribute('data-status', 'missing');
-  await expect(bootsCard.locator('[data-candidates]')).toContainText(
-    'Navy boots',
-  );
-  await expect(bootsCard.locator('[data-candidates]')).not.toContainText(
-    'Cheap black boots',
-  );
+  // Its options are thumbs, each named (#295).
+  await expect(
+    bootsCard.getByRole('link', { name: 'Navy boots' }),
+  ).toBeVisible();
+  await expect(
+    bootsCard.getByRole('link', { name: 'Cheap black boots' }),
+  ).toHaveCount(0);
   await expect(page.locator(`#plan-item-${coat}`)).toHaveAttribute(
     'data-status',
     'missing',
@@ -252,9 +253,9 @@ test('Change this with a note, and Not this one on a candidate, in one post', as
   await expect(coatCard).toContainText('Your note: Wool, and longer');
   const bootsCard = page.locator(`#plan-item-${boots}`);
   await expect(bootsCard).toHaveAttribute('data-status', 'missing');
-  await expect(bootsCard.locator('[data-candidates]')).toContainText(
-    'Matte black boots',
-  );
+  await expect(
+    bootsCard.getByRole('link', { name: 'Matte black boots' }),
+  ).toBeVisible();
   // The rejected pair stood for nothing else: off the wishlist, its reason kept.
   expect((await page.request.get(`/wardrobe/${shiny}`)).status()).toBe(404);
   const rejected = await withServerDb((db) =>

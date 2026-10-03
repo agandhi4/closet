@@ -1,6 +1,11 @@
 import { and, count, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { garmentWear, outfit, outfitCalendar } from '../../src/db/schema';
+import {
+  garmentWear,
+  outfit,
+  outfitCalendar,
+  wardrobePlan,
+} from '../../src/db/schema';
 import { wearIdea } from '../../src/web/today/queries';
 import {
   createTestApp,
@@ -240,6 +245,58 @@ describe('Today', () => {
       const dressed = await recordQueries(() => get('/'));
       expect(dressed.statements).toBe(2);
       await clearToday();
+    });
+
+    // #295: the home screen had no way to the plans. A plan an agent
+    // drafted, while it holds proposals, is a card linking to its review,
+    // read in the day's own statement (waitingDraftsSql in readDay), so the
+    // counts above stay; it goes once nothing in it is proposed.
+    it('shows an agent’s draft waiting on review as a card, in the same three statements, until nothing is proposed', async () => {
+      await clearToday();
+      const token = await createAccessToken(t, { name: 'Muse' });
+      const draft = await tool<{ id: number }>(t, token, 'create_plan', {
+        name: 'Spring capsule',
+      });
+      const items: number[] = [];
+      for (const name of ['White leather sneakers', 'Navy blazer']) {
+        const item = await tool<{ id: number }>(t, token, 'propose_plan_item', {
+          planId: draft.id,
+          category: 'tops',
+          name,
+        });
+        items.push(item.id);
+      }
+      // The owner's own plan, with nothing an agent drafted, has no card.
+      const own = await t.inject({
+        method: 'POST',
+        url: '/wardrobe/plans',
+        payload: { name: 'Mine' },
+      });
+      expect(own.statusCode).toBe(303);
+
+      const record = await recordQueries(() => get('/'));
+      expect(record.statements).toBe(3);
+      const res = await get('/');
+      expectFullPage(res);
+      const html = unescapeHtml(res.body);
+      const cards = [...html.matchAll(/data-plan-draft="(\d+)"/g)];
+      expect(cards.map((m) => Number(m[1]))).toEqual([draft.id]);
+      expect(html).toContain('Muse drafted Spring capsule: 2 ideas to review');
+      expect(html).toContain(`href="/wardrobe/plans/${draft.id}/review"`);
+
+      const decide = (item: number, move: string) =>
+        t.inject({
+          method: 'POST',
+          url: `/wardrobe/plans/${draft.id}/items/${item}/${move}`,
+          payload: {},
+        });
+      expect((await decide(items[0], 'accept')).statusCode).toBe(303);
+      expect(unescapeHtml((await get('/')).body)).toContain(
+        'Muse drafted Spring capsule: 1 idea to review',
+      );
+      expect((await decide(items[1], 'decline')).statusCode).toBe(303);
+      expect((await get('/')).body).not.toContain('data-plan-draft');
+      await t.db.delete(wardrobePlan);
     });
 
     it('an empty closet says what ideas need', async () => {

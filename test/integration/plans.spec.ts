@@ -552,7 +552,7 @@ describe('wardrobe plans', () => {
       expect(await t.db.$count(planItem)).toBe(before);
     });
 
-    it('groups the items missing, partly and owned, and says why', async () => {
+    it('draws the items as cards in sections by role, top to toe, each with its status and why', async () => {
       const page = await get(`/wardrobe/plans/${planId}`);
       expect(page.statusCode).toBe(200);
       expectFullPage(page);
@@ -571,13 +571,41 @@ describe('wardrobe plans', () => {
         [items.boots]: 'missing',
       });
       expect(html).toContain('2 owned · 1 partly · 3 missing');
-      // The gaps first.
-      expect(html.indexOf('id="plan-missing"')).toBeLessThan(
-        html.indexOf('id="plan-owned"'),
+      // #295: a section per role, top to toe, each headed with its count.
+      const at = (id: string) => html.indexOf(`id="${id}"`);
+      expect(at('plan-role-top')).toBeGreaterThan(-1);
+      expect(at('plan-role-top')).toBeLessThan(at('plan-role-bottom'));
+      expect(at('plan-role-bottom')).toBeLessThan(at('plan-role-footwear'));
+      for (const [role, label, count] of [
+        ['top', 'Tops', 3],
+        ['bottom', 'Bottoms', 2],
+        ['footwear', 'Shoes', 1],
+      ] as const) {
+        expect(html).toMatch(
+          new RegExp(
+            `id="plan-role-${role}-title"[^>]*>${label} <span[^>]*>· ${count}</span>`,
+          ),
+        );
+      }
+      // In a section the gaps first, each card's status a chip on its photo.
+      expect(at(`plan-item-${items.merino}`)).toBeLessThan(
+        at(`plan-item-${items.tees}`),
       );
+      expect(at(`plan-item-${items.tees}`)).toBeLessThan(
+        at(`plan-item-${items.heavy}`),
+      );
+      const chips = [
+        ...html.matchAll(
+          /<span class="badge[^"]*"[^>]*data-status-chip="">([^<]*)</g,
+        ),
+      ].map((m) => m[1]);
+      expect(chips).toEqual(
+        expect.arrayContaining(['To buy', '2 of 3', 'Owned']),
+      );
+      // Nothing linked to buy yet: the item says so.
+      expect(html).toContain('No options yet');
       expect(html).toContain('Worn out, to replace: Grey merino');
       expect(html).toContain('1 more to go');
-      expect(html).toContain('Nothing in your closet fits yet');
       expect(html).toContain('needs repair');
       expect(html).toContain(`href="/wardrobe/${garments.heavy}"`);
       expect(html).toContain('$48.00 each');
@@ -646,7 +674,8 @@ describe('wardrobe plans', () => {
       );
       const page = unescapeHtml((await get(`/wardrobe/plans/${planId}`)).body);
       expect(statuses(page)[proposal]).toBe('proposed');
-      expect(page).toContain('Proposed by your agent');
+      expect(page).toContain('2 proposed by your agent');
+      expect(page).toContain('To review');
       // Not counted in the tally.
       expect(page).toContain('4 owned · 0 partly · 2 missing');
 

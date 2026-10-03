@@ -11,6 +11,7 @@ import {
   MAX_ACCENT_COLORS,
   neutralFor,
   OUTFIT_ORDER,
+  topToToe,
   REST_DAYS,
   rotationWeight,
 } from './generator';
@@ -414,6 +415,27 @@ describe('generateIdeas', () => {
       'top',
       'bottom',
       'footwear',
+    ]);
+  });
+
+  it('groups a list by role top to toe, keeping its order, a custom category last', () => {
+    const items = [
+      { id: 1, category: 'footwear' },
+      { id: 2, category: 'kilts' },
+      { id: 3, category: 'tops' },
+      { id: 4, category: 'outerwear' },
+      { id: 5, category: 'tops' },
+    ];
+    expect(
+      topToToe(items, (item) => item.category).map(({ role, items }) => [
+        role,
+        items.map((item) => item.id),
+      ]),
+    ).toEqual([
+      ['layer', [4]],
+      ['top', [3, 5]],
+      ['footwear', [1]],
+      ['none', [2]],
     ]);
   });
 });

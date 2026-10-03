@@ -185,7 +185,7 @@ describe('the plan item review', () => {
       });
       const page = unescapeHtml((await get(`/wardrobe/plans/${planId}`)).body);
       expect(statuses(page)[item]).toBe('revise');
-      expect(page).toContain('Waiting on your agent');
+      expect(page).toContain('With your agent');
       expect(page).toContain('Your note: Darker, and wool');
       expect(t.logs.messages('info', 'Web')).toContain(
         `Plan item ${item} of plan ${planId}: change by user ${t.owner.id} with a note`,

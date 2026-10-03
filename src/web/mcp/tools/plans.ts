@@ -472,14 +472,15 @@ export const planTools = [
     name: 'get_plan_feedback',
     title: 'Get the owner’s feedback on a plan',
     description:
-      'What waits on you in a wardrobe plan (the active one when planId is omitted), and nothing else: the items the owner sent back for a change (revise: ownerNote says what; change them with update_plan_item, which returns them to the owner), the items the owner declined (declined: never propose them again, never add a candidate to them), and the items with products the owner rejected since the item last changed (replace: swap those products for others with add_candidate). Every item lists the products the owner rejected for it (rejected: name, brand, url, price, reason, when, and new: true for a rejection you have not answered yet); never add a rejected product again, by url or by garment. Read this first in a conversation about an existing plan.',
+      'What waits on you in a wardrobe plan (the active one when planId is omitted), and nothing else: the items the owner sent back for a change (revise: ownerNote says what; change them with update_plan_item, which returns them to the owner), the items the owner declined (declined: never propose them again, never add a candidate to them), the items with products the owner rejected since the item last changed (replace: swap those products for others with add_candidate), and the proposed or accepted items with no product option at all (needsProducts: give each 2 to 5 with add_candidate, or add_garment_from_link with planItemId). Every item lists the products the owner rejected for it (rejected: name, brand, url, price, reason, when, and new: true for a rejection you have not answered yet); never add a rejected product again, by url or by garment. Read this first in a conversation about an existing plan.',
     input: z.object({ planId: planIdInput }),
     writes: false,
     async run({ planId }, ctx) {
       const plan = await planFor(ctx, planId);
-      const [items, rejections] = await Promise.all([
+      const [items, rejections, candidates] = await Promise.all([
         itemsOf(ctx.db, [plan.id]),
         rejectionsOfPlan(ctx.db, plan.id),
+        candidatesOfPlan(ctx.db, ctx.userId, plan.id),
       ]);
       // `new`: made since the item last changed, so the agent has not answered it.
       const out = (item: PlanItemRow) => ({
@@ -489,6 +490,8 @@ export const planTools = [
           new: isNewRejection(rejection, item),
         })),
       });
+      const open = (item: PlanItemRow) =>
+        item.review === 'proposed' || item.review === 'accepted';
       const hasNew = (item: PlanItemRow) =>
         (rejections.get(item.id) ?? []).some((rejection) =>
           isNewRejection(rejection, item),
@@ -497,12 +500,12 @@ export const planTools = [
         planId: plan.id,
         revise: items.filter((item) => item.review === 'revise').map(out),
         declined: items.filter((item) => item.review === 'declined').map(out),
-        replace: items
-          .filter(
-            (item) =>
-              (item.review === 'proposed' || item.review === 'accepted') &&
-              hasNew(item),
-          )
+        replace: items.filter((item) => open(item) && hasNew(item)).map(out),
+        // Only current candidates count (candidatesOfPlan reads the
+        // wishlist): an item whose products were all bought or rejected
+        // needs more again.
+        needsProducts: items
+          .filter((item) => open(item) && !candidates.has(item.id))
           .map(out),
       };
     },

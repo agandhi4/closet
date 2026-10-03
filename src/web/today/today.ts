@@ -12,6 +12,7 @@ import type { CalendarEntry } from '../calendar/calendar-view';
 import { entriesSql } from '../calendar/queries';
 import { dailySeed, ideasFor, type IdeasWeather } from '../gallery/ideas';
 import type { PoolGarment } from '../gallery/queries';
+import { type WaitingDraft, waitingDraftsSql } from '../plans/queries';
 import {
   readWeatherWithForecast,
   weatherWithForecastSql,
@@ -41,6 +42,8 @@ import { somethingWornSql } from './queries';
  * Whether anything was worn today is read only when asked (`worn`, in the
  * same statement): the page never shows it (#158); get_today asks, and the
  * evening reminder reads it for every evening person at once (eveningDays).
+ * So are an agent's drafts waiting on the owner (`drafts`, #295), which only
+ * the page shows, as a card.
  */
 
 /** Ideas a suggestions row shows at once. */
@@ -75,6 +78,8 @@ export interface TodayModel {
   weather: UserWeather | null;
   /** Whether anything was worn today (somethingWornSql); read only when asked (`worn`). */
   wornToday?: boolean;
+  /** An agent's drafts with proposals to review (waitingDraftsSql); read only when asked (`drafts`). */
+  drafts?: WaitingDraft[];
 }
 
 export interface TodayOptions {
@@ -85,6 +90,8 @@ export interface TodayOptions {
   ownWeather?: UserWeather;
   /** Also read whether anything was worn today (get_today; the page never shows it). */
   worn?: boolean;
+  /** Also read the agent's drafts waiting on the owner (the page's card). */
+  drafts?: boolean;
 }
 
 export interface TodayDeps {
@@ -95,7 +102,8 @@ export interface TodayDeps {
 
 /**
  * The day's entries, the person's settings with their forecast row, and
- * (when asked) whether anything was worn, in one statement (#172; the
+ * (when asked) whether anything was worn and the agent's drafts waiting
+ * on review, in one statement (#172; the
  * entries and the weather were two, in parallel), so the ideas start with
  * the weather in hand. Only a forecast that must be fetched reads again
  * (userWeatherFrom).
@@ -105,7 +113,7 @@ async function readDay(
   ownerId: number,
   today: IsoDate,
   now: Date,
-  { ownWeather, worn }: TodayOptions,
+  { ownWeather, worn, drafts }: TodayOptions,
 ) {
   const read = await selectScalars(deps.db, {
     entries: entriesSql(ownerId, today, today),
@@ -114,6 +122,7 @@ async function readDay(
         ? undefined
         : weatherWithForecastSql(ownerId, now),
     worn: worn ? somethingWornSql(ownerId, today) : undefined,
+    drafts: drafts ? waitingDraftsSql(ownerId) : undefined,
   });
   const weather =
     ownWeather ??
@@ -123,7 +132,12 @@ async function readDay(
         readWeatherWithForecast(read.weather ?? null, now),
         now,
       )));
-  return { entries: read.entries, weather, worn: read.worn };
+  return {
+    entries: read.entries,
+    weather,
+    worn: read.worn,
+    drafts: read.drafts,
+  };
 }
 
 export async function todayFor(
@@ -133,7 +147,7 @@ export async function todayFor(
   options: TodayOptions = {},
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  const { entries, weather, worn } = await readDay(
+  const { entries, weather, worn, drafts } = await readDay(
     deps,
     ownerId,
     today,
@@ -162,7 +176,7 @@ export async function todayFor(
       await todayIdeas(deps, ownerId, now, DEFAULT_OCCASION, 1, weather),
     );
   }
-  return { today, rows, weather: weather ?? null, wornToday: worn };
+  return { today, rows, weather: weather ?? null, wornToday: worn, drafts };
 }
 
 /**

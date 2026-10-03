@@ -9,7 +9,7 @@ import {
   PhotoLibraryIcon,
   PREPARE_AND_SUBMIT_PHOTO,
 } from '../layout/parts';
-import { PLANS_PATH, SHOPPING_PATH } from '../plans/urls';
+import { NEW_PLAN_PATH, PLANS_PATH, SHOPPING_PATH } from '../plans/urls';
 import type { SharedWardrobe } from '../sharing/access';
 import { PermissionBadge } from '../sharing/pages';
 import { SHARING_PATH } from '../sharing/urls';
@@ -29,17 +29,24 @@ import {
 /**
  * The Wardrobe's header and tabs (docs/plans/2026-09-26-redesign.md,
  * section 3, "Wardrobe"): the app bar whose title is the wardrobe switcher,
- * with the ⋯ menu and the ＋ add sheet, and the four tabs under it, Closet,
- * Capsules, Laundry and Wishlist (the owner's decision 4 on #43). Every tab
- * page renders both, so moving between them keeps the header.
+ * with the ⋯ menu and the ＋ add sheet, and the tabs under it, Closet,
+ * Capsules, Laundry and Wishlist (the owner's decision 4 on #43), then
+ * Plans (#295: the plans were two taps deep in ⋯, and an agent's draft went
+ * unseen). Every tab page renders both, so moving between them keeps the
+ * header.
  */
 
-export type WardrobeTab = 'closet' | 'capsules' | 'laundry' | 'wishlist';
+export type WardrobeTab =
+  | 'closet'
+  | 'capsules'
+  | 'laundry'
+  | 'wishlist'
+  | 'plans';
 
 /**
- * A tab's page in a wardrobe. Laundry is the signed-in user's own hamper
- * (/laundry ignores `?ownerId=`), so a shared wardrobe has no Laundry tab
- * and the switcher takes it to that wardrobe's closet.
+ * A tab's page in a wardrobe. Laundry and Plans are the signed-in user's
+ * own (neither reads `?ownerId=`), so a shared wardrobe has neither tab and
+ * the switcher takes them to that wardrobe's closet.
  */
 function tabUrl(tab: WardrobeTab, viewOwner: number | undefined): string {
   switch (tab) {
@@ -49,6 +56,8 @@ function tabUrl(tab: WardrobeTab, viewOwner: number | undefined): string {
       return capsuleUrl(undefined, viewOwner);
     case 'laundry':
       return viewOwner === undefined ? LAUNDRY_PATH : wardrobeUrl(viewOwner);
+    case 'plans':
+      return viewOwner === undefined ? PLANS_PATH : wardrobeUrl(viewOwner);
     case 'wishlist':
       return wardrobeUrl(viewOwner, {}, WISHLIST_PATH);
   }
@@ -65,6 +74,8 @@ export interface WardrobeHeaderProps {
   canEdit: boolean;
   /** "New capsule" in the add sheet: the owner, on the Capsules tab. */
   newCapsule?: boolean;
+  /** "New plan" in the add sheet: the Plans tab. */
+  newPlan?: boolean;
   /** The ⋯ menu's Select: the closet grid's select mode, its filters kept. */
   selectUrl?: string;
 }
@@ -77,7 +88,7 @@ export interface WardrobeHeaderProps {
  */
 export function WardrobeHeader(props: WardrobeHeaderProps) {
   const { ctx, viewOwner, canEdit } = props;
-  const canAdd = canEdit || props.newCapsule === true;
+  const canAdd = canEdit || props.newCapsule === true || props.newPlan === true;
   return (
     <>
       <AppBar
@@ -112,6 +123,7 @@ export function WardrobeHeader(props: WardrobeHeaderProps) {
           viewOwner={viewOwner}
           canEdit={canEdit}
           newCapsule={props.newCapsule === true}
+          newPlan={props.newPlan === true}
         />
       )}
     </>
@@ -168,9 +180,10 @@ function SwitcherItems(props: WardrobeHeaderProps) {
 /**
  * The Wardrobe header's ⋯ menu ("Where every route goes"): the wardrobe's
  * less frequent places. Select (the closet grid's, with its filters) and
- * tagging for someone who may edit; Plans, the shopping list (#34) and
- * Insights (#17), which are the signed-in user's own, so those links never
- * carry a shared wardrobe's `?ownerId=`. The year in review (#26) is the
+ * tagging for someone who may edit; the shopping list (#34) and Insights
+ * (#17), which are the signed-in user's own, so those links never carry a
+ * shared wardrobe's `?ownerId=`; Plans too, but only inside a shared
+ * wardrobe, which has no Plans tab (#295). The year in review (#26) is the
  * user's own too, and offered only on their own wardrobe, never in a
  * grantee's view of another. Links only: a form inside a daisyUI menu item
  * loses its styling.
@@ -215,9 +228,11 @@ export function WardrobeMenu(props: {
             </a>
           </li>
         )}
-        <li>
-          <a href={PLANS_PATH}>{t('plans.TITLE')}</a>
-        </li>
+        {viewOwner !== undefined && (
+          <li>
+            <a href={PLANS_PATH}>{t('plans.TITLE')}</a>
+          </li>
+        )}
         <li>
           <a href={SHOPPING_PATH}>{t('shopping.TITLE')}</a>
         </li>
@@ -244,14 +259,16 @@ const TO_WISHLIST = destinationParams({ to: 'wishlist' });
 /**
  * The add sheet (plan: "+" in the Wardrobe header): a garment for the
  * closet from the camera, the photo library, a product link or entered by
- * hand; for the wishlist from a link or by hand; and on the owner's
- * Capsules tab a new capsule. The Wishlist tab lists its own first.
+ * hand; for the wishlist from a link or by hand; on the owner's Capsules
+ * tab a new capsule, and on the Plans tab a new plan, each first. The
+ * Wishlist tab lists its own first.
  */
 function AddSheet(props: {
   tab: WardrobeTab;
   viewOwner: number | undefined;
   canEdit: boolean;
   newCapsule: boolean;
+  newPlan: boolean;
 }) {
   const { viewOwner } = props;
   const closet = (
@@ -302,6 +319,13 @@ function AddSheet(props: {
           <AddGroup title={t('CAPSULES')}>
             <AddItem href="/capsules/new" icon={CAPSULE_ICON}>
               {t('NEW_CAPSULE')}
+            </AddItem>
+          </AddGroup>
+        )}
+        {props.newPlan && (
+          <AddGroup title={t('plans.TITLE')}>
+            <AddItem href={NEW_PLAN_PATH} icon={PLAN_ICON}>
+              {t('plans.NEW_PLAN')}
             </AddItem>
           </AddGroup>
         )}
@@ -420,11 +444,14 @@ function AddItem(props: { href: string; icon: string; children: Child }) {
   );
 }
 
-// The sheet's icons (Heroicons outline paths): a link, a pencil, a stack.
+// The sheet's icons (Heroicons outline paths): a link, a pencil, a stack,
+// a clipboard list.
 const LINK_ICON =
   'M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244';
 const PENCIL_ICON =
   'm16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10';
+const PLAN_ICON =
+  'M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z';
 const CAPSULE_ICON =
   'M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3';
 
@@ -432,7 +459,7 @@ const CAPSULE_ICON =
  * The Wardrobe's tabs, underlined: plain boosted links, so the dock keeps
  * its size (plan section 2). All carry `?ownerId=` in a shared wardrobe,
  * so a grantee moves between the grantor's closet, capsules and wishlist;
- * Laundry, the requester's own, is left out there.
+ * Laundry and Plans, the requester's own, are left out there.
  */
 export function WardrobeTabs(props: {
   active: WardrobeTab;
@@ -455,6 +482,7 @@ export function WardrobeTabs(props: {
       {tab('capsules', t('CAPSULES'))}
       {viewOwner === undefined && tab('laundry', t('wear.LAUNDRY'))}
       {tab('wishlist', t('wishlist.TAB'))}
+      {viewOwner === undefined && tab('plans', t('plans.TITLE'))}
     </div>
   );
 }

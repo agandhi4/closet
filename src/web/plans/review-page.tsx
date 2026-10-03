@@ -1,3 +1,4 @@
+import { topToToe } from '../../wardrobe/generator';
 import type { BudgetFit } from '../../wardrobe/shopping';
 import { PostForm } from '../auth/form';
 import { OutfitCountSlot } from '../gallery/goes-with';
@@ -10,6 +11,7 @@ import { SnapStrip, snapItem } from '../strip/snap-strip';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { priceLabel } from '../wardrobe/garment';
+import { roleGroupLabel } from '../wardrobe/labels';
 import {
   CandidateFace,
   candidateName,
@@ -60,7 +62,8 @@ initSnapStrips(document.getElementById('review-form'));`;
 
 /**
  * GET /wardrobe/plans/:id/review (#271): what the owner's agent proposed,
- * one strip per item (review.ts has the rule and the order), the centred
+ * one strip per item under its role's heading, top to toe as the plan
+ * page's sections (#295; review.ts has the rule and the order), the centred
  * tile its pick, and one native post, "Accept these", deciding them all.
  * Each strip posts its item in `shown` beside its pick, its note for the
  * agent and the candidates it drew in `offered`, each with its "Not this
@@ -127,13 +130,31 @@ export function ReviewPage(props: {
                 </a>
               )}
             </div>
-            {strips.map((strip) => (
-              <ItemStrip
-                strip={strip}
-                posted={model.posted?.get(strip.item.id)}
-                error={model.errors?.get(strip.item.id)}
-              />
-            ))}
+            {topToToe(strips, (strip) => strip.item.category).map(
+              ({ role, items }) => (
+                <section
+                  class="flex flex-col gap-5"
+                  id={`review-role-${role}`}
+                  data-role={role}
+                  aria-labelledby={`review-role-${role}-title`}
+                >
+                  <h2
+                    id={`review-role-${role}-title`}
+                    class="px-4 -mb-2 font-semibold"
+                  >
+                    {roleGroupLabel(role)}{' '}
+                    <span class="font-normal text-muted">· {items.length}</span>
+                  </h2>
+                  {items.map((strip) => (
+                    <ItemStrip
+                      strip={strip}
+                      posted={model.posted?.get(strip.item.id)}
+                      error={model.errors?.get(strip.item.id)}
+                    />
+                  ))}
+                </section>
+              ),
+            )}
             <div class="px-4 flex flex-col gap-3">
               {anyCandidates && (
                 <label class="flex items-start gap-2 text-sm">
@@ -292,7 +313,7 @@ function ItemStrip(props: {
     >
       <div class="px-4 flex flex-col gap-0.5">
         <div class="flex items-start justify-between gap-2">
-          <h2
+          <h3
             id={`review-item-${item.id}-title`}
             class="font-medium break-words"
           >
@@ -300,7 +321,7 @@ function ItemStrip(props: {
             {item.quantity > 1 && (
               <span class="text-muted"> ×{item.quantity}</span>
             )}
-          </h2>
+          </h3>
           {item.priority !== 'medium' && (
             <span
               class={`badge badge-sm shrink-0 ${item.priority === 'high' ? 'badge-warning' : 'badge-ghost'}`}

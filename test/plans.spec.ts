@@ -4,10 +4,11 @@ import { signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
 
 /**
- * Wardrobe plans in a browser at phone width (#34, slice 34a): Plans from
- * the Wardrobe's ⋯ menu (the dock stays on Wardrobe), a new plan, an item
- * added through the form's selects and chips, the gap view grouped with
- * the gaps first and why, the plan's ⋯ menu duplicating it, and the style
+ * Wardrobe plans in a browser at phone width (#34, slice 34a): the
+ * Wardrobe's Plans tab (#295; the dock stays on Wardrobe), a new plan from
+ * its add sheet, an item added through the form's selects and chips, the
+ * plan as cards in sections by role with the gaps first and why, the
+ * plan's ⋯ menu duplicating it, and the style
  * profile. Nothing scrolls sideways at 390 px. The server side is
  * test/integration/plans.spec.ts.
  */
@@ -36,15 +37,14 @@ test('plan the wardrobe, see its gaps, duplicate it', async ({ page }) => {
     condition: 'replace_soon',
   });
 
-  // Plans from the Wardrobe's ⋯ menu; still the Wardrobe section.
+  // The Wardrobe's Plans tab; still the Wardrobe section.
   await page.goto('/wardrobe');
-  // <summary> has no button role in the accessibility tree: by its label.
-  await page.getByLabel('More', { exact: true }).click();
-  await page
-    .locator('#wardrobe-menu')
-    .getByRole('link', { name: 'Plans' })
-    .click();
+  await page.getByRole('tab', { name: 'Plans' }).click();
   await expect(page).toHaveURL(/\/wardrobe\/plans$/);
+  await expect(page.getByRole('tab', { name: 'Plans' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   await expect(page.locator('.dock a[aria-current="page"]')).toHaveAttribute(
     'href',
     '/wardrobe',
@@ -52,7 +52,12 @@ test('plan the wardrobe, see its gaps, duplicate it', async ({ page }) => {
   await expect(page.getByText('No plans yet')).toBeVisible();
   await expectNoSidewaysScroll(page);
 
-  await page.getByRole('link', { name: '+ New plan' }).first().click();
+  // The add sheet's New plan (the empty list offers one too).
+  await page.getByRole('button', { name: 'Add' }).click();
+  await page
+    .locator('#add-sheet')
+    .getByRole('link', { name: 'New plan' })
+    .click();
   await page.getByLabel('Name *').fill('NYC minimal');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(
@@ -76,20 +81,25 @@ test('plan the wardrobe, see its gaps, duplicate it', async ({ page }) => {
     await expect(page.getByText('Saved')).toBeVisible();
   }
 
-  // The gap view: the gaps first, each saying why.
-  const missing = page.locator('#plan-missing');
-  await expect(missing).toContainText('grey Sweater');
-  await expect(missing).toContainText('Worn out, to replace: Grey merino');
-  const partly = page.locator('#plan-partly');
-  await expect(partly).toContainText('white T-shirt');
-  await expect(partly).toContainText('1 of 2');
-  await expect(partly.getByRole('link', { name: 'White tee' })).toBeVisible();
+  // The plan (#295): a card per item under its role, the gaps first, each
+  // with its status on its photo and saying why.
+  const tops = page.locator('#plan-role-top');
+  await expect(tops.getByRole('heading')).toHaveText('Tops · 2');
+  const sweater = tops.locator('li', { hasText: 'grey Sweater' });
+  await expect(sweater).toHaveAttribute('data-status', 'missing');
+  await expect(sweater.locator('[data-status-chip]')).toHaveText('To buy');
+  await expect(sweater).toContainText('Worn out, to replace: Grey merino');
+  await expect(sweater).toContainText('No options yet');
+  const tees = tops.locator('li', { hasText: 'white T-shirt' });
+  await expect(tees).toHaveAttribute('data-status', 'partly');
+  await expect(tees.locator('[data-status-chip]')).toHaveText('1 of 2');
+  await expect(tees.getByRole('link', { name: 'White tee' })).toBeVisible();
   expect(
-    await missing.evaluate(
+    await sweater.evaluate(
       (el, other) =>
         el.compareDocumentPosition(document.querySelector(other)!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
-      '#plan-partly',
+      `#${await tees.getAttribute('id')}`,
     ),
   ).toBeTruthy();
   await expectNoSidewaysScroll(page);

@@ -330,7 +330,7 @@ test('demo: Theo, his plan and style profile', async ({ page }) => {
   await signInAs(page, 'demo');
   await shot(page, '38-demo-plans', '/wardrobe/plans');
   await page.getByRole('link', { name: 'NYC minimal' }).click();
-  await expect(page.locator('#plan-missing')).toBeVisible();
+  await expect(page.locator('#plan-role-top')).toBeVisible();
   await shot(page, '39-demo-plan-gaps');
   await shot(page, '40-demo-style-profile', '/auth/profile/style');
   // The shopping list (#34b): the two gaps with W01 and W02, within budget.

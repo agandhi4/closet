@@ -1,4 +1,4 @@
-import { gsmToOz } from '../../wardrobe/properties';
+import { type GarmentRole, gsmToOz } from '../../wardrobe/properties';
 import { t, tKey } from '../i18n';
 
 /**
@@ -35,4 +35,13 @@ export function valueLabel(
 /** "6 oz · 203 gsm". */
 export function fabricWeightLabel(gsm: number): string {
   return t('FABRIC_WEIGHT_VALUE', { oz: gsmToOz(gsm), gsm });
+}
+
+/**
+ * A role as a heading over its garments, plural ("Tops", "Shoes"): a trip's
+ * packing list, goes-with's roles, a plan's sections. Styling's rows name
+ * one garment each (`roleLabel`, singular).
+ */
+export function roleGroupLabel(role: GarmentRole): string {
+  return t(`roles.${role}`);
 }

@@ -70,19 +70,24 @@ test('shop for a plan’s gap on the phone, buy the candidate', async ({
 
   // The gap's candidates page: tick both wishlist items.
   await page.goto(plan);
-  await page
-    .locator('#plan-missing li', { hasText: 'Grey merino crewneck' })
-    .getByRole('link', { name: '+ Add a candidate' })
-    .click();
+  const merinoCard = page.locator('li[id^="plan-item-"]', {
+    hasText: 'Grey merino crewneck',
+  });
+  await expect(merinoCard).toHaveAttribute('data-status', 'missing');
+  await merinoCard.getByRole('link', { name: '+ Add a product' }).click();
   await expectNoSidewaysScroll(page);
   const choices = page.locator('#candidate-choices').getByRole('checkbox');
   await choices.first().check();
   await choices.nth(1).check();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Saved')).toBeVisible();
+  // Its options (#295): a thumb each, named, and how many.
   await expect(
-    page.locator('#plan-missing li', { hasText: 'Grey merino crewneck' }),
-  ).toContainText('Uniqlo merino crew');
+    merinoCard.getByRole('link', {
+      name: 'Uniqlo merino crew with a long name',
+    }),
+  ).toBeVisible();
+  await expect(merinoCard).toContainText('2 options');
 
   // The shopping list from the Wardrobe's ⋯ menu; still the Wardrobe section.
   await page.goto('/wardrobe');

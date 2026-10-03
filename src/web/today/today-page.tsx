@@ -14,6 +14,8 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { OutfitCollage } from '../outfits/collage';
+import type { WaitingDraft } from '../plans/queries';
+import { reviewUrl } from '../plans/urls';
 import { EntrySelfie } from '../selfies/views';
 import type { ViewContext } from '../view-context';
 import { UserWeatherLine } from '../weather/views';
@@ -23,7 +25,9 @@ import { TODAY_PATH, todayIdeasUrl, WEAR_THIS_PATH } from './urls';
 
 /**
  * Today (#15; docs/plans/2026-09-26-redesign.md, "Today"): the day's date,
- * its weather line, then a row per occasion: a planned outfit with "Wore
+ * its weather line, a card for each plan an agent drafted while it has
+ * proposals waiting (#295: the home screen had no way to the plans), then
+ * a row per occasion: a planned outfit with "Wore
  * it" and "Change", or three ideas to swipe with "Wear this" and Refresh. A
  * summary with one decision on it: every card leads into another tab's page
  * with the destination set, and Today stores nothing of its own.
@@ -62,6 +66,9 @@ export function TodayPage(props: {
         >
           {t('today.OFFLINE')}
         </p>
+        {model.drafts?.map((draft) => (
+          <DraftCard draft={draft} />
+        ))}
         {model.rows.map((row) =>
           row.kind === 'planned' ? (
             <PlannedRowView row={row} today={model.today} />
@@ -82,6 +89,35 @@ export function TodayPage(props: {
       </main>
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * "Muse drafted Spring capsule: 12 ideas to review", with Review (the
+ * plan's review page). Gone by itself once nothing in the draft is
+ * proposed: nothing to dismiss.
+ */
+function DraftCard({ draft }: { draft: WaitingDraft }) {
+  const params = { agent: draft.agent, plan: draft.plan };
+  return (
+    <article
+      class="card bg-base-100 shadow-sm"
+      data-plan-draft={String(draft.planId)}
+    >
+      <div class="card-body p-3 flex-row items-center gap-3">
+        <p class="text-sm flex-1 min-w-0 break-words">
+          {draft.proposed === 1
+            ? t('today.PLAN_DRAFT_ONE', params)
+            : t('today.PLAN_DRAFT', { ...params, count: draft.proposed })}
+        </p>
+        <a
+          href={reviewUrl(draft.planId)}
+          class="btn btn-primary btn-sm shrink-0"
+        >
+          {t('plans.REVIEW')}
+        </a>
+      </div>
+    </article>
   );
 }
 

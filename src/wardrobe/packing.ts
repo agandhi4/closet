@@ -1,7 +1,7 @@
 import type { IsoDate } from '../web/calendar/calendar-date';
 import { type AwayReason, cleanCopies, washLimit } from './availability';
-import { OUTFIT_ORDER } from './generator';
-import { categoryRole, type GarmentRole } from './properties';
+import { topToToe } from './generator';
+import type { GarmentRole } from './properties';
 import type { GarmentStatus } from './status';
 
 /**
@@ -157,7 +157,7 @@ export function packingList<G extends PackingGarment>(input: {
 }): PackingList<G> {
   const phase = tripPhase(input.trip, input.today);
   const beforeDeparture = input.today <= input.trip.startsOn;
-  const byRole = new Map<GarmentRole, PackingRow<G>[]>();
+  const rows: PackingRow<G>[] = [];
   let packed = 0;
   let pieces = 0;
   let warned = 0;
@@ -180,16 +180,14 @@ export function packingList<G extends PackingGarment>(input: {
           ? []
           : packingWarnings(garment, { needed, pack, limit }, beforeDeparture),
     };
-    const role = categoryRole(garment.category);
-    byRole.set(role, [...(byRole.get(role) ?? []), row]);
+    rows.push(row);
     if (row.packed) packed += 1;
     if (row.warnings.length > 0) warned += 1;
     pieces += pack;
   }
-  const groups = OUTFIT_ORDER.flatMap((role) => {
-    const rows = byRole.get(role);
-    return rows ? [{ role, rows }] : [];
-  });
+  const groups = topToToe(rows, (row) => row.garment.category).map(
+    ({ role, items }) => ({ role, rows: items }),
+  );
   return {
     groups,
     garments: groups.reduce((sum, group) => sum + group.rows.length, 0),

@@ -257,7 +257,7 @@ describe('the plan review', () => {
       ]);
     });
 
-    it('shows a strip per proposal, top to toe then by priority, and nothing accepted', async () => {
+    it('shows a strip per proposal under its role’s heading, top to toe then by priority, and nothing accepted', async () => {
       const res = await get(`/wardrobe/plans/${planId}/review`, owner.cookie);
       expect(res.statusCode).toBe(200);
       expectFullPage(res);
@@ -273,6 +273,22 @@ describe('the plan review', () => {
         items.boots,
         items.custom,
       ]);
+      // #295: a section per role, headed with its count; a custom
+      // category is Other, last.
+      const sections = [
+        ...html.matchAll(
+          /id="review-role-([\w-]+)-title"[^>]*>([^<]*) <span[^>]*>· (\d+)</g,
+        ),
+      ].map((m) => [m[1], m[2], Number(m[3])]);
+      expect(sections).toEqual([
+        ['layer', 'Layers', 1],
+        ['top', 'Tops', 2],
+        ['footwear', 'Shoes', 1],
+        ['none', 'Other', 1],
+      ]);
+      expect(html.indexOf('id="review-role-top"')).toBeLessThan(
+        html.indexOf(`id="review-item-${items.highTop}"`),
+      );
       expect(html).not.toContain(`review-item-${items.accepted}`);
       expect(html).toContain('Waterproof, for the commute');
       expect(html).toContain('up to $200.00 each');

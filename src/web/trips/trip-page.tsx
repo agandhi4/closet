@@ -15,6 +15,7 @@ import { Layout } from '../layout/layout';
 import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { phaseLabel, tripDates } from './labels';
+import { roleGroupLabel } from '../wardrobe/labels';
 import type { PackingGarmentView, TripModel, TripOutfitView } from './model';
 import {
   addOutfitUrl,
@@ -377,7 +378,7 @@ function PackingSection({ model }: { model: TripPageModel }) {
               {packing.groups.map((group) => (
                 <fieldset data-role={group.role}>
                   <legend class="text-xs text-muted mb-1">
-                    {t(`trips.role.${group.role}`)}
+                    {roleGroupLabel(group.role)}
                   </legend>
                   <ul class="flex flex-col">
                     {group.rows.map((row) => (

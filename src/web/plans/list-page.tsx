@@ -1,13 +1,15 @@
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
-import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { EmptyState } from '../layout/parts';
+import type { SharedWardrobe } from '../sharing/access';
 import type { ViewContext } from '../view-context';
+import { WardrobeHeader, WardrobeTabs } from '../wardrobe/wardrobe-header';
 import type { PlanGaps } from './gaps';
 import {
   COMPARE_PATH,
+  NEW_PLAN_PATH,
   PLANS_PATH,
   planUrl,
   reviewUrl,
@@ -26,11 +28,14 @@ export interface PlansModel {
   /** Every plan of the owner's, active first, measured against the closet. */
   plans: PlanGaps[];
   sources: PlanSource[];
+  /** The wardrobes shared with the requester: the header's switcher. */
+  sharedWardrobes: SharedWardrobe[];
 }
 
 /**
- * GET /wardrobe/plans: the owner's wardrobe plans (#34), reached from the
- * Wardrobe's ⋯ menu. Each plan with how the closet measures up (the active
+ * GET /wardrobe/plans: the owner's wardrobe plans (#34), the Wardrobe's
+ * Plans tab (#295), always the requester's own like Laundry, so the header
+ * is theirs and "New plan" is in its add sheet. Each plan with how the closet measures up (the active
  * one first, marked), a new blank plan, and "start from a wardrobe": the
  * closet of a wardrobe shared with them (the demo, Theo's, is the owner's
  * target) or their own, copied as plan items.
@@ -39,78 +44,79 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
   const { ctx, model } = props;
   return (
     <Layout ctx={ctx} title={t('plans.TITLE')}>
-      <AppBar
+      <WardrobeHeader
         ctx={ctx}
-        title={t('plans.TITLE')}
-        back="/wardrobe"
-        actions={
-          <a href={`${PLANS_PATH}/new`} class="btn btn-primary btn-sm">
-            + {t('plans.NEW_PLAN')}
-          </a>
-        }
+        tab="plans"
+        viewOwner={undefined}
+        sharedWardrobes={model.sharedWardrobes}
+        canEdit
+        newPlan
       />
-      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-5">
-        <p class="text-sm text-base-content/70">
-          {t('plans.INTRO')}{' '}
-          <a href={STYLE_PROFILE_PATH} class="link link-primary">
-            {t('style.TITLE')}
-          </a>
-        </p>
-
-        {model.plans.length === 0 ? (
-          <EmptyState message={t('plans.EMPTY')}>
-            <a href={`${PLANS_PATH}/new`} class="btn btn-primary btn-sm">
-              + {t('plans.NEW_PLAN')}
+      <div class="pt-16">
+        <WardrobeTabs active="plans" viewOwner={undefined} />
+        <main class="p-4 pb-24 w-full sm:max-w-lg sm:mx-auto flex flex-col gap-5">
+          <p class="text-sm text-base-content/70">
+            {t('plans.INTRO')}{' '}
+            <a href={STYLE_PROFILE_PATH} class="link link-primary">
+              {t('style.TITLE')}
             </a>
-          </EmptyState>
-        ) : (
-          <>
-            <ul class="flex flex-col gap-2" id="plans">
-              {model.plans.map((gaps) => (
-                <PlanCard gaps={gaps} />
-              ))}
-            </ul>
-            <div class="flex gap-2">
-              <a href={SHOPPING_PATH} class="btn btn-outline btn-sm flex-1">
-                {t('shopping.TITLE')}
-              </a>
-              {model.plans.length > 1 && (
-                <a href={COMPARE_PATH} class="btn btn-outline btn-sm flex-1">
-                  {t('shopping.COMPARE_TITLE')}
-                </a>
-              )}
-            </div>
-          </>
-        )}
+          </p>
 
-        <section aria-labelledby="start-from">
-          <h2
-            id="start-from"
-            class="text-xs font-semibold uppercase tracking-wide text-muted mb-2"
-          >
-            {t('plans.START_FROM')}
-          </h2>
-          <p class="text-xs text-muted mb-2">{t('plans.START_FROM_HINT')}</p>
-          <PostForm
-            action={`${PLANS_PATH}/from-wardrobe`}
-            class="flex flex-col gap-2"
-            needsNetwork
-          >
-            {model.sources.map((source) => (
-              <button
-                type="submit"
-                name="ownerId"
-                value={String(source.ownerId)}
-                class="btn btn-outline justify-start"
-              >
-                {source.name === null
-                  ? t('plans.FROM_MY_CLOSET')
-                  : t('plans.FROM_WARDROBE', { name: source.name })}
-              </button>
-            ))}
-          </PostForm>
-        </section>
-      </main>
+          {model.plans.length === 0 ? (
+            <EmptyState message={t('plans.EMPTY')}>
+              <a href={NEW_PLAN_PATH} class="btn btn-primary btn-sm">
+                + {t('plans.NEW_PLAN')}
+              </a>
+            </EmptyState>
+          ) : (
+            <>
+              <ul class="flex flex-col gap-2" id="plans">
+                {model.plans.map((gaps) => (
+                  <PlanCard gaps={gaps} />
+                ))}
+              </ul>
+              <div class="flex gap-2">
+                <a href={SHOPPING_PATH} class="btn btn-outline btn-sm flex-1">
+                  {t('shopping.TITLE')}
+                </a>
+                {model.plans.length > 1 && (
+                  <a href={COMPARE_PATH} class="btn btn-outline btn-sm flex-1">
+                    {t('shopping.COMPARE_TITLE')}
+                  </a>
+                )}
+              </div>
+            </>
+          )}
+
+          <section aria-labelledby="start-from">
+            <h2
+              id="start-from"
+              class="text-xs font-semibold uppercase tracking-wide text-muted mb-2"
+            >
+              {t('plans.START_FROM')}
+            </h2>
+            <p class="text-xs text-muted mb-2">{t('plans.START_FROM_HINT')}</p>
+            <PostForm
+              action={`${PLANS_PATH}/from-wardrobe`}
+              class="flex flex-col gap-2"
+              needsNetwork
+            >
+              {model.sources.map((source) => (
+                <button
+                  type="submit"
+                  name="ownerId"
+                  value={String(source.ownerId)}
+                  class="btn btn-outline justify-start"
+                >
+                  {source.name === null
+                    ? t('plans.FROM_MY_CLOSET')
+                    : t('plans.FROM_WARDROBE', { name: source.name })}
+                </button>
+              ))}
+            </PostForm>
+          </section>
+        </main>
+      </div>
       <Dock ctx={ctx} />
     </Layout>
   );

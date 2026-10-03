@@ -58,7 +58,7 @@ import { weeklyRhythm } from '../../wardrobe/week';
 import { inTemplateOrder, weekTemplateSql } from '../week-plan/template';
 import { StyleProfilePage } from './style-page';
 import { requirePlan as requireOwnPlan, requirePlanItem } from './require';
-import { PLANS_PATH, planUrl, STYLE_PROFILE_PATH } from './urls';
+import { NEW_PLAN_PATH, PLANS_PATH, planUrl, STYLE_PROFILE_PATH } from './urls';
 import {
   BLANK_ITEM_VALUES,
   ChangeItemBody,
@@ -214,12 +214,13 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             })),
             { ownerId: userId, name: null },
           ],
+          sharedWardrobes: shared,
         }}
       />,
     );
   });
 
-  app.get(`${PLANS_PATH}/new`, async (_request, reply) =>
+  app.get(NEW_PLAN_PATH, async (_request, reply) =>
     renderPlanForm(reply, { values: { name: '', notes: '' } }),
   );
 

@@ -1,6 +1,6 @@
 # Wardrobe plans: the review and what each page reads
 
-The detail behind `src/web/plans/CLAUDE.md`'s review bullets (#271, #278, epic #268) and its statement counts (#167). The rules live in code: atop `src/wardrobe/plan-review.ts` (the machine) and `src/web/plans/review.ts` (the review post).
+The detail behind `src/web/plans/CLAUDE.md`'s review bullets (#271, #278, epic #268), the plan page's layout (#295) and its statement counts (#167). The rules live in code: atop `src/wardrobe/plan-review.ts` (the machine) and `src/web/plans/review.ts` (the review post).
 
 ## The item review state machine (#278)
 
@@ -24,11 +24,20 @@ The detail behind `src/web/plans/CLAUDE.md`'s review bullets (#271, #278, epic #
 - **Everything runs under the owner lock**, which every item writer holds, so the review judged is the one written over.
 - **Declined items** keep their row, so the agent sees them. A new candidate link to one throws `CandidateForDeclinedItem` (409) in `changeCandidates`. A duplicate copies the item, its note and its rejections, but not its candidates, which are inert.
 
+## The plan page as a lookbook (#295)
+
+The owner read the first production draft as "a flat list" with no photos and no way to tell what each thing was. `plan-page.tsx` (`planSections`) now draws the plan the way the Wardrobe's grid draws garments.
+
+- **Sections by role, top to toe**: `topToToe` (`src/wardrobe/generator.ts`, over `categoryRole` and `OUTFIT_ORDER`, custom categories last as Other; the packing list and the review use it too), each headed "Shoes · 2" (`roleGroupLabel`, the shared plural `roles` strings).
+- **The status is a chip, not a grouping**: To review, With your agent, To buy, "1 of 2", Owned. Grouping by status as well split each category into up to five places at 390 px, and what the owner asked first was what each thing is. Within a section: proposals, revise, missing, partly, owned, then `byPriority`. Declined items sit apart at the end with Reconsider.
+- **A card** (`#plan-item-<id>`, `data-status`): the photo on the plinth (4:5, `object-contain`), which is the first fulfilling closet garment with one, else, while still to buy, the best-ranked candidate with one (`rankCandidates`, the shopping list's order), else the garment glyph (`HangerIcon`; the app has no per-category icons). Its alt names what it shows. Then the item's title (a stretched link to its edit form), budget and priority, the options (the other candidates as 32 px thumbs, at most three, and "3 options" to the candidates page; "No options yet" and Add a product), what in the closet fulfils it, why it is short (not "nothing fits", which the chip says), the owner's note, and the review moves (Accept, Don't buy, Change this…).
+- **Proposals** are counted in a banner with Review (`#plan-review`). No statement was added: the page already read the candidates.
+
 ## The review page and "Accept these"
 
 **The page** (`GET /wardrobe/plans/:id/review`) has a snap strip (`src/web/strip/`) per proposal.
 
-- **Order.** Strips run top to toe (`OUTFIT_ORDER`, custom categories last), then `byPriority`.
+- **Order.** Strips run top to toe (`OUTFIT_ORDER`, custom categories last), then `byPriority`, under a heading per role with its count (`#review-role-<role>`, #295).
 - **Tiles.** In order: Don't buy, Change this…, Keep, then the candidates in `rankCandidates` order (as `shoppingList`). The strip starts on the best candidate, else Keep. `OutfitCountSlot` is `inStrip`.
 - **Under each strip** is a note for the agent. On each candidate is a "Not this one" box with a reason field.
 - **Below the strips**, read-only, are the items waiting on the agent (revise) and the declined ones, each with its note. Reconsider lives on the plan page only, because a post of its own here would lose the swipes made so far.

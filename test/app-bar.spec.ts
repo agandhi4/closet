@@ -114,7 +114,8 @@ test('every section carries the bar with its own title, fitting the phone', asyn
     [`/wardrobe/${garment}`, /^A tee with a name long enough/],
     ['/capsules', 'Wardrobe'],
     [`/capsules/${capsule}`, 'Bar capsule'],
-    ['/wardrobe/plans', 'Plans'],
+    // The Wardrobe's Plans tab (#295): the Wardrobe's bar.
+    ['/wardrobe/plans', 'Wardrobe'],
     ['/styling', 'Styling'],
     ['/outfits', 'Outfits'],
     ['/outfits/ideas', 'Outfits'],

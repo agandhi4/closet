@@ -752,6 +752,16 @@
     }
   },
   "MORE_ACTIONS": "More",
+  "roles": {
+    "layer": "Layers",
+    "one-piece": "Dresses",
+    "top": "Tops",
+    "bottom": "Bottoms",
+    "footwear": "Shoes",
+    "accessory": "Accessories",
+    "bag": "Bags",
+    "none": "Other"
+  },
   "plans": {
     "TITLE": "Plans",
     "INTRO": "The wardrobe you are building toward, piece by piece, and what your closet still lacks. What you dress for lives in your",
@@ -799,7 +809,6 @@
     "REASON_TOO_FEW": "{count} more to go",
     "REASON_NOTHING": "Nothing in your closet fits yet",
     "PROPOSED": "Proposed by your agent",
-    "PROPOSED_HINT": "Not part of the plan until you accept it.",
     "PROPOSED_COUNT": "{count} proposed by your agent",
     "DRAFTED_BY": "Drafted by {name}",
     "PROPOSED_EDIT_HINT": "Your agent proposed this. Saving it accepts it into the plan.",
@@ -861,7 +870,17 @@
       "high": "High",
       "medium": "Medium",
       "low": "Low"
-    }
+    },
+    "OPTIONS": "{count} options",
+    "OPTIONS_ONE": "1 option",
+    "NO_OPTIONS": "No options yet",
+    "status": {
+      "proposed": "To review",
+      "revise": "With your agent",
+      "missing": "To buy",
+      "owned": "Owned"
+    },
+    "PRIORITY_BADGE": "{priority} priority"
   },
   "style": {
     "TITLE": "Style profile",
@@ -1141,16 +1160,6 @@
     "CARD_ONE": "Goes with 1 outfit",
     "CARD_CAPPED": "Goes with {count}+ outfits",
     "CARD_NONE": "Goes with nothing in your closet yet",
-    "role": {
-      "layer": "Layers",
-      "one-piece": "Dresses",
-      "top": "Tops",
-      "bottom": "Bottoms",
-      "footwear": "Shoes",
-      "accessory": "Accessories",
-      "bag": "Bags",
-      "none": "Other"
-    },
     "COUNTING": "Counting outfits…"
   },
   "styling": {
@@ -1218,7 +1227,9 @@
       "TIME": "Time",
       "SAVED": "Saved. A time already past today starts tomorrow.",
       "NOT_REGISTERED": "Turn notifications on for this device to choose reminders."
-    }
+    },
+    "PLAN_DRAFT": "{agent} drafted {plan}: {count} ideas to review",
+    "PLAN_DRAFT_ONE": "{agent} drafted {plan}: 1 idea to review"
   },
   "selfie": {
     "TAKE": "Take a selfie",
@@ -1379,16 +1390,6 @@
     "IN_ONE_OUTFIT": "In 1 outfit",
     "IN_OUTFITS": "In {count} outfits",
     "UNNAMED_GARMENT": "Unnamed garment",
-    "role": {
-      "layer": "Layers",
-      "one-piece": "Dresses",
-      "top": "Tops",
-      "bottom": "Bottoms",
-      "footwear": "Shoes",
-      "accessory": "Accessories",
-      "bag": "Bags",
-      "none": "Other"
-    },
     "warning": {
       "TOO_FEW": "You own {owned}, the trip needs {needed}",
       "WASH": "Wash before you pack: {clean} clean",

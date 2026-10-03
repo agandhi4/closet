@@ -679,13 +679,15 @@ describe('seed personas', () => {
         })
       ).body,
     );
-    const missing = gaps.slice(
-      gaps.indexOf('id="plan-missing"'),
-      gaps.indexOf('id="plan-partly"'),
+    // Each item a card (#295): the first one saying `text`.
+    const cardOf = (text: string) =>
+      gaps.split('<li id="plan-item-').find((card) => card.includes(text));
+    expect(cardOf('Worn out, to replace: Grey merino crewneck')).toContain(
+      'data-status="missing"',
     );
-    expect(missing).toContain('Grey merino crewneck');
-    expect(missing).toContain('Worn out, to replace: Grey merino crewneck');
-    expect(missing).toContain('Brown padded shirt jacket');
+    expect(cardOf('Brown padded shirt jacket')).toContain(
+      'data-status="missing"',
+    );
     expect(gaps).toContain('Oxford shirt');
     expect(gaps).toContain('1 more to go');
 

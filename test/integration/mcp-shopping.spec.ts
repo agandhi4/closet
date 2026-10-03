@@ -16,7 +16,7 @@ import { callTool, createAccessToken, tool } from './mcp';
  * The shopping loop's MCP tools (#34, slice 34b), driven like a client:
  * get_plan_gaps with each item's candidates, get_shopping_list,
  * add_candidate (a wishlist item, or a product link imported onto the
- * wishlist) and compare_plans. The caller's own plans: another user's item
+ * wishlist), add_garment_from_link's planItemId (#295) and compare_plans. The caller's own plans: another user's item
  * is "not found", another's garment too.
  */
 
@@ -315,5 +315,110 @@ describe('MCP: the shopping loop', () => {
     expect(answer.isError).toBe(true);
     expect(answer.value.error).toBe('Plan item not found');
     expect(await wishlistCount()).toBe(before);
+  });
+
+  describe('add_garment_from_link with planItemId (#295)', () => {
+    const linksOf = async (itemId: number) =>
+      (
+        await t.db
+          .select({ garmentId: planItemCandidate.garmentId })
+          .from(planItemCandidate)
+          .where(eq(planItemCandidate.planItemId, itemId))
+      ).map((row) => row.garmentId);
+
+    beforeAll(() => {
+      sites.serve(
+        '/products/sneakers',
+        html(`<html><head><meta property="og:title" content="Leather Sneaker, White">
+          </head><body></body></html>`),
+      );
+    });
+
+    it('saves the product to the wishlist as the item’s candidate, in the garment’s own save', async () => {
+      const sneakers = await addItem({
+        name: 'White leather sneakers',
+        category: 'footwear',
+        colors: 'white',
+      });
+      const answer = await tool<{
+        garment: { id: number };
+        candidateFor: { planItemId: number };
+      }>(t, token, 'add_garment_from_link', {
+        url: sites.url('/products/sneakers'),
+        category: 'footwear',
+        planItemId: sneakers,
+      });
+      expect(answer.candidateFor).toEqual({ planItemId: sneakers });
+      const [row] = await t.db
+        .select({ status: garment.status })
+        .from(garment)
+        .where(eq(garment.id, answer.garment.id));
+      expect(row.status).toBe('wishlist');
+      expect(await linksOf(sneakers)).toEqual([answer.garment.id]);
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        `Garment ${answer.garment.id} added as a candidate for plan item ${sneakers} by user ${t.owner.id} (MCP, add_garment_from_link)`,
+      );
+    });
+
+    it('refuses, before anything is fetched or saved, a full item, a declined one, another user’s and the closet', async () => {
+      const wishlistCount = () =>
+        t.db.$count(garment, eq(garment.status, 'wishlist'));
+      const full = await addItem({
+        name: 'Full belt',
+        category: 'accessories',
+      });
+      const belts: number[] = [];
+      for (let i = 0; i < 5; i += 1) {
+        belts.push(
+          idIn(
+            (
+              await post('/wardrobe', {
+                name: `Belt ${i}`,
+                category: 'accessories',
+                to: 'wishlist',
+                wishlist: '1',
+              })
+            ).headers.location,
+          ),
+        );
+      }
+      await t.db
+        .insert(planItemCandidate)
+        .values(belts.map((garmentId) => ({ planItemId: full, garmentId })));
+      const declined = await addItem({
+        name: 'Declined loafers',
+        category: 'footwear',
+      });
+      await t.db
+        .update(planItem)
+        .set({ review: 'declined' })
+        .where(eq(planItem.id, declined));
+      const before = await wishlistCount();
+      const call = (args: Record<string, unknown>, as = token) =>
+        callTool(t, as, 'add_garment_from_link', {
+          url: sites.url('/products/sneakers'),
+          ...args,
+        });
+
+      const pastCap = await call({ planItemId: full });
+      expect(pastCap.isError).toBe(true);
+      expect(pastCap.value.error).toContain('at most 5 candidates');
+      expect(await linksOf(full)).toEqual(belts);
+      const onDeclined = await call({ planItemId: declined });
+      expect(onDeclined.value.error).toBe(
+        'You declined this item: reconsider it before adding products.',
+      );
+      expect(await linksOf(declined)).toEqual([]);
+      const theirs = await call({ planItemId: merinoItem }, strangerToken);
+      expect(theirs.value.error).toBe('Plan item not found');
+      const closet = await call({
+        planItemId: merinoItem,
+        destination: 'closet',
+      });
+      expect(closet.value.error).toBe(
+        'A plan item’s candidate goes on the wishlist',
+      );
+      expect(await wishlistCount()).toBe(before);
+    });
   });
 });

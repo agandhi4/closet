@@ -5,11 +5,12 @@ import {
   type MatchGarment,
   type WeatherNeeds,
 } from '../weather/match';
-import type {
-  Formality,
-  GarmentColor,
-  GarmentRole,
-  Pattern,
+import {
+  categoryRole,
+  type Formality,
+  type GarmentColor,
+  type GarmentRole,
+  type Pattern,
 } from './properties';
 
 /**
@@ -116,6 +117,35 @@ export const OUTFIT_ORDER: readonly GarmentRole[] = [
   'bag',
   'none',
 ];
+
+/** A role's share of a list, as `topToToe` groups it. */
+export interface RoleGroup<T> {
+  role: GarmentRole;
+  items: T[];
+}
+
+/**
+ * `items` grouped by their category's role (categoryRole), the groups top
+ * to toe (OUTFIT_ORDER, custom categories last as `none`), each keeping
+ * the items' order; empty roles left out. A trip's packing list and a
+ * plan's pages (the gap view, the review) read a list this way.
+ */
+export function topToToe<T>(
+  items: readonly T[],
+  categoryOf: (item: T) => string,
+): RoleGroup<T>[] {
+  const byRole = new Map<GarmentRole, T[]>();
+  for (const item of items) {
+    const role = categoryRole(categoryOf(item));
+    const group = byRole.get(role);
+    if (group) group.push(item);
+    else byRole.set(role, [item]);
+  }
+  return OUTFIT_ORDER.flatMap((role) => {
+    const group = byRole.get(role);
+    return group ? [{ role, items: group }] : [];
+  });
+}
 
 export interface IdeaGarment {
   id: number;

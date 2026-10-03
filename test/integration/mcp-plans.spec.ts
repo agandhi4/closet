@@ -305,7 +305,7 @@ describe('MCP: wardrobe plans', () => {
     expect(after.owned.map((item) => item.id)).toContain(tees.id);
   });
 
-  it('get_plan_feedback lists only what waits on the agent, with the rejections since each item changed', async () => {
+  it('get_plan_feedback lists only what waits on the agent, with the rejections since each item changed and the items without products', async () => {
     const draft = await tool<{ id: number }>(t, token, 'create_plan', {
       name: 'Feedback plan',
     });
@@ -376,6 +376,7 @@ describe('MCP: wardrobe plans', () => {
         id: number;
         rejected: { name: string; reason: string; new: boolean }[];
       }[];
+      needsProducts: { id: number }[];
     }>(t, token, 'get_plan_feedback', { planId: draft.id });
     expect(feedback.planId).toBe(draft.id);
     expect(feedback.revise).toMatchObject([
@@ -393,17 +394,40 @@ describe('MCP: wardrobe plans', () => {
         ],
       },
     ]);
-    expect(JSON.stringify(feedback)).not.toContain(`"id":${quiet},`);
+    // #295: the proposed and accepted items with no product option; a
+    // revise or declined one waits on something else.
+    expect(feedback.needsProducts.map((needs) => needs.id)).toEqual([
+      quiet,
+      replace,
+    ]);
+    expect(JSON.stringify({ ...feedback, needsProducts: [] })).not.toContain(
+      `"id":${quiet},`,
+    );
+
+    // An option takes the quiet item off the list.
+    const tee = await t.inject({
+      method: 'POST',
+      url: '/wardrobe',
+      payload: {
+        name: 'Quiet tee',
+        category: 'tops',
+        to: 'wishlist',
+        wishlist: '1',
+      },
+    });
+    const teeId = Number(
+      /\/wardrobe\/(\d+)/.exec(String(tee.headers.location))![1],
+    );
+    await tool(t, token, 'add_candidate', { itemId: quiet, garmentId: teeId });
 
     // The agent answers: the item changes, so its rejections are old news.
     await tool(t, token, 'update_plan_item', { itemId: replace, note: 'Swap' });
-    const after = await tool<{ replace: unknown[] }>(
-      t,
-      token,
-      'get_plan_feedback',
-      { planId: draft.id },
-    );
+    const after = await tool<{
+      replace: unknown[];
+      needsProducts: { id: number }[];
+    }>(t, token, 'get_plan_feedback', { planId: draft.id });
     expect(after.replace).toEqual([]);
+    expect(after.needsProducts.map((needs) => needs.id)).toEqual([replace]);
     // Later specs list the plans: leave none of this one behind.
     await t.db.delete(wardrobePlan).where(eq(wardrobePlan.id, draft.id));
   });
@@ -594,7 +618,7 @@ describe('MCP: wardrobe plans', () => {
         expect(body).not.toContain(museRow.tokenPrefix);
       }
       expect(list).toContain('1 proposed by your agent');
-      expect(plan).toContain('Proposed by your agent · 1');
+      expect(plan).toContain('1 proposed by your agent');
     });
 
     it('refuses a name another of the owner’s plans holds, in any case, and a blank one', async () => {

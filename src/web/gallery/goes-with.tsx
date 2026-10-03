@@ -2,6 +2,7 @@ import type { OutfitCount } from '../../wardrobe/goes-with';
 import { t } from '../i18n';
 import { OutfitCollage } from '../outfits/collage';
 import { categoryLabel } from '../wardrobe/garment';
+import { roleGroupLabel } from '../wardrobe/labels';
 import { garmentUrl } from '../wardrobe/urls';
 import { type GoesWithCloset, ideaName, type NearDuplicate } from './ideas';
 
@@ -116,9 +117,7 @@ export function GoesWithSection({
             <ul class="flex flex-col gap-1 text-sm">
               {roles.map((role) => (
                 <li data-goes-with-role={role.role}>
-                  <span class="font-medium">
-                    {t(`goesWith.role.${role.role}`)}
-                  </span>{' '}
+                  <span class="font-medium">{roleGroupLabel(role.role)}</span>{' '}
                   <span class="text-muted">
                     {role.goes === 0
                       ? t('goesWith.NO_LAYER')
