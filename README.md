@@ -73,7 +73,7 @@ Closet is an MCP server: your own Claude (Claude Code, Claude Desktop) can searc
 
    Use your own `SITE_URL` in place of the address. In Claude Desktop, add the same URL and header as a remote MCP server.
 
-The token acts as you, shares included: a wardrobe shared with you read-only stays read-only. Tools that write say so, and none deletes anything. Revoke a token on the same page; changing your password revokes every token. The endpoint is rate-limited per token and, like the app, reachable only over the tailnet: it is not on the public internet, so Claude's hosted connectors (claude.ai) cannot reach it.
+The token acts as you, shares included: a wardrobe shared with you read-only stays read-only. Tools that write say so, and none deletes anything. Revoke a token on the same page; changing your password revokes every token. The endpoint is rate-limited per token. The app is reachable only over the tailnet; an agent off the tailnet uses the public endpoint instead: `https://mcp.example.com/mcp`, the same `Authorization: Bearer <token>` header, Streamable HTTP (`POST`, JSON answers). It exists only when the owner deploys the homelab gate (a Caddy that forwards `POST /mcp` and answers 404 to everything else); the app's pages stay tailnet-only. Anything that can send a bearer header can use it; Claude's hosted connectors (claude.ai) that need OAuth still cannot, because OAuth is not built.
 
 ### Styling with an agent
 

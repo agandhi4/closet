@@ -14,6 +14,7 @@ Runs as the `closet` stack on **linux-box** (the homelab compute host; `agandhi4
 | Caddy                | linux-box Caddy: `stacks/caddy/apps.d/closet.caddy` (`http://closet.box`) and the `@closet` block in `kashhq-tls.caddy` (TLS) → `closet:3000` on `linuxbox_web`. After a route change: `docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile` (`deploy.sh up` does not restart an unchanged Caddy) |
 | DNS                  | Pi-hole map `hosts/pihole/dns/02-box-domain.conf.tmpl`: both names → linux-box; applied by `hosts/pihole/apply.sh`                                                                                                                                                                                                             |
 | Auto-update          | `closet    # autoupdate` in `hosts/linux-box/manifest`; the hourly `deploy-update.timer` (:40) on linux-box                                                                                                                                                                                                                    |
+| Public MCP | `https://mcp.example.com/mcp`: Pangolin VPS (TLS, SSO off) → Newt → the homelab stack `closet-mcp-gate` (Caddy: forwards only `POST /mcp` to closet, 404 otherwise). The personal access token is the only gate |
 
 Production env (`/docker/hosts/linux-box/closet.env`, mode 600, values never in this repo or printed):
 
