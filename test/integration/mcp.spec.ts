@@ -293,6 +293,7 @@ describe('the MCP endpoint', () => {
           'set_capsule_membership',
           'suggest_outfits',
           'update_garment',
+          'update_candidate',
           'update_look',
           'update_plan_item',
           'wardrobe_stats',

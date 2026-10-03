@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import {
   file,
@@ -45,14 +45,46 @@ export interface CandidateSet {
   garmentIds: number[];
 }
 
+/**
+ * The agent's research on a candidate (#293): why the option fits and its
+ * place among the item's options (1 is the pick, at most
+ * MAX_CANDIDATES_PER_ITEM). null: none. The owner's own adds carry none.
+ */
+export interface CandidateResearch {
+  note: string | null;
+  rank: number | null;
+}
+
+/** A set to add, with the research each of its garments is added with. */
+export interface CandidateAdd extends CandidateSet {
+  research?: ReadonlyMap<number, CandidateResearch>;
+}
+
+/**
+ * A change of research on an existing link. A field left out stays as it is;
+ * null clears it.
+ */
+export interface CandidateResearchUpdate {
+  itemId: number;
+  garmentId: number;
+  note?: string | null;
+  rank?: number | null;
+}
+
 export interface CandidateChange {
   /**
    * One set, or several whose pairings differ per item: a duplicated plan
    * links each copy to its own original's candidates, all in one change.
+   * A pairing already linked is kept as it is, its research too: change
+   * that with `update`.
    */
-  add?: CandidateSet | readonly CandidateSet[];
+  add?: CandidateAdd | readonly CandidateAdd[];
   remove?: CandidateSet;
+  update?: readonly CandidateResearchUpdate[];
 }
+
+/** The longest note on a candidate: it is drawn under a tile 7 rem wide. */
+export const CANDIDATE_NOTE_MAX = 240;
 
 /**
  * Candidates a plan item holds at most: a curated few to choose between in
@@ -81,6 +113,54 @@ export class TooManyCandidates extends HttpError {
 }
 
 /**
+ * A candidate note past CANDIDATE_NOTE_MAX: nothing was written. A 400 with
+ * the reason; the writer enforces the cap so no caller (MCP's input schema
+ * is only the first line) can store a note the tiles cannot hold.
+ */
+export class CandidateNoteTooLong extends HttpError {
+  constructor() {
+    super(
+      400,
+      t('shopping.CANDIDATE_NOTE_TOO_LONG', { max: CANDIDATE_NOTE_MAX }),
+    );
+    this.name = 'CandidateNoteTooLong';
+  }
+}
+
+/** A note as stored: trimmed, null when blank; CandidateNoteTooLong past the cap. */
+function checkedNote(
+  note: string | null | undefined,
+): string | null | undefined {
+  if (note === undefined || note === null) return note;
+  const trimmed = note.trim();
+  if (trimmed.length > CANDIDATE_NOTE_MAX) throw new CandidateNoteTooLong();
+  return trimmed === '' ? null : trimmed;
+}
+
+/** `change`'s adds and updates with every note checked (checkedNote). */
+function checkedNotes(change: CandidateChange): {
+  adds: CandidateAdd[];
+  updates: CandidateResearchUpdate[];
+} {
+  const adds = [change.add ?? []].flat().map((set) => ({
+    ...set,
+    research:
+      set.research &&
+      new Map(
+        [...set.research].map(([garmentId, research]) => [
+          garmentId,
+          { ...research, note: checkedNote(research.note) ?? null },
+        ]),
+      ),
+  }));
+  const updates = (change.update ?? []).map((u) => ({
+    ...u,
+    note: checkedNote(u.note),
+  }));
+  return { adds, updates };
+}
+
+/**
  * An add to an item the owner declined ("Don't buy", #278): nothing was
  * written. A 409 with the reason; the owner reconsiders the item first,
  * and the agent never works on a declined item. Thrown, like
@@ -100,7 +180,7 @@ export class CandidateForDeclinedItem extends HttpError {
  * wardrobe take part, and only wishlist garments are added (a candidate is
  * something not owned yet); any other id is dropped. An add that would take
  * an item past MAX_CANDIDATES_PER_ITEM throws TooManyCandidates, and one
- * to a declined item CandidateForDeclinedItem, before anything is written, counted under lockOwner (the owner's user row), so
+ * to a declined item CandidateForDeclinedItem (an `update` of one too), before anything is written, counted under lockOwner (the owner's user row), so
  * two adds at once (two tabs, an agent beside the app) cannot both pass the
  * count. Both sides are locked FOR SHARE, so an item or garment deleted
  * meanwhile waits for this to commit rather than failing a foreign key
@@ -110,17 +190,30 @@ export class CandidateForDeclinedItem extends HttpError {
  * transaction. Its statements do not grow with the change: a caller with
  * many items to link (a duplicate, the seed) passes them as one change,
  * never one call per item (#167: a duplicate did, eight statements each).
+ *
+ * `update` sets the research (note, rank) of links that exist, on items of
+ * the owner's and wishlist garments, after the removals and additions; one
+ * statement, `updated` counts the links it found. An add carries research
+ * with its garments; the owner's own adds carry none.
  */
 export function changeCandidates(
   db: Queryable,
   ownerId: number,
   change: CandidateChange,
-): Promise<{ added: number; removed: number }> {
+): Promise<{ added: number; removed: number; updated: number }> {
   // The owner lock first, before the rows below: the cap's count must see
   // every other change of this owner's candidates committed.
   return ownerTransaction(db, ownerId, 'changeCandidates', async (tx) => {
-    const adds = [change.add ?? []].flat();
-    const sets = [...adds, ...(change.remove ? [change.remove] : [])];
+    // Before any statement past the lock: a refused note writes nothing.
+    const { adds, updates } = checkedNotes(change);
+    const sets = [
+      ...adds,
+      ...(change.remove ? [change.remove] : []),
+      {
+        itemIds: updates.map((u) => u.itemId),
+        garmentIds: updates.map((u) => u.garmentId),
+      },
+    ];
     // One lock statement per side for the whole change, however many sets.
     const items = await ownedItems(
       tx,
@@ -142,9 +235,9 @@ export function changeCandidates(
       ),
     };
     const add = addedPairings(adds, items, garments);
-    const declined = [...add.keys()].filter(
-      (id) => items.get(id) === 'declined',
-    );
+    const declined = [
+      ...new Set([...add.keys(), ...updates.map((u) => u.itemId)]),
+    ].filter((id) => items.get(id) === 'declined');
     if (declined.length > 0) throw new CandidateForDeclinedItem(declined);
     const over = await itemsPastCap(tx, add, remove);
     if (over.length > 0) throw new TooManyCandidates(over);
@@ -168,40 +261,83 @@ export function changeCandidates(
         await tx
           .insert(planItemCandidate)
           .values(
-            [...add].flatMap(([planItemId, garmentIds]) =>
-              [...garmentIds].map((garmentId) => ({ planItemId, garmentId })),
+            [...add].flatMap(([planItemId, byGarment]) =>
+              [...byGarment].map(([garmentId, research]) => ({
+                planItemId,
+                garmentId,
+                note: research?.note ?? null,
+                rank: research?.rank ?? null,
+              })),
             ),
           )
           .onConflictDoNothing()
           .returning({ garmentId: planItemCandidate.garmentId })
       ).length;
     }
-    return { added, removed };
+    const updated = await updateResearch(tx, updates, items, garments);
+    return { added, removed, updated };
   });
 }
 
 /**
  * The pairings `adds` asks for among the owner's items and wishlist
- * garments, by item (each garment once): what changeCandidates inserts.
- * Items left with nothing to gain are dropped.
+ * garments, by item (each garment once, with its research when the set
+ * brings some; the first set naming a pairing wins): what changeCandidates
+ * inserts. Items left with nothing to gain are dropped.
  */
 function addedPairings(
-  adds: readonly CandidateSet[],
+  adds: readonly CandidateAdd[],
   items: ReadonlyMap<number, PlanItemReview>,
   garments: Map<number, boolean>,
-): Map<number, Set<number>> {
-  const byItem = new Map<number, Set<number>>();
+): Map<number, Map<number, CandidateResearch | undefined>> {
+  const byItem = new Map<number, Map<number, CandidateResearch | undefined>>();
   for (const set of adds) {
     const garmentIds = set.garmentIds.filter((id) => garments.get(id));
     if (garmentIds.length === 0) continue;
     for (const itemId of set.itemIds) {
       if (!items.has(itemId)) continue;
-      const held = byItem.get(itemId) ?? new Set<number>();
-      for (const garmentId of garmentIds) held.add(garmentId);
+      const held =
+        byItem.get(itemId) ?? new Map<number, CandidateResearch | undefined>();
+      garmentIds
+        .filter((garmentId) => !held.has(garmentId))
+        .forEach((garmentId) =>
+          held.set(garmentId, set.research?.get(garmentId)),
+        );
       byItem.set(itemId, held);
     }
   }
   return byItem;
+}
+
+/**
+ * Sets the research of the links `updates` names, in one statement, for the
+ * owner's items and wishlist garments (both already locked). Counts the
+ * links found, so a caller can tell a non-candidate from a change.
+ */
+async function updateResearch(
+  tx: Queryable,
+  updates: readonly CandidateResearchUpdate[],
+  items: ReadonlyMap<number, PlanItemReview>,
+  garments: ReadonlyMap<number, boolean>,
+): Promise<number> {
+  const wanted = updates.filter(
+    (u) => items.has(u.itemId) && garments.get(u.garmentId),
+  );
+  if (wanted.length === 0) return 0;
+  const values = sql.join(
+    wanted.map(
+      (u) =>
+        sql`(${u.itemId}::int, ${u.garmentId}::int, ${u.note !== undefined}::boolean, ${u.note ?? null}::text, ${u.rank !== undefined}::boolean, ${u.rank ?? null}::smallint)`,
+    ),
+    sql`, `,
+  );
+  const result = await tx.execute(sql`
+    update ${planItemCandidate} as c
+    set note = case when v.set_note then v.note else c.note end,
+        rank = case when v.set_rank then v.rank else c.rank end
+    from (values ${values}) as v(item_id, garment_id, set_note, note, set_rank, rank)
+    where c.plan_item_id = v.item_id and c.garment_id = v.garment_id`);
+  return result.rowCount ?? 0;
 }
 
 /**
@@ -218,9 +354,14 @@ export async function linkNewCandidate(
   ownerId: number,
   itemId: number,
   garmentId: number,
+  research?: CandidateResearch,
 ): Promise<void> {
   const { added } = await changeCandidates(tx, ownerId, {
-    add: { itemIds: [itemId], garmentIds: [garmentId] },
+    add: {
+      itemIds: [itemId],
+      garmentIds: [garmentId],
+      research: research && new Map([[garmentId, research]]),
+    },
   });
   if (added === 0) throw itemNotFound();
 }
@@ -253,12 +394,13 @@ async function wishlistCandidates(
  */
 async function itemsPastCap(
   tx: Queryable,
-  add: Map<number, Set<number>>,
+  add: Map<number, Map<number, CandidateResearch | undefined>>,
   remove: CandidateSet,
 ): Promise<number[]> {
   if (add.size === 0) return [];
   const current = await wishlistCandidates(tx, [...add.keys()]);
-  return [...add].flatMap(([itemId, garmentIds]) => {
+  return [...add].flatMap(([itemId, byGarment]) => {
+    const garmentIds = byGarment.keys();
     const kept = new Set(current.get(itemId));
     if (remove.itemIds.includes(itemId)) {
       for (const garmentId of remove.garmentIds) kept.delete(garmentId);
@@ -345,11 +487,16 @@ export interface CandidateGarment extends PieceSpec {
   /** The product page (http(s) only: readSourceUrl and the column's check). */
   sourceUrl: string | null;
   photo: SignablePhotoRef | null;
+  /** The agent's note on why it fits (#293); null on the owner's own adds. */
+  note: string | null;
+  /** The agent's place for it among the item's options, 1 the pick; null: unranked. */
+  rank: number | null;
 }
 
 /**
  * The wishlist candidates of `ownerId`'s items matching `which` (a plan's
- * items, or the items named), oldest link first. One statement.
+ * items, or the items named): the agent's ranked ones first by rank, then
+ * the oldest link first. One statement.
  */
 function candidateRows(db: Queryable, ownerId: number, which: SQL) {
   return db
@@ -367,6 +514,8 @@ function candidateRows(db: Queryable, ownerId: number, which: SQL) {
       price: garment.price,
       sourceUrl: garment.sourceUrl,
       photo: photoRefJson,
+      note: planItemCandidate.note,
+      rank: planItemCandidate.rank,
     })
     .from(planItemCandidate)
     .innerJoin(planItem, eq(planItem.id, planItemCandidate.planItemId))
@@ -382,7 +531,11 @@ function candidateRows(db: Queryable, ownerId: number, which: SQL) {
         onWishlist(),
       ),
     )
-    .orderBy(asc(planItemCandidate.createdAt), asc(garment.id))
+    .orderBy(
+      sql`${planItemCandidate.rank} asc nulls last`,
+      asc(planItemCandidate.createdAt),
+      asc(garment.id),
+    )
     .then((rows) =>
       rows.map(({ colors, materials, ...row }) => ({
         ...row,

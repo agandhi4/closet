@@ -384,7 +384,7 @@ describe('the shopping loop', () => {
             garmentIds: [closet, theirWish, mine],
           },
         }),
-      ).toEqual({ added: 1, removed: 0 });
+      ).toEqual({ added: 1, removed: 0, updated: 0 });
       expect(await candidatesOf(itemId)).toContain(mine);
       expect(await candidatesOf(itemId)).not.toContain(closet);
       expect(await candidatesOf(theirItem)).toEqual([]);

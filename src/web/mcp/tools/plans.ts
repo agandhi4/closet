@@ -332,6 +332,8 @@ export function candidateOut(candidate: CandidateGarment, item: PlanItemRow) {
     colors: candidate.colors,
     price: candidate.price,
     sourceUrl: candidate.sourceUrl,
+    note: candidate.note,
+    rank: candidate.rank,
     matches: differences.length === 0,
     differences,
   };
@@ -442,7 +444,7 @@ export const planTools = [
     name: 'get_plan_gaps',
     title: 'Get a plan’s gaps',
     description:
-      "A wardrobe plan measured against your closet (garments in it: not archived, not the wishlist): every item with its status (owned, partly, missing), copies had and needed, the garments that fulfil it, and for what is not owned the reason and a sentence why: replace-soon (matching copies marked replace_soon are worn out: the gap to refill; usable copies beside them still count, so the item may be partly owned), too-few-copies, taken-by-other-items (each garment fulfils one item), nothing-matches. A needs_repair garment still counts, flagged. A garment matches an item when it has the item's category, type if named, every colour and material named, and warmth and formality inside the item's ranges. Every item has its review: accepted (part of the plan, the only items matched), proposed (by an agent, awaiting the owner), revise (the owner asked for a change: ownerNote says what; change it with update_plan_item) or declined (the owner does not want it: ownerNote may say why; never propose it again). Items not accepted are listed apart (proposed, revise, declined) and not matched. Each item lists its candidate products (wishlist garments being considered for it, with price, link and whether each matches the item, and how not) and the products the owner rejected for it (rejected: name, brand, url, price, reason, when; never add one again).",
+      "A wardrobe plan measured against your closet (garments in it: not archived, not the wishlist): every item with its status (owned, partly, missing), copies had and needed, the garments that fulfil it, and for what is not owned the reason and a sentence why: replace-soon (matching copies marked replace_soon are worn out: the gap to refill; usable copies beside them still count, so the item may be partly owned), too-few-copies, taken-by-other-items (each garment fulfils one item), nothing-matches. A needs_repair garment still counts, flagged. A garment matches an item when it has the item's category, type if named, every colour and material named, and warmth and formality inside the item's ranges. Every item has its review: accepted (part of the plan, the only items matched), proposed (by an agent, awaiting the owner), revise (the owner asked for a change: ownerNote says what; change it with update_plan_item) or declined (the owner does not want it: ownerNote may say why; never propose it again). Items not accepted are listed apart (proposed, revise, declined) and not matched. Each item lists its candidate products (wishlist garments being considered for it, your pick first, with price, link, your note and rank, and whether each matches the item, and how not) and the products the owner rejected for it (rejected: name, brand, url, price, reason, when; never add one again).",
     input: z.object({ planId: planIdInput }),
     writes: false,
     async run({ planId }, ctx) {
@@ -474,7 +476,7 @@ export const planTools = [
     name: 'get_plan_feedback',
     title: 'Get the owner’s feedback on a plan',
     description:
-      'What waits on you in a wardrobe plan (the active one when planId is omitted), and nothing else: the items the owner sent back for a change (revise: ownerNote says what; change them with update_plan_item, which returns them to the owner), the items the owner declined (declined: never propose them again, never add a candidate to them), the items with products the owner rejected since the item last changed (replace: swap those products for others with add_candidate), and the proposed or accepted items with no product option at all (needsProducts: give each 2 to 5 with add_candidate, or add_garment_from_link with planItemId). And the plan’s looks: looks the owner sent back (looks.revise: ownerNote says what; change them with update_look, which returns them to the owner), looks the owner declined (looks.declined: never propose exactly that set of pieces again) and looks not declined that lost a piece (looks.incomplete: a candidate was rejected or removed, so a slot is missing; mend them with update_look). Every item lists the products the owner rejected for it (rejected: name, brand, url, price, reason, when, and new: true for a rejection you have not answered yet); never add a rejected product again, by url or by garment. Read this first in a conversation about an existing plan.',
+      'What waits on you in a wardrobe plan (the active one when planId is omitted), and nothing else: the items the owner sent back for a change (revise: ownerNote says what; change them with update_plan_item, which returns them to the owner), the items the owner declined (declined: never propose them again, never add a candidate to them), the items with products the owner rejected since the item last changed (replace: swap those products for others with add_candidate), and the proposed or accepted items with no product option at all (needsProducts: give each 2 to 5 with add_candidate, or add_garment_from_link with planItemId). And the plan’s looks: looks the owner sent back (looks.revise: ownerNote says what; change them with update_look, which returns them to the owner), looks the owner declined (looks.declined: never propose exactly that set of pieces again) and looks not declined that lost a piece (looks.incomplete: a candidate was rejected or removed, so a slot is missing; mend them with update_look). Every item lists its current candidate products (candidates: with your note and rank) and the products the owner rejected for it (rejected: name, brand, url, price, reason, when, and new: true for a rejection you have not answered yet); never add a rejected product again, by url or by garment. Read this first in a conversation about an existing plan.',
     input: z.object({ planId: planIdInput }),
     writes: false,
     async run({ planId }, ctx) {
@@ -488,6 +490,10 @@ export const planTools = [
       // `new`: made since the item last changed, so the agent has not answered it.
       const out = (item: PlanItemRow) => ({
         ...itemOut(item),
+        // The options it holds now, with the note and rank you gave each.
+        candidates: (candidates.get(item.id) ?? []).map((candidate) =>
+          candidateOut(candidate, item),
+        ),
         rejected: (rejections.get(item.id) ?? []).map((rejection) => ({
           ...rejectionOut(rejection),
           new: isNewRejection(rejection, item),

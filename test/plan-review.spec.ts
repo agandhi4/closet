@@ -1,6 +1,10 @@
 import { expect, type Page, test } from '@playwright/test';
 import { eq } from 'drizzle-orm';
-import { planItem, planItemRejection } from '../src/db/schema';
+import {
+  planItem,
+  planItemCandidate,
+  planItemRejection,
+} from '../src/db/schema';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
@@ -270,5 +274,85 @@ test('Change this with a note, and Not this one on a candidate, in one post', as
   expect(rejected).toEqual([
     { name: 'Shiny black boots', reason: 'Too shiny' },
   ]);
+  expect(errors).toEqual([]);
+});
+
+test('the agent’s longest note fits its tile at phone width, and the strip opens on its pick (#293)', async ({
+  page,
+}) => {
+  const errors = pageErrors(page);
+  await signIn(page, 'candidate-notes');
+  const plan = await post(page, '/wardrobe/plans', { name: 'Notes' });
+  await post(page, `${plan}/items`, {
+    quantity: '1',
+    priority: 'medium',
+    name: 'White sneakers',
+    category: 'footwear',
+  });
+  const planId = Number(plan.split('/').pop());
+  const wishlist = { to: 'wishlist', wishlist: '1', props: '1', product: '1' };
+  // The cheaper one is older: without a rank the strip would open on it.
+  const cheap = await createGarment(page, 'Cheap sneakers', 'footwear', {
+    ...wishlist,
+    price: '40',
+  });
+  const pick = await createGarment(page, 'Leather sneakers', 'footwear', {
+    ...wishlist,
+    price: '140',
+  });
+  // The longest note the tools take, ending in a word no space breaks: the
+  // worst case for a 7 rem tile.
+  const note =
+    `${'Full-grain leather, half a size big. '.repeat(5)}https://shop.example/white-sneakers-leather-court`
+      .slice(0, 240)
+      .trim();
+  const item = await withServerDb(async (db) => {
+    const [row] = await db
+      .update(planItem)
+      .set({ review: 'proposed' })
+      .where(eq(planItem.planId, planId))
+      .returning({ id: planItem.id });
+    return row.id;
+  });
+  for (const garmentId of [cheap, pick]) {
+    await post(page, `${plan}/items/${item}/candidates`, {
+      garmentIds: String(garmentId),
+    });
+  }
+  await withServerDb((db) =>
+    db
+      .update(planItemCandidate)
+      .set({ note, rank: 1 })
+      .where(eq(planItemCandidate.garmentId, pick)),
+  );
+
+  await page.goto(`${plan}/review`);
+  const strip = page.locator(`#review-item-${item} [data-snap-strip]`);
+  await expect(
+    page.locator(`#review-item-${item} input[name="pick"]`),
+  ).toHaveValue(`${item}:${pick}`);
+  const tile = strip.locator(`[data-snap-value="${item}:${pick}"]`);
+  await expect(tile).toHaveAttribute('data-selected', '');
+  await expect(tile.locator('[data-agents-pick]')).toHaveText('Agent’s pick');
+  const text = tile.locator('[data-candidate-note]');
+  await expect(text).toHaveText(note);
+  // Not clipped: the note wraps inside the tile, which neither scrolls nor
+  // cuts it, and the page does not grow sideways.
+  const fit = await text.evaluate((el) => {
+    const tileBox = el.closest('[data-snap-item]')!.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return {
+      scrolls: el.scrollWidth > el.clientWidth,
+      inside: box.left >= tileBox.left - 1 && box.right <= tileBox.right + 1,
+      overflow: getComputedStyle(el).overflow,
+      page: document.documentElement.scrollWidth,
+    };
+  });
+  expect(fit).toEqual({
+    scrolls: false,
+    inside: true,
+    overflow: 'visible',
+    page: 390,
+  });
   expect(errors).toEqual([]);
 });

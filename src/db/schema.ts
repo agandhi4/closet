@@ -1482,6 +1482,10 @@ export const planItemCandidate = pgTable(
   {
     planItemId: integer('plan_item_id').notNull(),
     garmentId: integer('garment_id').notNull(),
+    // The agent's research (#293): why this option fits, and its place among
+    // the item's options (1 is the pick). Both null on the owner's own adds.
+    note: text('note'),
+    rank: smallint('rank'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -1492,6 +1496,11 @@ export const planItemCandidate = pgTable(
       name: 'plan_item_candidate_pkey',
       columns: [table.planItemId, table.garmentId],
     }),
+    check(
+      'plan_item_candidate_note_check',
+      sql`${table.note} is null or length(trim(${table.note})) > 0`,
+    ),
+    check('plan_item_candidate_rank_check', sql`${table.rank} between 1 and 5`),
     index('plan_item_candidate_garment_id_index').on(table.garmentId),
     foreignKey({
       name: 'plan_item_candidate_plan_item_id_foreign',

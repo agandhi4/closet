@@ -14,6 +14,7 @@ import { priceLabel } from '../wardrobe/garment';
 import { roleGroupLabel } from '../wardrobe/labels';
 import {
   CandidateFace,
+  CandidateNote,
   candidateName,
   DETAILS,
   PLINTH,
@@ -459,6 +460,7 @@ function CandidateTile(props: {
       <CandidateFace candidate={candidate} selected={props.tile.selected} />
       <span class={`${DETAILS} ${HIDE_UNLESS_CENTRED}`}>
         <PriceLine candidate={candidate} budget={budget} />
+        <CandidateNote candidate={candidate} />
         {candidate.matches ? (
           <span>{t('plans.REVIEW_MATCHES')}</span>
         ) : (

@@ -355,6 +355,19 @@ describe('MCP statements per tool (#172)', () => {
       () => ({ itemId: ids.planItem, garmentId: ids.wishlist }),
       11,
     ],
+    // After add_candidate, which links the wishlist item: token, the item,
+    // begin, owner lock, the item and garment locks, the update, commit, and
+    // the candidate read back.
+    [
+      'update_candidate',
+      () => ({
+        itemId: ids.planItem,
+        garmentId: ids.wishlist,
+        note: 'Statements',
+        rank: 1,
+      }),
+      9,
+    ],
     ['compare_plans', () => ({ a: ids.plan, b: ids.plan }), 4],
   ];
 

@@ -34,7 +34,8 @@ const candidate = (
   garmentId: number,
   price: string | null,
   matches = true,
-): ShoppingCandidate => ({ garmentId, price, matches });
+  rank: number | null = null,
+): ShoppingCandidate => ({ garmentId, price, matches, rank });
 
 describe('shoppingList', () => {
   it('lists the gaps only, highest priority first, then missing before partly, then oldest', () => {
@@ -93,6 +94,22 @@ describe('shoppingList', () => {
     );
     expect(entry.candidates.map(({ candidate: c }) => c.garmentId)).toEqual([
       12, 14, 10, 11, 13, 9,
+    ]);
+  });
+
+  it("puts the agent's ranked candidates first by rank, whatever the price or fit (#293)", () => {
+    const [entry] = shoppingList(
+      [gap({ id: 1, priority: 'medium', budget: '50.00' }, 'missing', 0, 1)],
+      () => [
+        candidate(10, '20.00'),
+        candidate(11, '90.00', false, 2),
+        candidate(12, '40.00', true, 3),
+        candidate(13, '70.00', true, 1),
+        candidate(14, '5.00'),
+      ],
+    );
+    expect(entry.candidates.map(({ candidate: c }) => c.garmentId)).toEqual([
+      13, 11, 12, 14, 10,
     ]);
   });
 

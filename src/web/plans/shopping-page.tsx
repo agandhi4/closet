@@ -14,7 +14,13 @@ import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
-import { CandidateFace, DETAILS, PriceLine, TILE } from './candidate-tile';
+import {
+  CandidateFace,
+  CandidateNote,
+  DETAILS,
+  PriceLine,
+  TILE,
+} from './candidate-tile';
 import { differencesText, itemFacts, itemTitle, priorityLabel } from './labels';
 import type { PlanDetail, PlanItemRow } from './queries';
 import type { ListedCandidate, PlanShoppingList } from './shopping';
@@ -261,6 +267,7 @@ function CandidateTile(props: {
       <span class={DETAILS}>
         {candidate.brand && <span>{candidate.brand}</span>}
         <PriceLine candidate={candidate} budget={budget} />
+        <CandidateNote candidate={candidate} />
         {!candidate.matches && (
           <span class="text-warning" data-mismatch>
             {t('shopping.DOESNT_MATCH', {

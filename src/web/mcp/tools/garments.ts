@@ -74,7 +74,12 @@ import {
   type ToolContext,
   wardrobeFor,
 } from '../tool';
-import { ownerIdInput, rowId } from './common';
+import {
+  candidateNoteInput,
+  candidateRankInput,
+  ownerIdInput,
+  rowId,
+} from './common';
 import { addGarmentFromLink } from './link-import';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
@@ -749,12 +754,31 @@ export const garmentTools = [
         .describe(
           `A plan item of yours (get_plan_gaps) this product is an option for: linked as its candidate, as add_candidate does. On your own wishlist only; refused past ${MAX_CANDIDATES_PER_ITEM} candidates or on a declined item.`,
         ),
+      candidateNote: candidateNoteInput
+        .optional()
+        .describe(
+          'With planItemId: why this option fits the item (add_candidate’s note).',
+        ),
+      candidateRank: candidateRankInput
+        .optional()
+        .describe(
+          'With planItemId: your place for it among the item’s options, 1 your pick (add_candidate’s rank).',
+        ),
     }),
     writes: true,
     idempotent: false,
     openWorld: true,
     async run(args, ctx) {
       const access = await wardrobeFor(ctx, args.ownerId, 'manage');
+      if (
+        args.planItemId === undefined &&
+        (args.candidateNote !== undefined || args.candidateRank !== undefined)
+      ) {
+        throw new HttpError(
+          400,
+          'candidateNote and candidateRank go with planItemId',
+        );
+      }
       if (args.planItemId !== undefined && args.destination !== 'wishlist') {
         throw new HttpError(
           400,
@@ -782,7 +806,10 @@ export const garmentTools = [
         args,
         candidateFor && {
           withGarment: (tx, garmentId) =>
-            linkNewCandidate(tx, access.ownerId, candidateFor.id, garmentId),
+            linkNewCandidate(tx, access.ownerId, candidateFor.id, garmentId, {
+              note: args.candidateNote ?? null,
+              rank: args.candidateRank ?? null,
+            }),
         },
       );
       if (candidateFor) {

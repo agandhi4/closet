@@ -25,6 +25,8 @@ export interface ShoppingCandidate {
   price: string | null;
   /** Whether it is the kind of thing the item asks for (targetDifferences, none). */
   matches: boolean;
+  /** The agent's place for it among the item's options, 1 the pick (#293); null: unranked. */
+  rank: number | null;
 }
 
 /** Whether a candidate's price is within the item's budget per piece. */
@@ -39,7 +41,8 @@ export interface ShoppingEntry<
   /** Copies still to buy: what the item needs beyond what the closet has. */
   toBuy: number;
   /**
-   * Its candidates, the likeliest first: those that match the item before
+   * Its candidates, the likeliest first: the agent's ranked ones by rank
+   * (#293), then those that match the item before
    * those that do not, within the budget before over it before an unknown
    * price, then cheapest, then oldest.
    */
@@ -80,6 +83,14 @@ function budgetFit(price: string | null, budget: string | null): BudgetFit {
 }
 
 const FIT_RANK: Record<BudgetFit, number> = { within: 0, over: 1, unknown: 2 };
+
+/** The agent's pick (1) first, ranked before unranked; equal when neither is. */
+function compareRanks(a: number | null, b: number | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a - b;
+}
 
 /**
  * Cheapest first, unpriced last. Without a budget every candidate's fit is
@@ -141,6 +152,7 @@ export function rankCandidates<C extends ShoppingCandidate>(
     }))
     .sort(
       (x, y) =>
+        compareRanks(x.candidate.rank, y.candidate.rank) ||
         Number(y.candidate.matches) - Number(x.candidate.matches) ||
         FIT_RANK[x.budget] - FIT_RANK[y.budget] ||
         comparePrices(x.candidate.price, y.candidate.price) ||

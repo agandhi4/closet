@@ -11,7 +11,7 @@ import { navigateTo, renderPage } from '../render';
 import { authorizeWardrobe, sharedWardrobesOf } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
-  type CandidateSet,
+  type CandidateAdd,
   candidatesOfPlan,
   changeCandidates,
 } from './candidates';
@@ -531,13 +531,21 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             items.map((item, index) => [item.id, copies[index]]),
           );
           await copyRejections(tx, copyOf);
-          const links: CandidateSet[] = [];
+          const links: CandidateAdd[] = [];
           for (const original of items) {
-            const garmentIds = (candidates.get(original.id) ?? []).map(
-              (candidate) => candidate.garmentId,
-            );
-            if (garmentIds.length > 0 && original.review !== 'declined') {
-              links.push({ itemIds: [copyOf.get(original.id)!], garmentIds });
+            const held = candidates.get(original.id) ?? [];
+            if (held.length > 0 && original.review !== 'declined') {
+              links.push({
+                itemIds: [copyOf.get(original.id)!],
+                garmentIds: held.map((candidate) => candidate.garmentId),
+                // The agent's research travels with the product (#293).
+                research: new Map(
+                  held.map(({ garmentId, note, rank }) => [
+                    garmentId,
+                    { note, rank },
+                  ]),
+                ),
+              });
             }
           }
           if (links.length > 0) {

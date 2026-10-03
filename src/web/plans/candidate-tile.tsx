@@ -72,7 +72,37 @@ export function CandidateFace(props: {
       <span class="text-xs font-medium truncate">
         {candidateName(candidate)}
       </span>
+      {isAgentsPick(candidate) && <AgentsPick />}
     </a>
+  );
+}
+
+/** Rank 1: the option the agent recommends (#293). */
+export function isAgentsPick(candidate: { rank: number | null }): boolean {
+  return candidate.rank === 1;
+}
+
+/** The "Agent's pick" mark, drawn under the name of the pick on every tile that shows it. */
+export function AgentsPick() {
+  return (
+    <span class="badge badge-primary badge-xs self-start" data-agents-pick="">
+      {t('plans.AGENTS_PICK')}
+    </span>
+  );
+}
+
+/**
+ * The agent's note on a candidate (#293), under its price. Wrapped, never
+ * cut: a tile is 7 rem wide and the note's cap (CANDIDATE_NOTE_MAX) is
+ * what keeps the strip's height in reach.
+ */
+export function CandidateNote(props: { candidate: { note: string | null } }) {
+  const { note } = props.candidate;
+  if (!note) return null;
+  return (
+    <span class="text-base-content break-words" data-candidate-note="">
+      {note}
+    </span>
   );
 }
 

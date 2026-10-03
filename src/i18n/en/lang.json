@@ -873,6 +873,7 @@
     },
     "OPTIONS": "{count} options",
     "OPTIONS_ONE": "1 option",
+    "AGENTS_PICK": "Agent’s pick",
     "NO_OPTIONS": "No options yet",
     "status": {
       "proposed": "To review",
@@ -978,6 +979,7 @@
     "CHANGE_QUANTITY": "×{a} → ×{b}",
     "CHANGE_PRIORITY": "{a} → {b} priority",
     "CHANGE_DETAILS": "details differ",
+    "CANDIDATE_NOTE_TOO_LONG": "A note on a candidate takes at most {max} characters.",
     "TOO_MANY_CANDIDATES": "A plan item takes at most {max} candidates: a few to choose between. Remove one before adding another."
   },
   "gallery": {
