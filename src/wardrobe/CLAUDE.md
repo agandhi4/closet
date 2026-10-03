@@ -22,7 +22,9 @@
                        and its totals (shoppingList, shoppingTotals, money in cents), pure;
                        style.ts: the style profile's value sets; plan-review.ts: a plan
                        item's review state machine (proposed, accepted, revise, declined;
-                       planItemReviewTransition, pure, #278). See Wardrobe plans
+                       planItemReviewTransition, pure, #278); look-reaction.ts: a plan
+                       look's reaction machine (lookReactionTransition, pure, #290). See
+                       Wardrobe plans
                        week.ts: the week template (weekdays, their occasions, the derived
                        rhythm) and planned_by; week-planner.ts: "Plan my week" and the
                        re-plan's judgement (planWeek, replanWeek), pure. See Weekly auto-plan

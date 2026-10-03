@@ -23,6 +23,7 @@ import { PlanFormPage, type PlanFormModel } from './plan-form-page';
 import { PlanPage } from './plan-page';
 import type { PlanItemReviewEvent } from '../../wardrobe/plan-review';
 import { ChangeItemPage } from './change-page';
+import { copyLooks } from './looks';
 import { copyRejections } from './rejections';
 import {
   applyReview,
@@ -541,11 +542,14 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           if (links.length > 0) {
             await changeCandidates(tx, userId, { add: links });
           }
-          return { id, items: items.length, linked: links.length };
+          // After the candidates, so each copied look's pieces stand as they
+          // did (#290); a declined look comes too, its set remembered.
+          const looks = await copyLooks(tx, plan.id, id);
+          return { id, items: items.length, linked: links.length, looks };
         },
       );
       logger.info(
-        `Plan ${request.params.id} duplicated by user ${userId} as plan ${copy.id} (${copy.items} items, ${copy.linked} with candidates)`,
+        `Plan ${request.params.id} duplicated by user ${userId} as plan ${copy.id} (${copy.items} items, ${copy.linked} with candidates, ${copy.looks} looks)`,
       );
       return reply.redirect(`${planUrl(copy.id)}?created=1`, 303);
     },

@@ -58,6 +58,7 @@ import {
   type OrderEmailOutcome,
   type OrderItemState,
 } from '../wardrobe/order-items';
+import { LOOK_REACTIONS, type LookReaction } from '../wardrobe/look-reaction';
 import {
   PLAN_ITEM_REVIEWS,
   type PlanItemReview,
@@ -1538,6 +1539,104 @@ export const planItemRejection = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
+  ],
+);
+
+// A look the owner's agent designed from a plan (#290, epic #289): an
+// outfit to be, mixing closet garments with the plan's candidate products.
+// Not an outfit: `outfit` is wearable today and feeds the calendar, wears
+// and the planners; a look is plan-scoped and owner-only, like its plan.
+// `reaction`: the owner's (src/wardrobe/look-reaction.ts); `owner_note`
+// their word with Change this or Not for me, apart from the agent's
+// `note`; `agent_changed_at` when the agent last wrote it, never the
+// owner's moves. Written only by src/web/plans/looks.ts.
+export const planLook = pgTable(
+  'plan_look',
+  {
+    id: serial('id').primaryKey(),
+    planId: integer('plan_id').notNull(),
+    // Trimmed, never blank; bounded by the writer (LOOK_NAME_MAX).
+    name: text('name').notNull(),
+    // src/wardrobe/occasions.ts OCCASIONS; null: not said.
+    occasion: text('occasion').$type<Occasion>(),
+    note: text('note'),
+    reaction: text('reaction')
+      .$type<LookReaction>()
+      .default('proposed')
+      .notNull(),
+    ownerNote: text('owner_note'),
+    agentChangedAt: timestamp('agent_changed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('plan_look_plan_id_index').on(table.planId),
+    check(
+      'plan_look_reaction_check',
+      sql`${table.reaction} in (${sqlList(LOOK_REACTIONS)})`,
+    ),
+    // "Change this" is the owner's note: the agent has nothing to go on without it.
+    check(
+      'plan_look_owner_note_check',
+      sql`${table.reaction} <> 'revise' or ${table.ownerNote} is not null`,
+    ),
+    check(
+      'plan_look_occasion_check',
+      sql`${table.occasion} in (${sqlList(OCCASIONS)})`,
+    ),
+    foreignKey({
+      name: 'plan_look_plan_id_foreign',
+      columns: [table.planId],
+      foreignColumns: [wardrobePlan.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// A look's pieces, outfit_slot's shape, so a look saves slot for slot as an
+// outfit (#292): `category` is the garment's category when the look was
+// written (the slot it fills). `garment_id` is a closet garment or a
+// wishlist candidate of the look's plan, both the plan owner's (the
+// writer's rule); deleting the garment (a candidate taken off the
+// wishlist, "Not this one") empties the slot, so the look shows the role
+// it is missing. Whether a piece is owned, to buy or no longer valid is
+// derived on every read, never stored.
+export const planLookSlot = pgTable(
+  'plan_look_slot',
+  {
+    lookId: integer('look_id').notNull(),
+    position: smallint('position').notNull(),
+    category: text('category').notNull(),
+    garmentId: integer('garment_id'),
+  },
+  (table) => [
+    // Also the index of the look_id foreign key.
+    primaryKey({
+      name: 'plan_look_slot_pkey',
+      columns: [table.lookId, table.position],
+    }),
+    // A garment fills one slot of a look (nulls, emptied slots, are distinct).
+    unique('plan_look_slot_look_id_garment_id_unique').on(
+      table.lookId,
+      table.garmentId,
+    ),
+    index('plan_look_slot_garment_id_index').on(table.garmentId),
+    foreignKey({
+      name: 'plan_look_slot_look_id_foreign',
+      columns: [table.lookId],
+      foreignColumns: [planLook.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'plan_look_slot_garment_id_foreign',
+      columns: [table.garmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
   ],
 );
 

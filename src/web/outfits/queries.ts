@@ -72,6 +72,9 @@ export interface OutfitSummary {
 // always been, so no saved outfit fails its own edit.
 export const OUTFIT_NAME_MAX = 255;
 export const OUTFIT_NOTES_MAX = 4000;
+// The garments one outfit holds at most: create_outfit's bound, and a plan
+// look's (src/web/plans/looks.ts), so a look always saves as an outfit (#292).
+export const OUTFIT_GARMENTS_MAX = 20;
 
 /** One slot as a write takes it: a category and its garment (or none). */
 export interface SlotInput {

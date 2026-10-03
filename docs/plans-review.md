@@ -6,13 +6,13 @@ The detail behind `src/web/plans/CLAUDE.md`'s review bullets (#271, #278, epic #
 
 `plan_item.review` replaced the `proposed` boolean in `drizzle/0033_plan-item-review.sql` (true to `proposed`, false to `accepted`) and `0034_plan-item-drop-proposed.sql` (the drop). It is two migrations because drizzle-kit asks whether a dropped column and an added one are a rename, a prompt that needs a TTY; generating the add, then the drop, avoids it. `plan-item-review-migration.spec.ts` covers the backfill.
 
-| Event | From | To | Owner's note |
-| --- | --- | --- | --- |
-| `accept` | proposed, revise | accepted | cleared |
-| `change` ("Change this") | proposed, accepted | revise | written, required |
-| `decline` ("Don't buy") | proposed, revise | declined | written, optional |
-| `repropose` (`update_plan_item`) | revise, accepted | proposed | kept |
-| `reconsider` | declined | proposed | cleared |
+| Event                            | From               | To       | Owner's note      |
+| -------------------------------- | ------------------ | -------- | ----------------- |
+| `accept`                         | proposed, revise   | accepted | cleared           |
+| `change` ("Change this")         | proposed, accepted | revise   | written, required |
+| `decline` ("Don't buy")          | proposed, revise   | declined | written, optional |
+| `repropose` (`update_plan_item`) | revise, accepted   | proposed | kept              |
+| `reconsider`                     | declined           | proposed | cleared           |
 
 - **Every other pair is refused, self-moves included.** `src/wardrobe/plan-review.spec.ts` covers all 20 pairs.
 - **The owner's note.** `owner_note` is kept apart from the agent's `note`. The check `plan_item_owner_note_check` refuses `revise` without one.
@@ -58,6 +58,7 @@ The detail behind `src/web/plans/CLAUDE.md`'s review bullets (#271, #278, epic #
   - No item of this post picked it.
 
   A candidate bought meanwhile is kept and logged. One kept because it stands for something else is unlinked from each item that let it go, which frees a place under the cap.
+
 - **After the commit.** Photos go only after the commit. The toast counts what was removed (`?removed=`).
 
 ## What each page reads, and why (#167)
@@ -77,6 +78,7 @@ These were measured with `npm run audit:pages -- --only '#167'`. Every table her
   - every copy's candidates, in one `changeCandidates` (its `add` takes several sets; it used to be one call per item, eight statements each).
 
   The seed links a plan's candidates the same way.
+
 - **What is left is the owner transactions' own cost.** Each nested `ownerTransaction` is a savepoint, a `set_config` and the lock again: four statements.
 
 ## The shopping list as strips (#272)
@@ -88,3 +90,57 @@ These were measured with `npm run audit:pages -- --only '#167'`. Every table her
 - **An item with no candidates** has no strip: "No candidates yet." and "Add a product" to the candidates picker. With candidates the link reads "Add a candidate".
 - **Above the list**, the totals and "Style with my closet" (`/styling?plan=`, only when some item has a candidate, as on the review).
 - **Shared parts** with the review: `candidate-tile.tsx` (`TILE`, `PLINTH`, `DETAILS`, `CandidateFace`, `PriceLine`). The wiring is the review's inline module, rooted on `#shopping-list`.
+
+## Looks (#290, epic #289)
+
+A look is an outfit the agent designs from a plan, mixing closet garments with the plan's candidate products. It is not an `outfit`: an outfit is wearable today and feeds the calendar, wears, Today, the weekly auto-plan and the gallery, and `insertSlots` refuses wishlist items on purpose. Looks are plan-scoped and owner-only, like their plan. `src/web/plans/looks.ts` is the only writer of both tables and holds the rule atop it.
+
+**Tables** (`drizzle/0037_plan-looks.sql`):
+
+- `plan_look` has the name, `occasion` (nullable, `OCCASIONS`), the agent's `note`, `reaction`, `owner_note` and `agent_changed_at` (as on `plan_item`). It cascades with its plan.
+- `plan_look_slot` has `outfit_slot`'s shape: `(look_id, position)` as the key, `category` (the garment's own when the look was written), and `garment_id` nullable with `ON DELETE SET NULL`. A garment fills one slot per look. Deleting a candidate (from the wishlist, or "Not this one") empties its slot, so the look still knows the role it is missing. The slot shape also lets #292 save a look slot for slot as an outfit.
+
+**The reaction machine** (`src/wardrobe/look-reaction.ts`; `look-reaction.spec.ts` covers all 20 pairs):
+
+| Event                            | From                    | To       | Owner's note      |
+| -------------------------------- | ----------------------- | -------- | ----------------- |
+| `love` (Love it)                 | proposed, revise        | loved    | cleared           |
+| `change` (Change this)           | proposed, loved         | revise   | written, required |
+| `decline` (Not for me)           | proposed, revise, loved | declined | written, optional |
+| `repropose` (the agent's update) | revise, loved           | proposed | kept              |
+| `reconsider`                     | declined                | proposed | cleared           |
+
+`loved` is not final. An agent update of its own still-proposed look is a content edit, not a move. An agent update of a declined look is refused (`LookDeclined`, 409).
+
+**The writers**, all run under the owner lock:
+
+- `proposeLook` and `updateLook` (the agent's).
+- `reactToLooks` (the owner's moves, `reviewItems`' shape: two statements). Notes are stored trimmed, a blank one null. Change this without a note is `LookNoteRequired` (400) before any statement.
+- `copyLooks` (the duplicate).
+
+**A piece is valid** when it is the plan owner's garment and either in the closet or a current candidate of this plan: on the wishlist and linked to an item of this plan that is not declined. Every writer of candidacy holds the owner lock too: `changeCandidates`, the review moves and post, `deleteItems`, `deletePlan`, the duplicate. The garments are locked `FOR SHARE` in id order, so a delete, Bought it or an archive outside the lock waits for the write.
+
+**Refusals.** Nothing is written in any of these cases:
+
+- `LookPiecesRefused`. A 404 when any id is no garment of the owner's (counted, never named). A 409 when every bad piece is the owner's, named: archived, or not a candidate of this plan (a plain wishlist item, another plan's candidate, a declined item's).
+- A 400 for fewer than 2 pieces or more than `OUTFIT_GARMENTS_MAX` (20), a repeated piece, or a blank name.
+
+**Sets and caps.** A look with an emptied slot is nobody's exact set.
+
+- A proposal of exactly the pieces of a look already in the plan answers that look (`alreadyProposed`): a retry writes nothing. The pieces are judged first, so a retry whose set no longer passes (a piece archived meanwhile) is refused, as a fresh proposal would be.
+- Exactly a declined look's set is refused (`LookSetDeclined`), to a proposal and to an update.
+- An update to another look's exact set is refused (`LookSetTaken`).
+- At most `LOOKS_PER_PLAN_MAX` (30) looks not declined (`TooManyLooks`). "Not for me" frees a place. Reconsider takes one back, counted in `reactToLooks`' read under the lock: past the cap the whole call is refused and nothing moves.
+- Two garments of one role are allowed, as in an outfit. So is a look of closet pieces only.
+
+**Reads.** `looksOfPlan` is one statement. Each slot's state is derived, never stored (`lookSlotState`):
+
+- `owned`: in the closet. A bought candidate counts.
+- `to-buy`: a current candidate.
+- `missing`, with a reason: `removed` (the slot emptied), `archived`, or `not-a-candidate` (unlinked, or its item deleted or declined).
+
+`missingPieces` lists the missing slots with their role. `complete` means every slot is owned, the gate for #292.
+
+**The duplicate** copies every look (reaction, notes, slots as they stand, emptied ones included) after the candidates. A declined look's set is remembered in the copy, and a valid piece stays valid. It costs one more read, plus two inserts when there are looks.
+
+`test/integration/plan-looks.spec.ts` covers every refusal, the derived states, the duplicate, the delete and two interleavings: a proposal waiting on a decline, and a garment delete waiting on a proposal.

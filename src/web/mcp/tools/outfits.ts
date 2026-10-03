@@ -18,6 +18,7 @@ import {
   createOutfit,
   findOutfit,
   listOutfits,
+  OUTFIT_GARMENTS_MAX,
   OUTFIT_NAME_MAX,
   OUTFIT_NOTES_MAX,
   type OutfitSummary,
@@ -93,7 +94,7 @@ export const outfitTools = [
       garmentIds: z
         .array(rowId())
         .min(1)
-        .max(20)
+        .max(OUTFIT_GARMENTS_MAX)
         .describe('Your garments, in the order the outfit lists them.'),
       name: z.string().trim().max(OUTFIT_NAME_MAX).optional(),
       notes: z.string().max(OUTFIT_NOTES_MAX).optional(),

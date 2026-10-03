@@ -102,6 +102,13 @@ describe('migrations', () => {
         // wishlist item's plan items (garment_id's), #34b.
         'plan_item_candidate_pkey',
         'plan_item_candidate_garment_id_index',
+        // A plan's looks (also plan_id's foreign key), a look's slots in
+        // order (also look_id's), a garment once per look, and a garment's
+        // looks (garment_id's), #290.
+        'plan_look_plan_id_index',
+        'plan_look_slot_pkey',
+        'plan_look_slot_look_id_garment_id_unique',
+        'plan_look_slot_garment_id_index',
         // Sizes (#24): one row per brand per user, any case (also the
         // user_id foreign key's and the hint's lookup).
         'brand_size_user_id_brand_key_unique',

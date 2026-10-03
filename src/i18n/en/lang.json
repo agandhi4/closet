@@ -1492,5 +1492,21 @@
     "DISMISS": "Dismiss",
     "FROM_ORDER": "From your orders: saving adds it to your closet and takes it off the list.",
     "PAGE_UNAVAILABLE": "The product page couldn't be read just now, so these are the details from your order email. Add a photo after saving."
+  },
+  "looks": {
+    "NOT_SAVED": "Look not saved: {reasons}.",
+    "PIECE_ARCHIVED": "{name} is archived",
+    "PIECE_NOT_CANDIDATE": "{name} is on the wishlist but not a candidate of this plan",
+    "PIECE_GONE_ONE": "a garment chosen is not in the owner's wardrobe",
+    "PIECE_GONE_MANY": "{count} garments chosen are not in the owner's wardrobe",
+    "UNNAMED_GARMENT": "An unnamed garment",
+    "PIECE_COUNT": "A look has {min} to {max} pieces",
+    "PIECE_REPEATED": "Each garment is in a look once",
+    "NAME_BLANK": "A look needs a name",
+    "DECLINED_SET": "The owner declined a look of exactly these pieces: never propose it again",
+    "SAME_SET": "Look {id} already has exactly these pieces",
+    "TOO_MANY": "A plan holds at most {max} looks the owner has not declined",
+    "DECLINED_LOOK": "The owner declined this look: they reconsider it first",
+    "NOTE_REQUIRED": "Say what to change: Change this needs a note"
   }
 }
