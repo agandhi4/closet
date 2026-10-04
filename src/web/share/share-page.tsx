@@ -69,7 +69,7 @@ function SharedItem({ shared }: { shared: Shared }) {
         <OutfitCard outfit={shared.outfit} />
       )}
       {owner && (
-        <div class="fixed bottom-dock left-0 right-0 p-4 shadow-lg bg-gradient-to-t from-base-100 via-base-100/50 to-transparent">
+        <div class="fixed bottom-dock left-rail right-0 p-4 shadow-lg bg-gradient-to-t from-base-100 via-base-100/50 to-transparent">
           <div class="flex flex-row gap-2 items-center justify-center">
             <p>
               {t('SHARED_BY')} {owner}

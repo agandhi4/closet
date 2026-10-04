@@ -10,6 +10,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
+import { PageMain } from '../layout/page-main';
 import { CancelLink, Messages } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { GARMENT_COLORS } from '../../wardrobe/properties';
@@ -193,7 +194,7 @@ export function GarmentFormPage(props: {
   return (
     <Layout ctx={ctx} title={title}>
       <AppBar ctx={ctx} title={title} back={back} formPage />
-      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
+      <PageMain class="p-4 pt-20 pb-24">
         {draft && <DraftQueueSection queue={draft} viewOwner={viewOwner} />}
         {mode.kind === 'new' && !link && (
           <a
@@ -236,7 +237,7 @@ export function GarmentFormPage(props: {
         </PostForm>
         {model.lookalikes && <LookalikeCopyForm />}
         {model.repairs && <RepairEditor panel={model.repairs} />}
-      </main>
+      </PageMain>
       <Dock ctx={ctx} />
     </Layout>
   );

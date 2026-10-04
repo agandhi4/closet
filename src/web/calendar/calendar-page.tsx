@@ -3,6 +3,7 @@ import { AlreadySavedToast } from '../gallery/already-saved';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
+import { PageMain } from '../layout/page-main';
 import { Layout } from '../layout/layout';
 import { SelfieView } from '../selfies/views';
 import type { ViewContext } from '../view-context';
@@ -55,7 +56,7 @@ export function CalendarPage(props: {
   return (
     <Layout ctx={ctx} title={t('CALENDAR_PAGE_TITLE')}>
       <AppBar ctx={ctx} title={t('CALENDAR')} />
-      <main class="p-4 pt-20 pb-24 w-full sm:max-w-lg sm:mx-auto">
+      <PageMain class="p-4 pt-20 pb-24">
         <CalendarTabs active="week" />
         <WeatherSlot ctx={ctx} days={{ from: first, to: last }} />
         {props.banner && <PlannedWeekBanner banner={props.banner} />}
@@ -91,7 +92,7 @@ export function CalendarPage(props: {
         {view.days.map((day) => (
           <PlanSheet day={day.date} />
         ))}
-      </main>
+      </PageMain>
       <AlreadySavedToast shown={props.alreadySaved === true} />
       <UndoneToast removed={props.undone} />
       <Dock ctx={ctx} />

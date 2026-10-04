@@ -18,6 +18,7 @@
   "FILES": "Files",
   "WARDROBE": "Wardrobe",
   "OUTFITS": "Outfits",
+  "NAV_MAIN": "Main",
   "LOGOUT": "Logout",
   "LOGOUT_PROMPT": "Sign out of {appName} on this device?",
   "REGISTER": "Register",

@@ -174,7 +174,7 @@ describe('Today', () => {
       expect(html).toContain('name="occasion" value="all-day"');
       // The dock: Today first and lit.
       expect(html).toMatch(
-        /<div class="dock"><a class="dock-active" aria-current="page" href="\/">/,
+        /<nav class="dock"[^>]*><a class="dock-active" aria-current="page" href="\/">/,
       );
       // Offline: the writes are guarded and the page says why.
       expect(html).toContain('data-offline-note');

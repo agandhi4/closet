@@ -12,6 +12,7 @@ import { ideasUrl } from '../gallery/urls';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
+import { PageMain } from '../layout/page-main';
 import { Layout } from '../layout/layout';
 import { OutfitCollage } from '../outfits/collage';
 import type { NextPurchase } from '../plans/candidates';
@@ -53,7 +54,7 @@ export function TodayPage(props: {
   return (
     <Layout ctx={ctx} title={t('today.TITLE')}>
       <AppBar ctx={ctx} title={dayLabel(model.today)} />
-      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
+      <PageMain class="p-4 pt-20 pb-24 flex flex-col gap-4">
         {model.weather && (
           <UserWeatherLine
             weather={model.weather}
@@ -90,7 +91,7 @@ export function TodayPage(props: {
           {/* The week ahead (#16): lands on the calendar with what it planned. */}
           <PlanWeekForm small />
         </div>
-      </main>
+      </PageMain>
       <Dock ctx={ctx} />
     </Layout>
   );

@@ -25,7 +25,7 @@ export function AppStatus() {
         id="connectivity-banner"
         role="status"
         aria-live="polite"
-        class="hidden fixed top-16 left-0 right-0 z-[999] px-4 pt-2"
+        class="hidden fixed top-16 left-rail right-0 z-[999] px-4 pt-2"
       >
         <div class="alert alert-warning alert-soft py-2 text-sm shadow-sm">
           <OfflineIcon class="size-5 shrink-0" />
@@ -35,7 +35,7 @@ export function AppStatus() {
       {/* Above the dock (4rem) so toasts never cover the primary navigation. */}
       <div
         id="toast-host"
-        class="toast toast-bottom toast-center mb-20 z-[999]"
+        class="toast toast-bottom toast-center mb-20 lg:mb-4 ml-[calc(var(--rail-width)/2)] z-[999]"
       ></div>
     </div>
   );

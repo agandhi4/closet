@@ -12,6 +12,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
+import { PageMain } from '../layout/page-main';
 import { BackLink, EmptyState } from '../layout/parts';
 import {
   destinationQuery,
@@ -107,7 +108,7 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
         formPage={!model.shared}
         scope={<ScopeMenu model={model} />}
       />
-      <main class="pt-20 pb-40 w-full sm:max-w-lg sm:mx-auto flex flex-col gap-3">
+      <PageMain class="pt-20 pb-40 flex flex-col gap-3">
         <Header model={model} />
         {model.rows.length > 0 ? (
           <>
@@ -124,7 +125,7 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
         ) : (
           <Empty model={model} />
         )}
-      </main>
+      </PageMain>
       {model.rows.length > 0 && (
         <>
           <ActionBar model={model} />
@@ -361,8 +362,8 @@ function AddRow({ model }: { model: StylingModel }) {
  */
 function ActionBar({ model }: { model: StylingModel }) {
   return (
-    <div class="fixed inset-x-0 bottom-dock z-20 bg-base-100 border-t border-base-300">
-      <div class="flex items-center gap-2 px-4 py-2 sm:max-w-lg sm:mx-auto">
+    <div class="fixed left-rail right-0 bottom-dock z-20 bg-base-100 border-t border-base-300">
+      <div class="flex items-center gap-2 px-4 py-2 max-w-page-narrow mx-auto">
         <button
           type="button"
           class="btn btn-outline"

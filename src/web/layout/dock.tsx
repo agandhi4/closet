@@ -9,13 +9,13 @@ import { DOCK_TABS, type Section, SECTION_HOME, sectionOf } from './sections';
  * garment, a filtered grid, a capsule or an outfit page keeps its tab lit.
  * Rendered by the server into the body, so a boosted navigation, an htmx
  * history restore and the service worker's cached tab roots all carry the
- * dock of the page they show. Its z-index (above page content) is in
- * main.css.
+ * dock of the page they show. Its z-index (above page content) and its
+ * restyling as a left rail at lg (one markup, CSS only) are in main.css.
  */
 export function Dock({ ctx }: { ctx: ViewContext }) {
   const active = sectionOf(ctx.path);
   return (
-    <div class="dock">
+    <nav class="dock" aria-label={t('NAV_MAIN')}>
       {DOCK_TABS.map((section) => (
         <DockLink
           active={active}
@@ -25,7 +25,7 @@ export function Dock({ ctx }: { ctx: ViewContext }) {
           {TABS[section].icon}
         </DockLink>
       ))}
-    </div>
+    </nav>
   );
 }
 

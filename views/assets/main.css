@@ -144,6 +144,24 @@ and response bandwidth/latency. */
   --spacing-dock: calc(4rem + env(safe-area-inset-bottom, 0px));
 }
 
+/* Content widths (layout/page-main.tsx's `width`): `max-w-page-narrow` for
+   forms, reading and single-column lists, `max-w-page-wide` for galleries. */
+@theme {
+  --container-page-narrow: 40rem;
+  --container-page-wide: 80rem;
+}
+
+/* The left rail's width, and what sits beside it: `left-rail` is the left
+   edge of the content column (a bar fixed above the dock, the connectivity
+   banner). Zero below lg and on a page without a dock (sign-in, the share
+   page); the rail rule below sets it. */
+:root {
+  --rail-width: 0px;
+}
+@theme inline {
+  --spacing-rail: var(--rail-width);
+}
+
 /* The app chrome, the app bar (layout/app-bar.tsx) and the dock, stacks
    above every page: page content stays at z-20 or below (a stretched-link
    card's form is z-10, the bars above the dock z-20). daisyUI gives .dock
@@ -163,6 +181,57 @@ and response bandwidth/latency. */
 }
 .dock {
   z-index: 900;
+}
+
+/* At lg the dock is a slim left rail: the same markup (layout/dock.tsx),
+   restyled here, because the server cannot know the viewport and the tab
+   roots are cached byte for byte. The page is offset by the rail's width
+   (body padding; the bars and the toasts through --rail-width), and nothing
+   sits at the bottom any more, so --spacing-dock is zero. Only where a dock
+   is on the page (:has), so the pages without one keep the full width. */
+@media (min-width: 1024px) {
+  :root:has(.dock) {
+    --rail-width: 5rem;
+    --spacing-dock: 0px;
+  }
+  body:has(.dock) {
+    padding-left: var(--rail-width);
+  }
+  .app-bar {
+    left: var(--rail-width);
+  }
+  .dock {
+    top: 0;
+    right: auto;
+    /* A literal, not --rail-width: a browser without :has keeps that at 0 and
+       would lose the navigation, not just the offset. */
+    width: 5rem;
+    height: auto;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    padding: 1rem 0.5rem;
+    border-top: 0;
+    border-right: 0.5px solid var(--color-base-300);
+  }
+  .dock > * {
+    flex: none;
+    width: 100%;
+    max-width: none;
+    height: 4rem;
+    margin-bottom: 0;
+  }
+  /* The active mark moves from the bottom edge to the rail's left edge. */
+  .dock > *::after {
+    top: 1rem;
+    bottom: auto;
+    left: -0.5rem;
+    width: 0.25rem;
+    height: 2rem;
+  }
+  .dock > .dock-active::after {
+    width: 0.25rem;
+  }
 }
 
 /* A notice that hides itself after 4 s (the garment page's "saved" toasts). */
@@ -234,7 +303,7 @@ html[data-connectivity='reconnecting'] [data-offline-note] {
 .ptr--ptr {
   position: fixed !important;
   top: 4rem !important; /* pin below the fixed app bar */
-  left: 0;
+  left: var(--rail-width);
   right: 0;
   z-index: 999;
   background-color: var(--color-base-300) !important;

@@ -63,7 +63,7 @@ export function LaundryPage(props: {
               {worn.length > 0 && (
                 <LaundryGroup title={t('wear.LAUNDRY_WORN')} items={worn} />
               )}
-              <div class="fixed bottom-dock left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex justify-end">
+              <div class="fixed bottom-dock left-rail right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex justify-end">
                 <button
                   type="submit"
                   class="btn btn-primary btn-sm"

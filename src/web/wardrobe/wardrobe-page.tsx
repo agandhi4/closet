@@ -18,6 +18,7 @@ import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
+import { PageMain } from '../layout/page-main';
 import {
   EmptyState,
   PlinthImage,
@@ -279,7 +280,7 @@ function TaskBar(props: { ctx: ViewContext; model: WardrobeModel }) {
 export function WardrobeMain({ model }: { model: WardrobeModel }) {
   const { viewOwner, selecting } = model;
   return (
-    <main id="wardrobe-main" class="pb-24">
+    <PageMain id="wardrobe-main" width="wide" class="pb-24">
       {!selecting && <ScopeRow model={model} />}
       <div class="px-4 pt-3">
         {!selecting && <Prompts model={model} />}
@@ -295,7 +296,7 @@ export function WardrobeMain({ model }: { model: WardrobeModel }) {
         />
       )}
       {model.bulkResult && <BulkToast result={model.bulkResult} />}
-    </main>
+    </PageMain>
   );
 }
 
@@ -1284,7 +1285,7 @@ function SelectForm(props: {
       />
       <div data-select-count>
         {props.children}
-        <div class="fixed bottom-dock left-0 right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex items-center justify-between gap-2">
+        <div class="fixed bottom-dock left-rail right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex items-center justify-between gap-2">
           <span class="text-sm">
             <span
               id="selected-count"

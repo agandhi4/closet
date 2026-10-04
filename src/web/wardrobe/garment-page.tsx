@@ -11,6 +11,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
+import { PageMain } from '../layout/page-main';
 import {
   CameraIcon,
   HangerIcon,
@@ -158,7 +159,7 @@ export function GarmentPage(props: {
         back={backUrl(garment, model.viewOwner)}
         actions={<GarmentMenu ctx={ctx} model={model} />}
       />
-      <main class="flex flex-col gap-6 px-4 pt-20 pb-24 w-full max-w-lg mx-auto">
+      <PageMain class="flex flex-col gap-6 px-4 pt-20 pb-24">
         {/* First: what the purchase just made wearable (#292). */}
         <CompletedLooks looks={model.completedLooks} />
         <div id="garment-photo-slot">
@@ -189,7 +190,7 @@ export function GarmentPage(props: {
         />
         <GarmentDetails garment={garment} />
         <Care model={model} />
-      </main>
+      </PageMain>
       <PhotoTools model={model} />
       <Toasts model={model} />
       <Dock ctx={ctx} />
