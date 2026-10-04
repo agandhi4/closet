@@ -939,7 +939,7 @@ async function readLooks(
 }
 
 /** A slot as read, before its state is derived. */
-interface SlotRow {
+export interface SlotRow {
   position: number;
   category: string;
   /** Null once the garment was deleted (or were it another owner's). */
@@ -951,10 +951,13 @@ interface SlotRow {
 }
 
 /** What a look's slots say of it, derived (lookSlotState) from `rows` in position order. */
-type LookSlots = Pick<PlanLookView, 'slots' | 'missingPieces' | 'complete'>;
+export type LookSlots = Pick<
+  PlanLookView,
+  'slots' | 'missingPieces' | 'complete'
+>;
 
 /** `look` with its slots judged: the one place slots become states (looksOfPlan, the Bought it page's looks). */
-function withSlots<T extends object>(
+export function withSlots<T extends object>(
   look: T,
   rows: readonly SlotRow[],
 ): T & LookSlots {
@@ -993,24 +996,21 @@ export type BoughtLook = Pick<
 type BoughtLookRow = Omit<BoughtLook, keyof LookSlots> & { slots: SlotRow[] };
 
 /**
- * `ownerId`'s looks holding garment `garmentId`, declined ones aside, each
- * with its slots as looksOfPlan reads them, oldest first: a scalar subquery
- * for the garment page's one statement (garmentContext), read only on the
- * owner's Bought it result. Pass it to boughtLooks. Every column is
- * written with its table, so the correlations hold (src/db/CLAUDE.md);
- * `plan_look_slot_garment_id_index` finds the looks.
+ * Look slots as a JSON array of SlotRow, a scalar subquery correlated on
+ * `plan_look` (the enclosing statement joins or selects from it): the
+ * slot's garment only when `ownerId`'s, its position order, and the
+ * candidate flag derived against the look's own plan. The one SQL form of
+ * a look's slots, shared by the Bought it page's looks and the plans
+ * list's covers; looksOfPlan reads the same rows as a joined select.
  */
-export function looksWithGarmentSql(
-  ownerId: number,
-  garmentId: number,
-): SQL<BoughtLookRow[]> {
+export function lookSlotsSql(ownerId: number): SQL<SlotRow[]> {
   const candidate = sql`exists (
     select from ${planItemCandidate}
     inner join ${planItem} on ${planItem.id} = ${planItemCandidate.planItemId}
     where ${planItemCandidate.garmentId} = ${garment.id}
       and ${planItem.planId} = ${planLook.planId}
       and ${planItem.review} <> 'declined')`;
-  const slots = sql`(
+  return sql<SlotRow[]>`(
     select coalesce(json_agg(json_build_object(
       'position', ${planLookSlot.position},
       'category', ${planLookSlot.category},
@@ -1024,6 +1024,20 @@ export function looksWithGarmentSql(
     left join ${garment} on ${garment.id} = ${planLookSlot.garmentId} and ${garment.ownerId} = ${ownerId}
     left join ${file} on ${file.id} = ${garment.photoId}
     where ${planLookSlot.lookId} = ${planLook.id})`;
+}
+
+/**
+ * `ownerId`'s looks holding garment `garmentId`, declined ones aside, each
+ * with its slots as looksOfPlan reads them, oldest first: a scalar subquery
+ * for the garment page's one statement (garmentContext), read only on the
+ * owner's Bought it result. Pass it to boughtLooks. Every column is
+ * written with its table, so the correlations hold (src/db/CLAUDE.md);
+ * `plan_look_slot_garment_id_index` finds the looks.
+ */
+export function looksWithGarmentSql(
+  ownerId: number,
+  garmentId: number,
+): SQL<BoughtLookRow[]> {
   return sql<BoughtLookRow[]>`(
     select coalesce(json_agg(json_build_object(
       'id', ${planLook.id},
@@ -1032,7 +1046,7 @@ export function looksWithGarmentSql(
       'name', ${planLook.name},
       'reaction', ${planLook.reaction},
       'outfitId', ${planLook.outfitId},
-      'slots', ${slots}
+      'slots', ${lookSlotsSql(ownerId)}
     ) order by ${planLook.id}), '[]')
     from ${planLook}
     inner join ${wardrobePlan} on ${wardrobePlan.id} = ${planLook.planId}

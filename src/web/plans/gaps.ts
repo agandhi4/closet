@@ -84,14 +84,42 @@ export function byPriority(a: PlanItemRow, b: PlanItemRow): number {
   );
 }
 
+/** The plan's accepted items in priority order, each matched against the closet: the one rule behind the gap view and the shopping strip. */
+function matchAccepted(items: PlanItemRow[], closet: ClosetGarment[]) {
+  const accepted = [...items]
+    .sort(byPriority)
+    .filter((item) => isAccepted(item.review));
+  return { accepted, matches: matchPlan(accepted.map(toTarget), closet) };
+}
+
+/**
+ * The ids of plan `planId`'s accepted items still missing or partly owned,
+ * the items the shopping strip lists (planShoppingList). Two statements.
+ */
+export async function itemsToBuy(
+  db: Db,
+  planId: number,
+  ownerId: number,
+): Promise<Set<number>> {
+  const [items, closet] = await Promise.all([
+    itemsOf(db, [planId]),
+    closetPieces(db, ownerId),
+  ]);
+  const { accepted, matches } = matchAccepted(items, closet);
+  return new Set(
+    accepted
+      .filter((_, index) => matches[index].status !== 'owned')
+      .map((item) => item.id),
+  );
+}
+
 function measure(
   plan: PlanDetail,
   items: PlanItemRow[],
   closet: ClosetGarment[],
 ): PlanGaps {
   const sorted = [...items].sort(byPriority);
-  const accepted = sorted.filter((item) => isAccepted(item.review));
-  const matches = matchPlan(accepted.map(toTarget), closet);
+  const { accepted, matches } = matchAccepted(items, closet);
   const groups: Record<ItemStatus, GapItem[]> = {
     owned: [],
     partly: [],

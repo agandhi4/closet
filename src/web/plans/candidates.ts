@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
-import type { Queryable } from '../../db/client';
+import { alias } from 'drizzle-orm/pg-core';
+import type { Db, Queryable } from '../../db/client';
 import {
   file,
   garment,
@@ -23,6 +24,7 @@ import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import { t } from '../i18n';
 import { onWishlist } from '../wardrobe/status';
+import { itemsToBuy } from './gaps';
 import { itemNotFound } from './validation';
 
 /**
@@ -521,6 +523,112 @@ function lookCountSql(): SQL<LookCount> {
     where ${planLookSlot.garmentId} = ${garment.id}
       and ${planLook.planId} = ${planItem.planId}
       and ${planLook.reaction} <> 'declined')`;
+}
+
+/**
+ * How many loved looks of the candidate's own plan this candidate COMPLETES:
+ * every other slot is an owned closet garment of `ownerId`'s (no other
+ * wishlist product, no archived, deleted or empty slot), so buying it is
+ * the one thing left. A sibling of lookCountSql, correlated the same way
+ * on the joined plan_item and garment; Today's next step ranks by it (#302).
+ */
+function completedLookCountSql(ownerId: number): SQL<number> {
+  const other = alias(planLookSlot, 'other_slot');
+  const owned = alias(garment, 'owned_garment');
+  return sql<number>`(select count(*)::int from ${planLookSlot}
+    inner join ${planLook} on ${planLook.id} = ${planLookSlot.lookId}
+    where ${planLookSlot.garmentId} = ${garment.id}
+      and ${planLook.planId} = ${planItem.planId}
+      and ${planLook.reaction} = 'loved'
+      and not exists (
+        select from ${planLookSlot} ${other}
+        left join ${garment} ${owned} on ${owned.id} = ${other.garmentId}
+        where ${other.lookId} = ${planLook.id}
+          and ${other.position} <> ${planLookSlot.position}
+          and (${owned.id} is null
+            or ${owned.status} <> 'closet'
+            or ${owned.ownerId} <> ${ownerId})))`;
+}
+
+/** The product to buy next: the one that completes the most loved looks of the active plan. */
+export interface NextPurchase {
+  garmentId: number;
+  name: string | null;
+  category: string;
+  /** Loved looks it completes (completedLookCountSql, never zero). */
+  completes: number;
+}
+
+/** A loved-look product of the active plan, ranked, with the accepted items it is a candidate of. */
+export interface RankedPurchase extends NextPurchase {
+  planId: number;
+  itemIds: number[];
+}
+
+/**
+ * The first step of Today's next step (#302) as a scalar subquery: every
+ * wishlist product of `ownerId`'s active plan that is a candidate of an
+ * ACCEPTED item and completes a loved look (completedLookCountSql), best
+ * first: the most completed looks, then the most looks of any kind
+ * (lookCountSql, the strips' count), then the lowest garment
+ * id, the same answer on every read. A product that is a candidate of two
+ * items is one entry. Read beside the day in todayFor's one statement, so
+ * the home screen's statement count stays; nextPurchaseOf finishes it.
+ */
+export function rankedPurchasesSql(ownerId: number): SQL<RankedPurchase[]> {
+  return sql<RankedPurchase[]>`(
+    select coalesce(json_agg(json_build_object(
+      'garmentId', best.id, 'name', best.name, 'category', best.category,
+      'completes', best.completes, 'planId', best.plan_id,
+      'itemIds', best.item_ids)
+      order by best.completes desc,
+        (best.looks->>'total')::int desc, best.id), '[]')
+    from (
+      select ${garment.id} as id, ${garment.name} as name,
+        ${garment.category} as category, ${planItem.planId} as plan_id,
+        json_agg(${planItem.id} order by ${planItem.id}) as item_ids,
+        ${lookCountSql()} as looks,
+        ${completedLookCountSql(ownerId)} as completes
+      from ${planItemCandidate}
+      inner join ${planItem} on ${planItem.id} = ${planItemCandidate.planItemId}
+      inner join ${wardrobePlan} on ${wardrobePlan.id} = ${planItem.planId}
+      inner join ${garment} on ${garment.id} = ${planItemCandidate.garmentId}
+      where ${wardrobePlan.ownerId} = ${ownerId}
+        and ${wardrobePlan.active}
+        and ${planItem.review} = 'accepted'
+        and ${garment.ownerId} = ${ownerId}
+        and ${onWishlist()}
+      group by ${garment.id}, ${planItem.planId}
+    ) best
+    where best.completes > 0)`;
+}
+
+/**
+ * Today's next step: the first of `ranked` that is a candidate of an item
+ * the shopping strip lists, an accepted item still missing or partly owned
+ * (planShoppingList's rule). Whether the closet already covers an item is
+ * matchPlan's greedy assignment over the whole closet, which SQL cannot
+ * express, so with something ranked this reads the plan's items and the
+ * closet once more (itemsToBuy, two statements in parallel); with nothing
+ * ranked it reads nothing.
+ */
+export async function nextPurchaseOf(
+  db: Db,
+  ownerId: number,
+  ranked: readonly RankedPurchase[],
+): Promise<NextPurchase | null> {
+  if (ranked.length === 0) return null;
+  const toBuy = await itemsToBuy(db, ranked[0].planId, ownerId);
+  const next = ranked.find((purchase) =>
+    purchase.itemIds.some((id) => toBuy.has(id)),
+  );
+  if (!next) return null;
+  return {
+    garmentId: next.garmentId,
+    name: next.name,
+    category: next.category,
+    completes: next.completes,
+  };
 }
 
 /**

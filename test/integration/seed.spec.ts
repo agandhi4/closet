@@ -665,7 +665,7 @@ describe('seed personas', () => {
       url: '/wardrobe/plans',
       headers: { cookie },
     });
-    expect(plans.body).toContain('16 owned · 1 partly · 2 missing');
+    expect(plans.body).toContain('19 items · 0 looks · 3 to buy');
     const [nyc] = await t.db
       .select({ id: wardrobePlan.id })
       .from(wardrobePlan)

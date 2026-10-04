@@ -12,7 +12,8 @@ import { HangerIcon } from '../layout/parts';
  * (docs/plans/2026-09-26-redesign.md, sections 3 and 5): the gallery's
  * Ideas cards, the outfit page and Today (`card`), the Saved grid
  * (`tile`), the garment page's "In N outfits" and the calendar (`thumb`),
- * and a plan's looks (`look`, #291), whose pieces carry marks.
+ * a plan's looks (`look`, #291), whose pieces carry marks, and the plans
+ * list's photo row (`cover`, #302: five 4:5 cells across a phone).
  */
 
 /**
@@ -85,6 +86,14 @@ const SIZES = {
     feet: 'h-6',
     side: 'h-5',
   },
+  cover: {
+    box: 'rounded-field p-1 gap-0.5 aspect-[4/5]',
+    column: 'justify-center',
+    upper: 'h-5',
+    lower: 'h-7',
+    feet: 'h-4',
+    side: 'h-3',
+  },
   look: {
     box: 'rounded-box p-2 gap-1.5 aspect-[4/5]',
     column: 'justify-center',
@@ -117,7 +126,7 @@ export function OutfitCollage(props: {
       class={height}
       eager={eager}
       labelled={size === 'card'}
-      words={size !== 'thumb'}
+      words={size !== 'thumb' && size !== 'cover'}
     />
   );
   return (

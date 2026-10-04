@@ -12,6 +12,11 @@ import type { CalendarEntry } from '../calendar/calendar-view';
 import { entriesSql } from '../calendar/queries';
 import { dailySeed, ideasFor, type IdeasWeather } from '../gallery/ideas';
 import type { PoolGarment } from '../gallery/queries';
+import {
+  type NextPurchase,
+  nextPurchaseOf,
+  rankedPurchasesSql,
+} from '../plans/candidates';
 import { type WaitingDraft, waitingDraftsSql } from '../plans/queries';
 import {
   readWeatherWithForecast,
@@ -80,6 +85,8 @@ export interface TodayModel {
   wornToday?: boolean;
   /** An agent's drafts with proposals to review (waitingDraftsSql); read only when asked (`drafts`). */
   drafts?: WaitingDraft[];
+  /** The product completing the most loved looks of the active plan (rankedPurchasesSql, finished by nextPurchaseOf); null when none; read only when asked (`nextPurchase`). */
+  nextPurchase?: NextPurchase | null;
 }
 
 export interface TodayOptions {
@@ -92,6 +99,8 @@ export interface TodayOptions {
   worn?: boolean;
   /** Also read the agent's drafts waiting on the owner (the page's card). */
   drafts?: boolean;
+  /** Also read the next product to buy (the page's card when no draft waits). */
+  nextPurchase?: boolean;
 }
 
 export interface TodayDeps {
@@ -113,7 +122,7 @@ async function readDay(
   ownerId: number,
   today: IsoDate,
   now: Date,
-  { ownWeather, worn, drafts }: TodayOptions,
+  { ownWeather, worn, drafts, nextPurchase }: TodayOptions,
 ) {
   const read = await selectScalars(deps.db, {
     entries: entriesSql(ownerId, today, today),
@@ -123,6 +132,7 @@ async function readDay(
         : weatherWithForecastSql(ownerId, now),
     worn: worn ? somethingWornSql(ownerId, today) : undefined,
     drafts: drafts ? waitingDraftsSql(ownerId) : undefined,
+    ranked: nextPurchase ? rankedPurchasesSql(ownerId) : undefined,
   });
   const weather =
     ownWeather ??
@@ -137,6 +147,11 @@ async function readDay(
     weather,
     worn: read.worn,
     drafts: read.drafts,
+    // A waiting draft's card wins the slot: skip the matching statements.
+    nextPurchase:
+      read.ranked && !read.drafts?.length
+        ? await nextPurchaseOf(deps.db, ownerId, read.ranked)
+        : undefined,
   };
 }
 
@@ -147,7 +162,7 @@ export async function todayFor(
   options: TodayOptions = {},
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  const { entries, weather, worn, drafts } = await readDay(
+  const { entries, weather, worn, drafts, nextPurchase } = await readDay(
     deps,
     ownerId,
     today,
@@ -176,7 +191,14 @@ export async function todayFor(
       await todayIdeas(deps, ownerId, now, DEFAULT_OCCASION, 1, weather),
     );
   }
-  return { today, rows, weather: weather ?? null, wornToday: worn, drafts };
+  return {
+    today,
+    rows,
+    weather: weather ?? null,
+    wornToday: worn,
+    drafts,
+    nextPurchase,
+  };
 }
 
 /**

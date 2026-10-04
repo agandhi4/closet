@@ -18,6 +18,7 @@ import {
   changeCandidates,
 } from './candidates';
 import { itemsFromCloset } from './derive';
+import { planCovers } from './covers';
 import { allPlanGaps, planGaps } from './gaps';
 import { ItemFormPage, type ItemFormModel } from './item-form-page';
 import { PlansPage } from './list-page';
@@ -210,8 +211,9 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   app.get(PLANS_PATH, async (request, reply) => {
     const userId = sessionUserId(request);
-    const [plans, shared] = await Promise.all([
+    const [plans, covers, shared] = await Promise.all([
       allPlanGaps(db, userId),
+      planCovers(db, userId),
       sharedWardrobesOf(db, userId),
     ]);
     return renderPage(
@@ -220,6 +222,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         ctx={viewContext(reply)}
         model={{
           plans,
+          covers,
           sources: [
             ...shared.map((wardrobe) => ({
               ownerId: wardrobe.grantorId,

@@ -779,6 +779,10 @@
     "NAME_PLACEHOLDER": "NYC minimal",
     "NOTES_PLACEHOLDER": "What this wardrobe is for",
     "TALLY": "{owned} owned · {partly} partly · {missing} missing",
+    "ITEMS_ONE": "1 item",
+    "ITEMS": "{count} items",
+    "LOOKS_ONE": "1 look",
+    "LOOKS": "{count} looks",
     "MISSING": "Missing",
     "PARTLY": "Partly owned",
     "OWNED": "Owned",
@@ -1272,7 +1276,10 @@
       "NOT_REGISTERED": "Turn notifications on for this device to choose reminders."
     },
     "PLAN_DRAFT": "{agent} drafted {plan}: {count} ideas to review",
-    "PLAN_DRAFT_ONE": "{agent} drafted {plan}: 1 idea to review"
+    "PLAN_DRAFT_ONE": "{agent} drafted {plan}: 1 idea to review",
+    "NEXT_STEP": "{product} completes {count} of your loved looks",
+    "NEXT_STEP_ONE": "{product} completes your loved look",
+    "NEXT_STEP_VIEW": "See it"
   },
   "selfie": {
     "TAKE": "Take a selfie",

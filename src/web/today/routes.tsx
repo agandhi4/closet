@@ -66,7 +66,10 @@ export const todayRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     const ownerId = sessionUserId(request);
     const started = performance.now();
     const now = new Date();
-    const model = await todayFor(deps, ownerId, now, { drafts: true });
+    const model = await todayFor(deps, ownerId, now, {
+      drafts: true,
+      nextPurchase: true,
+    });
     logger.debug(
       `Today for user ${ownerId} (${model.today}): ${model.rows.map((row) => `${row.occasion} ${row.kind === 'planned' ? `planned ${row.entries.length}` : `${row.ideas.length} ideas`}`).join(', ')}${model.drafts?.length ? `, ${model.drafts.length} agent drafts waiting` : ''} in ${Math.round(performance.now() - started)} ms`,
     );
