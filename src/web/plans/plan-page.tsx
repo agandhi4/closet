@@ -732,7 +732,11 @@ function LookMoves({ look }: { look: PlanLookView }) {
       <div class="flex flex-wrap items-center gap-1">
         <LookSaveAction look={look} />
         <PostForm action={action('/reconsider')} needsNetwork>
-          <button type="submit" class="btn btn-xs btn-outline">
+          <button
+            type="submit"
+            class="btn btn-xs btn-outline"
+            data-strip-action="reconsider"
+          >
             {t('plans.RECONSIDER')}
           </button>
         </PostForm>
@@ -744,7 +748,11 @@ function LookMoves({ look }: { look: PlanLookView }) {
       <LookSaveAction look={look} />
       {(look.reaction === 'proposed' || look.reaction === 'revise') && (
         <PostForm action={action('/love')} needsNetwork>
-          <button type="submit" class="btn btn-xs btn-primary">
+          <button
+            type="submit"
+            class="btn btn-xs btn-primary"
+            data-strip-action="love"
+          >
             {t(
               look.reaction === 'revise'
                 ? 'plans.looks.LOVE_AS_IS'
@@ -754,12 +762,20 @@ function LookMoves({ look }: { look: PlanLookView }) {
         </PostForm>
       )}
       <PostForm action={action('/decline')} needsNetwork>
-        <button type="submit" class="btn btn-xs btn-ghost">
+        <button
+          type="submit"
+          class="btn btn-xs btn-ghost"
+          data-strip-action="decline"
+        >
           {t('plans.looks.DECLINE')}
         </button>
       </PostForm>
       {look.reaction !== 'revise' && (
-        <a href={action('/change')} class="link link-hover text-xs">
+        <a
+          href={action('/change')}
+          class="link link-hover text-xs"
+          data-strip-action="change"
+        >
           {t('plans.looks.CHANGE')}
         </a>
       )}

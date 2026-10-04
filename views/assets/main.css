@@ -596,3 +596,7 @@ body {
     box-shadow: 0 1px color-mix(in oklab, var(--input-color) calc(var(--depth) * 10%), #0000);
   }
 }
+/* The snap strip's previous/next buttons (src/web/strip/snap-strip.tsx, #311)
+   show only where the primary input hovers and is precise: a mouse, not a
+   phone. One markup for every device. */
+@custom-variant fine (@media (hover: hover) and (pointer: fine));

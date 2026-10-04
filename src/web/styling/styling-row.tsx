@@ -105,6 +105,7 @@ export function StylingRowView(props: {
         value={row.garmentId?.toString() ?? ''}
         size={size}
         label={t('styling.STRIP_LABEL', { role: label })}
+        frameClass="group-has-[.styling-lock:checked]/row:[&_[data-snap-step]]:hidden"
         class="styling-strip group-has-[.styling-lock:checked]/row:overflow-x-hidden group-has-[.styling-lock:checked]/row:touch-pan-y group-has-[.styling-lock:checked]/row:touch-pinch-zoom"
       >
         <NoGarment

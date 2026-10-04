@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import { t } from '../i18n';
 
 /**
  * The snap strip: a horizontal scroll-snap carousel whose centred item, with
@@ -7,7 +8,8 @@ import type { Child } from 'hono/jsx';
  * strip's centre line and writes that item's `data-snap-value` into the
  * strip's hidden input. A page needs no script of its own. See ./CLAUDE.md.
  *
- * Used by Styling's rows (src/web/styling/styling-row.tsx).
+ * Used by Styling's rows (src/web/styling/styling-row.tsx), the plan review,
+ * the Looks strips and the shopping list.
  */
 
 /**
@@ -48,7 +50,9 @@ export type SnapSize = keyof typeof SIZES;
  * `name` has no input: the observer still marks the centred item and writes
  * nothing.
  *
- * `class` adds to the strip (a page's own freezing or hooks); the strip is
+ * The strip, its input and the step buttons sit in one `relative` frame, so
+ * the buttons overlay the strip's edges. `class` adds to the strip (a page's
+ * own freezing or hooks); the strip is
  * `relative`, a flex row and `overscroll-x-contain`.
  */
 export function SnapStrip(props: {
@@ -63,20 +67,30 @@ export function SnapStrip(props: {
    * group, and `snapItem({ listbox: false })` on its items.
    */
   listbox?: boolean;
+  /**
+   * True when no tile holds a focusable control (the Looks strip's collage
+   * cards hold none the keyboard needs): the strip itself takes focus, so the
+   * arrow keys can reach it. Off where tiles are buttons or links, which
+   * would only add a second tab stop.
+   */
+  focusable?: boolean;
   class?: string;
+  /** Classes on the frame around the strip and its step buttons (a page hides the buttons while it freezes the strip). */
+  frameClass?: string;
   children?: Child;
 }) {
   const classes = [
-    'snap-strip relative flex gap-3 overflow-x-auto snap-x snap-mandatory overscroll-x-contain',
+    'snap-strip relative flex rounded-box focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary gap-3 overflow-x-auto snap-x snap-mandatory overscroll-x-contain',
     SIZES[props.size].ends,
     props.class,
   ];
   return (
-    <>
+    <div class={`snap-strip-frame relative ${props.frameClass ?? ''}`}>
       <div
         class={classes.filter(Boolean).join(' ')}
         role={props.listbox === false ? 'group' : 'listbox'}
         aria-label={props.label}
+        tabindex={props.focusable ? 0 : undefined}
         data-snap-strip=""
       >
         {props.children}
@@ -84,7 +98,32 @@ export function SnapStrip(props: {
       {props.name !== undefined && (
         <input type="hidden" name={props.name} value={props.value ?? ''} />
       )}
-    </>
+      <StepButton step={-1} label={props.label} />
+      <StepButton step={1} label={props.label} />
+    </div>
+  );
+}
+
+/**
+ * Previous / next, for a mouse (#311): hidden except where the primary input
+ * hovers and is precise (the `fine` variant, views/assets/main.css), so one
+ * markup serves every device. Wired by public/js/snap-strip.js. They follow
+ * the hidden input in the frame, which keeps it the strip's
+ * `nextElementSibling`.
+ */
+function StepButton(props: { step: -1 | 1; label: string }) {
+  const previous = props.step < 0;
+  return (
+    <button
+      type="button"
+      class={`btn btn-circle btn-sm absolute top-1/2 z-10 hidden -translate-y-1/2 fine:inline-flex ${previous ? 'left-1' : 'right-1'}`}
+      data-snap-step={props.step}
+      aria-label={t(previous ? 'strip.PREVIOUS' : 'strip.NEXT', {
+        label: props.label,
+      })}
+    >
+      <span aria-hidden="true">{previous ? '‹' : '›'}</span>
+    </button>
   );
 }
 
