@@ -12,6 +12,7 @@ import { ideasUrl } from '../gallery/urls';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
+import { PAIR_GRID } from '../layout/columns';
 import { PageMain } from '../layout/page-main';
 import { Layout } from '../layout/layout';
 import { OutfitCollage } from '../outfits/collage';
@@ -54,7 +55,7 @@ export function TodayPage(props: {
   return (
     <Layout ctx={ctx} title={t('today.TITLE')}>
       <AppBar ctx={ctx} title={dayLabel(model.today)} />
-      <PageMain class="p-4 pt-20 pb-24 flex flex-col gap-4">
+      <PageMain width="wide" class="p-4 pt-20 pb-24 flex flex-col gap-4">
         {model.weather && (
           <UserWeatherLine
             weather={model.weather}
@@ -74,12 +75,16 @@ export function TodayPage(props: {
         ) : model.nextPurchase ? (
           <NextPurchaseCard purchase={model.nextPurchase} />
         ) : null}
-        {model.rows.map((row) =>
-          row.kind === 'planned' ? (
-            <PlannedRowView row={row} today={model.today} />
-          ) : (
-            <IdeasRowView row={row} today={model.today} />
-          ),
+        {model.rows.length > 0 && (
+          <div class={PAIR_GRID}>
+            {model.rows.map((row) =>
+              row.kind === 'planned' ? (
+                <PlannedRowView row={row} today={model.today} />
+              ) : (
+                <IdeasRowView row={row} today={model.today} />
+              ),
+            )}
+          </div>
         )}
         <div class="flex flex-wrap items-center gap-2">
           <a
@@ -263,7 +268,7 @@ export function IdeasRowView(props: { row: IdeasRow; today: IsoDate }) {
   const { row, today } = props;
   return (
     <section
-      class="flex flex-col gap-2"
+      class="group/ideas flex flex-col gap-2 lg:only:col-span-full"
       data-today-row="ideas"
       data-occasion={row.occasion}
       data-page={row.page}
@@ -327,7 +332,7 @@ function IdeaCard(props: {
   const { idea } = props;
   return (
     <article
-      class="snap-center shrink-0 w-[85%] card bg-base-100 shadow-sm"
+      class="snap-center shrink-0 w-[85%] lg:group-only/ideas:w-[calc(50%-0.375rem)] card bg-base-100 shadow-sm"
       data-idea={idea.garments.map((g) => g.id).join(',')}
     >
       <div class="card-body p-3 gap-3">

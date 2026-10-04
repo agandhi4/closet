@@ -12,6 +12,8 @@ import type { IsoDate } from '../calendar/calendar-date';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
+import { CARD_COLUMNS } from '../layout/columns';
+import { PageMain } from '../layout/page-main';
 import { Layout } from '../layout/layout';
 import { EmptyState, GarmentThumb } from '../layout/parts';
 import type { ViewContext } from '../view-context';
@@ -45,7 +47,7 @@ export function InsightsPage(props: {
   return (
     <Layout ctx={ctx} title={t('insights.TITLE')}>
       <AppBar ctx={ctx} title={t('insights.TITLE')} back="/wardrobe" />
-      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
+      <PageMain width="wide" class="p-4 pt-20 pb-24 flex flex-col gap-4">
         <p class="text-sm text-muted">{t('insights.INTRO')}</p>
         <a
           href={RECAP_PATH}
@@ -63,7 +65,7 @@ export function InsightsPage(props: {
         ) : (
           <Figures model={model} />
         )}
-      </main>
+      </PageMain>
       <Dock ctx={ctx} />
     </Layout>
   );
@@ -82,63 +84,65 @@ function Figures({ model }: { model: InsightsPageModel }) {
           {t('insights.NO_WEARS')}
         </p>
       )}
-      <WornLately insights={insights} />
-      {condition.needsRepair + condition.replaceSoon > 0 && (
-        <Card id="insights-attention" title={t('insights.ATTENTION')}>
-          <p class="text-sm">
-            {[
-              condition.needsRepair > 0 &&
-                t('insights.NEEDS_REPAIR', { count: condition.needsRepair }),
-              condition.replaceSoon > 0 &&
-                t('insights.REPLACE_SOON', { count: condition.replaceSoon }),
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
-          <a href={NEEDS_ATTENTION_URL} class="btn btn-outline btn-sm">
-            {t('insights.ATTENTION')}
-          </a>
-        </Card>
-      )}
-      <Unworn insights={insights} today={today} />
-      {insights.mostWorn.length > 0 && (
-        <Card id="insights-most-worn" title={t('insights.MOST_WORN')}>
-          <GarmentList rows={wornRows(insights.mostWorn, today)} />
-        </Card>
-      )}
-      {/* Empty while every garment is newer than the threshold. */}
-      {insights.leastWorn.length > 0 && (
-        <Card id="insights-least-worn" title={t('insights.LEAST_WORN')}>
-          <p class="text-xs text-muted">
-            {t('insights.LEAST_WORN_NOTE', {
-              days: LEAST_WORN_MIN_OWNED_DAYS,
-            })}
-          </p>
-          <GarmentList rows={wornRows(insights.leastWorn, today)} />
-        </Card>
-      )}
-      <Cost cost={insights.cost} />
-      <Pairs insights={insights} />
-      <Colours insights={insights} />
-      <Card id="insights-categories" title={t('insights.CATEGORIES')}>
-        <BreakdownList
-          rows={insights.categories}
-          label={(key) => categoryLabel(key!)}
-        />
-      </Card>
-      {insights.brands.length > 0 && (
-        <Card id="insights-brands" title={t('insights.BRANDS')}>
-          <BreakdownList
-            rows={insights.brands}
-            label={(key) => key ?? t('insights.OTHER_BRANDS')}
-          />
-          {insights.unbranded > 0 && (
-            <p class="text-xs text-muted">
-              {t('insights.UNBRANDED', { count: insights.unbranded })}
+      <div class={CARD_COLUMNS}>
+        <WornLately insights={insights} />
+        {condition.needsRepair + condition.replaceSoon > 0 && (
+          <Card id="insights-attention" title={t('insights.ATTENTION')}>
+            <p class="text-sm">
+              {[
+                condition.needsRepair > 0 &&
+                  t('insights.NEEDS_REPAIR', { count: condition.needsRepair }),
+                condition.replaceSoon > 0 &&
+                  t('insights.REPLACE_SOON', { count: condition.replaceSoon }),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
-          )}
+            <a href={NEEDS_ATTENTION_URL} class="btn btn-outline btn-sm">
+              {t('insights.ATTENTION')}
+            </a>
+          </Card>
+        )}
+        <Unworn insights={insights} today={today} />
+        {insights.mostWorn.length > 0 && (
+          <Card id="insights-most-worn" title={t('insights.MOST_WORN')}>
+            <GarmentList rows={wornRows(insights.mostWorn, today)} />
+          </Card>
+        )}
+        {/* Empty while every garment is newer than the threshold. */}
+        {insights.leastWorn.length > 0 && (
+          <Card id="insights-least-worn" title={t('insights.LEAST_WORN')}>
+            <p class="text-xs text-muted">
+              {t('insights.LEAST_WORN_NOTE', {
+                days: LEAST_WORN_MIN_OWNED_DAYS,
+              })}
+            </p>
+            <GarmentList rows={wornRows(insights.leastWorn, today)} />
+          </Card>
+        )}
+        <Cost cost={insights.cost} />
+        <Pairs insights={insights} />
+        <Colours insights={insights} />
+        <Card id="insights-categories" title={t('insights.CATEGORIES')}>
+          <BreakdownList
+            rows={insights.categories}
+            label={(key) => categoryLabel(key!)}
+          />
         </Card>
-      )}
+        {insights.brands.length > 0 && (
+          <Card id="insights-brands" title={t('insights.BRANDS')}>
+            <BreakdownList
+              rows={insights.brands}
+              label={(key) => key ?? t('insights.OTHER_BRANDS')}
+            />
+            {insights.unbranded > 0 && (
+              <p class="text-xs text-muted">
+                {t('insights.UNBRANDED', { count: insights.unbranded })}
+              </p>
+            )}
+          </Card>
+        )}
+      </div>
     </>
   );
 }

@@ -22,6 +22,18 @@ const WIDTH_CLASS: Readonly<Record<PageWidth, string>> = {
   wide: 'max-w-page-wide',
 };
 
+/**
+ * The same column for what sits outside `<main>` but must line up with it
+ * (the Wardrobe's tab strip and weather line).
+ */
+export function PageColumn(props: { width?: PageWidth; children?: Child }) {
+  return (
+    <div class={`w-full mx-auto ${WIDTH_CLASS[props.width ?? 'narrow']}`}>
+      {props.children}
+    </div>
+  );
+}
+
 export function PageMain(props: {
   width?: PageWidth;
   class?: string;

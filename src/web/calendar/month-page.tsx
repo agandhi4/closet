@@ -10,6 +10,7 @@ import {
   WeatherMonthLoader,
 } from '../weather/views';
 import type { MonthDayView, MonthView } from './calendar-view';
+import { PageMain } from '../layout/page-main';
 import { CalendarTabs } from './calendar-tabs';
 import { DAY_LETTERS, dayLabel, monthLabel } from './labels';
 import { dayUrl, monthUrl } from './urls';
@@ -31,7 +32,7 @@ export function MonthPage(props: { ctx: ViewContext; view: MonthView }) {
   return (
     <Layout ctx={ctx} title={t('CALENDAR_PAGE_TITLE')}>
       <AppBar ctx={ctx} title={t('CALENDAR')} />
-      <main class="p-4 pt-20 pb-24 w-full sm:max-w-lg sm:mx-auto">
+      <PageMain width="wide" class="p-4 pt-20 pb-24">
         <CalendarTabs active="month" />
         <WeatherMonthLoader ctx={ctx} days={view.forecast} />
         <nav
@@ -77,7 +78,7 @@ export function MonthPage(props: { ctx: ViewContext; view: MonthView }) {
             ))}
           </tbody>
         </table>
-      </main>
+      </PageMain>
       <Dock ctx={ctx} />
     </Layout>
   );
@@ -93,7 +94,7 @@ function MonthDay({ ctx, day }: { ctx: ViewContext; day: MonthDayView }) {
   return (
     <a
       href={dayUrl(day.date)}
-      class="flex flex-col items-center gap-0.5 min-h-16 p-0.5 rounded-field overflow-hidden hover:bg-base-200"
+      class="flex flex-col items-center gap-0.5 min-h-16 p-0.5 lg:min-h-32 lg:p-1 rounded-field overflow-hidden hover:bg-base-200"
       aria-label={cellLabel(day)}
       aria-current={day.isToday ? 'date' : undefined}
       aria-describedby={weather ? weatherDayId(day.date) : undefined}
@@ -101,17 +102,14 @@ function MonthDay({ ctx, day }: { ctx: ViewContext; day: MonthDayView }) {
       data-worn={worn ? '' : undefined}
     >
       <span
-        class={`flex items-center justify-center size-6 rounded-full text-xs font-semibold ${day.isToday ? 'bg-primary text-primary-content' : ''}`}
+        class={`flex items-center justify-center size-6 rounded-full text-xs font-semibold lg:size-8 lg:text-sm ${day.isToday ? 'bg-primary text-primary-content' : ''}`}
       >
         {day.dayNum}
       </span>
       {weather && <WeatherCellSlot ctx={ctx} day={day.date} />}
       {first && (
         <span class="w-full">
-          <OutfitCollage
-            garments={bodyOf(first.outfit.garments)}
-            size="thumb"
-          />
+          <OutfitCollage garments={bodyOf(first.outfit.garments)} size="cell" />
         </span>
       )}
       {worn && <span class="size-1 rounded-full bg-accent"></span>}

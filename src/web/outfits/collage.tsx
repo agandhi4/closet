@@ -11,7 +11,7 @@ import { HangerIcon } from '../layout/parts';
  * phone screen above the dock. The redesign's one OutfitCollage
  * (docs/plans/2026-09-26-redesign.md, sections 3 and 5): the gallery's
  * Ideas cards, the outfit page and Today (`card`), the Saved grid
- * (`tile`), the garment page's "In N outfits" and the calendar (`thumb`),
+ * (`tile`), the garment page's "In N outfits" and the calendar (`cell`, a `thumb` that grows at lg),
  * a plan's looks (`look`, #291), whose pieces carry marks, and the plans
  * list's photo row (`cover`, #302: five 4:5 cells across a phone).
  */
@@ -86,6 +86,16 @@ const SIZES = {
     feet: 'h-6',
     side: 'h-5',
   },
+  // The calendar month's cell: `thumb` on a phone (about 48 px wide), growing
+  // with the cell at lg (about 170 px).
+  cell: {
+    box: 'rounded-field p-1.5 gap-1 lg:p-3 lg:gap-2',
+    column: '',
+    upper: 'h-8 lg:h-16',
+    lower: 'h-10 lg:h-20',
+    feet: 'h-6 lg:h-12',
+    side: 'h-5 lg:h-10',
+  },
   cover: {
     box: 'rounded-field p-1 gap-0.5 aspect-[4/5]',
     column: 'justify-center',
@@ -126,7 +136,7 @@ export function OutfitCollage(props: {
       class={height}
       eager={eager}
       labelled={size === 'card'}
-      words={size !== 'thumb' && size !== 'cover'}
+      words={size !== 'thumb' && size !== 'cell' && size !== 'cover'}
     />
   );
   return (

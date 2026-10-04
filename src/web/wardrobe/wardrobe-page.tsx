@@ -18,7 +18,8 @@ import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { PageMain } from '../layout/page-main';
+import { GALLERY_GRID } from '../layout/columns';
+import { PageColumn, PageMain } from '../layout/page-main';
 import {
   EmptyState,
   PlinthImage,
@@ -191,12 +192,12 @@ export function WardrobePage(props: {
       )}
       <div class="pt-16">
         {!model.selecting && (
-          <>
+          <PageColumn width="wide">
             <WardrobeTabs active="closet" viewOwner={model.viewOwner} />
             <div class="px-2 pt-3">
               <WeatherSlot ctx={ctx} />
             </div>
-          </>
+          </PageColumn>
         )}
         <WardrobeMain model={model} />
       </div>
@@ -449,10 +450,7 @@ function Prompt(props: { text: string; href: string; action: string }) {
  */
 export function GarmentGrid(props: { id: string; children: Child }) {
   return (
-    <div
-      id={props.id}
-      class="grid grid-cols-3 gap-x-3 gap-y-4 sm:grid-cols-4 lg:grid-cols-6"
-    >
+    <div id={props.id} class={GALLERY_GRID}>
       {props.children}
     </div>
   );
