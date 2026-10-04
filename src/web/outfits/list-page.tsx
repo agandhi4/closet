@@ -14,7 +14,8 @@ import {
   LookStripTile,
   LooksStrip,
 } from '../plans/look-tile';
-import type { PlanLookView } from '../plans/looks';
+import type { ShownLooks } from '../plans/looks';
+import { planUrl } from '../plans/urls';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { OutfitCollage } from './collage';
@@ -39,10 +40,11 @@ export interface SavedModel {
    */
   picking?: { destination: DayDestination; choice: DayChoice };
   /**
-   * The owner's active plan's looks to show above the grid (loved first,
-   * none declined); empty hides the row. Never read while picking.
+   * The strip of the plan shown above the grid (loved first, none
+   * declined; looksOfShownPlan picks the plan); no looks hides the row.
+   * `draftedBy` names the agent when it is a draft. Never read while picking.
    */
-  planLooks: PlanLookView[];
+  planLooks: ShownLooks;
 }
 
 /**
@@ -79,7 +81,7 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
         {model.picking && (
           <PickingHeader destination={model.picking.destination} />
         )}
-        <PlanLooksRow looks={model.planLooks} />
+        <PlanLooksRow {...model.planLooks} />
         {model.outfits.length === 0 ? (
           <NoOutfits destination={destination} />
         ) : model.picking ? (
@@ -110,13 +112,13 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
 }
 
 /**
- * "From your plan": the active plan's looks as the plan page draws them
+ * "From your plan": the shown plan's looks as the plan page draws them
  * (LooksStrip, LookFace), each with Save as outfit while every piece is
  * owned (or the outfit it became). Edge to edge like the plan page's;
  * nothing without looks. Static markup: the strip's bytes change only when
  * a look does, so the tab root stays stable.
  */
-function PlanLooksRow({ looks }: { looks: PlanLookView[] }) {
+function PlanLooksRow({ looks, draftedBy }: ShownLooks) {
   if (looks.length === 0) return null;
   return (
     <div class="-mx-4 mb-2">
@@ -124,7 +126,18 @@ function PlanLooksRow({ looks }: { looks: PlanLookView[] }) {
         id="plan-looks"
         title={t('outfits.FROM_PLAN_TITLE')}
         count={looks.length}
-        hint={t('outfits.FROM_PLAN_HINT')}
+        hint={
+          draftedBy === null ? (
+            t('outfits.FROM_PLAN_HINT')
+          ) : (
+            <>
+              {t('outfits.FROM_DRAFT_HINT', { name: draftedBy })}{' '}
+              <a class="link" href={planUrl(looks[0].planId)}>
+                {t('outfits.FROM_DRAFT_LINK')}
+              </a>
+            </>
+          )
+        }
       >
         {looks.map((look, index) => (
           <LookStripTile look={look} selected={index === 0} eager={index < 2}>

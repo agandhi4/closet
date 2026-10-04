@@ -1,8 +1,9 @@
 import { expect, type Page, test } from '@playwright/test';
 import { eq } from 'drizzle-orm';
-import { planItem } from '../src/db/schema';
+import { personalAccessToken, planItem } from '../src/db/schema';
 import { changeCandidates } from '../src/web/plans/candidates';
 import { proposeLook, reactToLooks } from '../src/web/plans/looks';
+import { createPlan } from '../src/web/plans/queries';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
@@ -91,5 +92,56 @@ test('the row shows the plan’s looks; Save as outfit lands on the outfit', asy
   await row.getByRole('button', { name: 'Save as outfit' }).click();
   await expect(page).toHaveURL(/\/outfits\/\d+$/);
   await expect(page.locator('h1')).toHaveText('Easy Friday');
+  expect(errors).toEqual([]);
+});
+
+test('with no active plan the row shows the agent’s draft and links its plan page (#306)', async ({
+  page,
+}) => {
+  const errors = pageErrors(page);
+  const email = await signIn(page, 'outfits-draft-row');
+  const shirt = await createGarment(page, 'Oxford shirt', 'tops');
+  const chinos = await createGarment(page, 'Chinos', 'bottoms');
+  const boots = await createGarment(page, 'Chelsea boots', 'footwear');
+  const planId = await withServerDb(async (db) => {
+    const ownerId = await userIdOf(db, email);
+    const [token] = await db
+      .insert(personalAccessToken)
+      .values({
+        userId: ownerId,
+        name: 'Claude',
+        tokenHash: `draft-row-${Date.now()}`.padEnd(64, '0'),
+        tokenPrefix: 'draftrow',
+      })
+      .returning({ id: personalAccessToken.id });
+    const id = await createPlan(
+      db,
+      ownerId,
+      { name: 'Autumn draft', notes: null },
+      [],
+      { draftedByTokenId: token.id },
+    );
+    if (id === 'name-taken') throw new Error('name taken');
+    await proposeLook(
+      db,
+      ownerId,
+      id,
+      { name: 'Draft Monday', occasion: 'work', note: 'Easy start' },
+      [shirt, chinos, boots],
+    );
+    return id;
+  });
+
+  await page.goto('/outfits');
+  const row = page.locator('#plan-looks');
+  await expect(row.locator('h3')).toHaveText(['Draft Monday']);
+  await expect(row.getByText('Drafted by Claude')).toBeVisible();
+  await expect(
+    row.getByRole('link', { name: 'Review the draft' }),
+  ).toHaveAttribute('href', `/wardrobe/plans/${planId}`);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: 'test-results/306-outfits-draft-390.png' });
   expect(errors).toEqual([]);
 });

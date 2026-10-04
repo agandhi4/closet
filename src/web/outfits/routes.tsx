@@ -9,7 +9,7 @@ import { navigateTo, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { ALREADY_SAVED_FLAG } from '../gallery/urls';
-import { groupLooks, looksOfActivePlan } from '../plans/looks';
+import { groupLooks, looksOfShownPlan, type ShownLooks } from '../plans/looks';
 import { stylingUrl } from '../styling/urls';
 import { viewContext } from '../view-context';
 import { type OutfitDestination, parseDestination } from './destination';
@@ -195,6 +195,8 @@ function outfitNotFound(): HttpError {
   return new HttpError(404, 'Outfit not found');
 }
 
+const NO_PLAN_LOOKS: ShownLooks = { looks: [], draftedBy: null };
+
 /**
  * /outfits: the list, the detail page, the writes, and the builder's old
  * addresses, now redirects into Styling (src/web/styling). Outfits are the signed-in user's own:
@@ -223,10 +225,11 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const [{ outfits, activity, choice }, planLooks] = await Promise.all([
         savedContext(db, ownerId, today, day),
         day
-          ? []
-          : looksOfActivePlan(db, ownerId).then(
-              (looks) => groupLooks(looks).strip,
-            ),
+          ? NO_PLAN_LOOKS
+          : looksOfShownPlan(db, ownerId).then(({ looks, draftedBy }) => ({
+              looks: groupLooks(looks).strip,
+              draftedBy,
+            })),
       ]);
       if (day?.replace !== undefined && !choice?.replacing) {
         logger.debug(

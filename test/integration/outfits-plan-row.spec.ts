@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { garment } from '../../src/db/schema';
+import { garment, personalAccessToken } from '../../src/db/schema';
 import { changeCandidates } from '../../src/web/plans/candidates';
 import {
   proposeLook,
@@ -71,11 +71,14 @@ describe('the Outfits tab: From your plan', () => {
    * A plan of `ownerId`'s with a wishlist candidate; `look` proposes one
    * over it (to buy) or, `owned`, over a closet pair of shoes (complete).
    */
-  const plan = async (ownerId: number) => {
-    const planId = await createPlan(t.db, ownerId, {
-      name: `Row plan ${++seq}`,
-      notes: null,
-    });
+  const plan = async (ownerId: number, draftedByTokenId?: number) => {
+    const planId = await createPlan(
+      t.db,
+      ownerId,
+      { name: `Row plan ${++seq}`, notes: null },
+      [],
+      draftedByTokenId === undefined ? {} : { draftedByTokenId },
+    );
     if (planId === 'name-taken') throw new Error('name taken');
     const [itemId] = (await addItems(
       t.db,
@@ -106,6 +109,27 @@ describe('the Outfits tab: From your plan', () => {
       ).id;
     };
     return { planId, look };
+  };
+
+  const tokenOf = async (ownerId: number, name: string) =>
+    (
+      await t.db
+        .insert(personalAccessToken)
+        .values({
+          userId: ownerId,
+          name,
+          tokenHash: randomUUID().replaceAll('-', ''),
+          tokenPrefix: 'tok',
+        })
+        .returning({ id: personalAccessToken.id })
+    )[0].id;
+
+  /** A new user with no plan: the agent's drafts are the only plans they have. */
+  const newOwner = async (agent: string) => {
+    const email = `draft-${++seq}@example.com`;
+    const cookie = await t.register(email);
+    const id = await userIdOf(t, email);
+    return { id, cookie, token: await tokenOf(id, agent) };
   };
 
   const tab = (cookie?: string) =>
@@ -235,6 +259,74 @@ describe('the Outfits tab: From your plan', () => {
     });
     // The session's, the tiles and the looks: not one more per look.
     expect(recorded.statements).toBe(3);
+  });
+
+  describe('with no active plan, the agent’s newest draft that holds looks', () => {
+    it('shows its looks, labelled as a draft and linking its plan page', async () => {
+      const me = await newOwner('Claude');
+      const draft = await plan(me.id, me.token);
+      await draft.look('Draft look');
+      const { html, names, has } = rowOf((await tab(me.cookie)).body);
+      expect(has).toBe(true);
+      expect(names).toEqual(['Draft look']);
+      expect(html).toContain('Drafted by Claude');
+      expect(html).toContain(`href="/wardrobe/plans/${draft.planId}"`);
+    });
+
+    it('is not labelled once the owner makes it active', async () => {
+      const me = await newOwner('Claude');
+      const draft = await plan(me.id, me.token);
+      await draft.look('Kept look');
+      await setActivePlan(t.db, draft.planId, me.id);
+      const { html, names } = rowOf((await tab(me.cookie)).body);
+      expect(names).toEqual(['Kept look']);
+      expect(html).not.toContain('Drafted by');
+    });
+
+    it('is not there when the active plan has no looks, however many a draft has', async () => {
+      const me = await newOwner('Claude');
+      const draft = await plan(me.id, me.token);
+      await draft.look('Ignored draft look');
+      const own = await plan(me.id);
+      await setActivePlan(t.db, own.planId, me.id);
+      expect(rowOf((await tab(me.cookie)).body).has).toBe(false);
+    });
+
+    it('is the newest draft that holds looks: one without looks never wins', async () => {
+      const me = await newOwner('Claude');
+      const older = await plan(me.id, me.token);
+      await older.look('Older draft look');
+      const newer = await plan(me.id, me.token);
+      await newer.look('Newer draft look');
+      await plan(me.id, me.token);
+      const { names, html } = rowOf((await tab(me.cookie)).body);
+      expect(names).toEqual(['Newer draft look']);
+      expect(html).toContain(`href="/wardrobe/plans/${newer.planId}"`);
+    });
+
+    it('never shows another owner’s draft', async () => {
+      const theirs = await newOwner('Their agent');
+      await (await plan(theirs.id, theirs.token)).look('Their draft look');
+      const me = await newOwner('Claude');
+      expect(rowOf((await tab(me.cookie)).body).has).toBe(false);
+      expect(unescapeHtml((await tab(me.cookie)).body)).not.toContain(
+        'Their draft look',
+      );
+    });
+
+    it('keeps bare /outfits byte-stable, in the same three statements', async () => {
+      const me = await newOwner('Claude');
+      const draft = await plan(me.id, me.token);
+      for (const name of ['A', 'B', 'C']) await draft.look(`Draft ${name}`);
+      const a = await tab(me.cookie);
+      const b = await tab(me.cookie);
+      expect(rowOf(a.body).has).toBe(true);
+      expect(b.body).toBe(a.body);
+      const recorded = await recordQueries(async () => {
+        await tab(me.cookie);
+      });
+      expect(recorded.statements).toBe(3);
+    });
   });
 
   it('is left out while picking for a day', async () => {

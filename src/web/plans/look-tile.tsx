@@ -70,7 +70,7 @@ function lookMeta(look: PlanLookView): string {
 export function LooksStrip(props: {
   id: string;
   count: number;
-  hint: string;
+  hint: Child;
   /** Defaults to "Looks"; the Outfits tab's row is "From your plan". */
   title?: string;
   children: Child;

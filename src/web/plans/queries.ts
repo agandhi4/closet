@@ -103,6 +103,16 @@ export function itemFields(item: PlanItemRow): PlanItemFields {
 
 type NameTaken = 'name-taken';
 
+/**
+ * The name of the token that drafted the enclosing plan (null for the
+ * owner's own), a scalar subquery on `wardrobe_plan`. The token must be the
+ * plan owner's, so a token id never names another user's token. Used by
+ * PLAN_COLUMNS and the Outfits row's looks (looksOfShownPlan).
+ */
+export const draftedBySql = sql<
+  string | null
+>`(select ${personalAccessToken.name} from ${personalAccessToken} where ${personalAccessToken.id} = ${wardrobePlan.draftedByTokenId} and ${personalAccessToken.userId} = ${wardrobePlan.ownerId})`;
+
 const PLAN_COLUMNS = {
   id: wardrobePlan.id,
   name: wardrobePlan.name,
@@ -112,9 +122,7 @@ const PLAN_COLUMNS = {
   // left join included) takes the columns as they are. `${wardrobePlan}.id`,
   // not the column: a select over one table renders it unqualified, and
   // inside plan_look's subquery `id` would be the look's.
-  draftedBy: sql<
-    string | null
-  >`(select ${personalAccessToken.name} from ${personalAccessToken} where ${personalAccessToken.id} = ${wardrobePlan.draftedByTokenId})`,
+  draftedBy: draftedBySql,
   proposedLooks: sql<number>`(select count(*)::int from ${planLook} where ${planLook.planId} = ${wardrobePlan}.id and ${planLook.reaction} = 'proposed')`,
 };
 

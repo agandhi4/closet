@@ -1,9 +1,11 @@
 import {
   and,
   asc,
+  desc,
   eq,
   inArray,
   ne,
+  or,
   sql,
   type SQL,
   type SQLWrapper,
@@ -39,6 +41,7 @@ import {
   OUTFIT_GARMENTS_MAX,
   OUTFIT_NOTES_MAX,
 } from '../outfits/queries';
+import { draftedBySql } from './queries';
 import { planNotFound } from './validation';
 
 /**
@@ -857,7 +860,7 @@ export interface PlanLookView {
   outfitId: number | null;
 }
 
-/** A plan's id, or a subquery that selects it (looksOfActivePlan's). */
+/** A plan's id, or a subquery that selects it (looksOfShownPlan's). */
 type PlanRef = number | SQLWrapper;
 
 /**
@@ -870,30 +873,56 @@ export function looksOfPlan(
   ownerId: number,
   planId: number,
 ): Promise<PlanLookView[]> {
-  return readLooks(db, ownerId, planId);
+  return readLooks(db, ownerId, planId).then(({ looks }) => looks);
+}
+
+/** The looks the Outfits tab shows, and whose draft they are when no plan is active. */
+export interface ShownLooks {
+  looks: PlanLookView[];
+  /** The token name that drafted the plan, only when it is shown as a draft (never an active plan). */
+  draftedBy: string | null;
 }
 
 /**
- * The looks of `ownerId`'s active plan (none without one), as looksOfPlan
- * reads them and in the same one statement: the plan is a subquery, so
- * the Outfits tab pays no round trip to find it first.
+ * The looks of the plan the Outfits tab shows for `ownerId`, as looksOfPlan
+ * reads them and in the same one statement: the plan is a subquery, so the
+ * tab pays no round trip to find it first. THE place that chooses it: the
+ * active plan if there is one (even with no looks: the owner's own choice
+ * wins), else the owner's newest agent draft (`drafted_by_token_id` set)
+ * that holds looks, created_at then id descending so the choice is total
+ * and the tab's bytes stay stable. None without either.
  */
-export function looksOfActivePlan(
+export function looksOfShownPlan(
   db: Queryable,
   ownerId: number,
-): Promise<PlanLookView[]> {
-  const active = db
+): Promise<ShownLooks> {
+  const shown = db
     .select({ id: wardrobePlan.id })
     .from(wardrobePlan)
-    .where(and(eq(wardrobePlan.ownerId, ownerId), wardrobePlan.active));
-  return readLooks(db, ownerId, active);
+    .where(
+      and(
+        eq(wardrobePlan.ownerId, ownerId),
+        or(
+          wardrobePlan.active,
+          // At most one plan is active per owner (wardrobe_plan_owner_id_active_unique),
+          // so the `not exists` is what makes an active plan win, even one with
+          // no looks, over any draft.
+          sql`(${wardrobePlan.draftedByTokenId} is not null
+            and exists (select from ${planLook} where ${planLook.planId} = ${wardrobePlan.id})
+            and not exists (select from ${wardrobePlan} as owner_active where owner_active.owner_id = ${ownerId} and owner_active.active))`,
+        ),
+      ),
+    )
+    .orderBy(desc(wardrobePlan.createdAt), desc(wardrobePlan.id))
+    .limit(1);
+  return readLooks(db, ownerId, shown);
 }
 
 async function readLooks(
   db: Queryable,
   ownerId: number,
   planId: PlanRef,
-): Promise<PlanLookView[]> {
+): Promise<ShownLooks> {
   const rows = await db
     .select({
       look: {
@@ -907,6 +936,10 @@ async function readLooks(
         agentChangedAt: planLook.agentChangedAt,
         outfitId: planLook.outfitId,
       },
+      // An active plan is not shown as a draft, whoever drafted it first.
+      draftedBy: sql<
+        string | null
+      >`case when ${wardrobePlan.active} then null else ${draftedBySql} end`,
       position: planLookSlot.position,
       category: planLookSlot.category,
       garmentId: garment.id,
@@ -930,12 +963,18 @@ async function readLooks(
     number,
     { look: (typeof rows)[number]['look']; slots: SlotRow[] }
   >();
-  for (const { look, ...slot } of rows) {
+  let draftedBy: string | null = null;
+  for (const { look, draftedBy: drafted, ...slot } of rows) {
+    // One plan, so every row says the same.
+    draftedBy = drafted;
     const read = looks.get(look.id);
     if (read) read.slots.push(slot);
     else looks.set(look.id, { look, slots: [slot] });
   }
-  return [...looks.values()].map(({ look, slots }) => withSlots(look, slots));
+  return {
+    looks: [...looks.values()].map(({ look, slots }) => withSlots(look, slots)),
+    draftedBy,
+  };
 }
 
 /** A slot as read, before its state is derived. */
