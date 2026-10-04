@@ -7,6 +7,13 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { EmptyState } from '../layout/parts';
+import {
+  LOOKS_INIT,
+  LookSaveAction,
+  LookStripTile,
+  LooksStrip,
+} from '../plans/look-tile';
+import type { PlanLookView } from '../plans/looks';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { OutfitCollage } from './collage';
@@ -30,6 +37,11 @@ export interface SavedModel {
    * only while that entry can still change (pickDestination).
    */
   picking?: { destination: DayDestination; choice: DayChoice };
+  /**
+   * The owner's active plan's looks to show above the grid (loved first,
+   * none declined); empty hides the row. Never read while picking.
+   */
+  planLooks: PlanLookView[];
 }
 
 /**
@@ -66,6 +78,7 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
         {model.picking && (
           <PickingHeader destination={model.picking.destination} />
         )}
+        <PlanLooksRow looks={model.planLooks} />
         {model.outfits.length === 0 ? (
           <NoOutfits destination={destination} />
         ) : model.picking ? (
@@ -92,6 +105,36 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
       </main>
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * "From your plan": the active plan's looks as the plan page draws them
+ * (LooksStrip, LookFace), each with Save as outfit while every piece is
+ * owned (or the outfit it became). Edge to edge like the plan page's;
+ * nothing without looks. Static markup: the strip's bytes change only when
+ * a look does, so the tab root stays stable.
+ */
+function PlanLooksRow({ looks }: { looks: PlanLookView[] }) {
+  if (looks.length === 0) return null;
+  return (
+    <div class="-mx-4 mb-2">
+      <LooksStrip
+        id="plan-looks"
+        title={t('outfits.FROM_PLAN_TITLE')}
+        count={looks.length}
+        hint={t('outfits.FROM_PLAN_HINT')}
+      >
+        {looks.map((look, index) => (
+          <LookStripTile look={look} selected={index === 0} eager={index < 2}>
+            <div class="mt-1">
+              <LookSaveAction look={look} />
+            </div>
+          </LookStripTile>
+        ))}
+      </LooksStrip>
+      <script type="module" dangerouslySetInnerHTML={{ __html: LOOKS_INIT }} />
+    </div>
   );
 }
 

@@ -268,7 +268,8 @@ describe('Saved outfits and the outfit page (R5)', () => {
         t.inject({ method: 'GET', url: `/outfits?for=day:${day}` }),
       );
       // #164: the day's entries are a column of the grid's statement.
-      expect(picking.statements).toBe(plain.statements);
+      // The plain tab also reads the plan's looks (#302), which picking skips.
+      expect(picking.statements).toBe(plain.statements - 1);
     });
   });
 

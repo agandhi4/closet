@@ -1,4 +1,13 @@
-import { and, asc, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  ne,
+  sql,
+  type SQL,
+  type SQLWrapper,
+} from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import {
   file,
@@ -232,7 +241,7 @@ function storedFields<T extends Partial<LookFields>>(fields: T): T {
  * plan the owner has not declined. A subquery (uncorrelated, so drizzle's
  * single-table column rendering cannot confuse it; src/db/CLAUDE.md).
  */
-function candidateIdsOf(db: Queryable, planId: number) {
+function candidateIdsOf(db: Queryable, planId: PlanRef) {
   return db
     .select({ garmentId: planItemCandidate.garmentId })
     .from(planItemCandidate)
@@ -848,15 +857,42 @@ export interface PlanLookView {
   outfitId: number | null;
 }
 
+/** A plan's id, or a subquery that selects it (looksOfActivePlan's). */
+type PlanRef = number | SQLWrapper;
+
 /**
  * The looks of `ownerId`'s plan `planId`, oldest first, each slot with its
  * derived state (lookSlotState); none when the plan is not theirs. One
  * statement.
  */
-export async function looksOfPlan(
+export function looksOfPlan(
   db: Queryable,
   ownerId: number,
   planId: number,
+): Promise<PlanLookView[]> {
+  return readLooks(db, ownerId, planId);
+}
+
+/**
+ * The looks of `ownerId`'s active plan (none without one), as looksOfPlan
+ * reads them and in the same one statement: the plan is a subquery, so
+ * the Outfits tab pays no round trip to find it first.
+ */
+export function looksOfActivePlan(
+  db: Queryable,
+  ownerId: number,
+): Promise<PlanLookView[]> {
+  const active = db
+    .select({ id: wardrobePlan.id })
+    .from(wardrobePlan)
+    .where(and(eq(wardrobePlan.ownerId, ownerId), wardrobePlan.active));
+  return readLooks(db, ownerId, active);
+}
+
+async function readLooks(
+  db: Queryable,
+  ownerId: number,
+  planId: PlanRef,
 ): Promise<PlanLookView[]> {
   const rows = await db
     .select({

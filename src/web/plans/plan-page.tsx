@@ -12,12 +12,17 @@ import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { roleGroupLabel } from '../wardrobe/labels';
 import { garmentUrl } from '../wardrobe/urls';
-import { snapItem } from '../strip/snap-strip';
-import { candidateName, DETAILS, isAgentsPick, TILE } from './candidate-tile';
+import { candidateName, DETAILS, isAgentsPick } from './candidate-tile';
 import type { CandidatesByItem } from './candidates';
 import { awaitingReview, byPriority, type PlanGaps } from './gaps';
 import { itemTitle, priorityLabel } from './labels';
-import { LookFace, LookSaveAction, LooksApart, LooksStrip } from './look-tile';
+import {
+  LOOKS_INIT,
+  LookSaveAction,
+  LookStripTile,
+  LooksApart,
+  LooksStrip,
+} from './look-tile';
 import type { LookGroups, PlanLookView } from './looks';
 import type { ClosetGarment, PlanItemRow } from './queries';
 import { type ListedCandidate, listedCandidate } from './shopping';
@@ -673,13 +678,6 @@ function DeclinedList({ items }: { items: PlanItemRow[] }) {
   );
 }
 
-// The shared strip's observer (public/js/snap-strip.js, through the
-// importmap): an inline module, so it runs again after a boosted navigation
-// brings the page and on a fresh load, where nothing else has loaded it. A
-// fixed string with nothing interpolated.
-const LOOKS_INIT = `import { initSnapStrips } from 'snap-strip';
-initSnapStrips(document.getElementById('plan-looks'));`;
-
 /** The plan's Looks strip (#291), edge to edge; nothing without looks in it. */
 function PlanLooks({ looks }: { looks: PlanLookView[] }) {
   if (looks.length === 0) return null;
@@ -711,23 +709,11 @@ function LookPlanTile(props: {
 }) {
   const { look } = props;
   return (
-    <div
-      {...snapItem({
-        value: String(look.id),
-        selected: props.selected,
-        size: 'card',
-        listbox: false,
-        class: TILE,
-      })}
-      id={`look-${look.id}`}
-      data-look={String(look.id)}
-      data-reaction={look.reaction}
-    >
-      <LookFace look={look} eager={props.eager} />
+    <LookStripTile look={look} selected={props.selected} eager={props.eager}>
       <div class={`${DETAILS} mt-1`}>
         <LookMoves look={look} />
       </div>
-    </div>
+    </LookStripTile>
   );
 }
 

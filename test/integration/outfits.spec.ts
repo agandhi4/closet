@@ -475,8 +475,9 @@ describe('outfits', () => {
         expect(ids.length).toBeGreaterThan(3);
         expect(ids).toEqual([...ids].sort((a, b) => b - a));
         // The session's user row, then every outfit with its garments and
-        // the entries' activity (worn counts, next plans) in one (#164).
-        expect((await recordQueries(load)).statements).toBe(2);
+        // the entries' activity (worn counts, next plans) in one (#164),
+        // then the active plan's looks, one more whatever they are (#302).
+        expect((await recordQueries(load)).statements).toBe(3);
       });
     });
   });

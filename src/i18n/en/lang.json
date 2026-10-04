@@ -1072,6 +1072,8 @@
     "PICK_TRIP": "Add to the trip"
   },
   "outfits": {
+    "FROM_PLAN_TITLE": "From your plan",
+    "FROM_PLAN_HINT": "Looks your agent designed from your active plan. Save one as an outfit once every piece is in your closet.",
     "PLANNED_ON": "Planned {day}",
     "WORN_TIMES": "Worn {count}×",
     "PICK_PROMPT": "Tap an outfit to plan it.",

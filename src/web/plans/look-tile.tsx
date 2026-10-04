@@ -5,7 +5,8 @@ import { occasionLabel } from '../calendar/labels';
 import { t } from '../i18n';
 import { type CollagePieceView, OutfitCollage } from '../outfits/collage';
 import { outfitUrl } from '../outfits/urls';
-import { SnapStrip } from '../strip/snap-strip';
+import { SnapStrip, snapItem } from '../strip/snap-strip';
+import { TILE } from './candidate-tile';
 import { type BoughtLook, lookSaveState, type PlanLookView } from './looks';
 import { lookUrl } from './urls';
 
@@ -70,6 +71,8 @@ export function LooksStrip(props: {
   id: string;
   count: number;
   hint: string;
+  /** Defaults to "Looks"; the Outfits tab's row is "From your plan". */
+  title?: string;
   children: Child;
   /** Each tile's strip-wide hooks (`group/<name>`), the review's. */
   class?: string;
@@ -82,7 +85,7 @@ export function LooksStrip(props: {
     >
       <div class="px-4 flex flex-col gap-0.5">
         <h2 id={`${props.id}-title`} class="font-semibold">
-          {t('plans.looks.TITLE')}{' '}
+          {props.title ?? t('plans.looks.TITLE')}{' '}
           <span class="font-normal text-muted">· {props.count}</span>
         </h2>
         <p class="text-xs text-muted">{props.hint}</p>
@@ -96,6 +99,44 @@ export function LooksStrip(props: {
         {props.children}
       </SnapStrip>
     </section>
+  );
+}
+
+// The shared strip's observer (public/js/snap-strip.js, through the
+// importmap): an inline module, so it runs again after a boosted navigation
+// brings the page and on a fresh load, where nothing else has loaded it. A
+// fixed string with nothing interpolated. Used by the plan page and the
+// Outfits tab, both of which render the strip as `#plan-looks`.
+export const LOOKS_INIT = `import { initSnapStrips } from 'snap-strip';
+initSnapStrips(document.getElementById('plan-looks'));`;
+
+/**
+ * A look's tile in a `#plan-looks` strip: its face and, under it, what the
+ * page offers (`children`: the plan page's moves, the Outfits tab's save).
+ */
+export function LookStripTile(props: {
+  look: PlanLookView;
+  selected: boolean;
+  eager: boolean;
+  children: Child;
+}) {
+  const { look } = props;
+  return (
+    <div
+      {...snapItem({
+        value: String(look.id),
+        selected: props.selected,
+        size: 'card',
+        listbox: false,
+        class: TILE,
+      })}
+      id={`look-${look.id}`}
+      data-look={String(look.id)}
+      data-reaction={look.reaction}
+    >
+      <LookFace look={look} eager={props.eager} />
+      {props.children}
+    </div>
   );
 }
 

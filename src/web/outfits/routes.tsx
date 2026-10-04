@@ -9,6 +9,7 @@ import { navigateTo, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { ALREADY_SAVED_FLAG } from '../gallery/urls';
+import { groupLooks, looksOfActivePlan } from '../plans/looks';
 import { stylingUrl } from '../styling/urls';
 import { viewContext } from '../view-context';
 import { type OutfitDestination, parseDestination } from './destination';
@@ -218,12 +219,15 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const day = destination.kind === 'day' ? destination : undefined;
-      const { outfits, activity, choice } = await savedContext(
-        db,
-        ownerId,
-        today,
-        day,
-      );
+      // Picking for a day is its own task: the plan's looks stay out of it.
+      const [{ outfits, activity, choice }, planLooks] = await Promise.all([
+        savedContext(db, ownerId, today, day),
+        day
+          ? []
+          : looksOfActivePlan(db, ownerId).then(
+              (looks) => groupLooks(looks).strip,
+            ),
+      ]);
       if (day?.replace !== undefined && !choice?.replacing) {
         logger.debug(
           `GET /outfits: entry ${day.replace} is not user ${ownerId}'s on ${day.day} (${day.occasion}), picking another`,
@@ -236,6 +240,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           model={{
             outfits,
             activity,
+            planLooks,
             picking:
               day && choice
                 ? { destination: pickDestination(day, choice), choice }

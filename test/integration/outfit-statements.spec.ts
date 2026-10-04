@@ -133,10 +133,13 @@ describe('outfit statements (#164)', () => {
       await newOutfit('Never planned');
       const load = () => t.inject({ method: 'GET', url: '/outfits' });
       const recorded = await recordQueries(load);
-      // The session's user row, then the tiles with their activity.
-      expect(recorded.statements).toBe(2);
+      // The session's user row, the tiles with their activity, and the
+      // active plan's looks (#302: one statement, however many looks).
+      expect(recorded.statements).toBe(3);
       // The tiles read no notes and no share link: the page shows neither.
-      const [read] = recorded.sql.slice(1);
+      const read = recorded.sql
+        .slice(1)
+        .find((text) => text.includes('"outfit"'));
       expect(read).not.toMatch(/"notes"|"shareable_id"/);
       const html = unescapeHtml((await load()).body);
       expect(hasText(html, 'Worn one')).toBe(true);
