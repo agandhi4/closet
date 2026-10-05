@@ -99,3 +99,11 @@ export function candidatesUrl(
 export function garmentPlanItemsUrl(garmentId: number): string {
   return `/wardrobe/${garmentId}/plan-items`;
 }
+
+/**
+ * The id of a candidate's card on the shopping list. Scoped to its item: a
+ * product can be a candidate of two items, and ids must be unique.
+ */
+export function candidateAnchor(itemId: number, garmentId: number): string {
+  return `candidate-${itemId}-${garmentId}`;
+}

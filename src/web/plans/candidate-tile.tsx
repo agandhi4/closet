@@ -99,7 +99,7 @@ function inLooksText({ total, loved }: LookCount): string | null {
  * only the centred one: it is how the options compare, which product
  * unlocks the most outfits, the loved looks said apart.
  */
-function InLooks({ looks }: { looks: LookCount }) {
+export function InLooks({ looks }: { looks: LookCount }) {
   const text = inLooksText(looks);
   if (!text) return null;
   return (

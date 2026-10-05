@@ -3,28 +3,37 @@ import {
   fromCents,
   type ShoppingEntry,
 } from '../../wardrobe/shopping';
+import { imageUrl } from '../files/image-url';
 import { OutfitCountSlot } from '../gallery/goes-with';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { EmptyState } from '../layout/parts';
-import { SnapStrip, snapItem } from '../strip/snap-strip';
+import { CANDIDATE_GRID } from '../layout/columns';
+import { PageMain } from '../layout/page-main';
+import { EmptyState, HangerIcon } from '../layout/parts';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
 import {
-  CandidateFace,
+  AgentsPick,
+  candidateName,
   CandidateNote,
-  DETAILS,
+  InLooks,
+  isAgentsPick,
   PriceLine,
-  TILE,
 } from './candidate-tile';
 import { differencesText, itemFacts, itemTitle, priorityLabel } from './labels';
 import type { PlanDetail, PlanItemRow } from './queries';
 import type { ListedCandidate, PlanShoppingList } from './shopping';
-import { candidatesUrl, PLANS_PATH, planUrl, shoppingUrl } from './urls';
+import {
+  candidateAnchor,
+  candidatesUrl,
+  PLANS_PATH,
+  planUrl,
+  shoppingUrl,
+} from './urls';
 
 export interface ShoppingPageModel {
   /** The plan shown; undefined when the owner has no active plan (and asked for none). */
@@ -34,21 +43,15 @@ export interface ShoppingPageModel {
 
 type Entry = ShoppingEntry<PlanItemRow, ListedCandidate>;
 
-// The shared strip's observer (public/js/snap-strip.js): an inline module, so
-// it runs again after a boosted navigation brings the page (a <script src>
-// module runs once per document). A fixed string with nothing interpolated.
-const SHOPPING_INIT = `import { initSnapStrips } from 'snap-strip';
-initSnapStrips(document.getElementById('shopping-list'));`;
-
 /**
  * GET /wardrobe/shopping (34b): what the owner opens in a store. The active
  * plan's missing and partly owned items (another plan's with `?plan=`),
  * the highest priority first, each with how many to buy, the budget per
- * piece and its candidate products as a snap strip (#272, the plan
- * review's pattern): the centred tile carries its price against the
- * budget, the product link and "Bought it". At the top what it all adds up
- * to and "Style with my closet". Phone-first: one column of cards, every
- * action a plain link. A candidate is added from the item ("Add a product"
+ * piece and its candidate products as a grid of cards in the plan's item
+ * view language (#316): a large photo, the name, one price line against the
+ * budget, the product link and "Bought it"; two across on a phone, four at
+ * `lg`. At the top what it all adds up to and "Style with my closet".
+ * Every action a plain link. A candidate is added from the item ("Add a product"
  * when it has none: a link, a photo, or something already on the
  * wishlist). Private: the signed-in owner's.
  */
@@ -66,7 +69,7 @@ export function ShoppingPage(props: {
         title={t('shopping.TITLE')}
         back={plan ? planUrl(plan.id) : PLANS_PATH}
       />
-      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-4">
+      <PageMain width="wide" class="p-4 pt-20 pb-24 flex flex-col gap-4">
         {plan && (
           <p class="text-sm text-muted truncate">
             <a href={planUrl(plan.id)} class="link link-hover">
@@ -105,18 +108,14 @@ export function ShoppingPage(props: {
                 {t('plans.STYLE_WITH_CLOSET')}
               </a>
             )}
-            <ul class="flex flex-col gap-3" id="shopping-list">
+            <ul class="flex flex-col gap-4" id="shopping-list">
               {list.entries.map((entry) => (
                 <ItemCard entry={entry} plan={plan} />
               ))}
             </ul>
-            <script
-              type="module"
-              dangerouslySetInnerHTML={{ __html: SHOPPING_INIT }}
-            />
           </>
         )}
-      </main>
+      </PageMain>
       <Dock ctx={ctx} />
     </Layout>
   );
@@ -199,23 +198,18 @@ function ItemCard(props: { entry: Entry; plan: PlanDetail }) {
         {item.note && <p class="text-xs italic">{item.note}</p>}
       </div>
       {entry.candidates.length > 0 && (
-        // Full card width (the body's padding undone), so the end spacers can
-        // centre the first and last tile. Not a listbox, and no input: the
-        // tiles hold links (an `option` hides them from screen readers) and
-        // the list has no form to post a choice.
-        <SnapStrip
-          size="regular"
-          listbox={false}
-          label={t('shopping.STRIP_LABEL', { item: itemTitle(item) })}
+        <ul
+          class={`${CANDIDATE_GRID} px-3 pt-2`}
+          aria-label={t('shopping.STRIP_LABEL', { item: itemTitle(item) })}
         >
-          {entry.candidates.map(({ candidate, budget }, index) => (
-            <CandidateTile
+          {entry.candidates.map(({ candidate, budget }) => (
+            <CandidateCard
+              itemId={item.id}
               candidate={candidate}
               budget={budget}
-              selected={index === 0}
             />
           ))}
-        </SnapStrip>
+        </ul>
       )}
       <div class="card-body p-3 gap-2">
         {entry.candidates.length === 0 && (
@@ -238,33 +232,52 @@ function ItemCard(props: { entry: Entry; plan: PlanDetail }) {
 }
 
 /**
- * A candidate as a tile of the item's strip: its photo and name (a link to
- * its wishlist page) and, under the centred one, its price against the
- * budget, whether it is the kind the item asks for, how many outfits it
- * makes with the closet (loaded once seen), the product link and "Bought
- * it". A `div`, not a link, so the count's own link is not nested in one.
+ * A candidate as a card of the item's grid, in the item view's language: a
+ * large photo and its name (a link to its wishlist page), then one price
+ * line against the budget, and what else helps the choice (kind mismatch,
+ * the agent's note, outfits it makes) with the product link and "Bought
+ * it". The photo is its own `<span>` inside the link, the element a viewer
+ * can later opt into. The `id` is where Today's next-step card lands.
  */
-function CandidateTile(props: {
+function CandidateCard(props: {
+  itemId: number;
   candidate: ListedCandidate;
   budget: BudgetFit;
-  selected: boolean;
 }) {
-  const { candidate, budget, selected } = props;
+  const { itemId, candidate, budget } = props;
   return (
-    <div
-      {...snapItem({
-        value: String(candidate.garmentId),
-        selected,
-        size: 'regular',
-        listbox: false,
-        class: TILE,
-      })}
-      id={`candidate-${candidate.garmentId}`}
+    <li
+      class="flex flex-col gap-1 scroll-mt-20"
+      id={candidateAnchor(itemId, candidate.garmentId)}
       data-budget={budget}
       data-matches={String(candidate.matches)}
     >
-      <CandidateFace candidate={candidate} selected={selected} />
-      <span class={DETAILS}>
+      <a
+        href={garmentUrl(candidate.garmentId, undefined)}
+        class="flex flex-col gap-1 no-underline"
+      >
+        <span class="aspect-square w-full rounded-box bg-base-200 flex items-center justify-center p-2">
+          {candidate.photo ? (
+            <img
+              src={imageUrl(candidate.photo, 'thumb')}
+              alt=""
+              class="max-h-full max-w-full object-contain"
+              width="400"
+              height="400"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <HangerIcon class="size-10 text-faint" strokeWidth="1" />
+          )}
+        </span>
+        <span class="text-sm font-medium truncate">
+          {candidateName(candidate)}
+        </span>
+      </a>
+      <span class="text-xs text-muted flex flex-col gap-0.5">
+        {isAgentsPick(candidate) && <AgentsPick />}
+        <InLooks looks={candidate.looks} />
         {candidate.brand && <span>{candidate.brand}</span>}
         <PriceLine candidate={candidate} budget={budget} />
         <CandidateNote candidate={candidate} />
@@ -275,7 +288,9 @@ function CandidateTile(props: {
             })}
           </span>
         )}
-        <OutfitCountSlot garmentId={candidate.garmentId} inStrip />
+        <OutfitCountSlot garmentId={candidate.garmentId} />
+      </span>
+      <span class="flex flex-wrap gap-1 pt-1">
         {candidate.sourceUrl && (
           // http(s) only (readSourceUrl and the column's check); a new tab,
           // as on the garment page.
@@ -295,6 +310,6 @@ function CandidateTile(props: {
           {t('wishlist.BOUGHT_IT')}
         </a>
       </span>
-    </div>
+    </li>
   );
 }

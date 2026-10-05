@@ -502,12 +502,12 @@ describe('goes with my closet', () => {
       // into view, so the page's cost is the list's whatever its length.
       const res = await get(`/wardrobe/shopping?plan=${planId}`);
       expect(res.statusCode).toBe(200);
-      const row = new RegExp(`id="candidate-${sweater}"[^]*?</li>`).exec(
+      const row = new RegExp(`id="candidate-\\d+-${sweater}"[^]*?</li>`).exec(
         unescapeHtml(res.body),
       )![0];
       expect(row).not.toContain('Goes with');
       expect(row).toContain(`hx-get="/wardrobe/${sweater}/outfit-count"`);
-      expect(row).toContain('hx-trigger="intersect once"');
+      expect(row).toContain('hx-trigger="revealed"');
       const chip = await t.inject({
         method: 'GET',
         url: `/wardrobe/${sweater}/outfit-count`,

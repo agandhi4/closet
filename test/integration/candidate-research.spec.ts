@@ -401,15 +401,20 @@ describe('candidate research notes', () => {
       expect(page).toContain('Agent’s pick');
     });
 
-    it('the shopping strip opens on the pick and shows its note', async () => {
+    it('the shopping list leads with the pick and shows its note', async () => {
       await post(
         `/wardrobe/plans/${ranked.plan}/items/${ranked.item}/accept`,
         {},
       );
       await post(`/wardrobe/plans/${ranked.plan}/activate`, {});
       const page = await get(`/wardrobe/shopping?plan=${ranked.plan}`);
-      expect(page).toMatch(
-        new RegExp(`data-snap-value="${ranked.pick}" data-selected`),
+      expect(
+        page.indexOf(`id="candidate-${ranked.item}-${ranked.pick}"`),
+      ).toBeGreaterThan(0);
+      expect(
+        page.indexOf(`id="candidate-${ranked.item}-${ranked.pick}"`),
+      ).toBeLessThan(
+        page.indexOf(`id="candidate-${ranked.item}-${ranked.other}"`),
       );
       expect(page).toContain('Italian leather, true to size');
       expect(page.match(/data-agents-pick/g)).toHaveLength(1);

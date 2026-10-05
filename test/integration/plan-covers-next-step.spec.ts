@@ -5,6 +5,7 @@ import {
   file,
   garment,
   personalAccessToken,
+  planItemCandidate,
   wardrobePlan,
 } from '../../src/db/schema';
 import { changeCandidates } from '../../src/web/plans/candidates';
@@ -122,6 +123,14 @@ describe('plan covers and the next step (#302)', () => {
     });
     return ids;
   };
+
+  const itemOf = async (garmentId: number) =>
+    (
+      await t.db
+        .select({ itemId: planItemCandidate.planItemId })
+        .from(planItemCandidate)
+        .where(eq(planItemCandidate.garmentId, garmentId))
+    )[0].itemId;
 
   const look = async (
     ownerId: number,
@@ -306,10 +315,11 @@ describe('plan covers and the next step (#302)', () => {
       const [first] = await candidatesFor(o.ownerId, planId, 'footwear', [
         'Suede loafers',
       ]);
+      const firstItem = await itemOf(first);
       const [second] = await candidatesFor(o.ownerId, planId, 'outerwear', [
         'Wool coat',
       ]);
-      return { ...o, planId, top, bottom, first, second };
+      return { ...o, planId, top, bottom, first, firstItem, second };
     };
     const today = async (cookie: string) =>
       unescapeHtml((await get('/', cookie)).body);
@@ -328,9 +338,38 @@ describe('plan covers and the next step (#302)', () => {
       expectFullPage(await get('/', f.cookie));
       expect(html).toContain('Suede loafers completes your loved look');
       expect(html).toContain(`data-next-purchase="${f.first}"`);
-      expect(html).toMatch(
-        /data-next-purchase="\d+"[\s\S]*href="\/wardrobe\/shopping"/,
+      // The anchor is the product's own card on the shopping page.
+      expect(html).toContain(
+        `href="/wardrobe/shopping#candidate-${f.firstItem}-${f.first}"`,
       );
+    });
+
+    it('anchors on the card of the item, when one product is a candidate of two', async () => {
+      const f = await fixture();
+      const [one, two] = (await addItems(
+        t.db,
+        f.ownerId,
+        f.planId,
+        [item('bags'), item('bags')],
+        { review: 'accepted' },
+      ))!;
+      const tote = await newGarment(f.ownerId, 'wishlist', 'bags', 'Tote');
+      await changeCandidates(t.db, f.ownerId, {
+        add: { itemIds: [one, two], garmentIds: [tote] },
+      });
+      await love(
+        f.ownerId,
+        f.planId,
+        await look(f.ownerId, f.planId, 'Bag look', [f.top, f.bottom, tote]),
+      );
+      const html = await today(f.cookie);
+      const anchor = `candidate-${one}-${tote}`;
+      expect(html).toContain(`href="/wardrobe/shopping#${anchor}"`);
+      const shopping = unescapeHtml(
+        (await get('/wardrobe/shopping', f.cookie)).body,
+      );
+      expect(shopping.match(new RegExp(`id="${anchor}"`, 'g'))).toHaveLength(1);
+      expect(shopping).toContain(`id="candidate-${two}-${tote}"`);
     });
 
     it('picks the product in the most loved looks, then the most looks, then the lowest id', async () => {

@@ -553,6 +553,8 @@ function completedLookCountSql(ownerId: number): SQL<number> {
 /** The product to buy next: the one that completes the most loved looks of the active plan. */
 export interface NextPurchase {
   garmentId: number;
+  /** The item the shopping list shows it under (the first still to buy), for the card's anchor. */
+  itemId: number;
   name: string | null;
   category: string;
   /** Loved looks it completes (completedLookCountSql, never zero). */
@@ -560,7 +562,7 @@ export interface NextPurchase {
 }
 
 /** A loved-look product of the active plan, ranked, with the accepted items it is a candidate of. */
-export interface RankedPurchase extends NextPurchase {
+export interface RankedPurchase extends Omit<NextPurchase, 'itemId'> {
   planId: number;
   itemIds: number[];
 }
@@ -619,16 +621,18 @@ export async function nextPurchaseOf(
 ): Promise<NextPurchase | null> {
   if (ranked.length === 0) return null;
   const toBuy = await itemsToBuy(db, ranked[0].planId, ownerId);
-  const next = ranked.find((purchase) =>
-    purchase.itemIds.some((id) => toBuy.has(id)),
-  );
-  if (!next) return null;
-  return {
-    garmentId: next.garmentId,
-    name: next.name,
-    category: next.category,
-    completes: next.completes,
-  };
+  for (const next of ranked) {
+    const itemId = next.itemIds.find((id) => toBuy.has(id));
+    if (itemId === undefined) continue;
+    return {
+      garmentId: next.garmentId,
+      itemId,
+      name: next.name,
+      category: next.category,
+      completes: next.completes,
+    };
+  }
+  return null;
 }
 
 /**
