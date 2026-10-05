@@ -1177,9 +1177,17 @@
     "NOT_SAVED": "Not saved: {reasons}.",
     "GONE_ARCHIVED": "{name} is archived",
     "GONE_WISHLIST": "{name} is on your wishlist, not bought yet",
+    "GONE_WISHLIST_HELD": "{name} is not bought yet, and this outfit is planned or on a trip",
     "GONE_ONE": "a garment you chose is no longer in your wardrobe",
     "GONE_MANY": "{count} garments you chose are no longer in your wardrobe",
-    "UNNAMED_GARMENT": "An unnamed garment"
+    "UNNAMED_GARMENT": "An unnamed garment",
+    "INCOMPLETE": "Buy {pieces} first: an outfit with pieces not bought yet can’t be planned or packed.",
+    "TO_BUY": "{count} pieces to buy",
+    "TO_BUY_ONE": "1 piece to buy",
+    "BUY_FIRST": "Buy {count} pieces first",
+    "BUY_FIRST_ONE": "Buy 1 piece first",
+    "TO_WEAR_TITLE": "To wear this, buy",
+    "NOT_BOUGHT": "Not bought yet"
   },
   "insights": {
     "TITLE": "Insights",

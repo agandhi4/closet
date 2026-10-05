@@ -20,6 +20,8 @@ import type {
   PlannedDay,
   WornDay,
 } from './queries';
+import { piecesToBuy } from './references';
+import { ToBuySection } from './to-buy';
 import { outfitUrl } from './urls';
 
 const PLAN_SHEET_ID = 'outfit-plan-sheet';
@@ -28,7 +30,10 @@ const OPEN_PLAN_SHEET = `document.getElementById('${PLAN_SHEET_ID}').showModal()
 /**
  * GET /outfits/:id (redesign plan, "Outfits"; R5): the outfit as a record,
  * not an event. The collage, then its two actions, Plan (a sheet: a day and
- * an occasion, POST /calendar) and Edit in Styling (#42); then what its
+ * an occasion, POST /calendar) and Edit in Styling (#42); while it is
+ * incomplete (#335: pieces not bought yet, so never planned) the pieces to
+ * buy come first and Plan is not offered (Styling keeps a piece to buy as
+ * the row it is, so an edit can rename the outfit or swap a piece); then what its
  * calendar entries say, read rather than stored (plan section 1): the days
  * it is planned for, the days it was worn with their selfies (#19); then its
  * garments, each opening its page. Share and Delete are in the app bar's ⋯
@@ -46,6 +51,7 @@ export function OutfitPage(props: {
 }) {
   const { ctx, outfit, entries } = props;
   const name = outfit.name || t('UNTITLED_OUTFIT');
+  const toBuy = piecesToBuy(outfit.garments);
   return (
     <Layout ctx={ctx} title={name}>
       <AppBar
@@ -61,21 +67,25 @@ export function OutfitPage(props: {
         ) : (
           <p class="text-muted text-sm italic">{t('OUTFIT_NO_GARMENTS')}</p>
         )}
+        {toBuy.length > 0 && <ToBuySection pieces={toBuy} />}
         <div class="flex gap-2">
-          <button
-            type="button"
-            class="btn btn-primary flex-1"
-            onclick={OPEN_PLAN_SHEET}
-            data-outfit-plan=""
-          >
-            {t('outfits.PLAN')}
-          </button>
+          {toBuy.length === 0 && (
+            <button
+              type="button"
+              class="btn btn-primary flex-1"
+              onclick={OPEN_PLAN_SHEET}
+              data-outfit-plan=""
+            >
+              {t('outfits.PLAN')}
+            </button>
+          )}
           <a
             href={stylingUrl({
               outfitId: outfit.id,
               returnTo: outfitUrl(outfit.id),
             })}
             class="btn btn-outline flex-1"
+            data-outfit-edit=""
           >
             {t('outfits.EDIT')}
           </a>
@@ -88,7 +98,9 @@ export function OutfitPage(props: {
         )}
         {outfit.garments.length > 0 && <GarmentList outfit={outfit} />}
       </main>
-      <PlanSheet outfitId={outfit.id} today={props.today} />
+      {toBuy.length === 0 && (
+        <PlanSheet outfitId={outfit.id} today={props.today} />
+      )}
       <AlreadySavedToast shown={props.alreadySaved === true} />
       <Dock ctx={ctx} />
     </Layout>

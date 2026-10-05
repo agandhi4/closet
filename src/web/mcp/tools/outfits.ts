@@ -23,6 +23,7 @@ import {
   OUTFIT_NOTES_MAX,
   type OutfitSummary,
 } from '../../outfits/queries';
+import { piecesToBuy } from '../../outfits/references';
 import { defineTool } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
 
@@ -34,6 +35,8 @@ function outfitOut(outfit: OutfitSummary) {
     name: outfit.name,
     notes: outfit.notes,
     garments: outfit.garments.map(({ id, name }) => ({ id, name })),
+    // Incomplete (#335): it cannot be planned or packed until these are bought.
+    toBuy: piecesToBuy(outfit.garments).map(({ id, name }) => ({ id, name })),
   };
 }
 
@@ -63,7 +66,7 @@ export const outfitTools = [
     name: 'list_outfits',
     title: 'List my outfits',
     description:
-      'Your saved outfits, newest first, each with its garments in the order it was built.',
+      'Your saved outfits, newest first, each with its garments in the order it was built. toBuy lists the garments it holds that are not bought yet (wishlist items): an outfit with any is incomplete, and cannot be planned, added to a trip or worn until they are bought.',
     input: z.object({}),
     writes: false,
     async run(_args, ctx) {
@@ -75,7 +78,8 @@ export const outfitTools = [
   defineTool({
     name: 'get_outfit',
     title: 'Get an outfit',
-    description: 'One of your outfits: its name, notes and garments.',
+    description:
+      'One of your outfits: its name, notes and garments, and toBuy: its garments not bought yet (an incomplete outfit cannot be planned, added to a trip or worn).',
     input: z.object({ id: rowId().describe('The outfit id.') }),
     writes: false,
     async run({ id }, ctx) {
@@ -89,7 +93,7 @@ export const outfitTools = [
     name: 'create_outfit',
     title: 'Create an outfit',
     description:
-      'WRITES: saves a new outfit of your own garments, in the order given (outer layer, top, bottom, shoes, accessories reads best), optionally planned on a day as schedule_outfit would. Garments must be in your own wardrobe, owned (clone a shared one first in the app; a wishlist item is refused): nothing is saved if any is not. If you already have an outfit of exactly these garments it is the answer (alreadySaved: true, its own name and notes kept, nothing created), planned when a date is given, so a retry creates nothing.',
+      'WRITES: saves a new outfit of your own garments, in the order given (outer layer, top, bottom, shoes, accessories reads best), optionally planned on a day as schedule_outfit would. Garments must be in your own wardrobe (clone a shared one first in the app): nothing is saved if any is not. Wishlist items may be in it: the outfit is then incomplete, and cannot be planned (a scheduleDate is refused, nothing saved) until they are bought. If you already have an outfit of exactly these garments it is the answer (alreadySaved: true, its own name and notes kept, nothing created), planned when a date is given, so a retry creates nothing.',
     input: z.object({
       garmentIds: z
         .array(rowId())
@@ -109,11 +113,12 @@ export const outfitTools = [
     async run({ garmentIds, name, notes, scheduleDate, occasion }, ctx) {
       // Each slot is its garment's category, as Styling saves them, read
       // for every garment in one statement (#172: it was one per garment).
-      // A garment the caller does not own (another's, deleted, a wishlist
-      // item) refuses the save, named from the same read, as the pages
-      // refuse it (#219); createOutfit checks again as it writes.
+      // A garment not the caller's (another's, deleted) refuses the save,
+      // named from the same read, as the pages refuse it (#219). A new
+      // outfit holds wishlist items too (#335: incomplete); createOutfit
+      // checks again as it writes, and refuses planning one.
       const garments = await namedGarments(ctx.db, ctx.userId, garmentIds);
-      const gone = goneOf(garments, garmentIds, 'owned');
+      const gone = goneOf(garments, garmentIds, 'considered');
       if (gone.length > 0) throw new OutfitGarmentsGone(gone);
       const plan = scheduleDate
         ? { day: scheduleDate, occasion: occasion ?? DEFAULT_OCCASION }
@@ -141,7 +146,7 @@ export const outfitTools = [
     name: 'schedule_outfit',
     title: 'Plan an outfit on a day',
     description:
-      "WRITES: plans one of your outfits on a calendar day, for an occasion (the part of the day). A day can hold several outfits (office, then dinner); the same outfit is on a day once, so planning it again changes nothing and it keeps the occasion it has (returned). With replaceEntryId (an entry id from get_calendar or get_today, on that date): changes that entry's outfit instead of adding one, keeping its day and occasion (occasion, if given, must be the entry's); it becomes your choice (plannedBy user), an outfit Plan my week created for it and nothing else uses is removed, and a selfie of it stays on the day as a look. Refused, with nothing changed, when the entry is marked worn (it is the record of that day: add another outfit instead) or the outfit is already on that day. To put an idea from suggest_outfits there, save it first with pick_outfit (no date). Safe to retry.",
+      "WRITES: plans one of your outfits on a calendar day, for an occasion (the part of the day). A day can hold several outfits (office, then dinner); the same outfit is on a day once, so planning it again changes nothing and it keeps the occasion it has (returned). With replaceEntryId (an entry id from get_calendar or get_today, on that date): changes that entry's outfit instead of adding one, keeping its day and occasion (occasion, if given, must be the entry's); it becomes your choice (plannedBy user), an outfit Plan my week created for it and nothing else uses is removed, and a selfie of it stays on the day as a look. Refused, with nothing changed, when the entry is marked worn (it is the record of that day: add another outfit instead), the outfit is already on that day, or it is incomplete (toBuy in list_outfits: buy those first). To put an idea from suggest_outfits there, save it first with pick_outfit (no date). Safe to retry.",
     input: z.object({
       outfitId: rowId(),
       date: isoDate().describe('The day, YYYY-MM-DD.'),

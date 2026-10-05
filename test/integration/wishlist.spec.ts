@@ -23,8 +23,9 @@ import {
  * (by hand, from a link, as a replacement), "Bought it", and the rule that
  * makes it work: inCloset is the one predicate of every closet read, so a
  * wishlist item is absent from the grid, the outfit builder, capsules,
- * laundry and tagging, and cannot be worn, washed, lent, put in an outfit
- * or a capsule until it is bought. Shared like the rest of the wardrobe: a
+ * laundry and tagging, and cannot be worn, washed, lent, put in a capsule
+ * or in a planned outfit until it is bought (an outfit nothing holds may
+ * hold it, incomplete: #335). Shared like the rest of the wardrobe: a
  * VIEW grantee reads the wishlist, a MANAGE grantee adds and buys, only the
  * owner archives what a purchase replaces.
  */
@@ -220,16 +221,17 @@ describe('the wishlist', () => {
       expect((await garmentRow(t, charcoal))?.lastWashedOn).toBeNull();
     });
 
-    it('an outfit save refuses it, naming it, and writes nothing (#219)', async () => {
+    it('an outfit holds it only unplanned: a save planned on a day refuses it, naming it, and writes nothing (#219, #335)', async () => {
       const before = await t.db.$count(outfitSlot);
       const res = await post('/outfits', {
         name: 'Wishful',
         category: ['tops', 'bottoms'],
         garmentId: [String(charcoal), String(jeans)],
+        scheduleDate: t.today(),
       });
       expect(res.statusCode).toBe(409);
       expect(unescapeHtml(res.body)).toContain(
-        'Not saved: Charcoal merino is on your wishlist, not bought yet.',
+        'Buy Charcoal merino first: an outfit with pieces not bought yet can’t be planned or packed.',
       );
       expect(await t.db.$count(outfitSlot)).toBe(before);
     });

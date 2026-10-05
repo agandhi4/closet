@@ -20,7 +20,7 @@ Linked from `CLAUDE.md` in this directory (Wishlist). Phase 1 of epic #332 (#333
 
 ## What reads what
 
-- **Closet reads keep `inCloset`**: no suggestion, in any state, is in the grid, Styling, capsules, laundry, tagging, Ideas, Today, insights or MCP's closet tools, and none can be worn, washed, lent or put in an outfit.
+- **Closet reads keep `inCloset`**: no suggestion, in any state, is in the grid, Styling, capsules, laundry, tagging, Ideas, Today, insights or MCP's closet tools, and none can be worn, washed, lent or planned (an outfit holds one only incomplete: Outfits).
 - **Lists of things to buy read `wanted`** (`src/web/wardrobe/status.ts`: on the wishlist and not set aside): the Wishlist tab, `list_wishlist`, plans' candidate readers (the shopping list, Today's next purchase, covers, Styling's To-buy row; and a plan look's pieces, `candidateIdsOf` and `lookSlotsSql`, so a look holding one set aside shows it missing). A garment's own page, "Bought it" and goes-with keep `onWishlist`. The plans' candidate cap counts `wanted` picks too, so one set aside (its link kept) frees its slot.
 
 ## The screens (PR B; the doc's section 4 D, C, F)

@@ -422,14 +422,26 @@ describe('outfit saves', () => {
     });
 
     it('create_outfit and pick_outfit refuse the same way, naming what they can', async () => {
+      // A pick wears what is in the closet: a wishlist item is named. (A
+      // slot write holds one, incomplete: incomplete-outfits.spec.ts.)
       const wish = await createWishlistItem(t, { name: 'Silk scarf' });
-      const wished = await callTool(t, token, 'create_outfit', {
+      const wished = await callTool(t, token, 'pick_outfit', {
         garmentIds: [top, wish],
       });
       expect(wished).toEqual({
         isError: true,
         value: {
           error: 'Not saved: Silk scarf is on your wishlist, not bought yet.',
+        },
+      });
+      const foreign = await callTool(t, token, 'create_outfit', {
+        garmentIds: [top, 2147483000],
+      });
+      expect(foreign).toEqual({
+        isError: true,
+        value: {
+          error:
+            'Not saved: a garment you chose is no longer in your wardrobe.',
         },
       });
       await setGarmentStatus(t.db, bottom, t.owner.id, { event: 'archive' });

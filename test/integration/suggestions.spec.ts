@@ -707,7 +707,7 @@ describe('suggestions', () => {
       ]);
     });
 
-    it('cannot be worn, washed or lent, nor saved in an outfit', async () => {
+    it('cannot be worn, washed or lent, nor planned in an outfit', async () => {
       for (const id of [open, chosen, setAside, lone]) {
         for (const [action, payload] of [
           ['wear', { worn: '1' }],
@@ -718,11 +718,14 @@ describe('suggestions', () => {
           expect(res.statusCode, `${action} ${id}`).toBe(409);
         }
       }
+      // An outfit holds one only incomplete, never planned (#335;
+      // incomplete-outfits.spec.ts): a save planned on a day writes nothing.
       const before = await t.db.$count(outfitSlot);
       const res = await post('/outfits', {
         name: 'With a pick',
         category: ['tops', 'bottoms'],
         garmentId: [String(chosen), String(jeans)],
+        scheduleDate: t.today(),
       });
       expect(res.statusCode).toBe(409);
       expect(await t.db.$count(outfitSlot)).toBe(before);

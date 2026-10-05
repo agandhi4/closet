@@ -219,7 +219,7 @@ export const tripTools = [
     name: 'plan_trip_outfit',
     title: 'Add an outfit to a trip',
     description:
-      'WRITES: adds an outfit to one of your trips, optionally for one of its days (date) and an occasion: either a saved outfit (outfitId, from list_outfits) or an idea from suggest_outfits (garmentIds: saved as an outfit named after its garments unless you give a name, or reused when you already have one of exactly these garments). Exactly one of the two. The packing list (get_trip) follows. Safe to retry: the same outfit on the same day (or without a day) is on the trip once, and keeps the occasion it has.',
+      'WRITES: adds an outfit to one of your trips, optionally for one of its days (date) and an occasion: either a saved outfit (outfitId, from list_outfits) or an idea from suggest_outfits (garmentIds: saved as an outfit named after its garments unless you give a name, or reused when you already have one of exactly these garments). Exactly one of the two. An incomplete outfit (toBuy in list_outfits) is refused until its pieces are bought. The packing list (get_trip) follows. Safe to retry: the same outfit on the same day (or without a day) is on the trip once, and keeps the occasion it has.',
     input: z.object({
       tripId: rowId().describe('The trip, from list_trips.'),
       outfitId: rowId().optional().describe('A saved outfit of yours.'),

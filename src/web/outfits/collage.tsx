@@ -1,8 +1,10 @@
 import { categoryRole, type GarmentRole } from '../../wardrobe/properties';
+import type { GarmentStatus } from '../../wardrobe/status';
 import { type SignablePhotoRef, imageUrl } from '../files/image-url';
 import { viewerTrigger } from '../files/photo-viewer';
 import { t } from '../i18n';
 import { HangerIcon } from '../layout/parts';
+import { isPieceToBuy } from './references';
 
 /**
  * An outfit laid out the way clothes lie on a bed: the layer and top side
@@ -18,10 +20,11 @@ import { HangerIcon } from '../layout/parts';
  */
 
 /**
- * A plan look's piece that is not simply owned (#291): `to-buy`, a
- * candidate product of the plan (its photo with Styling's To buy badge), or
- * `missing`, a slot holding nothing the look can use (a dashed place where
- * its role goes). An outfit's garments carry none.
+ * A piece that is not simply owned: `to-buy`, a plan look's candidate
+ * product (#291) or an incomplete outfit's piece not bought yet (#335; an
+ * outfit's garment with its status, marked by the collage itself: markOf),
+ * drawn with Styling's To buy badge; or `missing`, a look's slot holding
+ * nothing it can use (a dashed place where its role goes).
  */
 export type CollageMark = 'to-buy' | 'missing';
 
@@ -31,7 +34,7 @@ export type CollageMark = 'to-buy' | 'missing';
  * wrong slide.
  */
 export function inViewerSet(piece: CollagePieceView): boolean {
-  return piece.photo !== null && piece.mark !== 'missing';
+  return piece.photo !== null && markOf(piece) !== 'missing';
 }
 
 /** What the collage draws of a piece; a look's emptied slot has no garment id. */
@@ -40,6 +43,16 @@ export interface CollagePieceView {
   category: string;
   photo: SignablePhotoRef | null;
   mark?: CollageMark;
+  /** An outfit's garment's: a wishlist one is drawn as `to-buy`. */
+  status?: GarmentStatus;
+}
+
+/** The piece's mark: its own (a look's), or `to-buy` for an outfit's piece not bought yet. */
+function markOf(piece: CollagePieceView): CollageMark | undefined {
+  if (piece.mark) return piece.mark;
+  return piece.status && isPieceToBuy({ status: piece.status })
+    ? 'to-buy'
+    : undefined;
 }
 
 export interface CollageGarment extends CollagePieceView {
@@ -200,7 +213,8 @@ function CollagePiece(props: {
   words: boolean;
 }) {
   const { garment, words } = props;
-  if (garment.mark === 'missing') {
+  const mark = markOf(garment);
+  if (mark === 'missing') {
     return (
       <span
         class={`${props.class} aspect-square max-w-full rounded-box border border-dashed border-warning flex items-center justify-center p-1`}
@@ -217,17 +231,12 @@ function CollagePiece(props: {
     );
   }
   const face = <CollageFace {...props} />;
-  if (garment.mark !== 'to-buy') return face;
+  if (mark !== 'to-buy') return face;
   return (
     <span class="relative flex justify-center max-w-full">
       {face}
       {words ? (
-        <span
-          class="badge badge-accent badge-xs absolute bottom-0 left-1/2 -translate-x-1/2 whitespace-nowrap"
-          data-to-buy=""
-        >
-          {t('plans.looks.TO_BUY')}
-        </span>
+        <ToBuyBadge />
       ) : (
         <span
           class="absolute bottom-0 right-0 size-2 rounded-full bg-accent"
@@ -236,6 +245,21 @@ function CollagePiece(props: {
           <span class="sr-only">{t('plans.looks.TO_BUY')}</span>
         </span>
       )}
+    </span>
+  );
+}
+
+/**
+ * Styling's To buy badge over a piece's foot (its parent is `relative`):
+ * the collage's pieces and the public share page's thumbs.
+ */
+export function ToBuyBadge() {
+  return (
+    <span
+      class="badge badge-accent badge-xs absolute bottom-0 left-1/2 -translate-x-1/2 whitespace-nowrap"
+      data-to-buy=""
+    >
+      {t('plans.looks.TO_BUY')}
     </span>
   );
 }

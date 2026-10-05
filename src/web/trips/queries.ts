@@ -11,6 +11,12 @@ import type { Occasion } from '../../wardrobe/occasions';
 import type { Location } from '../../weather/location';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
 import { pickIdea, type PickResult } from '../gallery/ideas';
+import { OutfitIncomplete } from '../outfits/gone-garments';
+import {
+  outfitIsComplete,
+  type PieceToBuy,
+  piecesToBuySql,
+} from '../outfits/references';
 import { intArray, lockedTripCte, lockTrip, prunePacked } from './packed';
 
 /**
@@ -316,7 +322,9 @@ type TripRefusal = 'no-trip' | 'not-a-trip-day';
  * Inserts the trip outfit once (the partial unique indexes: the same outfit
  * on the same day, or without a day, is there already). The caller holds
  * the trip's lock and has checked the outfit is the owner's and the day the
- * trip's.
+ * trip's. Only pickForTrip's: its outfit is a pick of closet garments, so
+ * complete (src/web/outfits/references.ts); a saved outfit goes through
+ * addTripOutfit, which judges that.
  */
 async function insertTripOutfit(
   tx: Queryable,
@@ -364,56 +372,74 @@ async function lockTripFor(
  * Adds the owner's saved outfit to their trip, for a day and occasion when
  * given (the add page, plan_trip_outfit). Idempotent: the same outfit on the
  * same day (or without one) again adds nothing and keeps the occasion it
- * has ('already'), the calendar's rule. One statement (lockedTripCte): the
- * insert happens only for the owner's outfit on a day of the locked trip,
- * and the refusal is told from what it read, in the order the checks were
- * made one by one: the trip, the day, the outfit.
+ * has ('already'), the calendar's rule. The refusal is told in the order
+ * the checks were made one by one: the trip, the day, the outfit; and an
+ * incomplete outfit (#335: a piece not bought yet, src/web/outfits/
+ * references.ts) throws OutfitIncomplete, nothing added.
  *
- * The outfit is read from outside the trip, so the statement's snapshot
- * (taken before it waited for the trip lock) may still hold one deleted
- * meanwhile: `owned` locks it FOR KEY SHARE (what the insert's foreign key
- * takes anyway), and a row locked after a wait is read again, so a deleted
- * outfit drops out and the answer is 'no-outfit', never the foreign key's
- * 500. `exists (select 1 from locked)` is a one-time filter that takes the
- * trip lock before the outfit's, the order every trip write keeps
- * (deleteOutfit locks the outfit and never a trip, so they cannot deadlock).
+ * Two statements in a transaction (lockedTripCte): the first locks the
+ * trip, then the owner's outfit FOR KEY SHARE (what the insert's foreign
+ * key takes anyway), and reads both; the second inserts only where the
+ * outfit is complete. **The completeness check must not share the lock's
+ * statement:** an edit adding a piece holds the outfit FOR UPDATE
+ * (updateOutfit), and a statement that waited for it still judges the
+ * slots by the snapshot it took before the wait, so it would pack the
+ * outfit the edit just made incomplete. The second statement's snapshot
+ * is taken after the lock, so it sees the edit; an edit after it waits for
+ * this commit and then finds the outfit held (slotHoldsSql).
+ *
+ * The outfit is read from outside the trip, so the first statement's
+ * snapshot may still hold one deleted meanwhile: a row locked after a wait
+ * is read again, so a deleted outfit drops out and the answer is
+ * 'no-outfit', never the foreign key's 500. `exists (select 1 from
+ * locked)` is a one-time filter that takes the trip lock before the
+ * outfit's, the order every trip write keeps (deleteOutfit locks the
+ * outfit and never a trip, so they cannot deadlock).
  */
-export async function addTripOutfit(
+export function addTripOutfit(
   db: Queryable,
   input: { tripId: number; ownerId: number; outfitId: number } & TripSlot,
 ): Promise<TripOutfitAdded | TripRefusal | 'no-outfit'> {
-  const day = sql`${input.day ?? null}::date`;
-  const { rows } = await db.execute<{
-    startsOn: IsoDate;
-    endsOn: IsoDate;
-    owned: boolean;
-    added: boolean;
-  }>(sql`
-    with ${lockedTripCte(input.tripId, input.ownerId)},
-    owned as (
-      select ${outfit.id} as id from ${outfit}
-      where ${and(eq(outfit.id, input.outfitId), eq(outfit.ownerId, input.ownerId))}
-      and exists (select 1 from locked)
-      for key share
-    ),
-    added as (
-      insert into ${tripOutfit} (trip_id, outfit_id, day, occasion)
-      select locked.id, owned.id, ${day}, ${input.occasion ?? null}::text
-      from locked, owned
-      where ${day} is null or ${day} between locked.starts_on and locked.ends_on
-      on conflict do nothing
-      returning 1
-    )
-    select to_char(locked.starts_on, 'YYYY-MM-DD') as "startsOn",
-      to_char(locked.ends_on, 'YYYY-MM-DD') as "endsOn",
-      exists (select 1 from owned) as owned,
-      exists (select 1 from added) as added
-    from locked`);
-  const [found] = rows;
-  if (!found) return 'no-trip';
-  if (!isTripDay(found, input.day)) return 'not-a-trip-day';
-  if (!found.owned) return 'no-outfit';
-  return found.added ? 'added' : 'already';
+  return db.transaction(async (tx) => {
+    const { rows } = await tx.execute<{
+      startsOn: IsoDate;
+      endsOn: IsoDate;
+      owned: boolean;
+    }>(sql`
+      with ${lockedTripCte(input.tripId, input.ownerId)},
+      owned as (
+        select ${outfit.id} as id from ${outfit}
+        where ${and(eq(outfit.id, input.outfitId), eq(outfit.ownerId, input.ownerId))}
+        and exists (select 1 from locked)
+        for key share
+      )
+      select to_char(locked.starts_on, 'YYYY-MM-DD') as "startsOn",
+        to_char(locked.ends_on, 'YYYY-MM-DD') as "endsOn",
+        exists (select 1 from owned) as owned
+      from locked`);
+    const [found] = rows;
+    if (!found) return 'no-trip';
+    if (!isTripDay(found, input.day)) return 'not-a-trip-day';
+    if (!found.owned) return 'no-outfit';
+    const outfitId = sql`${input.outfitId}::int`;
+    const {
+      rows: [written],
+    } = await tx.execute<{ added: boolean; toBuy: PieceToBuy[] }>(sql`
+      with added as (
+        insert into ${tripOutfit} (trip_id, outfit_id, day, occasion)
+        select ${input.tripId}::int, ${outfitId}, ${input.day ?? null}::date,
+          ${input.occasion ?? null}::text
+        where ${outfitIsComplete(outfitId)}
+        on conflict do nothing
+        returning 1
+      )
+      select exists (select 1 from added) as added,
+        ${piecesToBuySql(outfitId)} as "toBuy"`);
+    if (written.toBuy.length > 0) {
+      throw new OutfitIncomplete(input.outfitId, written.toBuy);
+    }
+    return written.added ? 'added' : 'already';
+  });
 }
 
 /**

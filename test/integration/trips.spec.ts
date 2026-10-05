@@ -1228,7 +1228,7 @@ describe('trips', () => {
       expect(all).not.toContain('"here_latitude"');
     });
 
-    it('writes the packing list, the extras and outfits in one statement each', async () => {
+    it('writes the packing list and the extras in one statement each, a saved outfit in a transaction', async () => {
       const shown = [tee, jeans].map(String);
       const writes: [
         url: string,
@@ -1248,7 +1248,9 @@ describe('trips', () => {
         ],
         // Its summary comes from the write itself.
         [`/trips/${id}/items/packed`, { shown: [String(itemId)] }, htmx, 2],
-        [`/trips/${id}/outfits`, { outfitId: String(poloOutfit) }, {}, 2],
+        // A saved outfit: begin, the trip and outfit locked, the insert
+        // judged after the lock (#335: complete, as an edit left it), commit.
+        [`/trips/${id}/outfits`, { outfitId: String(poloOutfit) }, {}, 5],
       ];
       for (const [url, fields, headers, statements] of writes) {
         const write = await count(() => post(url, fields, headers));

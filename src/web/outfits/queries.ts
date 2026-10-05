@@ -23,6 +23,7 @@ import {
   tripOutfit,
 } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
+import type { GarmentStatus } from '../../wardrobe/status';
 import type { PlannedBy } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
 import type { SignablePhotoRef } from '../files/image-url';
@@ -34,11 +35,16 @@ import {
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import { entrySelfieSql, type SelfieRef } from '../selfies/queries';
-import { ownedGarment } from '../wardrobe/status';
 import { prunePacked, tripsOfOutfit } from '../trips/packed';
 import { detachOutfitWears } from '../wears/queries';
 import { adoptPlannerOutfit } from '../week-plan/adopt';
-import { goneGarments, OutfitGarmentsGone } from './gone-garments';
+import {
+  goneGarments,
+  OutfitGarmentsGone,
+  slotHoldable,
+  slotHoldsSql,
+} from './gone-garments';
+import { outfitIsHeld } from './references';
 
 /**
  * Outfits' reads and writes. Outfits are private: every query is scoped to
@@ -54,6 +60,8 @@ export interface OutfitGarment {
   name: string | null;
   /** Where it goes in an OutfitCollage (its role). */
   category: string;
+  /** A wishlist one is a piece to buy: the outfit is incomplete (piecesToBuy). */
+  status: GarmentStatus;
   photo: SignablePhotoRef | null;
 }
 
@@ -133,7 +141,7 @@ async function outfitsWithGarments(
         orderBy: asc(outfitSlot.position),
         with: {
           garment: {
-            columns: { id: true, name: true, category: true },
+            columns: { id: true, name: true, category: true, status: true },
             with: { photo: PHOTO_REF_RELATION },
           },
         },
@@ -184,6 +192,7 @@ export function outfitGarmentsSql(): SQL<OutfitGarment[]> {
           'id', ${garment.id},
           'name', ${garment.name},
           'category', ${garment.category},
+          'status', ${garment.status},
           'photo', ${photoRefJson}
         )
         order by ${outfitSlot.position}
@@ -419,10 +428,13 @@ export function outfitActivitySql(
 
 /**
  * Makes `slots` the outfit's positions 0..n-1, or refuses the save whole
- * (#219): a garment id that is not one of the owner's owned garments
- * (deleted, another user's, a wishlist item) throws OutfitGarmentsGone,
- * naming it, and the caller's transaction rolls back. Never a slot stored
- * empty behind the save's back. Archived garments were owned and stay.
+ * (#219): a garment id that the outfit cannot hold throws
+ * OutfitGarmentsGone, naming it, and the caller's transaction rolls back.
+ * Never a slot stored empty behind the save's back. It holds the owner's
+ * garments: archived ones were owned and stay, and a wishlist item only
+ * while nothing holds the outfit (slotHoldsSql, #335: an incomplete
+ * outfit; a planned or packed one refuses it). Deleted or another user's
+ * is refused.
  *
  * One statement (#168: a read before the insert used to cost a round
  * trip): the named garments are locked FOR SHARE in id order (as
@@ -465,7 +477,7 @@ async function insertSlots(
       and(
         eq(garment.ownerId, ownerId),
         inArray(garment.id, requested),
-        ownedGarment(),
+        slotHoldsSql(outfitId),
       ),
     )
     .orderBy(garment.id)
@@ -498,11 +510,30 @@ async function insertSlots(
       : [],
   );
   if (gone.length === 0) return;
-  const named = await goneGarments(tx, ownerId, gone, 'owned');
+  const heldOutfit = await outfitHeld(tx, outfitId);
+  const named = await goneGarments(
+    tx,
+    ownerId,
+    gone,
+    slotHoldable(heldOutfit),
+    { outfitHeld: heldOutfit },
+  );
   // Holdable again by the lookup (bought meanwhile): still refused as seen.
   throw new OutfitGarmentsGone(
     named.length > 0 ? named : gone.map((id) => ({ id })),
   );
+}
+
+/**
+ * Whether something holds the outfit now (outfitIsHeld): what a refused
+ * slot write's garments are named by (slotHoldable). Read only on the
+ * refusal, in its transaction.
+ */
+async function outfitHeld(tx: Queryable, outfitId: number): Promise<boolean> {
+  const { rows } = await tx.execute<{ held: boolean }>(
+    sql`select ${outfitIsHeld(sql`${outfitId}::int`)} as held`,
+  );
+  return rows[0].held;
 }
 
 /**
@@ -692,7 +723,7 @@ export async function reuseOutfit(
  * prune (only when on one) and the plan (only when asked).
  */
 export function updateOutfit(
-  db: Db,
+  db: Queryable,
   id: number,
   ownerId: number,
   input: OutfitInput,

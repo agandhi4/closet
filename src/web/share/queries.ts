@@ -44,7 +44,8 @@ export async function findSharedOutfit(db: Db, shareableId: string) {
         orderBy: asc(outfitSlot.position),
         with: {
           garment: {
-            columns: { id: true, name: true },
+            // The status marks a piece not bought yet (#335): To buy.
+            columns: { id: true, name: true, status: true },
             with: { photo: PHOTO_COLUMNS },
           },
         },

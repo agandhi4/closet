@@ -4,6 +4,8 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { GarmentThumb, HangerIcon } from '../layout/parts';
+import { ToBuyBadge } from '../outfits/collage';
+import { isPieceToBuy } from '../outfits/references';
 import type { ViewContext } from '../view-context';
 import type { SharedGarment, SharedOutfit } from './queries';
 
@@ -114,9 +116,19 @@ function OutfitCard({ outfit }: { outfit: SharedOutfit }) {
         {outfit.notes && <p class="text-muted text-sm">{outfit.notes}</p>}
         {outfit.garments.length > 0 && (
           <div class="flex flex-wrap gap-2">
-            {outfit.garments.map((garment) => (
-              <GarmentThumb garment={garment} class="rounded-box shadow-sm" />
-            ))}
+            {outfit.garments.map((garment) =>
+              isPieceToBuy(garment) ? (
+                <span class="relative">
+                  <GarmentThumb
+                    garment={garment}
+                    class="rounded-box shadow-sm"
+                  />
+                  <ToBuyBadge />
+                </span>
+              ) : (
+                <GarmentThumb garment={garment} class="rounded-box shadow-sm" />
+              ),
+            )}
           </div>
         )}
       </div>

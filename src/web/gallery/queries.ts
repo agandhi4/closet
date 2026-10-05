@@ -28,6 +28,7 @@ import { inCapsule } from '../capsules/queries';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson, readPhotoRef } from '../files/queries';
 import { sameGarmentsOutfit } from '../outfits/queries';
+import { outfitIsComplete } from '../outfits/references';
 import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
 import { availableGarment, wearsSinceWashSql } from '../wears/queries';
 
@@ -492,9 +493,13 @@ export interface GeneratorMemory {
 type SavedSlot = [outfitId: number, garmentId: number, category: string];
 
 /**
- * The owner's saved outfits' chosen garments, as a scalar subquery (arrays,
- * not objects: json_agg of rows would carry the column names in every
- * element). The duplicate rule's input; read with readGeneratorMemory.
+ * The owner's complete saved outfits' chosen garments, as a scalar
+ * subquery (arrays, not objects: json_agg of rows would carry the column
+ * names in every element). The duplicate rule's input; read with
+ * readGeneratorMemory. An incomplete outfit (a piece not bought yet,
+ * src/web/outfits/references.ts) is left out: the rule compares the drawn
+ * roles only, so one whose piece to buy is a layer would otherwise keep
+ * the closet garments it shares from ever being suggested together.
  */
 function savedSlotsSql(ownerId: number): SQL<SavedSlot[]> {
   return sql<SavedSlot[]>`(
@@ -502,7 +507,7 @@ function savedSlotsSql(ownerId: number): SQL<SavedSlot[]> {
     from ${outfitSlot}
     inner join ${outfit} on ${eq(outfit.id, outfitSlot.outfitId)}
     inner join ${garment} on ${eq(garment.id, outfitSlot.garmentId)}
-    where ${eq(outfit.ownerId, ownerId)}
+    where ${and(eq(outfit.ownerId, ownerId), outfitIsComplete(outfit.id))}
   )`;
 }
 

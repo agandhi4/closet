@@ -49,7 +49,7 @@ import {
 } from './rows';
 import {
   type Chosen,
-  ownGarments,
+  editedGarments,
   type RoledGarment,
   roleGarmentsBefore,
   type SavedOutfit,
@@ -482,7 +482,12 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    */
   async function scopeOf(
     request: FastifyRequest,
-    query: { ownerId?: number | ''; capsule?: number; plan?: number },
+    query: {
+      ownerId?: number | '';
+      capsule?: number;
+      plan?: number;
+      outfit?: number;
+    },
   ): Promise<Scope> {
     const { access, viewOwner } = await authorizeWardrobe(
       db,
@@ -499,6 +504,8 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       capsuleId: query.capsule,
       // Plans are never shared: a grantee's `?plan=` is ignored.
       planId: viewOwner === undefined ? query.plan : undefined,
+      // Neither are outfits: over a shared wardrobe there is no edit.
+      editing: viewOwner === undefined && query.outfit !== undefined,
     };
   }
 
@@ -910,6 +917,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       viewOwner: undefined,
       capsuleId: body.capsule,
       planId: body.plan,
+      editing: body.outfit !== undefined,
     };
     const [aimed, read] = await Promise.allSettled([
       aimIdeas(db, userId, postedDestination(body), today),
@@ -959,11 +967,12 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    * planned on a day when asked, in one transaction (updateOutfit, which
    * also makes the week planner's entries of it the person's and prunes
    * the packed marks of garments it no longer holds). The garments must
-   * all be the requester's own, in the closet or archived (an archived one
-   * the outfit held stays); else OutfitGarmentsGone and nothing is written
-   * (also when one goes between this check and the write: updateOutfit
-   * refuses it too). It changes in place, so a trip or an entry to replace
-   * is a 400.
+   * all be the requester's own (else OutfitGarmentsGone, a 404, and nothing
+   * is written); what the outfit may hold of them is updateOutfit's to
+   * judge (insertSlots, the outfit's Holdable: an archived one stays, a
+   * piece to buy stays while nothing holds the outfit, #335), and it
+   * refuses whole, named, as the page answers. It changes in place, so a
+   * trip or an entry to replace is a 400.
    */
   async function saveEdit(
     reply: FastifyReply,
@@ -991,9 +1000,11 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       destination.kind === 'day'
         ? { day: destination.day, occasion: destination.occasion }
         : input.schedule;
-    const garments = topToToe(await ownGarments(db, userId, input.garmentIds));
+    const garments = topToToe(
+      await editedGarments(db, userId, input.garmentIds),
+    );
     if (garments.length !== input.garmentIds.length) {
-      throw await garmentsGoneError(db, userId, input.garmentIds, 'owned');
+      throw await garmentsGoneError(db, userId, input.garmentIds, 'considered');
     }
     const result = await updateOutfit(db, outfitId, userId, {
       name: input.name ?? ideaName(garments),

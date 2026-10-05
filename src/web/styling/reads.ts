@@ -25,13 +25,13 @@ import { sharedWardrobesSql, toSharedWardrobe } from '../sharing/access';
 import type { WeatherService } from '../weather/service';
 import {
   type Chosen,
-  ownGarmentsSql,
   readGarments,
   readRoleWindows,
   readSavedOutfit,
   readStyledPlan,
   type RoledGarment,
   roleWindowsSql,
+  rowGarmentsSql,
   type SavedOutfit,
   savedOutfitSql,
   type StyledPlan,
@@ -72,6 +72,12 @@ export interface StylingScope {
    * shared, so a shared wardrobe's scope has none.
    */
   planId?: number;
+  /**
+   * The rows edit one of the requester's saved outfits (the page's
+   * `outfit`, never over a shared wardrobe): what they may carry is
+   * rowGarmentsSql's, the owner's garments of any status.
+   */
+  editing?: boolean;
 }
 
 /** Checks every request may ask of either statement. */
@@ -105,7 +111,10 @@ function checkColumns(scope: StylingScope, checks: Checks) {
         : undefined,
     outfit:
       outfitId === undefined ? undefined : savedOutfitSql(outfitId, ownerId),
-    held: heldIds.length === 0 ? undefined : ownGarmentsSql(ownerId, heldIds),
+    held:
+      heldIds.length === 0
+        ? undefined
+        : rowGarmentsSql(ownerId, heldIds, scope.editing === true),
   };
 }
 

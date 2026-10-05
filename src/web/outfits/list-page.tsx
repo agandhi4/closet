@@ -24,6 +24,7 @@ import { DayDestinationLine } from './day-destination';
 import type { DayDestination } from './destination';
 import { OutfitTabs } from './outfit-tabs';
 import type { OutfitActivity, GarmentOutfit } from './queries';
+import { buyFirstNote, toBuyLine } from './to-buy';
 import { outfitUrl } from './urls';
 
 /** Tiles above the fold on a phone (two rows of two): their images load at once. */
@@ -59,7 +60,8 @@ export interface SavedModel {
  * With `?for=day:D&occasion=O[&replace=E]` the grid picks for that day: one
  * native PostForm to POST /calendar (as the plan page's list), each tile a
  * submit button; an outfit already on the day is disabled and says for
- * which occasion. Without a query the page is a stale-while-revalidate tab
+ * which occasion, and an incomplete one (a piece not bought yet, #335) says
+ * to buy it first. Without a query the page is a stale-while-revalidate tab
  * root: it renders the same bytes while nothing changes (the activity line
  * depends on the day, never the hour).
  */
@@ -99,7 +101,10 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
                   <OutfitTile
                     outfit={outfit}
                     eager={index < EAGER_TILES}
-                    line={activityLine(model.activity.get(outfit.id))}
+                    line={
+                      toBuyLine(outfit.garments) ??
+                      activityLine(model.activity.get(outfit.id))
+                    }
                   />
                 </a>
               </li>
@@ -197,7 +202,9 @@ function PickingGrid(props: {
       )}
       <ul id="saved-outfits" class={OUTFIT_GRID}>
         {model.outfits.map((outfit, index) => {
-          const note = plannedNote(choice, outfit.id);
+          // Already on the day, or incomplete (#335): it cannot be picked.
+          const note =
+            plannedNote(choice, outfit.id) ?? buyFirstNote(outfit.garments);
           return (
             <li class="relative" data-outfit-id={outfit.id}>
               <OutfitTile

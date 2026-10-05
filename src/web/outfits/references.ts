@@ -1,6 +1,13 @@
-import { type SQL, sql } from 'drizzle-orm';
+import { and, eq, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
-import { outfitCalendar, tripOutfit } from '../../db/schema';
+import {
+  garment,
+  outfitCalendar,
+  outfitSlot,
+  tripOutfit,
+} from '../../db/schema';
+import type { GarmentStatus } from '../../wardrobe/status';
+import { onWishlist } from '../wardrobe/status';
 
 /**
  * What holds an outfit: a calendar entry (any day, worn or not) and a trip
@@ -23,6 +30,80 @@ import { outfitCalendar, tripOutfit } from '../../db/schema';
  * compare outfit_calendar's own columns. Both columns are not null, so
  * `not in` is never null.
  */
-export function outfitIsHeld(outfitId: AnyPgColumn): SQL<boolean> {
+export function outfitIsHeld(outfitId: AnyPgColumn | SQL): SQL<boolean> {
   return sql<boolean>`(${outfitId} in (select ${outfitCalendar.outfitId} from ${outfitCalendar} union all select ${tripOutfit.outfitId} from ${tripOutfit}))`;
+}
+
+/**
+ * **An outfit may hold a garment not owned yet (a wishlist item, Muse's
+ * pick) only while nothing holds it** (#335, docs/plans/2026-10-05-muse-
+ * suggestions.md section 3). Such an outfit is incomplete: it cannot be
+ * planned, packed or worn, so a held outfit is always complete. The rule's
+ * two halves, each enforced by the writers of its side:
+ * - a slot write holds a wishlist garment only into an outfit nothing
+ *   holds (slotHoldsSql, src/web/outfits/gone-garments.ts: insertSlots);
+ * - a write that makes an outfit held refuses an incomplete one
+ *   (OutfitIncomplete): the calendar's upsertEntry, planToWear and
+ *   setEntryOutfit (src/web/calendar/queries.ts), and addTripOutfit
+ *   (src/web/trips/queries.ts).
+ * Wearing needs an entry, and Today, Ideas and the week planner pick only
+ * closet garments (pickIdea), so nothing else can reach one; the
+ * generator's memory leaves incomplete outfits out (savedSlotsSql), or a
+ * pick its drawn roles share with one would never be suggested.
+ *
+ * Bought it completes an outfit (the garment leaves the wishlist); nothing
+ * in the outfit is written. Derived on every read, never stored. Deleting
+ * an own wishlist item (Remove, or plans' buyCandidate clean-up) nulls its
+ * slot through the foreign key, so the outfit becomes complete with a gap,
+ * as a deleted closet garment leaves one (a suggestion is never deleted on
+ * the wishlist: a dismissed pick keeps its slot).
+ */
+
+/** A piece an outfit holds that is not owned yet, as a refusal or a page names it. */
+export interface PieceToBuy {
+  id: number;
+  name: string | null;
+}
+
+/**
+ * The outfit's slots holding a piece not owned yet: the one join both
+ * readers below share. `outfitId` must render qualified (a parameter, or a
+ * column inside a raw `sql` template): in a single-table drizzle select an
+ * unqualified `id` would name this subquery's garment.
+ */
+function piecesToBuyFrom(outfitId: SQL | AnyPgColumn): SQL {
+  return sql`from ${outfitSlot}
+    inner join ${garment} on ${eq(garment.id, outfitSlot.garmentId)}
+    where ${and(eq(outfitSlot.outfitId, outfitId), onWishlist())}`;
+}
+
+/** The outfit's pieces not owned yet, in slot order, as a JSON list; empty when it is complete. */
+export function piecesToBuySql(outfitId: SQL | AnyPgColumn): SQL<PieceToBuy[]> {
+  return sql<PieceToBuy[]>`(
+    select coalesce(json_agg(json_build_object(
+      'id', ${garment.id}, 'name', ${garment.name}
+    ) order by ${outfitSlot.position}), '[]')
+    ${piecesToBuyFrom(outfitId)}
+  )`;
+}
+
+/** Whether the outfit holds only owned garments (piecesToBuyFrom's caveat on `outfitId`). */
+export function outfitIsComplete(outfitId: SQL | AnyPgColumn): SQL<boolean> {
+  return sql<boolean>`not exists (select 1 ${piecesToBuyFrom(outfitId)})`;
+}
+
+/**
+ * piecesToBuySql over garments a page already read with their status (the
+ * outfit's garments, slot order): the same rule, for the views and the MCP
+ * tools.
+ */
+export function piecesToBuy<T extends { status: GarmentStatus }>(
+  garments: readonly T[],
+): T[] {
+  return garments.filter(isPieceToBuy);
+}
+
+/** One garment of an outfit by piecesToBuy's rule: not owned yet. */
+export function isPieceToBuy(garment: { status: GarmentStatus }): boolean {
+  return garment.status === 'wishlist';
 }

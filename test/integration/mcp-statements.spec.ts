@@ -318,7 +318,9 @@ describe('MCP statements per tool (#172)', () => {
     ['plan_week', () => ({}), 7],
     ['list_trips', () => ({}), 2],
     ['get_trip', () => ({ tripId: ids.trip }), 2],
-    ['plan_trip_outfit', () => ({ tripId: ids.trip, outfitId: ids.outfit }), 2],
+    // The trip and outfit locked, then the insert judged after the lock
+    // (#335: an edit adding a piece to buy must be seen), in a transaction.
+    ['plan_trip_outfit', () => ({ tripId: ids.trip, outfitId: ids.outfit }), 5],
     ['wardrobe_stats', () => ({}), 3],
     ['get_weather', () => ({ from: today, to: day(3) }), 2],
     ['list_shared_wardrobes', () => ({}), 2],
