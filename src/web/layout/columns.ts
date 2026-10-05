@@ -15,6 +15,8 @@
  *  - `OUTFIT_GRID`: saved-outfit tiles (collage and name); two on a phone,
  *    three at `sm`, four at `lg`, five at `xl` (about 215 px at `lg`,
  *    235 px at 1440).
+ *  - `LOOK_GRID`: a plan's look cards (each holds a 2-column piece grid, so
+ *    wide): one on a phone, two at `sm`, three at `xl`.
  *  - `PAIR_GRID`: two side by side from `lg` (Today's rows: the planned
  *    suggestion beside the ideas strip; a lone ideas row spans both and
  *    shows two ideas at a time).
@@ -28,3 +30,5 @@ export const CANDIDATE_GRID =
   'grid grid-cols-2 items-start gap-x-3 gap-y-4 lg:grid-cols-4';
 export const OUTFIT_GRID =
   'grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5';
+export const LOOK_GRID =
+  'grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3';

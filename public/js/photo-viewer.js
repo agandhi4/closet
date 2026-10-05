@@ -23,6 +23,7 @@ const DOUBLE_TAP_MS = 350;
 const SWIPE_DOWN_PX = 90;
 const MAX_ZOOM = 4;
 const PAN_STEP_PX = 60;
+const DRAG_PX = 5;
 
 const viewer = () => document.getElementById('photo-viewer');
 const track = (dialog) => dialog.querySelector('[data-photo-track]');
@@ -33,8 +34,9 @@ let index = 0;
 let lastTap = 0;
 let frame = 0;
 let zoom = 1;
-const pointers = new Map();
 let pinch = null;
+// Where the mouse went down: a click that ends a drag-pan is not a toggle.
+let mouseDown = null;
 
 function setSet(id) {
   const template = document.querySelector(
@@ -213,6 +215,12 @@ document.addEventListener('click', (event) => {
   } else if (event.target.closest('.photo-viewer-slide img')) {
     // A mouse click toggles; a touch needs a double tap, a single one being
     // the start of a swipe or pinch as far as the reader can tell.
+    const dragged =
+      mouseDown &&
+      Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y) >
+        DRAG_PX;
+    mouseDown = null;
+    if (dragged) return;
     const point = { x: event.clientX, y: event.clientY };
     if (event.pointerType === 'touch') {
       const double = event.timeStamp - lastTap < DOUBLE_TAP_MS;
@@ -273,7 +281,6 @@ document.addEventListener(
     delete track(dialog).dataset.zoomed;
     slides = [];
     zoom = 1;
-    pointers.clear();
     pinch = null;
     if (opener?.isConnected) opener.focus();
     opener = null;
@@ -321,18 +328,18 @@ function realign() {
 window.addEventListener('resize', realign);
 window.addEventListener('orientationchange', realign);
 
-// Pinch on the slide (Pointer Events): the browser's own pinch would zoom
-// the page, which stays zoomable elsewhere, so the slides opt out of it in
-// CSS and the zoom is driven here. A second finger starts it; the first
-// alone is a swipe or pan, the browser's.
-const distance = () => {
-  const [a, b] = [...pointers.values()];
-  return Math.hypot(a.x - b.x, a.y - b.y);
-};
-const midpoint = () => {
-  const [a, b] = [...pointers.values()];
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-};
+// Pinch on the slide: the browser's own pinch would zoom the page, which
+// stays zoomable elsewhere, so the slides opt out of it in CSS and the zoom
+// is driven here. Touch events, not pointer events: a one-finger pan is the
+// browser's, which cancels that finger's pointer, so a second finger landing
+// mid-pan would find no first one to pair with. `event.touches` always lists
+// every finger down, so each touchstart re-seeds the pinch from it.
+const spread = ([a, b]) =>
+  Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+const midpoint = ([a, b]) => ({
+  x: (a.clientX + b.clientX) / 2,
+  y: (a.clientY + b.clientY) / 2,
+});
 // Two fingers on a slide are a pinch, never a scroll of the row beneath.
 // Non-passive, so it sits on the track only while the viewer is open: on the
 // document it would hold up every page's scrolling (test/styling.spec.ts).
@@ -343,25 +350,60 @@ const holdPinch = (event) => {
 const onSlide = (event) =>
   viewer()?.open && event.target.closest?.('.photo-viewer-slide');
 
-document.addEventListener('pointerdown', (event) => {
-  if (event.pointerType !== 'touch' || !onSlide(event)) return;
-  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  if (pointers.size === 2 && !('thumbOnly' in slides[index].dataset)) {
-    pinch = { start: distance(), zoom };
-  }
-});
+// The row between two slides: a pinch there would zoom a slide the snap is
+// still moving off.
+const midSnap = (dialog) => {
+  const row = track(dialog);
+  const offset = row.scrollLeft % row.clientWidth;
+  return Math.min(offset, row.clientWidth - offset) > 1;
+};
 
-document.addEventListener('pointermove', (event) => {
-  if (!pointers.has(event.pointerId)) return;
-  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  if (pinch && pointers.size === 2) {
-    setZoom(viewer(), (pinch.zoom * distance()) / pinch.start, midpoint());
-  }
-});
+document.addEventListener(
+  'touchstart',
+  (event) => {
+    if (!onSlide(event)) return;
+    const dialog = viewer();
+    pinch =
+      event.touches.length === 2 &&
+      !('thumbOnly' in slides[index].dataset) &&
+      !midSnap(dialog)
+        ? { start: spread(event.touches), zoom }
+        : null;
+  },
+  { passive: true },
+);
 
-for (const type of ['pointerup', 'pointercancel']) {
-  document.addEventListener(type, (event) => {
-    pointers.delete(event.pointerId);
-    if (pointers.size < 2) pinch = null;
-  });
+document.addEventListener(
+  'touchmove',
+  (event) => {
+    if (!pinch || event.touches.length !== 2) return;
+    setZoom(
+      viewer(),
+      (pinch.zoom * spread(event.touches)) / pinch.start,
+      midpoint(event.touches),
+    );
+  },
+  { passive: true },
+);
+
+for (const type of ['touchend', 'touchcancel']) {
+  document.addEventListener(
+    type,
+    (event) => {
+      if (event.touches.length < 2) pinch = null;
+    },
+    { passive: true },
+  );
 }
+
+// iOS Safari's own pinch is a gesture event that touch-action does not stop.
+document.addEventListener('gesturestart', (event) => {
+  if (onSlide(event)) event.preventDefault();
+});
+
+document.addEventListener('pointerdown', (event) => {
+  mouseDown =
+    event.pointerType === 'mouse'
+      ? { x: event.clientX, y: event.clientY }
+      : null;
+});
