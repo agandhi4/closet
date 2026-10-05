@@ -57,12 +57,28 @@ test.describe('at 1440 px', () => {
       await page.setViewportSize({ width: 1440, height: 900 });
     }
 
-    const wardrobeMain = (await page.goto('/wardrobe'), page.locator('main'));
-    expect((await wardrobeMain.boundingBox())!.width).toBeGreaterThan(900);
-    await page.goto('/outfits');
-    expect(
-      (await page.locator('main').boundingBox())!.width,
-    ).toBeLessThanOrEqual(640);
+    // Each page's column is the width its PageMain names (src/web/layout/
+    // page-main.tsx): read from the page's own class so this cannot drift
+    // from the list in src/web/layout/CLAUDE.md. Wide pages fill the width
+    // the rail leaves; narrow ones stay a reading column.
+    const WIDTHS = { 'max-w-page-narrow': 640, 'max-w-page-wide': 1280 };
+    for (const path of TAB_ROOTS) {
+      await page.goto(path);
+      const main = page.locator('main').first();
+      const token = (await main.getAttribute('class'))!.match(
+        /max-w-page-(?:narrow|wide)/,
+      )?.[0] as keyof typeof WIDTHS | undefined;
+      expect(token, `${path}: main names a width`).toBeDefined();
+      const width = (await main.boundingBox())!.width;
+      expect(width, `${path}: within ${token}`).toBeLessThanOrEqual(
+        WIDTHS[token!],
+      );
+      if (token === 'max-w-page-wide') {
+        expect(width, `${path}: a wide page uses the width`).toBeGreaterThan(
+          900,
+        );
+      }
+    }
 
     for (const [name, path] of [
       ['today', '/'],

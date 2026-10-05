@@ -9,6 +9,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
+import { PageMain } from '../layout/page-main';
 import { BackLink, EmptyState } from '../layout/parts';
 import { OutfitCollage } from '../outfits/collage';
 import {
@@ -17,6 +18,7 @@ import {
 } from '../outfits/destination';
 import { DayDestinationLine } from '../outfits/day-destination';
 import { OutfitTabs } from '../outfits/outfit-tabs';
+import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
 import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
@@ -69,7 +71,7 @@ export function IdeasPage(props: { ctx: ViewContext; model: IdeasPageModel }) {
           </a>
         }
       />
-      <main class="p-4 pt-20 pb-24 sm:max-w-lg sm:mx-auto flex flex-col gap-3">
+      <PageMain width="wide" class="p-4 pt-20 pb-24 flex flex-col gap-3">
         <OutfitTabs
           active="ideas"
           destination={
@@ -86,13 +88,20 @@ export function IdeasPage(props: { ctx: ViewContext; model: IdeasPageModel }) {
           {t('gallery.OFFLINE')}
         </p>
         {cards.ideas.length > 0 ? (
-          <div
-            id="idea-strip"
-            class="flex overflow-x-auto overscroll-x-contain snap-x snap-mandatory gap-4 pb-2"
-            aria-label={t('gallery.STRIP_LABEL')}
-          >
-            <IdeaCards model={cards} />
-          </div>
+          <>
+            <SnapStrip
+              size="page"
+              label={t('gallery.STRIP_LABEL')}
+              listbox={false}
+              tapThrough
+              frameClass="lg:w-full lg:max-w-3xl lg:mx-auto"
+              class="pb-2"
+              attributes={{ id: 'idea-strip' }}
+            >
+              <IdeaCards model={cards} />
+            </SnapStrip>
+            <SnapStripsInit />
+          </>
         ) : (
           <EmptyState
             message={t(
@@ -104,7 +113,7 @@ export function IdeasPage(props: { ctx: ViewContext; model: IdeasPageModel }) {
             </a>
           </EmptyState>
         )}
-      </main>
+      </PageMain>
       <Dock ctx={ctx} />
     </Layout>
   );
@@ -309,15 +318,24 @@ function IdeaCard(props: {
   eager: boolean;
 }) {
   const { model, idea } = props;
+  // The strip opens on the first card of the first page.
+  const selected = props.eager;
   const { destination } = model.state;
   const name = ideaName(idea.garments);
+  const ideaKey = idea.garments.map((g) => g.id).join(',');
   const pairs = idea.garments.flatMap((a, i) =>
     idea.garments.slice(i + 1).map((b) => [a, b] as const),
   );
   return (
     <article
-      class="snap-center shrink-0 w-full card bg-base-100 shadow-sm"
-      data-idea={idea.garments.map((g) => g.id).join(',')}
+      {...snapItem({
+        value: ideaKey,
+        selected,
+        size: 'page',
+        listbox: false,
+        class: 'card bg-base-100 shadow-sm',
+      })}
+      data-idea={ideaKey}
     >
       <div class="card-body p-3 gap-3">
         <OutfitCollage garments={idea.garments} eager={props.eager} />

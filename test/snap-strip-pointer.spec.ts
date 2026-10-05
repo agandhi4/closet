@@ -250,3 +250,67 @@ test.describe('on a phone', () => {
     await page.screenshot({ path: 'test-results/311-styling-390.png' });
   });
 });
+
+test.describe('the idea strips (#321)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+  test.skip(
+    ({ isMobile }) => isMobile,
+    'the mobile projects have a coarse pointer: no step buttons',
+  );
+
+  test('Ideas and Today step with the buttons, and the page keeps its width', async ({
+    page,
+  }) => {
+    const errors = pageErrors(page, { console: true });
+    await signIn(page, 'strip-ideas');
+    for (const [name, category, color] of [
+      ['White tee', 'tops', 'white'],
+      ['Grey tee', 'tops', 'grey'],
+      ['Black tee', 'tops', 'black'],
+      ['Raw jeans', 'bottoms', 'blue'],
+      ['Khaki chinos', 'bottoms', 'beige'],
+      ['White sneakers', 'footwear', 'white'],
+    ] as const) {
+      await createGarment(page, name, category, { color });
+    }
+
+    for (const [path, strip] of [
+      ['/outfits/ideas', page.locator('#idea-strip')],
+      ['/', page.locator('[data-today-row] [data-snap-strip]').first()],
+    ] as const) {
+      await page.goto(path);
+      const frame = strip.locator('xpath=..');
+      const cards = strip.locator('[data-idea]');
+      await expect(cards.first()).toHaveAttribute('data-selected', '');
+      await frame.locator('[data-snap-step="1"]').click();
+      await expect(cards.nth(1)).toHaveAttribute('data-selected', '');
+      await expect(cards.first()).not.toHaveAttribute('data-selected', '');
+      // Photos stay large: a card is at least 200 px wide at 1440.
+      expect((await cards.first().boundingBox())!.width).toBeGreaterThan(200);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(1440);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test("one click on a neighbouring idea card's button does its work", async ({
+    page,
+  }) => {
+    await signIn(page, 'strip-tap-through');
+    for (const [name, category, color] of [
+      ['White tee', 'tops', 'white'],
+      ['Grey tee', 'tops', 'grey'],
+      ['Raw jeans', 'bottoms', 'blue'],
+      ['Khaki chinos', 'bottoms', 'beige'],
+      ['White sneakers', 'footwear', 'white'],
+    ] as const) {
+      await createGarment(page, name, category, { color });
+    }
+    await page.goto('/outfits/ideas');
+    const second = page.locator('#idea-strip [data-idea]').nth(1);
+    await expect(second).not.toHaveAttribute('data-selected', '');
+    await second.locator('summary').click();
+    await expect(second.locator('details')).toHaveAttribute('open', '');
+  });
+});

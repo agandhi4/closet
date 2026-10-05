@@ -108,7 +108,7 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
         formPage={!model.shared}
         scope={<ScopeMenu model={model} />}
       />
-      <PageMain class="pt-20 pb-40 flex flex-col gap-3">
+      <PageMain width="wide" class="pt-20 pb-40 flex flex-col gap-3">
         <Header model={model} />
         {model.rows.length > 0 ? (
           <>

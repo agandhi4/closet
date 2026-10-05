@@ -71,12 +71,12 @@ const SIZES = {
     side: 'h-12',
   },
   tile: {
-    box: 'rounded-box p-2 gap-1.5 aspect-[4/5]',
+    box: 'rounded-box p-2 gap-1.5 aspect-[4/5] lg:p-3 lg:gap-2',
     column: 'justify-center',
-    upper: 'h-12',
-    lower: 'h-20',
-    feet: 'h-10',
-    side: 'h-9',
+    upper: 'h-12 lg:h-16',
+    lower: 'h-20 lg:h-24',
+    feet: 'h-10 lg:h-14',
+    side: 'h-9 lg:h-12',
   },
   thumb: {
     box: 'rounded-field p-1.5 gap-1',

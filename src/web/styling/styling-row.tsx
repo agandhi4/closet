@@ -47,7 +47,7 @@ const SMALL: readonly GarmentRole[] = ['accessory', 'bag', 'none'];
 
 /** The strip's item size; see `SnapSize` for how it and the end spacers go together. */
 function sizing(role: GarmentRole): SnapSize {
-  return SMALL.includes(role) ? 'small' : 'regular';
+  return SMALL.includes(role) ? 'small' : 'roomy';
 }
 
 /**

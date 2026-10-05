@@ -6,6 +6,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
+import { OUTFIT_GRID } from '../layout/columns';
 import { PageMain } from '../layout/page-main';
 import { EmptyState } from '../layout/parts';
 import {
@@ -76,7 +77,7 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
           </a>
         }
       />
-      <PageMain class="p-4 pt-20 pb-24 flex flex-col gap-3">
+      <PageMain width="wide" class="p-4 pt-20 pb-24 flex flex-col gap-3">
         <OutfitTabs active="saved" destination={destination} />
         {model.picking && (
           <PickingHeader destination={model.picking.destination} />
@@ -87,7 +88,7 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
         ) : model.picking ? (
           <PickingGrid model={model} picking={model.picking} />
         ) : (
-          <ul id="saved-outfits" class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <ul id="saved-outfits" class={OUTFIT_GRID}>
             {model.outfits.map((outfit, index) => (
               <li>
                 <a
@@ -194,7 +195,7 @@ function PickingGrid(props: {
           value={String(destination.replace)}
         />
       )}
-      <ul id="saved-outfits" class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <ul id="saved-outfits" class={OUTFIT_GRID}>
         {model.outfits.map((outfit, index) => {
           const note = plannedNote(choice, outfit.id);
           return (

@@ -20,6 +20,7 @@ import type { NextPurchase } from '../plans/candidates';
 import type { WaitingDraft } from '../plans/queries';
 import { reviewUrl, SHOPPING_PATH } from '../plans/urls';
 import { EntrySelfie } from '../selfies/views';
+import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
 import { UserWeatherLine } from '../weather/views';
@@ -86,6 +87,7 @@ export function TodayPage(props: {
             )}
           </div>
         )}
+        <SnapStripsInit />
         <div class="flex flex-wrap items-center gap-2">
           <a
             href={`/calendar/plan?for=day:${model.today}`}
@@ -268,7 +270,7 @@ export function IdeasRowView(props: { row: IdeasRow; today: IsoDate }) {
   const { row, today } = props;
   return (
     <section
-      class="group/ideas flex flex-col gap-2 lg:only:col-span-full"
+      class="flex flex-col gap-2 lg:only:col-span-full"
       data-today-row="ideas"
       data-occasion={row.occasion}
       data-page={row.page}
@@ -288,9 +290,13 @@ export function IdeasRowView(props: { row: IdeasRow; today: IsoDate }) {
         )}
       </RowHeading>
       {row.ideas.length > 0 ? (
-        <div
-          class="flex overflow-x-auto overscroll-x-contain snap-x snap-mandatory gap-3 pb-2"
-          aria-label={t('today.STRIP_LABEL')}
+        <SnapStrip
+          size="peek"
+          label={t('today.STRIP_LABEL')}
+          listbox={false}
+          tapThrough
+          frameClass="lg:w-full lg:max-w-3xl lg:mx-auto"
+          class="pb-2"
         >
           {row.ideas.map((idea, index) => (
             <IdeaCard
@@ -300,7 +306,7 @@ export function IdeasRowView(props: { row: IdeasRow; today: IsoDate }) {
               eager={index === 0}
             />
           ))}
-        </div>
+        </SnapStrip>
       ) : (
         <p class="px-2 text-sm text-muted">
           {t('gallery.EMPTY')}{' '}
@@ -330,10 +336,17 @@ function IdeaCard(props: {
   eager: boolean;
 }) {
   const { idea } = props;
+  const ideaKey = idea.garments.map((g) => g.id).join(',');
   return (
     <article
-      class="snap-center shrink-0 w-[85%] lg:group-only/ideas:w-[calc(50%-0.375rem)] card bg-base-100 shadow-sm"
-      data-idea={idea.garments.map((g) => g.id).join(',')}
+      {...snapItem({
+        value: ideaKey,
+        selected: props.eager,
+        size: 'peek',
+        listbox: false,
+        class: 'card bg-base-100 shadow-sm',
+      })}
+      data-idea={ideaKey}
     >
       <div class="card-body p-3 gap-3">
         <OutfitCollage garments={idea.garments} eager={props.eager} />

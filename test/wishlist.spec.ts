@@ -134,8 +134,11 @@ test('"Goes with my closet" on a wishlist item fits a phone', async ({
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
-  // Display only: nothing to tap but the garments it pairs with.
-  await expect(section.locator('button, form')).toHaveCount(0);
+  // Display only: nothing to tap but the garments it pairs with (and the
+  // strip's own step buttons, shown to a mouse).
+  await expect(
+    section.locator('button:not([data-snap-step]), form'),
+  ).toHaveCount(0);
   await section.getByRole('link', { name: 'Khaki chinos' }).click();
   await expect(
     page.getByRole('heading', { name: 'Khaki chinos' }),

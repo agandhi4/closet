@@ -124,6 +124,12 @@ document.addEventListener(
     if (!item || item.hasAttribute('data-selected')) return;
     const strip = item.closest('[data-snap-strip]');
     if (!strip) return;
+    // A tile's own button or link in a strip that opted in works first time.
+    if (
+      strip.hasAttribute('data-snap-tap-through') &&
+      event.target.closest('button, a, input, label, summary')
+    )
+      return;
     event.preventDefault();
     event.stopPropagation();
     centre(strip, item, smooth());
