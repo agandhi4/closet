@@ -16,6 +16,15 @@ export function planUrl(id: number, suffix = ''): string {
   return `${PLANS_PATH}/${id}${suffix}`;
 }
 
+/** The plan page's views: its items by type, or its outfits (looks). */
+export const PLAN_VIEWS = ['items', 'outfits'] as const;
+export type PlanView = (typeof PLAN_VIEWS)[number];
+
+/** The plan page in a view; Items, the default, is the bare address. */
+export function planViewUrl(id: number, view: PlanView): string {
+  return view === 'items' ? planUrl(id) : `${planUrl(id)}?view=${view}`;
+}
+
 /**
  * A plan's review (#271): its proposals as strips, decided in one post.
  * Linked from the gap view, the plans list and "Drafted by" while

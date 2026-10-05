@@ -93,7 +93,10 @@ test('plan the wardrobe, see its gaps, duplicate it', async ({ page }) => {
   const tees = tops.locator('li', { hasText: 'white T-shirt' });
   await expect(tees).toHaveAttribute('data-status', 'partly');
   await expect(tees.locator('[data-status-chip]')).toHaveText('1 of 2');
+  // What the card used to carry is in its sheet (#312).
+  await tees.getByRole('button').first().click();
   await expect(tees.getByRole('link', { name: 'White tee' })).toBeVisible();
+  await page.keyboard.press('Escape');
   expect(
     await sweater.evaluate(
       (el, other) =>

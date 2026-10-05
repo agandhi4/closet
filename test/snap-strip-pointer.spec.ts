@@ -116,7 +116,7 @@ test.describe('a strip of tiles with no focusable parts', () => {
       ];
     });
 
-    await page.goto(plan);
+    await page.goto(`${plan}?view=outfits`);
     const strip = page.locator('#plan-looks [data-snap-strip]');
     await expect(strip).toHaveAttribute('tabindex', '0');
     const frame = page.locator('#plan-looks .snap-strip-frame');
@@ -189,7 +189,7 @@ test('a step keeps focus on the same action, never another', async ({
     return [first, second];
   });
 
-  await page.goto(plan);
+  await page.goto(`${plan}?view=outfits`);
   // The loved look has no Love button, so Decline sits one place earlier.
   await expect(
     page.locator(`#look-${loved}`).getByRole('button', { name: 'Love it' }),
@@ -229,7 +229,7 @@ test('a strip of one item has both step buttons disabled', async ({ page }) => {
       [shirt, chinos],
     );
   });
-  await page.goto(plan);
+  await page.goto(`${plan}?view=outfits`);
   const frame = page.locator('#plan-looks .snap-strip-frame');
   await expect(frame.locator('[data-snap-step="-1"]')).toBeDisabled();
   await expect(frame.locator('[data-snap-step="1"]')).toBeDisabled();

@@ -234,8 +234,12 @@ describe('looks become outfits', () => {
 
       // The plan page links the outfit it became; Save is not offered.
       const page = unescapeHtml(
-        (await t.inject({ method: 'GET', url: `/wardrobe/plans/${f.planId}` }))
-          .body,
+        (
+          await t.inject({
+            method: 'GET',
+            url: `/wardrobe/plans/${f.planId}?view=outfits`,
+          })
+        ).body,
       );
       expect(page).toContain(`href="/outfits/${outfitId}"`);
       expect(page).not.toContain(`/looks/${lookId}/save"`);
@@ -318,8 +322,12 @@ describe('looks become outfits', () => {
       await deleteOutfit(t.db, f.outfitId, t.owner.id);
       expect(await linkOf(f.lookId)).toBeNull();
       const page = unescapeHtml(
-        (await t.inject({ method: 'GET', url: `/wardrobe/plans/${f.planId}` }))
-          .body,
+        (
+          await t.inject({
+            method: 'GET',
+            url: `/wardrobe/plans/${f.planId}?view=outfits`,
+          })
+        ).body,
       );
       expect(page).toContain(`/looks/${f.lookId}/save"`);
       const again = await save(f.planId, f.lookId);

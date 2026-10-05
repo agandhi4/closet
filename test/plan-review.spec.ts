@@ -130,7 +130,8 @@ test('review an agent’s proposals as strips, swipe to a candidate, accept', as
   await expect(page.locator('#plan-review')).toHaveCount(0);
   const bootsCard = page.locator(`#plan-item-${boots}`);
   await expect(bootsCard).toHaveAttribute('data-status', 'missing');
-  // Its options are thumbs, each named (#295).
+  // Its options are thumbs, each named (#295), in its sheet (#312).
+  await bootsCard.getByRole('button').first().click();
   await expect(
     bootsCard.getByRole('link', { name: 'Navy boots' }),
   ).toBeVisible();
@@ -257,6 +258,7 @@ test('Change this with a note, and Not this one on a candidate, in one post', as
   await expect(coatCard).toContainText('Your note: Wool, and longer');
   const bootsCard = page.locator(`#plan-item-${boots}`);
   await expect(bootsCard).toHaveAttribute('data-status', 'missing');
+  await bootsCard.getByRole('button').first().click();
   await expect(
     bootsCard.getByRole('link', { name: 'Matte black boots' }),
   ).toBeVisible();

@@ -23,7 +23,7 @@ import { allPlanGaps, planGaps } from './gaps';
 import { ItemFormPage, type ItemFormModel } from './item-form-page';
 import { PlansPage } from './list-page';
 import { PlanFormPage, type PlanFormModel } from './plan-form-page';
-import { PlanPage } from './plan-page';
+import { PlanPage, planView } from './plan-page';
 import type { PlanItemReviewEvent } from '../../wardrobe/plan-review';
 import type { LookReactionEvent } from '../../wardrobe/look-reaction';
 import { ChangeItemPage, ChangeLookPage } from './change-page';
@@ -71,7 +71,13 @@ import { weeklyRhythm } from '../../wardrobe/week';
 import { inTemplateOrder, weekTemplateSql } from '../week-plan/template';
 import { StyleProfilePage } from './style-page';
 import { requirePlan as requireOwnPlan, requirePlanItem } from './require';
-import { NEW_PLAN_PATH, PLANS_PATH, planUrl, STYLE_PROFILE_PATH } from './urls';
+import {
+  NEW_PLAN_PATH,
+  PLANS_PATH,
+  planUrl,
+  planViewUrl,
+  STYLE_PROFILE_PATH,
+} from './urls';
 import {
   BLANK_ITEM_VALUES,
   ChangeBody,
@@ -308,7 +314,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const userId = sessionUserId(request);
       const plan = await requirePlan(request, request.params.id);
-      const { created, saved, reviewed, removed } = request.query;
+      const { created, saved, reviewed, removed, view } = request.query;
       const [gaps, candidates, looks] = await Promise.all([
         planGaps(db, plan, userId),
         candidatesOfPlan(db, userId, plan.id),
@@ -322,6 +328,7 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             gaps,
             candidates,
             looks: groupLooks(looks),
+            view: planView(view),
             toast:
               created === '1'
                 ? 'created'
@@ -840,7 +847,8 @@ export const planRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     logger.info(
       `Look ${lookId} of plan ${id}: ${event} by user ${userId}${note ? ' with a note' : ''}`,
     );
-    return reply.redirect(`${planUrl(id)}?saved=1`, 303);
+    // Back to the Outfits view the look was reacted to in.
+    return reply.redirect(`${planViewUrl(id, 'outfits')}&saved=1`, 303);
   }
 
   app.post(

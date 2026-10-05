@@ -113,8 +113,19 @@ test('swipe the looks, Love one, Change another with a note, Accept, see them gr
   await expect(page).toHaveURL(plan);
   await expect(page.locator('#plan-toast')).toContainText('Review saved');
 
-  // The plan page: the loved look leads the strip; the changed one waits
-  // on the agent, apart, with the note.
+  // The plan page's Outfits view (#312): the loved look leads the strip;
+  // the changed one waits on the agent, apart, with the note.
+  // Both panels are in the page: the switch is local, so it works offline.
+  await expect(page.getByRole('radio', { name: /^Items/ })).toBeChecked();
+  await page.context().setOffline(true);
+  await page.getByRole('radio', { name: /^Outfits/ }).check();
+  await expect(page).toHaveURL(plan);
+  await expect(page.locator('#plan-panel-outfits')).toBeVisible();
+  await expect(page.locator('#plan-panel-items')).toBeHidden();
+  await page.getByRole('radio', { name: /^Items/ }).check();
+  await expect(page.locator('#plan-panel-items')).toBeVisible();
+  await page.getByRole('radio', { name: /^Outfits/ }).check();
+  await page.context().setOffline(false);
   await expect(page.locator(`#look-${first}`)).toHaveAttribute(
     'data-reaction',
     'loved',
@@ -169,7 +180,7 @@ test('a fresh plan page: swipe to the second look and Love it', async ({
   });
 
   // The document's first page: nothing has loaded the strip's module yet.
-  await page.goto(plan);
+  await page.goto(`${plan}?view=outfits`);
   const strip = page.locator('#plan-looks [data-snap-strip]');
   const secondTile = page.locator(`#look-${second}`);
   await expect(page.locator(`#look-${first}`)).toHaveAttribute(

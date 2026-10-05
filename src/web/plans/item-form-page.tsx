@@ -16,6 +16,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
+import { PageMain } from '../layout/page-main';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
 import { valueLabel } from '../wardrobe/labels';
@@ -75,7 +76,7 @@ export function ItemFormPage(props: {
   return (
     <Layout ctx={ctx} title={title}>
       <AppBar ctx={ctx} title={title} back={back} formPage />
-      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
+      <PageMain class="p-4 pt-20 pb-24">
         <p class="text-sm text-muted truncate mb-2">{model.planName}</p>
         {model.review !== undefined && model.review !== 'accepted' && (
           <p role="status" class="alert alert-info alert-soft text-sm my-3">
@@ -230,7 +231,7 @@ export function ItemFormPage(props: {
             {t('plans.DELETE_ITEM')}
           </button>
         )}
-      </main>
+      </PageMain>
       <Dock ctx={ctx} />
     </Layout>
   );

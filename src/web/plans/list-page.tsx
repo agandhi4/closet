@@ -3,6 +3,7 @@ import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
+import { PageMain } from '../layout/page-main';
 import { EmptyState } from '../layout/parts';
 import { OutfitCollage } from '../outfits/collage';
 import type { SharedWardrobe } from '../sharing/access';
@@ -60,7 +61,7 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
       />
       <div class="pt-16">
         <WardrobeTabs active="plans" viewOwner={undefined} />
-        <main class="p-4 pb-24 w-full sm:max-w-lg sm:mx-auto flex flex-col gap-5">
+        <PageMain width="wide" class="p-4 pb-24 flex flex-col gap-5">
           <p class="text-sm text-base-content/70">
             {t('plans.INTRO')}{' '}
             <a href={STYLE_PROFILE_PATH} class="link link-primary">
@@ -124,7 +125,7 @@ export function PlansPage(props: { ctx: ViewContext; model: PlansModel }) {
               ))}
             </PostForm>
           </section>
-        </main>
+        </PageMain>
       </div>
       <Dock ctx={ctx} />
     </Layout>
@@ -144,11 +145,22 @@ function PlanCard(props: { gaps: PlanGaps; cover: PlanCover | undefined }) {
   const awaiting = awaitingReview(gaps);
   const items = tally.owned + tally.partly + tally.missing;
   const looks = cover?.looks ?? 0;
-  const counts = [
-    items === 1 ? t('plans.ITEMS_ONE') : t('plans.ITEMS', { count: items }),
-    looks === 1 ? t('plans.LOOKS_ONE') : t('plans.LOOKS', { count: looks }),
-    t('plans.looks.TO_BUY_COUNT', { count: tally.partly + tally.missing }),
-  ].join(' · ');
+  const looksText =
+    looks === 1 ? t('plans.LOOKS_ONE') : t('plans.LOOKS', { count: looks });
+  // Nothing accepted yet: the proposals are what it holds, and "0 items · 0 to buy" read like a bug.
+  const counts = (
+    items === 0 && awaiting > 0
+      ? [t('plans.PROPOSED_ITEMS', { count: awaiting }), looksText]
+      : [
+          items === 1
+            ? t('plans.ITEMS_ONE')
+            : t('plans.ITEMS', { count: items }),
+          looksText,
+          t('plans.looks.TO_BUY_COUNT', {
+            count: tally.partly + tally.missing,
+          }),
+        ]
+  ).join(' · ');
   return (
     <li class="card bg-base-100 shadow-sm relative">
       <div class="card-body p-3 gap-1">

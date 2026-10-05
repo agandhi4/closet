@@ -417,7 +417,7 @@ describe('plan looks in the app', () => {
       expect(statements).toHaveLength(6);
     });
 
-    it('leads with the strip and lists the looks sent back or turned down apart', async () => {
+    it('draws the looks in the Outfits panel (?view=outfits checks it), listing those sent back or turned down apart', async () => {
       const f = await fixture();
       const first = await f.look('Office Tuesday');
       const loved = await f.look('Friday drinks', [f.top, f.candidate]);
@@ -432,13 +432,20 @@ describe('plan looks in the app', () => {
       await reactToLooks(t.db, f.ownerId, f.planId, 'decline', [
         { lookId: declined },
       ]);
-      const res = await get(`/wardrobe/plans/${f.planId}`, f.cookie);
+      const items = unescapeHtml(
+        (await get(`/wardrobe/plans/${f.planId}`, f.cookie)).body,
+      );
+      // Both panels are in either view; ?view= picks the checked tab (#312).
+      expect(items).toContain('id="plan-looks"');
+      expect(items).toMatch(/id="plan-view-items"[^>]*\bchecked\b/);
+      const res = await get(
+        `/wardrobe/plans/${f.planId}?view=outfits`,
+        f.cookie,
+      );
       expect(res.statusCode).toBe(200);
       expectFullPage(res);
       const html = unescapeHtml(res.body);
-      expect(html.indexOf('id="plan-looks"')).toBeLessThan(
-        html.indexOf('id="plan-role-'),
-      );
+      expect(html).toMatch(/id="plan-view-outfits"[^>]*\bchecked\b/);
       const strip = [...html.matchAll(/id="look-(\d+)" data-look/g)].map((m) =>
         Number(m[1]),
       );
@@ -494,7 +501,7 @@ describe('plan looks in the app', () => {
       const loved = await post(url('love'), {}, f.cookie);
       expect(loved.statusCode).toBe(303);
       expect(loved.headers.location).toBe(
-        `/wardrobe/plans/${f.planId}?saved=1`,
+        `/wardrobe/plans/${f.planId}?view=outfits&saved=1`,
       );
       expect((await reactionsOf([look])).get(look)?.reaction).toBe('loved');
       expect((await post(url('love'), {}, f.cookie)).statusCode).toBe(409);

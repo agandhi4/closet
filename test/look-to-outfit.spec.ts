@@ -96,7 +96,7 @@ test('buy the last piece, Save as outfit, land on the outfit', async ({
   expect(look.outfitId).toBe(outfitId);
 
   // The plan page links the outfit the look became.
-  await page.goto(plan);
+  await page.goto(`${plan}?view=outfits`);
   await expect(
     page.locator(`#look-${lookId} [data-look-saved]`),
   ).toHaveAttribute('href', `/outfits/${outfitId}`);
