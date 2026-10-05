@@ -461,6 +461,14 @@ export interface GarmentDetail
   lastWashedOn: string | null;
   away: AwayReason | null;
   awayNote: string | null;
+  /**
+   * Muse's suggestion (#333): set when it is one, so its page shows where
+   * it stands (src/web/wishlist/suggestion-section.tsx). The rest is read
+   * with the garment's context (garmentContext's `suggestion`).
+   */
+  suggestedAt: Date | null;
+  suggestionGroupId: number | null;
+  dismissedAt: Date | null;
 }
 
 const detailColumns = {
@@ -500,6 +508,9 @@ const detailColumns = {
   lastWashedOn: garment.lastWashedOn,
   away: garment.away,
   awayNote: garment.awayNote,
+  suggestedAt: garment.suggestedAt,
+  suggestionGroupId: garment.suggestionGroupId,
+  dismissedAt: garment.dismissedAt,
   photo: photoWithCutoutJson,
 };
 

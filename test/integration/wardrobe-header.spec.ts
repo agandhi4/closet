@@ -76,13 +76,12 @@ describe('the Wardrobe header and tabs', () => {
 
   afterAll(() => t?.cleanup());
 
-  it('gives every tab the header and the five tabs, each tab its own page', async () => {
+  it('gives every tab the header and the four tabs, each tab its own page', async () => {
     const tabs: [path: string, label: string][] = [
       ['/wardrobe', 'Closet'],
       ['/capsules', 'Capsules'],
       ['/laundry', 'Laundry'],
       ['/wardrobe/wishlist', 'Wishlist'],
-      ['/wardrobe/plans', 'Plans'],
     ];
     for (const [path, label] of tabs) {
       const res = await t.inject({ method: 'GET', url: path });
@@ -91,8 +90,10 @@ describe('the Wardrobe header and tabs', () => {
       const html = unescapeHtml(res.body);
       expect(activeTab(html), path).toBe(label);
       expect(tabsOf(html), path).toMatch(
-        /href="\/wardrobe"[\s\S]*href="\/capsules"[\s\S]*href="\/laundry"[\s\S]*href="\/wardrobe\/wishlist"[\s\S]*href="\/wardrobe\/plans"/,
+        /href="\/wardrobe"[\s\S]*href="\/capsules"[\s\S]*href="\/laundry"[\s\S]*href="\/wardrobe\/wishlist"/,
       );
+      // The plans are unlinked (#333): Muse's suggestions are the Wishlist's.
+      expect(tabsOf(html), path).not.toContain('/wardrobe/plans');
       expect(html, path).toContain('id="title-menu"');
       expect(menuOf(html), path).toBeDefined();
       expect(sheetOf(html), path).toBeDefined();
@@ -124,12 +125,12 @@ describe('the Wardrobe header and tabs', () => {
     );
   });
 
-  it('puts Select (with the grid’s filters), tagging, Shopping, Insights and the year in review in ⋯, Plans being a tab', async () => {
+  it('puts Select (with the grid’s filters), tagging, Insights and the year in review in ⋯, never the plans or the shopping list', async () => {
     const menu = menuOf(await get('/wardrobe?category=tops'))!;
     expect(menu).toContain('href="/wardrobe?category=tops&select=1"');
     expect(menu).toContain('href="/wardrobe/tag"');
     expect(menu).not.toContain('href="/wardrobe/plans"');
-    expect(menu).toContain('href="/wardrobe/shopping"');
+    expect(menu).not.toContain('href="/wardrobe/shopping"');
     expect(menu).toContain('href="/wardrobe/insights"');
     expect(menu).toContain('href="/wardrobe/recap"');
   });
@@ -142,12 +143,12 @@ describe('the Wardrobe header and tabs', () => {
     expect(menu).toContain('href="/wardrobe?category=bottoms&select=1"');
   });
 
-  it('offers a VIEW grantee no Select, tagging or add, their own Plans and Insights, and no year in review', async () => {
+  it('offers a VIEW grantee no Select, tagging or add, their own Insights, and no year in review', async () => {
     const html = await get(`/wardrobe?ownerId=${ownerId}`, viewer);
     const menu = menuOf(html)!;
     expect(menu).not.toContain('select=1');
     expect(menu).not.toContain('/wardrobe/tag');
-    expect(menu).toContain('href="/wardrobe/plans"');
+    expect(menu).not.toContain('href="/wardrobe/plans"');
     expect(menu).toContain('href="/wardrobe/insights"');
     // The recap is the wear log: never offered inside someone else's wardrobe.
     expect(menu).not.toContain('/wardrobe/recap');
@@ -166,7 +167,7 @@ describe('the Wardrobe header and tabs', () => {
     expect(menu).toContain('hx-swap-oob="true"');
     expect(menu).not.toContain('select=1');
     expect(menu).not.toContain('/wardrobe/tag');
-    expect(menu).toContain('href="/wardrobe/plans"');
+    expect(menu).toContain('href="/wardrobe/insights"');
     expect(sheetOf(html)).toBeUndefined();
     expect(html).not.toContain('aria-label="Add"');
   });

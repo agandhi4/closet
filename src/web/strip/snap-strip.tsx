@@ -69,9 +69,35 @@ const SIZES = {
     gap: 'gap-3',
     ends: 'before:w-0 after:w-0 before:-mr-3 after:-ml-3 lg:before:mr-0 lg:after:ml-0 lg:before:w-[calc(50%-9.75rem)] lg:after:w-[calc(50%-9.75rem)] before:shrink-0 after:shrink-0',
   },
-} as const;
+  // A Muse need's options (#333, src/web/wishlist/group-page.tsx): a card
+  // with the next peeking on a phone, flush left like `peek`; from `lg`
+  // the strip stops being one: every option is a column side by side, all
+  // one height (a card's foot lines up across them), nothing scrolls and
+  // the step buttons have nothing to step. On a touch screen the steps are
+  // hidden anyway (the `fine` variant).
+  options: {
+    item: 'w-[85%] lg:w-auto lg:flex-1 lg:min-w-0 lg:max-w-md',
+    gap: 'gap-3 lg:gap-4',
+    ends: 'before:w-0 after:w-0 before:-mr-3 after:-ml-3 lg:before:hidden lg:after:hidden before:shrink-0 after:shrink-0',
+    strip: 'lg:overflow-x-visible lg:snap-none lg:justify-center',
+    frame: 'lg:[&>[data-snap-step]]:hidden',
+  },
+} as const satisfies Record<string, SizeClasses>;
+
+/** A size's item width, gap and end spacers, and any classes of its own on the strip and its frame. */
+interface SizeClasses {
+  item: string;
+  gap: string;
+  ends: string;
+  strip?: string;
+  frame?: string;
+}
 
 export type SnapSize = keyof typeof SIZES;
+
+function sizeClasses(size: SnapSize): SizeClasses {
+  return SIZES[size];
+}
 
 /**
  * The strip and, right after it, the hidden input the observer writes the
@@ -122,12 +148,18 @@ export function SnapStrip(props: {
 }) {
   const classes = [
     'snap-strip relative flex rounded-box focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary overflow-x-auto snap-x snap-mandatory overscroll-x-contain',
-    SIZES[props.size].gap,
-    SIZES[props.size].ends,
+    sizeClasses(props.size).gap,
+    sizeClasses(props.size).ends,
+    sizeClasses(props.size).strip,
     props.class,
   ];
+  const frame = [
+    'snap-strip-frame relative',
+    sizeClasses(props.size).frame,
+    props.frameClass,
+  ];
   return (
-    <div class={`snap-strip-frame relative ${props.frameClass ?? ''}`}>
+    <div class={frame.filter(Boolean).join(' ')}>
       <div
         class={classes.filter(Boolean).join(' ')}
         role={props.listbox === false ? 'group' : 'listbox'}

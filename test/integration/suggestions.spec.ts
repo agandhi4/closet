@@ -749,10 +749,14 @@ describe('suggestions', () => {
 
     it('lists of things to buy leave out what was set aside: the Wishlist tab and list_wishlist', async () => {
       const page = unescapeHtml((await get('/wardrobe/wishlist')).body);
-      expect(page).toContain('Suggested knit open');
-      expect(page).toContain('Suggested cardigan chosen');
-      expect(page).not.toContain('Suggested cardigan aside');
-      expect(page).not.toContain('Suggested lone pick');
+      // What is set aside is only under "N set aside", to be undone (#333).
+      const cut = page.indexOf('data-inbox-section="set-aside"');
+      const live = cut === -1 ? page : page.slice(0, cut);
+      expect(live).toContain('Suggested knit open');
+      expect(live).toContain('Suggested cardigan chosen');
+      expect(live).not.toContain('Suggested cardigan aside');
+      expect(live).not.toContain('Suggested lone pick');
+      expect(page.slice(cut)).toContain('Suggested lone pick');
       const listed = await tool<{ items: { name: string | null }[] }>(
         t,
         mcpToken,

@@ -820,48 +820,6 @@ export function styleProfileSql(
     from ${styleProfile} where ${eq(styleProfile.userId, userId)})`;
 }
 
-/** A draft an agent made (create_plan) with proposals the owner has not decided. */
-export interface WaitingDraft {
-  planId: number;
-  plan: string;
-  /** The drafting token's name ("Muse"). */
-  agent: string;
-  /** Its items and looks still `proposed`. */
-  proposed: number;
-}
-
-/**
- * `ownerId`'s plans drafted by an agent's token that hold proposals, oldest
- * first, as a scalar subquery: Today's card (#295) reads it beside the day
- * in one statement (todayFor's `drafts`), so the home screen's statement
- * count stays. A draft whose token was deleted (`drafted_by_token_id`
- * set null) has no agent to name and is left to the plans list.
- */
-export function waitingDraftsSql(ownerId: number): SQL<WaitingDraft[]> {
-  return sql<WaitingDraft[]>`(
-    select coalesce(json_agg(json_build_object(
-      'planId', ${wardrobePlan.id},
-      'plan', ${wardrobePlan.name},
-      'agent', ${personalAccessToken.name},
-      'proposed', waiting.proposed
-    ) order by ${wardrobePlan.id}), '[]')
-    from ${wardrobePlan}
-    join ${personalAccessToken}
-      on ${personalAccessToken.id} = ${wardrobePlan.draftedByTokenId}
-    cross join lateral (
-      select (
-        select count(*)::int from ${planItem}
-        where ${planItem.planId} = ${wardrobePlan.id}
-          and ${planItem.review} = 'proposed'
-      ) + (
-        select count(*)::int from ${planLook}
-        where ${planLook.planId} = ${wardrobePlan.id}
-          and ${planLook.reaction} = 'proposed'
-      ) as proposed
-    ) waiting
-    where ${wardrobePlan.ownerId} = ${ownerId} and waiting.proposed > 0)`;
-}
-
 /** The one writer of a style profile: the row upserted. */
 export async function saveStyleProfile(
   db: Queryable,

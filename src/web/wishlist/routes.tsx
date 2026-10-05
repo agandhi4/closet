@@ -11,7 +11,6 @@ import { renderPage } from '../render';
 import {
   type AuthorizedWardrobe,
   authorizeWardrobe,
-  sharedWardrobesOf,
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
@@ -26,7 +25,6 @@ import {
 } from '../wardrobe/validation';
 import { type BoughtField, type BoughtModel, BoughtPage } from './bought-page';
 import type { WardrobeDeps } from '../wardrobe/writes';
-import { candidaciesByGarment } from '../plans/candidates';
 import {
   boughtPiece,
   buyCandidate,
@@ -35,9 +33,7 @@ import {
   planPurchases,
 } from '../plans/purchase';
 import { RowId } from '../schemas';
-import { brandSizeLookup, brandSizesOf } from '../sizes/queries';
-import { garmentRef, type GarmentRef, wishlistItems } from './queries';
-import { WishlistPage } from './wishlist-page';
+import { garmentRef, type GarmentRef } from './queries';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
 
@@ -99,16 +95,17 @@ function readPurchase(
 }
 
 /**
- * The Wishlist tab and "Bought it" (#18, plan section 11). Wishlist items
+ * "Bought it" (#18, plan section 11; the Wishlist tab itself is Muse's
+ * inbox, inbox-routes.tsx). Wishlist items
  * are the wardrobe's garments with status 'wishlist', so they are shared
  * like the rest of it (owner decision, #18): a VIEW grantee reads the
  * grantor's wishlist (a gift list; the owner reading a sibling's), a MANAGE
  * grantee also adds, edits and buys, and only the owner archives the
  * garment a purchase replaces or deletes an item. Adding and editing are
- * the garment form's (src/web/wardrobe, `?to=wishlist`). The owner's own
- * wishlist and "Bought it" also carry their plans' part (34b): which plan
- * items each item is a candidate for, and what buying one does to them
- * (src/web/plans/purchase.ts); a grantee never sees or sends it.
+ * the garment form's (src/web/wardrobe, `?to=wishlist`). The owner's
+ * "Bought it" also carries their plans' part (34b): what buying a plan
+ * candidate does to its items (src/web/plans/purchase.ts); a grantee never
+ * sees or sends it.
  */
 export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -128,13 +125,18 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    * replaced garment the page offers to archive too (`archivable`); nothing
    * for a grantee, whose purchase leaves the owner's plans to the owner.
    * The garment as read for the page is the piece judged: no second read.
+   * Nothing for a Muse pick either (#333): its need settles with the
+   * purchase (buyCandidate's decide), and the plans' follow-ups would
+   * delete the siblings it sets aside.
    */
   function purchasesFor(
     garment: GarmentDetail,
     { access }: AuthorizedWardrobe,
     archivable: GarmentRef | undefined,
   ): Promise<PlanPurchase[]> {
-    if (!access.isOwner) return Promise.resolve([]);
+    if (!access.isOwner || garment.suggestedAt !== null) {
+      return Promise.resolve([]);
+    }
     return planPurchases(
       db,
       access.ownerId,
@@ -185,46 +187,6 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       { status },
     );
   }
-
-  app.get(
-    '/wardrobe/wishlist',
-    { schema: { querystring: OwnerQuery } },
-    async (request, reply) => {
-      const { access, viewOwner } = await resolve(
-        request,
-        request.query.ownerId,
-        'view',
-      );
-      // The brand notes (#24) are the owner's body: read for their own
-      // wishlist only.
-      const [items, sharedWardrobes, brandSizes] = await Promise.all([
-        wishlistItems(db, access.ownerId),
-        sharedWardrobesOf(db, sessionUserId(request)),
-        access.isOwner ? brandSizesOf(db, access.ownerId) : undefined,
-      ]);
-      const candidacies = access.isOwner
-        ? await candidaciesByGarment(
-            db,
-            access.ownerId,
-            items.map((item) => item.id),
-          )
-        : undefined;
-      return renderPage(
-        reply,
-        <WishlistPage
-          ctx={viewContext(reply)}
-          model={{
-            items,
-            viewOwner,
-            sharedWardrobes,
-            canEdit: access.canManage,
-            candidacies,
-            brandSizes: brandSizes && brandSizeLookup(brandSizes),
-          }}
-        />,
-      );
-    },
-  );
 
   // The form. A garment that is no longer on the wishlist (bought on
   // another phone, a stale link) sends the person to its page.

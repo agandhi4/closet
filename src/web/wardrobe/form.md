@@ -22,5 +22,6 @@ Part of the Wardrobe (`CLAUDE.md` in this directory); #161, epic #156. Productio
 ## Not changed, and why
 
 - `GET /wardrobe/new?to=wishlist&replaces=&planItem=` reads the replaced garment and the plan item (`resolveDestination`) before the form: each can 404 the page, and they are the plans' and wishlist's reads (#167).
+- `GET /wardrobe/new?forNeed=<id>` ("Bought a different one", #333) is the closet form prefilled from a Muse need's best pick (`destinationValues`, as a replacement's) with a banner and a hidden `forNeed`; the post settles the need with the new garment in its own transaction (`postedDestination`'s `withGarment`, `decide`). Only the owner's open need: else a 404 before anything is stored. See `src/web/wishlist/suggestions.md`.
 - The batch upload's count before the body is read: it sets the parser's `files` limit, so a pick past the room left stops at the first photo past it and stores nothing more.
 - The claim's transaction keeps `lockPhotoName` as its own statement: the take's `file` check needs a snapshot taken after it.

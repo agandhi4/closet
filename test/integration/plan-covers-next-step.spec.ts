@@ -4,9 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   file,
   garment,
-  personalAccessToken,
+  optionGroup,
   planItemCandidate,
-  wardrobePlan,
 } from '../../src/db/schema';
 import { changeCandidates } from '../../src/web/plans/candidates';
 import { proposeLook, reactToLooks } from '../../src/web/plans/looks';
@@ -16,7 +15,7 @@ import type { GarmentStatus } from '../../src/wardrobe/status';
 import { recordStatements } from '../support/query-recorder';
 import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
 import { expectFullPage } from './pages';
-import { createAccessToken, tool } from './mcp';
+import { markSuggestion } from '../../src/web/wishlist/decisions';
 
 /**
  * What #302 puts where the owner looks: a photo row and "N items · N looks
@@ -48,6 +47,23 @@ describe('plan covers and the next step (#302)', () => {
     budget: null,
     note: null,
   });
+
+  /** An open Muse need of `ownerId`'s with one option to choose (#333). */
+  const waitingNeed = async (ownerId: number) => {
+    const [need] = await t.db
+      .insert(optionGroup)
+      .values({ ownerId, name: 'Navy blazer' })
+      .returning({ id: optionGroup.id });
+    const option = await newGarment(ownerId, 'wishlist', 'tops', 'Blazer');
+    expect(
+      await markSuggestion(t.db, ownerId, option, {
+        tokenId: null,
+        groupId: need.id,
+        note: null,
+        rank: null,
+      }),
+    ).toBe('marked');
+  };
 
   const newGarment = async (
     ownerId: number,
@@ -324,7 +340,7 @@ describe('plan covers and the next step (#302)', () => {
     const today = async (cookie: string) =>
       unescapeHtml((await get('/', cookie)).body);
 
-    it('is silent until a look is loved, then names the product and links the shopping strip', async () => {
+    it('is silent until a look is loved, then names the product and links its page', async () => {
       const f = await fixture();
       const proposed = await look(f.ownerId, f.planId, 'A', [
         f.top,
@@ -338,13 +354,12 @@ describe('plan covers and the next step (#302)', () => {
       expectFullPage(await get('/', f.cookie));
       expect(html).toContain('Suede loafers completes your loved look');
       expect(html).toContain(`data-next-purchase="${f.first}"`);
-      // The anchor is the product's own card on the shopping page.
-      expect(html).toContain(
-        `href="/wardrobe/shopping#candidate-${f.firstItem}-${f.first}"`,
-      );
+      // The product's own page: the shopping list is unlinked (#333).
+      expect(html).toContain(`href="/wardrobe/${f.first}"`);
+      expect(html).not.toContain('/wardrobe/shopping');
     });
 
-    it('anchors on the card of the item, when one product is a candidate of two', async () => {
+    it('links the product once, when it is a candidate of two items; the shopping list keeps a card per item', async () => {
       const f = await fixture();
       const [one, two] = (await addItems(
         t.db,
@@ -364,7 +379,7 @@ describe('plan covers and the next step (#302)', () => {
       );
       const html = await today(f.cookie);
       const anchor = `candidate-${one}-${tote}`;
-      expect(html).toContain(`href="/wardrobe/shopping#${anchor}"`);
+      expect(html).toContain(`href="/wardrobe/${tote}"`);
       const shopping = unescapeHtml(
         (await get('/wardrobe/shopping', f.cookie)).body,
       );
@@ -491,27 +506,14 @@ describe('plan covers and the next step (#302)', () => {
       expect(html).toContain('Bags completes your loved look');
     });
 
-    it('gives way to Review N ideas while anything is proposed: one card', async () => {
+    it('gives way to Muse’s needs card while a need waits on a choice: one card', async () => {
       const f = await fixture();
       const mine = await look(f.ownerId, f.planId, 'Mine', [f.top, f.first]);
       await love(f.ownerId, f.planId, mine);
-      const token = await createAccessToken(t, { name: 'Muse' });
-      const draft = await tool<{ id: number }>(t, token, 'create_plan', {
-        name: 'Spring capsule',
-      });
-      // createAccessToken and tool act as the harness owner, not this user:
-      // the draft is theirs, so this owner's Today keeps its next step...
       expect(await today(f.cookie)).toContain('data-next-purchase');
-      // ...and the harness owner, with a draft waiting, has its card alone.
-      await tool(t, token, 'propose_plan_item', {
-        planId: draft.id,
-        category: 'tops',
-        name: 'Navy blazer',
-      });
-      const html = unescapeHtml(
-        (await t.inject({ method: 'GET', url: '/' })).body,
-      );
-      expect(html).toContain('Muse drafted Spring capsule: 1 idea to review');
+      await waitingNeed(f.ownerId);
+      const html = await today(f.cookie);
+      expect(html).toContain('Muse has 1 need for you to decide on');
       expect(html).not.toContain('data-next-purchase');
     });
 
@@ -566,7 +568,7 @@ describe('plan covers and the next step (#302)', () => {
       expect(withStep.statements).toHaveLength(bare.statements.length + 2);
     });
 
-    it('skips the purchase matching while a draft card wins the slot', async () => {
+    it('skips the purchase matching while the needs card wins the slot', async () => {
       const f = await fixture();
       const mine = await look(f.ownerId, f.planId, 'Mine', [f.top, f.first]);
       await love(f.ownerId, f.planId, mine);
@@ -574,20 +576,11 @@ describe('plan covers and the next step (#302)', () => {
       expect(withStep.result.body).toContain('data-next-purchase');
       const bare = withStep.statements.length - 2;
 
-      // The token's owner is not checked by the join: it only names the agent.
-      await createAccessToken(t, { name: 'Muse' });
-      const [token] = await t.db.select().from(personalAccessToken);
-      await t.db
-        .update(wardrobePlan)
-        .set({ draftedByTokenId: token.id })
-        .where(eq(wardrobePlan.id, f.planId));
-      await addItems(t.db, f.ownerId, f.planId, [item('bags')], {
-        review: 'proposed',
-      });
-      const drafted = await recordStatements(() => get('/', f.cookie));
-      expect(unescapeHtml(drafted.result.body)).toContain('idea to review');
-      expect(drafted.result.body).not.toContain('data-next-purchase');
-      expect(drafted.statements).toHaveLength(bare);
+      await waitingNeed(f.ownerId);
+      const waiting = await recordStatements(() => get('/', f.cookie));
+      expect(waiting.result.body).toContain('data-muse-needs="1"');
+      expect(waiting.result.body).not.toContain('data-next-purchase');
+      expect(waiting.statements).toHaveLength(bare);
     });
   });
 });

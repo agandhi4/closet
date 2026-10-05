@@ -1,19 +1,23 @@
-import { and, count, eq, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  garment,
   garmentWear,
+  optionGroup,
   outfit,
   outfitCalendar,
-  wardrobePlan,
+  personalAccessToken,
 } from '../../src/db/schema';
 import { wearIdea } from '../../src/web/today/queries';
+import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
 import {
   createTestApp,
   recordQueries,
   type TestApp,
   unescapeHtml,
 } from './harness';
-import { tool, createAccessToken } from './mcp';
+import { createAccessToken, tool } from './mcp';
 import {
   expectFragment,
   expectFullPage,
@@ -247,83 +251,79 @@ describe('Today', () => {
       await clearToday();
     });
 
-    // #295: the home screen had no way to the plans. A plan an agent
-    // drafted, while it holds proposals, is a card linking to its review,
-    // read in the day's own statement (waitingDraftsSql in readDay), so the
-    // counts above stay; it goes once nothing in it is proposed.
-    it('shows an agent’s draft waiting on review as a card, in the same three statements, until nothing is proposed', async () => {
+    // #333: Muse's needs waiting on the owner's choice are a card leading
+    // to the Wishlist inbox, read in the day's own statement
+    // (needsToDecideSql in readDay), so the counts above stay; it goes once
+    // no open need has an option to choose. A plan an agent drafted no
+    // longer has a card: the plans are unlinked.
+    it('shows Muse’s needs to decide as a card, in the same three statements, until none is left', async () => {
       await clearToday();
-      const token = await createAccessToken(t, { name: 'Muse' });
-      const draft = await tool<{ id: number }>(t, token, 'create_plan', {
-        name: 'Spring capsule',
-      });
-      const items: number[] = [];
+      await createAccessToken(t, { name: 'Muse' });
+      const [{ id: tokenId }] = await t.db
+        .select({ id: personalAccessToken.id })
+        .from(personalAccessToken)
+        .where(
+          and(
+            eq(personalAccessToken.userId, t.owner.id),
+            eq(personalAccessToken.name, 'Muse'),
+          ),
+        );
+      const needs: number[] = [];
+      const picks: number[] = [];
       for (const name of ['White leather sneakers', 'Navy blazer']) {
-        const item = await tool<{ id: number }>(t, token, 'propose_plan_item', {
-          planId: draft.id,
-          category: 'tops',
-          name,
-        });
-        items.push(item.id);
+        const [need] = await t.db
+          .insert(optionGroup)
+          .values({ ownerId: t.owner.id, name, suggestedByTokenId: tokenId })
+          .returning({ id: optionGroup.id });
+        const [garmentRow] = await t.db
+          .insert(garment)
+          .values({
+            shareableId: randomUUID(),
+            ownerId: t.owner.id,
+            name: `${name} option`,
+            category: 'tops',
+            status: 'wishlist',
+          })
+          .returning({ id: garment.id });
+        expect(
+          await markSuggestion(t.db, t.owner.id, garmentRow.id, {
+            tokenId,
+            groupId: need.id,
+            note: null,
+            rank: null,
+          }),
+        ).toBe('marked');
+        needs.push(need.id);
+        picks.push(garmentRow.id);
       }
-      // The owner's own plan, with nothing an agent drafted, has no card.
-      const own = await t.inject({
-        method: 'POST',
-        url: '/wardrobe/plans',
-        payload: { name: 'Mine' },
-      });
-      expect(own.statusCode).toBe(303);
-
-      const record = await recordQueries(() => get('/'));
-      expect(record.statements).toBe(3);
-      const res = await get('/');
-      expectFullPage(res);
-      const html = unescapeHtml(res.body);
-      const cards = [...html.matchAll(/data-plan-draft="(\d+)"/g)];
-      expect(cards.map((m) => Number(m[1]))).toEqual([draft.id]);
-      expect(html).toContain('Muse drafted Spring capsule: 2 ideas to review');
-      expect(html).toContain(`href="/wardrobe/plans/${draft.id}/review"`);
-
-      const decide = (item: number, move: string) =>
-        t.inject({
-          method: 'POST',
-          url: `/wardrobe/plans/${draft.id}/items/${item}/${move}`,
-          payload: {},
-        });
-      expect((await decide(items[0], 'accept')).statusCode).toBe(303);
-      expect(unescapeHtml((await get('/')).body)).toContain(
-        'Muse drafted Spring capsule: 1 idea to review',
-      );
-      expect((await decide(items[1], 'decline')).statusCode).toBe(303);
-      expect((await get('/')).body).not.toContain('data-plan-draft');
-      await t.db.delete(wardrobePlan);
-    });
-
-    // A draft whose items are all decided but one look still proposed (#291)
-    // still has something to review: the card counts looks with items.
-    it('counts an agent’s proposed looks on the draft card, in the same three statements', async () => {
-      await clearToday();
-      const token = await createAccessToken(t, { name: 'Muse' });
-      const draft = await tool<{ id: number }>(t, token, 'create_plan', {
-        name: 'Autumn looks',
-      });
-      const pieces = [
-        await garmentIn('Look tee', 'tops', 'white'),
-        await garmentIn('Look trousers', 'bottoms', 'blue'),
-      ];
-      await tool(t, token, 'propose_look', {
-        planId: draft.id,
-        name: 'Monday',
-        garmentIds: pieces,
-      });
+      // A need with no option yet has nothing to choose.
+      await t.db
+        .insert(optionGroup)
+        .values({ ownerId: t.owner.id, name: 'Rain jacket' });
 
       const record = await recordQueries(() => get('/'));
       expect(record.statements).toBe(3);
       const html = unescapeHtml((await get('/')).body);
-      expect(html).toContain(`data-plan-draft="${draft.id}"`);
-      expect(html).toContain('Muse drafted Autumn looks: 1 idea to review');
-      expect(html).toContain(`href="/wardrobe/plans/${draft.id}/review"`);
-      await t.db.delete(wardrobePlan);
+      expect(html).toContain('data-muse-needs="2"');
+      expect(html).toContain('Muse has 2 needs for you to decide on');
+      expect(html).toMatch(
+        /href="\/wardrobe\/wishlist" class="btn btn-primary/,
+      );
+      expect(html).not.toContain('data-plan-draft');
+
+      await decide(t.db, t.owner.id, { kind: 'choose', garmentId: picks[0] });
+      expect(unescapeHtml((await get('/')).body)).toContain(
+        'Muse has 1 need for you to decide on',
+      );
+      await decide(t.db, t.owner.id, {
+        kind: 'dismiss-group',
+        groupId: needs[1],
+        reason: 'not_now',
+        note: null,
+      });
+      expect((await get('/')).body).not.toContain('data-muse-needs');
+      await t.db.delete(optionGroup);
+      await t.db.delete(garment).where(inArray(garment.id, picks));
     });
 
     it('an empty closet says what ideas need', async () => {

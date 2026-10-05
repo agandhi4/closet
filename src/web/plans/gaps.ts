@@ -69,7 +69,7 @@ export function toTarget(item: PlanItemRow): PlanTarget {
   };
 }
 
-/** What Review (#271) opens: the plan's proposed items and proposed looks (#291). The one rule behind the plan page, the list and Today's card (waitingDraftsSql counts the same in SQL). */
+/** What Review (#271) opens: the plan's proposed items and proposed looks (#291). The one rule behind the plan page and the list. */
 export function awaitingReview(gaps: PlanGaps): number {
   return gaps.review.proposed.length + gaps.plan.proposedLooks;
 }

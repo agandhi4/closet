@@ -55,7 +55,7 @@ Each area's detail lives in a `CLAUDE.md` beside its code. Claude Code loads one
 | Wardrobe | `src/web/wardrobe/CLAUDE.md` | garments: the grid, the form, properties, bulk edit, tagging, search |
 | Link import | `src/web/wardrobe/link-import/CLAUDE.md` | adding a garment from a product link or Android's share sheet |
 | The garment model | `src/wardrobe/CLAUDE.md` | the pure rules in `src/wardrobe/`, adding an occasion or a property value |
-| Wishlist | `src/web/wishlist/CLAUDE.md` | the wishlist, a garment's status, "Bought it" |
+| Wishlist | `src/web/wishlist/CLAUDE.md` | the wishlist (Muse's inbox, its decision screen), a garment's status, "Bought it" |
 | Wardrobe plans | `src/web/plans/CLAUDE.md` | plans, their gaps, the style profile, the shopping list |
 | Capsules | `src/web/capsules/CLAUDE.md` | capsules and the capsule filter |
 | Wears and washes | `src/web/wears/CLAUDE.md` | wears, washes, away, laundry, availability |

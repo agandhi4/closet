@@ -46,14 +46,22 @@ export const WARM_GARMENT_CAP = 300;
 export const WARM_OUTFIT_CAP = 80;
 
 /**
- * The most pages a warm list names (pages and fragments): next week, a page per capped garment and outfit, and the grid's later
- * pages, one per GRID_PAGE_SIZE warmed garments at most. The worker sizes
- * its page cache from it.
+ * The Muse inbox's pages a warm names (#333): the inbox itself, its needs'
+ * decision screens and the pages of what is still wanted, newest first.
+ * Their thumbs count the same, beside the closet's.
+ */
+export const WARM_WISHLIST_CAP = 60;
+
+/**
+ * The most pages a warm list names (pages and fragments): next week, a page per capped garment and outfit, the inbox's
+ * (WARM_WISHLIST_CAP), and the grid's later pages, one per GRID_PAGE_SIZE
+ * warmed garments at most. The worker sizes its page cache from it.
  */
 export const WARM_PAGE_CAP =
   1 +
   WARM_GARMENT_CAP +
   WARM_OUTFIT_CAP +
+  WARM_WISHLIST_CAP +
   Math.ceil(WARM_GARMENT_CAP / GRID_PAGE_SIZE);
 
 // Thumbs an outfit shows that no warmed garment page does: its archived
@@ -62,10 +70,11 @@ const WARM_OUTFIT_ONLY_THUMBS = 100;
 
 /**
  * The most thumbs a warm list names (the server cuts the list there): the
- * capped garments' and their outfits' others. The worker sizes its image
+ * capped garments', their outfits' others, and the inbox's products. The worker sizes its image
  * cache from it.
  */
-export const WARM_IMAGE_CAP = WARM_GARMENT_CAP + WARM_OUTFIT_ONLY_THUMBS;
+export const WARM_IMAGE_CAP =
+  WARM_GARMENT_CAP + WARM_OUTFIT_ONLY_THUMBS + WARM_WISHLIST_CAP;
 
 /**
  * The warm list: same-origin paths with their query, nothing else.

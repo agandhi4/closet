@@ -37,14 +37,11 @@ test('plan the wardrobe, see its gaps, duplicate it', async ({ page }) => {
     condition: 'replace_soon',
   });
 
-  // The Wardrobe's Plans tab; still the Wardrobe section.
+  // The plans, unlinked since #333 (Muse's picks are the Wishlist's) but
+  // still served until #337; still the Wardrobe section.
   await page.goto('/wardrobe');
-  await page.getByRole('tab', { name: 'Plans' }).click();
-  await expect(page).toHaveURL(/\/wardrobe\/plans$/);
-  await expect(page.getByRole('tab', { name: 'Plans' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await expect(page.getByRole('tab', { name: 'Plans' })).toHaveCount(0);
+  await page.goto('/wardrobe/plans');
   await expect(page.locator('.dock a[aria-current="page"]')).toHaveAttribute(
     'href',
     '/wardrobe',

@@ -17,7 +17,6 @@ import {
   nextPurchaseOf,
   rankedPurchasesSql,
 } from '../plans/candidates';
-import { type WaitingDraft, waitingDraftsSql } from '../plans/queries';
 import {
   readWeatherWithForecast,
   weatherWithForecastSql,
@@ -28,6 +27,7 @@ import {
   type WeatherService,
 } from '../weather/service';
 import { somethingWornSql } from './queries';
+import { type NeedsToDecide, needsToDecideSql } from '../wishlist/inbox';
 
 /**
  * Today (#15; plan section 9): the household's day for one person, as a
@@ -47,8 +47,8 @@ import { somethingWornSql } from './queries';
  * Whether anything was worn today is read only when asked (`worn`, in the
  * same statement): the page never shows it (#158); get_today asks, and the
  * evening reminder reads it for every evening person at once (eveningDays).
- * So are an agent's drafts waiting on the owner (`drafts`, #295), which only
- * the page shows, as a card.
+ * So are Muse's needs waiting on the owner's choice (`needs`, #333), which
+ * only the page shows, as a card leading to the Wishlist inbox.
  */
 
 /** Ideas a suggestions row shows at once. */
@@ -83,8 +83,8 @@ export interface TodayModel {
   weather: UserWeather | null;
   /** Whether anything was worn today (somethingWornSql); read only when asked (`worn`). */
   wornToday?: boolean;
-  /** An agent's drafts with proposals to review (waitingDraftsSql); read only when asked (`drafts`). */
-  drafts?: WaitingDraft[];
+  /** Muse's needs with options to choose (needsToDecideSql); null for none; read only when asked (`needs`). */
+  needs?: NeedsToDecide | null;
   /** The product completing the most loved looks of the active plan (rankedPurchasesSql, finished by nextPurchaseOf); null when none; read only when asked (`nextPurchase`). */
   nextPurchase?: NextPurchase | null;
 }
@@ -97,9 +97,9 @@ export interface TodayOptions {
   ownWeather?: UserWeather;
   /** Also read whether anything was worn today (get_today; the page never shows it). */
   worn?: boolean;
-  /** Also read the agent's drafts waiting on the owner (the page's card). */
-  drafts?: boolean;
-  /** Also read the next product to buy (the page's card when no draft waits). */
+  /** Also read Muse's needs waiting on the owner (the page's card). */
+  needs?: boolean;
+  /** Also read the next product to buy (the page's card when no need waits). */
   nextPurchase?: boolean;
 }
 
@@ -111,8 +111,8 @@ export interface TodayDeps {
 
 /**
  * The day's entries, the person's settings with their forecast row, and
- * (when asked) whether anything was worn and the agent's drafts waiting
- * on review, in one statement (#172; the
+ * (when asked) whether anything was worn and Muse's needs waiting on a
+ * choice, in one statement (#172; the
  * entries and the weather were two, in parallel), so the ideas start with
  * the weather in hand. Only a forecast that must be fetched reads again
  * (userWeatherFrom).
@@ -122,7 +122,7 @@ async function readDay(
   ownerId: number,
   today: IsoDate,
   now: Date,
-  { ownWeather, worn, drafts, nextPurchase }: TodayOptions,
+  { ownWeather, worn, needs, nextPurchase }: TodayOptions,
 ) {
   const read = await selectScalars(deps.db, {
     entries: entriesSql(ownerId, today, today),
@@ -131,7 +131,7 @@ async function readDay(
         ? undefined
         : weatherWithForecastSql(ownerId, now),
     worn: worn ? somethingWornSql(ownerId, today) : undefined,
-    drafts: drafts ? waitingDraftsSql(ownerId) : undefined,
+    needs: needs ? needsToDecideSql(ownerId) : undefined,
     ranked: nextPurchase ? rankedPurchasesSql(ownerId) : undefined,
   });
   const weather =
@@ -146,10 +146,10 @@ async function readDay(
     entries: read.entries,
     weather,
     worn: read.worn,
-    drafts: read.drafts,
-    // A waiting draft's card wins the slot: skip the matching statements.
+    needs: read.needs,
+    // A waiting need's card wins the slot: skip the matching statements.
     nextPurchase:
-      read.ranked && !read.drafts?.length
+      read.ranked && !read.needs
         ? await nextPurchaseOf(deps.db, ownerId, read.ranked)
         : undefined,
   };
@@ -162,7 +162,7 @@ export async function todayFor(
   options: TodayOptions = {},
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  const { entries, weather, worn, drafts, nextPurchase } = await readDay(
+  const { entries, weather, worn, needs, nextPurchase } = await readDay(
     deps,
     ownerId,
     today,
@@ -196,7 +196,7 @@ export async function todayFor(
     rows,
     weather: weather ?? null,
     wornToday: worn,
-    drafts,
+    needs,
     nextPurchase,
   };
 }

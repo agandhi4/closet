@@ -40,6 +40,7 @@ import type { WeatherService } from './weather/service';
 import { weatherRoutes } from './weather/routes';
 import { wearRoutes } from './wears/routes';
 import { weekPlanRoutes } from './week-plan/routes';
+import { inboxRoutes } from './wishlist/inbox-routes';
 import { wishlistRoutes } from './wishlist/routes';
 
 /** Config the routes read, resolved once by createApp(). */
@@ -135,6 +136,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(linkImportRoutes, options);
   await app.register(capsuleRoutes, options);
   await app.register(wishlistRoutes, options);
+  await app.register(inboxRoutes, options);
   await app.register(planRoutes, options);
   await app.register(shoppingRoutes, options);
   await app.register(insightsRoutes, options);

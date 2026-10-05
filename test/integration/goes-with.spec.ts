@@ -505,7 +505,7 @@ describe('goes with my closet', () => {
       const row = new RegExp(`id="candidate-\\d+-${sweater}"[^]*?</li>`).exec(
         unescapeHtml(res.body),
       )![0];
-      expect(row).not.toContain('Goes with');
+      expect(row).not.toContain('Unlocks');
       expect(row).toContain(`hx-get="/wardrobe/${sweater}/outfit-count"`);
       expect(row).toContain('hx-trigger="revealed"');
       const chip = await t.inject({
@@ -515,7 +515,7 @@ describe('goes with my closet', () => {
       });
       expect(chip.statusCode).toBe(200);
       expectFragment(chip);
-      expect(chip.body).toContain('Goes with 6 outfits');
+      expect(chip.body).toContain('Unlocks 6 outfits');
       expect(unescapeHtml(chip.body)).toContain(
         `href="/wardrobe/${sweater}#goes-with"`,
       );
@@ -528,7 +528,7 @@ describe('goes with my closet', () => {
       expect((await count(othersItem)).statusCode).toBe(404);
       expect((await count(999_999)).statusCode).toBe(404);
       expect((await count(othersItem, otherUser)).body).toContain(
-        'Goes with 50+ outfits',
+        'Unlocks 50+ outfits',
       );
     });
   });

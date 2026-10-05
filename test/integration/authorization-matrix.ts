@@ -5,6 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordCutoutEvent } from '../../src/cutout/queries';
 import {
+  optionGroup,
   orderItem,
   outfitCalendar,
   tripItem,
@@ -12,7 +13,10 @@ import {
   wardrobeShare,
   weekPlan,
 } from '../../src/db/schema';
+import type { SuggestionDecision } from '../../src/wardrobe/suggestions';
 import { createToken } from '../../src/web/auth/personal-tokens';
+import { setGarmentStatus } from '../../src/web/wardrobe/status';
+import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
 import { changeCandidates } from '../../src/web/plans/candidates';
 import { proposeLook, reactToLooks } from '../../src/web/plans/looks';
 import {
@@ -127,6 +131,16 @@ export interface Fixture {
   /** A wishlist item replacing the garment (#18). */
   wishlistId: number;
   wishlistName: string;
+  /**
+   * A Muse need of the owner's (#333) with two options, one set aside; a
+   * need set aside; and a pick bought (so Returned writes).
+   */
+  needId: number;
+  needName: string;
+  needPickId: number;
+  setAsidePickId: number;
+  asideNeedId: number;
+  boughtPickId: number;
   /** An archived garment (Restore). */
   archivedId: number;
   archivedName: string;
@@ -229,6 +243,7 @@ export interface Route {
 export const BOTH: Via[] = ['own', 'ownerId'];
 export const garmentName = (f: Fixture) => f.garmentName;
 export const wishlistName = (f: Fixture) => f.wishlistName;
+export const needName = (f: Fixture) => f.needName;
 export const archivedName = (f: Fixture) => f.archivedName;
 export const capsuleName = (f: Fixture) => f.capsuleName;
 export const outfitName = (f: Fixture) => f.outfitName;
@@ -320,6 +335,8 @@ const TABLES = [
   'body_measurements',
   // POST /wardrobe marks an order item added (#25).
   'order_item',
+  // Muse's needs (#333): a decision settles or sets one aside.
+  'option_group',
 ];
 
 interface Case {
@@ -452,6 +469,70 @@ export function describeMatrix(
       expect(accept.headers.location).toBe('/auth/profile#sharing');
     };
 
+    /** The owner's Muse needs and picks (#333), written through the one writers. */
+    const museFixture = async (tag: string) => {
+      const ownerId = t.owner.id;
+      const cookie = actors.owner.cookie!;
+      const need = async (name: string) => {
+        const [row] = await t.db
+          .insert(optionGroup)
+          .values({ ownerId, name, budget: '100' })
+          .returning({ id: optionGroup.id });
+        return row.id;
+      };
+      const pick = async (name: string, groupId: number) => {
+        const id = await createWishlistItem(t, { name, price: '90', cookie });
+        const marked = await markSuggestion(t.db, ownerId, id, {
+          tokenId: null,
+          groupId,
+          note: `Muse on ${name}`,
+          rank: null,
+        });
+        if (marked !== 'marked') throw new Error(`${name}: ${marked}`);
+        return id;
+      };
+      const decided = async (decision: SuggestionDecision) => {
+        const outcome = await decide(t.db, ownerId, decision);
+        if (!outcome.ok) throw new Error(`${decision.kind}: ${outcome.reason}`);
+      };
+      const needName = `Need ${tag}`;
+      const needId = await need(needName);
+      const needPickId = await pick(`Pick ${tag}`, needId);
+      const setAsidePickId = await pick(`Aside ${tag}`, needId);
+      await decided({
+        kind: 'dismiss-pick',
+        garmentId: setAsidePickId,
+        reason: 'too_pricey',
+        note: null,
+      });
+      const asideNeedId = await need(`Aside need ${tag}`);
+      await decided({
+        kind: 'dismiss-group',
+        groupId: asideNeedId,
+        reason: 'not_now',
+        note: null,
+      });
+      const boughtPickId = await pick(
+        `Bought ${tag}`,
+        await need(`Bought need ${tag}`),
+      );
+      const bought = await setGarmentStatus(t.db, boughtPickId, ownerId, {
+        event: 'buy',
+        acquiredOn: null,
+        price: null,
+      });
+      if (!bought.ok) throw new Error(`Bought ${tag}: ${bought.reason}`);
+      await decided({ kind: 'bought', garmentId: boughtPickId });
+      return {
+        needId,
+        needName,
+        needPickId,
+        setAsidePickId,
+        asideNeedId,
+        boughtPickId,
+      };
+    };
+
     const createFixture = async (): Promise<Fixture> => {
       const cookie = actors.owner.cookie!;
       const tag = randomUUID().slice(0, 8);
@@ -489,6 +570,7 @@ export function describeMatrix(
         note: OWNER_SIZE_NOTE,
       });
       if (brandSizeId === 'brand-taken') throw new Error(`${brand} is taken`);
+      const muse = await museFixture(tag);
       const archivedName = `Old ${tag}`;
       const archivedId = await createGarment(t, { name: archivedName, cookie });
       const archived = await t.inject({
@@ -710,6 +792,7 @@ export function describeMatrix(
         garmentName,
         wishlistId,
         wishlistName,
+        ...muse,
         archivedId,
         archivedName,
         capsuleId,

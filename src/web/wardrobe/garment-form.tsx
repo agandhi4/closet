@@ -25,6 +25,7 @@ import {
   PropertiesMore,
   REFRESH_PROPERTIES,
 } from './property-fields';
+import type { NeedBoughtFor } from '../wishlist/inbox';
 import type { ReplaceableGarment } from '../wishlist/queries';
 import type { BrandSize } from '../sizes/queries';
 import { BRAND_SIZE_HINT_TRIGGER, BrandSizeHint } from '../sizes/views';
@@ -120,6 +121,8 @@ export interface GarmentFormModel {
   replaceable?: ReplaceableGarment[];
   /** The owner's plan item a new wishlist item is a candidate for (34b; its destination's planItem). */
   candidateFor?: CandidateFor;
+  /** The owner's Muse need a new closet garment is bought for instead of its picks (#333; its destination's forNeed). */
+  boughtFor?: NeedBoughtFor;
   /**
    * The requester's note on the form's brand (#24), under Size; read, and
    * the brand field refreshing it, only on the requester's own wardrobe
@@ -352,6 +355,20 @@ function OwnershipFields(props: {
     mode.kind === 'new' ? mode.destination.orderItem : undefined;
   return (
     <>
+      {model.boughtFor && (
+        // "Bought a different one" (#333): the save settles the need with
+        // the garment, in its transaction (destination.ts, decide).
+        <>
+          <input
+            type="hidden"
+            name="forNeed"
+            value={String(model.boughtFor.id)}
+          />
+          <p class="alert alert-info text-sm" id="garment-bought-for">
+            {t('muse.BOUGHT_FOR', { need: model.boughtFor.name })}
+          </p>
+        </>
+      )}
       {orderItem !== undefined && (
         // "Add to closet" from the order mail's review list (#25): the save
         // marks the order item added with the garment.

@@ -1,4 +1,6 @@
 import { type BrowserContext, expect, type Page, test } from '@playwright/test';
+import { and, eq } from 'drizzle-orm';
+import { garment } from '../src/db/schema';
 import {
   parseWarmList,
   WARM_LIST_PATH,
@@ -7,6 +9,7 @@ import {
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn, signInAs } from './support/e2e-session';
 import { seedDemoAs } from './support/seed-demo';
+import { userIdOf, withServerDb } from './support/server-db';
 import {
   ageCachedPage,
   ageLastWarm,
@@ -135,7 +138,8 @@ test.describe('warming the wardrobe for offline reading', () => {
     context,
   }) => {
     test.setTimeout(300_000);
-    await signInAs(page, await seedDemoAs('warm-demo'));
+    const email = await seedDemoAs('warm-demo');
+    await signInAs(page, email);
     const line = await firstWarm(page, context);
     expect(line).toMatch(
       /^\[sw\] warmed \d+ pages, \d+ images in [\d.]+ s \(\d+ fresh, 0 removed, 0 refused, 0 failed, added [\d.]+ MB, usage [\d.]+ MB of [\d.]+ [MG]B\)$/,
@@ -194,10 +198,23 @@ test.describe('warming the wardrobe for offline reading', () => {
         .poll(() => page.locator('a[data-tile]').count())
         .toBeGreaterThan(before);
     }
-    const garmentPages = list.pages.filter((path) =>
-      /^\/wardrobe\/\d+$/.test(path),
-    );
-    await expect(page.locator('a[data-tile]')).toHaveCount(garmentPages.length);
+    // Every closet garment's tile, and nothing else: the warm list's other
+    // garment pages are the wishlist's (the Muse inbox, #333), never tiles.
+    const closetPages = await withServerDb(async (db) => {
+      const ownerId = await userIdOf(db, email);
+      const rows = await db
+        .select({ id: garment.id })
+        .from(garment)
+        .where(and(eq(garment.ownerId, ownerId), eq(garment.status, 'closet')));
+      return rows.map((row) => `/wardrobe/${row.id}`).sort();
+    });
+    for (const path of closetPages) expect(list.pages).toContain(path);
+    const tiles = await page
+      .locator('a[data-tile]')
+      .evaluateAll((links) =>
+        links.map((link) => new URL((link as HTMLAnchorElement).href).pathname),
+      );
+    expect(tiles.sort()).toEqual(closetPages);
     await expectPhotosShown(page, '/wardrobe scrolled');
 
     // A tab root never opened: the offline page.

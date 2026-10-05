@@ -417,6 +417,57 @@ export function readGoesWithInputs(json: GoesWithInputsJson): GoesWithInputs {
   };
 }
 
+/**
+ * GoesWithInputs for many wishlist items at once: the owner's wishlist
+ * garments `which` picks (a condition on garment), with one closet and one
+ * avoid list for all of them. The Muse inbox's "Unlocks N" and a need's
+ * options side by side (src/web/wishlist/inbox.ts) read it with their other
+ * lists in one statement.
+ */
+export interface ManyGoesWithInputs {
+  items: WishlistGarment[];
+  closet: ClosetGarment[];
+  avoid: [number, number][];
+}
+
+export interface ManyGoesWithInputsJson {
+  items: [DrawnJson, number | null][];
+  closet: DrawnJson[];
+  avoid: [number, number][];
+}
+
+export function goesWithManyInputsSql(
+  ownerId: number,
+  which: SQL,
+): SQL<ManyGoesWithInputsJson> {
+  return sql<ManyGoesWithInputsJson>`json_build_object(
+    'items', (
+      select coalesce(
+        json_agg(json_build_array(${drawnJson}, ${garment.replacesGarmentId}) order by ${garment.id}),
+        '[]'
+      )
+      from ${garment}
+      left join ${file} on ${eq(file.id, garment.photoId)}
+      where ${and(eq(garment.ownerId, ownerId), onWishlist(), which)}
+    ),
+    'closet', ${closetGarmentsSql(ownerId)},
+    'avoid', ${avoidedPairsSql(ownerId)}
+  )`;
+}
+
+export function readManyGoesWithInputs(
+  json: ManyGoesWithInputsJson,
+): ManyGoesWithInputs {
+  return {
+    items: json.items.map(([drawn, replaces]) => ({
+      ...drawnGarment(drawn),
+      replacesGarmentId: replaces,
+    })),
+    closet: json.closet.map(drawnGarment),
+    avoid: json.avoid,
+  };
+}
+
 /** goesWithInputsSql alone, in one statement. */
 export async function goesWithInputs(
   db: Queryable,

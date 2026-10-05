@@ -39,6 +39,7 @@ import {
 } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { type GoesWithCloset, judgeGoesWithCloset } from '../gallery/ideas';
+import { decisionToastOf } from '../wishlist/suggestion-parts';
 import type { GoesWithInputs } from '../gallery/queries';
 import { normalizeCategory, normalizeSize } from './garment';
 import { garmentContext } from './garment-context';
@@ -482,7 +483,9 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // The new garment form: the closet's, or the wishlist's (`?to=wishlist`,
   // prefilled from the garment it replaces with `&replaces=`, a candidate
-  // for a plan item of the owner's with `&planItem=`). `?photo=` is an
+  // for a plan item of the owner's with `&planItem=`), or a closet garment
+  // bought for a Muse need instead of its picks (`?forNeed=`, prefilled from
+  // its best pick). `?photo=` is an
   // add-sheet upload's pending photo, shown only while it is still the
   // requester's (the save's claim is the real check); otherwise the form
   // says it is gone (a back navigation after saving lands here). A draft
@@ -497,18 +500,16 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'manage',
       );
-      const { destination, replaced, candidateFor } = await resolveDestination(
-        db,
-        request.query,
-        access,
-      );
+      const { destination, prefill, candidateFor, boughtFor } =
+        await resolveDestination(db, request.query, access);
       const { photo } = request.query;
       return renderGarmentForm(reply, db, {
         mode: { kind: 'new', destination },
         suggestionsFrom: access.ownerId,
         viewOwner,
-        values: destinationValues(destination, replaced),
+        values: destinationValues(destination, prefill),
         candidateFor,
+        boughtFor,
         pendingPhoto: photo
           ? {
               fileName: photo,
@@ -646,7 +647,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const saved = readIdList(request.body.draftsSaved);
       // A plan item's "Add a candidate" (34b) is checked before anything is
       // read or stored, and linked in the garment's transaction.
-      const { destination, candidateFor, withGarment } =
+      const { destination, candidateFor, boughtFor, withGarment } =
         await postedDestination(db, request.body, access);
       const status = destination.to;
       const again = {
@@ -655,6 +656,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         viewOwner,
         link: linkPhoto ? pendingPhotoView(linkPhoto) : undefined,
         candidateFor,
+        boughtFor,
         lookalikesDismissed: readIdList(request.body.lookalikesDismissed),
       } as const;
       const form = readGarmentForm(
@@ -677,6 +679,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             : undefined,
         });
       }
+      // Its page's toast: saved, or for "Bought a different one" the need met.
+      const savedFlag = boughtFor ? { decided: 'boughtFor' } : { created: 1 };
       const created = (id: number) =>
         logger.info(
           `Garment ${id} created (${status}) by user ${userId} in wardrobe ${access.ownerId}${
@@ -687,7 +691,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             destination.orderItem
               ? `, from order item ${destination.orderItem}`
               : ''
-          }`,
+          }${boughtFor ? `, bought for Muse need ${boughtFor.id}` : ''}`,
         );
       if (!linkPhoto) {
         const id = await createGarment(
@@ -698,10 +702,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           withGarment,
         );
         created(id);
-        return reply.redirect(
-          garmentUrl(id, viewOwner, '', { created: 1 }),
-          302,
-        );
+        return reply.redirect(garmentUrl(id, viewOwner, '', savedFlag), 302);
       }
       const claimed = await createGarmentWithPendingPhoto(
         deps,
@@ -732,7 +733,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             afterDraft(viewOwner, linkPhoto, draft, saved, id),
             303,
           )
-        : reply.redirect(garmentUrl(id, viewOwner, '', { created: 1 }), 302);
+        : reply.redirect(garmentUrl(id, viewOwner, '', savedFlag), 302);
     },
   );
 
@@ -931,6 +932,8 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             completedLooks: context.completedLooks,
             justLoggedRepair: request.query.repairSaved === '1',
             justAddedCopy: request.query.copyAdded === '1',
+            suggestion: context.suggestion,
+            decided: decisionToastOf(request.query.decided),
           }}
         />,
       );

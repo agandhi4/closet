@@ -44,6 +44,8 @@ import {
   type WeatherService,
 } from '../weather/service';
 import {
+  type BestOutfits,
+  bestOutfits,
   goesWith,
   type GoesWith,
   nearDuplicates,
@@ -56,6 +58,7 @@ import {
   type GoesWithInputs,
   goesWithInputs,
   ideaPoolSql,
+  type ManyGoesWithInputs,
   pickedGarments,
   type PoolGarment,
   readGeneratorMemory,
@@ -566,4 +569,42 @@ export async function goesWithCount(
 ): Promise<OutfitCount | undefined> {
   const { item, closet, avoid } = await goesWithInputs(db, ownerId, itemId);
   return item && outfitCount({ item, closet, avoid, seed: item.id });
+}
+
+/**
+ * "Unlocks N" for many wishlist items over one closet read
+ * (goesWithManyInputsSql): each item's goesWithCount, by garment id. The
+ * Muse inbox's option thumbs (src/web/wishlist/inbox.ts). One search each,
+ * about 3 ms over the demo closet (#333: 120 options in ~360 ms).
+ */
+export function unlocksOf({
+  items,
+  closet,
+  avoid,
+}: ManyGoesWithInputs): Map<number, OutfitCount> {
+  return new Map(
+    items.map((item) => [
+      item.id,
+      outfitCount({ item, closet, avoid, seed: item.id }),
+    ]),
+  );
+}
+
+/**
+ * Each item's count and best few outfits (bestOutfits) over one closet
+ * read, by garment id: a Muse need's options side by side (C,
+ * src/web/wishlist/group-page.tsx). The same search and seed as the item's
+ * own page, so the counts agree.
+ */
+export function bestOutfitsOf({
+  items,
+  closet,
+  avoid,
+}: ManyGoesWithInputs): Map<number, BestOutfits<ClosetGarment>> {
+  return new Map(
+    items.map((item) => [
+      item.id,
+      bestOutfits({ item, closet, avoid, seed: item.id }),
+    ]),
+  );
 }

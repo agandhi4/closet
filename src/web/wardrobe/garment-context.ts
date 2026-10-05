@@ -20,6 +20,10 @@ import {
 import { type BrandSize, brandSizeSql } from '../sizes/queries';
 import { type WearSummary, wearSummarySql } from '../wears/queries';
 import {
+  type SuggestionContext,
+  suggestionContextSql,
+} from '../wishlist/inbox';
+import {
   type GarmentRef,
   garmentRefSql,
   type Replacement,
@@ -54,7 +58,10 @@ export interface OwnerRecords {
  * - `brandSize`: the owner's size in a wishlist item's brand (#24), their
  *   body, so never read for a grantee;
  * - `completedLooks`: on the owner's Bought it result (`justBought`), the
- *   plan looks the purchase completed (#292); plans are the owner's alone.
+ *   plan looks the purchase completed (#292); plans are the owner's alone;
+ * - `suggestion`: Muse's note and the need it is a pick of, with its
+ *   siblings (#333), for a suggestion; anyone who sees it reads Muse's
+ *   notes (owner decision, 2026-10-05).
  */
 export interface GarmentContext {
   capsules: GarmentCapsule[];
@@ -64,6 +71,7 @@ export interface GarmentContext {
   goesWith: GoesWithInputs | undefined;
   brandSize: BrandSize | undefined;
   completedLooks: BoughtLook[];
+  suggestion: SuggestionContext | undefined;
 }
 
 /**
@@ -101,12 +109,20 @@ export async function garmentContext(
     goesWith: row.goesWith && readGoesWithInputs(row.goesWith),
     brandSize: row.brandSize ?? undefined,
     completedLooks: row.completedLooks ? boughtLooks(row.completedLooks) : [],
+    suggestion: row.suggestion ?? undefined,
   };
 }
 
 /** Each part's column, or undefined where the page shows none (see above). */
 function contextColumns(
-  { id, status, replacesGarmentId, brand }: GarmentDetail,
+  {
+    id,
+    status,
+    replacesGarmentId,
+    brand,
+    suggestedAt,
+    suggestionGroupId,
+  }: GarmentDetail,
   { isOwner, ownerId }: { isOwner: boolean; ownerId: number },
   today: IsoDate,
   justBought: boolean,
@@ -127,6 +143,9 @@ function contextColumns(
       !owned && isOwner && brand ? brandSizeSql(ownerId, brand) : undefined,
     completedLooks: when(status === 'closet' && isOwner && justBought, () =>
       looksWithGarmentSql(ownerId, id),
+    ),
+    suggestion: when(suggestedAt !== null, () =>
+      suggestionContextSql(ownerId, id, suggestionGroupId),
     ),
   };
 }

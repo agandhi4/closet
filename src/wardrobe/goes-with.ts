@@ -83,9 +83,13 @@ export interface PartnerRole<G> {
   best: Partner<G>[];
 }
 
-export interface GoesWith<G extends IdeaGarment> extends OutfitCount {
+/** The count and the best few, without the roles: an option on a decision screen. */
+export interface BestOutfits<G extends IdeaGarment> extends OutfitCount {
   /** The best BEST_OUTFITS, the item in each: at its formality first. */
   best: Idea<G>[];
+}
+
+export interface GoesWith<G extends IdeaGarment> extends BestOutfits<G> {
   /** The roles it is worn with, top to toe (OUTFIT_ORDER). */
   roles: PartnerRole<G>[];
 }
@@ -135,12 +139,27 @@ export function outfitCount<G extends IdeaGarment>(
   return countOf(outfitsWith(request).length);
 }
 
+function bestOf<G extends IdeaGarment>(ideas: Idea<G>[]): BestOutfits<G> {
+  return { ...countOf(ideas.length), best: ideas.slice(0, BEST_OUTFITS) };
+}
+
+/**
+ * The count and the best few from the same search, without goesWith's
+ * roles (whose layer checks are each a search of their own): the options
+ * of a Muse need side by side (src/web/wishlist/group-page.tsx).
+ */
+export function bestOutfits<G extends IdeaGarment>(
+  request: GoesWithRequest<G>,
+): BestOutfits<G> {
+  return bestOf(outfitsWith(request));
+}
+
 export function goesWith<G extends IdeaGarment>(
   request: GoesWithRequest<G>,
 ): GoesWith<G> {
   const ideas = outfitsWith(request);
-  const count = countOf(ideas.length);
-  if (ideas.length === 0) return { ...count, best: [], roles: [] };
+  const found = bestOf(ideas);
+  if (ideas.length === 0) return { ...found, roles: [] };
   const partners = partnersIn(ideas, request.item.id);
   const asksLayers = request.item.role !== 'layer';
   const layers = asksLayers ? layerChecks(request) : [];
@@ -157,7 +176,7 @@ export function goesWith<G extends IdeaGarment>(
     const best = going.slice(0, PARTNERS_PER_ROLE);
     return [{ role, goes: going.length, of, best }];
   });
-  return { ...count, best: ideas.slice(0, BEST_OUTFITS), roles };
+  return { ...found, roles };
 }
 
 /**

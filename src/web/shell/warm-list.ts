@@ -11,38 +11,52 @@ import { photoRefJson } from '../files/queries';
 import { savedOutfitsSql } from '../outfits/queries';
 import { outfitUrl } from '../outfits/urls';
 import { GRID_PAGE_SIZE } from '../wardrobe/grid-page-size';
-import { inCloset, onWishlist } from '../wardrobe/status';
-import { garmentUrl } from '../wardrobe/urls';
+import { inCloset, onWishlist, wanted } from '../wardrobe/status';
+import { garmentUrl, needUrl, WISHLIST_PATH } from '../wardrobe/urls';
+import { inboxNeedIdsSql } from '../wishlist/inbox';
 import { EMPTY_SEARCH, tilesUrl } from '../wardrobe/wardrobe-page';
 import {
   WARM_GARMENT_CAP,
   WARM_IMAGE_CAP,
   WARM_OUTFIT_CAP,
+  WARM_WISHLIST_CAP,
   type WarmList,
 } from './offline-warm';
 
 /**
  * The warm list of `ownerId`'s own wardrobe (#286): next week, every closet
- * garment's page and every outfit's (newest first, capped), the closet
- * grid's later pages, and the thumbs they show. Never a tab root
+ * garment's page and every outfit's (newest first, capped), the Muse inbox
+ * (#333: the Wishlist tab, its needs' decision screens and the pages of
+ * what is still wanted, capped), the closet grid's later pages, and the
+ * thumbs they show. Never a tab root
  * (TAB_ROOTS): they open stale-while-revalidate, so a warmed copy would open
  * stale after the user's own edits; they are cached when first opened.
  * Always the requester's own: a grantee's device never warms a wardrobe
  * shared with them. One statement: the garments still owned or wished for,
- * and every outfit with its garments' photos (what the Saved tab reads).
+ * every outfit with its garments' photos (what the Saved tab reads), and
+ * the needs the inbox shows.
  */
 export async function warmList(
   db: Db,
   ownerId: number,
   today: IsoDate,
 ): Promise<WarmList> {
-  const { garments, outfits } = await selectScalars(db, {
+  const { garments, outfits, needs } = await selectScalars(db, {
     garments: ownGarmentsSql(ownerId),
     outfits: savedOutfitsSql(ownerId),
+    needs: inboxNeedIdsSql(ownerId),
   });
   const closet = garments.filter((row) => row.status === 'closet');
   const warmed = closet.slice(0, WARM_GARMENT_CAP);
-  const warmedIds = new Set(warmed.map((row) => row.id));
+  // The inbox, then its needs, then what is still wanted, within the cap.
+  const inboxPages = [
+    WISHLIST_PATH,
+    ...needs.map((id) => needUrl(id, undefined)),
+  ].slice(0, WARM_WISHLIST_CAP);
+  const stillWanted = garments
+    .filter((row) => row.wanted)
+    .slice(0, WARM_WISHLIST_CAP - inboxPages.length);
+  const warmedIds = new Set([...warmed, ...stillWanted].map((row) => row.id));
   const warmedOutfits = outfits.slice(0, WARM_OUTFIT_CAP);
 
   const thumbs = new Set<string>();
@@ -53,20 +67,27 @@ export async function warmList(
   warmedOutfits.forEach((row) =>
     row.garments.forEach((g) => addThumb(g.photo)),
   );
+  const closetThumbs = [...thumbs].slice(0, WARM_IMAGE_CAP - WARM_WISHLIST_CAP);
+  const wantedThumbs = stillWanted.flatMap((row) =>
+    row.photo ? [imageUrl(row.photo, 'thumb')] : [],
+  );
 
   return {
     pages: [
       weekUrl(addDays(weekOf(today).start, 7)),
       ...warmed.map((row) => garmentUrl(row.id, undefined)),
       ...warmedOutfits.map((row) => outfitUrl(row.id)),
+      ...inboxPages,
+      ...stillWanted.map((row) => garmentUrl(row.id, undefined)),
     ],
     fragments: gridPageCursors(
       closet.map((row) => row.id),
       warmed.length,
     ).map((before) => tilesUrl(undefined, EMPTY_SEARCH, before)),
     // The garments' thumbs come first (warmed before the outfits'), so a
-    // cut falls on outfit pieces the closet pages never show.
-    images: [...thumbs].slice(0, WARM_IMAGE_CAP),
+    // cut falls on outfit pieces the closet pages never show; the inbox's
+    // products have their own share of the cap.
+    images: [...new Set([...closetThumbs, ...wantedThumbs])],
     keep: [
       ...garments
         .filter((row) => !warmedIds.has(row.id))
@@ -79,6 +100,8 @@ export async function warmList(
 interface OwnGarment {
   id: number;
   status: GarmentStatus;
+  /** Still wanted (wanted(): on the wishlist, not set aside): warmed; a set-aside one is only kept. */
+  wanted: boolean;
   photo: SignablePhotoRef | null;
 }
 
@@ -93,6 +116,7 @@ function ownGarmentsSql(ownerId: number): SQL<OwnGarment[]> {
         json_build_object(
           'id', ${garment.id},
           'status', ${garment.status},
+          'wanted', ${wanted()},
           'photo', ${photoRefJson}
         )
         order by ${garment.id} desc

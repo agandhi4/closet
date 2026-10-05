@@ -20,7 +20,7 @@ import { type GoesWithCloset, ideaName, type NearDuplicate } from './ideas';
 
 export const GOES_WITH_ID = 'goes-with';
 
-/** "Makes 12 outfits with your closet", or the card's shorter "Goes with 12 outfits". */
+/** "Makes 12 outfits with your closet", or the card's shorter "Unlocks 12 outfits". */
 function countText(count: OutfitCount, card: boolean): string {
   const { outfits, capped } = count;
   if (outfits === 0)
@@ -33,6 +33,11 @@ function countText(count: OutfitCount, card: boolean): string {
   if (outfits === 1)
     return t(card ? 'goesWith.CARD_ONE' : 'goesWith.COUNT_ONE');
   return t(card ? 'goesWith.CARD' : 'goesWith.COUNT', { count: outfits });
+}
+
+/** A card's "Unlocks 12 outfits": the shopping list's chip, the Muse inbox and a need's options. */
+export function unlocksText(count: OutfitCount): string {
+  return countText(count, true);
 }
 
 function GarmentLink(props: {

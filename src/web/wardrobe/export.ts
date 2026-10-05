@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import { and, asc, eq, getTableColumns, gt } from 'drizzle-orm';
 import { showsCutout } from '../../cutout/state';
 import type { Db } from '../../db/client';
-import { file, garment } from '../../db/schema';
+import { file, garment, optionGroup } from '../../db/schema';
 import type { Logger } from '../../logger';
 import { imageUrl } from '../files/image-url';
 import { photoWithCutoutJson } from '../files/queries';
@@ -23,15 +23,42 @@ export const EXPORT_PAGE_SIZE = 200;
 /**
  * The garment columns left out: whose it is (always the requester), the
  * internal photo row id (the photo is exported as its URLs), and a
- * suggestion's token and option group ids (rows the export does not hold;
- * its note, rank, time and dismissal are exported).
+ * suggestion's token id (a credential's row the export does not hold; its
+ * need's id is exported, the JSON bundle's `optionGroups` holds the needs,
+ * and the CSV names each garment's need in OPTION_GROUP_COLUMN).
  */
 export const OMITTED_COLUMNS: ReadonlySet<string> = new Set([
   'ownerId',
   'photoId',
   'suggestedByTokenId',
-  'suggestionGroupId',
 ]);
+
+/**
+ * The option_group columns the JSON bundle leaves out of each need (Muse,
+ * #333): whose it is, its token, and the plan item it was migrated from
+ * (plans go, #337).
+ */
+export const OMITTED_GROUP_COLUMNS: ReadonlySet<string> = new Set([
+  'ownerId',
+  'suggestedByTokenId',
+  'planItemId',
+]);
+
+type GroupRow = typeof optionGroup.$inferSelect;
+
+/** Every other option_group column, under its database name, like EXPORT_COLUMNS. */
+export const EXPORT_GROUP_COLUMNS: readonly {
+  key: keyof GroupRow;
+  name: string;
+}[] = Object.entries(getTableColumns(optionGroup))
+  .filter(([key]) => !OMITTED_GROUP_COLUMNS.has(key))
+  .map(([key, column]) => ({
+    key: key as keyof GroupRow,
+    name: column.name,
+  }));
+
+/** The CSV's column naming a suggestion's need, after the garment's own. */
+export const OPTION_GROUP_COLUMN = 'option_group';
 
 type GarmentRow = typeof garment.$inferSelect;
 
@@ -64,6 +91,8 @@ export interface ExportedPhoto {
 interface ExportRow {
   garment: GarmentRow;
   photo: ExportedPhoto | null;
+  /** Its need's name, a suggestion's (the CSV's OPTION_GROUP_COLUMN); null for none. */
+  need: string | null;
 }
 
 /**
@@ -81,14 +110,17 @@ async function* exportPages(
       .select({
         garment,
         photo: photoWithCutoutJson,
+        need: optionGroup.name,
       })
       .from(garment)
       .leftJoin(file, eq(file.id, garment.photoId))
+      .leftJoin(optionGroup, eq(optionGroup.id, garment.suggestionGroupId))
       .where(and(eq(garment.ownerId, ownerId), gt(garment.id, after)))
       .orderBy(asc(garment.id))
       .limit(EXPORT_PAGE_SIZE);
     yield rows.map((row) => ({
       garment: row.garment,
+      need: row.need,
       photo: row.photo && {
         original: origin + imageUrl(row.photo, 'original'),
         cutout: showsCutout(row.photo.cutoutStatus)
@@ -140,13 +172,18 @@ function csvLine(cells: readonly string[]): string {
 async function* csvChunks(pages: AsyncGenerator<ExportRow[]>) {
   // The BOM tells spreadsheet apps the file is UTF-8.
   yield '﻿' +
-    csvLine([...EXPORT_COLUMNS.map((column) => column.name), ...PHOTO_COLUMNS]);
+    csvLine([
+      ...EXPORT_COLUMNS.map((column) => column.name),
+      OPTION_GROUP_COLUMN,
+      ...PHOTO_COLUMNS,
+    ]);
   for await (const page of pages) {
     if (page.length === 0) continue;
     yield page
-      .map(({ garment: row, photo }) =>
+      .map(({ garment: row, photo, need }) =>
         csvLine([
           ...EXPORT_COLUMNS.map((column) => csvValue(row[column.key])),
+          need ?? '',
           photo?.original ?? '',
           photo?.cutout ?? '',
           photo?.thumb ?? '',
@@ -166,8 +203,26 @@ function jsonGarment({ garment: row, photo }: ExportRow): object {
   };
 }
 
+/**
+ * `ownerId`'s Muse needs (#333), oldest first, as the JSON bundle holds
+ * them: a handful, so one statement after the garments.
+ */
+async function exportGroups(db: Db, ownerId: number): Promise<object[]> {
+  const rows = await db
+    .select()
+    .from(optionGroup)
+    .where(eq(optionGroup.ownerId, ownerId))
+    .orderBy(asc(optionGroup.id));
+  return rows.map((row) =>
+    Object.fromEntries(
+      EXPORT_GROUP_COLUMNS.map((column) => [column.name, row[column.key]]),
+    ),
+  );
+}
+
 async function* jsonChunks(
   pages: AsyncGenerator<ExportRow[]>,
+  groups: () => Promise<object[]>,
   exportedAt: Date,
 ) {
   yield `{"exportedAt":${JSON.stringify(exportedAt)},"garments":[`;
@@ -178,7 +233,7 @@ async function* jsonChunks(
       page.map((row) => JSON.stringify(jsonGarment(row))).join(',');
     first = false;
   }
-  yield ']}\n';
+  yield `],"optionGroups":${JSON.stringify(await groups())}}\n`;
 }
 
 /**
@@ -207,7 +262,7 @@ export function wardrobeExport(
     try {
       yield* format === 'csv'
         ? csvChunks(counted())
-        : jsonChunks(counted(), new Date());
+        : jsonChunks(counted(), () => exportGroups(db, ownerId), new Date());
       logger.info(
         `Export (${format}) of wardrobe ${ownerId}: ${garments} garments in ${(performance.now() - started).toFixed(0)}ms`,
       );

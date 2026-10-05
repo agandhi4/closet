@@ -1,0 +1,414 @@
+import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
+import { type Static, Type } from '@sinclair/typebox';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import {
+  OWNER_DISMISS_REASONS,
+  type SuggestionDecision,
+} from '../../wardrobe/suggestions';
+import { sessionUserId } from '../auth/require-session';
+import { HttpError } from '../errors';
+import { t } from '../i18n';
+import type { WebOptions } from '../plugin';
+import { navigateTo, renderFragment, renderPage } from '../render';
+import { RowId } from '../schemas';
+import { safeReturnTo } from '../security/return-to';
+import {
+  type AuthorizedWardrobe,
+  authorizeWardrobe,
+  type WardrobeNeed,
+} from '../sharing/access';
+import { viewContext } from '../view-context';
+import { GarmentParams, OwnerQuery } from '../wardrobe/validation';
+import {
+  garmentUrl,
+  needUrl,
+  WISHLIST_PATH,
+  withParams,
+} from '../wardrobe/urls';
+import { decide, type DecideOutcome } from './decisions';
+import { NeedPage } from './group-page';
+import { markSuggestionsSeen, readInbox, readNeed } from './inbox';
+import {
+  GroupCards,
+  INBOX_MORE_PATH,
+  INBOX_SEEN_PATH,
+  InboxPage,
+  NewFromMuse,
+} from './inbox-page';
+import {
+  DECISION_FLAG,
+  type DecisionToast,
+  decisionToastOf,
+} from './suggestion-parts';
+
+const NOT_FOUND = 'Not found';
+
+/** `?decided=`: a decision's toast (decisionToastOf). */
+const DecidedFlag = Type.Optional(Type.String({ maxLength: 16 }));
+
+const InboxQuery = Type.Object({
+  ...OwnerQuery.properties,
+  [DECISION_FLAG]: DecidedFlag,
+});
+
+/** The next page of need cards; the first is the page's own. */
+const MoreQuery = Type.Object({
+  ...OwnerQuery.properties,
+  page: Type.Integer({ minimum: 2, maximum: 100 }),
+});
+
+const NeedParams = Type.Object({ id: RowId });
+
+const NeedQuery = Type.Object({
+  ...OwnerQuery.properties,
+  // The option centred first (a thumb tapped in the inbox): URL state, so
+  // an id that is none of the options centres the first.
+  option: Type.Optional(Type.Union([Type.Literal(''), RowId])),
+  [DECISION_FLAG]: DecidedFlag,
+});
+
+/** Where a decision comes back to: the page it was made on (checked by safeReturnTo). */
+const RETURN_TO = Type.Optional(Type.String({ maxLength: 2048 }));
+const NOTE_MAX = 500;
+
+const DecisionBody = Type.Union([
+  Type.Object({ returnTo: RETURN_TO }),
+  Type.Null(),
+]);
+
+/** "Not for me": one of the owner's reasons (a 400 without one), and an optional note. */
+const DismissBody = Type.Object({
+  returnTo: RETURN_TO,
+  reason: Type.Union(
+    OWNER_DISMISS_REASONS.map((reason) => Type.Literal(reason)),
+  ),
+  note: Type.Optional(Type.String({ maxLength: NOTE_MAX })),
+});
+
+/** A typed note, trimmed; null when blank. */
+function noteOf(note: string | undefined): string | null {
+  return note?.trim() || null;
+}
+
+/**
+ * The Muse inbox (#333; docs/plans/2026-10-05-muse-suggestions.md, section
+ * 4 C and D): the Wishlist tab as the inbox, its next page of needs, the
+ * "New from Muse" marker, a need's decision screen, and every decision
+ * made on them. The pages are read by whoever reads the wishlist (a VIEW
+ * grantee sees Muse's notes: owner decision, 2026-10-05); unlocks, best
+ * outfits, the marker and every decision are the owner's alone. Each
+ * decision is one call of decide() (decisions.ts), the one writer, and
+ * answers 303 to the page it was made on with a toast; a refusal is decide's
+ * 404 (not theirs) or 409 (a stale page or a double tap). "Bought it" stays
+ * GET|POST /wardrobe/:id/bought (routes.tsx), whose buyCandidate settles
+ * the need; "Bought a different one" is the closet form with
+ * `?forNeed=` (src/web/wardrobe/destination.ts).
+ */
+export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
+  app,
+  options,
+  done,
+) => {
+  const { db, logger } = options;
+
+  function resolve(
+    request: FastifyRequest,
+    ownerId: number | '' | undefined,
+    need: WardrobeNeed,
+  ): Promise<AuthorizedWardrobe> {
+    return authorizeWardrobe(db, request, ownerId, need, NOT_FOUND);
+  }
+
+  app.get(
+    WISHLIST_PATH,
+    { schema: { querystring: InboxQuery } },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        request,
+        request.query.ownerId,
+        'view',
+      );
+      const inbox = await readInbox(db, {
+        ownerId: access.ownerId,
+        viewerId: sessionUserId(request),
+        isOwner: access.isOwner,
+      });
+      logger.debug(
+        `Inbox of wardrobe ${access.ownerId}: ${inbox.groups.length} needs with options, ${inbox.counted} options counted in ${inbox.searchMs.toFixed(0)}ms`,
+      );
+      return renderPage(
+        reply,
+        <InboxPage
+          ctx={viewContext(reply)}
+          model={{
+            inbox,
+            viewOwner,
+            isOwner: access.isOwner,
+            canEdit: access.canManage,
+            toast: decisionToastOf(request.query[DECISION_FLAG]),
+          }}
+        />,
+      );
+    },
+  );
+
+  // The next page of need cards (the sentinel's `intersect once`): always
+  // a fragment, read like the page's first.
+  app.get(
+    INBOX_MORE_PATH,
+    { schema: { querystring: MoreQuery } },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        request,
+        request.query.ownerId,
+        'view',
+      );
+      const inbox = await readInbox(db, {
+        ownerId: access.ownerId,
+        viewerId: sessionUserId(request),
+        isOwner: access.isOwner,
+        groupsOnly: true,
+      });
+      return renderFragment(
+        reply,
+        <GroupCards
+          groups={inbox.groups}
+          page={request.query.page}
+          viewOwner={viewOwner}
+        />,
+      );
+    },
+  );
+
+  // "New from Muse", sent by the owner's inbox as it loads (hx-swap none):
+  // the answer is the marker's slot, out of band. A write, so never cached
+  // (doc section 9: the bare page stays the same before and after).
+  app.post(INBOX_SEEN_PATH, async (request, reply) => {
+    const ownerId = sessionUserId(request);
+    const needs = await markSuggestionsSeen(db, ownerId);
+    if (needs.length > 0) {
+      logger.info(
+        `Suggestions seen by user ${ownerId}: ${needs.length} needs new (${needs.map((need) => need.id).join(', ')})`,
+      );
+    }
+    return renderFragment(reply, <NewFromMuse needs={needs} />);
+  });
+
+  app.get(
+    `${WISHLIST_PATH}/needs/:id`,
+    { schema: { params: NeedParams, querystring: NeedQuery } },
+    async (request, reply) => {
+      const { access, viewOwner } = await resolve(
+        request,
+        request.query.ownerId,
+        'view',
+      );
+      const detail = await readNeed(db, {
+        ownerId: access.ownerId,
+        groupId: request.params.id,
+        isOwner: access.isOwner,
+      });
+      if (!detail) throw new HttpError(404, NOT_FOUND);
+      logger.debug(
+        `Need ${detail.need.id} of wardrobe ${access.ownerId}: ${detail.options.length} options judged in ${detail.searchMs.toFixed(0)}ms`,
+      );
+      return renderPage(
+        reply,
+        <NeedPage
+          ctx={viewContext(reply)}
+          model={{
+            detail,
+            viewOwner,
+            isOwner: access.isOwner,
+            canEdit: access.canManage,
+            option: request.query.option || undefined,
+            toast: decisionToastOf(request.query[DECISION_FLAG]),
+          }}
+        />,
+      );
+    },
+  );
+
+  /**
+   * decide() for the owner (a grantee naming the wardrobe is a 403, any
+   * other wardrobe's id a 404), then 303 to the page it was made on with
+   * its toast.
+   */
+  async function decided(
+    request: FastifyRequest & { query: Static<typeof OwnerQuery> },
+    reply: FastifyReply,
+    decision: SuggestionDecision,
+    {
+      returnTo,
+      fallback,
+      toast,
+    }: { returnTo: string | undefined; fallback: string; toast: DecisionToast },
+  ): Promise<FastifyReply> {
+    const { access } = await resolve(request, request.query.ownerId, 'own');
+    const outcome: DecideOutcome = await decide(db, access.ownerId, decision);
+    const subject =
+      'garmentId' in decision
+        ? `garment ${decision.garmentId}`
+        : `need ${decision.groupId}`;
+    if (!outcome.ok) {
+      logger.info(
+        `Decision ${decision.kind} on ${subject} refused for user ${access.ownerId}: ${outcome.reason}`,
+      );
+      if (outcome.reason === 'not-found') throw new HttpError(404, NOT_FOUND);
+      throw new HttpError(409, t('muse.STALE'));
+    }
+    logger.info(
+      `Decision ${decision.kind} on ${subject} (need ${outcome.groupId ?? 'none'}) by user ${access.ownerId}: ${outcome.dismissed.length} set aside, ${outcome.restored.length} restored`,
+    );
+    return reply.redirect(
+      withParams(safeReturnTo(returnTo, fallback), { [DECISION_FLAG]: toast }),
+      303,
+    );
+  }
+
+  const pickRoute = {
+    schema: {
+      params: GarmentParams,
+      querystring: OwnerQuery,
+      body: DecisionBody,
+    },
+  };
+
+  // This one: the need resolved by the pick, its other options set aside.
+  app.post('/wardrobe/:id/choose', pickRoute, (request, reply) =>
+    decided(
+      request,
+      reply,
+      { kind: 'choose', garmentId: request.params.id },
+      {
+        returnTo: request.body?.returnTo,
+        fallback: garmentUrl(request.params.id, undefined),
+        toast: 'choose',
+      },
+    ),
+  );
+
+  // Not for me on a pick, with the owner's reason and note.
+  app.post(
+    '/wardrobe/:id/dismiss',
+    {
+      schema: {
+        params: GarmentParams,
+        querystring: OwnerQuery,
+        body: DismissBody,
+      },
+    },
+    (request, reply) =>
+      decided(
+        request,
+        reply,
+        {
+          kind: 'dismiss-pick',
+          garmentId: request.params.id,
+          reason: request.body.reason,
+          note: noteOf(request.body.note),
+        },
+        {
+          returnTo: request.body.returnTo,
+          fallback: garmentUrl(request.params.id, undefined),
+          toast: 'dismiss',
+        },
+      ),
+  );
+
+  // Undo on a pick set aside: back among its need's options.
+  app.post('/wardrobe/:id/undo', pickRoute, (request, reply) =>
+    decided(
+      request,
+      reply,
+      { kind: 'undo-pick', garmentId: request.params.id },
+      {
+        returnTo: request.body?.returnTo,
+        fallback: garmentUrl(request.params.id, undefined),
+        toast: 'undo',
+      },
+    ),
+  );
+
+  // Not this need right now: the need set aside, its picks with it.
+  app.post(
+    `${WISHLIST_PATH}/needs/:id/dismiss`,
+    {
+      schema: {
+        params: NeedParams,
+        querystring: OwnerQuery,
+        body: DismissBody,
+      },
+    },
+    (request, reply) =>
+      decided(
+        request,
+        reply,
+        {
+          kind: 'dismiss-group',
+          groupId: request.params.id,
+          reason: request.body.reason,
+          note: noteOf(request.body.note),
+        },
+        {
+          returnTo: request.body.returnTo,
+          fallback: needUrl(request.params.id, undefined),
+          toast: 'dismiss',
+        },
+      ),
+  );
+
+  // Undo on a need: one set aside, or a choice (its options back).
+  app.post(
+    `${WISHLIST_PATH}/needs/:id/undo`,
+    {
+      schema: {
+        params: NeedParams,
+        querystring: OwnerQuery,
+        body: DecisionBody,
+      },
+    },
+    (request, reply) =>
+      decided(
+        request,
+        reply,
+        { kind: 'undo-group', groupId: request.params.id },
+        {
+          returnTo: request.body?.returnTo,
+          fallback: needUrl(request.params.id, undefined),
+          toast: 'undo',
+        },
+      ),
+  );
+
+  // Returned it (the garment page's ⋯ menu, an htmx post like Archive): a
+  // bought suggestion archived, set aside `returned`, its need open again.
+  app.post(
+    '/wardrobe/:id/returned',
+    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    async (request, reply) => {
+      const { access } = await resolve(request, request.query.ownerId, 'own');
+      const { id } = request.params;
+      const outcome = await decide(db, access.ownerId, {
+        kind: 'returned',
+        garmentId: id,
+      });
+      if (!outcome.ok) {
+        logger.info(
+          `Returned refused for garment ${id} of user ${access.ownerId}: ${outcome.reason}`,
+        );
+        if (outcome.reason === 'not-found') throw new HttpError(404, NOT_FOUND);
+        throw new HttpError(409, t('muse.STALE'));
+      }
+      logger.info(
+        `Garment ${id} returned (archived) by user ${access.ownerId}; need ${outcome.groupId ?? 'none'} open again`,
+      );
+      return navigateTo(
+        reply,
+        garmentUrl(id, undefined, '', { [DECISION_FLAG]: 'returned' }),
+      );
+    },
+  );
+
+  done();
+};

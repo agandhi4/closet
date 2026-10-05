@@ -274,6 +274,10 @@ export const GarmentBody = Type.Object({
   // added with it (POST /wardrobe only; the requester's own pending item,
   // else a 404).
   orderItem: Type.Optional(Type.Union([Type.Literal(''), RowId])),
+  // A new closet garment's Muse need (#333, "Bought a different one"):
+  // settled by it in its transaction (POST /wardrobe only; the requester's
+  // own open need, else a 404).
+  forNeed: Type.Optional(Type.Union([Type.Literal(''), RowId])),
   // The duplicate check's "Not the same" list (#20, lookalikes.ts): never
   // stored, only carried back into a refused form's region.
   lookalikesDismissed: LookalikesDismissed,
@@ -1208,6 +1212,8 @@ export const GarmentPageQuery = Type.Object({
   bought: Type.Optional(Type.String()),
   repairSaved: Type.Optional(Type.String()),
   copyAdded: Type.Optional(Type.String()),
+  // A Muse decision made on the page (#333): its toast, decisionToastOf.
+  decided: Type.Optional(Type.String({ maxLength: 16 })),
 });
 
 /**
@@ -1215,13 +1221,16 @@ export const GarmentPageQuery = Type.Object({
  * the wishlist, and `&replaces=<id>` from a garment's "Find a replacement"
  * (a garment of the addressed wardrobe, else a 404), or `&planItem=<id>`
  * from a plan item's "Add a candidate" (an item of the requester's own
- * plans, in their own wardrobe, else a 404). Absent is the closet.
+ * plans, in their own wardrobe, else a 404). Absent is the closet; a
+ * closet garment may carry `&forNeed=<id>`, a Muse need's "Bought a
+ * different one" (the requester's own open need, else a 404).
  */
 export const DestinationQuery = Type.Object({
   ...OwnerQuery.properties,
   to: Type.Optional(Type.Union([Type.Literal(''), Destination])),
   replaces: Type.Optional(Type.Union([Type.Literal(''), RowId])),
   planItem: Type.Optional(Type.Union([Type.Literal(''), RowId])),
+  forNeed: Type.Optional(Type.Union([Type.Literal(''), RowId])),
 });
 export type DestinationQuery = Static<typeof DestinationQuery>;
 

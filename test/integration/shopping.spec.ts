@@ -265,10 +265,11 @@ describe('the shopping loop', () => {
       expect(saved.headers.location).toBe('/wardrobe/wishlist');
       expect(await candidatesOf(itemId)).toContain(d);
 
+      // The Wishlist tab is Muse's inbox (#333): no plans' links on it.
       const wishlist = unescapeHtml((await get('/wardrobe/wishlist')).body);
-      expect(wishlist).toContain('For Grey merino crewneck');
-      expect(wishlist).toContain(`href="/wardrobe/${d}/plan-items"`);
-      expect(wishlist).toContain('href="/wardrobe/shopping"');
+      expect(wishlist).not.toContain('For Grey merino crewneck');
+      expect(wishlist).not.toContain(`href="/wardrobe/${d}/plan-items"`);
+      expect(wishlist).not.toContain('href="/wardrobe/shopping"');
 
       const removed = await post(`/wardrobe/${d}/plan-items`, {
         shown: [String(itemId)],
@@ -1135,9 +1136,9 @@ describe('the shopping loop', () => {
     );
   });
 
-  it('is in the Wardrobe menu and the plans list', async () => {
+  it('is linked from the plans list, never the Wardrobe menu (#333)', async () => {
     const wardrobe = unescapeHtml((await get('/wardrobe')).body);
-    expect(wardrobe).toContain('href="/wardrobe/shopping"');
+    expect(wardrobe).not.toContain('href="/wardrobe/shopping"');
     const plans = unescapeHtml((await get('/wardrobe/plans')).body);
     expect(plans).toContain('href="/wardrobe/shopping"');
     expect(plans).toContain('href="/wardrobe/plans/compare"');

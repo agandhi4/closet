@@ -92,14 +92,9 @@ test('shop for a plan’s gap on the phone, buy the candidate', async ({
   await page.keyboard.press('Escape');
   await expect(merinoCard).toContainText('2 options');
 
-  // The shopping list from the Wardrobe's ⋯ menu; still the Wardrobe section.
-  await page.goto('/wardrobe');
-  await page.getByLabel('More', { exact: true }).click();
-  await page
-    .locator('#wardrobe-menu')
-    .getByRole('link', { name: 'Shopping list' })
-    .click();
-  await expect(page).toHaveURL(/\/wardrobe\/shopping$/);
+  // The shopping list, unlinked from the Wardrobe's ⋯ menu since #333 but
+  // still served until #337; still the Wardrobe section.
+  await page.goto('/wardrobe/shopping');
   await expect(page.locator('.dock a[aria-current="page"]')).toHaveAttribute(
     'href',
     '/wardrobe',
@@ -125,8 +120,8 @@ test('shop for a plan’s gap on the phone, buy the candidate', async ({
   // comes into view: nothing in this empty closet yet.
   await expect(merino.locator('[data-outfit-count-slot]')).toHaveCount(0);
   await expect(merino.locator('[data-goes-with-count]')).toHaveText([
-    'Goes with nothing in your closet yet',
-    'Goes with nothing in your closet yet',
+    'Unlocks no outfits yet',
+    'Unlocks no outfits yet',
   ]);
   await expectNoSidewaysScroll(page);
 

@@ -132,6 +132,30 @@ export function brandSizesOf(
 }
 
 /**
+ * brandSizesOf as a scalar subquery (a JSON array, empty for none), for a
+ * page that reads it with its other lists in one statement (the Muse
+ * inbox, src/web/wishlist/inbox.ts).
+ */
+export function brandSizesSql(userId: number): SQL<BrandSize[]> {
+  return sql<BrandSize[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object(
+          'id', ${brandSize.id},
+          'brand', ${brandSize.brand},
+          'size', ${brandSize.size},
+          'note', ${brandSize.note}
+        )
+        order by ${brandSize.brandKey}
+      ),
+      '[]'
+    )
+    from ${brandSize}
+    where ${eq(brandSize.userId, userId)}
+  )`;
+}
+
+/**
  * One brand's note, however the brand is spelled (null for none), as a
  * scalar subquery: a wishlist item's page reads it with its other lists in
  * one statement (garmentContext, src/web/wardrobe/garment-context.ts).

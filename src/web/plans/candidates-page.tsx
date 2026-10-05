@@ -14,7 +14,6 @@ import {
 } from '../wardrobe/urls';
 import type { WishlistItem } from '../wishlist/queries';
 import type { ItemStatus } from '../../wardrobe/plans';
-import type { Candidacy } from './candidates';
 import type { PlanGaps } from './gaps';
 import { itemFacts, itemTitle } from './labels';
 import type { PlanDetail, PlanItemRow } from './queries';
@@ -287,28 +286,6 @@ function ItemChoice(props: {
         {t(STATUS_LABELS[status])}
       </span>
     </label>
-  );
-}
-
-/** A wishlist card's plan items (the owner's): "For Grey merino crewneck". */
-export function CandidacyLinks(props: {
-  garmentId: number;
-  candidacies: readonly Candidacy[];
-}) {
-  return (
-    <p class="text-xs flex flex-wrap items-center gap-1 relative z-10">
-      {props.candidacies.map((candidacy) => (
-        <a
-          href={`${planUrl(candidacy.planId)}#plan-item-${candidacy.itemId}`}
-          class="badge badge-outline badge-sm h-auto py-0.5"
-        >
-          {t('shopping.FOR_ITEM', { item: itemTitle(candidacy) })}
-        </a>
-      ))}
-      <a href={garmentPlanItemsUrl(props.garmentId)} class="link link-primary">
-        {t('shopping.FOR_PLAN_ITEM')}
-      </a>
-    </p>
   );
 }
 

@@ -5,6 +5,7 @@ import {
   file,
   garment,
   garmentRepair,
+  optionGroup,
   wardrobeShare,
 } from '../../src/db/schema';
 import { AWAY_REASONS } from '../../src/wardrobe/availability';
@@ -102,6 +103,7 @@ function asCsvText(value: GarmentRow[keyof GarmentRow]): string {
 describe('the wardrobe export', () => {
   let t: TestApp;
   let fullId: number;
+  let needId: number;
   let plainId: number;
   let fullPhoto: {
     fileName: string;
@@ -128,6 +130,16 @@ describe('the wardrobe export', () => {
     plainId = await createGarment(t, { name: 'Plain tee' });
     fullId = await createGarment(t, { name: 'Full' });
     await uploadPhoto(t, fullId, await jpegPhoto(300, 400));
+    // Its Muse need (#333): a name a spreadsheet would run, defused too.
+    [{ id: needId }] = await t.db
+      .insert(optionGroup)
+      .values({
+        ownerId: t.owner.id,
+        name: '=Rain jacket',
+        budget: '150',
+        note: 'For the wet months',
+      })
+      .returning({ id: optionGroup.id });
     // Every column set: the round trip below proves each one.
     await t.db
       .update(garment)
@@ -168,6 +180,7 @@ describe('the wardrobe export', () => {
         careDryClean: CARE_DRY_CLEAN[1],
         // A suggestion bought, then returned (#333).
         suggestedAt: new Date('2026-10-01T09:30:00.000Z'),
+        suggestionGroupId: needId,
         suggestionNote: 'Goes with the raw jeans',
         suggestionRank: 2,
         dismissedAt: new Date('2026-10-04T18:00:00.000Z'),
@@ -217,7 +230,25 @@ describe('the wardrobe export', () => {
     const bundle = JSON.parse(res.body) as {
       exportedAt: string;
       garments: Record<string, unknown>[];
+      optionGroups: Record<string, unknown>[];
     };
+    // The needs, without whose they are, their token or the plan item.
+    expect(bundle.optionGroups).toEqual([
+      expect.objectContaining({
+        id: needId,
+        name: '=Rain jacket',
+        budget: '150.00',
+        note: 'For the wet months',
+        status: 'open',
+      }),
+    ]);
+    for (const omitted of [
+      'owner_id',
+      'suggested_by_token_id',
+      'plan_item_id',
+    ]) {
+      expect(bundle.optionGroups[0]).not.toHaveProperty(omitted);
+    }
     expect(Number.isNaN(Date.parse(bundle.exportedAt))).toBe(false);
     const rows = await rowsOf(t.owner.id);
     expect(bundle.garments.map((row) => row.id)).toEqual(
@@ -270,6 +301,7 @@ describe('the wardrobe export', () => {
     const [header, ...lines] = parseCsv(res.body.slice(1));
     expect(header).toEqual([
       ...COLUMNS.map((column) => column.name),
+      'option_group',
       'photo_url',
       'cutout_url',
       'thumb_url',
@@ -290,6 +322,7 @@ describe('the wardrobe export', () => {
     expect(cell('brand')).toBe(`'@Brand, "quoted"`);
     expect(cell('size')).toBe(`'-M`);
     expect(cell('washing_details')).toBe(`'+cold wash`);
+    expect(cell('option_group')).toBe(`'=Rain jacket`);
     for (const line of lines) {
       for (const value of line) expect(value).not.toMatch(/^[=+\-@\t\r]/);
     }

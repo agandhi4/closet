@@ -2,15 +2,26 @@ import { expect, it } from 'vitest';
 import { multipart, unescapeHtml } from './harness';
 import {
   describeMatrix,
+  type Fixture,
   type Route,
   BOTH,
   garmentName,
+  needName,
   wishlistName,
   archivedName,
   orderItemName,
 } from './authorization-matrix';
 
 // The authorization matrix (authorization-matrix.ts): the wardrobe, garments, link import, the wishlist, wears, the order mail.
+
+/** A Muse decision (#333): the owner's alone, whatever the share. */
+const OWNER_DECIDES: Route['expect'] = {
+  owner: 'ok',
+  manager: ['notFound', 'forbidden'],
+  viewer: ['notFound', 'forbidden'],
+  stranger: 'notFound',
+};
+
 const ROUTES: Route[] = [
   // Wardrobe-level routes: the only id they take is ?ownerId.
   {
@@ -514,6 +525,99 @@ const ROUTES: Route[] = [
       stranger: ['hidden', 'notFound'],
     },
   },
+  // The Muse inbox (#333): read like the wishlist (a VIEW grantee sees
+  // Muse's needs and notes), decided by the owner alone: with ?ownerId= a
+  // grantee's decision is a 403, without it the pick is not in their
+  // wardrobe (decide's 404).
+  {
+    name: 'GET /wardrobe/wishlist/more',
+    kind: 'read',
+    ok: 200,
+    secret: needName,
+    vias: BOTH,
+    request: (_, q) => ({
+      method: 'GET',
+      url: `/wardrobe/wishlist/more?page=2${q && `&${q.slice(1)}`}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['hidden', 'ok'],
+      viewer: ['hidden', 'ok'],
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
+    name: 'GET /wardrobe/wishlist/needs/:id',
+    kind: 'read',
+    ok: 200,
+    secret: needName,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/wardrobe/wishlist/needs/${f.needId}${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: ['notFound', 'ok'],
+      viewer: ['notFound', 'ok'],
+      stranger: 'notFound',
+    },
+  },
+  ...(
+    [
+      ['choose', (f: Fixture) => f.needPickId, {}],
+      ['dismiss', (f: Fixture) => f.needPickId, { reason: 'style' }],
+      ['undo', (f: Fixture) => f.setAsidePickId, {}],
+    ] as const
+  ).map(
+    ([decision, id, payload]): Route => ({
+      name: `POST /wardrobe/:id/${decision}`,
+      kind: 'write',
+      ok: 303,
+      secret: needName,
+      vias: BOTH,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/wardrobe/${id(f)}/${decision}${q}`,
+        payload,
+      }),
+      expect: OWNER_DECIDES,
+    }),
+  ),
+  {
+    // Returned it: an htmx post from the ⋯ menu, like Archive.
+    name: 'POST /wardrobe/:id/returned',
+    kind: 'write',
+    ok: 200,
+    secret: needName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/${f.boughtPickId}/returned${q}`,
+    }),
+    expect: OWNER_DECIDES,
+  },
+  ...(
+    [
+      ['dismiss', (f: Fixture) => f.needId, { reason: 'not_now' }],
+      ['undo', (f: Fixture) => f.asideNeedId, {}],
+    ] as const
+  ).map(
+    ([decision, id, payload]): Route => ({
+      name: `POST /wardrobe/wishlist/needs/:id/${decision}`,
+      kind: 'write',
+      ok: 303,
+      secret: needName,
+      vias: BOTH,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/wardrobe/wishlist/needs/${id(f)}/${decision}${q}`,
+        payload,
+      }),
+      expect: OWNER_DECIDES,
+    }),
+  ),
   {
     // "Goes with my closet"'s count on the shopping list (#18b): the
     // owner's own wishlist item, whoever shares the wardrobe.

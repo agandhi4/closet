@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   file,
@@ -42,6 +43,7 @@ describe('GET /offline/warm', () => {
   let closet: number[];
   let archived: number;
   let wished: number;
+  let setAside: number;
   let outfitId: number;
 
   const warmList = async (
@@ -120,6 +122,11 @@ describe('GET /offline/warm', () => {
     closet = ids.reverse();
     archived = await insertGarment(t.owner.id, 'archived', true);
     wished = await insertGarment(t.owner.id, 'wishlist', true);
+    setAside = await insertGarment(t.owner.id, 'wishlist', false);
+    await t.db
+      .update(garment)
+      .set({ dismissedAt: new Date() })
+      .where(eq(garment.id, setAside));
     outfitId = await insertOutfit(t.owner.id, [closet[0], closet[1]]);
   });
 
@@ -148,12 +155,15 @@ describe('GET /offline/warm', () => {
       `/calendar?week=${nextSunday}`,
       ...closet.map((id) => `/wardrobe/${id}`),
       `/outfits/${outfitId}`,
+      // The Muse inbox (#333): the Wishlist tab, and what is still wanted.
+      '/wardrobe/wishlist',
+      `/wardrobe/${wished}`,
     ]);
     // Archived: neither warmed nor kept, so its cached page goes.
     expect(list.pages).not.toContain(`/wardrobe/${archived}`);
     expect(list.keep).not.toContain(`/wardrobe/${archived}`);
-    // A wishlist item's visited page stays, unwarmed.
-    expect(list.keep).toEqual([`/wardrobe/${wished}`]);
+    // A wishlist item set aside: its visited page stays, unwarmed.
+    expect(list.keep).toEqual([`/wardrobe/${setAside}`]);
   });
 
   it('names the grid’s later pages exactly as the grid’s own scroll asks for them', async () => {
@@ -175,7 +185,7 @@ describe('GET /offline/warm', () => {
   it('names the thumbs the warmed pages show, each once', async () => {
     const list = await warmList(t.owner.cookie);
     const shown = new Set<string>();
-    for (const url of ['/wardrobe', ...list.fragments]) {
+    for (const url of ['/wardrobe', '/wardrobe/wishlist', ...list.fragments]) {
       const res = await t.inject({
         method: 'GET',
         url,
@@ -187,10 +197,11 @@ describe('GET /offline/warm', () => {
         shown.add(src);
       }
     }
-    // Every closet garment with a photo, the outfit's two among them.
+    // Every closet garment with a photo, the outfit's two among them, and
+    // the wishlist item's.
     expect(new Set(list.images)).toEqual(shown);
     expect(list.images).toHaveLength(shown.size);
-    expect(list.images).toHaveLength(Math.ceil(closet.length / 2));
+    expect(list.images).toHaveLength(Math.ceil(closet.length / 2) + 1);
   });
 
   it('marks a warm’s requests in the request log', async () => {

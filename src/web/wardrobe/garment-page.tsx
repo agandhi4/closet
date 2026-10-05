@@ -38,7 +38,10 @@ import {
   WearSection,
   WhereaboutsSection,
 } from '../wears/wear-section';
+import type { SuggestionContext } from '../wishlist/inbox';
 import type { GarmentRef } from '../wishlist/queries';
+import type { DecisionToast } from '../wishlist/suggestion-parts';
+import { SuggestionSection } from '../wishlist/suggestion-section';
 import type { BrandSize } from '../sizes/queries';
 import { BrandSizeNote } from '../sizes/views';
 import { categoryLabel, priceLabel } from './garment';
@@ -52,6 +55,7 @@ import type { BoughtLook } from '../plans/looks';
 import {
   destinationParams,
   garmentUrl,
+  needUrl,
   wardrobeUrl,
   WISHLIST_PATH,
 } from './urls';
@@ -112,6 +116,13 @@ export interface GarmentPageModel {
   justLoggedRepair: boolean;
   /** "Add a copy" from a new garment's form (#20) landed here. */
   justAddedCopy: boolean;
+  /**
+   * Muse's suggestion (#333): its note, its need and where it stands
+   * (SuggestionSection); undefined for any other garment.
+   */
+  suggestion: SuggestionContext | undefined;
+  /** A Muse decision made on this page landed here: its toast. */
+  decided: DecisionToast | undefined;
 }
 
 type GarmentPhoto = NonNullable<GarmentDetail['photo']>;
@@ -144,6 +155,7 @@ const GARMENT_PAGE_FLAGS = [
   'bought',
   'repairSaved',
   'copyAdded',
+  'decided',
 ] as const;
 
 /**
@@ -179,6 +191,15 @@ export function GarmentPage(props: {
           />
         </div>
         <Summary model={model} />
+        {model.suggestion && (
+          <SuggestionSection
+            garment={garment}
+            suggestion={model.suggestion}
+            isOwner={model.canDelete}
+            canEdit={model.canEdit}
+            viewOwner={model.viewOwner}
+          />
+        )}
         <Replacement model={model} />
         {/* A wishlist item is not in the closet: it has no condition, wears,
             capsules or outfits until "Bought it" (the route reads none);
@@ -337,13 +358,25 @@ function Toasts({ model }: { model: GarmentPageModel }) {
       {model.justAddedCopy && (
         <SavedToast id="copy-added-toast" text={t('lookalikes.COPY_ADDED')} />
       )}
+      {model.decided && (
+        <SavedToast
+          id="decision-toast"
+          text={t(`muse.toast.${model.decided}`)}
+        />
+      )}
       <StripFlags names={GARMENT_PAGE_FLAGS} />
     </>
   );
 }
 
-/** The back arrow: to the wishlist for a wishlist item, else the grid. */
+/**
+ * The back arrow: to its need's decision screen for a Muse pick on the
+ * wishlist, to the wishlist for any other wishlist item, else the grid.
+ */
 function backUrl(garment: GarmentDetail, viewOwner: number | undefined) {
+  if (garment.status === 'wishlist' && garment.suggestionGroupId !== null) {
+    return needUrl(garment.suggestionGroupId, viewOwner);
+  }
   return wardrobeUrl(
     viewOwner,
     {},
@@ -395,7 +428,11 @@ function FactsLine({ garment }: { garment: GarmentDetail }) {
  */
 function PrimaryActions({ model }: { model: GarmentPageModel }) {
   const { garment, viewOwner } = model;
-  const buy = model.canEdit && garment.status === 'wishlist';
+  // The owner decides on a Muse pick in its own section, Bought it among them.
+  const buy =
+    model.canEdit &&
+    garment.status === 'wishlist' &&
+    !(model.canDelete && model.suggestion);
   if (!model.styling.canStyle && !buy) return null;
   return (
     <div class="flex flex-wrap gap-2">
@@ -477,11 +514,14 @@ function GarmentMenu({
 /**
  * The owner's items of the ⋯ menu: archive (a closet garment) or restore
  * (an archived one), and delete (a wishlist item's is "Remove from
- * wishlist": it has no history to keep).
+ * wishlist": it has no history to keep). A Muse pick on the wishlist is
+ * never deleted (it is Muse's feedback: Not for me sets it aside), and a
+ * bought one may be Returned (archived, its need open again; #333).
  */
 function OwnerMenuItems({ model }: { model: GarmentPageModel }) {
   const { garment, viewOwner } = model;
   const wishlist = garment.status === 'wishlist';
+  const suggestion = garment.suggestedAt !== null;
   return (
     <>
       {garment.status === 'closet' && (
@@ -492,6 +532,17 @@ function OwnerMenuItems({ model }: { model: GarmentPageModel }) {
             hx-confirm={t('CONFIRM_ARCHIVE')}
           >
             {t('ARCHIVE')}
+          </button>
+        </li>
+      )}
+      {garment.status === 'closet' && suggestion && (
+        <li>
+          <button
+            type="button"
+            hx-post={garmentUrl(garment.id, viewOwner, '/returned')}
+            hx-confirm={t('muse.CONFIRM_RETURNED')}
+          >
+            {t('muse.RETURNED_IT')}
           </button>
         </li>
       )}
@@ -506,18 +557,20 @@ function OwnerMenuItems({ model }: { model: GarmentPageModel }) {
           </button>
         </li>
       )}
-      <li>
-        <button
-          type="button"
-          class="text-error"
-          hx-delete={garmentUrl(garment.id, viewOwner)}
-          hx-confirm={t(
-            wishlist ? 'wishlist.CONFIRM_REMOVE' : 'CONFIRM_DELETE',
-          )}
-        >
-          {t(wishlist ? 'wishlist.REMOVE' : 'DELETE')}
-        </button>
-      </li>
+      {!(wishlist && suggestion) && (
+        <li>
+          <button
+            type="button"
+            class="text-error"
+            hx-delete={garmentUrl(garment.id, viewOwner)}
+            hx-confirm={t(
+              wishlist ? 'wishlist.CONFIRM_REMOVE' : 'CONFIRM_DELETE',
+            )}
+          >
+            {t(wishlist ? 'wishlist.REMOVE' : 'DELETE')}
+          </button>
+        </li>
+      )}
     </>
   );
 }

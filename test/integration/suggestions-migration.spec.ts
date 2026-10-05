@@ -414,9 +414,12 @@ describe('the owner’s draft plan (production’s shape)', () => {
     expect(review.statusCode).toBe(200);
     expect(unescapeHtml(review.body)).toContain('Option 23.3');
     expect((await get(`/wardrobe/shopping?plan=${plan}`)).statusCode).toBe(200);
+    // The inbox (#333): its needs ten to a page, the rest on the next.
     const wishlist = await get('/wardrobe/wishlist');
     expect(wishlist.statusCode).toBe(200);
-    const html = unescapeHtml(wishlist.body);
+    const more = await get('/wardrobe/wishlist/more?page=2');
+    expect(more.statusCode).toBe(200);
+    const html = unescapeHtml(wishlist.body + more.body);
     for (const name of ['Option 11.1', 'Option 15.2', 'Option 24.3']) {
       expect(html).toContain(name);
     }

@@ -790,15 +790,3 @@ export async function candidaciesOf(
       asc(planItem.id),
     );
 }
-
-/** candidaciesOf by garment id: the wishlist's cards. */
-export async function candidaciesByGarment(
-  db: Queryable,
-  ownerId: number,
-  garmentIds: number[],
-): Promise<Map<number, Candidacy[]>> {
-  return groupBy(
-    await candidaciesOf(db, ownerId, garmentIds),
-    (candidacy) => candidacy.garmentId,
-  );
-}

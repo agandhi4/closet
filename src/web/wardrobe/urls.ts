@@ -88,6 +88,12 @@ export interface Destination {
    * transaction. Posted by the form (GarmentBody.orderItem), never in a URL.
    */
   orderItem?: number;
+  /**
+   * The owner's open Muse need a new closet garment was bought for, instead
+   * of its picks ("Bought a different one", #333): the need is settled by
+   * the garment when it is saved, in its transaction (decide's `bought`).
+   */
+  forNeed?: number;
 }
 
 export const TO_CLOSET: Destination = { to: 'closet' };
@@ -97,7 +103,7 @@ export function destinationParams(
   destination: Destination,
 ): Record<string, string | number | undefined> {
   return destination.to === 'closet'
-    ? {}
+    ? { forNeed: destination.forNeed }
     : {
         to: destination.to,
         replaces: destination.replaces,
@@ -138,6 +144,34 @@ export function garmentUrl(
     ...params,
     ownerId: viewOwner,
   });
+}
+
+/**
+ * A Muse need's decision screen (src/web/wishlist/group-page.tsx), or one of
+ * its decisions (`suffix`: '/dismiss', '/undo').
+ */
+export function needUrl(
+  id: number,
+  viewOwner: number | undefined,
+  suffix = '',
+  params: Record<string, string | number | undefined> = {},
+): string {
+  return withQuery(`${WISHLIST_PATH}/needs/${id}${suffix}`, {
+    ...params,
+    ownerId: viewOwner,
+  });
+}
+
+/** `path` (a same-site path, possibly with a query) with `params` set on it. */
+export function withParams(
+  path: string,
+  params: Record<string, string | number>,
+): string {
+  const url = new URL(path, 'http://closet.invalid');
+  for (const [name, value] of Object.entries(params)) {
+    url.searchParams.set(name, String(value));
+  }
+  return url.pathname + url.search + url.hash;
 }
 
 /** The capsule list, or a capsule's page or one of its sub-routes (`suffix`: '/edit', '/garments'). */

@@ -280,11 +280,9 @@ describe('wardrobe plans', () => {
   });
 
   describe('plans', () => {
-    it('creates the first plan active and the next one not, from the Wardrobe’s ⋯ menu', async () => {
+    it('creates the first plan active and the next one not (unlinked since #333, the routes still work)', async () => {
       const wardrobe = await get('/wardrobe');
-      expect(wardrobe.body).toMatch(
-        /id="wardrobe-menu"[\s\S]*href="\/wardrobe\/plans"/,
-      );
+      expect(wardrobe.body).not.toContain('href="/wardrobe/plans"');
       const form = await get('/wardrobe/plans/new');
       expect(form.statusCode).toBe(200);
       expectFullPage(form);

@@ -9,7 +9,7 @@ import {
   PhotoLibraryIcon,
   PREPARE_AND_SUBMIT_PHOTO,
 } from '../layout/parts';
-import { NEW_PLAN_PATH, PLANS_PATH, SHOPPING_PATH } from '../plans/urls';
+import { NEW_PLAN_PATH, PLANS_PATH } from '../plans/urls';
 import type { SharedWardrobe } from '../sharing/access';
 import { PermissionBadge } from '../sharing/pages';
 import { SHARING_PATH } from '../sharing/urls';
@@ -30,10 +30,11 @@ import {
  * The Wardrobe's header and tabs (docs/plans/2026-09-26-redesign.md,
  * section 3, "Wardrobe"): the app bar whose title is the wardrobe switcher,
  * with the ⋯ menu and the ＋ add sheet, and the tabs under it, Closet,
- * Capsules, Laundry and Wishlist (the owner's decision 4 on #43), then
- * Plans (#295: the plans were two taps deep in ⋯, and an agent's draft went
- * unseen). Every tab page renders both, so moving between them keeps the
- * header.
+ * Capsules, Laundry and Wishlist (the owner's decision 4 on #43). Every
+ * tab page renders both, so moving between them keeps the header. The
+ * plans pages (#295) still render it as `plans` until they go (#337), but
+ * nothing links them: Muse's suggestions live in the Wishlist tab (#333,
+ * owner decision 2026-10-05).
  */
 
 export type WardrobeTab =
@@ -180,10 +181,9 @@ function SwitcherItems(props: WardrobeHeaderProps) {
 /**
  * The Wardrobe header's ⋯ menu ("Where every route goes"): the wardrobe's
  * less frequent places. Select (the closet grid's, with its filters) and
- * tagging for someone who may edit; the shopping list (#34) and Insights
- * (#17), which are the signed-in user's own, so those links never carry a
- * shared wardrobe's `?ownerId=`; Plans too, but only inside a shared
- * wardrobe, which has no Plans tab (#295). The year in review (#26) is the
+ * tagging for someone who may edit; Insights (#17), the signed-in user's
+ * own, so its link never carries a shared wardrobe's `?ownerId=` (the plans
+ * and the shopping list are unlinked since #333). The year in review (#26) is the
  * user's own too, and offered only on their own wardrobe, never in a
  * grantee's view of another. Links only: a form inside a daisyUI menu item
  * loses its styling.
@@ -228,14 +228,6 @@ export function WardrobeMenu(props: {
             </a>
           </li>
         )}
-        {viewOwner !== undefined && (
-          <li>
-            <a href={PLANS_PATH}>{t('plans.TITLE')}</a>
-          </li>
-        )}
-        <li>
-          <a href={SHOPPING_PATH}>{t('shopping.TITLE')}</a>
-        </li>
         <li>
           <a href={INSIGHTS_PATH}>{t('insights.TITLE')}</a>
         </li>
@@ -459,7 +451,7 @@ const CAPSULE_ICON =
  * The Wardrobe's tabs, underlined: plain boosted links, so the dock keeps
  * its size (plan section 2). All carry `?ownerId=` in a shared wardrobe,
  * so a grantee moves between the grantor's closet, capsules and wishlist;
- * Laundry and Plans, the requester's own, are left out there.
+ * Laundry, the requester's own, is left out there.
  */
 export function WardrobeTabs(props: {
   active: WardrobeTab;
@@ -482,7 +474,6 @@ export function WardrobeTabs(props: {
       {tab('capsules', t('CAPSULES'))}
       {viewOwner === undefined && tab('laundry', t('wear.LAUNDRY'))}
       {tab('wishlist', t('wishlist.TAB'))}
-      {viewOwner === undefined && tab('plans', t('plans.TITLE'))}
     </div>
   );
 }

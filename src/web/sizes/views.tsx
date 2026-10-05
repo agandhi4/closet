@@ -62,10 +62,15 @@ export function BrandSizeNote(props: {
   note: BrandSize | undefined;
   /** Its text size: the card's lines are text-xs. */
   size?: 'text-xs' | 'text-sm';
+  /** On a card, two lines at most; the garment's page says it all. */
+  clamp?: boolean;
 }) {
   if (!props.note) return null;
   return (
-    <p class={`${props.size ?? 'text-sm'} text-muted`} data-brand-size="">
+    <p
+      class={`${props.size ?? 'text-sm'} text-muted${props.clamp ? ' line-clamp-2' : ''}`}
+      data-brand-size=""
+    >
       {brandSizeText(props.note)}
     </p>
   );

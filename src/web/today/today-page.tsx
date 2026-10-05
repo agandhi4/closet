@@ -17,8 +17,8 @@ import { PageMain } from '../layout/page-main';
 import { Layout } from '../layout/layout';
 import { OutfitCollage } from '../outfits/collage';
 import type { NextPurchase } from '../plans/candidates';
-import type { WaitingDraft } from '../plans/queries';
-import { candidateAnchor, reviewUrl, SHOPPING_PATH } from '../plans/urls';
+import type { NeedsToDecide } from '../wishlist/inbox';
+import { garmentUrl, WISHLIST_PATH } from '../wardrobe/urls';
 import { EntrySelfie } from '../selfies/views';
 import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
 import type { ViewContext } from '../view-context';
@@ -71,8 +71,8 @@ export function TodayPage(props: {
         >
           {t('today.OFFLINE')}
         </p>
-        {model.drafts?.length ? (
-          model.drafts.map((draft) => <DraftCard draft={draft} />)
+        {model.needs ? (
+          <NeedsCard needs={model.needs} />
         ) : model.nextPurchase ? (
           <NextPurchaseCard purchase={model.nextPurchase} />
         ) : null}
@@ -105,28 +105,25 @@ export function TodayPage(props: {
 }
 
 /**
- * "Muse drafted Spring capsule: 12 ideas to review", with Review (the
- * plan's review page). Gone by itself once nothing in the draft is
- * proposed: nothing to dismiss.
+ * "Muse has 4 needs for you to decide on", with Review (the Wishlist
+ * inbox, #333). Gone by itself once no open need has an option left to
+ * choose: nothing to dismiss.
  */
-function DraftCard({ draft }: { draft: WaitingDraft }) {
-  const params = { agent: draft.agent, plan: draft.plan };
+function NeedsCard({ needs }: { needs: NeedsToDecide }) {
+  const params = { agent: needs.agent ?? t('muse.AGENT'), count: needs.count };
   return (
     <article
       class="card bg-base-100 shadow-sm"
-      data-plan-draft={String(draft.planId)}
+      data-muse-needs={String(needs.count)}
     >
       <div class="card-body p-3 flex-row items-center gap-3">
         <p class="text-sm flex-1 min-w-0 break-words">
-          {draft.proposed === 1
-            ? t('today.PLAN_DRAFT_ONE', params)
-            : t('today.PLAN_DRAFT', { ...params, count: draft.proposed })}
+          {needs.count === 1
+            ? t('muse.TODAY_CARD_ONE', params)
+            : t('muse.TODAY_CARD', params)}
         </p>
-        <a
-          href={reviewUrl(draft.planId)}
-          class="btn btn-primary btn-sm shrink-0"
-        >
-          {t('plans.REVIEW')}
+        <a href={WISHLIST_PATH} class="btn btn-primary btn-sm shrink-0">
+          {t('muse.REVIEW')}
         </a>
       </div>
     </article>
@@ -135,8 +132,9 @@ function DraftCard({ draft }: { draft: WaitingDraft }) {
 
 /**
  * "Linen shirt completes 2 of your loved looks", with the way to the
- * shopping strip. The next step once nothing is left to review (#302), so
- * it never stands beside a DraftCard: one card, whichever step is first.
+ * product's page (the shopping list is unlinked since #333). The next step
+ * once nothing is left to decide (#302), so it never stands beside a
+ * NeedsCard: one card, whichever step is first.
  */
 function NextPurchaseCard({ purchase }: { purchase: NextPurchase }) {
   const params = {
@@ -155,7 +153,7 @@ function NextPurchaseCard({ purchase }: { purchase: NextPurchase }) {
             : t('today.NEXT_STEP', params)}
         </p>
         <a
-          href={`${SHOPPING_PATH}#${candidateAnchor(purchase.itemId, purchase.garmentId)}`}
+          href={garmentUrl(purchase.garmentId, undefined)}
           class="btn btn-primary btn-sm shrink-0"
         >
           {t('today.NEXT_STEP_VIEW')}
