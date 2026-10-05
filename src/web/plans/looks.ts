@@ -4,12 +4,14 @@ import {
   desc,
   eq,
   inArray,
+  isNull,
   ne,
   or,
   sql,
   type SQL,
   type SQLWrapper,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Queryable } from '../../db/client';
 import {
   file,
@@ -239,9 +241,13 @@ function storedFields<T extends Partial<LookFields>>(fields: T): T {
 
 // ---- Piece validity ---------------------------------------------------------
 
+/** The candidate's own garment, apart from the garment the outer query reads. */
+const linked = alias(garment, 'linked');
+
 /**
  * The garments of plan `planId`'s current candidates: on any item of the
- * plan the owner has not declined. A subquery (uncorrelated, so drizzle's
+ * plan the owner has not declined, and not set aside as a suggestion
+ * (#333; the candidate's own garment joined as `linked`). A subquery (uncorrelated, so drizzle's
  * single-table column rendering cannot confuse it; src/db/CLAUDE.md).
  */
 function candidateIdsOf(db: Queryable, planId: PlanRef) {
@@ -249,7 +255,15 @@ function candidateIdsOf(db: Queryable, planId: PlanRef) {
     .select({ garmentId: planItemCandidate.garmentId })
     .from(planItemCandidate)
     .innerJoin(planItem, eq(planItem.id, planItemCandidate.planItemId))
-    .where(and(eq(planItem.planId, planId), ne(planItem.review, 'declined')));
+    .innerJoin(linked, eq(linked.id, planItemCandidate.garmentId))
+    .where(
+      and(
+        eq(planItem.planId, planId),
+        ne(planItem.review, 'declined'),
+        // A suggestion set aside (#333) is no current candidate.
+        isNull(linked.dismissedAt),
+      ),
+    );
 }
 
 interface PieceGarment {
@@ -1048,7 +1062,8 @@ export function lookSlotsSql(ownerId: number): SQL<SlotRow[]> {
     inner join ${planItem} on ${planItem.id} = ${planItemCandidate.planItemId}
     where ${planItemCandidate.garmentId} = ${garment.id}
       and ${planItem.planId} = ${planLook.planId}
-      and ${planItem.review} <> 'declined')`;
+      and ${planItem.review} <> 'declined'
+      and ${garment.dismissedAt} is null)`;
   return sql<SlotRow[]>`(
     select coalesce(json_agg(json_build_object(
       'position', ${planLookSlot.position},

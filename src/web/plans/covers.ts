@@ -10,7 +10,7 @@ import {
 } from '../../db/schema';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
-import { onWishlist } from '../wardrobe/status';
+import { wanted } from '../wardrobe/status';
 import {
   type LookSlotView,
   lookSlotsSql,
@@ -97,7 +97,7 @@ export async function planCovers(
           where ${planItem.planId} = ${wardrobePlan.id}
             and ${planItem.review} = 'accepted'
             and ${garment.ownerId} = ${ownerId}
-            and ${onWishlist()}
+            and ${wanted()}
           order by ${planItem.id}, ${planItemCandidate.rank} asc nulls last,
             ${planItemCandidate.createdAt}, ${garment.id}
           limit ${COVER_CELLS}

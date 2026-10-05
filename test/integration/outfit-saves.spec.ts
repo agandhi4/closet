@@ -451,7 +451,7 @@ describe('outfit saves', () => {
         () => formSave([doomed, bottom], { name: 'Raced' }),
       );
       // Deleted (it had no photo).
-      expect(deleted).toEqual({ status: 'closet', photo: null });
+      expect(deleted).toEqual({ ok: true, status: 'closet', photo: null });
       expect(res.statusCode).toBe(404);
       expect(
         hasText(

@@ -29,7 +29,7 @@ import {
 } from '../../wardrobe/properties';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
-import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
+import { inCloset, ownedGarment, wanted } from '../wardrobe/status';
 import {
   type RoleWindow,
   type RowGarment,
@@ -348,7 +348,7 @@ export function styledPlanSql(
         select coalesce(json_agg(${rowGarmentJson} order by ${garment.id} desc), '[]')
         from ${garment}
         left join ${file} on ${eq(file.id, garment.photoId)}
-        where ${and(eq(garment.ownerId, ownerId), onWishlist(), linked)}
+        where ${and(eq(garment.ownerId, ownerId), wanted(), linked)}
       )
     )
     from ${wardrobePlan}

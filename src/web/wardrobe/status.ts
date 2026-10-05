@@ -1,4 +1,4 @@
-import { and, type Column, eq, ne, type SQL } from 'drizzle-orm';
+import { and, type Column, eq, ne, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import { garment } from '../../db/schema';
 import {
@@ -33,9 +33,24 @@ export function inCloset(status: Column = garment.status): SQL {
   return eq(status, 'closet');
 }
 
-/** On the wishlist: the Wishlist tab, list_wishlist (MCP). */
+/**
+ * On the wishlist, set aside or not: a wishlist item's own page and what
+ * may be done to one ("Bought it", goes-with). A list of things to buy
+ * reads wanted instead.
+ */
 export function onWishlist(): SQL {
   return eq(garment.status, 'wishlist');
+}
+
+/**
+ * Still wanted: on the wishlist and not set aside (a dismissed suggestion,
+ * src/wardrobe/suggestions.ts, stays on the wishlist as the agent's
+ * feedback). Every list of things to buy: the Wishlist tab, list_wishlist
+ * (MCP), the offline warm, plans' candidates (the shopping list, Today's
+ * next purchase, covers, Styling's To-buy row).
+ */
+export function wanted(): SQL {
+  return sql`(${onWishlist()} and ${garment.dismissedAt} is null)`;
 }
 
 /**

@@ -23,7 +23,7 @@ import { HttpError } from '../errors';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import { t } from '../i18n';
-import { onWishlist } from '../wardrobe/status';
+import { wanted } from '../wardrobe/status';
 import { itemsToBuy } from './gaps';
 import { itemNotFound } from './validation';
 
@@ -38,9 +38,11 @@ import { itemNotFound } from './validation';
  *
  * Private like plans: every read and write names the signed-in owner, and
  * a pair counts only when the item's plan and the garment are both theirs.
- * A candidate is read only while it is on the wishlist (onWishlist): once
- * "Bought it" moves it into the closet its link stops mattering, and the
- * closet side is matchPlan's, derived, never this table.
+ * A candidate is read only while it is still wanted (wanted: on the
+ * wishlist and not set aside as a suggestion, #333): once "Bought it" moves
+ * it into the closet its link stops mattering, and the closet side is
+ * matchPlan's, derived, never this table. The cap counts the same: a
+ * suggestion set aside takes no slot.
  */
 
 /** Every pairing of these items with these garments. */
@@ -370,8 +372,11 @@ export async function linkNewCandidate(
   if (added === 0) throw itemNotFound();
 }
 
-/** Each item's candidates still on the wishlist: what the cap counts. */
-async function wishlistCandidates(
+/**
+ * Each item's candidates still wanted: what the cap counts. A suggestion
+ * set aside (#333) keeps its link but no longer takes a slot.
+ */
+async function wantedCandidates(
   db: Queryable,
   itemIds: number[],
 ): Promise<Map<number, Set<number>>> {
@@ -382,7 +387,7 @@ async function wishlistCandidates(
     })
     .from(planItemCandidate)
     .innerJoin(garment, eq(garment.id, planItemCandidate.garmentId))
-    .where(and(inArray(planItemCandidate.planItemId, itemIds), onWishlist()));
+    .where(and(inArray(planItemCandidate.planItemId, itemIds), wanted()));
   const byItem = new Map<number, Set<number>>();
   for (const { itemId, garmentId } of rows) {
     byItem.set(itemId, (byItem.get(itemId) ?? new Set()).add(garmentId));
@@ -402,7 +407,7 @@ async function itemsPastCap(
   remove: CandidateSet,
 ): Promise<number[]> {
   if (add.size === 0) return [];
-  const current = await wishlistCandidates(tx, [...add.keys()]);
+  const current = await wantedCandidates(tx, [...add.keys()]);
   return [...add].flatMap(([itemId, byGarment]) => {
     const garmentIds = byGarment.keys();
     const kept = new Set(current.get(itemId));
@@ -428,7 +433,7 @@ export async function requireCandidateRoom(
   db: Queryable,
   itemId: number,
 ): Promise<void> {
-  const held = (await wishlistCandidates(db, [itemId])).get(itemId);
+  const held = (await wantedCandidates(db, [itemId])).get(itemId);
   if ((held?.size ?? 0) >= MAX_CANDIDATES_PER_ITEM) {
     throw new TooManyCandidates([itemId]);
   }
@@ -599,7 +604,7 @@ export function rankedPurchasesSql(ownerId: number): SQL<RankedPurchase[]> {
         and ${wardrobePlan.active}
         and ${planItem.review} = 'accepted'
         and ${garment.ownerId} = ${ownerId}
-        and ${onWishlist()}
+        and ${wanted()}
       group by ${garment.id}, ${planItem.planId}
     ) best
     where best.completes > 0)`;
@@ -671,7 +676,7 @@ function candidateRows(db: Queryable, ownerId: number, which: SQL) {
         eq(wardrobePlan.ownerId, ownerId),
         // The writer's rule, kept on read: never another wardrobe's garment.
         eq(garment.ownerId, ownerId),
-        onWishlist(),
+        wanted(),
       ),
     )
     .orderBy(
@@ -776,7 +781,7 @@ export async function candidaciesOf(
         inArray(planItemCandidate.garmentId, garmentIds),
         eq(wardrobePlan.ownerId, ownerId),
         eq(garment.ownerId, ownerId),
-        onWishlist(),
+        wanted(),
       ),
     )
     .orderBy(

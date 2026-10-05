@@ -7,7 +7,7 @@ import type { Condition } from '../../wardrobe/properties';
 import type { GarmentStatus } from '../../wardrobe/status';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
-import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
+import { inCloset, onWishlist, ownedGarment, wanted } from '../wardrobe/status';
 
 /**
  * The wishlist's reads (#18): wishlist items are garments with status
@@ -70,7 +70,7 @@ export async function wishlistItems(
       replacedGarment,
       eq(replacedGarment.id, garment.replacesGarmentId),
     )
-    .where(and(eq(garment.ownerId, ownerId), onWishlist()))
+    .where(and(eq(garment.ownerId, ownerId), wanted()))
     .orderBy(desc(garment.id));
   return rows;
 }

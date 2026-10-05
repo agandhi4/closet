@@ -716,6 +716,7 @@
     "MOVE_TO_CLOSET": "Move to closet",
     "BOUGHT_TOAST": "In your closet now",
     "NOT_ON_WISHLIST": "This is no longer on the wishlist.",
+    "SUGGESTION_NOT_DELETED": "This is one of Muse’s suggestions: it is kept as feedback for Muse, never deleted.",
     "REMOVE": "Remove from wishlist",
     "CONFIRM_REMOVE": "Remove this from the wishlist? It will be deleted."
   },

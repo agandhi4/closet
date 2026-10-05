@@ -19,6 +19,7 @@ import { ownerTransaction } from '../auth/queries';
 import type { StoredPhoto } from '../files/image-variant';
 import { deleteGarment, type GarmentDetail } from '../wardrobe/queries';
 import { buyGarment, type BuyOutcome, type Purchase } from '../wardrobe/status';
+import { decide } from '../wishlist/decisions';
 import type { WardrobeDeps } from '../wardrobe/writes';
 import {
   type Candidacy,
@@ -315,6 +316,10 @@ export async function buyCandidate(
         .filter((id) => id !== garmentId);
       const bought = await buyGarment(tx, garmentId, ownerId, purchase);
       if (!bought.ok) return bought;
+      // A suggestion bought settles its option group: resolved by it, its
+      // other open picks set aside as "chose another" (#333). Not one: the
+      // writer finds no group and writes nothing.
+      const settled = await decide(tx, ownerId, { kind: 'bought', garmentId });
 
       const adjusted: number[] = [];
       const adjust = itemIds.filter((id) => followUps.adjustItems.includes(id));
@@ -351,9 +356,11 @@ export async function buyCandidate(
       const kept: number[] = [];
       for (const id of new Set(followUps.removeCandidates)) {
         if (!others.includes(id)) continue;
+        // A suggestion is never deleted (deleteGarment refuses it): the
+        // purchase's decide above already set it aside as chose_another.
         const deleted = await deleteGarment(tx, id, ownerId, 'wishlist');
-        if (deleted === undefined) kept.push(id);
-        else removed.push({ id, photo: deleted.photo });
+        if (deleted.ok) removed.push({ id, photo: deleted.photo });
+        else if (deleted.reason === 'not-found') kept.push(id);
       }
       return {
         ok: true as const,
@@ -361,6 +368,7 @@ export async function buyCandidate(
         adjusted,
         removed,
         kept,
+        settled,
       };
     },
   );
@@ -372,6 +380,11 @@ export async function buyCandidate(
   if (outcome.adjusted.length > 0 || outcome.removed.length > 0) {
     logger.info(
       `Garment ${garmentId} bought for user ${ownerId}'s plans: items ${outcome.adjusted.join(', ') || 'none'} changed to match, candidates ${outcome.removed.map((r) => r.id).join(', ') || 'none'} removed from the wishlist`,
+    );
+  }
+  if (outcome.settled.ok) {
+    logger.info(
+      `Garment ${garmentId} bought for user ${ownerId} resolves option group ${outcome.settled.groupId}; picks ${outcome.settled.dismissed.join(', ') || 'none'} set aside as chose_another`,
     );
   }
   if (outcome.kept.length > 0) {

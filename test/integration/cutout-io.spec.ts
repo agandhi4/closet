@@ -350,7 +350,10 @@ describe('cutout writes outside the row lock', () => {
       });
       await swap.query('commit');
       // Deleted: removeGarment answers the status it had.
-      await expect(removed).resolves.toBe('closet');
+      await expect(removed).resolves.toMatchObject({
+        ok: true,
+        status: 'closet',
+      });
     } finally {
       await swap.end();
     }

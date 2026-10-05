@@ -1,5 +1,6 @@
 import { relations, sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
   check,
   date,
@@ -65,6 +66,13 @@ import {
 } from '../wardrobe/plan-review';
 import { PLAN_PRIORITIES, type PlanPriority } from '../wardrobe/plans';
 import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
+import {
+  DISMISS_REASONS,
+  type DismissReason,
+  MAX_OPTIONS_PER_GROUP,
+  OPTION_GROUP_STATUSES,
+  type OptionGroupStatus,
+} from '../wardrobe/suggestions';
 import {
   CARE_BLEACH,
   CARE_DRY,
@@ -171,6 +179,10 @@ export const user = pgTable(
     email: varchar('email', { length: 255 }),
     // bcrypt hash.
     password: varchar('password', { length: 255 }).notNull(),
+    // When the owner last opened their wishlist: suggestions newer than it
+    // are "new from Muse" (src/wardrobe/suggestions.ts). Never rendered into
+    // a cached page; null: never opened since suggestions came.
+    suggestionsSeenAt: timestamp('suggestions_seen_at', { withTimezone: true }),
   },
   (table) => [uniqueIndex(USER_EMAIL_UNIQUE).on(sql`lower(${table.email})`)],
 );
@@ -519,6 +531,25 @@ export const garment = pgTable(
     careDry: text('care_dry').$type<CareDry>(),
     careIron: text('care_iron').$type<CareIron>(),
     careDryClean: text('care_dry_clean').$type<CareDryClean>(),
+    // A suggestion's provenance (Muse, #333; src/wardrobe/suggestions.ts):
+    // `suggested_at` marks one (a suggestion is a garment with it set), the
+    // agent's token, its option group, its note and its rank among the
+    // group's options. Written only while the garment is on the wishlist
+    // (by the agent's tools and drizzle/0040's migration of plan
+    // candidates) and kept once it is bought, so the agent learns what came
+    // of it. Never written by the garment form, never copied by a clone.
+    suggestedAt: timestamp('suggested_at', { withTimezone: true }),
+    suggestedByTokenId: integer('suggested_by_token_id'),
+    suggestionGroupId: integer('suggestion_group_id'),
+    suggestionNote: text('suggestion_note'),
+    suggestionRank: smallint('suggestion_rank'),
+    // Set aside, never deleted: dismissing is feedback to the agent. A
+    // reason from DISMISS_REASONS (null only for a turned-down plan
+    // candidate migrated with its free-text reason as the note). Written
+    // only by decide (src/web/wishlist/decisions.ts).
+    dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
+    dismissedReason: text('dismissed_reason').$type<DismissReason>(),
+    dismissedNote: text('dismissed_note'),
   },
   (table) => [
     check(
@@ -612,6 +643,28 @@ export const garment = pgTable(
       'garment_replaces_garment_id_check',
       sql`${table.replacesGarmentId} <> ${table.id}`,
     ),
+    // Provenance belongs to a suggestion: none of it without suggested_at.
+    check(
+      'garment_suggestion_check',
+      sql`${table.suggestedAt} is not null or (${table.suggestedByTokenId} is null and ${table.suggestionGroupId} is null and ${table.suggestionNote} is null and ${table.suggestionRank} is null)`,
+    ),
+    check(
+      'garment_suggestion_note_check',
+      sql`${table.suggestionNote} is null or length(trim(${table.suggestionNote})) > 0`,
+    ),
+    check(
+      'garment_suggestion_rank_check',
+      sql`${table.suggestionRank} between 1 and ${sql.raw(String(MAX_OPTIONS_PER_GROUP))}`,
+    ),
+    check(
+      'garment_dismissed_reason_check',
+      sql`${table.dismissedReason} in (${sqlList(DISMISS_REASONS)})`,
+    ),
+    // A reason or a note only on a dismissal.
+    check(
+      'garment_dismissed_check',
+      sql`${table.dismissedAt} is not null or (${table.dismissedReason} is null and ${table.dismissedNote} is null)`,
+    ),
     // The wardrobe grid's keyset pages: owner_id = ? AND status = 'closet'
     // [AND id < cursor] ORDER BY id DESC LIMIT n, read in index order; the
     // wishlist page the same with 'wishlist'. Also the index of the
@@ -656,6 +709,124 @@ export const garment = pgTable(
       name: 'garment_replaces_garment_id_foreign',
       columns: [table.replacesGarmentId],
       foreignColumns: [table.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
+    index('garment_suggested_by_token_id_index').on(table.suggestedByTokenId),
+    foreignKey({
+      name: 'garment_suggested_by_token_id_foreign',
+      columns: [table.suggestedByTokenId],
+      foreignColumns: [personalAccessToken.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
+    // A group's picks (the decision screen, the inbox) and the foreign key's index.
+    index('garment_suggestion_group_id_index').on(table.suggestionGroupId),
+    foreignKey({
+      name: 'garment_suggestion_group_id_foreign',
+      columns: [table.suggestionGroupId],
+      foreignColumns: [optionGroupId()],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
+  ],
+);
+
+// garment and option_group name each other: the explicit type stops
+// TypeScript inferring either table from the other.
+function optionGroupId(): AnyPgColumn {
+  return optionGroup.id;
+}
+
+// One need the owner's agent researched ("a navy blazer, under $300", Muse,
+// #333; src/wardrobe/suggestions.ts): its budget and reasoning, and the
+// owner's decision. Its options are the wishlist garments whose
+// suggestion_group_id names it, ranked by the agent; it may hold none yet
+// ("still looking"). `resolved_garment_id`: the garment that settled it,
+// one of its picks (chosen, or bought) or "a different one" the owner
+// bought instead; deleting it leaves the group resolved. `decided_at` is
+// when it left open, the stamp a choice's set-aside siblings share, so an
+// undo restores exactly them. Never deleted but with its owner. Written
+// only by decide (src/web/wishlist/decisions.ts) after its insert.
+// `plan_item_id`: the plan item drizzle/0040 migrated it from, for the
+// plan tools' shims until plans are removed (#337).
+export const optionGroup = pgTable(
+  'option_group',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    // The need, trimmed, never blank.
+    name: text('name').notNull(),
+    // What one should cost at most, in the household's currency.
+    budget: numeric('budget', { precision: 10, scale: 2 }),
+    // The agent's reasoning.
+    note: text('note'),
+    suggestedByTokenId: integer('suggested_by_token_id'),
+    status: text('status').$type<OptionGroupStatus>().default('open').notNull(),
+    resolvedGarmentId: integer('resolved_garment_id'),
+    dismissedReason: text('dismissed_reason').$type<DismissReason>(),
+    // The owner's word to the agent: with "Not for me" on the need, or
+    // carried from a plan item's review.
+    ownerNote: text('owner_note'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    planItemId: integer('plan_item_id'),
+  },
+  (table) => [
+    check(
+      'option_group_status_check',
+      sql`${table.status} in (${sqlList(OPTION_GROUP_STATUSES)})`,
+    ),
+    check('option_group_name_check', sql`length(trim(${table.name})) > 0`),
+    check('option_group_budget_check', sql`${table.budget} >= 0`),
+    // Open is exactly undecided.
+    check(
+      'option_group_decided_at_check',
+      sql`(${table.status} = 'open') = (${table.decidedAt} is null)`,
+    ),
+    check(
+      'option_group_dismissed_reason_check',
+      sql`${table.dismissedReason} is null or (${table.status} = 'dismissed' and ${table.dismissedReason} in (${sqlList(DISMISS_REASONS)}))`,
+    ),
+    // Open and dismissed groups name no garment that settled them.
+    check(
+      'option_group_resolved_garment_id_check',
+      sql`${table.status} = 'resolved' or ${table.resolvedGarmentId} is null`,
+    ),
+    // The inbox's read (owner, open first) and the owner_id foreign key's index.
+    index('option_group_owner_id_status_index').on(table.ownerId, table.status),
+    foreignKey({
+      name: 'option_group_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    index('option_group_suggested_by_token_id_index').on(
+      table.suggestedByTokenId,
+    ),
+    foreignKey({
+      name: 'option_group_suggested_by_token_id_foreign',
+      columns: [table.suggestedByTokenId],
+      foreignColumns: [personalAccessToken.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
+    index('option_group_resolved_garment_id_index').on(table.resolvedGarmentId),
+    foreignKey({
+      name: 'option_group_resolved_garment_id_foreign',
+      columns: [table.resolvedGarmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
+    unique('option_group_plan_item_id_unique').on(table.planItemId),
+    foreignKey({
+      name: 'option_group_plan_item_id_foreign',
+      columns: [table.planItemId],
+      foreignColumns: [planItem.id],
     })
       .onUpdate('cascade')
       .onDelete('set null'),

@@ -281,6 +281,13 @@
       "when": 1791002176447,
       "tag": "0039_plan-look-outfit",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791174860276,
+      "tag": "0040_muse-suggestions",
+      "breakpoints": true
     }
   ]
 }

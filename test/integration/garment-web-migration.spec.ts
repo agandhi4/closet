@@ -280,6 +280,15 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       care_dry: 'text',
       care_iron: 'text',
       care_dry_clean: 'text',
+      // 0040_muse-suggestions: a suggestion's provenance and dismissal.
+      suggested_at: 'timestamp with time zone',
+      suggested_by_token_id: 'integer',
+      suggestion_group_id: 'integer',
+      suggestion_note: 'text',
+      suggestion_rank: 'smallint',
+      dismissed_at: 'timestamp with time zone',
+      dismissed_reason: 'text',
+      dismissed_note: 'text',
     });
     expect(Object.keys(await columnsOf(env, 'user')).sort()).toEqual([
       'email',
@@ -287,6 +296,7 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       'id',
       'last_name',
       'password',
+      'suggestions_seen_at',
     ]);
     expect(Object.keys(await columnsOf(env, 'file')).sort()).toEqual([
       'created_by_id',

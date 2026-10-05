@@ -1,0 +1,374 @@
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import type { Queryable } from '../../db/client';
+import { garment, optionGroup } from '../../db/schema';
+import { selectScalars } from '../../db/select-scalars';
+import {
+  type DismissReason,
+  type DecisionOutcome,
+  decideSuggestion,
+  type GroupState,
+  type OptionGroupStatus,
+  type PickState,
+  MAX_OPTIONS_PER_GROUP,
+  type SuggestionDecision,
+} from '../../wardrobe/suggestions';
+import type { GarmentStatus } from '../../wardrobe/status';
+import { ownerTransaction } from '../auth/queries';
+import { onWishlist, setGarmentStatus, wanted } from '../wardrobe/status';
+
+/**
+ * The writers of suggestions and option groups (Muse, #333). decide is the
+ * one writer of a decision: every This one, Not for me, Bought it's
+ * settling of the group, Returned and Undo, and the plans pages' removals
+ * of a suggestion. markSuggestion is the one writer of provenance. Both
+ * hold the owner lock, and so does every other writer of option_group and
+ * of a suggestion's columns (only drizzle/0040's migration wrote them
+ * otherwise, alone at boot), so no row lock is needed. Nothing is deleted:
+ * a turned-down pick or need is dismissed, for the agent to learn from
+ * (deleteGarment refuses a suggestion).
+ */
+
+/** What a decision is about: a group it names, else its garment's. */
+type DecisionSubject = { groupId: number } | { garmentId: number };
+
+function subjectOf(decision: SuggestionDecision): DecisionSubject {
+  if ('groupId' in decision && decision.groupId !== undefined) {
+    return { groupId: decision.groupId };
+  }
+  if ('garmentId' in decision) return { garmentId: decision.garmentId };
+  // dismiss-group and undo-group always name their group.
+  throw new Error(`${decision.kind} names no group`);
+}
+
+export type DecideOutcome =
+  | {
+      ok: true;
+      groupId: number | null;
+      dismissed: number[];
+      restored: number[];
+    }
+  /** Not the owner's group, or not a suggestion of theirs: a 404 like an unknown id. */
+  | { ok: false; reason: 'not-found' }
+  /** Not where the decision applies (a stale page, a double tap): a 409. */
+  | { ok: false; reason: 'not-allowed' };
+
+interface GroupRow {
+  id: number;
+  status: OptionGroupStatus;
+  resolvedGarmentId: number | null;
+  decidedAt: string | null;
+}
+
+interface PickRow {
+  id: number;
+  wanted: boolean;
+  dismissedAt: string | null;
+  dismissedReason: DismissReason | null;
+}
+
+/** The subject's group id, as SQL: named, or the group the garment is a pick of or resolved. */
+function groupIdSql(ownerId: number, subject: DecisionSubject): SQL {
+  if ('groupId' in subject) return sql`${subject.groupId}::integer`;
+  return sql`coalesce(
+    (select ${garment.suggestionGroupId} from ${garment}
+      where ${and(eq(garment.id, subject.garmentId), eq(garment.ownerId, ownerId))}),
+    (select ${optionGroup.id} from ${optionGroup}
+      where ${and(eq(optionGroup.resolvedGarmentId, subject.garmentId), eq(optionGroup.ownerId, ownerId))})
+  )`;
+}
+
+/**
+ * The group (null when there is none of the owner's) and the garments the
+ * machine judges: its picks, the garment that resolved it, and the
+ * subject garment when it is a suggestion of the owner's outside any group.
+ * One statement.
+ */
+async function readSubject(
+  tx: Queryable,
+  ownerId: number,
+  subject: DecisionSubject,
+  garmentId: number | undefined,
+): Promise<{
+  group: GroupRow | null;
+  picks: PickRow[];
+  garmentStatus: GarmentStatus | null;
+}> {
+  const id = groupIdSql(ownerId, subject);
+  const resolvedOf = sql`(select ${optionGroup.resolvedGarmentId} from ${optionGroup} where ${optionGroup.id} = ${id})`;
+  return selectScalars(tx, {
+    // The decision's garment, the owner's: a purchase must name one bought.
+    garmentStatus: sql<GarmentStatus | null>`(
+      select ${garment.status} from ${garment}
+      where ${eq(garment.ownerId, ownerId)} and ${garment.id} = ${garmentId ?? null}::integer
+    )`,
+    group: sql<GroupRow | null>`(
+      select json_build_object(
+        'id', ${optionGroup.id},
+        'status', ${optionGroup.status},
+        'resolvedGarmentId', ${optionGroup.resolvedGarmentId},
+        'decidedAt', ${optionGroup.decidedAt}
+      )
+      from ${optionGroup}
+      where ${optionGroup.id} = ${id} and ${eq(optionGroup.ownerId, ownerId)}
+    )`,
+    picks: sql<PickRow[]>`(
+      select coalesce(json_agg(json_build_object(
+        'id', ${garment.id},
+        'wanted', ${garment.status} = 'wishlist',
+        'dismissedAt', ${garment.dismissedAt},
+        'dismissedReason', ${garment.dismissedReason}
+      ) order by ${garment.id}), '[]')
+      from ${garment}
+      where ${eq(garment.ownerId, ownerId)} and (
+        ${garment.suggestionGroupId} = ${id}
+        or ${garment.id} = ${resolvedOf}
+        ${
+          'garmentId' in subject
+            ? sql`or (${garment.id} = ${subject.garmentId} and ${garment.suggestedAt} is not null)`
+            : sql``
+        }
+      )
+    )`,
+  });
+}
+
+function groupState(row: GroupRow): GroupState {
+  return {
+    status: row.status,
+    resolvedGarmentId: row.resolvedGarmentId,
+    decidedAt: row.decidedAt === null ? null : new Date(row.decidedAt),
+  };
+}
+
+function pickState(row: PickRow): PickState {
+  return {
+    id: row.id,
+    wanted: row.wanted,
+    dismissedAt: row.dismissedAt === null ? null : new Date(row.dismissedAt),
+    dismissedReason: row.dismissedReason,
+  };
+}
+
+/**
+ * The machine's answer as update statements (the group's, then each
+ * dismissal and restore), for decide to send as one statement.
+ */
+function outcomeWrites(
+  tx: Queryable,
+  ownerId: number,
+  groupId: number | undefined,
+  outcome: Extract<DecisionOutcome, { ok: true }>,
+): SQL[] {
+  const writes: SQL[] = [];
+  if (outcome.group && groupId !== undefined) {
+    const change = outcome.group;
+    writes.push(
+      tx
+        .update(optionGroup)
+        .set({
+          status: change.status,
+          resolvedGarmentId: change.resolvedGarmentId,
+          decidedAt: change.decided ? sql`now()` : null,
+          dismissedReason: change.dismissedReason,
+          ...(change.ownerNote !== undefined && {
+            ownerNote: change.ownerNote,
+          }),
+        })
+        .where(eq(optionGroup.id, groupId))
+        .getSQL(),
+    );
+  }
+  // A decision's dismissals share one reason and note (one pick's, or
+  // the siblings' chose_another): one update per pair.
+  const byReason = new Map<string, number[]>();
+  for (const { garmentId, reason, note } of outcome.dismiss) {
+    const key = JSON.stringify([reason, note]);
+    byReason.set(key, [...(byReason.get(key) ?? []), garmentId]);
+  }
+  for (const [key, ids] of byReason) {
+    const [reason, note] = JSON.parse(key) as [
+      DismissReason | null,
+      string | null,
+    ];
+    writes.push(
+      tx
+        .update(garment)
+        .set({
+          dismissedAt: sql`now()`,
+          dismissedReason: reason,
+          dismissedNote: note,
+        })
+        .where(and(inArray(garment.id, ids), eq(garment.ownerId, ownerId)))
+        .getSQL(),
+    );
+  }
+  if (outcome.restore.length > 0) {
+    writes.push(
+      tx
+        .update(garment)
+        .set({
+          dismissedAt: null,
+          dismissedReason: null,
+          dismissedNote: null,
+        })
+        .where(
+          and(
+            inArray(garment.id, outcome.restore),
+            eq(garment.ownerId, ownerId),
+          ),
+        )
+        .getSQL(),
+    );
+  }
+  return writes;
+}
+
+/**
+ * What the writer refuses before asking the machine: a group named that is
+ * not the owner's, and a purchase not of a garment of theirs in the closet
+ * (the pick just bought, or the different one).
+ */
+function refusalOf(
+  subject: DecisionSubject,
+  decision: SuggestionDecision,
+  read: Awaited<ReturnType<typeof readSubject>>,
+): 'not-found' | 'not-allowed' | undefined {
+  if ('groupId' in subject && !read.group) return 'not-found';
+  if (decision.kind !== 'bought' || read.garmentStatus === 'closet') {
+    return undefined;
+  }
+  return read.garmentStatus === null ? 'not-found' : 'not-allowed';
+}
+
+/**
+ * Decides `decision` for the owner, in their owner transaction (joined
+ * when the caller holds it: "Bought it", buyCandidate, the plans review).
+ * The group is the one the decision names, else its garment's.
+ * Dismissals and the group's decided_at are stamped with the
+ * transaction's time (now()), so a choice and the siblings it set aside
+ * share one instant, which is how its undo finds them. Returned archives
+ * the bought garment (setGarmentStatus) in the same transaction.
+ */
+export function decide(
+  db: Queryable,
+  ownerId: number,
+  decision: SuggestionDecision,
+): Promise<DecideOutcome> {
+  const subject = subjectOf(decision);
+  const garmentId = 'garmentId' in decision ? decision.garmentId : undefined;
+  return ownerTransaction(db, ownerId, 'decide', async (tx) => {
+    const read = await readSubject(tx, ownerId, subject, garmentId);
+    const refusal = refusalOf(subject, decision, read);
+    if (refusal) return { ok: false, reason: refusal };
+    const outcome = decideSuggestion(
+      read.group ? groupState(read.group) : undefined,
+      read.picks.map(pickState),
+      decision,
+    );
+    if (!outcome.ok) {
+      return {
+        ok: false,
+        reason:
+          outcome.refusal === 'not-in-group' ? 'not-found' : 'not-allowed',
+      };
+    }
+    if (decision.kind === 'returned') {
+      const archived = await setGarmentStatus(tx, decision.garmentId, ownerId, {
+        event: 'archive',
+      });
+      if (!archived.ok) return { ok: false, reason: 'not-allowed' };
+    }
+
+    const writes = outcomeWrites(tx, ownerId, read.group?.id, outcome);
+    // One statement: each write a data-modifying CTE (they touch disjoint
+    // rows), embedded through getSQL(), which Drizzle does not parenthesise.
+    if (writes.length > 0) {
+      await tx.execute(
+        sql`with ${sql.join(
+          writes.map(
+            (write, index) => sql`${sql.raw(`w${index}`)} as (${write})`,
+          ),
+          sql`, `,
+        )} select 1`,
+      );
+    }
+    return {
+      ok: true,
+      groupId: read.group?.id ?? null,
+      dismissed: outcome.dismiss.map((d) => d.garmentId),
+      restored: outcome.restore,
+    };
+  });
+}
+
+/** What makes a wishlist garment a suggestion: who proposed it, where, why, and its rank. */
+export interface Provenance {
+  tokenId: number | null;
+  groupId: number | null;
+  note: string | null;
+  rank: number | null;
+}
+
+/**
+ * The one writer of a suggestion's provenance after drizzle/0040: marks
+ * the owner's garment `garmentId` as suggested now, only while it is on
+ * the wishlist and not a suggestion already (the agent's tools, #337), and
+ * only into an open group of the same owner holding fewer than
+ * MAX_OPTIONS_PER_GROUP open options (on the wishlist, not set aside).
+ * Under the owner lock, so two at once cannot both take the last place.
+ * Provenance is kept once the garment is bought, which is why no check
+ * constraint can hold the wishlist rule: it is this writer's. One
+ * statement inside the lock; `full` when only the group's room refused it.
+ */
+export function markSuggestion(
+  db: Queryable,
+  ownerId: number,
+  garmentId: number,
+  provenance: Provenance,
+): Promise<'marked' | 'refused' | 'full'> {
+  const { groupId } = provenance;
+  const openOptions = sql`(select count(*) from ${garment} where ${and(
+    eq(garment.suggestionGroupId, groupId ?? -1),
+    wanted(),
+  )})`;
+  const groupOpen = sql`exists (select 1 from ${optionGroup} where ${and(
+    eq(optionGroup.id, groupId ?? -1),
+    eq(optionGroup.ownerId, ownerId),
+    eq(optionGroup.status, 'open'),
+  )})`;
+  return ownerTransaction(db, ownerId, 'markSuggestion', async (tx) => {
+    const markable = and(
+      eq(garment.id, garmentId),
+      eq(garment.ownerId, ownerId),
+      onWishlist(),
+      isNull(garment.suggestedAt),
+      groupId === null ? undefined : groupOpen,
+    );
+    const marked = await tx
+      .update(garment)
+      .set({
+        suggestedAt: sql`now()`,
+        suggestedByTokenId: provenance.tokenId,
+        suggestionGroupId: groupId,
+        suggestionNote: provenance.note,
+        suggestionRank: provenance.rank,
+      })
+      .where(
+        and(
+          markable,
+          groupId === null
+            ? undefined
+            : sql`${openOptions} < ${MAX_OPTIONS_PER_GROUP}`,
+        ),
+      )
+      .returning({ id: garment.id });
+    if (marked.length === 1) return 'marked';
+    // Only a refusal reads again, to say whether the group's room was why.
+    if (groupId === null) return 'refused';
+    const [markableRow] = await tx
+      .select({ id: garment.id })
+      .from(garment)
+      .where(markable);
+    return markableRow ? 'full' : 'refused';
+  });
+}

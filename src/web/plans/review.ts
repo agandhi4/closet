@@ -2,11 +2,13 @@ import type { Static } from '@sinclair/typebox';
 import type { Db, Queryable } from '../../db/client';
 import { OUTFIT_ORDER } from '../../wardrobe/generator';
 import type { PlanItemReviewEvent } from '../../wardrobe/plan-review';
+import type { SuggestionDecision } from '../../wardrobe/suggestions';
 import { categoryRole } from '../../wardrobe/properties';
 import { type BudgetFit, rankCandidates } from '../../wardrobe/shopping';
 import { ownerTransaction } from '../auth/queries';
 import type { StoredPhoto } from '../files/image-variant';
 import { deleteGarment } from '../wardrobe/queries';
+import { decide } from '../wishlist/decisions';
 import type { WardrobeDeps } from '../wardrobe/writes';
 import {
   type CandidateGarment,
@@ -474,10 +476,23 @@ export async function applyReview(
       }
       const removed: { id: number; photo: StoredPhoto | null }[] = [];
       const kept: number[] = [];
+      const setAside: number[] = [];
       for (const id of release.deletable) {
         const deleted = await deleteGarment(tx, id, ownerId, 'wishlist');
-        if (deleted === undefined) kept.push(id);
-        else removed.push({ id, photo: deleted.photo });
+        if (deleted.ok) {
+          removed.push({ id, photo: deleted.photo });
+        } else if (deleted.reason === 'suggestion') {
+          // A suggestion is feedback, never deleted: set aside, kept.
+          const aside = release.why.get(id)!;
+          const decided = await decide(tx, ownerId, {
+            kind: 'dismiss-pick',
+            garmentId: id,
+            ...aside,
+          });
+          if (decided.ok) setAside.push(id);
+        } else {
+          kept.push(id);
+        }
       }
       const looks = await reactToLooksOfPost(
         tx,
@@ -498,6 +513,7 @@ export async function applyReview(
         rejected: release.rejected.length,
         removed,
         kept,
+        setAside,
         activated,
         looks,
       };
@@ -527,6 +543,11 @@ export async function applyReview(
   if (looks.refused.length > 0) {
     logger.info(
       `Plan ${planId} review by user ${ownerId}: looks ${looks.refused.map((r) => `${r.lookId} (${r.reaction})`).join(', ')} not moved (already moved or not this plan's)`,
+    );
+  }
+  if (outcome.setAside.length > 0) {
+    logger.info(
+      `Plan ${planId} review by user ${ownerId}: suggestions ${outcome.setAside.join(', ')} set aside, kept as feedback`,
     );
   }
   if (outcome.kept.length > 0) {
@@ -572,6 +593,12 @@ async function reactToLooksOfPost(
   return result;
 }
 
+/** How a suggestion let go is set aside instead of deleted: its reason and note. */
+type SetAside = Pick<
+  Extract<SuggestionDecision, { kind: 'dismiss-pick' }>,
+  'reason' | 'note'
+>;
+
 /**
  * What the post lets go among the candidates the `open` items' strips
  * offered that are still theirs: the rejections to record, the garments to
@@ -584,7 +611,10 @@ async function reactToLooksOfPost(
  * the page was drawn): which to remove was not shown against it. A garment
  * is deletable when every plan item it is a candidate of is one of these
  * that lets it go and no item here picked it. Reads nothing when nothing
- * can be let go.
+ * can be let go. `why` says, per garment let go, how a suggestion (never
+ * deleted, #333) is set aside instead: a rejection's free-text reason as
+ * the note, a declined item's as not now, an unpicked option's as chose
+ * another.
  */
 async function releasedCandidates(
   tx: Queryable,
@@ -596,21 +626,27 @@ async function releasedCandidates(
   rejected: RejectedCandidate[];
   deletable: number[];
   unlink: { itemIds: number[]; garmentIds: number[] }[];
+  why: Map<number, SetAside>;
 }> {
   const judged = open.filter(
     (id) => removeUnpicked || choices.get(id)!.rejected.size > 0,
   );
-  if (judged.length === 0) return { rejected: [], deletable: [], unlink: [] };
+  if (judged.length === 0) {
+    return { rejected: [], deletable: [], unlink: [], why: new Map() };
+  }
   const candidates = await candidatesOfItems(tx, ownerId, judged);
   const picked = new Set<number>();
   const rejected: RejectedCandidate[] = [];
-  // Each garment let go, with the items that let it go.
+  // Each garment let go, with the items that let it go, and the first why.
   const releasedBy = new Map<number, Set<number>>();
-  const letGo = (garmentId: number, itemId: number) =>
+  const why = new Map<number, SetAside>();
+  const letGo = (garmentId: number, itemId: number, aside: SetAside) => {
     releasedBy.set(
       garmentId,
       (releasedBy.get(garmentId) ?? new Set()).add(itemId),
     );
+    if (!why.has(garmentId)) why.set(garmentId, aside);
+  };
   for (const itemId of judged) {
     const choice = choices.get(itemId)!;
     const held: CandidateGarment[] = (candidates.get(itemId) ?? []).filter(
@@ -625,13 +661,16 @@ async function releasedCandidates(
       const reason = choice.rejected.get(candidate.garmentId);
       if (reason !== undefined) {
         rejected.push({ candidate, reason });
-        letGo(candidate.garmentId, itemId);
+        letGo(candidate.garmentId, itemId, { reason: null, note: reason });
       } else if (
         removeUnpicked &&
         (pick.kind === 'decline' ||
           (pickHeld && candidate.garmentId !== pick.garmentId))
       ) {
-        letGo(candidate.garmentId, itemId);
+        letGo(candidate.garmentId, itemId, {
+          reason: pick.kind === 'decline' ? 'not_now' : 'chose_another',
+          note: null,
+        });
       }
     }
   }
@@ -655,5 +694,5 @@ async function releasedCandidates(
       .map(([garmentId]) => garmentId);
     return garmentIds.length > 0 ? [{ itemIds: [itemId], garmentIds }] : [];
   });
-  return { rejected, deletable, unlink };
+  return { rejected, deletable, unlink, why };
 }

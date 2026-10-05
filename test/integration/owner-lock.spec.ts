@@ -509,7 +509,7 @@ describe('the owner lock', () => {
           }),
       );
       // Deleted (it had no photo).
-      expect(deleted).toEqual({ status: 'closet', photo: null });
+      expect(deleted).toEqual({ ok: true, status: 'closet', photo: null });
       expect(pick).toBe('not-found');
       expect(await t.db.$count(outfit)).toBe(0);
       expect(await entriesOn(day)).toEqual([]);

@@ -24,7 +24,10 @@ import {
   PATTERNS,
   SLEEVES,
 } from '../../src/wardrobe/properties';
-import { EXPORT_PAGE_SIZE } from '../../src/web/wardrobe/export';
+import {
+  EXPORT_PAGE_SIZE,
+  OMITTED_COLUMNS,
+} from '../../src/web/wardrobe/export';
 import { imageUrl } from '../../src/web/files/image-url';
 import { readPhotoRef } from '../../src/web/files/queries';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
@@ -40,7 +43,7 @@ type GarmentRow = typeof garment.$inferSelect;
 
 /** Every exported column: database name by row key. */
 const COLUMNS = Object.entries(getTableColumns(garment))
-  .filter(([key]) => key !== 'ownerId' && key !== 'photoId')
+  .filter(([key]) => !OMITTED_COLUMNS.has(key))
   .map(([key, column]) => ({
     key: key as keyof GarmentRow,
     name: column.name,
@@ -91,6 +94,8 @@ const unguard = (cell: string) =>
 function asCsvText(value: GarmentRow[keyof GarmentRow]): string {
   if (value === null) return '';
   if (Array.isArray(value)) return value.join(', ');
+  // An instant as ISO 8601, never Date's local-time String().
+  if (value instanceof Date) return value.toISOString();
   return String(value);
 }
 
@@ -161,6 +166,13 @@ describe('the wardrobe export', () => {
         careDry: CARE_DRY[0],
         careIron: CARE_IRON[3],
         careDryClean: CARE_DRY_CLEAN[1],
+        // A suggestion bought, then returned (#333).
+        suggestedAt: new Date('2026-10-01T09:30:00.000Z'),
+        suggestionNote: 'Goes with the raw jeans',
+        suggestionRank: 2,
+        dismissedAt: new Date('2026-10-04T18:00:00.000Z'),
+        dismissedReason: 'returned',
+        dismissedNote: 'Too short',
       })
       .where(eq(garment.id, fullId));
     const [photo] = await t.db
@@ -218,7 +230,10 @@ describe('the wardrobe export', () => {
         'photo',
       ]);
       for (const { key, name } of COLUMNS) {
-        expect(exported[name], name).toEqual(row[key]);
+        // As JSON writes it: an instant is its ISO string.
+        expect(exported[name], name).toEqual(
+          JSON.parse(JSON.stringify(row[key])),
+        );
       }
     }
 

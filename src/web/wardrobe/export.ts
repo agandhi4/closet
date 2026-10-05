@@ -21,10 +21,17 @@ export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 export const EXPORT_PAGE_SIZE = 200;
 
 /**
- * The garment columns left out: whose it is (always the requester) and
- * the internal photo row id (the photo is exported as its URLs).
+ * The garment columns left out: whose it is (always the requester), the
+ * internal photo row id (the photo is exported as its URLs), and a
+ * suggestion's token and option group ids (rows the export does not hold;
+ * its note, rank, time and dismissal are exported).
  */
-const OMITTED: ReadonlySet<string> = new Set(['ownerId', 'photoId']);
+export const OMITTED_COLUMNS: ReadonlySet<string> = new Set([
+  'ownerId',
+  'photoId',
+  'suggestedByTokenId',
+  'suggestionGroupId',
+]);
 
 type GarmentRow = typeof garment.$inferSelect;
 
@@ -38,7 +45,7 @@ export const EXPORT_COLUMNS: readonly {
   key: keyof GarmentRow;
   name: string;
 }[] = Object.entries(getTableColumns(garment))
-  .filter(([key]) => !OMITTED.has(key))
+  .filter(([key]) => !OMITTED_COLUMNS.has(key))
   .map(([key, column]) => ({
     key: key as keyof GarmentRow,
     name: column.name,
@@ -99,10 +106,14 @@ async function* exportPages(
 /** Sets in a CSV cell: no set value holds a comma. */
 const SET_SEPARATOR = ', ';
 
-/** A stored value as CSV text: null is empty (the form never stores ''). */
+/**
+ * A stored value as CSV text: null is empty (the form never stores ''), an
+ * instant (a suggestion's times) ISO 8601 as the JSON bundle writes it.
+ */
 export function csvValue(value: GarmentRow[keyof GarmentRow]): string {
   if (value === null) return '';
   if (Array.isArray(value)) return value.join(SET_SEPARATOR);
+  if (value instanceof Date) return value.toISOString();
   return String(value);
 }
 

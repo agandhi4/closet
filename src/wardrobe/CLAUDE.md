@@ -39,6 +39,9 @@
                        care.ts: the care label's value sets, its presets from the
                        materials (carePresetsFor, applyCarePresets), the repair
                        kinds. See Wardrobe, care-and-repairs.md
+                       suggestions.ts: Muse's suggestions and option groups
+                       (decideSuggestion, pure; the dismissal reasons). See
+                       Wishlist, suggestions.md
 ```
 
 ## Gotchas

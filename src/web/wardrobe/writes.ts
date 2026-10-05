@@ -25,12 +25,9 @@ import {
   type NewPhotoRow,
 } from '../files/queries';
 import type { Logger } from '../../logger';
+import { type EntryStatus, statusOfClone } from '../../wardrobe/status';
 import {
-  type EntryStatus,
-  type GarmentStatus,
-  statusOfClone,
-} from '../../wardrobe/status';
-import {
+  type DeleteOutcome,
   deleteGarment,
   findGarment,
   type GarmentDetail,
@@ -555,17 +552,18 @@ async function swapPhoto(
 }
 
 /**
- * Deletes the garment and its photo's row, then the photo's bytes; the
- * status it had. Undefined when the garment is not in `ownerId`'s wardrobe.
+ * Deletes the garment and its photo's row, then the photo's bytes; what
+ * deleteGarment answered (a suggestion is refused, never deleted).
  */
 export async function removeGarment(
   deps: WardrobeDeps,
   id: number,
   ownerId: number,
-): Promise<GarmentStatus | undefined> {
+): Promise<DeleteOutcome> {
   const deleted = await deleteGarment(deps.db, id, ownerId);
-  if (!deleted) return undefined;
   // Only after commit: an unlink cannot be rolled back.
-  if (deleted.photo) await deps.photos.deleteVariants(deleted.photo);
-  return deleted.status;
+  if (deleted.ok && deleted.photo) {
+    await deps.photos.deleteVariants(deleted.photo);
+  }
+  return deleted;
 }

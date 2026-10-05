@@ -6,9 +6,11 @@ import {
   eq,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   lt,
   ne,
+  not,
   notInArray,
   or,
   type SQL,
@@ -34,7 +36,13 @@ import {
 import { dirtyCopiesSql, needsWash } from '../wears/queries';
 import { compareSizes } from './garment';
 import { GRID_PAGE_SIZE } from './grid-page-size';
-import { type GarmentScope, inCloset, inScope, ownedGarment } from './status';
+import {
+  type GarmentScope,
+  inCloset,
+  inScope,
+  onWishlist,
+  ownedGarment,
+} from './status';
 import {
   type Condition,
   type Formality,
@@ -657,24 +665,40 @@ async function deletePhotoRow(
   return deleted ?? null;
 }
 
+/** What deleteGarment did: the status and photo files of what it deleted, or why not. */
+export type DeleteOutcome =
+  | { ok: true; status: GarmentStatus; photo: StoredPhoto | null }
+  /** Not in `ownerId`'s wardrobe, or not (any more) in the status asked. */
+  | { ok: false; reason: 'not-found' }
+  /** A suggestion (#333): feedback to the agent, set aside, never deleted. */
+  | { ok: false; reason: 'suggestion' };
+
 /**
- * Deletes the garment and its photo's row together; returns the status it
+ * Deletes the garment and its photo's row together; answers the status it
  * had and the photo's files (for the caller to unlink after commit), null
- * without one; undefined when the garment is not in `ownerId`'s wardrobe,
- * or not (any more) in `status` when one is given: buyCandidate's clean-up
- * of other candidates deletes only what is still on the wishlist, so a
- * candidate bought meanwhile is kept. The DELETE locks the row and judges
- * `status` as a transaction it waited on committed it, as lockGarment
- * would, without a statement of its own (#161). Outfit slots that wore it
- * are emptied by their foreign key.
+ * without one. Nothing is deleted when the garment is not in `ownerId`'s
+ * wardrobe, or not (any more) in `status` when one is given (buyCandidate's
+ * clean-up of other candidates deletes only what is still on the wishlist,
+ * so a candidate bought meanwhile is kept), or is a suggestion still on the
+ * wishlist: those are set aside through decide (src/web/wishlist/decisions.ts), never deleted,
+ * the one place that rule lives. The DELETE locks the row and judges its
+ * conditions as a transaction it waited on committed them, as lockGarment
+ * would, without a statement of its own (#161); only a refusal reads the
+ * row again, to say which. Outfit slots that wore it are emptied by their
+ * foreign key.
  */
+// Only while it is still wanted or set aside: a bought pick is an ordinary
+// owned garment, deleted like any (its group's undo copes with a nulled
+// resolved_garment_id).
+const isSuggestionOnWishlist = sql<boolean>`(${isNotNull(garment.suggestedAt)} and ${onWishlist()})`;
+
 export function deleteGarment(
   db: Queryable,
   id: number,
   ownerId: number,
   status?: GarmentStatus,
-): Promise<{ status: GarmentStatus; photo: StoredPhoto | null } | undefined> {
-  return db.transaction(async (tx) => {
+): Promise<DeleteOutcome> {
+  return db.transaction(async (tx): Promise<DeleteOutcome> => {
     const [deleted] = await tx
       .delete(garment)
       .where(
@@ -682,14 +706,28 @@ export function deleteGarment(
           eq(garment.id, id),
           eq(garment.ownerId, ownerId),
           status && eq(garment.status, status),
+          not(isSuggestionOnWishlist),
         ),
       )
       .returning({ photoId: garment.photoId, status: garment.status });
-    if (!deleted) return undefined;
-    return {
-      status: deleted.status,
-      photo: await deletePhotoRow(tx, deleted.photoId),
-    };
+    if (deleted) {
+      return {
+        ok: true,
+        status: deleted.status,
+        photo: await deletePhotoRow(tx, deleted.photoId),
+      };
+    }
+    const [kept] = await tx
+      .select({ suggested: isSuggestionOnWishlist })
+      .from(garment)
+      .where(
+        and(
+          eq(garment.id, id),
+          eq(garment.ownerId, ownerId),
+          status && eq(garment.status, status),
+        ),
+      );
+    return { ok: false, reason: kept?.suggested ? 'suggestion' : 'not-found' };
   });
 }
 

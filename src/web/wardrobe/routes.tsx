@@ -1376,8 +1376,15 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'own',
       );
       const { id } = request.params;
-      const status = await removeGarment(deps, id, access.ownerId);
-      if (!status) throw notFound();
+      const deleted = await removeGarment(deps, id, access.ownerId);
+      if (!deleted.ok) {
+        if (deleted.reason === 'not-found') throw notFound();
+        logger.info(
+          `Garment ${id} delete refused for user ${access.ownerId}: a suggestion, set aside, never deleted`,
+        );
+        throw new HttpError(409, t('wishlist.SUGGESTION_NOT_DELETED'));
+      }
+      const { status } = deleted;
       logger.info(
         `Garment ${id} (${status}) deleted by user ${access.ownerId}`,
       );
