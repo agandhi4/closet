@@ -12,7 +12,6 @@ import { Layout } from '../layout/layout';
 import { CANDIDATE_GRID } from '../layout/columns';
 import { PageMain } from '../layout/page-main';
 import { EmptyState, HangerIcon } from '../layout/parts';
-import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
@@ -61,7 +60,6 @@ export function ShoppingPage(props: {
 }) {
   const { ctx, model } = props;
   const { plan, list } = model;
-  const anyCandidates = list?.entries.some((e) => e.candidates.length > 0);
   return (
     <Layout ctx={ctx} title={t('shopping.TITLE')}>
       <AppBar
@@ -99,15 +97,6 @@ export function ShoppingPage(props: {
         ) : (
           <>
             <Summary list={list} />
-            {anyCandidates && (
-              <a
-                href={stylingUrl({ planId: plan.id })}
-                class="btn btn-outline btn-sm self-start"
-                data-style-with-closet=""
-              >
-                {t('plans.STYLE_WITH_CLOSET')}
-              </a>
-            )}
             <ul class="flex flex-col gap-4" id="shopping-list">
               {list.entries.map((entry) => (
                 <ItemCard entry={entry} plan={plan} />

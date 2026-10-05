@@ -82,6 +82,8 @@ export function OutfitPage(props: {
           <a
             href={stylingUrl({
               outfitId: outfit.id,
+              // Its pieces to buy on their strips, to swap one for another (#335).
+              picks: toBuy.length > 0,
               returnTo: outfitUrl(outfit.id),
             })}
             class="btn btn-outline flex-1"

@@ -4,22 +4,13 @@ import {
   eq,
   inArray,
   lt,
-  ne,
   notInArray,
   type SQL,
   sql,
 } from 'drizzle-orm';
 import type { Db } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
-import {
-  file,
-  garment,
-  outfit,
-  outfitSlot,
-  planItem,
-  planItemCandidate,
-  wardrobePlan,
-} from '../../db/schema';
+import { file, garment, outfit, outfitSlot } from '../../db/schema';
 import { photoRefJson, readPhotoRef } from '../files/queries';
 import {
   builtInCategoriesOf,
@@ -29,7 +20,8 @@ import {
 } from '../../wardrobe/properties';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
-import { inCloset, ownedGarment, wanted } from '../wardrobe/status';
+import { offeredIntoSql, slotMayNameSql } from '../outfits/gone-garments';
+import { inCloset, offeredToStyle } from '../wardrobe/status';
 import {
   type RoleWindow,
   type RowGarment,
@@ -229,22 +221,28 @@ export async function roleGarmentsBefore(
 }
 
 /**
- * The garments among `ids` the posted rows may carry: the one rule of it,
- * for every Styling read of posted rows (stripsReads, ideaReads: the page,
- * Shuffle, "Add row", a refused Save's page) and for an edit's Save. The
- * wardrobe's owned garments (in the closet or archived); while the rows
- * edit one of the requester's saved outfits (`editing`, StylingScope), the
- * owner's garments whatever their status (#335). What an outfit may hold
- * is updateOutfit's to judge (insertSlots: a piece not bought yet, while
- * nothing holds the outfit), so an edit carries its piece to buy through
- * every round trip to the Save, which refuses it only where it must.
- * Fewer than asked when one is someone else's or gone, or, not editing, a
- * wishlist item. A scalar subquery; read with readGarments.
+ * What the posted rows may carry beyond the closet (`StylingScope`, by
+ * carryOf): the garments of the saved outfit they edit, and with Include
+ * picks on, the garments offered to style with.
+ */
+export interface RowCarry {
+  editingOutfitId: number | undefined;
+  picks: boolean;
+}
+
+/**
+ * The garments among `ids` the posted rows may carry, for every Styling
+ * read of posted rows (stripsReads, ideaReads: the page, Shuffle, "Add
+ * row", a refused Save's page): what an outfit's slots may name
+ * (slotMayNameSql, the outfit writer's own rule, #335), so a row never
+ * holds what Save would refuse, and a chosen pick survives every round
+ * trip. Fewer than asked when one is someone else's, gone, or not
+ * carried. A scalar subquery; read with readGarments.
  */
 export function rowGarmentsSql(
   ownerId: number,
   ids: readonly number[],
-  editing: boolean,
+  carry: RowCarry,
 ): SQL<RowGarmentJson[]> {
   return sql<RowGarmentJson[]>`(
     select coalesce(json_agg(${rowGarmentJson}), '[]')
@@ -253,7 +251,15 @@ export function rowGarmentsSql(
     where ${and(
       eq(garment.ownerId, ownerId),
       inArray(garment.id, [...ids]),
-      editing ? undefined : ownedGarment(),
+      slotMayNameSql({
+        outfitId: carry.editingOutfitId,
+        // Into an edited outfit, a pick only while nothing holds it: the
+        // writer's own condition, so a row never holds what Save refuses.
+        offered:
+          carry.picks &&
+          (carry.editingOutfitId === undefined ||
+            offeredIntoSql(carry.editingOutfitId)),
+      }),
     )}
   )`;
 }
@@ -263,17 +269,30 @@ export function readGarments(rows: readonly RowGarmentJson[]): RoledGarment[] {
   return rows.map((row) => roled(readRowGarment(row)));
 }
 
-/** An edit's Save: rowGarmentsSql for the edited outfit's rows, in one statement. */
-export async function editedGarments(
+/**
+ * A Save's garments: the requester's own among `ids`, whatever their
+ * status, in the order posted (rows of one role keep theirs through
+ * topToToe), for the slots' categories and the name. Not a judgement: the
+ * outfit writer decides what the outfit may hold (insertSlots,
+ * slotMayNameSql), under the owner lock. Fewer than asked only when one is
+ * not theirs. One statement.
+ */
+export async function savedGarments(
   db: Db,
   ownerId: number,
   ids: readonly number[],
 ): Promise<RoledGarment[]> {
   if (ids.length === 0) return [];
-  const { carried } = await selectScalars(db, {
-    carried: rowGarmentsSql(ownerId, ids, true),
+  const { found } = await selectScalars(db, {
+    found: sql<RowGarmentJson[]>`(
+      select coalesce(json_agg(${rowGarmentJson}), '[]')
+      from ${garment}
+      left join ${file} on ${eq(file.id, garment.photoId)}
+      where ${and(eq(garment.ownerId, ownerId), inArray(garment.id, [...ids]))}
+    )`,
   });
-  return readGarments(carried);
+  const byId = new Map(readGarments(found).map((g) => [g.id, g]));
+  return ids.flatMap((id) => byId.get(id) ?? []);
 }
 
 /** An outfit as Styling opens it (`?outfit=`). */
@@ -324,49 +343,22 @@ export function readSavedOutfit(
     : undefined;
 }
 
-/** A plan as `?plan=` opens it: its name and the candidates still to buy. */
-export interface StyledPlan {
-  name: string;
-  /** Wishlist garments linked to any of the plan's items, each with its role. */
-  candidates: RoledGarment[];
-}
-
-interface StyledPlanJson {
-  name: string;
-  candidates: RowGarmentJson[];
-}
-
 /**
- * The owner's plan `planId` with its candidates (`?plan=`, #273): wishlist
- * garments of the owner linked to any of its items, newest first. Null when
- * the plan is not the owner's. Read through `onWishlist`, so a bought
- * candidate's link stops mattering (Wardrobe plans, Gotchas); a garment
- * that is a candidate of two items comes once. A declined item's links are
- * inert (#278: "Don't buy"), so its candidates are left out. A scalar
- * subquery; read with readStyledPlan.
+ * Include picks (`?picks=1`, #335): the owner's garments offered to style
+ * with (offeredToStyle: still wanted, not under a need set aside), which
+ * join their role's strip first, badged "To buy". A need's options sit
+ * side by side in Muse's rank (by need, newest first, then rank), then
+ * the lone picks and the owner's own wishlist items, newest first. A
+ * scalar subquery; read with readGarments.
  */
-export function styledPlanSql(
-  planId: number,
-  ownerId: number,
-): SQL<StyledPlanJson | null> {
-  const linked = sql`${garment.id} in (select ${planItemCandidate.garmentId} from ${planItemCandidate} inner join ${planItem} on ${eq(planItem.id, planItemCandidate.planItemId)} where ${and(eq(planItem.planId, wardrobePlan.id), ne(planItem.review, 'declined'))})`;
-  return sql<StyledPlanJson | null>`(
-    select json_build_object(
-      'name', ${wardrobePlan.name},
-      'candidates', (
-        select coalesce(json_agg(${rowGarmentJson} order by ${garment.id} desc), '[]')
-        from ${garment}
-        left join ${file} on ${eq(file.id, garment.photoId)}
-        where ${and(eq(garment.ownerId, ownerId), wanted(), linked)}
-      )
-    )
-    from ${wardrobePlan}
-    where ${and(eq(wardrobePlan.id, planId), eq(wardrobePlan.ownerId, ownerId))}
+export function picksSql(ownerId: number): SQL<RowGarmentJson[]> {
+  return sql<RowGarmentJson[]>`(
+    select coalesce(json_agg(${rowGarmentJson} order by
+      ${garment.suggestionGroupId} desc nulls last,
+      ${garment.suggestionRank} nulls last,
+      ${garment.id} desc), '[]')
+    from ${garment}
+    left join ${file} on ${eq(file.id, garment.photoId)}
+    where ${and(eq(garment.ownerId, ownerId), offeredToStyle())}
   )`;
-}
-
-export function readStyledPlan(json: StyledPlanJson | null): StyledPlan | null {
-  return json
-    ? { name: json.name, candidates: readGarments(json.candidates) }
-    : null;
 }

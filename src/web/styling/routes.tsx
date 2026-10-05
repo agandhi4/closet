@@ -17,14 +17,20 @@ import {
   type OutfitDestination,
   parseDestination,
 } from '../outfits/destination';
+import { ALREADY_SAVED_FLAG } from '../gallery/urls';
 import {
   describeGone,
   garmentsGoneError,
   OutfitGarmentsGone,
+  OutfitIncomplete,
 } from '../outfits/gone-garments';
-import { OUTFIT_NAME_MAX, updateOutfit } from '../outfits/queries';
+import {
+  createOutfit,
+  OUTFIT_NAME_MAX,
+  updateOutfit,
+} from '../outfits/queries';
+import { piecesToBuy } from '../outfits/references';
 import type { WebOptions } from '../plugin';
-import { planNotFound } from '../plans/validation';
 import { renderFragment, renderPage } from '../render';
 import {
   DestinationFields,
@@ -38,7 +44,6 @@ import { viewContext } from '../view-context';
 import {
   MAX_ROWS,
   openingStates,
-  keepingCandidates,
   type RoleWindow,
   type RowState,
   shuffledStates,
@@ -49,11 +54,10 @@ import {
 } from './rows';
 import {
   type Chosen,
-  editedGarments,
   type RoledGarment,
   roleGarmentsBefore,
   type SavedOutfit,
-  type StyledPlan,
+  savedGarments,
 } from './queries';
 import {
   ideaReads,
@@ -63,6 +67,7 @@ import {
 } from './reads';
 import {
   type SaveDraft,
+  ScopeMenu,
   type StylingModel,
   StylingPage,
   StylingRows,
@@ -93,11 +98,12 @@ import {
  *   navigation state: parseDestination and parseSeed fall back (no
  *   destination, the day's seed), returnTo goes through safeReturnTo. A
  *   `for=trip:ID` that is not the requester's trip is a 404 (aimIdeas).
- * - `?capsule=`, `?with=`, `?outfit=`, `?plan=` and `?ownerId=` name data:
- *   not an id is a 400; a capsule outside the wardrobe, a garment not in
- *   its closet, another's outfit or a plan that is not the requester's is
- *   a 404. `?plan=` (#273) is the requester's own plan only: over a shared
- *   wardrobe it is ignored, as plans are never shared.
+ * - `?capsule=`, `?with=`, `?outfit=` and `?ownerId=` name data: not an
+ *   id is a 400; a capsule outside the wardrobe, a garment not in its
+ *   closet or another's outfit is a 404.
+ * - `?picks=1` (Include picks, #335) is a toggle: anything else is off. It
+ *   is the requester's own wardrobe's and never with a destination
+ *   (scopeOf); elsewhere it is ignored. An old `?plan=` is ignored too.
  * - The rows Shuffle and "Add row" post back (`role`, `garmentId`, `lock`,
  *   one of each per row) are the page's own: lists of unequal length are
  *   a 400, and a garment that is not the wardrobe's is dropped from its row.
@@ -117,7 +123,7 @@ const PageQuery = Type.Object({
   occasion: Type.Optional(Type.String()),
   replace: Type.Optional(Type.String()),
   capsule: Type.Optional(RowId),
-  plan: Type.Optional(RowId),
+  picks: Type.Optional(Type.String()),
   with: Type.Optional(RowId),
   outfit: Type.Optional(RowId),
   ownerId: Type.Optional(OwnerId),
@@ -150,9 +156,9 @@ const GarmentsQuery = Type.Object({
   role: RoleSchema,
   before: RowId,
   capsule: Type.Optional(RowId),
-  // Carried by the sentinel's link like the capsule, and unused: candidates
-  // are on a strip's first window alone.
-  plan: Type.Optional(RowId),
+  // Carried by the sentinel's link like the capsule, and unused: picks are
+  // on a strip's first window alone.
+  picks: Type.Optional(Type.String()),
   ownerId: Type.Optional(OwnerId),
 });
 
@@ -161,9 +167,10 @@ const SaveBody = Type.Object({
   ...DestinationFields,
   name: Type.Optional(Type.String({ maxLength: OUTFIT_NAME_MAX })),
   outfit: Type.Optional(RowId),
-  // The page's capsule and plan: read only to show the page again when Save is refused.
+  // The page's capsule: read only to show the page again when Save is refused.
   capsule: Type.Optional(RowId),
-  plan: Type.Optional(RowId),
+  // Include picks: a new outfit's Save is a slot write (saveWithPicks).
+  picks: Type.Optional(Type.String()),
   // The sheet's "Add to calendar" without a destination; '' when left empty.
   scheduleDate: Type.Optional(Type.Union([Type.Literal(''), IsoDateSchema])),
   scheduleOccasion: Type.Optional(OccasionSchema),
@@ -228,24 +235,38 @@ interface Wardrobe {
   /** A shared wardrobe's owner (links carry it); undefined for one's own. */
   viewOwner: number | undefined;
   capsule?: CapsuleRef;
-  /** `?plan=`, as the reads found it: the requester's own. */
-  plan?: { id: number; name: string };
+  /** Include picks is on (`?picks=1`, StylingScope.picks). */
+  picks: boolean;
+  /**
+   * Include picks may be turned on here: one's own wardrobe, no
+   * destination, and not an edit of a planned or packed outfit (which
+   * takes no pick). The switch shows only then.
+   */
+  picksOffered: boolean;
 }
 
-/** A request's scope (reads.ts) with the owner its links carry. */
-type Scope = StylingScope & Pick<Wardrobe, 'viewOwner'>;
+/**
+ * A request's scope (reads.ts) with the owner its links carry, and whether
+ * Include picks may be offered before the reads (scopeOf).
+ */
+type Scope = StylingScope &
+  Pick<Wardrobe, 'viewOwner'> & { picksOffered: boolean };
 
-/** The wardrobe once the reads checked its capsule. */
+/**
+ * The wardrobe once the reads checked its capsule and whether the outfit
+ * the rows edit is held (StripsReads.editingHeld): then no pick.
+ */
 function wardrobeOf(
   scope: Scope,
   capsule: CapsuleRef | undefined,
-  plan?: Wardrobe['plan'],
+  editingHeld: boolean,
 ): Wardrobe {
   return {
     ownerId: scope.ownerId,
     viewOwner: scope.viewOwner,
     capsule,
-    plan,
+    picks: scope.picks === true && !editingHeld,
+    picksOffered: scope.picksOffered && !editingHeld,
   };
 }
 
@@ -292,7 +313,8 @@ function pageModel(input: {
     state: {
       destination: aim.destination,
       capsuleId: wardrobe.capsule?.id,
-      planId: wardrobe.plan?.id,
+      picks: wardrobe.picks,
+      withId: opened.with?.id,
       outfitId: opened.saved?.id,
       ownerId: wardrobe.viewOwner,
       returnTo: input.returnTo,
@@ -303,7 +325,7 @@ function pageModel(input: {
     seed: styled.seed,
     notice: styled.missed ? 'no-idea' : undefined,
     capsule: wardrobe.capsule,
-    plan: wardrobe.plan,
+    picksOffered: wardrobe.picksOffered,
     capsules: input.capsules,
     outfit: opened.saved,
     trip: aim.trip,
@@ -313,12 +335,16 @@ function pageModel(input: {
         : { ownerId: wardrobe.ownerId, name: input.owner },
     refusal: refused && {
       message: refused.error.message,
+      incomplete: refused.error instanceof OutfitIncomplete,
       draft: refused.draft,
-      toBuy: refused.error.gone.flatMap((g) =>
-        g.garment?.status === 'wishlist'
-          ? [{ id: g.id, name: g.garment.name }]
-          : [],
-      ),
+      toBuy:
+        refused.error instanceof OutfitIncomplete
+          ? [...refused.error.pieces]
+          : refused.error.gone.flatMap((g) =>
+              g.garment?.status === 'wishlist'
+                ? [{ id: g.id, name: g.garment.name }]
+                : [],
+            ),
     },
   };
 }
@@ -343,9 +369,13 @@ function modelRows(input: {
   return stylingRows(states, windows, opened.saved?.garments ?? []);
 }
 
-/** A Save refused for its garments (OutfitGarmentsGone), as the page shows it again. */
+/**
+ * A Save refused for its garments (OutfitGarmentsGone), or for planning an
+ * outfit with pieces not bought yet (OutfitIncomplete, #335), as the page
+ * shows it again.
+ */
 interface RefusedSave {
-  error: OutfitGarmentsGone;
+  error: OutfitGarmentsGone | OutfitIncomplete;
   /** The posted rows, those holding a gone garment back to "No garment". */
   states: RowState[];
   /** The posted garments the requester still owns (an archived one an edit keeps). */
@@ -400,21 +430,6 @@ function checkedCapsule(
   return found;
 }
 
-/**
- * The plan a request named (`asked`), as the reads found it: a 404 unless
- * the requester's. `reads.plan` is undefined when none was asked, which
- * includes a shared wardrobe, whose scope drops `?plan=`.
- */
-function checkedPlan(
-  asked: number | undefined,
-  found: StyledPlan | null | undefined,
-): Wardrobe['plan'] {
-  if (found === null) throw planNotFound();
-  return asked === undefined || !found
-    ? undefined
-    : { id: asked, name: found.name };
-}
-
 /** The outfit a request named (`asked`), as the reads found it: a 404 unless the requester's. */
 function checkedOutfit(
   asked: number | undefined,
@@ -439,7 +454,7 @@ function describeScope(wardrobe: Wardrobe, opened: Opened = {}): string {
       ? 'own wardrobe'
       : `wardrobe ${wardrobe.ownerId} (shared)`,
     wardrobe.capsule && `capsule ${wardrobe.capsule.id}`,
-    wardrobe.plan && `plan ${wardrobe.plan.id}`,
+    wardrobe.picks && 'picks',
     opened.saved && `outfit ${opened.saved.id}`,
     opened.with && `with garment ${opened.with.id}`,
   ]
@@ -485,8 +500,11 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     query: {
       ownerId?: number | '';
       capsule?: number;
-      plan?: number;
+      picks?: string;
       outfit?: number;
+      for?: string;
+      occasion?: string;
+      replace?: string;
     },
   ): Promise<Scope> {
     const { access, viewOwner } = await authorizeWardrobe(
@@ -496,16 +514,20 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       'view',
       'Wardrobe not found',
     );
+    const picksOffered =
+      viewOwner === undefined && parseDestination(query).kind === 'none';
     return {
       userId: sessionUserId(request),
       ownerId: access.ownerId,
       shared: viewOwner !== undefined,
       viewOwner,
       capsuleId: query.capsule,
-      // Plans are never shared: a grantee's `?plan=` is ignored.
-      planId: viewOwner === undefined ? query.plan : undefined,
+      // Picks are the requester's own, and never offered while the page
+      // picks for a day or a trip: an incomplete outfit is never planned.
+      picksOffered,
+      picks: picksOffered && query.picks === '1',
       // Neither are outfits: over a shared wardrobe there is no edit.
-      editing: viewOwner === undefined && query.outfit !== undefined,
+      editingOutfitId: viewOwner === undefined ? query.outfit : undefined,
     };
   }
 
@@ -549,11 +571,10 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     ]);
     const reads = valueOf(read);
     const capsule = checkedCapsule(reads.capsule);
-    const plan = checkedPlan(scope.planId, reads.plan);
     const aim = valueOf(aimed);
     const saved = checkedOutfit(query.outfit, reads.outfit);
     return {
-      wardrobe: wardrobeOf(scope, capsule, plan),
+      wardrobe: wardrobeOf(scope, capsule, reads.editingHeld),
       aim,
       opened: { saved },
       styled: {},
@@ -602,11 +623,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       menu: true,
     });
     return {
-      wardrobe: wardrobeOf(
-        scope,
-        capsule,
-        checkedPlan(scope.planId, reads.plan),
-      ),
+      wardrobe: wardrobeOf(scope, capsule, reads.editingHeld),
       aim,
       opened,
       styled: { idea, seed: shuffledSeed(seed), missed: !idea },
@@ -660,32 +677,50 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       seed?: number;
       notice?: 'no-idea';
       context: RowContext;
+      /**
+       * The capsule menu again, out of band: "Add row" and the Include
+       * picks switch answer here, and the switch changes the state the
+       * menu's links carry (ScopeMenu).
+       */
+      scope?: { capsule: CapsuleRef | undefined; capsules: CapsuleRef[] };
     },
   ) {
     return renderFragment(
       reply,
-      <StylingRows
-        model={{
-          rows: stylingRows(
-            withEveryRole(input.states, input.windows),
-            input.windows,
-            input.held,
-          ),
-          seed: input.seed,
-          notice: input.notice,
-        }}
-        context={input.context}
-      />,
+      <>
+        <StylingRows
+          model={{
+            rows: stylingRows(
+              withEveryRole(input.states, input.windows),
+              input.windows,
+              input.held,
+            ),
+            seed: input.seed,
+            notice: input.notice,
+          }}
+          context={input.context}
+        />
+        {input.scope && (
+          <ScopeMenu {...input.scope} state={input.context.state} oob />
+        )}
+      </>,
     );
   }
 
-  /** The state a fragment's links carry on (the sentinel's), from a posted query. */
+  /**
+   * The state a fragment's links carry on (the sentinel's, the Include
+   * picks switch's pushed address), from a posted query.
+   */
   function postedState(query: RowsInput, wardrobe: Wardrobe): StylingState {
+    const own = wardrobe.viewOwner === undefined;
     return {
       destination: parseDestination(query),
       capsuleId: wardrobe.capsule?.id,
-      planId: wardrobe.plan?.id,
+      picks: wardrobe.picks,
+      withId: query.with,
+      outfitId: own ? query.outfit : undefined,
       ownerId: wardrobe.viewOwner,
+      returnTo: returnToOf(query.returnTo),
     };
   }
 
@@ -721,21 +756,13 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const idea = await read.draw(
         read.lockable.filter((g) => lockedIds.includes(g.id)),
       );
-      // The ideas draw from the closet alone: a candidate is never drawn,
-      // and a row posted on one stays as it is (never in an idea's rows).
-      const strips = await stripsReads(db, scope, {
+      // The ideas draw from the closet alone: a pick is never drawn, and a
+      // row the rows may carry it in (rowGarmentsSql) keeps it while locked.
+      const { windows, editingHeld } = await stripsReads(db, scope, {
         chosen: [...chosenOf(states), ...(idea?.garments ?? []).map(chosen)],
       });
-      const { windows } = strips;
-      const wardrobe = wardrobeOf(
-        scope,
-        capsule,
-        checkedPlan(scope.planId, strips.plan),
-      );
-      const rows = withEveryRole(
-        keepingCandidates(posted, states, strips.plan?.candidates ?? []),
-        windows,
-      );
+      const wardrobe = wardrobeOf(scope, capsule, editingHeld);
+      const rows = withEveryRole(states, windows);
       logger.debug(
         `Styling shuffle for user ${userId} over ${describeScope(wardrobe)}: ${lockedIds.length} locked, seed ${seed}, ${idea ? `idea of garments ${ids(idea.garments).join(', ')}` : 'no idea fits'} in ${Math.round(performance.now() - started)} ms`,
       );
@@ -748,6 +775,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         context: {
           state: postedState(query, wardrobe),
           viewOwner: wardrobe.viewOwner,
+          picksOffered: wardrobe.picksOffered,
         },
       });
     },
@@ -767,17 +795,14 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         checkCapsule: true,
         heldIds: heldIdsOf(posted),
         chosen: chosenOf(posted),
+        capsules: true,
       });
       const wardrobe = wardrobeOf(
         scope,
         checkedCapsule(reads.capsule),
-        checkedPlan(scope.planId, reads.plan),
+        reads.editingHeld,
       );
-      const states = keepingCandidates(
-        posted,
-        checkedStates(posted, reads.held),
-        reads.plan?.candidates ?? [],
-      );
+      const states = checkedStates(posted, reads.held);
       if (query.add !== undefined && states.length < MAX_ROWS) {
         states.push({ role: query.add, garmentId: null, locked: false });
       }
@@ -789,7 +814,9 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         context: {
           state: postedState(query, wardrobe),
           viewOwner: wardrobe.viewOwner,
+          picksOffered: wardrobe.picksOffered,
         },
+        scope: { capsule: wardrobe.capsule, capsules: reads.capsules },
       });
     },
   );
@@ -801,7 +828,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     STYLING_GARMENTS_PATH,
     { schema: { querystring: GarmentsQuery } },
     async (request, reply) => {
-      const { role, before, capsule, plan, ownerId } = request.query;
+      const { role, before, capsule, picks, ownerId } = request.query;
       const { access, viewOwner } = await authorizeWardrobe(
         db,
         request,
@@ -822,7 +849,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           context={{
             state: {
               capsuleId: capsule,
-              planId: viewOwner === undefined ? plan : undefined,
+              picks: viewOwner === undefined && picks === '1',
               ownerId: viewOwner,
             },
             viewOwner,
@@ -847,7 +874,10 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         return await save(reply, userId, body);
       } catch (error) {
         const states = savedStates(body);
-        if (!(error instanceof OutfitGarmentsGone) || !states) throw error;
+        const refused =
+          error instanceof OutfitGarmentsGone ||
+          error instanceof OutfitIncomplete;
+        if (!refused || !states) throw error;
         return refusedPage(request, reply, body, { error, states });
       }
     },
@@ -874,6 +904,15 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         returnTo: body.returnTo,
       });
     }
+    if (body.picks === '1') {
+      if (destination.kind !== 'none') {
+        throw new HttpError(
+          400,
+          'Include picks saves an outfit, never one for a day or a trip',
+        );
+      }
+      return saveWithPicks(reply, userId, { garmentIds, name, schedule });
+    }
     const planned: OutfitDestination =
       destination.kind === 'none' && schedule
         ? { kind: 'day', ...schedule }
@@ -898,11 +937,19 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     refused: Pick<RefusedSave, 'error' | 'states'>,
   ) {
     const userId = sessionUserId(request);
+    const { error } = refused;
+    const reason =
+      error instanceof OutfitIncomplete
+        ? `outfit ${error.outfitId} not planned, ${error.pieces.length} piece(s) to buy`
+        : `garments ${describeGone(error.gone)}`;
     logger.info(
-      `Styling save by user ${userId} refused (${refused.error.statusCode}): garments ${describeGone(refused.error.gone)}${body.outfit === undefined ? '' : ` for outfit ${body.outfit}`}; the page again`,
+      `Styling save by user ${userId} refused (${error.statusCode}): ${reason}${body.outfit === undefined ? '' : ` for outfit ${body.outfit}`}; the page again`,
     );
     const today = todayIn(config.timeZone, new Date());
-    const gone = new Set(refused.error.gone.map((g) => g.id));
+    // An incomplete outfit's refusal keeps every row: nothing in them is gone.
+    const gone = new Set(
+      error instanceof OutfitGarmentsGone ? error.gone.map((g) => g.id) : [],
+    );
     const cleared = refused.states.map((state) =>
       state.garmentId !== null && gone.has(state.garmentId)
         ? { ...state, garmentId: null, locked: false }
@@ -916,8 +963,9 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       shared: false,
       viewOwner: undefined,
       capsuleId: body.capsule,
-      planId: body.plan,
-      editing: body.outfit !== undefined,
+      picksOffered: postedDestination(body).kind === 'none',
+      picks: body.picks === '1' && postedDestination(body).kind === 'none',
+      editingOutfitId: body.outfit,
     };
     const [aimed, read] = await Promise.allSettled([
       aimIdeas(db, userId, postedDestination(body), today),
@@ -931,11 +979,10 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     ]);
     const reads = valueOf(read);
     const capsule = checkedCapsule(reads.capsule);
-    const plan = checkedPlan(body.plan, reads.plan);
     const aim = valueOf(aimed);
     const saved = checkedOutfit(body.outfit, reads.outfit);
     const model = pageModel({
-      wardrobe: wardrobeOf(scope, capsule, plan),
+      wardrobe: wardrobeOf(scope, capsule, reads.editingHeld),
       aim,
       opened: { saved },
       styled: {},
@@ -969,8 +1016,8 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    * the packed marks of garments it no longer holds). The garments must
    * all be the requester's own (else OutfitGarmentsGone, a 404, and nothing
    * is written); what the outfit may hold of them is updateOutfit's to
-   * judge (insertSlots, the outfit's Holdable: an archived one stays, a
-   * piece to buy stays while nothing holds the outfit, #335), and it
+   * judge (insertSlots, slotMayNameSql: an archived one it holds stays, a
+   * piece to buy while nothing holds the outfit, #335), and it
    * refuses whole, named, as the page answers. It changes in place, so a
    * trip or an entry to replace is a 400.
    */
@@ -1001,10 +1048,10 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         ? { day: destination.day, occasion: destination.occasion }
         : input.schedule;
     const garments = topToToe(
-      await editedGarments(db, userId, input.garmentIds),
+      await savedGarments(db, userId, input.garmentIds),
     );
     if (garments.length !== input.garmentIds.length) {
-      throw await garmentsGoneError(db, userId, input.garmentIds, 'considered');
+      throw await garmentsGoneError(db, userId, input.garmentIds, 'wardrobe');
     }
     const result = await updateOutfit(db, outfitId, userId, {
       name: input.name ?? ideaName(garments),
@@ -1023,6 +1070,51 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     );
     return reply.redirect(
       safeReturnTo(input.returnTo, `/outfits/${outfitId}`),
+      303,
+    );
+  }
+
+  /**
+   * A new outfit's Save with Include picks on (#335): a slot write through
+   * the outfit writer (createOutfit), not a pick, so a pick in the rows is
+   * held and the outfit is incomplete (src/web/outfits/references.ts);
+   * once however often it is posted (createOutfit reuses an outfit of the
+   * same garments). Its garments are read for their categories alone
+   * (savedGarments, in posted order); what the outfit may hold is judged
+   * by the writer under the owner lock (insertSlots: slotMayNameSql), so an
+   * archived garment or a pick set aside meanwhile refuses it, nothing
+   * written. Planned on the sheet's day only when complete: an incomplete
+   * one is refused whole (OutfitIncomplete), the page again with its pieces.
+   */
+  async function saveWithPicks(
+    reply: FastifyReply,
+    userId: number,
+    input: {
+      garmentIds: number[];
+      name: string | undefined;
+      schedule: Plan | undefined;
+    },
+  ) {
+    const garments = topToToe(
+      await savedGarments(db, userId, input.garmentIds),
+    );
+    if (garments.length !== input.garmentIds.length) {
+      throw await garmentsGoneError(db, userId, input.garmentIds, 'wardrobe');
+    }
+    const saved = await createOutfit(db, userId, {
+      name: input.name ?? ideaName(garments),
+      slots: garments.map((g) => ({ category: g.category, garmentId: g.id })),
+      plan: input.schedule,
+    });
+    const toBuy = piecesToBuy(garments).length;
+    logger.info(
+      `Outfit ${saved.id} ${saved.alreadySaved ? 'already saved' : 'saved'} in Styling with picks by user ${userId}: garments ${ids(garments).join(', ')}, ${toBuy} to buy${input.schedule ? `, ${saved.schedule} ${input.schedule.day}` : ''}`,
+    );
+    const flag = saved.alreadySaved ? `${ALREADY_SAVED_FLAG}=1` : '';
+    return reply.redirect(
+      input.schedule
+        ? `/calendar?week=${input.schedule.day}${flag && `&${flag}`}`
+        : `/outfits/${saved.id}${flag && `?${flag}`}`,
       303,
     );
   }

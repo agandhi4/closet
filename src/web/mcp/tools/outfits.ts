@@ -118,7 +118,7 @@ export const outfitTools = [
       // outfit holds wishlist items too (#335: incomplete); createOutfit
       // checks again as it writes, and refuses planning one.
       const garments = await namedGarments(ctx.db, ctx.userId, garmentIds);
-      const gone = goneOf(garments, garmentIds, 'considered');
+      const gone = goneOf(garments, garmentIds, 'wardrobe');
       if (gone.length > 0) throw new OutfitGarmentsGone(gone);
       const plan = scheduleDate
         ? { day: scheduleDate, occasion: occasion ?? DEFAULT_OCCASION }

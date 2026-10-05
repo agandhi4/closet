@@ -386,7 +386,7 @@ async function lockTripFor(
  * slots by the snapshot it took before the wait, so it would pack the
  * outfit the edit just made incomplete. The second statement's snapshot
  * is taken after the lock, so it sees the edit; an edit after it waits for
- * this commit and then finds the outfit held (slotHoldsSql).
+ * this commit and then finds the outfit held (slotMayNameSql).
  *
  * The outfit is read from outside the trip, so the first statement's
  * snapshot may still hold one deleted meanwhile: a row locked after a wait

@@ -1,57 +1,71 @@
-import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
-import { garment } from '../../db/schema';
+import { garment, outfitSlot } from '../../db/schema';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { ownedGarment } from '../wardrobe/status';
+import { inCloset, offeredToStyle } from '../wardrobe/status';
 import { outfitIsHeld, type PieceToBuy } from './references';
 
 /**
  * A save that names a garment it cannot hold is refused whole (#219):
  * nothing is written and the answer names what is missing. Never a slot
- * stored empty, never a pick that quietly drops a piece. What a save may
- * hold depends on the writer:
- * - `closet`: a pick (pickIdea: the gallery, Styling's Save of a new
- *   outfit, Today, a trip, a replace, pick_outfit): garments to wear now.
- * - `owned`: a slot write into an outfit something holds (a calendar
- *   entry, a trip: outfitIsHeld): the closet and the archive, so an outfit
- *   keeps an archived garment.
- * - `considered`: a slot write into an outfit nothing holds (createOutfit,
- *   updateOutfit: the outfit form, Styling's Save of a saved outfit,
- *   create_outfit, the seed): owned, or on the wishlist. Such an outfit is
- *   incomplete until the piece is bought (src/web/outfits/references.ts).
- * A slot write's mode is the outfit's, never the caller's (slotHoldsSql).
- * The same rules in SQL: a pick's locked read keeps inCloset()
- * (pickedGarments, src/web/gallery/queries.ts), a slot write's
- * slotHoldsSql (insertSlots).
+ * stored empty, never a pick that quietly drops a piece.
+ *
+ * **What an outfit's slots may name is one rule, slotMayNameSql**, judged
+ * by the writer (insertSlots, under the owner lock, in its locked read)
+ * and read by Styling for what its rows may carry (rowGarmentsSql), so the
+ * page and the write never disagree. A pick (pickIdea) takes closet
+ * garments only (its own locked read, pickedGarments).
+ *
+ * `Holdable` names what a read before a save expects, for the refusal's
+ * words: `closet` (a pick: garments to wear now), or `wardrobe` (any
+ * garment of the owner's: the read that takes a slot write's categories,
+ * whose writer then judges with slotMayNameSql).
  */
-export type Holdable = 'closet' | 'owned' | 'considered';
-
-/** What a slot write into an outfit may hold: held, only what is owned. */
-export function slotHoldable(held: boolean): Holdable {
-  return held ? 'owned' : 'considered';
-}
+export type Holdable = 'closet' | 'wardrobe';
 
 function holds(holdable: Holdable, status: GarmentStatus): boolean {
-  switch (holdable) {
-    case 'closet':
-      return status === 'closet';
-    case 'owned':
-      return status !== 'wishlist';
-    case 'considered':
-      return true;
-  }
+  return holdable === 'wardrobe' || status === 'closet';
 }
 
 /**
- * What a slot write into `outfitId` may hold, as one predicate over
- * `garment` for insertSlots' locked read: owned, or anything while nothing
- * holds the outfit (slotHoldable, decided in the write's own statement, so
- * it is judged under the locks the write holds).
+ * Whether outfit `outfitId` may take a garment not bought yet: while
+ * nothing holds it (an incomplete outfit is never planned or packed). The
+ * `offered` of slotMayNameSql for the writer (insertSlots) and for
+ * Styling's rows that edit the outfit (rowGarmentsSql), so they agree.
  */
-export function slotHoldsSql(outfitId: number): SQL {
-  return sql`(${ownedGarment()} or not ${outfitIsHeld(sql`${outfitId}::int`)})`;
+export function offeredIntoSql(outfitId: number): SQL {
+  return sql`not ${outfitIsHeld(sql`${outfitId}::int`)}`;
+}
+
+/**
+ * What an outfit's slots may name, over `garment` (#335): a closet
+ * garment; one the outfit already holds (`outfitId`: an edit keeps an
+ * archived garment, or a pick set aside since); and a garment not owned
+ * yet that is offered to style with (offeredToStyle: still wanted, not
+ * under a need set aside) where `offered` allows it: the writer allows it
+ * while nothing holds the outfit (an incomplete outfit is never planned or
+ * packed, src/web/outfits/references.ts), Styling while Include picks is
+ * on. Never an archived garment the outfit does not hold, nor a pick set
+ * aside. The garment's owner is the caller's to check.
+ */
+export function slotMayNameSql(options: {
+  outfitId: number | undefined;
+  offered: SQL | boolean;
+}): SQL {
+  const { outfitId, offered } = options;
+  return or(
+    inCloset(),
+    offered === false
+      ? undefined
+      : offered === true
+        ? offeredToStyle()
+        : and(offeredToStyle(), offered),
+    outfitId === undefined
+      ? undefined
+      : sql`${garment.id} in (select ${outfitSlot.garmentId} from ${outfitSlot} where ${outfitSlot.outfitId} = ${outfitId}::int)`,
+  )!;
 }
 
 /** A garment a save named that it cannot hold. */
@@ -61,11 +75,15 @@ export interface GoneGarment {
    * The owner's garment in the wrong state (archived for a pick, on the
    * wishlist): named. Undefined for an id that is no garment of theirs
    * (deleted, another user's, never existed): those are indistinguishable,
-   * and naming another user's garment would reveal it. `outfitHeld`: a
-   * wishlist garment refused because the outfit is planned or packed
-   * (a slot write's `owned` mode), not because it is a wishlist item.
+   * and naming another user's garment would reveal it. `reason` tells a
+   * slot write's refusal of a wishlist garment (slotRefusals): the outfit
+   * is planned or packed, or the pick was set aside.
    */
-  garment?: { name: string | null; status: GarmentStatus; outfitHeld?: true };
+  garment?: {
+    name: string | null;
+    status: GarmentStatus;
+    reason?: 'outfit-held' | 'set-aside';
+  };
 }
 
 /** An owner's garment as a save judges it: what it may hold, and the slot it fills. */
@@ -111,53 +129,67 @@ export async function goneGarments(
   ownerId: number,
   garmentIds: readonly number[],
   holdable: Holdable,
-  { outfitHeld = false }: { outfitHeld?: boolean } = {},
 ): Promise<GoneGarment[]> {
   return goneOf(
     await namedGarments(db, ownerId, garmentIds),
     garmentIds,
     holdable,
-    outfitHeld,
   );
 }
 
-/**
- * goneGarments over garments already read (namedGarments). `outfitHeld`:
- * the writer read that something holds the outfit (insertSlots, the only
- * one that does), so a wishlist garment is named as refused for that; never
- * inferred from the mode.
- */
+/** goneGarments over garments already read (namedGarments). */
 export function goneOf(
   found: ReadonlyMap<number, NamedGarment>,
   garmentIds: readonly number[],
   holdable: Holdable,
-  heldOutfit = false,
 ): GoneGarment[] {
   const wanted = [...new Set(garmentIds)];
   return wanted.flatMap((id): GoneGarment[] => {
     const row = found.get(id);
     if (!row) return [{ id }];
     if (holds(holdable, row.status)) return [];
-    const outfitHeld = heldOutfit && row.status === 'wishlist';
-    return [
-      {
-        id,
-        garment: {
-          name: row.name,
-          status: row.status,
-          ...(outfitHeld && { outfitHeld }),
-        },
-      },
-    ];
+    return [{ id, garment: { name: row.name, status: row.status } }];
+  });
+}
+
+/**
+ * The garments a slot write refused (`refusedIds`, the ones its locked read
+ * left out: slotMayNameSql), named as insertSlots' refusal says them: not
+ * the owner's (unnamed), archived, or a wishlist garment refused because
+ * the outfit is planned or packed (`heldOutfit`, which the writer read) or
+ * because it is not offered any more (set aside). Read in the write's
+ * transaction, so it names what the refusal saw.
+ */
+export async function slotRefusals(
+  db: Queryable,
+  ownerId: number,
+  refusedIds: readonly number[],
+  heldOutfit: boolean,
+): Promise<GoneGarment[]> {
+  const found = await namedGarments(db, ownerId, refusedIds);
+  return [...new Set(refusedIds)].flatMap((id): GoneGarment[] => {
+    const row = found.get(id);
+    if (!row) return [{ id }];
+    // In the closet by the lookup (restored meanwhile): nothing to name.
+    if (row.status === 'closet') return [];
+    const garment = { name: row.name, status: row.status };
+    if (row.status !== 'wishlist') return [{ id, garment }];
+    const reason = heldOutfit ? 'outfit-held' : 'set-aside';
+    return [{ id, garment: { ...garment, reason } }];
   });
 }
 
 function goneReason(owned: NonNullable<GoneGarment['garment']>): string {
   const name = owned.name ?? t('outfits.UNNAMED_GARMENT');
   if (owned.status !== 'wishlist') return t('outfits.GONE_ARCHIVED', { name });
-  return owned.outfitHeld
-    ? t('outfits.GONE_WISHLIST_HELD', { name })
-    : t('outfits.GONE_WISHLIST', { name });
+  switch (owned.reason) {
+    case 'outfit-held':
+      return t('outfits.GONE_WISHLIST_HELD', { name });
+    case 'set-aside':
+      return t('outfits.GONE_SET_ASIDE', { name });
+    case undefined:
+      return t('outfits.GONE_WISHLIST', { name });
+  }
 }
 
 /** The refusal's words: each named garment, then how many are gone. */

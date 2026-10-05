@@ -206,6 +206,14 @@ export async function seedPersona(
         }
         outfitIds.push(saved.id);
       }
+      // Archived once the outfits that hold them exist, as in life: an
+      // outfit is made of clothes owned at the time (an outfit takes no new
+      // archived garment, slotMayNameSql) and keeps them once archived.
+      for (const garment of persona.garments) {
+        if (garment.archivedOn) {
+          await archive(tx, ids.get(garment.id)!, userId, garment.id);
+        }
+      }
       for (const capsule of persona.capsules) {
         const capsuleId = await createCapsule(tx, userId, capsule.fields);
         // The bible's names are checked unique (persona.ts): unreachable.
@@ -376,7 +384,8 @@ async function writePlans(
 
 /**
  * The persona's garments with their photo rows (the art stored before the
- * transaction), archive and away, then the wishlist, which names the owned
+ * transaction), in the closet (archived after the outfits: seedPersona)
+ * and away, then the wishlist, which names the owned
  * garment each item replaces. The ids by bible id: the owned garments', and
  * the wishlist's apart (plan candidates name them; the history must not).
  */
@@ -410,7 +419,6 @@ async function writeGarments(
       await photoIdOf(garment.id),
       'closet',
     );
-    if (garment.archivedOn) await archive(tx, id, userId, garment.id);
     if (garment.away) await setAway(tx, userId, id, garment.away);
     for (const repair of garment.repairs) {
       await addRepair(tx, userId, id, {
@@ -542,7 +550,7 @@ async function archive(
   const archived = await setGarmentStatus(tx, id, userId, {
     event: 'archive',
   });
-  // Inserted in the closet a moment ago: anything else is a bug.
+  // Inserted in the closet in this transaction: anything else is a bug.
   if (!archived.ok) throw new Error(`Could not archive ${bibleId}`);
 }
 

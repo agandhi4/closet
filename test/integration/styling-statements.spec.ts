@@ -1,7 +1,4 @@
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { planItem } from '../../src/db/schema';
-import { changeCandidates } from '../../src/web/plans/candidates';
 import {
   createTestApp,
   recordQueries,
@@ -20,9 +17,9 @@ import { HX_FRAGMENT } from './pages';
  * reach the idea the first one drew (ideaReads, then stripsReads). The
  * behaviour of each route is styling.spec.ts's and outfit-saves.spec.ts's;
  * this one pins the statements, and that the windows still reach a chosen
- * garment deep in its strip now that the choice is judged in SQL. A plan's
- * candidates (`?plan=`, #273) ride in stripsReads' statement: the same
- * counts. Their behaviour is styling-plan.spec.ts's.
+ * garment deep in its strip now that the choice is judged in SQL. Include
+ * picks (`?picks=1`, #335) ride in stripsReads' statement: the same
+ * counts. Their behaviour is styling-picks.spec.ts's.
  */
 
 /** Tables only the wardrobe's owner may read through Styling: their wears, outfits and clashes. */
@@ -38,7 +35,7 @@ describe('Styling statements (#163)', () => {
   let shoes: number;
   let capsuleId: number;
   let outfitId: number;
-  let planId: number;
+  /** A wishlist item: Include picks' garment. */
   let candidate: number;
 
   const form = (payload: Record<string, string | string[]>) => {
@@ -130,24 +127,6 @@ describe('Styling statements (#163)', () => {
       /^\/outfits\/(\d+)/.exec(String(saved.headers.location))![1],
     );
 
-    const plan = await t.inject({
-      method: 'POST',
-      url: '/wardrobe/plans',
-      payload: { name: 'Autumn', notes: '' },
-    });
-    planId = Number(
-      /^\/wardrobe\/plans\/(\d+)\?/.exec(String(plan.headers.location))![1],
-    );
-    const added = await t.inject({
-      method: 'POST',
-      url: `/wardrobe/plans/${planId}/items`,
-      payload: { category: 'tops', quantity: '1', priority: 'medium' },
-    });
-    expect(added.statusCode).toBe(303);
-    const [item] = await t.db
-      .select({ id: planItem.id })
-      .from(planItem)
-      .where(eq(planItem.planId, planId));
     candidate = await t
       .inject({
         method: 'POST',
@@ -168,9 +147,6 @@ describe('Styling statements (#163)', () => {
           /^\/wardrobe\/(\d+)/.exec(String(res.headers.location))![1],
         );
       });
-    await changeCandidates(t.db, ownerId, {
-      add: { itemIds: [item.id], garmentIds: [candidate] },
-    });
 
     viewer = await t.register('viewer-statements@example.com');
     const invite = await t.inject({
@@ -243,30 +219,23 @@ describe('Styling statements (#163)', () => {
       );
     });
 
-    it('?plan=: the candidates ride in that statement, a refused plan costs the same', async () => {
-      const record = await statementsOf(`/styling?plan=${planId}`);
+    it('?picks=1: the picks ride in that statement', async () => {
+      const record = await statementsOf('/styling?picks=1');
       expect(record.statements).toBe(2);
       expect(record.sql[1]).toContain('row_number()');
-      expect(record.sql[1]).toContain('"plan_item_candidate"');
-      expect(
-        stripOf((await get(`/styling?plan=${planId}`)).body, 'top')[0],
-      ).toBe(candidate);
-      const refused = await recordQueries(() =>
-        get(`/styling?plan=${planId + 1000}`),
-      );
-      expect(refused.statements).toBe(2);
-      expect((await get(`/styling?plan=${planId + 1000}`)).statusCode).toBe(
-        404,
+      expect(record.sql[1]).toContain('"option_group"');
+      expect(stripOf((await get('/styling?picks=1')).body, 'top')[0]).toBe(
+        candidate,
       );
     });
 
-    it('a shared wardrobe ignores ?plan=: no plan table in its statements', async () => {
+    it('a shared wardrobe ignores ?picks=1: no pick read in its statements', async () => {
       const record = await statementsOf(
-        `/styling?ownerId=${ownerId}&plan=${planId}`,
+        `/styling?ownerId=${ownerId}&picks=1`,
         viewer,
       );
       expect(record.statements).toBe(2);
-      expect(record.sql.join('\n')).not.toContain('"plan_item_candidate"');
+      expect(record.sql.join('\n')).not.toContain('"option_group"');
     });
 
     it('a shared wardrobe: the session with the share, then one statement, and none of the owner’s records', async () => {
@@ -315,16 +284,16 @@ describe('Styling statements (#163)', () => {
       for (const table of OWNERS_RECORDS) expect(all).not.toContain(table);
     });
 
-    it('Shuffle and "Add row" with ?plan=: the same counts', async () => {
+    it('Shuffle and "Add row" with ?picks=1: the same counts', async () => {
       const query = rowsQuery([['top', candidate, false]], {
-        plan: String(planId),
+        picks: '1',
         seed: '5',
       });
       expect((await statementsOf(`/styling/shuffle?${query}`)).statements).toBe(
         3,
       );
       const row = rowsQuery([['top', candidate, false]], {
-        plan: String(planId),
+        picks: '1',
         add: 'footwear',
       });
       expect((await statementsOf(`/styling/row?${row}`)).statements).toBe(2);

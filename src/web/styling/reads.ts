@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
 import { type ScalarValues, selectScalars } from '../../db/select-scalars';
 import type { Idea } from '../../wardrobe/generator';
@@ -21,23 +22,23 @@ import {
   readPool,
   styledGarmentsSql,
 } from '../gallery/queries';
+import { outfitIsHeld } from '../outfits/references';
 import { sharedWardrobesSql, toSharedWardrobe } from '../sharing/access';
 import type { WeatherService } from '../weather/service';
 import {
   type Chosen,
   readGarments,
+  picksSql,
   readRoleWindows,
   readSavedOutfit,
-  readStyledPlan,
   type RoledGarment,
   roleWindowsSql,
+  type RowCarry,
   rowGarmentsSql,
   type SavedOutfit,
   savedOutfitSql,
-  type StyledPlan,
-  styledPlanSql,
 } from './queries';
-import { type RoleWindow, withCandidates } from './rows';
+import { type RoleWindow, withPicks } from './rows';
 
 /**
  * What a Styling request reads, in as few statements as the reads allow
@@ -67,17 +68,25 @@ export interface StylingScope {
   shared: boolean;
   capsuleId?: number;
   /**
-   * `?plan=`: the plan whose candidates join the strips (unchecked, read
-   * by stripsReads). Only on the requester's own wardrobe: plans are never
-   * shared, so a shared wardrobe's scope has none.
+   * Include picks (`?picks=1`, #335): the garments offered to style with
+   * join the strips (picksSql) and the rows may carry them. Only on the
+   * requester's own wardrobe and never while picking for a day or a trip
+   * (scopeOf), so a grantee's or a destination's scope has none.
    */
-  planId?: number;
+  picks?: boolean;
   /**
-   * The rows edit one of the requester's saved outfits (the page's
-   * `outfit`, never over a shared wardrobe): what they may carry is
-   * rowGarmentsSql's, the owner's garments of any status.
+   * The saved outfit the rows edit (the page's `outfit`, never over a
+   * shared wardrobe): they may carry its garments (rowGarmentsSql).
    */
-  editing?: boolean;
+  editingOutfitId?: number;
+}
+
+/** What the scope's posted rows may carry (rowGarmentsSql). */
+export function carryOf(scope: StylingScope): RowCarry {
+  return {
+    editingOutfitId: scope.editingOutfitId,
+    picks: scope.picks === true,
+  };
 }
 
 /** Checks every request may ask of either statement. */
@@ -114,7 +123,7 @@ function checkColumns(scope: StylingScope, checks: Checks) {
     held:
       heldIds.length === 0
         ? undefined
-        : rowGarmentsSql(ownerId, heldIds, scope.editing === true),
+        : rowGarmentsSql(ownerId, heldIds, carryOf(scope)),
   };
 }
 
@@ -129,14 +138,18 @@ function readChecks(
 }
 
 export interface StripsReads extends CheckedReads {
-  /** The strips' windows, with the plan's candidates on them (`plan`). */
+  /** The strips' windows, with Include picks' garments on them (`picks`). */
   windows: RoleWindow[];
-  /** Undefined when no plan was asked; null when it is not the requester's. */
-  plan: StyledPlan | null | undefined;
   /** The capsule menu (`menu`); empty otherwise. */
   capsules: CapsuleRef[];
   /** A shared wardrobe's owner by name (`menu`); undefined for one's own. */
   owner: string | undefined;
+  /**
+   * The outfit the rows edit is planned or packed: it takes no pick
+   * (offeredIntoSql), so the strips carry none and Include picks is not
+   * offered.
+   */
+  editingHeld: boolean;
 }
 
 /**
@@ -144,8 +157,9 @@ export interface StripsReads extends CheckedReads {
  * `chosenOutfit` every garment of that outfit, the requester's, whose rows
  * the page opens on), the checks, and with `menu` what a full page shows
  * around the rows (the capsule menu, whose wardrobe a grantee browses).
- * With the scope's `planId`, the plan's name and candidates ride in the
- * same statement (styledPlanSql). One statement.
+ * With the scope's `picks`, the garments offered to style with ride in
+ * the same statement (picksSql), and whether the outfit the rows edit is
+ * held, which leaves them off the strips. One statement.
  */
 export async function stripsReads(
   db: Db,
@@ -154,6 +168,8 @@ export async function stripsReads(
     chosen: readonly Chosen[];
     chosenOutfit?: number;
     menu?: boolean;
+    /** The capsule menu alone (`menu` reads it too): the scope a rows fragment replaces. */
+    capsules?: boolean;
   },
 ): Promise<StripsReads> {
   const { userId, ownerId, shared } = scope;
@@ -164,21 +180,22 @@ export async function stripsReads(
       chosen: ask.chosen,
       outfitId: ask.chosenOutfit,
     }),
-    plan:
-      scope.planId === undefined
+    picks: scope.picks ? picksSql(ownerId) : undefined,
+    editingHeld:
+      scope.editingOutfitId === undefined
         ? undefined
-        : styledPlanSql(scope.planId, ownerId),
-    capsules: ask.menu ? capsuleNamesSql(ownerId) : undefined,
+        : outfitIsHeld(sql`${scope.editingOutfitId}::int`),
+    capsules: ask.menu || ask.capsules ? capsuleNamesSql(ownerId) : undefined,
     shares: ask.menu && shared ? sharedWardrobesSql(userId) : undefined,
   });
-  const plan = row.plan === undefined ? undefined : readStyledPlan(row.plan);
+  const editingHeld = row.editingHeld === true;
   return {
     ...readChecks(row),
-    windows: withCandidates(
+    windows: withPicks(
       readRoleWindows(row.windows),
-      plan?.candidates ?? [],
+      editingHeld ? [] : readGarments(row.picks ?? []),
     ),
-    plan,
+    editingHeld,
     capsules: row.capsules ?? [],
     owner: row.shares
       ?.map(toSharedWardrobe)

@@ -1,6 +1,6 @@
 import { and, type Column, eq, ne, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
-import { garment } from '../../db/schema';
+import { garment, optionGroup } from '../../db/schema';
 import {
   type GarmentStatus,
   type GarmentStatusEvent,
@@ -51,6 +51,21 @@ export function onWishlist(): SQL {
  */
 export function wanted(): SQL {
   return sql`(${onWishlist()} and ${garment.dismissedAt} is null)`;
+}
+
+/**
+ * Wanted, and not under a need the owner set aside (Not this need right
+ * now: its picks are hidden with it, src/web/wishlist/suggestions.md):
+ * what Styling's Include picks offers and its rows may carry (#335,
+ * src/web/styling/queries.ts: picksSql, rowGarmentsSql). The owner's own
+ * wishlist items too: one "not owned yet" list.
+ */
+export function offeredToStyle(): SQL {
+  return sql`(${wanted()} and not exists (
+    select 1 from ${optionGroup}
+    where ${optionGroup.id} = ${garment.suggestionGroupId}
+      and ${optionGroup.status} = 'dismissed'
+  ))`;
 }
 
 /**

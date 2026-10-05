@@ -41,7 +41,7 @@ export function outfitIsHeld(outfitId: AnyPgColumn | SQL): SQL<boolean> {
  * planned, packed or worn, so a held outfit is always complete. The rule's
  * two halves, each enforced by the writers of its side:
  * - a slot write holds a wishlist garment only into an outfit nothing
- *   holds (slotHoldsSql, src/web/outfits/gone-garments.ts: insertSlots);
+ *   holds (slotMayNameSql, src/web/outfits/gone-garments.ts: insertSlots);
  * - a write that makes an outfit held refuses an incomplete one
  *   (OutfitIncomplete): the calendar's upsertEntry, planToWear and
  *   setEntryOutfit (src/web/calendar/queries.ts), and addTripOutfit

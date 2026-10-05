@@ -8,7 +8,6 @@ import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { EmptyState } from '../layout/parts';
 import { SnapStrip, snapItem } from '../strip/snap-strip';
-import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { priceLabel } from '../wardrobe/garment';
 import { roleGroupLabel } from '../wardrobe/labels';
@@ -136,15 +135,6 @@ export function ReviewPage(props: {
                 </p>
               )}
               <p class="text-sm text-muted">{t('plans.REVIEW_INTRO')}</p>
-              {anyCandidates && (
-                <a
-                  href={stylingUrl({ planId: plan.id })}
-                  class="btn btn-outline btn-sm self-start"
-                  data-style-with-closet=""
-                >
-                  {t('plans.STYLE_WITH_CLOSET')}
-                </a>
-              )}
             </div>
             <ReviewLooks model={model} />
             {topToToe(strips, (strip) => strip.item.category).map(

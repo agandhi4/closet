@@ -22,8 +22,11 @@ export interface StylingState {
   destination?: OutfitDestination;
   /** `?capsule=`: every row cycles only this capsule's garments. */
   capsuleId?: number;
-  /** `?plan=`: the requester's plan whose candidates join the strips, badged "To buy". */
-  planId?: number;
+  /**
+   * `?picks=1`: Include picks (#335), the garments offered to style with on
+   * the strips, badged "To buy". Never with a destination.
+   */
+  picks?: boolean;
   /** `?with=`: this garment chosen and locked ("Style this"). */
   withId?: number;
   /** `?outfit=`: a saved outfit opened to change it (its edit). */
@@ -47,7 +50,7 @@ export function stylingUrl(
   const query = [
     state.destination && destinationQuery(state.destination),
     state.capsuleId !== undefined && `capsule=${state.capsuleId}`,
-    state.planId !== undefined && `plan=${state.planId}`,
+    state.picks && 'picks=1',
     state.withId !== undefined && `with=${state.withId}`,
     state.outfitId !== undefined && `outfit=${state.outfitId}`,
     state.ownerId !== undefined && `ownerId=${state.ownerId}`,

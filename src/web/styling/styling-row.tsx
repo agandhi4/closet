@@ -79,6 +79,8 @@ export interface RowContext {
   state: StylingState;
   /** The shared wardrobe shown (garment links carry it), undefined for one's own. */
   viewOwner: number | undefined;
+  /** The rows show the Include picks switch (Wardrobe.picksOffered); a strip's next page does not. */
+  picksOffered?: boolean;
 }
 
 export function StylingRowView(props: {

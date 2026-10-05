@@ -39,10 +39,10 @@ import { prunePacked, tripsOfOutfit } from '../trips/packed';
 import { detachOutfitWears } from '../wears/queries';
 import { adoptPlannerOutfit } from '../week-plan/adopt';
 import {
-  goneGarments,
+  offeredIntoSql,
   OutfitGarmentsGone,
-  slotHoldable,
-  slotHoldsSql,
+  slotMayNameSql,
+  slotRefusals,
 } from './gone-garments';
 import { outfitIsHeld } from './references';
 
@@ -430,11 +430,14 @@ export function outfitActivitySql(
  * Makes `slots` the outfit's positions 0..n-1, or refuses the save whole
  * (#219): a garment id that the outfit cannot hold throws
  * OutfitGarmentsGone, naming it, and the caller's transaction rolls back.
- * Never a slot stored empty behind the save's back. It holds the owner's
- * garments: archived ones were owned and stay, and a wishlist item only
- * while nothing holds the outfit (slotHoldsSql, #335: an incomplete
- * outfit; a planned or packed one refuses it). Deleted or another user's
- * is refused.
+ * Never a slot stored empty behind the save's back. What it may hold is
+ * slotMayNameSql's, judged here in the locked read under the caller's
+ * owner lock, never by a read before it: the owner's closet garments,
+ * those the outfit already holds (an archived one stays), and a garment
+ * not bought yet that is offered to style with only while nothing holds
+ * the outfit (#335: an incomplete outfit; a planned or packed one refuses
+ * it). A pick set aside, a new archived garment, a deleted or another
+ * user's one is refused.
  *
  * One statement (#168: a read before the insert used to cost a round
  * trip): the named garments are locked FOR SHARE in id order (as
@@ -477,7 +480,10 @@ async function insertSlots(
       and(
         eq(garment.ownerId, ownerId),
         inArray(garment.id, requested),
-        slotHoldsSql(outfitId),
+        slotMayNameSql({
+          outfitId,
+          offered: offeredIntoSql(outfitId),
+        }),
       ),
     )
     .orderBy(garment.id)
@@ -510,15 +516,13 @@ async function insertSlots(
       : [],
   );
   if (gone.length === 0) return;
-  const heldOutfit = await outfitHeld(tx, outfitId);
-  const named = await goneGarments(
+  const named = await slotRefusals(
     tx,
     ownerId,
     gone,
-    slotHoldable(heldOutfit),
-    { outfitHeld: heldOutfit },
+    await outfitHeld(tx, outfitId),
   );
-  // Holdable again by the lookup (bought meanwhile): still refused as seen.
+  // Holdable again by the lookup (restored meanwhile): still refused as seen.
   throw new OutfitGarmentsGone(
     named.length > 0 ? named : gone.map((id) => ({ id })),
   );
@@ -526,8 +530,8 @@ async function insertSlots(
 
 /**
  * Whether something holds the outfit now (outfitIsHeld): what a refused
- * slot write's garments are named by (slotHoldable). Read only on the
- * refusal, in its transaction.
+ * slot write's wishlist garments are named by (slotRefusals). Read only on
+ * the refusal, in its transaction.
  */
 async function outfitHeld(tx: Queryable, outfitId: number): Promise<boolean> {
   const { rows } = await tx.execute<{ held: boolean }>(

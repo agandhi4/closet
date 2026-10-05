@@ -98,7 +98,7 @@ These were measured with `npm run audit:pages -- --only '#167'`. Every table her
 - **Tiles.** The candidates in the list's order (`shoppingList`), the first centred. Nothing declines or keeps here, and "Not this one" is not offered. The centred tile alone shows (`DETAILS`, invisible on the others, so out of reach) price against budget, the mismatch, the outfit count (`inStrip`), "View product" and **Bought it** (`GET /wardrobe/:id/bought`, the form of Bought it unchanged; `buyCandidate` untouched).
 - **No form.** The page has none. The strip's hidden input (`name="candidate"`) only records the centred tile for the observer; nothing reads it.
 - **An item with no candidates** has no strip: "No candidates yet." and "Add a product" to the candidates picker. With candidates the link reads "Add a candidate".
-- **Above the list**, the totals and "Style with my closet" (`/styling?plan=`, only when some item has a candidate, as on the review).
+- **Above the list**, the totals. ("Style with my closet", `/styling?plan=`, went with #335: Styling's own Include picks toggle replaced it.)
 - **Shared parts** with the review: `candidate-tile.tsx` (`TILE`, `PLINTH`, `DETAILS`, `CandidateFace`, `PriceLine`). The wiring is the review's inline module, rooted on `#shopping-list`.
 
 ## Candidate research (#293, epic #289)

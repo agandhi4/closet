@@ -55,8 +55,11 @@ export interface StylingModel {
   /** Shuffle's next seed; absent until something shuffled (the bare page stays byte-stable). */
   seed?: number;
   capsule?: CapsuleRef;
-  /** `?plan=`: the plan whose candidates are on the strips, badged "To buy". */
-  plan?: { id: number; name: string };
+  /**
+   * Include picks may be turned on: one's own wardrobe, no destination,
+   * not an edit of a planned or packed outfit (PicksToggle).
+   */
+  picksOffered: boolean;
   /** The addressed wardrobe's capsules, for the scope menu. */
   capsules: CapsuleRef[];
   /** `?outfit=`: the saved outfit being changed. */
@@ -73,6 +76,12 @@ export interface StylingModel {
    */
   refusal?: {
     message: string;
+    /**
+     * Refused for planning an incomplete outfit (OutfitIncomplete, #335):
+     * the rows are kept, so the hint is to buy or save without a day, not
+     * to choose again.
+     */
+    incomplete: boolean;
     draft: SaveDraft;
     /** The wishlist pieces it named: each is saved once bought ("Bought it"). */
     toBuy: { id: number; name: string | null }[];
@@ -96,7 +105,11 @@ initStyling(document.getElementById('styling-rows'));`;
 export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
   const { ctx, model } = props;
   const viewOwner = model.shared?.ownerId;
-  const context: RowContext = { state: model.state, viewOwner };
+  const context: RowContext = {
+    state: model.state,
+    viewOwner,
+    picksOffered: model.picksOffered,
+  };
   return (
     <Layout ctx={ctx} title={t('styling.TITLE')}>
       <AppBar
@@ -106,7 +119,13 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
         // Save posts natively and lands elsewhere (the outfit, a week); on a
         // shared wardrobe nothing saves.
         formPage={!model.shared}
-        scope={<ScopeMenu model={model} />}
+        scope={
+          <ScopeMenu
+            capsule={model.capsule}
+            capsules={model.capsules}
+            state={model.state}
+          />
+        }
       />
       <PageMain width="wide" class="pt-20 pb-40 flex flex-col gap-3">
         <Header model={model} />
@@ -149,6 +168,7 @@ export function StylingRows(props: {
   const { model, context } = props;
   return (
     <div id="styling-rows" class="flex flex-col gap-4">
+      <PicksToggle context={context} />
       {model.notice === 'no-idea' && (
         <p class="alert alert-info alert-soft mx-4 py-2 text-sm" role="status">
           {t('styling.NO_IDEA')}
@@ -160,6 +180,7 @@ export function StylingRows(props: {
       {model.seed !== undefined && (
         <input type="hidden" name="seed" value={String(model.seed)} />
       )}
+      {context.state.picks && <input type="hidden" name="picks" value="1" />}
     </div>
   );
 }
@@ -189,14 +210,14 @@ function StateFields({ model }: { model: StylingModel }) {
       {state.capsuleId !== undefined && (
         <input type="hidden" name="capsule" value={String(state.capsuleId)} />
       )}
-      {state.planId !== undefined && (
-        <input type="hidden" name="plan" value={String(state.planId)} />
-      )}
       {state.ownerId !== undefined && (
         <input type="hidden" name="ownerId" value={String(state.ownerId)} />
       )}
       {state.outfitId !== undefined && (
         <input type="hidden" name="outfit" value={String(state.outfitId)} />
+      )}
+      {state.withId !== undefined && (
+        <input type="hidden" name="with" value={String(state.withId)} />
       )}
       {state.returnTo !== undefined && (
         <input type="hidden" name="returnTo" value={state.returnTo} />
@@ -219,7 +240,13 @@ function Header({ model }: { model: StylingModel }) {
           data-styling-refused=""
         >
           <p>{model.refusal.message}</p>
-          <p>{t('styling.REFUSED_HINT')}</p>
+          <p>
+            {t(
+              model.refusal.incomplete
+                ? 'styling.INCOMPLETE_HINT'
+                : 'styling.REFUSED_HINT',
+            )}
+          </p>
           {model.refusal.toBuy.length > 0 && (
             <ul class="flex flex-col gap-1" data-styling-refused-buy="">
               {model.refusal.toBuy.map((piece) => (
@@ -237,11 +264,6 @@ function Header({ model }: { model: StylingModel }) {
             </ul>
           )}
         </div>
-      )}
-      {model.plan && (
-        <p class="text-sm" data-styling-plan={model.plan.id}>
-          {t('styling.PLAN', { name: model.plan.name })}
-        </p>
       )}
       {model.outfit && (
         <p class="text-sm" data-styling-outfit={model.outfit.id}>
@@ -271,6 +293,48 @@ function Header({ model }: { model: StylingModel }) {
   );
 }
 
+/**
+ * Include picks (#335): a switch over the rows that answers them again
+ * with the picks on or off, as "Add row" does (the rows posted through
+ * `hx-include`, `picks` set by `hx-vals`, which htmx lets override the
+ * form's own), so the composition and its locks stay. It pushes the
+ * page's own address with `picks` flipped (and "Style this"'s garment),
+ * so a reload or a shared link opens the same way. The bare page (off)
+ * stays byte-stable. On, every strip leads with the garments not bought
+ * yet that are offered to style with (picksSql), badged "To buy", and
+ * Save keeps them: the outfit is incomplete until they are bought. Only
+ * where `picksOffered`: never over a shared wardrobe, while the page picks
+ * for a day or a trip, or in an edit of a planned or packed outfit, where
+ * Save plans, packs or keeps a held outfit and a piece to buy would refuse
+ * it. With no rows to keep (an empty closet or capsule), PicksLink.
+ */
+function PicksToggle({ context }: { context: RowContext }) {
+  const { state } = context;
+  if (!context.picksOffered) return null;
+  const on = state.picks === true;
+  return (
+    <div class="px-4">
+      <button
+        type="button"
+        class={`btn btn-sm rounded-full ${on ? 'btn-primary' : 'btn-outline'}`}
+        role="switch"
+        aria-checked={on ? 'true' : 'false'}
+        hx-get={STYLING_ROW_PATH}
+        hx-include="#styling-form"
+        hx-vals={JSON.stringify({ picks: on ? '' : '1' })}
+        hx-target="#styling-rows"
+        hx-swap="outerHTML"
+        hx-push-url={stylingUrl({ ...state, picks: !on })}
+        data-needs-network=""
+        data-styling-picks={on ? 'on' : 'off'}
+      >
+        {on && <span aria-hidden="true">✓</span>}
+        {t('styling.INCLUDE_PICKS')}
+      </button>
+    </div>
+  );
+}
+
 /** Where Save plans the outfit (`?for=`), with the way back to where it came from. */
 function DestinationLine({ model }: { model: StylingModel }) {
   const { destination } = model;
@@ -293,9 +357,32 @@ function DestinationLine({ model }: { model: StylingModel }) {
   return null;
 }
 
-/** The capsule scope: every row, and Shuffle's pool, only its garments. */
-function ScopeMenu({ model }: { model: StylingModel }) {
-  const { capsule, capsules, state } = model;
+/**
+ * The capsule scope: every row, and Shuffle's pool, only its garments. Its
+ * links carry the page's state (Include picks among it), so the switch's
+ * answer replaces it out of band (`oob`, the rows fragment of
+ * GET /styling/row): no link outside the rows keeps a stale state. Its
+ * wrapper is there without capsules too, so the swap always finds it.
+ */
+export function ScopeMenu(props: {
+  capsule: CapsuleRef | undefined;
+  capsules: readonly CapsuleRef[];
+  state: StylingState;
+  oob?: boolean;
+}) {
+  return (
+    <div id="styling-scope" hx-swap-oob={props.oob ? 'true' : undefined}>
+      <CapsuleLinks {...props} />
+    </div>
+  );
+}
+
+function CapsuleLinks(props: {
+  capsule: CapsuleRef | undefined;
+  capsules: readonly CapsuleRef[];
+  state: StylingState;
+}) {
+  const { capsule, capsules, state } = props;
   if (capsules.length === 0) return null;
   return (
     <details class="dropdown dropdown-end">
@@ -532,10 +619,33 @@ function ScheduleFields(props: { day?: IsoDate; occasion?: Occasion }) {
   );
 }
 
+/**
+ * The switch with no rows to keep (an empty closet or capsule, picks off):
+ * a plain link turning Include picks on, which may bring rows of picks
+ * alone. PicksToggle's conditions.
+ */
+function PicksLink({ model }: { model: StylingModel }) {
+  if (!model.picksOffered) return null;
+  const on = model.state.picks === true;
+  return (
+    <a
+      href={stylingUrl({ ...model.state, picks: !on })}
+      class={`btn btn-sm rounded-full ${on ? 'btn-primary' : 'btn-outline'}`}
+      role="switch"
+      aria-checked={on ? 'true' : 'false'}
+      data-styling-picks={on ? 'on' : 'off'}
+    >
+      {on && <span aria-hidden="true">✓</span>}
+      {t('styling.INCLUDE_PICKS')}
+    </a>
+  );
+}
+
 function Empty({ model }: { model: StylingModel }) {
   if (model.capsule) {
     return (
       <EmptyState message={t('styling.EMPTY_CAPSULE')}>
+        <PicksLink model={model} />
         <a
           href={stylingUrl({ ...model.state, capsuleId: undefined })}
           class="btn btn-primary btn-sm"
@@ -547,6 +657,7 @@ function Empty({ model }: { model: StylingModel }) {
   }
   return (
     <EmptyState message={t('styling.EMPTY')}>
+      <PicksLink model={model} />
       {!model.shared && (
         <a href="/wardrobe/new" class="btn btn-primary btn-sm">
           {t('NEW_GARMENT')}

@@ -675,7 +675,8 @@ describe('the shopping loop', () => {
       expect(strip(items.oxford)).toContain('+ Add a product');
       expect(strip(items.merino)).toContain('+ Add a candidate');
       expect(html).not.toContain('<form');
-      expect(html).toContain(`href="/styling?plan=${planId}"`);
+      // Include picks is Styling's own toggle now (#335): no plan link to it.
+      expect(html).not.toContain('href="/styling?');
       expect(html).toContain('Doesn’t match the item: blue vs black');
       expect(html).toContain('href="https://shop.example/merino"');
       expect(html).toContain(`href="/wardrobe/${wish.merino}/bought"`);

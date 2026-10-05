@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { GarmentRole } from '../../wardrobe/properties';
 import {
   freshStates,
-  keepingCandidates,
   lockedOn,
   openingStates,
   type RoleWindow,
@@ -11,8 +10,8 @@ import {
   savedStates,
   shuffledStates,
   stylingRows,
-  withCandidates,
   withEveryRole,
+  withPicks,
 } from './rows';
 
 function garment(id: number, status: RowGarment['status'] = 'closet') {
@@ -228,27 +227,27 @@ describe('stylingRows', () => {
   });
 });
 
-describe('a plan’s candidates (#273)', () => {
+describe('Include picks (#335)', () => {
   const toBuy = (id: number, role: GarmentRole) => ({
     ...garment(id, 'wishlist'),
     role,
   });
 
-  it('withCandidates puts them on their role’s window, and makes one for a role the closet lacks', () => {
-    const windows = withCandidates(
+  it('withPicks puts them on their role’s window in the order given, and makes one for a role the closet lacks', () => {
+    const windows = withPicks(
       [window('top', [5, 4], 7)],
-      [toBuy(20, 'top'), toBuy(21, 'footwear')],
+      [toBuy(20, 'top'), toBuy(22, 'top'), toBuy(21, 'footwear')],
     );
-    expect(windows.map((w) => [w.role, w.count, w.candidates?.length])).toEqual(
-      [
-        ['top', 7, 1],
-        ['footwear', 0, 1],
-      ],
-    );
+    expect(
+      windows.map((w) => [w.role, w.count, w.picks?.map((p) => p.id)]),
+    ).toEqual([
+      ['top', 7, [20, 22]],
+      ['footwear', 0, [21]],
+    ]);
   });
 
-  it('a candidate leads its strip but is neither opened on nor counted in paging', () => {
-    const windows = withCandidates(
+  it('a pick leads its strip but is neither opened on nor counted in paging', () => {
+    const windows = withPicks(
       [window('top', [5, 4], 7)],
       [toBuy(20, 'top'), toBuy(21, 'footwear')],
     );
@@ -258,19 +257,5 @@ describe('a plan’s candidates (#273)', () => {
     expect(rows[0].garments.map((g) => g.id)).toEqual([20, 5, 4]);
     expect(rows[0].moreBefore).toBe(4);
     expect(rows[1].garments.map((g) => g.id)).toEqual([21]);
-  });
-
-  it('a row posted on a candidate of its role is put back, any other stays cleared', () => {
-    const posted = [row('top', 20, true), row('bottom', 20), row('top', 99)];
-    const checked = posted.map((state) => ({
-      ...state,
-      garmentId: null,
-      locked: false,
-    }));
-    expect(keepingCandidates(posted, checked, [toBuy(20, 'top')])).toEqual([
-      row('top', 20, true),
-      row('bottom', null),
-      row('top', null),
-    ]);
   });
 });

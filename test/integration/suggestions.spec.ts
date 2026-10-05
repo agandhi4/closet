@@ -823,9 +823,7 @@ describe('suggestions', () => {
       const shopping = unescapeHtml((await get('/wardrobe/shopping')).body);
       expect(shopping).toContain('Suggested knit open');
       expect(shopping).not.toContain('Suggested cardigan aside');
-      const styling = unescapeHtml(
-        (await get(`/styling?plan=${plan.id}`)).body,
-      );
+      const styling = unescapeHtml((await get('/styling?picks=1')).body);
       expect(styling).toContain('Suggested knit open');
       expect(styling).not.toContain('Suggested cardigan aside');
       expect(
