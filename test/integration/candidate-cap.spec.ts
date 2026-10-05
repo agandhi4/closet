@@ -7,7 +7,6 @@ import {
   TooManyCandidates,
 } from '../../src/web/plans/candidates';
 import { createTestApp, recordQueries, type TestApp } from './harness';
-import { callTool, createAccessToken } from './mcp';
 
 /**
  * A plan item's candidates are a curated few (MAX_CANDIDATES_PER_ITEM,
@@ -15,8 +14,7 @@ import { callTool, createAccessToken } from './mcp';
  * an add past the cap before writing anything, counted under lockOwner so
  * two adds at once cannot both pass. How each way in answers: the pickers
  * re-render their form 400, the garment form's `planItem` is refused
- * before anything is stored, add_candidate (MCP) is an error (by url,
- * before the page is fetched). Only links still on the wishlist count, and
+ * before anything is stored. Only links still on the wishlist count, and
  * an item past the cap from before keeps its links and may drop some.
  */
 
@@ -26,7 +24,6 @@ type Fields = Record<string, string | string[]>;
 
 describe('candidates per plan item', () => {
   let t: TestApp;
-  let token: string;
   let planId: number;
 
   const post = (url: string, payload: Fields) =>
@@ -89,7 +86,6 @@ describe('candidates per plan item', () => {
     planId = Number(
       /^\/wardrobe\/plans\/(\d+)/.exec(String(plan.headers.location))![1],
     );
-    token = await createAccessToken(t);
   });
 
   afterAll(async () => {
@@ -166,38 +162,6 @@ describe('candidates per plan item', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(await t.db.$count(garment)).toBe(before);
-  });
-
-  describe('add_candidate (MCP)', () => {
-    it('is refused past the cap, by garmentId', async () => {
-      const { itemId, garmentIds } = await itemWith('MCP item', 5);
-      const extra = await wishlistItem('MCP item extra');
-      const answer = await callTool(t, token, 'add_candidate', {
-        itemId,
-        garmentId: extra,
-      });
-      expect(answer.isError).toBe(true);
-      expect(answer.value.error).toContain(REFUSED);
-      expect(await candidatesOf(itemId)).toEqual(garmentIds);
-      // A candidate it already has is no addition: answered, not refused.
-      const again = await callTool(t, token, 'add_candidate', {
-        itemId,
-        garmentId: garmentIds[0],
-      });
-      expect(again.isError).toBe(false);
-    });
-
-    it('is refused by url before the page is fetched', async () => {
-      const { itemId } = await itemWith('MCP link item', 5);
-      const before = await t.db.$count(garment);
-      // Nothing serves this: a fetch would fail differently.
-      const answer = await callTool(t, token, 'add_candidate', {
-        itemId,
-        url: 'https://shop.invalid/products/never-fetched',
-      });
-      expect(answer.value.error).toContain(REFUSED);
-      expect(await t.db.$count(garment)).toBe(before);
-    });
   });
 
   it('lets two adds at once end with at most the cap', async () => {

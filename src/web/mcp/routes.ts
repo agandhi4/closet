@@ -7,7 +7,7 @@ import type {
 } from 'fastify';
 import { BUILD_INFO } from '../../build-info';
 import { authenticateToken } from '../auth/personal-tokens';
-import { MAX_CANDIDATES_PER_ITEM } from '../plans/candidates';
+import { MAX_OPTIONS_PER_GROUP } from '../../wardrobe/suggestions';
 import { MCP_PATH } from '../page-cache';
 import type { WebOptions } from '../plugin';
 import { MCP_LIMIT, MCP_LINK_IMPORT_LIMIT } from '../security/rate-limit';
@@ -23,20 +23,20 @@ const BEARER = /^Bearer\s+(\S+)\s*$/i;
 const UNAUTHORIZED = { statusCode: 401, message: 'Unauthorized' };
 
 // What the client's model reads first: the server, and how to style a
-// wardrobe with the tools (#269). The README's "Styling with an agent" is
-// the owner's side of the same workflow; keep the two in step.
+// wardrobe with the tools (#269, Muse's workflow since #337). The README's
+// "Styling with an agent" is the owner's side of the same workflow; keep
+// the two in step.
 const INSTRUCTIONS = [
-  "Closet is the user's self-hosted wardrobe: garments with properties, capsules, outfits, a calendar of planned and worn outfits, wardrobes shared with them, and the user's own wardrobe plans with their gaps and shopping list. Every tool acts as the user; a shared wardrobe is addressed by its owner's id (ownerId, from list_shared_wardrobes). Tools that write say so; nothing deletes.",
-  'To style the wardrobe (what to add, what to buy):',
-  "1. Read first: get_style_profile (styles, budget band, palette, the week's occasions), get_wardrobe (the whole closet in one read; search_garments filters it), get_garment_photo for the pieces you need to see, and get_plan_gaps (what the active plan already asks for and lacks).",
-  "2. Build on what is owned: read wardrobe_stats too (what is worn, what idles). Do not propose what the closet already covers (get_plan_gaps shows what fulfils each item); propose real gaps, and treat pieces in replace_soon condition as gaps. In each item's note, name the closet pieces it is meant to pair with.",
-  '3. create_plan with a name and notes giving your rationale. It is your draft, never active, and the owner sees which connection drafted it; do not propose into a plan the owner made unless asked.',
-  '4. propose_plan_item per item, with the new plan\'s planId. An item is a target in the garment model\'s terms (category, type, colours, materials, warmth and formality ranges, quantity, priority, budget), not a product; its note says why the wardrobe needs it, and its name says what it is in plain words ("White leather sneakers").',
-  `5. Every proposed item gets 2 to ${MAX_CANDIDATES_PER_ITEM} product options before you finish: add_candidate with a product URL per option (or add_garment_from_link with the item's planItemId). A product saved to the wishlist without its item is not part of the plan, and the owner reviews each item by its options. get_plan_feedback's needsProducts lists the items still without one. Research each option, do not just collect links: pass note (why it fits: material, fit and sizing, price against the item's budget, how it pairs with the closet; short, it is shown under the option in the app) and rank (1 is your pick, up to ${MAX_CANDIDATES_PER_ITEM}) with each; update_candidate changes them later. The owner opens each item on your pick.`,
-  '6. goes_with_closet on each candidate: how it pairs with what the closet holds, and what it would duplicate.',
-  "7. Design looks: once the items have candidates, propose_look a few looks for each occasion in the style profile's week (its rhythm), each mixing closet garments with this plan's candidates so that every candidate appears in at least one look. A piece is a closet garment or a current candidate of this plan (never a declined item's); the note says why the look works and when to wear it. list_looks shows them.",
-  'To iterate on an existing plan (a new conversation about it): read get_plan_feedback first, before anything else. It lists only what waits on you. Change each `revise` item as its ownerNote asks with update_plan_item (it returns to the owner as proposed). Replace the rejected products of an item (`replace`, and `new: true` ones) with others through add_candidate, give each `needsProducts` item its options, and never add a rejected product again, by url or by garment. Never re-propose an item listed under `declined`, nor add candidates to it. It also lists `looks`: change each `revise` look as its ownerNote asks with update_look (it returns to the owner as proposed), mend the `incomplete` ones (a slot lost its candidate) with another piece, and never propose again the exact set of pieces of a look under `declined`. A look with an `outfitId` is an outfit the owner saved from it: update_look never changes that outfit, and new pieces make the look a new one for the owner to save.',
-  'The owner reviews the plan, accepts, changes or declines each item, and buys in the app. Never assume a purchase: a candidate stays on the wishlist until the owner marks it bought.',
+  "Closet is the user's self-hosted wardrobe: garments with properties, capsules, outfits, a calendar of planned and worn outfits, a wishlist, and wardrobes shared with them. Every tool acts as the user; a shared wardrobe is addressed by its owner's id (ownerId, from list_shared_wardrobes). Tools that write say so; nothing deletes.",
+  'To style the wardrobe (what to add, what to buy), work in rounds. The owner decides in the app; you learn from each decision.',
+  '1. Start every conversation with get_suggestion_feedback (what the owner decided since your last call: choices, purchases, outfits loved or declined, and every reason and note), then list_suggestions (what is open, chosen and set aside). Act on every reason: too_pricey, colour, style, already_have, fit_size, not_now.',
+  "2. Read the wardrobe: get_style_profile (styles, budget band, palette, the week's occasions), get_wardrobe (the whole closet; search_garments filters it), wardrobe_stats (what is worn, what idles), get_sizes (the owner's size per brand) and get_garment_photo for the pieces you need to see.",
+  '3. Find real gaps: get_closet_coverage with the targets you have in mind. Propose only what is missing or partly owned; pieces in replace_soon condition are gaps.',
+  '4. create_option_group per need: its name in plain words ("A navy blazer"), the budget, and a note naming the closet pieces it pairs with.',
+  `5. Give every need 2 to ${MAX_OPTIONS_PER_GROUP} real products before you finish: suggest_garment per product URL, each with note (material, fit and sizing, price against the budget, what it pairs with; short, it is shown on the option), rank (1 is your pick), the listed price and the size to buy. Research each one; do not just collect links. list_suggestions' stillLooking lists the needs still without one.`,
+  '6. goes_with_closet on each option: how it pairs with the closet, and what it would duplicate.',
+  '7. suggest_outfit a few outfits for each occasion of the week, mixing closet garments with your options so that every option is in at least one; outfits of closet garments only are welcome too. The owner judges a piece by what it does with their closet, so outfits come first for them.',
+  'Rules: never buy, mark anything owned (add_garment_from_link with destination closet is for what the owner already owns), archive or delete; the owner buys in the app. Never propose again anything the owner set aside: a need by its name, a product by its link, an outfit by its garments (the tools refuse them). A need the owner chose an option for is decided: leave it.',
 ].join('\n');
 
 /**

@@ -37,8 +37,9 @@ export interface ToolContext {
   /** The token's user: every tool acts exactly as them. */
   userId: number;
   /**
-   * The token's row id: the call's log line, and create_plan's provenance
-   * (wardrobe_plan.drafted_by_token_id). Never the token itself.
+   * The token's row id: the call's log line, the provenance of what the
+   * agent suggests (#337: a need's, a pick's, an outfit's token) and its
+   * feedback cursor. Never the token itself.
    */
   tokenId: number;
   /**

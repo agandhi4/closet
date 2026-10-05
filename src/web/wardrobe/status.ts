@@ -140,6 +140,7 @@ export function setGarmentStatus(
         ...(change.event === 'buy' && {
           acquiredOn: change.acquiredOn,
           price: change.price,
+          boughtAt: sql`now()`,
         }),
       })
       .where(eq(garment.id, id));

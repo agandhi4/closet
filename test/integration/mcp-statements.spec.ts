@@ -8,14 +8,14 @@ import {
   outfit,
   outfitCalendar,
   outfitSlot,
-  planItem,
-  planItemCandidate,
+  personalAccessToken,
   trip,
-  wardrobePlan,
   wardrobeShare,
 } from '../../src/db/schema';
 import { runSeed } from '../../src/seed/seed';
 import { addDays } from '../../src/web/calendar/calendar-date';
+import { RETIRED_TOOLS } from '../../src/web/mcp/tools/retired';
+import { createOptionGroup } from '../../src/web/wishlist/decisions';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import {
   createTestApp,
@@ -40,7 +40,7 @@ import { callTool, mcpRequest } from './mcp';
  * weather on, each call made once untimed and then counted, so a write
  * counts its repeat and a forecast is warm. Every count includes the
  * token's own read (authenticateToken). The tools' behaviour is mcp.spec,
- * mcp-plans.spec, mcp-shopping.spec and mcp-photos.spec's; this one pins
+ * mcp-muse.spec and mcp-photos.spec's; this one pins
  * the statements, and proves the reads #172 dropped are gone.
  */
 
@@ -74,24 +74,18 @@ describe('MCP statements per tool (#172)', () => {
     capsule: 0,
     danaCapsule: 0,
     trip: 0,
-    plan: 0,
-    planItem: 0,
-    look: 0,
+    need: 0,
   };
   let lookSets = 0;
-  /** A closet garment with the wishlist candidate: a new set at every call. */
+  /** A closet garment with the wishlist item: a new set at every call. */
   const lookSet = () => [
     [ids.garment, ids.other, ids.copies][lookSets++ % 3],
     ids.wishlist,
   ];
 
-  beforeAll(async () => {
-    stub = await startWeatherStub();
-    sites = await startLinkSites();
-    sites.serve('/img/tee.jpg', jpeg(await productShot('#223355')));
-    sites.serve(
-      '/products/tee',
-      html(`<!doctype html><html><head><title>Pocket Tee</title>
+  /** A tee's product page (a JSON-LD product with a photo and a price). */
+  const teePage = () =>
+    html(`<!doctype html><html><head><title>Pocket Tee</title>
       <script type="application/ld+json">${JSON.stringify({
         '@type': 'Product',
         name: 'Heavyweight Pocket Tee',
@@ -99,8 +93,13 @@ describe('MCP statements per tool (#172)', () => {
         color: 'Navy',
         image: [sites.url('/img/tee.jpg')],
         offers: { price: '48.00', priceCurrency: 'USD' },
-      })}</script></head><body></body></html>`),
-    );
+      })}</script></head><body></body></html>`);
+
+  beforeAll(async () => {
+    stub = await startWeatherStub();
+    sites = await startLinkSites();
+    sites.serve('/img/tee.jpg', jpeg(await productShot('#223355')));
+    sites.serve('/products/tee', teePage());
     t = await createTestApp(
       { WEATHER_ENABLED: 'true' },
       { weather: stub.options, outboundFetch: sites.outboundFetch },
@@ -165,32 +164,27 @@ describe('MCP statements per tool (#172)', () => {
       .orderBy(asc(garment.id))
       .limit(2);
     [ids.other, ids.copies] = closet.map((row) => row.id);
-    const [plan] = await t.db
-      .select({ id: wardrobePlan.id })
-      .from(wardrobePlan)
-      .where(
-        and(eq(wardrobePlan.ownerId, ids.theo), eq(wardrobePlan.active, true)),
-      );
-    ids.plan = plan.id;
-    const [candidate] = await t.db
-      .select({
-        planItemId: planItemCandidate.planItemId,
-        garmentId: planItemCandidate.garmentId,
-      })
-      .from(planItemCandidate)
-      .innerJoin(planItem, eq(planItem.id, planItemCandidate.planItemId))
-      .where(eq(planItem.planId, plan.id))
-      .orderBy(asc(planItemCandidate.garmentId))
+    const [wished] = await t.db
+      .select({ id: garment.id })
+      .from(garment)
+      .where(and(eq(garment.ownerId, ids.theo), eq(garment.status, 'wishlist')))
+      .orderBy(asc(garment.id))
       .limit(1);
-    ids.planItem = candidate.planItemId;
-    ids.wishlist = candidate.garmentId;
-    const look = await callTool(t, tokens[0], 'propose_look', {
-      planId: plan.id,
-      name: 'Statements base',
-      garmentIds: [ids.garment, ids.other, ids.copies, ids.wishlist],
+    ids.wishlist = wished.id;
+    const [token] = await t.db
+      .select({ id: personalAccessToken.id })
+      .from(personalAccessToken)
+      .where(eq(personalAccessToken.userId, ids.theo))
+      .orderBy(asc(personalAccessToken.id))
+      .limit(1);
+    const need = await createOptionGroup(t.db, ids.theo, {
+      name: 'Statements need',
+      budget: null,
+      note: null,
+      tokenId: token.id,
     });
-    expect(look.isError, JSON.stringify(look.value)).toBe(false);
-    ids.look = look.value.id as number;
+    if (!need.ok) throw new Error('The statements need exists');
+    ids.need = need.id;
     const worn = sql<number>`count(*)`;
     const [favourite] = await t.db
       .select({ id: outfit.id, worn })
@@ -263,7 +257,14 @@ describe('MCP statements per tool (#172)', () => {
 
   // The tool, its arguments (made anew for each call) and its statements
   // (the token's read included). Before #172 in the comment where it changed.
-  let drafts = 0;
+  let needs = 0;
+  let products = 0;
+  /** A product page of its own: suggest_garment refuses a link twice. */
+  const product = () => {
+    const path = `/products/pick-${++products}`;
+    sites.serve(path, teePage());
+    return sites.url(path);
+  };
   const cases: [string, () => Record<string, unknown>, number][] = [
     ['get_today', () => ({}), 3], // 6: the weather twice, worn apart
     ['search_garments', () => ({ category: 'tops' }), 3],
@@ -326,51 +327,32 @@ describe('MCP statements per tool (#172)', () => {
     ['list_shared_wardrobes', () => ({}), 2],
     ['compare_with_shared_wardrobe', () => ({ ownerId: ids.dana }), 4],
     ['get_style_profile', () => ({}), 2], // 3
-    ['list_plans', () => ({}), 4],
-    ['create_plan', () => ({ name: `Statements ${++drafts}` }), 5],
-    ['get_plan_gaps', () => ({}), 6], // 5; #278 reads the rejected products
-    // token, plan, items, rejections (#278), candidates (#295: needsProducts) and looks (#290)
-    ['get_plan_feedback', () => ({}), 6],
-    ['propose_plan_item', () => ({ category: 'tops', name: 'Statements' }), 7],
-    // #278: 6, plus the review read under the lock that the machine judges.
-    ['update_plan_item', () => ({ itemId: ids.planItem, category: 'tops' }), 7],
-    ['list_looks', () => ({}), 3], // token, plan, looks (one read, slots with their garments)
-    // The writers' own cost: begin, owner lock, the plan with its looks' sets,
-    // the garments, the look, its slots, commit. A given planId reads no plan.
-    // The untimed first call writes the look, so the counted repeat uses
-    // another set: a fresh proposal, not the repeat's cheaper answer.
-    [
-      'propose_look',
-      () => ({
-        planId: ids.plan,
-        name: 'Statements look',
-        garmentIds: lookSet(),
-      }),
-      8,
-    ],
-    // token, begin, owner lock, the look, its update, commit.
-    ['update_look', () => ({ lookId: ids.look, note: 'Statements' }), 6],
     ['get_sizes', () => ({}), 3],
-    ['get_shopping_list', () => ({}), 5],
+    // Muse's (#337). The closet, as a plan's gap view read it.
+    ['get_closet_coverage', () => ({ targets: [{ category: 'tops' }] }), 2],
+    // The inbox's one statement (readInbox) and the Outfits tab's Muse
+    // outfits beside it, in parallel.
+    ['list_suggestions', () => ({}), 3],
+    // Every list and the cursor's move in one statement.
+    ['get_suggestion_feedback', () => ({}), 2],
+    // begin, owner lock, the lookup and insert in one, commit.
+    ['create_option_group', () => ({ name: `Statements need ${++needs}` }), 5],
+    // The room and the links read before the fetch (one), the link
+    // import's own (add_garment_from_link's, its garment's transaction
+    // holding markSuggestedProduct's savepoint, lock, links read again and
+    // mark), the garment read back.
     [
-      'add_candidate',
-      () => ({ itemId: ids.planItem, garmentId: ids.wishlist }),
-      11,
+      'suggest_garment',
+      () => ({ url: product(), groupId: ids.need, note: 'Statements' }),
+      18,
     ],
-    // After add_candidate, which links the wishlist item: token, the item,
-    // begin, owner lock, the item and garment locks, the update, commit, and
-    // the candidate read back.
+    // create_outfit's: the garments, begin, owner lock, the outfit, its
+    // slots, commit.
     [
-      'update_candidate',
-      () => ({
-        itemId: ids.planItem,
-        garmentId: ids.wishlist,
-        note: 'Statements',
-        rank: 1,
-      }),
-      9,
+      'suggest_outfit',
+      () => ({ garmentIds: lookSet(), note: 'Statements' }),
+      7,
     ],
-    ['compare_plans', () => ({ a: ids.plan, b: ids.plan }), 4],
   ];
 
   it.each(cases)('%s', async (name, args, expected) => {
@@ -383,7 +365,10 @@ describe('MCP statements per tool (#172)', () => {
     const listed = res
       .json<{ result: { tools: { name: string }[] } }>()
       .result.tools.map((tool) => tool.name);
-    expect(new Set(cases.map(([name]) => name))).toEqual(new Set(listed));
+    // The plans' retired names refuse every call (mcp-muse.spec.ts): nothing to count.
+    expect(new Set(cases.map(([name]) => name))).toEqual(
+      new Set(listed.filter((name) => !RETIRED_TOOLS.includes(name))),
+    );
   });
 
   describe('the reads #172 dropped', () => {

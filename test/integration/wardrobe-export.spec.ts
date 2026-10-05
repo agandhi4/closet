@@ -186,6 +186,7 @@ describe('the wardrobe export', () => {
         dismissedAt: new Date('2026-10-04T18:00:00.000Z'),
         dismissedReason: 'returned',
         dismissedNote: 'Too short',
+        boughtAt: new Date('2026-10-03T12:00:00.000Z'),
       })
       .where(eq(garment.id, fullId));
     const [photo] = await t.db

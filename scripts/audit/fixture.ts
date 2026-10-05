@@ -212,6 +212,8 @@ export interface Fixture {
   today: () => string;
   /** The shop's product page, for the link import. */
   productUrl: string;
+  /** Another link to the same product page each call: suggest_garment refuses a link twice (#337). */
+  newProductUrl: () => string;
   /** The order mail's review list (#25) and its poll's inbox. */
   orders: OrderReview;
   /** A push endpoint of Theo's phone, subscribed, with both reminders on. */
@@ -315,6 +317,8 @@ function stubPushServices(): void {
   webpush.sendNotification = () =>
     Promise.resolve({ statusCode: 201, body: '', headers: {} });
 }
+
+let museProducts = 0;
 
 function productPage(image: string): string {
   return `<html><head><script type="application/ld+json">${JSON.stringify({
@@ -553,6 +557,11 @@ export async function createFixture(options: {
       timeZone: config.APP_TIMEZONE,
       today,
       productUrl: shop.url('/products/tee'),
+      newProductUrl: () => {
+        const path = `/products/tee?muse=${++museProducts}`;
+        shop.serve(path, html(productPage(shop.url('/img/tee.jpg'))));
+        return shop.url(path);
+      },
       orders: {
         ...review,
         deliver: () => {

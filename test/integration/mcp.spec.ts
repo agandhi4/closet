@@ -234,9 +234,12 @@ describe('the MCP endpoint', () => {
       }>();
       expect(result.serverInfo.name).toBe('Closet');
       expect(result.instructions).toContain('nothing deletes');
-      // The styling workflow (#269): the agent drafts its own plan.
-      expect(result.instructions).toContain('create_plan');
-      expect(result.instructions).toContain('Never assume a purchase');
+      // The styling workflow (#269; Muse's since #337): feedback first,
+      // and the owner buys.
+      expect(result.instructions).toContain(
+        'Start every conversation with get_suggestion_feedback',
+      );
+      expect(result.instructions).toContain('never buy');
     });
 
     it('lists every tool; each write says it writes and none is destructive', async () => {
@@ -257,10 +260,12 @@ describe('the MCP endpoint', () => {
           'add_garment_from_link',
           'compare_plans',
           'compare_with_shared_wardrobe',
+          'create_option_group',
           'create_outfit',
           'create_plan',
           'get_calendar',
           'get_capsule',
+          'get_closet_coverage',
           'get_garment',
           'get_garment_photo',
           'get_outfit',
@@ -269,6 +274,7 @@ describe('the MCP endpoint', () => {
           'get_shopping_list',
           'get_sizes',
           'get_style_profile',
+          'get_suggestion_feedback',
           'get_today',
           'get_trip',
           'get_wardrobe',
@@ -279,6 +285,7 @@ describe('the MCP endpoint', () => {
           'list_outfits',
           'list_plans',
           'list_shared_wardrobes',
+          'list_suggestions',
           'list_trips',
           'list_wishlist',
           'mark_washed',
@@ -291,6 +298,8 @@ describe('the MCP endpoint', () => {
           'schedule_outfit',
           'search_garments',
           'set_capsule_membership',
+          'suggest_garment',
+          'suggest_outfit',
           'suggest_outfits',
           'update_garment',
           'update_candidate',

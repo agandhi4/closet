@@ -31,10 +31,6 @@ import { capsulesOfGarmentSql, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
 import { t } from '../../i18n';
 import { publicPhoto } from '../../files/references';
-import {
-  linkNewCandidate,
-  MAX_CANDIDATES_PER_ITEM,
-} from '../../plans/candidates';
 import { normalizeCategory, normalizeSize } from '../../wardrobe/garment';
 import {
   findGarment,
@@ -46,7 +42,6 @@ import {
   setCondition,
   updateGarmentProperties,
 } from '../../wardrobe/queries';
-import { resolveCandidateFor } from '../../wardrobe/destination';
 import { GRID_PAGE_SIZE } from '../../wardrobe/grid-page-size';
 import { addCopies, closetLookalikes } from '../../wardrobe/lookalikes';
 import { repairLogSql } from '../../wardrobe/repairs';
@@ -74,13 +69,9 @@ import {
   type ToolContext,
   wardrobeFor,
 } from '../tool';
-import {
-  candidateNoteInput,
-  candidateRankInput,
-  ownerIdInput,
-  rowId,
-} from './common';
+import { ownerIdInput, rowId } from './common';
 import { addGarmentFromLink } from './link-import';
+import { retiredMessage } from './retired';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
 
@@ -201,7 +192,7 @@ async function garmentIn(ctx: ToolContext, id: number, ownerId: number) {
 }
 
 /** A type only with its own category, as the grid (gridSearch) allows it. */
-function checkedType(category: string, type: string): string {
+export function checkedType(category: string, type: string): string {
   const found = findType(category, type);
   if (!found) {
     const types = typesOf(category).map((t) => t.value);
@@ -731,7 +722,7 @@ export const garmentTools = [
     name: 'add_garment_from_link',
     title: 'Add a garment from a product link',
     description:
-      "WRITES: fetches a product page (or an image link), extracts the name, brand, colours, category, type, materials, price and first photo as the app's link import does, and saves the garment (the photo's background removal follows). Lands on the wishlist unless `destination` is `closet`: a product link is usually something being considered, and the owner moves it to the closet with \"Bought it\" in the app. Say `closet` only for something already owned. Give `category` when the page does not make it clear; any field given overrides the extraction. Saved to the closet, the answer's `lookalikes` are closet garments that look like the same product (same category, type and colours, no other brand): if there are any, ask the owner whether it is another copy of one; if so they delete the new garment in the app, and add_garment_copy counts the copy. Needs your own wardrobe or a MANAGE share. Rate limited: 10 imports a minute. A product for one of your plan items is a candidate for it: use add_candidate, or pass planItemId here, so the owner sees it under the item (a wishlist garment linked to no item is not part of the plan).",
+      "WRITES: fetches a product page (or an image link), extracts the name, brand, colours, category, type, materials, price and first photo as the app's link import does, and saves the garment (the photo's background removal follows). Lands on the wishlist unless `destination` is `closet`: a product link is usually something being considered, and the owner moves it to the closet with \"Bought it\" in the app. Say `closet` only for something already owned. Give `category` when the page does not make it clear; any field given overrides the extraction. Saved to the closet, the answer's `lookalikes` are closet garments that look like the same product (same category, type and colours, no other brand): if there are any, ask the owner whether it is another copy of one; if so they delete the new garment in the app, and add_garment_copy counts the copy. Needs your own wardrobe or a MANAGE share. Rate limited: 10 imports a minute. A product you suggest to the owner for a need is suggest_garment's, not this tool's.",
     input: z.object({
       url: z.url({ protocol: /^https?$/ }).max(2048),
       ownerId: ownerIdInput,
@@ -749,21 +740,14 @@ export const garmentTools = [
       type: z.string().max(40).optional(),
       size: z.string().max(40).optional(),
       notes: z.string().max(4000).optional(),
-      planItemId: rowId()
+      // Retired with plans (#337): given, the call is refused, never
+      // silently saved unlinked.
+      planItemId: z
+        .unknown()
         .optional()
-        .describe(
-          `A plan item of yours (get_plan_gaps) this product is an option for: linked as its candidate, as add_candidate does. On your own wishlist only; refused past ${MAX_CANDIDATES_PER_ITEM} candidates or on a declined item.`,
-        ),
-      candidateNote: candidateNoteInput
-        .optional()
-        .describe(
-          'With planItemId: why this option fits the item (add_candidate’s note).',
-        ),
-      candidateRank: candidateRankInput
-        .optional()
-        .describe(
-          'With planItemId: your place for it among the item’s options, 1 your pick (add_candidate’s rank).',
-        ),
+        .describe('RETIRED: use suggest_garment.'),
+      candidateNote: z.unknown().optional().describe('RETIRED.'),
+      candidateRank: z.unknown().optional().describe('RETIRED.'),
     }),
     writes: true,
     idempotent: false,
@@ -771,52 +755,25 @@ export const garmentTools = [
     async run(args, ctx) {
       const access = await wardrobeFor(ctx, args.ownerId, 'manage');
       if (
-        args.planItemId === undefined &&
-        (args.candidateNote !== undefined || args.candidateRank !== undefined)
+        args.planItemId !== undefined ||
+        args.candidateNote !== undefined ||
+        args.candidateRank !== undefined
       ) {
         throw new HttpError(
-          400,
-          'candidateNote and candidateRank go with planItemId',
+          410,
+          retiredMessage(
+            'planItemId',
+            'suggest_garment with a groupId from create_option_group',
+          ),
         );
       }
-      if (args.planItemId !== undefined && args.destination !== 'wishlist') {
-        throw new HttpError(
-          400,
-          'A plan item’s candidate goes on the wishlist',
-        );
-      }
-      // Before the fetch, as the link import page refuses it: another
-      // user's item or one in a shared wardrobe is a 404, a full or a
-      // declined item its own refusal (add_candidate's).
-      const candidateFor =
-        args.planItemId === undefined
-          ? undefined
-          : await resolveCandidateFor(ctx.db, args.planItemId, access);
       if (!(await ctx.allowLinkImport())) {
         throw new HttpError(
           429,
           'Too many link imports: try again in a minute',
         );
       }
-      // The link is written in the garment's transaction (linkNewCandidate:
-      // an item deleted during the fetch rolls the garment back).
-      const saved = await addGarmentFromLink(
-        ctx,
-        access,
-        args,
-        candidateFor && {
-          withGarment: (tx, garmentId) =>
-            linkNewCandidate(tx, access.ownerId, candidateFor.id, garmentId, {
-              note: args.candidateNote ?? null,
-              rank: args.candidateRank ?? null,
-            }),
-        },
-      );
-      if (candidateFor) {
-        ctx.webLogger.info(
-          `Garment ${saved.id} added as a candidate for plan item ${candidateFor.id} by user ${ctx.userId} (MCP, add_garment_from_link)`,
-        );
-      }
+      const saved = await addGarmentFromLink(ctx, access, args);
       const garment = await garmentIn(ctx, saved.id, access.ownerId);
       // The garment form's duplicate check (#20), after the fact: a tool
       // call has no form to ask on before saving.
@@ -837,7 +794,6 @@ export const garmentTools = [
       return {
         garment: await garmentOut(ctx, garment, access.ownerId, access.isOwner),
         notices: saved.notices,
-        ...(candidateFor && { candidateFor: { planItemId: candidateFor.id } }),
         ...(garment.status === 'closet' && {
           lookalikes: lookalikes.map(({ id, name, category, quantity }) => ({
             id,

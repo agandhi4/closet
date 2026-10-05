@@ -97,46 +97,6 @@ describe('MCP over the seed personas', () => {
     ).toBe(true);
   });
 
-  it('answers Theo’s shopping list: his two gaps with their wishlist candidates, within budget', async () => {
-    const list = await tool<{
-      plan: { name: string };
-      items: {
-        name: string;
-        status: string;
-        toBuy: number;
-        candidates: { name: string; budget: string; matches: boolean }[];
-      }[];
-      totals: { pieces: number; cheapestCandidates: string };
-    }>(t, demoToken, 'get_shopping_list');
-    expect(list.plan.name).toBe('NYC minimal');
-    expect(
-      list.items.map((item) => [
-        item.name,
-        item.status,
-        item.toBuy,
-        item.candidates.map((c) => [c.name, c.budget, c.matches]),
-      ]),
-    ).toEqual([
-      [
-        'Grey merino crewneck',
-        'missing',
-        1,
-        [['New grey merino crewneck', 'within', true]],
-      ],
-      [
-        'Brown padded shirt jacket',
-        'missing',
-        1,
-        [['Padded shirt jacket', 'within', true]],
-      ],
-      ['Oxford shirt', 'partly', 1, []],
-    ]);
-    expect(list.totals).toMatchObject({
-      pieces: 3,
-      cheapestCandidates: '139.80',
-    });
-  });
-
   it('judges each of Theo’s wishlist items against his closet (#18b)', async () => {
     interface Answer {
       outfits: { count: number; capped: boolean; cap: number };

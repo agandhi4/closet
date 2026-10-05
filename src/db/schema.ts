@@ -307,6 +307,10 @@ export const personalAccessToken = pgTable(
     // Written at most once a minute per token (authenticateToken).
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    // get_suggestion_feedback's "since the last call" (#337): the agent's
+    // cursor over the owner's decisions, null before its first call.
+    // Written only by readSuggestionFeedback (src/web/wishlist/feedback.ts).
+    feedbackReadAt: timestamp('feedback_read_at', { withTimezone: true }),
   },
   (table) => [
     unique('personal_access_token_token_hash_unique').on(table.tokenHash),
@@ -552,6 +556,11 @@ export const garment = pgTable(
     dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
     dismissedReason: text('dismissed_reason').$type<DismissReason>(),
     dismissedNote: text('dismissed_note'),
+    // When "Bought it" moved it off the wishlist (#337: a purchase the
+    // agent hears of since its last feedback call; acquired_on is the day
+    // the owner says, which may be any day). Written only by
+    // setGarmentStatus's buy; null for anything bought before 0042.
+    boughtAt: timestamp('bought_at', { withTimezone: true }),
   },
   (table) => [
     check(

@@ -19,7 +19,6 @@ import type { GarmentStatus } from '../../src/wardrobe/status';
 import { recordStatements } from '../support/query-recorder';
 import { createTestApp, type TestApp, unescapeHtml } from './harness';
 import { interleave } from './interleave';
-import { createAccessToken, tool } from './mcp';
 import { expectFullPage } from './pages';
 
 /**
@@ -28,7 +27,7 @@ import { expectFullPage } from './pages';
  * link it leaves (plan_look.outfit_id: cleared by the outfit's delete and
  * by an agent's new set of pieces, never changing the outfit), the Bought
  * it result listing the looks a purchase completed, "In N looks" on the
- * candidate strips, and list_looks' outfitId. The matrix row is in
+ * candidate strips. The matrix row is in
  * authorization-plans.spec.ts; the 390 px flow, test/look-to-outfit.spec.ts.
  */
 describe('looks become outfits', () => {
@@ -371,15 +370,6 @@ describe('looks become outfits', () => {
       expect(res.headers.location).toBe(
         `/outfits/${f.outfitId}?alreadySaved=1`,
       );
-    });
-
-    it('list_looks reports outfitId', async () => {
-      const f = await savedLook();
-      const token = await createAccessToken(t, { name: `Agent ${++seq}` });
-      const { looks } = await tool<{
-        looks: { id: number; outfitId: number | null }[];
-      }>(t, token, 'list_looks', { planId: f.planId });
-      expect(looks.find((l) => l.id === f.lookId)?.outfitId).toBe(f.outfitId);
     });
   });
 

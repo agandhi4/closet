@@ -58,6 +58,8 @@ export interface Page {
   type: string;
   body: string | Buffer;
   headers?: Record<string, string>;
+  /** Runs before the page is answered: what happens while the app is fetching it. */
+  meanwhile?: () => Promise<void>;
 }
 
 export interface LinkSites {
@@ -83,11 +85,18 @@ export async function startLinkSites(): Promise<LinkSites> {
       res.end('not found');
       return;
     }
-    res.writeHead(page.status ?? 200, {
-      'content-type': page.type,
-      ...page.headers,
+    const answer = () => {
+      res.writeHead(page.status ?? 200, {
+        'content-type': page.type,
+        ...page.headers,
+      });
+      res.end(page.body);
+    };
+    if (!page.meanwhile) return answer();
+    page.meanwhile().then(answer, (error: unknown) => {
+      res.writeHead(500, { 'content-type': 'text/plain' });
+      res.end(String(error));
     });
-    res.end(page.body);
   };
   const server: Server = createServer(handler);
   await new Promise<void>((done, fail) => {

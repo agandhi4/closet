@@ -289,6 +289,8 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       dismissed_at: 'timestamp with time zone',
       dismissed_reason: 'text',
       dismissed_note: 'text',
+      // 0042_muse-feedback: when Bought it moved it to the closet (#337).
+      bought_at: 'timestamp with time zone',
     });
     expect(Object.keys(await columnsOf(env, 'user')).sort()).toEqual([
       'email',

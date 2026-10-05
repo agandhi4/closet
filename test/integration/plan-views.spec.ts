@@ -1,7 +1,11 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { personalAccessToken } from '../../src/db/schema';
 import { changeCandidates } from '../../src/web/plans/candidates';
+import { proposeLook } from '../../src/web/plans/looks';
+import { addItems, createPlan as draftPlan } from '../../src/web/plans/queries';
 import { createTestApp, type TestApp, unescapeHtml } from './harness';
-import { createAccessToken, tool } from './mcp';
+import { createAccessToken } from './mcp';
 
 /**
  * The plan page's views (#312): Items (by type, a trimmed card with one
@@ -11,7 +15,7 @@ import { createAccessToken, tool } from './mcp';
  */
 describe('the plan page views', () => {
   let t: TestApp;
-  let token: string;
+  let tokenId: number;
   let seq = 0;
 
   const get = (url: string) => t.inject({ method: 'GET', url });
@@ -51,6 +55,41 @@ describe('the plan page views', () => {
     );
   };
 
+  /** An item the agent proposed, as propose_plan_item wrote one until #337. */
+  const propose = async (planId: number, category: string) =>
+    (await addItems(
+      t.db,
+      t.owner.id,
+      planId,
+      [
+        {
+          name: null,
+          category,
+          type: null,
+          colors: null,
+          materials: null,
+          warmthMin: null,
+          warmthMax: null,
+          formalityMin: null,
+          formalityMax: null,
+          quantity: 1,
+          priority: 'medium',
+          budget: null,
+          note: null,
+        },
+      ],
+      { review: 'proposed' },
+    ))![0];
+
+  /** The agent's draft, as create_plan wrote one until #337. */
+  const draft = async (name: string) => {
+    const id = await draftPlan(t.db, t.owner.id, { name, notes: null }, [], {
+      draftedByTokenId: tokenId,
+    });
+    if (id === 'name-taken') throw new Error(`Plan ${name} exists`);
+    return id;
+  };
+
   /** An item's card and its sheet, as the page draws them. */
   const cardOf = (html: string, itemId: number) => {
     const start = html.indexOf(`id="plan-item-${itemId}"`);
@@ -63,7 +102,12 @@ describe('the plan page views', () => {
 
   beforeAll(async () => {
     t = await createTestApp();
-    token = await createAccessToken(t, { name: 'Muse' });
+    await createAccessToken(t, { name: 'Muse' });
+    const [token] = await t.db
+      .select({ id: personalAccessToken.id })
+      .from(personalAccessToken)
+      .where(eq(personalAccessToken.userId, t.owner.id));
+    tokenId = token.id;
   });
 
   afterAll(async () => {
@@ -169,15 +213,7 @@ describe('the plan page views', () => {
     it('counts declined items in the Items tab', async () => {
       const planId = await createPlan('Declined count');
       await addItem(planId, { category: 'tops' });
-      const proposed = await tool<{ id: number }>(
-        t,
-        token,
-        'propose_plan_item',
-        {
-          planId,
-          category: 'shoes',
-        },
-      );
+      const proposed = { id: await propose(planId, 'shoes') };
       const before = await page(`/wardrobe/plans/${planId}`);
       expect(before).toContain('aria-label="Items 2"');
       const res = await post(
@@ -212,36 +248,31 @@ describe('the plan page views', () => {
 
   describe('a draft with only proposals', () => {
     it('counts them on the list card and in the header, with no zero tally', async () => {
-      const draft = await tool<{ id: number }>(t, token, 'create_plan', {
-        name: 'Agent draft',
-      });
+      const planId = await draft('Agent draft');
       for (const category of ['tops', 'shoes']) {
-        await tool(t, token, 'propose_plan_item', {
-          planId: draft.id,
-          category,
-        });
+        await propose(planId, category);
       }
       const list = await page('/wardrobe/plans');
       expect(list).toContain('2 proposed · 0 looks');
       expect(list).not.toMatch(
         /Agent draft[\s\S]*?0 items · 0 looks · 0 to buy/,
       );
-      const header = await page(`/wardrobe/plans/${draft.id}`);
+      const header = await page(`/wardrobe/plans/${planId}`);
       expect(header).not.toContain('0 owned');
       expect(header).toContain('2 proposed by your agent');
     });
 
     it('counts a draft holding only proposed looks as awaiting, not "0 items"', async () => {
-      const draft = await tool<{ id: number }>(t, token, 'create_plan', {
-        name: 'Look-only draft',
-      });
+      const planId = await draft('Look-only draft');
       const tee = await addGarment({ category: 'tops', type: 't-shirt' });
       const shoe = await addGarment({ category: 'footwear', type: 'boots' });
-      await tool(t, token, 'propose_look', {
-        planId: draft.id,
-        name: 'Proposed look',
-        garmentIds: [tee, shoe],
-      });
+      await proposeLook(
+        t.db,
+        t.owner.id,
+        planId,
+        { name: 'Proposed look', occasion: null, note: null },
+        [tee, shoe],
+      );
       const list = await page('/wardrobe/plans');
       const card = list.slice(list.indexOf('Look-only draft'));
       expect(card).toContain('1 proposed');

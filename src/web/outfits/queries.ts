@@ -601,6 +601,8 @@ export function sameGarmentsOutfit(
         sql<boolean>`(${outfit.proposedAt} is not null and ${outfit.reaction} <> 'loved')`.as(
           'pending',
         ),
+      // Null for the owner's own: what a proposal meeting it answers (proposeOutfit).
+      reaction: outfit.reaction,
     })
     .from(outfit)
     .innerJoin(outfitSlot, eq(outfitSlot.outfitId, outfit.id))
@@ -623,17 +625,29 @@ export function sameGarmentsOutfit(
  * outfit form's empty outfit) there is nothing to be the same as: a plain
  * insert.
  */
+/** The agent's mark on an outfit it proposes (proposeOutfit): its token and its note. */
+export interface OutfitProposalInput {
+  tokenId: number;
+  note: string | null;
+}
+
+/** insertOutfitOnce's row: the outfit inserted, or the one the garments already were. A type, as a raw row (execute). */
+type OutfitOnce = {
+  id: number;
+  name: string | null;
+  existing: boolean;
+  pending: boolean;
+  /** An existing outfit's reaction: null for the owner's own (never proposed). */
+  reaction: LookReaction | null;
+};
+
 async function insertOutfitOnce(
   tx: Queryable,
   ownerId: number,
   fields: { name: string | null; notes: string | null },
   garmentIds: readonly number[],
-): Promise<{
-  id: number;
-  name: string | null;
-  existing: boolean;
-  pending: boolean;
-}> {
+  proposal?: OutfitProposalInput,
+): Promise<OutfitOnce> {
   // Share links address outfits by this (the /share page).
   const shareableId = randomUUID();
   if (garmentIds.length === 0) {
@@ -641,24 +655,23 @@ async function insertOutfitOnce(
       .insert(outfit)
       .values({ shareableId, ownerId, ...fields })
       .returning({ id: outfit.id, name: outfit.name });
-    return { ...created, existing: false, pending: false };
+    return { ...created, existing: false, pending: false, reaction: null };
   }
-  const { rows } = await tx.execute<{
-    id: number;
-    name: string | null;
-    existing: boolean;
-    pending: boolean;
-  }>(sql`
+  // A proposal is inserted marked (proposals.ts), waiting on the owner.
+  const marked = proposal
+    ? sql`now(), ${proposal.tokenId}::int, ${proposal.note}::text, 'proposed'`
+    : sql`null, null, null, null`;
+  const { rows } = await tx.execute<OutfitOnce>(sql`
     with existing as (${sameGarmentsOutfit(tx, ownerId, garmentIds)}),
     created as (
-      insert into ${outfit} (shareable_id, owner_id, name, notes)
-      select ${shareableId}::varchar, ${ownerId}::int, ${fields.name}::text, ${fields.notes}::text
+      insert into ${outfit} (shareable_id, owner_id, name, notes, proposed_at, proposed_by_token_id, proposal_note, reaction)
+      select ${shareableId}::varchar, ${ownerId}::int, ${fields.name}::text, ${fields.notes}::text, ${marked}
       where not exists (select from existing)
       returning id, name
     )
-    select id, name, false as existing, false as pending from created
+    select id, name, false as existing, false as pending, null as reaction from created
     union all
-    select id, name, true as existing, pending from existing`);
+    select id, name, true as existing, pending, reaction from existing`);
   return rows[0];
 }
 
@@ -721,6 +734,70 @@ export function createOutfit(
       alreadySaved: false,
       adoptedProposal: false,
       adopted: false,
+    };
+  });
+}
+
+export type ProposeOutcome =
+  | { ok: true; id: number; slots: number }
+  /** These garments were proposed already and not set aside (its reaction: proposed, sent back or loved): nothing written. */
+  | { ok: true; id: number; alreadyProposed: LookReaction }
+  /** The garments are an outfit of the owner's own: nothing to propose. */
+  | { ok: false; reason: 'owners'; id: number }
+  /** The owner set a proposal of these garments aside: never proposed again. */
+  | {
+      ok: false;
+      reason: 'declined';
+      id: number;
+      dismissedReason: OutfitDismissReason | null;
+    };
+
+/**
+ * The agent's outfit (suggest_outfit, #337): createOutfit's save, once per
+ * garment set, marked as a proposal waiting on the owner (outfit.proposed_at,
+ * its token and note, reaction `proposed`), never planned. What a slot may
+ * name is insertSlots' rule as for any save (closet garments, and picks
+ * offered to style with: a new outfit is held by nothing). When the
+ * garments are an outfit already, nothing is written and the answer says
+ * whose: a proposal not set aside is the answer (a retry creates nothing),
+ * the owner's own or one they set aside is refused; a proposal is never
+ * adopted here, only by a person's save (reuseOutfit). Under the owner
+ * lock, as createOutfit.
+ */
+export function proposeOutfit(
+  db: Queryable,
+  ownerId: number,
+  input: { name: string | null; slots: SlotInput[] },
+  proposal: OutfitProposalInput,
+): Promise<ProposeOutcome> {
+  return ownerTransaction(db, ownerId, 'proposeOutfit', async (tx) => {
+    const garmentIds = input.slots.flatMap((slot) => slot.garmentId ?? []);
+    const saved = await insertOutfitOnce(
+      tx,
+      ownerId,
+      { name: input.name, notes: null },
+      garmentIds,
+      proposal,
+    );
+    if (!saved.existing) {
+      await insertSlots(tx, saved.id, ownerId, input.slots);
+      return { ok: true, id: saved.id, slots: input.slots.length };
+    }
+    if (saved.reaction === null) {
+      return { ok: false, reason: 'owners', id: saved.id };
+    }
+    if (saved.reaction !== 'declined') {
+      return { ok: true, id: saved.id, alreadyProposed: saved.reaction };
+    }
+    const [declined] = await tx
+      .select({ reason: outfit.dismissedReason })
+      .from(outfit)
+      .where(eq(outfit.id, saved.id));
+    return {
+      ok: false,
+      reason: 'declined',
+      id: saved.id,
+      dismissedReason: declined.reason,
     };
   });
 }

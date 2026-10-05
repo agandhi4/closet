@@ -37,10 +37,12 @@ export interface LinkOverrides {
   category?: string;
   type?: string;
   size?: string;
+  /** The listed price, '149.00' (the form's own field: it validates it). */
+  price?: string;
   notes?: string;
 }
 
-/** More rows the save writes with the garment (add_candidate's link, 34b). */
+/** More rows the save writes with the garment (suggest_garment's provenance, #337). */
 export interface LinkSaveOptions {
   withGarment?: WithGarment;
 }
@@ -58,8 +60,9 @@ export interface LinkSaveOptions {
  * kept, and the garment page changes it.
  *
  * Lands where the caller says (add_garment_from_link defaults to the
- * wishlist, #18). add_candidate (34b) saves through it too, its candidate
- * link written in the garment's transaction (`withGarment`).
+ * wishlist, #18). suggest_garment (#337) saves through it too, the
+ * suggestion's provenance written in the garment's transaction
+ * (`withGarment`: markSuggestion, whose refusal rolls the garment back).
  */
 export async function addGarmentFromLink(
   ctx: ToolContext,
@@ -105,11 +108,30 @@ export async function addGarmentFromLink(
     );
     throw new HttpError(400, messages.join('; '));
   }
-  const id = await saveImported(deps, ownerId, ctx.userId, read.fields, {
-    photo,
-    destination: overrides.destination,
-    withGarment,
-  });
+  let id: number | undefined;
+  try {
+    id = await saveImported(deps, ownerId, ctx.userId, read.fields, {
+      photo,
+      destination: overrides.destination,
+      withGarment,
+    });
+  } catch (error) {
+    // A refusal from `withGarment` (suggest_garment's mark) rolled the
+    // garment back: its photo is nobody's, like a refused form's. A
+    // failed discard is logged; the refusal is still the answer.
+    if (photo) {
+      await discardPendingPhoto(deps, photo, {
+        userId: ctx.userId,
+        ownerId,
+      }).catch((discardError: unknown) => {
+        ctx.webLogger.error(
+          { err: discardError },
+          `Pending photo ${photo} of user ${ctx.userId} not discarded after a refused save (MCP)`,
+        );
+      });
+    }
+    throw error;
+  }
   if (id === undefined) {
     // Claimed or evicted between the import and the save (the same user's
     // tenth import meanwhile): nothing was written.
@@ -172,6 +194,7 @@ function withOverrides(
     name: overrides.name ?? values.name,
     category,
     size: overrides.size ?? values.size,
+    price: overrides.price ?? values.price,
     notes: overrides.notes ?? values.notes,
     replaces:
       overrides.replacesGarmentId === undefined

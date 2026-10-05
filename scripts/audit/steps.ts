@@ -2,7 +2,8 @@ import { readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { and, desc, eq, isNotNull, ne } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
-import { proposeLook } from '../../src/web/plans/looks';
+import { addItems } from '../../src/web/plans/queries';
+import { createOptionGroup } from '../../src/web/wishlist/decisions';
 import { multipart } from '../../test/support/multipart';
 import {
   ACCOUNT_PASSWORD,
@@ -184,7 +185,7 @@ function mcpRefusal(body: string): string | undefined {
 
 let mcpCall = 0;
 let mcpTool = 0;
-let auditDrafts = 0;
+let auditNeeds = 0;
 
 /** One tool, called as Claude Code calls it: a token, JSON-RPC, no cookie or Origin. */
 function mcp<P = undefined>(
@@ -2352,7 +2353,7 @@ const writes: Step[] = [
     kind: 'action',
     route: 'POST /wardrobe/plans/:id/items/:itemId/accept',
     prepare: async (f) => {
-      await f.send(proposeItem(f), 200);
+      await proposeItem(f);
       return newestPlanItem(f);
     },
     request: (f, id: number) =>
@@ -2365,7 +2366,7 @@ const writes: Step[] = [
     kind: 'page',
     route: 'GET /wardrobe/plans/:id/items/:itemId/change',
     prepare: async (f) => {
-      await f.send(proposeItem(f), 200);
+      await proposeItem(f);
       return newestPlanItem(f);
     },
     request: (f, id: number) =>
@@ -2378,7 +2379,7 @@ const writes: Step[] = [
     kind: 'action',
     route: 'POST /wardrobe/plans/:id/items/:itemId/change',
     prepare: async (f) => {
-      await f.send(proposeItem(f), 200);
+      await proposeItem(f);
       return newestPlanItem(f);
     },
     request: (f, id: number) =>
@@ -2393,7 +2394,7 @@ const writes: Step[] = [
     kind: 'action',
     route: 'POST /wardrobe/plans/:id/items/:itemId/decline',
     prepare: async (f) => {
-      await f.send(proposeItem(f), 200);
+      await proposeItem(f);
       return newestPlanItem(f);
     },
     request: (f, id: number) =>
@@ -2406,7 +2407,7 @@ const writes: Step[] = [
     kind: 'action',
     route: 'POST /wardrobe/plans/:id/items/:itemId/reconsider',
     prepare: async (f) => {
-      await f.send(proposeItem(f), 200);
+      await proposeItem(f);
       const id = await newestPlanItem(f);
       await f.send(
         post(`/wardrobe/plans/${f.ids.planId}/items/${id}/decline`),
@@ -3157,49 +3158,52 @@ const tools: Step[] = [
   mcp('list_shared_wardrobes', () => ({})),
   mcp('compare_with_shared_wardrobe', (f) => ({ ownerId: f.ids.dana.id })),
   mcp('get_style_profile', () => ({})),
-  mcp('list_plans', () => ({})),
-  // A name per run: the repeat of a taken name is refused (#269).
-  mcp('create_plan', () => ({ name: `Audit draft ${++auditDrafts}` })),
-  mcp('get_plan_gaps', () => ({})),
-  mcp('get_plan_feedback', () => ({})),
-  mcp('propose_plan_item', () => ({
-    category: 'tops',
-    name: 'Audit proposal',
+  mcp('get_sizes', () => ({})),
+  // Muse's (#337).
+  mcp('get_closet_coverage', () => ({
+    targets: [{ category: 'tops' }, { category: 'footwear', type: 'boots' }],
   })),
-  mcp('update_plan_item', (f) => ({
-    itemId: f.ids.planItemId,
-    category: 'tops',
+  mcp('list_suggestions', () => ({})),
+  mcp('get_suggestion_feedback', () => ({})),
+  // A name per run: an open need's name is refused.
+  mcp('create_option_group', () => ({
+    name: `Audit need ${++auditNeeds}`,
+    budget: 120,
   })),
-  // The looks (#290): the base look the update changes is the proposal's.
-  mcp('list_looks', () => ({})),
-  mcp('propose_look', (f) => ({
-    planId: f.ids.planId,
-    name: 'Audit look',
-    garmentIds: [f.ids.garmentId, f.ids.wishlistId],
-  })),
+  // A need and a link of their own each run: a need holds 5 options, and
+  // a link is suggested once.
   mcp(
-    'update_look',
-    (f, lookId: number) => ({ lookId, note: 'Audit revision' }),
+    'suggest_garment',
+    (f, groupId: number) => ({
+      url: f.newProductUrl(),
+      groupId,
+      note: 'Audit option',
+      rank: 1,
+    }),
     {
-      prepare: async (f) =>
-        (
-          await proposeLook(
-            f.closet.db,
-            f.theo.id,
-            f.ids.planId,
-            { name: 'Audit base look', occasion: null, note: null },
-            [f.ids.otherGarmentId, f.ids.wishlistId],
-          )
-        ).id,
+      runs: 8,
+      warmup: 1,
+      prepare: async (f) => {
+        const need = await createOptionGroup(f.closet.db, f.theo.id, {
+          name: `Audit need ${++auditNeeds}`,
+          budget: null,
+          note: null,
+          tokenId: null,
+        });
+        if (!need.ok) throw new Error('The audit need exists');
+        return need.id;
+      },
     },
   ),
-  mcp('get_sizes', () => ({})),
-  mcp('get_shopping_list', () => ({})),
-  mcp('add_candidate', (f) => ({
-    itemId: f.ids.planItemId,
-    garmentId: f.ids.wishlistId,
-  })),
-  mcp('compare_plans', (f) => ({ a: f.ids.planId, b: f.ids.planId })),
+  // A garment of its own each run: one set is proposed once.
+  mcp(
+    'suggest_outfit',
+    (f, garmentId: number) => ({
+      garmentIds: [garmentId, f.ids.wishlistId],
+      note: 'Audit outfit',
+    }),
+    { prepare: (f) => newGarment(f, 'Audit proposal') },
+  ),
 ];
 
 // --- jobs (#173) ----------------------------------------------------------
@@ -3477,31 +3481,31 @@ function newestPlanItem(f: Fixture): Promise<number> {
   );
 }
 
-/** An MCP proposal: the one way an item is `proposed` (accept's input). */
-function proposeItem(f: Fixture): AuditRequest {
-  return {
-    method: 'POST',
-    url: '/mcp',
-    as: null,
-    sameOrigin: false,
-    headers: {
-      accept: 'application/json, text/event-stream',
-      authorization: `Bearer ${f.mcpTokens[0]}`,
-    },
-    json: {
-      jsonrpc: '2.0',
-      id: ++mcpCall,
-      method: 'tools/call',
-      params: {
-        name: 'propose_plan_item',
-        arguments: {
-          planId: f.ids.planId,
-          category: 'tops',
-          name: 'Proposed by the audit',
-        },
+/** An agent's proposal (accept's input), as propose_plan_item wrote one until #337. */
+async function proposeItem(f: Fixture): Promise<void> {
+  await addItems(
+    f.closet.db,
+    f.theo.id,
+    f.ids.planId,
+    [
+      {
+        name: 'Proposed by the audit',
+        category: 'tops',
+        type: null,
+        colors: null,
+        materials: null,
+        warmthMin: null,
+        warmthMax: null,
+        formalityMin: null,
+        formalityMax: null,
+        quantity: 1,
+        priority: 'medium',
+        budget: null,
+        note: null,
       },
-    },
-  };
+    ],
+    { review: 'proposed' },
+  );
 }
 
 /**

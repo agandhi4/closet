@@ -3,6 +3,7 @@ import {
   decideSuggestion,
   type GroupState,
   type PickState,
+  productUrlKey,
 } from './suggestions';
 
 const AT = new Date('2026-10-05T12:00:00.000Z');
@@ -385,5 +386,66 @@ describe('decideSuggestion', () => {
       dismiss: [{ garmentId: 1, reason: 'fit_size', note: null }],
       restore: [2],
     });
+  });
+});
+
+describe('productUrlKey', () => {
+  const key = (url: string) => productUrlKey(url);
+
+  it.each([
+    [
+      'the fragment and a trailing slash',
+      'https://shop.example/p/blazer/#reviews',
+    ],
+    ['http for https', 'http://shop.example/p/blazer'],
+    ['www.', 'https://www.shop.example/p/blazer'],
+    ['m.', 'https://m.shop.example/p/blazer'],
+    ['the host’s case', 'https://Shop.Example/p/blazer'],
+    ['utm_*', 'https://shop.example/p/blazer?utm_source=muse&utm_medium=x'],
+    [
+      'gclid, fbclid, msclkid',
+      'https://shop.example/p/blazer?gclid=a&fbclid=b&msclkid=c',
+    ],
+    ['srsltid, igshid', 'https://shop.example/p/blazer?srsltid=a&igshid=b'],
+    ['mc_cid, mc_eid', 'https://shop.example/p/blazer?mc_cid=a&mc_eid=b'],
+    ['_ga, spm', 'https://shop.example/p/blazer?_ga=1.2&spm=a.b'],
+  ])('ignores %s', (_what, url) => {
+    expect(key(url)).toBe('shop.example/p/blazer');
+  });
+
+  it('sorts the parameters it keeps, which may name the variant', () => {
+    expect(
+      key('https://shop.example/p/blazer?size=40&color=navy&utm_x=1'),
+    ).toBe('shop.example/p/blazer?color=navy&size=40');
+    expect(key('https://shop.example/p/blazer?color=navy&size=40')).toBe(
+      key('https://shop.example/p/blazer?size=40&color=navy'),
+    );
+    expect(key('https://shop.example/p/blazer?color=navy')).not.toBe(
+      key('https://shop.example/p/blazer?color=black'),
+    );
+  });
+
+  it('keeps a ref parameter: some shops name the product with it', () => {
+    expect(key('https://shop.example/product?ref=SKU-1234')).toBe(
+      'shop.example/product?ref=SKU-1234',
+    );
+    expect(key('https://shop.example/product?ref=SKU-1234')).not.toBe(
+      key('https://shop.example/product?ref=SKU-5678'),
+    );
+  });
+
+  it('drops Amazon’s /ref= segment after the product', () => {
+    expect(
+      key(
+        'https://www.amazon.com/Wool-Blazer/dp/B0ABC12345/ref=sr_1_3?keywords=blazer&qid=1',
+      ),
+    ).toBe('amazon.com/Wool-Blazer/dp/B0ABC12345?keywords=blazer&qid=1');
+    expect(key('https://www.amazon.com/dp/B0ABC12345/ref=cm_sw')).toBe(
+      key('https://amazon.com/dp/B0ABC12345'),
+    );
+  });
+
+  it('answers nothing for what is not a URL', () => {
+    expect(productUrlKey('not a link')).toBeUndefined();
   });
 });

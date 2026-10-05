@@ -7,25 +7,22 @@ import {
   planItemRejection,
 } from '../../src/db/schema';
 import { changeCandidates } from '../../src/web/plans/candidates';
+import { addItems } from '../../src/web/plans/queries';
 import { buyGarment } from '../../src/web/wardrobe/status';
 import { createTestApp, type TestApp, unescapeHtml } from './harness';
-import { callTool, createAccessToken, tool } from './mcp';
 
 /**
  * The item review state machine in the app and for the agent (#278): the
  * plan page's Change this…, Don't buy and Reconsider, the review's notes
  * and "Not this one" (a rejection recorded; the product deleted only when
- * it stands for nothing else, else unlinked), the agent's update_plan_item
- * moving a `revise` item back to `proposed` and refusing a declined one,
- * get_plan_gaps answering each item's review, note and rejected products,
- * matching and the shopping list leaving revise and declined items out,
+ * it stands for nothing else, else unlinked), matching and the shopping
+ * list leaving revise and declined items out,
  * and a duplicate keeping all of it. The machine's every pair:
  * src/wardrobe/plan-review.spec.ts; the review's removal rule:
  * plan-review.spec.ts; the matrix rows: authorization-plans.spec.ts.
  */
 describe('the plan item review', () => {
   let t: TestApp;
-  let token: string;
   let seq = 0;
 
   const get = (url: string) => t.inject({ method: 'GET', url });
@@ -45,19 +42,34 @@ describe('the plan item review', () => {
     return idFrom(res.headers.location, /^\/wardrobe\/plans\/(\d+)\?/);
   };
 
-  /** An item the agent proposed (propose_plan_item). */
+  /** An item the agent proposed (as propose_plan_item wrote one until #337). */
   const propose = async (
     planId: number,
-    fields: Record<string, unknown> = {},
+    fields: { category?: string; name?: string } = {},
   ) =>
-    (
-      await tool<{ id: number }>(t, token, 'propose_plan_item', {
-        planId,
-        category: 'tops',
-        name: `Item ${++seq}`,
-        ...fields,
-      })
-    ).id;
+    (await addItems(
+      t.db,
+      t.owner.id,
+      planId,
+      [
+        {
+          name: fields.name ?? `Item ${++seq}`,
+          category: fields.category ?? 'tops',
+          type: null,
+          colors: null,
+          materials: null,
+          warmthMin: null,
+          warmthMax: null,
+          formalityMin: null,
+          formalityMax: null,
+          quantity: 1,
+          priority: 'medium',
+          budget: null,
+          note: null,
+        },
+      ],
+      { review: 'proposed' },
+    ))![0];
 
   const addWishlist = async (name: string) => {
     const res = await post('/wardrobe', {
@@ -148,7 +160,6 @@ describe('the plan item review', () => {
 
   beforeAll(async () => {
     t = await createTestApp();
-    token = await createAccessToken(t, { name: 'Muse' });
     // The active plan, so the plans below are the agent's to fill.
     await createPlan();
   });
@@ -255,69 +266,11 @@ describe('the plan item review', () => {
       await post(`/wardrobe/plans/${planId}/items/${item}/change`, {
         note: 'Navy instead',
       });
-      const gaps = await tool<{
-        plan: { missing: number; revise: number };
-        revise: { id: number; review: string; ownerNote: string }[];
-      }>(t, token, 'get_plan_gaps', { planId });
-      expect(gaps.plan).toMatchObject({ missing: 0, revise: 1 });
-      expect(gaps.revise).toMatchObject([
-        { id: item, review: 'revise', ownerNote: 'Navy instead' },
-      ]);
-    });
-  });
-
-  describe('the agent', () => {
-    it('update_plan_item proposes a revise item again, the note kept, and refuses a declined one', async () => {
-      const planId = await createPlan();
-      const item = await propose(planId);
-      await post(`/wardrobe/plans/${planId}/items/${item}/change`, {
-        note: 'Navy',
-      });
-      const updated = await tool(t, token, 'update_plan_item', {
-        itemId: item,
-        colors: ['blue'],
-      });
-      expect(updated).toEqual({ id: item, planId, review: 'proposed' });
-      expect(await rowOf(item)).toEqual({
-        review: 'proposed',
-        ownerNote: 'Navy',
-      });
-      // A still-proposed item: an edit in place.
-      await tool(t, token, 'update_plan_item', { itemId: item, quantity: 2 });
-      expect((await rowOf(item)).review).toBe('proposed');
-
-      await post(`/wardrobe/plans/${planId}/items/${item}/decline`);
-      const refused = await callTool(t, token, 'update_plan_item', {
-        itemId: item,
-        quantity: 3,
-      });
-      expect(refused.isError).toBe(true);
-      expect(refused.value.error).toBe(
-        'The owner declined this item: do not propose it again',
-      );
       const [row] = await t.db
-        .select({ quantity: planItem.quantity, review: planItem.review })
+        .select({ review: planItem.review, ownerNote: planItem.ownerNote })
         .from(planItem)
         .where(eq(planItem.id, item));
-      expect(row).toEqual({ quantity: 2, review: 'declined' });
-    });
-
-    it('cannot add a candidate to a declined item', async () => {
-      const planId = await createPlan();
-      const item = await propose(planId);
-      await post(`/wardrobe/plans/${planId}/items/${item}/decline`);
-      const product = await addWishlist('Declined tee');
-      const answer = await callTool(t, token, 'add_candidate', {
-        itemId: item,
-        garmentId: product,
-      });
-      expect(answer.isError).toBe(true);
-      expect(String(answer.value.error)).toContain('You declined this item');
-      expect(await candidatesOf(item)).toEqual([]);
-      // The garment form refuses it before any photo or page is fetched.
-      const form = await get(`/wardrobe/new?to=wishlist&planItem=${item}`);
-      expect(form.statusCode).toBe(409);
-      expect(unescapeHtml(form.body)).toContain('You declined this item');
+      expect(row).toEqual({ review: 'revise', ownerNote: 'Navy instead' });
     });
   });
 
@@ -454,20 +407,6 @@ describe('the plan item review', () => {
           reason: null,
         },
       ]);
-
-      // The agent reads them on the item.
-      const gaps = await tool<{
-        missing: {
-          id: number;
-          rejected: { name: string; reason: string | null }[];
-        }[];
-      }>(t, token, 'get_plan_gaps', { planId });
-      expect(
-        gaps.missing.find((entry) => entry.id === item)?.rejected,
-      ).toMatchObject([
-        { name: 'Only here', reason: 'Too shiny' },
-        { name: 'Also elsewhere', reason: null },
-      ]);
     });
 
     it('records nothing for a candidate bought before the post, nor twice on a second post', async () => {
@@ -591,75 +530,6 @@ describe('the plan item review', () => {
       expect(copied).toEqual([{ name: 'Rejected tee', reason: 'Wrong neck' }]);
       expect(await candidatesOf(items[1].id)).toEqual([]);
       expect(await candidatesOf(declined)).toEqual([linked]);
-    });
-  });
-
-  describe('get_plan_feedback after the real review post (#278)', () => {
-    interface Feedback {
-      revise: { id: number; rejected: { name: string; new: boolean }[] }[];
-      declined: { id: number; rejected: { new: boolean }[] }[];
-      replace: { id: number; rejected: { name: string; new: boolean }[] }[];
-    }
-    const feedback = (planId: number) =>
-      tool<Feedback>(t, token, 'get_plan_feedback', { planId });
-
-    it('flags a review-post rejection new until the agent writes the item, whatever the owner does after', async () => {
-      const planId = await createPlan();
-      const kept = await propose(planId);
-      const changed = await propose(planId);
-      const keptPick = await addWishlist('Kept pick');
-      const changedPick = await addWishlist('Changed pick');
-      await link(kept, [keptPick]);
-      await link(changed, [changedPick]);
-      // One post: Not this one on the centred pick (Keep), and on the
-      // candidate of an item sent back with Change this.
-      const res = await review(planId, [
-        {
-          itemId: kept,
-          pick: keptPick,
-          offered: [keptPick],
-          rejects: [[keptPick, 'Too pale']],
-        },
-        {
-          itemId: changed,
-          pick: 'change',
-          note: 'Warmer please',
-          offered: [changedPick],
-          rejects: [[changedPick, 'Wrong cut']],
-        },
-      ]);
-      expect(res.statusCode, res.body).toBe(303);
-
-      const first = await feedback(planId);
-      expect(first.replace).toMatchObject([
-        { id: kept, rejected: [{ new: true }] },
-      ]);
-      expect(first.revise).toMatchObject([
-        { id: changed, rejected: [{ new: true }] },
-      ]);
-
-      // The agent answers the revise item: its rejection is old news, the
-      // other item's stays new.
-      await tool(t, token, 'update_plan_item', {
-        itemId: changed,
-        note: 'Warmer now',
-      });
-      const second = await feedback(planId);
-      expect(second.revise).toEqual([]);
-      expect(second.replace.map((entry) => entry.id)).toEqual([kept]);
-
-      // Owner actions after the rejection do not hide it.
-      const item = `/wardrobe/plans/${planId}/items/${kept}`;
-      expect((await post(`${item}/change`, { note: 'Again' })).statusCode).toBe(
-        303,
-      );
-      expect((await post(`${item}/decline`, {})).statusCode).toBe(303);
-      expect((await post(`${item}/reconsider`, {})).statusCode).toBe(303);
-      expect((await post(`${item}/accept`, {})).statusCode).toBe(303);
-      const third = await feedback(planId);
-      expect(third.replace).toMatchObject([
-        { id: kept, rejected: [{ new: true }] },
-      ]);
     });
   });
 });
