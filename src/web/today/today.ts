@@ -28,6 +28,7 @@ import {
 } from '../weather/service';
 import { somethingWornSql } from './queries';
 import { type NeedsToDecide, needsToDecideSql } from '../wishlist/inbox';
+import { type MuseRound, museRoundSql } from '../wishlist/rounds';
 
 /**
  * Today (#15; plan section 9): the household's day for one person, as a
@@ -47,8 +48,9 @@ import { type NeedsToDecide, needsToDecideSql } from '../wishlist/inbox';
  * Whether anything was worn today is read only when asked (`worn`, in the
  * same statement): the page never shows it (#158); get_today asks, and the
  * evening reminder reads it for every evening person at once (eveningDays).
- * So are Muse's needs waiting on the owner's choice (`needs`, #333), which
- * only the page shows, as a card leading to the Wishlist inbox.
+ * So are Muse's needs waiting on the owner's choice (`needs`, #333) and
+ * its latest round while any of it waits (#337), which only the page
+ * shows, as one card: the round's while it waits, else the needs'.
  */
 
 /** Ideas a suggestions row shows at once. */
@@ -85,6 +87,8 @@ export interface TodayModel {
   wornToday?: boolean;
   /** Muse's needs with options to choose (needsToDecideSql); null for none; read only when asked (`needs`). */
   needs?: NeedsToDecide | null;
+  /** Muse's latest round while any of it waits (museRoundSql); null otherwise; read with `needs`. */
+  round?: MuseRound | null;
   /** The product completing the most loved looks of the active plan (rankedPurchasesSql, finished by nextPurchaseOf); null when none; read only when asked (`nextPurchase`). */
   nextPurchase?: NextPurchase | null;
 }
@@ -97,7 +101,7 @@ export interface TodayOptions {
   ownWeather?: UserWeather;
   /** Also read whether anything was worn today (get_today; the page never shows it). */
   worn?: boolean;
-  /** Also read Muse's needs waiting on the owner (the page's card). */
+  /** Also read Muse's needs and latest round waiting on the owner (the page's card). */
   needs?: boolean;
   /** Also read the next product to buy (the page's card when no need waits). */
   nextPurchase?: boolean;
@@ -132,6 +136,7 @@ async function readDay(
         : weatherWithForecastSql(ownerId, now),
     worn: worn ? somethingWornSql(ownerId, today) : undefined,
     needs: needs ? needsToDecideSql(ownerId) : undefined,
+    round: needs ? museRoundSql(ownerId) : undefined,
     ranked: nextPurchase ? rankedPurchasesSql(ownerId) : undefined,
   });
   const weather =
@@ -147,9 +152,10 @@ async function readDay(
     weather,
     worn: read.worn,
     needs: read.needs,
-    // A waiting need's card wins the slot: skip the matching statements.
+    round: read.round,
+    // A waiting round's or need's card wins the slot: skip the matching statements.
     nextPurchase:
-      read.ranked && !read.needs
+      read.ranked && !read.needs && !read.round
         ? await nextPurchaseOf(deps.db, ownerId, read.ranked)
         : undefined,
   };
@@ -162,7 +168,7 @@ export async function todayFor(
   options: TodayOptions = {},
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  const { entries, weather, worn, needs, nextPurchase } = await readDay(
+  const { entries, weather, worn, needs, round, nextPurchase } = await readDay(
     deps,
     ownerId,
     today,
@@ -197,6 +203,7 @@ export async function todayFor(
     weather: weather ?? null,
     wornToday: worn,
     needs,
+    round,
     nextPurchase,
   };
 }

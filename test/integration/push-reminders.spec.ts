@@ -108,7 +108,11 @@ describe('push reminders', () => {
       t.db,
       userId,
       endpoint,
-      { morning: settings.morning ?? null, evening: settings.evening ?? null },
+      {
+        morning: settings.morning ?? null,
+        evening: settings.evening ?? null,
+        museRounds: false,
+      },
       setAt,
     );
 
@@ -231,7 +235,7 @@ describe('push reminders', () => {
       expect(row.remindersSetAt).not.toBeNull();
       // Named by device id, never by its endpoint.
       expect(t.logs.messages('info', 'Web')).toContainEqual(
-        `User ${t.owner.id} set reminders on push device ${row.id}: morning 420, evening off (minutes after midnight)`,
+        `User ${t.owner.id} set reminders on push device ${row.id}: morning 420, evening off (minutes after midnight), Muse's rounds off`,
       );
       expect(t.logs.text()).not.toContain(endpoint);
     });

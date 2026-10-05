@@ -220,8 +220,12 @@ export function inboxNeedIdsSql(ownerId: number): SQL<number[]> {
   )`;
 }
 
-/** The wanted picks of the owner's open needs: what "Unlocks N" counts. */
-const OPEN_PICKS = sql`(${wanted()} and ${garment.suggestionGroupId} in (
+/**
+ * The wanted picks of open needs (over `garment`; the caller scopes the
+ * owner): what "Unlocks N" counts, and a round's pieces to consider
+ * (rounds.ts).
+ */
+export const OPEN_PICKS = sql`(${wanted()} and ${garment.suggestionGroupId} in (
   select ${optionGroup.id} from ${optionGroup} where ${optionGroup.status} = 'open'
 ))`;
 

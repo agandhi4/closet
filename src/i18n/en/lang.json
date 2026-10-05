@@ -761,6 +761,15 @@
     "BOUGHT_FOR": "Bought for “{need}”: Muse sees what you chose instead of its picks.",
     "TODAY_CARD": "{agent} has {count} needs for you to decide on",
     "TODAY_CARD_ONE": "{agent} has 1 need for you to decide on",
+    "round": {
+      "CARD": "{agent}: {what} to consider",
+      "BOTH": "{outfits}, {pieces}",
+      "OUTFITS": "{count} outfits",
+      "OUTFITS_ONE": "1 outfit",
+      "PIECES": "{count} pieces",
+      "PIECES_ONE": "1 piece",
+      "PUSH_TITLE": "{agent} finished a round"
+    },
     "REVIEW": "Review",
     "STALE": "This changed since the page was drawn. Reload to see where it stands.",
     "toast": {
@@ -1380,13 +1389,15 @@
       "EVENING_NOTHING": "Tap to note today's outfit."
     },
     "reminders": {
-      "HEADING": "Reminders on this device",
+      "HEADING": "Send to this device",
       "MORNING": "Morning: today's outfit",
       "EVENING": "Evening: what did you wear?",
       "EVENING_HINT": "Not sent once something is marked worn that day.",
       "TIME": "Time",
       "SAVED": "Saved. A time already past today starts tomorrow.",
-      "NOT_REGISTERED": "Turn notifications on for this device to choose reminders."
+      "NOT_REGISTERED": "Turn notifications on for this device to choose reminders.",
+      "MUSE": "When Muse finishes a round",
+      "MUSE_HINT": "One notification per round of suggestions, opening what it brought."
     },
     "NEXT_STEP": "{product} completes {count} of your loved looks",
     "NEXT_STEP_ONE": "{product} completes your loved look",

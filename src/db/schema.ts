@@ -223,6 +223,11 @@ export const userDevice = pgTable(
     morningReminder: smallint('morning_reminder').$type<MinuteOfDay>(),
     eveningReminder: smallint('evening_reminder').$type<MinuteOfDay>(),
     remindersSetAt: timestamp('reminders_set_at', { withTimezone: true }),
+    // Muse's rounds (#337): one notification when the agent finishes a
+    // round of suggestions (finish_round). Opt-in per device like the
+    // reminders, so false until turned on; off again when the device
+    // moves to another account (upsertDevice).
+    museRounds: boolean('muse_rounds').default(false).notNull(),
   },
   (table) => [
     index('user_device_user_id_index').on(table.userId),
@@ -748,6 +753,53 @@ export const garment = pgTable(
 function optionGroupId(): AnyPgColumn {
   return optionGroup.id;
 }
+
+// A round of the agent's suggestions, ended by finish_round (#337,
+// src/web/wishlist/rounds.ts): what it brought is derived on every read,
+// never stored: Muse's outfits proposed and options suggested in
+// (`since`, `finished_at`], `since` being the owner's previous round's
+// end (null for the first). Today's card is the latest round while any of
+// it still waits on the owner. `summary` is the agent's one line.
+export const museRound = pgTable(
+  'muse_round',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    tokenId: integer('token_id'),
+    since: timestamp('since', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    summary: text('summary'),
+  },
+  (table) => [
+    // The latest round of an owner (Today, finish_round) and the owner_id
+    // foreign key's index.
+    index('muse_round_owner_id_finished_at_index').on(
+      table.ownerId,
+      table.finishedAt,
+    ),
+    foreignKey({
+      name: 'muse_round_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    index('muse_round_token_id_index').on(table.tokenId),
+    foreignKey({
+      name: 'muse_round_token_id_foreign',
+      columns: [table.tokenId],
+      foreignColumns: [personalAccessToken.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
+    check(
+      'muse_round_summary_check',
+      sql`${table.summary} is null or length(trim(${table.summary})) > 0`,
+    ),
+  ],
+);
 
 // One need the owner's agent researched ("a navy blazer, under $300", Muse,
 // #333; src/wardrobe/suggestions.ts): its budget and reasoning, and the

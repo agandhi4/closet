@@ -262,6 +262,7 @@ describe('the MCP endpoint', () => {
           'compare_with_shared_wardrobe',
           'create_option_group',
           'create_outfit',
+          'finish_round',
           'create_plan',
           'get_calendar',
           'get_capsule',

@@ -18,6 +18,8 @@ import { Layout } from '../layout/layout';
 import { OutfitCollage } from '../outfits/collage';
 import type { NextPurchase } from '../plans/candidates';
 import type { NeedsToDecide } from '../wishlist/inbox';
+import { roundReviewPath, roundWhat } from '../wishlist/round-text';
+import type { MuseRound } from '../wishlist/rounds';
 import { garmentUrl, WISHLIST_PATH } from '../wardrobe/urls';
 import { EntrySelfie } from '../selfies/views';
 import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
@@ -71,7 +73,9 @@ export function TodayPage(props: {
         >
           {t('today.OFFLINE')}
         </p>
-        {model.needs ? (
+        {model.round ? (
+          <RoundCard round={model.round} />
+        ) : model.needs ? (
           <NeedsCard needs={model.needs} />
         ) : model.nextPurchase ? (
           <NextPurchaseCard purchase={model.nextPurchase} />
@@ -101,6 +105,41 @@ export function TodayPage(props: {
       </PageMain>
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * "Muse: 3 outfits, 7 pieces to consider", with Review (#337): the latest
+ * round while any of it waits, counted live, so it shrinks as the owner
+ * decides and goes at zero (nothing to dismiss). It takes the needs
+ * card's place: one Muse card at most. Muse's one line under it, clamped.
+ */
+function RoundCard({ round }: { round: MuseRound }) {
+  return (
+    <article
+      class="card bg-base-100 shadow-sm"
+      data-muse-round={String(round.id)}
+    >
+      <div class="card-body p-3 flex-row items-center gap-3">
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold break-words">
+            {t('muse.round.CARD', {
+              agent: round.agent ?? t('muse.AGENT'),
+              what: roundWhat(round),
+            })}
+          </p>
+          {round.summary && (
+            <p class="text-sm text-muted line-clamp-1">{round.summary}</p>
+          )}
+        </div>
+        <a
+          href={roundReviewPath(round)}
+          class="btn btn-primary btn-sm shrink-0"
+        >
+          {t('muse.REVIEW')}
+        </a>
+      </div>
+    </article>
   );
 }
 

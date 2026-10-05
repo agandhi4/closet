@@ -3204,6 +3204,10 @@ const tools: Step[] = [
     }),
     { prepare: (f) => newGarment(f, 'Audit proposal') },
   ),
+  mcp('finish_round', () => ({
+    summary: 'Audit round',
+    feedbackUntil: new Date().toISOString(),
+  })),
 ];
 
 // --- jobs (#173) ----------------------------------------------------------

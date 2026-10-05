@@ -353,6 +353,18 @@ describe('MCP statements per tool (#172)', () => {
       () => ({ garmentIds: lookSet(), note: 'Statements' }),
       7,
     ],
+    // begin, owner lock, the round (the previous one's end, the counts and
+    // the insert in one), commit; the cursor's update is one more, left out
+    // with the last-use mark (LAST_USED matches both). The counted repeat
+    // has nothing new: no round, no notification.
+    [
+      'finish_round',
+      () => ({
+        summary: 'Statements',
+        feedbackUntil: new Date().toISOString(),
+      }),
+      5,
+    ],
   ];
 
   it.each(cases)('%s', async (name, args, expected) => {

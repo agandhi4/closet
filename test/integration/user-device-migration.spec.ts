@@ -102,6 +102,8 @@ describe('user_device keys become columns (0003_user_device_push)', () => {
       { name: 'key_auth', type: 'text', nullable: 'NO' },
       { name: 'key_p256dh', type: 'text', nullable: 'NO' },
       { name: 'morning_reminder', type: 'smallint', nullable: 'YES' },
+      // Muse's rounds (#337, 0043_muse-rounds).
+      { name: 'muse_rounds', type: 'boolean', nullable: 'NO' },
       { name: 'push_endpoint', type: 'text', nullable: 'NO' },
       {
         name: 'reminders_set_at',

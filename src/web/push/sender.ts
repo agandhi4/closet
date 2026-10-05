@@ -63,10 +63,11 @@ export interface DeviceMessage {
   /**
    * Which of the user's devices it goes to: these ids (a reminder goes to
    * the devices that claimed it; ids that are not the user's are ignored),
-   * or every one with the morning reminder on (the re-plan's swap notice,
-   * src/web/week-plan/replan.ts).
+   * every one with the morning reminder on (the re-plan's swap notice,
+   * src/web/week-plan/replan.ts), or every one taking Muse's rounds
+   * (finish_round, #337).
    */
-  devices: readonly number[] | 'morning-reminder';
+  devices: readonly number[] | 'morning-reminder' | 'muse-rounds';
   payload: PushPayload;
   options: SendOptions;
 }
@@ -76,11 +77,13 @@ export function chosenDevices(
   rows: readonly UserDeviceRow[],
   { userId, devices }: DeviceMessage,
 ): DeviceRow[] {
-  const ids = devices === 'morning-reminder' ? undefined : new Set(devices);
-  return rows.filter(
-    (row) =>
-      row.userId === userId && (ids ? ids.has(row.id) : row.morningReminder),
-  );
+  const chosen = (row: UserDeviceRow) =>
+    devices === 'morning-reminder'
+      ? row.morningReminder
+      : devices === 'muse-rounds'
+        ? row.museRounds
+        : devices.includes(row.id);
+  return rows.filter((row) => row.userId === userId && chosen(row));
 }
 
 // The push service no longer knows the subscription: the browser dropped it,

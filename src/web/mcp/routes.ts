@@ -36,6 +36,7 @@ const INSTRUCTIONS = [
   `5. Give every need 2 to ${MAX_OPTIONS_PER_GROUP} real products before you finish: suggest_garment per product URL, each with note (material, fit and sizing, price against the budget, what it pairs with; short, it is shown on the option), rank (1 is your pick), the listed price and the size to buy. Research each one; do not just collect links. list_suggestions' stillLooking lists the needs still without one.`,
   '6. goes_with_closet on each option: how it pairs with the closet, and what it would duplicate.',
   '7. suggest_outfit a few outfits for each occasion of the week, mixing closet garments with your options so that every option is in at least one; outfits of closet garments only are welcome too. The owner judges a piece by what it does with their closet, so outfits come first for them.',
+  "8. finish_round once at the end, with a one-line summary and feedbackUntil, the `until` of this conversation's get_suggestion_feedback: the owner gets one card on Today and one notification, and what you were told is not told again. Call it even when you suggested nothing new (it then only ends the round).",
   'Rules: never buy, mark anything owned (add_garment_from_link with destination closet is for what the owner already owns), archive or delete; the owner buys in the app. Never propose again anything the owner set aside: a need by its name, a product by its link, an outfit by its garments (the tools refuse them). A need the owner chose an option for is decided: leave it.',
 ].join('\n');
 
@@ -65,6 +66,7 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
     cutouts,
     fetcher,
     weather,
+    push,
     config,
     logger,
     mcpLogger,
@@ -104,6 +106,7 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
         photos,
         cutouts,
         fetcher,
+        push,
         weather,
         webLogger: logger,
         timeZone: config.timeZone,

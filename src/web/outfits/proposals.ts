@@ -41,6 +41,15 @@ function museOutfit(): SQL {
   return sql`(${isNotNull(outfit.proposedAt)} and not ${ownersOutfit()})`;
 }
 
+/**
+ * One of Muse's outfits still waiting on the owner: not theirs yet, and
+ * not set aside (the From Muse section's cards). What a round's Today card
+ * counts (src/web/wishlist/rounds.ts).
+ */
+export function museOutfitWaiting(): SQL {
+  return sql`(${museOutfit()} and ${outfit.reaction} <> 'declined')`;
+}
+
 /** A piece of a Muse outfit as its card shows it: what it is, and if to buy, its price and whether it was set aside. */
 export interface MusePiece {
   id: number;

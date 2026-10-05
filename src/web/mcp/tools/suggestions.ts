@@ -28,6 +28,13 @@ import {
   suggestionRoom,
 } from '../../wishlist/decisions';
 import { readSuggestionFeedback } from '../../wishlist/feedback';
+import { roundReviewPath, roundWhat } from '../../wishlist/round-text';
+import {
+  finishRound,
+  ROUND_SUMMARY_MAX,
+  type RoundCounts,
+} from '../../wishlist/rounds';
+import { t } from '../../i18n';
 import {
   type MusePick,
   type Need,
@@ -118,6 +125,52 @@ function setAsideOut(rows: readonly SetAsideRow[]) {
   };
 }
 
+/** A newer round's notification replaces an unread one (the reminders' tags are today-morning, today-evening). */
+const ROUND_TAG = 'muse-round';
+/** A round's notification is worth a day: past it, Today's card says it. */
+const ROUND_TTL_SECONDS = 24 * 60 * 60;
+
+/**
+ * The round's one notification (doc section 4 A): to the owner's devices
+ * taking Muse's rounds, tagged so a newer round replaces an unread one,
+ * kept a day by the push service. After the round's commit: a failed send
+ * never undoes the round, it is logged (the sender's own lines say which
+ * device). How many devices it reached; none without PWA_ENABLED.
+ */
+async function notifyRound(
+  ctx: ToolContext,
+  round: RoundCounts & { id: number; agent: string | null },
+): Promise<number> {
+  if (!ctx.push) return 0;
+  try {
+    const [report] = await ctx.push.sendEach([
+      {
+        userId: ctx.userId,
+        devices: 'muse-rounds',
+        payload: {
+          title: t('muse.round.PUSH_TITLE', {
+            agent: round.agent ?? t('muse.AGENT'),
+          }),
+          body: t('muse.round.CARD', {
+            agent: round.agent ?? t('muse.AGENT'),
+            what: roundWhat(round),
+          }),
+          url: roundReviewPath(round),
+          tag: ROUND_TAG,
+        },
+        options: { ttlSeconds: ROUND_TTL_SECONDS },
+      },
+    ]);
+    return report.delivered;
+  } catch (error) {
+    ctx.webLogger.error(
+      { err: error },
+      `Round ${round.id} of user ${ctx.userId}: its notification was not sent`,
+    );
+    return 0;
+  }
+}
+
 /** The refusal of a link the owner set aside, or one suggested already. */
 function sameProductRefusal(same: SuggestedProduct): HttpError {
   return new HttpError(
@@ -192,7 +245,7 @@ export const suggestionTools = [
     name: 'get_suggestion_feedback',
     title: 'Get the owner’s feedback on your suggestions',
     description:
-      'What the owner decided about your suggestions since your last round ended (before your first: everything): `needs` decided (chosen an option, bought, or set aside with a reason and their note), `picksSetAside` (options turned down: the reason, too_pricey, colour, style, already_have, fit_size or not_now, and their note; chose_another when they chose a sibling; returned after buying), `purchases` (with the price paid; `different: true` when they bought something else for the need), `outfits` (your outfits they loved, declined with a reason, or undid), and `wears`: every bought suggestion with how often it has been worn, on every call. Read it first in every conversation and act on every reason. It changes nothing: what it tells stays new until you end your round with this answer’s `until` (a few seconds behind the read, so nothing committed meanwhile is missed), so an answer lost on the way is told again. An item may be told twice; its id says which. `all: true` answers everything.',
+      'What the owner decided about your suggestions since your last round ended (before your first: everything): `needs` decided (chosen an option, bought, or set aside with a reason and their note), `picksSetAside` (options turned down: the reason, too_pricey, colour, style, already_have, fit_size or not_now, and their note; chose_another when they chose a sibling; returned after buying), `purchases` (with the price paid; `different: true` when they bought something else for the need), `outfits` (your outfits they loved, declined with a reason, or undid), and `wears`: every bought suggestion with how often it has been worn, on every call. Read it first in every conversation and act on every reason. It changes nothing: what it tells stays new until you end your round with finish_round and this answer’s `until` (a few seconds behind the read, so nothing committed meanwhile is missed), so an answer lost on the way is told again. An item may be told twice; its id says which. `all: true` answers everything.',
     input: z.object({
       all: z
         .boolean()
@@ -445,6 +498,56 @@ export const suggestionTools = [
         `Outfit ${proposed.id} proposed by user ${ctx.userId} (MCP, token ${ctx.tokenId}, ${proposed.slots} slots)`,
       );
       return { id: proposed.id };
+    },
+  }),
+  defineTool({
+    name: 'finish_round',
+    title: 'Finish a round of suggestions',
+    description: `WRITES: ends your round of suggestions, once, at the end of a conversation. The owner gets one card on Today ("Muse: 3 outfits, 7 pieces to consider", what you proposed and suggested since your last round and they have not decided yet) and one notification on the devices where they turned Muse's rounds on. Give feedbackUntil, the \`until\` of this conversation's get_suggestion_feedback: what it told you is then not told again (what it did not, a decision made since, still is). With nothing new since your last round there is no card or notification (round: null), and feedbackUntil still ends what you read. summary is one line on the card, at most ${ROUND_SUMMARY_MAX} characters.`,
+    input: z.object({
+      summary: z
+        .string()
+        .trim()
+        .min(1)
+        .max(ROUND_SUMMARY_MAX)
+        .optional()
+        .describe(
+          'One line on what this round brings: "Autumn layers for the office".',
+        ),
+      feedbackUntil: z.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+          'The `until` of your get_suggestion_feedback in this conversation.',
+        ),
+    }),
+    writes: true,
+    idempotent: false,
+    async run({ summary, feedbackUntil }, ctx) {
+      const finished = await finishRound(ctx.db, ctx.userId, {
+        tokenId: ctx.tokenId,
+        summary: summary ?? null,
+        feedbackUntil: feedbackUntil ?? null,
+      });
+      if (!finished.ok) {
+        ctx.webLogger.info(
+          `Round of user ${ctx.userId} ended with nothing new (MCP, token ${ctx.tokenId}${feedbackUntil ? ', feedback read' : ''})`,
+        );
+        return { round: null, feedbackRead: feedbackUntil !== undefined };
+      }
+      const notified = await notifyRound(ctx, finished);
+      ctx.webLogger.info(
+        `Round ${finished.id} finished by user ${ctx.userId} (MCP, token ${ctx.tokenId}): ${finished.outfits} outfits, ${finished.pieces} pieces, ${notified} devices notified`,
+      );
+      return {
+        round: {
+          id: finished.id,
+          outfits: finished.outfits,
+          pieces: finished.pieces,
+        },
+        notified,
+        feedbackRead: feedbackUntil !== undefined,
+      };
     },
   }),
 ];

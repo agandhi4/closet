@@ -148,7 +148,8 @@ export function TestResult({ report }: { report: SendReport }) {
 }
 
 /**
- * This device's reminders (#15): a toggle and a time for each, an
+ * This device's reminders (#15): a toggle and a time for each, and Muse's
+ * rounds (#337), a toggle; an
  * `AutosaveForm` saved on every change (src/web/autosave.tsx: in order, the
  * whole form each time, answered by the status line alone, ReminderStatus,
  * never the controls). The endpoint names the device: the browser's own
@@ -185,6 +186,20 @@ export function ReminderSettingsForm(props: {
           hint={t('today.reminders.EVENING_HINT')}
           minute={settings.evening}
         />
+        {/* Muse's rounds (#337): a toggle, no time; off until turned on. */}
+        <div class="flex flex-col gap-1" data-muse-rounds="">
+          <label class="label cursor-pointer gap-2 text-sm text-base-content">
+            <input
+              type="checkbox"
+              class="toggle toggle-sm toggle-primary"
+              name="museRoundsOn"
+              value="1"
+              checked={settings.museRounds}
+            />
+            {t('today.reminders.MUSE')}
+          </label>
+          <p class="text-xs text-muted">{t('today.reminders.MUSE_HINT')}</p>
+        </div>
       </AutosaveForm>
     </div>
   );

@@ -287,3 +287,23 @@ export async function readSuggestionFeedback(
       ${wearsSql(ownerId)} as wears`);
   return rows[0];
 }
+
+/**
+ * The one writer of the cursor (finishRound, #337 part A2): moved to the
+ * `until` of the agent's last feedback read, never past now and never
+ * back, `greatest(cursor, least(until, now()))`. What the agent was told
+ * stays told; what it was not (an answer lost, a decision that committed
+ * after its read) is after `until`, told next time.
+ */
+export async function moveFeedbackCursor(
+  tx: Queryable,
+  tokenId: number,
+  until: string,
+): Promise<void> {
+  await tx
+    .update(personalAccessToken)
+    .set({
+      feedbackReadAt: sql`greatest(${personalAccessToken.feedbackReadAt}, least(${until}::timestamptz, now()))`,
+    })
+    .where(eq(personalAccessToken.id, tokenId));
+}

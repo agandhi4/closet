@@ -6,6 +6,7 @@ import type { Logger } from '../../logger';
 import type { McpEnding, Metrics } from '../../metrics/metrics';
 import { describeError } from '../errors';
 import type { Photos } from '../files/photos';
+import type { PushSender } from '../push/sender';
 import type { OutboundFetcher } from '../security/outbound-fetch';
 import { authorizeWardrobe, type WardrobeNeed } from '../sharing/access';
 import type { WeatherService } from '../weather/service';
@@ -28,6 +29,8 @@ export interface ToolContext {
   photos: Photos;
   cutouts: { wake(): void };
   fetcher: OutboundFetcher;
+  /** The Web Push sender; undefined without PWA_ENABLED (finish_round then notifies nobody). */
+  push: PushSender | undefined;
   /** The weather; undefined with WEATHER_ENABLED=false (no weather tool is listed then). */
   weather: WeatherService | undefined;
   /** The Web logger: the writers the tools call log through it, as for a page. */
