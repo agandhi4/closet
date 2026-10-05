@@ -600,3 +600,50 @@ body {
    show only where the primary input hovers and is precise: a mouse, not a
    phone. One markup for every device. */
 @custom-variant fine (@media (hover: hover) and (pointer: fine));
+
+/* The shared photo viewer (src/web/files/photo-viewer.tsx, public/js/
+   photo-viewer.js, #313): a full-screen scroll-snap row of slides. A zoomed
+   slide scrolls inside itself, so the row stops scrolling until it is
+   zoomed out. Pinch is the script's (--photo-zoom, 1 to 4 on the image):
+   pan-x pan-y without pinch-zoom keeps native panning and stops the page
+   zooming under the photo. */
+@layer components {
+  .photo-viewer-track {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    touch-action: pan-x pan-y;
+  }
+  .photo-viewer-track[data-zoomed] {
+    overflow-x: hidden;
+    scroll-snap-type: none;
+  }
+  .photo-viewer-slide {
+    display: flex;
+    flex: none;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    scroll-snap-align: center;
+    scroll-snap-stop: always;
+    touch-action: pan-x pan-y;
+  }
+  /* Auto margins centre an image that fits and leave one that overflows
+     scrollable from its edge. */
+  .photo-viewer-slide img {
+    margin: auto;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    cursor: zoom-in;
+  }
+  .photo-viewer-slide[data-zoomed] img {
+    width: calc(var(--photo-zoom) * 100%);
+    height: calc(var(--photo-zoom) * 100%);
+    max-width: none;
+    max-height: none;
+    cursor: zoom-out;
+  }
+}

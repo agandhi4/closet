@@ -26,12 +26,14 @@ export async function createGarment(
   return idOf(res.url());
 }
 
-/** A coat with a photo (its thumb and cutout follow), through the photo sheet's post. */
+/** A garment (a coat unless told) with a photo (its thumb and cutout follow), through the photo sheet's post. */
 export async function addPhotographedGarment(
   page: Page,
   name: string,
+  category = 'coats',
+  fields: Record<string, string> = {},
 ): Promise<number> {
-  const garmentId = await createGarment(page, name, 'coats');
+  const garmentId = await createGarment(page, name, category, fields);
   const photo = await sharp({
     create: { width: 800, height: 600, channels: 3, background: '#6a4' },
   })

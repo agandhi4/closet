@@ -3,6 +3,12 @@ import type { ItemMatch, ItemStatus } from '../../wardrobe/plans';
 import { rankCandidates } from '../../wardrobe/shopping';
 import { PostForm } from '../auth/form';
 import { imageUrl, type SignablePhotoRef } from '../files/image-url';
+import {
+  enlargeLabel,
+  PhotoSet,
+  viewerTrigger,
+  type ViewerPhoto,
+} from '../files/photo-viewer';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -532,6 +538,33 @@ function statusLine(card: PlanCard, lead: Lead | null): string {
   }
 }
 
+/**
+ * What the photo viewer swipes through for an item (#313): the closet
+ * garments fulfilling it, then its products, those with a photo. The lead
+ * is always one of them.
+ */
+function viewerPhotos(
+  card: PlanCard,
+  closet: Map<number, ClosetGarment>,
+): ViewerPhoto[] {
+  const owned = (card.match?.fulfilledBy ?? [])
+    .map(({ garmentId }) => closet.get(garmentId)!)
+    .filter((garment) => garment.photo !== null)
+    .map((garment) => ({ photo: garment.photo!, alt: garmentName(garment) }));
+  const products =
+    card.status === 'owned'
+      ? []
+      : card.candidates
+          .filter((candidate) => candidate.photo !== null)
+          .map((candidate) => ({
+            photo: candidate.photo!,
+            alt: candidateName(candidate),
+          }));
+  return [...owned, ...products];
+}
+
+const viewerSetId = (card: PlanCard) => `plan-item-${card.item.id}-photos`;
+
 /** The photo, or the garment glyph while there is none. */
 function LeadPhoto(props: { lead: Lead | null }) {
   const { lead } = props;
@@ -588,6 +621,38 @@ function ItemCard(props: { card: PlanCard; gaps: PlanGaps }) {
           {statusLine(card, lead)}
         </span>
       </button>
+      {lead && (
+        <>
+          <PhotoSet
+            id={viewerSetId(card)}
+            photos={viewerPhotos(card, gaps.closet)}
+          />
+          {/* A sibling of the card's button, never inside it: the card opens
+              the sheet, this opens the photo viewer. */}
+          <button
+            type="button"
+            class="btn btn-circle btn-xs btn-neutral absolute right-1.5 top-1.5 z-10 opacity-80"
+            aria-label={enlargeLabel(lead.name)}
+            {...viewerTrigger(viewerSetId(card), lead.photo)}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              stroke="currentColor"
+              class="size-3.5"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15"
+              />
+            </svg>
+          </button>
+        </>
+      )}
       <ItemSheet card={card} gaps={gaps} lead={lead} />
     </li>
   );
@@ -659,7 +724,18 @@ function SheetHeader(props: {
   return (
     <div class="flex gap-3">
       <div class="relative aspect-[4/5] w-28 shrink-0 overflow-hidden rounded-box bg-base-200 flex items-center justify-center">
-        <LeadPhoto lead={lead} />
+        {lead ? (
+          <button
+            type="button"
+            class="size-full"
+            aria-label={enlargeLabel(lead.name)}
+            {...viewerTrigger(viewerSetId(card), lead.photo)}
+          >
+            <LeadPhoto lead={lead} />
+          </button>
+        ) : (
+          <LeadPhoto lead={lead} />
+        )}
       </div>
       <div class="flex min-w-0 flex-col items-start gap-1">
         <h2 id={titleId} class="font-semibold text-lg break-words">

@@ -2,6 +2,16 @@
   "APP_DESCRIPTION": "Wardrobe organizer: garments, outfits, and a calendar.",
   "HOME": "Home",
   "PROFILE": "Profile",
+  "photoViewer": {
+    "TITLE": "Photo viewer",
+    "ENLARGE": "Enlarge photo",
+    "ENLARGE_NAMED": "Enlarge photo of {name}",
+    "PREVIOUS": "Previous photo",
+    "NEXT": "Next photo",
+    "ZOOM": "Zoom",
+    "SMALLER_COPY": "Showing a smaller copy",
+    "POSITION": "{current} of {total}"
+  },
   "strip": {
     "PREVIOUS": "Previous: {label}",
     "NEXT": "Next: {label}"

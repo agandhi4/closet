@@ -1,8 +1,15 @@
 import type { Child } from 'hono/jsx';
+import { showsCutout } from '../../cutout/state';
 import { PostForm } from '../auth/form';
 import { GarmentCapsules } from '../capsules/garment-capsules';
 import type { GarmentCapsule } from '../capsules/queries';
 import { imageUrl } from '../files/image-url';
+import {
+  enlargeLabel,
+  PhotoSet,
+  viewerTrigger,
+  type ViewerPhoto,
+} from '../files/photo-viewer';
 import { AvoidedPartners } from '../gallery/avoided';
 import { GoesWithSection } from '../gallery/goes-with';
 import type { GoesWithCloset } from '../gallery/ideas';
@@ -106,6 +113,8 @@ export interface GarmentPageModel {
   /** "Add a copy" from a new garment's form (#20) landed here. */
   justAddedCopy: boolean;
 }
+
+type GarmentPhoto = NonNullable<GarmentDetail['photo']>;
 
 const PHOTO_SHEET_ID = 'garment-photo-sheet';
 
@@ -562,11 +571,20 @@ export function GarmentPhotoView(props: {
   return (
     <div id="garment-photo" {...polling}>
       <figure class="relative rounded-box overflow-hidden bg-base-200 aspect-[4/5] w-full">
-        <img
-          src={imageUrl(photo, 'nobg')}
-          alt={garment.name ?? ''}
-          class="object-contain w-full h-full"
-        />
+        {/* The viewer swipes from the cutout to the photo it was cut from. */}
+        <PhotoSet id="garment-photos" photos={viewerPhotos(garment, photo)} />
+        <button
+          type="button"
+          class="size-full"
+          aria-label={enlargeLabel(garment.name)}
+          {...viewerTrigger('garment-photos', photo, viewerVariant(photo))}
+        >
+          <img
+            src={imageUrl(photo, 'nobg')}
+            alt={garment.name ?? ''}
+            class="object-contain w-full h-full"
+          />
+        </button>
         {pending && (
           <div
             id="garment-photo-status"
@@ -622,9 +640,22 @@ function CutoutFailed(props: { retryUrl: string | undefined }) {
  * the data attributes at the tap (the button is swapped with the photo),
  * and writes the new version back into them after a save.
  */
+/** The photo viewer opens on the cutout while one is shown, else on the photo itself. */
+function viewerVariant(photo: GarmentPhoto): 'nobg' | 'original' {
+  return showsCutout(photo.cutoutStatus) ? 'nobg' : 'original';
+}
+
+function viewerPhotos(garment: GarmentDetail, photo: GarmentPhoto) {
+  const alt = garment.name ?? '';
+  const original: ViewerPhoto = { photo, alt, variant: 'original' };
+  return showsCutout(photo.cutoutStatus)
+    ? [{ photo, alt } satisfies ViewerPhoto, original]
+    : [original];
+}
+
 function EditMaskButton(props: {
   garment: GarmentDetail;
-  photo: NonNullable<GarmentDetail['photo']>;
+  photo: GarmentPhoto;
   viewOwner: number | undefined;
 }) {
   return (

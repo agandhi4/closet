@@ -4,6 +4,7 @@ import { jsonForScript } from '../html';
 import { t } from '../i18n';
 import { THEME_BASE_100 } from '../theme-colors';
 import type { ViewContext } from '../view-context';
+import { PhotoViewer } from '../files/photo-viewer';
 import { AppStatus } from './app-status';
 
 /**
@@ -173,6 +174,9 @@ export function Layout({
         {/* The app bar's back arrow goes back like a native app's. After
             submit-once, whose cancelled submits it must see as cancelled. */}
         <script type="module" src={`/js/back.js${v}`}></script>
+        {/* The shared photo viewer (src/web/files/photo-viewer.tsx): one
+            document listener opens any [data-photo-open]. */}
+        <script type="module" src={`/js/photo-viewer.js${v}`}></script>
         {ctx.pwaEnabled && (
           // Service worker registration, update toast, Web Push, the install
           // dialog, iOS pull to refresh. In the head so hx-boost body swaps
@@ -203,6 +207,7 @@ export function Layout({
       >
         {children}
         <AppStatus />
+        <PhotoViewer />
       </body>
     </html>
   );
