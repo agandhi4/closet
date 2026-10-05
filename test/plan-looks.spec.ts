@@ -134,7 +134,6 @@ test('swipe the looks, Love one, Change another with a note, Accept, see them gr
     'Loved',
   );
   const waiting = page.locator('#plan-looks-revise');
-  await waiting.locator('summary').click();
   await expect(waiting.locator(`#look-${second}`)).toBeVisible();
   await expect(waiting).toContainText('Your note: A navy knit instead');
   const rows = await withServerDb((db) =>
@@ -152,7 +151,7 @@ test('swipe the looks, Love one, Change another with a note, Accept, see them gr
   expect(errors).toEqual([]);
 });
 
-test('a fresh plan page: Love the second look on its card', async ({
+test('a fresh plan page: swipe to the second look and Love it', async ({
   page,
 }) => {
   const errors = pageErrors(page);
@@ -180,9 +179,19 @@ test('a fresh plan page: Love the second look on its card', async ({
     ];
   });
 
+  // The document's first page: nothing has loaded the strip's module yet.
   await page.goto(`${plan}?view=outfits`);
+  const strip = page.locator('#plan-looks [data-snap-strip]');
   const secondTile = page.locator(`#look-${second}`);
-  await expect(page.locator(`#look-${first}`)).toBeVisible();
+  await expect(page.locator(`#look-${first}`)).toHaveAttribute(
+    'data-selected',
+    '',
+  );
+  await strip.scrollIntoViewIfNeeded();
+  const box = (await strip.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(box.width / 2, 0);
+  await expect(secondTile).toHaveAttribute('data-selected', '');
   await secondTile.getByRole('button', { name: 'Love it' }).click();
   await expect(page.locator(`#look-${second}`)).toHaveAttribute(
     'data-reaction',

@@ -288,10 +288,12 @@ test.describe('on a phone', () => {
       .toBeLessThan(fitted.width * 1.05);
   });
 
-  test('a look card’s piece opens its pieces', async ({ page }) => {
+  test('the Looks strip tile opens its pieces', async ({ page }) => {
     const { planId } = await seed(page);
     await page.goto(`/wardrobe/plans/${planId}?view=outfits`);
-    const piece = page.locator('#plan-looks [data-photo-open]').first();
+    const piece = page
+      .locator('#plan-looks [data-selected] [data-photo-open]')
+      .first();
     await piece.scrollIntoViewIfNeeded();
     await piece.tap();
     await expect(position(page)).toHaveText(/1 of 3|2 of 3|3 of 3/u);

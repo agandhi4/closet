@@ -629,10 +629,6 @@ body {
     scroll-snap-align: center;
     scroll-snap-stop: always;
     touch-action: pan-x pan-y;
-    scrollbar-width: none;
-  }
-  .photo-viewer-slide::-webkit-scrollbar {
-    display: none;
   }
   /* Auto margins centre an image that fits and leave one that overflows
      scrollable from its edge. */

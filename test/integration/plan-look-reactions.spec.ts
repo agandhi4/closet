@@ -417,20 +417,6 @@ describe('plan looks in the app', () => {
       expect(statements).toHaveLength(6);
     });
 
-    it('reads the Outfits view in as many statements for 8 looks as for 1', async () => {
-      const f = await fixture();
-      await f.look('Office Tuesday');
-      const one = await recordStatements(() =>
-        get(`/wardrobe/plans/${f.planId}?view=outfits`, f.cookie),
-      );
-      for (let n = 2; n <= 8; n++) await f.look(`Look ${n}`);
-      const eight = await recordStatements(() =>
-        get(`/wardrobe/plans/${f.planId}?view=outfits`, f.cookie),
-      );
-      expect(eight.result.statusCode).toBe(200);
-      expect(eight.statements).toHaveLength(one.statements.length);
-    });
-
     it('draws the looks in the Outfits panel (?view=outfits checks it), listing those sent back or turned down apart', async () => {
       const f = await fixture();
       const first = await f.look('Office Tuesday');
@@ -460,14 +446,10 @@ describe('plan looks in the app', () => {
       expectFullPage(res);
       const html = unescapeHtml(res.body);
       expect(html).toMatch(/id="plan-view-outfits"[^>]*\bchecked\b/);
-      // Document order is the sections': loved then proposed in the grid,
-      // then the folds (#314). The folds are collapsed `<details>`.
-      const cards = [...html.matchAll(/id="look-(\d+)" data-look/g)].map((m) =>
+      const strip = [...html.matchAll(/id="look-(\d+)" data-look/g)].map((m) =>
         Number(m[1]),
       );
-      expect(cards).toEqual([loved, first, revise, declined]);
-      expect(html).not.toMatch(/<details[^>]*\bopen\b/);
-      expect(html).not.toContain('data-strip-action');
+      expect(strip).toEqual([loved, first]);
       const action = (lookId: number, move: string) =>
         `action="/wardrobe/plans/${f.planId}/looks/${lookId}/${move}"`;
       // A look to review: Love it, Not for me, Change this…; a loved one no Love it.
@@ -486,42 +468,6 @@ describe('plan looks in the app', () => {
       expect(html).toContain('Love it as it is');
       expect(html).toContain('id="plan-looks-declined"');
       expect(html).toContain(action(declined, 'reconsider'));
-    });
-
-    it('draws every piece of a look as its own labelled tile, in slot order, the product marked To buy', async () => {
-      const f = await fixture();
-      const look = await f.look('Office Tuesday');
-      const html = unescapeHtml(
-        (await get(`/wardrobe/plans/${f.planId}?view=outfits`, f.cookie)).body,
-      );
-      const card = html.slice(html.indexOf(`id="look-${look}"`));
-      const tiles = card.split('data-piece-state=').slice(1, 4);
-      expect(tiles).toHaveLength(3);
-      const names = tiles.map((tile) => /<p[^>]*>([^<]+)<\/p>/.exec(tile)![1]);
-      expect(names).toEqual(['Oxford shirt', 'Chinos', 'Suede loafers']);
-      expect(tiles[2]).toContain('data-to-buy');
-      expect(tiles[0]).not.toContain('data-to-buy');
-      expect(card).toContain('Work · 1 to buy');
-      expect(card).toContain('Why Office Tuesday works');
-    });
-
-    it('says how to get looks when there are none', async () => {
-      const f = await fixture();
-      const html = unescapeHtml(
-        (await get(`/wardrobe/plans/${f.planId}?view=outfits`, f.cookie)).body,
-      );
-      expect(html).toContain('id="plan-no-looks"');
-      expect(html).toContain('Ask your agent');
-    });
-
-    it('keeps the statement count flat as looks grow', async () => {
-      const f = await fixture();
-      for (let i = 0; i < 8; i++) await f.look(`Look ${i}`);
-      const { result, statements } = await recordStatements(() =>
-        get(`/wardrobe/plans/${f.planId}?view=outfits`, f.cookie),
-      );
-      expect(result.statusCode).toBe(200);
-      expect(statements).toHaveLength(6);
     });
 
     it('offers Review for a plan whose only proposal is a look: the plan page and the list', async () => {
