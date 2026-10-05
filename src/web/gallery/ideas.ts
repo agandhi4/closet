@@ -430,6 +430,8 @@ export interface PickResult {
   name: string | null;
   /** The garments were already an outfit of the owner's: it was reused, nothing was created. */
   alreadySaved: boolean;
+  /** That outfit was one of Muse's proposals, which this pick made the owner's (#335). */
+  adoptedProposal: boolean;
   /**
    * The person's pick took over what the week planner had made of it: the
    * reused outfit (no longer the planner's to remove) or the entry on the
@@ -498,8 +500,8 @@ export function pickIdea(
 }
 
 function pickResult(saved: CreateResult): PickResult {
-  const { id, name, alreadySaved, adopted, schedule } = saved;
-  return { id, name, alreadySaved, adopted, schedule };
+  const { id, name, alreadySaved, adoptedProposal, adopted, schedule } = saved;
+  return { id, name, alreadySaved, adoptedProposal, adopted, schedule };
 }
 
 /** A closet garment near-identical to a wishlist item (nearDuplicates). */

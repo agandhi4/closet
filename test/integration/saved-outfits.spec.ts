@@ -267,9 +267,9 @@ describe('Saved outfits and the outfit page (R5)', () => {
       const picking = await recordQueries(() =>
         t.inject({ method: 'GET', url: `/outfits?for=day:${day}` }),
       );
-      // #164: the day's entries are a column of the grid's statement.
-      // The plain tab also reads the plan's looks (#302), which picking skips.
-      expect(picking.statements).toBe(plain.statements - 1);
+      // #164: the day's entries are a column of the grid's statement, as
+      // Muse's outfits are of the plain tab's (#335): one statement each.
+      expect(picking.statements).toBe(plain.statements);
     });
   });
 

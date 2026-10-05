@@ -3,6 +3,7 @@ import { PostForm } from '../auth/form';
 import type { IsoDate } from '../calendar/calendar-date';
 import { dayLabel, occasionLabel } from '../calendar/labels';
 import { AlreadySavedToast } from '../gallery/already-saved';
+import type { AlreadySaved } from '../gallery/urls';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -14,12 +15,21 @@ import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { OutfitCollage } from './collage';
 import type {
-  OutfitDetail,
   OutfitEntries,
+  OutfitPageDetail,
+  OutfitProposal,
   OutfitSummary,
   PlannedDay,
   WornDay,
 } from './queries';
+import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
+import {
+  type DecisionToast,
+  DecisionToastView,
+  NotForMe,
+  reasonText,
+  UndoForm,
+} from '../wishlist/suggestion-parts';
 import { piecesToBuy } from './references';
 import { ToBuySection } from './to-buy';
 import { outfitUrl } from './urls';
@@ -42,16 +52,23 @@ const OPEN_PLAN_SHEET = `document.getElementById('${PLAN_SHEET_ID}').showModal()
  */
 export function OutfitPage(props: {
   ctx: ViewContext;
-  outfit: OutfitDetail;
+  outfit: OutfitPageDetail;
   entries: OutfitEntries;
   /** The household's today: the Plan sheet's first day. */
   today: IsoDate;
-  /** The gallery's pick found this outfit already saved (?alreadySaved=1). */
-  alreadySaved?: boolean;
+  /** The gallery's pick or a save found this outfit already saved (?alreadySaved=). */
+  alreadySaved?: AlreadySaved;
+  /** A reaction to Muse's proposal came back here (`?decided=`). */
+  toast?: DecisionToast;
 }) {
   const { ctx, outfit, entries } = props;
   const name = outfit.name || t('UNTITLED_OUTFIT');
   const toBuy = piecesToBuy(outfit.garments);
+  // Plan is offered only where the outfit may be held (outfitMayBeHeld):
+  // complete, and the owner's (not one of Muse's proposals until saved).
+  const mayBePlanned =
+    toBuy.length === 0 &&
+    (!outfit.proposal || outfit.proposal.reaction === 'loved');
   return (
     <Layout ctx={ctx} title={name}>
       <AppBar
@@ -61,6 +78,13 @@ export function OutfitPage(props: {
         actions={<OutfitMenu ctx={ctx} outfit={outfit} />}
       />
       <main class="flex flex-col gap-6 px-4 pt-20 pb-24 w-full max-w-lg mx-auto">
+        {outfit.proposal && (
+          <ProposalBlock
+            outfitId={outfit.id}
+            proposal={outfit.proposal}
+            complete={toBuy.length === 0}
+          />
+        )}
         {outfit.notes && <p class="text-muted text-sm px-1">{outfit.notes}</p>}
         {outfit.garments.length > 0 ? (
           <OutfitCollage garments={outfit.garments} eager />
@@ -69,7 +93,7 @@ export function OutfitPage(props: {
         )}
         {toBuy.length > 0 && <ToBuySection pieces={toBuy} />}
         <div class="flex gap-2">
-          {toBuy.length === 0 && (
+          {mayBePlanned && (
             <button
               type="button"
               class="btn btn-primary flex-1"
@@ -100,10 +124,9 @@ export function OutfitPage(props: {
         )}
         {outfit.garments.length > 0 && <GarmentList outfit={outfit} />}
       </main>
-      {toBuy.length === 0 && (
-        <PlanSheet outfitId={outfit.id} today={props.today} />
-      )}
-      <AlreadySavedToast shown={props.alreadySaved === true} />
+      {mayBePlanned && <PlanSheet outfitId={outfit.id} today={props.today} />}
+      <AlreadySavedToast kind={props.alreadySaved} />
+      <DecisionToastView toast={props.toast} />
       <Dock ctx={ctx} />
     </Layout>
   );
@@ -113,8 +136,10 @@ export function OutfitPage(props: {
  * The ⋯ menu: Share (the public link) and Delete. Buttons only: a form
  * inside a daisyUI menu item loses its styling (the garment page's menu).
  */
-function OutfitMenu(props: { ctx: ViewContext; outfit: OutfitDetail }) {
+function OutfitMenu(props: { ctx: ViewContext; outfit: OutfitPageDetail }) {
   const { ctx, outfit } = props;
+  // Muse's proposal not loved is feedback: Not for me sets it aside, kept.
+  const deletable = !outfit.proposal || outfit.proposal.reaction === 'loved';
   return (
     <details class="dropdown dropdown-end" id="outfit-menu">
       <summary
@@ -132,18 +157,78 @@ function OutfitMenu(props: { ctx: ViewContext; outfit: OutfitDetail }) {
             variant="menu"
           />
         </li>
-        <li>
-          <button
-            type="button"
-            class="text-error"
-            hx-delete={outfitUrl(outfit.id)}
-            hx-confirm={t('CONFIRM_DELETE')}
-          >
-            {t('DELETE')}
-          </button>
-        </li>
+        {deletable && (
+          <li>
+            <button
+              type="button"
+              class="text-error"
+              hx-delete={outfitUrl(outfit.id)}
+              hx-confirm={t('CONFIRM_DELETE')}
+            >
+              {t('DELETE')}
+            </button>
+          </li>
+        )}
       </ul>
     </details>
+  );
+}
+
+/**
+ * One of Muse's outfits (#335): who proposed it and why, and the owner's
+ * reaction as on its card (muse-cards.tsx): Love (Save once complete) and
+ * Not for me while it waits on them, Undo once set aside. Loved, it is
+ * the owner's (or waits on its pieces, listed below).
+ */
+function ProposalBlock(props: {
+  outfitId: number;
+  proposal: OutfitProposal;
+  complete: boolean;
+}) {
+  const { proposal } = props;
+  const returnTo = outfitUrl(props.outfitId);
+  const action = (move: string) => `${outfitUrl(props.outfitId)}/${move}`;
+  const waiting =
+    proposal.reaction === 'proposed' || proposal.reaction === 'revise';
+  return (
+    <section class="flex flex-col gap-2 px-1" data-outfit-proposal="">
+      <p class="text-sm font-medium">
+        {t('outfits.muse.FROM', { agent: proposal.agent ?? t('muse.AGENT') })}
+      </p>
+      {proposal.note && <p class="text-sm text-muted">{proposal.note}</p>}
+      {proposal.reaction === 'revise' && proposal.ownerNote && (
+        <p class="text-sm">
+          {t('outfits.muse.YOU_ASKED', { note: proposal.ownerNote })}
+        </p>
+      )}
+      {proposal.reaction === 'declined' && (
+        <div class="flex items-center gap-2">
+          <p class="text-sm text-muted flex-1">
+            {t('outfits.muse.SET_ASIDE_LINE', {
+              reason: reasonText(proposal.dismissedReason),
+            })}
+          </p>
+          <UndoForm action={action('undo')} returnTo={returnTo} primary />
+        </div>
+      )}
+      {waiting && (
+        <div class="flex flex-wrap items-start gap-2">
+          <PostForm action={action('love')} needsNetwork>
+            <input type="hidden" name="returnTo" value={returnTo} />
+            <button type="submit" class="btn btn-primary min-h-11 fine:min-h-8">
+              {t(props.complete ? 'outfits.muse.SAVE' : 'outfits.muse.LOVE')}
+            </button>
+          </PostForm>
+          <NotForMe
+            action={action('dismiss')}
+            returnTo={returnTo}
+            reasons={OUTFIT_DISMISS_REASONS}
+            label={`× ${t('muse.NOT_FOR_ME')}`}
+            class="min-h-11 fine:min-h-8"
+          />
+        </div>
+      )}
+    </section>
   );
 }
 

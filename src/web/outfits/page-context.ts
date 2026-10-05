@@ -3,13 +3,20 @@ import { selectScalars } from '../../db/select-scalars';
 import type { IsoDate } from '../calendar/calendar-date';
 import { type DayChoice, readDayChoice } from '../calendar/day-choice';
 import { entriesOfDaySql } from '../calendar/queries';
+import type { OutfitCount } from '../../wardrobe/goes-with';
 import type { DayDestination } from './destination';
+import {
+  type MuseOutfit,
+  museOutfitsSql,
+  museUnlocksInputsSql,
+  readMuseUnlocks,
+} from './proposals';
 import {
   type OutfitActivity,
   outfitActivitySql,
   type GarmentOutfit,
   savedOutfitsSql,
-  type OutfitDetail,
+  type OutfitPageDetail,
   type OutfitEntries,
   outfitDetailSql,
   outfitEntriesSql,
@@ -25,8 +32,13 @@ import {
 
 /** What GET /outfits shows (list-page.tsx). */
 export interface SavedContext {
-  /** Every outfit of the owner's, newest first: the tiles. */
+  /** The owner's own outfits, newest first: the tiles (ownersOutfit). */
   outfits: GarmentOutfit[];
+  /**
+   * Muse's outfits not the owner's yet (awaiting them, or set aside), and
+   * what each piece to buy unlocks; none while picking for a day.
+   */
+  muse: { outfits: MuseOutfit[]; unlocks: Map<number, OutfitCount> };
   /** Each tile's line (worn count, next plan), by outfit id; absent: never planned. */
   activity: Map<number, OutfitActivity>;
   /** With `?for=day:`: what is on that day (the picking grid's disabled tiles). */
@@ -34,8 +46,9 @@ export interface SavedContext {
 }
 
 /**
- * The Saved tab's tiles and their activity, and with a day to pick for,
- * that day's entries (readDayChoice: the plan page's rule): one statement.
+ * The Saved tab's tiles and their activity, Muse's outfits with what their
+ * pieces to buy unlock (#335), and with a day to pick for, that day's
+ * entries (readDayChoice: the plan page's rule): one statement.
  */
 export async function savedContext(
   db: Db,
@@ -47,9 +60,16 @@ export async function savedContext(
     outfits: savedOutfitsSql(ownerId),
     activity: outfitActivitySql(ownerId, today),
     entries: day && entriesOfDaySql(ownerId, day.day),
+    // Picking for a day is its own task: Muse's section stays out of it.
+    muse: day ? undefined : museOutfitsSql(ownerId),
+    unlocks: day ? undefined : museUnlocksInputsSql(ownerId),
   });
   return {
     outfits: row.outfits,
+    muse: {
+      outfits: row.muse ?? [],
+      unlocks: row.unlocks ? readMuseUnlocks(row.unlocks) : new Map(),
+    },
     activity: new Map(
       row.activity.map(({ outfitId, ...activity }) => [outfitId, activity]),
     ),
@@ -59,7 +79,7 @@ export async function savedContext(
 
 /** What GET /outfits/:id shows (show-page.tsx). */
 export interface OutfitContext {
-  outfit: OutfitDetail;
+  outfit: OutfitPageDetail;
   entries: OutfitEntries;
 }
 

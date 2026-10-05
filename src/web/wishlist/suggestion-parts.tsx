@@ -3,6 +3,7 @@ import { budgetFit } from '../../wardrobe/shopping';
 import {
   type DismissReason,
   OWNER_DISMISS_REASONS,
+  type OwnerDismissReason,
 } from '../../wardrobe/suggestions';
 import { PostForm } from '../auth/form';
 import { imageUrl, type SignablePhotoRef } from '../files/image-url';
@@ -25,6 +26,8 @@ export const DECISION_FLAG = 'decided';
 
 export const DECISION_TOASTS = [
   'choose',
+  'love',
+  'save',
   'dismiss',
   'undo',
   'returned',
@@ -71,6 +74,8 @@ export function NotForMe(props: {
   action: string;
   returnTo: string;
   label?: string;
+  /** The reasons offered: the owner's for a pick or a need; OUTFIT_DISMISS_REASONS for an outfit. */
+  reasons?: readonly OwnerDismissReason[];
   /** Classes on the summary button. */
   class?: string;
 }) {
@@ -96,12 +101,12 @@ export function NotForMe(props: {
         </label>
         <p class="text-xs text-muted">{t('muse.NOT_FOR_ME_HINT')}</p>
         <div class="flex flex-wrap gap-1">
-          {OWNER_DISMISS_REASONS.map((reason) => (
+          {(props.reasons ?? OWNER_DISMISS_REASONS).map((reason) => (
             <button
               type="submit"
               name="reason"
               value={reason}
-              class="btn btn-outline btn-xs"
+              class="btn btn-outline btn-sm min-h-11 fine:min-h-8"
             >
               {reasonText(reason)}
             </button>
@@ -126,7 +131,11 @@ export function UndoForm(props: {
       <ReturnTo path={props.returnTo} />
       <button
         type="submit"
-        class={props.primary ? 'btn btn-primary' : 'btn btn-ghost btn-sm'}
+        class={
+          props.primary
+            ? 'btn btn-primary'
+            : 'btn btn-ghost btn-sm min-h-11 fine:min-h-8'
+        }
         aria-label={props.ariaLabel}
       >
         {props.label ?? t('muse.UNDO')}

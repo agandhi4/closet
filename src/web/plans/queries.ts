@@ -107,7 +107,7 @@ type NameTaken = 'name-taken';
  * The name of the token that drafted the enclosing plan (null for the
  * owner's own), a scalar subquery on `wardrobe_plan`. The token must be the
  * plan owner's, so a token id never names another user's token. Used by
- * PLAN_COLUMNS and the Outfits row's looks (looksOfShownPlan).
+ * PLAN_COLUMNS.
  */
 export const draftedBySql = sql<
   string | null

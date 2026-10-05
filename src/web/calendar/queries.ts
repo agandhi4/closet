@@ -12,11 +12,11 @@ import type { Occasion } from '../../wardrobe/occasions';
 import { DEFAULT_PLANNED_BY, type PlannedBy } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
 import { photoRefJson } from '../files/queries';
-import { OutfitIncomplete } from '../outfits/gone-garments';
+import { refuseUnholdable } from '../outfits/gone-garments';
 import {
-  outfitIsComplete,
+  holdRefusalColumns,
+  outfitMayBeHeld,
   type PieceToBuy,
-  piecesToBuySql,
 } from '../outfits/references';
 import { deleteEntrySelfie, entrySelfieSql } from '../selfies/queries';
 import {
@@ -240,9 +240,10 @@ export async function ownsOutfit(
  * a take-over could commit between the re-plan's read of the entry as
  * `auto` and its swap, leaving two outfits in one slot (#122).
  *
- * **An incomplete outfit is refused** (#335: it holds a piece not bought
- * yet; src/web/outfits/references.ts): OutfitIncomplete, a 409 naming the
- * pieces, and nothing is written. The owner lock keeps it true until the
+ * **An outfit that may not be held is refused** (#335, outfitMayBeHeld:
+ * one holding a piece not bought yet, OutfitIncomplete, or one of Muse's
+ * proposals not the owner's yet, OutfitNotYours; refuseUnholdable), a 409,
+ * and nothing is written. The owner lock keeps it true until the
  * commit: a slot write that would add a piece (updateOutfit) takes it too.
  */
 export function insertEntry(
@@ -256,43 +257,33 @@ export function insertEntry(
 
 async function upsertEntry(tx: Queryable, entry: NewEntry): Promise<Scheduled> {
   const outfitId = sql`${entry.outfitId}::int`;
-  // A conflict the WHERE refuses returns no row, as does an incomplete
-  // outfit's insert: `toBuy` (read in the same snapshot) tells them apart.
+  // A conflict the WHERE refuses returns no row, as does the insert of an
+  // outfit that may not be held (outfitMayBeHeld): `toBuy` and `pending`,
+  // read in the same snapshot, tell them apart.
   // xmax is 0 on a row this statement inserted and set on one it updated:
   // Postgres' way of telling the two apart in one ON CONFLICT statement.
   const { rows } = await tx.execute<{
     id: number | null;
     inserted: boolean | null;
     toBuy: PieceToBuy[];
+    pending: boolean;
   }>(sql`
     with written as (
       insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion, planned_by)
       select ${entry.ownerId}::int, ${entry.day}::date, ${outfitId},
         ${entry.occasion}::text, ${entry.plannedBy ?? DEFAULT_PLANNED_BY}::text
-      where ${outfitIsComplete(outfitId)}
+      where ${outfitMayBeHeld(outfitId)}
       on conflict (owner_id, day, outfit_id) do update set planned_by = 'user'
         where ${outfitCalendar.plannedBy} = 'auto' and excluded.planned_by = 'user'
       returning ${outfitCalendar.id} as id, (xmax = 0) as inserted
     )
     select (select id from written) as id,
       (select inserted from written) as inserted,
-      ${piecesToBuySql(outfitId)} as "toBuy"`);
+      ${holdRefusalColumns(outfitId)}`);
   const [row] = rows;
-  refuseIncomplete(entry.outfitId, row.toBuy);
+  refuseUnholdable(entry.outfitId, row);
   if (row.inserted) return { outcome: 'scheduled', id: row.id! };
   return { outcome: 'already-scheduled', adopted: row.id !== null };
-}
-
-/**
- * The calendar's half of the incomplete rule (src/web/outfits/references.ts):
- * an entry never names an outfit holding a piece not bought yet. Each
- * writer that points an entry at an outfit (upsertEntry, planToWear,
- * setEntryOutfit) writes only where the outfit is complete and reads its
- * pieces to buy in the same statement; with any, it wrote nothing and this
- * refuses, rolling the caller's transaction back.
- */
-function refuseIncomplete(outfitId: number, toBuy: readonly PieceToBuy[]) {
-  if (toBuy.length > 0) throw new OutfitIncomplete(outfitId, toBuy);
 }
 
 /**
@@ -375,8 +366,8 @@ export async function lockEntryToReplace(
  * outfit is not on the day already (the unique key). The choice is the
  * person's from now on (planned_by 'user'), so the week's re-plan and Undo
  * leave it alone (#16), also when the outfit is the one the entry had (the
- * person choosing what the planner chose takes it over). An incomplete
- * outfit is refused (OutfitIncomplete), the entry unchanged.
+ * person choosing what the planner chose takes it over). An outfit that
+ * may not be held is refused (refuseUnholdable), the entry unchanged.
  */
 export async function setEntryOutfit(
   tx: Queryable,
@@ -384,13 +375,16 @@ export async function setEntryOutfit(
   outfitId: number,
 ): Promise<void> {
   const outfit = sql`${outfitId}::int`;
-  const { rows } = await tx.execute<{ toBuy: PieceToBuy[] }>(sql`
+  const { rows } = await tx.execute<{
+    toBuy: PieceToBuy[];
+    pending: boolean;
+  }>(sql`
     with written as (
       update ${outfitCalendar} set outfit_id = ${outfit}, planned_by = 'user'
-      where ${outfitCalendar.id} = ${entryId} and ${outfitIsComplete(outfit)}
+      where ${outfitCalendar.id} = ${entryId} and ${outfitMayBeHeld(outfit)}
     )
-    select ${piecesToBuySql(outfit)} as "toBuy"`);
-  refuseIncomplete(outfitId, rows[0].toBuy);
+    select ${holdRefusalColumns(outfit)}`);
+  refuseUnholdable(outfitId, rows[0]);
 }
 
 /** What wearOutfitOn did: the entry, whether it was new, and its worn change. */
@@ -468,18 +462,20 @@ async function planToWear(
   entry: NewEntry,
 ): Promise<LockedEntry & { inserted: boolean }> {
   const outfitId = sql`${entry.outfitId}::int`;
-  // As in upsertEntry: xmax is 0 on a row this statement inserted, and an
-  // incomplete outfit's insert returns no row (refused by its `toBuy`).
+  // As in upsertEntry: xmax is 0 on a row this statement inserted, and the
+  // insert of an outfit that may not be held returns no row (refused by
+  // its `toBuy` and `pending`).
   const { rows } = await tx.execute<{
     entry: (Omit<LockedEntry, 'wornAt'> & { wornAt: string | null }) | null;
     inserted: boolean | null;
     toBuy: PieceToBuy[];
+    pending: boolean;
   }>(sql`
     with written as (
       insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion, planned_by)
       select ${entry.ownerId}::int, ${entry.day}::date, ${outfitId},
         ${entry.occasion}::text, ${entry.plannedBy ?? DEFAULT_PLANNED_BY}::text
-      where ${outfitIsComplete(outfitId)}
+      where ${outfitMayBeHeld(outfitId)}
       on conflict (owner_id, day, outfit_id) do update set planned_by = 'user'
       returning json_build_object(
         'id', ${outfitCalendar.id},
@@ -490,9 +486,9 @@ async function planToWear(
     )
     select (select entry from written) as entry,
       (select inserted from written) as inserted,
-      ${piecesToBuySql(outfitId)} as "toBuy"`);
+      ${holdRefusalColumns(outfitId)}`);
   const [row] = rows;
-  refuseIncomplete(entry.outfitId, row.toBuy);
+  refuseUnholdable(entry.outfitId, row);
   const { wornAt, ...planned } = row.entry!;
   return {
     ...planned,

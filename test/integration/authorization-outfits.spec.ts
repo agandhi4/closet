@@ -5,6 +5,7 @@ import { addDays } from '../../src/web/calendar/calendar-date';
 import { multipart } from './harness';
 import {
   describeMatrix,
+  type Fixture,
   type Route,
   BOTH,
   garmentName,
@@ -249,6 +250,36 @@ const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  ...(
+    [
+      ['love', (f: Fixture) => f.museOutfitId, {}],
+      [
+        'dismiss',
+        (f: Fixture) => f.museOutfitId,
+        { reason: 'style', note: '' },
+      ],
+      ['undo', (f: Fixture) => f.museDeclinedId, {}],
+    ] as const
+  ).map(
+    ([move, id, payload]): Route => ({
+      name: `POST /outfits/:id/${move}`,
+      kind: 'write',
+      ok: 303,
+      secret: outfitName,
+      vias: BOTH,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/outfits/${id(f)}/${move}${q}`,
+        payload,
+      }),
+      expect: {
+        owner: 'ok',
+        manager: 'notFound',
+        viewer: 'notFound',
+        stranger: 'notFound',
+      },
+    }),
+  ),
   {
     name: 'DELETE /outfits/:id',
     kind: 'write',

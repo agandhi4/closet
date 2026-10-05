@@ -18,12 +18,18 @@
  *  - `PAIR_GRID`: two side by side from `lg` (Today's rows: the planned
  *    suggestion beside the ideas strip; a lone ideas row spans both and
  *    shows two ideas at a time).
+ *  - `MUSE_GRID`: Muse's outfit cards (the Outfits tab, #335), the page's
+ *    hero, every piece big: one on a phone, two from `lg` (never three:
+ *    the pieces being decided on must stay the largest images on the page,
+ *    about 150 px at 1440); a row's cards stretch to the tallest, so their
+ *    actions line up at the foot.
  */
 export const GALLERY_GRID =
   'grid grid-cols-3 gap-x-3 gap-y-4 sm:grid-cols-4 lg:grid-cols-6';
 export const CARD_COLUMNS =
   'space-y-4 lg:space-y-0 lg:columns-2 lg:gap-4 xl:columns-3 lg:*:mb-4 lg:*:break-inside-avoid';
 export const PAIR_GRID = 'grid grid-cols-1 items-start gap-4 lg:grid-cols-2';
+export const MUSE_GRID = 'grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2';
 export const CANDIDATE_GRID =
   'grid grid-cols-2 items-start gap-x-3 gap-y-4 lg:grid-cols-4';
 export const OUTFIT_GRID =

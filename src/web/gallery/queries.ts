@@ -500,6 +500,9 @@ type SavedSlot = [outfitId: number, garmentId: number, category: string];
  * src/web/outfits/references.ts) is left out: the rule compares the drawn
  * roles only, so one whose piece to buy is a layer would otherwise keep
  * the closet garments it shares from ever being suggested together.
+ * Muse's proposals count, declined ones too (#335): Ideas never offers a
+ * set Muse proposed or the owner turned down, nor the week planner one it
+ * would then plan unsaved (outfitMayBeHeld refuses a proposal).
  */
 function savedSlotsSql(ownerId: number): SQL<SavedSlot[]> {
   return sql<SavedSlot[]>`(
@@ -666,7 +669,7 @@ export function avoidedWithSql(
 /** A pick's garments, and the outfit they already are, if any. */
 export interface PickedGarments {
   garments: { id: number; name: string | null; category: string }[];
-  existing: { id: number; name: string | null } | undefined;
+  existing: { id: number; name: string | null; pending: boolean } | undefined;
 }
 
 /**
@@ -697,6 +700,7 @@ export async function pickedGarments(
       category: garment.category,
       existingId: existing.id,
       existingName: existing.name,
+      existingPending: existing.pending,
     })
     .from(garment)
     .leftJoin(existing, sql`true`)
@@ -716,6 +720,10 @@ export async function pickedGarments(
     existing:
       first === undefined || first.existingId === null
         ? undefined
-        : { id: first.existingId, name: first.existingName },
+        : {
+            id: first.existingId,
+            name: first.existingName,
+            pending: first.existingPending === true,
+          },
   };
 }

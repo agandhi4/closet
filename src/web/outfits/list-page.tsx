@@ -9,14 +9,6 @@ import { Layout } from '../layout/layout';
 import { OUTFIT_GRID } from '../layout/columns';
 import { PageMain } from '../layout/page-main';
 import { EmptyState } from '../layout/parts';
-import {
-  LOOKS_INIT,
-  LookSaveAction,
-  LookStripTile,
-  LooksStrip,
-} from '../plans/look-tile';
-import type { ShownLooks } from '../plans/looks';
-import { planUrl } from '../plans/urls';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { OutfitCollage } from './collage';
@@ -24,6 +16,13 @@ import { DayDestinationLine } from './day-destination';
 import type { DayDestination } from './destination';
 import { OutfitTabs } from './outfit-tabs';
 import type { OutfitActivity, GarmentOutfit } from './queries';
+import type { OutfitCount } from '../../wardrobe/goes-with';
+import {
+  type DecisionToast,
+  DecisionToastView,
+} from '../wishlist/suggestion-parts';
+import { MuseSection } from './muse-cards';
+import type { MuseOutfit } from './proposals';
 import { buyFirstNote, toBuyLine } from './to-buy';
 import { outfitUrl } from './urls';
 
@@ -42,11 +41,13 @@ export interface SavedModel {
    */
   picking?: { destination: DayDestination; choice: DayChoice };
   /**
-   * The strip of the plan shown above the grid (loved first, none
-   * declined; looksOfShownPlan picks the plan); no looks hides the row.
-   * `draftedBy` names the agent when it is a draft. Never read while picking.
+   * Muse's outfits not the owner's yet, and what their pieces to buy
+   * unlock (#335): the From Muse section above the grid. Never read while
+   * picking.
    */
-  planLooks: ShownLooks;
+  muse: { outfits: MuseOutfit[]; unlocks: Map<number, OutfitCount> };
+  /** A reaction's toast (`?decided=`). */
+  toast: DecisionToast | undefined;
 }
 
 /**
@@ -84,7 +85,10 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
         {model.picking && (
           <PickingHeader destination={model.picking.destination} />
         )}
-        <PlanLooksRow {...model.planLooks} />
+        {!model.picking && <MuseSection {...model.muse} />}
+        {!model.picking && model.muse.outfits.length > 0 && (
+          <h2 class="font-semibold px-1 pt-2">{t('outfits.muse.YOURS')}</h2>
+        )}
         {model.outfits.length === 0 ? (
           <NoOutfits destination={destination} />
         ) : model.picking ? (
@@ -112,49 +116,9 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
           </ul>
         )}
       </PageMain>
+      <DecisionToastView toast={model.toast} />
       <Dock ctx={ctx} />
     </Layout>
-  );
-}
-
-/**
- * "From your plan": the shown plan's looks as the plan page draws them
- * (LooksStrip, LookFace), each with Save as outfit while every piece is
- * owned (or the outfit it became). Edge to edge like the plan page's;
- * nothing without looks. Static markup: the strip's bytes change only when
- * a look does, so the tab root stays stable.
- */
-function PlanLooksRow({ looks, draftedBy }: ShownLooks) {
-  if (looks.length === 0) return null;
-  return (
-    <div class="-mx-4 mb-2">
-      <LooksStrip
-        id="plan-looks"
-        title={t('outfits.FROM_PLAN_TITLE')}
-        count={looks.length}
-        hint={
-          draftedBy === null ? (
-            t('outfits.FROM_PLAN_HINT')
-          ) : (
-            <>
-              {t('outfits.FROM_DRAFT_HINT', { name: draftedBy })}{' '}
-              <a class="link" href={planUrl(looks[0].planId)}>
-                {t('outfits.FROM_DRAFT_LINK')}
-              </a>
-            </>
-          )
-        }
-      >
-        {looks.map((look, index) => (
-          <LookStripTile look={look} selected={index === 0} eager={index < 2}>
-            <div class="mt-1">
-              <LookSaveAction look={look} />
-            </div>
-          </LookStripTile>
-        ))}
-      </LooksStrip>
-      <script type="module" dangerouslySetInnerHTML={{ __html: LOOKS_INIT }} />
-    </div>
   );
 }
 

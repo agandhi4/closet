@@ -12,11 +12,32 @@ import {
 export const IDEAS_PATH = '/outfits/ideas';
 
 /**
- * The one-shot flag a pick's redirect carries when the outfit already
- * existed (pickIdea's alreadySaved): the outfit and calendar pages show
- * AlreadySavedToast for it.
+ * The one-shot flag a pick's or a save's redirect carries when the outfit
+ * already existed (pickIdea's and createOutfit's alreadySaved): the outfit
+ * and calendar pages show AlreadySavedToast for it. Its value says which:
+ * `1`, already the owner's ("Already saved"); `muse`, one of Muse's
+ * proposals the save made theirs (#335, "Saved Muse's outfit").
  */
 export const ALREADY_SAVED_FLAG = 'alreadySaved';
+
+export type AlreadySaved = 'saved' | 'muse';
+
+/** The flag as a query parameter (`alreadySaved=…`), '' for an outfit created now. */
+export function alreadySavedParam(result: {
+  alreadySaved: boolean;
+  adoptedProposal: boolean;
+}): string {
+  if (!result.alreadySaved) return '';
+  return `${ALREADY_SAVED_FLAG}=${result.adoptedProposal ? 'muse' : '1'}`;
+}
+
+/** The flag as the pages read it: URL state, so anything else is no toast. */
+export function alreadySavedOf(
+  value: string | undefined,
+): AlreadySaved | undefined {
+  if (value === '1') return 'saved';
+  return value === 'muse' ? 'muse' : undefined;
+}
 
 export interface GalleryState {
   /** `?for=`: where a pick goes (OutfitDestination: a day, a trip #10, or none). */

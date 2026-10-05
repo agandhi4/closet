@@ -83,6 +83,8 @@ export interface Replaced {
   previousOutfitId: number;
   /** The outfit existed already: a saved one, or an idea's garments pickIdea found saved. */
   alreadySaved: boolean;
+  /** That outfit was one of Muse's proposals the pick made the owner's (#335). */
+  adoptedProposal: boolean;
   /** The selfie kept as a look on the day, if the entry had one. */
   selfieDetached?: number;
   /** Planner-made outfits removed with the swap (0 or 1). */
@@ -133,6 +135,7 @@ export function replaceEntryOutfit(
       outfitId: chosen.id,
       previousOutfitId: entry.outfitId,
       alreadySaved: chosen.alreadySaved,
+      adoptedProposal: chosen.adoptedProposal,
     };
     if (chosen.id === entry.outfitId) {
       if (result.adopted) await setEntryOutfit(tx, entry.id, chosen.id);
@@ -163,10 +166,12 @@ async function chosenOutfit(
   tx: Queryable,
   ownerId: number,
   choice: ReplacementChoice,
-): Promise<{ id: number; alreadySaved: boolean } | undefined> {
+): Promise<
+  { id: number; alreadySaved: boolean; adoptedProposal: boolean } | undefined
+> {
   if ('outfitId' in choice) {
     return (await ownsOutfit(tx, ownerId, choice.outfitId))
-      ? { id: choice.outfitId, alreadySaved: true }
+      ? { id: choice.outfitId, alreadySaved: true, adoptedProposal: false }
       : undefined;
   }
   // No plan: the entry is changed below, not added.

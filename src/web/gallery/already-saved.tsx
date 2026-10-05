@@ -1,20 +1,27 @@
 import { t } from '../i18n';
 import { SavedToast, StripFlags } from '../layout/parts';
-import { ALREADY_SAVED_FLAG } from './urls';
+import { ALREADY_SAVED_FLAG, type AlreadySaved } from './urls';
 
 /**
  * "Already saved" after a pick that found its outfit (a double tap, a
- * retried post): on the outfit page for a save, on the week for a plan.
- * Nothing when `shown` is false; the flag is stripped from the address
- * either way, so a reload does not replay it.
+ * retried post), or "Saved Muse's outfit" when it was one of Muse's
+ * proposals the save made the owner's (#335): on the outfit page for a
+ * save, on the week for a plan. Nothing without `kind`; the flag is
+ * stripped from the address either way, so a reload does not replay it.
  */
-export function AlreadySavedToast({ shown }: { shown: boolean }) {
+export function AlreadySavedToast({
+  kind,
+}: {
+  kind: AlreadySaved | undefined;
+}) {
   return (
     <>
-      {shown && (
+      {kind && (
         <SavedToast
           id="already-saved-toast"
-          text={t('gallery.ALREADY_SAVED')}
+          text={t(
+            kind === 'muse' ? 'gallery.SAVED_MUSE' : 'gallery.ALREADY_SAVED',
+          )}
         />
       )}
       <StripFlags names={[ALREADY_SAVED_FLAG]} />

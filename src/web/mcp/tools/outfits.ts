@@ -21,7 +21,7 @@ import {
   OUTFIT_GARMENTS_MAX,
   OUTFIT_NAME_MAX,
   OUTFIT_NOTES_MAX,
-  type OutfitSummary,
+  type ToolOutfit,
 } from '../../outfits/queries';
 import { piecesToBuy } from '../../outfits/references';
 import { defineTool } from '../tool';
@@ -29,11 +29,13 @@ import { isoDate, occasionInput, rowId } from './common';
 
 const OUTFIT_NOT_FOUND = 'Outfit not found';
 
-function outfitOut(outfit: OutfitSummary) {
+function outfitOut(outfit: ToolOutfit) {
   return {
     id: outfit.id,
     name: outfit.name,
     notes: outfit.notes,
+    // One of Muse's proposals (#335): its note and the owner's reaction.
+    proposal: outfit.proposal,
     garments: outfit.garments.map(({ id, name }) => ({ id, name })),
     // Incomplete (#335): it cannot be planned or packed until these are bought.
     toBuy: piecesToBuy(outfit.garments).map(({ id, name }) => ({ id, name })),
@@ -66,7 +68,7 @@ export const outfitTools = [
     name: 'list_outfits',
     title: 'List my outfits',
     description:
-      'Your saved outfits, newest first, each with its garments in the order it was built. toBuy lists the garments it holds that are not bought yet (wishlist items): an outfit with any is incomplete, and cannot be planned, added to a trip or worn until they are bought.',
+      'Your own saved outfits, newest first (not the outfits your agent proposed that you have not saved), each with its garments in the order it was built. toBuy lists the garments it holds that are not bought yet (wishlist items): an outfit with any is incomplete, and cannot be planned, added to a trip or worn until they are bought.',
     input: z.object({}),
     writes: false,
     async run(_args, ctx) {
@@ -79,7 +81,7 @@ export const outfitTools = [
     name: 'get_outfit',
     title: 'Get an outfit',
     description:
-      'One of your outfits: its name, notes and garments, and toBuy: its garments not bought yet (an incomplete outfit cannot be planned, added to a trip or worn).',
+      'One of your outfits: its name, notes and garments, proposal (when your agent proposed it: its note, your reaction, your note and reason) and toBuy: its garments not bought yet (an incomplete outfit cannot be planned, added to a trip or worn).',
     input: z.object({ id: rowId().describe('The outfit id.') }),
     writes: false,
     async run({ id }, ctx) {

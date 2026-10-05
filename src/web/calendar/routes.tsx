@@ -2,11 +2,13 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
 import { HttpError } from '../errors';
+import { alreadySavedOf } from '../gallery/urls';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import { type DayDestination, parseDestination } from '../outfits/destination';
-import { listOutfits } from '../outfits/queries';
+import { selectScalars } from '../../db/select-scalars';
+import { savedOutfitsSql } from '../outfits/queries';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import { viewContext } from '../view-context';
@@ -186,7 +188,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         <CalendarPage
           ctx={viewContext(reply)}
           view={view}
-          alreadySaved={request.query.alreadySaved === '1'}
+          alreadySaved={alreadySavedOf(request.query.alreadySaved)}
           banner={banner}
           undone={
             undone !== undefined && /^\d+$/.test(undone)
@@ -258,7 +260,11 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const [outfits, choice] = await Promise.all([
-        listOutfits(db, ownerId),
+        // The owner's own outfits, as every picker lists them (ownersOutfit):
+        // Muse's proposals are the Outfits tab's own section (#335).
+        selectScalars(db, { outfits: savedOutfitsSql(ownerId) }).then(
+          (row) => row.outfits,
+        ),
         dayChoice(db, ownerId, destination),
       ]);
       if (destination.replace !== undefined && !choice.replacing) {

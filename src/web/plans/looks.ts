@@ -1,16 +1,4 @@
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  inArray,
-  isNull,
-  ne,
-  or,
-  sql,
-  type SQL,
-  type SQLWrapper,
-} from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Queryable } from '../../db/client';
 import {
@@ -874,8 +862,8 @@ export interface PlanLookView {
   outfitId: number | null;
 }
 
-/** A plan's id, or a subquery that selects it (looksOfShownPlan's). */
-type PlanRef = number | SQLWrapper;
+/** A plan's id. */
+type PlanRef = number;
 
 /**
  * The looks of `ownerId`'s plan `planId`, oldest first, each slot with its
@@ -890,46 +878,11 @@ export function looksOfPlan(
   return readLooks(db, ownerId, planId).then(({ looks }) => looks);
 }
 
-/** The looks the Outfits tab shows, and whose draft they are when no plan is active. */
-export interface ShownLooks {
+/** A plan's looks, and whose draft the plan is when it is not active. */
+interface ShownLooks {
   looks: PlanLookView[];
   /** The token name that drafted the plan, only when it is shown as a draft (never an active plan). */
   draftedBy: string | null;
-}
-
-/**
- * The looks of the plan the Outfits tab shows for `ownerId`, as looksOfPlan
- * reads them and in the same one statement: the plan is a subquery, so the
- * tab pays no round trip to find it first. THE place that chooses it: the
- * active plan if there is one (even with no looks: the owner's own choice
- * wins), else the owner's newest agent draft (`drafted_by_token_id` set)
- * that holds looks, created_at then id descending so the choice is total
- * and the tab's bytes stay stable. None without either.
- */
-export function looksOfShownPlan(
-  db: Queryable,
-  ownerId: number,
-): Promise<ShownLooks> {
-  const shown = db
-    .select({ id: wardrobePlan.id })
-    .from(wardrobePlan)
-    .where(
-      and(
-        eq(wardrobePlan.ownerId, ownerId),
-        or(
-          wardrobePlan.active,
-          // At most one plan is active per owner (wardrobe_plan_owner_id_active_unique),
-          // so the `not exists` is what makes an active plan win, even one with
-          // no looks, over any draft.
-          sql`(${wardrobePlan.draftedByTokenId} is not null
-            and exists (select from ${planLook} where ${planLook.planId} = ${wardrobePlan.id})
-            and not exists (select from ${wardrobePlan} as owner_active where owner_active.owner_id = ${ownerId} and owner_active.active))`,
-        ),
-      ),
-    )
-    .orderBy(desc(wardrobePlan.createdAt), desc(wardrobePlan.id))
-    .limit(1);
-  return readLooks(db, ownerId, shown);
 }
 
 async function readLooks(

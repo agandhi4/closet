@@ -163,6 +163,8 @@ const ADDRESS: Fixture = {
   capsuleId: 104,
   capsuleName: 'Capsule',
   outfitId: 105,
+  museOutfitId: 141,
+  museDeclinedId: 142,
   outfitName: 'Look',
   entryId: 106,
   selfieId: 107,

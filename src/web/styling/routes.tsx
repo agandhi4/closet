@@ -17,7 +17,7 @@ import {
   type OutfitDestination,
   parseDestination,
 } from '../outfits/destination';
-import { ALREADY_SAVED_FLAG } from '../gallery/urls';
+import { alreadySavedParam } from '../gallery/urls';
 import {
   describeGone,
   garmentsGoneError,
@@ -1110,7 +1110,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     logger.info(
       `Outfit ${saved.id} ${saved.alreadySaved ? 'already saved' : 'saved'} in Styling with picks by user ${userId}: garments ${ids(garments).join(', ')}, ${toBuy} to buy${input.schedule ? `, ${saved.schedule} ${input.schedule.day}` : ''}`,
     );
-    const flag = saved.alreadySaved ? `${ALREADY_SAVED_FLAG}=1` : '';
+    const flag = alreadySavedParam(saved);
     return reply.redirect(
       input.schedule
         ? `/calendar?week=${input.schedule.day}${flag && `&${flag}`}`

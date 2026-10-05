@@ -7,6 +7,7 @@ import { recordCutoutEvent } from '../../src/cutout/queries';
 import {
   optionGroup,
   orderItem,
+  outfit as outfitTable,
   outfitCalendar,
   tripItem,
   tripOutfit,
@@ -149,6 +150,9 @@ export interface Fixture {
   capsuleName: string;
   outfitId: number;
   outfitName: string;
+  /** One of Muse's outfits (#335) waiting on the owner, and one set aside. */
+  museOutfitId: number;
+  museDeclinedId: number;
   /** The calendar entry, planned on `today` (so worn may mark it). */
   entryId: number;
   /** The entry's outfit selfie (#19), and its photo's names. */
@@ -612,6 +616,43 @@ export function describeMatrix(
         /^\/outfits\/(\d+)$/.exec(outfit.headers.location as string)?.[1],
       );
       expect(outfitId).toBeGreaterThan(0);
+      // Muse's outfits (#335): the garment with the wishlist item, then
+      // marked as proposed, as the agent's tool will (phase 3).
+      const museOutfit = async (
+        reaction: 'proposed' | 'declined',
+        garments: number[],
+      ) => {
+        const made = await t.inject({
+          method: 'POST',
+          url: '/outfits',
+          payload: {
+            name: `Muse ${reaction} ${tag}`,
+            category: garments.map(() => 'shirt'),
+            garmentId: garments.map(String),
+          },
+          headers: { cookie },
+        });
+        const id = Number(
+          /^\/outfits\/(\d+)$/.exec(made.headers.location as string)?.[1],
+        );
+        expect(id, made.body).toBeGreaterThan(0);
+        await t.db
+          .update(outfitTable)
+          .set({
+            proposedAt: new Date(),
+            proposalNote: 'Why this',
+            reaction,
+            dismissedReason: reaction === 'declined' ? 'style' : null,
+          })
+          .where(eq(outfitTable.id, id));
+        return id;
+      };
+      // Garment sets of their own: a save of a set already saved reuses it.
+      const museOutfitId = await museOutfit('proposed', [
+        garmentId,
+        wishlistId,
+      ]);
+      const museDeclinedId = await museOutfit('declined', [wishlistId]);
 
       const today = t.today();
       const scheduled = await t.inject({
@@ -799,6 +840,8 @@ export function describeMatrix(
         capsuleName,
         outfitId,
         outfitName,
+        museOutfitId,
+        museDeclinedId,
         entryId: entry.id,
         selfieId: ownSelfie.id,
         selfieFileName: ownSelfie.fileName,

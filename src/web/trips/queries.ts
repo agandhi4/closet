@@ -11,11 +11,11 @@ import type { Occasion } from '../../wardrobe/occasions';
 import type { Location } from '../../weather/location';
 import { addDays, type IsoDate } from '../calendar/calendar-date';
 import { pickIdea, type PickResult } from '../gallery/ideas';
-import { OutfitIncomplete } from '../outfits/gone-garments';
+import { refuseUnholdable } from '../outfits/gone-garments';
 import {
-  outfitIsComplete,
+  holdRefusalColumns,
+  outfitMayBeHeld,
   type PieceToBuy,
-  piecesToBuySql,
 } from '../outfits/references';
 import { intArray, lockedTripCte, lockTrip, prunePacked } from './packed';
 
@@ -374,13 +374,14 @@ async function lockTripFor(
  * same day (or without one) again adds nothing and keeps the occasion it
  * has ('already'), the calendar's rule. The refusal is told in the order
  * the checks were made one by one: the trip, the day, the outfit; and an
- * incomplete outfit (#335: a piece not bought yet, src/web/outfits/
- * references.ts) throws OutfitIncomplete, nothing added.
+ * outfit that may not be held (#335, outfitMayBeHeld: a piece not bought
+ * yet, or Muse's proposal not the owner's yet) is refused
+ * (refuseUnholdable), nothing added.
  *
  * Two statements in a transaction (lockedTripCte): the first locks the
  * trip, then the owner's outfit FOR KEY SHARE (what the insert's foreign
  * key takes anyway), and reads both; the second inserts only where the
- * outfit is complete. **The completeness check must not share the lock's
+ * outfit may be held (outfitMayBeHeld). **The completeness check must not share the lock's
  * statement:** an edit adding a piece holds the outfit FOR UPDATE
  * (updateOutfit), and a statement that waited for it still judges the
  * slots by the snapshot it took before the wait, so it would pack the
@@ -424,20 +425,22 @@ export function addTripOutfit(
     const outfitId = sql`${input.outfitId}::int`;
     const {
       rows: [written],
-    } = await tx.execute<{ added: boolean; toBuy: PieceToBuy[] }>(sql`
+    } = await tx.execute<{
+      added: boolean;
+      toBuy: PieceToBuy[];
+      pending: boolean;
+    }>(sql`
       with added as (
         insert into ${tripOutfit} (trip_id, outfit_id, day, occasion)
         select ${input.tripId}::int, ${outfitId}, ${input.day ?? null}::date,
           ${input.occasion ?? null}::text
-        where ${outfitIsComplete(outfitId)}
+        where ${outfitMayBeHeld(outfitId)}
         on conflict do nothing
         returning 1
       )
       select exists (select 1 from added) as added,
-        ${piecesToBuySql(outfitId)} as "toBuy"`);
-    if (written.toBuy.length > 0) {
-      throw new OutfitIncomplete(input.outfitId, written.toBuy);
-    }
+        ${holdRefusalColumns(outfitId)}`);
+    refuseUnholdable(input.outfitId, written);
     return written.added ? 'added' : 'already';
   });
 }

@@ -19,7 +19,7 @@ import { pickForTrip } from '../trips/queries';
 import { tripUrl } from '../trips/urls';
 import { tripNotFound } from '../trips/validation';
 import { pickIdea, type PickResult } from './ideas';
-import { ALREADY_SAVED_FLAG } from './urls';
+import { alreadySavedParam } from './urls';
 
 /**
  * Garments becoming an outfit where the person is going (its
@@ -110,8 +110,11 @@ async function pickInPlace(
   });
   logger.info(replaceMessage(ownerId, target, replaced));
   if (isRefused(replaced)) throw replaceRefusal(replaced);
-  const flag = replaced.alreadySaved ? `&${ALREADY_SAVED_FLAG}=1` : '';
-  return reply.redirect(`/calendar?week=${target.day}${flag}`, 303);
+  const flag = alreadySavedParam(replaced);
+  return reply.redirect(
+    `/calendar?week=${target.day}${flag && `&${flag}`}`,
+    303,
+  );
 }
 
 async function pickToDayOrSave(
@@ -137,7 +140,7 @@ async function pickToDayOrSave(
   logger.info(pickMessage(options.source, ownerId, garmentIds, picked, plan));
   // A pick of an outfit that exists (a double tap, a retried post) is a
   // success too; the page it lands on says so.
-  const flag = picked.alreadySaved ? `${ALREADY_SAVED_FLAG}=1` : '';
+  const flag = alreadySavedParam(picked);
   return reply.redirect(
     plan
       ? `/calendar?week=${plan.day}${flag && `&${flag}`}`

@@ -2,6 +2,7 @@ import { and, eq, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   garment,
+  outfit,
   outfitCalendar,
   outfitSlot,
   tripOutfit,
@@ -106,4 +107,49 @@ export function piecesToBuy<T extends { status: GarmentStatus }>(
 /** One garment of an outfit by piecesToBuy's rule: not owned yet. */
 export function isPieceToBuy(garment: { status: GarmentStatus }): boolean {
   return garment.status === 'wishlist';
+}
+
+/**
+ * The owner's own outfits, as the Saved grid, the pickers (a day's, a
+ * trip's), the garment page's strip and MCP's list_outfits list them:
+ * never proposed, or one of Muse's proposals loved while complete ("Save"
+ * is Love on a complete outfit, #335; src/web/outfits/proposals.ts).
+ * Muse's others are the Outfits tab's own section. `outfitId` defaults to
+ * the `outfit` row's own id, rendered qualified (a raw `sql` template's);
+ * a single-table select passes it as a parameter (piecesToBuyFrom).
+ */
+export function ownersOutfit(
+  outfitId: SQL | AnyPgColumn = outfit.id,
+): SQL<boolean> {
+  return sql<boolean>`(${outfit.proposedAt} is null or (${outfit.reaction} = 'loved' and ${outfitIsComplete(outfitId)}))`;
+}
+
+/**
+ * One of Muse's proposals not the owner's yet (proposed, sent back, set
+ * aside): never planned, packed or worn, complete or not (#335). By id, a
+ * parameter.
+ */
+export function outfitIsPendingProposal(outfitId: SQL): SQL<boolean> {
+  return sql<boolean>`exists (
+    select 1 from ${outfit} as pending
+    where pending.id = ${outfitId} and pending.proposed_at is not null
+      and pending.reaction <> 'loved'
+  )`;
+}
+
+/**
+ * **THE rule for what may be held** (a calendar entry, a trip, a wear):
+ * complete, and the owner's (#335). Every write that makes an outfit held
+ * writes only where it holds (the calendar's upsertEntry, planToWear and
+ * setEntryOutfit; addTripOutfit) and reads why not in the same statement
+ * (holdRefusalColumns), refusing with refuseUnholdable
+ * (src/web/outfits/gone-garments.ts). By id, a parameter.
+ */
+export function outfitMayBeHeld(outfitId: SQL): SQL<boolean> {
+  return sql<boolean>`(${outfitIsComplete(outfitId)} and not ${outfitIsPendingProposal(outfitId)})`;
+}
+
+/** Why outfitMayBeHeld is false, as select columns: `toBuy` (piecesToBuySql) and `pending`. */
+export function holdRefusalColumns(outfitId: SQL): SQL {
+  return sql`${piecesToBuySql(outfitId)} as "toBuy", ${outfitIsPendingProposal(outfitId)} as "pending"`;
 }

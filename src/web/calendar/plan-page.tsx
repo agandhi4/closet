@@ -5,7 +5,7 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { ideasUrl } from '../gallery/urls';
-import type { OutfitSummary } from '../outfits/queries';
+import type { GarmentOutfit } from '../outfits/queries';
 import { SavedOutfitButton } from '../outfits/saved-outfit-button';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
@@ -18,8 +18,8 @@ import { dayUrl, planPageUrl } from './urls';
 export interface PlanModel extends DayChoice {
   day: IsoDate;
   occasion: Occasion;
-  /** Every outfit of the owner's, newest first. */
-  outfits: OutfitSummary[];
+  /** The owner's own outfits, newest first (savedOutfitsSql). */
+  outfits: GarmentOutfit[];
 }
 
 /**

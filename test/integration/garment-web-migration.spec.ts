@@ -317,10 +317,19 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       'version',
     ]);
     expect(Object.keys(await columnsOf(env, 'outfit')).sort()).toEqual([
+      // 0041_muse-outfits: Muse's proposals (#335).
+      'dismissed_reason',
       'id',
       'name',
       'notes',
       'owner_id',
+      'owner_note',
+      'plan_look_id',
+      'proposal_note',
+      'proposed_at',
+      'proposed_by_token_id',
+      'reacted_at',
+      'reaction',
       'shareable_id',
     ]);
 

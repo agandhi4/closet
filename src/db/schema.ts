@@ -68,6 +68,8 @@ import { PLAN_PRIORITIES, type PlanPriority } from '../wardrobe/plans';
 import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
 import {
   DISMISS_REASONS,
+  OUTFIT_DISMISS_REASONS,
+  type OutfitDismissReason,
   type DismissReason,
   MAX_OPTIONS_PER_GROUP,
   OPTION_GROUP_STATUSES,
@@ -842,6 +844,23 @@ export const outfit = pgTable(
     name: text('name'),
     notes: text('notes'),
     ownerId: integer('owner_id').notNull(),
+    // A Muse outfit (#335, docs/plans/2026-10-05-muse-suggestions.md): one
+    // the owner's agent proposed, marked by `proposed_at` (the token is
+    // revoked, never deleted, but the mark should not hang on a nullable
+    // key), with the agent's note and the owner's reaction
+    // (src/wardrobe/look-reaction.ts: proposed, loved, revise, declined;
+    // with a reason when declined, OUTFIT_DISMISS_REASONS). Written only by
+    // src/web/outfits/proposals.ts and the migration that made plan looks
+    // outfits (0041, `plan_look_id`, kept for the agent tools' shims and
+    // dropped with plans, #337). An owner's own outfit has none of these.
+    proposedAt: timestamp('proposed_at', { withTimezone: true }),
+    proposedByTokenId: integer('proposed_by_token_id'),
+    proposalNote: text('proposal_note'),
+    reaction: text('reaction').$type<LookReaction>(),
+    ownerNote: text('owner_note'),
+    dismissedReason: text('dismissed_reason').$type<OutfitDismissReason>(),
+    reactedAt: timestamp('reacted_at', { withTimezone: true }),
+    planLookId: integer('plan_look_id'),
   },
   (table) => [
     index('outfit_owner_id_index').on(table.ownerId),
@@ -853,8 +872,52 @@ export const outfit = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
+    index('outfit_proposed_by_token_id_index').on(table.proposedByTokenId),
+    foreignKey({
+      name: 'outfit_proposed_by_token_id_foreign',
+      columns: [table.proposedByTokenId],
+      foreignColumns: [personalAccessToken.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
+    uniqueIndex('outfit_plan_look_id_unique').on(table.planLookId),
+    foreignKey({
+      name: 'outfit_plan_look_id_foreign',
+      columns: [table.planLookId],
+      foreignColumns: [planLookId()],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
+    // A reaction, and only a reaction, on a proposal.
+    check(
+      'outfit_proposal_check',
+      sql`(${table.proposedAt} is null) = (${table.reaction} is null) and (${table.proposedAt} is not null or (${table.proposedByTokenId} is null and ${table.proposalNote} is null and ${table.ownerNote} is null and ${table.reactedAt} is null and ${table.planLookId} is null))`,
+    ),
+    check(
+      'outfit_reaction_check',
+      sql`${table.reaction} in (${sqlList(LOOK_REACTIONS)})`,
+    ),
+    check(
+      'outfit_proposal_note_check',
+      sql`${table.proposalNote} is null or length(trim(${table.proposalNote})) > 0`,
+    ),
+    // "Change this" is the owner's note: the agent has nothing to go on without it.
+    check(
+      'outfit_owner_note_check',
+      sql`${table.reaction} is distinct from 'revise' or ${table.ownerNote} is not null`,
+    ),
+    check(
+      'outfit_dismissed_reason_check',
+      sql`${table.dismissedReason} is null or (${table.reaction} = 'declined' and ${table.dismissedReason} in (${sqlList(OUTFIT_DISMISS_REASONS)}))`,
+    ),
   ],
 );
+
+// outfit and plan_look name each other: the explicit type stops
+// TypeScript inferring either table from the other.
+function planLookId(): AnyPgColumn {
+  return planLook.id;
+}
 
 // What an outfit wears: one row per builder row, in the order the user built
 // it (position 0 first). A slot names a category and optionally a garment; an

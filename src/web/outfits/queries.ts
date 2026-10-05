@@ -1,7 +1,5 @@
 import {
   and,
-  asc,
-  desc,
   eq,
   gte,
   inArray,
@@ -13,38 +11,39 @@ import {
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
+import { selectScalars } from '../../db/select-scalars';
 import {
   file,
   garment,
   outfit,
   outfitCalendar,
   outfitSlot,
+  personalAccessToken,
   selfie,
   tripOutfit,
 } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
+import type { LookReaction } from '../../wardrobe/look-reaction';
 import type { GarmentStatus } from '../../wardrobe/status';
+import type { OutfitDismissReason } from '../../wardrobe/suggestions';
 import type { PlannedBy } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
 import type { SignablePhotoRef } from '../files/image-url';
-import {
-  PHOTO_REF_RELATION,
-  photoRefJson,
-  readPhotoRef,
-} from '../files/queries';
+import { photoRefJson } from '../files/queries';
 import type { IsoDate } from '../calendar/calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import { entrySelfieSql, type SelfieRef } from '../selfies/queries';
 import { prunePacked, tripsOfOutfit } from '../trips/packed';
 import { detachOutfitWears } from '../wears/queries';
 import { adoptPlannerOutfit } from '../week-plan/adopt';
+import { adoptProposal } from './reactions';
 import {
   offeredIntoSql,
   OutfitGarmentsGone,
   slotMayNameSql,
   slotRefusals,
 } from './gone-garments';
-import { outfitIsHeld } from './references';
+import { outfitIsHeld, ownersOutfit } from './references';
 
 /**
  * Outfits' reads and writes. Outfits are private: every query is scoped to
@@ -113,6 +112,8 @@ export interface CreateResult extends SaveResult {
   name: string | null;
   /** The garments were already an outfit of the owner's: it was reused, nothing was created. */
   alreadySaved: boolean;
+  /** That outfit was one of Muse's proposals, which this save made the owner's (#335, adoptProposal). */
+  adoptedProposal: boolean;
   /**
    * A person's save took over what the week planner had made of it: the
    * reused outfit (no longer the planner's to remove) or the entry on the
@@ -123,45 +124,54 @@ export interface CreateResult extends SaveResult {
 
 /**
  * Outfits matching `where`, newest first, each with its chosen garments in
- * slot order (empty slots show nothing). One statement: db.query nests the
- * slots, garments and photos as JSON, and the result is plain rows.
+ * slot order (empty slots show nothing) and its proposal when Muse proposed
+ * it, as one scalar subquery. Raw SQL, never db.query: the relational
+ * query writes every column of a `where` against its root table, which
+ * breaks a predicate with a subquery of its own (ownersOutfit).
  */
-async function outfitsWithGarments(
-  db: Db,
-  where: SQL | undefined,
-): Promise<OutfitDetail[]> {
-  const rows = await db.query.outfit.findMany({
-    columns: { id: true, name: true, notes: true, shareableId: true },
-    where,
-    orderBy: desc(outfit.id),
-    with: {
-      slots: {
-        columns: {},
-        where: isNotNull(outfitSlot.garmentId),
-        orderBy: asc(outfitSlot.position),
-        with: {
-          garment: {
-            columns: { id: true, name: true, category: true, status: true },
-            with: { photo: PHOTO_REF_RELATION },
-          },
-        },
-      },
-    },
-  });
-  return rows.map(({ slots, ...fields }) => ({
-    ...fields,
-    garments: slots.flatMap(({ garment: shown }) =>
-      shown ? [{ ...shown, photo: readPhotoRef(shown.photo) }] : [],
-    ),
-  }));
+function toolOutfitsSql(where: SQL): SQL<ToolOutfit[]> {
+  return sql<ToolOutfit[]>`(
+    select coalesce(json_agg(json_build_object(
+      'id', ${outfit.id},
+      'name', ${outfit.name},
+      'notes', ${outfit.notes},
+      'shareableId', ${outfit.shareableId},
+      'garments', ${outfitGarmentsSql()},
+      'proposal', case when ${outfit.proposedAt} is null then null else json_build_object(
+        'note', ${outfit.proposalNote},
+        'reaction', ${outfit.reaction},
+        'ownerNote', ${outfit.ownerNote},
+        'dismissedReason', ${outfit.dismissedReason}
+      ) end
+    ) order by ${outfit.id} desc), '[]')
+    from ${outfit}
+    where ${where}
+  )`;
 }
 
+/** toolOutfitsSql alone, in one statement. */
+async function outfitsWithGarments(db: Db, where: SQL): Promise<ToolOutfit[]> {
+  const { outfits } = await selectScalars(db, {
+    outfits: toolOutfitsSql(where),
+  });
+  return outfits;
+}
+
+/** An outfit as the MCP tools answer it: with its proposal when Muse proposed it (#335). */
+export type ToolOutfit = OutfitDetail & {
+  proposal: Omit<OutfitProposal, 'agent'> | null;
+};
+
 /**
- * Every outfit of the owner's, with its notes: the calendar's plan page and
- * list_outfits. The Saved tab and a trip's add page read savedOutfitsSql.
+ * The owner's own outfits (ownersOutfit: Muse's proposals not theirs yet
+ * are the Outfits tab's own section), with their notes: list_outfits. The
+ * Saved tab, the pickers and a trip's add page read savedOutfitsSql.
  */
-export function listOutfits(db: Db, ownerId: number): Promise<OutfitSummary[]> {
-  return outfitsWithGarments(db, eq(outfit.ownerId, ownerId));
+export function listOutfits(db: Db, ownerId: number): Promise<ToolOutfit[]> {
+  return outfitsWithGarments(
+    db,
+    and(eq(outfit.ownerId, ownerId), ownersOutfit())!,
+  );
 }
 /**
  * An outfit as a collage or a saved-outfit button shows it, without its
@@ -227,7 +237,7 @@ export function savedOutfitsSql(ownerId: number): SQL<GarmentOutfit[]> {
       '[]'
     )
     from ${outfit}
-    where ${eq(outfit.ownerId, ownerId)}
+    where ${and(eq(outfit.ownerId, ownerId), ownersOutfit())}
   )`;
 }
 
@@ -244,9 +254,11 @@ export function outfitsWithGarmentSql(
   garmentId: number,
   limit: number,
 ): SQL<GarmentOutfits> {
+  // The owner's own outfits only: Muse's proposals are its section's.
   const holds = and(
     eq(outfit.ownerId, ownerId),
     sql`${outfit.id} in (select ${outfitSlot.outfitId} from ${outfitSlot} where ${eq(outfitSlot.garmentId, garmentId)})`,
+    ownersOutfit(),
   );
   const newest = sql`(
     select ${outfit.id}, ${outfit.name}, ${outfitGarmentsSql()} as garments
@@ -267,6 +279,21 @@ export function outfitsWithGarmentSql(
 /** The outfit page's outfit: what it shows, and its share link. */
 export type OutfitDetail = OutfitSummary & { shareableId: string };
 
+/** One of Muse's proposals as its outfit page says it (#335; proposals.ts). */
+export interface OutfitProposal {
+  note: string | null;
+  reaction: LookReaction;
+  ownerNote: string | null;
+  dismissedReason: OutfitDismissReason | null;
+  /** The token's name ("Muse"); null once the token is gone. */
+  agent: string | null;
+}
+
+/** The outfit page's outfit: with its proposal when Muse proposed it. */
+export type OutfitPageDetail = OutfitDetail & {
+  proposal: OutfitProposal | null;
+};
+
 /**
  * The owner's outfit `id` as the outfit page shows it, as JSON; null when
  * it is not theirs (a column of outfitContext's statement, page-context.ts).
@@ -274,14 +301,21 @@ export type OutfitDetail = OutfitSummary & { shareableId: string };
 export function outfitDetailSql(
   id: number,
   ownerId: number,
-): SQL<OutfitDetail | null> {
-  return sql<OutfitDetail | null>`(
+): SQL<OutfitPageDetail | null> {
+  return sql<OutfitPageDetail | null>`(
     select json_build_object(
       'id', ${outfit.id},
       'name', ${outfit.name},
       'notes', ${outfit.notes},
       'shareableId', ${outfit.shareableId},
-      'garments', ${outfitGarmentsSql()}
+      'garments', ${outfitGarmentsSql()},
+      'proposal', case when ${outfit.proposedAt} is null then null else json_build_object(
+        'note', ${outfit.proposalNote},
+        'reaction', ${outfit.reaction},
+        'ownerNote', ${outfit.ownerNote},
+        'dismissedReason', ${outfit.dismissedReason},
+        'agent', (select ${personalAccessToken.name} from ${personalAccessToken} where ${eq(personalAccessToken.id, outfit.proposedByTokenId)})
+      ) end
     )
     from ${outfit}
     where ${and(eq(outfit.id, id), eq(outfit.ownerId, ownerId))}
@@ -293,10 +327,10 @@ export async function findOutfit(
   db: Db,
   id: number,
   ownerId: number,
-): Promise<OutfitDetail | undefined> {
+): Promise<ToolOutfit | undefined> {
   const [found] = await outfitsWithGarments(
     db,
-    and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)),
+    and(eq(outfit.id, id), eq(outfit.ownerId, ownerId))!,
   );
   return found;
 }
@@ -558,7 +592,16 @@ export function sameGarmentsOutfit(
     sql`, `,
   )}]::int[]`;
   return db
-    .select({ id: outfit.id, name: outfit.name })
+    .select({
+      id: outfit.id,
+      name: outfit.name,
+      // One of Muse's proposals not the owner's yet: a save adopts it
+      // (adoptProposal), read here so a plain reuse costs nothing more.
+      pending:
+        sql<boolean>`(${outfit.proposedAt} is not null and ${outfit.reaction} <> 'loved')`.as(
+          'pending',
+        ),
+    })
     .from(outfit)
     .innerJoin(outfitSlot, eq(outfitSlot.outfitId, outfit.id))
     .where(and(eq(outfit.ownerId, ownerId), isNotNull(outfitSlot.garmentId)))
@@ -585,7 +628,12 @@ async function insertOutfitOnce(
   ownerId: number,
   fields: { name: string | null; notes: string | null },
   garmentIds: readonly number[],
-): Promise<{ id: number; name: string | null; existing: boolean }> {
+): Promise<{
+  id: number;
+  name: string | null;
+  existing: boolean;
+  pending: boolean;
+}> {
   // Share links address outfits by this (the /share page).
   const shareableId = randomUUID();
   if (garmentIds.length === 0) {
@@ -593,12 +641,13 @@ async function insertOutfitOnce(
       .insert(outfit)
       .values({ shareableId, ownerId, ...fields })
       .returning({ id: outfit.id, name: outfit.name });
-    return { ...created, existing: false };
+    return { ...created, existing: false, pending: false };
   }
   const { rows } = await tx.execute<{
     id: number;
     name: string | null;
     existing: boolean;
+    pending: boolean;
   }>(sql`
     with existing as (${sameGarmentsOutfit(tx, ownerId, garmentIds)}),
     created as (
@@ -607,9 +656,9 @@ async function insertOutfitOnce(
       where not exists (select from existing)
       returning id, name
     )
-    select id, name, false as existing from created
+    select id, name, false as existing, false as pending from created
     union all
-    select id, name, true as existing from existing`);
+    select id, name, true as existing, pending from existing`);
   return rows[0];
 }
 
@@ -670,6 +719,7 @@ export function createOutfit(
       slots: input.slots.length,
       schedule,
       alreadySaved: false,
+      adoptedProposal: false,
       adopted: false,
     };
   });
@@ -685,9 +735,17 @@ export function createOutfit(
 export async function reuseOutfit(
   tx: Queryable,
   ownerId: number,
-  existing: { id: number; name: string | null },
+  existing: { id: number; name: string | null; pending: boolean },
   plan: OutfitInput['plan'],
 ): Promise<CreateResult> {
+  // A person's save of a proposal's garments makes it theirs (#335), before
+  // any plan: a proposal not theirs may not be held (outfitMayBeHeld). The
+  // week planner never adopts one (its ideas never equal a saved set:
+  // savedSlotsSql counts proposals).
+  const adoptedProposal =
+    existing.pending &&
+    plan?.plannedBy !== 'auto' &&
+    (await adoptProposal(tx, ownerId, existing.id));
   const scheduled =
     plan &&
     (await insertEntry(tx, { ownerId, outfitId: existing.id, ...plan }));
@@ -702,6 +760,7 @@ export async function reuseOutfit(
     slots: 0,
     schedule: scheduled?.outcome,
     alreadySaved: true,
+    adoptedProposal,
     adopted: outfitAdopted || entryAdopted,
   };
 }
@@ -830,18 +889,23 @@ export function deleteOutfit(
   db: Queryable,
   id: number,
   ownerId: number,
-): Promise<{ wearsKept: number } | undefined> {
+): Promise<{ wearsKept: number } | 'a-proposal' | undefined> {
   return ownerTransaction(db, ownerId, 'deleteOutfit', async (tx) => {
     // Locked like updateOutfit's: a save of this outfit takes its turn, and
     // a trip adding it meanwhile (addTripOutfit, #234) commits first, and
     // the trips read below sees it, or waits on its FOR KEY SHARE lock of
     // the outfit and then answers 'no-outfit'.
     const [found] = await tx
-      .select({ id: outfit.id })
+      .select({ id: outfit.id, reaction: outfit.reaction })
       .from(outfit)
       .where(and(eq(outfit.id, id), eq(outfit.ownerId, ownerId)))
       .for('update');
     if (!found) return undefined;
+    // Muse's proposal not loved yet (or set aside) is feedback for it: Not
+    // for me sets it aside, kept; a delete would lose it (#335).
+    if (found.reaction !== null && found.reaction !== 'loved') {
+      return 'a-proposal';
+    }
     const wearsKept = await detachOutfitWears(tx, id, ownerId);
     const { rows } = await tx.execute<{ trips: number[] }>(sql`
       with trips as (

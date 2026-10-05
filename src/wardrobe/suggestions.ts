@@ -72,6 +72,20 @@ export const OWNER_DISMISS_REASONS = [
 ] as const satisfies readonly DismissReason[];
 export type OwnerDismissReason = (typeof OWNER_DISMISS_REASONS)[number];
 
+/**
+ * The reasons the owner may give "Not for me" on one of Muse's outfits
+ * (#335): an outfit has no size, so no fit_size. Stored as
+ * outfit.dismissed_reason.
+ */
+export const OUTFIT_DISMISS_REASONS = [
+  'too_pricey',
+  'colour',
+  'style',
+  'already_have',
+  'not_now',
+] as const satisfies readonly OwnerDismissReason[];
+export type OutfitDismissReason = (typeof OUTFIT_DISMISS_REASONS)[number];
+
 /** Muse's options for one need: the most a group holds, ranked 1 to this. */
 export const MAX_OPTIONS_PER_GROUP = 5;
 

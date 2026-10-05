@@ -1,5 +1,6 @@
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import { AlreadySavedToast } from '../gallery/already-saved';
+import type { AlreadySaved } from '../gallery/urls';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -43,8 +44,8 @@ import { dayAnchor, weekUrl } from './urls';
 export function CalendarPage(props: {
   ctx: ViewContext;
   view: CalendarView;
-  /** The gallery's pick found its outfit already saved (?alreadySaved=1). */
-  alreadySaved?: boolean;
+  /** The gallery's pick or a save found its outfit already saved (?alreadySaved=). */
+  alreadySaved?: AlreadySaved;
   /** After "Plan my week" (#16, ?planned=). */
   banner?: PlannedBanner;
   /** After its Undo (?undone=N): the entries removed. */
@@ -93,7 +94,7 @@ export function CalendarPage(props: {
           <PlanSheet day={day.date} />
         ))}
       </PageMain>
-      <AlreadySavedToast shown={props.alreadySaved === true} />
+      <AlreadySavedToast kind={props.alreadySaved} />
       <UndoneToast removed={props.undone} />
       <Dock ctx={ctx} />
     </Layout>

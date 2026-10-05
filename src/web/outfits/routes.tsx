@@ -1,4 +1,5 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
+import type { FastifyReply } from 'fastify';
 import { type Static, Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
 import { parseIsoDate, todayIn } from '../calendar/calendar-date';
@@ -8,8 +9,7 @@ import type { WebOptions } from '../plugin';
 import { navigateTo, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
-import { ALREADY_SAVED_FLAG } from '../gallery/urls';
-import { groupLooks, looksOfShownPlan, type ShownLooks } from '../plans/looks';
+import { alreadySavedOf, alreadySavedParam } from '../gallery/urls';
 import { stylingUrl } from '../styling/urls';
 import { viewContext } from '../view-context';
 import { type OutfitDestination, parseDestination } from './destination';
@@ -25,6 +25,16 @@ import {
   updateOutfit,
 } from './queries';
 import { OutfitPage } from './show-page';
+import { type OutfitReaction, reactToOutfit } from './reactions';
+import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
+import { t } from '../i18n';
+import { safeReturnTo } from '../security/return-to';
+import {
+  DECISION_FLAG,
+  type DecisionToast,
+  decisionToastOf,
+} from '../wishlist/suggestion-parts';
+import { withParams } from '../wardrobe/urls';
 
 /**
  * Validation, decided per route:
@@ -75,12 +85,30 @@ const DestinationQuery = Type.Object({
   for: Type.Optional(Type.String()),
   occasion: Type.Optional(Type.String()),
   replace: Type.Optional(Type.String()),
+  [DECISION_FLAG]: Type.Optional(Type.String({ maxLength: 16 })),
 });
 
 // The gallery's pick lands here with `alreadySaved=1` when the outfit
-// existed (a one-shot flag: anything else is no toast).
+// existed (a one-shot flag: anything else is no toast); a reaction with
+// its toast (`decided=`).
 const FlagQuery = Type.Object({
   alreadySaved: Type.Optional(Type.String()),
+  [DECISION_FLAG]: Type.Optional(Type.String({ maxLength: 16 })),
+});
+
+/** Where a reaction comes back to: the page it was made on (safeReturnTo). */
+const ReactionBody = Type.Union([
+  Type.Object({ returnTo: Type.Optional(Type.String({ maxLength: 2048 })) }),
+  Type.Null(),
+]);
+
+/** "Not for me" on one of Muse's outfits: a reason (a 400 without), an optional note. */
+const DeclineBody = Type.Object({
+  returnTo: Type.Optional(Type.String({ maxLength: 2048 })),
+  reason: Type.Union(
+    OUTFIT_DISMISS_REASONS.map((reason) => Type.Literal(reason)),
+  ),
+  note: Type.Optional(Type.String({ maxLength: 500 })),
 });
 
 // The form posts one category + garmentId pair per row, in row order (a
@@ -166,8 +194,15 @@ function linkedReturnTo(
  * outfit; either says "Already saved" when the garments were an outfit
  * already (createOutfit reused it, ALREADY_SAVED_FLAG).
  */
-function afterSave(body: OutfitForm, id: number, alreadySaved = false): string {
-  const flag = alreadySaved ? `${ALREADY_SAVED_FLAG}=1` : '';
+function afterSave(
+  body: OutfitForm,
+  id: number,
+  saved: { alreadySaved: boolean; adoptedProposal: boolean } = {
+    alreadySaved: false,
+    adoptedProposal: false,
+  },
+): string {
+  const flag = alreadySavedParam(saved);
   if (body.returnTo === '/calendar') {
     const week = body.returnToWeek || body.scheduleDate;
     return week
@@ -195,8 +230,6 @@ function outfitNotFound(): HttpError {
   return new HttpError(404, 'Outfit not found');
 }
 
-const NO_PLAN_LOOKS: ShownLooks = { looks: [], draftedBy: null };
-
 /**
  * /outfits: the list, the detail page, the writes, and the builder's old
  * addresses, now redirects into Styling (src/web/styling). Outfits are the signed-in user's own:
@@ -221,16 +254,12 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const day = destination.kind === 'day' ? destination : undefined;
-      // Picking for a day is its own task: the plan's looks stay out of it.
-      const [{ outfits, activity, choice }, planLooks] = await Promise.all([
-        savedContext(db, ownerId, today, day),
-        day
-          ? NO_PLAN_LOOKS
-          : looksOfShownPlan(db, ownerId).then(({ looks, draftedBy }) => ({
-              looks: groupLooks(looks).strip,
-              draftedBy,
-            })),
-      ]);
+      const { outfits, activity, choice, muse } = await savedContext(
+        db,
+        ownerId,
+        today,
+        day,
+      );
       if (day?.replace !== undefined && !choice?.replacing) {
         logger.debug(
           `GET /outfits: entry ${day.replace} is not user ${ownerId}'s on ${day.day} (${day.occasion}), picking another`,
@@ -243,7 +272,8 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           model={{
             outfits,
             activity,
-            planLooks,
+            muse,
+            toast: decisionToastOf(request.query[DECISION_FLAG]),
             picking:
               day && choice
                 ? { destination: pickDestination(day, choice), choice }
@@ -293,7 +323,8 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           outfit={found.outfit}
           entries={found.entries}
           today={today}
-          alreadySaved={request.query.alreadySaved === '1'}
+          alreadySaved={alreadySavedOf(request.query.alreadySaved)}
+          toast={decisionToastOf(request.query[DECISION_FLAG])}
         />,
       );
     },
@@ -326,10 +357,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ? `Outfit form by user ${ownerId}: its garments are already outfit ${result.id}, nothing created (${describeSave(result, input.plan)})${result.adopted ? '; taken over from the week planner' : ''}`
           : `Outfit ${result.id} created by user ${ownerId}: ${describeSave(result, input.plan)}`,
       );
-      return reply.redirect(
-        afterSave(request.body, result.id, result.alreadySaved),
-        302,
-      );
+      return reply.redirect(afterSave(request.body, result.id, result), 302);
     },
   );
 
@@ -358,11 +386,107 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const deleted = await deleteOutfit(db, id, ownerId);
       if (!deleted) throw outfitNotFound();
+      if (deleted === 'a-proposal') {
+        throw new HttpError(409, t('outfits.muse.DELETE_REFUSED'));
+      }
       logger.info(
         `Outfit ${id} deleted by user ${ownerId} (${deleted.wearsKept} wears kept as day-level wears)`,
       );
       return navigateTo(reply, '/outfits');
     },
+  );
+
+  /**
+   * A reaction to one of Muse's outfits (#335; reactToOutfit, the one
+   * writer): Love (Save on a complete outfit), Not for me with a reason,
+   * Undo. A native post each, 303 to the page it was made on with its
+   * toast; another's outfit or one Muse did not propose is a 404, a move
+   * its reaction does not take (a stale page, a double tap) a 409.
+   */
+  async function reacted(
+    request: { params: { id: number } },
+    reply: FastifyReply,
+    ownerId: number,
+    change: OutfitReaction,
+    { returnTo, toast }: { returnTo: string | undefined; toast: DecisionToast },
+  ) {
+    const { id } = request.params;
+    const outcome = await reactToOutfit(db, ownerId, id, change);
+    if (!outcome.ok) {
+      logger.info(
+        `Reaction ${change.event} on outfit ${id} by user ${ownerId} refused: ${outcome.reason}`,
+      );
+      if (outcome.reason === 'not-found') throw outfitNotFound();
+      throw new HttpError(
+        409,
+        t(
+          outcome.reason === 'owners'
+            ? 'outfits.muse.ALREADY_YOURS'
+            : 'muse.STALE',
+        ),
+      );
+    }
+    logger.info(
+      `Outfit ${id} ${outcome.from} -> ${outcome.to} by user ${ownerId}${change.event === 'decline' ? ` (${change.reason})` : ''}`,
+    );
+    // Save once complete: the same move, said as what it did.
+    const said = toast === 'love' && outcome.complete ? 'save' : toast;
+    return reply.redirect(
+      withParams(safeReturnTo(returnTo, '/outfits'), { [DECISION_FLAG]: said }),
+      303,
+    );
+  }
+
+  app.post(
+    '/outfits/:id/love',
+    { schema: { params: OutfitParams, body: ReactionBody } },
+    async (request, reply) => {
+      return reacted(
+        request,
+        reply,
+        sessionUserId(request),
+        { event: 'love' },
+        {
+          returnTo: request.body?.returnTo,
+          toast: 'love',
+        },
+      );
+    },
+  );
+
+  app.post(
+    '/outfits/:id/dismiss',
+    { schema: { params: OutfitParams, body: DeclineBody } },
+    async (request, reply) => {
+      const { body } = request;
+      return reacted(
+        request,
+        reply,
+        sessionUserId(request),
+        {
+          event: 'decline',
+          reason: body.reason,
+          note: body.note?.trim() || null,
+        },
+        { returnTo: body.returnTo, toast: 'dismiss' },
+      );
+    },
+  );
+
+  app.post(
+    '/outfits/:id/undo',
+    { schema: { params: OutfitParams, body: ReactionBody } },
+    async (request, reply) =>
+      reacted(
+        request,
+        reply,
+        sessionUserId(request),
+        { event: 'reconsider' },
+        {
+          returnTo: request.body?.returnTo,
+          toast: 'undo',
+        },
+      ),
   );
 
   done();
