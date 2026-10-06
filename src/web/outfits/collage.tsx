@@ -14,19 +14,17 @@ import { isPieceToBuy } from './references';
  * phone screen above the dock. The redesign's one OutfitCollage
  * (docs/plans/2026-09-26-redesign.md, sections 3 and 5): the gallery's
  * Ideas cards, the outfit page and Today (`card`), the Saved grid
- * (`tile`), the garment page's "In N outfits" and the calendar (`cell`, a `thumb` that grows at lg),
- * a plan's looks (`look`, #291), whose pieces carry marks, and the plans
- * list's photo row (`cover`, #302: five 4:5 cells across a phone).
+ * (`tile`), the garment page's "In N outfits" and the calendar (`cell`, a
+ * `thumb` that grows at lg).
  */
 
 /**
- * A piece that is not simply owned: `to-buy`, a plan look's candidate
- * product (#291) or an incomplete outfit's piece not bought yet (#335; an
- * outfit's garment with its status, marked by the collage itself: markOf),
- * drawn with Styling's To buy badge; or `missing`, a look's slot holding
- * nothing it can use (a dashed place where its role goes).
+ * A piece that is not simply owned: `to-buy`, a need's option drawn into
+ * an outfit (#333) or an incomplete outfit's piece not bought yet (#335;
+ * an outfit's garment with its status, marked by the collage itself:
+ * markOf), drawn with Styling's To buy badge.
  */
-export type CollageMark = 'to-buy' | 'missing';
+export type CollageMark = 'to-buy';
 
 /**
  * Whether a piece opens the photo viewer, and so is in its set (#313): the
@@ -34,10 +32,10 @@ export type CollageMark = 'to-buy' | 'missing';
  * wrong slide.
  */
 export function inViewerSet(piece: CollagePieceView): boolean {
-  return piece.photo !== null && markOf(piece) !== 'missing';
+  return piece.photo !== null;
 }
 
-/** What the collage draws of a piece; a look's emptied slot has no garment id. */
+/** What the collage draws of a piece. */
 export interface CollagePieceView {
   name: string | null;
   category: string;
@@ -47,7 +45,7 @@ export interface CollagePieceView {
   status?: GarmentStatus;
 }
 
-/** The piece's mark: its own (a look's), or `to-buy` for an outfit's piece not bought yet. */
+/** The piece's mark: its own (a need's option), or `to-buy` for an outfit's piece not bought yet. */
 function markOf(piece: CollagePieceView): CollageMark | undefined {
   if (piece.mark) return piece.mark;
   return piece.status && isPieceToBuy({ status: piece.status })
@@ -80,9 +78,7 @@ export function bodyOf<G extends CollagePieceView>(
  * phone screen holds whole, `tile` for the Saved grid's two columns (about
  * 170 px wide at 390 px: a 4:5 frame so the grid's rows line up, the
  * garments centred in it), `thumb` for a strip of small tiles (the garment
- * page's "In N outfits", about 96 px wide), `look` for a plan look's card
- * in a snap strip (224 px wide: a 4:5 frame, so every card of the strip is
- * the same height, with pieces large enough to carry a badge).
+ * page's "In N outfits", about 96 px wide).
  */
 const SIZES = {
   card: {
@@ -119,22 +115,6 @@ const SIZES = {
     feet: 'h-6 lg:h-12',
     side: 'h-5 lg:h-10',
   },
-  cover: {
-    box: 'rounded-field p-1 gap-0.5 aspect-[4/5]',
-    column: 'justify-center',
-    upper: 'h-5',
-    lower: 'h-7',
-    feet: 'h-4',
-    side: 'h-3',
-  },
-  look: {
-    box: 'rounded-box p-2 gap-1.5 aspect-[4/5]',
-    column: 'justify-center',
-    upper: 'h-20',
-    lower: 'h-28',
-    feet: 'h-14',
-    side: 'h-12',
-  },
 } as const;
 export type CollageSize = keyof typeof SIZES;
 
@@ -166,7 +146,7 @@ export function OutfitCollage(props: {
       eager={eager}
       viewerSet={props.viewerSet}
       labelled={size === 'card'}
-      words={size !== 'thumb' && size !== 'cell' && size !== 'cover'}
+      words={size !== 'thumb' && size !== 'cell'}
     />
   );
   return (
@@ -199,9 +179,8 @@ export function OutfitCollage(props: {
 
 /**
  * A garment of the collage: its thumb, or a hanger (and its name on a
- * card). A missing piece is a dashed place of the same size; a piece to buy
- * wears Styling's badge over its foot. A thumb's pieces are too small for
- * words: the dashed place is empty and the badge a dot, each saying what
+ * card). A piece to buy wears Styling's badge over its foot; a thumb's
+ * pieces are too small for words, so there the badge is a dot, saying what
  * it means to screen readers only.
  */
 function CollagePiece(props: {
@@ -214,22 +193,6 @@ function CollagePiece(props: {
 }) {
   const { garment, words } = props;
   const mark = markOf(garment);
-  if (mark === 'missing') {
-    return (
-      <span
-        class={`${props.class} aspect-square max-w-full rounded-box border border-dashed border-warning flex items-center justify-center p-1`}
-        data-missing-piece=""
-      >
-        <span
-          class={
-            words ? 'text-xs text-warning text-center leading-tight' : 'sr-only'
-          }
-        >
-          {t('plans.looks.MISSING')}
-        </span>
-      </span>
-    );
-  }
   const face = <CollageFace {...props} />;
   if (mark !== 'to-buy') return face;
   return (
@@ -242,7 +205,7 @@ function CollagePiece(props: {
           class="absolute bottom-0 right-0 size-2 rounded-full bg-accent"
           data-to-buy=""
         >
-          <span class="sr-only">{t('plans.looks.TO_BUY')}</span>
+          <span class="sr-only">{t('outfits.PIECE_TO_BUY')}</span>
         </span>
       )}
     </span>
@@ -259,7 +222,7 @@ export function ToBuyBadge() {
       class="badge badge-accent badge-xs absolute bottom-0 left-1/2 -translate-x-1/2 whitespace-nowrap"
       data-to-buy=""
     >
-      {t('plans.looks.TO_BUY')}
+      {t('outfits.PIECE_TO_BUY')}
     </span>
   );
 }

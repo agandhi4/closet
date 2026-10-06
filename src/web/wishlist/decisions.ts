@@ -20,8 +20,7 @@ import { onWishlist, setGarmentStatus, wanted } from '../wardrobe/status';
 /**
  * The writers of suggestions and option groups (Muse, #333). decide is the
  * one writer of a decision: every This one, Not for me, Bought it's
- * settling of the group, Returned and Undo, and the plans pages' removals
- * of a suggestion. markSuggestion is the one writer of provenance, and
+ * settling of the group, Returned and Undo. markSuggestion is the one writer of provenance, and
  * createOptionGroup of a new need (the agent's tools, #337). All three
  * hold the owner lock, and so does every other writer of option_group and
  * of a suggestion's columns (only drizzle/0040's migration wrote them
@@ -244,7 +243,7 @@ function refusalOf(
 
 /**
  * Decides `decision` for the owner, in their owner transaction (joined
- * when the caller holds it: "Bought it", buyCandidate, the plans review).
+ * when the caller holds it: "Bought it", buyWishlistItem).
  * The group is the one the decision names, else its garment's.
  * Dismissals and the group's decided_at are stamped with the
  * transaction's time (now()), so a choice and the siblings it set aside

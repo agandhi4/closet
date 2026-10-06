@@ -619,25 +619,6 @@ const ROUTES: Route[] = [
     }),
   ),
   {
-    // "Goes with my closet"'s count on the shopping list (#18b): the
-    // owner's own wishlist item, whoever shares the wardrobe.
-    name: 'GET /wardrobe/:id/outfit-count',
-    kind: 'read',
-    ok: 200,
-    secret: wishlistName,
-    vias: BOTH,
-    request: (f, q) => ({
-      method: 'GET',
-      url: `/wardrobe/${f.wishlistId}/outfit-count${q}`,
-    }),
-    expect: {
-      owner: 'ok',
-      manager: 'notFound',
-      viewer: 'notFound',
-      stranger: 'notFound',
-    },
-  },
-  {
     name: 'GET /wardrobe/:id/bought',
     kind: 'read',
     ok: 200,

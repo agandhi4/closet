@@ -16,7 +16,6 @@ import {
   outfit,
   outfitCalendar,
   outfitSlot,
-  planItem,
   selfie,
   styleProfile,
   trip,
@@ -25,7 +24,6 @@ import {
   tripOutfit,
   user,
   userWeather,
-  wardrobePlan,
   wardrobeShare,
   weekPlan,
   weekTemplate,
@@ -34,7 +32,7 @@ import { dayOfWeek } from '../../src/web/calendar/calendar-date';
 import { weeklyRhythm } from '../../src/wardrobe/week';
 import { findWeekTemplate } from '../../src/web/week-plan/template';
 import { selectScalars } from '../../src/db/select-scalars';
-import { styleProfileSql } from '../../src/web/plans/queries';
+import { styleProfileSql } from '../../src/web/style/queries';
 import { brandSizesOf, findMeasurements } from '../../src/web/sizes/queries';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
 import { variantFileName } from '../../src/web/files/image-variant';
@@ -150,13 +148,6 @@ describe('seed personas', () => {
       .from(garmentWear)
       .where(eq(garmentWear.ownerId, id))
       .orderBy(asc(garmentWear.day), asc(garmentWear.garmentId));
-    const plans = await t.db.query.wardrobePlan.findMany({
-      where: eq(wardrobePlan.ownerId, id),
-      orderBy: asc(wardrobePlan.id),
-      with: {
-        items: { orderBy: asc(planItem.id), with: { candidates: true } },
-      },
-    });
     const avoided = await t.db
       .select({ a: generatorAvoid.garmentAId, b: generatorAvoid.garmentBId })
       .from(generatorAvoid)
@@ -255,26 +246,6 @@ describe('seed personas', () => {
           note,
         })),
       },
-      plans: plans.map((p) => ({
-        name: p.name,
-        active: p.active,
-        items: p.items.map(({ candidates, ...item }) => {
-          const fields: Partial<typeof item> = { ...item };
-          for (const key of [
-            'id',
-            'planId',
-            'createdAt',
-            'agentChangedAt',
-          ] as const) {
-            delete fields[key];
-          }
-          // Candidate products (#34b) by name: ids differ between runs.
-          return {
-            ...fields,
-            candidates: candidates.map((c) => ids.get(c.garmentId)).sort(),
-          };
-        }),
-      })),
       // By name, each pair and the list sorted: ids differ between runs.
       avoided: avoided
         .map(({ a, b }) => [ids.get(a), ids.get(b)].sort())
@@ -313,7 +284,7 @@ describe('seed personas', () => {
     const first = await seedAll();
     expect(first).toMatchObject({ status: 0, stderr: '' });
     expect(first.stdout).toContain(
-      'demo: seeded 83 garments, 3 wishlist items, 86 photos, 26 outfits, 4 capsules, 1 plans',
+      'demo: seeded 83 garments, 3 wishlist items, 86 photos, 26 outfits, 4 capsules,',
     );
     expect(first.stdout).toContain(
       `Sign in as demo@closet.invalid with ${PASSWORD}`,
@@ -479,8 +450,8 @@ describe('seed personas', () => {
     // Dana's wardrobe is shared with Theo, MANAGE.
     expect((await snapshot(EMAILS[2])).shares).toBe(1);
 
-    // Wardrobe plans (#34): Theo's style profile and his active plan, from
-    // the bible's tables; Riley and Dana have neither.
+    // The style profile (#34): Theo's, from the bible's table; Riley and
+    // Dana have none.
     expect(demo.styleProfile).toMatchObject({
       styles: ['elevated-basics', 'smart-casual', 'outdoor-technical'],
       budget: 'mid',
@@ -517,18 +488,6 @@ describe('seed personas', () => {
         .filter((entry) => entry.day <= ANCHOR)
         .every((entry) => entry.plannedBy === 'user'),
     ).toBe(true);
-    expect(demo.plans.map((p) => [p.name, p.active, p.items.length])).toEqual([
-      ['NYC minimal', true, 19],
-    ]);
-    // His two gaps pair with the wishlist's merino and padded jacket (#34b).
-    expect(
-      demo.plans[0].items
-        .filter((item) => item.candidates.length > 0)
-        .map((item) => [item.name, item.candidates]),
-    ).toEqual([
-      ['Grey merino crewneck', ['New grey merino crewneck']],
-      ['Brown padded shirt jacket', ['Padded shirt jacket']],
-    ]);
     // His sizes (#24): the His sizes tables, in inches.
     expect(demo.sizes).toMatchObject({
       unit: 'in',
@@ -543,7 +502,6 @@ describe('seed personas', () => {
     for (const email of [EMAILS[1], EMAILS[2]]) {
       expect(await snapshot(email)).toMatchObject({
         styleProfile: null,
-        plans: [],
         trips: [],
         sizes: { unit: 'in', lengths: { waist: null }, brands: [] },
       });
@@ -657,39 +615,6 @@ describe('seed personas', () => {
     });
     expect(lookImage.statusCode).toBe(200);
     expect(lookImage.headers['content-type']).toBe('image/webp');
-
-    // His plan's gap view (#34): mostly owned; the replace-soon merino and
-    // the padded jacket he wants are the gaps, the third oxford the partly.
-    const plans = await t.inject({
-      method: 'GET',
-      url: '/wardrobe/plans',
-      headers: { cookie },
-    });
-    expect(plans.body).toContain('19 items · 0 looks · 3 to buy');
-    const [nyc] = await t.db
-      .select({ id: wardrobePlan.id })
-      .from(wardrobePlan)
-      .where(eq(wardrobePlan.name, 'NYC minimal'));
-    const gaps = unescapeHtml(
-      (
-        await t.inject({
-          method: 'GET',
-          url: `/wardrobe/plans/${nyc.id}`,
-          headers: { cookie },
-        })
-      ).body,
-    );
-    // Each item a card (#295): the first one saying `text`.
-    const cardOf = (text: string) =>
-      gaps.split('<li id="plan-item-').find((card) => card.includes(text));
-    expect(cardOf('Worn out, to replace: Grey merino crewneck')).toContain(
-      'data-status="missing"',
-    );
-    expect(cardOf('Brown padded shirt jacket')).toContain(
-      'data-status="missing"',
-    );
-    expect(gaps).toContain('Oxford shirt');
-    expect(gaps).toContain('1 more to go');
 
     // Theo manages his sister's wardrobe through her share: tagging included.
     const sparseId = await userIdOf(t, EMAILS[2]);
@@ -886,8 +811,6 @@ describe('seed personas', () => {
     expect(await t.db.$count(capsule)).toBe(0);
     expect(await t.db.$count(capsuleGarment)).toBe(0);
     expect(await t.db.$count(garmentWear)).toBe(0);
-    expect(await t.db.$count(wardrobePlan)).toBe(0);
-    expect(await t.db.$count(planItem)).toBe(0);
     expect(await t.db.$count(styleProfile)).toBe(0);
     expect(await t.db.$count(brandSize)).toBe(0);
     expect(await t.db.$count(bodyMeasurements)).toBe(0);

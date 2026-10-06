@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  budgetFit,
   decideSuggestion,
   type GroupState,
   type PickState,
@@ -447,5 +448,14 @@ describe('productUrlKey', () => {
 
   it('answers nothing for what is not a URL', () => {
     expect(productUrlKey('not a link')).toBeUndefined();
+  });
+});
+
+describe('budgetFit', () => {
+  it('compares in cents, the budget inclusive, and knows nothing without both', () => {
+    expect(budgetFit('49.90', '49.90')).toBe('within');
+    expect(budgetFit('0.30', '0.29')).toBe('over');
+    expect(budgetFit(null, '50.00')).toBe('unknown');
+    expect(budgetFit('50.00', null)).toBe('unknown');
   });
 });

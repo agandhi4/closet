@@ -140,7 +140,7 @@ export type Condition = (typeof CONDITIONS)[number];
 
 /**
  * The only colours a garment may carry, in the order a colour set is stored
- * and shown. A garment's, a plan item's and a style profile's colours are
+ * and shown. A garment's and a style profile's colours are
  * all text[] sets checked against this list (src/db/schema.ts), so adding
  * one is a migration. Each has a swatch class in views/assets/main.css
  * (`.ms-swatch--<name>`).
@@ -172,11 +172,11 @@ export function isGarmentColor(value: string): value is GarmentColor {
 
 /**
  * A value set as every `text[]` set column stores it (garment.colors and
- * .materials, plan_item's, style_profile's): in `values`' order, each once,
+ * .materials, style_profile's): in `values`' order, each once,
  * anything outside `values` dropped, null for none (never an empty array).
  * Every writer of such a column goes through it: the garment form
- * (readColors, readProperties), bulk edit's "Set material", the plan and
- * style forms, "Bought it"'s fitted item.
+ * (readColors, readProperties), bulk edit's "Set material", the style
+ * form.
  */
 export function storedSet<T extends string>(
   values: readonly T[],

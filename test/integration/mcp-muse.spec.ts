@@ -8,11 +8,11 @@ import {
   personalAccessToken,
 } from '../../src/db/schema';
 import { MAX_OPTIONS_PER_GROUP } from '../../src/wardrobe/suggestions';
-import { RETIRED_TOOLS } from '../../src/web/mcp/tools/retired';
+import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import { markSuggestion } from '../../src/web/wishlist/decisions';
 import { FEEDBACK_MARGIN_MS } from '../../src/web/wishlist/feedback';
 import { createGarment, createWishlistItem, garmentRow } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { createTestApp, type TestApp, userIdOf } from './harness';
 import {
   html,
   jpeg,
@@ -20,7 +20,7 @@ import {
   productShot,
   startLinkSites,
 } from './link-sites';
-import { callTool, createAccessToken, tool } from './mcp';
+import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
 
 /**
  * Muse's MCP tools (#337, docs/plans/2026-10-05-muse-suggestions.md
@@ -29,8 +29,8 @@ import { callTool, createAccessToken, tool } from './mcp';
  * (suggest_outfit), what stands where (list_suggestions), the closet's
  * coverage, and the owner's decisions coming back (get_suggestion_feedback)
  * with the never-again rules: a dismissed product's link, a need set
- * aside and an outfit declined are refused. The plans' tools answer their
- * successor's name. Rows are asserted through t.db.
+ * aside and an outfit declined are refused. The plans' tools are gone.
+ * Rows are asserted through t.db.
  */
 
 interface Feedback {
@@ -697,6 +697,79 @@ describe('MCP: Muse’s tools', () => {
       ]);
     });
 
+    // The closet as get_wardrobe reads it (garmentSummaries, CLOSET_FILTERS),
+    // oldest first as plans' closetPieces was: another user's, so the shared
+    // closet above stays as it is.
+    it('reads only the closet, counts copies, reports replace_soon and names takers oldest first', async () => {
+      const cookie = await t.register('coverage@example.com');
+      const coverageToken = await createAccessToken(t, { cookie });
+      const userId = await userIdOf(t, 'coverage@example.com');
+      const bottom = (name: string) =>
+        createGarment(t, { name, category: 'bottoms', cookie });
+      const oldChinos = await bottom('Old chinos');
+      const twinJeans = await bottom('Twin jeans');
+      const wornChinos = await bottom('Worn chinos');
+      const archived = await bottom('Archived chinos');
+      const wanted = await createWishlistItem(t, {
+        name: 'Wanted chinos',
+        category: 'bottoms',
+        cookie,
+      });
+      await t.db
+        .update(garment)
+        .set({ quantity: 2 })
+        .where(eq(garment.id, twinJeans));
+      await t.db
+        .update(garment)
+        .set({ condition: 'replace_soon' })
+        .where(eq(garment.id, wornChinos));
+      expect(
+        (await setGarmentStatus(t.db, archived, userId, { event: 'archive' }))
+          .ok,
+      ).toBe(true);
+
+      const answer = await tool<{
+        targets: {
+          status: string;
+          have: number;
+          need: number;
+          fulfilledBy: { id: number; copies: number }[];
+          replaceSoon: { id: number }[];
+          takenBy: { id: number; target: number }[];
+          reason: string | null;
+        }[];
+      }>(t, coverageToken, 'get_closet_coverage', {
+        targets: [
+          { category: 'bottoms', quantity: 2 },
+          { category: 'bottoms' },
+        ],
+      });
+      const [pair, another] = answer.targets;
+      // The ×2 jeans count 2: with the old chinos, 3 copies for 2 wanted.
+      expect(pair).toMatchObject({ status: 'owned', have: 3, need: 2 });
+      expect(pair.fulfilledBy).toEqual([
+        expect.objectContaining({ id: oldChinos, copies: 1 }),
+        expect.objectContaining({ id: twinJeans, copies: 2 }),
+      ]);
+      expect(pair.replaceSoon.map((g) => g.id)).toEqual([wornChinos]);
+      // Both taken by the first target, named oldest first.
+      expect(another).toMatchObject({
+        status: 'missing',
+        reason: 'replace-soon',
+      });
+      expect(another.takenBy).toEqual([
+        expect.objectContaining({ id: oldChinos, target: 0 }),
+        expect.objectContaining({ id: twinJeans, target: 0 }),
+      ]);
+      // The archive and the wishlist are not the closet.
+      const named = JSON.stringify(answer);
+      expect(named).not.toContain('Archived chinos');
+      expect(named).not.toContain('Wanted chinos');
+      for (const id of [archived, wanted]) {
+        expect(named).not.toContain(`"id":${id},`);
+      }
+    });
+
     it('refuses a type of another category and a range upside down', async () => {
       const type = await callTool(t, token, 'get_closet_coverage', {
         targets: [{ category: 'tops', type: 'jeans' }],
@@ -709,31 +782,28 @@ describe('MCP: Muse’s tools', () => {
     });
   });
 
-  describe('the plans’ tools, retired', () => {
-    it.each(RETIRED_TOOLS)(
-      '%s answers its successor, whatever it is passed',
-      async (name) => {
-        const answer = await callTool(t, token, name, {
-          planId: 1,
-          anything: true,
-        });
-        expect(answer.isError).toBe(true);
-        expect(answer.value.error).toMatch(
-          new RegExp(`^${name} is retired: wardrobe plans are gone\\. Use `),
-        );
-      },
-    );
-
-    it('add_garment_from_link refuses a planItemId before fetching anything', async () => {
-      const hits = sites.hits.length;
-      const answer = await callTool(t, token, 'add_garment_from_link', {
-        url: await product('Unlinked'),
-        planItemId: 1,
-      });
-      expect(answer.isError).toBe(true);
-      expect(answer.value.error).toContain('suggest_garment');
-      expect(sites.hits.length).toBe(hits);
-    });
+  it('lists none of the plans’ tools, retired with plans (#337)', async () => {
+    const res = await mcpRequest(t, token, 'tools/list');
+    const listed = res
+      .json<{ result: { tools: { name: string }[] } }>()
+      .result.tools.map((listedTool) => listedTool.name);
+    for (const name of [
+      'create_plan',
+      'propose_plan_item',
+      'update_plan_item',
+      'list_plans',
+      'get_plan_gaps',
+      'get_plan_feedback',
+      'get_shopping_list',
+      'add_candidate',
+      'update_candidate',
+      'compare_plans',
+      'list_looks',
+      'propose_look',
+      'update_look',
+    ]) {
+      expect(listed).not.toContain(name);
+    }
   });
 
   it('never marks anything owned: a suggestion leaves the wishlist only through Bought it', async () => {

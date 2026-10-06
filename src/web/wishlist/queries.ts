@@ -97,7 +97,7 @@ export function garmentRefSql(
   )`;
 }
 
-/** garmentRefSql alone, or undefined: the wishlist's and the shopping list's forms. */
+/** garmentRefSql alone, or undefined: "Bought it"'s replaced garment. */
 export async function garmentRef(
   db: Queryable,
   id: number,

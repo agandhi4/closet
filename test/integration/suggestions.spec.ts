@@ -5,29 +5,9 @@ import {
   optionGroup,
   outfitSlot,
   personalAccessToken,
-  planItem,
-  planItemCandidate,
-  planLook,
-  planLookSlot,
-  wardrobePlan,
 } from '../../src/db/schema';
-import { selectScalars } from '../../src/db/select-scalars';
-import {
-  candidaciesOf,
-  changeCandidates,
-  MAX_CANDIDATES_PER_ITEM,
-  rankedPurchasesSql,
-} from '../../src/web/plans/candidates';
-import { planCovers } from '../../src/web/plans/covers';
-import { looksOfPlan } from '../../src/web/plans/looks';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
-import {
-  createGarment,
-  createWishlistItem,
-  garmentRow,
-  jpegPhoto,
-  uploadPhoto,
-} from './garments';
+import { createGarment, createWishlistItem, garmentRow } from './garments';
 import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
 import { createAccessToken, tool } from './mcp';
 
@@ -462,52 +442,6 @@ describe('suggestions', () => {
       expect(await garmentRow(t, plain)).toBeUndefined();
     });
 
-    it('the plans review sets aside what it would delete: Not this one with its reason, an unpicked option as chose another', async () => {
-      const [plan] = await t.db
-        .insert(wardrobePlan)
-        .values({
-          ownerId,
-          name: 'Muse review plan',
-          draftedByTokenId: tokenId,
-        })
-        .returning({ id: wardrobePlan.id });
-      const [item] = await t.db
-        .insert(planItem)
-        .values({ planId: plan.id, category: 'tops', review: 'proposed' })
-        .returning({ id: planItem.id });
-      const need = await group('Review need');
-      const picked = await pick('Review picked', need, 1);
-      const unpicked = await pick('Review unpicked', need, 2);
-      const rejected = await pick('Review rejected', need, 3);
-      await t.db.insert(planItemCandidate).values(
-        [picked, unpicked, rejected].map((garmentId) => ({
-          planItemId: item.id,
-          garmentId,
-        })),
-      );
-      const offered = [picked, unpicked, rejected].map(
-        (garmentId) => `${item.id}:${garmentId}`,
-      );
-      const res = await post(`/wardrobe/plans/${plan.id}/review`, {
-        shown: [String(item.id)],
-        pick: [`${item.id}:${picked}`],
-        note: [''],
-        offered,
-        reject: [`${item.id}:${rejected}`],
-        rejectReason: ['', '', 'too shiny'],
-        removeUnpicked: '1',
-      });
-      expect(res.statusCode, res.body).toBeLessThan(400);
-      expect(await dismissal(rejected)).toEqual({
-        status: 'wishlist',
-        reason: null,
-        note: 'too shiny',
-        at: expect.any(Date) as Date,
-      });
-      expect((await dismissal(unpicked)).reason).toBe('chose_another');
-      expect((await dismissal(picked)).reason).toBeNull();
-    });
-
     it('a bought pick is an ordinary garment: it can be deleted, and its group can still be undone', async () => {
       const need = await group('Cap');
       const a = await pick('Cap A', need, 1);
@@ -530,78 +464,6 @@ describe('suggestions', () => {
       ).toMatchObject({ ok: true, restored: [b] });
       expect(await groupRow(need)).toMatchObject({ status: 'open' });
       expect((await dismissal(b)).reason).toBeNull();
-    });
-
-    it('picks set aside in the plans review free their slots under the candidate cap', async () => {
-      const [plan] = await t.db
-        .insert(wardrobePlan)
-        .values({ ownerId, name: 'Muse cap plan', draftedByTokenId: tokenId })
-        .returning({ id: wardrobePlan.id });
-      const [item] = await t.db
-        .insert(planItem)
-        .values({ planId: plan.id, category: 'tops', review: 'proposed' })
-        .returning({ id: planItem.id });
-      const need = await group('Cap need');
-      const options: number[] = [];
-      for (let rank = 1; rank <= MAX_CANDIDATES_PER_ITEM; rank++) {
-        options.push(await pick(`Cap option ${rank}`, need, rank));
-      }
-      await changeCandidates(t.db, ownerId, {
-        add: { itemIds: [item.id], garmentIds: options },
-      });
-      const offered = options.map((garmentId) => `${item.id}:${garmentId}`);
-      const rejected = options.slice(2);
-      const res = await post(`/wardrobe/plans/${plan.id}/review`, {
-        shown: [String(item.id)],
-        pick: [`${item.id}:${options[0]}`],
-        note: [''],
-        offered,
-        reject: rejected.map((garmentId) => `${item.id}:${garmentId}`),
-        rejectReason: options.map((garmentId) =>
-          rejected.includes(garmentId) ? 'not this' : '',
-        ),
-      });
-      expect(res.statusCode, res.body).toBeLessThan(400);
-      for (const id of rejected) {
-        expect((await dismissal(id)).note).toBe('not this');
-      }
-      const fresh = await createWishlistItem(t, {
-        name: 'Cap option new',
-        category: 'tops',
-      });
-      expect(
-        await changeCandidates(t.db, ownerId, {
-          add: { itemIds: [item.id], garmentIds: [fresh] },
-        }),
-      ).toMatchObject({ added: 1 });
-    });
-
-    it('Bought it with the plan follow-up keeps the siblings, set aside', async () => {
-      const [plan] = await t.db
-        .insert(wardrobePlan)
-        .values({ ownerId, name: 'Muse buy plan', draftedByTokenId: tokenId })
-        .returning({ id: wardrobePlan.id });
-      const [item] = await t.db
-        .insert(planItem)
-        .values({ planId: plan.id, category: 'tops' })
-        .returning({ id: planItem.id });
-      const need = await group('Buy need');
-      const a = await pick('Buy A', need, 1);
-      const b = await pick('Buy B', need, 2);
-      await t.db.insert(planItemCandidate).values([
-        { planItemId: item.id, garmentId: a },
-        { planItemId: item.id, garmentId: b },
-      ]);
-      const res = await post(`/wardrobe/${a}/bought`, {
-        acquiredOn: t.today(),
-        price: '50',
-        removeCandidates: [String(b)],
-      });
-      expect(res.statusCode).toBe(303);
-      expect(await dismissal(b)).toMatchObject({
-        status: 'wishlist',
-        reason: 'chose_another',
-      });
     });
   });
 
@@ -777,78 +639,10 @@ describe('suggestions', () => {
       expect(rows).toHaveLength(4);
     });
 
-    it('a plan’s candidates leave out the one set aside: the shopping list, Styling’s To-buy row, candidacies, covers, Today’s next purchase and its looks', async () => {
-      const [plan] = await t.db
-        .insert(wardrobePlan)
-        .values({ ownerId, name: 'Active plan', active: true })
-        .returning({ id: wardrobePlan.id });
-      // A category the closet lacks: the item is still to buy.
-      const [item] = await t.db
-        .insert(planItem)
-        .values({ planId: plan.id, category: 'knitwear' })
-        .returning({ id: planItem.id });
-      await t.db.insert(planItemCandidate).values([
-        { planItemId: item.id, garmentId: open },
-        { planItemId: item.id, garmentId: setAside },
-      ]);
-      // Covers draw candidates with a photo only.
-      for (const id of [open, setAside]) {
-        await uploadPhoto(t, id, await jpegPhoto(300, 400));
-      }
-      // A loved look per candidate, each completed by it: Today's ranking.
-      for (const [name, candidate] of [
-        ['Look with the open one', open],
-        ['Look with the one set aside', setAside],
-      ] as const) {
-        const [look] = await t.db
-          .insert(planLook)
-          .values({ planId: plan.id, name, reaction: 'loved' })
-          .returning({ id: planLook.id });
-        await t.db.insert(planLookSlot).values([
-          {
-            lookId: look.id,
-            position: 0,
-            category: 'tops',
-            garmentId: candidate,
-          },
-          {
-            lookId: look.id,
-            position: 1,
-            category: 'bottoms',
-            garmentId: jeans,
-          },
-        ]);
-      }
-
-      const shopping = unescapeHtml((await get('/wardrobe/shopping')).body);
-      expect(shopping).toContain('Suggested knit open');
-      expect(shopping).not.toContain('Suggested cardigan aside');
+    it('Styling’s Include picks leaves out the one set aside', async () => {
       const styling = unescapeHtml((await get('/styling?picks=1')).body);
       expect(styling).toContain('Suggested knit open');
       expect(styling).not.toContain('Suggested cardigan aside');
-      expect(
-        (await candidaciesOf(t.db, ownerId, [open, setAside])).map(
-          (c) => c.garmentId,
-        ),
-      ).toEqual([open]);
-      // A look is a cover only with a usable piece that has a photo: the
-      // one set aside is no current candidate (and the jeans have none).
-      const covers = (await planCovers(t.db, ownerId)).get(plan.id);
-      expect(covers?.cells.map((cell) => cell.name)).toEqual([
-        'Look with the open one',
-        'Suggested knit open',
-      ]);
-      const { ranked } = await selectScalars(t.db, {
-        ranked: rankedPurchasesSql(ownerId),
-      });
-      expect(ranked.map((r) => r.garmentId)).toEqual([open]);
-      const looks = await looksOfPlan(t.db, ownerId, plan.id);
-      const stateOf = (garmentId: number) =>
-        looks
-          .flatMap((look) => look.slots)
-          .find((slot) => slot.garmentId === garmentId)?.state;
-      expect(stateOf(open)).toBe('to-buy');
-      expect(stateOf(setAside)).toBe('missing');
     });
   });
 });

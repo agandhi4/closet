@@ -24,52 +24,29 @@ import {
   readPrice,
 } from '../wardrobe/validation';
 import { type BoughtField, type BoughtModel, BoughtPage } from './bought-page';
-import type { WardrobeDeps } from '../wardrobe/writes';
-import {
-  boughtPiece,
-  buyCandidate,
-  type PlanFollowUps,
-  type PlanPurchase,
-  planPurchases,
-} from '../plans/purchase';
-import { RowId } from '../schemas';
+import { buyWishlistItem } from './purchase';
 import { garmentRef, type GarmentRef } from './queries';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
 
 // "Bought it": the day and the price paid as typed (checked by readPurchase,
 // re-rendered with messages), and what only the owner may ask for: the
-// archive of the replaced garment, and the plan follow-ups (34b: the plan
-// items to change to match, the other candidates to remove).
-const FOLLOW_UPS_MAX = 100;
+// archive of the replaced garment.
 const BoughtBody = Type.Object({
   acquiredOn: Type.Optional(Type.String({ maxLength: 32 })),
   price: Type.Optional(Type.String({ maxLength: PRICE_INPUT_MAX })),
   archiveReplaced: Type.Optional(Type.Literal('1')),
-  adjustItems: Type.Optional(Type.Array(RowId, { maxItems: FOLLOW_UPS_MAX })),
-  removeCandidates: Type.Optional(
-    Type.Array(RowId, { maxItems: FOLLOW_UPS_MAX }),
-  ),
 });
 type BoughtBody = Static<typeof BoughtBody>;
 
 /**
- * What only the owner may ask of "Bought it": the archive of the replaced
- * garment and the plan follow-ups (34b). A grantee asking for either is a
- * 403, before anything is written.
+ * Whether "Bought it" archives the replaced garment too: the owner's to
+ * ask. A grantee asking is a 403, before anything is written.
  */
-function ownersAsks(body: BoughtBody, isOwner: boolean) {
-  const archiveReplaced = body.archiveReplaced === '1';
-  const followUps: PlanFollowUps = {
-    adjustItems: body.adjustItems ?? [],
-    removeCandidates: body.removeCandidates ?? [],
-  };
-  const asked =
-    archiveReplaced ||
-    followUps.adjustItems.length > 0 ||
-    followUps.removeCandidates.length > 0;
+function archiveAsked(body: BoughtBody, isOwner: boolean): boolean {
+  const asked = body.archiveReplaced === '1';
   if (asked && !isOwner) throw new HttpError(403);
-  return { archiveReplaced, followUps };
+  return asked;
 }
 
 /** The purchase as stored (a blank field is null), or what is wrong with it. */
@@ -102,10 +79,7 @@ function readPurchase(
  * grantor's wishlist (a gift list; the owner reading a sibling's), a MANAGE
  * grantee also adds, edits and buys, and only the owner archives the
  * garment a purchase replaces or deletes an item. Adding and editing are
- * the garment form's (src/web/wardrobe, `?to=wishlist`). The owner's
- * "Bought it" also carries their plans' part (34b): what buying a plan
- * candidate does to its items (src/web/plans/purchase.ts); a grantee never
- * sees or sends it.
+ * the garment form's (src/web/wardrobe, `?to=wishlist`).
  */
 export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -113,38 +87,6 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger, config } = options;
-  const deps: WardrobeDeps = {
-    db,
-    photos: options.photos,
-    logger,
-    cutouts: options.cutouts,
-  };
-
-  /**
-   * What buying `garment` does to the owner's plan items (34b), with the
-   * replaced garment the page offers to archive too (`archivable`); nothing
-   * for a grantee, whose purchase leaves the owner's plans to the owner.
-   * The garment as read for the page is the piece judged: no second read.
-   * Nothing for a Muse pick either (#333): its need settles with the
-   * purchase (buyCandidate's decide), and the plans' follow-ups would
-   * delete the siblings it sets aside.
-   */
-  function purchasesFor(
-    garment: GarmentDetail,
-    { access }: AuthorizedWardrobe,
-    archivable: GarmentRef | undefined,
-  ): Promise<PlanPurchase[]> {
-    if (!access.isOwner || garment.suggestedAt !== null) {
-      return Promise.resolve([]);
-    }
-    return planPurchases(
-      db,
-      access.ownerId,
-      boughtPiece(garment),
-      archivable?.id,
-    );
-  }
-
   function resolve(
     request: FastifyRequest,
     ownerId: number | '' | undefined,
@@ -204,7 +146,6 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (garment.status !== 'wishlist') {
         return reply.redirect(garmentUrl(garment.id, viewOwner), 302);
       }
-      const replaced = await archivable(garment, authorized);
       return renderBought(reply, {
         garment,
         viewOwner,
@@ -212,17 +153,16 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           acquiredOn: todayIn(config.timeZone, new Date()),
           price: garment.price ?? '',
         },
-        archivable: replaced,
-        plans: await purchasesFor(garment, authorized, replaced),
+        archivable: await archivable(garment, authorized),
       });
     },
   );
 
-  // Into the closet (buyCandidate: buyGarment's buy and, when asked, the
-  // replaced garment's archive, then the owner's plan follow-ups, in one
+  // Into the closet (buyWishlistItem: buyGarment's buy and, when asked, the
+  // replaced garment's archive, then a Muse pick's need settled, in one
   // transaction), then its page with a toast. A grantee asking for the
-  // archive or a plan follow-up is a 403 before anything is written; an
-  // item already bought is a 409.
+  // archive is a 403 before anything is written; an item already bought is
+  // a 409.
   app.post(
     '/wardrobe/:id/bought',
     {
@@ -239,21 +179,17 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { access, viewOwner } = authorized;
-      const { archiveReplaced, followUps } = ownersAsks(
-        request.body,
-        access.isOwner,
-      );
+      const archiveReplaced = archiveAsked(request.body, access.isOwner);
       const { id } = request.params;
       const read = readPurchase(request.body);
       if (!read.ok) {
         // Only a refusal reads the garment: its form is drawn again. A
-        // purchase goes straight to buyCandidate, whose status change is
+        // purchase goes straight to buyWishlistItem, whose status change is
         // the lookup (an id outside the wardrobe is its 'not-found').
         const garment = await requireGarment(id, access.ownerId);
         logger.warn(
           `Bought it refused for garment ${garment.id}: ${Object.keys(read.errors).join(', ')}`,
         );
-        const replaced = await archivable(garment, authorized);
         return renderBought(
           reply,
           {
@@ -263,21 +199,16 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
               acquiredOn: request.body.acquiredOn ?? '',
               price: request.body.price ?? '',
             },
-            archivable: replaced,
-            plans: await purchasesFor(garment, authorized, replaced),
-            ticked: followUps,
+            archivable: await archivable(garment, authorized),
             errors: read.errors,
           },
           400,
         );
       }
-      const outcome = await buyCandidate(
-        deps,
-        id,
-        access.ownerId,
-        { ...read.purchase, archiveReplaced },
-        followUps,
-      );
+      const outcome = await buyWishlistItem(options, id, access.ownerId, {
+        ...read.purchase,
+        archiveReplaced,
+      });
       if (!outcome.ok) {
         if (outcome.reason === 'not-found') {
           throw new HttpError(404, GARMENT_NOT_FOUND);

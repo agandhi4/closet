@@ -13,11 +13,6 @@ import { entriesSql } from '../calendar/queries';
 import { dailySeed, ideasFor, type IdeasWeather } from '../gallery/ideas';
 import type { PoolGarment } from '../gallery/queries';
 import {
-  type NextPurchase,
-  nextPurchaseOf,
-  rankedPurchasesSql,
-} from '../plans/candidates';
-import {
   readWeatherWithForecast,
   weatherWithForecastSql,
 } from '../weather/queries';
@@ -89,8 +84,6 @@ export interface TodayModel {
   needs?: NeedsToDecide | null;
   /** Muse's latest round while any of it waits (museRoundSql); null otherwise; read with `needs`. */
   round?: MuseRound | null;
-  /** The product completing the most loved looks of the active plan (rankedPurchasesSql, finished by nextPurchaseOf); null when none; read only when asked (`nextPurchase`). */
-  nextPurchase?: NextPurchase | null;
 }
 
 export interface TodayOptions {
@@ -103,8 +96,6 @@ export interface TodayOptions {
   worn?: boolean;
   /** Also read Muse's needs and latest round waiting on the owner (the page's card). */
   needs?: boolean;
-  /** Also read the next product to buy (the page's card when no need waits). */
-  nextPurchase?: boolean;
 }
 
 export interface TodayDeps {
@@ -126,7 +117,7 @@ async function readDay(
   ownerId: number,
   today: IsoDate,
   now: Date,
-  { ownWeather, worn, needs, nextPurchase }: TodayOptions,
+  { ownWeather, worn, needs }: TodayOptions,
 ) {
   const read = await selectScalars(deps.db, {
     entries: entriesSql(ownerId, today, today),
@@ -137,7 +128,6 @@ async function readDay(
     worn: worn ? somethingWornSql(ownerId, today) : undefined,
     needs: needs ? needsToDecideSql(ownerId) : undefined,
     round: needs ? museRoundSql(ownerId) : undefined,
-    ranked: nextPurchase ? rankedPurchasesSql(ownerId) : undefined,
   });
   const weather =
     ownWeather ??
@@ -153,11 +143,6 @@ async function readDay(
     worn: read.worn,
     needs: read.needs,
     round: read.round,
-    // A waiting round's or need's card wins the slot: skip the matching statements.
-    nextPurchase:
-      read.ranked && !read.needs && !read.round
-        ? await nextPurchaseOf(deps.db, ownerId, read.ranked)
-        : undefined,
   };
 }
 
@@ -168,7 +153,7 @@ export async function todayFor(
   options: TodayOptions = {},
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  const { entries, weather, worn, needs, round, nextPurchase } = await readDay(
+  const { entries, weather, worn, needs, round } = await readDay(
     deps,
     ownerId,
     today,
@@ -204,7 +189,6 @@ export async function todayFor(
     wornToday: worn,
     needs,
     round,
-    nextPurchase,
   };
 }
 

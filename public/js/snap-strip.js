@@ -177,12 +177,9 @@ document.addEventListener('click', (event) => {
 const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]';
 
 /**
- * Where a keyboard step wants focus once its item is the chosen one: that
- * item and which of its controls, by `data-strip-action` (null: the item
- * itself). Neighbouring items offer different actions, so an index would land
- * Enter on another one. A control is only visible, and so
- * focusable, in the chosen item (`group-data-selected/item:visible`), so
- * focus moves in choose(), after the selection has changed.
+ * Where a keyboard step from a focused item wants focus once the new item is
+ * the chosen one: that item. Focus moves in choose(), after the selection
+ * has changed.
  */
 const wantsFocus = new WeakMap();
 // Not cleared on `scrollend`: the scroll a focus() itself causes ends after
@@ -195,14 +192,6 @@ function refocus(strip, item) {
   wantsFocus.delete(strip);
   if (performance.now() - want.at > FOCUS_WINDOW) return;
   // No scroll: the smooth one is already under way.
-  const control = want.action
-    ? item.querySelector(`[data-strip-action="${CSS.escape(want.action)}"]`)
-    : null;
-  if (control) {
-    control.focus({ preventScroll: true });
-    return;
-  }
-  // Never a different action: the item itself, when its own action is gone.
   if (!item.matches(FOCUSABLE)) item.setAttribute('tabindex', '-1');
   item.focus({ preventScroll: true });
 }
@@ -232,16 +221,8 @@ document.addEventListener('keydown', (event) => {
   const target = stepStrip(strip, step);
   // Focus follows the choice, so Enter acts on what was chosen; the strip
   // itself keeps focus when it was the focus target.
-  if (target && source) {
-    const own = event.target === source;
-    const action = event.target.dataset.stripAction;
-    if (own || action) {
-      wantsFocus.set(strip, {
-        item: target,
-        action: own ? null : action,
-        at: performance.now(),
-      });
-    }
+  if (target && source && event.target === source) {
+    wantsFocus.set(strip, { item: target, at: performance.now() });
   }
 });
 

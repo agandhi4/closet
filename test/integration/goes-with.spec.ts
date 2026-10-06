@@ -1,7 +1,6 @@
-import { count, eq } from 'drizzle-orm';
+import { count } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { outfit, planItem } from '../../src/db/schema';
-import { changeCandidates } from '../../src/web/plans/candidates';
+import { outfit } from '../../src/db/schema';
 import {
   createTestApp,
   recordQueries,
@@ -9,17 +8,16 @@ import {
   unescapeHtml,
 } from './harness';
 import { callTool, createAccessToken, tool } from './mcp';
-import { expectFragment, HX_FRAGMENT } from './pages';
+import { HX_FRAGMENT } from './pages';
 
 /**
  * "Goes with my closet" (#18b): a wishlist item's page judges it against
  * the owner's whole closet through the generator, the item locked
  * (src/wardrobe/goes-with.ts, unit-tested on its own): the count and its
  * bound, the best few as display-only cards, the roles it pairs with, the
- * near-duplicates; the same through the MCP tool goes_with_closet and as a
- * count on the shopping list's candidate cards. And the other side of the
- * rule: the item never reaches ordinary ideas, `?with=` or a pick. The
- * grantee rows are in authorization-wardrobe.spec.ts.
+ * near-duplicates; the same through the MCP tool goes_with_closet. And the
+ * other side of the rule: the item never reaches ordinary ideas, `?with=`
+ * or a pick. The grantee rows are in authorization-wardrobe.spec.ts.
  */
 
 type Fields = Record<string, string | string[]>;
@@ -474,62 +472,6 @@ describe('goes with my closet', () => {
         expect(answer.isError, `garment ${garmentId}`).toBe(true);
         expect(answer.value.error).toBe('Not on your wishlist');
       }
-    });
-  });
-
-  describe('the shopping list', () => {
-    it('shows each candidate’s count, linking to its answer', async () => {
-      const plan = await post('/wardrobe/plans', { name: 'Winter', notes: '' });
-      expect(plan.statusCode).toBe(303);
-      const planId = Number(
-        /^\/wardrobe\/plans\/(\d+)/.exec(String(plan.headers.location))![1],
-      );
-      const item = await post(`/wardrobe/plans/${planId}/items`, {
-        category: 'tops',
-        colors: ['red'],
-        quantity: '1',
-        priority: 'medium',
-      });
-      expect(item.statusCode).toBe(303);
-      const [{ id: itemId }] = await t.db
-        .select({ id: planItem.id })
-        .from(planItem)
-        .where(eq(planItem.planId, planId));
-      await changeCandidates(t.db, t.owner.id, {
-        add: { itemIds: [itemId], garmentIds: [sweater] },
-      });
-      // The list renders no count itself: each chip loads as it scrolls
-      // into view, so the page's cost is the list's whatever its length.
-      const res = await get(`/wardrobe/shopping?plan=${planId}`);
-      expect(res.statusCode).toBe(200);
-      const row = new RegExp(`id="candidate-\\d+-${sweater}"[^]*?</li>`).exec(
-        unescapeHtml(res.body),
-      )![0];
-      expect(row).not.toContain('Unlocks');
-      expect(row).toContain(`hx-get="/wardrobe/${sweater}/outfit-count"`);
-      expect(row).toContain('hx-trigger="revealed"');
-      const chip = await t.inject({
-        method: 'GET',
-        url: `/wardrobe/${sweater}/outfit-count`,
-        headers: HX_FRAGMENT,
-      });
-      expect(chip.statusCode).toBe(200);
-      expectFragment(chip);
-      expect(chip.body).toContain('Unlocks 6 outfits');
-      expect(unescapeHtml(chip.body)).toContain(
-        `href="/wardrobe/${sweater}#goes-with"`,
-      );
-    });
-
-    it('answers a count only for the owner’s own wishlist item', async () => {
-      const count = (id: number, cookie?: string) =>
-        get(`/wardrobe/${id}/outfit-count`, cookie);
-      expect((await count(closet['White tee'])).statusCode).toBe(404);
-      expect((await count(othersItem)).statusCode).toBe(404);
-      expect((await count(999_999)).statusCode).toBe(404);
-      expect((await count(othersItem, otherUser)).body).toContain(
-        'Unlocks 50+ outfits',
-      );
     });
   });
 });

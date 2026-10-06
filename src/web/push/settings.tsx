@@ -205,12 +205,26 @@ export function ReminderSettingsForm(props: {
   );
 }
 
-/** POST /push/reminders' answer: the form's status line. */
-export function ReminderStatus(props: { saved: boolean }) {
-  return props.saved ? (
-    <span class="text-success">{t('today.reminders.SAVED')}</span>
-  ) : (
-    <span class="text-error">{t('today.reminders.NOT_REGISTERED')}</span>
+/**
+ * POST /push/reminders' answer: the form's status line. "A time already
+ * past today starts tomorrow" only when a time changed, never for Muse's
+ * toggle alone (#337).
+ */
+export function ReminderStatus(props: {
+  saved: boolean;
+  timesChanged?: boolean;
+}) {
+  if (!props.saved) {
+    return (
+      <span class="text-error">{t('today.reminders.NOT_REGISTERED')}</span>
+    );
+  }
+  return (
+    <span class="text-success">
+      {props.timesChanged
+        ? t('today.reminders.SAVED_TIMES')
+        : t('today.reminders.SAVED')}
+    </span>
   );
 }
 

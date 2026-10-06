@@ -8,8 +8,7 @@ import { expectFullPage, HX_FRAGMENT } from './pages';
 
 /**
  * The Wardrobe's header and tabs (redesign R3, #83): the switcher in the
- * title, the ⋯ menu, the add sheet and the tabs on every tab page (Plans
- * the fifth, #295),
+ * title, the ⋯ menu, the add sheet and the tabs on every tab page,
  * select mode as a task with its own bar, and the grid's tiles drawn on
  * the plinth. The grid's paging and filters are wardrobe-grid.spec.ts's,
  * the capsule scope capsules.spec.ts's, the switcher's wardrobes
@@ -92,8 +91,6 @@ describe('the Wardrobe header and tabs', () => {
       expect(tabsOf(html), path).toMatch(
         /href="\/wardrobe"[\s\S]*href="\/capsules"[\s\S]*href="\/laundry"[\s\S]*href="\/wardrobe\/wishlist"/,
       );
-      // The plans are unlinked (#333): Muse's suggestions are the Wishlist's.
-      expect(tabsOf(html), path).not.toContain('/wardrobe/plans');
       expect(html, path).toContain('id="title-menu"');
       expect(menuOf(html), path).toBeDefined();
       expect(sheetOf(html), path).toBeDefined();
@@ -104,33 +101,19 @@ describe('the Wardrobe header and tabs', () => {
     }
   });
 
-  it('leaves Laundry and Plans out of a shared wardrobe’s tabs: they are the user’s own', async () => {
+  it('leaves Laundry out of a shared wardrobe’s tabs: it is the user’s own', async () => {
     const html = await get(`/wardrobe?ownerId=${ownerId}`, viewer);
     const tabs = tabsOf(html)!;
     expect(tabs).toContain(`href="/wardrobe?ownerId=${ownerId}"`);
     expect(tabs).toContain(`href="/capsules?ownerId=${ownerId}"`);
     expect(tabs).toContain(`href="/wardrobe/wishlist?ownerId=${ownerId}"`);
     expect(tabs).not.toContain('/laundry');
-    expect(tabs).not.toContain('/wardrobe/plans');
   });
 
-  it('offers a new plan in the Plans tab’s add sheet', async () => {
-    const sheet = sheetOf(await get('/wardrobe/plans'))!;
-    expect(sheet).toContain('href="/wardrobe/plans/new"');
-    expect(sheet.indexOf('New plan')).toBeLessThan(
-      sheet.indexOf('To the closet'),
-    );
-    expect(sheetOf(await get('/wardrobe'))).not.toContain(
-      '/wardrobe/plans/new',
-    );
-  });
-
-  it('puts Select (with the grid’s filters), tagging, Insights and the year in review in ⋯, never the plans or the shopping list', async () => {
+  it('puts Select (with the grid’s filters), tagging, Insights and the year in review in ⋯', async () => {
     const menu = menuOf(await get('/wardrobe?category=tops'))!;
     expect(menu).toContain('href="/wardrobe?category=tops&select=1"');
     expect(menu).toContain('href="/wardrobe/tag"');
-    expect(menu).not.toContain('href="/wardrobe/plans"');
-    expect(menu).not.toContain('href="/wardrobe/shopping"');
     expect(menu).toContain('href="/wardrobe/insights"');
     expect(menu).toContain('href="/wardrobe/recap"');
   });
@@ -148,7 +131,6 @@ describe('the Wardrobe header and tabs', () => {
     const menu = menuOf(html)!;
     expect(menu).not.toContain('select=1');
     expect(menu).not.toContain('/wardrobe/tag');
-    expect(menu).not.toContain('href="/wardrobe/plans"');
     expect(menu).toContain('href="/wardrobe/insights"');
     // The recap is the wear log: never offered inside someone else's wardrobe.
     expect(menu).not.toContain('/wardrobe/recap');

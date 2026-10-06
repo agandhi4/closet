@@ -1,4 +1,5 @@
 import { and, eq, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import { pushReminder, userDevice } from '../../db/schema';
 import type { IsoDate } from '../calendar/calendar-date';
@@ -223,11 +224,17 @@ export async function findReminderSettings(
   return row;
 }
 
+/** The row as it was before an update: joined to itself, it reads the statement's snapshot. */
+const deviceBefore = alias(userDevice, 'before');
+
 /**
  * The one writer of a device's reminders: saves both times (null turns one
- * off) and Muse's rounds on this user's device at `endpoint`, stamped `now`, so a reminder
- * whose time has passed today first goes out tomorrow (dueReminders). The
- * device id when saved; undefined when the endpoint is not one of theirs.
+ * off) and Muse's rounds on this user's device at `endpoint`, stamped `now`,
+ * so a reminder whose time has passed today first goes out tomorrow
+ * (dueReminders). The device id and whether a time changed (turned on, off
+ * or moved: what the status line's "starts tomorrow" is about, never Muse's
+ * toggle), in one statement; undefined when the endpoint is not one of
+ * theirs.
  */
 export async function saveReminderSettings(
   db: Db,
@@ -235,7 +242,7 @@ export async function saveReminderSettings(
   endpoint: string,
   settings: ReminderSettings,
   now: Date,
-): Promise<number | undefined> {
+): Promise<{ deviceId: number; timesChanged: boolean } | undefined> {
   const [row] = await db
     .update(userDevice)
     .set({
@@ -244,11 +251,19 @@ export async function saveReminderSettings(
       museRounds: settings.museRounds,
       remindersSetAt: now,
     })
+    .from(deviceBefore)
     .where(
-      and(eq(userDevice.userId, userId), eq(userDevice.pushEndpoint, endpoint)),
+      and(
+        eq(deviceBefore.id, userDevice.id),
+        eq(userDevice.userId, userId),
+        eq(userDevice.pushEndpoint, endpoint),
+      ),
     )
-    .returning({ id: userDevice.id });
-  return row?.id;
+    .returning({
+      deviceId: userDevice.id,
+      timesChanged: sql<boolean>`(${deviceBefore.morningReminder} is distinct from ${settings.morning}::smallint or ${deviceBefore.eveningReminder} is distinct from ${settings.evening}::smallint)`,
+    });
+  return row;
 }
 
 /** Every device with a reminder on, for the scheduler (a household's handful: no index). */

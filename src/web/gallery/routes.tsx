@@ -10,12 +10,9 @@ import { renderFragment, renderPage } from '../render';
 import { DestinationFields, RowId } from '../schemas';
 import { viewContext } from '../view-context';
 import { nudgeTemperatureOffset } from '../weather/queries';
-import { GarmentParams } from '../wardrobe/validation';
 import { aimIdeas } from './aim';
-import { OutfitCountLink } from './goes-with';
 import {
   dailySeed,
-  goesWithCount,
   IDEAS_PAGE_SIZE,
   ideasPage,
   type IdeasWeather,
@@ -267,30 +264,6 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         return reply.type('text/html; charset=utf-8').send('');
       }
       return reply.redirect(ideasUrl(state), 303);
-    },
-  );
-
-  // "Goes with my closet"'s count for a shopping list candidate (#18b): a
-  // chip loaded when it scrolls into view, so the list's cost is what is
-  // on screen, not every candidate of every item. Always a fragment. The
-  // owner's own wishlist item, like the section on its page: anything else
-  // (a closet garment, another's, a grantee's view) is a 404.
-  app.get(
-    '/wardrobe/:id/outfit-count',
-    { schema: { params: GarmentParams } },
-    async (request, reply) => {
-      const ownerId = sessionUserId(request);
-      const { id } = request.params;
-      const started = performance.now();
-      const count = await goesWithCount(db, ownerId, id);
-      if (!count) throw new HttpError(404, 'Not on your wishlist');
-      logger.debug(
-        `Outfit count for user ${ownerId}: wishlist item ${id} makes ${count.outfits}${count.capped ? '+' : ''} outfit(s) in ${Math.round(performance.now() - started)} ms`,
-      );
-      return renderFragment(
-        reply,
-        <OutfitCountLink garmentId={id} count={count} />,
-      );
     },
   );
 

@@ -1,7 +1,7 @@
 import * as z from 'zod/v4';
 import { selectScalars } from '../../../db/select-scalars';
 import { templateDays, weeklyRhythm } from '../../../wardrobe/week';
-import { styleProfileSql } from '../../plans/queries';
+import { styleProfileSql } from '../../style/queries';
 import { inTemplateOrder, weekTemplateSql } from '../../week-plan/template';
 import { defineTool } from '../tool';
 

@@ -168,9 +168,9 @@ export const pushRoutes: FastifyPluginCallbackTypebox<PushRouteOptions> = (
   );
 
   // Every change of the reminders form (an AutosaveForm): both times saved,
-  // stamped now (a time already past today first sends tomorrow). Answers
-  // only the form's status line (ReminderStatus): the controls stay the
-  // person's.
+  // stamped now (a time already past today first sends tomorrow, which the
+  // status line says only when a time changed). Answers only the form's
+  // status line (ReminderStatus): the controls stay the person's.
   app.post(
     '/push/reminders',
     { schema: { body: RemindersBody } },
@@ -190,23 +190,26 @@ export const pushRoutes: FastifyPluginCallbackTypebox<PushRouteOptions> = (
         ),
         museRounds: request.body.museRoundsOn === '1',
       };
-      const deviceId = await saveReminderSettings(
+      const saved = await saveReminderSettings(
         db,
         userId,
         endpoint,
         settings,
         new Date(),
       );
-      if (deviceId === undefined) {
+      if (!saved) {
         logger.info(`User ${userId} set reminders on a device not theirs`);
         return renderFragment(reply, <ReminderStatus saved={false} />);
       }
       const time = (minute: number | null) =>
         minute === null ? 'off' : String(minute);
       logger.info(
-        `User ${userId} set reminders on push device ${deviceId}: morning ${time(settings.morning)}, evening ${time(settings.evening)} (minutes after midnight), Muse's rounds ${settings.museRounds ? 'on' : 'off'}`,
+        `User ${userId} set reminders on push device ${saved.deviceId}: morning ${time(settings.morning)}, evening ${time(settings.evening)} (minutes after midnight), Muse's rounds ${settings.museRounds ? 'on' : 'off'}`,
       );
-      return renderFragment(reply, <ReminderStatus saved />);
+      return renderFragment(
+        reply,
+        <ReminderStatus saved timesChanged={saved.timesChanged} />,
+      );
     },
   );
 

@@ -18,14 +18,8 @@ import type { SuggestionDecision } from '../../src/wardrobe/suggestions';
 import { createToken } from '../../src/web/auth/personal-tokens';
 import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
-import { changeCandidates } from '../../src/web/plans/candidates';
-import { proposeLook, reactToLooks } from '../../src/web/plans/looks';
-import {
-  insertItems,
-  reviewItems,
-  saveStyleProfile,
-} from '../../src/web/plans/queries';
-import { EMPTY_STYLE_PROFILE } from '../../src/web/plans/validation';
+import { saveStyleProfile } from '../../src/web/style/queries';
+import { EMPTY_STYLE_PROFILE } from '../../src/web/style/validation';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addBrandSize } from '../../src/web/sizes/queries';
 import { addRepair } from '../../src/web/wardrobe/repairs';
@@ -81,13 +75,9 @@ import { startWeatherStub } from '../support/weather-stub';
  * about a garment a grantee can see: with `?ownerId=` a 403, without it a
  * 404 (the garment is not in their wardrobe); a garment's condition is a
  * property like any other (MANAGE writes it). /laundry and insights (#17)
- * are always the requester's own: another user's ids are ignored. Wardrobe plans and the
- * style profile (#34) are private like outfits: every refusal is a 404 or
- * the requester's own; starting a plan from the owner's closet needs a view
- * of it and lands in the requester's plans. The shopping loop (#34b) is the
- * plans': the shopping list, comparing, and both sides of a candidate link
- * are the owner's alone, and "Bought it"'s plan follow-ups are refused to a
- * grantee who may buy. Outfit selfies (#19) are the calendar's: taking,
+ * are always the requester's own: another user's ids are ignored. The
+ * style profile (#34) is private like outfits: anyone else sees their own.
+ * Outfit selfies (#19) are the calendar's: taking,
  * removing and seeing one is the owner's alone, and the public /file/**
  * routes refuse a selfie's name and share id to everyone, the owner too.
  * Trips (#10) are the owner's like outfits: every refusal is a 404 (or the
@@ -159,21 +149,8 @@ export interface Fixture {
   selfieId: number;
   selfieFileName: string;
   selfieShareableId: string;
-  /** The owner's id (the wardrobe a plan is started from). */
+  /** The owner's id. */
   ownerId: number;
-  /** A wardrobe plan of the owner's (#34), not active past the first fixture. */
-  planId: number;
-  planName: string;
-  /** An item of it their agent proposed (so accepting it writes). */
-  planItemId: number;
-  /** An item of it the owner declined (#278: so reconsidering it writes). */
-  planDeclinedItemId: number;
-  /** A look of it their agent proposed (#291: so loving it writes). */
-  planLookId: number;
-  /** A look of it the owner turned down (so reconsidering it writes). */
-  planDeclinedLookId: number;
-  /** A look of it of closet garments only (#292: so Save as outfit writes). */
-  planCompleteLookId: number;
   /**
    * A trip of the owner's (#10) on today and tomorrow: the outfit on it for
    * today, the garment packed, one extra; and another trip with an extra.
@@ -251,7 +228,6 @@ export const needName = (f: Fixture) => f.needName;
 export const archivedName = (f: Fixture) => f.archivedName;
 export const capsuleName = (f: Fixture) => f.capsuleName;
 export const outfitName = (f: Fixture) => f.outfitName;
-export const planName = (f: Fixture) => f.planName;
 export const tripName = (f: Fixture) => f.tripName;
 export const orderItemName = (f: Fixture) => f.orderItemName;
 // One style profile per user, so one note every fixture saves again.
@@ -322,11 +298,6 @@ const TABLES = [
   'selfie',
   'wardrobe_share',
   'personal_access_token',
-  'wardrobe_plan',
-  'plan_item',
-  'plan_item_candidate',
-  'plan_look',
-  'plan_look_slot',
   'style_profile',
   'week_template',
   'week_plan',
@@ -675,70 +646,6 @@ export function describeMatrix(
         cookie,
       );
 
-      const planName = `Plan ${tag}`;
-      const plan = await t.inject({
-        method: 'POST',
-        url: '/wardrobe/plans',
-        payload: { name: planName },
-        headers: { cookie },
-      });
-      const planId = Number(
-        /^\/wardrobe\/plans\/(\d+)\?/.exec(
-          plan.headers.location as string,
-        )?.[1],
-      );
-      expect(planId).toBeGreaterThan(0);
-      const item = {
-        name: `Item ${tag}`,
-        category: 'tops',
-        type: null,
-        colors: null,
-        materials: null,
-        warmthMin: null,
-        warmthMax: null,
-        formalityMin: null,
-        formalityMax: null,
-        quantity: 1,
-        priority: 'medium',
-        budget: null,
-        note: null,
-      } as const;
-      const [planItemId, planDeclinedItemId] = await insertItems(
-        t.db,
-        planId,
-        [item, { ...item, name: `Declined ${tag}` }],
-        { review: 'proposed' },
-      );
-      await reviewItems(t.db, t.owner.id, planId, 'decline', [
-        { itemId: planDeclinedItemId },
-      ]);
-      // The wishlist item is a candidate for it (#34b).
-      await changeCandidates(t.db, t.owner.id, {
-        add: { itemIds: [planItemId], garmentIds: [wishlistId] },
-      });
-      // Two looks of the garment with the candidate (#291), one turned down.
-      const lookScarfId = await createGarment(t, {
-        name: `Scarf ${tag}`,
-        cookie,
-      });
-      const look = (name: string, garmentIds: number[]) =>
-        proposeLook(
-          t.db,
-          t.owner.id,
-          planId,
-          { name: `${name} ${tag}`, occasion: null, note: null },
-          garmentIds,
-        );
-      const planLookId = (await look('Look', [garmentId, wishlistId])).id;
-      const planDeclinedLookId = (
-        await look('Declined look', [lookScarfId, wishlistId])
-      ).id;
-      await reactToLooks(t.db, t.owner.id, planId, 'decline', [
-        { lookId: planDeclinedLookId },
-      ]);
-      const planCompleteLookId = (
-        await look('Complete look', [garmentId, lookScarfId])
-      ).id;
       await saveStyleProfile(t.db, t.owner.id, {
         ...EMPTY_STYLE_PROFILE,
         notes: OWNER_STYLE_NOTE,
@@ -848,13 +755,6 @@ export function describeMatrix(
         selfieShareableId: ownSelfie.shareableId,
         today,
         ownerId: t.owner.id,
-        planId,
-        planName,
-        planItemId,
-        planDeclinedItemId,
-        planLookId,
-        planDeclinedLookId,
-        planCompleteLookId,
         tripId,
         tripName,
         tripOutfitId,

@@ -175,7 +175,7 @@ describe('persona bibles', () => {
     expect(loadPersona('fresh').capsules).toEqual([]);
   });
 
-  it("reads Theo's style profile and his plan through their forms (#34)", () => {
+  it("reads Theo's style profile through its form (#34)", () => {
     const demo = loadPersona('demo');
     expect(demo.styleProfile).toEqual({
       styles: ['elevated-basics', 'smart-casual', 'outdoor-technical'],
@@ -200,45 +200,8 @@ describe('persona bibles', () => {
       '6 workout',
     ]);
     expect(loadPersona('fresh').weekTemplate).toBeNull();
-    const [plan] = demo.plans;
-    expect(demo.plans).toHaveLength(1);
-    expect(plan).toMatchObject({
-      fields: { name: 'NYC minimal', notes: null },
-      active: true,
-    });
-    expect(plan.items).toHaveLength(19);
-    // Its two gaps pair with the wishlist's merino and padded jacket (34b).
-    expect(
-      plan.items
-        .filter((item) => item.candidates.length > 0)
-        .map((item) => [item.fields.name, item.candidates]),
-    ).toEqual([
-      ['Grey merino crewneck', ['W01']],
-      ['Brown padded shirt jacket', ['W02']],
-    ]);
-    expect(plan.items[1].fields).toEqual({
-      name: 'White heavyweight tee',
-      category: 'tops',
-      type: 't-shirt',
-      colors: ['white'],
-      materials: null,
-      warmthMin: 3,
-      warmthMax: 5,
-      formalityMin: null,
-      formalityMax: null,
-      quantity: 1,
-      priority: 'medium',
-      budget: '50.00',
-      note: 'A tee that holds its shape on its own.',
-    });
-    expect(loadPersona('fresh')).toMatchObject({
-      styleProfile: null,
-      plans: [],
-    });
-    expect(loadPersona('sparse')).toMatchObject({
-      styleProfile: null,
-      plans: [],
-    });
+    expect(loadPersona('fresh').styleProfile).toBeNull();
+    expect(loadPersona('sparse').styleProfile).toBeNull();
   });
 
   it("reads Theo's sizes through the Sizes editor's readers (#24); Dana and Riley have none", () => {
@@ -470,21 +433,6 @@ describe('persona bibles', () => {
       'an outfit wearing a wishlist item',
       `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Wishlist\n\n| id | Name in the app | Category / type | Colours | Replaces |\n|---|---|---|---|---|\n| W01 | New shoes | footwear / sneakers | white | F01 |\n\n## Saved outfits\n\n| # | Name | Occasion | Bands | Garments |\n|---|---|---|---|---|\n| 1 | Look | weekend | any | F01, W01 |\n`,
       /unknown garments: W01/,
-    ],
-    [
-      'a plan item the plan form would refuse',
-      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Plan: Basics\n\n| Item | Category / type | Colours | Warmth |\n|---|---|---|---|\n| Tee | tops / jeans | white | — |\n`,
-      /plan "Basics" item "Tee".*type/,
-    ],
-    [
-      'a plan item candidate that is not on the wishlist',
-      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Plan: Basics\n\n| Item | Category / type | Candidates |\n|---|---|---|\n| Shoes | footwear | F01 |\n`,
-      /item "Shoes": candidate "F01" is not a wishlist id/,
-    ],
-    [
-      'two active plans',
-      `${bible('| F01 | Shoes | sneakers | white | — |')}\n### Plan: A (active)\n\n| Item | Category / type |\n|---|---|\n| Tee | tops |\n\n### Plan: B (active)\n\n| Item | Category / type |\n|---|---|\n| Tee | tops |\n`,
-      /more than one plan is \(active\)/,
     ],
     [
       'a week whose day is dressed for an evening',

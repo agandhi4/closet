@@ -15,7 +15,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectionOptions, type DbConfig } from '../../src/db/client';
 import { MIGRATIONS_FOLDER } from '../../src/db/migrate';
 import { hashPassword } from '../../src/web/auth/passwords';
-import { planUrl, reviewUrl } from '../../src/web/plans/urls';
 import {
   createTestApp,
   TEST_PASSWORD,
@@ -34,8 +33,8 @@ import {
  * (a declined item, a revise item with a bought candidate, ranked and
  * noted links, a rejection, two items of one plan sharing a garment, a
  * duplicated plan).
- * The real app boots on it (createApp runs 0040), and the plans pages
- * still work after it: they read the plan tables, which it never changes.
+ * The real app boots on it (createApp runs 0040), and the inbox shows what
+ * it made.
  */
 
 const MUSE_COUNTS = [
@@ -402,18 +401,10 @@ describe('the owner’s draft plan (production’s shape)', () => {
     }
   });
 
-  it('keeps the plans pages working on it: the plan, its review, the shopping list and the wishlist', async () => {
+  it('shows the migrated needs in the inbox and their picks’ pages', async () => {
     const cookie = await t.login('muse-owner@example.com');
     const get = (url: string) =>
       t.inject({ method: 'GET', url, headers: { cookie } });
-    const { plan } = fixture.muse;
-    const planPage = await get(planUrl(plan));
-    expect(planPage.statusCode).toBe(200);
-    expect(unescapeHtml(planPage.body)).toContain('Need 24');
-    const review = await get(reviewUrl(plan));
-    expect(review.statusCode).toBe(200);
-    expect(unescapeHtml(review.body)).toContain('Option 23.3');
-    expect((await get(`/wardrobe/shopping?plan=${plan}`)).statusCode).toBe(200);
     // The inbox (#333): its needs ten to a page, the rest on the next.
     const wishlist = await get('/wardrobe/wishlist');
     expect(wishlist.statusCode).toBe(200);

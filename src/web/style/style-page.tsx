@@ -13,7 +13,7 @@ import { SavedToast, StripFlags } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { WEEK_SETTINGS_PATH } from '../week-plan/urls';
 import { budgetLabel, styleLabel } from './labels';
-import { PLANS_PATH, STYLE_PROFILE_PATH, WEATHER_SETTINGS_PATH } from './urls';
+import { STYLE_PROFILE_PATH, WEATHER_SETTINGS_PATH } from './urls';
 import { STYLE_NOTES_MAX, type StyleProfileBody } from './validation';
 
 export interface StyleProfileModel {
@@ -58,12 +58,7 @@ export function StyleProfilePage(props: {
         formPage
       />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <p class="text-sm text-base-content/70 mb-4">
-          {t('style.INTRO')}{' '}
-          <a href={PLANS_PATH} class="link link-primary">
-            {t('plans.TITLE')}
-          </a>
-        </p>
+        <p class="text-sm text-base-content/70 mb-4">{t('style.INTRO')}</p>
         {model.home && <HomeCity name={model.home.name} />}
         <PostForm
           action={STYLE_PROFILE_PATH}

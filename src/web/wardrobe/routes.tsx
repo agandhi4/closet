@@ -482,11 +482,10 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // The new garment form: the closet's, or the wishlist's (`?to=wishlist`,
-  // prefilled from the garment it replaces with `&replaces=`, a candidate
-  // for a plan item of the owner's with `&planItem=`), or a closet garment
-  // bought for a Muse need instead of its picks (`?forNeed=`, prefilled from
-  // its best pick). `?photo=` is an
-  // add-sheet upload's pending photo, shown only while it is still the
+  // prefilled from the garment it replaces with `&replaces=`), or a closet
+  // garment bought for a Muse need instead of its picks (`?forNeed=`,
+  // prefilled from its best pick). `?photo=` is an add-sheet upload's
+  // pending photo, shown only while it is still the
   // requester's (the save's claim is the real check); otherwise the form
   // says it is gone (a back navigation after saving lands here). A draft
   // of a batch (#200) also gets its queue (draft-queue.tsx).
@@ -500,15 +499,17 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         request.query.ownerId,
         'manage',
       );
-      const { destination, prefill, candidateFor, boughtFor } =
-        await resolveDestination(db, request.query, access);
+      const { destination, prefill, boughtFor } = await resolveDestination(
+        db,
+        request.query,
+        access,
+      );
       const { photo } = request.query;
       return renderGarmentForm(reply, db, {
         mode: { kind: 'new', destination },
         suggestionsFrom: access.ownerId,
         viewOwner,
         values: destinationValues(destination, prefill),
-        candidateFor,
         boughtFor,
         pendingPhoto: photo
           ? {
@@ -645,17 +646,19 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const scope = { userId, ownerId: access.ownerId };
       const saved = readIdList(request.body.draftsSaved);
-      // A plan item's "Add a candidate" (34b) is checked before anything is
-      // read or stored, and linked in the garment's transaction.
-      const { destination, candidateFor, boughtFor, withGarment } =
-        await postedDestination(db, request.body, access);
+      // An order item or a Muse need is checked before anything is read or
+      // stored, and written in the garment's transaction.
+      const { destination, boughtFor, withGarment } = await postedDestination(
+        db,
+        request.body,
+        access,
+      );
       const status = destination.to;
       const again = {
         mode: { kind: 'new', destination },
         suggestionsFrom: access.ownerId,
         viewOwner,
         link: linkPhoto ? pendingPhotoView(linkPhoto) : undefined,
-        candidateFor,
         boughtFor,
         lookalikesDismissed: readIdList(request.body.lookalikesDismissed),
       } as const;
@@ -687,7 +690,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             form.fields.replacesGarmentId
               ? `, asked to replace garment ${form.fields.replacesGarmentId}`
               : ''
-          }${candidateFor ? `, a candidate for plan item ${candidateFor.id}` : ''}${
+          }${
             destination.orderItem
               ? `, from order item ${destination.orderItem}`
               : ''
@@ -893,14 +896,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
       const garment = await requireGarment(options, id, access.ownerId);
-      const justBought = request.query.bought === '1';
-      const context = await garmentContext(
-        db,
-        garment,
-        access,
-        today,
-        justBought,
-      );
+      const context = await garmentContext(db, garment, access, today);
       const { own } = context;
       return renderPage(
         reply,
@@ -928,8 +924,7 @@ export const wardrobeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             justCreated: request.query.created === '1',
             justSavedPhoto: request.query.photoSaved === '1',
             justRotatedPhoto: request.query.photoRotated === '1',
-            justBought,
-            completedLooks: context.completedLooks,
+            justBought: request.query.bought === '1',
             justLoggedRepair: request.query.repairSaved === '1',
             justAddedCopy: request.query.copyAdded === '1',
             suggestion: context.suggestion,

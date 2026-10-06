@@ -6,7 +6,7 @@ import {
   type DbTimeouts,
   SERVER_TIMEOUTS,
 } from '../../src/db/client';
-import { wardrobePlan } from '../../src/db/schema';
+import { outfit } from '../../src/db/schema';
 import {
   lockOwner,
   OWNER_LOCK_TIMEOUT_MS,
@@ -14,6 +14,7 @@ import {
 } from '../../src/web/auth/queries';
 import { HttpError } from '../../src/web/errors';
 import { t as translate } from '../../src/web/i18n';
+import { createGarment } from './garments';
 import { createTestApp, type TestApp } from './harness';
 
 /**
@@ -75,6 +76,7 @@ describe('database timeouts', () => {
   });
 
   it('fails a writer queued behind a held owner lock within the lock timeout, as a 503, and logs the owner and writer', async () => {
+    const tee = await createGarment(t, { name: 'Stuck tee' });
     let release!: () => void;
     const released = new Promise<void>((resolve) => (release = resolve));
     let held!: () => void;
@@ -86,12 +88,17 @@ describe('database timeouts', () => {
     });
     await Promise.race([holding, holder]);
 
-    const started = performance.now();
-    const res = await t.inject({
+    const outfitPost = {
       method: 'POST',
-      url: '/wardrobe/plans',
-      payload: { name: 'Behind a stuck write', notes: '' },
-    });
+      url: '/outfits',
+      payload: {
+        name: 'Behind a stuck write',
+        category: 'shirt',
+        garmentId: String(tee),
+      },
+    } as const;
+    const started = performance.now();
+    const res = await t.inject(outfitPost);
     const waited = performance.now() - started;
     release();
     await holder;
@@ -102,21 +109,17 @@ describe('database timeouts', () => {
     // The timeout, not the statement's 15 s or the holder's release.
     expect(waited).toBeLessThan(SERVER_TIMEOUTS.statementMs);
     expect(t.logs.messages('warn', 'Web')).toContainEqual(
-      `POST /wardrobe/plans -> 503: ${translate('WARDROBE_BUSY')} (createPlan for owner ${t.owner.id} waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock)`,
+      `POST /outfits -> 503: ${translate('WARDROBE_BUSY')} (createOutfit for owner ${t.owner.id} waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock)`,
     );
     const written = await t.db
-      .select({ id: wardrobePlan.id })
-      .from(wardrobePlan)
-      .where(eq(wardrobePlan.name, 'Behind a stuck write'));
+      .select({ id: outfit.id })
+      .from(outfit)
+      .where(eq(outfit.name, 'Behind a stuck write'));
     expect(written).toEqual([]);
 
     // Once the holder is gone the same write goes through.
-    const retried = await t.inject({
-      method: 'POST',
-      url: '/wardrobe/plans',
-      payload: { name: 'Behind a stuck write', notes: '' },
-    });
-    expect(retried.statusCode, retried.body).toBe(303);
+    const retried = await t.inject(outfitPost);
+    expect(retried.statusCode, retried.body).toBe(302);
   });
 
   it('answers a writer whose owner is gone with a 404, never an unlocked write', async () => {

@@ -46,8 +46,7 @@ export function onWishlist(): SQL {
  * Still wanted: on the wishlist and not set aside (a dismissed suggestion,
  * src/wardrobe/suggestions.ts, stays on the wishlist as the agent's
  * feedback). Every list of things to buy: the Wishlist tab, list_wishlist
- * (MCP), the offline warm, plans' candidates (the shopping list, Today's
- * next purchase, covers, Styling's To-buy row).
+ * (MCP), the offline warm, Styling's To-buy row.
  */
 export function wanted(): SQL {
   return sql`(${onWishlist()} and ${garment.dismissedAt} is null)`;

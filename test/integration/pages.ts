@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
-import { outfit as outfitTable, planItem } from '../../src/db/schema';
+import { outfit as outfitTable } from '../../src/db/schema';
 import { addDays } from '../../src/web/calendar/calendar-date';
 import {
   createGarment,
@@ -34,9 +34,6 @@ export interface PageFixture {
   outfitShareableId: string;
   /** The outfit's selfie (#19) of today's entry: Today, the week, the outfit page. */
   selfieFileName: string;
-  /** A wardrobe plan (#34) with one item. */
-  planId: number;
-  planItemId: number;
   /** A trip (#10) on now, the outfit on today, packed, with an extra. */
   tripId: number;
 }
@@ -106,28 +103,6 @@ export async function createPageFixture(
     cookie,
   );
 
-  const plan = await t.inject({
-    method: 'POST',
-    url: '/wardrobe/plans',
-    payload: { name: 'NYC minimal' },
-    headers,
-  });
-  expect(plan.statusCode).toBe(303);
-  const planId = Number(
-    /^\/wardrobe\/plans\/(\d+)\?/.exec(plan.headers.location as string)?.[1],
-  );
-  const item = await t.inject({
-    method: 'POST',
-    url: `/wardrobe/plans/${planId}/items`,
-    payload: { category: 'shirt', name: 'Linen blazer' },
-    headers,
-  });
-  expect(item.statusCode).toBe(303);
-  const [{ id: planItemId }] = await t.db
-    .select({ id: planItem.id })
-    .from(planItem)
-    .where(eq(planItem.planId, planId));
-
   const today = t.today();
   const trip = await t.inject({
     method: 'POST',
@@ -166,8 +141,6 @@ export async function createPageFixture(
     outfitId,
     outfitShareableId: outfit.shareableId,
     selfieFileName,
-    planId,
-    planItemId,
     tripId,
   };
 }
@@ -240,14 +213,6 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app('/calendar/plan?for=day:2030-10-09&occasion=evening'),
     form('/styling?for=day:2030-10-09&occasion=evening'),
     form(`/styling?for=trip:${f.tripId}`),
-    app('/wardrobe/plans'),
-    form('/wardrobe/plans/new'),
-    app(`/wardrobe/plans/${f.planId}`),
-    form(`/wardrobe/plans/${f.planId}/edit`),
-    form(`/wardrobe/plans/${f.planId}/items/new`),
-    form(`/wardrobe/plans/${f.planId}/items/${f.planItemId}/edit`),
-    form(`/wardrobe/plans/${f.planId}/items/${f.planItemId}/candidates`),
-    form(`/wardrobe/${f.wishlistId}/plan-items`),
     app('/outfits/ideas'),
     app('/outfits/ideas?for=day:2030-10-09&occasion=evening'),
     app(`/outfits/ideas?capsule=${f.capsuleId}&with=${f.garmentId}`),

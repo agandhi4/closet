@@ -170,39 +170,16 @@ Commit `e3ef3b4`, 2026-09-29T05:00:28.673Z. 20 runs per step after 3 warm-up, 16
 | Destination search | `GET /trips/:id/places` | 200 | 1.6 | 2.2 | 0.5 | 2 | 2 | 0.4 | 0.4 |
 | Set the destination | `POST /trips/:id/destination` | 303 | 1.6 | 2.1 | 1.0 | 2 | 2 | 0.0 | 0.0 |
 
-## #167 Plans, shopping list, wishlist and Bought it
+## #167 Wishlist and Bought it
 
 | Step | Target | Status | p50 ms | p95 ms | db ms | Statements | Rows | KB | Wire KB |
 | --- | --- | --: | --: | --: | --: | --: | --: | --: | --: |
-| Plans | `GET /wardrobe/plans` | 200 | 3.4 | 4.6 | 2.8 | 5 | 102 | 10.3 | 3.3 |
-| Plan page (gaps) | `GET /wardrobe/plans/:id` | 200 | 4.2 | 5.4 | 3.8 | 5 | 103 | 24.7 | 5.1 |
-| New plan form | `GET /wardrobe/plans/new` | 200 | 1.4 | 1.7 | 0.3 | 1 | 1 | 9.6 | 3.1 |
-| Edit plan form | `GET /wardrobe/plans/:id/edit` | 200 | 1.4 | 1.9 | 0.4 | 2 | 2 | 9.6 | 3.1 |
-| New item form | `GET /wardrobe/plans/:id/items/new` | 200 | 2.2 | 2.9 | 0.6 | 3 | 9 | 19.5 | 4.8 |
-| Edit item form | `GET /wardrobe/plans/:id/items/:itemId/edit` | 200 | 2.5 | 3.1 | 0.8 | 3 | 9 | 19.8 | 4.9 |
-| Candidates picker | `GET /wardrobe/plans/:id/items/:itemId/candidates` | 200 | 3.5 | 4.3 | 2.8 | 4 | 6 | 11.8 | 3.6 |
-| Shopping list | `GET /wardrobe/shopping` | 200 | 3.5 | 5.2 | 3.5 | 5 | 103 | 13.9 | 4.0 |
-| Compare plans | `GET /wardrobe/plans/compare` | 200 | 3.2 | 4.6 | 2.1 | 4 | 101 | 9.6 | 3.0 |
 | Wishlist | `GET /wardrobe/wishlist` | 200 | 4.1 | 6.2 | 3.0 | 5 | 15 | 19.6 | 5.2 |
 | Wishlist item | `GET /wardrobe/:id` | 200 | 8.2 | 9.4 | 2.4 | 3 | 3 | 24.4 | 6.9 |
 | Wishlist form | `GET /wardrobe/new` | 200 | 4.6 | 5.4 | 1.9 | 3 | 3 | 31.9 | 7.0 |
-| Goes with my closet | `GET /wardrobe/:id/outfit-count` | 200 | 3.3 | 3.9 | 1.7 | 2 | 2 | 0.1 | 0.1 |
-| Plan items of a wishlist item | `GET /wardrobe/:id/plan-items` | 200 | 4.6 | 5.8 | 4.0 | 6 | 103 | 16.2 | 3.5 |
 | Bought it form | `GET /wardrobe/:id/bought` | 200 | 5.6 | 7.3 | 4.8 | 7 | 104 | 10.5 | 3.3 |
 | Style profile | `GET /auth/profile/style` | 200 | 2.3 | 4.1 | 0.8 | 2 | 2 | 14.1 | 3.9 |
 | From your orders | `GET /wardrobe/orders` | 200 | 1.9 | 3.1 | 0.5 | 2 | 7 | 14.4 | 3.3 |
-| Create a plan | `POST /wardrobe/plans` | 303 | 2.0 | 2.7 | 1.5 | 5 | 3 | 0.0 | 0.0 |
-| Plan from a wardrobe | `POST /wardrobe/plans/from-wardrobe` | 303 | 5.5 | 6.6 | 4.4 | 10 | 64.5 (55–74) | 0.0 | 0.0 |
-| Edit a plan | `POST /wardrobe/plans/:id` | 303 | 2.0 | 2.4 | 1.5 | 5 | 3 | 0.0 | 0.0 |
-| Duplicate a plan | `POST /wardrobe/plans/:id/duplicate` | 303 | 8.8 | 10.0 | 8.1 | 14 | 109.5 (100–119) | 0.0 | 0.0 |
-| Activate a plan | `POST /wardrobe/plans/:id/activate` | 303 | 2.0 | 2.9 | 1.6 | 7 | 3 | 0.0 | 0.0 |
-| Delete a plan | `DELETE /wardrobe/plans/:id` | 200 | 1.7 | 2.3 | 1.3 | 5 | 3 | 0.0 | 0.0 |
-| Add a plan item | `POST /wardrobe/plans/:id/items` | 303 | 2.2 | 2.8 | 1.8 | 6 | 4 | 0.0 | 0.0 |
-| Edit a plan item | `POST /wardrobe/plans/:id/items/:itemId` | 303 | 3.0 | 3.5 | 2.2 | 6 | 4 | 0.0 | 0.0 |
-| Accept a proposed item | `POST /wardrobe/plans/:id/items/:itemId/accept` | 303 | 2.4 | 2.7 | 1.8 | 5 | 3 | 0.0 | 0.0 |
-| Delete a plan item | `DELETE /wardrobe/plans/:id/items/:itemId` | 200 | 2.0 | 2.3 | 1.5 | 5 | 3 | 0.0 | 0.0 |
-| Save candidates | `POST /wardrobe/plans/:id/items/:itemId/candidates` | 303 | 3.8 | 4.9 | 3.0 | 9 | 6 | 0.0 | 0.0 |
-| Save a wishlist item’s plan items | `POST /wardrobe/:id/plan-items` | 303 | 3.5 | 4.5 | 2.8 | 9 | 6 | 0.0 | 0.0 |
 | Bought it | `POST /wardrobe/:id/bought` | 303 | 4.1 | 4.9 | 3.5 | 11 | 3 | 0.0 | 0.0 |
 | Save the style profile | `POST /auth/profile/style` | 303 | 1.3 | 1.5 | 0.8 | 2 | 1 | 0.0 | 0.0 |
 | Add an order item to the closet | `POST /wardrobe/orders/:id/add` | 200 | 60.7 | 63.8 | 5.7 | 7 | 5 | 31.4 | 6.8 (6.8–6.8) |
@@ -330,14 +307,7 @@ Commit `e3ef3b4`, 2026-09-29T05:00:28.673Z. 20 runs per step after 3 warm-up, 16
 | list_shared_wardrobes | `mcp list_shared_wardrobes` | 200 | 1.6 | 2.2 |  | 2 | 2 | 0.1 | 0.1 |
 | compare_with_shared_wardrobe | `mcp compare_with_shared_wardrobe` | 200 | 5.2 | 7.0 |  | 4 | 255 | 37.9 | 5.1 |
 | get_style_profile | `mcp get_style_profile` | 200 | 1.6 | 2.2 |  | 2 | 2 | 0.7 | 0.7 |
-| list_plans | `mcp list_plans` | 200 | 19.7 | 22.1 |  | 4 | 1090 | 9.1 | 0.5 |
-| get_plan_gaps | `mcp get_plan_gaps` | 200 | 9.3 | 10.9 |  | 5 | 333 | 140.5 | 3.6 |
-| propose_plan_item | `mcp propose_plan_item` | 200 | 3.7 | 4.6 |  | 7 | 5 | 0.1 | 0.1 |
-| update_plan_item | `mcp update_plan_item` | 200 | 4.3 | 5.1 |  | 6 | 4 | 0.1 | 0.1 |
 | get_sizes | `mcp get_sizes` | 200 | 3.0 | 4.3 |  | 3 | 33 | 2.7 | 0.5 |
-| get_shopping_list | `mcp get_shopping_list` | 200 | 8.2 | 8.6 |  | 5 | 356 | 6.8 | 0.8 (0.8–0.8) |
-| add_candidate | `mcp add_candidate` | 200 | 7.2 | 8.0 |  | 11 | 8 | 0.4 | 0.4 |
-| compare_plans | `mcp compare_plans` | 200 | 20.2 | 23.2 |  | 4 | 1113 | 52.8 | 1.7 |
 
 ## #173 Background jobs
 

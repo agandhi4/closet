@@ -127,8 +127,8 @@ export interface RoleGroup<T> {
 /**
  * `items` grouped by their category's role (categoryRole), the groups top
  * to toe (OUTFIT_ORDER, custom categories last as `none`), each keeping
- * the items' order; empty roles left out. A trip's packing list and a
- * plan's pages (the gap view, the review) read a list this way.
+ * the items' order; empty roles left out. A trip's packing list reads a
+ * list this way.
  */
 export function topToToe<T>(
   items: readonly T[],

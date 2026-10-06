@@ -221,7 +221,10 @@ describe('push reminders', () => {
       });
       expect(res.statusCode).toBe(200);
       // Only the status line: the controls stay as the person left them.
-      expect(res.body).toContain('Saved.');
+      // A time turned on: it may start tomorrow, and the line says so.
+      expect(res.body).toContain(
+        'Saved. A time already past today starts tomorrow.',
+      );
       expect(res.body).not.toContain('<form');
       // Read again, the form shows what was saved.
       expect(unescapeHtml((await form(endpoint)).body)).toMatch(
@@ -238,6 +241,17 @@ describe('push reminders', () => {
         `User ${t.owner.id} set reminders on push device ${row.id}: morning 420, evening off (minutes after midnight), Muse's rounds off`,
       );
       expect(t.logs.text()).not.toContain(endpoint);
+      // The same times again with Muse's toggle: no time changed, no word
+      // about tomorrow.
+      const again = await save({
+        endpoint,
+        morningOn: '1',
+        morning: '420',
+        evening: '1260',
+        museRoundsOn: '1',
+      });
+      expect(again.body).toContain('Saved.');
+      expect(again.body).not.toContain('starts tomorrow');
     });
 
     it('refuses a time off the choices (400)', async () => {

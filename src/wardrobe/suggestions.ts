@@ -1,3 +1,5 @@
+import { toCents } from './money';
+
 /**
  * A suggestion and its option group (Muse phase 1, #333; the design is
  * docs/plans/2026-10-05-muse-suggestions.md, section 3). A suggestion is a
@@ -93,8 +95,20 @@ export const MAX_OPTIONS_PER_GROUP = 5;
 export const NEED_NAME_MAX = 120;
 /** The agent's reasoning for a need, behind a tap on its screen. */
 export const NEED_NOTE_MAX = 1000;
-/** The agent's note on a pick: clamped under its card (the plans' candidate note's length). */
+/** The agent's note on a pick: clamped under its card. */
 export const PICK_NOTE_MAX = 240;
+
+/** Whether a pick's price is within its need's budget per piece. */
+export type BudgetFit = 'within' | 'over' | 'unknown';
+
+/** `price` against `budget` per piece: unknown when either is missing. */
+export function budgetFit(
+  price: string | null,
+  budget: string | null,
+): BudgetFit {
+  if (price === null || budget === null) return 'unknown';
+  return toCents(price) <= toCents(budget) ? 'within' : 'over';
+}
 
 /** Query parameters that say where a visitor came from, never which product. */
 const TRACKING_PARAM =
@@ -158,12 +172,8 @@ export type SuggestionDecision =
   | {
       kind: 'dismiss-pick';
       garmentId: number;
-      /**
-       * The owner's reason; chose_another when a plans page drops the
-       * unpicked options; null only for the plans review's "Not this one",
-       * whose reason is free text (the note) until plans go (#337).
-       */
-      reason: OwnerDismissReason | 'chose_another' | null;
+      /** The owner's one tap ("Not for me"). */
+      reason: OwnerDismissReason;
       note: string | null;
     }
   | { kind: 'undo-pick'; garmentId: number }

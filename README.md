@@ -84,8 +84,6 @@ An agent connected this way (Claude, or a styling agent such as Muse) suggests w
 3. **What you see in the app**: a card on **Today** ("Muse: 3 outfits, 7 pieces to consider") while anything of its latest round waits, and a notification on each device where you turned on **When Muse finishes a round** (Profile, notifications); the needs and their options in **Wardrobe › Wishlist** (choose **This one**, or **Not for me** with a reason), the outfits first on **Outfits** (**Love**, **Save**, or **Not for me**), and the options in Styling with **Include picks** on.
 4. **Your decisions are its feedback**: a reason you give is what it reads next time, and it never proposes again a need, product or outfit you set aside (the app refuses it). Buying stays yours: an agent never buys, marks anything owned or deletes; you tap **Bought it**, and it later learns how often you wear what you bought.
 
-The wardrobe plans' tools (`create_plan`, `add_candidate`, `propose_look` and the rest) are retired: each answers with the tool that replaced it.
-
 ---
 
 ## Configuration

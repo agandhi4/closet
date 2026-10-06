@@ -7,15 +7,10 @@ import { type IsoDate, parseIsoDate } from '../web/calendar/calendar-date';
 import type { CapsuleFields } from '../web/capsules/queries';
 import { CapsuleBody, readCapsuleForm } from '../web/capsules/validation';
 import {
-  type PlanFields,
-  PlanItemBody,
-  type PlanItemFields,
-  readPlanForm,
-  readPlanItemForm,
   readStyleProfileForm,
   StyleProfileBody,
   type StyleProfileFields,
-} from '../web/plans/validation';
+} from '../web/style/validation';
 import {
   readWeekTemplateForm,
   WeekTemplateBody,
@@ -220,17 +215,6 @@ export interface PersonaWeather {
 }
 
 /**
- * A wardrobe plan of the bible's (a `Plan: <name>` table, #34): its items
- * through the plan item form's reader; `(active)` after the name marks the
- * active one.
- */
-export interface SeedPlan {
-  fields: PlanFields;
-  active: boolean;
-  items: SeedPlanItem[];
-}
-
-/**
  * A trip of the bible's (#10, the Trips tables): the trip form's fields
  * (reference dates, moved with the Events by the seed), its located
  * destination, its outfits by saved outfit name for a day and occasion, its
@@ -254,13 +238,6 @@ export interface SeedSizes {
   unit: LengthUnit;
   lengths: Measurements;
   brands: BrandSizeFields[];
-}
-
-/** A plan table's row: the item, and its candidate products (34b). */
-export interface SeedPlanItem {
-  fields: PlanItemFields;
-  /** Wishlist ids of the bible's linked to the item as candidates. */
-  candidates: string[];
 }
 
 export interface Persona {
@@ -287,7 +264,6 @@ export interface Persona {
    * weekday: they stay out of it, planned by hand.
    */
   weekTemplate: TemplateSlot[] | null;
-  plans: SeedPlan[];
   /** The Clashes table: garment id pairs the outfit generator never combines (#9). */
   avoid: [string, string][];
   /** Sunday first; null without a history. */
@@ -373,13 +349,6 @@ export function parsePersona(key: PersonaKey, markdown: string): Persona {
         (table) => table.heading === BRAND_SIZES_HEADING,
       )[0],
     }),
-    plans: readPlans(
-      source,
-      find('Item', 'Category / type').filter((table) =>
-        PLAN_HEADING.test(table.heading),
-      ),
-      new Set(wishlist.map((item) => item.id)),
-    ),
     avoid: readClashes(source, find('Garment', 'Never with'), ids, outfits),
     week: seedWeek,
     weekTemplate: seedWeek ? readWeekTemplate(source, seedWeek) : null,
@@ -1244,7 +1213,7 @@ function readLaundryRule(
   throw new BibleError(source, `laundry: "${selector}" selects nothing`);
 }
 
-// ---- The style profile and plans (#34) -------------------------------------
+// ---- The style profile (#34) ------------------------------------------------
 
 // The Style profile table's settings and the form field each fills.
 const STYLE_SETTINGS: Record<
@@ -1392,88 +1361,4 @@ function readBrandSizesTable(
     throw new BibleError(where, 'a brand is listed twice');
   }
   return brands;
-}
-
-/** A plan table's heading: `Plan: NYC minimal`, `(active)` after the active one's name. */
-const PLAN_HEADING = /^Plan: (.+?)( \(active\))?$/;
-
-function readPlans(
-  source: string,
-  tables: BibleTable[],
-  wishlistIds: Set<string>,
-): SeedPlan[] {
-  const plans = tables.map((table) => {
-    const [, name, active] = PLAN_HEADING.exec(table.heading)!;
-    const where = `${source} plan "${name}"`;
-    const plan = readPlanForm({ name, notes: '' });
-    if (!plan.ok) throw new BibleError(where, JSON.stringify(plan.errors));
-    return {
-      fields: plan.fields,
-      active: active !== undefined,
-      items: table.rows.map((row) => readPlanItem(where, row, wishlistIds)),
-    };
-  });
-  if (plans.filter((plan) => plan.active).length > 1) {
-    throw new BibleError(source, 'more than one plan is (active)');
-  }
-  const names = plans.map((plan) => plan.fields.name.toLowerCase());
-  if (new Set(names).size !== names.length) {
-    throw new BibleError(source, 'two plans have the same name');
-  }
-  return plans;
-}
-
-/** A range cell (`3-5`, `3`, `—`) as the form's two ends. */
-function rangePost(cell: string): [string, string] {
-  const text = plain(cell);
-  if (!text) return ['', ''];
-  const [min, max = min] = text.split('-').map((end) => end.trim());
-  return [min, max];
-}
-
-// A plan table's row through the plan item form's two layers, and its
-// Candidates: ids of the bible's Wishlist table.
-function readPlanItem(
-  where: string,
-  row: Record<string, string>,
-  wishlistIds: Set<string>,
-): SeedPlanItem {
-  // A column the table does not have reads as empty (the form's blank).
-  const cell = (column: string) => row[column] ?? '';
-  const [category, type = ''] = plain(cell('Category / type'))
-    .split('/')
-    .map((part) => part.trim());
-  const [warmthMin, warmthMax] = rangePost(cell('Warmth'));
-  const [formalityMin, formalityMax] = rangePost(cell('Form.'));
-  const post = {
-    name: plain(cell('Item')),
-    category,
-    type,
-    colors: list(cell('Colours')),
-    materials: list(cell('Materials')),
-    warmthMin,
-    warmthMax,
-    formalityMin,
-    formalityMax,
-    quantity: plain(cell('Qty')),
-    priority: plain(cell('Priority')) || undefined,
-    budget: plain(cell('Budget')),
-    note: plain(cell('Why')),
-  };
-  const item = `${where} item "${post.name}"`;
-  let body: PlanItemBody;
-  try {
-    body = Value.Parse(PlanItemBody, post);
-  } catch (error) {
-    throw new BibleError(item, `not a plan item post: ${String(error)}`);
-  }
-  const form = readPlanItemForm(body);
-  if (!form.ok) throw new BibleError(item, JSON.stringify(form.errors));
-  const candidates = list(cell('Candidates'));
-  for (const id of candidates) {
-    if (!wishlistIds.has(id)) {
-      throw new BibleError(item, `candidate "${id}" is not a wishlist id`);
-    }
-  }
-  return { fields: form.fields, candidates };
 }

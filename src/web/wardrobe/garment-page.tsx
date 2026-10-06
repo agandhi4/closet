@@ -50,8 +50,6 @@ import { RepairLogSection } from './repair-log';
 import type { RepairLog } from './repairs';
 import { fabricWeightLabel, valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
-import { CompletedLooks } from '../plans/look-tile';
-import type { BoughtLook } from '../plans/looks';
 import {
   destinationParams,
   garmentUrl,
@@ -99,11 +97,6 @@ export interface GarmentPageModel {
    * wears. Undefined for a grantee and for a wishlist item.
    */
   repairs: RepairLog | undefined;
-  /**
-   * The plan looks "Bought it" just completed (#292), each with Save as
-   * outfit: the owner's Bought it result only, else empty.
-   */
-  completedLooks: BoughtLook[];
   /** Edit, photo, mask, condition and "Bought it": the owner and a MANAGE grantee. */
   canEdit: boolean;
   /** Archive, restore and delete: the owner only. */
@@ -181,8 +174,6 @@ export function GarmentPage(props: {
         actions={<GarmentMenu ctx={ctx} model={model} />}
       />
       <PageMain class="flex flex-col gap-6 px-4 pt-20 pb-24">
-        {/* First: what the purchase just made wearable (#292). */}
-        <CompletedLooks looks={model.completedLooks} />
         <div id="garment-photo-slot">
           <GarmentPhotoView
             garment={garment}

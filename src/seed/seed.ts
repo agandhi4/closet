@@ -34,14 +34,8 @@ import { insertPhotoRow, type NewPhotoRow } from '../web/files/queries';
 import { t } from '../web/i18n';
 import { avoidPair } from '../web/gallery/queries';
 import { createOutfit } from '../web/outfits/queries';
-import {
-  createPlan,
-  insertItems,
-  saveStyleProfile,
-  setActivePlan,
-} from '../web/plans/queries';
-import { changeCandidates } from '../web/plans/candidates';
 import { setEntrySelfie } from '../web/selfies/queries';
+import { saveStyleProfile } from '../web/style/queries';
 import { markWashed, setAway, setEntryWorn } from '../web/wears/queries';
 import { addRepair } from '../web/wardrobe/repairs';
 import {
@@ -114,8 +108,6 @@ export interface SeedReport {
   photos: number;
   outfits: number;
   capsules: number;
-  /** Wardrobe plans (#34), with the style profile when the bible has one. */
-  plans: number;
   /** generator_avoid pairs (the bible's Clashes). */
   avoided: number;
   /** Brand size notes (#24), with the measurements when the bible has them. */
@@ -175,12 +167,10 @@ export async function seedPersona(
       if (!account) throw new Error(`${email} was registered while seeding`);
       const userId = account.id;
       if (deps.weatherEnabled) await writeWeather(tx, userId, persona.weather);
-      const { owned: ids, wishlist: wishlistIds } = await writeGarments(
-        tx,
-        userId,
-        persona,
-        { photos, shiftDays: life.shiftDays },
-      );
+      const ids = await writeGarments(tx, userId, persona, {
+        photos,
+        shiftDays: life.shiftDays,
+      });
       const byId = new Map(persona.garments.map((g) => [g.id, g]));
       const outfitIds: number[] = [];
       for (const outfit of persona.outfits) {
@@ -227,7 +217,7 @@ export async function seedPersona(
           },
         });
       }
-      await writePlans(tx, userId, persona, wishlistIds);
+      await writeStyleProfile(tx, userId, persona);
       await writeSizes(tx, userId, persona.sizes);
       await writeClashes(tx, userId, persona, ids);
       await writeTrips(tx, userId, persona, {
@@ -255,7 +245,6 @@ export async function seedPersona(
         photos: photos.size,
         outfits: outfitIds.length,
         capsules: persona.capsules.length,
-        plans: persona.plans.length,
         avoided: persona.avoid.length,
         brandSizes: persona.sizes?.brands.length ?? 0,
         trips: persona.trips.length,
@@ -269,7 +258,7 @@ export async function seedPersona(
       };
     });
     logger.info(
-      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.brandSizes} brand sizes, ${report.avoided} clashes, ${report.trips} trips, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears, ${report.selfies} selfies), ${report.autoPlanned} planned by Plan my week, ${report.washes} laundry days in ${report.ms}ms`,
+      `Seeded ${persona.key} as user ${report.userId}: ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.brandSizes} brand sizes, ${report.avoided} clashes, ${report.trips} trips, ${report.entries} calendar entries (${report.worn} worn, ${report.wears} wears, ${report.selfies} selfies), ${report.autoPlanned} planned by Plan my week, ${report.washes} laundry days in ${report.ms}ms`,
     );
     return report;
   } catch (error) {
@@ -338,47 +327,14 @@ async function writePlannedWeek(
   return planned.planned.length;
 }
 
-/**
- * The bible's style profile and wardrobe plans (#34), through the app's
- * writers: saveStyleProfile, createPlan (the first plan is active by the
- * app's rule), its items (insertItems) with their candidate products
- * (changeCandidates, 34b: the wishlist's garments by bible id), then
- * setActivePlan for the one marked `(active)`.
- */
-async function writePlans(
+/** The bible's style profile (#34), through the app's writer. */
+async function writeStyleProfile(
   tx: Queryable,
   userId: number,
   persona: Persona,
-  wishlistIds: Map<string, number>,
 ): Promise<void> {
   if (persona.styleProfile) {
     await saveStyleProfile(tx, userId, persona.styleProfile);
-  }
-  for (const plan of persona.plans) {
-    const id = await createPlan(tx, userId, plan.fields);
-    // The bible's names are checked unique (persona.ts): unreachable.
-    if (id === 'name-taken')
-      throw new Error(`Plan "${plan.fields.name}" twice`);
-    const itemIds = await insertItems(
-      tx,
-      id,
-      plan.items.map((item) => item.fields),
-      { review: 'accepted' },
-    );
-    const links = plan.items.flatMap((item, index) =>
-      item.candidates.length === 0
-        ? []
-        : [
-            {
-              itemIds: [itemIds[index]],
-              garmentIds: item.candidates.map(
-                (bibleId) => wishlistIds.get(bibleId)!,
-              ),
-            },
-          ],
-    );
-    if (links.length > 0) await changeCandidates(tx, userId, { add: links });
-    if (plan.active) await setActivePlan(tx, id, userId);
   }
 }
 
@@ -386,15 +342,15 @@ async function writePlans(
  * The persona's garments with their photo rows (the art stored before the
  * transaction), in the closet (archived after the outfits: seedPersona)
  * and away, then the wishlist, which names the owned
- * garment each item replaces. The ids by bible id: the owned garments', and
- * the wishlist's apart (plan candidates name them; the history must not).
+ * garment each item replaces. The owned garments' ids by bible id (the
+ * wishlist's are named by nothing else in the bible).
  */
 async function writeGarments(
   tx: Queryable,
   userId: number,
   persona: Persona,
   art: { photos: Map<string, NewPhotoRow>; shiftDays: number },
-): Promise<{ owned: Map<string, number>; wishlist: Map<string, number> }> {
+): Promise<Map<string, number>> {
   const photoIdOf = async (bibleId: string) => {
     const photo = art.photos.get(bibleId);
     return photo
@@ -429,9 +385,8 @@ async function writeGarments(
     ids.set(garment.id, id);
   }
   // After the owned garments: an item names the one it replaces.
-  const wishlist = new Map<string, number>();
   for (const item of persona.wishlist) {
-    const id = await insertGarment(
+    await insertGarment(
       tx,
       userId,
       {
@@ -442,9 +397,8 @@ async function writeGarments(
       await photoIdOf(item.id),
       'wishlist',
     );
-    wishlist.set(item.id, id);
   }
-  return { owned: ids, wishlist };
+  return ids;
 }
 
 /**
@@ -1014,7 +968,7 @@ async function seedOne(
   const report = await seedPersona(command, persona, options);
   output.write(
     report
-      ? `${persona.key}: seeded ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.plans} plans, ${report.entries} calendar entries in ${(report.ms / 1000).toFixed(1)} s. Sign in as ${persona.account.email} with ${options.password}\n`
+      ? `${persona.key}: seeded ${report.garments} garments, ${report.wishlist} wishlist items, ${report.photos} photos, ${report.outfits} outfits, ${report.capsules} capsules, ${report.entries} calendar entries in ${(report.ms / 1000).toFixed(1)} s. Sign in as ${persona.account.email} with ${options.password}\n`
       : `${persona.key}: already seeded, left as it is (--reset rebuilds it)\n`,
   );
   const account = await findUserByEmail(

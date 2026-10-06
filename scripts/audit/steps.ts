@@ -2,7 +2,6 @@ import { readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { and, desc, eq, isNotNull, ne } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
-import { addItems } from '../../src/web/plans/queries';
 import { createOptionGroup } from '../../src/web/wishlist/decisions';
 import { multipart } from '../../test/support/multipart';
 import {
@@ -32,10 +31,7 @@ const STYLING = { issue: 163, area: 'Styling' } as const;
 const OUTFITS = { issue: 164, area: 'Outfits and saved outfits' } as const;
 const CALENDAR = { issue: 165, area: 'Calendar and week plan' } as const;
 const TRIPS = { issue: 166, area: 'Trips and packing' } as const;
-const PLANS = {
-  issue: 167,
-  area: 'Plans, shopping list, wishlist and Bought it',
-} as const;
+const WISHLIST = { issue: 167, area: 'Wishlist and Bought it' } as const;
 const IDEAS = { issue: 168, area: 'Ideas gallery' } as const;
 const INSIGHTS = { issue: 169, area: 'Insights and yearly recap' } as const;
 const SHARING = { issue: 170, area: 'Sharing and shared views' } as const;
@@ -782,85 +778,9 @@ const pages: Step[] = [
     expect: 200,
   }),
 
-  // #167 Plans, shopping list, wishlist
+  // #167 Wishlist
   http({
-    ...PLANS,
-    name: 'Plans',
-    kind: 'page',
-    route: 'GET /wardrobe/plans',
-    request: () => get('/wardrobe/plans'),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Plan page (gaps)',
-    kind: 'page',
-    route: 'GET /wardrobe/plans/:id',
-    request: (f) => get(`/wardrobe/plans/${f.ids.planId}`),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'New plan form',
-    kind: 'page',
-    route: 'GET /wardrobe/plans/new',
-    request: () => get('/wardrobe/plans/new'),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Edit plan form',
-    kind: 'page',
-    route: 'GET /wardrobe/plans/:id/edit',
-    request: (f) => get(`/wardrobe/plans/${f.ids.planId}/edit`),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'New item form',
-    kind: 'page',
-    route: 'GET /wardrobe/plans/:id/items/new',
-    request: (f) => get(`/wardrobe/plans/${f.ids.planId}/items/new`),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Edit item form',
-    kind: 'page',
-    route: 'GET /wardrobe/plans/:id/items/:itemId/edit',
-    request: (f) =>
-      get(`/wardrobe/plans/${f.ids.planId}/items/${f.ids.planItemId}/edit`),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Candidates picker',
-    kind: 'page',
-    route: 'GET /wardrobe/plans/:id/items/:itemId/candidates',
-    request: (f) =>
-      get(
-        `/wardrobe/plans/${f.ids.planId}/items/${f.ids.planItemId}/candidates`,
-      ),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Shopping list',
-    kind: 'page',
-    route: 'GET /wardrobe/shopping',
-    request: () => get('/wardrobe/shopping'),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Compare plans',
-    kind: 'page',
-    route: 'GET /wardrobe/plans/compare',
-    request: () => get('/wardrobe/plans/compare'),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'Wishlist',
     kind: 'page',
     route: 'GET /wardrobe/wishlist',
@@ -868,7 +788,7 @@ const pages: Step[] = [
     expect: 200,
   }),
   http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'Wishlist item',
     kind: 'page',
     route: 'GET /wardrobe/:id',
@@ -876,7 +796,7 @@ const pages: Step[] = [
     expect: 200,
   }),
   http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'Wishlist form',
     kind: 'page',
     route: 'GET /wardrobe/new',
@@ -885,24 +805,7 @@ const pages: Step[] = [
     expect: 200,
   }),
   http({
-    ...PLANS,
-    name: 'Goes with my closet',
-    kind: 'fragment',
-    route: 'GET /wardrobe/:id/outfit-count',
-    request: (f) =>
-      get(`/wardrobe/${f.ids.wishlistId}/outfit-count`, { htmx: true }),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Plan items of a wishlist item',
-    kind: 'page',
-    route: 'GET /wardrobe/:id/plan-items',
-    request: (f) => get(`/wardrobe/${f.ids.wishlistId}/plan-items`),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'Bought it form',
     kind: 'page',
     route: 'GET /wardrobe/:id/bought',
@@ -910,7 +813,7 @@ const pages: Step[] = [
     expect: 200,
   }),
   http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'Style profile',
     kind: 'page',
     route: 'GET /auth/profile/style',
@@ -919,20 +822,11 @@ const pages: Step[] = [
   }),
   // The order mail's review list (#25), with the fixture's seeded order.
   http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'From your orders',
     kind: 'page',
     route: 'GET /wardrobe/orders',
     request: () => get('/wardrobe/orders'),
-    expect: 200,
-  }),
-  // The plan review (#271): 4 statements, pinned in plan-review.spec.ts.
-  http({
-    ...PLANS,
-    name: 'Plan review',
-    kind: 'page',
-    route: 'GET /wardrobe/plans/:id/review',
-    request: (f) => get(`/wardrobe/plans/${f.ids.planId}/review`),
     expect: 200,
   }),
 
@@ -2253,223 +2147,9 @@ const writes: Step[] = [
     expect: 303,
   }),
 
-  // #167 Plans, shopping, wishlist, Bought it
+  // #167 Wishlist, Bought it
   http({
-    ...PLANS,
-    name: 'Create a plan',
-    kind: 'action',
-    route: 'POST /wardrobe/plans',
-    request: () => post('/wardrobe/plans', { name: `Audit plan ${unique()}` }),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Plan from a wardrobe',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/from-wardrobe',
-    request: (f) =>
-      post('/wardrobe/plans/from-wardrobe', { ownerId: String(f.ids.dana.id) }),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Edit a plan',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id',
-    request: (f) =>
-      post(`/wardrobe/plans/${f.ids.planId}`, { name: 'NYC minimal' }),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Duplicate a plan',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id/duplicate',
-    request: (f) => post(`/wardrobe/plans/${f.ids.planId}/duplicate`),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Activate a plan',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id/activate',
-    request: (f) => post(`/wardrobe/plans/${f.ids.planId}/activate`),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Delete a plan',
-    kind: 'action',
-    route: 'DELETE /wardrobe/plans/:id',
-    prepare: async (f) =>
-      idFrom(
-        await f.send(post('/wardrobe/plans', { name: 'Doomed plan' }), 303),
-        /^\/wardrobe\/plans\/(\d+)/,
-      ),
-    request: (_f, id: number) => ({
-      method: 'DELETE',
-      url: `/wardrobe/plans/${id}`,
-      htmx: true,
-    }),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Add a plan item',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id/items',
-    request: (f) =>
-      post(`/wardrobe/plans/${f.ids.planId}/items`, {
-        category: 'tops',
-        name: 'Audit item',
-      }),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Edit a plan item',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id/items/:itemId',
-    prepare: async (f) => {
-      await f.send(
-        post(`/wardrobe/plans/${f.ids.planId}/items`, {
-          category: 'tops',
-          name: 'Edited item',
-        }),
-        303,
-      );
-      return newestPlanItem(f);
-    },
-    request: (f, id: number) =>
-      post(`/wardrobe/plans/${f.ids.planId}/items/${id}`, {
-        category: 'bottoms',
-        name: 'Edited item',
-      }),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Accept a proposed item',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id/items/:itemId/accept',
-    prepare: async (f) => {
-      await proposeItem(f);
-      return newestPlanItem(f);
-    },
-    request: (f, id: number) =>
-      post(`/wardrobe/plans/${f.ids.planId}/items/${id}/accept`),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Change this… (the form)',
-    kind: 'page',
-    route: 'GET /wardrobe/plans/:id/items/:itemId/change',
-    prepare: async (f) => {
-      await proposeItem(f);
-      return newestPlanItem(f);
-    },
-    request: (f, id: number) =>
-      get(`/wardrobe/plans/${f.ids.planId}/items/${id}/change`),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Change this… (send to the agent)',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id/items/:itemId/change',
-    prepare: async (f) => {
-      await proposeItem(f);
-      return newestPlanItem(f);
-    },
-    request: (f, id: number) =>
-      post(`/wardrobe/plans/${f.ids.planId}/items/${id}/change`, {
-        note: 'Darker, please',
-      }),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: "Don't buy a proposed item",
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id/items/:itemId/decline',
-    prepare: async (f) => {
-      await proposeItem(f);
-      return newestPlanItem(f);
-    },
-    request: (f, id: number) =>
-      post(`/wardrobe/plans/${f.ids.planId}/items/${id}/decline`),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Reconsider a declined item',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id/items/:itemId/reconsider',
-    prepare: async (f) => {
-      await proposeItem(f);
-      const id = await newestPlanItem(f);
-      await f.send(
-        post(`/wardrobe/plans/${f.ids.planId}/items/${id}/decline`),
-        303,
-      );
-      return id;
-    },
-    request: (f, id: number) =>
-      post(`/wardrobe/plans/${f.ids.planId}/items/${id}/reconsider`),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Delete a plan item',
-    kind: 'action',
-    route: 'DELETE /wardrobe/plans/:id/items/:itemId',
-    prepare: async (f) => {
-      await f.send(
-        post(`/wardrobe/plans/${f.ids.planId}/items`, {
-          category: 'tops',
-          name: 'Doomed item',
-        }),
-        303,
-      );
-      return newestPlanItem(f);
-    },
-    request: (f, id: number) => ({
-      method: 'DELETE',
-      url: `/wardrobe/plans/${f.ids.planId}/items/${id}`,
-      htmx: true,
-    }),
-    expect: 200,
-  }),
-  http({
-    ...PLANS,
-    name: 'Save candidates',
-    kind: 'action',
-    route: 'POST /wardrobe/plans/:id/items/:itemId/candidates',
-    request: (f) =>
-      post(
-        `/wardrobe/plans/${f.ids.planId}/items/${f.ids.planItemId}/candidates`,
-        {
-          garmentIds: [String(f.ids.wishlistId)],
-          shown: [String(f.ids.wishlistId)],
-        },
-      ),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
-    name: 'Save a wishlist item’s plan items',
-    kind: 'action',
-    route: 'POST /wardrobe/:id/plan-items',
-    request: (f) =>
-      post(`/wardrobe/${f.ids.wishlistId}/plan-items`, {
-        itemIds: [String(f.ids.planItemId)],
-        shown: [String(f.ids.planItemId)],
-      }),
-    expect: 303,
-  }),
-  http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'Bought it',
     kind: 'action',
     route: 'POST /wardrobe/:id/bought',
@@ -2491,7 +2171,7 @@ const writes: Step[] = [
     expect: 303,
   }),
   http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'Save the style profile',
     kind: 'action',
     route: 'POST /auth/profile/style',
@@ -2504,7 +2184,7 @@ const writes: Step[] = [
     expect: 303,
   }),
   http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'Add an order item to the closet',
     kind: 'action',
     route: 'POST /wardrobe/orders/:id/add',
@@ -2516,7 +2196,7 @@ const writes: Step[] = [
     expect: 200,
   }),
   http({
-    ...PLANS,
+    ...WISHLIST,
     name: 'Dismiss an order item',
     kind: 'action',
     route: 'POST /wardrobe/orders/:id/dismiss',
@@ -3424,7 +3104,7 @@ const jobs: Step[] = [
 // --- helpers used by the steps above --------------------------------------
 
 let names = 0;
-/** A name no earlier run used (capsule and plan names are unique per owner). */
+/** A name no earlier run used (capsule names are unique per owner). */
 function unique(): number {
   names += 1;
   return names;
@@ -3470,46 +3150,6 @@ async function newOrderItem(f: Fixture): Promise<number> {
     })
     .returning({ id: s.orderItem.id });
   return row.id;
-}
-
-function newestPlanItem(f: Fixture): Promise<number> {
-  const s = f.build.schema;
-  return newestId(
-    f.closet.db
-      .select({ id: s.planItem.id })
-      .from(s.planItem)
-      .where(eq(s.planItem.planId, f.ids.planId))
-      .orderBy(desc(s.planItem.id))
-      .limit(1),
-    'plan item',
-  );
-}
-
-/** An agent's proposal (accept's input), as propose_plan_item wrote one until #337. */
-async function proposeItem(f: Fixture): Promise<void> {
-  await addItems(
-    f.closet.db,
-    f.theo.id,
-    f.ids.planId,
-    [
-      {
-        name: 'Proposed by the audit',
-        category: 'tops',
-        type: null,
-        colors: null,
-        materials: null,
-        warmthMin: null,
-        warmthMax: null,
-        formalityMin: null,
-        formalityMax: null,
-        quantity: 1,
-        priority: 'medium',
-        budget: null,
-        note: null,
-      },
-    ],
-    { review: 'proposed' },
-  );
 }
 
 /**

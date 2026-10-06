@@ -6,7 +6,7 @@ import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { ProfileSection } from '../layout/parts';
 import { wardrobeExportPath } from '../page-cache';
-import { STYLE_PROFILE_PATH } from '../plans/urls';
+import { STYLE_PROFILE_PATH } from '../style/urls';
 import {
   PUSH_SETTINGS_ID,
   PushEndpointField,

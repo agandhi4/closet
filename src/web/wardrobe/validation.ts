@@ -118,7 +118,7 @@ export const DraftsSaved = Type.Optional(Type.String({ maxLength: 400 }));
  * One of a property's values as a form posts it ('' for the reset chip).
  * Only the form's own chips post these, so anything else is a hand-made
  * request: a 400 from the schema, not a message under a field. Also the
- * plan item form's scales (src/web/plans/validation.ts).
+ * style profile's budget band (src/web/style/validation.ts).
  */
 export function choice(values: readonly (string | number)[]) {
   return Type.Optional(
@@ -266,10 +266,6 @@ export const GarmentBody = Type.Object({
   // form (a closet garment's, one cached before #18) must leave it alone.
   replaces: Type.Optional(Type.Union([Type.Literal(''), RowId])),
   wishlist: Type.Optional(Type.Literal('1')),
-  // A new wishlist item's plan item (34b): the candidate link written with
-  // it (POST /wardrobe only; the requester's own item in their own
-  // wardrobe, else a 404).
-  planItem: Type.Optional(Type.Union([Type.Literal(''), RowId])),
   // A new closet garment's order item (#25, "From your orders"): marked
   // added with it (POST /wardrobe only; the requester's own pending item,
   // else a 404).
@@ -1219,9 +1215,7 @@ export const GarmentPageQuery = Type.Object({
 /**
  * Where a new garment's form and the link import land: `?to=wishlist` from
  * the wishlist, and `&replaces=<id>` from a garment's "Find a replacement"
- * (a garment of the addressed wardrobe, else a 404), or `&planItem=<id>`
- * from a plan item's "Add a candidate" (an item of the requester's own
- * plans, in their own wardrobe, else a 404). Absent is the closet; a
+ * (a garment of the addressed wardrobe, else a 404). Absent is the closet; a
  * closet garment may carry `&forNeed=<id>`, a Muse need's "Bought a
  * different one" (the requester's own open need, else a 404).
  */
@@ -1229,7 +1223,6 @@ export const DestinationQuery = Type.Object({
   ...OwnerQuery.properties,
   to: Type.Optional(Type.Union([Type.Literal(''), Destination])),
   replaces: Type.Optional(Type.Union([Type.Literal(''), RowId])),
-  planItem: Type.Optional(Type.Union([Type.Literal(''), RowId])),
   forNeed: Type.Optional(Type.Union([Type.Literal(''), RowId])),
 });
 export type DestinationQuery = Static<typeof DestinationQuery>;

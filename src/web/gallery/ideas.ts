@@ -559,23 +559,8 @@ export function judgeGoesWithCloset({
 }
 
 /**
- * How many outfits the owner's wishlist item `itemId` makes with the closet
- * (goesWithCloset's count, from the same search): the shopping list's
- * candidate chip, GET /wardrobe/:id/outfit-count. Undefined when it is not
- * one of the owner's wishlist items. One statement and one search.
- */
-export async function goesWithCount(
-  db: Queryable,
-  ownerId: number,
-  itemId: number,
-): Promise<OutfitCount | undefined> {
-  const { item, closet, avoid } = await goesWithInputs(db, ownerId, itemId);
-  return item && outfitCount({ item, closet, avoid, seed: item.id });
-}
-
-/**
  * "Unlocks N" for many wishlist items over one closet read
- * (goesWithManyInputsSql): each item's goesWithCount, by garment id. The
+ * (goesWithManyInputsSql): each item's outfitCount, by garment id. The
  * Muse inbox's option thumbs (src/web/wishlist/inbox.ts). One search each,
  * about 3 ms over the demo closet (#333: 120 options in ~360 ms).
  */

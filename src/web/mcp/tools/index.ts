@@ -7,7 +7,6 @@ import { galleryTools } from './gallery';
 import { garmentTools } from './garments';
 import { insightTools } from './insights';
 import { outfitTools } from './outfits';
-import { retiredTools } from './retired';
 import { sharingTools } from './sharing';
 import { sizeTools } from './sizes';
 import { styleTools } from './style';
@@ -25,8 +24,7 @@ import { weekPlanTools } from './week-plan';
  * (the packing list, and the destination's forecast with WEATHER_ENABLED)
  * and plan_trip_outfit. Muse's (#337) are tools/suggestions.ts (needs,
  * options, outfits, the inbox and the owner's feedback) and
- * tools/coverage.ts (get_closet_coverage); the wardrobe plans' (#34, #290)
- * are tools/retired.ts's refusals until plans go. The outfit gallery (#9)
+ * tools/coverage.ts (get_closet_coverage). The outfit gallery (#9)
  * is tools/gallery.ts, with "Goes with my closet" for a wishlist item
  * (#18b, goes_with_closet), insights (#17) tools/insights.ts's
  * wardrobe_stats, Today (#15) tools/today.ts. A garment's photo for
@@ -53,6 +51,5 @@ export function mcpTools(options: {
     ...sizeTools,
     ...coverageTools,
     ...suggestionTools,
-    ...retiredTools,
   ];
 }

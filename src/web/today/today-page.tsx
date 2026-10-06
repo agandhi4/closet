@@ -16,15 +16,13 @@ import { PAIR_GRID } from '../layout/columns';
 import { PageMain } from '../layout/page-main';
 import { Layout } from '../layout/layout';
 import { OutfitCollage } from '../outfits/collage';
-import type { NextPurchase } from '../plans/candidates';
 import type { NeedsToDecide } from '../wishlist/inbox';
 import { roundReviewPath, roundWhat } from '../wishlist/round-text';
 import type { MuseRound } from '../wishlist/rounds';
-import { garmentUrl, WISHLIST_PATH } from '../wardrobe/urls';
+import { WISHLIST_PATH } from '../wardrobe/urls';
 import { EntrySelfie } from '../selfies/views';
 import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
 import type { ViewContext } from '../view-context';
-import { categoryLabel } from '../wardrobe/garment';
 import { UserWeatherLine } from '../weather/views';
 import { PlanWeekForm } from '../week-plan/views';
 import type { IdeasRow, PlannedRow, TodayModel } from './today';
@@ -32,9 +30,8 @@ import { TODAY_PATH, todayIdeasUrl, WEAR_THIS_PATH } from './urls';
 
 /**
  * Today (#15; docs/plans/2026-09-26-redesign.md, "Today"): the day's date,
- * its weather line, a card for each plan an agent drafted while it has
- * proposals waiting (#295: the home screen had no way to the plans), then
- * a row per occasion: a planned outfit with "Wore
+ * its weather line, Muse's one card while a round or a need waits on the
+ * owner (#333, #337), then a row per occasion: a planned outfit with "Wore
  * it" and "Change", or three ideas to swipe with "Wear this" and Refresh. A
  * summary with one decision on it: every card leads into another tab's page
  * with the destination set, and Today stores nothing of its own.
@@ -77,8 +74,6 @@ export function TodayPage(props: {
           <RoundCard round={model.round} />
         ) : model.needs ? (
           <NeedsCard needs={model.needs} />
-        ) : model.nextPurchase ? (
-          <NextPurchaseCard purchase={model.nextPurchase} />
         ) : null}
         {model.rows.length > 0 && (
           <div class={PAIR_GRID}>
@@ -163,39 +158,6 @@ function NeedsCard({ needs }: { needs: NeedsToDecide }) {
         </p>
         <a href={WISHLIST_PATH} class="btn btn-primary btn-sm shrink-0">
           {t('muse.REVIEW')}
-        </a>
-      </div>
-    </article>
-  );
-}
-
-/**
- * "Linen shirt completes 2 of your loved looks", with the way to the
- * product's page (the shopping list is unlinked since #333). The next step
- * once nothing is left to decide (#302), so it never stands beside a
- * NeedsCard: one card, whichever step is first.
- */
-function NextPurchaseCard({ purchase }: { purchase: NextPurchase }) {
-  const params = {
-    product: purchase.name ?? categoryLabel(purchase.category),
-    count: purchase.completes,
-  };
-  return (
-    <article
-      class="card bg-base-100 shadow-sm"
-      data-next-purchase={String(purchase.garmentId)}
-    >
-      <div class="card-body p-3 flex-row items-center gap-3">
-        <p class="text-sm flex-1 min-w-0 break-words">
-          {purchase.completes === 1
-            ? t('today.NEXT_STEP_ONE', params)
-            : t('today.NEXT_STEP', params)}
-        </p>
-        <a
-          href={garmentUrl(purchase.garmentId, undefined)}
-          class="btn btn-primary btn-sm shrink-0"
-        >
-          {t('today.NEXT_STEP_VIEW')}
         </a>
       </div>
     </article>

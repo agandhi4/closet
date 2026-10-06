@@ -1,12 +1,12 @@
 /**
- * Where a plan look is in the owner's reaction to their agent's design
- * (#290, epic #289): a look is an outfit the agent composed from the plan,
- * mixing closet garments with the plan's candidate products. Stored as
- * plan_look.reaction (a check constraint lists LOOK_REACTIONS; another
- * refuses `revise` without the owner's note), written `proposed` at insert
- * and changed afterwards only by the writers of src/web/plans/looks.ts,
- * which hold the owner lock, ask lookReactionTransition and write what it
- * answers. Pure. The item review's sibling (plan-review.ts).
+ * Where a Muse outfit is in the owner's reaction to their agent's design
+ * (#335; first the plans' looks, #290): an outfit the agent proposed,
+ * owned garments and its suggestions together. Stored as outfit.reaction
+ * (a check constraint lists LOOK_REACTIONS), null on an outfit of the
+ * owner's own, written `proposed` by the outfit writer's proposal and
+ * changed afterwards only by reactToOutfit (src/web/outfits/reactions.ts),
+ * which holds the owner lock, asks lookReactionTransition and writes what
+ * it answers. Pure.
  *
  *   event        from                       to         owner's note
  *   love         proposed, revise           loved      cleared
@@ -18,8 +18,7 @@
  * - proposed: the agent wrote it (proposed, or changed it) and the owner
  *   has not reacted.
  * - loved: "Love it". Not final: the owner may still ask for a change or
- *   turn it down, as an accepted plan item; once every piece is owned it
- *   can become an outfit (#292).
+ *   turn it down.
  * - revise: "Change this" (the owner's note required): waiting on the agent.
  * - declined: "Not for me" (a note optional). Kept, not deleted, so the
  *   agent never proposes its exact pieces again.

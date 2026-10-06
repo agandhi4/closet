@@ -1,13 +1,8 @@
 import { expect, type Page, test } from '@playwright/test';
-import { eq } from 'drizzle-orm';
-import { planItem } from '../src/db/schema';
-import { changeCandidates } from '../src/web/plans/candidates';
-import { proposeLook } from '../src/web/plans/looks';
 import { addPhotographedGarment } from './support/e2e-data';
-import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
 import { blockingScrollListeners } from './support/scroll-listeners';
-import { userIdOf, withServerDb } from './support/server-db';
 import { networkSwitch, waitForServiceWorker } from './support/service-worker';
 
 /**
@@ -22,49 +17,10 @@ test.skip(
   'CDP touch gestures',
 );
 
-const WISHLIST = { to: 'wishlist', wishlist: '1', props: '1', product: '1' };
-
-/** A plan with one item to buy (two candidates with photos) and a look of photographed pieces. */
+/** A photographed closet garment of a new user's. */
 async function seed(page: Page) {
-  const email = await signIn(page, 'photo-viewer');
-  const res = await page.request.post('/wardrobe/plans', {
-    form: { name: 'Autumn' },
-    headers: SAME_ORIGIN,
-  });
-  const plan = new URL(res.url()).pathname;
-  const planId = Number(plan.split('/').pop());
-  await page.request.post(`${plan}/items`, {
-    form: { name: 'Hat', category: 'hats', quantity: '1', priority: 'medium' },
-    headers: SAME_ORIGIN,
-  });
-  const beanie = await addPhotographedGarment(page, 'Beanie', 'hats', WISHLIST);
-  const bucket = await addPhotographedGarment(
-    page,
-    'Bucket hat',
-    'hats',
-    WISHLIST,
-  );
-  const tee = await addPhotographedGarment(page, 'Grey tee', 'tops');
-  const chinos = await addPhotographedGarment(page, 'Chinos', 'bottoms');
-  const boots = await addPhotographedGarment(page, 'Boots', 'footwear');
-  await withServerDb(async (db) => {
-    const ownerId = await userIdOf(db, email);
-    const [{ id: itemId }] = await db
-      .select({ id: planItem.id })
-      .from(planItem)
-      .where(eq(planItem.planId, planId));
-    await changeCandidates(db, ownerId, {
-      add: { itemIds: [itemId], garmentIds: [beanie, bucket] },
-    });
-    await proposeLook(
-      db,
-      ownerId,
-      planId,
-      { name: 'Easy Friday', occasion: 'work', note: 'Nothing to buy' },
-      [tee, chinos, boots],
-    );
-  });
-  return { planId, tee };
+  await signIn(page, 'photo-viewer');
+  return { tee: await addPhotographedGarment(page, 'Grey tee', 'tops') };
 }
 
 const viewer = (page: Page) => page.locator('#photo-viewer');
@@ -164,36 +120,6 @@ test.describe('on a desktop', () => {
     await expect(photo).toBeFocused();
     expect(errors).toEqual([]);
   });
-
-  test('the plan page: the card and the sheet open the item’s candidates, a look’s piece its pieces', async ({
-    page,
-  }) => {
-    const { planId } = await seed(page);
-    await page.goto(`/wardrobe/plans/${planId}`);
-    await page
-      .getByRole('button', { name: /^Enlarge photo of /u })
-      .first()
-      .click();
-    await expect(position(page)).toHaveText('1 of 2');
-    await page.keyboard.press('Escape');
-
-    // The sheet's photo, with the sheet still open beneath the viewer.
-    await page
-      .getByRole('button', { name: /Any hats|Hat/u })
-      .first()
-      .click();
-    await page.locator('dialog[open] [data-photo-open]').click();
-    await expect(position(page)).toHaveText('1 of 2');
-    await page.keyboard.press('Escape');
-    await expect(page.locator('dialog[open]')).toHaveCount(1);
-    await page.keyboard.press('Escape');
-
-    await page.goto(`/wardrobe/plans/${planId}?view=outfits`);
-    await page.locator('#plan-looks [data-photo-open]').first().focus();
-    await page.keyboard.press('Enter');
-    await expect(position(page)).toHaveText('1 of 3');
-    await page.keyboard.press('Escape');
-  });
 });
 
 test.describe('on a phone', () => {
@@ -286,18 +212,6 @@ test.describe('on a phone', () => {
     await expect
       .poll(async () => (await image.boundingBox())!.width)
       .toBeLessThan(fitted.width * 1.05);
-  });
-
-  test('the Looks strip tile opens its pieces', async ({ page }) => {
-    const { planId } = await seed(page);
-    await page.goto(`/wardrobe/plans/${planId}?view=outfits`);
-    const piece = page
-      .locator('#plan-looks [data-selected] [data-photo-open]')
-      .first();
-    await piece.scrollIntoViewIfNeeded();
-    await piece.tap();
-    await expect(position(page)).toHaveText(/1 of 3|2 of 3|3 of 3/u);
-    await page.screenshot({ path: 'test-results/313-viewer-looks-390.png' });
   });
 });
 

@@ -1,11 +1,13 @@
 import * as z from 'zod/v4';
+import type { Db } from '../../../db/client';
 import { QUANTITY_MAX } from '../../../wardrobe/availability';
 import {
+  type ClosetPiece,
   matchPlan,
   PLAN_PRIORITIES,
   type PlanTarget,
   type Range,
-} from '../../../wardrobe/plans';
+} from '../../../wardrobe/coverage';
 import {
   FORMALITIES,
   GARMENT_COLORS,
@@ -13,8 +15,8 @@ import {
   WARMTHS,
 } from '../../../wardrobe/properties';
 import { HttpError } from '../../errors';
-import { closetPieces } from '../../plans/queries';
 import { normalizeCategory } from '../../wardrobe/garment';
+import { CLOSET_FILTERS, garmentSummaries } from '../../wardrobe/queries';
 import { CATEGORY_MAX } from '../../wardrobe/validation';
 import { defineTool } from '../tool';
 import { checkedType } from './garments';
@@ -22,10 +24,9 @@ import { checkedType } from './garments';
 /**
  * get_closet_coverage (#337; doc section 5): what the closet lacks,
  * derived on every call and never stored. The agent states its targets in
- * the garment model's terms; matchPlan (the plans' gap analysis, pure,
- * src/wardrobe/plans.ts) judges them against closetPieces, as a plan's
- * gap view did, so the two never disagree. Both move out of the plans'
- * modules when plans go (#337 part B). The caller's own closet.
+ * the garment model's terms; matchPlan (the plans' gap analysis, kept when
+ * plans went, pure, src/wardrobe/coverage.ts) judges them against the
+ * caller's own closet, read as get_wardrobe reads it (garmentSummaries).
  */
 
 /** Targets one call may judge: a wardrobe's worth. */
@@ -43,6 +44,26 @@ function rangeOf<T extends number>(
     throw new HttpError(400, `${property}: min is above max`);
   }
   return range;
+}
+
+/**
+ * Every garment in `ownerId`'s closet (inCloset) as matching reads it,
+ * oldest first, the order the plans' gap view matched in: which garment a
+ * tie goes to does not depend on it, but the order of each target's
+ * replaceSoon and takenBy does.
+ */
+async function closetOf(
+  db: Db,
+  ownerId: number,
+): Promise<(ClosetPiece & { name: string | null })[]> {
+  const { garments } = await garmentSummaries(db, ownerId, CLOSET_FILTERS);
+  return garments
+    .map((garment) => ({
+      ...garment,
+      colors: garment.colors ?? [],
+      materials: garment.materials ?? [],
+    }))
+    .sort((a, b) => a.id - b.id);
 }
 
 export const coverageTools = [
@@ -120,7 +141,7 @@ export const coverageTools = [
           priority: target.priority ?? 'medium',
         };
       });
-      const closet = await closetPieces(ctx.db, ctx.userId);
+      const closet = await closetOf(ctx.db, ctx.userId);
       const names = new Map(closet.map((g) => [g.id, g.name]));
       const named = (id: number) => ({ id, name: names.get(id) ?? null });
       return {

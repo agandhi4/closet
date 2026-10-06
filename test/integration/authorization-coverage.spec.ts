@@ -69,6 +69,10 @@ const EXEMPT: Record<RouteKey, string> = {
     'a capability URL: the token is the credential, not an id of the wardrobe; covered by share-lifecycle.spec.ts "accept edge cases" (twice, taken, own, addressed to someone else, anonymous)',
   'POST /wardrobe-share/invite/:token/decline':
     'a capability URL: the token is the credential, not an id of the wardrobe; covered by share-lifecycle.spec.ts "decline" (by a recipient, the grantor, the addressee, someone else, anonymous)',
+  'GET /wardrobe/plans/*':
+    'a redirect to the Wishlist inbox that reads nothing (#337, plans removed); covered by plans-removed.spec.ts',
+  'GET /wardrobe/:id/plan-items':
+    "a redirect to the garment's page that reads nothing (#337, plans removed): the page then authorizes; covered by plans-removed.spec.ts",
 };
 
 /** `METHOD /template`, the key EXEMPT and the report use. */
@@ -78,7 +82,7 @@ interface AppRoute {
   key: RouteKey;
   /**
    * The path has a parameter or a wildcard, or the body names a wardrobe
-   * (`ownerId`, as starting a plan from someone's closet does).
+   * (`ownerId`).
    */
   takesId: boolean;
   /** Its querystring takes `?ownerId=`: the matrix must send it. */
@@ -171,9 +175,6 @@ const ADDRESS: Fixture = {
   selfieFileName: 'selfie.webp',
   selfieShareableId: '00000000-0000-4000-8000-000000000107',
   ownerId: 1,
-  planId: 108,
-  planName: 'Plan',
-  planItemId: 109,
   tripId: 110,
   tripName: 'Trip',
   tripOutfitId: 111,
@@ -188,10 +189,6 @@ const ADDRESS: Fixture = {
   orderItemName: 'Ordered',
   weekPlanId: 118,
   inviteShareId: 119,
-  planDeclinedItemId: 120,
-  planLookId: 121,
-  planDeclinedLookId: 122,
-  planCompleteLookId: 123,
   photo: Buffer.alloc(0),
   cutout: Buffer.alloc(0),
   shopPhotoUrl: 'http://shop.test/photo.jpg',

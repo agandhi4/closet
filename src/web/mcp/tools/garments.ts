@@ -71,7 +71,6 @@ import {
 } from '../tool';
 import { ownerIdInput, rowId } from './common';
 import { addGarmentFromLink } from './link-import';
-import { retiredMessage } from './retired';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
 
@@ -740,33 +739,12 @@ export const garmentTools = [
       type: z.string().max(40).optional(),
       size: z.string().max(40).optional(),
       notes: z.string().max(4000).optional(),
-      // Retired with plans (#337): given, the call is refused, never
-      // silently saved unlinked.
-      planItemId: z
-        .unknown()
-        .optional()
-        .describe('RETIRED: use suggest_garment.'),
-      candidateNote: z.unknown().optional().describe('RETIRED.'),
-      candidateRank: z.unknown().optional().describe('RETIRED.'),
     }),
     writes: true,
     idempotent: false,
     openWorld: true,
     async run(args, ctx) {
       const access = await wardrobeFor(ctx, args.ownerId, 'manage');
-      if (
-        args.planItemId !== undefined ||
-        args.candidateNote !== undefined ||
-        args.candidateRank !== undefined
-      ) {
-        throw new HttpError(
-          410,
-          retiredMessage(
-            'planItemId',
-            'suggest_garment with a groupId from create_option_group',
-          ),
-        );
-      }
       if (!(await ctx.allowLinkImport())) {
         throw new HttpError(
           429,

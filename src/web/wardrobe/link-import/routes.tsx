@@ -176,7 +176,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
         'Garment not found',
       );
-      const { destination, candidateFor } = await resolveDestination(
+      const { destination } = await resolveDestination(
         db,
         request.query,
         access,
@@ -203,7 +203,6 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
                 : String(destination.replaces),
           },
           link: form.link,
-          candidateFor,
         });
       } catch (error) {
         if (!(error instanceof LinkImportError)) throw error;

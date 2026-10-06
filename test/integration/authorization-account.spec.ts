@@ -7,10 +7,28 @@ import {
   sizeNote,
   calendarEntry,
   OWNER_TOKEN_NAME,
+  styleNote,
 } from './authorization-matrix';
 
-// The authorization matrix (authorization-matrix.ts): sizes, agent access and sharing.
+// The authorization matrix (authorization-matrix.ts): the style profile, sizes, agent access and sharing.
 const ROUTES: Route[] = [
+  {
+    // The style profile (#34): everyone's own; the owner's notes never
+    // reach anyone else.
+    name: 'GET /auth/profile/style',
+    kind: 'read',
+    ok: 200,
+    secret: styleNote,
+    shows: true,
+    vias: ['own'],
+    request: () => ({ method: 'GET', url: '/auth/profile/style' }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
   // Sizes (#24): everyone's own, like the style profile; the owner's note
   // never reaches a grantee, on the editor, the hint or a shared page.
   {

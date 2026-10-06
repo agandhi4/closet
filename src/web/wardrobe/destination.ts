@@ -1,16 +1,8 @@
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { itemTitle } from '../plans/labels';
-import { findOwnedItem, findPlan } from '../plans/queries';
-import { itemNotFound } from '../plans/validation';
 import type { WardrobeAccess } from '../sharing/access';
 import type { EntryStatus } from '../../wardrobe/status';
-import {
-  CandidateForDeclinedItem,
-  linkNewCandidate,
-  requireCandidateRoom,
-} from '../plans/candidates';
 import { decide } from '../wishlist/decisions';
 import { findNeedToBuyFor, type NeedBoughtFor } from '../wishlist/inbox';
 import { decideOrderItem, findPendingOrderItem } from './order-mail/queries';
@@ -27,36 +19,6 @@ import {
   type PropertyFormValues,
   storedPropertyValues,
 } from './validation';
-
-/** The plan item a new wishlist item is a candidate for, as the form names it. */
-export interface CandidateFor {
-  id: number;
-  title: string;
-  planName: string;
-}
-
-/**
- * The plan item `planItemId` a new wishlist item in the wardrobe `access`
- * addresses is to be a candidate for (34b). Plans are the requester's own,
- * so only in their own wardrobe and only an item of their own plans; any
- * other is a 404 like an unknown id (a grantee has no plans here).
- */
-export async function resolveCandidateFor(
-  db: Db,
-  planItemId: number,
-  access: WardrobeAccess,
-): Promise<CandidateFor> {
-  const item = access.isOwner
-    ? await findOwnedItem(db, planItemId, access.ownerId)
-    : undefined;
-  const plan = item && (await findPlan(db, item.planId, access.ownerId));
-  if (!item || !plan) throw itemNotFound();
-  // A new garment is never already one of its candidates: a full item is
-  // refused before the form is filled in, or a garment or photo stored.
-  await requireCandidateRoom(db, item.id);
-  if (item.review === 'declined') throw new CandidateForDeclinedItem([item.id]);
-  return { id: item.id, title: itemTitle(item), planName: plan.name };
-}
 
 /**
  * The Muse need `needId` a new closet garment is bought for ("Bought a
@@ -79,21 +41,18 @@ async function resolveNeed(
 
 /**
  * A new garment's post's destination (POST /wardrobe): the closet or the
- * wishlist, and for a plan item's "Add a candidate" (34b) the item, checked
- * before anything is stored (resolveCandidateFor), with its candidate link
- * to write in the garment's own transaction; for an order's "Add to
- * closet" (#25) the order item, checked the same way (resolveOrderItem),
- * marked added in that transaction; for a Muse need's "Bought a different
- * one" (#333) the need (resolveNeed), settled by the garment in that
+ * wishlist; for an order's "Add to closet" (#25) the order item, checked
+ * before anything is stored (resolveOrderItem) and marked added in the
+ * garment's own transaction; for a Muse need's "Bought a different one"
+ * (#333) the need (resolveNeed), settled by the garment in that
  * transaction through decide, the one writer of a decision.
  */
 export async function postedDestination(
   db: Db,
-  body: Pick<GarmentBody, 'to' | 'planItem' | 'orderItem' | 'forNeed'>,
+  body: Pick<GarmentBody, 'to' | 'orderItem' | 'forNeed'>,
   access: WardrobeAccess,
 ): Promise<{
   destination: Destination & { to: EntryStatus };
-  candidateFor?: CandidateFor;
   boughtFor?: NeedBoughtFor;
   withGarment?: WithGarment;
 }> {
@@ -130,14 +89,7 @@ export async function postedDestination(
       },
     };
   }
-  if (to !== 'wishlist' || !body.planItem) return { destination: { to } };
-  const candidateFor = await resolveCandidateFor(db, body.planItem, access);
-  return {
-    destination: { to, planItem: candidateFor.id },
-    candidateFor,
-    withGarment: (tx, garmentId) =>
-      linkNewCandidate(tx, access.ownerId, candidateFor.id, garmentId),
-  };
+  return { destination: { to } };
 }
 
 /**
@@ -161,8 +113,7 @@ async function resolveOrderItem(
  * Where a new garment's form lands, from its URL (DestinationQuery): the
  * closet, the wishlist, the wishlist as a replacement for a garment of the
  * addressed wardrobe (a garment's "Find a replacement"; any other id is a
- * 404 like an unknown garment), or the wishlist as a candidate for one of
- * the requester's plan items (resolveCandidateFor). Shared by GET
+ * 404 like an unknown garment). Shared by GET
  * /wardrobe/new and the link import's routes, which carry it through to
  * the form.
  */
@@ -173,7 +124,6 @@ export async function resolveDestination(
 ): Promise<{
   destination: Destination;
   replaced?: GarmentDetail;
-  candidateFor?: CandidateFor;
   boughtFor?: NeedBoughtFor;
   /** The garment its values are prefilled from: the replaced one, or the need's best pick. */
   prefill?: GarmentDetail;
@@ -191,19 +141,16 @@ export async function resolveDestination(
       prefill: pick,
     };
   }
-  const [replaced, candidateFor] = await Promise.all([
-    query.replaces ? findGarment(db, query.replaces, access.ownerId) : null,
-    query.planItem ? resolveCandidateFor(db, query.planItem, access) : null,
-  ]);
+  const replaced = query.replaces
+    ? await findGarment(db, query.replaces, access.ownerId)
+    : null;
   if (replaced === undefined) throw new HttpError(404, 'Garment not found');
   return {
     destination: {
       to: 'wishlist',
       ...(replaced && { replaces: replaced.id }),
-      ...(candidateFor && { planItem: candidateFor.id }),
     },
     replaced: replaced ?? undefined,
-    candidateFor: candidateFor ?? undefined,
     prefill: replaced ?? undefined,
   };
 }

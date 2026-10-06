@@ -10,8 +10,8 @@
  *    CSS columns, so a short card leaves no hole: one on a phone (stacked
  *    with the same 1rem gap), two at `lg`, three at `xl`.
  *  - `CANDIDATE_GRID`: large product photos with their price and actions
- *    under them (the shopping list's candidates): two on a phone, four at
- *    `lg`.
+ *    under them (the inbox's Ready to buy and own items): two on a phone,
+ *    four at `lg`.
  *  - `OUTFIT_GRID`: saved-outfit tiles (collage and name); two on a phone,
  *    three at `sm`, four at `lg`, five at `xl` (about 215 px at `lg`,
  *    235 px at 1440).

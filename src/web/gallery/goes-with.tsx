@@ -14,8 +14,7 @@ import { type GoesWithCloset, ideaName, type NearDuplicate } from './ideas';
  * the gallery's OutfitCollage cards in a scroll-snap strip, and the roles
  * it is worn with. Display only: nothing here posts, since an outfit with
  * something not yet bought cannot be saved (pickIdea takes closet
- * garments); "Bought it" makes it one. The shopping list's candidate cards
- * show the count alone (OutfitCountLink).
+ * garments); "Bought it" makes it one.
  */
 
 export const GOES_WITH_ID = 'goes-with';
@@ -35,7 +34,7 @@ function countText(count: OutfitCount, card: boolean): string {
   return t(card ? 'goesWith.CARD' : 'goesWith.COUNT', { count: outfits });
 }
 
-/** A card's "Unlocks 12 outfits": the shopping list's chip, the Muse inbox and a need's options. */
+/** A card's "Unlocks 12 outfits": the Muse inbox and a need's options. */
 export function unlocksText(count: OutfitCount): string {
   return countText(count, true);
 }
@@ -185,51 +184,5 @@ function NearDuplicates({ duplicates }: { duplicates: NearDuplicate[] }) {
         </div>
       )}
     </>
-  );
-}
-
-/** A shopping list candidate's count, linking to the full answer on its page. */
-export function OutfitCountLink(props: {
-  garmentId: number;
-  count: OutfitCount;
-}) {
-  return (
-    <a
-      href={`${garmentUrl(props.garmentId, undefined)}#${GOES_WITH_ID}`}
-      class="text-xs link link-hover text-base-content/70"
-      data-goes-with-count=""
-    >
-      {countText(props.count, true)}
-    </a>
-  );
-}
-
-/**
- * Where a shopping list candidate's count arrives (#18b): replaced by
- * OutfitCountLink from GET /wardrobe/:id/outfit-count when it scrolls into
- * view (`revealed`: the list scrolls with the window). Loaded, not
- * rendered: each count is a search over the closet, and a plan's items are
- * unbounded, so the page's cost stays the list's and each chip pays for
- * itself only once seen. Its own hx-indicator keeps the app bar's spinner
- * still, as the cutout's polling does. `inStrip` for a slot inside a
- * horizontal snap strip (the plan review, #271): `revealed` watches only the
- * window's scroll, never a strip's, so a tile swiped into view would never
- * load; `intersect` sees the strip's clipping.
- */
-export function OutfitCountSlot(props: {
-  garmentId: number;
-  inStrip?: boolean;
-}) {
-  return (
-    <span
-      class="text-xs text-muted"
-      hx-get={garmentUrl(props.garmentId, undefined, '/outfit-count')}
-      hx-trigger={props.inStrip ? 'intersect once' : 'revealed'}
-      hx-swap="outerHTML"
-      hx-indicator="this"
-      data-outfit-count-slot=""
-    >
-      {t('goesWith.COUNTING')}
-    </span>
   );
 }

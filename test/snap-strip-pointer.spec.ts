@@ -1,9 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
-import { proposeLook, reactToLooks } from '../src/web/plans/looks';
 import { createGarment } from './support/e2e-data';
-import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
-import { userIdOf, withServerDb } from './support/server-db';
 
 /**
  * The shared snap strip with a mouse (#311): previous/next buttons and the
@@ -83,154 +81,56 @@ test.describe('with a mouse', () => {
   });
 });
 
+/**
+ * A wishlist item whose "Goes with my closet" makes `bottoms.length`
+ * outfits (one per bottom: no footwear), so its best-outfits strip holds
+ * that many display-only cards. Returns its page.
+ */
+async function goesWithStrip(page: Page, user: string, bottoms: string[]) {
+  await signIn(page, user);
+  for (const name of bottoms) await createGarment(page, name, 'bottoms');
+  const item = await createGarment(page, 'Merino knit', 'tops', {
+    to: 'wishlist',
+    wishlist: '1',
+    replaces: '',
+  });
+  await page.goto(`/wardrobe/${item}`);
+  return page.locator('[data-goes-with-strip]');
+}
+
 test.describe('a strip of tiles with no focusable parts', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test('the strip itself takes focus and the arrow keys move it', async ({
     page,
   }) => {
-    const email = await signIn(page, 'strip-looks');
-    const created = await page.request.post('/wardrobe/plans', {
-      form: { name: 'Winter' },
-      headers: SAME_ORIGIN,
-    });
-    const plan = new URL(created.url()).pathname;
-    const shirt = await createGarment(page, 'Oxford shirt', 'tops');
-    const chinos = await createGarment(page, 'Chinos', 'bottoms');
-    const knit = await createGarment(page, 'Merino knit', 'tops');
-    const [first, second] = await withServerDb(async (db) => {
-      const ownerId = await userIdOf(db, email);
-      const look = async (name: string, garmentIds: number[]) =>
-        (
-          await proposeLook(
-            db,
-            ownerId,
-            Number(plan.split('/').pop()),
-            { name, occasion: null, note: null },
-            garmentIds,
-          )
-        ).id;
-      return [
-        await look('Office Tuesday', [shirt, chinos]),
-        await look('Friday knit', [knit, chinos]),
-      ];
-    });
-
-    await page.goto(`${plan}?view=outfits`);
-    const strip = page.locator('#plan-looks [data-snap-strip]');
+    const strip = await goesWithStrip(page, 'strip-focus', ['Chinos', 'Jeans']);
+    const cards = strip.locator('[data-snap-item]');
+    await expect(cards).toHaveCount(2);
     await expect(strip).toHaveAttribute('tabindex', '0');
-    const frame = page.locator('#plan-looks .snap-strip-frame');
+    const frame = strip.locator('xpath=..');
     const [previous, next] = [
       frame.locator('[data-snap-step="-1"]'),
       frame.locator('[data-snap-step="1"]'),
     ];
-    await expect(previous).toBeDisabled();
-    await expect(next).toBeEnabled();
     await strip.focus();
-    await expect(page.locator(`#look-${first}`)).toHaveAttribute(
-      'data-selected',
-      '',
-    );
+    await expect(cards.first()).toHaveAttribute('data-selected', '');
+    if (!test.info().project.use.isMobile) {
+      await expect(previous).toBeDisabled();
+      await expect(next).toBeEnabled();
+    }
     await page.keyboard.press('ArrowRight');
-    await expect(page.locator(`#look-${second}`)).toHaveAttribute(
-      'data-selected',
-      '',
-    );
-
-    // From a look's action button, focus lands on the new look's same one.
-    await page
-      .locator(`#look-${second}`)
-      .getByRole('button', { name: 'Love it' })
-      .focus();
+    await expect(cards.nth(1)).toHaveAttribute('data-selected', '');
+    await expect(strip).toBeFocused();
     await page.keyboard.press('ArrowLeft');
-    await expect(page.locator(`#look-${first}`)).toHaveAttribute(
-      'data-selected',
-      '',
-    );
-    await expect(
-      page.locator(`#look-${first}`).getByRole('button', { name: 'Love it' }),
-    ).toBeFocused();
+    await expect(cards.first()).toHaveAttribute('data-selected', '');
   });
-});
-
-test('a step keeps focus on the same action, never another', async ({
-  page,
-}) => {
-  test.skip(
-    test.info().project.use.isMobile === true,
-    'no step buttons on a coarse pointer',
-  );
-  await page.setViewportSize({ width: 1440, height: 900 });
-  const email = await signIn(page, 'strip-actions');
-  const created = await page.request.post('/wardrobe/plans', {
-    form: { name: 'Winter' },
-    headers: SAME_ORIGIN,
-  });
-  const plan = new URL(created.url()).pathname;
-  const planId = Number(plan.split('/').pop());
-  const shirt = await createGarment(page, 'Oxford shirt', 'tops');
-  const chinos = await createGarment(page, 'Chinos', 'bottoms');
-  const knit = await createGarment(page, 'Merino knit', 'tops');
-  const [loved, proposed] = await withServerDb(async (db) => {
-    const ownerId = await userIdOf(db, email);
-    const look = async (name: string, garmentIds: number[]) =>
-      (
-        await proposeLook(
-          db,
-          ownerId,
-          planId,
-          { name, occasion: null, note: null },
-          garmentIds,
-        )
-      ).id;
-    const first = await look('Office Tuesday', [shirt, chinos]);
-    const second = await look('Friday knit', [knit, chinos]);
-    await reactToLooks(db, ownerId, planId, 'love', [{ lookId: first }]);
-    return [first, second];
-  });
-
-  await page.goto(`${plan}?view=outfits`);
-  // The loved look has no Love button, so Decline sits one place earlier.
-  await expect(
-    page.locator(`#look-${loved}`).getByRole('button', { name: 'Love it' }),
-  ).toHaveCount(0);
-  await page
-    .locator(`#look-${loved}`)
-    .getByRole('button', { name: 'Not for me' })
-    .focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator(`#look-${proposed}`)).toHaveAttribute(
-    'data-selected',
-    '',
-  );
-  await expect(page.locator(':focus')).toHaveAttribute(
-    'data-strip-action',
-    'decline',
-  );
-  await expect(page.locator(`#look-${proposed} :focus`)).toHaveCount(1);
 });
 
 test('a strip of one item has both step buttons disabled', async ({ page }) => {
-  const email = await signIn(page, 'strip-single');
-  const created = await page.request.post('/wardrobe/plans', {
-    form: { name: 'Winter' },
-    headers: SAME_ORIGIN,
-  });
-  const plan = new URL(created.url()).pathname;
-  const shirt = await createGarment(page, 'Oxford shirt', 'tops');
-  const chinos = await createGarment(page, 'Chinos', 'bottoms');
-  await withServerDb(async (db) => {
-    const ownerId = await userIdOf(db, email);
-    await proposeLook(
-      db,
-      ownerId,
-      Number(plan.split('/').pop()),
-      { name: 'Office Tuesday', occasion: null, note: null },
-      [shirt, chinos],
-    );
-  });
-  await page.goto(`${plan}?view=outfits`);
-  const frame = page.locator('#plan-looks .snap-strip-frame');
+  const strip = await goesWithStrip(page, 'strip-single', ['Chinos']);
+  await expect(strip.locator('[data-snap-item]')).toHaveCount(1);
+  const frame = strip.locator('xpath=..');
   await expect(frame.locator('[data-snap-step="-1"]')).toBeDisabled();
   await expect(frame.locator('[data-snap-step="1"]')).toBeDisabled();
 });

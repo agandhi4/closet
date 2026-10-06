@@ -14,7 +14,6 @@ import {
 } from '../../src/db/schema';
 import { runSeed } from '../../src/seed/seed';
 import { addDays } from '../../src/web/calendar/calendar-date';
-import { RETIRED_TOOLS } from '../../src/web/mcp/tools/retired';
 import { createOptionGroup } from '../../src/web/wishlist/decisions';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import {
@@ -377,10 +376,7 @@ describe('MCP statements per tool (#172)', () => {
     const listed = res
       .json<{ result: { tools: { name: string }[] } }>()
       .result.tools.map((tool) => tool.name);
-    // The plans' retired names refuse every call (mcp-muse.spec.ts): nothing to count.
-    expect(new Set(cases.map(([name]) => name))).toEqual(
-      new Set(listed.filter((name) => !RETIRED_TOOLS.includes(name))),
-    );
+    expect(new Set(cases.map(([name]) => name))).toEqual(new Set(listed));
   });
 
   describe('the reads #172 dropped', () => {

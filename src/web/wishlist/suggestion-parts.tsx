@@ -1,6 +1,6 @@
 import type { OutfitCount } from '../../wardrobe/goes-with';
-import { budgetFit } from '../../wardrobe/shopping';
 import {
+  budgetFit,
   type DismissReason,
   OWNER_DISMISS_REASONS,
   type OwnerDismissReason,
@@ -42,7 +42,7 @@ export function decisionToastOf(
   return DECISION_TOASTS.find((toast) => toast === flag);
 }
 
-/** Why something was set aside, as the owner reads it; null is the plans review's "Not this one". */
+/** Why something was set aside, as the owner reads it; null for one the plans' review set aside before #337 (its words are the note). */
 export function reasonText(reason: DismissReason | null): string {
   return t(`muse.reason.${reason ?? 'none'}`);
 }
@@ -165,9 +165,7 @@ export function PriceAgainstBudget(props: {
       {said && (
         <span class={fit === 'over' ? 'text-warning' : 'text-success'}>
           {' · '}
-          {t(
-            fit === 'over' ? 'shopping.OVER_BUDGET' : 'shopping.WITHIN_BUDGET',
-          )}
+          {t(fit === 'over' ? 'muse.OVER_BUDGET' : 'muse.WITHIN_BUDGET')}
         </span>
       )}
     </p>
@@ -226,7 +224,7 @@ export function NeedLink(props: { name: string; href: string }) {
 
 /**
  * A product's photo on the plinth, contained (a shop's photo, or its
- * cutout): the shopping list's card language, square at any width.
+ * cutout): square at any width.
  */
 export function ProductPhoto(props: {
   photo: SignablePhotoRef | null;

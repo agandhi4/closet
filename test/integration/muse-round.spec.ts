@@ -336,12 +336,15 @@ describe('a round of Muse’s', () => {
       expect(blank).not.toMatch(/name="museRoundsOn" value="1" checked/);
       expect(blank).toContain('When Muse finishes a round');
 
-      await t.inject({
+      const saved = await t.inject({
         method: 'POST',
         url: '/push/reminders',
         payload: { endpoint, museRoundsOn: '1' },
         headers: { 'hx-request': 'true' },
       });
+      // The toggle alone: no word about a time starting tomorrow.
+      expect(saved.body).toContain('Saved.');
+      expect(saved.body).not.toContain('starts tomorrow');
       expect(await form(endpoint)).toMatch(
         /name="museRoundsOn" value="1" checked/,
       );

@@ -55,8 +55,8 @@ Each area's detail lives in a `CLAUDE.md` beside its code. Claude Code loads one
 | Wardrobe | `src/web/wardrobe/CLAUDE.md` | garments: the grid, the form, properties, bulk edit, tagging, search |
 | Link import | `src/web/wardrobe/link-import/CLAUDE.md` | adding a garment from a product link or Android's share sheet |
 | The garment model | `src/wardrobe/CLAUDE.md` | the pure rules in `src/wardrobe/`, adding an occasion or a property value |
-| Wishlist | `src/web/wishlist/CLAUDE.md` | the wishlist (Muse's inbox, its decision screen), a garment's status, "Bought it" |
-| Wardrobe plans | `src/web/plans/CLAUDE.md` | plans, their gaps, the style profile, the shopping list |
+| Wishlist | `src/web/wishlist/CLAUDE.md` | the wishlist (Muse's inbox, its decision screen), a garment's status, "Bought it", the retired plans' addresses |
+| Style profile | `src/web/style/CLAUDE.md` | the style profile (what the agent reads of your taste) |
 | Capsules | `src/web/capsules/CLAUDE.md` | capsules and the capsule filter |
 | Wears and washes | `src/web/wears/CLAUDE.md` | wears, washes, away, laundry, availability |
 | Insights | `src/web/insights/CLAUDE.md` | the insights page |
@@ -88,7 +88,7 @@ Each area's detail lives in a `CLAUDE.md` beside its code. Claude Code loads one
 
 ### Routes
 
-In full: `docs/architecture.md#routes`. `GET /` is Today; no landing, privacy, terms or sitemap routes. Public (`config: { public: true }`): login, registration, logout (POST, and the GET that asks), `/about` (upstream attribution), `/offline.html`, `/healthz`, `/manifest.json` (from config, not a static file), `/.well-known/*`, `/share`, `/wardrobe-share/invite/:token`, and every `/file/**` image except an outfit selfie's (a 404 to anyone). `/mcp` takes a personal access token, never the cookie (`config: { bearer: true }`). Everything else needs a session and is the user's own; the area index names each owner (`/laundry` Wears and washes; `/wardrobe/insights` Insights; `/wardrobe/plans`, `/wardrobe/shopping`, `/auth/profile/style` Wardrobe plans; `/calendar/plan-week`, `/auth/profile/week` Weekly auto-plan; `/trips/*`; `/outfits/ideas` Outfit gallery; `/styling`; `/today/*`; `/selfies/*` Outfit selfies). `/offline/warm` is the service worker's warm list, the session's own wardrobe (PWA and the service worker). `/weather/*` exists only with `WEATHER_ENABLED`, `/push/*` only with `PWA_ENABLED`.
+In full: `docs/architecture.md#routes`. `GET /` is Today; no landing, privacy, terms or sitemap routes. Public (`config: { public: true }`): login, registration, logout (POST, and the GET that asks), `/about` (upstream attribution), `/offline.html`, `/healthz`, `/manifest.json` (from config, not a static file), `/.well-known/*`, `/share`, `/wardrobe-share/invite/:token`, and every `/file/**` image except an outfit selfie's (a 404 to anyone). `/mcp` takes a personal access token, never the cookie (`config: { bearer: true }`). Everything else needs a session and is the user's own; the area index names each owner (`/laundry` Wears and washes; `/wardrobe/insights` Insights; `/auth/profile/style` Style profile; `/wardrobe/plans*` and `/wardrobe/shopping`, retired, 302 to the inbox, Wishlist; `/calendar/plan-week`, `/auth/profile/week` Weekly auto-plan; `/trips/*`; `/outfits/ideas` Outfit gallery; `/styling`; `/today/*`; `/selfies/*` Outfit selfies). `/offline/warm` is the service worker's warm list, the session's own wardrobe (PWA and the service worker). `/weather/*` exists only with `WEATHER_ENABLED`, `/push/*` only with `PWA_ENABLED`.
 
 ### Request flow
 

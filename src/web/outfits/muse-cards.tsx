@@ -226,7 +226,7 @@ const pieceName = (piece: MusePiece) =>
 /** A piece to buy's badge: its price, "To buy" without one, or "Set aside". */
 function badgeText(piece: MusePiece): string {
   if (piece.setAside) return t('outfits.muse.SET_ASIDE');
-  return piece.price ? priceLabel(piece.price) : t('plans.looks.TO_BUY');
+  return piece.price ? priceLabel(piece.price) : t('outfits.PIECE_TO_BUY');
 }
 
 /**

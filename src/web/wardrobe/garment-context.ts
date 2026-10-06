@@ -12,11 +12,6 @@ import {
 } from '../gallery/queries';
 import { GARMENT_OUTFITS_SHOWN } from '../outfits/garment-outfits';
 import { type GarmentOutfits, outfitsWithGarmentSql } from '../outfits/queries';
-import {
-  type BoughtLook,
-  boughtLooks,
-  looksWithGarmentSql,
-} from '../plans/looks';
 import { type BrandSize, brandSizeSql } from '../sizes/queries';
 import { type WearSummary, wearSummarySql } from '../wears/queries';
 import {
@@ -57,8 +52,6 @@ export interface OwnerRecords {
  *   the owner's alone: it reads their closet and clashes;
  * - `brandSize`: the owner's size in a wishlist item's brand (#24), their
  *   body, so never read for a grantee;
- * - `completedLooks`: on the owner's Bought it result (`justBought`), the
- *   plan looks the purchase completed (#292); plans are the owner's alone;
  * - `suggestion`: Muse's note and the need it is a pick of, with its
  *   siblings (#333), for a suggestion; anyone who sees it reads Muse's
  *   notes (owner decision, 2026-10-05).
@@ -70,7 +63,6 @@ export interface GarmentContext {
   own: OwnerRecords | undefined;
   goesWith: GoesWithInputs | undefined;
   brandSize: BrandSize | undefined;
-  completedLooks: BoughtLook[];
   suggestion: SuggestionContext | undefined;
 }
 
@@ -90,12 +82,8 @@ export async function garmentContext(
   garment: GarmentDetail,
   access: { isOwner: boolean; ownerId: number },
   today: IsoDate,
-  justBought = false,
 ): Promise<GarmentContext> {
-  const row = await selectScalars(
-    db,
-    contextColumns(garment, access, today, justBought),
-  );
+  const row = await selectScalars(db, contextColumns(garment, access, today));
   const own = row.own && {
     ...row.own,
     // "Spent on it" is the wear line's repair sum, one figure for both.
@@ -108,7 +96,6 @@ export async function garmentContext(
     own,
     goesWith: row.goesWith && readGoesWithInputs(row.goesWith),
     brandSize: row.brandSize ?? undefined,
-    completedLooks: row.completedLooks ? boughtLooks(row.completedLooks) : [],
     suggestion: row.suggestion ?? undefined,
   };
 }
@@ -125,7 +112,6 @@ function contextColumns(
   }: GarmentDetail,
   { isOwner, ownerId }: { isOwner: boolean; ownerId: number },
   today: IsoDate,
-  justBought: boolean,
 ) {
   const owned = status !== 'wishlist';
   const when = <T>(read: boolean, column: () => T) =>
@@ -141,9 +127,6 @@ function contextColumns(
     goesWith: when(!owned && isOwner, () => goesWithInputsSql(ownerId, id)),
     brandSize:
       !owned && isOwner && brand ? brandSizeSql(ownerId, brand) : undefined,
-    completedLooks: when(status === 'closet' && isOwner && justBought, () =>
-      looksWithGarmentSql(ownerId, id),
-    ),
     suggestion: when(suggestedAt !== null, () =>
       suggestionContextSql(ownerId, id, suggestionGroupId),
     ),

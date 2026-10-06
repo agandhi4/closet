@@ -15,10 +15,8 @@ describe('isUniqueViolation', () => {
   });
 
   it('is false for another unique constraint on the same write, so the caller rethrows', () => {
-    const error = pgError('23505', 'wardrobe_plan_owner_id_active_unique');
-    expect(
-      isUniqueViolation(error, 'wardrobe_plan_owner_id_lower_name_unique'),
-    ).toBe(false);
+    const error = pgError('23505', 'user_pkey');
+    expect(isUniqueViolation(error, 'user_lower_email_unique')).toBe(false);
   });
 
   it('reads the driver error through drizzle’s cause chain', () => {

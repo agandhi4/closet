@@ -177,7 +177,7 @@ export interface SeedIds {
     shareableId: string;
   };
   garmentShareableId: string;
-  /** A wishlist item that is a candidate of the active plan. */
+  /** The first item of his wishlist (the merino replacing T21). */
   wishlistId: number;
   /** The outfit worn most often, and its garments. */
   outfitId: number;
@@ -191,9 +191,6 @@ export interface SeedIds {
   tripId: number;
   trip: { name: string; startsOn: string; endsOn: string };
   tripItemId: number;
-  planId: number;
-  /** An item of the active plan with candidates. */
-  planItemId: number;
   brandSizeId: number;
   /** Dana (sparse), who shares her wardrobe with Theo (MANAGE), and a garment of hers. */
   dana: { id: number; garmentId: number };
@@ -791,30 +788,16 @@ async function findSeedIds(
       .limit(1),
     'second grid page',
   );
-  const plan = one(
+  const wish = one(
     await db
-      .select({ id: s.wardrobePlan.id })
-      .from(s.wardrobePlan)
+      .select({ id: s.garment.id })
+      .from(s.garment)
       .where(
-        and(
-          eq(s.wardrobePlan.ownerId, theoId),
-          eq(s.wardrobePlan.active, true),
-        ),
-      ),
-    'active plan',
-  );
-  const candidate = one(
-    await db
-      .select({
-        planItemId: s.planItemCandidate.planItemId,
-        garmentId: s.planItemCandidate.garmentId,
-      })
-      .from(s.planItemCandidate)
-      .innerJoin(s.planItem, eq(s.planItem.id, s.planItemCandidate.planItemId))
-      .where(eq(s.planItem.planId, plan.id))
-      .orderBy(asc(s.planItemCandidate.garmentId))
+        and(eq(s.garment.ownerId, theoId), eq(s.garment.status, 'wishlist')),
+      )
+      .orderBy(asc(s.garment.id))
       .limit(1),
-    'plan candidate',
+    'wishlist item',
   );
   const wornCount = sql<number>`count(*)`;
   const outfit = one(
@@ -938,7 +921,7 @@ async function findSeedIds(
       shareableId: repaired.fileShareableId,
     },
     garmentShareableId: repaired.shareableId,
-    wishlistId: candidate.garmentId,
+    wishlistId: wish.id,
     outfitId: outfit.id,
     outfitGarmentIds: slots.flatMap((slot) =>
       slot.garmentId === null ? [] : [slot.garmentId],
@@ -950,8 +933,6 @@ async function findSeedIds(
     tripId: trip.id,
     trip: { name: trip.name, startsOn: trip.startsOn, endsOn: trip.endsOn },
     tripItemId: tripItem.id,
-    planId: plan.id,
-    planItemId: candidate.planItemId,
     brandSizeId: brandSize.id,
     dana: { id: share.danaId, garmentId: danaGarment.id },
   };

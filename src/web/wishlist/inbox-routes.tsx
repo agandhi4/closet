@@ -100,7 +100,7 @@ function noteOf(note: string | undefined): string | null {
  * decision is one call of decide() (decisions.ts), the one writer, and
  * answers 303 to the page it was made on with a toast; a refusal is decide's
  * 404 (not theirs) or 409 (a stale page or a double tap). "Bought it" stays
- * GET|POST /wardrobe/:id/bought (routes.tsx), whose buyCandidate settles
+ * GET|POST /wardrobe/:id/bought (routes.tsx), whose buyWishlistItem settles
  * the need; "Bought a different one" is the closet form with
  * `?forNeed=` (src/web/wardrobe/destination.ts).
  */
@@ -408,6 +408,27 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         garmentUrl(id, undefined, '', { [DECISION_FLAG]: 'returned' }),
       );
     },
+  );
+
+  // The wardrobe plans' addresses (#337): the inbox replaced plans, so an
+  // old bookmark or notification lands there. 302, not 301: nothing should
+  // cache these for good. Only GETs: an old form's post falls to the
+  // not-found handler, or to a garment route's 400.
+  for (const path of [
+    '/wardrobe/plans',
+    '/wardrobe/plans/*',
+    '/wardrobe/shopping',
+  ]) {
+    app.get(path, async (_request, reply) =>
+      reply.redirect(WISHLIST_PATH, 302),
+    );
+  }
+  // A wishlist item's "For plan item…" page: back to the garment.
+  app.get(
+    '/wardrobe/:id/plan-items',
+    { schema: { params: GarmentParams } },
+    async (request, reply) =>
+      reply.redirect(garmentUrl(request.params.id, undefined), 302),
   );
 
   done();

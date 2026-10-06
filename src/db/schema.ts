@@ -60,11 +60,6 @@ import {
   type OrderItemState,
 } from '../wardrobe/order-items';
 import { LOOK_REACTIONS, type LookReaction } from '../wardrobe/look-reaction';
-import {
-  PLAN_ITEM_REVIEWS,
-  type PlanItemReview,
-} from '../wardrobe/plan-review';
-import { PLAN_PRIORITIES, type PlanPriority } from '../wardrobe/plans';
 import { GARMENT_STATUSES, type GarmentStatus } from '../wardrobe/status';
 import {
   DISMISS_REASONS,
@@ -159,14 +154,12 @@ function sqlList(values: readonly string[]) {
  */
 export const USER_EMAIL_UNIQUE = 'user_lower_email_unique';
 export const CAPSULE_NAME_UNIQUE = 'capsule_owner_id_lower_name_unique';
-export const PLAN_NAME_UNIQUE = 'wardrobe_plan_owner_id_lower_name_unique';
 export const SHARE_GRANTEE_UNIQUE =
   'wardrobe_share_grantor_id_grantee_id_unique';
 export const BRAND_SIZE_UNIQUE = 'brand_size_user_id_brand_key_unique';
 export type UniqueConstraint =
   | typeof USER_EMAIL_UNIQUE
   | typeof CAPSULE_NAME_UNIQUE
-  | typeof PLAN_NAME_UNIQUE
   | typeof SHARE_GRANTEE_UNIQUE
   | typeof BRAND_SIZE_UNIQUE;
 
@@ -1610,6 +1603,20 @@ export const weekReplan = pgTable(
   ],
 );
 
+// ---- Wardrobe plans (#34), retired by Muse (#337) ---------------------------
+// No code reads or writes these six tables since #337's part B1 removed the
+// plans (the modules the comments below name are gone); they stay only until
+// part B2's migration drops them, with option_group.plan_item_id and
+// outfit.plan_look_id. The value sets their check constraints list are
+// copied here for as long, so nothing else keeps them alive.
+const PLAN_PRIORITIES = ['high', 'medium', 'low'] as const;
+const PLAN_ITEM_REVIEWS = [
+  'proposed',
+  'accepted',
+  'revise',
+  'declined',
+] as const;
+
 // A wardrobe plan (#34): a named ideal wardrobe its owner builds toward
 // ("NYC minimal", "NYC minimal v2"), made of plan items. Private, like
 // outfits: every route and tool is the signed-in owner's, shares never reach
@@ -1638,7 +1645,7 @@ export const wardrobePlan = pgTable(
     // Also the index of the owner_id foreign key and of every plan query.
     // owner_id as an expression, for drizzle-kit's introspection (see
     // capsule_owner_id_lower_name_unique).
-    uniqueIndex(PLAN_NAME_UNIQUE).on(
+    uniqueIndex('wardrobe_plan_owner_id_lower_name_unique').on(
       sql`${table.ownerId}`,
       sql`lower(${table.name})`,
     ),
@@ -1694,7 +1701,7 @@ export const planItem = pgTable(
     formalityMax: smallint('formality_max').$type<Formality>(),
     quantity: smallint('quantity').default(1).notNull(),
     priority: text('priority')
-      .$type<PlanPriority>()
+      .$type<(typeof PLAN_PRIORITIES)[number]>()
       .default('medium')
       .notNull(),
     // What the owner means to spend on one, in the household's currency.
@@ -1702,7 +1709,7 @@ export const planItem = pgTable(
     // Why it is in the plan.
     note: text('note'),
     review: text('review')
-      .$type<PlanItemReview>()
+      .$type<(typeof PLAN_ITEM_REVIEWS)[number]>()
       .default('accepted')
       .notNull(),
     ownerNote: text('owner_note'),

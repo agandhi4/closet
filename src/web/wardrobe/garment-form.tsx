@@ -29,7 +29,6 @@ import type { NeedBoughtFor } from '../wishlist/inbox';
 import type { ReplaceableGarment } from '../wishlist/queries';
 import type { BrandSize } from '../sizes/queries';
 import { BRAND_SIZE_HINT_TRIGGER, BrandSizeHint } from '../sizes/views';
-import type { CandidateFor } from './destination';
 import { type DraftQueue, DraftQueueSection } from './draft-queue';
 import {
   LookalikeCopyForm,
@@ -119,8 +118,6 @@ export interface GarmentFormModel {
   link?: LinkImportView;
   /** A wishlist form's "Replaces" choices (renderGarmentForm reads them). */
   replaceable?: ReplaceableGarment[];
-  /** The owner's plan item a new wishlist item is a candidate for (34b; its destination's planItem). */
-  candidateFor?: CandidateFor;
   /** The owner's Muse need a new closet garment is bought for instead of its picks (#333; its destination's forNeed). */
   boughtFor?: NeedBoughtFor;
   /**
@@ -347,7 +344,6 @@ function OwnershipFields(props: {
         mode={mode}
         replaces={values.replaces}
         choices={model.replaceable ?? []}
-        candidateFor={model.candidateFor}
       />
     );
   }
@@ -486,18 +482,15 @@ function moreDetailsOpen(
 }
 
 /**
- * A wishlist form's own fields: its destination (a new one, with the plan
- * item it is a candidate for, 34b), and what it replaces, with the marker
- * the save reads it by (GarmentBody.wishlist). The choices are the closet's
- * garments, those that need replacing first.
+ * A wishlist form's own fields: its destination (a new one), and what it
+ * replaces, with the marker the save reads it by (GarmentBody.wishlist).
+ * The choices are the closet's garments, those that need replacing first.
  */
 function WishlistFields(props: {
   mode: GarmentFormMode;
   replaces: string;
   choices: ReplaceableGarment[];
-  candidateFor: CandidateFor | undefined;
 }) {
-  const { candidateFor } = props;
   const attention = props.choices.filter((g) => g.condition !== 'good');
   const rest = props.choices.filter((g) => g.condition === 'good');
   const option = (garment: ReplaceableGarment) => (
@@ -514,21 +507,6 @@ function WishlistFields(props: {
     <>
       {props.mode.kind === 'new' && (
         <input type="hidden" name="to" value="wishlist" />
-      )}
-      {props.mode.kind === 'new' && candidateFor && (
-        <>
-          <input
-            type="hidden"
-            name="planItem"
-            value={String(candidateFor.id)}
-          />
-          <p class="alert alert-info text-sm" id="garment-candidate-for">
-            {t('shopping.CANDIDATE_FOR', {
-              item: candidateFor.title,
-              plan: candidateFor.planName,
-            })}
-          </p>
-        </>
       )}
       <input type="hidden" name="wishlist" value="1" />
       <div class="flex flex-col">

@@ -77,8 +77,9 @@ async function commitWithPhoto<T>(
 
 /**
  * More rows a new garment's save writes in the garment's own transaction,
- * given its id: a new wishlist item's plan candidate link (34b), so the
- * item never exists on the wishlist without the link it was added for.
+ * given its id: an order item marked added (#25), a Muse need settled by
+ * "Bought a different one" (#333), a suggestion's provenance (#337), so
+ * the garment never exists without what it was added for.
  */
 export type WithGarment = (
   tx: Queryable,

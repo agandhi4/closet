@@ -8,8 +8,8 @@ import { t } from '../i18n';
  * strip's centre line and writes that item's `data-snap-value` into the
  * strip's hidden input. A page needs no script of its own. See ./CLAUDE.md.
  *
- * Used by Styling's rows (src/web/styling/styling-row.tsx), the plan review,
- * the Looks strips and the shopping list.
+ * Used by Styling's rows (src/web/styling/styling-row.tsx), Ideas, Today,
+ * Goes-with's best outfits and a Muse need's options.
  */
 
 /**
@@ -40,12 +40,6 @@ const SIZES = {
     item: 'w-28 lg:w-40',
     gap: 'gap-3',
     ends: 'before:w-[calc(50%-4.25rem)] after:w-[calc(50%-4.25rem)] lg:before:w-[calc(50%-5.75rem)] lg:after:w-[calc(50%-5.75rem)] before:shrink-0 after:shrink-0',
-  },
-  // A plan look's card (#291): a collage with words and reactions under it.
-  card: {
-    item: 'w-56',
-    gap: 'gap-3',
-    ends: 'before:w-[calc(50%-7.75rem)] after:w-[calc(50%-7.75rem)] before:shrink-0 after:shrink-0',
   },
   // An idea card (#321): the strip's whole width on a phone (no spacers: the
   // negative margins cancel the gap beside the zero-width pseudo-element),
@@ -120,14 +114,14 @@ export function SnapStrip(props: {
   size: SnapSize;
   label: string;
   /**
-   * False for a strip that is not a choice (the shopping list's: its tiles
-   * hold links, which an `option` would hide from screen readers): a plain
+   * False for a strip that is not a choice (Ideas', Today's: its tiles hold
+   * links and forms, which an `option` would hide from screen readers): a plain
    * group, and `snapItem({ listbox: false })` on its items.
    */
   listbox?: boolean;
   /**
-   * True when no tile holds a focusable control (the Looks strip's collage
-   * cards hold none the keyboard needs): the strip itself takes focus, so the
+   * True when no tile holds a focusable control (Goes-with's display-only
+   * outfit cards): the strip itself takes focus, so the
    * arrow keys can reach it. Off where tiles are buttons or links, which
    * would only add a second tab stop.
    */
@@ -181,8 +175,8 @@ export function SnapStrip(props: {
 }
 
 /**
- * The inline module a page with strips renders once (the plan pages' is
- * `LOOKS_INIT`, Styling's `initStyling`): a boosted navigation brings new
+ * The inline module a page with strips renders once (Styling's is its own,
+ * `initStyling`): a boosted navigation brings new
  * strips and a `<script src>` module runs only once, so the page asks for
  * the observer on every visit. A fixed string, nothing interpolated.
  */

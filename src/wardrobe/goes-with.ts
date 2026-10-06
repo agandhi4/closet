@@ -132,7 +132,7 @@ function countOf(found: number): OutfitCount {
   };
 }
 
-/** How many outfits the item makes: the shopping list's candidate cards. */
+/** How many outfits the item makes: "Unlocks N" on the Muse inbox's options. */
 export function outfitCount<G extends IdeaGarment>(
   request: GoesWithRequest<G>,
 ): OutfitCount {

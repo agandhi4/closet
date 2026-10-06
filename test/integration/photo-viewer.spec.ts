@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { changeCandidates } from '../../src/web/plans/candidates';
+import { optionGroup } from '../../src/db/schema';
+import { needUrl } from '../../src/web/wardrobe/urls';
+import { markSuggestion } from '../../src/web/wishlist/decisions';
 import { createTestApp, type TestApp, unescapeHtml } from './harness';
 import {
   createGarment,
@@ -16,8 +18,6 @@ import {
  */
 describe('the photo viewer markup', () => {
   let t: TestApp;
-  const post = (url: string, payload: object) =>
-    t.inject({ method: 'POST', url, payload });
   const page = async (url: string) =>
     unescapeHtml((await t.inject({ method: 'GET', url })).body);
 
@@ -62,54 +62,31 @@ describe('the photo viewer markup', () => {
     expect(html).toContain('aria-label="Enlarge photo of Boots"');
   });
 
-  it('opens a plan item card and its sheet on the item’s candidates', async () => {
-    const created = await post('/wardrobe/plans', {
-      name: 'Capsule',
-      notes: '',
-    });
-    const planId = Number(
-      /^\/wardrobe\/plans\/(\d+)\?/.exec(String(created.headers.location))![1],
-    );
-    await post(`/wardrobe/plans/${planId}/items`, {
-      category: 'hats',
-      quantity: '1',
-      priority: 'medium',
-    });
-    let html = await page(`/wardrobe/plans/${planId}`);
-    const itemId = Number(/id="plan-item-(\d+)"/.exec(html)![1]);
-
-    const products: number[] = [];
-    for (const name of ['Loafers', 'Brogues']) {
-      const product = await createWishlistItem(t, { name, category: 'hats' });
-      await uploadPhoto(t, product, await jpegPhoto());
-      products.push(product);
+  it('opens a need’s options on their own set, every trigger on a photo of it', async () => {
+    const [need] = await t.db
+      .insert(optionGroup)
+      .values({ ownerId: t.owner.id, name: 'A navy knit', budget: '100' })
+      .returning({ id: optionGroup.id });
+    for (const name of ['Navy crew', 'Navy cardigan', 'Navy vest']) {
+      const id = await createWishlistItem(t, { name, category: 'tops' });
+      // The vest has no photo: it is in no set.
+      if (name !== 'Navy vest') await uploadPhoto(t, id, await jpegPhoto());
+      expect(
+        await markSuggestion(t.db, t.owner.id, id, {
+          tokenId: null,
+          groupId: need.id,
+          note: null,
+          rank: null,
+        }),
+      ).toBe('marked');
     }
-    const withoutPhoto = await createWishlistItem(t, {
-      name: 'Clogs',
-      category: 'hats',
-    });
-    await changeCandidates(t.db, t.owner.id, {
-      add: { itemIds: [itemId], garmentIds: [...products, withoutPhoto] },
-    });
-
-    html = await page(`/wardrobe/plans/${planId}`);
-    const card = html.slice(
-      html.indexOf(`id="plan-item-${itemId}"`),
-      html.indexOf('</li>', html.indexOf(`id="plan-item-${itemId}"`)),
-    );
-    const set = setOf(card, `plan-item-${itemId}-photos`);
-    // Candidates with a photo only; the lead is one of them.
+    const html = await page(needUrl(need.id, undefined));
+    const set = setOf(html, 'need-options');
     expect(set).toHaveLength(2);
-    const large = triggers(card, `plan-item-${itemId}-photos`);
-    // The card's enlarge button, and the sheet's photo.
-    expect(large).toHaveLength(2);
-    for (const src of large) expect(set).toContain(src);
-
-    // Every trigger on the page opens a photo of its own set, whichever card.
     const ids = new Set(
       [...html.matchAll(/data-photo-open="([^"]+)"/g)].map((m) => m[1]),
     );
-    expect(ids.size).toBeGreaterThan(0);
+    expect(ids).toContain('need-options');
     for (const id of ids) {
       const own = setOf(html, id);
       for (const src of triggers(html, id)) expect(own).toContain(src);

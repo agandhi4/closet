@@ -77,12 +77,6 @@ export interface Destination {
   /** A wishlist item's replaced garment (a garment's "Find a replacement"). */
   replaces?: number;
   /**
-   * The owner's plan item the new wishlist item is a candidate for (34b: a
-   * plan item's "Add a candidate", by link or with a photo): linked when
-   * the garment is saved (changeCandidates, src/web/plans/candidates.ts).
-   */
-  planItem?: number;
-  /**
    * The owner's order item a new closet garment is added from (#25, "From
    * your orders"): marked added when the garment is saved, in its
    * transaction. Posted by the form (GarmentBody.orderItem), never in a URL.
@@ -104,11 +98,7 @@ export function destinationParams(
 ): Record<string, string | number | undefined> {
   return destination.to === 'closet'
     ? { forNeed: destination.forNeed }
-    : {
-        to: destination.to,
-        replaces: destination.replaces,
-        planItem: destination.planItem,
-      };
+    : { to: destination.to, replaces: destination.replaces };
 }
 
 /** `path` with the query `params`, empty values left out. */

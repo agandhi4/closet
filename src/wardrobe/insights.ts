@@ -1,6 +1,6 @@
 import { brandKey, brandSpelling } from './brands';
 import type { Condition, GarmentColor } from './properties';
-import { fromCents, toCents } from './shopping';
+import { fromCents, toCents } from './money';
 import type { SignablePhotoRef } from '../web/files/image-url';
 
 /**

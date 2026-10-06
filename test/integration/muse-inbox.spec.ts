@@ -17,8 +17,8 @@ import {
  * 4 C, D, F): the Wishlist tab as Muse's inbox, a need's decision screen,
  * a suggestion's page, and every decision over HTTP, each through decide()
  * with its rows asserted. Also "New from Muse" (never in the bare page,
- * doc section 9), the statements each page sends, the plans' entry points
- * gone, Today's card, the offline warm list and the export.
+ * doc section 9), the statements each page sends, Today's card, the
+ * offline warm list and the export.
  */
 
 describe('the Muse inbox', () => {
@@ -263,12 +263,6 @@ describe('the Muse inbox', () => {
     it('is two statements: the session, and one for every section and the unlocks', async () => {
       const record = await recordQueries(() => get('/wardrobe/wishlist'));
       expect(record.statements).toBe(2);
-    });
-
-    it('drops the plans’ links: no candidacies, no shopping list', async () => {
-      const html = (await get('/wardrobe/wishlist')).body;
-      expect(html).not.toContain('/wardrobe/shopping');
-      expect(html).not.toContain('/wardrobe/plans');
     });
 
     it('pages the needs with the Ideas sentinel past ten', async () => {
@@ -520,14 +514,12 @@ describe('the Muse inbox', () => {
       expect((await groupRow(id)).status).toBe('open');
     });
 
-    it('Bought it on the chosen pick settles the need, with no plans’ follow-ups', async () => {
+    it('Bought it on the chosen pick settles the need', async () => {
       const id = await need('A coat');
       const coat = await pick('Camel coat', id, { category: 'outerwear' });
       const other = await pick('Navy coat', id, { category: 'outerwear' });
       await post(`/wardrobe/${coat}/choose`);
-      const form = await get(`/wardrobe/${coat}/bought`);
-      expect(form.body).not.toContain('name="adjustItems"');
-      expect(form.body).not.toContain('name="removeCandidates"');
+      expect((await get(`/wardrobe/${coat}/bought`)).statusCode).toBe(200);
       const res = await post(`/wardrobe/${coat}/bought`, {
         acquiredOn: t.today(),
         price: '250',
@@ -880,15 +872,7 @@ describe('the Muse inbox', () => {
     });
   });
 
-  describe('plans unlinked (owner decision, #333)', () => {
-    it('drops the Plans tab and ⋯’s Plans and Shopping list', async () => {
-      const html = (await get('/wardrobe')).body;
-      expect(html).not.toContain('href="/wardrobe/plans"');
-      expect(html).not.toContain('href="/wardrobe/shopping"');
-      // The routes keep working until they go (#337).
-      expect((await get('/wardrobe/plans')).statusCode).toBe(200);
-    });
-
+  describe('Today’s card, the warm list and the export', () => {
     it('Today’s card counts the needs to decide and leads to the inbox', async () => {
       const html = unescapeHtml((await get('/')).body);
       const [, count] = /data-muse-needs="(\d+)"/.exec(html) ?? [];
