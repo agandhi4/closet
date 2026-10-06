@@ -12,6 +12,7 @@ import { type ScheduledJob, stopBeforeClose } from './maintenance/scheduled';
 import { addDays, todayIn } from './web/calendar/calendar-date';
 import { pruneReminders, sendDueReminders } from './web/push/reminders';
 import { pollOrderMail } from './web/wardrobe/order-mail/poll';
+import { closeQuietRounds } from './web/wishlist/round-end';
 import type { PushSender } from './web/push/sender';
 import {
   pruneReplans,
@@ -28,7 +29,8 @@ const RECONCILE_HOUR = 3;
  * (with PWA_ENABLED), the order mail's poll (with ORDER_MAIL_JMAP_TOKEN),
  * the week's daily re-plan (the planner's entries
  * judged against the forecast with WEATHER_ENABLED, and always against
- * what can still be worn), the background-removal queue started with
+ * what can still be worn), the quiet close of Muse's rounds, the
+ * background-removal queue started with
  * `runner`,
  * signal handling, listen. main.ts passes the model (ModelRunner);
  * test/support/test-server.ts, which Playwright and Lighthouse boot on
@@ -94,6 +96,18 @@ export async function serve(
     jobs.push(...startReminders(config, logger, metrics, push, replan));
   }
   jobs.push(...startReplans(config, metrics, replan));
+  // A Muse round its agent never finished, closed once quiet
+  // (src/web/wishlist/round-end.ts); notified only with PWA_ENABLED.
+  const rounds = { db, push, logger: logger.child({ context: 'Muse' }) };
+  jobs.push(
+    scheduleMinutely({
+      name: 'Muse round close',
+      run: metrics.timeJob('muse_rounds', (now: Date) =>
+        closeQuietRounds(rounds, now),
+      ),
+      logger: rounds.logger,
+    }),
+  );
   if (orderMail) {
     jobs.push(
       scheduleMinutely({

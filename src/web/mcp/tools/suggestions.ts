@@ -28,13 +28,8 @@ import {
   suggestionRoom,
 } from '../../wishlist/decisions';
 import { readSuggestionFeedback } from '../../wishlist/feedback';
-import { roundReviewPath, roundWhat } from '../../wishlist/round-text';
-import {
-  finishRound,
-  ROUND_SUMMARY_MAX,
-  type RoundCounts,
-} from '../../wishlist/rounds';
-import { t } from '../../i18n';
+import { notifyRounds, QUIET_PERIOD_MS } from '../../wishlist/round-end';
+import { finishRound, ROUND_SUMMARY_MAX } from '../../wishlist/rounds';
 import {
   type MusePick,
   type Need,
@@ -123,52 +118,6 @@ function setAsideOut(rows: readonly SetAsideRow[]) {
         : [],
     ),
   };
-}
-
-/** A newer round's notification replaces an unread one (the reminders' tags are today-morning, today-evening). */
-const ROUND_TAG = 'muse-round';
-/** A round's notification is worth a day: past it, Today's card says it. */
-const ROUND_TTL_SECONDS = 24 * 60 * 60;
-
-/**
- * The round's one notification (doc section 4 A): to the owner's devices
- * taking Muse's rounds, tagged so a newer round replaces an unread one,
- * kept a day by the push service. After the round's commit: a failed send
- * never undoes the round, it is logged (the sender's own lines say which
- * device). How many devices it reached; none without PWA_ENABLED.
- */
-async function notifyRound(
-  ctx: ToolContext,
-  round: RoundCounts & { id: number; agent: string | null },
-): Promise<number> {
-  if (!ctx.push) return 0;
-  try {
-    const [report] = await ctx.push.sendEach([
-      {
-        userId: ctx.userId,
-        devices: 'muse-rounds',
-        payload: {
-          title: t('muse.round.PUSH_TITLE', {
-            agent: round.agent ?? t('muse.AGENT'),
-          }),
-          body: t('muse.round.CARD', {
-            agent: round.agent ?? t('muse.AGENT'),
-            what: roundWhat(round),
-          }),
-          url: roundReviewPath(round),
-          tag: ROUND_TAG,
-        },
-        options: { ttlSeconds: ROUND_TTL_SECONDS },
-      },
-    ]);
-    return report.delivered;
-  } catch (error) {
-    ctx.webLogger.error(
-      { err: error },
-      `Round ${round.id} of user ${ctx.userId}: its notification was not sent`,
-    );
-    return 0;
-  }
 }
 
 /** The refusal of a link the owner set aside, or one suggested already. */
@@ -503,7 +452,7 @@ export const suggestionTools = [
   defineTool({
     name: 'finish_round',
     title: 'Finish a round of suggestions',
-    description: `WRITES: ends your round of suggestions, once, at the end of a conversation. The owner gets one card on Today ("Muse: 3 outfits, 7 pieces to consider", what you proposed and suggested since your last round and they have not decided yet) and one notification on the devices where they turned Muse's rounds on. Give feedbackUntil, the \`until\` of this conversation's get_suggestion_feedback: what it told you is then not told again (what it did not, a decision made since, still is). With nothing new since your last round there is no card or notification (round: null), and feedbackUntil still ends what you read. summary is one line on the card, at most ${ROUND_SUMMARY_MAX} characters.`,
+    description: `WRITES: ends your round of suggestions, once, at the end of a conversation. The owner gets one card on Today ("Muse: 3 outfits, 7 pieces to consider", what you proposed and suggested since your last round and they have not decided yet) and one notification on the devices where they turned Muse's rounds on. Give feedbackUntil, the \`until\` of this conversation's get_suggestion_feedback: what it told you is then not told again (what it did not, a decision made since, still is). With nothing new since your last round there is no card or notification (round: null), and feedbackUntil still ends what you read. summary is one line on the card, at most ${ROUND_SUMMARY_MAX} characters. A round you leave open is closed for you ${QUIET_PERIOD_MS / 60_000} minutes after your last suggestion or outfit, with no summary and your feedback told again.`,
     input: z.object({
       summary: z
         .string()
@@ -535,7 +484,9 @@ export const suggestionTools = [
         );
         return { round: null, feedbackRead: feedbackUntil !== undefined };
       }
-      const notified = await notifyRound(ctx, finished);
+      const [notified] = await notifyRounds(ctx.push, ctx.webLogger, [
+        { ...finished, ownerId: ctx.userId },
+      ]);
       ctx.webLogger.info(
         `Round ${finished.id} finished by user ${ctx.userId} (MCP, token ${ctx.tokenId}): ${finished.outfits} outfits, ${finished.pieces} pieces, ${notified} devices notified`,
       );

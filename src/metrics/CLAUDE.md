@@ -21,7 +21,7 @@ public/js/     vitals.js (device timings, METRICS_ENABLED), errors.js (script er
 | Metric | Labels | Recorded by |
 | --- | --- | --- |
 | `http_request_duration_seconds` (histogram) | `route` (the route template; `unmatched` for a 404 no route matched), `method`, `status_class` (`2xx`) | `registerHttpMetrics`' onResponse hook, every request but a warm's (below) |
-| `job_duration_seconds` (histogram) | `name` (`JobName`: reconciliation, cutout, cutout_retry, reminders, reminder_prune, replan, replan_prune, order_mail), `outcome` (success, failure; a cutout also discarded, interrupted) | `metrics.timeJob` around every timer's run in `server.ts`; `CutoutQueue` per photo |
+| `job_duration_seconds` (histogram) | `name` (`JobName`: reconciliation, cutout, cutout_retry, reminders, reminder_prune, replan, replan_prune, order_mail, muse_rounds), `outcome` (success, failure; a cutout also discarded, interrupted) | `metrics.timeJob` around every timer's run in `server.ts`; `CutoutQueue` per photo |
 | `cutout_queue_depth` (gauge) | none | the pending cutouts; a scrape answers the last finished count (Gotchas) |
 | `push_sends_total` | `outcome` (delivered, pruned, failed) | the Web Push sender, per device |
 | `mcp_tool_call_duration_seconds` (histogram) | `tool`, `outcome` (ok, refused, error) | `registerTools` (`src/web/mcp/tool.ts`) |

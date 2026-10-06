@@ -142,6 +142,11 @@ describe('migrations', () => {
         'order_item_owner_id_product_url_unique',
         'order_item_order_email_id_index',
         'order_item_garment_id_index',
+        // The quiet close of Muse's rounds (#337): each owner's newest
+        // suggestion and proposal, read every minute; the latest round.
+        'garment_owner_id_suggested_at_index',
+        'outfit_owner_id_proposed_at_index',
+        'muse_round_owner_id_finished_at_index',
       ]),
     );
   });

@@ -729,6 +729,11 @@ export const garment = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('set null'),
+    // Each owner's newest suggestion (the quiet round close's minutely read,
+    // quietRounds, src/web/wishlist/rounds.ts): Muse's rows only.
+    index('garment_owner_id_suggested_at_index')
+      .on(table.ownerId, table.suggestedAt)
+      .where(sql`${table.suggestedAt} is not null`),
     // A group's picks (the decision screen, the inbox) and the foreign key's index.
     index('garment_suggestion_group_id_index').on(table.suggestionGroupId),
     foreignKey({
@@ -926,6 +931,10 @@ export const outfit = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
+    // Each owner's newest proposal (quietRounds, as garment's).
+    index('outfit_owner_id_proposed_at_index')
+      .on(table.ownerId, table.proposedAt)
+      .where(sql`${table.proposedAt} is not null`),
     index('outfit_proposed_by_token_id_index').on(table.proposedByTokenId),
     foreignKey({
       name: 'outfit_proposed_by_token_id_foreign',

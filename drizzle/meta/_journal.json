@@ -309,6 +309,13 @@
       "when": 1791207625772,
       "tag": "0043_muse-rounds",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791261570633,
+      "tag": "0044_muse-round-quiet-close",
+      "breakpoints": true
     }
   ]
 }

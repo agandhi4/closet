@@ -1,0 +1,2 @@
+CREATE INDEX "garment_owner_id_suggested_at_index" ON "garment" USING btree ("owner_id","suggested_at") WHERE "garment"."suggested_at" is not null;--> statement-breakpoint
+CREATE INDEX "outfit_owner_id_proposed_at_index" ON "outfit" USING btree ("owner_id","proposed_at") WHERE "outfit"."proposed_at" is not null;
