@@ -921,7 +921,6 @@ describe('the Muse inbox', () => {
       );
       expect(blazer).toMatchObject({ status: 'open', budget: '300.00' });
       expect(blazer).not.toHaveProperty('owner_id');
-      expect(blazer).not.toHaveProperty('plan_item_id');
     });
   });
 });

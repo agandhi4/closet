@@ -36,7 +36,8 @@ The tiers and their commands are in the root `CLAUDE.md` (Commands, Test tiers).
                        static-assets-setup.ts (globalSetup: public/modules/ and the precompressed
                        variants, as the build lays them out),
                        schema-drift.ts (drizzle-kit pushSchema), legacy-migrations.ts + legacy-migrations/
-                       (the frozen MikroORM tree; builds a MikroORM-era database)
+                       (the frozen MikroORM tree; builds a MikroORM-era database), migrate-before.ts
+                       (migrateBefore: drizzle/ applied up to a named migration, the migration specs' start)
   integration/         Vitest in-process specs + harness.ts (createTestApp: t.inject, t.db, t.logs, t.today; multipart,
                        HTML helpers); authorization-matrix.ts (describeMatrix: the authorization matrix, which
                        authorization-<group>.spec.ts run per route group), authorization-coverage.spec.ts

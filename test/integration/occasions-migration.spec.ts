@@ -1,19 +1,8 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectionOptions, type DbConfig } from '../../src/db/client';
-import { MIGRATIONS_FOLDER, runMigrations } from '../../src/db/migrate';
+import { runMigrations } from '../../src/db/migrate';
+import { migrateBefore } from '../support/migrate-before';
 import {
   createScratchDatabase,
   type ScratchDatabase,
@@ -28,7 +17,6 @@ import { silentLogger } from './logger';
 
 let database: ScratchDatabase;
 let client: Client;
-let folder: string;
 
 function configOf(env: Record<string, string>): DbConfig {
   return {
@@ -41,44 +29,16 @@ function configOf(env: Record<string, string>): DbConfig {
   };
 }
 
-interface Journal {
-  entries: { tag: string }[];
-}
-
-/** A copy of drizzle/ that stops before the occasions migration. */
-async function migrationsBeforeOccasions(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'closet-drizzle-'));
-  await mkdir(join(dir, 'meta'));
-  const journal = JSON.parse(
-    await readFile(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8'),
-  ) as Journal;
-  const index = journal.entries.findIndex((e) =>
-    e.tag.endsWith('_outfit_calendar_occasion'),
-  );
-  expect(index).toBeGreaterThan(0);
-  journal.entries = journal.entries.slice(0, index);
-  await writeFile(join(dir, 'meta', '_journal.json'), JSON.stringify(journal));
-  for (const { tag } of journal.entries) {
-    await copyFile(
-      join(MIGRATIONS_FOLDER, `${tag}.sql`),
-      join(dir, `${tag}.sql`),
-    );
-  }
-  return dir;
-}
-
 beforeAll(async () => {
   database = await createScratchDatabase('closet_it');
   client = new Client(connectionOptions(configOf(database.env)));
   await client.connect();
-  folder = await migrationsBeforeOccasions();
-  await migrate(drizzle(client), { migrationsFolder: folder });
+  await migrateBefore(client, 'outfit_calendar_occasion');
 });
 
 afterAll(async () => {
   await client?.end();
   await database?.drop();
-  if (folder) await rm(folder, { recursive: true, force: true });
 });
 
 describe('occasions (the outfit_calendar_occasion migration)', () => {

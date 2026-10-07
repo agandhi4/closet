@@ -82,13 +82,6 @@ describe('migrations', () => {
         'personal_access_token_user_id_index',
         // Login and every email lookup compare lower(email).
         'user_lower_email_unique',
-        // Wardrobe plans (#34): one name per owner, any case (also the
-        // owner_id foreign key's); one active plan per owner; a plan's
-        // items; the drafting token's foreign key (#269).
-        'wardrobe_plan_owner_id_lower_name_unique',
-        'wardrobe_plan_owner_id_active_unique',
-        'wardrobe_plan_drafted_by_token_id_index',
-        'plan_item_plan_id_index',
         // The week template (#16): a user's (also its user_id foreign
         // key's), one outfit for the day per weekday; a user's plans and a
         // plan's entries (their foreign keys); the re-plan's claims (also
@@ -98,19 +91,6 @@ describe('migrations', () => {
         'week_plan_owner_id_index',
         'week_plan_entry_week_plan_id_index',
         'week_replan_pkey',
-        // An item's candidates (also plan_item_id's foreign key), and a
-        // wishlist item's plan items (garment_id's), #34b.
-        'plan_item_candidate_pkey',
-        'plan_item_candidate_garment_id_index',
-        // A plan's looks (also plan_id's foreign key), a look's slots in
-        // order (also look_id's), a garment once per look, and a garment's
-        // looks (garment_id's), #290; the outfit a look was saved as
-        // (outfit_id's foreign key: a deleted outfit's set null), #292.
-        'plan_look_plan_id_index',
-        'plan_look_outfit_id_index',
-        'plan_look_slot_pkey',
-        'plan_look_slot_look_id_garment_id_unique',
-        'plan_look_slot_garment_id_index',
         // Sizes (#24): one row per brand per user, any case (also the
         // user_id foreign key's and the hint's lookup).
         'brand_size_user_id_brand_key_unique',
@@ -164,7 +144,6 @@ describe('migrations', () => {
             garments: true,
             outfits: true,
             capsules: true,
-            plans: true,
             trips: true,
             calendarEntries: true,
             sharesGranted: true,
@@ -185,7 +164,6 @@ describe('migrations', () => {
             capsuleGarments: true,
             wears: true,
             repairs: true,
-            planCandidacies: true,
           },
         }),
         t.db.query.outfit.findMany({
@@ -214,15 +192,6 @@ describe('migrations', () => {
         t.db.query.capsule.findMany({ with: { owner: true, garments: true } }),
         t.db.query.capsuleGarment.findMany({
           with: { capsule: true, garment: true },
-        }),
-        t.db.query.wardrobePlan.findMany({
-          with: { owner: true, items: true },
-        }),
-        t.db.query.planItem.findMany({
-          with: { plan: true, candidates: true },
-        }),
-        t.db.query.planItemCandidate.findMany({
-          with: { item: true, garment: true },
         }),
         t.db.query.trip.findMany({
           with: { owner: true, outfits: true, items: true },

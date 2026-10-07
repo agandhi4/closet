@@ -1,19 +1,8 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Client } from 'pg';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { connectionOptions, type DbConfig } from '../../src/db/client';
-import { MIGRATIONS_FOLDER, runMigrations } from '../../src/db/migrate';
+import { runMigrations } from '../../src/db/migrate';
+import { migrateBefore } from '../support/migrate-before';
 import {
   createScratchDatabase,
   type ScratchDatabase,
@@ -30,7 +19,6 @@ import { silentLogger } from './logger';
 
 let database: ScratchDatabase;
 let client: Client;
-let folder: string;
 
 function configOf(env: Record<string, string>): DbConfig {
   return {
@@ -41,26 +29,6 @@ function configOf(env: Record<string, string>): DbConfig {
     password: env.DATABASE_PASS,
     ssl: false,
   };
-}
-
-/** A copy of drizzle/ that stops before the week plan migration. */
-async function migrationsBeforeWeekPlan(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'closet-drizzle-'));
-  await mkdir(join(dir, 'meta'));
-  const journal = JSON.parse(
-    await readFile(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8'),
-  ) as { entries: { tag: string }[] };
-  const index = journal.entries.findIndex((e) => e.tag.endsWith('_week_plan'));
-  expect(index).toBeGreaterThan(0);
-  journal.entries = journal.entries.slice(0, index);
-  await writeFile(join(dir, 'meta', '_journal.json'), JSON.stringify(journal));
-  for (const { tag } of journal.entries) {
-    await copyFile(
-      join(MIGRATIONS_FOLDER, `${tag}.sql`),
-      join(dir, `${tag}.sql`),
-    );
-  }
-  return dir;
 }
 
 async function insert(text: string, values: unknown[] = []): Promise<number> {
@@ -98,14 +66,12 @@ beforeEach(async () => {
   database = await createScratchDatabase('closet_it');
   client = new Client(connectionOptions(configOf(database.env)));
   await client.connect();
-  folder = await migrationsBeforeWeekPlan();
-  await migrate(drizzle(client), { migrationsFolder: folder });
+  await migrateBefore(client, 'week_plan');
 });
 
 afterEach(async () => {
   await client?.end();
   await database?.drop();
-  if (folder) await rm(folder, { recursive: true, force: true });
 });
 
 describe('the week template replaces the rhythm (the week_plan migration)', () => {

@@ -233,7 +233,7 @@ describe('the wardrobe export', () => {
       garments: Record<string, unknown>[];
       optionGroups: Record<string, unknown>[];
     };
-    // The needs, without whose they are, their token or the plan item.
+    // The needs, without whose they are or their token.
     expect(bundle.optionGroups).toEqual([
       expect.objectContaining({
         id: needId,
@@ -243,11 +243,7 @@ describe('the wardrobe export', () => {
         status: 'open',
       }),
     ]);
-    for (const omitted of [
-      'owner_id',
-      'suggested_by_token_id',
-      'plan_item_id',
-    ]) {
+    for (const omitted of ['owner_id', 'suggested_by_token_id']) {
       expect(bundle.optionGroups[0]).not.toHaveProperty(omitted);
     }
     expect(Number.isNaN(Date.parse(bundle.exportedAt))).toBe(false);

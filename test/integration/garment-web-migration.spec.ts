@@ -326,7 +326,6 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       'notes',
       'owner_id',
       'owner_note',
-      'plan_look_id',
       'proposal_note',
       'proposed_at',
       'proposed_by_token_id',

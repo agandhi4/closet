@@ -35,13 +35,11 @@ export const OMITTED_COLUMNS: ReadonlySet<string> = new Set([
 
 /**
  * The option_group columns the JSON bundle leaves out of each need (Muse,
- * #333): whose it is, its token, and the plan item it was migrated from
- * (plans go, #337).
+ * #333): whose it is and its token.
  */
 export const OMITTED_GROUP_COLUMNS: ReadonlySet<string> = new Set([
   'ownerId',
   'suggestedByTokenId',
-  'planItemId',
 ]);
 
 type GroupRow = typeof optionGroup.$inferSelect;

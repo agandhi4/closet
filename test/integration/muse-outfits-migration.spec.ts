@@ -1,20 +1,8 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectionOptions, type DbConfig } from '../../src/db/client';
-import { MIGRATIONS_FOLDER } from '../../src/db/migrate';
 import { hashPassword } from '../../src/web/auth/passwords';
+import { migrateBefore, planTablesLeft } from '../support/migrate-before';
 import {
   createTestApp,
   TEST_PASSWORD,
@@ -32,7 +20,10 @@ import {
  * every other case the data step decides: loved, sent back and declined
  * looks, a look saved as an outfit, two looks of one set, a copied plan, a
  * look whose set is an outfit already, a look with an emptied slot and one
- * with no garment at all. The real app boots on it (createApp runs 0041).
+ * with no garment at all. What 0041 made is read before 0045_drop-plans
+ * (#337), which drops the plan tables and outfit.plan_look_id; the real app
+ * then boots on it (createApp runs 0045, on production's shape) and keeps
+ * every outfit.
  */
 
 function configOf(env: Record<string, string>): DbConfig {
@@ -44,28 +35,6 @@ function configOf(env: Record<string, string>): DbConfig {
     password: env.DATABASE_PASS,
     ssl: false,
   };
-}
-
-/** A copy of drizzle/ that stops before 0041. */
-async function migrationsBeforeMuseOutfits(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'closet-drizzle-'));
-  await mkdir(join(dir, 'meta'));
-  const journal = JSON.parse(
-    await readFile(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8'),
-  ) as { entries: { tag: string }[] };
-  const index = journal.entries.findIndex((e) =>
-    e.tag.endsWith('_muse-outfits'),
-  );
-  expect(index).toBeGreaterThan(0);
-  journal.entries = journal.entries.slice(0, index);
-  await writeFile(join(dir, 'meta', '_journal.json'), JSON.stringify(journal));
-  for (const { tag } of journal.entries) {
-    await copyFile(
-      join(MIGRATIONS_FOLDER, `${tag}.sql`),
-      join(dir, `${tag}.sql`),
-    );
-  }
-  return dir;
 }
 
 /**
@@ -377,7 +346,9 @@ async function buildFixture(client: Client): Promise<Fixture> {
 
 let t: TestApp;
 let fixture: Fixture;
+// The plan tables before 0041 and after it, before 0045.
 let planBefore: string;
+let planAfter: string;
 
 interface OutfitRow {
   id: number;
@@ -393,22 +364,28 @@ interface OutfitRow {
   plan_look_id: number | null;
 }
 
+interface SlotRow {
+  position: number;
+  category: string;
+  garment_id: number | null;
+}
+
+// As 0041 left them, before 0045: the outfits and each look's slots.
 let outfits: OutfitRow[];
+let lookSlots: Map<number, SlotRow[]>;
 let byLook: Map<number, OutfitRow>;
 let client: Client;
 
-const slotsOf = async (table: 'outfit_slot' | 'plan_look_slot', id: number) =>
+const slotsOf = async (outfitId: number) =>
   (
-    await client.query<{
-      position: number;
-      category: string;
-      garment_id: number | null;
-    }>(
-      `select position, category, garment_id from ${table}
-       where ${table === 'outfit_slot' ? 'outfit_id' : 'look_id'} = $1 order by position`,
-      [id],
+    await client.query<SlotRow>(
+      `select position, category, garment_id from outfit_slot
+       where outfit_id = $1 order by position`,
+      [outfitId],
     )
   ).rows;
+
+const slotsOfLook = (lookId: number) => lookSlots.get(lookId) ?? [];
 
 const planTables = async (c: Client) =>
   JSON.stringify(
@@ -422,7 +399,6 @@ const planTables = async (c: Client) =>
   );
 
 beforeAll(async () => {
-  let folder: string | undefined;
   t = await createTestApp(
     {},
     {
@@ -430,21 +406,32 @@ beforeAll(async () => {
         const setup = new Client(connectionOptions(configOf(env)));
         await setup.connect();
         try {
-          folder = await migrationsBeforeMuseOutfits();
-          await migrate(drizzle(setup), { migrationsFolder: folder });
+          await migrateBefore(setup, 'muse-outfits');
           fixture = await buildFixture(setup);
           planBefore = await planTables(setup);
+          await migrateBefore(setup, 'drop-plans');
+          planAfter = await planTables(setup);
+          outfits = (
+            await setup.query<OutfitRow>(`select * from outfit order by id`)
+          ).rows;
+          const { rows: slots } = await setup.query<
+            SlotRow & { look_id: number }
+          >(
+            `select look_id, position, category, garment_id from plan_look_slot
+             order by look_id, position`,
+          );
+          lookSlots = new Map();
+          for (const { look_id, ...slot } of slots) {
+            lookSlots.set(look_id, [...slotsOfLook(look_id), slot]);
+          }
         } finally {
           await setup.end();
-          if (folder) await rm(folder, { recursive: true, force: true });
         }
       },
     },
   );
   client = new Client(connectionOptions(t.database));
   await client.connect();
-  outfits = (await client.query<OutfitRow>(`select * from outfit order by id`))
-    .rows;
   byLook = new Map(
     outfits.flatMap((o) => (o.plan_look_id ? [[o.plan_look_id, o]] : [])),
   );
@@ -479,8 +466,8 @@ describe('the owner’s draft plan (production’s shape)', () => {
     let total = 0;
     for (const look of fixture.owner.looks) {
       const made = byLook.get(look)!;
-      const slots = await slotsOf('outfit_slot', made.id);
-      expect(slots).toEqual(await slotsOf('plan_look_slot', look));
+      const slots = await slotsOf(made.id);
+      expect(slots).toEqual(slotsOfLook(look));
       total += slots.length;
       const { rows } = await client.query<{ n: number }>(
         `select count(*)::int as n from outfit_slot s join garment g on g.id = s.garment_id
@@ -492,9 +479,9 @@ describe('the owner’s draft plan (production’s shape)', () => {
     expect(total).toBe(28);
   });
 
-  it('leaves the demo persona’s hand-made plan alone, and the plan tables as they were', async () => {
+  it('leaves the demo persona’s hand-made plan alone, and the plan tables as they were', () => {
     expect(byLook.has(fixture.persona.look)).toBe(false);
-    expect(await planTables(client)).toBe(planBefore);
+    expect(planAfter).toBe(planBefore);
   });
 
   it('shows them on the Outfits tab, from Muse', async () => {
@@ -529,7 +516,7 @@ describe('every other case', () => {
     const stamped = byLook.get(fixture.edge.saved)!;
     expect(stamped.id).toBe(fixture.edge.savedOutfit);
     expect(stamped).toMatchObject({ reaction: 'loved', name: 'Own' });
-    expect((await slotsOf('outfit_slot', stamped.id)).length).toBe(2);
+    expect((await slotsOf(stamped.id)).length).toBe(2);
   });
 
   it('one outfit per garment set: a second look of a set, a copied plan’s and one like an outfit are skipped', () => {
@@ -541,8 +528,8 @@ describe('every other case', () => {
 
   it('an emptied slot stays empty, and a look with no garment makes no outfit', async () => {
     const emptied = byLook.get(fixture.edge.emptied)!;
-    expect(await slotsOf('outfit_slot', emptied.id)).toEqual(
-      await slotsOf('plan_look_slot', fixture.edge.emptied),
+    expect(await slotsOf(emptied.id)).toEqual(
+      slotsOfLook(fixture.edge.emptied),
     );
     expect(byLook.has(fixture.edge.allEmpty)).toBe(false);
   });
@@ -550,5 +537,19 @@ describe('every other case', () => {
   it('the edge owner’s outfits: two of their own, five from the looks', () => {
     const theirs = outfits.filter((o) => o.owner_id === fixture.edge.owner);
     expect(theirs).toHaveLength(7);
+  });
+});
+
+describe('then 0045_drop-plans', () => {
+  it('keeps every outfit 0041 made, and drops the plan tables', async () => {
+    const after = (
+      await client.query<Omit<OutfitRow, 'plan_look_id'>>(
+        `select * from outfit order by id`,
+      )
+    ).rows;
+    // Every outfit as it was, less the dropped column.
+    expect(after[0]).not.toHaveProperty('plan_look_id');
+    expect(outfits).toMatchObject(after);
+    expect(await planTablesLeft(client)).toEqual([]);
   });
 });

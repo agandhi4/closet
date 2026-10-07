@@ -464,7 +464,7 @@ export const garment = pgTable(
     photoId: integer('photo_id'),
     ownerId: integer('owner_id').notNull(),
     // A set in GARMENT_COLORS order, no repeats, null for none (never an
-    // empty array), like materials and plan_item.colors. Was comma-joined
+    // empty array), like materials. Was comma-joined
     // text (color) until drizzle/0023_garment_colors.sql.
     colors: text('colors').array().$type<GarmentColor[]>(),
     // The day the garment was acquired, not an instant (was date_aquired
@@ -809,8 +809,6 @@ export const museRound = pgTable(
 // when it left open, the stamp a choice's set-aside siblings share, so an
 // undo restores exactly them. Never deleted but with its owner. Written
 // only by decide (src/web/wishlist/decisions.ts) after its insert.
-// `plan_item_id`: the plan item drizzle/0040 migrated it from, for the
-// plan tools' shims until plans are removed (#337).
 export const optionGroup = pgTable(
   'option_group',
   {
@@ -833,7 +831,6 @@ export const optionGroup = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
-    planItemId: integer('plan_item_id'),
   },
   (table) => [
     check(
@@ -883,14 +880,6 @@ export const optionGroup = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('set null'),
-    unique('option_group_plan_item_id_unique').on(table.planItemId),
-    foreignKey({
-      name: 'option_group_plan_item_id_foreign',
-      columns: [table.planItemId],
-      foreignColumns: [planItem.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('set null'),
   ],
 );
 
@@ -910,8 +899,7 @@ export const outfit = pgTable(
     // (src/wardrobe/look-reaction.ts: proposed, loved, revise, declined;
     // with a reason when declined, OUTFIT_DISMISS_REASONS). Written only by
     // src/web/outfits/proposals.ts and the migration that made plan looks
-    // outfits (0041, `plan_look_id`, kept for the agent tools' shims and
-    // dropped with plans, #337). An owner's own outfit has none of these.
+    // outfits (0041). An owner's own outfit has none of these.
     proposedAt: timestamp('proposed_at', { withTimezone: true }),
     proposedByTokenId: integer('proposed_by_token_id'),
     proposalNote: text('proposal_note'),
@@ -919,7 +907,6 @@ export const outfit = pgTable(
     ownerNote: text('owner_note'),
     dismissedReason: text('dismissed_reason').$type<OutfitDismissReason>(),
     reactedAt: timestamp('reacted_at', { withTimezone: true }),
-    planLookId: integer('plan_look_id'),
   },
   (table) => [
     index('outfit_owner_id_index').on(table.ownerId),
@@ -943,18 +930,10 @@ export const outfit = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('set null'),
-    uniqueIndex('outfit_plan_look_id_unique').on(table.planLookId),
-    foreignKey({
-      name: 'outfit_plan_look_id_foreign',
-      columns: [table.planLookId],
-      foreignColumns: [planLookId()],
-    })
-      .onUpdate('cascade')
-      .onDelete('set null'),
     // A reaction, and only a reaction, on a proposal.
     check(
       'outfit_proposal_check',
-      sql`(${table.proposedAt} is null) = (${table.reaction} is null) and (${table.proposedAt} is not null or (${table.proposedByTokenId} is null and ${table.proposalNote} is null and ${table.ownerNote} is null and ${table.reactedAt} is null and ${table.planLookId} is null))`,
+      sql`(${table.proposedAt} is null) = (${table.reaction} is null) and (${table.proposedAt} is not null or (${table.proposedByTokenId} is null and ${table.proposalNote} is null and ${table.ownerNote} is null and ${table.reactedAt} is null))`,
     ),
     check(
       'outfit_reaction_check',
@@ -975,12 +954,6 @@ export const outfit = pgTable(
     ),
   ],
 );
-
-// outfit and plan_look name each other: the explicit type stops
-// TypeScript inferring either table from the other.
-function planLookId(): AnyPgColumn {
-  return planLook.id;
-}
 
 // What an outfit wears: one row per builder row, in the order the user built
 // it (position 0 first). A slot names a category and optionally a garment; an
@@ -1612,368 +1585,6 @@ export const weekReplan = pgTable(
   ],
 );
 
-// ---- Wardrobe plans (#34), retired by Muse (#337) ---------------------------
-// No code reads or writes these six tables since #337's part B1 removed the
-// plans (the modules the comments below name are gone); they stay only until
-// part B2's migration drops them, with option_group.plan_item_id and
-// outfit.plan_look_id. The value sets their check constraints list are
-// copied here for as long, so nothing else keeps them alive.
-const PLAN_PRIORITIES = ['high', 'medium', 'low'] as const;
-const PLAN_ITEM_REVIEWS = [
-  'proposed',
-  'accepted',
-  'revise',
-  'declined',
-] as const;
-
-// A wardrobe plan (#34): a named ideal wardrobe its owner builds toward
-// ("NYC minimal", "NYC minimal v2"), made of plan items. Private, like
-// outfits: every route and tool is the signed-in owner's, shares never reach
-// it. At most one is active per owner (the partial unique index; setActivePlan
-// in src/web/plans/queries.ts moves it in one transaction). Names are one per
-// owner whatever the case, as capsules'. `drafted_by_token_id` is the
-// personal access token whose agent drafted it (create_plan, #269): the
-// pages name the token (never its prefix or hash). Revoking keeps the token's
-// row, so the name stays; were a token row ever deleted, the plan would stay
-// and lose only its provenance (set null).
-export const wardrobePlan = pgTable(
-  'wardrobe_plan',
-  {
-    id: serial('id').primaryKey(),
-    ownerId: integer('owner_id').notNull(),
-    // Trimmed, never blank; bounded by the route (PLAN_NAME_MAX).
-    name: text('name').notNull(),
-    notes: text('notes'),
-    active: boolean('active').default(false).notNull(),
-    draftedByTokenId: integer('drafted_by_token_id'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    // Also the index of the owner_id foreign key and of every plan query.
-    // owner_id as an expression, for drizzle-kit's introspection (see
-    // capsule_owner_id_lower_name_unique).
-    uniqueIndex('wardrobe_plan_owner_id_lower_name_unique').on(
-      sql`${table.ownerId}`,
-      sql`lower(${table.name})`,
-    ),
-    uniqueIndex('wardrobe_plan_owner_id_active_unique')
-      .on(table.ownerId)
-      .where(sql`${table.active}`),
-    foreignKey({
-      name: 'wardrobe_plan_owner_id_foreign',
-      columns: [table.ownerId],
-      foreignColumns: [user.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('cascade'),
-    index('wardrobe_plan_drafted_by_token_id_index').on(table.draftedByTokenId),
-    foreignKey({
-      name: 'wardrobe_plan_drafted_by_token_id_foreign',
-      columns: [table.draftedByTokenId],
-      foreignColumns: [personalAccessToken.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('set null'),
-  ],
-);
-
-// One target of a plan, in the garment model's own terms (the value sets of
-// src/wardrobe/properties.ts, checked as garment's are): "white heavyweight
-// tee ×3" is tops / t-shirt, white, warmth 3 to 5, quantity 3. Every
-// constraint but the category is optional (null: any). Which garments
-// fulfil it is never stored: matchPlan (src/wardrobe/plans.ts) derives it on
-// every read. `review`: where it is in the owner's review of their agent's
-// work (src/wardrobe/plan-review.ts, #278); only `accepted` is matched.
-// `owner_note`: the owner's word to the agent with a review move (Change
-// this, Don't buy), apart from the agent's `note`; `agent_changed_at`: when the
-// agent last wrote it (null: never), never the owner's moves, so a rejection
-// after it is news to the agent (get_plan_feedback).
-export const planItem = pgTable(
-  'plan_item',
-  {
-    id: serial('id').primaryKey(),
-    planId: integer('plan_id').notNull(),
-    // What the owner calls it; null: the view describes it from its values.
-    name: text('name'),
-    // Trimmed and lower case, as garment.category.
-    category: text('category').notNull(),
-    type: text('type'),
-    // Sets, null for none (any), never an empty array.
-    colors: text('colors').array().$type<GarmentColor[]>(),
-    materials: text('materials').array().$type<Material[]>(),
-    // Ranges on the garment scales, both ends inclusive; both ends or neither.
-    warmthMin: smallint('warmth_min').$type<Warmth>(),
-    warmthMax: smallint('warmth_max').$type<Warmth>(),
-    formalityMin: smallint('formality_min').$type<Formality>(),
-    formalityMax: smallint('formality_max').$type<Formality>(),
-    quantity: smallint('quantity').default(1).notNull(),
-    priority: text('priority')
-      .$type<(typeof PLAN_PRIORITIES)[number]>()
-      .default('medium')
-      .notNull(),
-    // What the owner means to spend on one, in the household's currency.
-    budget: numeric('budget', { precision: 10, scale: 2 }),
-    // Why it is in the plan.
-    note: text('note'),
-    review: text('review')
-      .$type<(typeof PLAN_ITEM_REVIEWS)[number]>()
-      .default('accepted')
-      .notNull(),
-    ownerNote: text('owner_note'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    agentChangedAt: timestamp('agent_changed_at', { withTimezone: true }),
-  },
-  (table) => [
-    index('plan_item_plan_id_index').on(table.planId),
-    check(
-      'plan_item_review_check',
-      sql`${table.review} in (${sqlList(PLAN_ITEM_REVIEWS)})`,
-    ),
-    // "Change this" is the owner's note: the agent has nothing to go on without it.
-    check(
-      'plan_item_owner_note_check',
-      sql`${table.review} <> 'revise' or ${table.ownerNote} is not null`,
-    ),
-    check(
-      'plan_item_type_check',
-      sql`${table.type} in (${sqlList(ALL_GARMENT_TYPES)})`,
-    ),
-    check(
-      'plan_item_colors_check',
-      sql`${table.colors} <@ array[${sqlList(GARMENT_COLORS)}]::text[] and cardinality(${table.colors}) > 0`,
-    ),
-    check(
-      'plan_item_materials_check',
-      sql`${table.materials} <@ array[${sqlList(MATERIALS)}]::text[] and cardinality(${table.materials}) > 0`,
-    ),
-    check(
-      'plan_item_warmth_check',
-      sql`(${table.warmthMin} is null and ${table.warmthMax} is null) or (${table.warmthMin} in (${sql.raw(WARMTHS.join(', '))}) and ${table.warmthMax} in (${sql.raw(WARMTHS.join(', '))}) and ${table.warmthMin} <= ${table.warmthMax})`,
-    ),
-    check(
-      'plan_item_formality_check',
-      sql`(${table.formalityMin} is null and ${table.formalityMax} is null) or (${table.formalityMin} in (${sql.raw(FORMALITIES.join(', '))}) and ${table.formalityMax} in (${sql.raw(FORMALITIES.join(', '))}) and ${table.formalityMin} <= ${table.formalityMax})`,
-    ),
-    check(
-      'plan_item_quantity_check',
-      sql`${table.quantity} between 1 and ${sql.raw(String(QUANTITY_MAX))}`,
-    ),
-    check(
-      'plan_item_priority_check',
-      sql`${table.priority} in (${sqlList(PLAN_PRIORITIES)})`,
-    ),
-    check('plan_item_budget_check', sql`${table.budget} >= 0`),
-    foreignKey({
-      name: 'plan_item_plan_id_foreign',
-      columns: [table.planId],
-      foreignColumns: [wardrobePlan.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('cascade'),
-  ],
-);
-
-// A candidate product for a plan item (#34, slice 34b): a wishlist garment
-// of the plan's owner being considered to fill it, so the shopping list can
-// show what to buy for each gap. Many to many: one product can be the
-// candidate of the same item in two plans (a duplicated plan keeps them),
-// and an item has several. Written only by changeCandidates
-// (src/web/plans/candidates.ts), which stores a pair only when the item's
-// plan and the garment have the same owner and the garment is on the
-// wishlist; read only through onWishlist, so once "Bought it" moves the
-// garment into the closet its link stops mattering (kept, inert: matching
-// is derived and never reads this table). Private like the plan: nothing a
-// grantee reads joins it.
-export const planItemCandidate = pgTable(
-  'plan_item_candidate',
-  {
-    planItemId: integer('plan_item_id').notNull(),
-    garmentId: integer('garment_id').notNull(),
-    // The agent's research (#293): why this option fits, and its place among
-    // the item's options (1 is the pick). Both null on the owner's own adds.
-    note: text('note'),
-    rank: smallint('rank'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    // Also the index of the plan_item_id foreign key.
-    primaryKey({
-      name: 'plan_item_candidate_pkey',
-      columns: [table.planItemId, table.garmentId],
-    }),
-    check(
-      'plan_item_candidate_note_check',
-      sql`${table.note} is null or length(trim(${table.note})) > 0`,
-    ),
-    check('plan_item_candidate_rank_check', sql`${table.rank} between 1 and 5`),
-    index('plan_item_candidate_garment_id_index').on(table.garmentId),
-    foreignKey({
-      name: 'plan_item_candidate_plan_item_id_foreign',
-      columns: [table.planItemId],
-      foreignColumns: [planItem.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('cascade'),
-    foreignKey({
-      name: 'plan_item_candidate_garment_id_foreign',
-      columns: [table.garmentId],
-      foreignColumns: [garment.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('cascade'),
-  ],
-);
-
-// A product the owner turned down for a plan item ("Not this one", #278):
-// a snapshot of the candidate as it was (its wishlist garment is usually
-// deleted with the rejection, so no foreign key to it) and the owner's
-// reason, kept for the agent so it never adds the product again. Written
-// by rejectCandidates (src/web/plans/rejections.ts) and copied with a
-// duplicated plan; goes with its item.
-export const planItemRejection = pgTable(
-  'plan_item_rejection',
-  {
-    id: serial('id').primaryKey(),
-    planItemId: integer('plan_item_id').notNull(),
-    name: text('name'),
-    brand: text('brand'),
-    url: text('url'),
-    price: numeric('price', { precision: 10, scale: 2 }),
-    reason: text('reason'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    index('plan_item_rejection_plan_item_id_index').on(table.planItemId),
-    foreignKey({
-      name: 'plan_item_rejection_plan_item_id_foreign',
-      columns: [table.planItemId],
-      foreignColumns: [planItem.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('cascade'),
-  ],
-);
-
-// A look the owner's agent designed from a plan (#290, epic #289): an
-// outfit to be, mixing closet garments with the plan's candidate products.
-// Not an outfit: `outfit` is wearable today and feeds the calendar, wears
-// and the planners; a look is plan-scoped and owner-only, like its plan.
-// `reaction`: the owner's (src/wardrobe/look-reaction.ts); `owner_note`
-// their word with Change this or Not for me, apart from the agent's
-// `note`; `agent_changed_at` when the agent last wrote it, never the
-// owner's moves. Written only by src/web/plans/looks.ts.
-export const planLook = pgTable(
-  'plan_look',
-  {
-    id: serial('id').primaryKey(),
-    planId: integer('plan_id').notNull(),
-    // Trimmed, never blank; bounded by the writer (LOOK_NAME_MAX).
-    name: text('name').notNull(),
-    // src/wardrobe/occasions.ts OCCASIONS; null: not said.
-    occasion: text('occasion').$type<Occasion>(),
-    note: text('note'),
-    reaction: text('reaction')
-      .$type<LookReaction>()
-      .default('proposed')
-      .notNull(),
-    ownerNote: text('owner_note'),
-    agentChangedAt: timestamp('agent_changed_at', { withTimezone: true }),
-    // The outfit the owner saved the look as (#292, saveLookAsOutfit): the
-    // plan owner's, by the writer's rule. Deleting the outfit clears it, so
-    // the look offers Save as outfit again; an agent's new set of pieces
-    // clears it too (the look is no longer that outfit). Not a holder of
-    // the outfit (outfitIsHeld): nothing is lost when it is cleared.
-    outfitId: integer('outfit_id'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    index('plan_look_plan_id_index').on(table.planId),
-    index('plan_look_outfit_id_index').on(table.outfitId),
-    check(
-      'plan_look_reaction_check',
-      sql`${table.reaction} in (${sqlList(LOOK_REACTIONS)})`,
-    ),
-    // "Change this" is the owner's note: the agent has nothing to go on without it.
-    check(
-      'plan_look_owner_note_check',
-      sql`${table.reaction} <> 'revise' or ${table.ownerNote} is not null`,
-    ),
-    check(
-      'plan_look_occasion_check',
-      sql`${table.occasion} in (${sqlList(OCCASIONS)})`,
-    ),
-    foreignKey({
-      name: 'plan_look_plan_id_foreign',
-      columns: [table.planId],
-      foreignColumns: [wardrobePlan.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('cascade'),
-    foreignKey({
-      name: 'plan_look_outfit_id_foreign',
-      columns: [table.outfitId],
-      foreignColumns: [outfit.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('set null'),
-  ],
-);
-
-// A look's pieces, outfit_slot's shape, so a look saves slot for slot as an
-// outfit (#292): `category` is the garment's category when the look was
-// written (the slot it fills). `garment_id` is a closet garment or a
-// wishlist candidate of the look's plan, both the plan owner's (the
-// writer's rule); deleting the garment (a candidate taken off the
-// wishlist, "Not this one") empties the slot, so the look shows the role
-// it is missing. Whether a piece is owned, to buy or no longer valid is
-// derived on every read, never stored.
-export const planLookSlot = pgTable(
-  'plan_look_slot',
-  {
-    lookId: integer('look_id').notNull(),
-    position: smallint('position').notNull(),
-    category: text('category').notNull(),
-    garmentId: integer('garment_id'),
-  },
-  (table) => [
-    // Also the index of the look_id foreign key.
-    primaryKey({
-      name: 'plan_look_slot_pkey',
-      columns: [table.lookId, table.position],
-    }),
-    // A garment fills one slot of a look (nulls, emptied slots, are distinct).
-    unique('plan_look_slot_look_id_garment_id_unique').on(
-      table.lookId,
-      table.garmentId,
-    ),
-    index('plan_look_slot_garment_id_index').on(table.garmentId),
-    foreignKey({
-      name: 'plan_look_slot_look_id_foreign',
-      columns: [table.lookId],
-      foreignColumns: [planLook.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('cascade'),
-    foreignKey({
-      name: 'plan_look_slot_garment_id_foreign',
-      columns: [table.garmentId],
-      foreignColumns: [garment.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('set null'),
-  ],
-);
-
 // Two garments the owner said clash ("Say why not", the outfit gallery #9):
 // the generator never combines them again (src/wardrobe/generator.ts). The
 // owner's own record, like wears: a pair of their own garments (owned now
@@ -2528,7 +2139,6 @@ export const userRelations = relations(user, ({ one, many }) => ({
   garments: many(garment),
   outfits: many(outfit),
   capsules: many(capsule),
-  plans: many(wardrobePlan),
   trips: many(trip),
   calendarEntries: many(outfitCalendar),
   weather: one(userWeather),
@@ -2578,7 +2188,6 @@ export const garmentRelations = relations(garment, ({ one, many }) => ({
   capsuleGarments: many(capsuleGarment),
   wears: many(garmentWear),
   repairs: many(garmentRepair),
-  planCandidacies: many(planItemCandidate),
 }));
 
 export const garmentRepairRelations = relations(garmentRepair, ({ one }) => ({
@@ -2614,40 +2223,6 @@ export const capsuleGarmentRelations = relations(capsuleGarment, ({ one }) => ({
     references: [garment.id],
   }),
 }));
-
-export const wardrobePlanRelations = relations(
-  wardrobePlan,
-  ({ one, many }) => ({
-    owner: one(user, { fields: [wardrobePlan.ownerId], references: [user.id] }),
-    draftedBy: one(personalAccessToken, {
-      fields: [wardrobePlan.draftedByTokenId],
-      references: [personalAccessToken.id],
-    }),
-    items: many(planItem),
-  }),
-);
-
-export const planItemRelations = relations(planItem, ({ one, many }) => ({
-  plan: one(wardrobePlan, {
-    fields: [planItem.planId],
-    references: [wardrobePlan.id],
-  }),
-  candidates: many(planItemCandidate),
-}));
-
-export const planItemCandidateRelations = relations(
-  planItemCandidate,
-  ({ one }) => ({
-    item: one(planItem, {
-      fields: [planItemCandidate.planItemId],
-      references: [planItem.id],
-    }),
-    garment: one(garment, {
-      fields: [planItemCandidate.garmentId],
-      references: [garment.id],
-    }),
-  }),
-);
 
 export const outfitRelations = relations(outfit, ({ one, many }) => ({
   owner: one(user, { fields: [outfit.ownerId], references: [user.id] }),

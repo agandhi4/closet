@@ -1,36 +1,23 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Client } from 'pg';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { connectionOptions, type DbConfig } from '../../src/db/client';
-import { MIGRATIONS_FOLDER, runMigrations } from '../../src/db/migrate';
+import { migrateBefore } from '../support/migrate-before';
 import {
   createScratchDatabase,
   type ScratchDatabase,
 } from '../support/scratch-database';
-import { silentLogger } from './logger';
 
 /**
  * The plan item review migrations (#278: drizzle/0033_plan-item-review.sql
  * adds plan_item.review and backfills it, 0034 drops `proposed`) on a
  * database the previous build migrated: an agent's unaccepted item
  * (proposed true) becomes 'proposed', every other one 'accepted', and the
- * new constraints hold.
+ * new constraints hold. Read before 0045_drop-plans dropped the plan tables
+ * (#337).
  */
 
 let database: ScratchDatabase;
 let client: Client;
-let folder: string;
 
 function configOf(env: Record<string, string>): DbConfig {
   return {
@@ -43,32 +30,6 @@ function configOf(env: Record<string, string>): DbConfig {
   };
 }
 
-interface Journal {
-  entries: { tag: string }[];
-}
-
-/** A copy of drizzle/ that stops before the review migration. */
-async function migrationsBeforeReview(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'closet-drizzle-'));
-  await mkdir(join(dir, 'meta'));
-  const journal = JSON.parse(
-    await readFile(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8'),
-  ) as Journal;
-  const index = journal.entries.findIndex((e) =>
-    e.tag.endsWith('_plan-item-review'),
-  );
-  expect(index).toBeGreaterThan(0);
-  journal.entries = journal.entries.slice(0, index);
-  await writeFile(join(dir, 'meta', '_journal.json'), JSON.stringify(journal));
-  for (const { tag } of journal.entries) {
-    await copyFile(
-      join(MIGRATIONS_FOLDER, `${tag}.sql`),
-      join(dir, `${tag}.sql`),
-    );
-  }
-  return dir;
-}
-
 async function insert(text: string, values: unknown[] = []): Promise<number> {
   return (await client.query<{ id: number }>(`${text} returning id`, values))
     .rows[0].id;
@@ -78,14 +39,12 @@ beforeEach(async () => {
   database = await createScratchDatabase('closet_it');
   client = new Client(connectionOptions(configOf(database.env)));
   await client.connect();
-  folder = await migrationsBeforeReview();
-  await migrate(drizzle(client), { migrationsFolder: folder });
+  await migrateBefore(client, 'plan-item-review');
 });
 
 afterEach(async () => {
   await client?.end();
   await database?.drop();
-  if (folder) await rm(folder, { recursive: true, force: true });
 });
 
 describe('plan item review (the plan-item-review migrations)', () => {
@@ -106,7 +65,7 @@ describe('plan item review (the plan-item-review migrations)', () => {
     const accepted = await item('tops', false);
     const proposed = await item('bottoms', true);
 
-    await runMigrations(configOf(database.env), silentLogger);
+    await migrateBefore(client, 'drop-plans');
 
     const { rows } = await client.query<{
       id: number;

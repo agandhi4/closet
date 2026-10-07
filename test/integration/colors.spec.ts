@@ -5,7 +5,7 @@ import { createTestApp, TestApp } from './harness';
 
 /**
  * garment.colors is a text[] set of GARMENT_COLORS names (#28), stored in
- * the list's order, null for none, like materials and plan_item.colors; the
+ * the list's order, null for none, like materials; the
  * form posts one `color` per checked box (the field's name since before the
  * array, so cached forms post what they always did), and the grid filters
  * with @>. Only built-in colours are stored, by the form and by

@@ -1,20 +1,8 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectionOptions, type DbConfig } from '../../src/db/client';
-import { MIGRATIONS_FOLDER } from '../../src/db/migrate';
 import { hashPassword } from '../../src/web/auth/passwords';
+import { migrateBefore, planTablesLeft } from '../support/migrate-before';
 import {
   createTestApp,
   TEST_PASSWORD,
@@ -33,8 +21,10 @@ import {
  * (a declined item, a revise item with a bought candidate, ranked and
  * noted links, a rejection, two items of one plan sharing a garment, a
  * duplicated plan).
- * The real app boots on it (createApp runs 0040), and the inbox shows what
- * it made.
+ * What 0040 made is read before 0045_drop-plans (#337), which drops the
+ * plan tables and option_group.plan_item_id; the real app then boots on it
+ * (createApp runs 0045, on production's shape), keeps every need and
+ * suggestion, and the inbox shows them.
  */
 
 const MUSE_COUNTS = [
@@ -53,28 +43,6 @@ function configOf(env: Record<string, string>): DbConfig {
     password: env.DATABASE_PASS,
     ssl: false,
   };
-}
-
-/** A copy of drizzle/ that stops before 0040. */
-async function migrationsBeforeSuggestions(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'closet-drizzle-'));
-  await mkdir(join(dir, 'meta'));
-  const journal = JSON.parse(
-    await readFile(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8'),
-  ) as { entries: { tag: string }[] };
-  const index = journal.entries.findIndex((e) =>
-    e.tag.endsWith('_muse-suggestions'),
-  );
-  expect(index).toBeGreaterThan(0);
-  journal.entries = journal.entries.slice(0, index);
-  await writeFile(join(dir, 'meta', '_journal.json'), JSON.stringify(journal));
-  for (const { tag } of journal.entries) {
-    await copyFile(
-      join(MIGRATIONS_FOLDER, `${tag}.sql`),
-      join(dir, `${tag}.sql`),
-    );
-  }
-  return dir;
 }
 
 interface Fixture {
@@ -286,11 +254,15 @@ interface SuggestionRow {
 
 let t: TestApp;
 let fixture: Fixture;
+// As 0040 left them, before 0045.
 let groups: GroupRow[];
 let garments: Map<number, SuggestionRow>;
+let museLinks: { items: number; links: number };
+
+const SUGGESTION_COLUMNS = `id, status, suggestion_group_id, suggested_by_token_id, suggestion_note,
+  suggestion_rank, suggested_at, dismissed_at, dismissed_reason, dismissed_note, source_url`;
 
 beforeAll(async () => {
-  let folder: string | undefined;
   t = await createTestApp(
     {},
     {
@@ -298,35 +270,35 @@ beforeAll(async () => {
         const client = new Client(connectionOptions(configOf(env)));
         await client.connect();
         try {
-          folder = await migrationsBeforeSuggestions();
-          await migrate(drizzle(client), { migrationsFolder: folder });
+          await migrateBefore(client, 'muse-suggestions');
           fixture = await buildFixture(client);
+          await migrateBefore(client, 'drop-plans');
+          groups = (
+            await client.query<GroupRow>(
+              `select * from option_group order by id`,
+            )
+          ).rows;
+          garments = new Map(
+            (
+              await client.query<SuggestionRow>(
+                `select ${SUGGESTION_COLUMNS} from garment`,
+              )
+            ).rows.map((row) => [row.id, row]),
+          );
+          museLinks = (
+            await client.query<{ items: number; links: number }>(
+              `select (select count(*)::int from plan_item where plan_id = $1) as items,
+                 (select count(*)::int from plan_item_candidate c join plan_item i on i.id = c.plan_item_id
+                   where i.plan_id = $1) as links`,
+              [fixture.muse.plan],
+            )
+          ).rows[0];
         } finally {
           await client.end();
-          if (folder) await rm(folder, { recursive: true, force: true });
         }
       },
     },
   );
-  const client = new Client(connectionOptions(t.database));
-  await client.connect();
-  try {
-    groups = (
-      await client.query<GroupRow>(`select * from option_group order by id`)
-    ).rows;
-    garments = new Map(
-      (
-        await client.query<SuggestionRow>(
-          `select id, status, suggestion_group_id, suggested_by_token_id, suggestion_note,
-             suggestion_rank, suggested_at, dismissed_at, dismissed_reason, dismissed_note,
-             source_url
-           from garment`,
-        )
-      ).rows.map((row) => [row.id, row]),
-    );
-  } finally {
-    await client.end();
-  }
 });
 
 afterAll(() => t?.cleanup());
@@ -385,20 +357,8 @@ describe('the owner’s draft plan (production’s shape)', () => {
     expect(empty).toHaveLength(10);
   });
 
-  it('leaves the plan tables as they were', async () => {
-    const client = new Client(connectionOptions(t.database));
-    await client.connect();
-    try {
-      const { rows } = await client.query<{ items: number; links: number }>(
-        `select (select count(*)::int from plan_item where plan_id = $1) as items,
-           (select count(*)::int from plan_item_candidate c join plan_item i on i.id = c.plan_item_id
-             where i.plan_id = $1) as links`,
-        [fixture.muse.plan],
-      );
-      expect(rows[0]).toEqual({ items: 24, links: 26 });
-    } finally {
-      await client.end();
-    }
+  it('leaves the plan tables as they were', () => {
+    expect(museLinks).toEqual({ items: 24, links: 26 });
   });
 
   it('shows the migrated needs in the inbox and their picks’ pages', async () => {
@@ -514,5 +474,31 @@ describe('every other case', () => {
   it('names an unnamed need after its category, and leaves a duplicated plan’s copy out', () => {
     expect(groupOf(fixture.edge.unnamed)?.name).toBe('Shoes');
     expect(groupOf(fixture.edge.copy)).toBeUndefined();
+  });
+});
+
+describe('then 0045_drop-plans', () => {
+  it('keeps every need and suggestion 0040 made, and drops the plan tables', async () => {
+    const client = new Client(connectionOptions(t.database));
+    await client.connect();
+    try {
+      const after = (
+        await client.query<Omit<GroupRow, 'plan_item_id'>>(
+          `select * from option_group order by id`,
+        )
+      ).rows;
+      // Every need as it was, less the dropped column.
+      expect(after[0]).not.toHaveProperty('plan_item_id');
+      expect(groups).toMatchObject(after);
+      const { rows: suggestions } = await client.query<SuggestionRow>(
+        `select ${SUGGESTION_COLUMNS} from garment`,
+      );
+      expect(new Map(suggestions.map((row) => [row.id, row]))).toEqual(
+        garments,
+      );
+      expect(await planTablesLeft(client)).toEqual([]);
+    } finally {
+      await client.end();
+    }
   });
 });
