@@ -89,7 +89,11 @@ test.describe('Plan my week', () => {
       /Planned \d+ outfits? for your week/,
     );
     const planned = await banner.locator('[data-entry-id]').count();
-    expect(planned).toBeGreaterThanOrEqual(7);
+    // Seven all-day slots and Tuesday's evening, less today's slots whose
+    // window has ended: six late on a Tuesday (both of today's gone, the
+    // next Tuesday outside the window), pinned in
+    // test/integration/week-plan.spec.ts.
+    expect(planned).toBeGreaterThanOrEqual(6);
     // The one-shot flag leaves the address; the week marks the planner's rows.
     await expect(page).toHaveURL(/\/calendar$/);
     await expect(page.locator('[data-auto]').first()).toBeVisible();
