@@ -6,7 +6,7 @@ import {
 } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
 import { dayOfWeek, type IsoDate } from '../../calendar-date';
-import { DAY_NAMES, dayLabel, occasionLabel } from '../calendar/labels';
+import { DAY_NAMES, dayLabel, occasionLabel } from '../date-labels';
 import type { CapsuleRef } from '../capsules/queries';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';

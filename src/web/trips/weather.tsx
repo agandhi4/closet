@@ -5,7 +5,7 @@ import {
   type TemperatureUnit,
 } from '../../weather/temperature';
 import { PostForm } from '../auth/form';
-import { dayLabel } from '../calendar/labels';
+import { dayLabel, shortDayLabel } from '../date-labels';
 import { t } from '../i18n';
 import type { Place } from '../weather/open-meteo';
 import {
@@ -15,7 +15,6 @@ import {
   UNIT_SYMBOLS,
 } from '../weather/views';
 import type { TripForecast, TripTypicalDay, TripWeatherDay } from './forecast';
-import { shortDate } from './labels';
 import { tripIdeasUrl, tripUrl } from './urls';
 
 /**
@@ -80,8 +79,8 @@ export function TripWeather(props: {
                   ? 'trips.FORECAST_FROM'
                   : 'trips.FORECAST_LATER',
                 {
-                  day: shortDate(forecast.later.day),
-                  from: shortDate(forecast.later.from),
+                  day: shortDayLabel(forecast.later.day),
+                  from: shortDayLabel(forecast.later.from),
                 },
               )}
             </p>

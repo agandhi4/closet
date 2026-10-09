@@ -6,7 +6,7 @@ import {
 } from '../../wardrobe/week';
 import type { Slot } from '../../wardrobe/week-planner';
 import { PostForm } from '../auth/form';
-import { DAY_NAMES, dayLabel, occasionLabel } from '../calendar/labels';
+import { DAY_NAMES, dayLabel, occasionLabel } from '../date-labels';
 import { t } from '../i18n';
 import { ProfileSection, SavedToast, StripFlags } from '../layout/parts';
 import type { PlannedBanner } from './plan';

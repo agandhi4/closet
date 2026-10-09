@@ -1,4 +1,4 @@
-import { dayLabel, occasionLabel } from '../calendar/labels';
+import { dayLabel, occasionLabel } from '../date-labels';
 import { t } from '../i18n';
 import { BackLink } from '../layout/parts';
 import { type DayDestination, destinationQuery } from './destination';

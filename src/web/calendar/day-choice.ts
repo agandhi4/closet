@@ -3,7 +3,7 @@ import { selectScalars } from '../../db/select-scalars';
 import type { Occasion } from '../../wardrobe/occasions';
 import { t } from '../i18n';
 import type { DayDestination } from '../outfits/destination';
-import { occasionLabel } from './labels';
+import { occasionLabel } from '../date-labels';
 import { type DayEntry, entriesOfDaySql } from './queries';
 
 /**

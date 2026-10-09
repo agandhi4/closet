@@ -1,10 +1,10 @@
 import { PostForm } from '../../auth/form';
+import { shortDayLabel } from '../../date-labels';
 import { t } from '../../i18n';
 import { AppBar } from '../../layout/app-bar';
 import { Dock } from '../../layout/dock';
 import { Layout } from '../../layout/layout';
 import { EmptyState } from '../../layout/parts';
-import { shortDate } from '../../trips/labels';
 import type { ViewContext } from '../../view-context';
 import { priceLabel } from '../garment';
 import type { ReviewItem } from './queries';
@@ -56,7 +56,7 @@ function OrderItemCard({ item }: { item: ReviewItem }) {
           {[
             item.brand,
             store,
-            t('orders.ORDERED_ON', { date: shortDate(item.orderedOn) }),
+            t('orders.ORDERED_ON', { date: shortDayLabel(item.orderedOn) }),
           ]
             .filter(Boolean)
             .join(' · ')}

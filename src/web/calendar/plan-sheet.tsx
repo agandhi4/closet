@@ -9,7 +9,7 @@ import { destinationTarget } from '../outfits/destination';
 import { SAVED_PATH } from '../outfits/urls';
 import { STYLING_PATH } from '../styling/urls';
 import type { IsoDate } from '../../calendar-date';
-import { dayLabel, occasionLabel } from './labels';
+import { dayLabel, occasionLabel } from '../date-labels';
 
 /**
  * A day's "+ Plan" sheet (R6; docs/plans/2026-09-26-redesign.md, Calendar):

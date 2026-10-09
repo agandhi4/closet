@@ -11,7 +11,7 @@ import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import type { IsoDate } from '../../calendar-date';
 import { type DayChoice, plannedNote } from './day-choice';
-import { dayLabel, occasionLabel } from './labels';
+import { dayLabel, occasionLabel } from '../date-labels';
 import { dayUrl, planPageUrl } from './urls';
 
 /** The day's DayChoice (what is on it, the entry `replace` names). */

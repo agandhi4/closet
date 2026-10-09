@@ -240,8 +240,8 @@ describe('year in review', () => {
     const { html } = await page();
     expect(idsIn(html, 'recap-additions')).toEqual([g.sneakers, g.jeans]);
     const additions = section(html, 'recap-additions');
-    expect(additions).toContain('Added Sep 27 · Not worn yet');
-    expect(additions).toContain('Added Feb 10 · Worn 6 times');
+    expect(additions).toContain('Added Sun, Sep 27 · Not worn yet');
+    expect(additions).toContain('Added Tue, Feb 10 · Worn 6 times');
   });
 
   it('takes best value per wear from the year’s pieces, over every wear so far', async () => {

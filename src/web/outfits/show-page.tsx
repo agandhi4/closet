@@ -1,7 +1,7 @@
 import { DEFAULT_OCCASION, OCCASIONS } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
 import type { IsoDate } from '../../calendar-date';
-import { dayLabel, occasionLabel } from '../calendar/labels';
+import { dayLabel, occasionLabel } from '../date-labels';
 import { AlreadySavedToast } from '../gallery/already-saved';
 import type { AlreadySaved } from '../gallery/urls';
 import { t } from '../i18n';

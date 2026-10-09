@@ -8,6 +8,7 @@ import {
   outfitCalendar,
 } from '../../src/db/schema';
 import { addDays, type IsoDate } from '../../src/calendar-date';
+import { dateLabel } from '../../src/web/date-labels';
 import { createWishlistItem } from './garments';
 import {
   createTestApp,
@@ -315,7 +316,7 @@ describe('insights', () => {
     expect(unworn.match(/>Style this</g)).toHaveLength(3);
     expect(unworn).toContain(`href="/styling?with=${g.sandals}"`);
     expect(unworn).toContain('Never worn');
-    expect(unworn).toContain(`Last worn ${daysAgo(200)}`);
+    expect(unworn).toContain(`Last worn ${dateLabel(daysAgo(200), t.today())}`);
   });
 
   it('most worn by wear days, ties the most recent first; least worn among garments owned 90 days', async () => {

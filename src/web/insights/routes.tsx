@@ -7,7 +7,7 @@ import {
 } from '../../wardrobe/insights';
 import { yearRecap } from '../../wardrobe/recap';
 import { sessionUserId } from '../auth/require-session';
-import { dateParts, todayIn } from '../../calendar-date';
+import { todayIn } from '../../calendar-date';
 import type { WebOptions } from '../plugin';
 import { renderPage } from '../render';
 import { viewContext } from '../view-context';
@@ -90,10 +90,7 @@ export const insightsRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       return renderPage(
         reply,
-        <RecapPage
-          ctx={viewContext(reply)}
-          model={{ recap, currentYear: dateParts(today).year }}
-        />,
+        <RecapPage ctx={viewContext(reply)} model={{ recap, today }} />,
       );
     },
   );

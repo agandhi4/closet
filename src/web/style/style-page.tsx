@@ -4,7 +4,7 @@ import { BUDGET_BANDS, STYLES } from '../../wardrobe/style';
 import type { RhythmEntry } from '../../wardrobe/week';
 import { PostForm } from '../auth/form';
 import { profileSection, STYLE_SECTION_ID } from '../auth/urls';
-import { occasionLabel } from '../calendar/labels';
+import { occasionLabel } from '../date-labels';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';

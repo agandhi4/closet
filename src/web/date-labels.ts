@@ -1,15 +1,18 @@
-import type { Occasion } from '../../wardrobe/occasions';
-import { t, type StringKey } from '../i18n';
+import type { Occasion } from '../wardrobe/occasions';
+import { t, type StringKey } from './i18n';
 import {
   dateParts,
   dayOfWeek,
+  daysBetween,
   type IsoDate,
   type YearMonth,
-} from '../../calendar-date';
+} from '../calendar-date';
 
 /**
- * The calendar's words for days, months and occasions, shared by the week,
- * the month, the plan page and its sheet, and Today (#15).
+ * The app's one vocabulary for dates (#356): every day a user reads is one
+ * of these, never a raw ISO date (`test/integration/date-labels.spec.ts`).
+ * A label relative to today takes the household's date
+ * (`todayIn(APP_TIMEZONE, now)`), never the server's.
  */
 
 /** Indexed by weekday, 0 = Sunday. */
@@ -31,6 +34,17 @@ export const DAY_LETTERS: StringKey[] = [
   'CALENDAR_CAL_THU_LETTER',
   'CALENDAR_CAL_FRI_LETTER',
   'CALENDAR_CAL_SAT_LETTER',
+];
+
+/** Indexed by weekday, 0 = Sunday: "Tue". */
+const DAY_SHORT_NAMES: StringKey[] = [
+  'calendar.weekday.SUN',
+  'calendar.weekday.MON',
+  'calendar.weekday.TUE',
+  'calendar.weekday.WED',
+  'calendar.weekday.THU',
+  'calendar.weekday.FRI',
+  'calendar.weekday.SAT',
 ];
 
 /** Indexed by month - 1. */
@@ -81,6 +95,44 @@ export function shortDayLabel(date: IsoDate): string {
   return t('calendar.SHORT_DAY', { month: t(MONTH_NAMES[month - 1]), day });
 }
 
+/** "Sep 29, 2025". */
+function shortDayYearLabel(date: IsoDate): string {
+  const { year, month, day } = dateParts(date);
+  return t('calendar.SHORT_DAY_YEAR', {
+    month: t(MONTH_NAMES[month - 1]),
+    day,
+    year,
+  });
+}
+
+/**
+ * A date read on its own (the date a garment was acquired): "Tue, Sep 29"
+ * in today's year, else "Sep 29, 2025".
+ */
+export function dateLabel(date: IsoDate, today: IsoDate): string {
+  if (dateParts(date).year !== dateParts(today).year) {
+    return shortDayYearLabel(date);
+  }
+  const { month, day } = dateParts(date);
+  return t('CALENDAR_PLAN_DAY', {
+    weekday: t(DAY_SHORT_NAMES[dayOfWeek(date)]),
+    month: t(MONTH_NAMES[month - 1]),
+    day,
+  });
+}
+
+/**
+ * A past day from today: "today", "yesterday", "3 days ago" up to six, then
+ * `dateLabel`. Lower case: it ends a sentence ("Last worn yesterday").
+ */
+export function relativeDay(day: IsoDate, today: IsoDate): string {
+  const days = daysBetween(day, today);
+  if (days === 0) return t('wear.TODAY');
+  if (days === 1) return t('wear.YESTERDAY');
+  if (days > 1 && days < 7) return t('wear.DAYS_AGO', { days });
+  return dateLabel(day, today);
+}
+
 /**
  * The week's heading: "Sep 27 – Oct 3, 2026", or "Dec 29, 2030 – Jan 4,
  * 2031" across a new year. Always with the year: the app bar says only
@@ -97,15 +149,9 @@ export function weekRangeLabel(first: IsoDate, last: IsoDate): string {
       year: to.year,
     });
   }
-  const withYear = ({ year, month, day }: typeof from) =>
-    t('calendar.SHORT_DAY_YEAR', {
-      month: t(MONTH_NAMES[month - 1]),
-      day,
-      year,
-    });
   return t('calendar.WEEK_RANGE_YEARS', {
-    from: withYear(from),
-    to: withYear(to),
+    from: shortDayYearLabel(first),
+    to: shortDayYearLabel(last),
   });
 }
 

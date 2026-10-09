@@ -12,7 +12,7 @@ import {
 import type { MonthDayView, MonthView } from './calendar-view';
 import { PageMain } from '../layout/page-main';
 import { CalendarTabs } from './calendar-tabs';
-import { DAY_LETTERS, dayLabel, monthLabel } from './labels';
+import { DAY_LETTERS, dayLabel, monthLabel } from '../date-labels';
 import { dayUrl, monthUrl } from './urls';
 
 /**

@@ -5,7 +5,8 @@ import {
 } from '../../wardrobe/availability';
 import { perWearCost, totalCost } from '../../wardrobe/insights';
 import { AutosaveForm } from '../autosave';
-import { daysBetween, type IsoDate } from '../../calendar-date';
+import type { IsoDate } from '../../calendar-date';
+import { relativeDay } from '../date-labels';
 import { t } from '../i18n';
 import { StyleThisLink } from '../styling/style-this';
 import { priceLabel } from '../wardrobe/garment';
@@ -132,15 +133,6 @@ function wornLine(
       ? []
       : [t('wear.PER_WEAR', { cost: priceLabel(perWear) })]),
   ].join(' · ');
-}
-
-/** "today", "yesterday", "3 days ago", else the date. */
-export function relativeDay(day: IsoDate, today: IsoDate): string {
-  const days = daysBetween(day, today);
-  if (days === 0) return t('wear.TODAY');
-  if (days === 1) return t('wear.YESTERDAY');
-  if (days > 1 && days < 7) return t('wear.DAYS_AGO', { days });
-  return day;
 }
 
 /** "Needs a wash", or "2 of 3 need a wash" for multiples. */

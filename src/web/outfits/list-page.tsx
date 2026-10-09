@@ -1,7 +1,7 @@
 import type { Child } from 'hono/jsx';
 import { PostForm } from '../auth/form';
 import { type DayChoice, plannedNote } from '../calendar/day-choice';
-import { shortDayLabel } from '../calendar/labels';
+import { shortDayLabel } from '../date-labels';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';

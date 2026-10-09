@@ -3,6 +3,7 @@ import { AlreadySavedToast } from '../gallery/already-saved';
 import type { AlreadySaved } from '../gallery/urls';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
+import { DayHeading } from '../layout/day-heading';
 import { Dock } from '../layout/dock';
 import { PageMain } from '../layout/page-main';
 import { Layout } from '../layout/layout';
@@ -18,13 +19,7 @@ import {
 import { dateParts } from '../../calendar-date';
 import type { CalendarDayView, CalendarView } from './calendar-view';
 import { CalendarTabs } from './calendar-tabs';
-import {
-  DAY_LETTERS,
-  DAY_NAMES,
-  dayLabel,
-  shortDayLabel,
-  weekRangeLabel,
-} from './labels';
+import { DAY_LETTERS, dayLabel, weekRangeLabel } from '../date-labels';
 import { OccasionRow, OpenSlotRow } from './occasion-row';
 import { OPEN_PLAN_SHEET, PlanSheet, planSheetChoice } from './plan-sheet';
 import { dayAnchor, weekUrl } from './urls';
@@ -143,18 +138,12 @@ function DaySection({ ctx, day }: { ctx: ViewContext; day: CalendarDayView }) {
       aria-labelledby={`${dayAnchor(day.date)}-title`}
     >
       <div class="flex items-baseline gap-2">
-        <h2
+        <DayHeading
+          as="h2"
           id={`${dayAnchor(day.date)}-title`}
-          class={`text-sm font-semibold ${day.isToday ? 'text-primary' : ''}`}
-        >
-          {t(DAY_NAMES[day.weekday])}{' '}
-          <span class="ms-1 font-normal text-muted">
-            {shortDayLabel(day.date)}
-          </span>
-        </h2>
-        {day.isToday && (
-          <span class="badge badge-sm badge-primary">{t('today.TITLE')}</span>
-        )}
+          date={day.date}
+          isToday={day.isToday}
+        />
         <WeatherDaySlot ctx={ctx} day={day.date} />
       </div>
       {day.entries.map((entry) => (

@@ -2,7 +2,7 @@ import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import { dueReminders, type ReminderKind } from '../../push/reminders';
 import { hourIn, todayIn } from '../../calendar-date';
-import { occasionLabel } from '../calendar/labels';
+import { occasionLabel } from '../date-labels';
 import type { DayEntry } from '../calendar/queries';
 import { ideaName } from '../gallery/ideas';
 import { t } from '../i18n';

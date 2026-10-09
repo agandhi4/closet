@@ -1,7 +1,8 @@
 import type { InsightGarment } from '../../wardrobe/insights';
 import { RECAP_MIN_WEARS, type YearRecap } from '../../wardrobe/recap';
 import { imageUrl, type SignablePhotoRef } from '../files/image-url';
-import { shortDayLabel, weekRangeLabel } from '../calendar/labels';
+import { dateParts, type IsoDate } from '../../calendar-date';
+import { dateLabel, shortDayLabel, weekRangeLabel } from '../date-labels';
 import { CALENDAR_PATH } from '../calendar/urls';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
@@ -17,8 +18,8 @@ import { recapUrl } from './urls';
 
 export interface RecapPageModel {
   recap: YearRecap<SignablePhotoRef>;
-  /** The household's current year: the › link's bare address. */
-  currentYear: number;
+  /** The household's today: its year is the › link's bare address. */
+  today: IsoDate;
 }
 
 /** How many of the most worn the image shows (the page lists them all). */
@@ -72,7 +73,8 @@ function yearTitle(recap: YearRecap<SignablePhotoRef>): string {
  * one is the bare address).
  */
 function YearNav({ model }: { model: RecapPageModel }) {
-  const { recap, currentYear } = model;
+  const { recap, today } = model;
+  const currentYear = dateParts(today).year;
   const { year, complete } = recap.period;
   const next = year + 1;
   return (
@@ -163,7 +165,9 @@ function Figures(props: { model: RecapPageModel; appName: string }) {
             rows={additions.garments.map((garment) => ({
               garment,
               detail: [
-                t('recap.ADDED', { when: shortDayLabel(garment.acquiredOn!) }),
+                t('recap.ADDED', {
+                  when: dateLabel(garment.acquiredOn!, model.today),
+                }),
                 garment.recentWearDays === 0
                   ? t('wear.NOT_WORN')
                   : yearWears(garment),

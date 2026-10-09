@@ -16,7 +16,7 @@ import {
   removeUnheldOutfits,
 } from '../week-plan/queries';
 import type { IsoDate } from '../../calendar-date';
-import { occasionLabel } from './labels';
+import { occasionLabel } from '../date-labels';
 import {
   entryOf,
   lockEntryToReplace,

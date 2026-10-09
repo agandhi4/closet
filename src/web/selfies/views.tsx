@@ -1,6 +1,6 @@
 import { PostForm } from '../auth/form';
 import type { IsoDate } from '../../calendar-date';
-import { dayLabel } from '../calendar/labels';
+import { dayLabel } from '../date-labels';
 import { selfieUrl } from '../files/image-url';
 import { t } from '../i18n';
 import {

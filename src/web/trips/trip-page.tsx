@@ -6,10 +6,11 @@ import {
 import { PostForm } from '../auth/form';
 import { AutosaveForm } from '../autosave';
 import type { IsoDate } from '../../calendar-date';
-import { dayLabel, occasionLabel } from '../calendar/labels';
+import { occasionLabel } from '../date-labels';
 import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
+import { DayHeading } from '../layout/day-heading';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
@@ -209,7 +210,6 @@ function DayBlock(props: {
   const { model, day, outfits } = props;
   const tripId = model.trip.id;
   const slot = day ? { day } : {};
-  const isToday = day === model.today;
   return (
     <div
       id={dayAnchor(day)}
@@ -217,14 +217,11 @@ function DayBlock(props: {
       data-trip-day={day ?? 'any'}
     >
       <div class="flex items-baseline justify-between gap-2">
-        <h3 class={`text-sm font-semibold ${isToday ? 'text-primary' : ''}`}>
-          {day ? dayLabel(day) : t('trips.ANY_DAY')}
-          {isToday && (
-            <span class="badge badge-primary badge-sm ml-2">
-              {t('trips.TODAY')}
-            </span>
-          )}
-        </h3>
+        {day ? (
+          <DayHeading as="h3" date={day} isToday={day === model.today} />
+        ) : (
+          <h3 class="text-sm font-semibold">{t('trips.ANY_DAY')}</h3>
+        )}
         <div class="flex gap-1">
           <a href={tripIdeasUrl(tripId, slot)} class="btn btn-ghost btn-xs">
             {t('trips.DAY_IDEAS')}

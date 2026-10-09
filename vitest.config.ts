@@ -61,6 +61,7 @@ export default defineConfig({
           exclude: [
             'src/web/calendar/**/*.spec.{ts,tsx}',
             'src/calendar-date.spec.ts',
+            'src/web/date-labels.spec.ts',
           ],
         },
       },
@@ -79,6 +80,7 @@ export default defineConfig({
           include: [
             'src/web/calendar/**/*.spec.{ts,tsx}',
             'src/calendar-date.spec.ts',
+            'src/web/date-labels.spec.ts',
           ],
           env: { TZ: 'America/New_York' },
           pool: 'forks',

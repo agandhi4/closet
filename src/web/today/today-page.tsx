@@ -4,7 +4,7 @@ import type { Occasion } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
 import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry } from '../calendar/calendar-view';
-import { dayLabel, occasionLabel } from '../calendar/labels';
+import { dayLabel, occasionLabel } from '../date-labels';
 import { ideaName, type IdeasWeather } from '../gallery/ideas';
 import { Reasons } from '../gallery/ideas-page';
 import type { PoolGarment } from '../gallery/queries';

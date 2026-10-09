@@ -40,6 +40,8 @@ interface Instant {
   /** The household's date at `at`, and the Sunday its week starts on. */
   today: IsoDate;
   week: IsoDate;
+  /** `today` as the app writes a date (`dateLabel`): no year in its own year. */
+  label: string;
 }
 
 const ZONES: { zone: string; instants: Instant[] }[] = [
@@ -51,24 +53,28 @@ const ZONES: { zone: string; instants: Instant[] }[] = [
         why: "Sunday in UTC, Saturday evening in New York (main's red run)",
         today: '2026-09-26',
         week: '2026-09-20',
+        label: 'Sat, Sep 26',
       },
       {
         at: '2026-10-01T00:30:00Z',
         why: 'UTC midnight on a month boundary: 1 Oct in UTC, 30 Sep in New York',
         today: '2026-09-30',
         week: '2026-09-27',
+        label: 'Wed, Sep 30',
       },
       {
         at: '2026-11-01T03:30:00Z',
         why: 'a new month and week in UTC, Halloween night in New York, on the day DST ends',
         today: '2026-10-31',
         week: '2026-10-25',
+        label: 'Sat, Oct 31',
       },
       {
         at: '2027-01-01T04:30:00Z',
         why: "New Year's Day in UTC, New Year's Eve in New York",
         today: '2026-12-31',
         week: '2026-12-27',
+        label: 'Thu, Dec 31',
       },
     ],
   },
@@ -82,6 +88,7 @@ const ZONES: { zone: string; instants: Instant[] }[] = [
         why: 'Saturday in UTC, just past midnight on Sunday in Auckland',
         today: '2026-09-27',
         week: '2026-09-27',
+        label: 'Sun, Sep 27',
       },
     ],
   },
@@ -98,7 +105,7 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
     await t?.cleanup();
   });
 
-  describe.each(instants)('at $at: $why', ({ at, today, week }) => {
+  describe.each(instants)('at $at: $why', ({ at, today, week, label }) => {
     let cookie: string;
     const tomorrow = addDays(today, 1);
 
@@ -259,6 +266,18 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
         (await post('/laundry', { ids: [String(hamper)] })).statusCode,
       ).toBe(303);
       expect(await lastWashedOn(hamper)).toBe(today);
+    });
+
+    it("the garment page writes its acquired date in today's year without the year", async () => {
+      const id = await createGarment(t, { name: `Acquired ${at}`, cookie });
+      await t.db
+        .update(garment)
+        .set({ acquiredOn: today })
+        .where(eq(garment.id, id));
+      const page = unescapeHtml((await get(`/wardrobe/${id}`)).body);
+      expect(page).toMatch(
+        new RegExp(`>Date Acquired</dt>\\s*<dd[^>]*>${label}</dd>`),
+      );
     });
 
     it('insights count days from today: a wear today was 0 days ago', async () => {

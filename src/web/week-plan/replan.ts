@@ -14,7 +14,7 @@ import {
 } from '../../wardrobe/week-planner';
 import { OwnerLockTimeout, ownerTransaction } from '../auth/queries';
 import { dayOfWeek, hourIn, type IsoDate, todayIn } from '../../calendar-date';
-import { DAY_NAMES, occasionLabel } from '../calendar/labels';
+import { DAY_NAMES, occasionLabel } from '../date-labels';
 import { ideaName } from '../gallery/ideas';
 import type { WeekPoolGarment } from '../gallery/queries';
 import { t, type StringKey } from '../i18n';

@@ -9,6 +9,7 @@ import {
   type WardrobeInsights,
 } from '../../wardrobe/insights';
 import type { IsoDate } from '../../calendar-date';
+import { relativeDay } from '../date-labels';
 import type { SignablePhotoRef } from '../files/image-url';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
@@ -20,7 +21,6 @@ import { EmptyState, GarmentThumb } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
-import { relativeDay } from '../wears/wear-section';
 import { styleThisUrl } from '../styling/urls';
 import { Card, GarmentList, garmentName, perWearLine, Strip } from './parts';
 import { insightsUrl, NEEDS_ATTENTION_URL, RECAP_PATH } from './urls';

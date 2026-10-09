@@ -55,6 +55,7 @@ src/
                        share-link page, its Open Graph preview and the Share button). layout/parts.tsx: pieces the
                        garment, outfit and share pages share (thumb, back link, empty state).
                        schemas.ts: shared TypeBox pieces (RowId, IsoDateSchema).
+                       date-labels.ts: every date a user reads (dayLabel, relativeDay, dateLabel; never ISO).
                        security/: same-origin hook, rate limits, safeReturnTo, origin,
                        outbound-fetch.ts (the only fetcher of anything on the internet: user-supplied
                        URLs and the weather's fixed API) and public-address.ts (its address rule); see

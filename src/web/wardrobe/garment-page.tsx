@@ -4,6 +4,8 @@ import { garmentMarks } from '../../wardrobe/marks';
 import { PostForm } from '../auth/form';
 import { GarmentCapsules } from '../capsules/garment-capsules';
 import type { GarmentCapsule } from '../capsules/queries';
+import type { IsoDate } from '../../calendar-date';
+import { dateLabel } from '../date-labels';
 import { imageUrl } from '../files/image-url';
 import {
   enlargeLabel,
@@ -62,6 +64,8 @@ import {
 
 export interface GarmentPageModel {
   garment: GarmentDetail;
+  /** The household's date (APP_TIMEZONE), for the dates the page reads out. */
+  today: IsoDate;
   /** The wardrobe's capsules, and whether the garment is in each. */
   capsules: GarmentCapsule[];
   /** The shared wardrobe it is in; undefined for the requester's own. */
@@ -211,7 +215,7 @@ export function GarmentPage(props: {
           garmentId={garment.id}
           partners={model.styling.avoided}
         />
-        <GarmentDetails garment={garment} />
+        <GarmentDetails garment={garment} today={model.today} />
         <Care model={model} />
       </PageMain>
       <PhotoTools model={model} />
@@ -786,7 +790,13 @@ function PropertyChips({ garment }: { garment: GarmentDetail }) {
  * when it was acquired, notes) and the product link. Nothing when none is
  * set. The care notes are the care label's (CareLabelSection).
  */
-function GarmentDetails({ garment }: { garment: GarmentDetail }) {
+function GarmentDetails({
+  garment,
+  today,
+}: {
+  garment: GarmentDetail;
+  today: IsoDate;
+}) {
   const rows = [
     garment.colors && (
       <Detail label={t('COLOR')}>
@@ -797,7 +807,9 @@ function GarmentDetails({ garment }: { garment: GarmentDetail }) {
       <Detail label={t('PRICE')}>{priceLabel(garment.price)}</Detail>
     ),
     garment.acquiredOn && (
-      <Detail label={t('DATE_ACQUIRED')}>{garment.acquiredOn}</Detail>
+      <Detail label={t('DATE_ACQUIRED')}>
+        {dateLabel(garment.acquiredOn, today)}
+      </Detail>
     ),
     garment.notes && (
       <Detail label={t('NOTES')} block>

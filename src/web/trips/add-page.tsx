@@ -1,7 +1,7 @@
 import { type Occasion, OCCASIONS } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
 import type { IsoDate } from '../../calendar-date';
-import { dayLabel, occasionLabel } from '../calendar/labels';
+import { dayLabel, occasionLabel, shortDayLabel } from '../date-labels';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -9,7 +9,6 @@ import { Layout } from '../layout/layout';
 import type { GarmentOutfit } from '../outfits/queries';
 import { SavedOutfitButton } from '../outfits/saved-outfit-button';
 import type { ViewContext } from '../view-context';
-import { shortDate } from './labels';
 import type { TripRow } from './queries';
 import { addOutfitUrl, dayAnchor, tripIdeasUrl, tripUrl } from './urls';
 
@@ -72,7 +71,7 @@ export function AddOutfitPage(props: {
               chip(
                 addOutfitUrl(trip.id, { day: option, occasion }),
                 option === day,
-                shortDate(option),
+                shortDayLabel(option),
               ),
             )}
           </ul>
