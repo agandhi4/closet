@@ -1,4 +1,4 @@
-import type { IsoDate } from '../web/calendar/calendar-date';
+import type { IsoDate } from '../calendar-date';
 
 /**
  * A forecast as the app keeps and reads it (#14): Open-Meteo's answer

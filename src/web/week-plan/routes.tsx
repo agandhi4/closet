@@ -1,7 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
-import { hourIn, todayIn } from '../calendar/calendar-date';
+import { hourIn, todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { RowId } from '../schemas';

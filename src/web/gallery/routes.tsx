@@ -2,7 +2,7 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { type Static, Type } from '@sinclair/typebox';
 import { FEELINGS } from '../../weather/temperature';
 import { sessionUserId } from '../auth/require-session';
-import { type IsoDate, todayIn } from '../calendar/calendar-date';
+import { type IsoDate, todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import { parseDestination } from '../outfits/destination';
 import type { WebOptions } from '../plugin';

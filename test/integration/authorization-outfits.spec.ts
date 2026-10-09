@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { expect, it } from 'vitest';
 import { outfit, outfitSlot } from '../../src/db/schema';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { multipart } from './harness';
 import {
   describeMatrix,

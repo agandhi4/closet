@@ -28,7 +28,7 @@ import {
   weekPlan,
   weekTemplate,
 } from '../../src/db/schema';
-import { dayOfWeek } from '../../src/web/calendar/calendar-date';
+import { dayOfWeek } from '../../src/calendar-date';
 import { weeklyRhythm } from '../../src/wardrobe/week';
 import { findWeekTemplate } from '../../src/web/week-plan/template';
 import { selectScalars } from '../../src/db/select-scalars';

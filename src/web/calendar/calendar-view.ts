@@ -16,7 +16,7 @@ import {
   type IsoDate,
   startOfWeek,
   type YearMonth,
-} from './calendar-date';
+} from '../../calendar-date';
 
 /**
  * The calendar's page models, built from plain dates only (calendar-date.ts):

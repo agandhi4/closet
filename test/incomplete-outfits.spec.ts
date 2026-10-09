@@ -1,7 +1,7 @@
 import { expect, type Page, test, type TestInfo } from '@playwright/test';
 import { and, eq, inArray } from 'drizzle-orm';
 import { garment } from '../src/db/schema';
-import { addDays } from '../src/web/calendar/calendar-date';
+import { addDays } from '../src/calendar-date';
 import { createOutfit } from '../src/web/outfits/queries';
 import { signInAs } from './support/e2e-session';
 import { householdToday } from './support/household-today';

@@ -9,7 +9,7 @@ import {
   wardrobeShare,
 } from '../../src/db/schema';
 import type { GarmentStatus } from '../../src/wardrobe/status';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { weekOf } from '../../src/web/calendar/calendar-view';
 import { TAB_ROOTS } from '../../src/web/page-cache';
 import {

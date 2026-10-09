@@ -3,7 +3,7 @@ import type { Db } from '../../db/client';
 import { file, garment } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
 import type { GarmentStatus } from '../../wardrobe/status';
-import { addDays, type IsoDate } from '../calendar/calendar-date';
+import { addDays, type IsoDate } from '../../calendar-date';
 import { weekOf } from '../calendar/calendar-view';
 import { weekUrl } from '../calendar/urls';
 import { imageUrl, type SignablePhotoRef } from '../files/image-url';

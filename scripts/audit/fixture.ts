@@ -13,7 +13,7 @@ import type {
 import webpush from 'web-push';
 import type * as AppModule from '../../src/app';
 import type * as BuildInfoModule from '../../src/build-info';
-import type * as CalendarDateModule from '../../src/web/calendar/calendar-date';
+import type * as CalendarDateModule from '../../src/calendar-date';
 import type * as ConfigModule from '../../src/config';
 import type * as CutoutQueueModule from '../../src/cutout/queue';
 import type { CutoutRunner } from '../../src/cutout/runner';
@@ -114,7 +114,7 @@ async function loadBuild(): Promise<Build> {
     fileQueries: await load('web/files/queries.js'),
     schema: await load('db/schema.js'),
     seed: await load('seed/seed.js'),
-    calendar: await load('web/calendar/calendar-date.js'),
+    calendar: await load('calendar-date.js'),
     tokens: await load('web/auth/personal-tokens.js'),
     orderPoll: await load('web/wardrobe/order-mail/poll.js'),
     pushQueries: await load('web/push/queries.js'),

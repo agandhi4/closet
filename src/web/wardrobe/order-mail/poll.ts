@@ -1,6 +1,6 @@
 import type { Db } from '../../../db/client';
 import type { Logger } from '../../../logger';
-import { todayIn } from '../../calendar/calendar-date';
+import { todayIn } from '../../../calendar-date';
 import {
   type OutboundFetcher,
   OutboundFetchError,

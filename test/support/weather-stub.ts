@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { AppOptions } from '../../src/app';
-import { daysBetween, todayIn } from '../../src/web/calendar/calendar-date';
+import { daysBetween, todayIn } from '../../src/calendar-date';
 import { forecastDayOf, weatherFor } from '../../src/seed/weather';
 import type { DayForecast } from '../../src/weather/forecast';
 

@@ -1,11 +1,7 @@
 import { count, desc, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { outfit as outfitTable, outfitCalendar } from '../../src/db/schema';
-import {
-  addDays,
-  dayOfWeek,
-  startOfWeek,
-} from '../../src/web/calendar/calendar-date';
+import { addDays, dayOfWeek, startOfWeek } from '../../src/calendar-date';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
 import {
   createTestApp,

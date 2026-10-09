@@ -4,7 +4,7 @@ import {
   daysBetween,
   type IsoDate,
   startOfWeek,
-} from '../web/calendar/calendar-date';
+} from '../calendar-date';
 import { cleanCopies, washLimit } from '../wardrobe/availability';
 import { DEFAULT_OCCASION, type Occasion } from '../wardrobe/occasions';
 import type {

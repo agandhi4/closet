@@ -1,5 +1,5 @@
 import type { Logger } from '../logger';
-import { addDays, instantAt, todayIn } from '../web/calendar/calendar-date';
+import { addDays, instantAt, todayIn } from '../calendar-date';
 import { awaitRunInFlight, type ScheduledJob } from './scheduled';
 
 /**

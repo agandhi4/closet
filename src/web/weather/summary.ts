@@ -1,4 +1,4 @@
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import {
   type Condition,
   conditionOf,

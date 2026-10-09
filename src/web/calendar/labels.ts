@@ -5,7 +5,7 @@ import {
   dayOfWeek,
   type IsoDate,
   type YearMonth,
-} from './calendar-date';
+} from '../../calendar-date';
 
 /**
  * The calendar's words for days, months and occasions, shared by the week,

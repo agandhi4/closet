@@ -1,5 +1,5 @@
 import { PostForm } from '../auth/form';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { dayLabel } from '../calendar/labels';
 import { selfieUrl } from '../files/image-url';
 import { t } from '../i18n';

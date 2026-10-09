@@ -1,9 +1,5 @@
 import { seededRandom } from '../random';
-import {
-  dayOfWeek,
-  daysBetween,
-  type IsoDate,
-} from '../web/calendar/calendar-date';
+import { dayOfWeek, daysBetween, type IsoDate } from '../calendar-date';
 import type { DayForecast } from '../weather/forecast';
 import {
   assessOutfit,

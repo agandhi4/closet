@@ -5,7 +5,7 @@ import { type DetachedLook, detachedLooksSql } from '../selfies/queries';
 import { planDays, type PlannedBanner, plannedBanner } from '../week-plan/plan';
 import { batchEntriesSql, entrySlotsSql } from '../week-plan/queries';
 import { inTemplateOrder, weekTemplateSql } from '../week-plan/template';
-import type { IsoDate } from './calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry } from './calendar-view';
 import { entriesSql } from './queries';
 

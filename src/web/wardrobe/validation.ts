@@ -1,6 +1,6 @@
 import { type Static, Type } from '@sinclair/typebox';
 import type { FieldErrors } from '../auth/validation';
-import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
+import { type IsoDate, parseIsoDate } from '../../calendar-date';
 import { t } from '../i18n';
 import { MAX_DRAFTS_PER_USER } from '../files/pending-photos';
 import { RowId } from '../schemas';

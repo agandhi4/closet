@@ -22,7 +22,7 @@ import { reconcileStorage } from '../../src/maintenance/reconcile';
 import { DEFAULT_REMINDER_TIMES } from '../../src/push/reminders';
 import { WEEKDAYS } from '../../src/wardrobe/week';
 import type { DayForecast } from '../../src/weather/forecast';
-import { instantAt, type IsoDate } from '../../src/web/calendar/calendar-date';
+import { instantAt, type IsoDate } from '../../src/calendar-date';
 import { saveReminderSettings, upsertDevice } from '../../src/web/push/queries';
 import {
   pruneReminders,

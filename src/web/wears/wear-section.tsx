@@ -5,7 +5,7 @@ import {
 } from '../../wardrobe/availability';
 import { perWearCost, totalCost } from '../../wardrobe/insights';
 import { AutosaveForm } from '../autosave';
-import { daysBetween, type IsoDate } from '../calendar/calendar-date';
+import { daysBetween, type IsoDate } from '../../calendar-date';
 import { t } from '../i18n';
 import { StyleThisLink } from '../styling/style-this';
 import { priceLabel } from '../wardrobe/garment';

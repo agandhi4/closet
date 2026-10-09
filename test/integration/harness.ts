@@ -17,7 +17,7 @@ import { user } from '../../src/db/schema';
 import { createLogger, createLoggerTo, type Logger } from '../../src/logger';
 import { hashPassword } from '../../src/web/auth/passwords';
 import { insertUser } from '../../src/web/auth/queries';
-import { type IsoDate, todayIn } from '../../src/web/calendar/calendar-date';
+import { type IsoDate, todayIn } from '../../src/calendar-date';
 import type { Photos } from '../../src/web/files/photos';
 import type { PushSender } from '../../src/web/push/sender';
 import type { WeatherService } from '../../src/web/weather/service';

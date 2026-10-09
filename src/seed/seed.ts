@@ -27,7 +27,7 @@ import {
   type IsoDate,
   parseIsoDate,
   todayIn,
-} from '../web/calendar/calendar-date';
+} from '../calendar-date';
 import { unkeyedPhoto } from '../web/files/image-variant';
 import type { Photos } from '../web/files/photos';
 import { insertPhotoRow, type NewPhotoRow } from '../web/files/queries';

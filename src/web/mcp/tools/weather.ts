@@ -12,7 +12,7 @@ import {
   daysBetween,
   type IsoDate,
   todayIn,
-} from '../../calendar/calendar-date';
+} from '../../../calendar-date';
 import { HttpError } from '../../errors';
 import type { TripTypicalDay } from '../../trips/forecast';
 import { userWeather, type UserWeather } from '../../weather/service';

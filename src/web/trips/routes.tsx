@@ -11,7 +11,7 @@ import { tripPhase, wearableToday } from '../../wardrobe/packing';
 import { roundedLocation } from '../../weather/location';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
-import { addDays, parseIsoDate, todayIn } from '../calendar/calendar-date';
+import { addDays, parseIsoDate, todayIn } from '../../calendar-date';
 import { wearOutfitOn } from '../calendar/queries';
 import { unchecked } from '../capsules/validation';
 import { HttpError } from '../errors';

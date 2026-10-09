@@ -35,7 +35,7 @@ export interface RecapPeriod {
   complete: boolean;
 }
 
-export interface YearRecap {
+export interface YearRecap<Photo = unknown> {
   period: RecapPeriod;
   /** Garment-days worn in the year (insights' wears). */
   wears: number;
@@ -46,20 +46,24 @@ export interface YearRecap {
   /** Something was worn before the year: an earlier recap to link to. */
   earlier: boolean;
   /** By the year's wear days, ties the most recently worn first. */
-  mostWorn: InsightGarment[];
+  mostWorn: InsightGarment<Photo>[];
   /** Acquired in the year, the newest first; `count` is all of them. */
-  additions: { garments: InsightGarment[]; count: number };
+  additions: { garments: InsightGarment<Photo>[]; count: number };
   /**
    * Insights' best cost per wear among the pieces worn in the year, over
    * their wears up to the period's last day.
    */
-  bestValue: CostPerWear[];
+  bestValue: CostPerWear<Photo>[];
   /** Each colour's share of the year's wears, the largest first; none unworn. */
   colours: ColourShare[];
   /** The share of the year's wears by garments without a colour. */
   uncolouredWorn: number;
   /** The two pieces worn together on the most days of the year. */
-  pair: { a: InsightGarment; b: InsightGarment; days: number } | null;
+  pair: {
+    a: InsightGarment<Photo>;
+    b: InsightGarment<Photo>;
+    days: number;
+  } | null;
 }
 
 function byId(a: InsightGarment, b: InsightGarment): number {
@@ -76,11 +80,11 @@ function acquiredIn(garment: InsightGarment, period: RecapPeriod): boolean {
  * The recap of `period` from its rows (insightGarments and wornPairs over
  * the year, scope owned).
  */
-export function yearRecap(
-  garments: InsightGarment[],
+export function yearRecap<Photo>(
+  garments: InsightGarment<Photo>[],
   pairRows: PairRow[],
   period: RecapPeriod,
-): YearRecap {
+): YearRecap<Photo> {
   const worn = garments.filter((g) => g.recentWearDays > 0);
   const wears = worn.reduce((sum, g) => sum + g.recentWearDays, 0);
 

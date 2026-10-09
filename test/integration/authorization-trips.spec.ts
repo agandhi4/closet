@@ -1,4 +1,4 @@
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import {
   describeMatrix,
   type Route,

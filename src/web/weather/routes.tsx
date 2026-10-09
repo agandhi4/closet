@@ -4,7 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { JSX } from 'hono/jsx/jsx-runtime';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
-import { addDays, daysBetween, type IsoDate } from '../calendar/calendar-date';
+import { addDays, daysBetween, type IsoDate } from '../../calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';

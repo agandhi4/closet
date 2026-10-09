@@ -1,6 +1,6 @@
 import { type Occasion, OCCASIONS } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { dayLabel, occasionLabel } from '../calendar/labels';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';

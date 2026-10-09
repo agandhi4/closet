@@ -13,12 +13,7 @@ import {
   unwearableOn,
 } from '../../wardrobe/week-planner';
 import { OwnerLockTimeout, ownerTransaction } from '../auth/queries';
-import {
-  dayOfWeek,
-  hourIn,
-  type IsoDate,
-  todayIn,
-} from '../calendar/calendar-date';
+import { dayOfWeek, hourIn, type IsoDate, todayIn } from '../../calendar-date';
 import { DAY_NAMES, occasionLabel } from '../calendar/labels';
 import { ideaName } from '../gallery/ideas';
 import type { WeekPoolGarment } from '../gallery/queries';

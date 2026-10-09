@@ -8,7 +8,7 @@ import { t } from '../i18n';
 import { destinationTarget } from '../outfits/destination';
 import { SAVED_PATH } from '../outfits/urls';
 import { STYLING_PATH } from '../styling/urls';
-import type { IsoDate } from './calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { dayLabel, occasionLabel } from './labels';
 
 /**

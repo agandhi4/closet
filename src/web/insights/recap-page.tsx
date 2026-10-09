@@ -1,6 +1,6 @@
 import type { InsightGarment } from '../../wardrobe/insights';
 import { RECAP_MIN_WEARS, type YearRecap } from '../../wardrobe/recap';
-import { imageUrl } from '../files/image-url';
+import { imageUrl, type SignablePhotoRef } from '../files/image-url';
 import { shortDayLabel, weekRangeLabel } from '../calendar/labels';
 import { CALENDAR_PATH } from '../calendar/urls';
 import { jsonForScript } from '../html';
@@ -16,7 +16,7 @@ import { Card, GarmentList, garmentName, perWearLine, Strip } from './parts';
 import { recapUrl } from './urls';
 
 export interface RecapPageModel {
-  recap: YearRecap;
+  recap: YearRecap<SignablePhotoRef>;
   /** The household's current year: the › link's bare address. */
   currentYear: number;
 }
@@ -59,7 +59,7 @@ export function RecapPage(props: { ctx: ViewContext; model: RecapPageModel }) {
   );
 }
 
-function yearTitle(recap: YearRecap): string {
+function yearTitle(recap: YearRecap<SignablePhotoRef>): string {
   const { year, complete } = recap.period;
   return complete
     ? t('recap.YEAR', { year })
@@ -109,7 +109,7 @@ function YearNav({ model }: { model: RecapPageModel }) {
   );
 }
 
-function Empty({ recap }: { recap: YearRecap }) {
+function Empty({ recap }: { recap: YearRecap<SignablePhotoRef> }) {
   const { year } = recap.period;
   const message =
     recap.wears === 0
@@ -136,7 +136,7 @@ function Empty({ recap }: { recap: YearRecap }) {
 }
 
 /** "Worn 12 times", "Worn once": the year's wears. */
-function yearWears(garment: InsightGarment): string {
+function yearWears(garment: InsightGarment<SignablePhotoRef>): string {
   return garment.recentWearDays === 1
     ? t('wear.WORN_ONCE')
     : t('wear.WORN_TIMES', { count: garment.recentWearDays });
@@ -260,7 +260,7 @@ function Summary(props: { model: RecapPageModel; appName: string }) {
   );
 }
 
-function stats(recap: YearRecap) {
+function stats(recap: YearRecap<SignablePhotoRef>) {
   return [
     { key: 'wears', value: recap.wears, label: t('recap.WEARS') },
     { key: 'pieces', value: recap.piecesWorn, label: t('recap.PIECES_WORN') },
@@ -285,7 +285,10 @@ prepareRecapExport(document.getElementById('recap-export'));`;
  * share needs the tap's activation). The light theme's probe gives the
  * card its colours whatever the phone's scheme.
  */
-function Export(props: { recap: YearRecap; appName: string }) {
+function Export(props: {
+  recap: YearRecap<SignablePhotoRef>;
+  appName: string;
+}) {
   return (
     <div class="flex flex-col gap-1">
       <button
@@ -317,7 +320,10 @@ function Export(props: { recap: YearRecap; appName: string }) {
 }
 
 /** A garment as the image draws it: its thumb (same-origin, so the canvas stays clean). */
-function cardGarment(garment: InsightGarment, detail: string) {
+function cardGarment(
+  garment: InsightGarment<SignablePhotoRef>,
+  detail: string,
+) {
   return {
     name: garmentName(garment),
     image: garment.photo ? imageUrl(garment.photo, 'thumb') : null,
@@ -330,7 +336,7 @@ function cardGarment(garment: InsightGarment, detail: string) {
  * recap-export.js only draws. The colours are the page's own strip's
  * segments (`colour` names one), read there for their painted colour.
  */
-function cardData(recap: YearRecap, appName: string) {
+function cardData(recap: YearRecap<SignablePhotoRef>, appName: string) {
   const { period } = recap;
   const best = recap.bestValue.at(0);
   return {

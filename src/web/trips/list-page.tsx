@@ -1,6 +1,6 @@
 import { tripPhase } from '../../wardrobe/packing';
 import { CalendarTabs } from '../calendar/calendar-tabs';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';

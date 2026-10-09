@@ -1,6 +1,6 @@
 import type { Db } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { type DayChoice, readDayChoice } from '../calendar/day-choice';
 import { entriesOfDaySql } from '../calendar/queries';
 import type { OutfitCount } from '../../wardrobe/goes-with';

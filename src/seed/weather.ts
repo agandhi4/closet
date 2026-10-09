@@ -4,7 +4,7 @@ import {
   dateParts,
   daysInMonth,
   type IsoDate,
-} from '../web/calendar/calendar-date';
+} from '../calendar-date';
 import {
   type DayForecast,
   diurnalPhase,

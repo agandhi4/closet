@@ -31,6 +31,7 @@ src/
   config.ts       loadConfig(), the only reader of process.env     logger.ts  createLogger()
   project-root.ts PROJECT_ROOT, valid from src/ and dist/
   random.ts       seededRandom(...key): the one seeded PRNG; never Math.random or the clock
+  calendar-date.ts IsoDate and day arithmetic, todayIn(tz, now): pure, shared by every layer
   web/            plugin.ts, errors.tsx, render.ts, loggable-url.ts, i18n.ts, autosave.tsx,
                   page-cache.ts, view-context.ts, schemas.ts, layout/, security/, one dir per feature
   db/ maintenance/ metrics/ cutout/ wardrobe/ push/ weather/ seed/   each: see the area index
@@ -98,6 +99,7 @@ Root hooks in `app.ts` (same-origin at onRequest; `req.auth` and `ViewContext` i
 
 Each rule in full, with its story: `docs/web-layer.md`. A feature lives whole (routes, queries, views) in `src/web/<feature>/`, a plugin registered from `webPlugin` (`src/web/plugin.ts`). Integration specs driving HTTP are the proof that a change keeps behavior.
 
+- **Code no feature owns**: pure goes in the `src/` root (`random.ts`, `calendar-date.ts`) or a pure layer (`src/wardrobe`, `src/weather`, `src/push`: ESLint refuses `web/`, `db/`, `drizzle-orm`, `node:*`); web-only in the `src/web/` root; features share queries, writers, urls and status basics, never pages (`docs/web-layer.md#code-no-feature-owns`).
 - **Routes**: `routes.tsx` exports a `FastifyPluginCallbackTypebox<WebOptions>`. Config arrives resolved as `WebConfig`; nothing in `src/web/` reads `Config` or `process.env`.
 - **Validation**: TypeBox schemas (`@sinclair/typebox` 0.34; 1.x is ESM-only) on the route, never hand-parsing; a failure is the 400 page. A maybe-empty body is `Type.Union([Type.Object(...), Type.Null()])`. Say at the route whether bad input is a 400 (stored data) or a fallback (URL state, `?week=`).
 - **Auth**: `requireSession` / `decideSessionAccess`: a navigation without a session is a 302 to `/auth/login`, an htmx request a bodiless 401 with `HX-Redirect`. User id: `sessionUserId(request)`, which throws on a public route. `config: { public: true }` is the only way past the gate, and a route under a `static-prefixes.ts` path never has a session, so must be public.

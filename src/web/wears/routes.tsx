@@ -4,7 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AWAY_REASONS } from '../../wardrobe/availability';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
-import { todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';

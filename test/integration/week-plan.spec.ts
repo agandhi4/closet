@@ -26,11 +26,7 @@ import {
   weekTemplate,
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
-import {
-  addDays,
-  instantAt,
-  type IsoDate,
-} from '../../src/web/calendar/calendar-date';
+import { addDays, instantAt, type IsoDate } from '../../src/calendar-date';
 import { insertEntry } from '../../src/web/calendar/queries';
 import type { PushPayload } from '../../src/web/push/payload';
 import {

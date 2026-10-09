@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
-import { addDays } from '../src/web/calendar/calendar-date';
+import { addDays } from '../src/calendar-date';
 import { test } from './support/cutout-hold';
 import { signUpHeaders } from './support/e2e-session';
 import { openGarmentMenu, openPhotoSheet } from './support/garment-page';

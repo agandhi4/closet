@@ -8,7 +8,7 @@ import {
   tripItem,
   tripOutfit,
 } from '../../src/db/schema';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { deleteOutfit } from '../../src/web/outfits/queries';
 import { lockTrip } from '../../src/web/trips/packed';
 import { addTripOutfit } from '../../src/web/trips/queries';

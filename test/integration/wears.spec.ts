@@ -9,7 +9,7 @@ import {
 } from '../../src/wardrobe/availability';
 import type { Occasion } from '../../src/wardrobe/occasions';
 import type { GarmentStatus } from '../../src/wardrobe/status';
-import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
+import { addDays, type IsoDate } from '../../src/calendar-date';
 import { availableGarment, dirtyCopiesSql } from '../../src/web/wears/queries';
 import { createGarment } from './garments';
 import {

@@ -5,7 +5,7 @@ import type { Idea } from '../../wardrobe/generator';
 import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
 import { GARMENT_ROLES, type GarmentRole } from '../../wardrobe/properties';
 import { sessionUserId } from '../auth/require-session';
-import { type IsoDate, todayIn } from '../calendar/calendar-date';
+import { type IsoDate, todayIn } from '../../calendar-date';
 import type { CapsuleRef } from '../capsules/queries';
 import { capsuleNotFound } from '../capsules/validation';
 import { HttpError } from '../errors';

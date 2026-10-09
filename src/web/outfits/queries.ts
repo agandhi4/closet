@@ -30,7 +30,7 @@ import type { PlannedBy } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import { entrySelfieSql, type SelfieRef } from '../selfies/queries';
 import { prunePacked, tripsOfOutfit } from '../trips/packed';

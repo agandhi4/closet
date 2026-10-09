@@ -15,7 +15,7 @@ import {
   plannerCreatedOutfit,
   removeUnheldOutfits,
 } from '../week-plan/queries';
-import type { IsoDate } from './calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { occasionLabel } from './labels';
 import {
   entryOf,

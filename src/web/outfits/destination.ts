@@ -3,7 +3,7 @@ import {
   isOccasion,
   type Occasion,
 } from '../../wardrobe/occasions';
-import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
+import { type IsoDate, parseIsoDate } from '../../calendar-date';
 
 /**
  * Where a new outfit goes once chosen, carried in URLs as

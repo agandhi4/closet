@@ -2,7 +2,7 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
-import { todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import {
   type ImageVariant,

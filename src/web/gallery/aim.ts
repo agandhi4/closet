@@ -1,7 +1,7 @@
 import type { Db } from '../../db/client';
 import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
 import type { Location } from '../../weather/location';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import type { OutfitDestination } from '../outfits/destination';
 import { findTrip, ideasDayOf, type TripRow } from '../trips/queries';
 import { tripNotFound } from '../trips/validation';

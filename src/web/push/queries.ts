@@ -2,7 +2,7 @@ import { and, eq, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import { pushReminder, userDevice } from '../../db/schema';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import type {
   DueReminder,
   MinuteOfDay,

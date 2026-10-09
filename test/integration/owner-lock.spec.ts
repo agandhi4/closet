@@ -11,7 +11,7 @@ import {
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
 import { lockOwner, lockOwnerQuery } from '../../src/web/auth/queries';
-import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
+import { addDays, type IsoDate } from '../../src/calendar-date';
 import { deleteEntry, scheduleOutfit } from '../../src/web/calendar/queries';
 import {
   replaceEntryOutfit,

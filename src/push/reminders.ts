@@ -1,8 +1,4 @@
-import {
-  instantAt,
-  type IsoDate,
-  todayIn,
-} from '../web/calendar/calendar-date';
+import { instantAt, type IsoDate, todayIn } from '../calendar-date';
 
 /**
  * The push reminders' schedule (#15; plan section 9), pure: which reminders

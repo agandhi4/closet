@@ -1,5 +1,5 @@
 import { loadConfig } from '../../src/config';
-import { type IsoDate, todayIn } from '../../src/web/calendar/calendar-date';
+import { type IsoDate, todayIn } from '../../src/calendar-date';
 
 /**
  * The day the server under test calls today, for the Playwright specs: the

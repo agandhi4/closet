@@ -3,7 +3,7 @@ import { type Static, Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
 import type { FieldErrors } from '../auth/validation';
-import { type IsoDate, parseIsoDate, todayIn } from '../calendar/calendar-date';
+import { type IsoDate, parseIsoDate, todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';

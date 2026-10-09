@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { outfitCalendar } from '../../src/db/schema';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { shortDayLabel } from '../../src/web/calendar/labels';
 import { createGarment } from './garments';
 import {

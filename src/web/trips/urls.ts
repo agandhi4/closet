@@ -1,5 +1,5 @@
 import type { Occasion } from '../../wardrobe/occasions';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { ideasUrl } from '../gallery/urls';
 
 /**

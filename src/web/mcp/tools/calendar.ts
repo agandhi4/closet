@@ -1,7 +1,7 @@
 import * as z from 'zod/v4';
 import { selectScalars } from '../../../db/select-scalars';
 import { compareOccasions } from '../../../wardrobe/occasions';
-import { addDays, daysBetween, todayIn } from '../../calendar/calendar-date';
+import { addDays, daysBetween, todayIn } from '../../../calendar-date';
 import { entriesSql } from '../../calendar/queries';
 import { HttpError } from '../../errors';
 import {

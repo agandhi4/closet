@@ -1,5 +1,5 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import { todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../../calendar-date';
 import type { WebOptions } from '../plugin';
 import { requestOrigin } from '../security/origin';
 import { authorizeWardrobe } from '../sharing/access';

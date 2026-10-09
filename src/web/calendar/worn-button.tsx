@@ -1,5 +1,5 @@
 import { t } from '../i18n';
-import type { IsoDate } from './calendar-date';
+import type { IsoDate } from '../../calendar-date';
 
 /**
  * An entry's "Worn?" / "✓ Worn" pill: part of each chip on the calendar page,

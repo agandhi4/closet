@@ -19,7 +19,7 @@ import {
   parseYearMonth,
   todayIn,
   yearMonthOf,
-} from './calendar-date';
+} from '../../calendar-date';
 import { CalendarPage } from './calendar-page';
 import {
   buildCalendarView,

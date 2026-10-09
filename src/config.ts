@@ -3,7 +3,7 @@ import { Value, ValueErrorType } from '@sinclair/typebox/value';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
-import { isValidTimeZone } from './web/calendar/calendar-date';
+import { isValidTimeZone } from './calendar-date';
 
 /**
  * The application's configuration: every environment variable it reads,

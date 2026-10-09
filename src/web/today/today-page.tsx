@@ -2,7 +2,7 @@ import type { Child } from 'hono/jsx';
 import type { Idea } from '../../wardrobe/generator';
 import type { Occasion } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry } from '../calendar/calendar-view';
 import { dayLabel, occasionLabel } from '../calendar/labels';
 import { ideaName, type IdeasWeather } from '../gallery/ideas';

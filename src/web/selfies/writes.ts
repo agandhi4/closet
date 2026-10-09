@@ -1,7 +1,7 @@
 import type { MultipartFile } from '@fastify/multipart';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { ownEntryDay } from '../calendar/queries';
 import { HttpError } from '../errors';
 import { unkeyedPhoto } from '../files/image-variant';

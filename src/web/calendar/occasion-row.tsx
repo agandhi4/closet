@@ -3,7 +3,7 @@ import { t } from '../i18n';
 import { OutfitCollage } from '../outfits/collage';
 import { EntrySelfie } from '../selfies/views';
 import { stylingUrl } from '../styling/urls';
-import type { IsoDate } from './calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry } from './calendar-view';
 import { occasionLabel } from './labels';
 import { OPEN_PLAN_SHEET, planSheetChoice } from './plan-sheet';

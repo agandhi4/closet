@@ -13,7 +13,7 @@ import {
   wardrobeShare,
 } from '../../src/db/schema';
 import { runSeed } from '../../src/seed/seed';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { createOptionGroup } from '../../src/web/wishlist/decisions';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import {

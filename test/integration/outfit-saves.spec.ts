@@ -8,7 +8,7 @@ import {
   weekPlan,
   weekPlanEntry,
 } from '../../src/db/schema';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import {
   isRefused,
   replaceEntryOutfit,

@@ -6,7 +6,7 @@ import {
   type GarmentStatusEvent,
   garmentStatusTransition,
 } from '../../wardrobe/status';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 
 /**
  * garment.status in queries: the predicates every read uses, and the one

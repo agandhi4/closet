@@ -7,7 +7,7 @@ import {
 } from '../../wardrobe/insights';
 import { yearRecap } from '../../wardrobe/recap';
 import { sessionUserId } from '../auth/require-session';
-import { dateParts, todayIn } from '../calendar/calendar-date';
+import { dateParts, todayIn } from '../../calendar-date';
 import type { WebOptions } from '../plugin';
 import { renderPage } from '../render';
 import { viewContext } from '../view-context';

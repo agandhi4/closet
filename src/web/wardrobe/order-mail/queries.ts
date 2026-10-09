@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../../db/client';
 import { orderEmail, orderItem, user } from '../../../db/schema';
 import { selectScalars } from '../../../db/select-scalars';
-import type { IsoDate } from '../../calendar/calendar-date';
+import type { IsoDate } from '../../../calendar-date';
 import {
   type OrderEmailOutcome,
   type OrderItemEvent,

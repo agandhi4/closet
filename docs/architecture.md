@@ -43,6 +43,8 @@ src/
   project-root.ts      PROJECT_ROOT for public/, drizzle/, node_modules/ paths; valid from src/ and dist/
   random.ts            seededRandom(...key): the one seeded PRNG (sfc32 over a SHA-256 of the key), for
                        the seed's history and the outfit generator; never Math.random or the clock
+  calendar-date.ts     a calendar day as a plain 'YYYY-MM-DD' string: IsoDate, day arithmetic, todayIn(tz, now).
+                       Pure and shared by the pure layers and src/web/, so it lives at the root (src/web/calendar/CLAUDE.md)
   web/                 Every route and page (see `docs/web-layer.md`): plugin.ts (registered by createApp),
                        errors.tsx (error page + handler), render.ts, loggable-url.ts, i18n.ts (t),
                        autosave.tsx (every form saved on change, see `docs/web-layer.md#autosave`),
@@ -64,9 +66,9 @@ src/
   metrics/             Prometheus metrics, Server-Timing, the device timings: src/metrics/CLAUDE.md
   cutout/              Background removal (see Background removal):
                        src/cutout/CLAUDE.md
-  wardrobe/            The garment model, pure (no database, web or strings): src/wardrobe/CLAUDE.md
-  push/                The push reminders' schedule, pure: src/push/CLAUDE.md
-  weather/             The weather, pure: src/weather/CLAUDE.md
+  wardrobe/            The garment model, pure (no database, web or strings; lint-enforced): src/wardrobe/CLAUDE.md
+  push/                The push reminders' schedule, pure (lint-enforced): src/push/CLAUDE.md
+  weather/             The weather, pure (lint-enforced): src/weather/CLAUDE.md
   seed/                The seed personas: src/seed/CLAUDE.md
   i18n/en/lang.json    the English string catalog
 views/
@@ -80,6 +82,10 @@ test/                  Playwright specs (the gate runs them in Chromium, the nig
 drizzle/               Generated migrations (NNNN_name.sql) + meta/ (journal, snapshots). Shipped in the image
 docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature work against it.
 ```
+
+`src/web/` is effectively the application layer: `app.ts` builds services there that the CLIs reuse.
+
+**The pure layers** (`src/wardrobe`, `src/weather`, `src/push`) import nothing from `src/web/` or `src/db/`, no `drizzle-orm` and no `node:*` module, so their rules run in a unit test with no mock and a feature can import them freely. ESLint enforces it (`no-restricted-imports` in `eslint.config.mjs`; specs are exempt). Shared code they need moves down to `src/` (`calendar-date.ts`, `random.ts`); code that needs a web type is generic over it (`InsightGarment<Photo>`, `generateIdeas<G>`). What else belongs at which level: `docs/web-layer.md#code-no-feature-owns`.
 
 ## Routes
 

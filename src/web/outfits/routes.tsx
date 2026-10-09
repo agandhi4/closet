@@ -2,7 +2,7 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import type { FastifyReply } from 'fastify';
 import { type Static, Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
-import { parseIsoDate, todayIn } from '../calendar/calendar-date';
+import { parseIsoDate, todayIn } from '../../calendar-date';
 import { pickDestination } from '../calendar/day-choice';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';

@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
 import { type ScalarValues, selectScalars } from '../../db/select-scalars';
 import type { Idea } from '../../wardrobe/generator';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import {
   type CapsuleRef,
   capsuleNamesSql,

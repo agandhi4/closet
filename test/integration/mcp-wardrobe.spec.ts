@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment, garmentWear } from '../../src/db/schema';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import { createGarment, createWishlistItem } from './garments';
 import { createTestApp, type TestApp, userIdOf } from './harness';

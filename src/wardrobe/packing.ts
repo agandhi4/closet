@@ -1,4 +1,4 @@
-import type { IsoDate } from '../web/calendar/calendar-date';
+import type { IsoDate } from '../calendar-date';
 import { type AwayReason, cleanCopies, washLimit } from './availability';
 import { topToToe } from './generator';
 import type { GarmentRole } from './properties';

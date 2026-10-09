@@ -6,7 +6,7 @@ import {
   type Occasion,
 } from '../../wardrobe/occasions';
 import { sessionUserId } from '../auth/require-session';
-import { todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../../calendar-date';
 import { garmentsGoneError } from '../outfits/gone-garments';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';

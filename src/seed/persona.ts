@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SharePermission } from '../db/schema';
 import { PROJECT_ROOT } from '../project-root';
-import { type IsoDate, parseIsoDate } from '../web/calendar/calendar-date';
+import { type IsoDate, parseIsoDate } from '../calendar-date';
 import type { CapsuleFields } from '../web/capsules/queries';
 import { CapsuleBody, readCapsuleForm } from '../web/capsules/validation';
 import {

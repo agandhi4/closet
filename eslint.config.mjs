@@ -18,6 +18,34 @@ const FAINT_TEXT_CLASS = '/\\btext-base-content\\x2F(?:\\d|[1-6]\\d)\\b/';
 const MUTED_TEXT =
   'Muted text is text-muted (WCAG AA on every base in both themes); a decorative graphic that carries no information is text-faint (views/assets/main.css, #88).';
 
+const HONO_RAW_HTML_PATHS = [
+  {
+    name: 'hono/html',
+    message:
+      'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (CLAUDE.md, Web layer).',
+  },
+  {
+    name: 'hono/utils/html',
+    message:
+      'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (CLAUDE.md, Web layer).',
+  },
+];
+
+// Bare spellings of the Node builtins that `node:*` also covers.
+const NODE_BUILTINS = [
+  'fs',
+  'fs/promises',
+  'path',
+  'crypto',
+  'child_process',
+  'os',
+  'http',
+  'https',
+  'net',
+];
+const NO_IO =
+  'The pure layers do no I/O and read no clock, environment or crypto: the caller passes it in (docs/web-layer.md).';
+
 export default tseslint.config(
   {
     ignores: [
@@ -60,7 +88,7 @@ export default tseslint.config(
         { assertionStyle: 'as' },
       ],
       // "Today" and every day from an instant come from todayIn() at
-      // APP_TIMEZONE (src/web/calendar/calendar-date.ts; t.today() in the
+      // APP_TIMEZONE (src/calendar-date.ts; t.today() in the
       // integration specs, householdToday() in Playwright's). A UTC date is
       // tomorrow every evening in New York: main went red at 00:01 UTC.
       'no-restricted-syntax': [
@@ -117,17 +145,50 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
+          paths: HONO_RAW_HTML_PATHS,
+        },
+      ],
+    },
+  },
+
+  // The pure layers (docs/web-layer.md, Code no feature owns): rules over
+  // plain values, no HTTP, no database, no I/O, so they run in a unit test
+  // without a mock and any feature can import them. They sit below
+  // src/web/ and src/db/; a dependency pointing up is a layering bug, so
+  // the shared type or helper moves down (src/calendar-date.ts) or the code
+  // is made generic over the caller's type (InsightGarment<Photo>). Specs
+  // are exempt: they build fixtures. A flat-config rule replaces the earlier
+  // block's, so the hono paths are repeated from the shared const.
+  {
+    files: ['src/wardrobe/**/*.ts', 'src/weather/**/*.ts', 'src/push/**/*.ts'],
+    ignores: ['**/*.spec.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
           paths: [
+            ...HONO_RAW_HTML_PATHS,
             {
-              name: 'hono/html',
+              name: 'drizzle-orm',
+              message: 'The pure layers hold no queries (src/db/CLAUDE.md).',
+            },
+            ...NODE_BUILTINS.map((name) => ({
+              name,
+              message: NO_IO,
+            })),
+          ],
+          patterns: [
+            {
+              group: ['**/web', '**/web/**'],
               message:
-                'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (CLAUDE.md, Web layer).',
+                'The pure layers sit below src/web/: move the shared code down to src/ or make it generic over the caller type (docs/web-layer.md).',
             },
             {
-              name: 'hono/utils/html',
+              group: ['**/db', '**/db/**', 'drizzle-orm/*'],
               message:
-                'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (CLAUDE.md, Web layer).',
+                'The pure layers hold no queries: the caller reads rows and passes plain values (docs/web-layer.md).',
             },
+            { group: ['node:*'], message: NO_IO },
           ],
         },
       ],

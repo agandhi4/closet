@@ -14,7 +14,7 @@ import {
   NEVER_WASH,
 } from '../../wardrobe/availability';
 import { ownerTransaction } from '../auth/queries';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import type { GarmentDetail } from '../wardrobe/queries';

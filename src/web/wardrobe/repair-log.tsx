@@ -1,6 +1,6 @@
 import { REPAIR_KINDS } from '../../wardrobe/care';
 import { PostForm } from '../auth/form';
-import { dateParts } from '../calendar/calendar-date';
+import { dateParts } from '../../calendar-date';
 import { shortDayLabel } from '../calendar/labels';
 import { t } from '../i18n';
 import { Messages } from '../layout/parts';

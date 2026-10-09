@@ -7,7 +7,7 @@ import { REPAIR_KINDS, type RepairKind } from '../../wardrobe/care';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { ownerTransaction } from '../auth/queries';
 import type { FieldErrors } from '../auth/validation';
-import { type IsoDate, parseIsoDate } from '../calendar/calendar-date';
+import { type IsoDate, parseIsoDate } from '../../calendar-date';
 import { t } from '../i18n';
 import { RowId } from '../schemas';
 import { CARE_NOTE_MAX, PRICE_INPUT_MAX, readPrice } from './validation';

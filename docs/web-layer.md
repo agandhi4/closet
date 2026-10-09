@@ -17,6 +17,16 @@ A feature lives whole (routes, queries, views) in `src/web/<feature>/`, a Fastif
 - **Logging**: `options.logger`, the `Web` child of the app's pino logger: `logger.info(message)`, `logger.warn(message)`, `logger.error({ err }, message)` (the error serializer keeps the stack). Name a request with `loggableUrl(request)`. The request line itself (`GET /about 200 5.6ms`) is the root onResponse hook's, context `Http`.
 - **Escaping**: `hono/jsx` escapes every text child and attribute value, including text inside `<script>`. The one way to emit markup as-is is `dangerouslySetInnerHTML={{ __html }}`: grep for it, and every use needs a reason at the site. Feed it `tHtml(key, params)` (trusted template, escaped params) or `jsonForScript(value)` (inline JSON that cannot close its `<script>`), never a raw value. `hono/html` (`raw`, `html`) is banned by ESLint so there is no second hatch.
 
+## Code no feature owns
+
+Code that is not one feature's goes where its dependencies say, not into the feature that wrote it first:
+
+- **Pure** (plain values, no HTTP, database or I/O) goes in the `src/` root, as `random.ts` and `calendar-date.ts` do, or in a pure layer (`src/wardrobe`, `src/weather`, `src/push`). The pure layers may not import `src/web/`, `src/db/`, `drizzle-orm` or `node:*`; ESLint refuses it (#352), so a type a pure layer needs from the web side is made generic over the caller's (`InsightGarment<Photo>`).
+- **Web-only** (needs a request, a reply or markup) goes in the `src/web/` root, as `schemas.ts` and `render.ts` do.
+- **One feature uses another's** queries, writers, urls and status basics, never its pages. A shared page piece moves to `src/web/layout/` instead.
+
+Why: `calendar-date.ts` sat in `src/web/calendar/`, so the pure layers could not use it without importing upward, and a feature reaching into another's folder for a date helper was the same smell. Where a file lives is what the next author copies.
+
 ## Client behavior
 
 - **Server owns the HTML.** Reach for htmx attributes first (`hx-get` on a form of its own, `hx-include`, the `form` attribute, a GET form that works without script), then CSS, then a one-line inline handler (`onclick`, `onsubmit`; the CSP allows inline script) with data from `data-*` attributes, never spliced in. A behavior bigger than a line lives in a module in `public/js/` loaded by the page that uses it, and needs a reason stated in the PR. `_hyperscript` (172 KB, the largest script in the shell) was removed on 2026-09-26: its 13 attributes were each a few lines of this; `pages.ts` (`expectFullPage`) fails a page with an `_=` attribute.

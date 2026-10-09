@@ -58,7 +58,10 @@ export default defineConfig({
           name: 'unit',
           // scripts/: the repo tooling's pure rules (docs:check's).
           include: ['src/**/*.spec.{ts,tsx}', 'scripts/**/*.spec.ts'],
-          exclude: ['src/web/calendar/**/*.spec.{ts,tsx}'],
+          exclude: [
+            'src/web/calendar/**/*.spec.{ts,tsx}',
+            'src/calendar-date.spec.ts',
+          ],
         },
       },
       {
@@ -73,7 +76,10 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit-new-york',
-          include: ['src/web/calendar/**/*.spec.{ts,tsx}'],
+          include: [
+            'src/web/calendar/**/*.spec.{ts,tsx}',
+            'src/calendar-date.spec.ts',
+          ],
           env: { TZ: 'America/New_York' },
           pool: 'forks',
         },

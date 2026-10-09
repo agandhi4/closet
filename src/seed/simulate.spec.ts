@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, dayOfWeek } from '../web/calendar/calendar-date';
+import { addDays, dayOfWeek } from '../calendar-date';
 import { type BibleOccasion, loadPersona } from './persona';
 import { HISTORY_DAYS, simulate } from './simulate';
 

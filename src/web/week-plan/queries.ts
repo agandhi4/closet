@@ -32,7 +32,7 @@ import type {
   WeekEntry,
 } from '../../wardrobe/week-planner';
 import { type GarmentWeatherFields, matchGarment } from '../../weather/match';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { outfitIsHeld } from '../outfits/references';
 import { wearsSinceWashSql } from '../wears/queries';
 

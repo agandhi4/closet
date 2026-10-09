@@ -1,4 +1,4 @@
-import { todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../../calendar-date';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Layout } from '../layout/layout';

@@ -1,7 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyRequest } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
-import { todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { authorizeWardrobe } from '../sharing/access';

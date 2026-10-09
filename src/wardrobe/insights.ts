@@ -1,7 +1,6 @@
 import { brandKey, brandSpelling } from './brands';
 import type { Condition, GarmentColor } from './properties';
 import { fromCents, toCents } from './money';
-import type { SignablePhotoRef } from '../web/files/image-url';
 
 /**
  * Insights (#17, docs/plans/2026-09-26-wardrobe-features.md section 10): how
@@ -66,8 +65,13 @@ export const PAIR_MIN_DAYS = 2;
 /** The brands listed by name; the rest are summed as others. */
 export const BRANDS_LIMIT = 8;
 
-/** One garment in the closet with its wear counts (insightGarments). */
-export interface InsightGarment {
+/**
+ * One garment in the closet with its wear counts (insightGarments).
+ * `Photo` is the caller's photo reference, passed through untouched: this
+ * layer never reads it (src/web/insights/queries.ts supplies a
+ * SignablePhotoRef), like the outfit generator's garment type.
+ */
+export interface InsightGarment<Photo = unknown> {
   id: number;
   name: string | null;
   category: string;
@@ -83,8 +87,7 @@ export interface InsightGarment {
    */
   repairCost: string | null;
   condition: Condition;
-  /** As imageUrl signs it (photoRefJson, src/web/files/queries.ts). */
-  photo: SignablePhotoRef | null;
+  photo: Photo | null;
   /** 'YYYY-MM-DD', null without a date (a recap's new additions). */
   acquiredOn: string | null;
   /** Distinct days worn, ever (up to the window's last day). */
@@ -118,8 +121,8 @@ export interface WornShare {
   percent: number;
 }
 
-export interface CostPerWear {
-  garment: InsightGarment;
+export interface CostPerWear<Photo = unknown> {
+  garment: InsightGarment<Photo>;
   /** What the garment cost (totalCost): price × quantity plus repairs. */
   cost: string;
   /** cost ÷ wear days; null when not worn yet (never divided). */
@@ -146,28 +149,28 @@ export interface Breakdown {
   worn: number;
 }
 
-export interface WardrobeInsights {
+export interface WardrobeInsights<Photo = unknown> {
   closet: { garments: number; pieces: number };
   /** Recent wear days over the closet (0: nothing worn in the last year). */
   recentWearDays: number;
   worn: WornShare[];
-  unworn: { days: UnwornDays; garments: InsightGarment[] };
-  mostWorn: InsightGarment[];
-  leastWorn: InsightGarment[];
+  unworn: { days: UnwornDays; garments: InsightGarment<Photo>[] };
+  mostWorn: InsightGarment<Photo>[];
+  leastWorn: InsightGarment<Photo>[];
   cost: {
     /** Lowest cost per wear first. */
-    best: CostPerWear[];
+    best: CostPerWear<Photo>[];
     /** Highest cost per wear first (worn ones; none in `best`). */
-    worst: CostPerWear[];
+    worst: CostPerWear<Photo>[];
     /** Priced and never worn, the most expensive first. */
-    notWornYet: CostPerWear[];
+    notWornYet: CostPerWear<Photo>[];
     notWornYetCount: number;
     /** What the priced garments cost (totalCost), repairs included. */
     closetValue: string;
     priced: number;
     unpriced: number;
   };
-  pairs: { a: InsightGarment; b: InsightGarment; days: number }[];
+  pairs: { a: InsightGarment<Photo>; b: InsightGarment<Photo>; days: number }[];
   colours: ColourShare[];
   /**
    * Garments without a colour, and their percent of the closet and of the
@@ -205,10 +208,10 @@ function ownedFor(garment: InsightGarment, days: number): boolean {
  * bought last week has had no chance): never worn first, then the longest
  * since, then the oldest id.
  */
-function unwornList(
-  garments: InsightGarment[],
+function unwornList<Photo>(
+  garments: InsightGarment<Photo>[],
   days: number,
-): InsightGarment[] {
+): InsightGarment<Photo>[] {
   return garments
     .filter((g) => unwornIn(g, days) && ownedFor(g, days))
     .sort(
@@ -255,7 +258,9 @@ export function perWearCost(total: string, wearDays: number): string | null {
 }
 
 /** A garment's cost per wear; none without a price (totalCost). */
-function costPerWear(garment: InsightGarment): CostPerWear[] {
+function costPerWear<Photo>(
+  garment: InsightGarment<Photo>,
+): CostPerWear<Photo>[] {
   const cost = totalCost(garment);
   if (cost === null) return [];
   return [{ garment, cost, perWear: perWearCost(cost, garment.wearDays) }];
@@ -266,9 +271,9 @@ function costPerWear(garment: InsightGarment): CostPerWear[] {
  * not worn yet, the closet's value. Insights' card, and a recap's best value
  * (src/wardrobe/recap.ts) over the pieces worn that year.
  */
-export function costFigures(
-  garments: InsightGarment[],
-): WardrobeInsights['cost'] {
+export function costFigures<Photo>(
+  garments: InsightGarment<Photo>[],
+): WardrobeInsights<Photo>['cost'] {
   const priced = garments.flatMap(costPerWear);
   const worn = priced
     .filter((c) => c.perWear !== null)
@@ -420,11 +425,11 @@ function brands(garments: InsightGarment[]): {
  * garments and its most-worn pairs. `unwornDays` picks the unworn list's
  * window.
  */
-export function wardrobeInsights(
-  garments: InsightGarment[],
+export function wardrobeInsights<Photo>(
+  garments: InsightGarment<Photo>[],
   pairRows: PairRow[],
   unwornDays: UnwornDays,
-): WardrobeInsights {
+): WardrobeInsights<Photo> {
   const total = garments.length;
   const byIdMap = new Map(garments.map((g) => [g.id, g]));
 

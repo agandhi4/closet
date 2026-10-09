@@ -17,7 +17,7 @@ import {
   type TripPhase,
   tripPhase,
 } from '../../wardrobe/packing';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import type { CollageGarment } from '../outfits/collage';

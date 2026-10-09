@@ -10,7 +10,7 @@ import {
   type ReconcileOptions,
   type ReconciliationReport,
 } from '../../src/maintenance/reconcile';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { variantFileName } from '../../src/web/files/image-variant';
 import {
   createGarment,

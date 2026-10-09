@@ -1,5 +1,5 @@
 import { type DayDestination, destinationQuery } from '../outfits/destination';
-import type { IsoDate } from './calendar-date';
+import type { IsoDate } from '../../calendar-date';
 
 /**
  * The calendar's addresses, built from parsed values (a real date, a

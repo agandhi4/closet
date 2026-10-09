@@ -24,7 +24,7 @@ import {
   type EntryWornOutcome,
   type LockedEntry,
 } from '../wears/queries';
-import type { IsoDate } from './calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry } from './calendar-view';
 
 /**

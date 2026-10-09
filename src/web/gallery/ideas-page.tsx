@@ -2,7 +2,7 @@ import type { Idea } from '../../wardrobe/generator';
 import type { Occasion } from '../../wardrobe/occasions';
 import { displayTemperature } from '../../weather/temperature';
 import { PostForm } from '../auth/form';
-import { type IsoDate, dayOfWeek } from '../calendar/calendar-date';
+import { type IsoDate, dayOfWeek } from '../../calendar-date';
 import { DAY_NAMES, dayLabel, occasionLabel } from '../calendar/labels';
 import type { CapsuleRef } from '../capsules/queries';
 import { t } from '../i18n';

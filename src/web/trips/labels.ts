@@ -1,9 +1,5 @@
 import type { TripPhase } from '../../wardrobe/packing';
-import {
-  dateParts,
-  daysBetween,
-  type IsoDate,
-} from '../calendar/calendar-date';
+import { dateParts, daysBetween, type IsoDate } from '../../calendar-date';
 import { MONTH_NAMES } from '../calendar/labels';
 import { t } from '../i18n';
 

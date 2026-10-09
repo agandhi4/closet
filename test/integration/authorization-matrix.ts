@@ -24,7 +24,7 @@ import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addBrandSize } from '../../src/web/sizes/queries';
 import { addRepair } from '../../src/web/wardrobe/repairs';
 import { recordOrderEmail } from '../../src/web/wardrobe/order-mail/queries';
-import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
+import { addDays, type IsoDate } from '../../src/calendar-date';
 import {
   createGarment,
   createWishlistItem,

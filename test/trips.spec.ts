@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
-import { addDays } from '../src/web/calendar/calendar-date';
+import { addDays } from '../src/calendar-date';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { householdToday } from './support/household-today';

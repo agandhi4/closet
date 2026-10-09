@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
 import { file, garment, garmentWear } from '../../db/schema';
+import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import {
   type InsightGarment,
@@ -12,7 +13,7 @@ import {
   wardrobeInsights,
   type WardrobeInsights,
 } from '../../wardrobe/insights';
-import { addDays, type IsoDate } from '../calendar/calendar-date';
+import { addDays, type IsoDate } from '../../calendar-date';
 import { repairCostSql } from '../wardrobe/repairs';
 import { type GarmentScope, inScope } from '../wardrobe/status';
 
@@ -58,7 +59,7 @@ export function insightGarments(
   db: Db,
   ownerId: number,
   window: InsightsWindow,
-): Promise<InsightGarment[]> {
+): Promise<InsightGarment<SignablePhotoRef>[]> {
   const to = sql`${window.to}::date`;
   return (
     db
@@ -149,7 +150,7 @@ export async function readInsightRows(
   db: Db,
   ownerId: number,
   window: InsightsWindow,
-): Promise<{ garments: InsightGarment[]; pairs: PairRow[] }> {
+): Promise<{ garments: InsightGarment<SignablePhotoRef>[]; pairs: PairRow[] }> {
   const [garments, pairs] = await Promise.all([
     insightGarments(db, ownerId, window),
     wornPairs(db, ownerId, window),
@@ -163,7 +164,7 @@ export async function readInsights(
   ownerId: number,
   today: IsoDate,
   unwornDays: UnwornDays,
-): Promise<WardrobeInsights> {
+): Promise<WardrobeInsights<SignablePhotoRef>> {
   const { garments, pairs } = await readInsightRows(
     db,
     ownerId,

@@ -14,11 +14,7 @@ import webpush, { type PushSubscription } from 'web-push';
 import { createDb, type Db } from '../../src/db/client';
 import { pushReminder, userDevice } from '../../src/db/schema';
 import { type MinuteOfDay } from '../../src/push/reminders';
-import {
-  addDays,
-  instantAt,
-  type IsoDate,
-} from '../../src/web/calendar/calendar-date';
+import { addDays, instantAt, type IsoDate } from '../../src/calendar-date';
 import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
 import {
   revokeDevices,

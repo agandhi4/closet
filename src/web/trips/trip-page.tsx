@@ -5,7 +5,7 @@ import {
 } from '../../wardrobe/packing';
 import { PostForm } from '../auth/form';
 import { AutosaveForm } from '../autosave';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { dayLabel, occasionLabel } from '../calendar/labels';
 import { imageUrl } from '../files/image-url';
 import { t } from '../i18n';

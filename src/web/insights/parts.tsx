@@ -4,6 +4,7 @@ import type {
   CostPerWear,
   InsightGarment,
 } from '../../wardrobe/insights';
+import type { SignablePhotoRef } from '../files/image-url';
 import { t } from '../i18n';
 import { GarmentThumb } from '../layout/parts';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
@@ -26,14 +27,14 @@ export function Card(props: { id: string; title: string; children: Child }) {
   );
 }
 
-export function garmentName(garment: InsightGarment): string {
+export function garmentName(garment: InsightGarment<SignablePhotoRef>): string {
   return garment.name ?? categoryLabel(garment.category);
 }
 
 /** A row per garment: its thumb and name (linking to its page), a line, an action. */
 export function GarmentList(props: {
-  rows: { garment: InsightGarment; detail: string }[];
-  action?: (garment: InsightGarment) => Child;
+  rows: { garment: InsightGarment<SignablePhotoRef>; detail: string }[];
+  action?: (garment: InsightGarment<SignablePhotoRef>) => Child;
 }) {
   if (props.rows.length === 0) return null;
   return (
@@ -58,7 +59,7 @@ export function GarmentList(props: {
 }
 
 /** "$1.20 a wear · $30.00 over 25 wears"; "Not worn yet · $30.00". */
-export function perWearLine(entry: CostPerWear): string {
+export function perWearLine(entry: CostPerWear<SignablePhotoRef>): string {
   const cost = priceLabel(entry.cost);
   if (entry.perWear === null) return t('insights.NOT_WORN_LINE', { cost });
   const perWear = priceLabel(entry.perWear);

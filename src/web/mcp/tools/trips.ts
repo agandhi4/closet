@@ -1,7 +1,7 @@
 import * as z from 'zod/v4';
 import { tripPhase } from '../../../wardrobe/packing';
 import { NORMAL_YEARS } from '../../../weather/normals';
-import { todayIn } from '../../calendar/calendar-date';
+import { todayIn } from '../../../calendar-date';
 import { HttpError } from '../../errors';
 import { OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { tripForecast } from '../../trips/forecast';

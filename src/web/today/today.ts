@@ -7,7 +7,7 @@ import {
   DEFAULT_OCCASION,
   type Occasion,
 } from '../../wardrobe/occasions';
-import { type IsoDate, todayIn } from '../calendar/calendar-date';
+import { type IsoDate, todayIn } from '../../calendar-date';
 import type { CalendarEntry } from '../calendar/calendar-view';
 import { entriesSql } from '../calendar/queries';
 import { dailySeed, ideasFor, type IdeasWeather } from '../gallery/ideas';

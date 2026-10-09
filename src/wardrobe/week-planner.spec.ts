@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, type IsoDate } from '../web/calendar/calendar-date';
+import { addDays, type IsoDate } from '../calendar-date';
 import type { DayForecast } from '../weather/forecast';
 import { keyOf } from './generator';
 import type { GarmentColor, GarmentRole, Warmth } from './properties';

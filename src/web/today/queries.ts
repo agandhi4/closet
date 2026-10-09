@@ -3,7 +3,7 @@ import type { Db, Queryable } from '../../db/client';
 import { garmentWear, outfitCalendar, user } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
 import { ownerTransaction } from '../auth/queries';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import {
   type DayEntry,
   entriesOfDaySql,

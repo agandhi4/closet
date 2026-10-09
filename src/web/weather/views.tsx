@@ -1,5 +1,5 @@
-import type { IsoDate } from '../calendar/calendar-date';
-import { hourIn, todayIn } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
+import { hourIn, todayIn } from '../../calendar-date';
 import { t, tKey } from '../i18n';
 import type { ViewContext } from '../view-context';
 import type { Condition } from '../../weather/forecast';

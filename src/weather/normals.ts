@@ -1,8 +1,4 @@
-import {
-  addDays,
-  dateParts,
-  type IsoDate,
-} from '../web/calendar/calendar-date';
+import { addDays, dateParts, type IsoDate } from '../calendar-date';
 import { type DayForecast, diurnalPhase, RAIN_CHANCE } from './forecast';
 
 /**

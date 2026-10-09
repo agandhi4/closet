@@ -1,6 +1,6 @@
 import type { FastifyPluginCallback } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
-import { todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../../calendar-date';
 import { PAGE_ACCOUNT_HEADER } from '../page-cache';
 import type { WebOptions } from '../plugin';
 import { renderPage } from '../render';

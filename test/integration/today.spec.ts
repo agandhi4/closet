@@ -6,11 +6,7 @@ import {
   outfitCalendar,
   weekPlanEntry,
 } from '../../src/db/schema';
-import {
-  addDays,
-  dateParts,
-  type IsoDate,
-} from '../../src/web/calendar/calendar-date';
+import { addDays, dateParts, type IsoDate } from '../../src/calendar-date';
 import { dayColumns } from './calendar-page';
 import { createGarment, createWishlistItem } from './garments';
 import {

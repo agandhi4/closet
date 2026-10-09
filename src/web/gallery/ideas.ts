@@ -13,7 +13,7 @@ import type { Location } from '../../weather/location';
 import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
 import { normalsOn, typicalDay } from '../../weather/normals';
 import type { TemperatureUnit } from '../../weather/temperature';
-import { addDays, type IsoDate } from '../calendar/calendar-date';
+import { addDays, type IsoDate } from '../../calendar-date';
 import {
   type CapsuleDetail,
   capsuleNamesSql,

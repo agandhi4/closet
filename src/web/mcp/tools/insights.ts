@@ -11,7 +11,7 @@ import {
   UNWORN_CHOICES,
   UNWORN_SHOWN,
 } from '../../../wardrobe/insights';
-import { todayIn } from '../../calendar/calendar-date';
+import { todayIn } from '../../../calendar-date';
 import { readInsights } from '../../insights/queries';
 import { defineTool } from '../tool';
 

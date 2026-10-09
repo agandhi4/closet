@@ -16,7 +16,7 @@ import { userDevice } from '../../src/db/schema';
 import { runRevokeAllPush } from '../../src/maintenance/revoke-push';
 import { runSetPassword } from '../../src/maintenance/set-password';
 import { type MinuteOfDay } from '../../src/push/reminders';
-import { addDays, instantAt } from '../../src/web/calendar/calendar-date';
+import { addDays, instantAt } from '../../src/calendar-date';
 import { saveReminderSettings } from '../../src/web/push/queries';
 import { sendDueReminders } from '../../src/web/push/reminders';
 import { captureLogs } from '../support/log-capture';

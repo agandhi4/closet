@@ -9,7 +9,7 @@ import { scheduleMinutely } from './maintenance/minutely';
 import { scheduleNightly } from './maintenance/nightly';
 import { reconcileStorage } from './maintenance/reconcile';
 import { type ScheduledJob, stopBeforeClose } from './maintenance/scheduled';
-import { addDays, todayIn } from './web/calendar/calendar-date';
+import { addDays, todayIn } from './calendar-date';
 import { pruneReminders, sendDueReminders } from './web/push/reminders';
 import { pollOrderMail } from './web/wardrobe/order-mail/poll';
 import { closeQuietRounds } from './web/wishlist/round-end';

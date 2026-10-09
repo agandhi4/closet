@@ -15,7 +15,7 @@ import {
 import type { TemplateSlot } from '../../wardrobe/week';
 import type { DayForecast } from '../../weather/forecast';
 import { ownerTransaction } from '../auth/queries';
-import { addDays, type IsoDate } from '../calendar/calendar-date';
+import { addDays, type IsoDate } from '../../calendar-date';
 import { entryOf } from '../calendar/queries';
 import { pickIdea } from '../gallery/ideas';
 import {

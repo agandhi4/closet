@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { expect } from 'vitest';
 import { file, outfitCalendar, selfie } from '../../src/db/schema';
-import type { IsoDate } from '../../src/web/calendar/calendar-date';
+import type { IsoDate } from '../../src/calendar-date';
 import { multipart, type TestApp } from './harness';
 
 /**

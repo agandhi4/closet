@@ -1,9 +1,5 @@
 import type { RecapPeriod } from '../../wardrobe/recap';
-import {
-  dateParts,
-  formatIsoDate,
-  type IsoDate,
-} from '../calendar/calendar-date';
+import { dateParts, formatIsoDate, type IsoDate } from '../../calendar-date';
 
 /**
  * A recap's year and days (#26). The boundary is the household's: `today`

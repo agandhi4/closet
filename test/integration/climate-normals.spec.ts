@@ -12,7 +12,7 @@ import {
 import { trip, weatherNormals } from '../../src/db/schema';
 import { monthDayOf } from '../../src/weather/normals';
 import { displayTemperature } from '../../src/weather/temperature';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import { createTestApp, type TestApp, unescapeHtml } from './harness';
 import { createAccessToken, tool } from './mcp';

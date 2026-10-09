@@ -8,7 +8,8 @@ import {
   type UnwornDays,
   type WardrobeInsights,
 } from '../../wardrobe/insights';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
+import type { SignablePhotoRef } from '../files/image-url';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -25,7 +26,7 @@ import { Card, GarmentList, garmentName, perWearLine, Strip } from './parts';
 import { insightsUrl, NEEDS_ATTENTION_URL, RECAP_PATH } from './urls';
 
 export interface InsightsPageModel {
-  insights: WardrobeInsights;
+  insights: WardrobeInsights<SignablePhotoRef>;
   /** The household's today (APP_TIMEZONE): "last worn 3 days ago". */
   today: IsoDate;
 }
@@ -147,7 +148,11 @@ function Figures({ model }: { model: InsightsPageModel }) {
   );
 }
 
-function WornLately({ insights }: { insights: WardrobeInsights }) {
+function WornLately({
+  insights,
+}: {
+  insights: WardrobeInsights<SignablePhotoRef>;
+}) {
   return (
     <Card id="insights-worn" title={t('insights.WORN_LATELY')}>
       <div class="grid grid-cols-3 gap-2 text-center">
@@ -169,7 +174,10 @@ function WornLately({ insights }: { insights: WardrobeInsights }) {
   );
 }
 
-function Unworn(props: { insights: WardrobeInsights; today: IsoDate }) {
+function Unworn(props: {
+  insights: WardrobeInsights<SignablePhotoRef>;
+  today: IsoDate;
+}) {
   const { days, garments } = props.insights.unworn;
   const shown = garments.slice(0, UNWORN_SHOWN);
   return (
@@ -219,7 +227,10 @@ function Unworn(props: { insights: WardrobeInsights; today: IsoDate }) {
 }
 
 /** "Worn 12 times · last worn 3 days ago"; "Not worn yet". */
-function wornDetail(garment: InsightGarment, today: IsoDate): string {
+function wornDetail(
+  garment: InsightGarment<SignablePhotoRef>,
+  today: IsoDate,
+): string {
   if (garment.lastWorn === null) return t('wear.NOT_WORN');
   return [
     garment.wearDays === 1
@@ -230,7 +241,10 @@ function wornDetail(garment: InsightGarment, today: IsoDate): string {
 }
 
 /** Garments with the worn line. */
-function wornRows(garments: InsightGarment[], today: IsoDate) {
+function wornRows(
+  garments: InsightGarment<SignablePhotoRef>[],
+  today: IsoDate,
+) {
   return garments.map((garment) => ({
     garment,
     detail: wornDetail(garment, today),
@@ -240,7 +254,7 @@ function wornRows(garments: InsightGarment[], today: IsoDate) {
 function CostList(props: {
   id: string;
   title: string;
-  entries: CostPerWear[];
+  entries: CostPerWear<SignablePhotoRef>[];
 }) {
   if (props.entries.length === 0) return null;
   return (
@@ -256,7 +270,7 @@ function CostList(props: {
   );
 }
 
-function Cost({ cost }: { cost: WardrobeInsights['cost'] }) {
+function Cost({ cost }: { cost: WardrobeInsights<SignablePhotoRef>['cost'] }) {
   return (
     <Card id="insights-cost" title={t('insights.COST_PER_WEAR')}>
       {cost.priced === 0 ? (
@@ -294,7 +308,7 @@ function Cost({ cost }: { cost: WardrobeInsights['cost'] }) {
   );
 }
 
-function Pairs({ insights }: { insights: WardrobeInsights }) {
+function Pairs({ insights }: { insights: WardrobeInsights<SignablePhotoRef> }) {
   return (
     <Card id="insights-pairs" title={t('insights.PAIRS')}>
       {insights.pairs.length === 0 ? (
@@ -338,7 +352,11 @@ function Pairs({ insights }: { insights: WardrobeInsights }) {
  * colour as a plain segment at the end, so each colour takes its share of
  * the whole closet; the legend says it in words.
  */
-function Colours({ insights }: { insights: WardrobeInsights }) {
+function Colours({
+  insights,
+}: {
+  insights: WardrobeInsights<SignablePhotoRef>;
+}) {
   if (insights.colours.length === 0) return null;
   const { uncoloured } = insights;
   return (

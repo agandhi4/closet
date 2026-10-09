@@ -1,7 +1,7 @@
 import { type SQL, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { capsulesOfGarmentSql, type GarmentCapsule } from '../capsules/queries';
 import {
   type AvoidedPartner,

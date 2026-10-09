@@ -26,7 +26,7 @@ import {
   CARE_WASH,
 } from '../../../wardrobe/care';
 import { perWearCost, totalCost } from '../../../wardrobe/insights';
-import { todayIn } from '../../calendar/calendar-date';
+import { todayIn } from '../../../calendar-date';
 import { capsulesOfGarmentSql, findCapsule } from '../../capsules/queries';
 import { HttpError } from '../../errors';
 import { t } from '../../i18n';

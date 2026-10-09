@@ -1004,7 +1004,7 @@ export const outfitCalendar = pgTable(
   {
     id: serial('id').primaryKey(),
     // A calendar day, not an instant: 'YYYY-MM-DD' end to end
-    // (src/web/calendar/calendar-date.ts). Was `date timestamptz` at UTC
+    // (src/calendar-date.ts). Was `date timestamptz` at UTC
     // midnight until drizzle/0001_calendar_day.sql.
     day: date('day', { mode: 'string' }).notNull(),
     outfitId: integer('outfit_id').notNull(),

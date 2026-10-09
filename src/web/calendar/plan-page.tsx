@@ -9,7 +9,7 @@ import type { GarmentOutfit } from '../outfits/queries';
 import { SavedOutfitButton } from '../outfits/saved-outfit-button';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
-import type { IsoDate } from './calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { type DayChoice, plannedNote } from './day-choice';
 import { dayLabel, occasionLabel } from './labels';
 import { dayUrl, planPageUrl } from './urls';

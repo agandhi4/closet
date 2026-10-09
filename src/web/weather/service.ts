@@ -3,7 +3,7 @@ import type { Logger } from '../../logger';
 import type { Forecast } from '../../weather/forecast';
 import { type Location, locationLabel } from '../../weather/location';
 import { type ClimateNormals, normalYears } from '../../weather/normals';
-import { todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../../calendar-date';
 import {
   createLocationCache,
   elapsed,

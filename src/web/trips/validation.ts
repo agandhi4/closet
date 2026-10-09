@@ -1,6 +1,6 @@
 import { type Static, Type } from '@sinclair/typebox';
 import type { FieldErrors } from '../auth/validation';
-import { daysBetween, parseIsoDate } from '../calendar/calendar-date';
+import { daysBetween, parseIsoDate } from '../../calendar-date';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { OccasionSchema, RowId } from '../schemas';

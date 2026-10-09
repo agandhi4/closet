@@ -23,7 +23,7 @@ import type { IdeaGarment, SavedOutfit } from '../../wardrobe/generator';
 import { categoryRole } from '../../wardrobe/properties';
 import type { PlannerGarment } from '../../wardrobe/week-planner';
 import { matchGarment } from '../../weather/match';
-import type { IsoDate } from '../calendar/calendar-date';
+import type { IsoDate } from '../../calendar-date';
 import { inCapsule } from '../capsules/queries';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson, readPhotoRef } from '../files/queries';

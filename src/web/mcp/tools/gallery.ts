@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 import { DEFAULT_OCCASION, OCCASION_HINTS } from '../../../wardrobe/occasions';
-import { todayIn } from '../../calendar/calendar-date';
+import { todayIn } from '../../../calendar-date';
 import { HttpError } from '../../errors';
 import { OUTFIT_COUNT_CAP } from '../../../wardrobe/goes-with';
 import {

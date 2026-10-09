@@ -8,7 +8,7 @@ import {
   weekPlan,
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
-import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
+import { addDays, type IsoDate } from '../../src/calendar-date';
 import { replaceEntryOutfit } from '../../src/web/calendar/replace';
 import { pickIdea } from '../../src/web/gallery/ideas';
 import { tripModel } from '../../src/web/trips/model';

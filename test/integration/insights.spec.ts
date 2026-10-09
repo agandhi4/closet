@@ -7,7 +7,7 @@ import {
   outfit,
   outfitCalendar,
 } from '../../src/db/schema';
-import { addDays, type IsoDate } from '../../src/web/calendar/calendar-date';
+import { addDays, type IsoDate } from '../../src/calendar-date';
 import { createWishlistItem } from './garments';
 import {
   createTestApp,

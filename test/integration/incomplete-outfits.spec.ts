@@ -7,7 +7,7 @@ import {
   personalAccessToken,
   tripOutfit,
 } from '../../src/db/schema';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { insertEntry, wearOutfitOn } from '../../src/web/calendar/queries';
 import { updateOutfit } from '../../src/web/outfits/queries';
 import { addTripOutfit } from '../../src/web/trips/queries';

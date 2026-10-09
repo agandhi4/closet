@@ -13,7 +13,7 @@ import {
 import { CARE_WASH } from '../../wardrobe/care';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
-import { todayIn } from '../calendar/calendar-date';
+import { todayIn } from '../../calendar-date';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
 import { imageUrl } from '../files/image-url';

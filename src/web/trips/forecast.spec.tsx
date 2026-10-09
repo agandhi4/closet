@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Db } from '../../db/client';
 import { type DayNormals, monthDayOf } from '../../weather/normals';
-import { addDays } from '../calendar/calendar-date';
+import { addDays } from '../../calendar-date';
 import { renderToString } from '../render';
 import type { CachedNormals, WeatherService } from '../weather/service';
 import { tripForecast } from './forecast';

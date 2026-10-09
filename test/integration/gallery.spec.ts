@@ -7,7 +7,7 @@ import {
   outfitSlot,
   userWeather,
 } from '../../src/db/schema';
-import { addDays } from '../../src/web/calendar/calendar-date';
+import { addDays } from '../../src/calendar-date';
 import { pickIdea } from '../../src/web/gallery/ideas';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import { createWishlistItem } from './garments';
