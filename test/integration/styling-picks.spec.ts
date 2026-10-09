@@ -234,7 +234,7 @@ describe('Styling: Include picks (#335)', () => {
       const first = await get('/styling');
       const second = await get('/styling');
       expect(first.body).toBe(second.body);
-      expect(first.body).not.toContain('data-to-buy');
+      expect(first.body).not.toContain('data-mark="to-buy"');
       expect(first.body).not.toContain('name="picks"');
       expect(switchOf(first.body)).toEqual({
         checked: 'false',
@@ -264,17 +264,17 @@ describe('Styling: Include picks (#335)', () => {
       );
       expect(day.statusCode).toBe(200);
       expect(day.body).not.toContain('data-styling-picks');
-      expect(day.body).not.toContain('data-to-buy');
+      expect(day.body).not.toContain('data-mark="to-buy"');
       const shared = await get(`/styling?ownerId=${ownerId}&picks=1`, grantee);
       expect(shared.statusCode).toBe(200);
       expect(shared.body).not.toContain('data-styling-picks');
-      expect(shared.body).not.toContain('data-to-buy');
+      expect(shared.body).not.toContain('data-mark="to-buy"');
     });
 
     it('an old ?plan= link is plain Styling', async () => {
       const old = await get('/styling?plan=1');
       expect(old.statusCode).toBe(200);
-      expect(old.body).not.toContain('data-to-buy');
+      expect(old.body).not.toContain('data-mark="to-buy"');
     });
   });
 
@@ -286,7 +286,7 @@ describe('Styling: Include picks (#335)', () => {
       expect(stripOf(page, 'top')).toEqual([ownShirt, tee]);
       // A role the closet has nothing of still gets its row.
       expect(stripOf(page, 'footwear')).toEqual([boots]);
-      expect(page.match(/data-to-buy/g)).toHaveLength(5);
+      expect(page.match(/data-mark="to-buy"/g)).toHaveLength(5);
       // Opened on the closet's own, never on a piece to buy.
       expect(carries(page, tee)).toBe(true);
       expect(carries(page, blazerOne)).toBe(false);
@@ -377,7 +377,7 @@ describe('Styling: Include picks (#335)', () => {
       const html = unescapeHtml(off.body);
       expect(carries(html, blazerOne)).toBe(false);
       expect(carries(html, tee)).toBe(true);
-      expect(html).not.toContain('data-to-buy');
+      expect(html).not.toContain('data-mark="to-buy"');
       expect(switchOf(off.body)?.checked).toBe('false');
     });
 
@@ -407,7 +407,7 @@ describe('Styling: Include picks (#335)', () => {
         /<a href="\/styling\?picks=1"[^>]*role="switch"[^>]*aria-checked="false"/,
       );
       const on = (await get('/styling?picks=1', cookie)).body;
-      expect(on).toContain('data-to-buy');
+      expect(on).toContain('data-mark="to-buy"');
       expect(on).toContain('data-styling-row="layer"');
       const capsule = await t.inject({
         method: 'POST',
@@ -447,7 +447,7 @@ describe('Styling: Include picks (#335)', () => {
       ).toBe(302);
       const page = (await get(`/styling?outfit=${id}&picks=1`)).body;
       expect(page).not.toContain('data-styling-picks');
-      expect(page).not.toContain('data-to-buy');
+      expect(page).not.toContain('data-mark="to-buy"');
       const rows = await get(
         `/styling/row?${rowsQuery(
           [

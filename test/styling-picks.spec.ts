@@ -78,7 +78,7 @@ for (const [label, device] of [
       await page.goto('/styling');
       const toggle = page.locator('[data-styling-picks]');
       await expect(toggle).toHaveAttribute('aria-checked', 'false');
-      await expect(page.locator('[data-to-buy]')).toHaveCount(0);
+      await expect(page.locator('[data-mark="to-buy"]')).toHaveCount(0);
       // The rows as they stand, which the switch keeps (it posts them).
       const topChoice = page.locator(
         '[data-styling-row="top"] input[name="garmentId"]',
@@ -98,7 +98,7 @@ for (const [label, device] of [
       expect(layer.indexOf(two)).toBe(layer.indexOf(one) + 1);
       await expect(
         page.locator(
-          `[data-styling-row="layer"] [data-snap-value="${one}"] [data-to-buy]`,
+          `[data-styling-row="layer"] [data-snap-value="${one}"] [data-mark="to-buy"]`,
         ),
       ).toHaveText('To buy');
       // The pick set aside as too pricey is not offered.

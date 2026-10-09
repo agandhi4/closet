@@ -1,5 +1,6 @@
 import type { Child } from 'hono/jsx';
 import { showsCutout } from '../../cutout/state';
+import { garmentMarks } from '../../wardrobe/marks';
 import { PostForm } from '../auth/form';
 import { GarmentCapsules } from '../capsules/garment-capsules';
 import type { GarmentCapsule } from '../capsules/queries';
@@ -17,6 +18,7 @@ import type { AvoidedPartner } from '../gallery/queries';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
+import { GarmentMark } from '../layout/garment-mark';
 import { Layout } from '../layout/layout';
 import { PageMain } from '../layout/page-main';
 import {
@@ -229,7 +231,7 @@ function Summary({ model }: { model: GarmentPageModel }) {
   return (
     <section class="flex flex-col gap-4" aria-label={t('garment.SUMMARY')}>
       <div class="flex flex-col gap-2">
-        <StatusBadge status={garment.status} />
+        <StatusMark model={model} />
         <FactsLine garment={garment} />
         <BrandSizeNote note={model.brandSize} />
       </div>
@@ -375,13 +377,22 @@ function backUrl(garment: GarmentDetail, viewOwner: number | undefined) {
   );
 }
 
-/** Where the garment is when it is not the closet: the wishlist, or archived. */
-function StatusBadge({ status }: { status: GarmentDetail['status'] }) {
-  if (status === 'closet') return null;
+/**
+ * Where the garment is when it is not the closet: to buy, or archived.
+ * Status only: the owner's away and wash state are the wear section's,
+ * just below.
+ */
+function StatusMark({ model }: { model: GarmentPageModel }) {
+  const marks = garmentMarks(
+    { status: model.garment.status },
+    { ownerView: model.wear !== undefined },
+  );
+  if (marks.length === 0) return null;
+  // A block of its own, so the column's stretch never widens the badge.
   return (
-    <span class="badge badge-soft badge-primary self-start">
-      {t(status === 'wishlist' ? 'wishlist.ON_WISHLIST' : 'ARCHIVED')}
-    </span>
+    <p>
+      <GarmentMark marks={marks} />
+    </p>
   );
 }
 

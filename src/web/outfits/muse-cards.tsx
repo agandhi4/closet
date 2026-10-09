@@ -1,4 +1,5 @@
 import type { OutfitCount } from '../../wardrobe/goes-with';
+import { garmentMarks } from '../../wardrobe/marks';
 import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
 import { PostForm } from '../auth/form';
 import { imageUrl } from '../files/image-url';
@@ -6,6 +7,7 @@ import { enlargeLabel, PhotoSet, viewerTrigger } from '../files/photo-viewer';
 import { unlocksText } from '../gallery/goes-with';
 import { t } from '../i18n';
 import { MUSE_GRID } from '../layout/columns';
+import { GarmentMark, markLabel } from '../layout/garment-mark';
 import { HangerIcon } from '../layout/parts';
 import { stylingUrl } from '../styling/urls';
 import { categoryLabel, priceLabel } from '../wardrobe/garment';
@@ -223,18 +225,28 @@ function PrimaryAction(props: { item: MuseOutfit; primary: Primary }) {
 const pieceName = (piece: MusePiece) =>
   piece.name ?? categoryLabel(piece.category);
 
-/** A piece to buy's badge: its price, "To buy" without one, or "Set aside". */
-function badgeText(piece: MusePiece): string {
-  if (piece.setAside) return t('outfits.muse.SET_ASIDE');
-  return piece.price ? priceLabel(piece.price) : t('outfits.PIECE_TO_BUY');
+/**
+ * A piece's mark, none when it is owned: set aside, or to buy, which wears its price in
+ * the mark's look when it has one; `label` is what the badge says.
+ */
+function pieceMark(piece: MusePiece) {
+  // Muse's cards are the owner's alone.
+  const marks = garmentMarks(piece, { ownerView: true });
+  const [first] = marks;
+  if (first === undefined) return undefined;
+  const price =
+    first === 'to-buy' && piece.price ? priceLabel(piece.price) : undefined;
+  return { marks, price, label: price ?? markLabel(first) };
 }
 
 /**
  * One piece, big: its photo on the plinth colour (a tap opens the viewer,
  * which names it; the button's label does too). No name under it: the
- * card is the pieces. A piece to buy wears its price over its foot, the
- * link to its page (where This one and Bought it are, and its need's
- * options), always; and, when it is a number worth reading, what it
+ * card is the pieces. A marked piece wears its mark over its foot, the
+ * link to its page: a piece to buy its price (or "To buy"; its page has
+ * This one, Bought it and its need's options), a set-aside pick "Set
+ * aside", an archived piece "Archived". A piece to buy also shows, when it
+ * is a number worth reading, what it
  * unlocks with the closet, never at the cap ("50+", which a large closet
  * gives most pieces and so tells nothing, the inbox's rule).
  */
@@ -247,6 +259,7 @@ function PieceTile(props: {
   const { piece } = props;
   const name = pieceName(piece);
   const toBuy = isPieceToBuy(piece);
+  const mark = pieceMark(piece);
   return (
     <li class="flex flex-col gap-1 min-w-0" data-piece={String(piece.id)}>
       {/* The badge sits outside the clipped photo frame, so its 44 px hit area is never cut off. */}
@@ -273,21 +286,24 @@ function PieceTile(props: {
             <HangerIcon class="size-8 text-muted" strokeWidth="1.5" />
           )}
         </div>
-        {toBuy && (
+        {mark && (
           // The piece's page (This one, Bought it, its need's options): the
           // badge is the link, its hit area a 44 px band centred on it (the
           // ::after, never clipped); the rest of the tile opens the viewer.
           <a
             href={`/wardrobe/${piece.id}`}
-            class={`badge badge-xs sm:badge-sm absolute bottom-0.5 sm:bottom-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap after:absolute after:-inset-x-2 after:top-1/2 after:h-11 after:-translate-y-1/2 ${piece.setAside ? 'badge-warning' : 'badge-accent'}`}
+            class="absolute bottom-0.5 sm:bottom-1.5 left-1/2 -translate-x-1/2 flex after:absolute after:-inset-x-2 after:top-1/2 after:h-11 after:-translate-y-1/2"
             aria-label={t('outfits.muse.PIECE_LINK', {
               name,
-              label: badgeText(piece),
+              label: mark.label,
             })}
-            data-to-buy=""
             data-piece-link=""
           >
-            {badgeText(piece)}
+            <GarmentMark
+              marks={mark.marks}
+              text={mark.price}
+              class="sm:badge-sm"
+            />
           </a>
         )}
       </div>

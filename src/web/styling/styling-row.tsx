@@ -1,6 +1,8 @@
+import { garmentMarks } from '../../wardrobe/marks';
 import type { GarmentRole } from '../../wardrobe/properties';
 import { imageUrl } from '../files/image-url';
 import { t, type StringKey } from '../i18n';
+import { GarmentMark } from '../layout/garment-mark';
 import { HangerIcon } from '../layout/parts';
 import { categoryLabel } from '../wardrobe/garment';
 import { SnapStrip, snapItem, type SnapSize } from '../strip/snap-strip';
@@ -121,7 +123,6 @@ export function StylingRowView(props: {
             role={row.role}
             selected={garment.id === row.garmentId}
             locked={row.locked}
-            detached={garment.id === row.detachedId}
             viewOwner={context.viewOwner}
           />
         ))}
@@ -231,7 +232,6 @@ function GarmentItem(props: {
   role: GarmentRole;
   selected: boolean;
   locked: boolean;
-  detached: boolean;
   viewOwner: number | undefined;
 }) {
   const { garment } = props;
@@ -266,14 +266,11 @@ function GarmentItem(props: {
       <span class="text-xs truncate">
         {garment.name ?? categoryLabel(garment.category)}
       </span>
-      {props.detached && (
-        <span class="badge badge-ghost badge-xs">{t('ARCHIVED')}</span>
-      )}
-      {garment.status === 'wishlist' && (
-        <span class="badge badge-accent badge-xs" data-to-buy="">
-          {t('styling.TO_BUY')}
-        </span>
-      )}
+      <GarmentMark
+        marks={garmentMarks(garment, {
+          ownerView: props.viewOwner === undefined,
+        })}
+      />
     </a>
   );
 }
@@ -329,7 +326,6 @@ export function StripPage(props: {
           role={props.role}
           selected={false}
           locked={false}
-          detached={false}
           viewOwner={props.context.viewOwner}
         />
       ))}

@@ -639,18 +639,12 @@
     "NEEDS_WASH": "Needs a wash",
     "COPIES_NEED_WASH": "{dirty} of {quantity} need a wash",
     "NOT_DUE": "Worn, not due yet",
-    "BADGE_WASH": "Wash",
-    "BADGE_WASH_COPIES": "Wash {dirty}/{quantity}",
     "WORE_TODAY": "Wore today",
     "UNDO_WORE_TODAY": "Undo “Wore today”",
     "WORN_TODAY_CALENDAR": "Worn today (calendar)",
     "WASHED": "Washed",
     "WHERE": "Where it is",
     "IN_CLOSET": "In the closet",
-    "away": {
-      "lent": "Lent",
-      "repair": "At repair"
-    },
     "AWAY_NOTE": "Where, or who has it",
     "AWAY_NOTE_PLACEHOLDER": "e.g. Dana has it, or the cobbler on Fulton St",
     "FILTER_NEEDS_WASH": "Needs a wash",
@@ -662,6 +656,16 @@
     "LAUNDRY_PROMPT_ONE": "1 garment needs a wash",
     "LAUNDRY_WASHED": "{count} washed",
     "MARK_WASHED": "Mark washed"
+  },
+  "mark": {
+    "TO_BUY": "To buy",
+    "ARCHIVED": "Archived",
+    "LENT": "Lent",
+    "AT_REPAIR": "At repair",
+    "NEEDS_WASH": "Wash",
+    "NEEDS_WASH_COPIES": "Wash {dirty}/{copies}",
+    "SET_ASIDE": "Set aside",
+    "MORE": " (also {marks})"
   },
   "garment": {
     "EDIT": "Edit",
@@ -692,7 +696,6 @@
     "ADD_FROM_LINK_TITLE": "Add to wishlist from a link",
     "EMPTY": "Nothing on the wishlist yet. Add what you are thinking of buying, from a link or by hand.",
     "EMPTY_SHARED": "Nothing on this wishlist yet.",
-    "ON_WISHLIST": "Wishlist",
     "REPLACES": "Replaces {name}",
     "REPLACES_LABEL": "Replaces",
     "REPLACES_NOTHING": "Nothing: a new piece",
@@ -962,7 +965,6 @@
       "CHOOSE_PIECES": "Choose the pieces",
       "YOU_ASKED": "You asked: {note}",
       "NEEDS_REPLACEMENT": "Needs a replacement: {name} was set aside",
-      "SET_ASIDE": "Set aside",
       "SET_ASIDE_COUNT": "{count} set aside",
       "UNDO_LABEL": "Undo setting {name} aside",
       "SET_ASIDE_LINE": "Set aside: {reason}",
@@ -976,8 +978,7 @@
     "BUY_FIRST": "Buy {count} pieces first",
     "BUY_FIRST_ONE": "Buy 1 piece first",
     "TO_WEAR_TITLE": "To wear this, buy",
-    "NOT_BOUGHT": "Not bought yet",
-    "PIECE_TO_BUY": "To buy"
+    "NOT_BOUGHT": "Not bought yet"
   },
   "insights": {
     "TITLE": "Insights",
@@ -1114,7 +1115,6 @@
     "REFUSED_HINT": "Those rows are back to None: choose again, then save.",
     "INCOMPLETE_HINT": "Your rows are as you left them: save without a day, or buy what’s named first.",
     "INCLUDE_PICKS": "Include picks",
-    "TO_BUY": "To buy",
     "BOUGHT_IT": "Bought it: {name}",
     "role": {
       "layer": "Layer",

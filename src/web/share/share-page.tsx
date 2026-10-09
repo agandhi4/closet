@@ -4,7 +4,7 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { GarmentThumb, HangerIcon } from '../layout/parts';
-import { ToBuyBadge } from '../outfits/collage';
+import { FootMark } from '../outfits/collage';
 import { isPieceToBuy } from '../outfits/references';
 import type { ViewContext } from '../view-context';
 import type { SharedGarment, SharedOutfit } from './queries';
@@ -123,7 +123,7 @@ function OutfitCard({ outfit }: { outfit: SharedOutfit }) {
                     garment={garment}
                     class="rounded-box shadow-sm"
                   />
-                  <ToBuyBadge />
+                  <FootMark marks={['to-buy']} />
                 </span>
               ) : (
                 <GarmentThumb garment={garment} class="rounded-box shadow-sm" />

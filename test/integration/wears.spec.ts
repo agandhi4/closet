@@ -462,6 +462,7 @@ describe('wears and washes', () => {
       });
       expect(grid.body).toContain('Three tees');
       expect(hasText(grid.body, '×3')).toBe(true);
+      expect(grid.body).toContain('data-mark="needs-wash"');
       expect(hasText(grid.body, 'Wash 1/3')).toBe(true);
 
       await markWorn(await schedule(outfit, daysAgo(2)));
@@ -966,8 +967,9 @@ describe('wears and washes', () => {
       // The wash filter is dropped for a grantee: the whole wardrobe shows,
       // with no wash marks or away, and the filter is not offered.
       expect(grid.body).toContain('Shared tees');
-      expect(hasText(grid.body, 'Wash 1/3')).toBe(false);
-      expect(grid.body).not.toContain('>Lent</span>');
+      expect(grid.body).not.toContain('data-mark="needs-wash"');
+      expect(grid.body).not.toContain('data-mark="away:lent"');
+      expect(grid.body).not.toContain('data-mark="away:repair"');
       expect(hasText(grid.body, '×3')).toBe(true);
       expect(grid.body).not.toContain('name="needsWash"');
       expect(grid.body).not.toContain('href="/laundry"');

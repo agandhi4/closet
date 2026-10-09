@@ -12,6 +12,7 @@ import { priceLabel } from '../wardrobe/garment';
 import type { GarmentDetail } from '../wardrobe/queries';
 import { garmentUrl } from '../wardrobe/urls';
 import { CARE_NOTE_MAX } from '../wardrobe/garment-input';
+import { markLabel } from '../layout/garment-mark';
 import type { WearGarment, WearSummary } from './queries';
 
 /** What Wore today and Washed answer: the wear line and the buttons. */
@@ -230,7 +231,7 @@ export function WhereaboutsSection(props: {
               name="away"
               value={reason}
               class="btn btn-sm rounded-full checked:btn-warning"
-              aria-label={t(`wear.away.${reason}`)}
+              aria-label={markLabel(`away:${reason}`)}
               checked={garment.away === reason}
             />
           ))}

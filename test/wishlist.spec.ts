@@ -54,9 +54,7 @@ test('find a replacement, see it on the wishlist, and buy it', async ({
   await expect(
     page.getByRole('heading', { name: 'Charcoal merino' }),
   ).toBeVisible();
-  await expect(
-    page.locator('main .badge', { hasText: 'Wishlist' }),
-  ).toBeVisible();
+  await expect(page.locator('main [data-mark="to-buy"]')).toBeVisible();
 
   // The card: price, product link, what it replaces, no sideways scroll.
   await page.goto('/wardrobe/wishlist');

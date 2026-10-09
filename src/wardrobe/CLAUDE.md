@@ -12,6 +12,9 @@
                        (the generator-facing rule). See Wears and washes.
                        status.ts: the garment status state machine (wishlist, closet, archived;
                        garmentStatusTransition, pure). See Wishlist
+                       marks.ts: a garment's status marks, ordered, from its status, away,
+                       wash and set-aside (garmentMarks; ownerView keeps away and the wash
+                       from a share's viewer). Drawn by GarmentMark. See Layout
                        occasions.ts: a calendar entry's occasions, their order, weather window and
                        formality hint (#14's weather and #9's generator read them). See Calendar
                        generator.ts: the outfit generator (templates, rotation, colour rules, avoided

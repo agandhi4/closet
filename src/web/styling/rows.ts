@@ -60,11 +60,9 @@ export interface StylingRow extends RowState {
   /**
    * The strip after "No garment": a selected garment outside the cycle
    * first (archived since the outfit was saved: it stays chosen, and
-   * saving keeps it), then the window of the cycle.
+   * saving keeps it; its status marks it), then the window of the cycle.
    */
   garments: RowGarment[];
-  /** Outside the cycle: shown, marked, and gone once the strip moves off it. */
-  detachedId: number | null;
   /** The cycle has more past the window: the next page starts before this id. */
   moreBefore?: number;
 }
@@ -243,14 +241,14 @@ function stripOf(
   garmentId: number | null,
   cycle: RowGarment[],
   detached: readonly RowGarment[],
-): Pick<StylingRow, 'garmentId' | 'garments' | 'detachedId'> {
+): Pick<StylingRow, 'garmentId' | 'garments'> {
   if (garmentId === null || cycle.some((g) => g.id === garmentId)) {
-    return { garmentId, garments: cycle, detachedId: null };
+    return { garmentId, garments: cycle };
   }
   const outside = detached.find((g) => g.id === garmentId);
   return outside
-    ? { garmentId, garments: [outside, ...cycle], detachedId: outside.id }
-    : { garmentId: null, garments: cycle, detachedId: null };
+    ? { garmentId, garments: [outside, ...cycle] }
+    : { garmentId: null, garments: cycle };
 }
 
 /** Where the strip's next page starts, when the cycle has more than the window. */

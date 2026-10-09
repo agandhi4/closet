@@ -12,6 +12,7 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { CARE_WASH } from '../../wardrobe/care';
+import { garmentMarks } from '../../wardrobe/marks';
 import { PostForm } from '../auth/form';
 import type { CapsuleRef } from '../capsules/queries';
 import { type StringKey, t } from '../i18n';
@@ -19,6 +20,7 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { GALLERY_GRID } from '../layout/columns';
+import { GarmentMark } from '../layout/garment-mark';
 import { PageColumn, PageMain } from '../layout/page-main';
 import {
   EmptyState,
@@ -646,46 +648,36 @@ function TileContent(props: {
 
 /**
  * What a tile says over its photo, small: "×3" for identical copies in the
- * bottom corner; in the top one the condition when it is not good,
- * archived, and to the owner alone the wash state ("Wash", "2/3" of a
- * multiple) and whether it is away.
+ * bottom corner; in the top one its status mark (archived, and to the
+ * owner alone away and the wash, "Wash 2/3" of a multiple: `care` is the
+ * owner's grid's only), then
+ * the condition when it is not good.
  */
 function TileMarks({ tile }: { tile: GarmentTile }) {
-  const marks: { text: string; class: string }[] = [];
-  if (tile.status === 'archived') {
-    marks.push({ text: t('ARCHIVED'), class: 'badge-neutral' });
-  }
-  if (tile.care?.away) {
-    marks.push({
-      text: t(`wear.away.${tile.care.away}`),
-      class: 'badge-warning',
-    });
-  }
-  if (tile.care && tile.care.dirty > 0) {
-    marks.push({
-      text:
-        tile.quantity > 1
-          ? t('wear.BADGE_WASH_COPIES', {
-              dirty: tile.care.dirty,
-              quantity: tile.quantity,
-            })
-          : t('wear.BADGE_WASH'),
-      class: 'badge-info',
-    });
-  }
-  if (tile.condition !== 'good') {
-    marks.push({
-      text: valueLabel('condition', tile.condition),
-      class: 'badge-warning badge-outline bg-base-100',
-    });
-  }
+  const marks = garmentMarks(
+    {
+      status: tile.status,
+      away: tile.care?.away,
+      needsWash: tile.care !== undefined && tile.care.dirty > 0,
+    },
+    { ownerView: tile.care !== undefined },
+  );
+  const worn = tile.condition !== 'good';
   return (
     <>
-      {marks.length > 0 && (
+      {(marks.length > 0 || worn) && (
         <div class="absolute top-1.5 right-1.5 flex flex-col items-end gap-1">
-          {marks.map((mark) => (
-            <span class={`badge badge-xs ${mark.class}`}>{mark.text}</span>
-          ))}
+          <GarmentMark
+            marks={marks}
+            wash={
+              tile.care && { dirty: tile.care.dirty, copies: tile.quantity }
+            }
+          />
+          {worn && (
+            <span class="badge badge-xs badge-warning badge-outline bg-base-100">
+              {valueLabel('condition', tile.condition)}
+            </span>
+          )}
         </div>
       )}
       {tile.quantity > 1 && (

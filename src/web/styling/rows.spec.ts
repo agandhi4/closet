@@ -202,13 +202,12 @@ describe('stylingRows', () => {
     const [top] = stylingRows([row('top', 5)], [window('top', [5, 4], 12)], []);
     expect(top.garments.map((g) => g.id)).toEqual([5, 4]);
     expect(top.moreBefore).toBe(4);
-    expect(top.detachedId).toBeNull();
 
     const [whole] = stylingRows([row('top', 5)], [window('top', [5, 4])], []);
     expect(whole.moreBefore).toBeUndefined();
   });
 
-  it('leads with a chosen garment outside the cycle (archived), marked', () => {
+  it('leads with a chosen garment outside the cycle (archived)', () => {
     const archived = garment(2, 'archived');
     const [top] = stylingRows(
       [row('top', 2)],
@@ -217,7 +216,6 @@ describe('stylingRows', () => {
     );
     expect(top.garments.map((g) => g.id)).toEqual([2, 5, 4]);
     expect(top.garmentId).toBe(2);
-    expect(top.detachedId).toBe(2);
   });
 
   it('falls back to "No garment" for a choice found nowhere (deleted since)', () => {

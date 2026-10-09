@@ -1,8 +1,9 @@
+import type { GarmentMarkKind } from '../../wardrobe/marks';
 import { categoryRole, type GarmentRole } from '../../wardrobe/properties';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { type SignablePhotoRef, imageUrl } from '../files/image-url';
 import { viewerTrigger } from '../files/photo-viewer';
-import { t } from '../i18n';
+import { GarmentMark } from '../layout/garment-mark';
 import { HangerIcon } from '../layout/parts';
 import { isPieceToBuy } from './references';
 
@@ -22,9 +23,9 @@ import { isPieceToBuy } from './references';
  * A piece that is not simply owned: `to-buy`, a need's option drawn into
  * an outfit (#333) or an incomplete outfit's piece not bought yet (#335;
  * an outfit's garment with its status, marked by the collage itself:
- * markOf), drawn with Styling's To buy badge.
+ * marksOf), drawn with GarmentMark.
  */
-export type CollageMark = 'to-buy';
+export type CollageMark = Extract<GarmentMarkKind, 'to-buy'>;
 
 /**
  * Whether a piece opens the photo viewer, and so is in its set (#313): the
@@ -45,12 +46,16 @@ export interface CollagePieceView {
   status?: GarmentStatus;
 }
 
-/** The piece's mark: its own (a need's option), or `to-buy` for an outfit's piece not bought yet. */
-function markOf(piece: CollagePieceView): CollageMark | undefined {
-  if (piece.mark) return piece.mark;
+/**
+ * The piece's marks: its own (a need's option), or `to-buy` for an
+ * outfit's piece not bought yet. To buy only for now: the availability
+ * marks (away, archived) are #358's.
+ */
+function marksOf(piece: CollagePieceView): GarmentMarkKind[] {
+  if (piece.mark) return [piece.mark];
   return piece.status && isPieceToBuy({ status: piece.status })
-    ? 'to-buy'
-    : undefined;
+    ? ['to-buy']
+    : [];
 }
 
 export interface CollageGarment extends CollagePieceView {
@@ -179,8 +184,8 @@ export function OutfitCollage(props: {
 
 /**
  * A garment of the collage: its thumb, or a hanger (and its name on a
- * card). A piece to buy wears Styling's badge over its foot; a thumb's
- * pieces are too small for words, so there the badge is a dot, saying what
+ * card). A marked piece wears its GarmentMark over its foot; a thumb's
+ * pieces are too small for words, so there the mark is a dot, saying what
  * it means to screen readers only.
  */
 function CollagePiece(props: {
@@ -191,39 +196,31 @@ function CollagePiece(props: {
   labelled: boolean;
   words: boolean;
 }) {
-  const { garment, words } = props;
-  const mark = markOf(garment);
+  const marks = marksOf(props.garment);
   const face = <CollageFace {...props} />;
-  if (mark !== 'to-buy') return face;
+  if (marks.length === 0) return face;
   return (
     <span class="relative flex justify-center max-w-full">
       {face}
-      {words ? (
-        <ToBuyBadge />
+      {props.words ? (
+        <FootMark marks={marks} />
       ) : (
-        <span
-          class="absolute bottom-0 right-0 size-2 rounded-full bg-accent"
-          data-to-buy=""
-        >
-          <span class="sr-only">{t('outfits.PIECE_TO_BUY')}</span>
-        </span>
+        <GarmentMark marks={marks} dot class="absolute bottom-0 right-0" />
       )}
     </span>
   );
 }
 
 /**
- * Styling's To buy badge over a piece's foot (its parent is `relative`):
- * the collage's pieces and the public share page's thumbs.
+ * A garment's mark in words over a piece's foot (its parent is
+ * `relative`): the collage's pieces and the public share page's thumbs.
  */
-export function ToBuyBadge() {
+export function FootMark({ marks }: { marks: readonly GarmentMarkKind[] }) {
   return (
-    <span
-      class="badge badge-accent badge-xs absolute bottom-0 left-1/2 -translate-x-1/2 whitespace-nowrap"
-      data-to-buy=""
-    >
-      {t('outfits.PIECE_TO_BUY')}
-    </span>
+    <GarmentMark
+      marks={marks}
+      class="absolute bottom-0 left-1/2 -translate-x-1/2"
+    />
   );
 }
 

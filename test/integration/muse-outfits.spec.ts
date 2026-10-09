@@ -567,6 +567,24 @@ describe('Muse’s outfits (#335)', () => {
       new RegExp(`<a href="/wardrobe/${blazer}"[^>]*data-piece-link=""`),
     );
   });
+
+  it('an archived piece is marked Archived, the link to its page', async () => {
+    const parka = await createGarment(t, {
+      name: 'Old parka',
+      category: 'outerwear',
+    });
+    const id = await proposed('Archived piece', [parka, tee, await belt()]);
+    await t.db
+      .update(garment)
+      .set({ status: 'archived' })
+      .where(eq(garment.id, parka));
+    const card = cardOf(await tab(), id)!;
+    expect(card).toMatch(
+      new RegExp(
+        `<a href="/wardrobe/${parka}"[^>]*data-piece-link=""[^>]*>\\s*<span[^>]*data-mark="archived"`,
+      ),
+    );
+  });
 });
 
 describe('the generator’s memory keeps Muse’s proposals (#335)', () => {

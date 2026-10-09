@@ -113,7 +113,7 @@ for (const [label, device] of [
       await page.goto('/outfits');
       const tile = page.locator(`[data-outfit-id="${outfitId}"]`);
       await expect(tile).toContainText('1 piece to buy');
-      await expect(tile.locator('[data-to-buy]')).toHaveCount(1);
+      await expect(tile.locator('[data-mark="to-buy"]')).toHaveCount(1);
       await noSideScroll(page, width);
       await shoot(page, testInfo, `saved-${label}`);
       expect(errors).toEqual([]);
