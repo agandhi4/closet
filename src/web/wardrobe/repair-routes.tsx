@@ -17,7 +17,8 @@ import {
   repairPanel,
 } from './repairs';
 import { garmentUrl } from './urls';
-import { GarmentParams, OwnerQuery, storedFormValues } from './validation';
+import { GarmentParams, OwnerQuery } from '../schemas';
+import { storedFormValues } from './garment-input';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
 const NOT_OWNED_YET = 'On the wishlist: not bought yet';

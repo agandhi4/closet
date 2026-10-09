@@ -16,7 +16,7 @@ import {
   WEEKDAYS,
   type Weekday,
 } from '../../wardrobe/week';
-import { choice } from '../wardrobe/validation';
+import { choice } from '../schemas';
 
 /**
  * The week template's reads, its one writer and its form (#16; the pure

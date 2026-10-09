@@ -40,7 +40,7 @@ import {
   TAG_PATH,
   wardrobeUrl,
 } from './urls';
-import { BULK_PROPERTIES, type BulkProperty } from './validation';
+import { BULK_PROPERTIES, type BulkProperty } from './grid-schemas';
 import { WardrobeHeader, WardrobeMenu, WardrobeTabs } from './wardrobe-header';
 
 /**

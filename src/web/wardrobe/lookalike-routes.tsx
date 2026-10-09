@@ -5,11 +5,11 @@ import { HttpError } from '../errors';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
+import { GarmentParams, OwnerQuery } from '../schemas';
 import { authorizeWardrobe } from '../sharing/access';
 import { LookalikesContent } from './lookalike-region';
 import { addCopies, closetLookalikes, LookalikesQuery } from './lookalikes';
-import { garmentUrl } from './urls';
-import { GarmentParams, OwnerQuery, readIdList } from './validation';
+import { garmentUrl, readIdList } from './urls';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
 

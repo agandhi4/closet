@@ -13,12 +13,12 @@ import {
   BLANK_CARE,
   BLANK_CARE_LABEL,
   BLANK_GARMENT_VALUES,
-  type DestinationQuery,
   type GarmentBody,
   type GarmentFormValues,
   type PropertyFormValues,
   storedPropertyValues,
-} from './validation';
+} from './garment-input';
+import { type DestinationQuery } from './garment-schemas';
 
 /**
  * The Muse need `needId` a new closet garment is bought for ("Bought a

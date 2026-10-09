@@ -10,7 +10,7 @@ import {
   type Style,
   STYLES,
 } from '../../wardrobe/style';
-import { choice, pick } from '../wardrobe/validation';
+import { choice, pick } from '../schemas';
 
 export const STYLE_NOTES_MAX = 2000;
 

@@ -18,7 +18,7 @@ import {
   StripFlags,
 } from '../layout/parts';
 import type { ViewContext } from '../view-context';
-import { BRAND_MAX, SIZE_MAX } from '../wardrobe/validation';
+import { BRAND_MAX, SIZE_MAX } from '../wardrobe/garment-input';
 import type { BodyMeasurements, BrandSize } from './queries';
 import {
   BRAND_SIZE_HINT_PATH,

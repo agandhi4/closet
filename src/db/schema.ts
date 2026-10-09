@@ -454,7 +454,7 @@ export const garment = pgTable(
     id: serial('id').primaryKey(),
     // A random UUID for share links (/share?shareableId=), set on insert.
     shareableId: varchar('shareable_id', { length: 255 }).notNull(),
-    // Free text, trimmed, null when blank (src/web/wardrobe/validation.ts).
+    // Free text, trimmed, null when blank (src/web/wardrobe/garment-input.ts).
     name: text('name'),
     // Trimmed and lower case: the filter value and the outfit builder's key.
     category: text('category').notNull(),
@@ -500,7 +500,7 @@ export const garment = pgTable(
     fabricWeight: smallint('fabric_weight'),
     waterResistant: boolean('water_resistant').default(false).notNull(),
     // Where it can be bought: an http(s) product page (readProductFields,
-    // src/web/wardrobe/validation.ts; the check is the backstop), shown as
+    // src/web/wardrobe/garment-input.ts; the check is the backstop), shown as
     // "View product". Written by the garment form and the seed; link import
     // (#6) fills both from the page.
     sourceUrl: text('source_url'),

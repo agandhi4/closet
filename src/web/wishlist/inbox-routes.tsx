@@ -10,7 +10,7 @@ import { HttpError } from '../errors';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
-import { RowId } from '../schemas';
+import { GarmentParams, OwnerQuery, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import {
   type AuthorizedWardrobe,
@@ -18,7 +18,6 @@ import {
   type WardrobeNeed,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
-import { GarmentParams, OwnerQuery } from '../wardrobe/validation';
 import {
   garmentUrl,
   needUrl,

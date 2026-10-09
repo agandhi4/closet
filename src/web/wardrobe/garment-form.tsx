@@ -41,6 +41,7 @@ import {
   type Destination,
   destinationParams,
   garmentUrl,
+  idListValue,
   LINK_IMPORT_PATH,
   wardrobeUrl,
   WISHLIST_PATH,
@@ -53,13 +54,12 @@ import {
   type FormAudience,
   type GarmentField,
   type GarmentFormValues,
-  idListValue,
   NAME_MAX,
   PRICE_INPUT_MAX,
   SIZE_MAX,
   SOURCE_URL_MAX,
   TEXT_MAX,
-} from './validation';
+} from './garment-input';
 
 /**
  * Which form: a new garment (to the closet or the wishlist), an edit (of a
@@ -92,7 +92,7 @@ export function isWishlistForm(mode: GarmentFormMode): boolean {
  * Who owns the garment a form saves: the requester in their own wardrobe
  * (`viewOwner` undefined: authorizeWardrobe's isOwner), and always for a
  * clone, which lands there. The one rule for both sides of the owner-only
- * fields (FormAudience, validation.ts): the form renders them only for the
+ * fields (FormAudience, garment-input.ts): the form renders them only for the
  * owner, and the routes read them from the post only for the owner.
  */
 export function formAudience(

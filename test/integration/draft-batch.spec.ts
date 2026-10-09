@@ -17,7 +17,7 @@ import {
   MAX_PENDING_PER_USER,
 } from '../../src/web/files/pending-photos';
 import { t as text } from '../../src/web/i18n';
-import { readGarmentForm } from '../../src/web/wardrobe/validation';
+import { readGarmentForm } from '../../src/web/wardrobe/garment-input';
 import { createGarmentWithPendingPhoto } from '../../src/web/wardrobe/writes';
 import { jpegPhoto } from './garments';
 import {

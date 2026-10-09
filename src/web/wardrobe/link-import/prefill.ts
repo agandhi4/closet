@@ -4,7 +4,7 @@ import {
   BLANK_PROPERTIES,
   type GarmentFormValues,
   withPresets,
-} from '../validation';
+} from '../garment-input';
 import type { ExtractedProduct } from './extract';
 import type { LinkImport } from './import';
 import type { LinkImportView } from './photo-choice';

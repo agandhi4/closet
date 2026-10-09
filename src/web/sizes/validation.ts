@@ -15,7 +15,7 @@ import {
 import type { FieldErrors } from '../auth/validation';
 import { t } from '../i18n';
 import { normalizeSize } from '../wardrobe/garment';
-import { BRAND_MAX, SIZE_MAX } from '../wardrobe/validation';
+import { BRAND_MAX, SIZE_MAX } from '../wardrobe/garment-input';
 
 /**
  * The Sizes editor's forms (#24) and their readers, which the seed posts

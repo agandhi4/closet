@@ -12,7 +12,8 @@ import { viewContext } from '../../view-context';
 import { resolveDestination } from '../destination';
 import { renderGarmentForm } from '../render-form';
 import { type Destination, LINK_IMPORT_PATH, LINK_PHOTO_PATH } from '../urls';
-import { DestinationQuery, OwnerQuery } from '../validation';
+import { DestinationQuery } from '../garment-schemas';
+import { OwnerQuery } from '../../schemas';
 import { discardPendingPhoto, type WardrobeDeps } from '../writes';
 import {
   fetchLinkPhoto,

@@ -8,7 +8,7 @@ import { priceLabel } from './garment';
 import { valueLabel } from './labels';
 import type { RepairEntry, RepairLog, RepairPanel } from './repairs';
 import { garmentUrl } from './urls';
-import { CARE_NOTE_MAX, PRICE_INPUT_MAX } from './validation';
+import { CARE_NOTE_MAX, PRICE_INPUT_MAX } from './garment-input';
 
 /**
  * The repair and alteration log's views (#23): the garment page's section

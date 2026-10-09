@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 import { inUnit, MEASUREMENTS } from '../../../wardrobe/measurements';
-import { BRAND_MAX } from '../../wardrobe/validation';
+import { BRAND_MAX } from '../../wardrobe/garment-input';
 import {
   brandSizeFor,
   brandSizesOf,

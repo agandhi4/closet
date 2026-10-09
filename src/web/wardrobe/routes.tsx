@@ -31,6 +31,7 @@ import {
   renderPage,
   wantsFragment,
 } from '../render';
+import { GarmentParams, OwnerQuery, pick } from '../schemas';
 import {
   type AuthorizedWardrobe,
   authorizeWardrobe,
@@ -90,37 +91,38 @@ import {
   draftUrl,
   garmentUrl,
   PHOTO_ADD_PATH,
+  readIdList,
   TAG_PATH,
   wardrobeUrl,
   WISHLIST_PATH,
 } from './urls';
 import {
   BulkBody,
-  ConditionBody,
-  DiscardDraftBody,
-  formValues,
-  GarmentBody,
-  type GarmentField,
-  GarmentPageQuery,
-  GarmentParams,
   GridQuery,
-  NewGarmentQuery,
-  OwnerQuery,
-  pick,
-  PropertiesFragmentQuery,
-  propertyFormValues,
   readBulkChange,
-  readCondition,
-  readGarmentForm,
-  readIdList,
   readTags,
-  RotateBody,
-  storedFormValues,
   TagBody,
   TagQuery,
   TilesQuery,
+} from './grid-schemas';
+import {
+  ConditionBody,
+  DiscardDraftBody,
+  GarmentPageQuery,
+  NewGarmentQuery,
+  PropertiesFragmentQuery,
+  RotateBody,
+} from './garment-schemas';
+import {
+  formValues,
+  GarmentBody,
+  type GarmentField,
+  propertyFormValues,
+  readCondition,
+  readGarmentForm,
+  storedFormValues,
   withPresets,
-} from './validation';
+} from './garment-input';
 import {
   GarmentTiles,
   type GridSearch,

@@ -16,7 +16,7 @@ import {
 import { viewContext } from '../view-context';
 import { CLOSET_FILTERS, gridCount, gridPage } from '../wardrobe/queries';
 import { capsuleUrl } from '../wardrobe/urls';
-import { GarmentParams, OwnerQuery } from '../wardrobe/validation';
+import { GarmentParams, OwnerQuery } from '../schemas';
 import { CapsulePage } from './capsule-page';
 import { CapsuleFormPage, type CapsuleFormModel } from './form-page';
 import { CapsulesPage } from './list-page';

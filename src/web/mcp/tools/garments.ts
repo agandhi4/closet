@@ -56,7 +56,7 @@ import {
   storedPropertyValues,
   withCarePresets,
   withPresets,
-} from '../../wardrobe/validation';
+} from '../../wardrobe/garment-input';
 import {
   type WearSummary,
   wearCountsByGarment,

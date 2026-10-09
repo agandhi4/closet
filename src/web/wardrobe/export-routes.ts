@@ -5,7 +5,7 @@ import { requestOrigin } from '../security/origin';
 import { authorizeWardrobe } from '../sharing/access';
 import { EXPORT_FORMATS, wardrobeExport } from './export';
 import { wardrobeExportPath } from '../page-cache';
-import { OwnerQuery } from './validation';
+import { OwnerQuery } from '../schemas';
 
 const CONTENT_TYPES = {
   csv: 'text/csv; charset=utf-8',

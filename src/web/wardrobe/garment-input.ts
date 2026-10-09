@@ -2,8 +2,7 @@ import { type Static, Type } from '@sinclair/typebox';
 import type { FieldErrors } from '../auth/validation';
 import { type IsoDate, parseIsoDate } from '../../calendar-date';
 import { t } from '../i18n';
-import { MAX_DRAFTS_PER_USER } from '../files/pending-photos';
-import { RowId } from '../schemas';
+import { choice, pick, RowId } from '../schemas';
 import {
   NEVER_WASH,
   QUANTITY_MAX,
@@ -32,7 +31,6 @@ import {
   type Pattern,
   PATTERNS,
   type PresetSource,
-  type PresetValues,
   propertyApplies,
   type Sleeve,
   SLEEVES,
@@ -52,14 +50,16 @@ import {
 import { normalizeCategory, normalizeSize } from './garment';
 
 /**
- * The wardrobe's request schemas and the garment form's checks. Two layers,
- * as in src/web/auth/validation.ts: the TypeBox schemas are the routes'
- * Fastify schemas (a body or query that is not the form's shape, or longer
- * than a field allows, never reaches the handler: a 400 error page), and
- * readGarmentForm checks what a well-formed form can still get wrong (a
+ * The garment input model: the garment form's TypeBox body (GarmentBody), the
+ * form values it shows, and the checks. Two layers, as in
+ * src/web/auth/validation.ts: the schema is the route's Fastify schema (a body
+ * longer than a field allows never reaches the handler: a 400 error page),
+ * and readGarmentForm checks what a well-formed form can still get wrong (a
  * blank category, a colour outside GARMENT_COLORS, a date that is not one),
  * which re-renders the form with a 400 and the messages under the fields.
  * The inputs carry the same maxlength, so a person never meets the caps.
+ * Shared by the form's routes, the MCP garment tools (mcp/tools/) and the
+ * seed (seed/persona.ts), so each saves a garment through the same parser.
  */
 
 export const NAME_MAX = 200;
@@ -82,24 +82,6 @@ const PRESET_MATERIALS_MAX = 400;
 export const ColorValue = Type.String({ maxLength: 40 });
 
 /**
- * Garment ids a page carries as navigation state, joined by commas: the
- * duplicate check's "Not the same" list (#20) and the draft queue's saved
- * garments (#200). The page wrote it, so anything malformed is dropped,
- * never a 400, and an id outside the addressed wardrobe matches nothing.
- */
-export function readIdList(value: string | undefined): number[] {
-  return (value ?? '')
-    .split(',')
-    .filter((part) => /^\d{1,9}$/.test(part))
-    .map(Number);
-}
-
-/** An id list as a page carries it (readIdList reads it back). */
-export function idListValue(ids: readonly number[]): string {
-  return [...new Set(ids)].join(',');
-}
-
-/**
  * The duplicate check's "Not the same" ids (readIdList). A form grows it
  * by the few matches shown per dismissal; the cap only bounds a hand-made
  * request.
@@ -113,21 +95,6 @@ export const LookalikesDismissed = Type.Optional(
  * batch, at most MAX_DRAFTS_PER_USER of them.
  */
 export const DraftsSaved = Type.Optional(Type.String({ maxLength: 400 }));
-
-/**
- * One of a property's values as a form posts it ('' for the reset chip).
- * Only the form's own chips post these, so anything else is a hand-made
- * request: a 400 from the schema, not a message under a field. Also the
- * style profile's budget band (src/web/style/validation.ts).
- */
-export function choice(values: readonly (string | number)[]) {
-  return Type.Optional(
-    Type.Union([
-      Type.Literal(''),
-      ...values.map((value) => Type.Literal(String(value))),
-    ]),
-  );
-}
 
 export const FabricWeightUnit = Type.Union([
   Type.Literal('oz'),
@@ -179,12 +146,12 @@ export const PropertyFields = {
 const PostedProperties = Type.Object(PropertyFields);
 type PostedProperties = Static<typeof PostedProperties>;
 
-const ConditionValue = Type.Union(
+export const ConditionValue = Type.Union(
   CONDITIONS.map((condition) => Type.Literal(condition)),
 );
 
 /** A condition and what is wrong, as the form and the garment page post them. */
-const PostedConditionFields = {
+export const PostedConditionFields = {
   condition: Type.Optional(ConditionValue),
   conditionNote: Type.Optional(Type.String({ maxLength: CARE_NOTE_MAX })),
 };
@@ -199,18 +166,6 @@ const PostedCareFields = {
   washAfterWears: choice([NEVER_WASH, ...WASH_AFTER_CHOICES]),
   ...PostedConditionFields,
 };
-
-/** POST /wardrobe/:id/condition: the garment page's condition control. */
-export const ConditionBody = Type.Object(PostedConditionFields);
-export type ConditionBody = Static<typeof ConditionBody>;
-
-/**
- * POST /wardrobe/:id/photo/rotate: the photo sheet's ↺ and ↻ (ROTATIONS,
- * writes.ts). Anything else is a 400: it is the write itself.
- */
-export const RotateBody = Type.Object({
-  direction: Type.Union([Type.Literal('left'), Type.Literal('right')]),
-});
 
 /** Where a new garment lands (EntryStatus, src/wardrobe/status.ts). */
 export const Destination = Type.Union([
@@ -742,7 +697,7 @@ export function storedFormValues(
 }
 
 /** A form field's text for an optional value: '' for none. */
-function orEmpty(value: string | null | undefined): string {
+export function orEmpty(value: string | null | undefined): string {
   return value ?? '';
 }
 
@@ -933,14 +888,6 @@ function presetSource(
   };
 }
 
-/** The member of `set` a form or query posted; '' (the reset chip) is none. */
-export function pick<T extends string | number>(
-  set: readonly T[],
-  posted: string,
-): T | null {
-  return set.find((value) => String(value) === posted) ?? null;
-}
-
 /**
  * The posted colours as stored (a set in GARMENT_COLORS order, null for
  * none), and a message for each posted value not built in.
@@ -1125,358 +1072,4 @@ function formErrors(read: {
   }
   if (!read.care.ok) errors.quantity = [read.care.error];
   return errors;
-}
-
-/**
- * `?ownerId=`: the wardrobe a request addresses, the requester's own when
- * absent or empty (the pages only add it for a shared wardrobe). Anything
- * else is a 400: it names whose data to read.
- */
-export const OwnerQuery = Type.Object({
-  ownerId: Type.Optional(Type.Union([Type.Literal(''), RowId])),
-});
-
-export const GarmentParams = Type.Object({ id: RowId });
-
-// The grid's filters are navigation state from its own links, the search
-// form and the filter modal. A colour outside GARMENT_COLORS is a 400: no
-// garment can hold one.
-const GridFilters = {
-  keyword: Type.Optional(Type.String({ maxLength: 200 })),
-  category: Type.Optional(Type.String({ maxLength: CATEGORY_MAX })),
-  color: Type.Optional(
-    Type.Union([
-      Type.Literal(''),
-      ...GARMENT_COLORS.map((color) => Type.Literal(color)),
-    ]),
-  ),
-  size: Type.Optional(Type.String({ maxLength: SIZE_MAX })),
-  // A type outside the chosen category is dropped (gridSearch); the scales
-  // and the material are matched as stored values, so outside their sets
-  // they are a 400 like a colour.
-  type: Type.Optional(Type.String({ maxLength: 40 })),
-  warmth: choice(WARMTHS),
-  formality: choice(FORMALITIES),
-  material: Type.Optional(
-    Type.Union([
-      Type.Literal(''),
-      ...MATERIALS.map((material) => Type.Literal(material)),
-    ]),
-  ),
-  // The care label's wash (#23), a stored value like the material.
-  wash: choice(CARE_WASH),
-  archived: Type.Optional(Type.String({ maxLength: 10 })),
-  // 'true' filters, like archived: garments with a copy that needs a wash
-  // (the owner's own wardrobe only: a share never reveals wears; gridSearch
-  // drops it), and those whose condition is not good.
-  needsWash: Type.Optional(Type.String({ maxLength: 10 })),
-  attention: Type.Optional(Type.String({ maxLength: 10 })),
-  // A capsule of the addressed wardrobe (src/web/capsules): a 400 when not
-  // an id, a 404 when not one of the wardrobe's capsules (the route).
-  capsule: Type.Optional(Type.Union([Type.Literal(''), RowId])),
-};
-
-export const GridQuery = Type.Object({
-  ...OwnerQuery.properties,
-  ...GridFilters,
-  // Select mode: tiles are checkboxes of the bulk form. Navigation state.
-  select: Type.Optional(Type.String({ maxLength: 5 })),
-  // The capsule picker: select mode whose checkboxes are this capsule's
-  // membership (POST /capsules/:id/garments). Owner and MANAGE only.
-  pick: Type.Optional(RowId),
-  // One-shot flags from POST /wardrobe/bulk's redirect (the toast).
-  bulkUpdated: Type.Optional(Type.Integer({ minimum: 0 })),
-  bulkSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
-  // Select mode after a batch of drafts (#200): the garments it saved,
-  // checked on the first page (readIdList; navigation state).
-  checked: DraftsSaved,
-});
-export type GridQuery = Static<typeof GridQuery>;
-
-/** The "load more" sentinel's request: the same filters, and where the last page ended. */
-export const TilesQuery = Type.Object({
-  ...GridQuery.properties,
-  before: RowId,
-});
-
-/** The page flags that show a toast once (stripped from the URL by the page). */
-export const GarmentPageQuery = Type.Object({
-  ...OwnerQuery.properties,
-  created: Type.Optional(Type.String()),
-  photoSaved: Type.Optional(Type.String()),
-  photoRotated: Type.Optional(Type.String()),
-  bought: Type.Optional(Type.String()),
-  repairSaved: Type.Optional(Type.String()),
-  copyAdded: Type.Optional(Type.String()),
-  // A Muse decision made on the page (#333): its toast, decisionToastOf.
-  decided: Type.Optional(Type.String({ maxLength: 16 })),
-});
-
-/**
- * Where a new garment's form and the link import land: `?to=wishlist` from
- * the wishlist, and `&replaces=<id>` from a garment's "Find a replacement"
- * (a garment of the addressed wardrobe, else a 404). Absent is the closet; a
- * closet garment may carry `&forNeed=<id>`, a Muse need's "Bought a
- * different one" (the requester's own open need, else a 404).
- */
-export const DestinationQuery = Type.Object({
-  ...OwnerQuery.properties,
-  to: Type.Optional(Type.Union([Type.Literal(''), Destination])),
-  replaces: Type.Optional(Type.Union([Type.Literal(''), RowId])),
-  forNeed: Type.Optional(Type.Union([Type.Literal(''), RowId])),
-});
-export type DestinationQuery = Static<typeof DestinationQuery>;
-
-/**
- * GET /wardrobe/new: the destination, and `photo`, the pending photo an
- * add-sheet upload stored (POST /wardrobe/new/photo redirects here with
- * it). Navigation state: a name that is not the requester's pending photo
- * opens the form without it, saying so; never a 400.
- */
-export const NewGarmentQuery = Type.Object({
-  ...DestinationQuery.properties,
-  photo: Type.Optional(Type.String({ maxLength: 64 })),
-  // A draft's queue (#200), navigation state: the garments its batch saved
-  // so far (readIdList), and the photos its upload could not read (their
-  // names as the phone sent them, shown on the first draft).
-  saved: DraftsSaved,
-  leftOut: Type.Optional(
-    Type.Array(Type.String({ maxLength: 255 }), {
-      maxItems: MAX_DRAFTS_PER_USER,
-    }),
-  ),
-});
-
-/** POST /wardrobe/new/drafts/discard: the draft, and the queue's saved garments. */
-export const DiscardDraftBody = Type.Object({
-  photo: Type.String({ maxLength: 64 }),
-  saved: DraftsSaved,
-});
-
-/**
- * GET /wardrobe/properties-fragment: the form's category and property
- * fields, as the category input, a type chip or the weight sends them
- * (hx-include). Malformed values are a 400 like the form's own.
- */
-export const PropertiesFragmentQuery = Type.Object({
-  category: Type.Optional(Type.String({ maxLength: CATEGORY_MAX })),
-  ...PropertyFields,
-});
-
-/** The properties bulk edit can set: not type or weight, which are per garment. */
-export const BULK_PROPERTIES = [
-  'warmth',
-  'formality',
-  'materials',
-  'pattern',
-  'fit',
-  'sleeve',
-  'length',
-  'waterResistant',
-  'condition',
-] as const;
-export type BulkProperty = (typeof BULK_PROPERTIES)[number];
-
-/**
- * POST /wardrobe/bulk: the selected tiles' ids (none is a no-op), the
- * property (the dialog's tab), and that property's value field, as the
- * garment form names it. The other tabs' fields may ride along and are
- * ignored. '' clears a property; materials add `material`.
- */
-export const BulkBody = Type.Object({
-  ids: Type.Optional(Type.Array(RowId, { maxItems: 2000 })),
-  property: Type.Union(BULK_PROPERTIES.map((name) => Type.Literal(name))),
-  warmth: choice(WARMTHS),
-  formality: choice(FORMALITIES),
-  material: Type.Optional(
-    Type.Union(MATERIALS.map((material) => Type.Literal(material))),
-  ),
-  pattern: choice(PATTERNS),
-  fit: choice(FITS),
-  sleeve: choice(SLEEVES),
-  length: choice(LENGTHS),
-  waterResistant: Type.Optional(
-    Type.Union([Type.Literal('true'), Type.Literal('false')]),
-  ),
-  // Never cleared: 'good' is the reset.
-  condition: Type.Optional(ConditionValue),
-});
-export type BulkBody = Static<typeof BulkBody>;
-
-/** One property's new value for every selected garment (bulkSetProperty). */
-export type BulkChange =
-  | { property: 'warmth'; value: Warmth | null }
-  | { property: 'formality'; value: Formality | null }
-  | { property: 'materials'; value: Material }
-  | { property: 'pattern'; value: Pattern | null }
-  | { property: 'fit'; value: Fit | null }
-  | { property: 'sleeve'; value: Sleeve | null }
-  | { property: 'length'; value: Length | null }
-  | { property: 'waterResistant'; value: boolean }
-  | { property: 'condition'; value: Condition };
-
-// The field each bulk property's chips post.
-const BULK_FIELDS: Record<BulkProperty, keyof BulkBody> = {
-  warmth: 'warmth',
-  formality: 'formality',
-  materials: 'material',
-  pattern: 'pattern',
-  fit: 'fit',
-  sleeve: 'sleeve',
-  length: 'length',
-  waterResistant: 'waterResistant',
-  condition: 'condition',
-};
-
-/**
- * The change a bulk post asks for, or undefined when the chosen tab's
- * chips were left alone. A radio group with nothing picked posts no key at
- * all, which is not the "Not set" chip (the key with ''): reading the two
- * alike would clear the property on every selected garment when someone
- * switched tabs and tapped Apply without choosing.
- */
-export function readBulkChange(body: BulkBody): BulkChange | undefined {
-  return body[BULK_FIELDS[body.property]] === undefined
-    ? undefined
-    : bulkChangeOf(body);
-}
-
-/** The chosen tab's posted value as its change ('' is "Not set"). */
-function bulkChangeOf(body: BulkBody): BulkChange | undefined {
-  return BULK_CHANGES[body.property](body);
-}
-
-// Each bulk property's reader of its posted value.
-const BULK_CHANGES: Record<
-  BulkProperty,
-  (body: BulkBody) => BulkChange | undefined
-> = {
-  warmth: (body) => ({
-    property: 'warmth',
-    value: pick(WARMTHS, orEmpty(body.warmth)),
-  }),
-  formality: (body) => ({
-    property: 'formality',
-    value: pick(FORMALITIES, orEmpty(body.formality)),
-  }),
-  // Added, never cleared: no value is no change.
-  materials: (body) =>
-    body.material ? { property: 'materials', value: body.material } : undefined,
-  pattern: (body) => ({
-    property: 'pattern',
-    value: pick(PATTERNS, orEmpty(body.pattern)),
-  }),
-  fit: (body) => ({ property: 'fit', value: pick(FITS, orEmpty(body.fit)) }),
-  sleeve: (body) => ({
-    property: 'sleeve',
-    value: pick(SLEEVES, orEmpty(body.sleeve)),
-  }),
-  length: (body) => ({
-    property: 'length',
-    value: pick(LENGTHS, orEmpty(body.length)),
-  }),
-  waterResistant: (body) => ({
-    property: 'waterResistant',
-    value: body.waterResistant === 'true',
-  }),
-  // Good is the reset: no value is no change.
-  condition: (body) =>
-    body.condition
-      ? { property: 'condition', value: body.condition }
-      : undefined,
-};
-
-/** GET /wardrobe/tag: the wardrobe, and where Next left off. */
-export const TagQuery = Type.Object({
-  ...OwnerQuery.properties,
-  before: Type.Optional(RowId),
-});
-
-/**
- * POST /wardrobe/:id/tag: the tagging card's chips, posted whole on every
- * tap, and by Next with `next=1`. A field the card never showed or the user
- * never tapped is absent and leaves the stored value; a type outside the
- * garment's category is a 400 (the card only offers its own).
- */
-export const TagBody = Type.Object({
-  type: Type.Optional(Type.String({ maxLength: 40 })),
-  warmth: choice(WARMTHS),
-  formality: choice(FORMALITIES),
-  next: Type.Optional(Type.Literal('1')),
-});
-export type TagBody = Static<typeof TagBody>;
-
-/** What the tagging card reads and writes of a garment. */
-type Taggable = Pick<
-  GarmentPropertyFields,
-  | 'type'
-  | 'warmth'
-  | 'formality'
-  | 'sleeve'
-  | 'length'
-  | 'waterResistant'
-  | 'fabricWeight'
-> & { category: string };
-
-/**
- * What a post of the tagging card changes, or undefined for a type the
- * category does not have: only the fields whose value differs from the
- * stored one, so a post that changes nothing (Next on a card nobody
- * touched, whose checked chips are posted all the same) writes nothing.
- * The tapped values replace the stored ones; a **new** type brings its
- * presets into properties still unset or still at the stored type's
- * presets (applyPresets from the stored type): the first tag never
- * overwrites what the garment form set, the heavy tee's warmth included,
- * and changing one's mind about the type moves what the first type
- * filled. The same type posted again brings nothing: its presets had their
- * chance when it was chosen, and a property left unset since is the
- * person's to fill. Properties outside the garment's role stay as stored.
- */
-export function readTags(
-  body: TagBody,
-  stored: Taggable,
-): Partial<GarmentPropertyFields> | undefined {
-  const { category } = stored;
-  const type = body.type ? findType(category, body.type)?.value : stored.type;
-  if (type === undefined) return undefined;
-  // A value for a property the role lacks (never on the card) is ignored;
-  // presets only fill properties the role has (the type table's rule).
-  const tapped = (property: 'warmth' | 'formality', posted?: string) =>
-    posted !== undefined && propertyApplies(property, category)
-      ? posted
-      : undefined;
-  const warmth = tapped('warmth', body.warmth);
-  const formality = tapped('formality', body.formality);
-  const current: PresetValues = {
-    warmth: warmth === undefined ? stored.warmth : pick(WARMTHS, warmth),
-    formality:
-      formality === undefined ? stored.formality : pick(FORMALITIES, formality),
-    sleeve: stored.sleeve,
-    length: stored.length,
-    waterResistant: stored.waterResistant,
-  };
-  const next =
-    type === stored.type
-      ? current
-      : applyPresets(
-          current,
-          // From the stored type: a tap on another type moves the values
-          // still at the first type's presets (the card saves every tap, so
-          // they are stored); the first tag has no source and fills only
-          // what is unset. The same rule as the form's hidden presetType.
-          stored.type === null
-            ? null
-            : {
-                category,
-                type: stored.type,
-                fabricWeight: stored.fabricWeight,
-              },
-          { category, type, fabricWeight: stored.fabricWeight },
-        );
-  const all = { type, ...next };
-  return Object.fromEntries(
-    Object.entries(all).filter(
-      ([field, value]) => value !== stored[field as keyof typeof all],
-    ),
-  );
 }

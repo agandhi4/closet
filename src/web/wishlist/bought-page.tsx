@@ -8,7 +8,7 @@ import { CancelLink, Messages } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
-import { PRICE_INPUT_MAX } from '../wardrobe/validation';
+import { PRICE_INPUT_MAX } from '../wardrobe/garment-input';
 import type { GarmentRef } from './queries';
 
 export type BoughtField = 'acquiredOn' | 'price';

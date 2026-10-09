@@ -36,7 +36,7 @@ import {
   lockGarment,
   replacePhotoRow,
 } from './queries';
-import type { GarmentFields } from './validation';
+import type { GarmentFields } from './garment-input';
 
 /**
  * The garment writes that involve photo bytes, which a transaction cannot

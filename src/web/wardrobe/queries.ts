@@ -55,14 +55,14 @@ import {
   typesOf,
   type Warmth,
 } from '../../wardrobe/properties';
+import type { BulkChange } from './grid-schemas';
 import type {
-  BulkChange,
   CareFields,
   ConditionFields,
   GarmentFields,
   GarmentPropertyFields,
   ProductFields,
-} from './validation';
+} from './garment-input';
 
 /**
  * Garments' reads and writes. Every query names the wardrobe (owner) it

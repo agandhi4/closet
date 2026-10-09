@@ -17,7 +17,7 @@ import {
 import { HttpError } from '../../errors';
 import { normalizeCategory } from '../../wardrobe/garment';
 import { CLOSET_FILTERS, garmentSummaries } from '../../wardrobe/queries';
-import { CATEGORY_MAX } from '../../wardrobe/validation';
+import { CATEGORY_MAX } from '../../wardrobe/garment-input';
 import { defineTool } from '../tool';
 import { checkedType } from './garments';
 

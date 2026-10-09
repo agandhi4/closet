@@ -2,8 +2,7 @@ import { type Static, Type } from '@sinclair/typebox';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { RowId } from '../schemas';
-import { OwnerQuery } from '../wardrobe/validation';
+import { OwnerQuery, RowId } from '../schemas';
 import type { CapsuleFields } from './queries';
 
 /**

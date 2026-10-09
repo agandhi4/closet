@@ -1,11 +1,27 @@
-import { idListValue } from './validation';
-
 /**
  * The wardrobe's links, its capsules' included. `viewOwner` is the shared
  * wardrobe a page shows (undefined for the requester's own); every link and
  * form on such a page carries it as `?ownerId=`, so a grantee stays in the
  * owner's wardrobe.
  */
+
+/**
+ * Garment ids a page carries as navigation state, joined by commas: the
+ * duplicate check's "Not the same" list (#20) and the draft queue's saved
+ * garments (#200). The page wrote it, so anything malformed is dropped,
+ * never a 400, and an id outside the addressed wardrobe matches nothing.
+ */
+export function readIdList(value: string | undefined): number[] {
+  return (value ?? '')
+    .split(',')
+    .filter((part) => /^\d{1,9}$/.test(part))
+    .map(Number);
+}
+
+/** An id list as a page carries it (readIdList reads it back). */
+export function idListValue(ids: readonly number[]): string {
+  return [...new Set(ids)].join(',');
+}
 
 /** Adding a garment from a link (link-import/routes.tsx); the manifest's share target. */
 export const LINK_IMPORT_PATH = '/wardrobe/new/from-link';

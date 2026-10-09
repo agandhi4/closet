@@ -20,7 +20,7 @@ import {
 import { autosaveAttributes } from '../autosave';
 import { t } from '../i18n';
 import { type LabelledProperty, valueLabel } from './labels';
-import type { PropertyFormValues } from './validation';
+import type { PropertyFormValues } from './garment-input';
 
 /**
  * The garment form's properties, in two blocks: the main one beside the

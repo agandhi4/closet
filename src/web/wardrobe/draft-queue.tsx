@@ -3,8 +3,7 @@ import { imageUrl } from '../files/image-url';
 import type { WaitingDraft } from '../files/pending-photos';
 import { pendingPhotoRef } from '../files/queries';
 import { t } from '../i18n';
-import { DRAFT_DISCARD_PATH, draftUrl, wardrobeUrl } from './urls';
-import { idListValue } from './validation';
+import { DRAFT_DISCARD_PATH, draftUrl, idListValue, wardrobeUrl } from './urls';
 
 /**
  * The draft queue (#200): a library pick of several photos is a batch of

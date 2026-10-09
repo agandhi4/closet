@@ -4,7 +4,7 @@ import { t } from '../i18n';
 import { valueLabel } from './labels';
 import type { GarmentDetail } from './queries';
 import { garmentUrl } from './urls';
-import { CARE_NOTE_MAX } from './validation';
+import { CARE_NOTE_MAX } from './garment-input';
 
 const SECTION_ID = 'garment-condition';
 

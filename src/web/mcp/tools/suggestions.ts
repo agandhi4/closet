@@ -19,7 +19,7 @@ import {
   OUTFIT_NAME_MAX,
   proposeOutfit,
 } from '../../outfits/queries';
-import { CATEGORY_MAX, NAME_MAX } from '../../wardrobe/validation';
+import { CATEGORY_MAX, NAME_MAX } from '../../wardrobe/garment-input';
 import { findGarment } from '../../wardrobe/queries';
 import {
   createOptionGroup,

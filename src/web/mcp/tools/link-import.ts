@@ -14,7 +14,7 @@ import {
   type GarmentFormValues,
   readGarmentForm,
   withPresets,
-} from '../../wardrobe/validation';
+} from '../../wardrobe/garment-input';
 import {
   createGarment,
   createGarmentWithPendingPhoto,

@@ -37,7 +37,7 @@ import {
   GarmentBody,
   type GarmentFields,
   readGarmentForm,
-} from '../web/wardrobe/validation';
+} from '../web/wardrobe/garment-input';
 import { carePresetsFor, type CareLabel } from '../wardrobe/care';
 import {
   AWAY_REASONS,

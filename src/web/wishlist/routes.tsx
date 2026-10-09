@@ -17,12 +17,8 @@ import { viewContext } from '../view-context';
 import { findGarment, type GarmentDetail } from '../wardrobe/queries';
 import { type Purchase } from '../wardrobe/status';
 import { garmentUrl } from '../wardrobe/urls';
-import {
-  GarmentParams,
-  OwnerQuery,
-  PRICE_INPUT_MAX,
-  readPrice,
-} from '../wardrobe/validation';
+import { GarmentParams, OwnerQuery } from '../schemas';
+import { PRICE_INPUT_MAX, readPrice } from '../wardrobe/garment-input';
 import { type BoughtField, type BoughtModel, BoughtPage } from './bought-page';
 import { buyWishlistItem } from './purchase';
 import { garmentRef, type GarmentRef } from './queries';

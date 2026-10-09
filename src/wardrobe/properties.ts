@@ -4,7 +4,7 @@
  * formality, materials, pattern, fit, sleeve, length, fabric weight, water
  * resistance; the care label's value sets are care.ts'). The one definition of every value set: src/db/schema.ts
  * builds the check constraints from these lists, the wardrobe's validation
- * (src/web/wardrobe/validation.ts) accepts only them, and the form offers
+ * (src/web/wardrobe/garment-input.ts) accepts only them, and the form offers
  * only the properties that apply to the garment's role. Pure: no database,
  * no request, no strings for people (labels live in the web layer).
  *

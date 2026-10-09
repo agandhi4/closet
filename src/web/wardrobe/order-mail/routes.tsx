@@ -14,7 +14,7 @@ import { importLink, LinkImportError } from '../link-import/import';
 import type { LinkImportView } from '../link-import/photo-choice';
 import { importedForm } from '../link-import/prefill';
 import { renderGarmentForm } from '../render-form';
-import { BLANK_GARMENT_VALUES, type GarmentFormValues } from '../validation';
+import { BLANK_GARMENT_VALUES, type GarmentFormValues } from '../garment-input';
 import {
   decideOrderItem,
   findPendingOrderItem,

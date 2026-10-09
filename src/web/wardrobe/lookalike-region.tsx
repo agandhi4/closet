@@ -4,7 +4,7 @@ import { t } from '../i18n';
 import { GarmentThumb } from '../layout/parts';
 import { categoryLabel } from './garment';
 import type { ClosetLookalike } from './lookalikes';
-import { idListValue } from './validation';
+import { idListValue } from './urls';
 import { garmentUrl, wardrobeUrl } from './urls';
 
 /**

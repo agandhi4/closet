@@ -30,8 +30,8 @@ import {
   CATEGORY_MAX,
   ColorValue,
   LookalikesDismissed,
-  OwnerQuery,
-} from './validation';
+} from './garment-input';
+import { OwnerQuery } from '../schemas';
 
 /**
  * "You already have this: add a copy?" (#20; docs/plans/2026-09-26-

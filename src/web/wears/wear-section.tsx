@@ -11,7 +11,7 @@ import { StyleThisLink } from '../styling/style-this';
 import { priceLabel } from '../wardrobe/garment';
 import type { GarmentDetail } from '../wardrobe/queries';
 import { garmentUrl } from '../wardrobe/urls';
-import { CARE_NOTE_MAX } from '../wardrobe/validation';
+import { CARE_NOTE_MAX } from '../wardrobe/garment-input';
 import type { WearGarment, WearSummary } from './queries';
 
 /** What Wore today and Washed answer: the wear line and the buttons. */

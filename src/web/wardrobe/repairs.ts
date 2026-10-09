@@ -10,7 +10,7 @@ import type { FieldErrors } from '../auth/validation';
 import { type IsoDate, parseIsoDate } from '../../calendar-date';
 import { t } from '../i18n';
 import { RowId } from '../schemas';
-import { CARE_NOTE_MAX, PRICE_INPUT_MAX, readPrice } from './validation';
+import { CARE_NOTE_MAX, PRICE_INPUT_MAX, readPrice } from './garment-input';
 
 /**
  * A garment's repair and alteration log (#23; docs/plans/2026-09-26-

@@ -36,6 +36,7 @@ import {
   DestinationFields,
   IsoDateSchema,
   OccasionSchema,
+  OwnerQuery,
   RowId,
 } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
@@ -116,7 +117,6 @@ import {
  */
 
 const RoleSchema = Type.Union(GARMENT_ROLES.map((role) => Type.Literal(role)));
-const OwnerId = Type.Union([Type.Literal(''), RowId]);
 
 const PageQuery = Type.Object({
   for: Type.Optional(Type.String()),
@@ -126,7 +126,7 @@ const PageQuery = Type.Object({
   picks: Type.Optional(Type.String()),
   with: Type.Optional(RowId),
   outfit: Type.Optional(RowId),
-  ownerId: Type.Optional(OwnerId),
+  ...OwnerQuery.properties,
   returnTo: Type.Optional(Type.String()),
 });
 
@@ -159,7 +159,7 @@ const GarmentsQuery = Type.Object({
   // Carried by the sentinel's link like the capsule, and unused: picks are
   // on a strip's first window alone.
   picks: Type.Optional(Type.String()),
-  ownerId: Type.Optional(OwnerId),
+  ...OwnerQuery.properties,
 });
 
 const SaveBody = Type.Object({
