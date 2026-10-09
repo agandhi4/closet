@@ -120,7 +120,7 @@ async function readDay(
   { ownWeather, worn, needs }: TodayOptions,
 ) {
   const read = await selectScalars(deps.db, {
-    entries: entriesSql(ownerId, today, today),
+    entries: entriesSql(ownerId, today, today, { washOn: today }),
     weather:
       ownWeather || !deps.weather
         ? undefined

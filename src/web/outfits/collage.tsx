@@ -1,10 +1,16 @@
-import type { GarmentMarkKind } from '../../wardrobe/marks';
+import {
+  type GarmentMarkKind,
+  garmentMarks,
+  type MarkedGarment,
+  type MarkOptions,
+} from '../../wardrobe/marks';
 import { categoryRole, type GarmentRole } from '../../wardrobe/properties';
-import type { GarmentStatus } from '../../wardrobe/status';
 import { type SignablePhotoRef, imageUrl } from '../files/image-url';
 import { viewerTrigger } from '../files/photo-viewer';
-import { GarmentMark } from '../layout/garment-mark';
+import { GarmentMark, markLabel } from '../layout/garment-mark';
 import { HangerIcon } from '../layout/parts';
+import { t } from '../i18n';
+import { categoryLabel } from '../wardrobe/garment';
 import { isPieceToBuy } from './references';
 
 /**
@@ -20,14 +26,6 @@ import { isPieceToBuy } from './references';
  */
 
 /**
- * A piece that is not simply owned: `to-buy`, a need's option drawn into
- * an outfit (#333) or an incomplete outfit's piece not bought yet (#335;
- * an outfit's garment with its status, marked by the collage itself:
- * marksOf), drawn with GarmentMark.
- */
-export type CollageMark = Extract<GarmentMarkKind, 'to-buy'>;
-
-/**
  * Whether a piece opens the photo viewer, and so is in its set (#313): the
  * set's builder and the piece's trigger must agree, or a tap opens the
  * wrong slide.
@@ -41,21 +39,59 @@ export interface CollagePieceView {
   name: string | null;
   category: string;
   photo: SignablePhotoRef | null;
-  mark?: CollageMark;
-  /** An outfit's garment's: a wishlist one is drawn as `to-buy`. */
-  status?: GarmentStatus;
+  /** In garmentMarks' order (collagePieces): the first in words, or a dot. */
+  marks?: readonly GarmentMarkKind[];
 }
 
 /**
- * The piece's marks: its own (a need's option), or `to-buy` for an
- * outfit's piece not bought yet. To buy only for now: the availability
- * marks (away, archived) are #358's.
+ * How a collage marks an outfit's pieces. Everywhere: `to-buy`, a piece of
+ * an incomplete outfit not bought yet (#335). With `warn`, an outfit the
+ * owner is about to wear (Today's cards, the calendar's entries not worn
+ * yet from today on, the outfit page; #358): also what keeps a piece from
+ * being worn, archived and away, and the wash where the read gave it
+ * (today's cards only: entriesSql's `washOn`). A warning, never a swap:
+ * the mark sends the owner to Change
+ * (docs/plans/2026-10-09-structural-refactors.md, Decisions 1). `ownerView`
+ * is garmentMarks' gate: away and the wash are the owner's records.
  */
-function marksOf(piece: CollagePieceView): GarmentMarkKind[] {
-  if (piece.mark) return [piece.mark];
-  return piece.status && isPieceToBuy({ status: piece.status })
-    ? ['to-buy']
-    : [];
+export type PieceMarking = { warn: false } | ({ warn: true } & MarkOptions);
+
+/** An outfit's garments with their marks, for OutfitCollage. */
+export function collagePieces<G extends MarkedGarment>(
+  garments: readonly G[],
+  marking: PieceMarking,
+): (G & { marks: GarmentMarkKind[] })[] {
+  return garments.map((garment) => ({
+    ...garment,
+    marks: marking.warn
+      ? garmentMarks(garment, marking)
+      : isPieceToBuy(garment)
+        ? ['to-buy']
+        : [],
+  }));
+}
+
+/**
+ * A collage link's accessible name: aria-label replaces the link's
+ * descendants for screen readers, so the pieces' sr-only mark words would
+ * never be announced. "Name: Boots (At repair), Duffel (Lent)"; the bare
+ * name when no piece has a mark.
+ */
+export function outfitLabel(
+  name: string,
+  pieces: readonly CollagePieceView[],
+): string {
+  const warnings = pieces
+    .filter((piece) => piece.marks?.length)
+    .map((piece) =>
+      t('mark.PIECE', {
+        name: piece.name || categoryLabel(piece.category),
+        marks: piece.marks!.map((mark) => markLabel(mark)).join(', '),
+      }),
+    );
+  return warnings.length === 0
+    ? name
+    : t('mark.OUTFIT_LABEL', { name, warnings: warnings.join(', ') });
 }
 
 export interface CollageGarment extends CollagePieceView {
@@ -196,7 +232,7 @@ function CollagePiece(props: {
   labelled: boolean;
   words: boolean;
 }) {
-  const marks = marksOf(props.garment);
+  const marks = props.garment.marks ?? [];
   const face = <CollageFace {...props} />;
   if (marks.length === 0) return face;
   return (

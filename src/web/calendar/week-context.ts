@@ -36,12 +36,15 @@ export interface WeekContext {
 export async function weekContext(
   db: Db,
   ownerId: number,
-  week: { start: IsoDate; end: IsoDate },
+  /** `today` draws today's cards (entriesSql's `washOn`). */
+  week: { start: IsoDate; end: IsoDate; today: IsoDate },
   banner?: { planned: number | 'none'; today: IsoDate; hour: number },
 ): Promise<WeekContext> {
   const window = banner && planDays(banner.today);
   const row = await selectScalars(db, {
-    entries: entriesSql(ownerId, week.start, week.end),
+    entries: entriesSql(ownerId, week.start, week.end, {
+      washOn: week.today,
+    }),
     looks: detachedLooksSql(ownerId, week.start, week.end),
     template: weekTemplateSql(ownerId),
     batch:

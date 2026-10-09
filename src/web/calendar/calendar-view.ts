@@ -2,7 +2,10 @@ import { compareOccasions, type Occasion } from '../../wardrobe/occasions';
 import { FORECAST_DAYS } from '../../weather/forecast';
 import type { PlannedBy, TemplateSlot } from '../../wardrobe/week';
 import { emptySlots } from '../../wardrobe/week-planner';
-import type { CollageGarment } from '../outfits/collage';
+import type { AwayReason } from '../../wardrobe/availability';
+import type { GarmentStatus } from '../../wardrobe/status';
+import type { SignablePhotoRef } from '../files/image-url';
+import { type CollageGarment, collagePieces } from '../outfits/collage';
 import type { DetachedLook, SelfieRef } from '../selfies/queries';
 import {
   addDays,
@@ -26,6 +29,18 @@ import {
  * APP_TIMEZONE.
  */
 
+/** A garment of an entry's outfit as entriesSql reads it. */
+export interface EntryGarment {
+  id: number;
+  name: string | null;
+  category: string;
+  photo: SignablePhotoRef | null;
+  status: GarmentStatus;
+  away: AwayReason | null;
+  /** Read only for today's unworn entries (entriesSql's `washOn`); else false. */
+  needsWash: boolean;
+}
+
 /** A scheduled outfit as findEntries() reads it. */
 export interface CalendarEntry {
   id: number;
@@ -39,9 +54,29 @@ export interface CalendarEntry {
   outfit: {
     id: number;
     name: string | null;
-    /** In slot order, for its OutfitCollage. */
-    garments: CollageGarment[];
+    /** In slot order, for its OutfitCollage (entryPieces). */
+    garments: EntryGarment[];
   };
+}
+
+/**
+ * An entry's garments as its collage draws them (#358): an entry not worn
+ * yet, today or later, warns about the pieces it cannot be worn with
+ * (archived, away, and on today's cards the wash); a worn or past entry is
+ * a record and warns about nothing. Today's cards, the week's rows and the
+ * month's cells all draw an entry through it. `ownerView`: the calendar is
+ * its owner's alone (Sharing: owner-only), so the session is the owner.
+ */
+export function entryPieces(
+  entry: Pick<CalendarEntry, 'day' | 'worn' | 'outfit'>,
+  today: IsoDate,
+): CollageGarment[] {
+  // ISO dates compare correctly as strings.
+  const ahead = !entry.worn && entry.day >= today;
+  return collagePieces(
+    entry.outfit.garments,
+    ahead ? { warn: true, ownerView: true } : { warn: false },
+  );
 }
 
 export interface CalendarDayView {
@@ -52,7 +87,7 @@ export interface CalendarDayView {
   /** After today: nothing on it can be marked worn yet (setEntryWorn). */
   isFuture: boolean;
   /** In occasion order (src/wardrobe/occasions.ts), then as read. */
-  entries: CalendarEntry[];
+  entries: EntryView[];
   /**
    * The week template's occasions (#16) the day has no outfit for yet, in
    * occasion order (emptySlots, "Plan my week"'s rule): today and later
@@ -76,11 +111,27 @@ export function weekOf(anchor: IsoDate): { start: IsoDate; end: IsoDate } {
   return { start, end: addDays(start, 6) };
 }
 
-/** A day's entries in occasion order; the stable sort keeps them as read after that. */
-function entriesOn(entries: CalendarEntry[], date: IsoDate): CalendarEntry[] {
+/** An entry as a page draws it: with its collage's pieces, marked. */
+export type EntryView = CalendarEntry & { pieces: CollageGarment[] };
+
+/** An entry as a row draws it: with its pieces as of `today` (entryPieces). */
+export function entryView(entry: CalendarEntry, today: IsoDate): EntryView {
+  return { ...entry, pieces: entryPieces(entry, today) };
+}
+
+/**
+ * A day's entries in occasion order (the stable sort keeps them as read
+ * after that), each with its pieces as of `today` (entryPieces).
+ */
+function entriesOn(
+  entries: CalendarEntry[],
+  date: IsoDate,
+  today: IsoDate,
+): EntryView[] {
   return entries
     .filter((entry) => entry.day === date)
-    .sort((a, b) => compareOccasions(a.occasion, b.occasion));
+    .sort((a, b) => compareOccasions(a.occasion, b.occasion))
+    .map((entry) => entryView(entry, today));
 }
 
 export function buildCalendarView(input: {
@@ -113,7 +164,7 @@ export function buildCalendarView(input: {
         weekday: dayOfWeek(date),
         isToday: date === today,
         isFuture: date > today,
-        entries: entriesOn(entries, date),
+        entries: entriesOn(entries, date, today),
         openSlots: open
           .filter((slot) => slot.day === date)
           .map((slot) => slot.occasion),
@@ -130,7 +181,7 @@ export interface MonthDayView {
   dayNum: number;
   isToday: boolean;
   /** In occasion order: the cell shows the first. */
-  entries: CalendarEntry[];
+  entries: EntryView[];
   /** Within `MonthView.forecast`: the cell keeps room for its weather chip. */
   inForecast: boolean;
 }
@@ -179,7 +230,7 @@ export function buildMonthView(input: {
         date,
         dayNum: dateParts(date).day,
         isToday: date === today,
-        entries: entriesOn(entries, date),
+        entries: entriesOn(entries, date, today),
         inForecast:
           forecast !== null && date >= forecast.from && date <= forecast.to,
       };

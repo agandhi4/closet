@@ -385,7 +385,7 @@ function BestOutfitRows(props: {
               size="cell"
               garments={idea.garments.map((garment) =>
                 garment.id === props.pickId
-                  ? { ...garment, mark: 'to-buy' as const }
+                  ? { ...garment, marks: ['to-buy' as const] }
                   : garment,
               )}
             />

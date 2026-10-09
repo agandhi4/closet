@@ -1,5 +1,5 @@
 import { t } from '../i18n';
-import { OutfitCollage } from './collage';
+import { collagePieces, OutfitCollage } from './collage';
 import type { GarmentOutfits } from './queries';
 
 /** How many of the newest outfits the garment page's strip shows. */
@@ -31,7 +31,10 @@ export function GarmentOutfitsStrip(props: { outfits: GarmentOutfits }) {
               class="flex flex-col gap-1"
               data-garment-outfit={outfit.id}
             >
-              <OutfitCollage garments={outfit.garments} size="thumb" />
+              <OutfitCollage
+                garments={collagePieces(outfit.garments, { warn: false })}
+                size="thumb"
+              />
               <span class="text-xs truncate">
                 {outfit.name || t('UNTITLED_OUTFIT')}
               </span>

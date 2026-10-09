@@ -714,8 +714,10 @@ describe('calendar', () => {
       expect(hasText(on.body, 'Undo')).toBe(true);
       expect(on.body).toContain('name="worn" value="0"');
       expect(on.body).toContain(
-        `name="returnTo" value="/calendar?week=${PAST}"`,
+        `name="returnTo" value="/calendar?week=${PAST}#day-${PAST}"`,
       );
+      // The whole row comes back, not the pill alone.
+      expect(on.body).toContain('data-occasion="all-day"');
       const stamped = await wornAt(entry);
       expect(stamped).toBeInstanceOf(Date);
       expect(Math.abs(Date.now() - stamped!.getTime())).toBeLessThan(60_000);
@@ -746,6 +748,30 @@ describe('calendar', () => {
       expect(await wornAt(entry)).toBeNull();
     });
 
+    it('retargets htmx to the entry row by header, whatever target the posted pill carried', async () => {
+      const outfit = await createOutfit('Retargeted');
+      const entry = await schedule(outfit, PAST);
+      for (const target of [undefined, 'this']) {
+        const res = await t.inject({
+          method: 'POST',
+          url: `/calendar/${entry}/worn`,
+          ...form({ week: PAST }),
+          headers: {
+            ...form({}).headers,
+            'hx-request': 'true',
+            // A cached pre-redesign pill: the form targeted itself.
+            ...(target && { 'hx-target': target }),
+          },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['hx-retarget']).toBe('closest [data-occasion]');
+        expect(res.headers['hx-reswap']).toBe('outerHTML');
+      }
+      // A plain post sets neither.
+      const plain = await post(entry, { htmx: false, worn: '1' });
+      expect(plain.headers['hx-retarget']).toBeUndefined();
+    });
+
     it("says today's pill as the verb, marks and undoes it in place", async () => {
       const today = t.today();
       const outfit = await createOutfit('Worn today pill');
@@ -770,20 +796,25 @@ describe('calendar', () => {
 
     // #165: the session, then begin, the owner lock, the entry locked and
     // read, the change and its wears together (one statement each way),
-    // commit.
-    it('marks worn, and not worn, in six statements each', async () => {
+    // commit. Answering htmx adds one read, the entry's row as the week
+    // reads it (findEntry).
+    it('marks worn, and not worn, in six statements each, seven to htmx', async () => {
       const outfit = await createOutfit('Counted worn');
       const entry = await schedule(outfit, PAST);
       const on = await recordQueries(() =>
         post(entry, { htmx: true, worn: '1' }),
       );
-      expect(on.statements).toBe(6);
+      expect(on.statements).toBe(7);
       expect(await wornAt(entry)).toBeInstanceOf(Date);
       const off = await recordQueries(() =>
         post(entry, { htmx: true, worn: '0' }),
       );
-      expect(off.statements).toBe(6);
+      expect(off.statements).toBe(7);
       expect(await wornAt(entry)).toBeNull();
+      const plain = await recordQueries(() =>
+        post(entry, { htmx: false, worn: '1' }),
+      );
+      expect(plain.statements).toBe(6);
     });
 
     it('redirects a plain form post back to the week', async () => {
@@ -823,7 +854,6 @@ describe('calendar', () => {
       });
       expect(htmx.statusCode).toBe(200);
       expect(htmx.body).toContain(`hx-post="/calendar/${entry}/worn"`);
-      expect(htmx.body).not.toContain('name="week"');
       expect(await wornAt(entry)).toBeInstanceOf(Date);
 
       const plain = await t.inject({

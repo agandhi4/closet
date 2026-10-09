@@ -1,3 +1,4 @@
+import type { GarmentMarkKind } from '../../wardrobe/marks';
 import { DEFAULT_OCCASION, OCCASIONS } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
 import type { IsoDate } from '../../calendar-date';
@@ -13,7 +14,7 @@ import { EntrySelfie, SelfieView } from '../selfies/views';
 import { ShareLinkButton } from '../share/share-button';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
-import { OutfitCollage } from './collage';
+import { collagePieces, FootMark, OutfitCollage } from './collage';
 import type {
   OutfitEntries,
   OutfitPageDetail,
@@ -64,6 +65,12 @@ export function OutfitPage(props: {
   const { ctx, outfit, entries } = props;
   const name = outfit.name || t('UNTITLED_OUTFIT');
   const toBuy = piecesToBuy(outfit.garments);
+  // The owner's own outfit (outfitDetailSql), so their records show, on the
+  // collage and on the strip below it.
+  const pieces = collagePieces(outfit.garments, {
+    warn: true,
+    ownerView: true,
+  });
   // Plan is offered only where the outfit may be held (outfitMayBeHeld):
   // complete, and the owner's (not one of Muse's proposals until saved).
   const mayBePlanned =
@@ -87,7 +94,7 @@ export function OutfitPage(props: {
         )}
         {outfit.notes && <p class="text-muted text-sm px-1">{outfit.notes}</p>}
         {outfit.garments.length > 0 ? (
-          <OutfitCollage garments={outfit.garments} eager />
+          <OutfitCollage garments={pieces} eager />
         ) : (
           <p class="text-muted text-sm italic">{t('OUTFIT_NO_GARMENTS')}</p>
         )}
@@ -122,7 +129,7 @@ export function OutfitPage(props: {
         {entries.worn.length > 0 && (
           <WornStrip outfitId={outfit.id} worn={entries.worn} />
         )}
-        {outfit.garments.length > 0 && <GarmentList outfit={outfit} />}
+        {outfit.garments.length > 0 && <GarmentList pieces={pieces} />}
       </main>
       {mayBePlanned && <PlanSheet outfitId={outfit.id} today={props.today} />}
       <AlreadySavedToast kind={props.alreadySaved} />
@@ -304,21 +311,30 @@ function WornStrip(props: { outfitId: number; worn: WornDay[] }) {
 }
 
 /** The garments in the order the outfit was built, each opening its page. */
-function GarmentList({ outfit }: { outfit: OutfitSummary }) {
+function GarmentList({
+  pieces,
+}: {
+  pieces: (OutfitSummary['garments'][number] & {
+    marks: GarmentMarkKind[];
+  })[];
+}) {
   return (
     <section aria-labelledby="outfit-garments-title">
       <h2 id="outfit-garments-title" class="text-sm text-muted mb-2">
         {t('GARMENTS_IN_OUTFIT')}
       </h2>
       <div class="flex flex-wrap gap-3">
-        {outfit.garments.map((garment) => (
+        {pieces.map((piece) => (
           <a
-            href={`/wardrobe/${garment.id}`}
+            href={`/wardrobe/${piece.id}`}
             class="flex flex-col items-center gap-1 w-20"
           >
-            <GarmentThumb garment={garment} class="rounded-box bg-base-200" />
+            <span class="relative">
+              <GarmentThumb garment={piece} class="rounded-box bg-base-200" />
+              <FootMark marks={piece.marks} />
+            </span>
             <span class="text-xs text-center line-clamp-2 leading-tight">
-              {garment.name}
+              {piece.name}
             </span>
           </a>
         ))}

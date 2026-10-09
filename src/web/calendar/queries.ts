@@ -23,6 +23,7 @@ import {
   changeEntryWorn,
   type EntryWornOutcome,
   type LockedEntry,
+  dirtyCopiesSql,
 } from '../wears/queries';
 import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry } from './calendar-view';
@@ -52,12 +53,27 @@ export type EntryMiss = 'not-found';
  * (owner_id, day). Every table appears once in each scope, so the columns
  * need no aliases: the selfie's `file` and the garments' are in sibling
  * subqueries.
+ *
+ * Each garment carries what its collage warns about (#358, entryPieces in
+ * calendar-view.ts): its status and away, and on `washOn` (today, where a
+ * page draws today's cards) whether it needs a wash, counted only for that
+ * day's unworn entries, so the month and past days cost no wear count.
+ * Away and the wash are the owner's records: every caller is the owner's
+ * own calendar (outfits and entries are never shared).
  */
 export function entriesSql(
   ownerId: number,
   first: IsoDate,
   last: IsoDate,
+  { washOn }: { washOn?: IsoDate } = {},
 ): SQL<CalendarEntry[]> {
+  const washDue =
+    washOn === undefined
+      ? sql`false`
+      : // CASE, not AND: Postgres may evaluate AND's operands in any order, and
+        // the wear count must run only for today's unworn entries. No clean
+        // copy left (availableGarment's rule), not "some copy is dirty".
+        sql`(case when ${outfitCalendar.day} = ${washOn} and ${outfitCalendar.wornAt} is null then ${dirtyCopiesSql()} >= ${garment.quantity} else false end)`;
   return sql<CalendarEntry[]>`(
     select coalesce(json_agg(json_build_object(
       'id', ${outfitCalendar.id},
@@ -74,7 +90,10 @@ export function entriesSql(
             'id', ${garment.id},
             'name', ${garment.name},
             'category', ${garment.category},
-            'photo', ${photoRefJson}
+            'photo', ${photoRefJson},
+            'status', ${garment.status},
+            'away', ${garment.away},
+            'needsWash', ${washDue}
           ) order by ${outfitSlot.position}), '[]')
           from ${outfitSlot}
           inner join ${garment} on ${garment.id} = ${outfitSlot.garmentId}
@@ -100,6 +119,23 @@ export async function findEntries(
     entries: entriesSql(ownerId, first, last),
   });
   return entries;
+}
+
+/**
+ * One of the owner's entries as the week reads it (entriesSql over its day,
+ * `washOn` today as the week page passes it), so a row redrawn alone
+ * (POST /calendar/:id/worn) carries the marks the page would. One statement.
+ */
+export async function findEntry(
+  db: Queryable,
+  ownerId: number,
+  entry: { id: number; day: IsoDate },
+  today: IsoDate,
+): Promise<CalendarEntry | undefined> {
+  const { entries } = await selectScalars(db, {
+    entries: entriesSql(ownerId, entry.day, entry.day, { washOn: today }),
+  });
+  return entries.find((candidate) => candidate.id === entry.id);
 }
 
 /** An entry of a day as a picker reads it (entriesOfDaySql). */

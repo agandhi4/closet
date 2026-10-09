@@ -12,6 +12,8 @@ import {
   buildCalendarView,
   buildMonthView,
   type CalendarEntry,
+  type EntryGarment,
+  entryPieces,
   type CalendarView,
   monthRange,
   type MonthView,
@@ -480,5 +482,48 @@ describe('calendar view (America/New_York)', () => {
       const today = todayIn(ZONE, new Date('2026-09-26T21:00:00-04:00'));
       expect(dates(view(undefined, { today }))[0]).toBe('2026-09-20');
     });
+  });
+});
+
+/**
+ * An entry's collage warns about its unavailable pieces (#358) only while
+ * the owner may still wear it: not worn, today or later.
+ */
+describe('entryPieces', () => {
+  const today = '2026-10-09' as IsoDate;
+  const piece = (over: Partial<EntryGarment>): EntryGarment => ({
+    id: 1,
+    name: null,
+    category: 'tops',
+    photo: null,
+    status: 'closet',
+    away: null,
+    needsWash: false,
+    ...over,
+  });
+  const marksOf = (day: string, worn: boolean, garments: EntryGarment[]) =>
+    entryPieces(
+      { day, worn, outfit: { id: 1, name: null, garments } },
+      today,
+    ).map((p) => p.marks);
+  const lent = piece({ away: 'lent' });
+  const archived = piece({ id: 2, status: 'archived' });
+  const dirty = piece({ id: 3, needsWash: true });
+
+  it('marks what blocks an unworn entry today or later', () => {
+    expect(marksOf(today, false, [lent, archived, dirty])).toEqual([
+      ['away:lent'],
+      ['archived'],
+      ['needs-wash'],
+    ]);
+    expect(marksOf('2026-10-12', false, [lent, archived])).toEqual([
+      ['away:lent'],
+      ['archived'],
+    ]);
+  });
+
+  it('marks nothing on a worn or past entry', () => {
+    expect(marksOf(today, true, [lent, archived, dirty])).toEqual([[], [], []]);
+    expect(marksOf('2026-10-08', false, [lent, archived])).toEqual([[], []]);
   });
 });

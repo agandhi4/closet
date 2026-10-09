@@ -22,6 +22,7 @@ import {
   selfie,
   tripOutfit,
 } from '../../db/schema';
+import type { AwayReason } from '../../wardrobe/availability';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { LookReaction } from '../../wardrobe/look-reaction';
 import type { GarmentStatus } from '../../wardrobe/status';
@@ -62,6 +63,8 @@ export interface OutfitGarment {
   /** A wishlist one is a piece to buy: the outfit is incomplete (piecesToBuy). */
   status: GarmentStatus;
   photo: SignablePhotoRef | null;
+  /** Read only by the outfit page, which warns about it (outfitGarmentsSql's `away`). */
+  away?: AwayReason | null;
 }
 
 export interface OutfitSummary {
@@ -192,9 +195,13 @@ export interface GarmentOutfits {
  * Correlated with `"outfit"."id"`: the caller's FROM names the outfit
  * table unaliased. The scalar subqueries below (the Saved tab, the outfit
  * page, the garment page's strip), and a trip's outfits (tripModel,
- * src/web/trips/model.ts).
+ * src/web/trips/model.ts). `away` adds each garment's away, the owner's
+ * record: only the outfit page asks (#358), whose outfit is the session's
+ * own (the other collages mark only pieces to buy: collagePieces).
  */
-export function outfitGarmentsSql(): SQL<OutfitGarment[]> {
+export function outfitGarmentsSql({
+  away = false,
+}: { away?: boolean } = {}): SQL<OutfitGarment[]> {
   return sql<OutfitGarment[]>`(
     select coalesce(
       json_agg(
@@ -203,7 +210,7 @@ export function outfitGarmentsSql(): SQL<OutfitGarment[]> {
           'name', ${garment.name},
           'category', ${garment.category},
           'status', ${garment.status},
-          'photo', ${photoRefJson}
+          'photo', ${photoRefJson}${away ? sql`, 'away', ${garment.away}` : sql``}
         )
         order by ${outfitSlot.position}
       ),
@@ -308,7 +315,7 @@ export function outfitDetailSql(
       'name', ${outfit.name},
       'notes', ${outfit.notes},
       'shareableId', ${outfit.shareableId},
-      'garments', ${outfitGarmentsSql()},
+      'garments', ${outfitGarmentsSql({ away: true })},
       'proposal', case when ${outfit.proposedAt} is null then null else json_build_object(
         'note', ${outfit.proposalNote},
         'reaction', ${outfit.reaction},

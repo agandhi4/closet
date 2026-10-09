@@ -20,10 +20,11 @@ export type WornControlProps = WornControlTarget & {
   size: 'pill' | 'button';
   /**
    * Swapped in place by htmx rather than a native post the page comes back
-   * from whole. Only the calendar's pill: POST /calendar/:id/worn answers
-   * htmx with exactly that pill, and nothing else on its row reads the
-   * state. Today's Change goes once worn and a trip's create-and-wear route
-   * answers only a redirect, so those reload.
+   * from whole. Only the calendar's pill, inside an OccasionRow: its marks,
+   * label and Change read the worn state, so POST /calendar/:id/worn answers
+   * htmx with the whole row and the control targets it. Today's Change goes
+   * once worn and a trip's create-and-wear route answers only a redirect,
+   * so those reload.
    */
   inPlace?: boolean;
   /** A day before today: asks ("Worn?") rather than tells ("Wore it"). */
@@ -84,7 +85,7 @@ export function WornControl(props: WornControlProps) {
         action={action}
         class={layout}
         hx-post={action}
-        hx-target="this"
+        hx-target="closest [data-occasion]"
         hx-swap="outerHTML"
         data-needs-network=""
       >

@@ -664,7 +664,9 @@
     "NEEDS_WASH": "Wash",
     "NEEDS_WASH_COPIES": "Wash {dirty}/{copies}",
     "SET_ASIDE": "Set aside",
-    "MORE": " (also {marks})"
+    "MORE": " (also {marks})",
+    "PIECE": "{name} ({marks})",
+    "OUTFIT_LABEL": "{name}: {warnings}"
   },
   "garment": {
     "EDIT": "Edit",

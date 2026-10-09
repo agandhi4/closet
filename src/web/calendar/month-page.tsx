@@ -2,7 +2,9 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { bodyOf, OutfitCollage } from '../outfits/collage';
+import { bodyOf, OutfitCollage, outfitLabel } from '../outfits/collage';
+import { hiddenBlocking } from './month-cell';
+import { GarmentMark } from '../layout/garment-mark';
 import type { ViewContext } from '../view-context';
 import {
   WeatherCellSlot,
@@ -107,11 +109,7 @@ function MonthDay({ ctx, day }: { ctx: ViewContext; day: MonthDayView }) {
         {day.dayNum}
       </span>
       {weather && <WeatherCellSlot ctx={ctx} day={day.date} />}
-      {first && (
-        <span class="w-full">
-          <OutfitCollage garments={bodyOf(first.outfit.garments)} size="cell" />
-        </span>
-      )}
+      {first && <CellCollage first={first} entries={day.entries} />}
       {worn && <span class="size-1 rounded-full bg-accent"></span>}
       {more > 0 && (
         <span class="text-xs text-muted">
@@ -119,6 +117,33 @@ function MonthDay({ ctx, day }: { ctx: ViewContext; day: MonthDayView }) {
         </span>
       )}
     </a>
+  );
+}
+
+/**
+ * The cell draws its first entry's body only (bodyOf): a blocking mark on
+ * any other piece of the day shows as one dot (hiddenBlocking), the same look and corner as a
+ * drawn piece's. aria-hidden: the cell link's label already says it
+ * (outfitLabel).
+ */
+function CellCollage({
+  first,
+  entries,
+}: {
+  first: MonthDayView['entries'][number];
+  entries: MonthDayView['entries'];
+}) {
+  const drawn = bodyOf(first.pieces);
+  const hidden = hiddenBlocking(entries, drawn);
+  return (
+    <span class="relative w-full">
+      <OutfitCollage garments={drawn} size="cell" />
+      {hidden && (
+        <span class="absolute bottom-0 right-0" aria-hidden="true">
+          <GarmentMark marks={[hidden]} dot />
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -130,7 +155,9 @@ function isWorn(day: MonthDayView): boolean {
 function cellLabel(day: MonthDayView): string {
   return [
     dayLabel(day.date),
-    ...day.entries.map((entry) => entry.outfit.name || t('UNTITLED_OUTFIT')),
+    ...day.entries.map((entry) =>
+      outfitLabel(entry.outfit.name || t('UNTITLED_OUTFIT'), entry.pieces),
+    ),
     ...(isWorn(day) ? [t('wear.WORN')] : []),
   ].join(', ');
 }

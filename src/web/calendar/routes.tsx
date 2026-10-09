@@ -13,7 +13,6 @@ import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import { viewContext } from '../view-context';
 import { setEntryWorn } from '../wears/queries';
-import { WornControl } from '../wears/worn-control';
 import {
   hourIn,
   parseIsoDate,
@@ -24,6 +23,7 @@ import {
 import { CalendarPage } from './calendar-page';
 import {
   buildCalendarView,
+  entryView,
   buildMonthView,
   monthRange,
   weekOf,
@@ -31,7 +31,13 @@ import {
 import { MonthPage } from './month-page';
 import { PlanPage } from './plan-page';
 import { dayChoice } from './day-choice';
-import { findEntries, type Scheduled, scheduleOutfit } from './queries';
+import { OccasionRow } from './occasion-row';
+import {
+  findEntries,
+  findEntry,
+  type Scheduled,
+  scheduleOutfit,
+} from './queries';
 import {
   isRefused,
   replaceEntryOutfit,
@@ -170,7 +176,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { entries, looks, template, banner } = await weekContext(
         db,
         ownerId,
-        shown,
+        { ...shown, today },
         planned === undefined
           ? undefined
           : { planned, today, hour: hourIn(config.timeZone, new Date()) },
@@ -353,7 +359,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // Every WornControl on an entry: the calendar's pill (htmx, answered with
-  // the pill), Today's and a trip's (plain posts back through `returnTo`).
+  // the entry's whole row), Today's and a trip's (plain posts back through `returnTo`).
   // The entry and its wears change
   // together (setEntryWorn). A day after today is refused (409): its chip
   // has no pill, so only a page the installed app cached before that rule
@@ -385,16 +391,27 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         weekUrl(request.body?.week),
       );
       if (request.headers['hx-request']) {
-        // Swapped in place of the posted pill, carrying its way back on.
+        // The whole row replaces the posted one: its marks, label and
+        // Change depend on the worn state too. Read as the week reads it.
+        const entry = await findEntry(
+          db,
+          ownerId,
+          { id, day: outcome.day },
+          today,
+        );
+        if (!entry) throw entryNotFound();
+        // The headers, not the posted markup, decide where it lands: a
+        // cached pre-#369 page has a pill targeting itself, which would
+        // nest the row inside the row. Every generation of the row carries
+        // `data-occasion`, and the control sits inside it.
+        reply.header('HX-Retarget', 'closest [data-occasion]');
+        reply.header('HX-Reswap', 'outerHTML');
         return renderFragment(
           reply,
-          <WornControl
-            entryId={id}
-            worn={outcome.worn}
-            size="pill"
-            inPlace
+          <OccasionRow
+            entry={entryView(entry, today)}
+            future={outcome.day > today}
             past={outcome.day < today}
-            returnTo={back}
           />,
         );
       }

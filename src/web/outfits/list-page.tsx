@@ -11,7 +11,7 @@ import { PageMain } from '../layout/page-main';
 import { EmptyState } from '../layout/parts';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
-import { OutfitCollage } from './collage';
+import { collagePieces, OutfitCollage } from './collage';
 import { DayDestinationLine } from './day-destination';
 import type { DayDestination } from './destination';
 import { OutfitTabs } from './outfit-tabs';
@@ -214,7 +214,7 @@ function OutfitTile(props: {
     <>
       <div class={props.dimmed ? 'opacity-50' : undefined}>
         <OutfitCollage
-          garments={outfit.garments}
+          garments={collagePieces(outfit.garments, { warn: false })}
           size="tile"
           eager={props.eager}
         />

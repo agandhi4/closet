@@ -1,11 +1,11 @@
 import type { Occasion } from '../../wardrobe/occasions';
 import { t } from '../i18n';
-import { OutfitCollage } from '../outfits/collage';
+import { OutfitCollage, outfitLabel } from '../outfits/collage';
 import { EntrySelfie } from '../selfies/views';
 import { WornControl } from '../wears/worn-control';
 import { stylingUrl } from '../styling/urls';
 import type { IsoDate } from '../../calendar-date';
-import type { CalendarEntry } from './calendar-view';
+import type { CalendarEntry, EntryView } from './calendar-view';
 import { occasionLabel } from '../date-labels';
 import { OPEN_PLAN_SHEET, planSheetChoice } from './plan-sheet';
 import { dayUrl, planPageUrl } from './urls';
@@ -19,10 +19,11 @@ import { dayUrl, planPageUrl } from './urls';
  * pill. The one way a day's entries are drawn: the week agenda stacks them
  * in occasion order, and Today (#15) draws the same entries larger through
  * the same worn route (docs/plans/2026-09-26-redesign.md, section 5).
- * `data-occasion` is what the specs read the order from.
+ * `data-occasion` is what the specs read the order from, and what the worn
+ * control swaps: POST /calendar/:id/worn answers with this row whole.
  */
 export function OccasionRow(props: {
-  entry: CalendarEntry;
+  entry: EntryView;
   /** The day is after today: no worn pill (setEntryWorn refuses it). */
   future: boolean;
   /** The day is before today: the pill asks "Worn?" rather than "Wore it". */
@@ -69,10 +70,10 @@ export function OccasionRow(props: {
         <a
           href={editUrl}
           class="flex items-center gap-3 min-w-0 flex-1"
-          aria-label={name}
+          aria-label={outfitLabel(name, entry.pieces)}
         >
           <span class="w-16 shrink-0">
-            <OutfitCollage garments={entry.outfit.garments} size="thumb" />
+            <OutfitCollage garments={entry.pieces} size="thumb" />
           </span>
           <span class="text-sm font-medium line-clamp-2">{name}</span>
         </a>
