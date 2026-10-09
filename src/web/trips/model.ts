@@ -20,8 +20,7 @@ import {
 import type { IsoDate } from '../../calendar-date';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
-import type { CollageGarment } from '../outfits/collage';
-import { outfitGarmentsSql } from '../outfits/queries';
+import { type OutfitGarment, outfitGarmentsSql } from '../outfits/queries';
 import { wearsSinceWashSql } from '../wears/queries';
 import { listGarmentIdsSql } from './packed';
 import {
@@ -55,7 +54,7 @@ export interface TripOutfitView {
   name: string | null;
   day: IsoDate | null;
   occasion: Occasion | null;
-  garments: CollageGarment[];
+  garments: OutfitGarment[];
 }
 
 export interface TripDay {

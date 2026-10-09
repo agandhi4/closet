@@ -4,6 +4,7 @@ import {
   type MarkedGarment,
   type MarkOptions,
 } from '../../wardrobe/marks';
+import { inOutfitOrderByCategory } from '../../wardrobe/generator';
 import { categoryRole, type GarmentRole } from '../../wardrobe/properties';
 import { type SignablePhotoRef, imageUrl } from '../files/image-url';
 import { viewerTrigger } from '../files/photo-viewer';
@@ -22,7 +23,8 @@ import { isPieceToBuy } from './references';
  * (docs/plans/2026-09-26-redesign.md, sections 3 and 5): the gallery's
  * Ideas cards, the outfit page and Today (`card`), the Saved grid
  * (`tile`), the garment page's "In N outfits" and the calendar (`cell`, a
- * `thumb` that grows at lg).
+ * `thumb` that grows at lg), and an outfit's row beside its name (`row`:
+ * the pickers' SavedOutfitButton and a trip's outfits, #360).
  */
 
 /**
@@ -157,7 +159,7 @@ const SIZES = {
     side: 'h-5 lg:h-10',
   },
 } as const;
-export type CollageSize = keyof typeof SIZES;
+export type CollageSize = keyof typeof SIZES | 'row';
 
 export function OutfitCollage(props: {
   garments: readonly CollagePieceView[];
@@ -173,6 +175,7 @@ export function OutfitCollage(props: {
 }) {
   const { garments, eager = false } = props;
   const size = props.size ?? 'card';
+  if (size === 'row') return <CollageRow garments={garments} eager={eager} />;
   const sizes = SIZES[size];
   const of = (roles: readonly GarmentRole[]) =>
     garments.filter((g) => roles.includes(categoryRole(g.category)));
@@ -215,6 +218,42 @@ export function OutfitCollage(props: {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Every piece in a line, top to toe (the order an outfit's name lists
+ * them), at one small fixed size: a picker's or a trip's outfit row, where
+ * a column would not fit beside the name and the old first-three thumbs cut
+ * the shoes off (#360). Nothing is dropped: past what a phone's row holds
+ * (seven pieces at 390 px) the strip scrolls inside itself, never the page.
+ * Spans throughout, as it sits inside a submit button (phrasing content).
+ * Marks are dots, as on a thumb: the pieces are too small for words.
+ */
+function CollageRow(props: {
+  garments: readonly CollagePieceView[];
+  eager: boolean;
+}) {
+  // Callers wrap it in aria-hidden (its imgs carry alt text, which would
+  // pad the button's or link's name); tabindex -1 keeps the scrolling strip
+  // from becoming a tab stop inside that hidden subtree (axe aria-hidden-focus).
+  return (
+    <span
+      class="bg-base-200 rounded-field p-1 flex gap-1 w-fit max-w-full overflow-x-auto *:shrink-0"
+      data-collage="row"
+      tabindex={-1}
+    >
+      {inOutfitOrderByCategory(props.garments).map((garment) => (
+        <CollagePiece
+          garment={garment}
+          class="h-10"
+          eager={props.eager}
+          viewerSet={undefined}
+          labelled={false}
+          words={false}
+        />
+      ))}
+    </span>
   );
 }
 
@@ -281,6 +320,7 @@ function CollageFace(props: {
       src={imageUrl(garment.photo, 'thumb')}
       alt={garment.name ?? ''}
       {...viewer}
+      data-collage-piece={garment.category}
       class={`${props.class} w-auto max-w-full aspect-square object-contain`}
       width="200"
       height="200"
@@ -289,6 +329,7 @@ function CollageFace(props: {
     />
   ) : (
     <span
+      data-collage-piece={garment.category}
       class={`${props.class} aspect-square max-w-full rounded-box bg-base-100 flex flex-col items-center justify-center gap-1 text-muted p-1`}
     >
       <HangerIcon

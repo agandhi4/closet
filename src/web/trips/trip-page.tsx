@@ -14,6 +14,7 @@ import { DayHeading } from '../layout/day-heading';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
+import { collagePieces, OutfitCollage } from '../outfits/collage';
 import type { ViewContext } from '../view-context';
 import { WornControl } from '../wears/worn-control';
 import { phaseLabel, tripDates } from './labels';
@@ -246,9 +247,11 @@ function DayBlock(props: {
   );
 }
 
-/** Garments shown per outfit row: four fit beside the name at phone width. */
-const THUMBS = 4;
-
+/**
+ * An outfit of the trip: its whole picture (the `row` collage the pickers'
+ * SavedOutfitButton shows, #360) with Remove at its edge, then the name and
+ * the occasion with its worn control.
+ */
 function TripOutfitRow(props: {
   model: TripPageModel;
   outfit: TripOutfitView;
@@ -275,41 +278,39 @@ function TripOutfitRow(props: {
       />
     ) : null;
   return (
-    <article
-      class="card card-side bg-base-200 items-center gap-2 p-2"
-      data-trip-outfit={outfit.id}
-    >
-      {/* The thumbnails link too, but the name's link is the one assistive tech reads. */}
-      <a
-        href={`/outfits/${outfit.outfitId}`}
-        class="shrink-0"
-        aria-hidden="true"
-        tabindex={-1}
-      >
-        <span class="flex gap-1 shrink-0">
-          {outfit.garments.slice(0, THUMBS).map((garment) =>
-            garment.photo ? (
-              <img
-                src={imageUrl(garment.photo, 'thumb')}
-                alt=""
-                class="size-10 rounded object-contain bg-base-100"
-                width="40"
-                height="40"
-                loading="lazy"
-                decoding="async"
-              />
-            ) : (
-              <span class="size-10 rounded bg-base-100 flex items-center justify-center">
-                <HangerIcon class="size-4 text-faint" strokeWidth="1.5" />
-              </span>
-            ),
-          )}
-        </span>
-      </a>
-      {/* The worn control sits beside the occasion, not at the row's edge: a
+    <article class="card bg-base-200 gap-2 p-2" data-trip-outfit={outfit.id}>
+      <div class="flex items-start gap-2">
+        {/* The picture links too, but the name's link is the one assistive tech reads. */}
+        <a
+          href={`/outfits/${outfit.outfitId}`}
+          class="flex min-w-0"
+          aria-hidden="true"
+          tabindex={-1}
+        >
+          <OutfitCollage
+            garments={collagePieces(outfit.garments, { warn: false })}
+            size="row"
+          />
+        </a>
+        <PostForm
+          action={tripUrl(tripId, `/outfits/${outfit.id}/delete`)}
+          class="ms-auto shrink-0"
+          confirm={t('trips.CONFIRM_REMOVE_OUTFIT')}
+          needsNetwork
+        >
+          <button
+            type="submit"
+            class="btn btn-ghost btn-xs btn-square"
+            aria-label={t('trips.REMOVE_OUTFIT')}
+          >
+            ×
+          </button>
+        </PostForm>
+      </div>
+      {/* The worn control sits beside the occasion, not beside the name: a
           "✓ Worn Undo" there crowds the name down to a letter at 390 px. It
           wraps under the occasion where the column is narrow. */}
-      <div class="flex flex-col min-w-0 flex-1">
+      <div class="flex flex-col min-w-0">
         <a
           href={`/outfits/${outfit.outfitId}`}
           class="text-sm font-medium truncate"
@@ -323,19 +324,6 @@ function TripOutfitRow(props: {
           </span>
         )}
       </div>
-      <PostForm
-        action={tripUrl(tripId, `/outfits/${outfit.id}/delete`)}
-        confirm={t('trips.CONFIRM_REMOVE_OUTFIT')}
-        needsNetwork
-      >
-        <button
-          type="submit"
-          class="btn btn-ghost btn-xs btn-square"
-          aria-label={t('trips.REMOVE_OUTFIT')}
-        >
-          ×
-        </button>
-      </PostForm>
     </article>
   );
 }
