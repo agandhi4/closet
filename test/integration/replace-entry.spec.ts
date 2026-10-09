@@ -10,7 +10,7 @@ import {
 import type { Occasion } from '../../src/wardrobe/occasions';
 import { addDays, type IsoDate } from '../../src/calendar-date';
 import { replaceEntryOutfit } from '../../src/web/calendar/replace';
-import { pickIdea } from '../../src/web/gallery/ideas';
+import { pickIdea } from '../../src/web/outfits/pick';
 import { tripModel } from '../../src/web/trips/model';
 import { addTripOutfit, createTrip } from '../../src/web/trips/queries';
 import {

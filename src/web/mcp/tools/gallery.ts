@@ -12,9 +12,9 @@ import {
   ideasScope,
   MAX_IDEAS_PAGE,
   MAX_SEED,
-  pickIdea,
 } from '../../gallery/ideas';
 import { garmentsGoneError } from '../../outfits/gone-garments';
+import { pickIdea } from '../../outfits/pick';
 import { OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { defineTool } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';

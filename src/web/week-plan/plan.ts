@@ -17,7 +17,7 @@ import type { DayForecast } from '../../weather/forecast';
 import { ownerTransaction } from '../auth/queries';
 import { addDays, type IsoDate } from '../../calendar-date';
 import { entryOf } from '../calendar/queries';
-import { pickIdea } from '../gallery/ideas';
+import { pickIdea } from '../outfits/pick';
 import {
   generatorMemorySql,
   readGeneratorMemory,

@@ -10,7 +10,7 @@ import {
 import type { Occasion } from '../../wardrobe/occasions';
 import type { Location } from '../../weather/location';
 import { addDays, type IsoDate } from '../../calendar-date';
-import { pickIdea, type PickResult } from '../gallery/ideas';
+import { pickIdea, type PickResult } from '../outfits/pick';
 import { refuseUnholdable } from '../outfits/gone-garments';
 import {
   holdRefusalColumns,

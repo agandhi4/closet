@@ -2,7 +2,7 @@ import type { Queryable } from '../../db/client';
 import type { Occasion } from '../../wardrobe/occasions';
 import { ownerTransaction } from '../auth/queries';
 import { HttpError } from '../errors';
-import { pickIdea } from '../gallery/ideas';
+import { pickIdea } from '../outfits/pick';
 import { t } from '../i18n';
 import {
   describeGone,

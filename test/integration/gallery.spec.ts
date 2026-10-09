@@ -8,7 +8,7 @@ import {
   userWeather,
 } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
-import { pickIdea } from '../../src/web/gallery/ideas';
+import { pickIdea } from '../../src/web/outfits/pick';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
 import { createWishlistItem } from './garments';
 import {

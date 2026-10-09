@@ -10,7 +10,7 @@ import {
   wearOutfitOn,
   type WornOutfit,
 } from '../calendar/queries';
-import { pickIdea, type PickResult } from '../gallery/ideas';
+import { pickIdea, type PickResult } from '../outfits/pick';
 
 /**
  * Today's reads (#15) and its one write of its own, "Wear this". The

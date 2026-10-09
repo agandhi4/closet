@@ -17,7 +17,7 @@ import {
   replaceEntryOutfit,
   replaceMessage,
 } from '../../src/web/calendar/replace';
-import { pickIdea } from '../../src/web/gallery/ideas';
+import { pickIdea } from '../../src/web/outfits/pick';
 import { deleteGarment } from '../../src/web/wardrobe/queries';
 import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import {

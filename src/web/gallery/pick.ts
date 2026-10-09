@@ -18,7 +18,7 @@ import {
 import { pickForTrip } from '../trips/queries';
 import { tripUrl } from '../trips/urls';
 import { tripNotFound } from '../trips/validation';
-import { pickIdea, type PickResult } from './ideas';
+import { pickIdea, type PickResult } from '../outfits/pick';
 import { alreadySavedParam } from './urls';
 
 /**

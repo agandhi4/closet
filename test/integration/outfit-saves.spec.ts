@@ -14,7 +14,7 @@ import {
   replaceEntryOutfit,
   replaceRefusal,
 } from '../../src/web/calendar/replace';
-import { pickIdea } from '../../src/web/gallery/ideas';
+import { pickIdea } from '../../src/web/outfits/pick';
 import { createOutfit } from '../../src/web/outfits/queries';
 import { deleteGarment } from '../../src/web/wardrobe/queries';
 import { setGarmentStatus } from '../../src/web/wardrobe/status';

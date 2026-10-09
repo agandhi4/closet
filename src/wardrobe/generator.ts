@@ -118,6 +118,14 @@ export const OUTFIT_ORDER: readonly GarmentRole[] = [
   'none',
 ];
 
+/** Garments as an outfit's slots and name list them: top to toe (OUTFIT_ORDER), the given order among equals. */
+export function inOutfitOrderByCategory<G extends { category: string }>(
+  garments: readonly G[],
+): G[] {
+  const rank = (g: G) => OUTFIT_ORDER.indexOf(categoryRole(g.category));
+  return [...garments].sort((a, b) => rank(a) - rank(b));
+}
+
 /** A role's share of a list, as `topToToe` groups it. */
 export interface RoleGroup<T> {
   role: GarmentRole;
