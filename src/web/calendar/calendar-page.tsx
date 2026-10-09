@@ -147,7 +147,11 @@ function DaySection({ ctx, day }: { ctx: ViewContext; day: CalendarDayView }) {
         <WeatherDaySlot ctx={ctx} day={day.date} />
       </div>
       {day.entries.map((entry) => (
-        <OccasionRow entry={entry} future={day.isFuture} />
+        <OccasionRow
+          entry={entry}
+          future={day.isFuture}
+          past={!day.isToday && !day.isFuture}
+        />
       ))}
       {day.openSlots.map((occasion) => (
         <OpenSlotRow day={day.date} occasion={occasion} />

@@ -2,13 +2,13 @@ import type { Occasion } from '../../wardrobe/occasions';
 import { t } from '../i18n';
 import { OutfitCollage } from '../outfits/collage';
 import { EntrySelfie } from '../selfies/views';
+import { WornControl } from '../wears/worn-control';
 import { stylingUrl } from '../styling/urls';
 import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry } from './calendar-view';
 import { occasionLabel } from '../date-labels';
 import { OPEN_PLAN_SHEET, planSheetChoice } from './plan-sheet';
 import { dayUrl, planPageUrl } from './urls';
-import { WornButton } from './worn-button';
 
 /**
  * One calendar entry as a row of its day's agenda: the occasion's label
@@ -25,8 +25,10 @@ export function OccasionRow(props: {
   entry: CalendarEntry;
   /** The day is after today: no worn pill (setEntryWorn refuses it). */
   future: boolean;
+  /** The day is before today: the pill asks "Worn?" rather than "Wore it". */
+  past: boolean;
 }) {
-  const { entry, future } = props;
+  const { entry, future, past } = props;
   const name = entry.outfit.name || t('UNTITLED_OUTFIT');
   // Back from Styling (#42) and from a selfie lands on this entry's day
   // (`#day-D`), not the top of its week: a later day is a long scroll down.
@@ -86,7 +88,14 @@ export function OccasionRow(props: {
             entry there was marked before that rule, which can still be
             unmarked. */}
         {(!future || entry.worn) && (
-          <WornButton entryId={entry.id} worn={entry.worn} week={entry.day} />
+          <WornControl
+            entryId={entry.id}
+            worn={entry.worn}
+            size="pill"
+            inPlace
+            past={past}
+            returnTo={back}
+          />
         )}
       </div>
     </div>

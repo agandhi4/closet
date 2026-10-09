@@ -131,6 +131,6 @@ function cellLabel(day: MonthDayView): string {
   return [
     dayLabel(day.date),
     ...day.entries.map((entry) => entry.outfit.name || t('UNTITLED_OUTFIT')),
-    ...(isWorn(day) ? [t('CALENDAR_WORN')] : []),
+    ...(isWorn(day) ? [t('wear.WORN')] : []),
   ].join(', ');
 }

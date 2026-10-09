@@ -152,7 +152,9 @@ function WashState(props: { dirty: number; quantity: number }) {
 /**
  * Wore today: logs one wear of this garment alone. Once logged, the same
  * day, it offers the undo instead; a worn calendar entry today says so and
- * needs no second wear (they would count once anyway: distinct days).
+ * needs no second wear (they would count once anyway: distinct days). Not
+ * WornControl (worn-control.tsx), which marks a calendar entry: this is a
+ * garment's own record, in the same words ("Wore …", "✓ Worn …", Undo).
  */
 function WoreToday(props: {
   garment: WearGarment;
@@ -161,7 +163,7 @@ function WoreToday(props: {
   if (props.today === 'entry') {
     return (
       <span class="badge badge-success self-center">
-        {t('wear.WORN_TODAY_CALENDAR')}
+        ✓ {t('wear.WORN_TODAY_CALENDAR')}
       </span>
     );
   }

@@ -461,7 +461,7 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(nights).toHaveLength(7);
     });
 
-    it('a trip (#10) that starts today is on: "Wearing this today" wears today, the day after is refused', async () => {
+    it('a trip (#10) that starts today is on: "Wore it" wears today, the day after is refused', async () => {
       const { garmentId, outfitId } = await newOutfit(`Trip ${at}`);
       const created = await post('/trips', {
         name: `Trip ${at}`,

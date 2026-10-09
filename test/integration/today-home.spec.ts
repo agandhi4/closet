@@ -427,7 +427,7 @@ describe('Today', () => {
       const html = unescapeHtml((await get('/')).body);
       // Worn: the day is dressed, so no ideas; the undo posts worn=0.
       expect(rowsOf(html)).toEqual([['planned', 'all-day']]);
-      expect(html).toContain('Worn today');
+      expect(html).toContain('✓ Worn');
       expect(html).toContain('name="worn" value="0"');
     });
 
@@ -553,10 +553,21 @@ describe('Today', () => {
   });
 
   describe('"Wore it" on a planned outfit', () => {
+    /** The planned card of `entry` on Today, as its markup. */
+    const cardOf = (html: string, entry: number) => {
+      const start = html.indexOf(`data-entry="${entry}"`);
+      return html.slice(start, html.indexOf('</article>', start));
+    };
+
     it('marks the entry worn and comes back to Today; an unsafe returnTo goes to the week', async () => {
       await clearToday();
       const planned = await saveOutfit('Planned', [tops[1], bottoms[1]]);
       const entry = await planToday(planned, 'evening');
+      const before = cardOf(unescapeHtml((await get('/')).body), entry);
+      expect(before).toMatch(
+        /data-needs-network[\s\S]*name="worn" value="1"[\s\S]*Wore it/,
+      );
+      expect(before).toContain(`data-change-entry="${entry}"`);
       const res = await t.inject({
         method: 'POST',
         url: `/calendar/${entry}/worn`,
@@ -564,10 +575,12 @@ describe('Today', () => {
       });
       expect(res.statusCode).toBe(303);
       expect(res.headers.location).toBe('/');
-      const html = unescapeHtml((await get('/')).body);
-      expect(html).toMatch(
-        new RegExp(`data-entry="${entry}"[\\s\\S]*Worn today`),
-      );
+      const worn = cardOf(unescapeHtml((await get('/')).body), entry);
+      expect(worn).toMatch(/badge-success[^>]*data-worn[\s\S]*✓ Worn/);
+      expect(worn).toMatch(/name="worn" value="0"[\s\S]*Undo/);
+      expect(worn).not.toContain('Wore it');
+      // A worn entry is the day's record: no Change.
+      expect(worn).not.toContain('data-change-entry');
 
       const undo = await t.inject({
         method: 'POST',
@@ -576,6 +589,10 @@ describe('Today', () => {
       });
       expect(undo.statusCode).toBe(303);
       expect(undo.headers.location).toBe('/calendar');
+      const undone = cardOf(unescapeHtml((await get('/')).body), entry);
+      expect(undone).toContain('Wore it');
+      expect(undone).not.toContain('data-worn');
+      expect(undone).toContain(`data-change-entry="${entry}"`);
     });
   });
 

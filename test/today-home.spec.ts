@@ -66,7 +66,7 @@ test.describe('Today', () => {
 
     await wear.click();
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByText('Worn today')).toBeVisible();
+    await expect(page.getByText('✓ Worn', { exact: true })).toBeVisible();
     await expect(page.locator('[data-today-row="ideas"]')).toHaveCount(0);
   });
 

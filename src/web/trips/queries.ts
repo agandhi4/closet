@@ -506,7 +506,7 @@ export function removeTripOutfit(
   });
 }
 
-/** A trip outfit, as "Wearing this today" needs it: which outfit, and for which occasion. */
+/** A trip outfit, as its "Wore it" needs it: which outfit, and for which occasion. */
 export async function findTripOutfit(
   db: Queryable,
   input: { tripId: number; tripOutfitId: number; ownerId: number },
@@ -581,12 +581,19 @@ export function outfitsOnDay(
 }
 
 /**
- * The outfits of the owner's marked worn on `day`, as a scalar subquery:
- * the trip page's "Worn today" (outfit_calendar_owner_id_day_outfit_id_unique).
+ * The outfits of the owner's marked worn on `day`, each with its worn entry
+ * (an outfit is on a day once: outfit_calendar_owner_id_day_outfit_id_unique),
+ * as a scalar subquery: the trip page's worn control and its Undo.
  */
-export function outfitsWornOnSql(ownerId: number, day: IsoDate): SQL<number[]> {
-  return sql<number[]>`(
-    select coalesce(json_agg(${outfitCalendar.outfitId}), '[]')
+export function outfitsWornOnSql(
+  ownerId: number,
+  day: IsoDate,
+): SQL<{ outfitId: number; entryId: number }[]> {
+  return sql<{ outfitId: number; entryId: number }[]>`(
+    select coalesce(
+      json_agg(json_build_object('outfitId', ${outfitCalendar.outfitId}, 'entryId', ${outfitCalendar.id})),
+      '[]'
+    )
     from ${outfitCalendar}
     where ${and(
       eq(outfitCalendar.ownerId, ownerId),

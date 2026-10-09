@@ -11,7 +11,7 @@ import { WEBKIT_CANNOT_NAVIGATE_OFFLINE } from './support/webkit-limits';
  * destination found through the weather's search and its forecast loaded
  * into the page, an outfit added for a day, the packing list's and the
  * extras' checkboxes saved on change (htmx, the summary swapped out of
- * band), "Wearing this today", a gallery pick for the trip, nothing wider
+ * band), "Wore it" and its Undo, a gallery pick for the trip, nothing wider
  * than the phone, and, installed, the trip offline from the worker's copy
  * with its writes disabled. test/integration/trips.spec.ts has the behavior.
  */
@@ -133,9 +133,11 @@ test.describe('Trips', () => {
     ).not.toBeChecked();
     await expect(page.getByRole('checkbox', { name: 'Charger' })).toBeChecked();
 
-    // "Wearing this today", through the calendar.
-    await page.getByRole('button', { name: 'Wearing this today' }).click();
-    await expect(page.getByText('Worn today')).toBeVisible();
+    // "Wore it", through the calendar, and its Undo back to the trip.
+    await page.getByRole('button', { name: 'Wore it' }).click();
+    await expect(page.getByText('✓ Worn', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await expect(page.getByRole('button', { name: 'Wore it' })).toBeVisible();
     await page.goto(`/calendar?week=${today}`);
     // The calendar's chip opens the outfit in Styling (#42).
     await expect(

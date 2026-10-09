@@ -340,7 +340,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // "Wearing this today": through the calendar's writers (wearOutfitOn:
+  // A trip's "Wore it" (WornControl's createUrl): through the calendar's writers (wearOutfitOn:
   // planned today and marked worn, once), so the calendar stays the one
   // history of what was worn. Only while the trip is on, and only an
   // outfit for today or for no day (wearableToday); else 409.

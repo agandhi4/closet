@@ -400,7 +400,7 @@ export interface WornOutfit {
  * its entry and its occasion) and that entry marked worn (setEntryWorn), in
  * one transaction, so the calendar stays the one history of which outfit
  * was worn when (plan section 1). Today's "Wear this" (wearIdea, after
- * pickIdea) and a trip's "Wearing this today" (#10, src/web/trips). Safe
+ * pickIdea) and a trip's "Wore it" (#10, src/web/trips). Safe
  * to repeat: a second call finds the entry (a concurrent one waits on the
  * owner lock, then reads it) and changeEntryWorn finds it worn
  * (`changed` false). 'future' for a day after `today`, before anything is

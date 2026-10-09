@@ -49,7 +49,7 @@ import {
 
 /** An outfit on the trip, with its garments for the collage. */
 export interface TripOutfitView {
-  /** The trip_outfit row's id (removing it, "Wearing this today"). */
+  /** The trip_outfit row's id (removing it, "Wore it"). */
   id: number;
   outfitId: number;
   name: string | null;
@@ -78,8 +78,11 @@ export interface TripModel {
   undated: TripOutfitView[];
   packing: PackingList<PackingGarmentView>;
   items: TripItemRow[];
-  /** Outfit ids with a worn calendar entry today (only while the trip is on). */
-  wornToday: ReadonlySet<number>;
+  /**
+   * Outfit id to its calendar entry worn today (only while the trip is on):
+   * the entry Undo unmarks.
+   */
+  wornToday: ReadonlyMap<number, number>;
 }
 
 /** Day order, then occasion order (an unsaid occasion last), then as added. */
@@ -250,7 +253,11 @@ async function readTrip(
       undated: outfits.filter((o) => o.day === null),
       packing: packingList({ garments, uses, packed, trip, today }),
       items: row.items,
-      wornToday: new Set(phase === 'current' ? row.wornToday : []),
+      wornToday: new Map(
+        phase === 'current'
+          ? row.wornToday.map((w) => [w.outfitId, w.entryId])
+          : [],
+      ),
     },
     copyFrom: row.copyFrom ?? [],
   };

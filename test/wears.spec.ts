@@ -57,8 +57,9 @@ test('mark an outfit worn, wash it, log a wear alone, and do the laundry', async
 
   // The worn pill swaps in place.
   await page.goto('/calendar');
-  await page.getByRole('button', { name: 'Worn?' }).click();
-  await expect(page.getByRole('button', { name: '✓ Worn' })).toBeVisible();
+  await page.getByRole('button', { name: 'Wore it' }).click();
+  await expect(page.getByText('✓ Worn', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
 
   // The outfit's garment has the wear; Washed answers the section.
   await page.goto(`/wardrobe/${oxford}`);

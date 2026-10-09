@@ -21,6 +21,7 @@ import { roundReviewPath, roundWhat } from '../wishlist/round-text';
 import type { MuseRound } from '../wishlist/rounds';
 import { WISHLIST_PATH } from '../wardrobe/urls';
 import { EntrySelfie } from '../selfies/views';
+import { WornControl } from '../wears/worn-control';
 import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
 import type { ViewContext } from '../view-context';
 import { UserWeatherLine } from '../weather/views';
@@ -198,7 +199,6 @@ function PlannedCard(props: {
 }) {
   const { entry, today } = props;
   const name = entry.outfit.name || t('UNTITLED_OUTFIT');
-  const worn = `/calendar/${entry.id}/worn`;
   return (
     <article class="card bg-base-100 shadow-sm" data-entry={entry.id}>
       <div class="card-body p-3 gap-3">
@@ -218,30 +218,17 @@ function PlannedCard(props: {
             size="card"
           />
         </div>
-        {entry.worn ? (
-          <div class="flex items-center gap-2">
-            <span class="badge badge-success gap-1" data-worn="">
-              ✓ {t('today.WORN_TODAY')}
-            </span>
-            <PostForm action={worn} needsNetwork>
-              <input type="hidden" name="worn" value="0" />
-              <input type="hidden" name="returnTo" value={TODAY_PATH} />
-              <button type="submit" class="btn btn-ghost btn-xs">
-                {t('today.UNDO')}
-              </button>
-            </PostForm>
-          </div>
-        ) : (
-          <div class="flex items-center gap-2">
-            <PostForm action={worn} class="flex-1" needsNetwork>
-              <input type="hidden" name="worn" value="1" />
-              <input type="hidden" name="returnTo" value={TODAY_PATH} />
-              <button type="submit" class="btn btn-primary btn-sm w-full">
-                {t('today.WORE_IT')}
-              </button>
-            </PostForm>
-            {/* The gallery for this entry's place: a pick changes its
-                outfit rather than adding one (#69). */}
+        <div class="flex items-center gap-2">
+          <WornControl
+            entryId={entry.id}
+            worn={entry.worn}
+            size="button"
+            returnTo={TODAY_PATH}
+          />
+          {/* The gallery for this entry's place: a pick changes its outfit
+              rather than adding one (#69). Not once worn: a worn entry is
+              that day's record. */}
+          {!entry.worn && (
             <a
               href={ideasUrl({
                 destination: {
@@ -256,8 +243,8 @@ function PlannedCard(props: {
             >
               {t('today.CHANGE')}
             </a>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </article>
   );

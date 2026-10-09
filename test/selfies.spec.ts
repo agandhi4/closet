@@ -104,7 +104,7 @@ test('take a mirror selfie from Today, see the look everywhere, then remove it',
   await expect
     .poll(() => thumb.evaluate((img: HTMLImageElement) => img.naturalWidth))
     .toBeGreaterThan(0);
-  await expect(card.getByText('Worn today')).toBeVisible();
+  await expect(card.getByText('✓ Worn', { exact: true })).toBeVisible();
   // The phone sent its 1600 px copy, not the 12 MP original.
   expect(uploads).toHaveLength(1);
   expect(uploads[0]).toBeLessThan(400_000);

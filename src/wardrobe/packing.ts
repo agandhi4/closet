@@ -110,7 +110,7 @@ export function tripPhase(
 }
 
 /**
- * Whether a trip outfit can be worn on `today` ("Wearing this today"):
+ * Whether a trip outfit can be worn on `today` (its "Wore it"):
  * while the trip is on, and only if it is for today or for no day in
  * particular. The trip page offers the button by it and the wear route
  * refuses by it, so a page left open past midnight cannot mark yesterday's

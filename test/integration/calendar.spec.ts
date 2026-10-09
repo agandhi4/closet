@@ -707,10 +707,15 @@ describe('calendar', () => {
       expect(on.statusCode).toBe(200);
       expect(on.body).not.toContain('<html');
       expect(on.body).toContain(`hx-post="/calendar/${entry}/worn"`);
-      expect(on.body).toContain('bg-success');
+      expect(on.body).toContain('data-needs-network');
+      expect(on.body).toContain('badge-success');
       expect(hasText(on.body, '✓ Worn')).toBe(true);
-      // The swapped pill asks for the other state next.
+      // The swapped pill offers the undo next, and keeps its way back.
+      expect(hasText(on.body, 'Undo')).toBe(true);
       expect(on.body).toContain('name="worn" value="0"');
+      expect(on.body).toContain(
+        `name="returnTo" value="/calendar?week=${PAST}"`,
+      );
       const stamped = await wornAt(entry);
       expect(stamped).toBeInstanceOf(Date);
       expect(Math.abs(Date.now() - stamped!.getTime())).toBeLessThan(60_000);
@@ -721,17 +726,45 @@ describe('calendar', () => {
       const button = wednesday.slice(
         wednesday.indexOf(`action="/calendar/${entry}/worn"`),
       );
-      expect(button).toMatch(/bg-success[\s\S]*✓ Worn/);
+      expect(button).toMatch(/badge-success[\s\S]*✓ Worn[\s\S]*Undo/);
+      // The page's pill comes back to its day, scrolled to it.
+      expect(button).toContain(
+        `name="returnTo" value="/calendar?week=${PAST}#day-${PAST}"`,
+      );
 
       // A double tap (or a replayed post) asks for worn again: still worn,
       // the first instant kept.
       const again = await post(entry, { htmx: true, worn: '1' });
-      expect(again.body).toContain('bg-success');
+      expect(again.body).toContain('badge-success');
       expect(await wornAt(entry)).toEqual(stamped);
 
+      // Undo: a past day's pill asks again.
       const off = await post(entry, { htmx: true, worn: '0' });
-      expect(off.body).not.toContain('bg-success');
+      expect(off.body).not.toContain('badge-success');
       expect(hasText(off.body, 'Worn?')).toBe(true);
+      expect(hasText(off.body, 'Wore it')).toBe(false);
+      expect(await wornAt(entry)).toBeNull();
+    });
+
+    it("says today's pill as the verb, marks and undoes it in place", async () => {
+      const today = t.today();
+      const outfit = await createOutfit('Worn today pill');
+      const entry = await schedule(outfit, today);
+      const pill = (html: string) =>
+        html.slice(html.indexOf(`action="/calendar/${entry}/worn"`));
+
+      const day = dayColumns(await weekPage(`/calendar?week=${today}`)).get(
+        today,
+      )!;
+      expect(hasText(pill(day), 'Wore it')).toBe(true);
+      expect(hasText(pill(day), 'Worn?')).toBe(false);
+
+      const on = await post(entry, { htmx: true, worn: '1', week: today });
+      expect(hasText(on.body, '✓ Worn')).toBe(true);
+      expect(await wornAt(entry)).toBeInstanceOf(Date);
+      const off = await post(entry, { htmx: true, worn: '0', week: today });
+      expect(hasText(off.body, 'Wore it')).toBe(true);
+      expect(off.body).toContain('name="worn" value="1"');
       expect(await wornAt(entry)).toBeNull();
     });
 

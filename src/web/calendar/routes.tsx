@@ -13,6 +13,7 @@ import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import { viewContext } from '../view-context';
 import { setEntryWorn } from '../wears/queries';
+import { WornControl } from '../wears/worn-control';
 import {
   hourIn,
   parseIsoDate,
@@ -44,7 +45,6 @@ import {
   weekUrl,
 } from './urls';
 import { weekContext } from './week-context';
-import { WornButton } from './worn-button';
 import { removeEntry } from './writes';
 
 /**
@@ -79,8 +79,8 @@ const WornBody = Type.Union([
   Type.Object({
     week: Type.Optional(IsoDateSchema),
     worn: Type.Optional(Type.Union([Type.Literal('1'), Type.Literal('0')])),
-    // Where a plain post goes back to (Today's "Wore it"), through
-    // safeReturnTo; else the posted week.
+    // Where a plain post goes back to (WornControl's page), through
+    // safeReturnTo; else the posted week (pills cached before #359).
     returnTo: Type.Optional(Type.String({ maxLength: 2048 })),
   }),
   Type.Null(),
@@ -352,8 +352,9 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The chip's worn pill, and Today's "Wore it" and its undo (plain posts
-  // back to Today through `returnTo`): the entry and its wears change
+  // Every WornControl on an entry: the calendar's pill (htmx, answered with
+  // the pill), Today's and a trip's (plain posts back through `returnTo`).
+  // The entry and its wears change
   // together (setEntryWorn). A day after today is refused (409): its chip
   // has no pill, so only a page the installed app cached before that rule
   // posts it.
@@ -364,12 +365,14 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const { id } = request.params;
       const posted = request.body?.worn;
+      const now = new Date();
+      const today = todayIn(config.timeZone, now);
       const outcome = await setEntryWorn(db, {
         entryId: id,
         ownerId,
         worn: posted === undefined ? undefined : posted === '1',
-        at: new Date(),
-        today: todayIn(config.timeZone, new Date()),
+        at: now,
+        today,
       });
       if (outcome === 'not-found') throw entryNotFound();
       if (outcome === 'future') {
@@ -377,18 +380,25 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         throw new HttpError(409, 'A planned day cannot be marked worn yet');
       }
       logger.info(wornMessage(id, ownerId, outcome));
-      const week = request.body?.week;
+      const back = safeReturnTo(
+        request.body?.returnTo,
+        weekUrl(request.body?.week),
+      );
       if (request.headers['hx-request']) {
-        // Swapped in place of the posted form, carrying the posted week on.
+        // Swapped in place of the posted pill, carrying its way back on.
         return renderFragment(
           reply,
-          <WornButton entryId={id} worn={outcome.worn} week={week} />,
+          <WornControl
+            entryId={id}
+            worn={outcome.worn}
+            size="pill"
+            inPlace
+            past={outcome.day < today}
+            returnTo={back}
+          />,
         );
       }
-      return reply.redirect(
-        safeReturnTo(request.body?.returnTo, weekUrl(week)),
-        303,
-      );
+      return reply.redirect(back, 303);
     },
   );
 

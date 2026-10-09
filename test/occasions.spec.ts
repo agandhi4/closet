@@ -71,7 +71,7 @@ test('a three-outfit day: planned by occasion, stacked in order, each with its p
   ).toBeVisible();
 
   // Every row keeps its pill on screen at 390 px, and nothing scrolls sideways.
-  const pills = page.getByRole('button', { name: 'Worn?' });
+  const pills = page.getByRole('button', { name: 'Wore it' });
   await expect(pills).toHaveCount(3);
   for (const pill of await pills.all()) {
     const box = (await pill.boundingBox())!;
@@ -81,12 +81,15 @@ test('a three-outfit day: planned by occasion, stacked in order, each with its p
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
 
-  // Marking the evening worn swaps its pill alone.
-  await rows.nth(2).getByRole('button', { name: 'Worn?' }).click();
-  await expect(
-    rows.nth(2).getByRole('button', { name: '✓ Worn' }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Worn?' })).toHaveCount(2);
+  // Marking the evening worn swaps its pill alone, for the badge and its
+  // Undo, still on screen.
+  await rows.nth(2).getByRole('button', { name: 'Wore it' }).click();
+  await expect(rows.nth(2).getByText('✓ Worn', { exact: true })).toBeVisible();
+  const undo = rows.nth(2).getByRole('button', { name: 'Undo' });
+  await expect(undo).toBeVisible();
+  const undoBox = (await undo.boundingBox())!;
+  expect(undoBox.x + undoBox.width).toBeLessThanOrEqual(390);
+  await expect(page.getByRole('button', { name: 'Wore it' })).toHaveCount(2);
 
   // The Saved tab marks what is already on the day.
   await page.locator(`[data-day-plan="${day}"]`).click();

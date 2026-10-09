@@ -31,7 +31,7 @@ import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
  * the derived packing list (copies needed, warnings; the rule itself is
  * unit-tested in src/wardrobe/packing.spec.ts), packed marks that survive
  * edits and leave with their garments, extras and their copy from another
- * trip, "Wearing this today" through the calendar, the destination's
+ * trip, "Wore it" (and its Undo) through the calendar, the destination's
  * forecast, and the MCP tools.
  */
 
@@ -782,7 +782,7 @@ describe('trips', () => {
     });
   });
 
-  describe('"Wearing this today"', () => {
+  describe('"Wore it" on a trip outfit', () => {
     it('plans the trip outfit today and marks it worn through the calendar, once', async () => {
       const today = t.today();
       const id = await newTrip({
@@ -819,7 +819,62 @@ describe('trips', () => {
       expect(await t.db.$count(garmentWear)).toBe(wearsBefore + 2);
       expect(t.logs.messages('info', 'Web').at(-1)).toMatch(/already worn$/);
       const after = unescapeHtml((await get(`/trips/${id}`)).body);
-      expect(after).toContain('Worn today');
+      expect(after).toContain('✓ Worn');
+      expect(after).not.toContain(`/trips/${id}/outfits/${row.id}/wear`);
+    });
+
+    it('undoes the wear through the calendar, back to the trip, and offers "Wore it" again', async () => {
+      const today = t.today();
+      // An outfit of its own: an earlier spec wore the polo outfit today.
+      const worn = await outfitOf('Undo socks and jacket', [
+        ['outerwear', jacket],
+        ['accessories', socks],
+      ]);
+      const id = await newTrip({ name: 'Undo on the road', startsOn: today });
+      await addOutfit(id, worn, { day: today, occasion: 'work' });
+      const [row] = await t.db
+        .select({ id: tripOutfit.id })
+        .from(tripOutfit)
+        .where(eq(tripOutfit.tripId, id));
+      const wear = `/trips/${id}/outfits/${row.id}/wear`;
+      const before = unescapeHtml((await get(`/trips/${id}`)).body);
+      expect(before).toMatch(
+        new RegExp(`action="${wear}"[^>]*data-needs-network[\\s\\S]*?Wore it`),
+      );
+      expect((await post(wear, {})).statusCode).toBe(303);
+      const [entry] = await t.db
+        .select({ id: outfitCalendar.id })
+        .from(outfitCalendar)
+        .where(
+          and(eq(outfitCalendar.outfitId, worn), eq(outfitCalendar.day, today)),
+        );
+      const wornPage = unescapeHtml((await get(`/trips/${id}`)).body);
+      const undoAt = wornPage.indexOf(`action="/calendar/${entry.id}/worn"`);
+      expect(undoAt).toBeGreaterThan(-1);
+      const undoForm = wornPage.slice(
+        undoAt,
+        wornPage.indexOf('</form>', undoAt),
+      );
+      expect(undoForm).toContain('data-needs-network');
+      expect(undoForm).toContain('✓ Worn');
+      expect(undoForm).toContain('name="worn" value="0"');
+      expect(undoForm).toContain(`name="returnTo" value="/trips/${id}"`);
+      expect(undoForm).toContain('Undo');
+
+      const undo = await post(`/calendar/${entry.id}/worn`, {
+        worn: '0',
+        returnTo: `/trips/${id}`,
+      });
+      expect(undo.statusCode).toBe(303);
+      expect(undo.headers.location).toBe(`/trips/${id}`);
+      const [after] = await t.db
+        .select({ wornAt: outfitCalendar.wornAt })
+        .from(outfitCalendar)
+        .where(eq(outfitCalendar.id, entry.id));
+      expect(after.wornAt).toBeNull();
+      const page = unescapeHtml((await get(`/trips/${id}`)).body);
+      expect(page).not.toContain('✓ Worn');
+      expect(page).toContain(wear);
     });
 
     it('marks the entry already planned today worn, keeping its occasion and taking it over from the week planner', async () => {
