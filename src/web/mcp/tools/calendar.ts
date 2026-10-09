@@ -18,6 +18,7 @@ import {
 import { defineTool, wardrobeFor } from '../tool';
 import { isoDate, ownerIdInput, rowId } from './common';
 import { reachesForecast, weatherOfDays } from './weather';
+import { garmentNotFound } from '../../wardrobe/garment-access';
 
 /** get_calendar's widest range: two months, a planning conversation's horizon. */
 const MAX_CALENDAR_DAYS = 62;
@@ -171,7 +172,7 @@ export const calendarTools = [
         day: today,
         worn: true,
       });
-      if (saved === 'not-found') throw new HttpError(404, 'Garment not found');
+      if (saved === 'not-found') throw garmentNotFound();
       if (saved === 'wishlist') {
         throw new HttpError(409, 'On the wishlist: not bought yet');
       }

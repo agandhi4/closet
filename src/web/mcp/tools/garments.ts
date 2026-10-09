@@ -70,9 +70,8 @@ import {
   wardrobeFor,
 } from '../tool';
 import { ownerIdInput, rowId } from './common';
+import { garmentNotFound } from '../../wardrobe/garment-access';
 import { addGarmentFromLink } from './link-import';
-
-const GARMENT_NOT_FOUND = 'Garment not found';
 
 /** A search or capsule hit, as the tools answer it. */
 export function summaryOut(garment: GarmentSummary) {
@@ -186,7 +185,7 @@ async function garmentOut(
 
 async function garmentIn(ctx: ToolContext, id: number, ownerId: number) {
   const garment = await findGarment(ctx.db, id, ownerId);
-  if (!garment) throw new HttpError(404, GARMENT_NOT_FOUND);
+  if (!garment) throw garmentNotFound();
   return garment;
 }
 
@@ -575,7 +574,7 @@ export const garmentTools = [
         ctx.webLogger.warn(
           `Refused a selfie as garment ${id}'s photo to user ${ctx.userId} (MCP)`,
         );
-        throw new HttpError(404, GARMENT_NOT_FOUND);
+        throw garmentNotFound();
       }
       const thumb = await buffer(await ctx.photos.getVariant(photo, 'thumb'));
       return new ImageAnswer(
@@ -670,7 +669,7 @@ export const garmentTools = [
           `Copies of garment ${args.id} refused for user ${ctx.userId} (MCP): ${outcome.reason}`,
         );
         if (outcome.reason === 'not-found') {
-          throw new HttpError(404, GARMENT_NOT_FOUND);
+          throw garmentNotFound();
         }
         throw new HttpError(
           409,

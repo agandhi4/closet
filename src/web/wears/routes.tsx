@@ -9,8 +9,12 @@ import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { GarmentParams, OwnerQuery, RowId } from '../schemas';
-import { authorizeWardrobe, sharedWardrobesOf } from '../sharing/access';
+import { sharedWardrobesOf } from '../sharing/access';
 import { viewContext } from '../view-context';
+import {
+  authorizeGarmentWardrobe,
+  garmentNotFound,
+} from '../wardrobe/garment-access';
 import { findGarment } from '../wardrobe/queries';
 import { garmentUrl, LAUNDRY_PATH } from '../wardrobe/urls';
 import { CARE_NOTE_MAX } from '../wardrobe/garment-input';
@@ -24,7 +28,6 @@ import {
 } from './queries';
 import { WearStatus } from './wear-section';
 
-const GARMENT_NOT_FOUND = 'Garment not found';
 const NOT_OWNED_YET = 'On the wishlist: not bought yet';
 
 const WoreTodayBody = Type.Object({
@@ -72,12 +75,11 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     request: FastifyRequest,
     ownerId: number | '' | undefined,
   ): Promise<number> {
-    const { access } = await authorizeWardrobe(
+    const { access } = await authorizeGarmentWardrobe(
       db,
       request,
       ownerId,
       'own',
-      GARMENT_NOT_FOUND,
     );
     return access.ownerId;
   }
@@ -92,7 +94,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   function refusal(outcome: 'not-found' | 'wishlist'): HttpError {
     return outcome === 'wishlist'
       ? new HttpError(409, NOT_OWNED_YET)
-      : new HttpError(404, GARMENT_NOT_FOUND);
+      : garmentNotFound();
   }
 
   /** refusal for a writer that answers only whether it wrote (markWashed, setAway). */
@@ -113,7 +115,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     }
     const day = today();
     const status = await wearStatusOf(db, id, ownerId, day);
-    if (!status) throw new HttpError(404, GARMENT_NOT_FOUND);
+    if (!status) throw garmentNotFound();
     return renderFragment(
       reply,
       <WearStatus

@@ -34,7 +34,9 @@ import { orderReviewRoutes } from './wardrobe/order-mail/routes';
 import { lookalikeRoutes } from './wardrobe/lookalike-routes';
 import { exportRoutes } from './wardrobe/export-routes';
 import { repairRoutes } from './wardrobe/repair-routes';
-import { wardrobeRoutes } from './wardrobe/routes';
+import { gridRoutes } from './wardrobe/grid-routes';
+import { garmentRoutes } from './wardrobe/garment-routes';
+import { photoRoutes } from './wardrobe/photo-routes';
 import type { WeatherService } from './weather/service';
 import { weatherRoutes } from './weather/routes';
 import { wearRoutes } from './wears/routes';
@@ -131,7 +133,9 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
 
   await app.register(shellRoutes, options);
   await app.register(todayRoutes, options);
-  await app.register(wardrobeRoutes, options);
+  await app.register(gridRoutes, options);
+  await app.register(garmentRoutes, options);
+  await app.register(photoRoutes, options);
   await app.register(linkImportRoutes, options);
   await app.register(capsuleRoutes, options);
   await app.register(wishlistRoutes, options);

@@ -24,6 +24,7 @@ import { IdeaCards, IdeasPage, type SeededState } from './ideas-page';
 import { pickTo, postedDestination } from './pick';
 import { allowPair, avoidPair } from './queries';
 import { type GalleryState, IDEAS_PATH, ideasUrl } from './urls';
+import { garmentNotFound } from '../wardrobe/garment-access';
 
 /**
  * The outfit gallery (#9): the Outfits page's Ideas tab and its writes.
@@ -99,10 +100,6 @@ function postedState(
     withId: body.with,
     seed: parseSeed(body.seed),
   };
-}
-
-function garmentNotFound(): HttpError {
-  return new HttpError(404, 'Garment not found');
 }
 
 export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (

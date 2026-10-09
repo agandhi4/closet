@@ -1,6 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { type Static, Type } from '@sinclair/typebox';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
 import type { FieldErrors } from '../auth/validation';
 import { type IsoDate, parseIsoDate, todayIn } from '../../calendar-date';
@@ -8,13 +8,14 @@ import { HttpError } from '../errors';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderPage } from '../render';
-import {
-  type AuthorizedWardrobe,
-  authorizeWardrobe,
-  type WardrobeNeed,
-} from '../sharing/access';
+import type { AuthorizedWardrobe } from '../sharing/access';
 import { viewContext } from '../view-context';
-import { findGarment, type GarmentDetail } from '../wardrobe/queries';
+import {
+  authorizeGarmentWardrobe,
+  garmentNotFound,
+  requireGarment,
+} from '../wardrobe/garment-access';
+import type { GarmentDetail } from '../wardrobe/queries';
 import { type Purchase } from '../wardrobe/status';
 import { garmentUrl } from '../wardrobe/urls';
 import { GarmentParams, OwnerQuery } from '../schemas';
@@ -22,8 +23,6 @@ import { PRICE_INPUT_MAX, readPrice } from '../wardrobe/garment-input';
 import { type BoughtField, type BoughtModel, BoughtPage } from './bought-page';
 import { buyWishlistItem } from './purchase';
 import { garmentRef, type GarmentRef } from './queries';
-
-const GARMENT_NOT_FOUND = 'Garment not found';
 
 // "Bought it": the day and the price paid as typed (checked by readPurchase,
 // re-rendered with messages), and what only the owner may ask for: the
@@ -83,23 +82,6 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger, config } = options;
-  function resolve(
-    request: FastifyRequest,
-    ownerId: number | '' | undefined,
-    need: WardrobeNeed,
-  ): Promise<AuthorizedWardrobe> {
-    return authorizeWardrobe(db, request, ownerId, need, GARMENT_NOT_FOUND);
-  }
-
-  async function requireGarment(
-    id: number,
-    ownerId: number,
-  ): Promise<GarmentDetail> {
-    const garment = await findGarment(db, id, ownerId);
-    if (!garment) throw new HttpError(404, GARMENT_NOT_FOUND);
-    return garment;
-  }
-
   /** The replaced garment to offer for the archive: still in the closet, and the requester its owner. */
   async function archivable(
     garment: GarmentDetail,
@@ -132,13 +114,18 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/bought',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const authorized = await resolve(
+      const authorized = await authorizeGarmentWardrobe(
+        db,
         request,
         request.query.ownerId,
         'manage',
       );
       const { access, viewOwner } = authorized;
-      const garment = await requireGarment(request.params.id, access.ownerId);
+      const garment = await requireGarment(
+        db,
+        request.params.id,
+        access.ownerId,
+      );
       if (garment.status !== 'wishlist') {
         return reply.redirect(garmentUrl(garment.id, viewOwner), 302);
       }
@@ -169,7 +156,8 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const authorized = await resolve(
+      const authorized = await authorizeGarmentWardrobe(
+        db,
         request,
         request.query.ownerId,
         'manage',
@@ -182,7 +170,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         // Only a refusal reads the garment: its form is drawn again. A
         // purchase goes straight to buyWishlistItem, whose status change is
         // the lookup (an id outside the wardrobe is its 'not-found').
-        const garment = await requireGarment(id, access.ownerId);
+        const garment = await requireGarment(db, id, access.ownerId);
         logger.warn(
           `Bought it refused for garment ${garment.id}: ${Object.keys(read.errors).join(', ')}`,
         );
@@ -207,7 +195,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       });
       if (!outcome.ok) {
         if (outcome.reason === 'not-found') {
-          throw new HttpError(404, GARMENT_NOT_FOUND);
+          throw garmentNotFound();
         }
         logger.info(
           `Bought it ignored for garment ${id}: it is ${outcome.status}`,

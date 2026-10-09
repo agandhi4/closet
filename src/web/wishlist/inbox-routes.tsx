@@ -99,7 +99,7 @@ function noteOf(note: string | undefined): string | null {
  * decision is one call of decide() (decisions.ts), the one writer, and
  * answers 303 to the page it was made on with a toast; a refusal is decide's
  * 404 (not theirs) or 409 (a stale page or a double tap). "Bought it" stays
- * GET|POST /wardrobe/:id/bought (routes.tsx), whose buyWishlistItem settles
+ * GET|POST /wardrobe/:id/bought (wishlist/routes.tsx), whose buyWishlistItem settles
  * the need; "Bought a different one" is the closet form with
  * `?forNeed=` (src/web/wardrobe/destination.ts).
  */

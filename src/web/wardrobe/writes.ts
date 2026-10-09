@@ -37,6 +37,7 @@ import {
   replacePhotoRow,
 } from './queries';
 import type { GarmentFields } from './garment-input';
+import { garmentNotFound } from './garment-access';
 
 /**
  * The garment writes that involve photo bytes, which a transaction cannot
@@ -531,7 +532,7 @@ async function swapPhoto(
     { ...photo, ...initialCutoutState(cutout) },
     async (tx, photoId) => {
       const locked = await lockGarment(tx, id, ownerId);
-      if (!locked) throw new HttpError(404, 'Garment not found');
+      if (!locked) throw garmentNotFound();
       await check?.(tx, locked.photoId);
       return replacePhotoRow(tx, id, photoId, locked.photoId);
     },

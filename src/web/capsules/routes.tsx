@@ -3,7 +3,6 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { selectScalars } from '../../db/select-scalars';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
-import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import {
@@ -43,6 +42,7 @@ import {
   readCapsuleForm,
   unchecked,
 } from './validation';
+import { garmentNotFound } from '../wardrobe/garment-access';
 
 /**
  * /capsules (plan section 2; owner decision on #8): capsules are part of
@@ -338,7 +338,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         remove: { capsuleIds: unchecked(shown, capsuleIds), garmentIds: [id] },
       });
       if (!result.garments.has(id)) {
-        throw new HttpError(404, 'Garment not found');
+        throw garmentNotFound();
       }
       logger.info(
         `Garment ${id} capsules set by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${result.added} added, ${result.removed} removed`,

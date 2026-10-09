@@ -81,6 +81,7 @@ import {
   STYLING_SHUFFLE_PATH,
   type StylingState,
 } from './urls';
+import { garmentNotFound } from '../wardrobe/garment-access';
 
 /**
  * Styling (#42): the outfit composer that replaced the builder. The page,
@@ -611,7 +612,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     const capsule = checkedCapsule(read.capsule);
     const saved = checkedOutfit(query.outfit, read.outfit);
     const [garment] = read.lockable;
-    if (!garment) throw new HttpError(404, 'Garment not found');
+    if (!garment) throw garmentNotFound();
     const idea = await read.draw([garment]);
     const opened: Opened = { saved, with: garment };
     const reads = await stripsReads(db, scope, {

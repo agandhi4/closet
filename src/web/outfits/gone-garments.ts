@@ -6,6 +6,7 @@ import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { inCloset, offeredToStyle } from '../wardrobe/status';
 import { outfitIsHeld, type PieceToBuy } from './references';
+import { garmentNotFound } from '../wardrobe/garment-access';
 
 /**
  * A save that names a garment it cannot hold is refused whole (#219):
@@ -235,9 +236,7 @@ export function describeGone(gone: readonly GoneGarment[]): string {
  * the lookup), the plain 404 a pick has always answered.
  */
 export function garmentsGoneRefusal(gone: readonly GoneGarment[]): HttpError {
-  return gone.length > 0
-    ? new OutfitGarmentsGone(gone)
-    : new HttpError(404, 'Garment not found');
+  return gone.length > 0 ? new OutfitGarmentsGone(gone) : garmentNotFound();
 }
 
 /**

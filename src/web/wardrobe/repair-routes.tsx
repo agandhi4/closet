@@ -4,8 +4,11 @@ import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
-import { authorizeWardrobe } from '../sharing/access';
-import { findGarment } from './queries';
+import {
+  authorizeGarmentWardrobe,
+  garmentNotFound,
+  requireGarment,
+} from './garment-access';
 import { renderGarmentForm } from './render-form';
 import { REPAIRS_ANCHOR } from './repair-log';
 import {
@@ -20,7 +23,6 @@ import { garmentUrl } from './urls';
 import { GarmentParams, OwnerQuery } from '../schemas';
 import { storedFormValues } from './garment-input';
 
-const GARMENT_NOT_FOUND = 'Garment not found';
 const NOT_OWNED_YET = 'On the wishlist: not bought yet';
 
 /**
@@ -43,15 +45,13 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     id: number,
     ownerId: number | '' | undefined,
   ) {
-    const { access } = await authorizeWardrobe(
+    const { access } = await authorizeGarmentWardrobe(
       db,
       request,
       ownerId,
       'own',
-      GARMENT_NOT_FOUND,
     );
-    const garment = await findGarment(db, id, access.ownerId);
-    if (!garment) throw new HttpError(404, GARMENT_NOT_FOUND);
+    const garment = await requireGarment(db, id, access.ownerId);
     if (garment.status === 'wishlist') {
       throw new HttpError(409, NOT_OWNED_YET);
     }
@@ -97,7 +97,7 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       }
       const repairId = await addRepair(db, userId, id, form.entry);
       // Deleted, or moved to the wishlist, since it was read above.
-      if (repairId === undefined) throw new HttpError(404, GARMENT_NOT_FOUND);
+      if (repairId === undefined) throw garmentNotFound();
       logger.info(
         `Repair ${repairId} (${form.entry.kind}, ${form.entry.day}${form.entry.cost === null ? '' : `, cost ${form.entry.cost}`}) logged on garment ${id} by user ${userId}`,
       );

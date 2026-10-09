@@ -10,7 +10,7 @@ export const GARMENT_OUTFITS_SHOWN = 8;
  * after Indyx): the owner's outfits that hold the garment, counted, and the
  * newest few as small collages in a scroll-snap strip, each opening its
  * outfit. The owner's alone, like outfits: nothing is read or rendered for
- * a grantee or a wishlist item (src/web/wardrobe/routes.tsx), and nothing
+ * a grantee or a wishlist item (src/web/wardrobe/garment-routes.tsx), and nothing
  * when no outfit holds it.
  */
 export function GarmentOutfitsStrip(props: { outfits: GarmentOutfits }) {
