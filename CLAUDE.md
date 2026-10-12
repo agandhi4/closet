@@ -40,7 +40,8 @@ public/           sw.js, bundle.css, vendor/, modules/, js/, assets/ (generated 
 test/             Playwright specs; support/, integration/: test/CLAUDE.md
 drizzle/          generated migrations + meta/ (journal, snapshots)
 docs/             DESIGN.md (upstream entity model: assess feature work against it), architecture.md,
-                  web-layer.md, conventions.md, history.md (this file's detail, read on demand)
+                  web-layer.md, conventions.md, history.md (this file's detail, read on demand),
+                  PROJECT_LOG.md (dated decisions and gotchas; read before changing an area)
 ```
 
 ### Area index
@@ -223,6 +224,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - **`npm install <package>` skips our `postinstall`**, so `patches/` are unapplied and the drift test fails; run `npx patch-package` or `npm ci`.
 - **Regenerate `package-lock.json` only with Node 22 / npm 10**: npm 11 prunes entries the Docker build's `npm ci` needs.
 - **pgvault-dev and production run Postgres 18; CI runs 17.**
+- **macOS needs `sudo ifconfig lo0 alias 127.0.0.2`** before the integration tier or `npm run check` (the pre-commit hook): without it about 22 specs fail with EADDRNOTAVAIL (`test/integration/link-sites.ts`).
 - **`public/build.json` lingers after `npm run build`**: stale styles in `start:dev`; set `NODE_ENV=development` in `.env.local` or delete it. `precommit:full` is minutes long.
 
 ## Workflow
@@ -231,7 +233,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
      Your agent definition governs your workflow. -->
 
 - **Backlog: GitHub issues, ordered by the pinned Roadmap (#27).** Pull the first unchecked item whose dependencies are done; its issue links to its design section in `docs/plans/` and lists the acceptance criteria. Open work and status live in issues, not in docs or memory. New ideas go in the **Later** milestone with where they were seen.
-- Before implementing, search Graphiti with `group_ids: ["closet"]` for decisions and gotchas in the area.
+- Before implementing, read `docs/PROJECT_LOG.md` and this file for decisions and gotchas in the area.
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
 - Behavior assertions go in `test/integration/` first: a spec that boots the real app and checks the HTML, headers, rows and files is the default proof that a change works, and it runs in seconds without a build or a browser. Playwright is the full gate for what only a browser can show (service worker, htmx swaps, layout).
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
@@ -241,5 +243,5 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - **Migrations and parallel branches:** two branches that each generate `NNNN` collide in `drizzle/meta/_journal.json`. The later branch rebases on `main`, deletes its migration and snapshot, and regenerates (`npx drizzle-kit generate`); the drift test in CI proves the result. Never hand-merge a journal.
 - The pre-commit hook runs `npm run check`; never bypass it with `--no-verify` to get a commit through. If a hook fails, fix and create a new commit, never amend. The pre-push hook runs the browser suite only for a push to `main` (a docs fix the owner pushes directly; admins can still push, the checks are not enforced on them).
 - Commit messages: concise, why over what.
-- When a new pattern or gotcha lands, write it in its area's `CLAUDE.md` (the area index; this file only for what every change needs) in the same commit and store the decision in Graphiti.
+- When a new pattern or gotcha lands, write it in its area's `CLAUDE.md` (the area index; this file only for what every change needs) in the same commit, and append a dated `docs/PROJECT_LOG.md` entry for the decision behind it in the same change.
 - No upstream sync: closet is a hard fork and never merges from Libre Closet. Restructure freely; offering a fix back upstream is optional, not part of the workflow.
