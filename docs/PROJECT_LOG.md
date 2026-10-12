@@ -32,3 +32,11 @@ Decisions by the owner:
 Gate: publishing waits for CI; pre-commit runs format, lint, types and both test tiers; pre-push runs the browser suite in production configuration; 800+ tests including an authorization matrix, a schema-drift test and a native-post guard.
 
 Numbers: `/wardrobe` at 1,500 garments 63 ms to 6.5 ms and 870 KB to 42 KB; boot 650 to 430 ms; idle memory 225 to 162 MB; service worker 30 to 10 KB gzipped; image 1.47 GB to 0.59 GB; high-severity advisories 9 to 0; type errors 790 to 0.
+
+## 2026-10-09
+
+Structural refactor epic (#351), recorded from the retired Graphiti store on 2026-10-12. A planned outfit whose piece became unavailable (lent, at repair, archived) gets a `GarmentMark` warning; nothing ever rewrites a hand-picked outfit, and the daily re-plan still touches only planner-made entries. There is exactly one status renderer, `garmentMarks()` in `src/wardrobe/marks.ts` plus `<GarmentMark>`, and "needs-wash" means no clean copy is left, matching the generator's own availability rule. Accessible names of outfit links carry the warnings because an `aria-label` overrides descendant sr-only text.
+
+Gotcha: the installed PWA keeps stale-while-revalidate tab roots across a deploy, so a change to an htmx response's shape must set `HX-Retarget`/`HX-Reswap` on the server relative to a selector old and new markup share (the worn POST answers the whole occasion row retargeted to `closest [data-occasion]`). When a state-dependent piece sits outside the swap target, swap the whole row from the page model rather than patching the pill. Rule: `docs/web-layer.md#htmx`.
+
+Process: Codex and Claude reviews caught different bug classes on this epic (Codex the a11y override and the cached-markup break, Claude the behaviour-equivalence diffs), so both gates stay.
