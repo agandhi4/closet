@@ -51,6 +51,8 @@ Every form or control saved on change is built by `src/web/autosave.tsx` (`Autos
 
 htmx reads only the first `<meta name="htmx-config">`. Keep the config in one JSON object. `disableInheritance` is on, so any attribute that must reach descendants needs `hx-inherit` on the ancestor (the body has `hx-inherit="hx-boost hx-indicator"`; without it no link is boosted and no tap shows feedback). An element with its own `hx-indicator` replaces the inherited one, so the tapped link is no longer marked.
 
+The installed PWA serves stale-while-revalidate tab roots across a deploy, so old markup can issue requests the new server answers. A change to an htmx response's shape sets `HX-Retarget`/`HX-Reswap` on the server, relative to a selector old and new markup share (the worn POST answers the whole occasion row with `HX-Retarget: closest [data-occasion]`, `src/web/calendar/routes.tsx`). When a state-dependent piece sits outside the swap target, swap the whole row from the page model rather than patching the pill (#351).
+
 ## Fastify and JSX
 
 - **`config: { public: true }` is the only way past the session gate, and static paths never have a session.** The root preValidation hook in `app.ts` skips `static-prefixes.ts` paths, so a route under one (`/file/**`, `/healthz`, `/manifest.json`) always sees `req.auth` and `reply.locals` undefined and must be public, or it answers every request with a login redirect. `sessionUserId()` on a public route throws: a public handler reads `req.auth` itself if it cares (the invite landing page).
