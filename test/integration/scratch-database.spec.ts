@@ -2,6 +2,8 @@ import { Client } from 'pg';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createScratchDatabase,
+  migratedTemplate,
+  migratedTemplateName,
   scratchDatabaseCreatedAt,
   scratchDatabaseName,
   sweepStaleScratchDatabases,
@@ -66,6 +68,43 @@ describe('scratch database hygiene', () => {
     } finally {
       await admin(`drop database if exists "${stale}"`);
       await admin(`drop database if exists "${fresh}"`);
+    }
+  });
+
+  it("keeps this build's migrated template across sweeps and drops another build's", async () => {
+    const current = await migratedTemplate();
+    expect(current).toBe(migratedTemplateName());
+    expect(await migratedTemplate()).toBe(current);
+    const stale = 'closet_tpl_000000000000';
+    await admin(`create database "${stale}"`);
+    try {
+      await sweepStaleScratchDatabases();
+      expect(await exists(current)).toBe(true);
+      expect(await exists(stale)).toBe(false);
+    } finally {
+      await admin(`drop database if exists "${stale}"`);
+    }
+    // A clone carries the migrations: nothing left for the boot to apply.
+    const clone = await createScratchDatabase('closet_it', { migrated: true });
+    try {
+      const client = new Client({
+        host: clone.env.DATABASE_HOST,
+        port: Number(clone.env.DATABASE_PORT),
+        database: clone.env.DATABASE_SCHEMA,
+        user: clone.env.DATABASE_USER,
+        password: clone.env.DATABASE_PASS,
+      });
+      await client.connect();
+      try {
+        const { rows } = await client.query<{ count: string }>(
+          'select count(*) from drizzle.__drizzle_migrations',
+        );
+        expect(Number(rows[0].count)).toBeGreaterThan(0);
+      } finally {
+        await client.end();
+      }
+    } finally {
+      await clone.drop();
     }
   });
 

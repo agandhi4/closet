@@ -345,7 +345,9 @@ export async function createFixture(options: {
 }): Promise<Fixture> {
   const build = await loadBuild();
   stubPushServices();
-  const database = await createScratchDatabase('closet_audit');
+  const database = await createScratchDatabase('closet_audit', {
+    migrated: true,
+  });
   const dataPath = await mkdtemp(join(tmpdir(), 'closet-audit-'));
   const weatherStub: WeatherStub = await startWeatherStub();
   const shop = await startShop(options.photo);
@@ -626,7 +628,7 @@ export interface OrderReview {
 
 /**
  * "From your orders" for Theo: one order email and its pending items,
- * written as the poll writes them (test/order-review.spec.ts does the same),
+ * written as the poll writes them (test/order-review.spec.ts (retired 2026-10-13) does the same),
  * each linking to the shop's tee page under its own query, so "Add to
  * closet" runs a real link import.
  */

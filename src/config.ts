@@ -22,6 +22,8 @@ const NonEmpty = (options: { default?: string } = {}) =>
 export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
 
 export const ACCESS_TOKEN_SECRET_MIN = 32;
+/** The bcrypt cost production must keep (the default, and the floor there). */
+export const PASSWORD_HASH_ROUNDS_PRODUCTION = 12;
 
 export const ConfigSchema = Type.Object({
   NODE_ENV: Type.Union(
@@ -81,6 +83,15 @@ export const ConfigSchema = Type.Object({
   // secret lets anyone mint a session for any user id. 32 characters is the
   // floor (`openssl rand -hex 32` gives 64).
   ACCESS_TOKEN_SECRET: Type.String({ minLength: ACCESS_TOKEN_SECRET_MIN }),
+  // bcrypt's cost for every password hash and comparison
+  // (src/web/auth/passwords.ts). Below PASSWORD_HASH_ROUNDS_PRODUCTION only
+  // outside APP_ENV=production (checked below): the test tiers run at 4,
+  // where a sign-in costs a millisecond instead of a quarter second.
+  PASSWORD_HASH_ROUNDS: Type.Integer({
+    minimum: 4,
+    maximum: 31,
+    default: PASSWORD_HASH_ROUNDS_PRODUCTION,
+  }),
   // No defaults on purpose: a PWA deploy that forgot its VAPID keys must fail
   // at boot rather than push with a keypair anyone can read from git.
   // Required when PWA_ENABLED (checked below).
@@ -284,6 +295,14 @@ function crossFieldProblems(config: Config): string[] {
   if (!isValidTimeZone(config.APP_TIMEZONE)) {
     problems.push(
       `APP_TIMEZONE: "${config.APP_TIMEZONE}" is not an IANA time zone`,
+    );
+  }
+  if (
+    config.APP_ENV === 'production' &&
+    config.PASSWORD_HASH_ROUNDS < PASSWORD_HASH_ROUNDS_PRODUCTION
+  ) {
+    problems.push(
+      `PASSWORD_HASH_ROUNDS: at least ${PASSWORD_HASH_ROUNDS_PRODUCTION} when APP_ENV is production`,
     );
   }
   if (config.PWA_ENABLED) {
