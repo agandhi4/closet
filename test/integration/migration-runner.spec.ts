@@ -135,8 +135,10 @@ describe('a database built by the legacy MikroORM migrations', () => {
       where: (user, { eq }) => eq(user.email, 'legacy@example.com'),
     });
     expect(legacy?.password).toBe('x');
-    const res = await t.inject({ method: 'GET', url: '/healthz' });
+    // Ready: the baseline recorded without running counts as applied.
+    const res = await t.inject({ method: 'GET', url: '/health/ready' });
     expect(res.statusCode).toBe(200);
+    expect(res.json().checks.migrations.status).toBe('up');
   });
 
   it('is current for the CLIs once booted', async () => {

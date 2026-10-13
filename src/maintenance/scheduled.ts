@@ -9,7 +9,53 @@ import type { Logger } from '../logger';
  * STOP_WAIT_MS with a warning (awaitRunInFlight). It never rejects.
  */
 export interface ScheduledJob {
+  /** The name it logs under; JobRoster reports a stuck job by it. */
+  readonly name: string;
+  /**
+   * When the run in flight started (epoch ms), undefined between runs.
+   * The next run is scheduled only once a run ends, so a run that never
+   * settles is the one way a job silently stops: JobRoster watches this.
+   */
+  runStartedAt(): number | undefined;
   stop(): Promise<void>;
+}
+
+/**
+ * A run in flight longer than this is reported stuck by /health/ready.
+ * Far past any honest run: the minute jobs take seconds (a push send's
+ * socket timeout is 10 s a device), the nightly ones household-sized
+ * queries and one storage walk.
+ */
+export const STUCK_AFTER_MS = 30 * 60_000;
+
+/**
+ * The jobs this process schedules, for /health/ready (src/web/health).
+ * createApp() builds it empty and hands it to the web layer; serve() adopts
+ * every job it started, once, beside stopBeforeClose. Never adopted means
+ * this process schedules nothing: the integration harness and the CLIs
+ * build the app without serve(). serve() starting a job and then throwing
+ * ends the process (main.ts), so the adopted list is the expected one.
+ */
+export class JobRoster {
+  private jobs: readonly ScheduledJob[] | undefined;
+
+  adopt(jobs: readonly ScheduledJob[]): void {
+    if (this.jobs) throw new Error('The job roster was already adopted');
+    this.jobs = jobs;
+  }
+
+  /**
+   * The names of the jobs whose run has been in flight past STUCK_AFTER_MS
+   * at `now`; undefined when nothing was adopted.
+   */
+  stuck(now: number = Date.now()): string[] | undefined {
+    return this.jobs
+      ?.filter((job) => {
+        const started = job.runStartedAt();
+        return started !== undefined && now - started > STUCK_AFTER_MS;
+      })
+      .map((job) => job.name);
+  }
 }
 
 /**

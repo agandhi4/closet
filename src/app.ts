@@ -10,6 +10,7 @@ import { CutoutQueue } from './cutout/queue';
 import { createDb, type Db, dbConfig } from './db/client';
 import { runMigrations } from './db/migrate';
 import type { Logger } from './logger';
+import { JobRoster } from './maintenance/scheduled';
 import { createErrorTracker, type ErrorTracker } from './metrics/error-tracker';
 import { registerHttpMetrics } from './metrics/http';
 import { Metrics } from './metrics/metrics';
@@ -61,6 +62,11 @@ export interface ClosetApp {
    * the app stops it.
    */
   cutouts: CutoutQueue;
+  /**
+   * The timers' roster, empty here: server.ts adopts every job it starts,
+   * and /health/ready reports a stuck one (src/maintenance/scheduled.ts).
+   */
+  roster: JobRoster;
   /**
    * The Web Push sender, when PWA_ENABLED: the profile's test send, and the
    * reminders server.ts schedules (createApp never does, so the harness and
@@ -186,6 +192,7 @@ export async function createApp(
     metrics,
   });
   metrics.trackCutoutQueue(() => countPendingCutouts(db));
+  const roster = new JobRoster();
   // The only fetcher of user-supplied URLs (the link import); one per
   // process, handed to the web layer like Photos.
   const fetcher = createOutboundFetcher({
@@ -381,6 +388,7 @@ export async function createApp(
     tokens,
     photos,
     cutouts,
+    jobs: roster,
     fetcher,
     weather,
     mcpLogger: logger.child({ logger: 'Mcp' }),
@@ -394,6 +402,7 @@ export async function createApp(
     db,
     photos,
     cutouts,
+    roster,
     push,
     weather,
     orderMail,

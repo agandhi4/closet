@@ -12,11 +12,12 @@ import { WARM_LIST_PATH } from './offline-warm';
 import { warmList } from './warm-list';
 
 /**
- * The app shell outside any feature: the PWA's manifest, heartbeat and
- * offline fallback, the about page, and the service worker's warm list.
- * Every route but the warm list is public: the browser fetches the manifest
- * without credentials, the heartbeat must answer anyone, and the service
- * worker may install before sign-in. `/` is Today (src/web/today).
+ * The app shell outside any feature: the PWA's manifest and offline
+ * fallback, the about page, and the service worker's warm list. Every route
+ * but the warm list is public: the browser fetches the manifest without
+ * credentials, and the service worker may install before sign-in. `/` is
+ * Today (src/web/today); the heartbeat connectivity.js probes is
+ * /health/live (src/web/health).
  */
 export const shellRoutes: FastifyPluginCallback<WebOptions> = (
   app,
@@ -34,20 +35,6 @@ export const shellRoutes: FastifyPluginCallback<WebOptions> = (
         .type('application/manifest+json; charset=utf-8')
         .header('Cache-Control', 'no-cache')
         .send(webManifest(config)),
-  );
-
-  // Heartbeat for public/js/connectivity.js, which probes it with HEAD (no
-  // body to leave unread): the client decides it is online only when this
-  // answers (any 2xx), never from navigator.onLine. A static
-  // path, so the session hook skips it, and no-store so neither the HTTP
-  // cache nor the service worker can answer on the server's behalf.
-  // `version` is the release (APP_VERSION): scripts/smoke-image.sh asserts it
-  // equals the build arg, and it says which build production runs.
-  // Used by: connectivity.js, scripts/smoke-image.sh, the homelab's checks.
-  app.get('/healthz', { config: { public: true } }, async (_request, reply) =>
-    reply
-      .header('Cache-Control', 'no-store')
-      .send({ status: 'ok', version: config.release }),
   );
 
   app.get('/about', { config: { public: true } }, async (_request, reply) =>

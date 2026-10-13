@@ -75,7 +75,7 @@ import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
  *  - WARM_PAGES (from pwa.js, at most once a day): the account's whole
  *    wardrobe, its pages and thumbs, fetched into the session caches through
  *    the same plugins, so it reads offline (src/web/shell/offline-warm.md).
- *  - Anything unmatched (other POSTs, /healthz) goes straight to the network.
+ *  - Anything unmatched (other POSTs, /health/live) goes straight to the network.
  *
  * Built by `npm run generate:sw` with NODE_ENV=production, which strips
  * Workbox's development logging and assertions; the console.* calls here are

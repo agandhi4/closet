@@ -126,10 +126,11 @@ describe('web layer', () => {
     });
   });
 
-  it('logs each page request once, and not the heartbeat', async () => {
+  it('logs each page request once, and not the health endpoints', async () => {
     t.logs.clear();
     await t.inject({ method: 'GET', url: '/about' });
-    await t.inject({ method: 'GET', url: '/healthz' });
+    await t.inject({ method: 'GET', url: '/health/live' });
+    await t.inject({ method: 'GET', url: '/health/ready' });
     const lines = t.logs.messages('info', 'Http');
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/^GET \/about 200 \d+\.\dms$/);

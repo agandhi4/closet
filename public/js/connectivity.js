@@ -1,6 +1,6 @@
 /**
  * Active connectivity detection (frontend-pwa.md): the app is online when
- * HEAD /healthz answers, not when navigator.onLine says so (captive portals,
+ * HEAD /health/live answers, not when navigator.onLine says so (captive portals,
  * VPNs and routers without uplink all report true). Probes every 30 s while
  * the tab is visible, immediately after any failed htmx request, and every
  * 5 s while offline.
@@ -101,10 +101,11 @@ function schedule(delayMs) {
 
 async function serverReachable() {
   try {
-    // HEAD, not GET: /healthz's JSON body (the release) is for the smoke test
-    // and humans. An unread body keeps the request open until the abort
-    // signal fires, 5 s per probe (Playwright's networkidle waited on it).
-    const res = await fetch('/healthz', {
+    // /health/live checks nothing, so a down dependency is never shown as
+    // "offline" (src/web/health). HEAD, not GET: an unread body keeps the
+    // request open until the abort signal fires, 5 s per probe
+    // (Playwright's networkidle waited on it).
+    const res = await fetch('/health/live', {
       method: 'HEAD',
       cache: 'no-store',
       credentials: 'omit',

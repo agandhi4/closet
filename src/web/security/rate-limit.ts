@@ -11,7 +11,8 @@ import type { Logger } from '../../logger';
  * once at the root by createApp() with `global: false`: nothing is limited
  * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
  * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, WEATHER_SEARCH_LIMIT, WEATHER_LOCATION_LIMIT,
- * VITALS_LIMIT, CLIENT_ERROR_LIMIT, MCP_LIMIT). Every limited route counts on its own. Counters live in
+ * VITALS_LIMIT, CLIENT_ERROR_LIMIT, MCP_LIMIT; HEALTH_LIMIT through one
+ * createRateLimit checker). Every limited route counts on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
  * The client address is `request.ip`, which Fastify takes from
@@ -150,6 +151,22 @@ export const CLIENT_ERROR_LIMIT: RateLimitOptions = {
   timeWindow: '1 minute',
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
+};
+
+/**
+ * /health/ready and its alias /healthz (src/web/health), on ONE
+ * createRateLimit checker so the alias is no second budget: per client
+ * address, since the route is public and each request is a database
+ * round-trip (an unlimited one is a free lever on the pool). Its callers
+ * are a container healthcheck every 30 s from 127.0.0.1, a smoke boot,
+ * and phones on a stale connectivity.js still probing /healthz every 5 s
+ * while offline; TRUSTED_PROXIES covers Caddy, so each phone is its own
+ * address. /health/live checks nothing and is never limited.
+ */
+export const HEALTH_LIMIT = {
+  max: 60,
+  timeWindow: '1 minute',
+  keyGenerator: (request: FastifyRequest) => request.ip,
 };
 
 /**
