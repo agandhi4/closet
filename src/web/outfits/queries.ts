@@ -954,7 +954,7 @@ async function lockForEdit(
  * the days it was worn stay: detachOutfitWears (src/web/wears/queries.ts)
  * turns its entries' wears into day-level wears first, in the same
  * transaction. Never replace this with a plain delete: the cascade through
- * outfit_calendar would erase the garments' wear history (CLAUDE.md, Wears
+ * outfit_calendar would erase the garments' wear history (AGENTS.md, Wears
  * and washes). The entries' selfies stay too, by their foreign key
  * (selfie.outfit_calendar_id, ON DELETE SET NULL): each becomes a look kept
  * on its day, with its photo, which the calendar still shows (#19). Its

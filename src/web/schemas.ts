@@ -3,7 +3,7 @@ import { OCCASIONS } from '../wardrobe/occasions';
 
 /**
  * Request schema pieces more than one feature validates with (TypeBox, see
- * CLAUDE.md, Web layer: Validation).
+ * AGENTS.md, Web layer: Validation).
  */
 
 /**

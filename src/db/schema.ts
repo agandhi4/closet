@@ -122,7 +122,7 @@ import {
 
 /**
  * The database schema, and the only source of migrations: edit it, run
- * `npx drizzle-kit generate`, review the SQL in drizzle/ (see CLAUDE.md,
+ * `npx drizzle-kit generate`, review the SQL in drizzle/ (see AGENTS.md,
  * Changing the schema). Introspected from the schema the legacy MikroORM
  * migrations built, so every constraint and index keeps the name MikroORM
  * gave it (`<table>_<column>_index`, `_unique`, `_foreign`); new ones should
@@ -323,7 +323,7 @@ export const personalAccessToken = pgTable(
   ],
 );
 
-// One row per stored photo set (the original's name; see CLAUDE.md, Images).
+// One row per stored photo set (the original's name; see AGENTS.md, Images).
 export const file = pgTable(
   'file',
   {
@@ -681,7 +681,7 @@ export const garment = pgTable(
     // `.nullsFirst()` is what makes it `id DESC`: Drizzle's index `.desc()`
     // alone is DESC NULLS LAST, an order no `orderBy(desc(garment.id))` asks
     // for, so the planner could not read it in order (#175; see
-    // src/db/CLAUDE.md). test/integration/garment-index-order.spec.ts.
+    // src/db/AGENTS.md). test/integration/garment-index-order.spec.ts.
     index('garment_owner_id_status_id_index').on(
       table.ownerId,
       table.status,

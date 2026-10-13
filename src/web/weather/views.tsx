@@ -16,7 +16,7 @@ import { type DayChip, type TodayLine, todayLine } from './summary';
  * WeatherMonthLoader asks for its forecast days' compact chips, which land
  * in each cell's WeatherCellSlot. Loading it separately keeps the pages' own HTML free of the weather:
  * a tab root must render byte for byte the same while nothing changes (the
- * service worker's revalidation, CLAUDE.md PWA), and a forecast refreshed
+ * service worker's revalidation, AGENTS.md PWA), and a forecast refreshed
  * every hour would otherwise mark it changed. Offline, the service worker
  * answers the fragment from its cache, and the line says when it was
  * fetched ("as of 9:05 AM").

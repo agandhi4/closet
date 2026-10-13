@@ -89,7 +89,7 @@ export interface AppOptions {
   /**
    * The outbound fetcher's test-only options (a scripted resolver, a
    * loopback alias standing in for the internet): the link import's specs
-   * pass them; production never does (CLAUDE.md Gotchas).
+   * pass them; production never does (AGENTS.md Gotchas).
    */
   outboundFetch?: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
   /**
@@ -133,7 +133,7 @@ export async function createApp(
   // Reverse proxies whose X-Forwarded-* headers are believed, so the rate
   // limits, the same-origin check and canonical URLs see the real client and
   // the address it asked for. Behind Caddy this must include Caddy's
-  // address (CLAUDE.md, Deployment).
+  // address (AGENTS.md, Deployment).
   const trustProxy = trustedProxies(config);
   boot.info(`NODE_ENV: ${config.NODE_ENV}`);
   boot.info(`DATA_PATH: ${config.DATA_PATH}`);
@@ -454,7 +454,7 @@ function createWeather(
   });
 }
 
-// Inline script: the pages' one-line handlers and inline modules (CLAUDE.md,
+// Inline script: the pages' one-line handlers and inline modules (AGENTS.md,
 // Conventions). blob: images: the mask editor draws the original and the
 // cutout from object URLs. No eval (htmx's filters, hx-on and js: values are
 // unused) and no blob: scripts or workers: those were the in-browser

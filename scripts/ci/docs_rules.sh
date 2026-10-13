@@ -1,0 +1,37 @@
+# shellcheck shell=bash
+# closet's extra docs rule, sourced by devkit/bin/docs_check.sh after its standard checks (pair
+# shape, size caps, decisions log, retired tools); contract in that script's header. Uses its
+# $agents_files (every tracked AGENTS.md, root first-class) and docs_fail.
+#
+# The area index: the root AGENTS.md is loaded by every session, an area's AGENTS.md only when
+# a file in its directory is read (#104), so the root's "### Area index" section is how an agent
+# planning work finds an area's doc. Every area doc must be named there in backticks, and every
+# `<path>/AGENTS.md` (or CLAUDE.md) the root names anywhere must exist: a stale pointer misleads
+# wherever it is (#119). devkit/ is vendored and has its own doc, so it is not an area.
+
+closet_area_index() {
+  awk '
+    $0 == "### Area index" { inside = 1; next }
+    inside && /^#/ { exit }
+    inside { print }
+  ' AGENTS.md
+}
+
+closet_index=$(closet_area_index)
+if [ -z "$closet_index" ]; then
+  docs_fail "AGENTS.md has no \"### Area index\" section"
+else
+  # shellcheck disable=SC2154  # agents_files is set by docs_check.sh, which sources this file
+  for closet_doc in ${agents_files[@]+"${agents_files[@]}"}; do
+    case "$closet_doc" in AGENTS.md|devkit/*) continue ;; esac
+    case "$closet_index" in
+      *"\`$closet_doc\`"*) ;;
+      *) docs_fail "$closet_doc is not in AGENTS.md's area index" ;;
+    esac
+  done
+fi
+
+# shellcheck disable=SC2016  # the backticks are literal Markdown, not an expansion
+while IFS= read -r closet_named; do
+  [ -e "$closet_named" ] || docs_fail "AGENTS.md names $closet_named, which does not exist"
+done < <(grep -oE '`[A-Za-z0-9_./-]+/(AGENTS|CLAUDE)\.md`' AGENTS.md | tr -d '`' | sort -u)

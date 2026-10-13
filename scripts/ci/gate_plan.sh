@@ -1,7 +1,7 @@
 # closet's gate plan, sourced by devkit/bin/local_gate.sh (contract in its header).
 # Which jobs run for which changed paths; every job is a Makefile target ci.yml also calls.
 #
-#   always                             -> deps + quick (docs:check covers *.md, so never nothing_to_run)
+#   always                             -> deps + quick (docs-check covers *.md, so never nothing_to_run)
 #   *.md, docs/**, LICENSE, .github/** -> quick only
 #   test/integration/**                -> + db
 #   test/support/**                    -> + db + e2e: it holds scratch-database.ts and the

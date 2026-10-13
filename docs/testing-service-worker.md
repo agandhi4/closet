@@ -3,7 +3,7 @@
 How `test/sw-update.spec.ts` and `test/push-notification.spec.ts` (#180)
 reach the parts of the worker no page request exercises, and what they
 cannot reach. Both skip unless the server runs with `PWA_ENABLED=true` (the
-production config, `test/CLAUDE.md`).
+production config, `test/AGENTS.md`).
 
 ## A second build of the worker (`test/support/next-build.ts`)
 

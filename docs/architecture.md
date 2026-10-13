@@ -1,6 +1,6 @@
 # Stack and architecture in full
 
-Read on demand (not auto-loaded). The root `CLAUDE.md` keeps a short Stack list and architecture tree; this is the fuller description of each piece and each file. Moved out of the root in #259; what the stack used to be is in `docs/history.md`.
+Read on demand (not auto-loaded). The root `AGENTS.md` keeps a short Stack list and architecture tree; this is the fuller description of each piece and each file. Moved out of the root in #259; what the stack used to be is in `docs/history.md`.
 
 ## Stack
 
@@ -8,15 +8,15 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 
 - **Runtime**: Node 22 (`.nvmrc` pins `v22.20.0`), TypeScript, **Fastify 5**, plain: no framework on top (`FastifyReply`, `reply.setCookie`, Fastify plugins and hooks). NestJS left on 2026-09-26, the last step of the platform migration (Jest to Vitest, MikroORM to Drizzle, Handlebars to JSX, Nest to plain Fastify). Built by `tsc` (`tsconfig.build.json`, `src/` to `dist/`).
 - **Views**: server-rendered HTML with htmx 2 for interactivity; the little client logic left is inline handlers and small modules in `public/js/` (`_hyperscript` was removed on 2026-09-26, see `docs/web-layer.md#client-behavior`). Not a SPA. There is no JSON API for the UI. Every page is typed JSX (`hono/jsx`, rendered to strings, no Hono server) in `src/web/` (see Web layer), the 404 and error page included.
-- **CSS**: Tailwind v4 (`@tailwindcss/cli`) + daisyUI, source `views/assets/main.css`, compiled to `public/bundle.css`. The theme, the fonts and why the fonts step runs before Tailwind: `views/assets/CLAUDE.md`.
-- **Data**: PostgreSQL only (18 in production on pgvault and locally, 17 in CI). **Drizzle ORM owns the schema, the migrations and every query** (`src/db/schema.ts`, `drizzle/`, applied at boot; see Changing the schema). The MikroORM and SQLite history and the legacy migration tree: `src/db/CLAUDE.md`.
-- **Auth**: login is always required. A JWT in an httpOnly `access_token` cookie (never `Secure`, see `docs/conventions.md#conventions`), resolved once per request into `req.auth`; every route needs a session unless it says `config: { public: true }`, and `/mcp` takes personal access tokens instead. Every route that changes or hands out a credential asks for the current password. The session, the step-up rule, emails and password changes: `src/web/auth/CLAUDE.md`.
+- **CSS**: Tailwind v4 (`@tailwindcss/cli`) + daisyUI, source `views/assets/main.css`, compiled to `public/bundle.css`. The theme, the fonts and why the fonts step runs before Tailwind: `views/assets/AGENTS.md`.
+- **Data**: PostgreSQL only (18 in production on pgvault and locally, 17 in CI). **Drizzle ORM owns the schema, the migrations and every query** (`src/db/schema.ts`, `drizzle/`, applied at boot; see Changing the schema). The MikroORM and SQLite history and the legacy migration tree: `src/db/AGENTS.md`.
+- **Auth**: login is always required. A JWT in an httpOnly `access_token` cookie (never `Secure`, see `docs/conventions.md#conventions`), resolved once per request into `req.auth`; every route needs a session unless it says `config: { public: true }`, and `/mcp` takes personal access tokens instead. Every route that changes or hands out a credential asks for the current password. The session, the step-up rule, emails and password changes: `src/web/auth/AGENTS.md`.
 - **PWA**: Workbox `injectManifest` over a hand-written service worker (`views/assets/src-sw.ts`, esbuild to `.js`, injected to `public/sw.js`), `/manifest.json` served from config by `src/web/shell`, `@khmyznikov/pwa-install` (browser tabs that can install) and `pulltorefreshjs` (iOS standalone), both imported by `public/js/pwa.js` only where they apply, Web Push via `web-push` + VAPID keys (`src/web/push/`, see Web Push). Gated by `PWA_ENABLED`.
 - **Images**: `sharp` for transcoding, `heic-decode` (libheif) for HEIC uploads. Background removal runs on the server only: BiRefNet 512x512 with `onnxruntime-node` in a child process (`src/cutout/`). The in-browser model (`@imgly/background-removal`, `onnxruntime-web`) and the `CUTOUT_MODE` switch were removed on 2026-09-26. See Architecture, Images and Background removal.
 - **Storage**: local disk under `DATA_PATH`, the only backend (the S3 backend, `nestjs-s3` and the AWS SDK were removed 2026-09-26; production never used them).
 - **i18n**: English only, strings in `src/i18n/en/lang.json` (the other five languages were deleted on 2026-09-26), read through `t('KEY')` from `src/web/i18n.ts`, typed to the catalog's keys.
 - **Logging**: one pino logger (`src/logger.ts`), pino-pretty to stdout and to `app.log` under `DATA_PATH`, a child per module (`context`). See `docs/conventions.md#logging`.
-- **Tests**: three tiers: Vitest unit, Vitest integration (`test/integration/`, the real app in-process on a scratch Postgres database) and Playwright e2e; see Test tiers under Commands, and `test/CLAUDE.md` for the harness.
+- **Tests**: three tiers: Vitest unit, Vitest integration (`test/integration/`, the real app in-process on a scratch Postgres database) and Playwright e2e; see Test tiers under Commands, and `test/AGENTS.md` for the harness.
 
 ## Architecture
 
@@ -44,7 +44,7 @@ src/
   random.ts            seededRandom(...key): the one seeded PRNG (sfc32 over a SHA-256 of the key), for
                        the seed's history and the outfit generator; never Math.random or the clock
   calendar-date.ts     a calendar day as a plain 'YYYY-MM-DD' string: IsoDate, day arithmetic, todayIn(tz, now).
-                       Pure and shared by the pure layers and src/web/, so it lives at the root (src/web/calendar/CLAUDE.md)
+                       Pure and shared by the pure layers and src/web/, so it lives at the root (src/web/calendar/AGENTS.md)
   web/                 Every route and page (see `docs/web-layer.md`): plugin.ts (registered by createApp),
                        errors.tsx (error page + handler), render.ts, loggable-url.ts, i18n.ts (t),
                        autosave.tsx (every form saved on change, see `docs/web-layer.md#autosave`),
@@ -61,16 +61,16 @@ src/
                        URLs and the weather's fixed API) and public-address.ts (its address rule); see
                        Request security, Outbound fetches
   db/                  Drizzle: the schema and migration authority, and the query layer
-                       (its files, the MikroORM adoption and the gotchas: src/db/CLAUDE.md)
+                       (its files, the MikroORM adoption and the gotchas: src/db/AGENTS.md)
   maintenance/         the nightly and minutely timers, storage reconciliation, the CLIs
-                       (src/maintenance/CLAUDE.md)
-  metrics/             Prometheus metrics, Server-Timing, the device timings: src/metrics/CLAUDE.md
+                       (src/maintenance/AGENTS.md)
+  metrics/             Prometheus metrics, Server-Timing, the device timings: src/metrics/AGENTS.md
   cutout/              Background removal (see Background removal):
-                       src/cutout/CLAUDE.md
-  wardrobe/            The garment model, pure (no database, web or strings; lint-enforced): src/wardrobe/CLAUDE.md
-  push/                The push reminders' schedule, pure (lint-enforced): src/push/CLAUDE.md
-  weather/             The weather, pure (lint-enforced): src/weather/CLAUDE.md
-  seed/                The seed personas: src/seed/CLAUDE.md
+                       src/cutout/AGENTS.md
+  wardrobe/            The garment model, pure (no database, web or strings; lint-enforced): src/wardrobe/AGENTS.md
+  push/                The push reminders' schedule, pure (lint-enforced): src/push/AGENTS.md
+  weather/             The weather, pure (lint-enforced): src/weather/AGENTS.md
+  seed/                The seed personas: src/seed/AGENTS.md
   i18n/en/lang.json    the English string catalog
 views/
   assets/              main.css (Tailwind source), src-sw.ts (service worker source), fonts.css (the
@@ -79,7 +79,7 @@ public/                Static: sw.js, bundle.css, vendor/, modules/, *.br/*.gz (
                        assets/ (icon.svg is the source; icon.png, icon-192.png, icon-512.png and
                        favicon.ico come from `npm run generate:icons`)
 test/                  Playwright specs (the gate runs them in Chromium, the nightly in WebKit too; PWA on)
-  support/, integration/  the harness and its helpers: test/CLAUDE.md
+  support/, integration/  the harness and its helpers: test/AGENTS.md
 drizzle/               Generated migrations (NNNN_name.sql) + meta/ (journal, snapshots). Shipped in the image
 docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature work against it.
 ```

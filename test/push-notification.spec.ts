@@ -22,7 +22,7 @@ import { WEBKIT_HAS_NO_PUSH } from './support/webkit-limits';
  */
 
 // The full Chromium build: the default headless shell denies notifications
-// whatever the context granted (src/push/CLAUDE.md, Gotchas), and
+// whatever the context granted (src/push/AGENTS.md, Gotchas), and
 // showNotification() then rejects. Top level because a channel needs its
 // own worker; other browsers skip below before launching anything.
 test.use({ channel: 'chromium' });

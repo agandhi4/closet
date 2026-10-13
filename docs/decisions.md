@@ -3,6 +3,12 @@
 Dated decisions, their rationale and the gotchas they carry. Newest first. The older
 history lives in `docs/PROJECT_LOG.md`.
 
+## 2026-10-13 — Docs-check and git hooks via devkit; area docs become AGENTS.md
+
+**Why:** the 36 area docs were real `CLAUDE.md` files, which only Claude Code reads, and closet kept its own docs check (`scripts/claude-md.ts`) and hook runner (`scripts/git-hook.ts`) beside devkit's copies of both. The pre-commit hook ran the integration tier against pgvault-dev, and pre-push ran Playwright on a push to `main`.
+**Decision:** every area doc is `AGENTS.md` with `CLAUDE.md -> AGENTS.md`; live references name `AGENTS.md` (history docs keep their wording). `make docs-check` (devkit, in `ci-quick`) owns the pair rule and the 30/16 KB caps; closet's one extra, the root's area index, moved to `scripts/ci/docs_rules.sh`. Hooks are devkit's templates: pre-commit `ci-quick`, pre-push `ci-unit` (`scripts/ci/hooks.conf`); `make install` sets `core.hooksPath`, and the npm `prepare` script no longer does.
+**Consequence:** hooks need neither Postgres nor a browser; the integration tier and e2e run only in the gate. `npm run check` no longer includes a docs check. A new area doc must be added to the index and as a pair, or `ci-quick` fails.
+
 ## 2026-10-13 — Release identity: APP_VERSION baked into the image, ship tags from CI
 
 **Why:** the image named its build three ways (a full sha in `public/build.json` for the error tracker, package.json's frozen `0.5.1` on /about and MCP, semver tags from `tag-release.yml`), and `/healthz` named none, so nothing said which build production runs.

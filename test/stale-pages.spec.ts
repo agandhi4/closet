@@ -109,7 +109,7 @@ test.describe('stale-while-revalidate tab roots', () => {
 
     // Offline, five minutes later: the copy, and how old it is. networkSwitch,
     // not context.setOffline: the page's own REVALIDATE_PAGE ask (#240) is
-    // the worker's own fetch, which setOffline alone does not cut (test/CLAUDE.md).
+    // the worker's own fetch, which setOffline alone does not cut (test/AGENTS.md).
     await ageCopy(page, '/wardrobe', FIVE_MINUTES);
     const network = await networkSwitch(context);
     await network('offline');
@@ -159,7 +159,7 @@ test.describe('stale-while-revalidate tab roots', () => {
     // Opened offline: the old copy, nothing to compare it with yet.
     // networkSwitch, not context.setOffline: the page's own REVALIDATE_PAGE
     // ask (#240) is the worker's own fetch, which setOffline alone does not
-    // cut (test/CLAUDE.md).
+    // cut (test/AGENTS.md).
     const network = await networkSwitch(context);
     await network('offline');
     await page.goto('/wardrobe');

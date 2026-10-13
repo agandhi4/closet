@@ -3,7 +3,7 @@
 The Vitest integration tier (`test/integration/`) boots the real app in-process
 on a scratch Postgres database per spec file and drives it through
 `app.inject()`. The tiers, layout and other test gotchas are in
-`test/CLAUDE.md`. These rules apply when you change the harness, the scratch
+`test/AGENTS.md`. These rules apply when you change the harness, the scratch
 databases or the authorization matrix.
 
 ## The harness

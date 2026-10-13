@@ -34,7 +34,7 @@ import type { CalendarEntry } from './calendar-view';
  * exist. An entry that is not the caller's is a miss, the same as one that
  * does not exist: the route answers 404 either way, so entry ids reveal
  * nothing about other users (WardrobeAccess, src/web/sharing/access.ts).
- * Every write holds the owner lock (ownerTransaction; CLAUDE.md, Owner
+ * Every write holds the owner lock (ownerTransaction; AGENTS.md, Owner
  * lock): the re-plan and a replace judge several entries at once, and a
  * write that slipped between their read and their write would be lost or
  * would break the unique key.

@@ -528,7 +528,7 @@ function careFormValues(body: GarmentBody): CareFormValues {
  * Who a garment form is read or written for. `owner`: the requester owns the
  * garment (resolveWardrobeAccess's isOwner, the predicate the garment page's
  * garmentContext reads the wears by). The wash limit is the owner's own record,
- * like the wears and washes it counts (src/web/wears/CLAUDE.md): a MANAGE
+ * like the wears and washes it counts (src/web/wears/AGENTS.md): a MANAGE
  * grantee edits the garment's properties, quantity and condition, never the
  * owner's laundry, so for anyone else the form is not given the stored limit
  * (storedFormValues) and a posted one is ignored, left as stored

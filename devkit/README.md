@@ -11,7 +11,7 @@ Design: `~/projects/solo/standardization/PLAN.md` §1 (layer L5) and `docs/decis
 | Path | What |
 |---|---|
 | `bin/local_gate.sh` | The PR gate skeleton: gates `<pr>` merged into `origin/main`, posts the `local-gate` status, emits the `GATE`/`VERDICT` lines the merge queues parse. The repo supplies `scripts/ci/gate_plan.sh` (contract in the script header). |
-| `bin/devkit-sync.sh` | `git subtree pull` to a ref and record `<commit> <tree>` in the repo's `.devkit-rev`. |
+| `bin/devkit-sync.sh` | Fetch upstream, replace `devkit/` with its tree, record `<commit> <tree>` in `.devkit-rev`, commit. Conflict-free by construction. |
 | `bin/devkit-check.sh` | Offline guard for `ci-quick`: the committed `devkit/` tree equals `.devkit-rev`. Fails on in-repo edits. |
 | `bin/node_toolchain.sh` | Provides the exact Node in the repo's `.nvmrc`: uses PATH's node when it matches, else a checksum-verified install cached under `~/.local/share/devkit/node`. The gate calls it; hooks can too. |
 | `bin/rust_toolchain.sh` | Provides the exact Rust in `rust-toolchain.toml` (or `rust-toolchain`): uses PATH's cargo when it matches, else installs through rustup (PATH's, or a private one bootstrapped under `~/.local/share/devkit/rust`) and prints the toolchain's sysroot bin, so callers export PATH only. `--declared` prints the version. The gate calls it. |
@@ -37,9 +37,12 @@ Design: `~/projects/solo/standardization/PLAN.md` §1 (layer L5) and `docs/decis
 ## Vendor into a repo (once)
 
 ```sh
-git subtree add --prefix=devkit https://github.com/agandhi4/devkit.git main --squash
-devkit/bin/devkit-sync.sh            # writes .devkit-rev
+~/projects/solo/devkit/bin/devkit-sync.sh     # creates devkit/ from upstream main, writes .devkit-rev, commits
 ```
+
+Updates are `make devkit-sync`. The sync fetches upstream and replaces `devkit/` wholesale
+(`git read-tree`), so it never conflicts; `devkit-check` compares the tree hash. There is no
+`git subtree` involved any more: squash merges drop the trailers subtree needs.
 
 Then add to the Makefile (every repo uses the same three targets):
 

@@ -1,6 +1,6 @@
 # Several photos at once, and the export
 
-Part of the Wardrobe (`CLAUDE.md` in this directory); #200, decisions in `docs/plans/2026-09-28-multi-add-and-export.md`.
+Part of the Wardrobe (`AGENTS.md` in this directory); #200, decisions in `docs/plans/2026-09-28-multi-add-and-export.md`.
 
 ## The draft queue
 

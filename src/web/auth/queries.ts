@@ -248,7 +248,7 @@ export async function updateEmail(
  * one transaction and returns the stored photos, which the caller unlinks
  * after commit: the database cascade
  * drops rows (garments, outfits, calendar entries, shares), never the photo
- * bytes (CLAUDE.md Gotchas).
+ * bytes (AGENTS.md Gotchas).
  */
 export async function deleteUserAndFileRows(
   db: Db,
@@ -289,7 +289,7 @@ export async function deleteUserAndFileRows(
  *
  * Writers call it through ownerTransaction; the rule it serves (every
  * writer of the calendar and the plan tables, the owner lock first) is in
- * src/web/calendar/CLAUDE.md, Owner lock.
+ * src/web/calendar/AGENTS.md, Owner lock.
  *
  * No row is a 404: the account is gone, typically deleted by deleteAccount
  * while this writer queued behind it. Going on unlocked would fail a
@@ -359,7 +359,7 @@ const lockedFor = new WeakMap<Queryable, number>();
  * `work` in a transaction (a savepoint inside a caller's) that holds the
  * owner lock from its first statement: the one way to write
  * outfit_calendar, the week planner's tables, Muse's needs and
- * suggestions (src/web/calendar/CLAUDE.md, Owner lock). The lock comes before
+ * suggestions (src/web/calendar/AGENTS.md, Owner lock). The lock comes before
  * any row lock `work` takes (an outfit, a garment, an entry): the re-plan
  * takes those under it too, so taking one first could deadlock. A trip's
  * lock is the one taken before it (src/web/trips). `writer` names the
