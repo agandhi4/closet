@@ -6,7 +6,7 @@ Shared scripts vendored into every app repo as a `git subtree`. Read `README.md`
 - Portable shell: macOS bash 3.2 + GNU bash; BSD + GNU coreutils. Empty arrays under `set -u`
   use `${a[@]+"${a[@]}"}`. No `readarray`, no `declare -A`, no GNU-only `sed -i` without `''`.
 - `shellcheck -s bash` clean; `bats tests/` green before any push. CI runs both.
-- Output contracts are APIs. `bin/local_gate.sh` prints `GATE <job> PASS|FAIL|SKIPPED …` and
+- Output contracts are APIs. `bin/local_gate.sh` prints `GATE <job> PASS|FAIL|SKIPPED|WATCHDOG …` and
   `VERDICT PASS|FAIL head=<sha> main=<sha>`; `finplat_merge_queue.sh`, `mac_merge_queue.sh`
   and `worker.py` parse them. `.devkit-rev` is `<upstream commit> <tree sha>`.
 - The skeleton owns mechanics; the repo's `scripts/ci/gate_plan.sh` owns policy (which jobs
