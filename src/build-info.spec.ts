@@ -19,9 +19,9 @@ describe('loadBuildInfo', () => {
 
   it("names the build by the image's APP_VERSION, over any build.json", () => {
     writeBuildFile({ commit: 'a'.repeat(40), builtAt: '2026-10-13T00:00:00Z' });
-    expect(loadBuildInfo('sha-1234567', root)).toEqual({
-      release: 'sha-1234567',
-      assetVersion: 'sha-1234567',
+    expect(loadBuildInfo('1234567', root)).toEqual({
+      release: '1234567',
+      assetVersion: '1234567',
     });
   });
 
@@ -31,8 +31,8 @@ describe('loadBuildInfo', () => {
       builtAt: '2026-10-13T00:00:00Z',
     });
     expect(loadBuildInfo(undefined, root)).toEqual({
-      release: 'sha-89abcde',
-      assetVersion: 'sha-89abcde',
+      release: '89abcde',
+      assetVersion: '89abcde',
     });
   });
 

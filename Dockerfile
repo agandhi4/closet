@@ -66,7 +66,7 @@ RUN mkdir -p /app/models
 # Set NODE_ENV to production
 ENV NODE_ENV=production
 
-# The release identity, passed once by the build (ci.yml publish: sha-<7>; the PR gate:
+# The release identity, passed once by the build (ci.yml publish: the 7-char sha; the PR gate:
 # gate-<n>) and reported as /healthz's `version`, on /about, and as the error tracker's release.
 # The image is its only source: compose never sets APP_VERSION (devkit release_check.sh guards
 # it). Last in the stage so a new value rebuilds only these layers.

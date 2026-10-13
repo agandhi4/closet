@@ -2,6 +2,7 @@
 // modules) is loaded by createErrorTracker, and only with a DSN.
 import type { ErrorEvent, Scope } from '@sentry/node';
 import type { Logger } from '../logger';
+import { currentRequest } from '../request-context';
 import { SESSION_COOKIE } from '../web/auth/session';
 import { TOKEN_PREFIX } from '../web/auth/personal-tokens';
 
@@ -83,9 +84,9 @@ export type SentrySdk = typeof import('@sentry/node');
 export interface ErrorTrackerOptions {
   /** SENTRY_DSN; empty means off. */
   dsn: string;
-  /** The build's release (BuildInfo.release: `sha-<7>` in the image, `dev` in development). */
+  /** The build's release (BuildInfo.release: the 7-char sha in the image, `dev` in development). */
   release: string;
-  /** NODE_ENV: production, development or test. */
+  /** APP_ENV: production, dev or gate (src/config.ts). */
   environment: string;
   /** Context ErrorTracking: the tracker's own troubles (Bugsink unreachable). */
   logger: Logger;
@@ -163,9 +164,18 @@ export async function createErrorTracker({
   base.setClient(client);
   client.init();
 
+  // request_id from async context, not from each caller: the error
+  // handler's events, the pages' reports (/errors/client) and a tool call's
+  // all carry the id their X-Request-ID header and log lines show. A job's
+  // failure runs outside any request and has none.
   function scopeFor({ source, tags, userId }: ErrorContext): Scope {
     const scope = base.clone();
-    scope.setTags({ source, ...tags });
+    const request = currentRequest();
+    scope.setTags({
+      source,
+      ...tags,
+      ...(request && { request_id: request.requestId }),
+    });
     if (userId !== undefined) scope.setUser({ id: String(userId) });
     return scope;
   }

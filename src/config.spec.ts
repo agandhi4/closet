@@ -37,7 +37,9 @@ describe('loadConfig', () => {
     const config = load({});
     expect(config).toMatchObject({
       NODE_ENV: 'production',
+      APP_ENV: 'production',
       PORT: 3000,
+      LOG_FORMAT: 'json',
       LOG_LEVEL: 'info',
       TRUSTED_PROXIES: '127.0.0.1,::1',
       APP_NAME: 'Closet',
@@ -108,6 +110,8 @@ describe('loadConfig', () => {
       'staging',
       'NODE_ENV: must be one of development, production, test',
     ],
+    ['APP_ENV', 'test', 'APP_ENV: must be one of production, dev, gate'],
+    ['LOG_FORMAT', 'pretty', 'LOG_FORMAT: must be one of json, text'],
     ['APP_NAME', '', 'APP_NAME: expected string length greater or equal to 1'],
     [
       'CUTOUT_THREADS',

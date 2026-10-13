@@ -60,6 +60,9 @@ export type Env = Record<string, string>;
 
 const BASE_ENV: Env = {
   NODE_ENV: 'test',
+  // Never `production`: an event a spec sends to its Bugsink stand-in says
+  // so (APP_ENV is the error tracker's environment).
+  APP_ENV: 'dev',
   // Everything down to debug reaches t.logs (nothing reaches the console).
   LOG_LEVEL: 'debug',
   APP_NAME: 'Closet',

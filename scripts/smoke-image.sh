@@ -16,14 +16,15 @@
 #   MODELS_DIR   a directory holding the verified model (npm run cutout:fetch-model): the app loads it
 #                and an uploaded photo must get its cutout. Unset: a placeholder file stands in, which
 #                the app refuses on its checksum, so the boot never downloads 940 MB.
-#   BOOT_EXPECT_VERSION  the APP_VERSION the image was built with (ci.yml: sha-<7>; make ci-smoke:
+#   BOOT_EXPECT_VERSION  the APP_VERSION the image was built with (ci.yml: the 7-char sha; make ci-smoke:
 #                CI_BUILD_VERSION): /healthz's `version` must equal it, so an image that lost the
 #                build arg (and reports `dev`) never ships. Same name and rule as devkit's
 #                boot_image.sh, which this script does not use (it boots on the host network).
 #
 # Checks, each fatal: /healthz answers 2xx (and names BOOT_EXPECT_VERSION when set); the boot log
 # shows the migrations applied; the login page
-# renders in the app shell and its stylesheet and htmx are served; with MODELS_DIR, a photo uploaded
+# renders in the app shell and its stylesheet and htmx are served; its 12-hex X-Request-ID is on a
+# JSON access line naming /healthz's version; with MODELS_DIR, a photo uploaded
 # over HTTP is cut out by the model in the image's own onnxruntime; `docker stop` (SIGTERM) exits 0.
 # On failure the container's log is printed.
 set -euo pipefail
@@ -78,6 +79,7 @@ docker run -d --name "$NAME" --network host \
   -e DATABASE_SCHEMA="$DATABASE_SCHEMA" \
   -e ACCESS_TOKEN_SECRET=smoke-test-access-token-secret-not-for-deployment \
   -e PWA_ENABLED=true \
+  -e APP_ENV=gate \
   -e SITE_URL=https://closet.test \
   -e PUBLIC_VAPID_KEY="$(jq -r .publicKey <<<"$keys")" \
   -e PRIVATE_VAPID_KEY="$(jq -r .privateKey <<<"$keys")" \
@@ -100,7 +102,7 @@ migrated=$(docker logs "$NAME" 2>&1 | grep -oE 'Applied [0-9]+ Drizzle migration
 log "ok: $migrated"
 
 page="$WORK/login.html"
-status=$(curl -s -o "$page" -w '%{http_code}' "$BASE/auth/login")
+status=$(curl -s -o "$page" -D "$WORK/login.headers" -w '%{http_code}' "$BASE/auth/login")
 [ "$status" = 200 ] || fail "GET /auth/login answered $status"
 # The layout (src/web/layout/layout.tsx): the app name in the title, the boosted body.
 grep -qE '<title>[^<]*Closet</title>' "$page" || fail "the login page's <title> does not name the app"
@@ -113,6 +115,17 @@ for asset in "$css" /modules/htmx.min.js; do
   [ "$status" = 200 ] || fail "GET $asset answered $status"
 done
 log "ok: /auth/login 200 in the app shell; $css and /modules/htmx.min.js served"
+
+# The observability contract (src/logger.ts, src/request-context.ts): the image logs JSON by
+# default, and the request's X-Request-ID (12 hex) is on its access line with the build's version.
+request_id=$(grep -iE '^x-request-id:' "$WORK/login.headers" | tr -d '\r' | sed -E 's/^[^:]+: *//')
+[[ "$request_id" =~ ^[0-9a-f]{12}$ ]] || fail "GET /auth/login carries no 12-hex X-Request-ID (got '${request_id:-none}')"
+docker logs "$NAME" >"$WORK/container.log" 2>&1
+access=$(jq -cR --arg id "$request_id" 'fromjson? | select(.context == "Http" and .request_id == $id)' \
+  "$WORK/container.log" | head -n 1)
+[ -n "$access" ] || fail "no JSON access line (context Http) carries request_id $request_id"
+[ "$(jq -r .version <<<"$access")" = "$version" ] || fail "the access line's version is not /healthz's '$version'"
+log "ok: JSON access line for request $request_id"
 
 if [ -n "${MODELS_DIR:-}" ]; then
   # A red shirt on a pale backdrop, drawn by the image's own sharp.

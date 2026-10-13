@@ -136,10 +136,11 @@ jobs:
       IMAGE_NAME: ${{ github.repository }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      # The one version string (docs/decisions.md 2026-10-13): baked into the image as
-      # APP_VERSION, its OCI version label and its sha-<7> tag, and served as /healthz `version`.
+      # The one version string, the bare 7-char sha (docs/decisions.md 2026-10-13): baked into
+      # the image as APP_VERSION and its OCI version label, and served as /healthz `version`.
+      # The image TAG keeps its `sha-` prefix (`sha-<7>`, below); the version never has one.
       - id: version
-        run: echo "app=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: echo "app=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
@@ -151,7 +152,7 @@ jobs:
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
           # `latest` is what the homelab autoupdater polls (hourly): this job moving it is
-          # the deploy. sha-<7> is the rollback target and equals APP_VERSION.
+          # the deploy. sha-<7> is the rollback target: `sha-` plus APP_VERSION.
           tags: |
             type=raw,value=latest
             type=sha,prefix=sha-,format=short

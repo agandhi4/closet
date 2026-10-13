@@ -11,8 +11,9 @@ Design: `~/projects/solo/standardization/PLAN.md` §1 (layer L5) and `docs/decis
 | Path | What |
 |---|---|
 | `bin/local_gate.sh` | The PR gate skeleton: gates `<pr>` merged into `origin/main`, posts the `local-gate` status, emits the `GATE`/`VERDICT` lines the merge queues parse. The repo supplies `scripts/ci/gate_plan.sh` (contract in the script header). |
-| `bin/devkit-sync.sh` | Fetch upstream, replace `devkit/` with its tree, record `<commit> <tree>` in `.devkit-rev`, commit. Conflict-free by construction. |
-| `bin/devkit-check.sh` | Offline guard for `ci-quick`: the committed `devkit/` tree equals `.devkit-rev`. Fails on in-repo edits. |
+| `bin/devkit-sync.sh` | Fetch upstream, replace `devkit/` with its tree, record `<commit> <tree>` in `.devkit-rev`, commit. Conflict-free by construction. `--stage` leaves it in the index for the caller's own commit. |
+| `bin/devkit-new.sh`, `templates/new/` | `devkit new <name> --stack <stack> [--dir <parent>] [--no-image]`: a new repo that passes every guard on its first commit, which is made through the hooks. Stacks: `python-fastapi`, `node-service`; each is a directory under `templates/new/stacks/` (how to add one: `templates/new/README.md`). See "New project". |
+| `bin/devkit-check.sh` | Offline guard for `ci-quick` and pre-commit: the staged `devkit/` tree equals the staged `.devkit-rev` (both read from the index). Fails on in-repo edits. |
 | `bin/node_toolchain.sh` | Provides the exact Node in the repo's `.nvmrc`: uses PATH's node when it matches, else a checksum-verified install cached under `~/.local/share/devkit/node`. The gate calls it; hooks can too. |
 | `bin/rust_toolchain.sh` | Provides the exact Rust in `rust-toolchain.toml` (or `rust-toolchain`): uses PATH's cargo when it matches, else installs through rustup (PATH's, or a private one bootstrapped under `~/.local/share/devkit/rust`) and prints the toolchain's sysroot bin, so callers export PATH only. `--declared` prints the version. The gate calls it. |
 | `bin/toolchain_check.sh` | Guard for `ci-quick`: `.nvmrc` is exact, every `FROM node:` major and every setup-node step agree with it; same for `.python-version` and `rust-toolchain.toml` (`FROM rust:` minor, `Cargo.toml` `rust-version` not above it, no inline `toolchain:`). |
@@ -33,6 +34,43 @@ Design: `~/projects/solo/standardization/PLAN.md` §1 (layer L5) and `docs/decis
 | `.github/workflows/quick-check.yml` | Reusable `workflow_call` quick-check (checkout, Node from `.nvmrc`, optional Python + uv, `make ci-quick`); caller template in `templates/workflows/`. Needs devkit's Actions access set to "repositories owned by the user". |
 | `lint/ruff.toml` | Shared ruff base (py313, 100 cols, E F I N W UP); consumers `extend` it. |
 | `tests/` | bats contract tests (fake `gh`/`make`/`node`, temp bare repos). |
+
+## New project
+
+```sh
+~/projects/solo/devkit/bin/devkit-new.sh <name> --stack python-fastapi   # or node-service; --no-image for a repo that publishes nothing
+```
+
+Run it from an up-to-date devkit checkout (`--list` prints the stacks). It needs git, make
+and the stack's package tool (`uv` or `npm`) on PATH, and makes `<cwd>/<name>` (`--dir`
+chooses the parent) as a git repo with one commit holding: the vendored `devkit/` +
+`.devkit-rev`; a Makefile with the full standard target set (tiers the stack lacks are
+`exit 2` stubs that say so); `scripts/ci/gate_plan.sh`; `.githooks/` + `scripts/ci/hooks.conf`
+(pre-commit `ci-quick`, pre-push `ci-unit`); `.github/workflows/quick-check.yml` calling the
+reusable workflow, and for image stacks `publish.yml` (build, `ci-smoke`, push `sha-<7>` +
+`latest`, ship tag, never cancelled) with a Dockerfile carrying the `APP_VERSION` trio;
+`renovate.json` on the shared preset; `.claude/settings.json` (claude-kit plugins); `AGENTS.md`
+(the project delta only: Stack + `Conventions:`, Architecture placeholder, Convention deltas,
+Commands, Workflow) with `CLAUDE.md` symlinked; `docs/decisions.md` with its first entry; the
+toolchain pin; the stack's lockfile; the smallest app that serves `/health/live` and
+`/health/ready`, with a test per tier. The first commit runs through pre-commit, so
+`make ci-quick` (devkit-check, toolchain-check, docs-check, release-check, workflows-check,
+own-commit-check for Python, then lint/format/typecheck) has passed on it before you see it.
+`tests/new_contract.bats` holds every stack to this.
+
+Then, by hand, in this order:
+
+1. `gh repo create agandhi4/<name> --private --source <dir>/<name> --push`
+2. Add `"<name>": {}` to `github/repos.json`; run `github/repo_settings.sh <name>` (squash-only,
+   PR title/body) and `github/labels_sync.sh <name>`.
+3. Give the Mend Renovate app access to the repo (its `renovate.json` extends this preset);
+   devkit's Actions access must already be "repositories owned by the user" for the
+   quick-check caller.
+4. Write the Architecture section of `AGENTS.md`; every deviation from a convention is a line
+   under Convention deltas plus a `docs/decisions.md` entry.
+5. When it deploys: a homelab `stacks/<name>/` compose stack (healthcheck on `/health/ready`,
+   memory limit, `logging: "true"`, never `APP_VERSION` in `environment:`), and the
+   `latest`-mover documented in AGENTS.md.
 
 ## Vendor into a repo (once)
 
@@ -83,6 +121,10 @@ calls, an optional `gate_cleanup()`.
 - Scripts run on macOS bash 3.2 and GNU bash, with BSD and GNU coreutils. shellcheck clean.
 
 ## Develop
+
+devkit's CI runs its own guards (`docs_check`, `toolchain_check`, `workflows_check`) on
+itself, and a PR touching only `AGENTS.md`, `CLAUDE.md` or `docs/decisions.md` still runs it:
+devkit has no local gate, so CI is the only check before consumers vendor a change.
 
 ```sh
 shellcheck -s bash bin/*.sh tests/*.bats

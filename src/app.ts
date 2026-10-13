@@ -13,6 +13,7 @@ import type { Logger } from './logger';
 import { createErrorTracker, type ErrorTracker } from './metrics/error-tracker';
 import { registerHttpMetrics } from './metrics/http';
 import { Metrics } from './metrics/metrics';
+import { newRequestId, registerRequestContext } from './request-context';
 import { registerStaticAssets } from './static-assets';
 import { isStaticPath } from './static-prefixes';
 import { normalizeEmail } from './web/auth/queries';
@@ -135,7 +136,7 @@ export async function createApp(
   // the address it asked for. Behind Caddy this must include Caddy's
   // address (AGENTS.md, Deployment).
   const trustProxy = trustedProxies(config);
-  boot.info(`NODE_ENV: ${config.NODE_ENV}`);
+  boot.info(`NODE_ENV: ${config.NODE_ENV}, APP_ENV: ${config.APP_ENV}`);
   boot.info(`DATA_PATH: ${config.DATA_PATH}`);
   boot.info(`Trusted proxies: ${trustProxy.join(', ')}`);
   const build = loadBuildInfo(config.APP_VERSION);
@@ -147,13 +148,13 @@ export async function createApp(
   const errors = await createErrorTracker({
     dsn: config.SENTRY_DSN,
     release: build.release,
-    environment: config.NODE_ENV,
+    environment: config.APP_ENV,
     logger: logger.child({ context: 'ErrorTracking' }),
   });
   // The DSN's host only: its key is a credential of sorts.
   boot.info(
     errors.enabled
-      ? `Error tracking: on (${new URL(config.SENTRY_DSN).host}, release ${build.release})`
+      ? `Error tracking: on (${new URL(config.SENTRY_DSN).host}, release ${build.release}, environment ${config.APP_ENV})`
       : 'Error tracking: off (SENTRY_DSN unset)',
   );
   const metrics = new Metrics({
@@ -219,6 +220,16 @@ export async function createApp(
     loggerInstance: logger.child({ context: 'Fastify' }),
     // One line per request comes from the onResponse hook below.
     logController: new LogController({ disableRequestLogging: true }),
+    // Every request's id is minted here (12 hex), never taken from an
+    // inbound header: a client could otherwise forge the id that joins its
+    // report to Bugsink and the logs.
+    genReqId: newRequestId,
+    requestIdHeader: false,
+    // request.log binds nothing: the logger's mixin adds request_id from
+    // async context to every line (src/logger.ts), so Fastify's own
+    // `reqId` binding would only repeat it under a second name.
+    childLoggerFactory: (parent, _bindings, options) =>
+      parent.child({}, options),
   });
   // The queue and the weather's background refreshes first: a job still
   // running needs the pool to record itself, a refresh to save its row.
@@ -229,9 +240,10 @@ export async function createApp(
     await errors.close();
   });
 
-  // First of all the hooks: the request's timing (Server-Timing) must be in
-  // place before any hook queries, and every route's template is noted as
-  // it is registered.
+  // First of all the hooks: the request's id and timing (Server-Timing) must
+  // be in async context before any hook logs or queries, and every route's
+  // template is noted as it is registered.
+  registerRequestContext(app);
   registerHttpMetrics(app, metrics);
 
   // CSRF: every POST/PUT/PATCH/DELETE must come from this site's own pages.
@@ -302,11 +314,20 @@ export async function createApp(
   // heartbeat) stay out: logging them cost ~16% of image throughput. Routes
   // with a secret in the path log their pattern (loggableUrl). A request
   // the service worker made to warm the offline caches (#286) says so.
+  // request_id is passed, not left to the mixin: onResponse runs on the
+  // response's 'finish' event, which need not carry the request's async
+  // context.
   const http = logger.child({ context: 'Http' });
   app.addHook('onResponse', (request, reply, done) => {
     if (!isStaticPath(request.url)) {
       const warm = isWarmRequest(request.headers) ? ' (warm)' : '';
       http.info(
+        {
+          request_id: request.id,
+          route: request.routeOptions.url,
+          status: reply.statusCode,
+          duration_ms: Number(reply.elapsedTime.toFixed(1)),
+        },
         `${request.method} ${loggableUrl(request)} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms${warm}`,
       );
     }

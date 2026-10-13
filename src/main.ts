@@ -31,7 +31,8 @@ function modelRunner(config: Config, logger: Logger): ModelRunner {
 
 // A boot that fails (bad configuration, a refused migration, a taken port)
 // ends the process, whatever still holds the event loop, so the container
-// reports it. pino's transport flushes on exit.
+// reports it. The logger loses no line: JSON is written synchronously, and
+// the text format's worker flushes on exit (src/logger.ts).
 //
 // Once serving, a crash (an uncaught exception, or an unhandled rejection,
 // which Node raises as one) is sent to the error tracker before the

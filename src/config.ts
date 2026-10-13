@@ -33,11 +33,25 @@ export const ConfigSchema = Type.Object({
     { default: 'production' },
   ),
   PORT: Type.Integer({ minimum: 0, maximum: 65535, default: 3000 }),
-  // The release identity, baked into the image by its build (Dockerfile ARG -> ENV: `sha-<7>`
-  // from ci.yml's publish job). Never set by compose or .env: a runtime value on `:latest`
+  // The release identity, baked into the image by its build (Dockerfile ARG -> ENV: the bare
+  // 7-char sha from ci.yml's publish job, `gate-<n>` from the PR gate). Never set by compose or .env: a runtime value on `:latest`
   // cannot know the build. Unset outside an image; src/build-info.ts falls back to the commit
   // public/build.json records, else `dev`.
   APP_VERSION: Type.Optional(NonEmpty()),
+  // Where this process runs, as the error tracker's `environment`: `production` (the image's
+  // default), `dev` (a laptop, the tests) or `gate` (a smoke boot of a candidate image,
+  // scripts/smoke-image.sh). Explicit rather than NODE_ENV, which every image sets to
+  // production, so a CI boot's events would read as production's.
+  APP_ENV: Type.Union(
+    [Type.Literal('production'), Type.Literal('dev'), Type.Literal('gate')],
+    { default: 'production' },
+  ),
+  // The shape of the console's and app.log's lines (src/logger.ts): `json`, one object per
+  // line (production: Docker hands each to Loki whole), or `text`, pino-pretty for a terminal
+  // (`npm run start:dev` sets it).
+  LOG_FORMAT: Type.Union([Type.Literal('json'), Type.Literal('text')], {
+    default: 'json',
+  }),
   // pino level for both the console and app.log.
   LOG_LEVEL: Type.Union(
     [

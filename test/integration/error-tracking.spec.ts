@@ -52,7 +52,7 @@ describe('error tracking, off without a DSN', () => {
 });
 
 /** The image's APP_VERSION: every event's release. */
-const RELEASE = 'sha-7654321';
+const RELEASE = '7654321';
 
 describe('error tracking with a DSN (a stub Bugsink)', () => {
   let stub: SentryStub;
@@ -134,13 +134,23 @@ describe('error tracking with a DSN (a stub Bugsink)', () => {
     expect(res.statusCode).toBe(500);
 
     const [event] = await exactlyEvents(1);
+    // The id the reply, the log lines and the event share (src/request-context.ts).
+    const requestId = res.headers['x-request-id'];
+    expect(requestId).toMatch(/^[0-9a-f]{12}$/);
     expect(event.tags).toMatchObject({
       source: 'route',
       route: '/wardrobe',
       method: 'POST',
+      request_id: requestId,
     });
     expect(event.user).toEqual({ id: String(t.owner.id) });
-    expect(event.environment).toBe('test');
+    // APP_ENV, never NODE_ENV: the harness runs as `dev`.
+    expect(event.environment).toBe('dev');
+    expect(
+      t.logs.records.filter((record) => record.context === 'Http'),
+    ).toContainEqual(
+      expect.objectContaining({ request_id: requestId, status: 500 }),
+    );
     expect(event.request).toBeUndefined();
     const values = event.exception?.values ?? [];
     expect(values.map((value) => value.value).join('\n')).toContain(
@@ -177,7 +187,7 @@ describe('error tracking with a DSN (a stub Bugsink)', () => {
         message: `TypeError: Cannot read properties of undefined (reading 'id') access_token=${jwt}`,
         stack: CHROMIUM_STACK,
         route: '/wardrobe/:id',
-        release: 'sha-0123456',
+        release: '0123456',
       }),
     );
     expect(res.statusCode).toBe(204);
@@ -187,12 +197,12 @@ describe('error tracking with a DSN (a stub Bugsink)', () => {
       source: 'client',
       route: '/wardrobe/:id',
       // What the page claims: visible, but never the event's release.
-      page_release: 'sha-0123456',
+      page_release: '0123456',
     });
     // The server's own: a signed-in user cannot file events under a release
     // of their choosing.
     expect(event.release).toBe(RELEASE);
-    expect(event.release).not.toBe('sha-0123456');
+    expect(event.release).not.toBe('0123456');
     expect(event.user).toEqual({ id: String(t.owner.id) });
     const [exception] = event.exception?.values ?? [];
     expect(exception.type).toBe('ClientError');

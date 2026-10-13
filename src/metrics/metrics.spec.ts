@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
 import { recordErrors } from '../../test/support/sentry-stub';
-import { Metrics } from './metrics';
+import { JOB_OUTCOMES, Metrics } from './metrics';
 
 function newMetrics(enabled = false) {
   const { logger, logs } = captureLogs();
@@ -103,6 +103,39 @@ describe('Metrics', () => {
     expect(body).toMatch(
       /^job_duration_seconds_count\{name="replan",outcome="failure"\} 1$/m,
     );
+  });
+
+  // The JobFailed alert matches outcome="failure" only: a job that ended in an
+  // error or a timeout under any other word would page no one (finplat's
+  // `error` did, until 2026-10-13). discarded and interrupted are allowed,
+  // non-alerting (owner decision C, docs/decisions.md).
+  it("keeps the job outcomes to the convention's vocabulary", async () => {
+    expect([...JOB_OUTCOMES].sort()).toEqual([
+      'discarded',
+      'failure',
+      'interrupted',
+      'success',
+    ]);
+
+    const { metrics } = newMetrics();
+    for (const outcome of JOB_OUTCOMES) {
+      metrics.observeJob(
+        'cutout',
+        outcome === 'failure'
+          ? { outcome, error: new Error('timed out') }
+          : { outcome },
+        1,
+      );
+    }
+    const { body } = await metrics.exposition();
+    const emitted = new Set(
+      [
+        ...body.matchAll(
+          /^job_duration_seconds_count\{[^}]*outcome="([^"]+)"/gm,
+        ),
+      ].map(([, outcome]) => outcome),
+    );
+    expect([...emitted].sort()).toEqual([...JOB_OUTCOMES].sort());
   });
 
   it('counts photos served by how their files were found', async () => {

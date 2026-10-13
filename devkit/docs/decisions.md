@@ -148,3 +148,29 @@ by its own hook (locus `own-commit`, 2026-10-13). Comparing HEAD also let a stag
 In CI the index equals HEAD; in the hook it is exactly what will be committed.
 **Consequence**: syncs commit through the hook; consumers still on the old script need the
 sync to land once (the hook runs the new vendored copy from the working tree).
+
+## 2026-10-13 — devkit CI runs on docs-only PRs that touch what docs_check judges
+**Why**: devkit once shipped without its CLAUDE.md symlink and broke every consumer's docs-check. CI already ran `docs_check` on devkit, but `paths-ignore: ['**.md', 'docs/**']` skipped exactly the PRs that change AGENTS.md, CLAUDE.md or docs/decisions.md, and devkit has no local gate to catch them.
+**Decision**: the PR trigger is an ordered `paths` list: everything, minus markdown and docs/, plus `**/AGENTS.md`, `**/CLAUDE.md`, `docs/decisions.md`. workflows_check accepts `!**.md` in `paths`. The self-check step runs all three guards before failing. `config_contract.bats` pins the list.
+**Consequence**: a README-only PR still bills nothing; an agent-docs PR bills one run.
+
+## 2026-10-13 — Gate watchdog: a silent job log ends the run
+**Why**: OrbStack paused its VM during an auto-update; a gate's pytest waited on Postgres with no timeout for an hour, holding the machine-wide flock while its log stopped growing.
+**Decision**: `job()` backgrounds make under `set -m` (own process group, stdin from /dev/null) and polls its log size every second. Silent for `GATE_SILENT_MINUTES` (default 15, decimals allowed, 0 disables): TERM the group, KILL after 10s, post `error`, print `GATE <job> WATCHDOG (...)` and `VERDICT FAIL`, exit 2. The EXIT trap now also stops a running job, so a TERMed gate no longer waits for its job to finish.
+**Consequence**: silence, not duration, is the signal: a 40-minute suite that keeps logging is never cut. A job that legitimately prints nothing for 15 min must log progress or the repo raises the variable. Exit 2 and `error` mark the box, not the code, as failed.
+
+## 2026-10-13 — devkit-check reads .devkit-rev from the index too
+**Why**: the tree side was already read from the index, but `.devkit-rev` came from disk, so an unstaged edit to it could vouch for a staged devkit/ tree it would never be committed with (and an unstaged stray edit failed a clean commit).
+**Decision**: `git show :.devkit-rev`; missing from the index fails like a missing file. A bats case covers both directions.
+**Consequence**: devkit-check judges exactly the commit being made, on both sides.
+
+## 2026-10-13 — Reusable quick-check sets up Node only when the repo has `.nvmrc`
+
+**Why:** homelab (bash, compose, one stdlib Python lint) adopts `make ci-quick` through this workflow and has no Node. The unconditional `setup-node` step fails a repo with no `node-version-file`.
+**Decision:** The step runs under `if: hashFiles(inputs.node-version-file) != ''`. A Node repo that drops `.nvmrc` is still caught, by its own `toolchain_check`. A contract test pins the guard.
+**Consequence:** Non-Node consumers call the same reusable workflow with no `.nvmrc` stub.
+
+## 2026-10-13 — `devkit new`: templates rendered by one script, stacks as additive directories
+**Why**: a new repo took weeks to reach the fleet's bar by copying from a sibling and drifting on the way (PLAN §1: "half a day instead of three weeks"). The `ci-*` names had to converge first; they have in six repos.
+**Decision**: `bin/devkit-new.sh` renders `templates/new/common/` then `stacks/<stack>/` (placeholders plus `#@image`/`#@no-image` line blocks), vendors through `devkit-sync.sh --stage` so the scaffold and the vendored tree share ONE first commit, and makes that commit through the hooks: pre-commit runs `make ci-quick`, so every guard has judged the repo before it exists. The hooks, Renovate file and quick-check caller are copied from their one home, never re-typed. Stack choices follow the converged consumers: npm, not pnpm (closet, rollcall); `.python-version` 3.13; no `.nvmrc` in a Python-only repo (the reusable quick-check sets up Node only when `.nvmrc` exists).
+**Consequence**: a tier a stack lacks is an `exit 2` stub the gate plan skips with a note, never a silent pass. `hooks_check.sh --fix` is bypassed for `core.hooksPath` because it no-ops under CI and the contract test runs there. Migrations (alembic), logging shape and Bugsink are the first things a real project adds; the scaffold stops at the health contract. `rust`, `next-vercel` and `swift-app` are new directories, not script changes.

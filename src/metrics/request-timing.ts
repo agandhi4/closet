@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { currentRequest } from '../request-context';
 
 /**
  * Where a request's server time went, for its `Server-Timing` header
@@ -7,10 +7,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * time spent turning JSX into HTML. A device reads both beside its own
  * timings, so a slow tap can be split into server and network.
  *
- * Carried in async context, not passed along: the pool (src/db/client.ts)
- * and the renderer (src/web/render.ts) run far from the request object.
- * Outside a request (the timers, the CLIs) there is no timing and nothing is
- * recorded.
+ * Carried in the request's async context (src/request-context.ts, which
+ * creates it), not passed along: the pool (src/db/client.ts) and the
+ * renderer (src/web/render.ts) run far from the request object. Outside a
+ * request (the timers, the CLIs) there is no timing and nothing is recorded.
  */
 export interface RequestTiming {
   dbMs: number;
@@ -19,23 +19,9 @@ export interface RequestTiming {
   secretChecked: boolean;
 }
 
-const context = new AsyncLocalStorage<RequestTiming>();
-
-export function newRequestTiming(): RequestTiming {
-  return { dbMs: 0, renderMs: 0, secretChecked: false };
-}
-
-/** Runs `next` (a Fastify hook's `done`) and everything it leads to with `timing`. */
-export function runWithRequestTiming(
-  timing: RequestTiming,
-  next: () => void,
-): void {
-  context.run(timing, next);
-}
-
 /** The timing of the request this code runs for, if any. */
 export function currentRequestTiming(): RequestTiming | undefined {
-  return context.getStore();
+  return currentRequest()?.timing;
 }
 
 /**
@@ -51,13 +37,13 @@ export function currentRequestTiming(): RequestTiming | undefined {
  * request; outside one (the seed, the CLIs) it does nothing.
  */
 export function markSecretChecked(): void {
-  const timing = context.getStore();
+  const timing = currentRequestTiming();
   if (timing) timing.secretChecked = true;
 }
 
 /** Awaits `render`, adding its time to the request's `render`. */
 export async function timeRender<T>(render: () => Promise<T>): Promise<T> {
-  const timing = context.getStore();
+  const timing = currentRequestTiming();
   const started = performance.now();
   try {
     return await render();

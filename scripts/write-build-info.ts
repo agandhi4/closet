@@ -7,7 +7,7 @@ import path from 'path';
 // else names the build: inside the image APP_VERSION does (Dockerfile), and
 // the image build has no .git, so there this records just the build time
 // (the asset cache key of an image built without APP_VERSION). A local
-// build records the commit, which names its release `sha-<7>`.
+// build records the commit, whose 7-char sha names its release.
 const OUT_PATH = path.join(__dirname, '..', 'public', 'build.json');
 
 function resolveCommit(): string | undefined {

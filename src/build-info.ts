@@ -6,14 +6,14 @@ import { PROJECT_ROOT } from './project-root';
  * The running build's identity, resolved once by createApp() from
  * config.APP_VERSION. One version string names a build everywhere (owner
  * rule 2026-10-13, docs/decisions.md): the image's APP_VERSION, baked in by
- * its build (`sha-<7>` from ci.yml's publish job, `gate-<n>` from the PR
+ * its build (the bare 7-char sha from ci.yml's publish job, `gate-<n>` from the PR
  * gate, `dev` when built without the arg).
  */
 export interface BuildInfo {
   /**
    * /healthz's `version`, /about, the MCP server's version, the boot log, and
    * the error tracker's release on the server's events and the pages' (the
-   * layout hands it to public/js/errors.js). Outside an image: `sha-<7>` of
+   * layout hands it to public/js/errors.js). Outside an image: the 7-char sha of
    * the commit a local `npm run build` recorded in public/build.json, else
    * `dev` (start:dev, the tests).
    */
@@ -51,8 +51,7 @@ export function loadBuildInfo(
     ? (JSON.parse(readFileSync(buildFile, 'utf8')) as BuildFile)
     : {};
   const release =
-    appVersion ??
-    (build.commit ? `sha-${build.commit.slice(0, 7)}` : DEV_RELEASE);
+    appVersion ?? (build.commit ? build.commit.slice(0, 7) : DEV_RELEASE);
   let assetVersion = release;
   if (release === DEV_RELEASE) {
     const builtAt = build.builtAt ? Date.parse(build.builtAt) : Date.now();
