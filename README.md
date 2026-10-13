@@ -8,7 +8,7 @@ A fork of [Libre Closet](https://github.com/lazztech/libre-closet) by Lazztech L
 
 ## Quick start
 
-Closet needs a PostgreSQL 13+ database (production runs 17).
+Closet needs a PostgreSQL 13+ database (production runs 18).
 
 ```yaml
 services:
@@ -54,6 +54,8 @@ volumes:
   closet_data:
   closet_pg:
 ```
+
+Postgres 18 is current and is what production runs. The example keeps `postgres:17-alpine` because the 18 image expects its volume at `/var/lib/postgresql`, not `/var/lib/postgresql/data`, so moving an existing database to 18 means a dump and restore, not an image bump.
 
 Open [http://localhost:3000](http://localhost:3000) and register an account: login is always required. Once everyone in the household has signed up, set `DISABLE_REGISTRATION=true`.
 

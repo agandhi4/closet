@@ -207,7 +207,7 @@ make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + 
 make gate PR=<n>              # the PR gate (devkit/bin/local_gate.sh, scripts/ci/gate_plan.sh); GATE_ARGS=--no-post
 ```
 
-Builds, test suites, and `npm ci` go through a `build-runner` subagent, never inline.
+Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, never inline.
 
 ## Changing the schema
 
