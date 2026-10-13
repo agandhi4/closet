@@ -116,7 +116,7 @@ describe('scrubEvent', () => {
 
 describe('createErrorTracker', () => {
   const options = {
-    release: undefined,
+    release: 'dev',
     environment: 'test',
     logger: captureLogs().logger,
   };

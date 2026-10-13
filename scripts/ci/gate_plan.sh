@@ -19,7 +19,7 @@ GATE_STATE_NAME=closet-gate
 
 # Paths that change what the production image installs or how it builds. Any other change
 # reaches the image only through `npm run build`, which the e2e job runs.
-IMAGE_PATHS='^(docker/|package(-lock)?\.json$|\.npmrc$|patches/)'
+IMAGE_PATHS='^(Dockerfile$|package(-lock)?\.json$|\.npmrc$|patches/)'
 
 PG_CONTAINER="closet-gate-pg-$PR"
 IMAGE="closet:gate-$PR"
@@ -65,7 +65,7 @@ gate_plan() {
   fi
 
   if changed "$IMAGE_PATHS"; then
-    job image ci-image CI_IMAGE="$IMAGE" GIT_SHA="$HEAD_SHA"
+    job image ci-image CI_IMAGE="$IMAGE" CI_BUILD_VERSION="gate-$PR"
   else
     skip image "no Dockerfile, dependency or patch changes"
   fi

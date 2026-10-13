@@ -3,7 +3,7 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyFormbody from '@fastify/formbody';
 import fastifyMultipart from '@fastify/multipart';
 import Fastify, { type FastifyInstance, LogController } from 'fastify';
-import { BUILD_INFO } from './build-info';
+import { loadBuildInfo } from './build-info';
 import { type Config, orderMailSenders, trustedProxies } from './config';
 import { countPendingCutouts } from './cutout/queries';
 import { CutoutQueue } from './cutout/queue';
@@ -138,23 +138,22 @@ export async function createApp(
   boot.info(`NODE_ENV: ${config.NODE_ENV}`);
   boot.info(`DATA_PATH: ${config.DATA_PATH}`);
   boot.info(`Trusted proxies: ${trustProxy.join(', ')}`);
-  boot.info(
-    `Build ${BUILD_INFO.version} (${BUILD_INFO.commit ?? 'no commit'}), static cache key ${BUILD_INFO.assetVersion}`,
-  );
+  const build = loadBuildInfo(config.APP_VERSION);
+  boot.info(`Release ${build.release}, static cache key ${build.assetVersion}`);
 
   boot.info(
     `Metrics: ${config.METRICS_ENABLED ? 'on (GET /metrics, POST /metrics/vitals)' : 'off (METRICS_ENABLED=false)'}`,
   );
   const errors = await createErrorTracker({
     dsn: config.SENTRY_DSN,
-    release: BUILD_INFO.sha,
+    release: build.release,
     environment: config.NODE_ENV,
     logger: logger.child({ context: 'ErrorTracking' }),
   });
   // The DSN's host only: its key is a credential of sorts.
   boot.info(
     errors.enabled
-      ? `Error tracking: on (${new URL(config.SENTRY_DSN).host}, release ${BUILD_INFO.commit ?? 'unknown'})`
+      ? `Error tracking: on (${new URL(config.SENTRY_DSN).host}, release ${build.release})`
       : 'Error tracking: off (SENTRY_DSN unset)',
   );
   const metrics = new Metrics({
@@ -270,6 +269,8 @@ export async function createApp(
     metricsEnabled: config.METRICS_ENABLED,
     errorTrackingEnabled: errors.enabled,
     orderMailOwner: orderMail?.ownerEmail,
+    release: build.release,
+    assetVersion: build.assetVersion,
   });
   // Declared up front so every request object has the same shape; the hook
   // below fills them (both stay undefined on static paths).
@@ -347,6 +348,7 @@ export async function createApp(
       registrationDisabled: config.DISABLE_REGISTRATION,
       vapid,
       orderMailOwner: orderMail?.ownerEmail,
+      release: build.release,
     },
     logger: web,
     db,

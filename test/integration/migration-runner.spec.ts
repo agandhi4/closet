@@ -136,7 +136,7 @@ describe('a database built by the legacy MikroORM migrations', () => {
     });
     expect(legacy?.password).toBe('x');
     const res = await t.inject({ method: 'GET', url: '/healthz' });
-    expect(res.statusCode).toBe(204);
+    expect(res.statusCode).toBe(200);
   });
 
   it('is current for the CLIs once booted', async () => {
