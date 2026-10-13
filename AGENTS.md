@@ -10,13 +10,13 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 
 - **Runtime**: Node 22 (`.nvmrc`), TypeScript, plain **Fastify 5** (no framework on top), built by `tsc` to `dist/`.
 - **Views**: server-rendered typed JSX (`hono/jsx` to strings, no Hono server) in `src/web/`, htmx 2, a few modules in `public/js/`. Not a SPA; no JSON API for the UI.
-- **CSS**: Tailwind v4 + daisyUI (`views/assets/main.css` to `public/bundle.css`; `views/assets/CLAUDE.md`).
+- **CSS**: Tailwind v4 + daisyUI (`views/assets/main.css` to `public/bundle.css`; `views/assets/AGENTS.md`).
 - **Data**: PostgreSQL 18 only (production, pgvault-dev, and the throwaway containers the gate and CI test on). **Drizzle ORM owns the schema, the migrations and every query** (`src/db/schema.ts`, `drizzle/`, applied at boot).
-- **Auth**: a JWT in an httpOnly `access_token` cookie, into `req.auth` per request; `/mcp` takes personal access tokens. Every route that changes or hands out a credential asks for the current password (`src/web/auth/CLAUDE.md`).
+- **Auth**: a JWT in an httpOnly `access_token` cookie, into `req.auth` per request; `/mcp` takes personal access tokens. Every route that changes or hands out a credential asks for the current password (`src/web/auth/AGENTS.md`).
 - **PWA**: Workbox `injectManifest` over `views/assets/src-sw.ts` (to `public/sw.js`), Web Push via `web-push` + VAPID; gated by `PWA_ENABLED`.
 - **Images**: `sharp`, `heic-decode`; background removal on the server only (BiRefNet, `onnxruntime-node`, a child process). Storage: local disk under `DATA_PATH`, the only backend.
 - **i18n**: English only, `src/i18n/en/lang.json`, `t('KEY')` typed to its keys. **Logging**: one pino logger (`src/logger.ts`), a child per module.
-- **Tests**: Vitest unit, Vitest integration (the real app in-process on a scratch Postgres database) and Playwright; `test/CLAUDE.md`.
+- **Tests**: Vitest unit, Vitest integration (the real app in-process on a scratch Postgres database) and Playwright; `test/AGENTS.md`.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ src/
   db/ maintenance/ metrics/ cutout/ wardrobe/ push/ weather/ seed/   each: see the area index
 views/assets/     main.css, src-sw.ts, fonts.css
 public/           sw.js, bundle.css, vendor/, modules/, js/, assets/ (generated from icon.svg)
-test/             Playwright specs; support/, integration/: test/CLAUDE.md
+test/             Playwright specs; support/, integration/: test/AGENTS.md
 drizzle/          generated migrations + meta/ (journal, snapshots)
 docs/             DESIGN.md (upstream entity model: assess feature work against it), architecture.md,
                   web-layer.md, conventions.md, history.md (this file's detail, read on demand),
@@ -46,47 +46,47 @@ docs/             DESIGN.md (upstream entity model: assess feature work against 
 
 ### Area index
 
-Each area's detail lives in a `CLAUDE.md` beside its code. Claude Code loads one when a file in its directory is read; when planning work in an area, read its doc first. A "see Wardrobe" elsewhere means that area's doc.
+Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a symlink to it so Claude Code loads it when a file in its directory is read; when planning work in an area, read its doc first. A "see Wardrobe" elsewhere means that area's doc.
 
 | Area | Doc | Read it when the work touches |
 | --- | --- | --- |
-| Request security | `src/web/security/CLAUDE.md` | CSRF, rate limits, proxies, outbound fetches, redirects, logout, session revocation |
-| Auth | `src/web/auth/CLAUDE.md` | the session, passwords, emails, the step-up rule |
-| Images | `src/web/files/CLAUDE.md` | storing, serving, deleting or referencing photos, pending photos |
-| Background removal | `src/cutout/CLAUDE.md` | cutouts, their state machine, the queue, the model child |
-| Wardrobe | `src/web/wardrobe/CLAUDE.md` | garments: the grid, the form, properties, bulk edit, tagging, search |
-| Link import | `src/web/wardrobe/link-import/CLAUDE.md` | adding a garment from a product link or Android's share sheet |
-| The garment model | `src/wardrobe/CLAUDE.md` | the pure rules in `src/wardrobe/`, adding an occasion or a property value |
-| Wishlist | `src/web/wishlist/CLAUDE.md` | the wishlist (Muse's inbox, its decision screen), a garment's status, "Bought it", the retired plans' addresses |
-| Style profile | `src/web/style/CLAUDE.md` | the style profile (what the agent reads of your taste) |
-| Capsules | `src/web/capsules/CLAUDE.md` | capsules and the capsule filter |
-| Wears and washes | `src/web/wears/CLAUDE.md` | wears, washes, away, laundry, availability |
-| Insights | `src/web/insights/CLAUDE.md` | the insights page |
-| Sharing | `src/web/sharing/CLAUDE.md` | the access resolver; which surfaces are share-aware vs owner-only |
-| Sizes | `src/web/sizes/CLAUDE.md` | sizes, body measurements, the brand hint |
-| Seed personas | `src/seed/CLAUDE.md` | the seed, the persona bibles, demo data |
-| Calendar | `src/web/calendar/CLAUDE.md` | the calendar, its entries and occasions |
-| Trips | `src/web/trips/CLAUDE.md` | trips and packing lists |
-| Outfit selfies | `src/web/selfies/CLAUDE.md` | selfies of worn entries |
-| Weather | `src/weather/CLAUDE.md` | the forecast, climate normals, `/weather/*` |
-| Outfits | `src/web/outfits/CLAUDE.md` | outfits, deleting one, what holds one |
-| Styling | `src/web/styling/CLAUDE.md` | the outfit composer |
-| Snap strip | `src/web/strip/CLAUDE.md` | the scroll-snap carousel (`SnapStrip`, `snap-strip.js`) Styling and the plan review share |
-| Outfit gallery | `src/web/gallery/CLAUDE.md` | the Ideas tab and anything that suggests outfits (`ideasFor`) |
-| Today | `src/web/today/CLAUDE.md` | the home screen |
-| Weekly auto-plan | `src/web/week-plan/CLAUDE.md` | "Plan my week", the daily re-plan, `planned_by` |
-| Web Push | `src/push/CLAUDE.md` | subscriptions, notifications, reminders |
-| MCP server | `src/web/mcp/CLAUDE.md` | `/mcp`, its tools, personal access tokens |
-| PWA and the service worker | `src/web/shell/CLAUDE.md` | the service worker, caching, offline, install, updates, static delivery |
-| Styles and fonts | `views/assets/CLAUDE.md` | the theme, colours, fonts |
-| Layout | `src/web/layout/CLAUDE.md` | the app bar, the dock, sections, stacking, a page's `<main>` |
-| Database | `src/db/CLAUDE.md` | schema internals, drizzle-kit traps, the MikroORM-era adoption |
-| Maintenance | `src/maintenance/CLAUDE.md` | the timers, storage reconciliation, the CLIs |
-| Metrics | `src/metrics/CLAUDE.md` | `/metrics`, Server-Timing, the device timings, a new timer or label |
-| Tests | `test/CLAUDE.md` | the integration harness, Playwright's server, Vitest traps |
+| Request security | `src/web/security/AGENTS.md` | CSRF, rate limits, proxies, outbound fetches, redirects, logout, session revocation |
+| Auth | `src/web/auth/AGENTS.md` | the session, passwords, emails, the step-up rule |
+| Images | `src/web/files/AGENTS.md` | storing, serving, deleting or referencing photos, pending photos |
+| Background removal | `src/cutout/AGENTS.md` | cutouts, their state machine, the queue, the model child |
+| Wardrobe | `src/web/wardrobe/AGENTS.md` | garments: the grid, the form, properties, bulk edit, tagging, search |
+| Link import | `src/web/wardrobe/link-import/AGENTS.md` | adding a garment from a product link or Android's share sheet |
+| The garment model | `src/wardrobe/AGENTS.md` | the pure rules in `src/wardrobe/`, adding an occasion or a property value |
+| Wishlist | `src/web/wishlist/AGENTS.md` | the wishlist (Muse's inbox, its decision screen), a garment's status, "Bought it", the retired plans' addresses |
+| Style profile | `src/web/style/AGENTS.md` | the style profile (what the agent reads of your taste) |
+| Capsules | `src/web/capsules/AGENTS.md` | capsules and the capsule filter |
+| Wears and washes | `src/web/wears/AGENTS.md` | wears, washes, away, laundry, availability |
+| Insights | `src/web/insights/AGENTS.md` | the insights page |
+| Sharing | `src/web/sharing/AGENTS.md` | the access resolver; which surfaces are share-aware vs owner-only |
+| Sizes | `src/web/sizes/AGENTS.md` | sizes, body measurements, the brand hint |
+| Seed personas | `src/seed/AGENTS.md` | the seed, the persona bibles, demo data |
+| Calendar | `src/web/calendar/AGENTS.md` | the calendar, its entries and occasions |
+| Trips | `src/web/trips/AGENTS.md` | trips and packing lists |
+| Outfit selfies | `src/web/selfies/AGENTS.md` | selfies of worn entries |
+| Weather | `src/weather/AGENTS.md` | the forecast, climate normals, `/weather/*` |
+| Outfits | `src/web/outfits/AGENTS.md` | outfits, deleting one, what holds one |
+| Styling | `src/web/styling/AGENTS.md` | the outfit composer |
+| Snap strip | `src/web/strip/AGENTS.md` | the scroll-snap carousel (`SnapStrip`, `snap-strip.js`) Styling and the plan review share |
+| Outfit gallery | `src/web/gallery/AGENTS.md` | the Ideas tab and anything that suggests outfits (`ideasFor`) |
+| Today | `src/web/today/AGENTS.md` | the home screen |
+| Weekly auto-plan | `src/web/week-plan/AGENTS.md` | "Plan my week", the daily re-plan, `planned_by` |
+| Web Push | `src/push/AGENTS.md` | subscriptions, notifications, reminders |
+| MCP server | `src/web/mcp/AGENTS.md` | `/mcp`, its tools, personal access tokens |
+| PWA and the service worker | `src/web/shell/AGENTS.md` | the service worker, caching, offline, install, updates, static delivery |
+| Styles and fonts | `views/assets/AGENTS.md` | the theme, colours, fonts |
+| Layout | `src/web/layout/AGENTS.md` | the app bar, the dock, sections, stacking, a page's `<main>` |
+| Database | `src/db/AGENTS.md` | schema internals, drizzle-kit traps, the MikroORM-era adoption |
+| Maintenance | `src/maintenance/AGENTS.md` | the timers, storage reconciliation, the CLIs |
+| Metrics | `src/metrics/AGENTS.md` | `/metrics`, Server-Timing, the device timings, a new timer or label |
+| Tests | `test/AGENTS.md` | the integration harness, Playwright's server, Vitest traps |
 | Deployment (not auto-loaded) | `docs/deployment.md` | production, its env, recovery, CI publishing |
 
-`src/web/weather/CLAUDE.md` and `src/web/push/CLAUDE.md` only point to Weather's and Web Push's docs. `npm run docs:check` (in `npm run check`) holds this file to 30 KB and each area doc to 16 KB, and this index to the docs on disk.
+`src/web/weather/AGENTS.md` and `src/web/push/AGENTS.md` only point to Weather's and Web Push's docs. `make docs-check` (in `ci-quick`) holds every doc to AGENTS.md real + CLAUDE.md symlink, this file to 30 KB and each area doc to 16 KB (devkit), and this index to the docs on disk (`scripts/ci/docs_rules.sh`).
 
 ### Routes
 
@@ -116,7 +116,7 @@ Each rule in full, with its story: `docs/web-layer.md`. A feature lives whole (r
 
 ### Request security
 
-The detail of each rule, its code and its spec: `src/web/security/CLAUDE.md`. What every change keeps:
+The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. What every change keeps:
 
 - **CSRF**: the root same-origin hook 403s a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site, before the body is read. Nothing changes state on a GET. The harness sends an Origin; Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
 - **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `WEATHER_SEARCH_LIMIT`, `WEATHER_LOCATION_LIMIT`, `MCP_LIMIT`.
@@ -155,9 +155,9 @@ npm run start:prod            # node dist/main.js (the image runs `node dist/mai
 npm run start:test            # the build with background removal stubbed (test/support/test-server.ts): what
                               # Playwright and Lighthouse start; never downloads the model
 # The CLIs run from dist/ (build first) and never migrate; their flags, and how to run them on linux-box:
-npm run maintenance:reconcile # src/maintenance/CLAUDE.md, like user:set-password and push:revoke-all
-npm run seed                  # src/seed/CLAUDE.md
-npm run cutout:fetch-model    # src/cutout/CLAUDE.md
+npm run maintenance:reconcile # src/maintenance/AGENTS.md, like user:set-password and push:revoke-all
+npm run seed                  # src/seed/AGENTS.md
+npm run cutout:fetch-model    # src/cutout/AGENTS.md
 
 npm run lint                  # eslint --fix (src, test, scripts); lint:check is the no-fix, cached gate
 npm run format                # prettier --write; format:check is the cached gate
@@ -178,21 +178,21 @@ npm run test:int              # Vitest integration project: real app in-process,
                               # Postgres 18 container (devkit/bin/throwaway_pg.sh).
 npm run test:e2e              # build, then playwright (all browsers); start:test on :3000 unless one is running.
 npm run test:e2e:smoke        # build, then the smoke spec in chromium
-                              # the PWA specs skip unless the server runs with PWA_ENABLED: test/CLAUDE.md
+                              # the PWA specs skip unless the server runs with PWA_ENABLED: test/AGENTS.md
 npm run audit:pages           # every page/action as the demo persona vs docs/perf/ (docs/perf/README.md)
 npm run lighthouse            # lhci autorun
 
 npm run test:all              # every Vitest project in one run (vitest.config.ts); test:cov adds v8 coverage in coverage/
 npm run typecheck             # tsc: app + tests + scripts, then the service worker (~3 s cold)
-npm run check                 # check:static (docs:check, format:check, lint:check, typecheck) and test:all in
-                              # parallel (~80 s on 16 cores). The pre-commit hook. `precommit` is an alias.
+npm run check                 # check:static (format:check, lint:check, typecheck) and test:all in
+                              # parallel (~80 s on 16 cores). `precommit` is an alias.
                               # The gate runs the halves as two jobs: `make ci-quick` and `make ci-db`.
-npm run verify:push           # build + Chromium Playwright against the fresh build. The pre-push hook, only
-                              # for a push to main (branches are verified by the gate on their PR)
+npm run verify:push           # build + Chromium Playwright against the fresh build (the gate: make ci-e2e)
 npm run precommit:full        # check + verify:push + page audit + lighthouse (minutes)
 
-# Git hooks live in .githooks/ and are installed by `npm install` (the prepare script sets
-# core.hooksPath; skipped where there is no .git, e.g. the Docker build). They need pgvault-dev; their quiet output: docs/git-hooks.md.
+# Git hooks (.githooks/, devkit's templates): `make install` once per checkout or worktree sets
+# core.hooksPath; `make hooks-check` reports a repoint. pre-commit runs make ci-quick, pre-push
+# make ci-unit (scripts/ci/hooks.conf); neither needs Postgres or a browser.
 
 # Schema change: edit src/db/schema.ts, then write drizzle/NNNN_<name>.sql + snapshot (no database
 # needed). The next boot applies it. See Changing the schema.
@@ -232,7 +232,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - **Upstream references are attribution only** (About, README, comments citing upstream issues); anything else is a rebrand regression: grep before a PR.
 - **`npm install <package>` skips our `postinstall`**, so `patches/` are unapplied and the drift test fails; run `npx patch-package` or `npm ci`.
 - **Regenerate `package-lock.json` only with Node 22 / npm 10**: npm 11 prunes entries the Docker build's `npm ci` needs.
-- **macOS needs `sudo ifconfig lo0 alias 127.0.0.2`** before the integration tier or `npm run check` (the pre-commit hook): without it about 22 specs fail with EADDRNOTAVAIL (`test/integration/link-sites.ts`).
+- **macOS needs `sudo ifconfig lo0 alias 127.0.0.2`** before the integration tier or `npm run check`: without it about 22 specs fail with EADDRNOTAVAIL (`test/integration/link-sites.ts`).
 - **`public/build.json` lingers after `npm run build`**: stale styles in `start:dev`; set `NODE_ENV=development` in `.env.local` or delete it. `precommit:full` is minutes long.
 
 ## Workflow
@@ -249,7 +249,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - **The flow per issue slice:** a branch (`<issue>-<slug>`, e.g. `12b-bulk-edit`), in its own git worktree when agents work in parallel; the fast loop locally (the spec being worked on, and the pre-commit `npm run check`, ~80 s); push and open a PR that links the issue (`Part of #12` / `Closes #12`); the **local gate** verifies: `make gate PR=<n>` runs the Makefile's `ci-*` jobs the diff can affect (`scripts/ci/gate_plan.sh`) on the PR merged into `origin/main`, on a throwaway Postgres 18 container, and posts `local-gate`; fork PRs are refused (public repo). Actions only publishes. An independent review of the PR diff; **Codex's go-ahead** (owner, 2026-09-27): `~/.claude/scripts/agent-worker/codex_gate.py wait agandhi4/closet <pr>` asks `@codex review` of the head commit and sets the required `codex-review` status. It passes once Codex reviewed that SHA and every thread is resolved. Answer each thread (`threads agandhi4/closet <pr>`, same script): fix what's valid or reply with the reason it isn't, then `reply <thread> "…" --resolve`. Every push needs a new `wait`. Docs-only PRs skip Codex (status "docs-only"); batch pushes to spare quota. **At its usage limit (`error`), an adversarial Claude review stands in** and, once addressed, sets `codex-review` success ("Claude adversarial review (Codex at limit)"). The merge queue (`closet_merge_queue.sh`) then gates and squash-merges pinned to the gated head; never `gh pr merge --auto`. Merging publishes the image, then deploys. The owner may stop any PR (comment or close).
 - **Phone-width checks** still happen before a feature is called done: Playwright at 390 px, run locally in the one worktree that is not racing another for `:3000`, or from CI's uploaded artifacts.
 - **Migrations and parallel branches:** two branches that each generate `NNNN` collide in `drizzle/meta/_journal.json`. The later branch rebases on `main`, deletes its migration and snapshot, and regenerates (`npx drizzle-kit generate`); the drift test in the gate proves the result. Never hand-merge a journal.
-- The pre-commit hook runs `npm run check`; never bypass it with `--no-verify` to get a commit through. If a hook fails, fix and create a new commit, never amend. The pre-push hook runs the browser suite only for a push to `main` (a docs fix the owner pushes directly; admins can still push, the checks are not enforced on them).
+- The pre-commit hook runs `make ci-quick` and the pre-push hook `make ci-unit`; never bypass either with `--no-verify`. If a hook fails, fix and create a new commit, never amend.
 - Commit messages: concise, why over what.
-- When a new pattern or gotcha lands, write it in its area's `CLAUDE.md` (the area index; this file only for what every change needs) in the same commit, and append a dated `docs/PROJECT_LOG.md` entry for the decision behind it in the same change.
+- When a new pattern or gotcha lands, write it in its area's `AGENTS.md` (the area index; this file only for what every change needs) in the same commit, and add a dated `docs/decisions.md` entry for the decision behind it in the same change.
 - No upstream sync: closet is a hard fork and never merges from Libre Closet. Restructure freely; offering a fix back upstream is optional, not part of the workflow.

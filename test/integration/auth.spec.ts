@@ -34,7 +34,7 @@ describe('sessions', () => {
     const token = res.cookies.find((c) => c.name === 'access_token');
     expect(token?.httpOnly).toBe(true);
     expect(token?.path).toBe('/');
-    // Not sent on cross-site POSTs; never Secure (CLAUDE.md, Conventions).
+    // Not sent on cross-site POSTs; never Secure (AGENTS.md, Conventions).
     expect(token?.sameSite).toBe('Lax');
     expect(token?.secure).toBeUndefined();
   });

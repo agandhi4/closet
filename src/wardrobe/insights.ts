@@ -11,7 +11,7 @@ import { fromCents, toCents } from './money';
  * here does date arithmetic. The page (src/web/insights/) and the MCP tool
  * wardrobe_stats (src/web/mcp/tools/insights.ts) both read this.
  *
- * The definitions (CLAUDE.md, Insights, repeats them):
+ * The definitions (AGENTS.md, Insights, repeats them):
  * - The closet is the owner's garments in it (inCloset: not archived, not
  *   the wishlist). Every figure is per garment: a set of identical copies
  *   (quantity 3) is one garment, worn when any copy was. Quantity counts

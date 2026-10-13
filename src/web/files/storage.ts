@@ -85,7 +85,7 @@ export class PhotoStorage {
    * Atomic: until it resolves, readers see no file under `fileName` (or the
    * previous one), never a partial write; a rejected store leaves nothing
    * behind. Photo and cutout are written concurrently and the thumb writer
-   * reads whichever exists, which is why this matters (CLAUDE.md Gotchas).
+   * reads whichever exists, which is why this matters (AGENTS.md Gotchas).
    */
   async store(fileName: string, stream: Readable): Promise<void> {
     const tempPath = path.join(this.incoming, `${randomUUID()}-${fileName}`);

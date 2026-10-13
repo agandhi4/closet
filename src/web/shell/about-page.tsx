@@ -17,7 +17,7 @@ export function AboutPage({ ctx }: { ctx: ViewContext }) {
       <main class="flex flex-col items-center pt-20 pb-24 px-4">
         <div class="max-w-2xl w-full prose">
           {/* ABOUT_INTRO carries the upstream attribution link (the one
-              permitted upstream reference, CLAUDE.md Gotchas). */}
+              permitted upstream reference, AGENTS.md Gotchas). */}
           <p
             class="mb-6"
             dangerouslySetInnerHTML={{

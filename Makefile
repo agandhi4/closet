@@ -1,4 +1,4 @@
-.PHONY: help ci-deps ci-quick ci-unit ci-db ci-e2e ci-image ci-smoke gate devkit-sync devkit-check toolchain-check release-check workflows-check
+.PHONY: help ci-deps ci-quick ci-unit ci-db ci-e2e ci-image ci-smoke gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
@@ -19,7 +19,8 @@ SMOKE_PG_CONTAINER ?= closet-smoke-pg
 
 help:
 	@echo "make ci-deps          — npm ci (patches applied by postinstall)"
-	@echo "make ci-quick         — devkit-check, toolchain-check, release-check, workflows-check, then check:static"
+	@echo "make install          — once per checkout or worktree: devkit-check, then point core.hooksPath at .githooks"
+	@echo "make ci-quick         — devkit-check, toolchain-check, release-check, workflows-check, docs-check, then check:static"
 	@echo "make ci-unit          — the Vitest unit projects; no database"
 	@echo "make ci-db            — every Vitest project with the coverage ratchet, on a throwaway Postgres 18"
 	@echo "make ci-e2e           — build, then Playwright chromium against a throwaway Postgres 18 (PWA on, PORT random)"
@@ -31,11 +32,13 @@ help:
 	@echo "make toolchain-check  — fail if a Dockerfile or workflow disagrees with the Node in .nvmrc (part of ci-quick)"
 	@echo "make release-check    — fail unless the image is APP_VERSION's only source (part of ci-quick)"
 	@echo "make workflows-check  — fail unless the workflows follow devkit's Actions rules (part of ci-quick)"
+	@echo "make docs-check       — AGENTS.md real + CLAUDE.md symlink, size caps, the area index (part of ci-quick)"
+	@echo "make hooks-check      — fail unless core.hooksPath is .githooks and both hooks are executable"
 
 ci-deps:
 	npm ci --no-audit --no-fund
 
-ci-quick: devkit-check toolchain-check release-check workflows-check
+ci-quick: devkit-check toolchain-check release-check workflows-check docs-check
 	npm run check:static
 
 ci-unit:
@@ -109,3 +112,16 @@ release-check:
 
 workflows-check:
 	devkit/bin/workflows_check.sh
+
+# Devkit's rules, plus closet's area index (scripts/ci/docs_rules.sh). Caps allowlist, if one is
+# ever needed: scripts/ci/docs_oversize.txt.
+docs-check:
+	devkit/bin/docs_check.sh
+
+hooks-check:
+	devkit/bin/hooks_check.sh
+
+# Steps: scripts/ci/hooks.conf. --fix rewrites core.hooksPath, so a tool that repointed it is
+# undone by the next install.
+install: devkit-check
+	devkit/bin/hooks_check.sh --fix

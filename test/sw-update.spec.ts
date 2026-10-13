@@ -4,7 +4,7 @@ import { type NextBuild, startNextBuild } from './support/next-build';
 import { pageErrors } from './support/page-errors';
 
 /**
- * The installed app's update flow (src/web/shell/CLAUDE.md, Updates): a new
+ * The installed app's update flow (src/web/shell/AGENTS.md, Updates): a new
  * build's worker waits, public/js/pwa.js offers it in a toast, Reload posts
  * SKIP_WAITING, and the page reloads once the new worker controls it. Never
  * a forced reload, in this window or another.

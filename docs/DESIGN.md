@@ -4,7 +4,7 @@
 > scope and entity model are still the reference for feature work, but the
 > technology it names is gone: no SQLite (Postgres only), no Handlebars views
 > (typed JSX in `src/web/`), no NestJS or MikroORM (plain Fastify and
-> Drizzle), no S3. `CLAUDE.md` describes the system as it is.
+> Drizzle), no S3. `AGENTS.md` describes the system as it is.
 
 The inspiration here is for closet organization/management. This is predominantly oriented towards clothing, though may grow for other asset collection tracking.
 

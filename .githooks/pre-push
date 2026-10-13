@@ -1,15 +1,8 @@
-#!/bin/sh
-# Build + Chromium Playwright against a freshly built server, but only when
-# pushing to main (a docs fix the owner pushes directly). Branches are
-# verified by CI on their pull request, which main requires to pass
-# (branch protection): running the browser suite here too would double the
-# work, and parallel agents' pushes would race for :3000, where Playwright
-# reuses whatever server is listening. Stop `npm run start:dev` first when
-# it does run, or it tests that instead of this build. Its output goes to a log:
-# one line on success, its tail on failure (scripts/git-hook.ts, docs/git-hooks.md).
-while read -r _local_ref _local_sha remote_ref _remote_sha; do
-  if [ "$remote_ref" = "refs/heads/main" ]; then
-    exec node -r ts-node/register/transpile-only scripts/git-hook.ts pre-push
-  fi
-done
-exit 0
+#!/usr/bin/env bash
+# Copy unchanged to .githooks/pre-push. Steps live in scripts/ci/hooks.conf; the format and
+# behaviour are in devkit/bin/hook_steps.sh. Installed by devkit/bin/hooks_check.sh --fix.
+set -uo pipefail
+ROOT=$(git rev-parse --show-toplevel) || exit 1
+# shellcheck source=/dev/null
+. "$ROOT/devkit/bin/quiet_run.sh" && . "$ROOT/devkit/bin/hook_steps.sh" || exit 1
+run_hook_steps pre-push "$@"

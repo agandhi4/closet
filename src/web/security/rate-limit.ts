@@ -17,7 +17,7 @@ import type { Logger } from '../../logger';
  * The client address is `request.ip`, which Fastify takes from
  * X-Forwarded-For only when the peer is in TRUSTED_PROXIES. Behind Caddy,
  * TRUSTED_PROXIES must include Caddy's address, or every visitor shares
- * Caddy's IP and one person's typos lock out the household (CLAUDE.md,
+ * Caddy's IP and one person's typos lock out the household (AGENTS.md,
  * Deployment).
  */
 export async function registerRateLimit(

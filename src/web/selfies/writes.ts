@@ -11,7 +11,7 @@ import { deleteSelfie, type SelfieOutcome, setEntrySelfie } from './queries';
 
 /**
  * The selfie writes that involve photo bytes, which a transaction cannot
- * roll back (CLAUDE.md Gotchas, the commit contract): Photos stores the
+ * roll back (AGENTS.md Gotchas, the commit contract): Photos stores the
  * bytes and returns the row; setEntrySelfie inserts it with the selfie and
  * the entry's worn mark in one transaction; bytes of a refused or failed
  * write are deleted, and bytes a committed write replaced or removed are

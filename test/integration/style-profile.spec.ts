@@ -9,7 +9,7 @@ import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
 import { expectFullPage } from './pages';
 
 /**
- * The style profile (#34, slice 34a; src/web/style/CLAUDE.md), through
+ * The style profile (#34, slice 34a; src/web/style/AGENTS.md), through
  * HTTP: the form saves every part and shows it again, its sets only take
  * their own values, the week's rhythm and the home city are shown
  * read-only from where they live, and nobody else reads it. Moved whole

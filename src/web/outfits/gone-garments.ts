@@ -209,7 +209,7 @@ function refusalMessage(gone: readonly GoneGarment[]): string {
  * written. A 409 when every one is the owner's (archived, on the
  * wishlist: named, so the person knows which to change); a 404 when any
  * is not a garment of theirs, the answer an unknown id gets everywhere
- * (CLAUDE.md, Request security: refusals do not reveal ids), with the
+ * (AGENTS.md, Request security: refusals do not reveal ids), with the
  * same words. Styling answers it with its page, the rows kept
  * (src/web/styling); anywhere else it is the error page or the MCP tool
  * error.

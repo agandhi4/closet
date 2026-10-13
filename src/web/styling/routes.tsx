@@ -824,7 +824,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // A strip's next page (its sentinel). Always a fragment. The capsule
   // needs no lookup here: inCapsule matches none of the wardrobe's
-  // garments for a capsule of another (CLAUDE.md, Gotchas).
+  // garments for a capsule of another (AGENTS.md, Gotchas).
   app.get(
     STYLING_GARMENTS_PATH,
     { schema: { querystring: GarmentsQuery } },

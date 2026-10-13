@@ -279,7 +279,7 @@ function GarmentItem(props: {
  * The end of the strip's window: fetches the next page of the role's cycle
  * when it scrolls into view and is replaced by it (and its own sentinel).
  * `intersect`, not `revealed`: that one watches the window's scroll, never
- * a horizontal strip's (CLAUDE.md, Gotchas).
+ * a horizontal strip's (AGENTS.md, Gotchas).
  */
 function StripSentinel(props: {
   role: GarmentRole;

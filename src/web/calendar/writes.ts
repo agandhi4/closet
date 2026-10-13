@@ -7,7 +7,7 @@ import { deleteEntry } from './queries';
 /**
  * POST /calendar/:id/delete: deletes the owner's entry with its wears and
  * its selfie's row (deleteEntry, one transaction), then the selfie's bytes,
- * which no transaction holds (CLAUDE.md Gotchas, "The DB cascade deletes
+ * which no transaction holds (AGENTS.md Gotchas, "The DB cascade deletes
  * rows, never bytes"). False when the entry is not theirs.
  */
 export async function removeEntry(

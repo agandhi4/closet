@@ -8,7 +8,7 @@ stub cuts out an ellipse of the photo.
 ## Why the stub answers at once
 
 The queue runs one photo at a time for the whole server
-(`src/cutout/CLAUDE.md`), and every Playwright worker shares that server. The
+(`src/cutout/AGENTS.md`), and every Playwright worker shares that server. The
 stub used to take 3 s a photo, so a spec's cutout waited 3 s for every photo
 the other workers had queued before it: with four workers uploading, or a
 database left with pending rows, a cutout took longer than the spec's 15 s
