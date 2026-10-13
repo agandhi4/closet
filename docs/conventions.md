@@ -1,6 +1,6 @@
 # Conventions, config, logging and tooling in full
 
-Read on demand (not auto-loaded). The root `CLAUDE.md` keeps each rule here as one line with its guard; this is the detail. The web layer's own rules (forms, htmx, Fastify, JSX, colours, client scripts) are in `docs/web-layer.md`. Moved out of the root in #259.
+Read on demand (not auto-loaded). The root `AGENTS.md` keeps each rule here as one line with its guard; this is the detail. The web layer's own rules (forms, htmx, Fastify, JSX, colours, client scripts) are in `docs/web-layer.md`. Moved out of the root in #259.
 
 ## Config
 

@@ -22,7 +22,7 @@ import { BANDS, type Band, type Weather, weatherFor } from './weather';
  * bible's Simulation section, demo.md): which saved outfit on which day,
  * evenings out, what got logged and worn, laundry. Pure and deterministic:
  * the same persona and anchor give the same entries (random.ts). Later
- * features extend this rather than writing rows beside it (CLAUDE.md, Seed
+ * features extend this rather than writing rows beside it (AGENTS.md, Seed
  * personas): wears and washes (#7) are its worn entries and its Sundays,
  * judged by the app's own wash rules (src/wardrobe/availability.ts);
  * occasions (#13) are each entry's part of the day, with the week's morning

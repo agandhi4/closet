@@ -1,6 +1,6 @@
 # Adding and editing a garment: what each request reads
 
-Part of the Wardrobe (`CLAUDE.md` in this directory); #161, epic #156. Production reaches Postgres over a link of about 114 ms a round trip, so the count of statements is the latency; `test/integration/garment-form-statements.spec.ts` pins every count below. Read this before adding a read to the form or a statement to a save.
+Part of the Wardrobe (`AGENTS.md` in this directory); #161, epic #156. Production reaches Postgres over a link of about 114 ms a round trip, so the count of statements is the latency; `test/integration/garment-form-statements.spec.ts` pins every count below. Read this before adding a read to the form or a statement to a save.
 
 ## The forms
 

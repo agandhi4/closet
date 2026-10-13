@@ -43,7 +43,7 @@ export type SelfieOutcome =
  * inserted here, with no cutout (`unwanted`: a selfie keeps its background,
  * so nothing is queued); a selfie the entry had is replaced, its `file` row
  * deleted here and its name answered for the caller to unlink after commit
- * (CLAUDE.md Gotchas, the commit contract). setEntryWorn locks the entry
+ * (AGENTS.md Gotchas, the commit contract). setEntryWorn locks the entry
  * first, so two uploads for one entry take turns and the second replaces
  * the first. 'not-found' (not the owner's entry) and 'future' (a day after
  * `today`) write nothing; the caller deletes the stored bytes.

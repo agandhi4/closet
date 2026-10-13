@@ -46,7 +46,7 @@ test.describe('push subscriptions and revoked sessions', () => {
   async function subscribedDevice(page: Page, prefix: string) {
     const subscription = fakeSubscription();
     // granted: the headless shell reports 'denied' whatever the context
-    // grants (CLAUDE.md, Gotchas).
+    // grants (AGENTS.md, Gotchas).
     await stubPushManager(page, subscription, true, { granted: true });
     const email = await signIn(page, prefix);
     await waitForServiceWorker(page);

@@ -54,7 +54,7 @@ export const ConfigSchema = Type.Object({
   // Comma-separated IPs/CIDRs whose X-Forwarded-* headers are trusted
   // (Fastify trustProxy): the client IP the rate limits count and the origin
   // the same-origin check compares. Behind a reverse proxy it must include
-  // the proxy's address (CLAUDE.md, Trusted proxies).
+  // the proxy's address (AGENTS.md, Trusted proxies).
   TRUSTED_PROXIES: NonEmpty({ default: DEFAULT_TRUSTED_PROXIES }),
   APP_NAME: NonEmpty({ default: 'Closet' }),
   // The household's IANA time zone: it decides what "today" is on the

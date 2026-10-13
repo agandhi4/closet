@@ -153,6 +153,7 @@ npx web-push generate-vapid-keys
 ```bash
 nvm install && nvm use
 npm install
+make install                                      # git hooks, once per checkout or worktree
 (cd ../pgvault-dev && docker compose up -d --wait)
 docker compose -f ../pgvault-dev/docker-compose.yml exec postgres \
   psql -U postgres -c 'create database closet_db'   # once
@@ -186,8 +187,8 @@ npm run test:e2e        # build, then Playwright end-to-end
 npm run test:cov        # both Vitest tiers with v8 coverage (coverage/), failing below vitest.config.ts thresholds
 npm run audit:pages     # every page and action measured as the demo persona, see below
 npm run generate:icons  # regenerate public/assets/icon.png, icon-192.png, icon-512.png and favicon.ico from icon.svg
-npm run check           # format, lint, types, unit + integration in parallel (the pre-commit hook; check:static is the first four)
-npm run verify:push     # build + Chromium Playwright (the pre-push hook, for a push to main; PRs are verified by CI)
+npm run check           # format, lint, types, unit + integration in parallel (check:static is the first three)
+npm run verify:push     # build + Chromium Playwright (PRs are verified by the gate's e2e job)
 npm run maintenance:reconcile [-- --dry-run] [--force]
                         # one storage reconciliation pass (needs `npm run build`; see below)
 npm run user:set-password -- <email>

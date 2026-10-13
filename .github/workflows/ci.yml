@@ -15,7 +15,7 @@ on:
     branches: [main]
     # Docs-only commits neither need tests nor a redeploy (a new image rolls
     # every client's static-asset cache key).
-    # No docs check on main: the gate runs docs:check (ci-quick) on every PR, and
+    # No docs check on main: the gate runs docs-check (ci-quick) on every PR, and
     # the merge queue merges only the gated head on the gated main.
     paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
   # A manual cloud run of the test jobs; on main it also republishes.

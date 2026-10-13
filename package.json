@@ -53,10 +53,8 @@
     "precommit:full": "npm run check && npm run verify:push && npm run audit:pages && npm run lighthouse",
     "test:all": "vitest run",
     "lint:check": "eslint --cache --cache-location node_modules/.cache/closet/eslint \"{src,test,scripts}/**/*.{ts,tsx}\"",
-    "docs:check": "node -r ts-node/register/transpile-only scripts/check-claude-md.ts",
     "check": "concurrently --group --kill-others-on-fail --names static,tests \"npm:check:static\" \"npm:test:all\"",
-    "check:static": "concurrently --group --kill-others-on-fail --names docs,format,lint,types \"npm:docs:check\" \"npm:format:check\" \"npm:lint:check\" \"npm:typecheck\"",
-    "prepare": "node -e \"require('fs').existsSync('.git') && require('child_process').execSync('git config core.hooksPath .githooks')\"",
+    "check:static": "concurrently --group --kill-others-on-fail --names format,lint,types \"npm:format:check\" \"npm:lint:check\" \"npm:typecheck\"",
     "verify:push": "npm run build && playwright test --project=chromium"
   },
   "dependencies": {

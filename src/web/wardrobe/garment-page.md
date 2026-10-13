@@ -1,6 +1,6 @@
 # The garment page's reads
 
-Part of the Wardrobe (`CLAUDE.md` in this directory): `GET /wardrobe/:id` and the wear line's Wore today and Washed (`POST /wardrobe/:id/wear`, `/washed`, the wears plugin).
+Part of the Wardrobe (`AGENTS.md` in this directory): `GET /wardrobe/:id` and the wear line's Wore today and Washed (`POST /wardrobe/:id/wear`, `/washed`, the wears plugin).
 
 ## What each statement reads, and why
 

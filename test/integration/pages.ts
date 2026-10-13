@@ -266,7 +266,7 @@ export function expectNoRawI18nKeys(res: LightMyRequestResponse): void {
 export function expectFullPage(res: LightMyRequestResponse): void {
   expect(res.headers['content-type']).toMatch(/^text\/html/);
   expect(res.body).toMatch(/^<!DOCTYPE html>/i);
-  // htmx reads only the first htmx-config meta (CLAUDE.md Gotchas).
+  // htmx reads only the first htmx-config meta (AGENTS.md Gotchas).
   expect(res.body.match(/<meta\s+name="htmx-config"/g)).toHaveLength(1);
   expectNoRawI18nKeys(res);
   expectNativePostForms(res);

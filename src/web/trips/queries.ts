@@ -160,7 +160,7 @@ export interface TripSummary extends TripRow {
 }
 
 // The trip row of the outer query, written out: in a single-table select
-// Drizzle renders a column without its table (CLAUDE.md Gotchas), so
+// Drizzle renders a column without its table (AGENTS.md Gotchas), so
 // `${trip.id}` inside these subqueries would read the subquery's own id.
 const OUTER_TRIP_ID = sql.raw('"trip"."id"');
 

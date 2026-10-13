@@ -5,7 +5,7 @@ import { revokeDevices, usersWithDevices } from '../web/push/queries';
 
 /**
  * `npm run push:revoke-all`: removes every account's push subscriptions, the
- * step after rotating ACCESS_TOKEN_SECRET (CLAUDE.md, Deployment). A
+ * step after rotating ACCESS_TOKEN_SECRET (AGENTS.md, Deployment). A
  * rotation signs everyone out, and a signed-out device receives nobody's
  * notifications; each device drops its own subscription the next time it
  * opens the app (the login page, <push-signed-out>), but one left closed

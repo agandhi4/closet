@@ -63,7 +63,7 @@ export function sessionAccount(request: FastifyRequest): AccountRow {
  * non-static request and stores the result as `request.auth`;
  * requireSession, sessionUserId() and the page context only read that.
  *
- * One statement, every request, never cached (src/web/security/CLAUDE.md):
+ * One statement, every request, never cached (src/web/security/AGENTS.md):
  * the row is read fresh because comparing its fingerprint is the
  * revocation. It reads the id, the email (the app bar, the order mail's
  * owner) and the hash's 8-character suffix, not the hash (#171); a
@@ -144,7 +144,7 @@ export function createSessionResolver(deps: {
  * The session cookie. httpOnly (no script reads it), SameSite=Lax (not sent
  * on cross-site POSTs; the same-origin hook is the other half of the CSRF
  * defence), and deliberately not Secure: `http://closet.box` is plain HTTP
- * by design, and a Secure cookie would never be stored there (CLAUDE.md,
+ * by design, and a Secure cookie would never be stored there (AGENTS.md,
  * Conventions). Max-Age is in seconds (@fastify/cookie passes it through as
  * the attribute) and matches the token's own expiry.
  */

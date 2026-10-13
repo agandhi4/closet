@@ -173,7 +173,7 @@ export function createPhotos(
  * deleteVariants if that transaction fails: nothing on disk is ever pointed
  * at by a half-written state. Rows are removed by their owners' transactions
  * too; deleteVariants after commit unlinks the bytes (the database cascade
- * never does, CLAUDE.md Gotchas).
+ * never does, AGENTS.md Gotchas).
  */
 export class Photos {
   // Pending thumb write per thumb file name. Writes are chained rather than

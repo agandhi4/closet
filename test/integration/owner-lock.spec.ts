@@ -29,7 +29,7 @@ import { createTestApp, type TestApp } from './harness';
 import { interleave as interleaveOn } from './interleave';
 
 /**
- * The owner lock (#122, src/web/calendar/CLAUDE.md): every writer of the
+ * The owner lock (#122, src/web/calendar/AGENTS.md): every writer of the
  * calendar and the plan tables runs in ownerTransaction, so a write that
  * judges several rows (a replace, the daily re-plan) never has another of
  * the owner's writes land between its read and its write; and a pick holds

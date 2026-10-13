@@ -444,7 +444,7 @@ function AddRow({ model }: { model: StylingModel }) {
 
 /**
  * The bar above the dock (`bottom-dock`, z-20: under the dock and the
- * navbar, CLAUDE.md Gotchas): Shuffle, and Save (the sheet), or over a
+ * navbar, AGENTS.md Gotchas): Shuffle, and Save (the sheet), or over a
  * shared wardrobe the reason there is no Save.
  */
 function ActionBar({ model }: { model: StylingModel }) {

@@ -11,7 +11,7 @@ import type { Formality } from './properties';
  *   3 smart casual, 4 dressy) that suits it.
  * Pure: no database, web or strings (the labels are the catalog's
  * `occasion.<value>`). The check constraint on the column lists OCCASIONS,
- * so adding one is a migration (CLAUDE.md, Gotchas).
+ * so adding one is a migration (AGENTS.md, Gotchas).
  */
 
 /**

@@ -59,7 +59,7 @@ test.describe('at 1440 px', () => {
 
     // Each page's column is the width its PageMain names (src/web/layout/
     // page-main.tsx): read from the page's own class so this cannot drift
-    // from the list in src/web/layout/CLAUDE.md. Wide pages fill the width
+    // from the list in src/web/layout/AGENTS.md. Wide pages fill the width
     // the rail leaves; narrow ones stay a reading column.
     const WIDTHS = { 'max-w-page-narrow': 640, 'max-w-page-wide': 1280 };
     for (const path of TAB_ROOTS) {

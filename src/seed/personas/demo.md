@@ -353,7 +353,7 @@ The umbrella (X01) is `other`: role none, never generated into an outfit.
 | Z02 | Pegasus 39 | Nike | footwear / running-shoes | grey | Nike Air Zoom Pegasus 39 (discontinued) | 10 | 2 | 1 | synthetic | — | — | — | — | — | 2022-08-20 | 2026-04-04 | 600 miles; replaced by the Cliftons. |
 | Z03 | Old 511s | Levi's | bottoms / jeans | blue | Levi's 511 Slim, indigo (no URL) | 32x32 | 3 | 2 | denim | solid | slim | — | full | — | 2022-03-05 | 2026-01-17 | Worn through; replaced by the 501s and, later, the raw denim. |
 
-Archived garments stay in their outfits (CLAUDE.md Outfits) but are never worn after their archive date.
+Archived garments stay in their outfits (AGENTS.md Outfits) but are never worn after their archive date.
 Z03 is in one outfit saved in 2025 ("Old weekend jeans"), which is how the edit form's "archived
 garment in a slot" marking shows up in the demo.
 

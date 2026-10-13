@@ -22,12 +22,12 @@ const HONO_RAW_HTML_PATHS = [
   {
     name: 'hono/html',
     message:
-      'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (CLAUDE.md, Web layer).',
+      'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (AGENTS.md, Web layer).',
   },
   {
     name: 'hono/utils/html',
     message:
-      'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (CLAUDE.md, Web layer).',
+      'Use dangerouslySetInnerHTML, the one raw-HTML escape hatch (AGENTS.md, Web layer).',
   },
 ];
 
@@ -97,12 +97,12 @@ export default tseslint.config(
           selector:
             "CallExpression[callee.property.name=/^(slice|substring|substr|split)$/][callee.object.callee.property.name='toISOString']",
           message:
-            "A UTC date is not the household's day: use todayIn(APP_TIMEZONE, now) (CLAUDE.md, Gotchas).",
+            "A UTC date is not the household's day: use todayIn(APP_TIMEZONE, now) (AGENTS.md, Gotchas).",
         },
         {
           selector: "CallExpression[callee.property.name='toLocaleDateString']",
           message:
-            'A day from an instant comes from todayIn(APP_TIMEZONE, now) (CLAUDE.md, Gotchas).',
+            'A day from an instant comes from todayIn(APP_TIMEZONE, now) (AGENTS.md, Gotchas).',
         },
         // Colour comes from the two daisyUI themes in views/assets/main.css
         // (#81): semantic tokens only (bg-base-200, text-error), so both
@@ -140,7 +140,7 @@ export default tseslint.config(
       ],
       // hono/jsx escapes every text child and attribute value. The one way to
       // emit markup as-is is `dangerouslySetInnerHTML` (greppable, reviewed
-      // per use; see CLAUDE.md, Web layer). hono's `raw()` would be a second,
+      // per use; see AGENTS.md, Web layer). hono's `raw()` would be a second,
       // quieter hatch.
       'no-restricted-imports': [
         'error',
@@ -170,7 +170,7 @@ export default tseslint.config(
             ...HONO_RAW_HTML_PATHS,
             {
               name: 'drizzle-orm',
-              message: 'The pure layers hold no queries (src/db/CLAUDE.md).',
+              message: 'The pure layers hold no queries (src/db/AGENTS.md).',
             },
             ...NODE_BUILTINS.map((name) => ({
               name,

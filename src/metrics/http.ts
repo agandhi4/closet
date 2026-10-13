@@ -22,7 +22,7 @@ export const UNMATCHED_ROUTE = 'unmatched';
  * waiting) is left out, so the latencies stay a person's.
  *
  * Hooks, not a plugin: added to the root, they apply to every route
- * registered after them (CLAUDE.md Gotchas, plugin inheritance).
+ * registered after them (AGENTS.md Gotchas, plugin inheritance).
  */
 export function registerHttpMetrics(
   app: FastifyInstance,

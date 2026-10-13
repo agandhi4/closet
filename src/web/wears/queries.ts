@@ -286,7 +286,7 @@ export type EntryWornOutcome =
  * Idempotent: an entry already so is left alone. A day after `today` is
  * never marked worn ('future'). `at` is when it was worn (the tap; the seed's
  * evening). Used by POST /calendar/:id/worn and the seed. Under the owner
- * lock like every calendar write (src/web/calendar/CLAUDE.md): the re-plan
+ * lock like every calendar write (src/web/calendar/AGENTS.md): the re-plan
  * must see the entry as the person's before it judges it, not swap it
  * while the tap commits.
  *

@@ -136,7 +136,7 @@ const WORN_HOUR = 21;
  * Writes `persona` as it lives up to `anchor`; undefined when its user
  * already exists (nothing is changed). Photo bytes are written first and
  * the rows in one transaction, whose failure deletes the bytes again (the
- * commit contract, CLAUDE.md Gotchas).
+ * commit contract, AGENTS.md Gotchas).
  */
 export async function seedPersona(
   deps: SeedDeps,

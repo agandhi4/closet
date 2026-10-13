@@ -394,7 +394,7 @@ export async function removeUnheldOutfits(
  * Whether the planner created the outfit of auto entry `entryId` ("Plan my
  * week" found none saved of those garments): what makes it the planner's
  * to remove once nothing holds it. Asked only of an entry still 'auto'
- * (CLAUDE.md Gotchas: a taken-over entry's week_plan_entry row is
+ * (AGENTS.md Gotchas: a taken-over entry's week_plan_entry row is
  * provenance, not ownership); false for an entry the planner never wrote.
  */
 export async function plannerCreatedOutfit(
@@ -625,7 +625,7 @@ export async function claimReplan(
 /**
  * Removes claims of days before `before`: a claim only ever guards its own
  * day. Every owner's at once, without the owner lock: no writer judges a
- * past day's claim (the exemption in src/web/calendar/CLAUDE.md, Owner lock).
+ * past day's claim (the exemption in src/web/calendar/AGENTS.md, Owner lock).
  */
 export async function pruneReplanClaims(
   db: Queryable,

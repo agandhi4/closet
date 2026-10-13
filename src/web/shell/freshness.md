@@ -1,6 +1,6 @@
 # The freshness protocol: stamp, revalidation, WebKit's scope-freeing gotcha (#240)
 
-Linked from `CLAUDE.md` in this directory (PWA and the service worker). Read it before touching the freshness stamp, `REVALIDATE_PAGE`, or `public/js/freshness.js`.
+Linked from `AGENTS.md` in this directory (PWA and the service worker). Read it before touching the freshness stamp, `REVALIDATE_PAGE`, or `public/js/freshness.js`.
 
 **Freshness stamp and indicator.** Every copy the worker stores carries `X-SW-Cached-At` (epoch ms, the device's clock) and the same stamp as a `Server-Timing` entry (`CACHED_AT_TIMING_NAME`, `page-cache.ts`), so any response served from the cache says when it arrived. `public/js/freshness.js` (started by `pwa.js`) tracks the display on screen: a full navigation reads that Server-Timing entry itself, through Navigation Timing (`performance.getEntriesByType('navigation')[0].serverTiming`, the same way `src/metrics` reads the route template) — not by asking the worker how it was served, which a worker that had to remember the answer across the fetch and a later message could get wrong (see the WebKit gotcha below); an htmx swap reads the stamp from its own response; htmx history restores reuse the stamp kept on `#freshness` in the snapshot.
 

@@ -41,7 +41,7 @@ import { garmentNotFound } from './garment-access';
 
 /**
  * The garment writes that involve photo bytes, which a transaction cannot
- * roll back. The contract (CLAUDE.md Gotchas, "Photo bytes are written
+ * roll back. The contract (AGENTS.md Gotchas, "Photo bytes are written
  * before any row"): Photos writes the bytes and returns the `file` row; the
  * row is inserted in the same transaction as the garment write that points
  * at it; if that transaction fails the new bytes are deleted, and bytes a

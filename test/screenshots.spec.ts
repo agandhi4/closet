@@ -11,7 +11,7 @@ import { fakeSubscription, stubPushManager } from './support/push-stub';
 
 /**
  * Phone-width (390 px) screenshots of the key pages with the seed personas
- * (CLAUDE.md, Seed personas), saved to screenshots/ for CI to upload as a
+ * (AGENTS.md, Seed personas), saved to screenshots/ for CI to upload as a
  * PR artifact: how every change looks with real data. Not a visual gate:
  * people look at them. Runs only with SEED_SCREENSHOTS (CI's e2e job), as
  * it writes the personas into whatever database the server uses.

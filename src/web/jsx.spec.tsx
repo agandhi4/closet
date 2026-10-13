@@ -4,7 +4,7 @@ import { t, tHtml } from './i18n';
 import { renderToString } from './render';
 
 /**
- * The guarantees the web layer's views rely on (CLAUDE.md, Web layer):
+ * The guarantees the web layer's views rely on (AGENTS.md, Web layer):
  * hono/jsx escapes every text child and attribute value, async components
  * render, and markup only passes through `dangerouslySetInnerHTML`.
  */

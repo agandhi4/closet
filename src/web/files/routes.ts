@@ -15,7 +15,7 @@ import { publicPhoto } from './references';
 // shared cache (a proxy, a CDN) may keep a copy; a share showing it can end,
 // and a year-long public copy would outlive it. The browser's own cache
 // still keeps it, and is emptied with Clear-Site-Data when the session ends
-// or another account signs in over it (src/web/security/CLAUDE.md). The one
+// or another account signs in over it (src/web/security/AGENTS.md). The one
 // constant for every /file variant, whichever way it was found.
 const PRIVATE_IMMUTABLE_YEAR = 'private, max-age=31536000, immutable';
 // Share previews are addressed by the photo's share id, which never changes

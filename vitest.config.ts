@@ -56,7 +56,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit',
-          // scripts/: the repo tooling's pure rules (docs:check's).
+          // scripts/: the repo tooling's pure rules (static-assets).
           include: ['src/**/*.spec.{ts,tsx}', 'scripts/**/*.spec.ts'],
           exclude: [
             'src/web/calendar/**/*.spec.{ts,tsx}',

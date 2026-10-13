@@ -63,7 +63,7 @@ test('insights on the phone, from the Wardrobe’s ⋯ menu', async ({ page }) =
   await expect(page.locator('#insights-attention')).toContainText(
     'Needs repair: 1',
   );
-  // Three tees at $24.90 each: the cost is price × copies (CLAUDE.md, Insights).
+  // Three tees at $24.90 each: the cost is price × copies (AGENTS.md, Insights).
   await expect(page.locator('#insights-cost')).toContainText(
     '$74.70 a wear · worn once',
   );

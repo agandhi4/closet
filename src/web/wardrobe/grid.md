@@ -1,6 +1,6 @@
 # The wardrobe grid
 
-Part of the Wardrobe (`CLAUDE.md` in this directory): `GET /wardrobe` (the Closet tab, or `#wardrobe-main` to a fragment request) and `GET /wardrobe/tiles` (the next page).
+Part of the Wardrobe (`AGENTS.md` in this directory): `GET /wardrobe` (the Closet tab, or `#wardrobe-main` to a fragment request) and `GET /wardrobe/tiles` (the next page).
 
 ## What each statement reads, and why
 

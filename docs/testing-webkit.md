@@ -16,7 +16,7 @@ Each failing spec is one of two things:
 - **An app bug on Safari.** Fix the app, or give it its own issue. The
   first local run (#179) found the Styling strips unable to scroll a row
   of one garment (WebKit leaves a flex scroller's end padding out of its
-  scroll width; `src/web/styling/CLAUDE.md`). The same run found signing
+  scroll width; `src/web/styling/AGENTS.md`). The same run found signing
   out hanging for good (#239): WebKit never settles a fetch whose opaque
   redirect carries `Clear-Site-Data`, which the service worker's re-fetch
   of the sign-out post was (`src/web/shell/session-caches.md`). That one

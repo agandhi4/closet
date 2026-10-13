@@ -6,7 +6,7 @@ import { t } from '../i18n';
  * its neighbours peeking, is the choice. The browser does the scrolling (no
  * touch handlers); public/js/snap-strip.js watches which item crosses the
  * strip's centre line and writes that item's `data-snap-value` into the
- * strip's hidden input. A page needs no script of its own. See ./CLAUDE.md.
+ * strip's hidden input. A page needs no script of its own. See ./AGENTS.md.
  *
  * Used by Styling's rows (src/web/styling/styling-row.tsx), Ideas, Today,
  * Goes-with's best outfits and a Muse need's options.

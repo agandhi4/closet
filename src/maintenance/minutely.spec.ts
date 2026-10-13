@@ -6,7 +6,7 @@ import { scheduleMinutely, untilNextMinute } from './minutely';
  * The minute timer the push reminders run on (server.ts). Fake timers
  * throughout: every wait is advanced explicitly, so the spec never depends
  * on the machine's speed (it is run 30 times in a row, some under CPU
- * load, to prove it; CLAUDE.md, Web Push).
+ * load, to prove it; AGENTS.md, Web Push).
  */
 
 const at = (iso: string) => new Date(iso);

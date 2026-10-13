@@ -31,7 +31,7 @@ export function fakeSubscription(): FakeSubscription {
  * Replaces PushManager with a stand-in, before any page script runs.
  * `granted`: also answer Notification.permission 'granted', for the default
  * headless shell, which reports 'denied' whatever the context granted
- * (CLAUDE.md, Gotchas).
+ * (AGENTS.md, Gotchas).
  */
 export async function stubPushManager(
   page: Page,
