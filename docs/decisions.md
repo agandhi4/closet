@@ -48,5 +48,5 @@ history lives in `docs/PROJECT_LOG.md`.
 ## 2026-10-13 — devkit e7b19d7: hook steps scoped by changed paths, standard docs set
 
 **Why:** devkit e7b19d7 fixes the gate log race, scopes hook steps from one fleet layout table, and adds docs-check rules 6-10 (standard README sections, dated decisions, real `make` targets and links), warning until 2026-11-15.
-**Decision:** sync with no `scripts/ci/hooks.conf` change; closet's layout needs no override. A docs-only commit runs `ci-quick` alone (it is the docs step), and any other change runs every step as before. The README gains Architecture, Deploy and Documentation sections that point at the existing docs.
-**Consequence:** a docs-only push skips `ci-unit`; the gate stays authoritative. `docs_check.sh` reports no warnings under a 2099 date, so the 2026-11-15 flip needs no closet change.
+**Decision:** sync with no `scripts/ci/hooks.conf` change; closet's layout needs no override. A docs-only commit skips `ci-quick` and `ci-unit` and the hook runs `make docs-check` itself; any other change runs every step as before. The README gains Architecture, Deploy and Documentation sections that point at the existing docs.
+**Consequence:** a docs-only commit or push checks only the docs locally; the gate stays authoritative. `docs_check.sh` reports no warnings under a 2099 date, so the 2026-11-15 flip needs no closet change.

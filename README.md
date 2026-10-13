@@ -316,9 +316,29 @@ docker buildx build --platform linux/amd64 --no-cache . -t closet:latest
 
 ---
 
-## Deployment recommendations
+## Architecture
 
-For most self-hosters: deploy to a VPS via [Coolify](https://coolify.io/) or Portainer using the docker-compose above, with local storage. Back up both the Postgres database and `DATA_PATH`, taken close together: the nightly storage reconciliation deletes photos that no database row references.
+One Node 22 process: plain Fastify 5 serving server-rendered JSX pages with htmx, Drizzle over PostgreSQL, photos on disk under `DATA_PATH`, and background removal in a child process running an ONNX model. A Workbox service worker makes it an installable PWA, and `/mcp` exposes the wardrobe to Claude. The source tree and the area index are in [AGENTS.md](AGENTS.md#architecture), each piece in full in [docs/architecture.md](docs/architecture.md), and the web layer in [docs/web-layer.md](docs/web-layer.md).
+
+---
+
+## Deploy
+
+This instance runs on the homelab, and merging to `main` deploys it: CI's `publish` job pushes `ghcr.io/agandhi4/closet:latest` and a `ship-<date>-<sha7>` tag, and the hourly autoupdater pulls the image. The pieces, the production env, deploying by hand and recovery are in [docs/deployment.md](docs/deployment.md).
+
+For other self-hosters: deploy to a VPS via [Coolify](https://coolify.io/) or Portainer using the docker-compose above, with local storage. Back up both the Postgres database and `DATA_PATH`, taken close together: the nightly storage reconciliation deletes photos that no database row references.
+
+---
+
+## Documentation
+
+- [AGENTS.md](AGENTS.md): rules, commands and the area index (each `src/` area has its own `AGENTS.md`).
+- [docs/architecture.md](docs/architecture.md), [docs/web-layer.md](docs/web-layer.md), [docs/conventions.md](docs/conventions.md): the stack, the web layer, and conventions, config and logging in full.
+- [docs/deployment.md](docs/deployment.md): production, environment and release.
+- [docs/decisions.md](docs/decisions.md): dated decisions, newest last. [docs/history.md](docs/history.md) and [docs/PROJECT_LOG.md](docs/PROJECT_LOG.md) hold the older record.
+- [docs/workflow.md](docs/workflow.md): the flow per issue slice.
+- Testing: [integration](docs/testing-integration.md), [cutouts](docs/testing-cutouts.md), [service worker](docs/testing-service-worker.md), [WebKit](docs/testing-webkit.md), and page performance in [docs/perf/](docs/perf/README.md).
+- [docs/DESIGN.md](docs/DESIGN.md): the upstream entity model, still the reference for feature scope (its stack is stale).
 
 ---
 
