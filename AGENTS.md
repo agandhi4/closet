@@ -127,7 +127,7 @@ The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. Wh
 
 ### Config and logging
 
-In full: `docs/conventions.md#config`, `#logging`. `loadConfig()` (`src/config.ts`) is the only reader of `process.env` (one TypeBox schema; a bad value stops the boot naming the key, never the value: `ConfigError`). Secrets have no default (`ACCESS_TOKEN_SECRET`: required, ≥ 32 chars). A new env var gets a schema entry and a README row. **The Docker image bakes `.env` and never sees `.env.local`**. Log through the module's pino child, at operation boundaries with ids, errors as `logger.error({ err }, message)`, never in rendering or loops.
+In full: `docs/conventions.md#config`, `#logging`. `loadConfig()` (`src/config.ts`) is the only reader of `process.env` (one TypeBox schema; a bad value stops the boot naming the key, never the value: `ConfigError`). Secrets have no default (`ACCESS_TOKEN_SECRET`: required, ≥ 32 chars). A new env var gets a schema entry and a README row. **The Docker image bakes `.env` and never sees `.env.local`**. Log through the module's pino child, at operation boundaries with ids, errors as `logger.error({ err }, message)`, never in rendering or loops. Lines are JSON (`LOG_FORMAT=text` for a terminal): `ts`, `level`, `version`, `context`, and inside a request its `request_id` (12 hex, minted never trusted, also `X-Request-ID` and the Bugsink tag; `src/request-context.ts`). Bugsink's `environment` is `APP_ENV` (production, dev, gate), never NODE_ENV.
 
 ## Conventions
 
@@ -141,6 +141,13 @@ In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 - **Cookies stay `Secure`-less** (`.box` is HTTP over Tailscale: `secure: true` breaks login); `SameSite=Lax` must stay (CSRF).
 - **Offline-first per `frontend-pwa.md`**: cached reads show freshness; unreachable writes are disabled with a reason, never dropped; heartbeat, not `navigator.onLine`.
 - **"Today" is `todayIn(APP_TIMEZONE, now)`** in app and tests (`t.today()`, `householdToday()`): a UTC date is tomorrow on a New York evening. ESLint's `no-restricted-syntax` refuses `toISOString().slice/substring/split` and `toLocaleDateString`; a new consumer gets a row in `test/integration/today.spec.ts`.
+
+## Convention deltas
+
+Deviations from `~/.claude/conventions/`, each with its `docs/decisions.md` entry (2026-10-13, Observability contract):
+- **Job outcomes add `discarded` and `interrupted`** (the cutout queue), non-alerting; any error or timeout is `failure`. `JOB_OUTCOMES` and `metrics.spec.ts` hold the list.
+
+Open gaps, not deltas: `/healthz` until `/health/{live,ready}` and an image `HEALTHCHECK`; `context` not `logger`; job ids; `app_info`; push and MCP outcome words.
 
 ## Commands
 
@@ -222,7 +229,7 @@ Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, ne
 
 Production runs on linux-box (the homelab) and merging to `main` deploys it: CI publishes the image and the hourly autoupdater pulls it. The pieces, the production env, the demo login, locked-out recovery, rotating the secret, deploying by hand and what CI publishes: `docs/deployment.md`.
 
-- **Release identity: one version string, `sha-<7>`** (owner rule 2026-10-13, `docs/decisions.md`). `ci.yml`'s publish job passes it once as the `APP_VERSION` build arg; the image carries it as env, OCI version label and its `sha-<7>` tag, and `/healthz` serves it as `version` (also /about, the MCP version, the error tracker's release). Compose and `.env` never set `APP_VERSION` (`make release-check`). **Only that publish job moves `latest`** (pushing it is the deploy), then tags the commit `ship-<YYYY-MM-DD>-<sha7>` (`devkit/bin/ship_tag.sh`). No semver tags, no date tags.
+- **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by `ci.yml`'s publish job; `/healthz` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only that job moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
 
 ## Gotchas
 

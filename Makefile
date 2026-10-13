@@ -13,7 +13,7 @@ PG_CONTAINER ?= closet-ci-pg
 PLAYWRIGHT_FLAGS ?=
 CI_IMAGE ?= closet:ci
 # The image's APP_VERSION (Dockerfile ARG): the gate passes gate-<pr>, ci.yml's publish job
-# builds with sha-<7> itself. ci-smoke asserts /healthz reports it.
+# builds with the bare 7-char sha itself. ci-smoke asserts /healthz reports it.
 CI_BUILD_VERSION ?= dev
 SMOKE_PG_CONTAINER ?= closet-smoke-pg
 

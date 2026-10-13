@@ -26,7 +26,7 @@ const ClientErrorBody = Type.Object({
   message: Type.String({ minLength: 1, maxLength: MAX_MESSAGE }),
   stack: Type.Optional(Type.String({ maxLength: MAX_STACK })),
   route: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
-  // A release as src/build-info.ts names one (`sha-<7>`, `gate-<n>`, `dev`):
+  // A release as src/build-info.ts names one (a 7-char sha, `gate-<n>`, `dev`):
   // a tag on the event, so only its shape is checked.
   release: Type.Optional(
     Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' }),

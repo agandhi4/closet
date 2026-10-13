@@ -1,6 +1,10 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { describe, expect, it } from 'vitest';
 import { LogCapture } from '../test/support/log-capture';
-import { createLoggerTo } from './logger';
+import { createLogger, createLoggerTo } from './logger';
 
 describe('createLoggerTo', () => {
   it('never writes a credential header, whoever logs a request', () => {
@@ -42,5 +46,67 @@ describe('createLoggerTo', () => {
         msg: 'shown',
       }),
     ]);
+  });
+});
+
+describe('the line shape', () => {
+  it('writes ts (RFC 3339 UTC), the level by name, the version and the context', () => {
+    const lines: string[] = [];
+    const logger = createLoggerTo(
+      'info',
+      { write: (line: string) => lines.push(line) },
+      'abc1234',
+    );
+    logger.child({ context: 'Photos' }).warn({ count: 2 }, 'shown');
+    expect(JSON.parse(lines[0])).toEqual({
+      ts: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/),
+      level: 'warn',
+      version: 'abc1234',
+      context: 'Photos',
+      count: 2,
+      msg: 'shown',
+    });
+  });
+});
+
+describe('createLogger', () => {
+  // app.log is written by a worker thread: wait for the line to land.
+  async function appLogOf(format: 'json' | 'text'): Promise<string> {
+    const dataPath = await mkdtemp(join(tmpdir(), 'closet-logger-'));
+    try {
+      const logger = createLogger({
+        LOG_LEVEL: 'info',
+        LOG_FORMAT: format,
+        DATA_PATH: dataPath,
+        APP_VERSION: 'abc1234',
+      });
+      logger.child({ context: 'Spec' }).info('format check');
+      for (let waited = 0; waited < 5000; waited += 50) {
+        const text = await readFile(join(dataPath, 'app.log'), 'utf8').catch(
+          () => '',
+        );
+        if (text.includes('format check')) return text;
+        await sleep(50);
+      }
+      throw new Error(`app.log never got the ${format} line`);
+    } finally {
+      await rm(dataPath, { recursive: true, force: true });
+    }
+  }
+
+  it('writes one JSON object per line with LOG_FORMAT=json (production)', async () => {
+    const [line] = (await appLogOf('json')).trim().split('\n');
+    expect(JSON.parse(line)).toMatchObject({
+      level: 'info',
+      version: 'abc1234',
+      context: 'Spec',
+      msg: 'format check',
+    });
+  });
+
+  it('writes pretty lines with LOG_FORMAT=text (a terminal)', async () => {
+    const text = await appLogOf('text');
+    expect(text).toMatch(/INFO.*format check/);
+    expect(() => JSON.parse(text.trim())).toThrow();
   });
 });
