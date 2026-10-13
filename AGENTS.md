@@ -110,8 +110,8 @@ Each rule in full, with its story: `docs/web-layer.md`. A feature lives whole (r
 - **Errors**: `throw new HttpError(status)` (`src/web/errors.tsx`); the root error handler renders `ErrorPage`, anything else a detail-free 500. The root hook must stay at preValidation (validation runs after it, so a 400 keeps its page).
 - **Hooks**: an async hook that answers must `return reply` or the handler sends again; one without async work takes `done` (`@typescript-eslint/require-await`). `createApp()` registers every root piece before `webPlugin`: a plugin inherits only what existed when it was registered.
 - **Escaping**: the only raw-markup hatch is `dangerouslySetInnerHTML`, fed `tHtml()` or `jsonForScript()`, never a raw value, with a reason at each site. `hono/html` is banned by ESLint.
-- **Forms**: every post form is `PostForm` (`src/web/auth/form.tsx`), a native post: htmx swaps no 4xx, and boosted forms lose password saving (`expectNativePostForms`); uploads too, never `hx-post`. It submits once (`public/js/submit-once.js`; `test/gallery.spec.ts`); the server stays the guard where a duplicate matters.
-- **Autosave**: every control saved on change is built by `src/web/autosave.tsx` (`AutosaveForm`, `autosaveAttributes`), never by hand with `hx-trigger="change"` (`expectAutosaveControls`); **no other swap may replace an autosave form**, or its queued save dies (`test/autosave.spec.ts`).
+- **Forms**: every post form is `PostForm` (`src/web/auth/form.tsx`), a native post: htmx swaps no 4xx, and boosted forms lose password saving (`expectNativePostForms`); uploads too, never `hx-post`. It submits once (`public/js/submit-once.js`; `test/gallery.spec.ts (retired 2026-10-13)`); the server stays the guard where a duplicate matters.
+- **Autosave**: every control saved on change is built by `src/web/autosave.tsx` (`AutosaveForm`, `autosaveAttributes`), never by hand with `hx-trigger="change"` (`expectAutosaveControls`); **no other swap may replace an autosave form**, or its queued save dies (`test/autosave.spec.ts (retired 2026-10-13)`).
 - **htmx** reads only the first `<meta name="htmx-config">`; `disableInheritance` is on, so the body's `hx-inherit="hx-boost hx-indicator"` must stay.
 
 ### Request security
@@ -172,7 +172,7 @@ npm run lint                  # eslint --fix (src, test, scripts); lint:check is
 npm run format                # prettier --write; format:check is the cached gate
 
 # Test tiers, cheapest first
-npm test                      # Vitest unit projects (unit, unit-new-york): mocked DB/fs, verifies wiring. ~1.5 s.
+npm test                      # Vitest unit projects (unit, unit-new-york): mocked DB/fs, verifies wiring.
 npm run test:watch            # the same in watch mode; test:debug waits for an inspector on :9229
 (cd ../pgvault-dev && docker compose up -d --wait)
                               # every tier below needs Postgres: pgvault-dev on localhost:5432 (superuser
@@ -180,11 +180,10 @@ npm run test:watch            # the same in watch mode; test:debug waits for an 
                               # closet_db, ACCESS_TOKEN_SECRET: the server refuses to boot without
                               # one); see README Development.
 npm run test:int              # Vitest integration: the real app in-process via inject(), a scratch database
-                              # per spec file (TEST_DATABASE_URL, default pgvault-dev). ~5 s, no build. The
-                              # default place for behavior assertions.
-npm run test:e2e              # build, then playwright (all browsers); start:test on :3000 unless one is running.
-npm run test:e2e:smoke        # build, then the smoke spec in chromium
-                              # the PWA specs skip unless the server runs with PWA_ENABLED: test/AGENTS.md
+                              # per spec file cloned from the migrated template (TEST_DATABASE_URL, default
+                              # pgvault-dev). No build. The default place for behavior assertions.
+npm run test:e2e              # build, then playwright (all browsers; ten scenarios); start:test on :3000 unless
+                              # one is running. The PWA scenarios skip unless PWA_ENABLED: test/AGENTS.md
 npm run audit:pages           # every page/action as the demo persona vs docs/perf/ (docs/perf/README.md)
 npm run lighthouse            # lhci autorun
 
@@ -207,7 +206,8 @@ docker build --build-arg APP_VERSION=dev -t closet .   # or: make ci-image ci-sm
 # The gate's jobs (Makefile, thin callers of the npm scripts; ci.yml calls the same targets).
 # Each brings its own throwaway Postgres 18 container, so none needs pgvault-dev.
 make ci-deps ci-quick         # npm ci; devkit-check, toolchain-check, release-check, workflows-check, check:static
-make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + chromium (PWA on, random PORT)
+make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + chromium (PWA on, random PORT).
+                              # Each holds its budget (60/180/180 s) and floor; `make screenshots` the persona shots
 make gate PR=<n>              # the PR gate (devkit/bin/local_gate.sh, scripts/ci/gate_plan.sh); GATE_ARGS=--no-post
 ```
 
@@ -247,7 +247,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - **Backlog: GitHub issues, ordered by the pinned Roadmap (#27).** Pull the first unchecked item whose dependencies are done; its issue links to its design section in `docs/plans/` and lists the acceptance criteria. Open work and status live in issues, not in docs or memory. New ideas go in the **Later** milestone with where they were seen.
 - Before implementing, read `docs/PROJECT_LOG.md` and this file for decisions and gotchas in the area.
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
-- Behavior assertions go in `test/integration/` first: a spec that boots the real app and checks the HTML, headers, rows and files is the default proof that a change works, and it runs in seconds without a build or a browser. Playwright is the full gate for what only a browser can show (service worker, htmx swaps, layout).
+- **Tests are budgeted and lean** (owner directive 2026-10-13; `test/AGENTS.md`): `make ci-unit` ≤ 60 s, `ci-db` ≤ 180 s, `ci-e2e` ≤ 180 s, each with a collected-count floor, both enforced by the Makefile. A test earns its place: it fails for a plausible regression in our code, proves what no kept test proves, is hermetic, and runs at the cheapest tier that can prove it. Behavior assertions go in `test/integration/` (the real app in-process); Playwright holds ten critical-path scenarios for what only a browser shows, and a new one replaces one.
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
 - **Changes land through pull requests** (owner decision, 2026-09-26). `main` is protected: `local-gate` and `codex-review` must pass. Not strict (2026-10-13, `docs/decisions.md`): the gate tests the PR merged into the current `main`, and the merge queue merges only when neither head nor `main` moved since, which catches parallel branches that each pass alone (duplicate migration numbers, conflicting edits). Squash merges only: one PR is one commit on `main`, and merged branches are deleted.
 - **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; `make gate PR=<n>` posts `local-gate`; Codex's go-ahead posts `codex-review` (every push needs a new `wait`; every thread answered and resolved; docs-only PRs skip it; at Codex's limit an adversarial Claude review stands in); then `closet_merge_queue.sh` squash-merges pinned to the gated head, never `gh pr merge --auto`. Merging publishes, then deploys. The owner may stop any PR.

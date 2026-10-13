@@ -10,7 +10,7 @@
 #   other test/** (Playwright specs)   -> + e2e
 #   anything else                      -> + db + e2e (src, views, public, drizzle, scripts,
 #                                         package*.json, configs, Makefile, devkit/)
-#   image-affecting paths              -> + image
+#   image-affecting paths              -> + image (ci-image, then ci-smoke)
 # Public repo: GATE_ALLOW_FORKS stays at the skeleton's 0, so a fork PR never runs here.
 # shellcheck disable=SC2034  # read by the sourcing skeleton
 GATE_SLUG=agandhi4/closet
@@ -22,10 +22,12 @@ GATE_STATE_NAME=closet-gate
 IMAGE_PATHS='^(Dockerfile$|package(-lock)?\.json$|\.npmrc$|patches/)'
 
 PG_CONTAINER="closet-gate-pg-$PR"
+SMOKE_PG_CONTAINER="closet-gate-smoke-pg-$PR"
 IMAGE="closet:gate-$PR"
 
 gate_cleanup() {
   "$ROOT/devkit/bin/throwaway_pg.sh" down "$PG_CONTAINER"
+  "$ROOT/devkit/bin/throwaway_pg.sh" down "$SMOKE_PG_CONTAINER"
   docker rmi -f "$IMAGE"
 }
 
@@ -64,8 +66,11 @@ gate_plan() {
     skip e2e "no source, Playwright or test-support changes"
   fi
 
+  # The build, then the image booted on its own throwaway Postgres (scripts/smoke-image.sh:
+  # /healthz names CI_BUILD_VERSION, the observability contract probe): what ci.yml's publish
+  # job runs on the bytes it pushes, proved here before the merge.
   if changed "$IMAGE_PATHS"; then
-    job image ci-image CI_IMAGE="$IMAGE" CI_BUILD_VERSION="gate-$PR"
+    job image ci-image ci-smoke CI_IMAGE="$IMAGE" CI_BUILD_VERSION="gate-$PR" SMOKE_PG_CONTAINER="$SMOKE_PG_CONTAINER"
   else
     skip image "no Dockerfile, dependency or patch changes"
   fi

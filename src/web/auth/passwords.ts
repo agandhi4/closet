@@ -1,27 +1,52 @@
 import * as bcrypt from 'bcryptjs';
+import { PASSWORD_HASH_ROUNDS_PRODUCTION } from '../../config';
 import type { Db } from '../../db/client';
 import { markSecretChecked } from '../../metrics/request-timing';
 import type { StringKey } from '../i18n';
 import { type PasswordChange, updatePasswordHash } from './queries';
 
-const BCRYPT_ROUNDS = 12;
-
-export function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, BCRYPT_ROUNDS);
-}
-
 /**
  * Compared against when the account does not exist, so an unknown email
  * costs the same bcrypt work as a wrong password and response times do not
- * tell which addresses have accounts. A BCRYPT_ROUNDS hash of a random
- * string that was thrown away; its value is irrelevant, since no account
- * matches it (verifyPassword answers false whatever the comparison says).
- * A constant, not a hash made on first use: that made the first unknown
- * email after each boot cost a hash and a comparison, twice a real
- * account's time (#136).
+ * tell which addresses have accounts. A hash of a random string that was
+ * thrown away; its value is irrelevant, since no account matches it
+ * (verifyPassword answers false whatever the comparison says). A constant,
+ * not a hash made on first use: that made the first unknown email after
+ * each boot cost a hash and a comparison, twice a real account's time
+ * (#136).
  */
-export const UNKNOWN_ACCOUNT_HASH =
+const UNKNOWN_ACCOUNT_HASH_PRODUCTION =
   '$2b$12$2XMqcJVfAECVq8kMYvFPKOWE4G13BXHCFM.4YGO5pHDP8rUtNwe8S';
+
+let rounds = PASSWORD_HASH_ROUNDS_PRODUCTION;
+let unknownAccountHash = UNKNOWN_ACCOUNT_HASH_PRODUCTION;
+
+/**
+ * Sets bcrypt's cost for this process (Config.PASSWORD_HASH_ROUNDS): the
+ * server at boot (createApp), the CLIs through runCli. Without a call the
+ * production cost applies. Any other cost makes its unknown-account hash
+ * here, once, so the comparison an unknown email pays stays the same as a
+ * real account's at that cost.
+ */
+export function configurePasswordHashing(cost: number): void {
+  rounds = cost;
+  unknownAccountHash =
+    cost === PASSWORD_HASH_ROUNDS_PRODUCTION
+      ? UNKNOWN_ACCOUNT_HASH_PRODUCTION
+      : bcrypt.hashSync('unknown-account', cost);
+}
+
+/** The cost every hash is made at, and the unknown-account hash of that cost. */
+export function passwordHashing(): {
+  rounds: number;
+  unknownAccountHash: string;
+} {
+  return { rounds, unknownAccountHash };
+}
+
+export function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, rounds);
+}
 
 /** Whether `password` is the one behind `hash`; false, at the same cost, when there is no account. */
 export async function verifyPassword(
@@ -30,7 +55,7 @@ export async function verifyPassword(
 ): Promise<boolean> {
   markSecretChecked();
   if (hash === undefined) {
-    await bcrypt.compare(password, UNKNOWN_ACCOUNT_HASH);
+    await bcrypt.compare(password, unknownAccountHash);
     return false;
   }
   return bcrypt.compare(password, hash);

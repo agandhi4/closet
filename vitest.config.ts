@@ -12,10 +12,11 @@ export default defineConfig({
     // boot, slower on CI's 4-vCPU runner.
     testTimeout: 30000,
     hookTimeout: 30000,
-    // Half the cores where `npm run check` runs the tests beside ESLint and
-    // tsc (the pre-commit hook); all of them in CI, whose test job runs
-    // nothing else (.github/workflows/ci.yml).
-    maxWorkers: process.env.CI ? '100%' : '50%',
+    // Four on a developer machine, where the gate runs two PRs at once
+    // (GATE_SLOTS=2) beside Postgres in Docker and more workers overload it
+    // (the Mac reached load 95 on 2026-10-12); all cores in CI, whose test job
+    // runs nothing else (.github/workflows/ci.yml).
+    maxWorkers: process.env.CI ? '100%' : 4,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
@@ -98,10 +99,13 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['test/integration/**/*.spec.{ts,tsx}'],
-          // Drops scratch databases that killed runs left on the server, and
-          // lays out public/ as the build does (modules, precompressed files).
+          // Drops scratch databases that killed runs left on the server, makes
+          // the migrated template every spec file clones (migrations once per
+          // run, not per file), and lays out public/ as the build does
+          // (modules, precompressed files).
           globalSetup: [
             'test/support/sweep-scratch-databases.ts',
+            'test/support/migrated-template-setup.ts',
             'test/support/static-assets-setup.ts',
             // With STATEMENTS_OUT (make ci-db): the statement counts the
             // specs pin, for the metrics ratchet (statement-budgets.ts).

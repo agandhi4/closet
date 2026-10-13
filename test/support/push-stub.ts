@@ -3,8 +3,8 @@ import { createECDH, randomBytes, randomUUID } from 'node:crypto';
 
 /**
  * A browser push subscription for Playwright, whose incognito contexts
- * Chromium never lets subscribe (test/push-settings.spec.ts says why):
- * test/push-settings.spec.ts and the screenshots' notification settings.
+ * Chromium never lets subscribe (test/push-settings.spec.ts (retired 2026-10-13) says why):
+ * test/push-settings.spec.ts (retired 2026-10-13) and the screenshots' notification settings.
  * The page's PushManager is replaced by a stand-in holding a subscription
  * with real key sizes; everything after it (the server's upsert, the
  * reminders, the sender, web-push's encryption) is real.

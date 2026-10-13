@@ -11,7 +11,7 @@
 - **Deletion**: the entry (`removeEntry`: rows in one transaction, bytes after), the selfie (`removeSelfie`), the account (the file rows are the owner's, `deleteAccount` unlinks them), the outfit (kept, above); changing an entry's outfit (#69) keeps its selfie as a look too (`detachEntrySelfie`). Reconciliation counts `selfie.photo_id` as a reference (`photoIsReferenced`); `reconcile.spec.ts` proves an entry's selfie and a detached look survive beside a real orphan.
 - **Logs** (logger `Web`): `Selfie <id> of calendar entry <id> taken|replaced by user <id>: <file>; entry marked worn (<n> wears logged)|entry already worn`, `Selfie <id> removed by user <id>: <file>`, `Calendar entry <id> deleted by user <id> with its selfie <file>`; a refused public `/file` request for a selfie at warn (logger `Web`).
 - **Seed**: Theo's worn evenings and nights out of the last 28 days carry a selfie (`simulate.ts`, demo.md Simulation 6), drawn by `selfie-art.ts` (the outfit's garment art on a figure in a hall mirror, three rooms in turn) and written through `setEntrySelfie`.
-- **The phone check** (manual, the camera itself): installed on an iPhone and an Android phone, tap the camera on Today's card: the rear camera opens (not the library), the photo comes back to Today marked worn; an iPhone's HEIC shows once taken. `test/selfies.spec.ts` covers the rest at 390 px (Playwright sets the camera's file).
+- **The phone check** (manual, the camera itself): installed on an iPhone and an Android phone, tap the camera on Today's card: the rear camera opens (not the library), the photo comes back to Today marked worn; an iPhone's HEIC shows once taken. `test/selfies.spec.ts (retired 2026-10-13)` covers the rest at 390 px (Playwright sets the camera's file).
 
 ## Gotchas
 

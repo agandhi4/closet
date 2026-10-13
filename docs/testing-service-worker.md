@@ -1,6 +1,6 @@
 # Testing the service worker's update flow and push
 
-How `test/sw-update.spec.ts` and `test/push-notification.spec.ts` (#180)
+How `test/sw-update.spec.ts` and `test/push-notification.spec.ts (retired 2026-10-13)` (#180)
 reach the parts of the worker no page request exercises, and what they
 cannot reach. Both skip unless the server runs with `PWA_ENABLED=true` (the
 production config, `test/AGENTS.md`).
