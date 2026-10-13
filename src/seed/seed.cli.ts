@@ -19,7 +19,7 @@ runCli('Seed', ({ config, logger, db }) =>
     photos: createPhotos(
       photosConfig(config),
       db,
-      logger.child({ context: 'Photos' }),
+      logger.child({ logger: 'Photos' }),
     ),
     logger,
     timeZone: config.APP_TIMEZONE,

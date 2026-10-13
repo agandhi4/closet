@@ -2,7 +2,7 @@
 // modules) is loaded by createErrorTracker, and only with a DSN.
 import type { ErrorEvent, Scope } from '@sentry/node';
 import type { Logger } from '../logger';
-import { currentRequest } from '../request-context';
+import { operationFields } from '../request-context';
 import { SESSION_COOKIE } from '../web/auth/session';
 import { TOKEN_PREFIX } from '../web/auth/personal-tokens';
 
@@ -164,18 +164,13 @@ export async function createErrorTracker({
   base.setClient(client);
   client.init();
 
-  // request_id from async context, not from each caller: the error
+  // The operation's ids from async context, not from each caller: the error
   // handler's events, the pages' reports (/errors/client) and a tool call's
-  // all carry the id their X-Request-ID header and log lines show. A job's
-  // failure runs outside any request and has none.
+  // all carry the request_id their X-Request-ID header and log lines show; a
+  // job's failure its job_id (and parent_request_id) instead.
   function scopeFor({ source, tags, userId }: ErrorContext): Scope {
     const scope = base.clone();
-    const request = currentRequest();
-    scope.setTags({
-      source,
-      ...tags,
-      ...(request && { request_id: request.requestId }),
-    });
+    scope.setTags({ source, ...tags, ...operationFields() });
     if (userId !== undefined) scope.setUser({ id: String(userId) });
     return scope;
   }

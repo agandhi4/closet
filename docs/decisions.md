@@ -3,6 +3,12 @@
 Dated decisions, their rationale and the gotchas they carry. Newest first. The older
 history lives in `docs/PROJECT_LOG.md`.
 
+## 2026-10-13 — Observability contract 2: job ids, app_info and db-statement metrics, no-console, request_id in error bodies
+
+**Why:** `observability.md` asks for a `<kind>-<12hex>` id per background run with its `parent_request_id`, `app_info{version}` and `http_request_db_statements`, the `logger` field name, no console in app code, `request_id` in every error body, and devkit's `contract_probe.sh` in the smoke. #381 left these open.
+**Decision:** one async store holds a request or a job (`runAsJob`); a job replaces the request, keeping its id as parent. Timer runs are `cron-`, cutout photos `cutout-`. The cutout's parent survives the database queue in a new nullable `file.cutout_request_id`, set where a row enters the queue. Statements are counted by Drizzle's logger hook in the caller's context, proven equal to node-postgres's count. `make ci-db` writes `build/metrics/statements.json` from `recordQueries` blocks only (decision H). `context` became `logger`: nothing in homelab reads it.
+**Consequence:** Loki queries on `context` must use `logger`. The smoke probes `--live /healthz`; `--health` waits for `/health/ready`. No ratchet reads `statements.json` until closet's `ci-metrics` lands. Push and MCP outcome words are unchanged (owner decision pending).
+
 ## 2026-10-13 — Observability contract: bare sha7 version, JSON logs with request ids, Bugsink environment
 
 **Why:** `observability.md` names one version string (the bare sha7), JSON log lines, a 12-hex `request_id` joining a reply, its log lines and its Bugsink event, and an explicit `environment`. closet reported `sha-<7>`, wrote pino-pretty to Loki, had no request id, and sent smoke boots to Bugsink as `production` (NODE_ENV).

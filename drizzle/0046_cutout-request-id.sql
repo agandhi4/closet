@@ -1,0 +1,1 @@
+ALTER TABLE "file" ADD COLUMN "cutout_request_id" text;

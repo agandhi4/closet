@@ -685,7 +685,7 @@ async function seedPersonas(
     args: ['--persona', 'demo', '--persona', 'sparse', '--password-stdin'],
     db: closet.db,
     photos: closet.photos,
-    logger: logger.child({ context: 'Seed' }),
+    logger: logger.child({ logger: 'Seed' }),
     timeZone,
     weatherEnabled: true,
     input: Readable.from([`${PERSONA_PASSWORD}\n`]),

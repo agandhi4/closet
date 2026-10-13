@@ -1,6 +1,7 @@
 import { and, asc, count, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../db/client';
 import { file, garment } from '../db/schema';
+import { currentRequest } from '../request-context';
 import { CUTOUT_TIMEOUT_MS } from './runner';
 import {
   type CutoutEvent,
@@ -106,7 +107,10 @@ export async function applyCutoutEvent(
       cutoutWorker: next.state.worker,
       cutoutStartedAt: next.state.worker === null ? null : sql`now()`,
       variantKey: next.state.variantKey,
-      ...(next.queued && { cutoutRequestedAt: new Date() }),
+      ...(next.queued && {
+        cutoutRequestedAt: new Date(),
+        cutoutRequestId: currentRequest()?.requestId ?? null,
+      }),
     })
     .where(eq(file.id, row.id));
   // A released row is claimable again: tell the other servers, rather than
@@ -153,7 +157,8 @@ export async function applyCutoutEventToRows(
         cutout_worker = null,
         cutout_started_at = null,
         variant_key = next.variant_key,
-        cutout_requested_at = ${new Date()}::timestamptz
+        cutout_requested_at = ${new Date()}::timestamptz,
+        cutout_request_id = null
       from (values ${sql.join(values, sql`, `)})
         as next(id, status, version, attempts, job_version, variant_key)
       where ${file.id} = next.id
@@ -200,6 +205,8 @@ export interface CutoutJob {
   attempts: number;
   /** When the row entered the queue (the queue wait in the log). */
   requestedAt: Date | null;
+  /** The request that queued it, if one did: the job's parent_request_id. */
+  requestId?: string;
   /** The garment showing the photo; null when none does (any more). */
   garmentId: number | null;
   /** The worker whose lapsed lease this claim took over: it crashed or hung. */
@@ -226,6 +233,7 @@ export function claimNextCutout(
       .select({
         ...stateColumns,
         requestedAt: file.cutoutRequestedAt,
+        requestId: file.cutoutRequestId,
         garmentId: garment.id,
       })
       .from(file)
@@ -256,6 +264,7 @@ export function claimNextCutout(
       jobVersion: started.state.jobVersion!,
       attempts: started.state.attempts,
       requestedAt: row.requestedAt,
+      requestId: row.requestId ?? undefined,
       garmentId: row.garmentId,
       lapsedWorker: row.worker,
     };

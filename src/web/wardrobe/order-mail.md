@@ -28,7 +28,7 @@ The owner forwards order emails to a dedicated Fastmail account. Closet polls it
 
 Statements per run: 2 when nothing is new (the poll every few minutes), plus per new email 1 without products or 4 with them (`order-mail.spec.ts` pins them).
 
-An email a run did not finish has no row and is read again next time. `order_item`'s `(owner_id, product_url)` uniqueness makes a re-read, or a shipping email naming the same product, list nothing twice. Logs use context `OrderMail`.
+An email a run did not finish has no row and is read again next time. `order_item`'s `(owner_id, product_url)` uniqueness makes a re-read, or a shipping email naming the same product, list nothing twice. Logs use logger `OrderMail`.
 
 ## The review list
 

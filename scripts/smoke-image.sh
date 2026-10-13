@@ -23,8 +23,8 @@
 #
 # Checks, each fatal: /healthz answers 2xx (and names BOOT_EXPECT_VERSION when set); the boot log
 # shows the migrations applied; the login page
-# renders in the app shell and its stylesheet and htmx are served; its 12-hex X-Request-ID is on a
-# JSON access line naming /healthz's version; with MODELS_DIR, a photo uploaded
+# renders in the app shell and its stylesheet and htmx are served; devkit's contract probe passes
+# (request ids, JSON lines, /metrics; below); with MODELS_DIR, a photo uploaded
 # over HTTP is cut out by the model in the image's own onnxruntime; `docker stop` (SIGTERM) exits 0.
 # On failure the container's log is printed.
 set -euo pipefail
@@ -79,6 +79,7 @@ docker run -d --name "$NAME" --network host \
   -e DATABASE_SCHEMA="$DATABASE_SCHEMA" \
   -e ACCESS_TOKEN_SECRET=smoke-test-access-token-secret-not-for-deployment \
   -e PWA_ENABLED=true \
+  -e METRICS_ENABLED=true \
   -e APP_ENV=gate \
   -e SITE_URL=https://closet.test \
   -e PUBLIC_VAPID_KEY="$(jq -r .publicKey <<<"$keys")" \
@@ -102,7 +103,7 @@ migrated=$(docker logs "$NAME" 2>&1 | grep -oE 'Applied [0-9]+ Drizzle migration
 log "ok: $migrated"
 
 page="$WORK/login.html"
-status=$(curl -s -o "$page" -D "$WORK/login.headers" -w '%{http_code}' "$BASE/auth/login")
+status=$(curl -s -o "$page" -w '%{http_code}' "$BASE/auth/login")
 [ "$status" = 200 ] || fail "GET /auth/login answered $status"
 # The layout (src/web/layout/layout.tsx): the app name in the title, the boosted body.
 grep -qE '<title>[^<]*Closet</title>' "$page" || fail "the login page's <title> does not name the app"
@@ -116,16 +117,21 @@ for asset in "$css" /modules/htmx.min.js; do
 done
 log "ok: /auth/login 200 in the app shell; $css and /modules/htmx.min.js served"
 
-# The observability contract (src/logger.ts, src/request-context.ts): the image logs JSON by
-# default, and the request's X-Request-ID (12 hex) is on its access line with the build's version.
-request_id=$(grep -iE '^x-request-id:' "$WORK/login.headers" | tr -d '\r' | sed -E 's/^[^:]+: *//')
-[[ "$request_id" =~ ^[0-9a-f]{12}$ ]] || fail "GET /auth/login carries no 12-hex X-Request-ID (got '${request_id:-none}')"
-docker logs "$NAME" >"$WORK/container.log" 2>&1
-access=$(jq -cR --arg id "$request_id" 'fromjson? | select(.context == "Http" and .request_id == $id)' \
-  "$WORK/container.log" | head -n 1)
-[ -n "$access" ] || fail "no JSON access line (context Http) carries request_id $request_id"
-[ "$(jq -r .version <<<"$access")" = "$version" ] || fail "the access line's version is not /healthz's '$version'"
-log "ok: JSON access line for request $request_id"
+# The observability contract (observability.md; src/logger.ts, src/request-context.ts,
+# src/metrics/), asserted by devkit's probe the way every app's smoke asserts it: /healthz
+# answers; a request gets a fresh 12-hex X-Request-ID (an inbound one is never kept) that its
+# JSON access line carries, with ts, level, logger, msg and the build's version; /metrics
+# serves app_info{version=BOOT_EXPECT_VERSION} 1 and the request histogram, every job outcome
+# is in the allowed set, and a proxied scrape is a 404. Not yet --health: /healthz answers
+# `ok`, not the /health/ready contract's up|down (AGENTS.md, Convention deltas).
+log "contract probe"
+"$(dirname "$0")/../devkit/bin/contract_probe.sh" "$BASE" \
+  --live /healthz \
+  --request-id /auth/login \
+  --metrics /metrics --require-metric app_info --require-metric http_request_duration_seconds \
+  --require-metric http_request_db_statements \
+  --json-log "$NAME" || fail "the observability contract probe failed (lines above)"
+log "ok: observability contract"
 
 if [ -n "${MODELS_DIR:-}" ]; then
   # A red shirt on a pale backdrop, drawn by the image's own sharp.

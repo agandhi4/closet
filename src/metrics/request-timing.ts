@@ -14,6 +14,12 @@ import { currentRequest } from '../request-context';
  */
 export interface RequestTiming {
   dbMs: number;
+  /**
+   * SQL statements the request sent, transaction control included (the
+   * pool's StatementCounter, src/db/client.ts): http_request_db_statements
+   * and the access line's db_statements. Not in Server-Timing.
+   */
+  dbStatements: number;
   renderMs: number;
   /** A secret the request carries was checked: no Server-Timing (markSecretChecked). */
   secretChecked: boolean;

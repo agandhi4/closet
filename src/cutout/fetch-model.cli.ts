@@ -1,5 +1,5 @@
 import { type Config, ConfigError, loadConfig } from '../config';
-import { createLogger } from '../logger';
+import { createBootLogger, createLogger } from '../logger';
 import { BIREFNET_512, CutoutModel } from './model';
 
 /**
@@ -15,20 +15,23 @@ function main(): void {
   try {
     config = loadConfig();
   } catch (error) {
-    console.error(error instanceof ConfigError ? error.message : error);
+    const boot = createBootLogger();
+    if (error instanceof ConfigError) boot.fatal(error.message);
+    else boot.fatal({ err: error }, 'Configuration failed to load');
     process.exitCode = 1;
     return;
   }
-  const logger = createLogger(config).child({ context: 'CutoutModel' });
+  const logger = createLogger(config).child({ logger: 'CutoutModel' });
   new CutoutModel(BIREFNET_512, config.MODELS_PATH, logger)
     .ready({ replaceMismatched: true })
     .then(
       (path) => {
-        // The result channel of the CLI; the details went to the log.
-        console.log(path);
+        // The command's result, for a script to read (not a log line: the
+        // details went to the log).
+        process.stdout.write(`${path}\n`);
       },
       (error: unknown) => {
-        console.error(error instanceof Error ? error.message : error);
+        logger.fatal({ err: error }, 'The model is not ready');
         process.exitCode = 1;
       },
     );

@@ -225,14 +225,14 @@ describe('background jobs: statements per run (#173)', () => {
       weather,
       push: t.push,
       timeZone: t.timeZone,
-      logger: t.logger.child({ context: 'WeekPlan' }),
+      logger: t.logger.child({ logger: 'WeekPlan' }),
     };
     reminders = {
       db: t.db,
       sender: t.push!,
       weather,
       timeZone: t.timeZone,
-      logger: t.logger.child({ context: 'Push' }),
+      logger: t.logger.child({ logger: 'Push' }),
       replan,
     };
   });
@@ -462,7 +462,7 @@ describe('background jobs: statements per run (#173)', () => {
       reconcileStorage({
         db: t.db,
         photos: t.photos,
-        logger: t.logger.child({ context: 'Reconciliation' }),
+        logger: t.logger.child({ logger: 'Reconciliation' }),
       }),
     );
     expect(recorded.statements).toBe(3);

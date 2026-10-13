@@ -78,7 +78,15 @@ describe('/file route and request logging', () => {
     const res = await t.inject({ method: 'GET', url: '/file/app.log' });
     expect(res.statusCode).toBe(404);
     expect(res.headers['content-type']).toMatch(/^application\/json/);
-    expect(res.json()).toEqual({ statusCode: 404, message: 'Not Found' });
+    expect(res.json()).toEqual({
+      statusCode: 404,
+      message: 'Not Found',
+      // The id a person quotes when reporting it: its X-Request-ID.
+      request_id: res.headers['x-request-id'],
+    });
+    expect(res.json<{ request_id: string }>().request_id).toMatch(
+      /^[0-9a-f]{12}$/,
+    );
   });
 
   it('serves the share preview of a photo by its share id, signed out', async () => {
