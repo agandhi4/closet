@@ -15,7 +15,7 @@ PG_CONTAINER ?= closet-ci-pg
 PLAYWRIGHT_FLAGS ?=
 CI_IMAGE ?= closet:ci
 # The image's APP_VERSION (Dockerfile ARG): the gate passes gate-<pr>, ci.yml's publish job
-# builds with the bare 7-char sha itself. ci-smoke asserts /healthz reports it.
+# builds with the bare 7-char sha itself. ci-smoke asserts /health/ready reports it.
 CI_BUILD_VERSION ?= dev
 SMOKE_PG_CONTAINER ?= closet-smoke-pg
 
@@ -43,7 +43,7 @@ help:
 	@echo "make ci-e2e           — build, then Playwright chromium against a throwaway Postgres 18 (PWA on, PORT random). Budget $(E2E_BUDGET_SECONDS) s, floor $(E2E_FLOOR)"
 	@echo "make screenshots      — the 390 px persona screenshots (test/screenshots.spec.ts) into screenshots/, same server as ci-e2e"
 	@echo "make ci-image         — docker build of the production image (CI_IMAGE=$(CI_IMAGE), CI_BUILD_VERSION=$(CI_BUILD_VERSION))"
-	@echo "make ci-smoke         — boot CI_IMAGE on a throwaway Postgres 18 (scripts/smoke-image.sh); /healthz must report CI_BUILD_VERSION"
+	@echo "make ci-smoke         — boot CI_IMAGE on a throwaway Postgres 18 (scripts/smoke-image.sh); /health/ready must report CI_BUILD_VERSION"
 	@echo "make gate PR=<n>      — the PR gate: these jobs on PR <n> merged into origin/main [GATE_ARGS=--no-post]"
 	@echo "make devkit-sync      — pull the latest agandhi4/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
@@ -123,7 +123,7 @@ ci-image:
 	docker build --build-arg APP_VERSION=$(CI_BUILD_VERSION) -t $(CI_IMAGE) .
 
 # The publish job's smoke test, locally: CI_IMAGE (build it with ci-image first) on the host
-# network against a throwaway Postgres 18 published on loopback, and /healthz must name
+# network against a throwaway Postgres 18 published on loopback, and /health/ready must name
 # CI_BUILD_VERSION. A random SMOKE_PORT keeps parallel runs off each other.
 ci-smoke:
 	@port=$$($(PG) up $(SMOKE_PG_CONTAINER) | sed -n 's/^PG_PORT=//p'); \

@@ -140,7 +140,7 @@ export default defineConfig({
     // cutout arrives at once without the model, unless a spec holds it
     // pending (test/support/cutout-stub.ts).
     command: 'npm run start:test',
-    url: `${APP_ORIGIN}/healthz`,
+    url: `${APP_ORIGIN}/health/ready`,
     reuseExistingServer: !process.env.CI,
     stderr: 'pipe',
   },

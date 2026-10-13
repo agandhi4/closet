@@ -67,7 +67,7 @@ gate_plan() {
   fi
 
   # The build, then the image booted on its own throwaway Postgres (scripts/smoke-image.sh:
-  # /healthz names CI_BUILD_VERSION, the observability contract probe): what ci.yml's publish
+  # /health/ready names CI_BUILD_VERSION, the observability contract probe): what ci.yml's publish
   # job runs on the bytes it pushes, proved here before the merge.
   if changed "$IMAGE_PATHS"; then
     job image ci-image ci-smoke CI_IMAGE="$IMAGE" CI_BUILD_VERSION="gate-$PR" SMOKE_PG_CONTAINER="$SMOKE_PG_CONTAINER"

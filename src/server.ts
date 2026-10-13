@@ -54,6 +54,7 @@ export async function serve(
     db,
     photos,
     cutouts,
+    roster,
     push,
     weather,
     orderMail,
@@ -120,6 +121,8 @@ export async function serve(
   }
   // Before listen(): Fastify takes no hooks once it is ready.
   stopBeforeClose(app, jobs, logger.child({ logger: 'Scheduler' }));
+  // Every job, for /health/ready's cron_jobs check (a run that never ends).
+  roster.adopt(jobs);
 
   // `docker stop` sends SIGTERM: stop accepting, let in-flight requests
   // finish and stop the timers (preClose), then onClose ends the queue and

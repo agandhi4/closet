@@ -134,7 +134,7 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
       return;
     }
     // No page context: a static path (the root hook skips those; their
-    // routes, /file/**, /healthz and /manifest.json, answer data), or a
+    // routes, /file/**, /health/* and /manifest.json, answer data), or a
     // failure before the root preValidation hook ran, such as an unparsable
     // body. Data, then.
     if (!reply.locals) {

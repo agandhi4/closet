@@ -3,6 +3,12 @@
 Dated decisions, their rationale and the gotchas they carry. Newest first. The older
 history lives in `docs/PROJECT_LOG.md`.
 
+## 2026-10-13 — /health/live and /health/ready
+
+**Why:** `observability.md`'s health contract: closet answered `/healthz` `{status: "ok", version}` checking nothing, the image had no `HEALTHCHECK`, and the smoke's probe could only run `--live`.
+**Decision:** `src/web/health`: `/health/live` checks nothing (the PWA heartbeat moves to it, so a down database never reads as offline); `/health/ready` checks `database` + `migrations` (required, one statement under 3 s: the newest recorded migration against this build's) and `cron_jobs` + `cutout_queue` (optional, as locus and Orbit: every page serves without them, and a restart loop would cost the household the app). A timer's hung run is the one way it stops, so `JobRoster` reports a run in flight past 30 min. `/healthz` is the ready handler, for cached clients. Rate-limited per address as the convention says (`HEALTH_LIMIT`, one checker for both paths): closet has no in-container proxy and `TRUSTED_PROXIES` covers Caddy, so no delta. Dockerfile `HEALTHCHECK` on `/health/ready` via node's fetch; the smoke polls it and probes `--live /health/live --health /health/ready`.
+**Consequence:** production's container reports health from the next deploy; homelab still has to add the `autoheal: "true"` label (and `pids_limit`, `no-new-privileges`). The image still runs as root (a separate change: the data volume's ownership). Remove `/healthz` once no phone HEADs it (its requests have no access line; the Caddy log shows them).
+
 ## 2026-10-13 — Lean test suite: budgets per tier, ten e2e scenarios, migrations once per run
 
 **Why:** the owner directive ("a FAST, lean, useful test suite", 2026-10-13) and the gate's clock: the db tier took 278 s (1479 unit and 3036 integration tests, the latter in 136 files, every file migrating its own database and hashing passwords at bcrypt cost 12) and the e2e tier 356 s (61 Playwright files, 220 chromium tests, most re-proving what the integration tier already proves or what only a phone shows). Specs of shipped migrations tested frozen SQL that no change of ours can break.

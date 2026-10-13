@@ -77,6 +77,16 @@ export class CutoutQueue {
 
   constructor(private readonly deps: CutoutQueueDeps) {}
 
+  /**
+   * Between start() and stop(): /health/ready's cutout_queue check. The job
+   * loop catches what a claim throws, and anything else it throws is an
+   * unhandled rejection that ends the process, so a started queue is a
+   * working one.
+   */
+  get running(): boolean {
+    return this.runner !== undefined;
+  }
+
   /** Starts working through pending rows with `runner`. */
   start(runner: CutoutRunner): void {
     if (this.runner) throw new Error('The cutout queue is already running');

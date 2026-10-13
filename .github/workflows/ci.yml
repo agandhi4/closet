@@ -137,7 +137,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The one version string, the bare 7-char sha (docs/decisions.md 2026-10-13): baked into
-      # the image as APP_VERSION and its OCI version label, and served as /healthz `version`.
+      # the image as APP_VERSION and its OCI version label, and served as /health/ready `version`.
       # The image TAG keeps its `sha-` prefix (`sha-<7>`, below); the version never has one.
       - id: version
         run: echo "app=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"

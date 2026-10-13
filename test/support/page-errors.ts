@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
  * WebKit logs "Fetch API cannot load <url> due to access control checks."
  * when it refuses a fetch because the document is being navigated away, and
  * Playwright's WebKit reports that line as a page error although the app
- * catches the rejection: connectivity.js's /healthz probe and the install
+ * catches the rejection: connectivity.js's /health/live probe and the install
  * dialog's /manifest.json read, cut off by the next page (#179). The app
  * fetches nothing cross-origin (the CSP's connect-src is 'self'), so the
  * line is never a real access-control failure.

@@ -48,6 +48,8 @@ describe('sessions', () => {
       ['/auth/register', 200],
       ['/about', 200],
       ['/offline.html', 200],
+      ['/health/live', 200],
+      ['/health/ready', 200],
       ['/healthz', 200],
       ['/manifest.json', 200],
       ['/share?shareableId=nothing&type=garment', 200],

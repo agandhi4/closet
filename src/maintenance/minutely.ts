@@ -52,6 +52,7 @@ export function scheduleMinutely({
 }: MinutelyOptions): ScheduledJob {
   let timer: NodeJS.Timeout | undefined;
   let running: Promise<void> | undefined;
+  let runStartedAt: number | undefined;
   let stopped = false;
 
   const scheduleNext = () => {
@@ -64,6 +65,7 @@ export function scheduleMinutely({
   const tick = () => {
     // One job per run (a fresh `cron-` id on every line it logs, its
     // failure line included), never per timer.
+    runStartedAt = now().getTime();
     running = runAsJob('cron', async () => {
       try {
         await run(now());
@@ -74,6 +76,7 @@ export function scheduleMinutely({
     });
     void running.then(() => {
       running = undefined;
+      runStartedAt = undefined;
       scheduleNext();
     });
   };
@@ -83,6 +86,8 @@ export function scheduleMinutely({
   );
   scheduleNext();
   return {
+    name,
+    runStartedAt: () => runStartedAt,
     async stop() {
       stopped = true;
       clearTimeout(timer);

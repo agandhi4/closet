@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
 import { scheduleMinutely } from './minutely';
 import { scheduleNightly } from './nightly';
-import { type ScheduledJob, stopBeforeClose } from './scheduled';
+import {
+  JobRoster,
+  type ScheduledJob,
+  STUCK_AFTER_MS,
+  stopBeforeClose,
+} from './scheduled';
 
 /**
  * The shutdown contract of server.ts's timers (#78): every job is stopped
@@ -148,5 +153,53 @@ describe('stopBeforeClose', () => {
     expect(events).toEqual(['pool ended']);
     await vi.advanceTimersByTimeAsync(3 * DAY);
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('JobRoster', () => {
+  const { logger } = captureLogs();
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.setSystemTime(new Date('2026-01-16T07:59:59Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('reports nothing before serve() adopts its jobs', () => {
+    expect(new JobRoster().stuck()).toBeUndefined();
+  });
+
+  // The schedulers' own bookkeeping, not a stand-in: a run that never ends
+  // must show, and one that ends must stop showing.
+  it('names a job, nightly or minutely, whose run outlasts STUCK_AFTER_MS until it ends', async () => {
+    const finishes: (() => void)[] = [];
+    const held = () =>
+      vi.fn(() => new Promise<void>((resolve) => finishes.push(resolve)));
+    const roster = new JobRoster();
+    const jobs = [
+      scheduleNightly({
+        name: 'Reconciliation',
+        hour: 3,
+        timeZone: NY,
+        run: held(),
+        logger,
+      }),
+      scheduleMinutely({ name: 'Reminders', run: held(), logger }),
+    ];
+    roster.adopt(jobs);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(finishes).toHaveLength(2);
+    expect(roster.stuck()).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(STUCK_AFTER_MS + 1);
+    expect(roster.stuck()).toEqual(['Reconciliation', 'Reminders']);
+
+    finishes.forEach((finish) => finish());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(roster.stuck()).toEqual([]);
+    await Promise.all(jobs.map((job) => job.stop()));
   });
 });

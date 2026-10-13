@@ -77,6 +77,7 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 | Weekly auto-plan | `src/web/week-plan/AGENTS.md` | "Plan my week", the daily re-plan, `planned_by` |
 | Web Push | `src/push/AGENTS.md` | subscriptions, notifications, reminders |
 | MCP server | `src/web/mcp/AGENTS.md` | `/mcp`, its tools, personal access tokens |
+| Health | `src/web/health/AGENTS.md` | `/health/live`, `/health/ready`, `/healthz`, a readiness check, the image `HEALTHCHECK` |
 | PWA and the service worker | `src/web/shell/AGENTS.md` | the service worker, caching, offline, install, updates, static delivery |
 | Styles and fonts | `views/assets/AGENTS.md` | the theme, colours, fonts |
 | Layout | `src/web/layout/AGENTS.md` | the app bar, the dock, sections, stacking, a page's `<main>` |
@@ -90,7 +91,7 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 
 ### Routes
 
-In full, with every route's owner: `docs/architecture.md#routes`. `GET /` is Today. A route is public only with `config: { public: true }` (login, registration, `/healthz`, `/share`, most `/file/**` images; never an outfit selfie's); `/mcp` takes a personal access token, never the cookie (`config: { bearer: true }`); everything else needs a session and is the user's own. `/weather/*` exists only with `WEATHER_ENABLED`, `/push/*` only with `PWA_ENABLED`.
+In full, with every route's owner: `docs/architecture.md#routes`. `GET /` is Today. A route is public only with `config: { public: true }` (login, registration, `/health/*` and `/healthz`, `/share`, most `/file/**` images; never an outfit selfie's); `/mcp` takes a personal access token, never the cookie (`config: { bearer: true }`); everything else needs a session and is the user's own. `/weather/*` exists only with `WEATHER_ENABLED`, `/push/*` only with `PWA_ENABLED`.
 
 ### Request flow
 
@@ -119,7 +120,7 @@ Each rule in full, with its story: `docs/web-layer.md`. A feature lives whole (r
 The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. What every change keeps:
 
 - **CSRF**: the root same-origin hook 403s a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site, before the body is read. Nothing changes state on a GET. The harness sends an Origin; Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
-- **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `WEATHER_SEARCH_LIMIT`, `WEATHER_LOCATION_LIMIT`, `MCP_LIMIT`.
+- **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `WEATHER_SEARCH_LIMIT`, `WEATHER_LOCATION_LIMIT`, `MCP_LIMIT`, `HEALTH_LIMIT` (`/health/ready`, per address).
 - **Refusals do not reveal ids**: unseeable is a 404 like an unknown id; seeable but not changeable is a 403 (`WardrobeAccess`; the matrix is `test/integration/authorization-*.spec.ts`).
 - **Outbound fetches** of a user-supplied URL or a third-party API go only through `createOutboundFetcher`.
 - **Redirect targets** from the user go through `safeReturnTo`; a path carrying a secret sets `config: { secretPath: true }`; log lines name requests through `loggableUrl()`; public pages never show an email.
@@ -149,7 +150,7 @@ Deviations from `~/.claude/conventions/`, each with its `docs/decisions.md` entr
 
 - **Statement budgets come only from `recordQueries` blocks** (`build/metrics/statements.json`, `make ci-db`): the most statements each `<METHOD>:<route>` sent there, not every request the suite makes (2026-10-13, Observability contract 2).
 
-Open gaps, not deltas: `/healthz` until `/health/{live,ready}` and an image `HEALTHCHECK` (so the smoke's probe runs `--live`, not `--health`); `job_last_success_timestamp_seconds`; push and MCP outcome words (owner decision pending).
+Open gaps, not deltas: `job_last_success_timestamp_seconds`; push and MCP outcome words (owner decision pending).
 
 ## Commands
 
@@ -226,7 +227,7 @@ Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, ne
 
 Production runs on linux-box (the homelab) and merging to `main` deploys it: CI publishes the image and the hourly autoupdater pulls it. The pieces, the production env, the demo login, locked-out recovery, rotating the secret, deploying by hand and what CI publishes: `docs/deployment.md`.
 
-- **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by `ci.yml`'s publish job; `/healthz` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only that job moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
+- **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by `ci.yml`'s publish job; `/health/ready` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only that job moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
 
 ## Gotchas
 
