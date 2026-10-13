@@ -15,9 +15,11 @@ import type { ErrorContext, ErrorTracker } from './error-tracker';
  * app, never the library's global one, so the integration specs' apps never
  * share a series.
  *
- * The contract with the homelab (its Grafana dashboards read these names):
- * `http_request_duration_seconds{route,method,status_class}` and
- * `job_duration_seconds{name,outcome}`. No metric carries a `job` label: the
+ * The contract with the homelab (observability.md's standard metrics; its
+ * Grafana dashboards and rules read these names):
+ * `http_request_duration_seconds{route,method,status_class}`,
+ * `http_request_db_statements{route}`, `job_duration_seconds{name,outcome}`
+ * and `app_info{version}`. No metric carries a `job` label: the
  * scraper sets it. Every label value comes from a closed set (a route
  * template, a job name below, a tool name, an outcome), never from a
  * request: no ids, no URLs, no user.
@@ -117,6 +119,9 @@ export interface ClientTimingSample {
 }
 
 const HTTP_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
+// Statements per request: a page is one to a handful, a write a transaction
+// of a few more; past 50 is a loop sending one per row.
+const STATEMENT_BUCKETS = [0, 1, 2, 3, 5, 8, 13, 21, 34, 55];
 const JOB_BUCKETS = [0.01, 0.05, 0.25, 1, 2.5, 5, 10, 30, 60, 120, 300];
 // A phone on the tailnet: from a cached swap (tens of ms) to a cold load
 // over a poor connection (seconds).
@@ -127,6 +132,8 @@ const CLIENT_BUCKETS = [
 export interface MetricsOptions {
   /** METRICS_ENABLED: adds the process's default metrics (CPU, memory, event loop). */
   enabled: boolean;
+  /** The build's release (BuildInfo.release, the bare 7-char sha): app_info's `version`. */
+  version: string;
   logger: Logger;
   /** Where failures go (DISABLED_ERROR_TRACKER without SENTRY_DSN). */
   errors: ErrorTracker;
@@ -137,6 +144,7 @@ export class Metrics {
   readonly enabled: boolean;
 
   private readonly httpDuration: Histogram<'route' | 'method' | 'status_class'>;
+  private readonly httpStatements: Histogram<'route'>;
   private readonly jobDuration: Histogram<'name' | 'outcome'>;
   private readonly pushSends: Counter<'outcome'>;
   private readonly mcpCalls: Histogram<'tool' | 'outcome'>;
@@ -151,7 +159,7 @@ export class Metrics {
   private readonly logger: Logger;
   private readonly errors: ErrorTracker;
 
-  constructor({ enabled, logger, errors }: MetricsOptions) {
+  constructor({ enabled, version, logger, errors }: MetricsOptions) {
     this.enabled = enabled;
     this.logger = logger;
     this.errors = errors;
@@ -163,6 +171,21 @@ export class Metrics {
       buckets: HTTP_BUCKETS,
       registers,
     });
+    this.httpStatements = new Histogram({
+      name: 'http_request_db_statements',
+      help: 'SQL statements a request sent (transaction control included), by route template.',
+      labelNames: ['route'],
+      buckets: STATEMENT_BUCKETS,
+      registers,
+    });
+    // Always 1: the series exists to carry the running build's version, so
+    // a dashboard or alert can tell which release a number came from.
+    new Gauge({
+      name: 'app_info',
+      help: 'The running build: version is its APP_VERSION (the 7-char git sha). Always 1.',
+      labelNames: ['version'],
+      registers,
+    }).set({ version }, 1);
     this.jobDuration = new Histogram({
       name: 'job_duration_seconds',
       help: 'Scheduled and background jobs: run time by job name and outcome.',
@@ -220,16 +243,19 @@ export class Metrics {
     return [...this.routeTemplates].sort();
   }
 
+  /** One answered request: its time, and the SQL statements it sent. */
   observeRequest(
     route: string,
     method: string,
     status: number,
     seconds: number,
+    statements: number,
   ): void {
     this.httpDuration.observe(
       { route, method, status_class: `${Math.floor(status / 100)}xx` },
       seconds,
     );
+    this.httpStatements.observe({ route }, statements);
   }
 
   observeJob(name: JobName, ending: JobEnding, seconds: number): void {

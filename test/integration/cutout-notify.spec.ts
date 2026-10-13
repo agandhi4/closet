@@ -295,7 +295,7 @@ describe('cutout queue: notifications from another process', () => {
       db: other,
       database: { ...t.database, host: '127.0.0.1', port: relay.port },
       photos: t.photos,
-      logger: t.logger.child({ context: 'Cutout' }),
+      logger: t.logger.child({ logger: 'Cutout' }),
       pollMs: 3_600_000,
       metrics: t.metrics,
     });
@@ -434,7 +434,7 @@ describe('cutout queue: the idle poll', () => {
       db: other,
       database: t.database,
       photos: t.photos,
-      logger: t.logger.child({ context: 'Cutout' }),
+      logger: t.logger.child({ logger: 'Cutout' }),
       pollMs: 1_000,
       metrics: t.metrics,
     });

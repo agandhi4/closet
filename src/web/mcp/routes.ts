@@ -6,6 +6,7 @@ import type {
   FastifyRequest,
 } from 'fastify';
 import { authenticateToken } from '../auth/personal-tokens';
+import { errorBody } from '../errors';
 import { MAX_OPTIONS_PER_GROUP } from '../../wardrobe/suggestions';
 import { MCP_PATH } from '../page-cache';
 import type { WebOptions } from '../plugin';
@@ -15,11 +16,6 @@ import { registerTools, type ToolContext } from './tool';
 import { mcpTools } from './tools';
 
 const BEARER = /^Bearer\s+(\S+)\s*$/i;
-
-// Every refusal of the credential is this one answer, whatever was wrong
-// (no header, a malformed one, an unknown or revoked token), so a probe
-// learns nothing about which tokens exist.
-const UNAUTHORIZED = { statusCode: 401, message: 'Unauthorized' };
 
 // What the client's model reads first: the server, and how to style a
 // wardrobe with the tools (#269, Muse's workflow since #337). The README's
@@ -82,10 +78,15 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
       mcpLogger.warn(
         `MCP ${request.method} refused: ${presented ? 'unknown or revoked token' : 'no bearer token'} from ${request.ip}`,
       );
-      return reply
-        .status(401)
-        .header('WWW-Authenticate', 'Bearer realm="closet"')
-        .send(UNAUTHORIZED);
+      return (
+        reply
+          .status(401)
+          .header('WWW-Authenticate', 'Bearer realm="closet"')
+          // Every refusal of the credential is this one answer, whatever was
+          // wrong (no header, a malformed one, an unknown or revoked token),
+          // so a probe learns nothing about which tokens exist.
+          .send(errorBody(request, 401, 'Unauthorized'))
+      );
     }
     request.accessToken = auth;
   }

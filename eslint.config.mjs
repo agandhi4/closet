@@ -194,4 +194,14 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // App code logs only through its module's pino logger (src/logger.ts):
+    // a console line has no level, logger or request_id and breaks the JSON
+    // line shape Loki parses (observability.md). A CLI's result goes to
+    // process.stdout.write, a fatal before the configuration loads to
+    // createBootLogger(). scripts/ and test/ are tooling: the console is
+    // their interface.
+    files: ['src/**/*.{ts,tsx}'],
+    rules: { 'no-console': 'error' },
+  },
 );

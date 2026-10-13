@@ -183,6 +183,15 @@ export class ConfigError extends Error {
 // `.env.local`, so production configuration is real environment variables.
 const ENV_FILES = ['.env.local', '.env'];
 
+/**
+ * APP_VERSION alone, for the lines written before loadConfig() succeeds
+ * (createBootLogger, src/logger.ts): a boot refused for its configuration
+ * still names the build it was. Empty is unset, as loadConfig treats it.
+ */
+export function bootAppVersion(): string | undefined {
+  return process.env.APP_VERSION || undefined;
+}
+
 export interface LoadConfigOptions {
   /** Defaults to process.env. */
   env?: Env;

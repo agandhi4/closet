@@ -3,6 +3,7 @@ import { hostname } from 'node:os';
 import type { Db, DbConfig } from '../db/client';
 import type { Logger } from '../logger';
 import type { JobEnding, Metrics } from '../metrics/metrics';
+import { runAsJob } from '../request-context';
 import type { Photos } from '../web/files/photos';
 import { settlesWithin } from './deadline';
 import { CutoutListener } from './listener';
@@ -189,12 +190,21 @@ export class CutoutQueue {
           );
         }
         polling = false;
-        const startedAt = performance.now();
-        const ending = await this.process(job, runner, worker, halt);
-        this.deps.metrics.observeJob(
+        const claimed = job;
+        // One job per photo: its lines and its failure's Bugsink event carry
+        // a fresh `cutout-` id and the request that queued the photo.
+        await runAsJob(
           'cutout',
-          ending,
-          (performance.now() - startedAt) / 1000,
+          async () => {
+            const startedAt = performance.now();
+            const ending = await this.process(claimed, runner, worker, halt);
+            this.deps.metrics.observeJob(
+              'cutout',
+              ending,
+              (performance.now() - startedAt) / 1000,
+            );
+          },
+          { parentRequestId: claimed.requestId },
         );
         continue;
       }

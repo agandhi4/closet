@@ -24,3 +24,6 @@ Shared scripts vendored into every app repo as a `git subtree`. Read `README.md`
   one PR per consumer.
 - Record decisions in `docs/decisions.md` in the same PR (`## YYYY-MM-DD — title`, Why /
   Decision / Consequence, ≤ 8 lines).
+
+## Convention deltas
+- None. devkit ships no running service, so `observability.md` does not apply to it.

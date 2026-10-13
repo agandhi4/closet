@@ -47,13 +47,15 @@ ci-unit:
 # The whole suite, not only the integration project: the coverage thresholds in
 # vitest.config.ts are measured over both tiers, so splitting the run would lose the ratchet.
 # Each spec file creates its own C-collation scratch database inside this container
-# (test/support/scratch-database.ts reads TEST_DATABASE_URL).
+# (test/support/scratch-database.ts reads TEST_DATABASE_URL). STATEMENTS_OUT: the statement
+# counts the specs pin (recordQueries), as the metrics ratchet's `statements.*` keys
+# (test/support/statement-budgets.ts; devkit docs/metrics-keys.md).
 ci-db:
 	@$(PG) up $(PG_CONTAINER) >/dev/null
 	@trap '$(PG) down $(PG_CONTAINER)' EXIT INT TERM; \
 	  TEST_DATABASE_URL=$$($(PG) url $(PG_CONTAINER)) || exit 1; \
 	  export TEST_DATABASE_URL; \
-	  npm run test:cov
+	  STATEMENTS_OUT=build/metrics/statements.json npm run test:cov
 
 # As production: the PWA on, so the service-worker specs run instead of skipping. Web Push
 # needs an https: SITE_URL as its VAPID subject (nothing is fetched from it) and a key pair,

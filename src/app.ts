@@ -130,7 +130,7 @@ export async function createApp(
   logger: Logger,
   options: AppOptions = {},
 ): Promise<ClosetApp> {
-  const boot = logger.child({ context: 'Bootstrap' });
+  const boot = logger.child({ logger: 'Bootstrap' });
   // Reverse proxies whose X-Forwarded-* headers are believed, so the rate
   // limits, the same-origin check and canonical URLs see the real client and
   // the address it asked for. Behind Caddy this must include Caddy's
@@ -149,7 +149,7 @@ export async function createApp(
     dsn: config.SENTRY_DSN,
     release: build.release,
     environment: config.APP_ENV,
-    logger: logger.child({ context: 'ErrorTracking' }),
+    logger: logger.child({ logger: 'ErrorTracking' }),
   });
   // The DSN's host only: its key is a credential of sorts.
   boot.info(
@@ -159,18 +159,19 @@ export async function createApp(
   );
   const metrics = new Metrics({
     enabled: config.METRICS_ENABLED,
-    logger: logger.child({ context: 'Metrics' }),
+    version: build.release,
+    logger: logger.child({ logger: 'Metrics' }),
     errors,
   });
 
   const database = dbConfig(config);
   // Before anything queries: the schema is current or the boot fails.
-  await runMigrations(database, logger.child({ context: 'Migrations' }));
-  const db = createDb(database, logger.child({ context: 'Db' }));
+  await runMigrations(database, logger.child({ logger: 'Migrations' }));
+  const db = createDb(database, logger.child({ logger: 'Db' }));
   const photos = createPhotos(
     photosConfig(config),
     db,
-    logger.child({ context: 'Photos' }),
+    logger.child({ logger: 'Photos' }),
   );
   // Before any page renders a /file URL: the key the /file routes verify.
   configurePhotoUrls(config.ACCESS_TOKEN_SECRET);
@@ -178,7 +179,7 @@ export async function createApp(
     db,
     database,
     photos,
-    logger: logger.child({ context: 'Cutout' }),
+    logger: logger.child({ logger: 'Cutout' }),
     pollMs: config.CUTOUT_POLL_SECONDS * 1000,
     metrics,
   });
@@ -186,7 +187,7 @@ export async function createApp(
   // The only fetcher of user-supplied URLs (the link import); one per
   // process, handed to the web layer like Photos.
   const fetcher = createOutboundFetcher({
-    logger: logger.child({ context: 'OutboundFetch' }),
+    logger: logger.child({ logger: 'OutboundFetch' }),
     ...options.outboundFetch,
   });
   const weather = createWeather(config, logger, db, options.weather);
@@ -210,14 +211,14 @@ export async function createApp(
     vapid &&
     createPushSender({
       db,
-      logger: logger.child({ context: 'Push' }),
+      logger: logger.child({ logger: 'Push' }),
       vapid,
       metrics,
     });
 
   const app = Fastify({
     trustProxy,
-    loggerInstance: logger.child({ context: 'Fastify' }),
+    loggerInstance: logger.child({ logger: 'Fastify' }),
     // One line per request comes from the onResponse hook below.
     logController: new LogController({ disableRequestLogging: true }),
     // Every request's id is minted here (12 hex), never taken from an
@@ -253,12 +254,12 @@ export async function createApp(
     'onRequest',
     createSameOriginHook({
       siteUrl: config.SITE_URL,
-      logger: logger.child({ context: 'Security' }),
+      logger: logger.child({ logger: 'Security' }),
     }),
   );
   // Per-route brute-force limits (login, registration, password changes);
   // before the routes so they see the plugin's onRoute hook.
-  await registerRateLimit(app, logger.child({ context: 'RateLimit' }));
+  await registerRateLimit(app, logger.child({ logger: 'RateLimit' }));
 
   // One session resolution per request: the JWT is verified and the user
   // loaded here and nowhere else (the session gate and views read req.auth).
@@ -269,7 +270,7 @@ export async function createApp(
   const resolveSession = createSessionResolver({
     db,
     tokens,
-    logger: logger.child({ context: 'Session' }),
+    logger: logger.child({ logger: 'Session' }),
   });
   const buildViewContext = createViewContextBuilder({
     appName: config.APP_NAME,
@@ -317,16 +318,18 @@ export async function createApp(
   // request_id is passed, not left to the mixin: onResponse runs on the
   // response's 'finish' event, which need not carry the request's async
   // context.
-  const http = logger.child({ context: 'Http' });
+  const http = logger.child({ logger: 'Http' });
   app.addHook('onResponse', (request, reply, done) => {
     if (!isStaticPath(request.url)) {
       const warm = isWarmRequest(request.headers) ? ' (warm)' : '';
       http.info(
         {
           request_id: request.id,
+          method: request.method,
           route: request.routeOptions.url,
           status: reply.statusCode,
           duration_ms: Number(reply.elapsedTime.toFixed(1)),
+          db_statements: request.timing?.dbStatements,
         },
         `${request.method} ${loggableUrl(request)} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms${warm}`,
       );
@@ -350,10 +353,10 @@ export async function createApp(
   await registerStaticAssets(
     app,
     config,
-    logger.child({ context: 'StaticAssets' }),
+    logger.child({ logger: 'StaticAssets' }),
   );
 
-  const web = logger.child({ context: 'Web' });
+  const web = logger.child({ logger: 'Web' });
   app.setErrorHandler(createErrorHandler(web, errors));
   // A path no route matches is the 404 page (a static path, which has no
   // page context, gets data from the error handler instead).
@@ -378,7 +381,7 @@ export async function createApp(
     cutouts,
     fetcher,
     weather,
-    mcpLogger: logger.child({ context: 'Mcp' }),
+    mcpLogger: logger.child({ logger: 'Mcp' }),
     push,
     metrics,
     errors,
@@ -412,7 +415,7 @@ function createOrderMail(
   fetcher: OutboundFetcher,
   stub: AppOptions['orderMail'],
 ): OrderMailDeps | undefined {
-  const boot = logger.child({ context: 'Bootstrap' });
+  const boot = logger.child({ logger: 'Bootstrap' });
   if (!config.ORDER_MAIL_JMAP_TOKEN) {
     boot.info('Order mail: off (ORDER_MAIL_JMAP_TOKEN unset)');
     return undefined;
@@ -426,7 +429,7 @@ function createOrderMail(
     db,
     jmap: createJmapClient({
       fetcher: createOutboundFetcher({
-        logger: logger.child({ context: 'OutboundFetch' }),
+        logger: logger.child({ logger: 'OutboundFetch' }),
         ...stub?.fetch,
       }),
       token: config.ORDER_MAIL_JMAP_TOKEN,
@@ -436,7 +439,7 @@ function createOrderMail(
     senders,
     ownerEmail: normalizeEmail(config.ORDER_MAIL_OWNER),
     timeZone: config.APP_TIMEZONE,
-    logger: logger.child({ context: 'OrderMail' }),
+    logger: logger.child({ logger: 'OrderMail' }),
   };
 }
 
@@ -452,7 +455,7 @@ function createWeather(
   db: Db,
   stub: AppOptions['weather'],
 ): WeatherService | undefined {
-  const boot = logger.child({ context: 'Bootstrap' });
+  const boot = logger.child({ logger: 'Bootstrap' });
   if (!config.WEATHER_ENABLED) {
     boot.info('Weather: off (WEATHER_ENABLED=false)');
     return undefined;
@@ -464,13 +467,13 @@ function createWeather(
     db,
     client: createOpenMeteoClient({
       fetcher: createOutboundFetcher({
-        logger: logger.child({ context: 'OutboundFetch' }),
+        logger: logger.child({ logger: 'OutboundFetch' }),
         ...stub?.fetch,
       }),
       timeZone: config.APP_TIMEZONE,
       endpoints: stub?.endpoints,
     }),
-    logger: logger.child({ context: 'Weather' }),
+    logger: logger.child({ logger: 'Weather' }),
     timeZone: config.APP_TIMEZONE,
   });
 }

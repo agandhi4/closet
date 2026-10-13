@@ -90,11 +90,11 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 
 ### Routes
 
-In full: `docs/architecture.md#routes`. `GET /` is Today; no landing, privacy, terms or sitemap routes. Public (`config: { public: true }`): login, registration, logout (POST, and the GET that asks), `/about` (upstream attribution), `/offline.html`, `/healthz`, `/manifest.json` (from config, not a static file), `/.well-known/*`, `/share`, `/wardrobe-share/invite/:token`, and every `/file/**` image except an outfit selfie's (a 404 to anyone). `/mcp` takes a personal access token, never the cookie (`config: { bearer: true }`). Everything else needs a session and is the user's own; the area index names each owner (`/laundry` Wears and washes; `/wardrobe/insights` Insights; `/auth/profile/style` Style profile; `/wardrobe/plans*` and `/wardrobe/shopping`, retired, 302 to the inbox, Wishlist; `/calendar/plan-week`, `/auth/profile/week` Weekly auto-plan; `/trips/*`; `/outfits/ideas` Outfit gallery; `/styling`; `/today/*`; `/selfies/*` Outfit selfies). `/offline/warm` is the service worker's warm list, the session's own wardrobe (PWA and the service worker). `/weather/*` exists only with `WEATHER_ENABLED`, `/push/*` only with `PWA_ENABLED`.
+In full, with every route's owner: `docs/architecture.md#routes`. `GET /` is Today. A route is public only with `config: { public: true }` (login, registration, `/healthz`, `/share`, most `/file/**` images; never an outfit selfie's); `/mcp` takes a personal access token, never the cookie (`config: { bearer: true }`); everything else needs a session and is the user's own. `/weather/*` exists only with `WEATHER_ENABLED`, `/push/*` only with `PWA_ENABLED`.
 
 ### Request flow
 
-Root hooks in `app.ts` (same-origin at onRequest; `req.auth` and `ViewContext` into `reply.locals` at preValidation, skipped on static paths), then a route (`requireSession` → schema validation, 400 page on failure → handler → `renderPage`/`renderFragment` → `Layout`), or a static file (`@fastify/static`, precompressed, cache policy `src/static-assets.ts`), or the not-found handler (`HttpError(404)` into the error handler: the 404 page, or `{ statusCode, message }` on a static path). Every response gets the security headers (root onSend) and, off static paths, one log line (onResponse). A route serving a page and a fragment uses `wantsFragment(request, reply)` (`isFragmentRequest`, shared with the service worker, plus `Vary`).
+In full: `docs/architecture.md#request-flow`. Root hooks in `app.ts` (same-origin at onRequest; `req.auth` and `ViewContext` at preValidation, skipped on static paths), then a route, a static file or the not-found handler. Every response gets the security headers and, off static paths, one access line (onResponse).
 
 ### Web layer (adding a feature)
 
@@ -127,7 +127,7 @@ The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. Wh
 
 ### Config and logging
 
-In full: `docs/conventions.md#config`, `#logging`. `loadConfig()` (`src/config.ts`) is the only reader of `process.env` (one TypeBox schema; a bad value stops the boot naming the key, never the value: `ConfigError`). Secrets have no default (`ACCESS_TOKEN_SECRET`: required, ≥ 32 chars). A new env var gets a schema entry and a README row. **The Docker image bakes `.env` and never sees `.env.local`**. Log through the module's pino child, at operation boundaries with ids, errors as `logger.error({ err }, message)`, never in rendering or loops. Lines are JSON (`LOG_FORMAT=text` for a terminal): `ts`, `level`, `version`, `context`, and inside a request its `request_id` (12 hex, minted never trusted, also `X-Request-ID` and the Bugsink tag; `src/request-context.ts`). Bugsink's `environment` is `APP_ENV` (production, dev, gate), never NODE_ENV.
+In full: `docs/conventions.md#config`, `#logging`. `loadConfig()` (`src/config.ts`) is the only reader of `process.env`; a bad value stops the boot naming the key, never the value (`ConfigError`). Secrets have no default. A new env var gets a schema entry and a README row. **The image bakes `.env`, never `.env.local`**. Log through the module's pino child at operation boundaries with ids (`logger.error({ err }, message)`), never in rendering or loops, never `console` (ESLint). JSON lines carry `logger` and the operation's `request_id`, or a job's `job_id` and `parent_request_id` (`src/request-context.ts`). Bugsink's `environment` is `APP_ENV`, never NODE_ENV.
 
 ## Conventions
 
@@ -147,7 +147,9 @@ In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 Deviations from `~/.claude/conventions/`, each with its `docs/decisions.md` entry (2026-10-13, Observability contract):
 - **Job outcomes add `discarded` and `interrupted`** (the cutout queue), non-alerting; any error or timeout is `failure`. `JOB_OUTCOMES` and `metrics.spec.ts` hold the list.
 
-Open gaps, not deltas: `/healthz` until `/health/{live,ready}` and an image `HEALTHCHECK`; `context` not `logger`; job ids; `app_info`; push and MCP outcome words.
+- **Statement budgets come only from `recordQueries` blocks** (`build/metrics/statements.json`, `make ci-db`): the most statements each `<METHOD>:<route>` sent there, not every request the suite makes (2026-10-13, Observability contract 2).
+
+Open gaps, not deltas: `/healthz` until `/health/{live,ready}` and an image `HEALTHCHECK` (so the smoke's probe runs `--live`, not `--health`); `job_last_success_timestamp_seconds`; push and MCP outcome words (owner decision pending).
 
 ## Commands
 
@@ -177,12 +179,9 @@ npm run test:watch            # the same in watch mode; test:debug waits for an 
                               # postgres, trust auth). Dev app config lives in .env.local (DATABASE_*,
                               # closet_db, ACCESS_TOKEN_SECRET: the server refuses to boot without
                               # one); see README Development.
-npm run test:int              # Vitest integration project: real app in-process, temp DATA_PATH, inject().
-                              # Asserts HTML, headers, DB rows, files. ~5 s. No build needed.
-                              # The default place for behavior assertions during development.
-                              # Each spec file gets a scratch database (test/support/scratch-database.ts)
-                              # on TEST_DATABASE_URL, default pgvault-dev; `make ci-db` points it at a throwaway
-                              # Postgres 18 container (devkit/bin/throwaway_pg.sh).
+npm run test:int              # Vitest integration: the real app in-process via inject(), a scratch database
+                              # per spec file (TEST_DATABASE_URL, default pgvault-dev). ~5 s, no build. The
+                              # default place for behavior assertions.
 npm run test:e2e              # build, then playwright (all browsers); start:test on :3000 unless one is running.
 npm run test:e2e:smoke        # build, then the smoke spec in chromium
                               # the PWA specs skip unless the server runs with PWA_ENABLED: test/AGENTS.md
@@ -201,9 +200,7 @@ npm run precommit:full        # check + verify:push + page audit + lighthouse (m
 # core.hooksPath; `make hooks-check` reports a repoint. pre-commit runs make ci-quick, pre-push
 # make ci-unit (scripts/ci/hooks.conf); neither needs Postgres or a browser.
 
-# Schema change: edit src/db/schema.ts, then write drizzle/NNNN_<name>.sql + snapshot (no database
-# needed). The next boot applies it. See Changing the schema.
-npx drizzle-kit generate --name <what-changed>
+npx drizzle-kit generate --name <what-changed>   # a schema change: see Changing the schema
 
 docker build --build-arg APP_VERSION=dev -t closet .   # or: make ci-image ci-smoke CI_BUILD_VERSION=<v>
 
@@ -220,8 +217,8 @@ Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, ne
 
 `src/db/schema.ts` is the schema; `drizzle/` holds the migrations drizzle-kit generates from it. The server migrates on every boot (`createApp()`, before the pool opens and before anything queries), so a deploy is the migration. The CLIs never migrate: `requireCurrentSchema` refuses a database behind the build (`SchemaBehindError`, exit 1).
 
-1. Edit `src/db/schema.ts`. Name new indexes and constraints the way the existing ones are (`<table>_<column>_index`, `_unique`, `_foreign`; MikroORM's names, kept). Every foreign key column gets an explicit `index()`, or leads a composite index or unique constraint (as `outfit_calendar.owner_id`): Postgres does not index them on its own. A composite name lists its columns in order (`outfit_calendar_owner_id_day_outfit_id_unique`).
-2. `npx drizzle-kit generate --name <what-changed>` writes `drizzle/NNNN_<name>.sql` and `meta/NNNN_snapshot.json` from the diff against the last snapshot. Read the SQL: a rename it cannot tell from drop + add makes it prompt (run it in a terminal), and data fixes (backfills, deletes before `SET NOT NULL`) are hand-added to the generated file.
+1. Edit `src/db/schema.ts`. Names follow the existing ones (`<table>_<column>_index`, `_unique`, `_foreign`; a composite lists its columns in order). Every foreign key column gets an `index()` or leads a composite index or unique constraint: Postgres does not index them on its own.
+2. `npx drizzle-kit generate --name <what-changed>` writes `drizzle/NNNN_<name>.sql` and its snapshot. Read the SQL: a rename makes it prompt (run it in a terminal); data fixes (backfills, deletes before `SET NOT NULL`) are hand-added to the file.
 3. `npm run test:int`: `test/integration/migrations.spec.ts` asserts that drizzle-kit's `pushSchema` finds nothing to change after boot (a schema edit without its migration fails there, naming the missing statement) and lists the index names queries rely on.
 4. Never edit or delete a migration that has shipped. Drizzle applies every file whose journal `when` is newer than the last row in `drizzle.__drizzle_migrations` and never re-checks hashes, so an edited file silently diverges from production.
 
@@ -253,7 +250,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - Behavior assertions go in `test/integration/` first: a spec that boots the real app and checks the HTML, headers, rows and files is the default proof that a change works, and it runs in seconds without a build or a browser. Playwright is the full gate for what only a browser can show (service worker, htmx swaps, layout).
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
 - **Changes land through pull requests** (owner decision, 2026-09-26). `main` is protected: `local-gate` and `codex-review` must pass. Not strict (2026-10-13, `docs/decisions.md`): the gate tests the PR merged into the current `main`, and the merge queue merges only when neither head nor `main` moved since, which catches parallel branches that each pass alone (duplicate migration numbers, conflicting edits). Squash merges only: one PR is one commit on `main`, and merged branches are deleted.
-- **The flow per issue slice:** a branch (`<issue>-<slug>`, e.g. `12b-bulk-edit`), in its own git worktree when agents work in parallel; the fast loop locally (the spec being worked on, and the pre-commit `npm run check`, ~80 s); push and open a PR that links the issue (`Part of #12` / `Closes #12`); the **local gate** verifies: `make gate PR=<n>` runs the Makefile's `ci-*` jobs the diff can affect (`scripts/ci/gate_plan.sh`) on the PR merged into `origin/main`, on a throwaway Postgres 18 container, and posts `local-gate`; fork PRs are refused (public repo). Actions only publishes. An independent review of the PR diff; **Codex's go-ahead** (owner, 2026-09-27): `~/.claude/scripts/agent-worker/codex_gate.py wait agandhi4/closet <pr>` asks `@codex review` of the head commit and sets the required `codex-review` status. It passes once Codex reviewed that SHA and every thread is resolved. Answer each thread (`threads agandhi4/closet <pr>`, same script): fix what's valid or reply with the reason it isn't, then `reply <thread> "…" --resolve`. Every push needs a new `wait`. Docs-only PRs skip Codex (status "docs-only"); batch pushes to spare quota. **At its usage limit (`error`), an adversarial Claude review stands in** and, once addressed, sets `codex-review` success ("Claude adversarial review (Codex at limit)"). The merge queue (`closet_merge_queue.sh`) then gates and squash-merges pinned to the gated head; never `gh pr merge --auto`. Merging publishes the image, then deploys. The owner may stop any PR (comment or close).
+- **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; `make gate PR=<n>` posts `local-gate`; Codex's go-ahead posts `codex-review` (every push needs a new `wait`; every thread answered and resolved; docs-only PRs skip it; at Codex's limit an adversarial Claude review stands in); then `closet_merge_queue.sh` squash-merges pinned to the gated head, never `gh pr merge --auto`. Merging publishes, then deploys. The owner may stop any PR.
 - **Phone-width checks** still happen before a feature is called done: Playwright at 390 px, run locally in the one worktree that is not racing another for `:3000`, or from CI's uploaded artifacts.
 - **Migrations and parallel branches:** two branches that each generate `NNNN` collide in `drizzle/meta/_journal.json`. The later branch rebases on `main`, deletes its migration and snapshot, and regenerates (`npx drizzle-kit generate`); the drift test in the gate proves the result. Never hand-merge a journal.
 - The pre-commit hook runs `make ci-quick` and the pre-push hook `make ci-unit`; never bypass either with `--no-verify`. If a hook fails, fix and create a new commit, never amend.

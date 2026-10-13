@@ -103,7 +103,11 @@ export default defineConfig({
           globalSetup: [
             'test/support/sweep-scratch-databases.ts',
             'test/support/static-assets-setup.ts',
+            // With STATEMENTS_OUT (make ci-db): the statement counts the
+            // specs pin, for the metrics ratchet (statement-budgets.ts).
+            'test/support/statement-budgets-global.ts',
           ],
+          setupFiles: ['test/support/statement-budgets-setup.ts'],
         },
       },
     ],

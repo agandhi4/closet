@@ -5,20 +5,41 @@ import type { FastifyInstance } from 'fastify';
 import type { RequestTiming } from './metrics/request-timing';
 
 /**
- * What code running for a request can know without the request object: its
- * id and its timing. Carried in async context because the readers run far
- * from the request: every logger line (src/logger.ts, pino's mixin), the
- * error tracker's tag (src/metrics/error-tracker.ts), the pool and the
- * renderer (src/metrics/request-timing.ts). Outside a request (the timers,
+ * What code running for a request or a background job can know without
+ * being handed it: the operation's id (and a request's timing). Carried in
+ * async context because the readers run far from where the operation
+ * started: every logger line (src/logger.ts, pino's mixin), the error
+ * tracker's tags (src/metrics/error-tracker.ts), the pool and the renderer
+ * (src/metrics/request-timing.ts). One store for both kinds: a job started
+ * while a request runs replaces it, keeping its id as `parentRequestId`, so
+ * a line is the request's or the job's, never both. Outside either (boot,
  * the CLIs) there is none.
  */
 export interface RequestContext {
+  readonly kind: 'request';
   /** 12 lowercase hex (newRequestId); the X-Request-ID response header. */
   readonly requestId: string;
   readonly timing: RequestTiming;
 }
 
-const storage = new AsyncLocalStorage<RequestContext>();
+/**
+ * The kinds of background work (the `<kind>-` of a job id): `cron`, one run
+ * of a timer server.ts starts (src/maintenance/scheduled.ts); `cutout`, one
+ * photo through the background-removal queue (src/cutout/queue.ts).
+ */
+export type JobKind = 'cron' | 'cutout';
+
+export interface JobContext {
+  readonly kind: 'job';
+  /** `<kind>-<12 hex>`, fresh per run (newJobId): the `job_id` log field. */
+  readonly jobId: string;
+  /** The request that asked for this work, when one did. */
+  readonly parentRequestId?: string;
+}
+
+type OperationContext = RequestContext | JobContext;
+
+const storage = new AsyncLocalStorage<OperationContext>();
 
 /** The response header carrying the request's id. */
 export const REQUEST_ID_HEADER = 'X-Request-ID';
@@ -32,9 +53,63 @@ export function newRequestId(): string {
   return randomBytes(6).toString('hex');
 }
 
+/** A job's id: its kind, then 12 lowercase hex like a request's (observability.md). */
+export function newJobId(kind: JobKind): string {
+  return `${kind}-${newRequestId()}`;
+}
+
 /** The request this code runs for, if any. */
 export function currentRequest(): RequestContext | undefined {
-  return storage.getStore();
+  const context = storage.getStore();
+  return context?.kind === 'request' ? context : undefined;
+}
+
+/** The job this code runs for, if any. */
+export function currentJob(): JobContext | undefined {
+  const context = storage.getStore();
+  return context?.kind === 'job' ? context : undefined;
+}
+
+/**
+ * Runs `work` as one job of `kind`, under a fresh id: every line it logs
+ * carries `job_id` (and `parent_request_id`), every error it reports the
+ * same tags. The parent is the request running now unless the caller names
+ * the one that asked (the cutout queue reads it from the photo's row).
+ */
+export function runAsJob<T>(
+  kind: JobKind,
+  work: () => Promise<T>,
+  { parentRequestId }: { parentRequestId?: string } = {
+    parentRequestId: currentRequest()?.requestId,
+  },
+): Promise<T> {
+  return storage.run(
+    {
+      kind: 'job',
+      jobId: newJobId(kind),
+      ...(parentRequestId && { parentRequestId }),
+    },
+    work,
+  );
+}
+
+/**
+ * The fields naming the operation a line or an error belongs to: a
+ * request's `request_id`, or a job's `job_id` and `parent_request_id`. The
+ * logger's mixin and the error tracker's tags both read this.
+ */
+export function operationFields(): Record<string, string> {
+  const context = storage.getStore();
+  if (context?.kind === 'request') return { request_id: context.requestId };
+  if (context?.kind === 'job') {
+    return {
+      job_id: context.jobId,
+      ...(context.parentRequestId && {
+        parent_request_id: context.parentRequestId,
+      }),
+    };
+  }
+  return {};
 }
 
 /** Runs `next` (a Fastify hook's `done`) and everything it leads to inside `context`. */
@@ -52,8 +127,9 @@ export function registerRequestContext(app: FastifyInstance): void {
   app.decorateRequest('requestContext', undefined);
   app.addHook('onRequest', (request, reply, done) => {
     const context: RequestContext = {
+      kind: 'request',
       requestId: request.id,
-      timing: { dbMs: 0, renderMs: 0, secretChecked: false },
+      timing: { dbMs: 0, dbStatements: 0, renderMs: 0, secretChecked: false },
     };
     request.requestContext = context;
     request.timing = context.timing;

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createGarment } from './garments';
 import {
   createTestApp,
+  recordQueries,
   TEST_PASSWORD,
   type TestApp,
   uniqueClient,
@@ -20,6 +21,16 @@ const METRICS_ENV = { METRICS_ENABLED: 'true' };
 function labelValues(body: string, label: string): Set<string> {
   const pattern = new RegExp(`[{,]${label}="([^"]*)"`, 'g');
   return new Set([...body.matchAll(pattern)].map((match) => match[1]));
+}
+
+/** http_request_db_statements' running sum for `route`, 0 before its first request. */
+function statementsSum(body: string, route: string): number {
+  const line = body
+    .split('\n')
+    .find((l) =>
+      l.startsWith(`http_request_db_statements_sum{route="${route}"} `),
+    );
+  return line ? Number(line.split(' ')[1]) : 0;
 }
 
 function serverTiming(header: unknown): Record<string, string> {
@@ -269,6 +280,10 @@ describe('metrics, METRICS_ENABLED=true', () => {
       expect(res.body).toContain('process_cpu_user_seconds_total');
     });
 
+    it('names the running build in app_info', async () => {
+      expect(await scrape()).toMatch(/^app_info\{version="dev"\} 1$/m);
+    });
+
     it('is a 404 through a reverse proxy', async () => {
       const forwarded = await t.inject({
         method: 'GET',
@@ -319,7 +334,7 @@ describe('metrics, METRICS_ENABLED=true', () => {
       await scrape();
       const http = t.logs.records
         .slice(before)
-        .filter((record) => record.context === 'Http');
+        .filter((record) => record.logger === 'Http');
       expect(http).toEqual([]);
     });
   });
@@ -456,5 +471,66 @@ describe('metrics, METRICS_ENABLED=true', () => {
       // Per user: the owner is not refused with them.
       expect((await beacon(payload)).statusCode).toBe(204);
     });
+  });
+});
+
+// The app's own statement count (Drizzle's logger, src/db/client.ts) against
+// what node-postgres really sent (recordQueries): a page's reads, and a
+// write whose transaction control counts as statements too. An app of its
+// own: the requests it makes would move the other block's exact counts.
+describe('http_request_db_statements', () => {
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp(METRICS_ENV);
+  });
+
+  afterAll(() => t?.cleanup());
+
+  const scrape = async () =>
+    (await t.inject({ method: 'GET', url: '/metrics', anonymous: true })).body;
+
+  const post = (url: string, payload: object) =>
+    t.inject({ method: 'POST', url, payload });
+
+  it("counts each request's statements as node-postgres sends them, begin and commit included", async () => {
+    const id = await createGarment(t, { name: 'Counted coat' });
+    const capsule = await post('/capsules', { name: 'Counted', notes: '' });
+    const capsuleId = /^\/capsules\/(\d+)/.exec(
+      String(capsule.headers.location),
+    )![1];
+    const cases = [
+      {
+        route: '/wardrobe/:id',
+        work: () => t.inject({ method: 'GET', url: `/wardrobe/${id}` }),
+      },
+      {
+        route: '/capsules/:id/garments',
+        work: () =>
+          post(`/capsules/${capsuleId}/garments`, { ids: [id], shown: [id] }),
+      },
+    ];
+    for (const { route, work } of cases) {
+      const before = statementsSum(await scrape(), route);
+      const record = await recordQueries(work);
+      expect(record.statements).toBeGreaterThan(0);
+      expect(statementsSum(await scrape(), route) - before).toBe(
+        record.statements,
+      );
+      expect(record.requests).toEqual([
+        {
+          key: expect.stringMatching(new RegExp(`^(GET|POST):${route}$`)),
+          statements: record.statements,
+        },
+      ]);
+      const access = t.logs.records.findLast(
+        (line) => line.logger === 'Http' && line.route === route,
+      );
+      expect(access?.db_statements).toBe(record.statements);
+    }
+    // The capsule's save is a transaction: its begin and commit counted.
+    const write = await recordQueries(cases[1].work);
+    expect(write.sql).toEqual(expect.arrayContaining(['begin', 'commit']));
+    expect(write.requests[0].statements).toBe(write.statements);
   });
 });

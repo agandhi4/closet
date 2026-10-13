@@ -1,4 +1,5 @@
 import type { Logger } from '../logger';
+import { runAsJob } from '../request-context';
 import { addDays, instantAt, todayIn } from '../calendar-date';
 import { awaitRunInFlight, type ScheduledJob } from './scheduled';
 
@@ -48,14 +49,16 @@ export function scheduleNightly({
   // `running` is set synchronously with the timer firing, so a stop() that
   // lands at any point after it sees the run.
   const tick = () => {
-    running = (async () => {
+    // One job per run (a fresh `cron-` id on every line it logs, its
+    // failure line included), never per timer.
+    running = runAsJob('cron', async () => {
       try {
         await run();
       } catch (error) {
         // Logged, never thrown: a failed night must not stop the next one.
         logger.error({ err: error }, `${name} failed`);
       }
-    })();
+    });
     void running.then(() => {
       running = undefined;
       scheduleNext();

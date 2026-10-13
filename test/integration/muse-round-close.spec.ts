@@ -119,7 +119,7 @@ describe('a round its agent left open', () => {
     deps = {
       db: t.db,
       push: t.push,
-      logger: t.logger.child({ context: 'Muse' }),
+      logger: t.logger.child({ logger: 'Muse' }),
     };
     token = await createAccessToken(t, { name: 'Muse' });
     const [row] = await t.db

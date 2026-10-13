@@ -15,7 +15,7 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **Images**: `sharp` for transcoding, `heic-decode` (libheif) for HEIC uploads. Background removal runs on the server only: BiRefNet 512x512 with `onnxruntime-node` in a child process (`src/cutout/`). The in-browser model (`@imgly/background-removal`, `onnxruntime-web`) and the `CUTOUT_MODE` switch were removed on 2026-09-26. See Architecture, Images and Background removal.
 - **Storage**: local disk under `DATA_PATH`, the only backend (the S3 backend, `nestjs-s3` and the AWS SDK were removed 2026-09-26; production never used them).
 - **i18n**: English only, strings in `src/i18n/en/lang.json` (the other five languages were deleted on 2026-09-26), read through `t('KEY')` from `src/web/i18n.ts`, typed to the catalog's keys.
-- **Logging**: one pino logger (`src/logger.ts`), pino-pretty to stdout and to `app.log` under `DATA_PATH`, a child per module (`context`). See `docs/conventions.md#logging`.
+- **Logging**: one pino logger (`src/logger.ts`), pino-pretty to stdout and to `app.log` under `DATA_PATH`, a child per module (`logger`). See `docs/conventions.md#logging`.
 - **Tests**: three tiers: Vitest unit, Vitest integration (`test/integration/`, the real app in-process on a scratch Postgres database) and Playwright e2e; see Test tiers under Commands, and `test/AGENTS.md` for the harness.
 
 ## Architecture

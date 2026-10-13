@@ -67,7 +67,7 @@ describe.skipIf(!present)(
       const garmentId = await createGarment(t, { name: 'Real model shirt' });
       await uploadPhoto(t, garmentId, await garmentPhoto());
       const fileName = await photoFileName(t, garmentId);
-      const logger = t.logger.child({ context: 'Cutout' });
+      const logger = t.logger.child({ logger: 'Cutout' });
 
       // The upload queued it; the job runs once the queue starts.
       const startedAt = Date.now();

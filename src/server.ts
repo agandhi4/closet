@@ -64,7 +64,7 @@ export async function serve(
   // Every timer, stopped together at preClose (a run in flight waited for)
   // before onClose ends the queue and the pool (#78).
   const jobs: ScheduledJob[] = [];
-  const reconciliation = logger.child({ context: 'Reconciliation' });
+  const reconciliation = logger.child({ logger: 'Reconciliation' });
   if (config.MAINTENANCE_ENABLED) {
     jobs.push(
       scheduleNightly({
@@ -90,7 +90,7 @@ export async function serve(
     weather,
     push,
     timeZone: config.APP_TIMEZONE,
-    logger: logger.child({ context: 'WeekPlan' }),
+    logger: logger.child({ logger: 'WeekPlan' }),
   };
   if (push) {
     jobs.push(...startReminders(config, logger, metrics, push, replan));
@@ -98,7 +98,7 @@ export async function serve(
   jobs.push(...startReplans(config, metrics, replan));
   // A Muse round its agent never finished, closed once quiet
   // (src/web/wishlist/round-end.ts); notified only with PWA_ENABLED.
-  const rounds = { db, push, logger: logger.child({ context: 'Muse' }) };
+  const rounds = { db, push, logger: logger.child({ logger: 'Muse' }) };
   jobs.push(
     scheduleMinutely({
       name: 'Muse round close',
@@ -119,7 +119,7 @@ export async function serve(
     );
   }
   // Before listen(): Fastify takes no hooks once it is ready.
-  stopBeforeClose(app, jobs, logger.child({ context: 'Scheduler' }));
+  stopBeforeClose(app, jobs, logger.child({ logger: 'Scheduler' }));
 
   // `docker stop` sends SIGTERM: stop accepting, let in-flight requests
   // finish and stop the timers (preClose), then onClose ends the queue and
@@ -148,7 +148,7 @@ function startCutouts(
   cutouts: CutoutQueue,
   runner: CutoutRunner,
 ): ScheduledJob {
-  const log = logger.child({ context: 'Cutout' });
+  const log = logger.child({ logger: 'Cutout' });
   cutouts.start(runner);
   return scheduleNightly({
     name: 'Cutout retry',
@@ -171,7 +171,7 @@ function startReminders(
   sender: PushSender,
   replan: ReplanDeps,
 ): ScheduledJob[] {
-  const log = logger.child({ context: 'Push' });
+  const log = logger.child({ logger: 'Push' });
   const deps = {
     db: replan.db,
     sender,

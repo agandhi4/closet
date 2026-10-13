@@ -7,7 +7,12 @@ function newMetrics(enabled = false) {
   const { logger, logs } = captureLogs();
   const errors = recordErrors();
   return {
-    metrics: new Metrics({ enabled, logger, errors: errors.tracker }),
+    metrics: new Metrics({
+      enabled,
+      version: 'abc1234',
+      logger,
+      errors: errors.tracker,
+    }),
     logs,
     errors,
   };
@@ -148,10 +153,32 @@ describe('Metrics', () => {
     expect(body).toContain('photo_requests_total{lookup="row"} 1');
   });
 
+  it('names the running build in app_info, always 1 (observability.md)', async () => {
+    const { metrics } = newMetrics();
+    const { body } = await metrics.exposition();
+    expect(body).toMatch(/^app_info\{version="abc1234"\} 1$/m);
+  });
+
+  it("counts each request's SQL statements under its route template", async () => {
+    const { metrics } = newMetrics();
+    metrics.observeRequest('/wardrobe/:id', 'GET', 200, 0.02, 4);
+    metrics.observeRequest('/wardrobe/:id', 'POST', 303, 0.03, 9);
+    const { body } = await metrics.exposition();
+    expect(body).toContain(
+      'http_request_db_statements_sum{route="/wardrobe/:id"} 13',
+    );
+    expect(body).toContain(
+      'http_request_db_statements_count{route="/wardrobe/:id"} 2',
+    );
+    expect(body).toContain(
+      'http_request_db_statements_bucket{le="5",route="/wardrobe/:id"} 1',
+    );
+  });
+
   it('never exposes a `job` label (the scraper sets it)', async () => {
     const { metrics } = newMetrics(true);
     metrics.addRoute('/calendar');
-    metrics.observeRequest('/calendar', 'GET', 200, 0.01);
+    metrics.observeRequest('/calendar', 'GET', 200, 0.01, 3);
     metrics.observeJob('cutout', { outcome: 'discarded' }, 2.5);
     metrics.countPushSend({ outcome: 'delivered' });
     metrics.observeMcpCall('list_garments', { outcome: 'refused' }, 0.02);
@@ -406,7 +433,7 @@ describe('Metrics', () => {
   it("keeps the exposition's names, types and labels (the homelab contract)", async () => {
     const { metrics } = newMetrics();
     metrics.addRoute('/calendar');
-    metrics.observeRequest('/calendar', 'GET', 200, 0.01);
+    metrics.observeRequest('/calendar', 'GET', 200, 0.01, 3);
     await metrics.timeJob('reconciliation', () => Promise.resolve())();
     await expect(
       metrics.timeJob('replan', () => Promise.reject(new Error('down')))(),
@@ -431,14 +458,17 @@ describe('Metrics', () => {
     expect(contentType).toBe('text/plain; version=0.0.4; charset=utf-8');
     expect(expositionContract(body)).toMatchInlineSnapshot(`
       [
+        "# TYPE app_info gauge",
         "# TYPE client_timing_dropped_total counter",
         "# TYPE client_timing_seconds histogram",
         "# TYPE cutout_queue_depth gauge",
+        "# TYPE http_request_db_statements histogram",
         "# TYPE http_request_duration_seconds histogram",
         "# TYPE job_duration_seconds histogram",
         "# TYPE mcp_tool_call_duration_seconds histogram",
         "# TYPE photo_requests_total counter",
         "# TYPE push_sends_total counter",
+        "app_info{version}",
         "client_timing_dropped_total{reason}",
         "client_timing_seconds_bucket{cache,kind,le="+Inf",metric,route}",
         "client_timing_seconds_bucket{cache,kind,le="0.025",metric,route}",
@@ -457,6 +487,19 @@ describe('Metrics', () => {
         "client_timing_seconds_count{cache,kind,metric,route}",
         "client_timing_seconds_sum{cache,kind,metric,route}",
         "cutout_queue_depth{}",
+        "http_request_db_statements_bucket{le="+Inf",route}",
+        "http_request_db_statements_bucket{le="0",route}",
+        "http_request_db_statements_bucket{le="1",route}",
+        "http_request_db_statements_bucket{le="13",route}",
+        "http_request_db_statements_bucket{le="2",route}",
+        "http_request_db_statements_bucket{le="21",route}",
+        "http_request_db_statements_bucket{le="3",route}",
+        "http_request_db_statements_bucket{le="34",route}",
+        "http_request_db_statements_bucket{le="5",route}",
+        "http_request_db_statements_bucket{le="55",route}",
+        "http_request_db_statements_bucket{le="8",route}",
+        "http_request_db_statements_count{route}",
+        "http_request_db_statements_sum{route}",
         "http_request_duration_seconds_bucket{le="+Inf",method,route,status_class}",
         "http_request_duration_seconds_bucket{le="0.005",method,route,status_class}",
         "http_request_duration_seconds_bucket{le="0.01",method,route,status_class}",

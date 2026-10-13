@@ -17,7 +17,7 @@ runCli('Reconciliation', async ({ config, logger, db }) => {
       photos: createPhotos(
         photosConfig(config),
         db,
-        logger.child({ context: 'Photos' }),
+        logger.child({ logger: 'Photos' }),
       ),
       logger,
     },
@@ -26,7 +26,8 @@ runCli('Reconciliation', async ({ config, logger, db }) => {
       force: process.argv.includes('--force'),
     },
   );
-  // The result channel of the CLI; the summary line goes to the app log too.
-  console.log(JSON.stringify(report, null, 2));
+  // The command's result, for a person or jq to read (not a log line: the
+  // summary line goes to the app log too).
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   return report.refused ? 3 : 0;
 });

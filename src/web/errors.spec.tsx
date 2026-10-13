@@ -16,6 +16,8 @@ import type { ViewContext } from './view-context';
  * throwing routes here exist only in this spec.
  */
 
+const REQUEST_ID = '0123456789ab';
+
 const ctx: ViewContext = {
   appName: 'Closet',
   iconName: 'icon.png',
@@ -45,7 +47,8 @@ describe('createErrorHandler', () => {
     const captured = captureLogs();
     logs = captured.logs;
     errors = recordErrors();
-    app = Fastify();
+    // A fixed id: the answers name it (createApp mints 12 hex per request).
+    app = Fastify({ genReqId: () => REQUEST_ID });
     // What the root preValidation hook in app.ts does for every non-static
     // request.
     app.decorateReply('locals', undefined);
@@ -183,6 +186,8 @@ describe('createErrorHandler', () => {
     const res = await app.inject({ method: 'GET', url: '/boom' });
     expect(res.statusCode).toBe(500);
     expect(res.body).toContain('<p>Internal server error</p>');
+    // The id a person quotes when reporting it (its log lines carry it).
+    expect(res.body).toContain(`Request ID: ${REQUEST_ID}`);
     expect(res.body).not.toContain('10.0.0.5');
     const [logged] = logs.records.filter((record) => record.level === 'error');
     expect(logged.msg).toBe('GET /boom -> 500');
@@ -195,6 +200,7 @@ describe('createErrorHandler', () => {
     expect(res.json()).toEqual({
       statusCode: 500,
       message: 'Internal server error',
+      request_id: REQUEST_ID,
     });
   });
 

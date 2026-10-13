@@ -13,7 +13,8 @@ export const UNMATCHED_ROUTE = 'unmatched';
  * RequestTiming (created by src/request-context.ts) as `Server-Timing` (db,
  * render, the route template; not once a secret was checked,
  * markSecretChecked) and lands in
- * http_request_duration_seconds under its route template, never its URL, so
+ * http_request_duration_seconds and http_request_db_statements under its
+ * route template, never its URL, so
  * ids never become series. A request the service worker made to warm the
  * offline caches (#286: hundreds of renders a day per device, no one
  * waiting) is left out, so the latencies stay a person's.
@@ -47,6 +48,7 @@ export function registerHttpMetrics(
       request.method,
       reply.statusCode,
       reply.elapsedTime / 1000,
+      request.timing?.dbStatements ?? 0,
     );
     done();
   });

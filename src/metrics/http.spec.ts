@@ -20,6 +20,7 @@ describe('registerHttpMetrics, Server-Timing', () => {
       app,
       new Metrics({
         enabled: false,
+        version: 'abc1234',
         logger: captureLogs().logger,
         errors: DISABLED_ERROR_TRACKER,
       }),

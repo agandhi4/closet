@@ -306,6 +306,8 @@ describe('garments move to the web layer (0004_garment_web)', () => {
       // Added by 0006_file_cutout (the migrations run to the latest).
       'cutout_attempts',
       'cutout_job_version',
+      // 0046_cutout-request-id: the request that queued it.
+      'cutout_request_id',
       'cutout_requested_at',
       // 0021_cutout_lease.
       'cutout_started_at',

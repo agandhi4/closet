@@ -52,7 +52,7 @@ the `skip` from `scripts/ci/gate_plan.sh` in the same change.
   goes into `scripts/ci/smoke_image.sh`'s `BOOT_ENV` in the same PR, or every publish fails.
 #@end
 #@no-image
-- No image is published (`devkit new --no-image`). Adding one: Dockerfile with the
+- No image is published (__NO_IMAGE_NOTE__). Adding one: Dockerfile with the
   `ARG`/`ENV`/`LABEL APP_VERSION` trio in the final stage, `.github/workflows/publish.yml`
   (copy one from a sibling repo), real `ci-image`/`ci-smoke` targets. `release-check` holds
   the Dockerfile to the contract once it exists.

@@ -153,7 +153,11 @@ describe('the MCP endpoint', () => {
       const res = await mcpRequest(t, undefined, 'tools/list', {}, headers());
       expect(res.statusCode).toBe(401);
       expect(res.headers['www-authenticate']).toBe('Bearer realm="closet"');
-      expect(res.json()).toEqual({ statusCode: 401, message: 'Unauthorized' });
+      expect(res.json()).toEqual({
+        statusCode: 401,
+        message: 'Unauthorized',
+        request_id: res.headers['x-request-id'],
+      });
     });
 
     it('refuses a revoked token the same way, and says nothing more', async () => {
@@ -171,7 +175,11 @@ describe('the MCP endpoint', () => {
       expect(revoke.statusCode).toBe(303);
       const res = await mcpRequest(t, doomed, 'tools/list');
       expect(res.statusCode).toBe(401);
-      expect(res.json()).toEqual({ statusCode: 401, message: 'Unauthorized' });
+      expect(res.json()).toEqual({
+        statusCode: 401,
+        message: 'Unauthorized',
+        request_id: res.headers['x-request-id'],
+      });
     });
 
     it('answers GET and DELETE with 405 (stateless: no stream, no session)', async () => {

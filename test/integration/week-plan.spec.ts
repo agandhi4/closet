@@ -845,7 +845,7 @@ describe('the weekly auto-plan', () => {
         weather: fakeWeather(() => forecastDays),
         push,
         timeZone: t.timeZone,
-        logger: t.logger.child({ context: 'WeekPlan' }),
+        logger: t.logger.child({ logger: 'WeekPlan' }),
       };
     });
 
@@ -1009,7 +1009,7 @@ describe('the weekly auto-plan', () => {
     it('two servers re-planning the same minute claim each user once', async () => {
       await planWarm();
       forecastDays = weekAt(() => -2);
-      const logger = t.logger.child({ context: 'WeekPlan' });
+      const logger = t.logger.child({ logger: 'WeekPlan' });
       const other: Db = createDb(t.database, logger);
       try {
         const runs = await Promise.all([
@@ -1285,7 +1285,7 @@ describe('the weekly auto-plan', () => {
           sender: push,
           weather: undefined,
           timeZone: t.timeZone,
-          logger: t.logger.child({ context: 'Push' }),
+          logger: t.logger.child({ logger: 'Push' }),
           replan: deps,
         };
       });
@@ -1348,7 +1348,7 @@ describe('the weekly auto-plan', () => {
       });
 
       it('two servers running the reminders and the re-plan at the same minute re-plan once and remind once, after the re-plan', async () => {
-        const logger = t.logger.child({ context: 'WeekPlan' });
+        const logger = t.logger.child({ logger: 'WeekPlan' });
         const other: Db = createDb(t.database, logger);
         const otherDeps: ReplanDeps = { ...deps, db: other };
         const otherReminders: ReminderDeps = {

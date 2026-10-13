@@ -108,6 +108,36 @@ describe('scheduleMinutely', () => {
     await job.stop();
   });
 
+  it('runs each minute as a job of its own: a fresh cron- id on its every line', async () => {
+    const run = vi
+      .fn<(now: Date) => Promise<void>>()
+      .mockImplementationOnce(() => {
+        logger.info('first run');
+        return Promise.reject(new Error('database unreachable'));
+      })
+      .mockImplementation(() => Promise.resolve(logger.info('second run')));
+    const job = scheduleMinutely({ name: 'Test job', run, logger });
+
+    await vi.advanceTimersByTimeAsync(31_000 + MINUTE);
+    const ran = logs.records.filter((record) => record.job_id !== undefined);
+    expect(ran.map((record) => record.msg)).toEqual([
+      'first run',
+      'Test job failed',
+      'second run',
+    ]);
+    const [first, failed, second] = ran.map((record) => record.job_id);
+    expect(first).toMatch(/^cron-[0-9a-f]{12}$/);
+    expect(failed).toBe(first);
+    expect(second).toMatch(/^cron-[0-9a-f]{12}$/);
+    expect(second).not.toBe(first);
+    // The scheduler's own lines between runs belong to no job.
+    expect(logs.records[0]).toMatchObject({
+      msg: 'Test job runs every minute',
+    });
+    expect(logs.records[0]).not.toHaveProperty('job_id');
+    await job.stop();
+  });
+
   it('never runs once stopped', async () => {
     const run = vi.fn<(now: Date) => Promise<void>>().mockResolvedValue();
     const job = scheduleMinutely({ name: 'Test job', run, logger });

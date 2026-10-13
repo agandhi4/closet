@@ -1,4 +1,5 @@
 import type { Logger } from '../logger';
+import { runAsJob } from '../request-context';
 import { awaitRunInFlight, type ScheduledJob } from './scheduled';
 
 /**
@@ -61,14 +62,16 @@ export function scheduleMinutely({
   };
 
   const tick = () => {
-    running = (async () => {
+    // One job per run (a fresh `cron-` id on every line it logs, its
+    // failure line included), never per timer.
+    running = runAsJob('cron', async () => {
       try {
         await run(now());
       } catch (error) {
         // Logged, never thrown: a failed minute must not stop the next.
         logger.error({ err: error }, `${name} failed`);
       }
-    })();
+    });
     void running.then(() => {
       running = undefined;
       scheduleNext();

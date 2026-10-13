@@ -16,7 +16,18 @@ commit through the hooks. The script header has the exact order.
 - Regular files keep their execute bit; a symlink is recreated with the same target
   (`common/CLAUDE.md -> AGENTS.md`). `stack.conf` is never copied.
 - `common/` holds what every stack shares (AGENTS.md, decisions log, hooks.conf, Claude
-  settings, publish workflow, .gitignore). A stack file with the same path wins.
+  settings, publish workflow, .gitignore). A stack file with the same path wins, except
+  `.gitignore`: a stack's is appended to the common one (build output: `node_modules/`,
+  `/target/`, `.next/`).
+
+## Stacks
+
+| Stack | Extracted from | Tiers (the rest are `exit 2` stubs) | Image |
+|---|---|---|---|
+| `python-fastapi` | the fleet's FastAPI services | quick (ruff, own-commit), unit, db | yes (GHCR) |
+| `node-service` | closet, rollcall | quick (eslint, prettier, tsc), unit | yes (GHCR) |
+| `rust` | redlib | quick (fmt, clippy -D warnings), unit (`cargo test --locked`) | yes (GHCR), musl on Alpine |
+| `next-vercel` | rollcall | quick (typegen, tsc, eslint, `ci-drift`), unit, db, e2e (Playwright), build (`next build`) | never: Vercel builds (`STACK_IMAGE=0`) |
 
 ## `stacks/<stack>/stack.conf`
 
@@ -27,10 +38,12 @@ Sourced by the script; every key is required unless noted.
 | `STACK_DESCRIPTION` | one line for `--list` |
 | `STACK_CONVENTIONS` | the `Conventions:` line of AGENTS.md (files in `~/.claude/conventions/`) |
 | `STACK_PINS` | the toolchain pin file(s) named in AGENTS.md (`.python-version`, `.nvmrc`, …) |
-| `STACK_TOOL` | the package tool that must be on PATH (`uv`, `npm`); missing is exit 2 before any write |
+| `STACK_TOOL` | the package tool that must be on PATH (`uv`, `npm`; `curl` for rust, whose `scripts/ci/cargo.sh` provisions cargo); missing is exit 2 before any write |
 | `STACK_LOCK_CMD` | runs in the new repo before the first commit; must write the lockfile the stack's frozen install needs |
 | `STACK_IMAGE_FILES` | files `--no-image` removes, besides the common `publish.yml` |
 | `STACK_STUBS` | the `exit 2` stub targets, named in AGENTS.md |
+| `STACK_IMAGE` | optional, default `1`; `0` for a stack that never has an image (it ships no Dockerfile): `--no-image` is then implied |
+| `STACK_NO_IMAGE_NOTE` | optional; why there is no image, rendered into AGENTS.md (default: `` `devkit new --no-image` ``) |
 
 ## Adding a stack (`rust`, `next-vercel`, `swift-app`, …)
 
@@ -43,7 +56,7 @@ Sourced by the script; every key is required unless noted.
    Health Contract) plus one hermetic test of it. Image stacks add a Dockerfile whose final
    stage has the `ARG`/`ENV`/`LABEL APP_VERSION` trio, `.dockerignore` and
    `scripts/ci/smoke_image.sh` on `boot_image.sh`.
-2. `ci-quick` must pass in a repo where the stack tool is a stub (the tests fake `uv`/`npm`):
+2. `ci-quick` must pass in a repo where the stack tool is a stub (the tests fake `uv`/`npm`/`cargo`):
    guards first, then the tool's own lint. Everything the tool installs must be gitignored.
 3. Add the stack's case to `tests/new_contract.bats`: one commit through the hooks, every
    guard, `ci-quick`, the stubs' exit codes, and `--no-image` when the stack has an image.

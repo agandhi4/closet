@@ -1,7 +1,7 @@
 import { type Config, ConfigError, loadConfig } from './config';
 import { BIREFNET_512, CutoutModel } from './cutout/model';
 import { ModelRunner } from './cutout/runner';
-import { createLogger, type Logger } from './logger';
+import { createBootLogger, createLogger, type Logger } from './logger';
 import { createCrashHandler } from './metrics/error-tracker';
 import { serve } from './server';
 
@@ -11,14 +11,14 @@ import { serve } from './server';
  * that runs it starts with the first job.
  */
 function modelRunner(config: Config, logger: Logger): ModelRunner {
-  const log = logger.child({ context: 'Cutout' });
+  const log = logger.child({ logger: 'Cutout' });
   log.info(
     `Background removal: model in ${config.MODELS_PATH}, ${config.CUTOUT_THREADS} threads`,
   );
   const model = new CutoutModel(
     BIREFNET_512,
     config.MODELS_PATH,
-    logger.child({ context: 'CutoutModel' }),
+    logger.child({ logger: 'CutoutModel' }),
   );
   // Logged by CutoutModel; the first job tries again if this failed.
   model.ready().catch(() => undefined);
@@ -43,7 +43,11 @@ function main(): void {
   try {
     config = loadConfig();
   } catch (error) {
-    console.error(error instanceof ConfigError ? error.message : error);
+    // A ConfigError names the bad keys (never their values); anything else
+    // is a bug, logged with its stack.
+    const boot = createBootLogger();
+    if (error instanceof ConfigError) boot.fatal(error.message);
+    else boot.fatal({ err: error }, 'Configuration failed to load');
     process.exit(1);
   }
   const logger = createLogger(config);

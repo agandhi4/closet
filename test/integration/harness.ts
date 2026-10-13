@@ -21,10 +21,15 @@ import { type IsoDate, todayIn } from '../../src/calendar-date';
 import type { Photos } from '../../src/web/files/photos';
 import type { PushSender } from '../../src/web/push/sender';
 import type { WeatherService } from '../../src/web/weather/service';
+import { UNMATCHED_ROUTE } from '../../src/metrics/http';
 import type { Metrics } from '../../src/metrics/metrics';
 import type { OrderMailDeps } from '../../src/web/wardrobe/order-mail/poll';
 import { LogCapture } from '../support/log-capture';
 import { recordStatements } from '../support/query-recorder';
+import {
+  noteStatements,
+  type RequestStatements,
+} from '../support/statement-budgets';
 import { createScratchDatabase } from '../support/scratch-database';
 
 /**
@@ -127,6 +132,10 @@ export interface TestUser {
   /** `access_token=...`, ready for a `cookie` header. */
   cookie: string;
 }
+
+// The log captures of this process's live test apps (not an appLog one):
+// recordQueries reads the access lines its work's requests wrote.
+const liveLogs = new Set<LogCapture>();
 
 export interface TestApp {
   app: FastifyInstance;
@@ -254,6 +263,7 @@ export async function createTestApp(
     throw new Error(missing);
   }
   const logs = new LogCapture();
+  if (!options.appLog) liveLogs.add(logs);
   const logger = options.appLog
     ? createLogger(config)
     : createLoggerTo(config.LOG_LEVEL, logs);
@@ -368,6 +378,7 @@ export async function createTestApp(
     register,
     login,
     cleanup: async () => {
+      liveLogs.delete(logs);
       await app.close();
       await database.drop();
       await rm(dataPath, { recursive: true, force: true });
@@ -440,21 +451,50 @@ export interface QueryRecord {
   rows: number;
   /** Each statement's SQL text, in order. */
   sql: string[];
+  /**
+   * Each request the work made, by `<METHOD>:<route template>`, with the
+   * statements the app counted for it (its access line's db_statements,
+   * the count http_request_db_statements records). Requests to static paths
+   * write no access line and are not here.
+   */
+  requests: RequestStatements[];
+}
+
+/** The access lines (logger Http) written since each capture's mark. */
+function requestsSince(marks: Map<LogCapture, number>): RequestStatements[] {
+  return [...marks].flatMap(([logs, mark]) =>
+    logs.records
+      .slice(mark)
+      .filter((record) => record.logger === 'Http')
+      .map((record) => ({
+        key: `${String(record.method)}:${typeof record.route === 'string' ? record.route : UNMATCHED_ROUTE}`,
+        statements: Number(record.db_statements),
+      })),
+  );
 }
 
 /**
  * Runs `work` and counts the SQL statements the app sends meanwhile and the
  * rows they return (recordStatements, test/support/query-recorder.ts). For
  * proving a page reads what it shows rather than a whole table: rows, not
- * only statements, since one statement can return everything.
+ * only statements, since one statement can return everything. Each
+ * request's own count is noted as a statement budget (STATEMENTS_OUT,
+ * test/support/statement-budgets.ts): the counts these specs pin are the
+ * ones the metrics ratchet holds.
  */
 export async function recordQueries(
   work: () => Promise<unknown>,
 ): Promise<QueryRecord> {
+  const marks = new Map(
+    [...liveLogs].map((logs) => [logs, logs.records.length]),
+  );
   const { statements } = await recordStatements(work);
+  const requests = requestsSince(marks);
+  noteStatements(requests);
   return {
     statements: statements.length,
     rows: statements.reduce((sum, statement) => sum + statement.rows, 0),
     sql: statements.map((statement) => statement.sql),
+    requests,
   };
 }

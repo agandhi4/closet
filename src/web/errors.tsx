@@ -34,6 +34,25 @@ export class HttpError extends Error {
 
 const INTERNAL_ERROR = 'Internal server error';
 
+/**
+ * Every JSON error answer's body: the status, the message people may read,
+ * and the request's id (its X-Request-ID), which a user reports and which
+ * finds the request's log lines and Bugsink event (observability.md).
+ */
+export interface ErrorBody {
+  statusCode: number;
+  message: string;
+  request_id: string;
+}
+
+export function errorBody(
+  request: FastifyRequest,
+  statusCode: number,
+  message: string,
+): ErrorBody {
+  return { statusCode, message, request_id: request.id };
+}
+
 export interface ErrorAnswer {
   status: number;
   message: string;
@@ -119,7 +138,7 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
     // failure before the root preValidation hook ran, such as an unparsable
     // body. Data, then.
     if (!reply.locals) {
-      return reply.status(status).send({ statusCode: status, message });
+      return reply.status(status).send(errorBody(request, status, message));
     }
     return renderPage(
       reply,
@@ -128,6 +147,7 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
         status={status}
         message={message}
         path={request.url}
+        requestId={request.id}
       />,
       { status },
     );
@@ -139,6 +159,8 @@ export function ErrorPage(props: {
   status: number;
   message: string;
   path: string;
+  /** Shown so a person reporting the error can quote it. */
+  requestId: string;
 }) {
   return (
     <Layout ctx={props.ctx}>
@@ -153,6 +175,11 @@ export function ErrorPage(props: {
         <p>
           <small>
             {t('TIME')}: {new Date().toISOString()}
+          </small>
+        </p>
+        <p>
+          <small>
+            {t('REQUEST_ID')}: {props.requestId}
           </small>
         </p>
         <a href="/" class="btn">

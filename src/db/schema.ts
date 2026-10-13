@@ -352,6 +352,10 @@ export const file = pgTable(
     cutoutRequestedAt: timestamp('cutout_requested_at', {
       withTimezone: true,
     }),
+    // The X-Request-ID of the request that queued the cutout (null when a
+    // job or the seed did): the queue's job logs it as parent_request_id,
+    // so a failed cutout leads back to its upload (observability.md).
+    cutoutRequestId: text('cutout_request_id'),
     // The running job's lease (#45): which queue worker holds it and since
     // when (the database's clock). Set by start, cleared by every event
     // that ends the job; another server claims the row only once it is

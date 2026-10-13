@@ -6,11 +6,11 @@ import {
   MAINTENANCE_TIMEOUTS,
 } from '../db/client';
 import { requireCurrentSchema, SchemaBehindError } from '../db/migrate';
-import { createLogger, type Logger } from '../logger';
+import { createBootLogger, createLogger, type Logger } from '../logger';
 
 export interface CliContext {
   config: Config;
-  /** The command's own child logger (context `name`). */
+  /** The command's own child logger (named `name`). */
   logger: Logger;
   db: Db;
 }
@@ -21,7 +21,8 @@ export interface CliContext {
  * this build's migrations have fully reached (the CLIs never migrate; see
  * requireCurrentSchema), the command, then the pool closed. The command
  * resolves to the exit status; anything it throws is exit status 1 with the
- * reason on stderr. Runs from dist/ in the production image with the
+ * reason as a fatal line (the boot logger's: the failure may be the
+ * configuration the command's own logger needs). Runs from dist/ in the production image with the
  * container's own environment (`docker exec closet npm run ...`).
  */
 export function runCli(
@@ -33,11 +34,13 @@ export function runCli(
       process.exitCode = status;
     },
     (error: unknown) => {
-      console.error(
-        error instanceof ConfigError || error instanceof SchemaBehindError
-          ? error.message
-          : error,
-      );
+      const boot = createBootLogger();
+      // Refusals name their reason; anything else is logged with its stack.
+      if (error instanceof ConfigError || error instanceof SchemaBehindError) {
+        boot.fatal(`${name}: ${error.message}`);
+      } else {
+        boot.fatal({ err: error }, `${name} failed`);
+      }
       process.exitCode = 1;
     },
   );
@@ -54,13 +57,13 @@ async function run(
   // timeouts, not the server's.
   const db = createDb(
     dbConfig(config),
-    logger.child({ context: 'Db' }),
+    logger.child({ logger: 'Db' }),
     MAINTENANCE_TIMEOUTS,
   );
   try {
     return await command({
       config,
-      logger: logger.child({ context: name }),
+      logger: logger.child({ logger: name }),
       db,
     });
   } finally {

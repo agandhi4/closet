@@ -36,13 +36,13 @@ describe('createLoggerTo', () => {
 
   it('names the module on every line of a child, and keeps LOG_LEVEL', () => {
     const logs = new LogCapture();
-    const photos = createLoggerTo('info', logs).child({ context: 'Photos' });
+    const photos = createLoggerTo('info', logs).child({ logger: 'Photos' });
     photos.debug('hidden');
     photos.info('shown');
     expect(logs.records).toEqual([
       expect.objectContaining({
         level: 'info',
-        context: 'Photos',
+        logger: 'Photos',
         msg: 'shown',
       }),
     ]);
@@ -50,19 +50,19 @@ describe('createLoggerTo', () => {
 });
 
 describe('the line shape', () => {
-  it('writes ts (RFC 3339 UTC), the level by name, the version and the context', () => {
+  it('writes ts (RFC 3339 UTC), the level by name, the version and the logger', () => {
     const lines: string[] = [];
     const logger = createLoggerTo(
       'info',
       { write: (line: string) => lines.push(line) },
       'abc1234',
     );
-    logger.child({ context: 'Photos' }).warn({ count: 2 }, 'shown');
+    logger.child({ logger: 'Photos' }).warn({ count: 2 }, 'shown');
     expect(JSON.parse(lines[0])).toEqual({
       ts: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/),
       level: 'warn',
       version: 'abc1234',
-      context: 'Photos',
+      logger: 'Photos',
       count: 2,
       msg: 'shown',
     });
@@ -80,7 +80,7 @@ describe('createLogger', () => {
         DATA_PATH: dataPath,
         APP_VERSION: 'abc1234',
       });
-      logger.child({ context: 'Spec' }).info('format check');
+      logger.child({ logger: 'Spec' }).info('format check');
       for (let waited = 0; waited < 5000; waited += 50) {
         const text = await readFile(join(dataPath, 'app.log'), 'utf8').catch(
           () => '',
@@ -99,7 +99,7 @@ describe('createLogger', () => {
     expect(JSON.parse(line)).toMatchObject({
       level: 'info',
       version: 'abc1234',
-      context: 'Spec',
+      logger: 'Spec',
       msg: 'format check',
     });
   });
