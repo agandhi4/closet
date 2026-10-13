@@ -10,9 +10,11 @@ import { calendarRoutes } from './calendar/routes';
 import { capsuleRoutes } from './capsules/routes';
 import { fileRoutes } from './files/routes';
 import { galleryRoutes } from './gallery/routes';
+import { healthRoutes } from './health/routes';
 import { insightsRoutes } from './insights/routes';
 import type { Photos } from './files/photos';
 import type { Logger } from '../logger';
+import type { JobRoster } from '../maintenance/scheduled';
 import type { ErrorTracker } from '../metrics/error-tracker';
 import type { Metrics } from '../metrics/metrics';
 import { clientErrorRoutes } from './metrics/client-errors';
@@ -60,8 +62,8 @@ export interface WebConfig {
    */
   orderMailOwner: string | undefined;
   /**
-   * The build's release (src/build-info.ts): /healthz's `version` and the MCP
-   * server's version.
+   * The build's release (src/build-info.ts): /health/ready's `version` and
+   * the MCP server's version.
    */
   release: string;
 }
@@ -77,8 +79,16 @@ export interface WebOptions {
    * through it, account deletion and reconciliation unlink through it.
    */
   photos: Photos;
-  /** The background-removal queue, woken when a photo is queued. */
-  cutouts: { wake(): void };
+  /**
+   * The background-removal queue, woken when a photo is queued; whether
+   * it runs is /health/ready's cutout_queue check.
+   */
+  cutouts: { wake(): void; readonly running: boolean };
+  /**
+   * The timers serve() started, adopted after createApp() built this
+   * (src/maintenance/scheduled.ts): /health/ready's cron_jobs check.
+   */
+  jobs: JobRoster;
   /**
    * The process's one outbound fetcher (src/web/security/outbound-fetch.ts),
    * built by createApp(): the only way a route fetches a URL a user
@@ -136,6 +146,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   const { logger } = options;
   app.addHook('preValidation', createSessionHook(logger));
 
+  await app.register(healthRoutes, options);
   await app.register(shellRoutes, options);
   await app.register(todayRoutes, options);
   await app.register(gridRoutes, options);

@@ -11,7 +11,7 @@ import { PROJECT_ROOT } from './project-root';
  */
 export interface BuildInfo {
   /**
-   * /healthz's `version`, /about, the MCP server's version, the boot log, and
+   * /health/ready's `version`, /about, the MCP server's version, the boot log, and
    * the error tracker's release on the server's events and the pages' (the
    * layout hands it to public/js/errors.js). Outside an image: the 7-char sha of
    * the commit a local `npm run build` recorded in public/build.json, else

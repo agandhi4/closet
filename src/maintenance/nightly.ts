@@ -35,6 +35,7 @@ export function scheduleNightly({
 }: NightlyOptions): ScheduledJob {
   let timer: NodeJS.Timeout | undefined;
   let running: Promise<void> | undefined;
+  let runStartedAt: number | undefined;
   let stopped = false;
 
   const scheduleNext = () => {
@@ -51,6 +52,7 @@ export function scheduleNightly({
   const tick = () => {
     // One job per run (a fresh `cron-` id on every line it logs, its
     // failure line included), never per timer.
+    runStartedAt = now().getTime();
     running = runAsJob('cron', async () => {
       try {
         await run();
@@ -61,12 +63,15 @@ export function scheduleNightly({
     });
     void running.then(() => {
       running = undefined;
+      runStartedAt = undefined;
       scheduleNext();
     });
   };
 
   scheduleNext();
   return {
+    name,
+    runStartedAt: () => runStartedAt,
     async stop() {
       stopped = true;
       clearTimeout(timer);

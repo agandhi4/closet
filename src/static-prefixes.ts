@@ -17,8 +17,12 @@ export const STATIC_FILES = [
   '/bundle.css',
   '/sw.js',
   '/manifest.json',
-  // Connectivity heartbeat (public/js/connectivity.js): a probe must never
-  // cost a JWT verification or a user query.
+  // The health endpoints (src/web/health): the connectivity heartbeat
+  // (public/js/connectivity.js, /health/live) and the container healthcheck
+  // must never cost a JWT verification or a user query, nor a log line.
+  // /healthz is /health/ready's alias for stale clients.
+  '/health/live',
+  '/health/ready',
   '/healthz',
   // The metrics scrape (src/web/metrics), every 15 s: no session, no
   // request log line.

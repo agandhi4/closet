@@ -135,7 +135,10 @@ describe('/file route and request logging', () => {
   };
 
   it('never writes a cookie or authorization header, and skips static paths', async () => {
-    await t.inject({ method: 'GET', url: '/healthz?probe=heartbeat-marker' });
+    await t.inject({
+      method: 'GET',
+      url: '/health/live?probe=heartbeat-marker',
+    });
     await t.inject({
       method: 'GET',
       url: `/file/thumb/${photoName}?v=thumb-marker`,

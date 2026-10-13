@@ -17,14 +17,14 @@
 #                and an uploaded photo must get its cutout. Unset: a placeholder file stands in, which
 #                the app refuses on its checksum, so the boot never downloads 940 MB.
 #   BOOT_EXPECT_VERSION  the APP_VERSION the image was built with (ci.yml: the 7-char sha; make ci-smoke:
-#                CI_BUILD_VERSION): /healthz's `version` must equal it, so an image that lost the
+#                CI_BUILD_VERSION): /health/ready's `version` must equal it, so an image that lost the
 #                build arg (and reports `dev`) never ships. Same name and rule as devkit's
 #                boot_image.sh, which this script does not use (it boots on the host network).
 #
-# Checks, each fatal: /healthz answers 2xx (and names BOOT_EXPECT_VERSION when set); the boot log
+# Checks, each fatal: /health/ready answers 2xx (and names BOOT_EXPECT_VERSION when set); the boot log
 # shows the migrations applied; the login page
 # renders in the app shell and its stylesheet and htmx are served; devkit's contract probe passes
-# (request ids, JSON lines, /metrics; below); with MODELS_DIR, a photo uploaded
+# (the health contract, request ids, JSON lines, /metrics; below); with MODELS_DIR, a photo uploaded
 # over HTTP is cut out by the model in the image's own onnxruntime; `docker stop` (SIGTERM) exits 0.
 # On failure the container's log is printed.
 set -euo pipefail
@@ -87,15 +87,15 @@ docker run -d --name "$NAME" --network host \
   "$IMAGE" >/dev/null
 
 health="$WORK/health.json"
-until [[ "$(curl -s -o "$health" -w '%{http_code}' "$BASE/healthz")" == 2?? ]]; do
+until [[ "$(curl -s -o "$health" -w '%{http_code}' "$BASE/health/ready")" == 2?? ]]; do
   [ "$(docker inspect -f '{{.State.Running}}' "$NAME")" = true ] || fail "the container exited during boot"
-  [ $((SECONDS - started)) -lt $BOOT_TIMEOUT_S ] || fail "/healthz did not answer 2xx within ${BOOT_TIMEOUT_S}s"
+  [ $((SECONDS - started)) -lt $BOOT_TIMEOUT_S ] || fail "/health/ready did not answer 2xx within ${BOOT_TIMEOUT_S}s"
   sleep 1
 done
 version=$(jq -r '.version // empty' "$health" 2>/dev/null || true)
-log "ok: /healthz after $((SECONDS - started))s, version ${version:-none}"
+log "ok: /health/ready after $((SECONDS - started))s, version ${version:-none}"
 if [ -n "${BOOT_EXPECT_VERSION:-}" ] && [ "$version" != "$BOOT_EXPECT_VERSION" ]; then
-  fail "/healthz reports version '${version:-none}', not the build's '$BOOT_EXPECT_VERSION'"
+  fail "/health/ready reports version '${version:-none}', not the build's '$BOOT_EXPECT_VERSION'"
 fi
 
 migrated=$(docker logs "$NAME" 2>&1 | grep -oE 'Applied [0-9]+ Drizzle migration\(s\)' || true)
@@ -118,15 +118,16 @@ done
 log "ok: /auth/login 200 in the app shell; $css and /modules/htmx.min.js served"
 
 # The observability contract (observability.md; src/logger.ts, src/request-context.ts,
-# src/metrics/), asserted by devkit's probe the way every app's smoke asserts it: /healthz
-# answers; a request gets a fresh 12-hex X-Request-ID (an inbound one is never kept) that its
+# src/metrics/, src/web/health/), asserted by devkit's probe the way every app's smoke asserts
+# it: /health/live answers 200; /health/ready is the contract's up|down body with every check
+# (the timers and the cutout queue run here, so all are up) and the build's version; a request gets a fresh 12-hex X-Request-ID (an inbound one is never kept) that its
 # JSON access line carries, with ts, level, logger, msg and the build's version; /metrics
 # serves app_info{version=BOOT_EXPECT_VERSION} 1 and the request histogram, every job outcome
-# is in the allowed set, and a proxied scrape is a 404. Not yet --health: /healthz answers
-# `ok`, not the /health/ready contract's up|down (AGENTS.md, Convention deltas).
+# is in the allowed set, and a proxied scrape is a 404.
 log "contract probe"
 "$(dirname "$0")/../devkit/bin/contract_probe.sh" "$BASE" \
-  --live /healthz \
+  --live /health/live \
+  --health /health/ready \
   --request-id /auth/login \
   --metrics /metrics --require-metric app_info --require-metric http_request_duration_seconds \
   --require-metric http_request_db_statements \

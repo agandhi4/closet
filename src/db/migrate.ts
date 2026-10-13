@@ -1,4 +1,4 @@
-import { DrizzleQueryError } from 'drizzle-orm';
+import { DrizzleQueryError, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -8,6 +8,7 @@ import { PROJECT_ROOT } from '../project-root';
 import type { Logger } from '../logger';
 import {
   connectionOptions,
+  type Db,
   type DbConfig,
   MAINTENANCE_TIMEOUTS,
 } from './client';
@@ -151,6 +152,31 @@ export async function requireCurrentSchema(config: DbConfig): Promise<void> {
   } finally {
     await client.end();
   }
+}
+
+/**
+ * The journal `when` of this build's newest migration: what drizzle records
+ * as `created_at` once it has applied it. /health/ready (src/web/health)
+ * reads it once at registration and compares lastMigrationAt() with it.
+ */
+export function newestMigrationAt(): number {
+  const migrations = readMigrationFiles({
+    migrationsFolder: MIGRATIONS_FOLDER,
+  });
+  return migrations[migrations.length - 1].folderMillis;
+}
+
+/**
+ * created_at of the newest recorded migration, through the server's pool
+ * (the boot has created the table): /health/ready's one statement, which is
+ * its database round-trip and its migrations check at once. Undefined only
+ * for an empty table.
+ */
+export async function lastMigrationAt(db: Db): Promise<number | undefined> {
+  const { rows } = await db.execute<{ last: string | null }>(
+    sql`select max(created_at)::text as last from ${sql.raw(DRIZZLE_TABLE_REF)}`,
+  );
+  return rows[0].last === null ? undefined : Number(rows[0].last);
 }
 
 async function acquireLock(client: Client, logger: Logger): Promise<void> {

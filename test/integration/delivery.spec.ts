@@ -4,7 +4,14 @@ import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PUBLIC_DIR } from '../../src/static-assets';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, PWA_ENV, TestApp, unescapeHtml } from './harness';
+import { HEALTH_LIMIT } from '../../src/web/security/rate-limit';
+import {
+  createTestApp,
+  PWA_ENV,
+  TestApp,
+  unescapeHtml,
+  uniqueClient,
+} from './harness';
 
 /**
  * How the app shell reaches the installed PWA: cache headers on static roots,
@@ -159,20 +166,80 @@ describe('delivery (PWA_ENABLED=true)', () => {
     });
   });
 
-  describe('GET /healthz', () => {
-    it('answers 200 with the release, uncacheable, without touching the session', async () => {
-      const res = await t.inject({ method: 'GET', url: '/healthz' });
-      expect(res.statusCode).toBe(200);
-      expect(res.headers['cache-control']).toBe('no-store');
-      expect(res.json()).toEqual({ status: 'ok', version: RELEASE });
-      expect(res.headers['set-cookie']).toBeUndefined();
-    });
+  // The health contract (src/web/health): the real round-trip on the
+  // spec's database. The harness builds the app without serve(), so no
+  // timer or queue runs: both optional checks are down and the app is up.
+  describe('/health/live, /health/ready and the /healthz alias', () => {
+    const READY = {
+      status: 'up',
+      version: RELEASE,
+      checks: {
+        database: { status: 'up', required: true },
+        migrations: { status: 'up', required: true },
+        cron_jobs: { status: 'down', required: false, fix: expect.any(String) },
+        cutout_queue: {
+          status: 'down',
+          required: false,
+          fix: expect.any(String),
+        },
+      },
+    };
 
-    it("answers connectivity.js's HEAD probe without a body", async () => {
-      const res = await t.inject({ method: 'HEAD', url: '/healthz' });
-      expect(res.statusCode).toBe(200);
-      expect(res.headers['cache-control']).toBe('no-store');
-      expect(res.body).toBe('');
+    it.each(['/health/ready', '/healthz'])(
+      '%s answers 200 with the checks and the release, uncacheable, without touching the session',
+      async (url) => {
+        const res = await t.inject({
+          method: 'GET',
+          url,
+          headers: uniqueClient(),
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['cache-control']).toBe('no-store');
+        expect(res.json()).toEqual(READY);
+        expect(res.headers['set-cookie']).toBeUndefined();
+      },
+    );
+
+    it.each(['/health/live', '/healthz'])(
+      "answers connectivity.js's HEAD probe of %s without a body",
+      async (url) => {
+        const res = await t.inject({
+          method: 'HEAD',
+          url,
+          headers: uniqueClient(),
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['cache-control']).toBe('no-store');
+        expect(res.body).toBe('');
+      },
+    );
+
+    it('limits /health/ready and /healthz together per address, never /health/live', async () => {
+      const client = uniqueClient();
+      for (let i = 0; i < HEALTH_LIMIT.max; i++) {
+        const url = i % 2 ? '/healthz' : '/health/ready';
+        const res = await t.inject({ method: 'GET', url, headers: client });
+        expect(res.statusCode).toBe(200);
+      }
+      const limited = await t.inject({
+        method: 'GET',
+        url: '/health/ready',
+        headers: client,
+      });
+      expect(limited.statusCode).toBe(429);
+      const live = await t.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: client,
+      });
+      expect(live.statusCode).toBe(200);
+      expect(live.json()).toEqual({ status: 'up' });
+      const other = await t.inject({
+        method: 'GET',
+        url: '/healthz',
+        headers: uniqueClient(),
+      });
+      expect(other.statusCode).toBe(200);
     });
   });
 

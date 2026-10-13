@@ -67,7 +67,7 @@ RUN mkdir -p /app/models
 ENV NODE_ENV=production
 
 # The release identity, passed once by the build (ci.yml publish: the 7-char sha; the PR gate:
-# gate-<n>) and reported as /healthz's `version`, on /about, and as the error tracker's release.
+# gate-<n>) and reported as /health/ready's `version`, on /about, and as the error tracker's release.
 # The image is its only source: compose never sets APP_VERSION (devkit release_check.sh guards
 # it). Last in the stage so a new value rebuilds only these layers.
 ARG APP_VERSION=dev
@@ -75,6 +75,13 @@ ENV APP_VERSION=$APP_VERSION
 LABEL org.opencontainers.image.version=$APP_VERSION
 
 EXPOSE 3000
+
+# /health/ready (src/web/health): the database, the boot's migrations, the timers and the cutout
+# queue; 503 when a required one is down. node's own fetch, so the slim image needs no curl. The
+# start period covers the boot's migrations (the server listens only after them); homelab's
+# compose inherits this, and must match it if it ever sets its own (docs/deployment.md#health).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health/ready', { signal: AbortSignal.timeout(4000) }).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 
 # node itself is PID 1, so `docker stop`'s SIGTERM reaches main.ts, which
 # closes the server and the database pool before exiting.
