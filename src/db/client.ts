@@ -3,6 +3,7 @@ import {
   type NodePgDatabase,
   type NodePgQueryResultHKT,
 } from 'drizzle-orm/node-postgres';
+import type { Logger as DrizzleLogger } from 'drizzle-orm/logger';
 import type { PgDatabase } from 'drizzle-orm/pg-core';
 import { type ClientConfig, Pool, type PoolClient, type PoolConfig } from 'pg';
 import type { Config } from '../config';
@@ -153,7 +154,24 @@ export function createDb(
     `Drizzle pool for ${config.database} on ${config.host}:${config.port} (max ${POOL_MAX}, min ${POOL_MIN}; ` +
       `statement_timeout ${timeouts.statementMs} ms, idle_in_transaction_session_timeout ${timeouts.idleInTransactionMs} ms)`,
   );
-  return drizzle(pool, { schema });
+  return drizzle(pool, { schema, logger: new StatementCounter() });
+}
+
+/**
+ * Counts, on the request it runs for, every statement Drizzle sends: the
+ * `dbStatements` of its RequestTiming (http_request_db_statements). Drizzle
+ * calls a logger's logQuery synchronously as each query is sent, from the
+ * caller's await chain, so the async context is the caller's; begin, commit,
+ * rollback and savepoints go through the same path, so the count matches
+ * what node-postgres sends (the integration harness's recordQueries,
+ * checked in test/integration/metrics.spec.ts). Outside a request (jobs,
+ * CLIs) nothing is counted. Logs nothing: the SQL text holds what users sent.
+ */
+class StatementCounter implements DrizzleLogger {
+  logQuery(): void {
+    const timing = currentRequestTiming();
+    if (timing) timing.dbStatements += 1;
+  }
 }
 
 /**

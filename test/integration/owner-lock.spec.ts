@@ -323,7 +323,7 @@ describe('the owner lock', () => {
         weather: undefined,
         push: undefined,
         timeZone: t.timeZone,
-        logger: t.logger.child({ context: 'WeekPlan' }),
+        logger: t.logger.child({ logger: 'WeekPlan' }),
       };
     });
 

@@ -76,7 +76,7 @@ export async function startCutoutStub(
   database: PoolConfig,
   logger: Logger,
 ): Promise<CutoutStub> {
-  const log = logger.child({ context: 'CutoutStub' });
+  const log = logger.child({ logger: 'CutoutStub' });
   const mask = ellipseMask();
   const holds = new Map<string, Hold>();
   // Asked only while a hold exists, one query at a time (the queue's).

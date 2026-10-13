@@ -7,6 +7,7 @@ import {
 } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { file, garment } from '../../db/schema';
+import { currentRequest } from '../../request-context';
 import { unkeyedPhoto } from './image-variant';
 import type {
   PhotoRefFields,
@@ -153,7 +154,13 @@ export async function insertPhotoRow(
 ): Promise<number> {
   const [inserted] = await q
     .insert(file)
-    .values(row)
+    .values({
+      ...row,
+      // A pending row is queued by whoever inserts it (the job's parent).
+      ...(row.cutoutStatus === 'pending' && {
+        cutoutRequestId: currentRequest()?.requestId ?? null,
+      }),
+    })
     .returning({
       id: file.id,
       ...(row.cutoutStatus === 'pending' && { notified: CUTOUT_QUEUED_NOTIFY }),

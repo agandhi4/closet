@@ -3,8 +3,8 @@ import { createLoggerTo, type Logger, type LogLevel } from '../../src/logger';
 
 interface LogFields {
   msg: string;
-  /** The module's child logger name (`logger.child({ context })`). */
-  context?: string;
+  /** The module's child logger name (`logger.child({ logger })`). */
+  logger?: string;
   /** An error logged as `{ err }`, through pino's error serializer. */
   err?: { type: string; message: string; stack: string };
   [key: string]: unknown;
@@ -34,13 +34,13 @@ export class LogCapture {
     });
   }
 
-  /** Messages at `level`, oldest first; from one module when `context` is given. */
-  messages(level: string, context?: string): string[] {
+  /** Messages at `level`, oldest first; from one module's logger when `logger` is given. */
+  messages(level: string, logger?: string): string[] {
     return this.records
       .filter(
         (record) =>
           record.level === level &&
-          (context === undefined || record.context === context),
+          (logger === undefined || record.logger === logger),
       )
       .map((record) => record.msg);
   }

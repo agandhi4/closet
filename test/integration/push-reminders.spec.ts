@@ -122,7 +122,7 @@ describe('push reminders', () => {
       sender: t.push!,
       weather: undefined,
       timeZone: t.timeZone,
-      logger: t.logger.child({ context: 'Push' }),
+      logger: t.logger.child({ logger: 'Push' }),
       // Nobody here has an auto entry: the morning's re-plan first finds
       // nothing (week-plan.spec.ts covers it).
       replan: {
@@ -130,7 +130,7 @@ describe('push reminders', () => {
         weather: undefined,
         push: t.push,
         timeZone: t.timeZone,
-        logger: t.logger.child({ context: 'WeekPlan' }),
+        logger: t.logger.child({ logger: 'WeekPlan' }),
       },
     };
   });
@@ -502,7 +502,7 @@ describe('push reminders', () => {
 
     it('two servers running the same minute send each reminder once', async () => {
       // A second server of an overlapping deploy: its own pool and sender.
-      const logger = t.logger.child({ context: 'Push' });
+      const logger = t.logger.child({ logger: 'Push' });
       const other: Db = createDb(t.database, logger);
       const otherDeps: ReminderDeps = {
         ...deps,

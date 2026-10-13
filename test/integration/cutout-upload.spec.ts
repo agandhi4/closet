@@ -143,6 +143,40 @@ describe('cutouts: upload, page and polling', () => {
     expect(await storedCutout(t, fileName)).toBeDefined();
   });
 
+  it("runs each cutout as a job of its own, naming the upload's request as its parent", async () => {
+    const id = await createGarment(t, { name: 'Traced shirt' });
+    await uploadPhoto(t, id, await jpegPhoto());
+    const fileName = await photoFileName(t, id);
+    const queued = t.logs.records.find(
+      (record) =>
+        record.msg ===
+        `Garment ${id} photo ${fileName} queued for background removal`,
+    );
+    const requestId = queued?.request_id;
+    expect(requestId).toMatch(/^[0-9a-f]{12}$/);
+    expect((await photoRow(t, fileName))!.cutoutRequestId).toBe(requestId);
+
+    t.cutouts.start(fakeRunner());
+    await t.cutouts.whenIdle();
+
+    const job = t.logs.records.filter(
+      (record) =>
+        record.logger === 'Cutout' &&
+        record.msg.includes(`(${fileName.slice(0, 8)})`),
+    );
+    expect(job.map((record) => record.msg)).toEqual([
+      expect.stringMatching(/^Cutout started: /),
+      expect.stringMatching(/^Cutout ready: /),
+    ]);
+    const [started, ready] = job;
+    expect(started.job_id).toMatch(/^cutout-[0-9a-f]{12}$/);
+    expect(ready).toMatchObject({
+      job_id: started.job_id,
+      parent_request_id: requestId,
+    });
+    expect(ready).not.toHaveProperty('request_id');
+  });
+
   it('shows a failed cutout with a native-post "Try again" that requeues it', async () => {
     const id = await createGarment(t, { name: 'Failed shirt' });
     await uploadPhoto(t, id, await jpegPhoto());

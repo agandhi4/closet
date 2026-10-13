@@ -3,9 +3,11 @@
 #
 # Usage: devkit-new.sh <name> --stack <stack> [--dir <parent>] [--no-image]
 #   name        repo, image and container name: lowercase, digits and dashes
-#   --stack     a directory under templates/new/stacks/ (python-fastapi, node-service)
+#   --stack     a directory under templates/new/stacks/ (python-fastapi, node-service, rust,
+#               next-vercel)
 #   --dir       parent directory; the repo is <dir>/<name> (default: the current directory)
-#   --no-image  no Dockerfile, publish workflow or smoke; ci-image and ci-smoke become stubs
+#   --no-image  no Dockerfile, publish workflow or smoke; ci-image and ci-smoke become stubs.
+#               Implied for a stack whose stack.conf says STACK_IMAGE=0 (next-vercel: Vercel builds)
 #   --list      print the stacks and exit
 #   Exit 0 ok, 1 a step failed (the directory is left for inspection), 2 usage or a missing tool.
 # Env: DEVKIT_URL and DEVKIT_REF name what to vendor (devkit-sync.sh; default upstream main).
@@ -18,7 +20,8 @@
 #   3. templates/new/common/, then templates/new/stacks/<stack>/, rendered: __NAME__,
 #      __DATE__, __DEVKIT_SHA7__, __STACK__ and the stack.conf fields replaced; lines between
 #      `#@image` / `#@no-image` and `#@end` kept or dropped by --no-image. CLAUDE.md is a
-#      symlink to AGENTS.md (owner decision 2026-10-12).
+#      symlink to AGENTS.md (owner decision 2026-10-12). A stack's .gitignore is appended to
+#      the common one (every other stack file with a common path replaces it).
 #   4. the parts that already exist elsewhere in devkit, copied, never re-typed: the git hooks
 #      (templates/githooks), the Renovate consumer file (renovate/consumer.example.json), the
 #      quick-check caller (templates/workflows; the reusable workflow sets up Node only when
@@ -80,15 +83,27 @@ REPO=$PARENT/$NAME
 
 # Stack config: every key is documented in templates/new/README.md.
 STACK_DESCRIPTION='' STACK_CONVENTIONS='' STACK_PINS='' STACK_TOOL='' STACK_LOCK_CMD='' STACK_IMAGE_FILES='' STACK_STUBS=''
+# shellcheck disable=SC2016  # Markdown backticks, rendered into AGENTS.md as written
+STACK_IMAGE=1 STACK_NO_IMAGE_NOTE='`devkit new --no-image`'
 # shellcheck source=/dev/null
 . "$STACK_DIR/stack.conf"
 for key in STACK_CONVENTIONS STACK_PINS STACK_TOOL STACK_LOCK_CMD; do
   [ -n "${!key}" ] || die "$STACK/stack.conf must set $key"
 done
+case "$STACK_IMAGE" in
+  1) ;;
+  # The stack cannot have an image (it ships no Dockerfile); --no-image is implied, not asked.
+  0) [ "$IMAGE" = 0 ] || echo "devkit-new: $STACK publishes no image; --no-image is implied"
+     IMAGE=0 ;;
+  *) die "$STACK/stack.conf: STACK_IMAGE must be 0 or 1 (got '$STACK_IMAGE')" ;;
+esac
 command -v "$STACK_TOOL" >/dev/null || { echo "devkit-new: '$STACK_TOOL' not found on PATH; the $STACK stack needs it to write the lockfile" >&2; exit 2; }
 command -v make >/dev/null || { echo "devkit-new: make not found on PATH; the first commit runs make ci-quick" >&2; exit 2; }
 
 DATE=$(date +%F)
+
+# A stack.conf value as a sed replacement: `/`, `&` and `\` are literal, not sed syntax.
+sed_literal() { printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'; }
 
 # render <src> <dst>: substitute placeholders, keep or drop #@image / #@no-image blocks, keep
 # the execute bit. Markers must start at column 0; they are never emitted.
@@ -102,19 +117,25 @@ render() {
     !skip { print }
   ' "$src" |
   sed -e "s/__NAME__/$NAME/g" -e "s/__DATE__/$DATE/g" -e "s/__DEVKIT_SHA7__/$DEVKIT_SHA7/g" \
-      -e "s/__STACK__/$STACK/g" -e "s/__CONVENTIONS__/$STACK_CONVENTIONS/g" \
-      -e "s/__PINS__/$STACK_PINS/g" -e "s/__STUBS__/$STACK_STUBS/g" > "$dst"
+      -e "s/__STACK__/$STACK/g" -e "s/__CONVENTIONS__/$(sed_literal "$STACK_CONVENTIONS")/g" \
+      -e "s/__PINS__/$(sed_literal "$STACK_PINS")/g" -e "s/__STUBS__/$(sed_literal "$STACK_STUBS")/g" \
+      -e "s/__NO_IMAGE_NOTE__/$(sed_literal "$STACK_NO_IMAGE_NOTE")/g" > "$dst"
   [ ! -x "$src" ] || chmod +x "$dst"
 }
 
 # render_tree <template dir>: every regular file, dotfiles included; symlinks are recreated
-# with the same target (CLAUDE.md -> AGENTS.md).
+# with the same target (CLAUDE.md -> AGENTS.md). A .gitignore that already exists (common's)
+# is appended to, so a stack adds its build output without restating the shared entries.
 render_tree() {
   local dir=$1 path rel
   while IFS= read -r path; do
     rel=${path#"$dir"/}
     case "$rel" in stack.conf) continue ;; esac
-    if [ -L "$path" ]; then
+    if [ "$rel" = .gitignore ] && [ -f "$REPO/.gitignore" ]; then
+      render "$path" "$REPO/.gitignore.stack"
+      { echo; cat "$REPO/.gitignore.stack"; } >>"$REPO/.gitignore"
+      rm "$REPO/.gitignore.stack"
+    elif [ -L "$path" ]; then
       mkdir -p "$(dirname "$REPO/$rel")"
       ln -s "$(readlink "$path")" "$REPO/$rel"
     else

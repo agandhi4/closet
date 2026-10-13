@@ -2905,7 +2905,7 @@ function replanDeps(f: Fixture) {
     weather: f.closet.weather,
     push: f.closet.push,
     timeZone: f.timeZone,
-    logger: f.logger.child({ context: 'WeekPlan' }),
+    logger: f.logger.child({ logger: 'WeekPlan' }),
   };
 }
 
@@ -2915,7 +2915,7 @@ function reminderDeps(f: Fixture) {
     sender: f.closet.push!,
     weather: f.closet.weather,
     timeZone: f.timeZone,
-    logger: f.logger.child({ context: 'Push' }),
+    logger: f.logger.child({ logger: 'Push' }),
     replan: replanDeps(f),
   };
 }
@@ -3012,7 +3012,7 @@ const jobs: Step[] = [
         {
           db: f.closet.db,
           weather: f.closet.weather!,
-          logger: f.logger.child({ context: 'Weather' }),
+          logger: f.logger.child({ logger: 'Weather' }),
         },
         [f.theo.id, f.ids.dana.id],
         new Date(),
@@ -3044,7 +3044,7 @@ const jobs: Step[] = [
     run: async (f) => {
       await f.build.cutoutQueue.retryFailedCutouts(
         f.closet.db,
-        f.logger.child({ context: 'Cutout' }),
+        f.logger.child({ logger: 'Cutout' }),
       );
     },
   }),
@@ -3059,7 +3059,7 @@ const jobs: Step[] = [
       await f.build.reconcile.reconcileStorage({
         db: f.closet.db,
         photos: f.closet.photos,
-        logger: f.logger.child({ context: 'Reconciliation' }),
+        logger: f.logger.child({ logger: 'Reconciliation' }),
       });
     },
   }),

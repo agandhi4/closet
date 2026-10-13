@@ -147,7 +147,7 @@ describe('error tracking with a DSN (a stub Bugsink)', () => {
     // APP_ENV, never NODE_ENV: the harness runs as `dev`.
     expect(event.environment).toBe('dev');
     expect(
-      t.logs.records.filter((record) => record.context === 'Http'),
+      t.logs.records.filter((record) => record.logger === 'Http'),
     ).toContainEqual(
       expect.objectContaining({ request_id: requestId, status: 500 }),
     );
