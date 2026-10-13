@@ -266,7 +266,7 @@ describe('capsules', () => {
       expect(html).not.toContain('id="search-form"');
       expect(html).toContain(`href="/capsules/${office}"`);
       // One member on screen, counted; later pages' are counted as they
-      // arrive by the page's module (test/capsules.spec.ts).
+      // arrive by the page's module (test/capsules.spec.ts (retired 2026-10-13)).
       expect(html).toMatch(/id="selected-count"[^>]*>1</);
       expect(html).toContain('<div data-select-count');
       expect(html).toContain(`import 'select-count';`);

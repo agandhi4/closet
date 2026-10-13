@@ -7,7 +7,7 @@ import { t } from './i18n';
  * controls inside a larger form), so none of them loses a quick edit.
  * `expectAutosaveControls` (test/integration/pages.ts) fails a page with a
  * change-triggered post built any other way. Found on #62's reminders form;
- * test/autosave.spec.ts changes each family on a slow network.
+ * test/autosave.spec.ts (retired 2026-10-13) changes each family on a slow network.
  *
  * What went wrong before, in htmx 2: a change made while the form's save was
  * in flight is queued on the element that issued it and re-issued when the

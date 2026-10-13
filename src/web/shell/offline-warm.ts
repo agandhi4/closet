@@ -114,7 +114,7 @@ const LIST_KEYS = ['pages', 'fragments', 'images', 'keep'] as const;
  * a protocol-relative `//host`). A tab root among the pages is dropped: the
  * worker opens those stale-while-revalidate, so a copy the warm stored or
  * refreshed would be shown stale after the user's own edits (the Back
- * button after a save, test/back-navigation.spec.ts). They are cached only
+ * button after a save, test/back-navigation.spec.ts (retired 2026-10-13)). They are cached only
  * when opened.
  */
 export function parseWarmList(value: unknown): WarmList | undefined {

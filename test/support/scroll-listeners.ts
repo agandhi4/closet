@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 
-// Shared by test/styling.spec.ts and test/photo-viewer.spec.ts.
+// Shared by test/styling.spec.ts and test/photo-viewer.spec.ts (retired 2026-10-13).
 /**
  * The app's touch and wheel listeners that are not passive, on the window
  * and anywhere in the document: each would make the browser wait on script

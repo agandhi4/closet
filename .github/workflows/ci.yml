@@ -75,9 +75,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      # The env (PWA on, VAPID keys, SEED_SCREENSHOTS for the 390 px shots) is the
-      # Makefile's, shared with the gate.
-      - run: make ci-deps ci-e2e PLAYWRIGHT_FLAGS=--with-deps
+      # The env (PWA on, VAPID keys) is the Makefile's, shared with the gate; `screenshots`
+      # then takes the 390 px shots on a server of its own.
+      - run: make ci-deps ci-e2e screenshots PLAYWRIGHT_FLAGS=--with-deps
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:

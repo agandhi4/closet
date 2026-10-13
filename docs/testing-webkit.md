@@ -44,14 +44,14 @@ Two quirks the specs absorb rather than skip:
 - **A Safari tab opens the install dialog** over the first page of every
   session and it takes every tap. The Safari projects start with it
   dismissed (`INSTALL_DISMISSED` in `playwright.config.ts`, the element's
-  own flag); `test/install-dialog.spec.ts` covers the dialog in Chromium.
+  own flag); `test/install-dialog.spec.ts (retired 2026-10-13)` covers the dialog in Chromium.
 
 Other differences met on the way: Playwright's WebKit reports a multipart
-body without its files' bytes (`test/photo-downscale.spec.ts` reads them off
-the input) and cannot read the clipboard back (`client-behaviors.spec.ts`
+body without its files' bytes (`test/photo-downscale.spec.ts (retired 2026-10-13)` reads them off
+the input) and cannot read the clipboard back (`client-behaviors.spec.ts` (retired 2026-10-13)
 checks the link the tap writes); a held answer is released before
 `route.fulfill` returns, since WebKit hands it to the page first
-(`test/autosave.spec.ts`).
+(`test/autosave.spec.ts (retired 2026-10-13)`).
 
 ## Running it on linux-box
 
@@ -81,7 +81,7 @@ docker run --rm --network host --ipc host -u "$(id -u):$(id -g)" -e HOME=/tmp \
 
 The specs reuse the running server (not CI) and read the same database for
 their own rows; a few load the server's config themselves
-(`order-review.spec.ts`), which refuses `PWA_ENABLED` without the VAPID
+(`order-review.spec.ts` (retired 2026-10-13)), which refuses `PWA_ENABLED` without the VAPID
 keys, hence the same keys in both. Worktrees side by side each take a
 port and a database of their own. Under four workers a spec that builds
 many rows through the API (`capsules.spec.ts`'s appended grid page) can

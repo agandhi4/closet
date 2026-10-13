@@ -37,7 +37,7 @@ import {
  * change, named by the endpoint its form posts; `push:revoke-all` (after an
  * ACCESS_TOKEN_SECRET rotation) removes everyone's; account deletion
  * cascades. The browser side is the login page's <push-signed-out>
- * (test/push-revocation.spec.ts drives it in Chromium). web-push is
+ * (test/push-revocation.spec.ts (retired 2026-10-13) drives it in Chromium). web-push is
  * stubbed: nothing leaves the process.
  */
 

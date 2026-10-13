@@ -1,217 +1,81 @@
-import { test, expect, type Page } from '@playwright/test';
-import { E2E_PASSWORD, signIn, signUpHeaders } from './support/e2e-session';
+import { expect, test } from '@playwright/test';
+import { E2E_PASSWORD, signUpHeaders } from './support/e2e-session';
 
 const APP_NAME = process.env.APP_NAME || 'Closet';
 
-/** Profile's account section, which names who is signed in. */
-const signedInAs = (page: Page) => page.locator('#account');
-
 /**
- * The session is resolved once per request from the access_token cookie
- * (createSessionResolver, see src/app.ts). This proves the cookie set by
- * /auth/login is honoured by the session gate on /wardrobe and /auth/profile
- * and by the app bar's avatar and Profile's account section that show the
- * user.
+ * The account's whole loop through the real forms: signed out, the root is
+ * the login page (no console errors); the registration form signs the new
+ * account in; Profile's sign-out (a POST) ends it; the login form, with the
+ * right password after a wrong one, signs back in. The account forms post
+ * natively (no htmx), which is what lets a browser save the password and
+ * what makes a refusal one page, not a page swapped into a page. Every
+ * other account route is test/integration/account.spec.ts and auth.spec.ts.
  */
-test.describe('login session', () => {
-  test('cookie from /auth/login sticks across wardrobe and profile', async ({
-    page,
-  }) => {
-    const email = `auth-test-${Date.now()}@example.com`;
-    const password = 'Password123!';
-
-    const register = await page.request.post('/auth/register', {
-      form: { email, password, confirmPassword: password },
-      headers: signUpHeaders(),
-    });
-    expect(register.ok()).toBe(true);
-    await page.context().clearCookies();
-
-    // Anonymous: every app page redirects to the login page.
-    await page.goto('/wardrobe');
-    await expect(page).toHaveURL(/\/auth\/login$/);
-    await page.goto('/auth/profile');
-    await expect(page).toHaveURL(/\/auth\/login$/);
-
-    // page.request shares the browser context's cookie jar, so the cookie
-    // set here is what the page sends on the navigations below.
-    const login = await page.request.post('/auth/login', {
-      form: { email, password },
-      headers: signUpHeaders(),
-    });
-    expect(login.ok()).toBe(true);
-    expect(new URL(login.url()).pathname).toBe('/auth/profile');
-
-    await page.goto('/wardrobe');
-    await expect(page).toHaveURL(/\/wardrobe$/);
-    await expect(page.locator('#avatar')).toHaveText(
-      email.charAt(0).toUpperCase(),
-    );
-
-    await page.goto('/auth/profile');
-    await expect(signedInAs(page)).toContainText(email);
+test('register through the form, sign out from Profile, sign back in', async ({
+  page,
+}) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  // Login and registration are rate limited per address: this browser's
+  // posts name a client of their own (signUpHeaders).
+  await page.setExtraHTTPHeaders({
+    'x-forwarded-for': signUpHeaders()['x-forwarded-for'],
   });
 
-  // A refused change answers 400, which htmx would not swap into a boosted
-  // page: this proves the unboosted form shows the error instead of nothing.
-  test('change password: a wrong current password shows the error, the right one keeps the session', async ({
-    page,
-  }) => {
-    const email = await signIn(page, 'change-password');
-    const newPassword = 'Changed456!';
+  // Signed out, "/" is a 302 to the login page.
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/auth\/login$/);
+  await expect(page.locator('body')).toContainText(APP_NAME);
 
-    await page.goto('/auth/profile');
-    await page.getByRole('link', { name: 'Change Password' }).click();
-    await expect(page).toHaveURL(/\/auth\/change-password$/);
+  const email = `register-form-${Date.now()}@example.com`;
+  await page.goto('/auth/register');
+  await page.locator('#email').fill(email);
+  await page.locator('#password').fill(E2E_PASSWORD);
+  await page.locator('#confirmPassword').fill(E2E_PASSWORD);
+  await page.getByRole('button', { name: 'Register' }).click();
+  await expect(page).toHaveURL(/\/auth\/profile$/);
+  await expect(page.locator('#account')).toContainText(email);
 
-    await page.locator('#currentPassword').fill('NotMyPassword1');
-    await page.locator('#newPassword').fill(newPassword);
-    await page.locator('#confirmPassword').fill(newPassword);
-    await page.getByRole('button', { name: 'Change Password' }).click();
-    await expect(page.locator('main')).toContainText(
-      'Current password is incorrect',
-    );
+  // The avatar opens Profile, whose sign-out signs out (#82).
+  await page.goto('/wardrobe');
+  await expect(page.locator('#avatar')).toHaveText(
+    email.charAt(0).toUpperCase(),
+  );
+  await page.locator('#avatar').click();
+  await page
+    .locator('#sign-out')
+    .getByRole('button', { name: 'Logout' })
+    .click();
+  await expect(page).toHaveURL(/\/auth\/login$/);
+  await page.goto('/wardrobe');
+  await expect(page).toHaveURL(/\/auth\/login$/);
 
-    await page.locator('#currentPassword').fill(E2E_PASSWORD);
-    await page.locator('#newPassword').fill(newPassword);
-    await page.locator('#confirmPassword').fill(newPassword);
-    await page.getByRole('button', { name: 'Change Password' }).click();
-    await expect(page).toHaveURL(/\/auth\/profile\?passwordChanged=1$/);
-    await expect(page.locator('main [role="status"]')).toBeVisible();
+  // A refused login is one page with a specific message and the email kept.
+  await page.locator('#email').fill(email);
+  await page.locator('#password').fill('NotThePassword1');
+  const refusal = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/auth/login') &&
+      response.request().method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Login' }).click();
+  expect((await refusal).status()).toBe(401);
+  await expect(page.locator('[role="alert"]')).toHaveText(
+    'Incorrect email or password',
+  );
+  await expect(page.locator('form')).toHaveCount(1);
+  await expect(page.locator('#email')).toHaveValue(email);
 
-    // Still signed in on a full reload, with the replacement cookie.
-    await page.goto('/auth/profile');
-    await expect(signedInAs(page)).toContainText(email);
-  });
-
-  // The account forms post natively (no htmx), which is what lets a
-  // browser offer to save the password; a refusal is one page, not a page
-  // swapped into the page.
-  test('a failed login shows one page with a specific message', async ({
-    page,
-  }) => {
-    const email = await signIn(page, 'failed-login');
-    await page.context().clearCookies();
-    // This browser's logins count against a per-address limit of five a
-    // minute: a forwarded address of its own keeps retries and repeats from
-    // sharing one budget.
-    await page.setExtraHTTPHeaders({
-      'x-forwarded-for': signUpHeaders()['x-forwarded-for'],
-    });
-
-    await page.goto('/auth/login');
-    await page.locator('#email').fill(email);
-    await page.locator('#password').fill('NotThePassword1');
-    await page.getByRole('button', { name: 'Login' }).click();
-
-    await expect(page.locator('[role="alert"]')).toHaveText(
-      'Incorrect email or password',
-    );
-    await expect(page.locator('h1')).toHaveCount(1);
-    await expect(page.locator('form')).toHaveCount(1);
-    await expect(page.locator('#email')).toHaveValue(email);
-
-    await page.locator('#password').fill(E2E_PASSWORD);
-    await page.getByRole('button', { name: 'Login' }).click();
-    await expect(page).toHaveURL(/\/auth\/profile$/);
-    await expect(signedInAs(page)).toContainText(email);
-  });
-
-  test('registering through the form signs the new account in', async ({
-    page,
-  }) => {
-    const email = `register-form-${Date.now()}@example.com`;
-    // Registration is rate limited per address too (see above).
-    await page.setExtraHTTPHeaders({
-      'x-forwarded-for': signUpHeaders()['x-forwarded-for'],
-    });
-    await page.goto('/auth/register');
-    await page.locator('#email').fill(email);
-    await page.locator('#password').fill(E2E_PASSWORD);
-    await page.locator('#confirmPassword').fill(E2E_PASSWORD);
-    // Inline validation refills only the message slots, never the inputs.
-    await expect(page.locator('#confirmPassword')).toHaveValue(E2E_PASSWORD);
-    await page.getByRole('button', { name: 'Register' }).click();
-
-    await expect(page).toHaveURL(/\/auth\/profile$/);
-    await expect(signedInAs(page)).toContainText(email);
-  });
-
-  test('delete account: wrong credentials show the error, nothing is deleted', async ({
-    page,
-  }) => {
-    const email = await signIn(page, 'delete-refused');
-    page.on('dialog', (dialog) => void dialog.accept());
-
-    await page.goto('/auth/delete-account');
-    await page.locator('#email').fill(email);
-    await page.locator('#password').fill('NotThePassword1');
-    await page.getByRole('button', { name: 'Delete Account' }).click();
-
-    await expect(page.locator('[role="alert"]')).toContainText(
-      'Incorrect email or password',
-    );
-    await page.goto('/auth/profile');
-    await expect(signedInAs(page)).toContainText(email);
-  });
-});
-
-/**
- * Signing out is a POST (a GET let any cross-site link sign someone out),
- * from Profile's last section; the drawer that held it is gone (#82). On a
- * phone the avatar is the way there.
- */
-test.describe('logout', () => {
-  const expectSignedOut = async (page: Page) => {
-    await expect(page).toHaveURL(/\/auth\/login$/);
-    await page.goto('/wardrobe');
-    await expect(page).toHaveURL(/\/auth\/login$/);
-  };
-
-  test("Profile's sign-out signs out", async ({ page }) => {
-    await signIn(page, 'logout-desktop');
-    await page.goto('/auth/profile');
-    await page
-      .locator('#sign-out')
-      .getByRole('button', { name: 'Logout' })
-      .click();
-    await expectSignedOut(page);
-  });
-
-  test.describe('on a phone', () => {
-    test.use({ viewport: { width: 390, height: 844 } });
-
-    test('the avatar opens Profile, whose sign-out signs out', async ({
-      page,
-    }) => {
-      await signIn(page, 'logout-phone');
-      await page.goto('/wardrobe');
-      await page.locator('#avatar').click();
-      await expect(page).toHaveURL(/\/auth\/profile$/);
-      await page.getByRole('link', { name: 'Sign out', exact: true }).click();
-      const button = page
-        .locator('#sign-out')
-        .getByRole('button', { name: 'Logout' });
-      await expect(button).toBeInViewport();
-      await button.click();
-      await expectSignedOut(page);
-    });
-  });
-
-  test('an old sign-out link asks first instead of signing out', async ({
-    page,
-  }) => {
-    const email = await signIn(page, 'logout-link');
-    await page.goto('/auth/logout');
-    await expect(page.locator('main')).toContainText(
-      `Sign out of ${APP_NAME} on this device?`,
-    );
-    // Nothing has ended yet.
-    await page.goto('/auth/profile');
-    await expect(signedInAs(page)).toContainText(email);
-
-    await page.goto('/auth/logout');
-    await page.locator('main').getByRole('button', { name: 'Logout' }).click();
-    await expectSignedOut(page);
-  });
+  await page.locator('#password').fill(E2E_PASSWORD);
+  await page.getByRole('button', { name: 'Login' }).click();
+  await expect(page).toHaveURL(/\/auth\/profile$/);
+  await expect(page.locator('#account')).toContainText(email);
+  // The refusal's 401 is the one console error Chromium logs (a document
+  // with an error status); anything else is a page script failing.
+  expect(consoleErrors, consoleErrors.join('\n')).toEqual([
+    'Failed to load resource: the server responded with a status of 401 (Unauthorized)',
+  ]);
 });

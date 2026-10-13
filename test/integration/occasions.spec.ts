@@ -19,7 +19,7 @@ import { expectFullPage, expectNativePostForms } from './pages';
  * form), the unique key that still keeps an outfit to once a day, the week
  * page stacking a day in occasion order, and the plan page that adds one
  * more. The wears side (a day is one wear however many outfits) is in
- * wears.spec.ts; the migration's default in occasions-migration.spec.ts.
+ * wears.spec.ts; the migration's default in occasions-migration.spec.ts (retired 2026-10-13).
  *
  * Days are in 2030 (planned, so no worn pills) unless a test needs today.
  */

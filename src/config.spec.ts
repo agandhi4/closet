@@ -122,6 +122,18 @@ describe('loadConfig', () => {
     expect(problemsOf({ ...REQUIRED, [key]: value })).toEqual([problem]);
   });
 
+  // The test tiers hash at 4; production may never (a weak cost is a
+  // cheaper offline crack of a leaked hash). The default is 12.
+  it('refuses a bcrypt cost under 12 in production only', () => {
+    expect(load({}).PASSWORD_HASH_ROUNDS).toBe(12);
+    expect(problemsOf({ ...REQUIRED, PASSWORD_HASH_ROUNDS: '11' })).toEqual([
+      'PASSWORD_HASH_ROUNDS: at least 12 when APP_ENV is production',
+    ]);
+    expect(
+      load({ APP_ENV: 'gate', PASSWORD_HASH_ROUNDS: '4' }).PASSWORD_HASH_ROUNDS,
+    ).toBe(4);
+  });
+
   it.each([
     ['the old default', 'ChangeMe!'],
     ['31 characters', 'x'.repeat(31)],

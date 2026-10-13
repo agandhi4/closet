@@ -13,7 +13,7 @@ stub used to take 3 s a photo, so a spec's cutout waited 3 s for every photo
 the other workers had queued before it: with four workers uploading, or a
 database left with pending rows, a cutout took longer than the spec's 15 s
 wait (#230: `pwa.spec.ts`'s "never requests a model or WASM" failed 6 runs in
-10; `mask-editor.spec.ts` timed out whenever other specs uploaded). Answering
+10; `mask-editor.spec.ts` (retired 2026-10-13) timed out whenever other specs uploaded). Answering
 at once makes a spec's cutout depend only on the queue's own work, a few ms a
 photo.
 
@@ -47,7 +47,7 @@ test('…', async ({ page, cutouts }) => {
 - The stub logs every hold, held job and release under the `CutoutStub`
   context.
 
-Holding: `cutout.spec.ts`, `add-from-photo.spec.ts`, `image-variants.spec.ts`
+Holding: `cutout.spec.ts` (retired 2026-10-13), `add-from-photo.spec.ts`, `image-variants.spec.ts` (retired 2026-10-13)
 (version 1 in the grid) and `screenshots.spec.ts` (the pending shot).
 
 ## Waiting for a cutout

@@ -46,7 +46,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
-    "test:e2e:smoke": "npm run build && playwright test test/smoke.spec.ts --project=chromium",
+    "test:e2e:smoke": "npm run build && playwright test test/auth.spec.ts --project=chromium",
     "postinstall": "patch-package",
     "audit:pages": "npm run build && node -r ts-node/register/transpile-only scripts/audit-pages.ts",
     "precommit": "npm run check",

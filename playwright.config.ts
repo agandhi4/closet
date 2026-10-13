@@ -21,19 +21,24 @@ for (const [key, value] of Object.entries(committedEnv)) {
 // specs only sign in through the app, so a fresh one per run will do unless
 // the caller (CI) passes its own. The webServer inherits process.env.
 process.env.ACCESS_TOKEN_SECRET ??= randomBytes(32).toString('hex');
+// A test server is never production (the gate says `gate`, a developer's
+// run `dev`: the error tracker's environment), and only outside it may
+// bcrypt run at its floor, which every spec's own accounts are hashed at.
+process.env.APP_ENV ??= 'dev';
+process.env.PASSWORD_HASH_ROUNDS ??= '4';
 // Production runs with the metrics on: the pages load the timing beacon
-// (public/js/vitals.js), and test/metrics.spec.ts reads /metrics.
+// (public/js/vitals.js); the scenarios run with it in the page, as users do.
 process.env.METRICS_ENABLED ??= 'true';
 // The order mail on (#25), against the test server's JMAP stand-in
-// (test/support/jmap-stub.ts, never Fastmail), for the review list's spec
-// (test/order-review.spec.ts), whose fixed account is the owner.
+// (test/support/jmap-stub.ts, never Fastmail): the poll runs beside the
+// scenarios as it does in production. Its owner is the fixed account.
 process.env.ORDER_MAIL_JMAP_TOKEN ??= 'fmu1-e2e-stand-in';
 process.env.ORDER_MAIL_SENDERS ??= 'orders-owner@example.com';
 process.env.ORDER_MAIL_OWNER ??= ORDER_REVIEW_OWNER;
 // Error tracking on, as production runs it (Bugsink): signed-in pages load
-// public/js/errors.js. The DSN is Bugsink's stand-in, which only
-// test/client-errors.spec.ts listens on while it runs; the server's events
-// meanwhile fail to send, logged and dropped, never reaching a real tracker.
+// public/js/errors.js. The DSN is Bugsink's stand-in on a port nothing
+// listens on; the server's events fail to send, logged and dropped, never
+// reaching a real tracker.
 process.env.SENTRY_DSN ??= E2E_SENTRY_DSN;
 
 /**
@@ -41,8 +46,7 @@ process.env.SENTRY_DSN ??= E2E_SENTRY_DSN;
  * first page of every session (public/js/pwa.js, offerInstall), and it
  * takes every tap until dismissed. The Safari projects start as a user who
  * has dismissed it: @khmyznikov/pwa-install's own flag, which it reads from
- * sessionStorage or localStorage. test/install-dialog.spec.ts covers the
- * dialog itself, in Chromium.
+ * sessionStorage or localStorage.
  */
 const INSTALL_DISMISSED = {
   cookies: [],
@@ -59,8 +63,14 @@ const INSTALL_DISMISSED = {
  */
 export default defineConfig({
   testDir: './test',
-  /* test/integration/ holds the Vitest in-process tier (npm run test:int). */
-  testIgnore: '**/integration/**',
+  /* test/integration/ holds the Vitest in-process tier (npm run test:int).
+   * screenshots.spec.ts is a generator, not a test: only `make screenshots`
+   * (SEED_SCREENSHOTS) runs it, so the gate's e2e tier stays the ten
+   * critical-path scenarios the floor counts. */
+  testIgnore: [
+    '**/integration/**',
+    ...(process.env.SEED_SCREENSHOTS ? [] : ['**/screenshots.spec.ts']),
+  ],
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */

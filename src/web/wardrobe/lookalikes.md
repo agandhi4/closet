@@ -10,4 +10,4 @@ Part of the Wardrobe (`AGENTS.md` in this directory); #20, plan section 18.
 
 ## Gotchas
 
-- **The copy buttons belong to `LookalikeCopyForm`, never the garment form.** They sit above Save, and the first submit button of a form in tree order is its default button: inside the garment form, Enter in the name field would add a copy instead of saving. They join the empty form rendered after it through `form=` and name their route with `formaction`. `test/lookalikes.spec.ts` presses Enter with a match showing.
+- **The copy buttons belong to `LookalikeCopyForm`, never the garment form.** They sit above Save, and the first submit button of a form in tree order is its default button: inside the garment form, Enter in the name field would add a copy instead of saving. They join the empty form rendered after it through `form=` and name their route with `formaction`. `test/lookalikes.spec.ts (retired 2026-10-13)` presses Enter with a match showing.

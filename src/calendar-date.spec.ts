@@ -180,23 +180,29 @@ describe('calendar dates', () => {
       expect(addDays('2026-03-01', 7 * 52)).toBe('2027-02-28');
     });
 
-    it('agrees with UTC calendar arithmetic on every day from 1970 to 2100', () => {
-      const start = Date.UTC(1970, 0, 1);
-      const end = Date.UTC(2100, 11, 31);
-      let day = '1970-01-01';
-      for (let t = start; t <= end; t += 86_400_000) {
-        const utc = new Date(t);
-        expect(day).toBe(
-          formatIsoDate(
-            utc.getUTCFullYear(),
-            utc.getUTCMonth() + 1,
-            utc.getUTCDate(),
-          ),
-        );
-        expect(dayOfWeek(day)).toBe(utc.getUTCDay());
-        day = addDays(day, 1);
-      }
-    });
+    // The boundary years only (rule: boundary cases, not every value): the
+    // epoch, a century year that is no leap year, a 400-year leap year, and
+    // the years in use; 1970 to 2100 day by day took 3 s for no more proof.
+    it.each([1970, 1999, 2000, 2023, 2024, 2099, 2100])(
+      'agrees with UTC calendar arithmetic on every day of %i',
+      (year) => {
+        const start = Date.UTC(year, 0, 1);
+        const end = Date.UTC(year, 11, 31);
+        let day = formatIsoDate(year, 1, 1);
+        for (let t = start; t <= end; t += 86_400_000) {
+          const utc = new Date(t);
+          expect(day).toBe(
+            formatIsoDate(
+              utc.getUTCFullYear(),
+              utc.getUTCMonth() + 1,
+              utc.getUTCDate(),
+            ),
+          );
+          expect(dayOfWeek(day)).toBe(utc.getUTCDay());
+          day = addDays(day, 1);
+        }
+      },
+    );
 
     it('weeks start on Sunday', () => {
       expect(dayOfWeek('2026-09-20')).toBe(0);

@@ -8,7 +8,7 @@ import { pageErrors } from './support/page-errors';
  * pill swapping in place and logging the outfit's wears, the garment page's
  * Washed, Wore today and "Where it is" answering through htmx, multiples,
  * and the laundry page's Mark washed. The server side is
- * test/integration/wears.spec.ts.
+ * test/integration/wears.spec.ts; the offline write rule is the pwa spec's.
  */
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -102,47 +102,4 @@ test('mark an outfit worn, wash it, log a wear alone, and do the laundry', async
   await expect(page.getByLabel('Where, or who has it')).toBeVisible();
 
   expect(errors).toEqual([]);
-});
-
-test('offline, the wear writes are really disabled, and come back as they were', async ({
-  page,
-  context,
-}) => {
-  await signIn(page, 'wears-offline');
-  const tee = await created(
-    page,
-    '/wardrobe',
-    { name: 'Offline tee', category: 'tops' },
-    /^\/wardrobe\/(\d+)\?/,
-  );
-  await page.goto(`/wardrobe/${tee}`);
-  const wore = page.getByRole('button', { name: 'Wore today' });
-  await expect(wore).toBeEnabled();
-  // A control disabled for its own reason must stay so after reconnecting.
-  await page
-    .locator('#garment-wear form')
-    .first()
-    .evaluate((form) => {
-      const own = document.createElement('button');
-      own.id = 'own-disabled';
-      own.type = 'button';
-      own.disabled = true;
-      form.append(own);
-    });
-
-  await context.setOffline(true);
-  await expect(page.locator('#connectivity-banner')).toBeVisible();
-  await expect(wore).toBeDisabled();
-  await expect(wore).toHaveAttribute('aria-disabled', 'true');
-  // The keyboard cannot submit it either.
-  await wore.focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByText('Not worn yet')).toBeVisible();
-
-  await context.setOffline(false);
-  await expect(wore).toBeEnabled();
-  await expect(wore).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('#own-disabled')).toBeDisabled();
-  await wore.click();
-  await expect(page.getByText('Worn once')).toBeVisible();
 });

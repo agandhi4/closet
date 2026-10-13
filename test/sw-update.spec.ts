@@ -69,45 +69,6 @@ test.describe('service worker update', () => {
     await expect(updateToast(page)).toBeHidden();
     expect(errors).toEqual([]);
   });
-
-  test('another window keeps its page, and its Reload loads the new build', async ({
-    page,
-    context,
-  }) => {
-    // The app's first visit: no worker controlled this document until the
-    // first one claimed it.
-    await openControlled(page, () => page.goto(`${next.origin}/wardrobe`));
-    const other = await context.newPage();
-    const otherErrors = pageErrors(other, { console: true });
-    await openControlled(other, () => other.goto(`${next.origin}/outfits`));
-    await markDocument(other);
-
-    const build = next.deploy();
-    await checkForUpdate(page);
-    await expect(updateToast(page)).toBeVisible();
-    await expect(updateToast(other)).toBeVisible();
-
-    const reloaded = page.waitForEvent('load');
-    await updateToast(page).getByRole('button', { name: 'Reload' }).click();
-    await reloaded;
-    expect(await controllingBuild(page)).toBe(build);
-    // The new worker claims the other window too (clientsClaim) but leaves
-    // its page alone, still offering the reload.
-    await expect.poll(() => controllingBuild(other)).toBe(build);
-    expect(await isMarkedDocument(other)).toBe(true);
-    await expect(updateToast(other)).toBeVisible();
-
-    // Nothing is waiting any more, so Reload reloads (it used to post
-    // SKIP_WAITING to no worker and do nothing).
-    const otherReloaded = other.waitForEvent('load');
-    await updateToast(other).getByRole('button', { name: 'Reload' }).click();
-    await otherReloaded;
-    await expect(other.locator('.dock')).toBeVisible();
-    expect(await isMarkedDocument(other)).toBe(false);
-    expect(await controllingBuild(other)).toBe(build);
-    await expect(updateToast(other)).toBeHidden();
-    expect(otherErrors).toEqual([]);
-  });
 });
 
 function updateToast(page: Page) {

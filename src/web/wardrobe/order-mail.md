@@ -36,7 +36,7 @@ An email a run did not finish has no row and is read again next time. `order_ite
 
 "Add to closet" runs `importLink` on the stored product link and renders the ordinary new-garment form for the closet. The form carries the photo choices, the order's day as `dateAquired`, the stored price when the page has none in dollars, and `orderItem` (hidden, with a notice). `POST /wardrobe` resolves `orderItem` in `postedDestination`: the requester's own pending item in their own wardrobe, else a 404 before anything is stored. It then marks the item `added` in the garment's own transaction (`WithGarment`, as a plan candidate link). A page that cannot be fetched now opens the form with the stored details and a notice. Fetching counts against a `LINK_IMPORT_LIMIT` checker of its own.
 
-Tests: `test/integration/order-mail.spec.ts` (the poll against the JMAP stub and a local shop, the review list, the off state), `test/order-review.spec.ts` (the list at 390 px, seeded rows, dismiss, the fallback form).
+Tests: `test/integration/order-mail.spec.ts` (the poll against the JMAP stub and a local shop, the review list, the off state), `test/order-review.spec.ts (retired 2026-10-13)` (the list at 390 px, seeded rows, dismiss, the fallback form).
 
 ## Gotchas
 

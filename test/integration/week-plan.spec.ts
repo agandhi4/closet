@@ -504,7 +504,7 @@ describe('the weekly auto-plan', () => {
       // 23:30 on Tuesday in New York: both of today's windows (all-day to
       // 22, evening to 23) are over, and the next Tuesday's evening is past
       // the window (today and the six after). The fewest slots this
-      // template ever plans: the floor test/week-plan.spec.ts asserts.
+      // template ever plans: the floor test/week-plan.spec.ts (retired 2026-10-13) asserts.
       vi.setSystemTime(new Date('2026-10-07T03:30:00Z'));
       await post('/calendar/plan-week');
       const slots = (await weekEntries()).map((e) => e.slot).sort();

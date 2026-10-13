@@ -100,7 +100,7 @@ function PropertiesMainFields(props: PropertiesProps & { errors?: string[] }) {
           equal to those presets (so a tap stays, unless it picked the
           preset's own value, as without the lag), fills what is unset, and
           carries markers for the category and type it drew, so the lag
-          lasts one answer. test/autosave.spec.ts locks it in. */}
+          lasts one answer. test/autosave.spec.ts (retired 2026-10-13) locks it in. */}
       <input
         type="hidden"
         name="presetCategory"

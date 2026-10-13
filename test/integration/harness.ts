@@ -80,6 +80,9 @@ const BASE_ENV: Env = {
   // then requires.
   WEATHER_ENABLED: 'false',
   ACCESS_TOKEN_SECRET: 'integration-test-secret-0123456789abcdef',
+  // bcrypt at its floor: every spec file registers an owner, and the auth
+  // specs sign in dozens of times; at 12 that was most of the tier's time.
+  PASSWORD_HASH_ROUNDS: '4',
 };
 
 export { PWA_ENV } from '../support/pwa-env';
@@ -251,7 +254,11 @@ export async function createTestApp(
   options: TestAppOptions = {},
 ) {
   const dataPath = await mkdtemp(join(tmpdir(), 'closet-int-'));
-  const database = await createScratchDatabase('closet_it');
+  // Migrated already unless the spec builds the database from an older
+  // shape itself (beforeBoot): the boot then finds nothing to apply.
+  const database = await createScratchDatabase('closet_it', {
+    migrated: !options.beforeBoot,
+  });
   const config = loadConfig({
     env: { ...BASE_ENV, ...database.env, DATA_PATH: dataPath, ...overrides },
     envFiles: [],

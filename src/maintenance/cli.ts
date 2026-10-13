@@ -7,6 +7,7 @@ import {
 } from '../db/client';
 import { requireCurrentSchema, SchemaBehindError } from '../db/migrate';
 import { createBootLogger, createLogger, type Logger } from '../logger';
+import { configurePasswordHashing } from '../web/auth/passwords';
 
 export interface CliContext {
   config: Config;
@@ -52,6 +53,8 @@ async function run(
 ): Promise<number> {
   const config = loadConfig();
   const logger = createLogger(config);
+  // As the server: a password the CLI sets costs what a sign-in compares.
+  configurePasswordHashing(config.PASSWORD_HASH_ROUNDS);
   await requireCurrentSchema(dbConfig(config));
   // Operator-scale work (a seeded persona is one transaction): the long
   // timeouts, not the server's.

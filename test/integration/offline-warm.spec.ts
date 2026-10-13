@@ -34,8 +34,8 @@ import {
  * GET /offline/warm (#286): the list the service worker warms for offline
  * reading. Always the session's own wardrobe: a grantee's list never holds
  * the wardrobe shared with them, whatever `?ownerId=` says. The worker side
- * (what it fetches, keeps and drops) is test/offline-warm.spec.ts and
- * test/stale-pages.spec.ts.
+ * (what it fetches, keeps and drops) is test/offline-warm.spec.ts (retired 2026-10-13) and
+ * test/stale-pages.spec.ts (retired 2026-10-13).
  */
 describe('GET /offline/warm', () => {
   let t: TestApp;

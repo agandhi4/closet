@@ -15,7 +15,11 @@ import {
  * session-only, validated, size-capped and rate-limited.
  */
 
-const METRICS_ENV = { METRICS_ENABLED: 'true' };
+// APP_VERSION pinned: without it the release is the commit in
+// public/build.json when an earlier `npm run build` left one (the gate's e2e
+// job, a developer's checkout), else `dev`, so app_info's label would depend
+// on what ran before.
+const METRICS_ENV = { METRICS_ENABLED: 'true', APP_VERSION: 'abc1234' };
 
 /** Every value a label takes in an exposition. */
 function labelValues(body: string, label: string): Set<string> {
@@ -281,7 +285,7 @@ describe('metrics, METRICS_ENABLED=true', () => {
     });
 
     it('names the running build in app_info', async () => {
-      expect(await scrape()).toMatch(/^app_info\{version="dev"\} 1$/m);
+      expect(await scrape()).toMatch(/^app_info\{version="abc1234"\} 1$/m);
     });
 
     it('is a 404 through a reverse proxy', async () => {

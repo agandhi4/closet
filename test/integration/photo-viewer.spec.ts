@@ -14,7 +14,7 @@ import {
  * The shared photo viewer's server side (#313): which photos open which
  * set, and that the set holds exactly the photos the issue names. The
  * viewer's behaviour (open, swipe, zoom, focus, offline) is
- * test/photo-viewer.spec.ts.
+ * test/photo-viewer.spec.ts (retired 2026-10-13).
  */
 describe('the photo viewer markup', () => {
   let t: TestApp;
