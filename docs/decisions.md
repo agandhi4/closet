@@ -3,6 +3,12 @@
 Dated decisions, their rationale and the gotchas they carry. Newest first. The older
 history lives in `docs/PROJECT_LOG.md`.
 
+## 2026-10-13 — devkit 4f5f282: union-merged decisions log, tier names, one tier guard
+
+**Why:** devkit 4f5f282 adds three guards (`docs/decisions.md merge=union`, `ci-<tier>-<area>` target names, no privileged port in a non-root image) and `bin/tier_guard.sh`, the fleet's one budget-and-floor runner.
+**Decision:** sync, then adopt in this PR: the union line in `.gitattributes`, and the tier guard in place of closet's own budget and floor scripts (next entry). closet's targets already follow the naming rule and its image runs as root, so neither of the other guards asks for a change.
+**Consequence:** two PRs that each append a decisions entry no longer conflict on rebase.
+
 ## 2026-10-13 — /health/live and /health/ready
 
 **Why:** `observability.md`'s health contract: closet answered `/healthz` `{status: "ok", version}` checking nothing, the image had no `HEALTHCHECK`, and the smoke's probe could only run `--live`.
