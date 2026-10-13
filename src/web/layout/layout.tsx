@@ -77,11 +77,7 @@ export interface LayoutProps {
 function ErrorScript({ ctx, v }: { ctx: ViewContext; v: string }) {
   if (!ctx.errorTrackingEnabled || !ctx.user) return null;
   return (
-    <script
-      defer
-      src={`/js/errors.js${v}`}
-      data-release={ctx.buildSha}
-    ></script>
+    <script defer src={`/js/errors.js${v}`} data-release={ctx.release}></script>
   );
 }
 

@@ -12,9 +12,10 @@ Shared scripts vendored into every app repo as a `git subtree`. Read `README.md`
 - The skeleton owns mechanics; the repo's `scripts/ci/gate_plan.sh` owns policy (which jobs
   for which paths). A new mechanic belongs here; a new check belongs in the repo's Makefile.
 - Every gate job is a Makefile target the repo's workflows also call. Parity is structural.
-- One Node version string per repo: `.nvmrc`, exact. CI reads it (`node-version-file`), the
-  gate provisions it (`node_toolchain.sh`), `toolchain_check.sh` holds Dockerfile and workflows
-  to it. Never pin a Node version anywhere else.
+- One version string per toolchain per repo: `.nvmrc`, `.python-version`, `rust-toolchain.toml`,
+  all exact. CI reads them (`*-version-file`), the gate provisions them from the MERGED tree
+  (`node_toolchain.sh`, `rust_toolchain.sh`), `toolchain_check.sh` holds Dockerfiles, workflows
+  and manifests to them. Never pin a toolchain version anywhere else.
 - Fail loudly on a missing tool (`flock`, `gh`) with the install hint; never degrade silently.
 
 ## Workflow

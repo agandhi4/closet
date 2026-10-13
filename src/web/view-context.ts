@@ -1,5 +1,4 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { BUILD_INFO } from '../build-info';
 import type { AuthContext, SessionUser } from './auth/session';
 import { requestOrigin } from './security/origin';
 
@@ -30,12 +29,13 @@ export interface ViewContext {
    * the Wardrobe's ⋯ menu links "From your orders".
    */
   orderReview: boolean;
-  /** The build's full git sha (the error tracker's release), when known. */
-  buildSha: string | undefined;
+  /**
+   * The build's release (src/build-info.ts): shown on /about, and the error
+   * beacon's claimed release (the server's own wins on the event).
+   */
+  release: string;
   /** `?v=` on every first-party static URL; see src/build-info.ts. */
   appVersion: string;
-  /** package.json version, shown on /about. */
-  appRelease: string;
   canonicalUrl: string;
   /** The page's link preview URL and image unless the page names its own (Layout). */
   ogUrl: string;
@@ -69,6 +69,9 @@ export interface ViewContextConfig {
   errorTrackingEnabled: boolean;
   /** ORDER_MAIL_OWNER, normalized, when the order mail is on. */
   orderMailOwner: string | undefined;
+  /** BuildInfo.release and BuildInfo.assetVersion. */
+  release: string;
+  assetVersion: string;
 }
 
 /**
@@ -99,9 +102,8 @@ export function createViewContextBuilder(config: ViewContextConfig) {
       orderReview:
         config.orderMailOwner !== undefined &&
         auth?.user.email?.toLowerCase() === config.orderMailOwner,
-      buildSha: BUILD_INFO.sha,
-      appVersion: BUILD_INFO.assetVersion,
-      appRelease: BUILD_INFO.version,
+      release: config.release,
+      appVersion: config.assetVersion,
       canonicalUrl,
       ogUrl: canonicalUrl,
       ogImage: `${origin}/assets/${config.iconName}`,

@@ -198,11 +198,11 @@ npm run precommit:full        # check + verify:push + page audit + lighthouse (m
 # needed). The next boot applies it. See Changing the schema.
 npx drizzle-kit generate --name <what-changed>
 
-docker build -f docker/Dockerfile -t closet .
+docker build --build-arg APP_VERSION=dev -t closet .   # or: make ci-image ci-smoke CI_BUILD_VERSION=<v>
 
 # The gate's jobs (Makefile, thin callers of the npm scripts; ci.yml calls the same targets).
 # Each brings its own throwaway Postgres 18 container, so none needs pgvault-dev.
-make ci-deps ci-quick         # npm ci; devkit-check, toolchain-check, check:static
+make ci-deps ci-quick         # npm ci; devkit-check, toolchain-check, release-check, workflows-check, check:static
 make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + chromium (PWA on, random PORT)
 make gate PR=<n>              # the PR gate (devkit/bin/local_gate.sh, scripts/ci/gate_plan.sh); GATE_ARGS=--no-post
 ```
@@ -221,6 +221,8 @@ Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, ne
 ## Deployment
 
 Production runs on linux-box (the homelab) and merging to `main` deploys it: CI publishes the image and the hourly autoupdater pulls it. The pieces, the production env, the demo login, locked-out recovery, rotating the secret, deploying by hand and what CI publishes: `docs/deployment.md`.
+
+- **Release identity: one version string, `sha-<7>`** (owner rule 2026-10-13, `docs/decisions.md`). `ci.yml`'s publish job passes it once as the `APP_VERSION` build arg; the image carries it as env, OCI version label and its `sha-<7>` tag, and `/healthz` serves it as `version` (also /about, the MCP version, the error tracker's release). Compose and `.env` never set `APP_VERSION` (`make release-check`). **Only that publish job moves `latest`** (pushing it is the deploy), then tags the commit `ship-<YYYY-MM-DD>-<sha7>` (`devkit/bin/ship_tag.sh`). No semver tags, no date tags.
 
 ## Gotchas
 

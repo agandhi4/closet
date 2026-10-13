@@ -16,7 +16,10 @@ cd "$ROOT"
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "devkit-sync: commit or stash first; subtree pull needs a clean tree" >&2; exit 2
 fi
-git subtree pull --prefix=devkit "$DEVKIT_URL" "$REF" --squash -m "Update devkit subtree to $REF"
+# -X theirs: local edits to devkit/ are forbidden (devkit-check), so upstream is always right;
+# without it a squash pull reported conflicts on files that matched upstream byte for byte
+# (Orbit #48, four files) and needed a hand-resolve.
+git subtree pull --prefix=devkit "$DEVKIT_URL" "$REF" --squash -X theirs -m "Update devkit subtree to $REF"
 # The vendored commit is the `git-subtree-split` trailer of the newest squash commit for this
 # prefix, which is what the pull actually merged. A second ls-remote here recorded a commit the
 # tree did not contain when upstream moved mid-run (finplat #609).

@@ -285,7 +285,7 @@ async function main(): Promise<void> {
   const report: AuditReport = {
     version: REPORT_VERSION,
     createdAt: new Date().toISOString(),
-    commit: fixture.build.buildInfo.BUILD_INFO.commit ?? 'unknown',
+    commit: fixture.build.buildInfo.loadBuildInfo(undefined).release,
     machine: {
       cpus: cpu.length,
       model: cpu[0]?.model.trim() ?? 'unknown',

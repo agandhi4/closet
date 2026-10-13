@@ -10,6 +10,8 @@
 #   docker logs             two fake log lines; network create/rm and rm -fv succeed
 #   curl                    prints the next code from FAKE_CURL_CODES (space-separated, the
 #                           last repeats; default 200), counted in $CURL_COUNT; logs "curl <url>"
+#                           Without -w (the BOOT_EXPECT_VERSION body fetch) it prints
+#                           $FAKE_HEALTH_BODY, logs "curl-body <url>" and is not counted.
 # Postgres tests copy the script into $TMP/kit next to a FAKE throwaway_pg.sh, which logs
 # "throwaway_pg <argv> PG_NETWORK=<value>" to the same log and fails when FAKE_PG_FAIL=1.
 
@@ -25,6 +27,7 @@ setup() {
   export PATH=$BIN:$PATH
   unset BOOT_HOST_PORT BOOT_HEALTH_STATUS BOOT_TIMEOUT BOOT_ENV_FILE BOOT_ENV BOOT_WITH_PG
   unset BOOT_LOG_TAIL BOOT_RUN_ARGS PG_NETWORK FAKE_DOCKER_DEAD FAKE_CURL_CODES FAKE_PG_FAIL
+  unset BOOT_EXPECT_VERSION FAKE_HEALTH_BODY
   export BOOT_IMAGE=app:test BOOT_PORT=8000 BOOT_HEALTH_PATH=/health/ready
   mkdir -p "$BIN"
   write_fakes
@@ -48,6 +51,10 @@ exit 0
 FAKE
   cat >"$BIN/curl" <<'FAKE'
 #!/usr/bin/env bash
+case " $* " in
+  *" -w "*) ;;
+  *) printf 'curl-body %s\n' "${!#}" >>"$DOCKER_LOG"; printf '%s' "${FAKE_HEALTH_BODY:-}"; exit 0 ;;
+esac
 printf 'curl %s\n' "${!#}" >>"$DOCKER_LOG"
 n=$(( $(cat "$CURL_COUNT" 2>/dev/null || echo 0) + 1 ))
 echo "$n" >"$CURL_COUNT"
@@ -74,6 +81,17 @@ FAKE
 }
 
 run_boot() { run --separate-stderr "$SCRIPT" "$@"; }
+
+# PATH holding the fakes plus only the system tools the script needs; json parsers opt in.
+# Proves each json_version branch, since a dev box has jq and python3 both.
+restricted_path() { # [jq] [python3]
+  local sys=$TMP/sys tool
+  mkdir -p "$sys"
+  for tool in bash dirname head sed cat sleep "$@"; do
+    ln -sf "$(command -v "$tool")" "$sys/$tool"
+  done
+  echo "$BIN:$sys"
+}
 
 run_line() { grep -m 1 '^run ' "$DOCKER_LOG"; }
 # call_index <prefix>: 1-based line number of the first logged call starting with <prefix>.
@@ -218,6 +236,54 @@ torn_down() {
   logged "logs --tail 80 n-app"
   not_logged "logs --tail 80 n-pg"
   torn_down
+}
+
+@test "BOOT_EXPECT_VERSION: matching health version passes after the health poll" {
+  BOOT_EXPECT_VERSION=ci-abc1234 FAKE_HEALTH_BODY='{"status":"ok","version":"ci-abc1234"}' run_boot up n
+  [ "$status" -eq 0 ]
+  [ "$output" = "BASE=http://127.0.0.1:48001" ]
+  [[ "$stderr" == *"n-app reports version ci-abc1234"* ]]
+  logged "curl-body http://127.0.0.1:48001/health/ready"
+  [ "$(last_index 'curl ')" -lt "$(call_index 'curl-body ')" ]
+}
+
+@test "BOOT_EXPECT_VERSION: mismatch fails the boot, dumps logs and tears down" {
+  BOOT_EXPECT_VERSION=ci-abc1234 FAKE_HEALTH_BODY='{"version":"dev"}' run_boot up n
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"/health/ready reports version 'dev', expected 'ci-abc1234'"* ]]
+  [[ "$stderr" == *"app log line one"* ]]
+  torn_down
+}
+
+@test "BOOT_EXPECT_VERSION: no version key, or a body that is not JSON, fails" {
+  BOOT_EXPECT_VERSION=ci-abc1234 FAKE_HEALTH_BODY='{"status":"ok"}' run_boot up n
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"reports version '<none>'"* ]]
+  BOOT_EXPECT_VERSION=ci-abc1234 FAKE_HEALTH_BODY='ok' run_boot up n
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"reports version '<none>'"* ]]
+}
+
+@test "BOOT_EXPECT_VERSION unset: no body fetch" {
+  FAKE_HEALTH_BODY='{"version":"dev"}' run_boot up n
+  [ "$status" -eq 0 ]
+  not_logged "curl-body"
+}
+
+@test "BOOT_EXPECT_VERSION: each parser (jq, python3, sed fallback) reads the version" {
+  local body='{"status": "ok", "nested": {"x": 1}, "version": "ci-abc1234"}' tools path
+  export BOOT_EXPECT_VERSION=ci-abc1234
+  for tools in "jq" "python3" ""; do
+    rm -rf "$TMP/sys"
+    # shellcheck disable=SC2086  # tools is a word list
+    path=$(restricted_path $tools)
+    # Only the script sees the narrow PATH; bats itself needs the full one.
+    FAKE_HEALTH_BODY=$body run --separate-stderr env PATH="$path" "$SCRIPT" up n
+    [ "$status" -eq 0 ]
+    FAKE_HEALTH_BODY='{"version":"dev"}' run --separate-stderr env PATH="$path" "$SCRIPT" up n
+    [ "$status" -eq 1 ]
+  done
 }
 
 @test "down with nothing running exits 0 silently" {

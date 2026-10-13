@@ -26,7 +26,11 @@ const ClientErrorBody = Type.Object({
   message: Type.String({ minLength: 1, maxLength: MAX_MESSAGE }),
   stack: Type.Optional(Type.String({ maxLength: MAX_STACK })),
   route: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
-  release: Type.Optional(Type.String({ pattern: '^[0-9a-f]{7,40}$' })),
+  // A release as src/build-info.ts names one (`sha-<7>`, `gate-<n>`, `dev`):
+  // a tag on the event, so only its shape is checked.
+  release: Type.Optional(
+    Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' }),
+  ),
 });
 
 export const clientErrorRoutes: FastifyPluginCallbackTypebox<WebOptions> = (

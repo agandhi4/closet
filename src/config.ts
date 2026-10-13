@@ -33,6 +33,11 @@ export const ConfigSchema = Type.Object({
     { default: 'production' },
   ),
   PORT: Type.Integer({ minimum: 0, maximum: 65535, default: 3000 }),
+  // The release identity, baked into the image by its build (Dockerfile ARG -> ENV: `sha-<7>`
+  // from ci.yml's publish job). Never set by compose or .env: a runtime value on `:latest`
+  // cannot know the build. Unset outside an image; src/build-info.ts falls back to the commit
+  // public/build.json records, else `dev`.
+  APP_VERSION: Type.Optional(NonEmpty()),
   // pino level for both the console and app.log.
   LOG_LEVEL: Type.Union(
     [

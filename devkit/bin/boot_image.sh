@@ -26,6 +26,8 @@
 #                       env puts host <name>-pg, port 5432 in its DSN.
 #   BOOT_LOG_TAIL=80    log lines dumped per container on failure
 #   BOOT_RUN_ARGS       extra `docker run` args before the image, word-split on purpose
+#   BOOT_EXPECT_VERSION when set, after health passes, BOOT_HEALTH_PATH must return JSON whose
+#                       `version` equals it (the image's APP_VERSION); a mismatch fails the boot
 #
 # Why it is shaped this way (lessons from the four originals):
 # - A private network per <name>, with the database reached by container name: a
@@ -48,6 +50,9 @@
 #   posture (production settings validator on). A NEW REQUIRED SETTING MUST BE ADDED THERE
 #   TOO, or every smoke boot (and so every publish gated on it) fails (locus).
 # - Ports bind to 127.0.0.1 only: a smoke app with a throwaway secret is never LAN-reachable.
+# - BOOT_EXPECT_VERSION proves the build arg reached the running app (ARG -> ENV -> health
+#   `version`), the release-identity contract that release_check.sh checks statically. It is
+#   read with jq, else python3, else sed: the gate box, Actions and slim images differ in tools.
 # - Not `set -e`: the poll loop expects failing probes and handles every failure explicitly.
 set -uo pipefail
 
@@ -90,6 +95,23 @@ abort() {
   exit 1
 }
 
+# stdin: a JSON body; prints its top-level string `version`, or nothing.
+json_version() {
+  if command -v jq >/dev/null; then
+    jq -r 'if type == "object" and (.version | type) == "string" then .version else empty end' 2>/dev/null
+  elif command -v python3 >/dev/null; then
+    python3 -c 'import json, sys
+try:
+    v = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+if isinstance(v, dict) and isinstance(v.get("version"), str):
+    print(v["version"])' 2>/dev/null
+  else
+    sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+  fi
+}
+
 is_running() { [ "$(docker inspect -f '{{.State.Running}}' "$APP" 2>/dev/null)" = true ]; }
 
 health_ok() {
@@ -112,6 +134,7 @@ up() {
   BOOT_WITH_PG=${BOOT_WITH_PG:-0}
   BOOT_LOG_TAIL=${BOOT_LOG_TAIL:-80}
   BOOT_RUN_ARGS=${BOOT_RUN_ARGS:-}
+  BOOT_EXPECT_VERSION=${BOOT_EXPECT_VERSION:-}
 
   case "$BOOT_PORT" in *[!0-9]*) bad_env "BOOT_PORT must be a port number (got '$BOOT_PORT')" ;; esac
   case "$BOOT_HOST_PORT" in *[!0-9]*) bad_env "BOOT_HOST_PORT must be a port number (got '$BOOT_HOST_PORT')" ;; esac
@@ -166,6 +189,15 @@ up() {
       || abort "$BOOT_HEALTH_PATH did not answer ${BOOT_HEALTH_STATUS:-2xx} within ${BOOT_TIMEOUT}s (last: $code)"
     sleep 1
   done
+
+  if [ -n "$BOOT_EXPECT_VERSION" ]; then
+    local body version
+    body=$(curl -s --max-time 5 "$base$BOOT_HEALTH_PATH" 2>/dev/null)
+    version=$(printf '%s' "$body" | json_version)
+    [ "$version" = "$BOOT_EXPECT_VERSION" ] \
+      || abort "$BOOT_HEALTH_PATH reports version '${version:-<none>}', expected '$BOOT_EXPECT_VERSION' (body: ${body:0:200})"
+    echo "boot_image: $APP reports version $version" >&2
+  fi
 
   trap - INT TERM
   echo "boot_image: $APP healthy ($BOOT_HEALTH_PATH $code) after $((SECONDS - start))s" >&2

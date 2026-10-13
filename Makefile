@@ -1,4 +1,4 @@
-.PHONY: help ci-deps ci-quick ci-unit ci-db ci-e2e ci-image gate devkit-sync devkit-check toolchain-check
+.PHONY: help ci-deps ci-quick ci-unit ci-db ci-e2e ci-image ci-smoke gate devkit-sync devkit-check toolchain-check release-check workflows-check
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
@@ -12,24 +12,30 @@ PG_CONTAINER ?= closet-ci-pg
 # --with-deps on Linux runners (system libraries); ignored on macOS.
 PLAYWRIGHT_FLAGS ?=
 CI_IMAGE ?= closet:ci
-GIT_SHA ?= $(shell git rev-parse HEAD 2>/dev/null)
+# The image's APP_VERSION (Dockerfile ARG): the gate passes gate-<pr>, ci.yml's publish job
+# builds with sha-<7> itself. ci-smoke asserts /healthz reports it.
+CI_BUILD_VERSION ?= dev
+SMOKE_PG_CONTAINER ?= closet-smoke-pg
 
 help:
 	@echo "make ci-deps          — npm ci (patches applied by postinstall)"
-	@echo "make ci-quick         — devkit-check, toolchain-check, then check:static (docs, format, lint, types)"
+	@echo "make ci-quick         — devkit-check, toolchain-check, release-check, workflows-check, then check:static"
 	@echo "make ci-unit          — the Vitest unit projects; no database"
 	@echo "make ci-db            — every Vitest project with the coverage ratchet, on a throwaway Postgres 18"
 	@echo "make ci-e2e           — build, then Playwright chromium against a throwaway Postgres 18 (PWA on, PORT random)"
-	@echo "make ci-image         — docker build of the production image (CI_IMAGE=$(CI_IMAGE))"
+	@echo "make ci-image         — docker build of the production image (CI_IMAGE=$(CI_IMAGE), CI_BUILD_VERSION=$(CI_BUILD_VERSION))"
+	@echo "make ci-smoke         — boot CI_IMAGE on a throwaway Postgres 18 (scripts/smoke-image.sh); /healthz must report CI_BUILD_VERSION"
 	@echo "make gate PR=<n>      — the PR gate: these jobs on PR <n> merged into origin/main [GATE_ARGS=--no-post]"
 	@echo "make devkit-sync      — pull the latest agandhi4/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
 	@echo "make toolchain-check  — fail if a Dockerfile or workflow disagrees with the Node in .nvmrc (part of ci-quick)"
+	@echo "make release-check    — fail unless the image is APP_VERSION's only source (part of ci-quick)"
+	@echo "make workflows-check  — fail unless the workflows follow devkit's Actions rules (part of ci-quick)"
 
 ci-deps:
 	npm ci --no-audit --no-fund
 
-ci-quick: devkit-check toolchain-check
+ci-quick: devkit-check toolchain-check release-check workflows-check
 	npm run check:static
 
 ci-unit:
@@ -72,7 +78,18 @@ ci-e2e:
 # The image's own boot (health, migrations, SIGTERM) is scripts/smoke-image.sh, run by ci.yml's
 # publish job on the exact bytes it pushes; this target proves the Dockerfile still builds.
 ci-image:
-	docker build -f docker/Dockerfile --build-arg GIT_SHA=$(GIT_SHA) -t $(CI_IMAGE) .
+	docker build --build-arg APP_VERSION=$(CI_BUILD_VERSION) -t $(CI_IMAGE) .
+
+# The publish job's smoke test, locally: CI_IMAGE (build it with ci-image first) on the host
+# network against a throwaway Postgres 18 published on loopback, and /healthz must name
+# CI_BUILD_VERSION. A random SMOKE_PORT keeps parallel runs off each other.
+ci-smoke:
+	@port=$$($(PG) up $(SMOKE_PG_CONTAINER) | sed -n 's/^PG_PORT=//p'); \
+	  trap '$(PG) down $(SMOKE_PG_CONTAINER)' EXIT INT TERM; \
+	  [ -n "$$port" ] || exit 1; \
+	  DATABASE_HOST=127.0.0.1 DATABASE_PORT=$$port DATABASE_USER=ci DATABASE_PASS=ci DATABASE_SCHEMA=ci \
+	    SMOKE_PORT=$${SMOKE_PORT:-$$(awk 'BEGIN { srand(); print 3800 + int(rand() * 600) }')} \
+	    BOOT_EXPECT_VERSION=$(CI_BUILD_VERSION) scripts/smoke-image.sh $(CI_IMAGE)
 
 gate:
 	@test -n "$(PR)" || { echo "usage: make gate PR=<number> [GATE_ARGS=--no-post]" >&2; exit 2; }
@@ -86,3 +103,9 @@ devkit-check:
 
 toolchain-check:
 	devkit/bin/toolchain_check.sh
+
+release-check:
+	devkit/bin/release_check.sh
+
+workflows-check:
+	devkit/bin/workflows_check.sh

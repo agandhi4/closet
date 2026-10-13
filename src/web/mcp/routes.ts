@@ -5,7 +5,6 @@ import type {
   FastifyReply,
   FastifyRequest,
 } from 'fastify';
-import { BUILD_INFO } from '../../build-info';
 import { authenticateToken } from '../auth/personal-tokens';
 import { MAX_OPTIONS_PER_GROUP } from '../../wardrobe/suggestions';
 import { MCP_PATH } from '../page-cache';
@@ -119,7 +118,7 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
         },
       };
       const server = new McpServer(
-        { name: config.appName, version: BUILD_INFO.version },
+        { name: config.appName, version: config.release },
         { instructions: INSTRUCTIONS },
       );
       registerTools(server, tools, context, {

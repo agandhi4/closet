@@ -40,4 +40,4 @@ echo Closet-demo-1 | npm run seed -- --persona all --password-stdin [--reset | -
 
 ## Gotchas
 
-- **The persona bibles are data, and the image carries them.** `src/seed/personas/*.md` are read at seed time (tsc does not copy Markdown), so `docker/Dockerfile` copies them into the runtime image; a renamed column, a short row or a value the garment form would drop fails the seed (and `persona.spec.ts`) with the bible and row named. Edit a table, not the code, to change what a persona owns or wears.
+- **The persona bibles are data, and the image carries them.** `src/seed/personas/*.md` are read at seed time (tsc does not copy Markdown), so the `Dockerfile` copies them into the runtime image; a renamed column, a short row or a value the garment form would drop fails the seed (and `persona.spec.ts`) with the bible and row named. Edit a table, not the code, to change what a persona owns or wears.

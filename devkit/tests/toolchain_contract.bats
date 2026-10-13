@@ -1,14 +1,16 @@
 #!/usr/bin/env bats
 # shellcheck shell=bash
 # shellcheck disable=SC2030,SC2031  # each @test is its own subshell by design; nothing leaks between tests
-# Contract tests for bin/node_toolchain.sh and bin/toolchain_check.sh. No network: every test
+# Contract tests for bin/node_toolchain.sh, bin/rust_toolchain.sh and bin/toolchain_check.sh. No network: every test
 # sets DEVKIT_OFFLINE=1, and "installed" Nodes are executable stubs under $XDG_DATA_HOME that
 # only answer --version. A fake PATH node (fake_path_node) stands in for the machine's node.
 
 NODE_TOOLCHAIN="$BATS_TEST_DIRNAME/../bin/node_toolchain.sh"
 TOOLCHAIN_CHECK="$BATS_TEST_DIRNAME/../bin/toolchain_check.sh"
+RUST_TOOLCHAIN="$BATS_TEST_DIRNAME/../bin/rust_toolchain.sh"
 WANTED=22.23.3
 PY_WANTED=3.13
+RUST_WANTED=1.83.0
 
 setup() {
   TMP=$(mktemp -d "${BATS_TEST_TMPDIR:-${TMPDIR:-/tmp}}/toolchain.XXXXXX")
@@ -148,7 +150,7 @@ last_line() { echo "${lines[${#lines[@]}-1]}"; }
   rm "$REPO/.nvmrc"
   run_check
   [ "$status" -eq 0 ]
-  [ "$output" = "toolchain-check: no .nvmrc or .python-version; nothing to check" ]
+  [ "$output" = "toolchain-check: no .nvmrc, .python-version or rust-toolchain.toml; nothing to check" ]
 }
 
 @test "toolchain_check: consistent Node-only repo passes and skips python" {
@@ -210,7 +212,7 @@ EOF
   make_py_repo
   run_check
   [ "$status" -eq 0 ]
-  [ "$output" = "toolchain-check: ok (node $WANTED, python $PY_WANTED)" ]
+  [ "$(last_line)" = "toolchain-check: ok (node $WANTED, python $PY_WANTED)" ]
 }
 
 @test "toolchain_check: MAJOR.MINOR.PATCH in .python-version is accepted" {
@@ -218,7 +220,7 @@ EOF
   echo 3.13.7 >"$REPO/.python-version"
   run_check
   [ "$status" -eq 0 ]
-  [ "$output" = "toolchain-check: ok (node $WANTED, python 3.13.7)" ]
+  [ "$(last_line)" = "toolchain-check: ok (node $WANTED, python 3.13.7)" ]
 }
 
 @test "toolchain_check: .python-version holding only a major fails" {
@@ -268,7 +270,7 @@ EOF
   write_pyproject '>=3.13, <3.14'
   run_check
   [ "$status" -eq 0 ]
-  [ "$output" = "toolchain-check: ok (node $WANTED, python $PY_WANTED)" ]
+  [ "$(last_line)" = "toolchain-check: ok (node $WANTED, python $PY_WANTED)" ]
 }
 
 @test "toolchain_check: requires-python ==3.13.* and ~=3.13 pass" {
@@ -277,7 +279,7 @@ EOF
   printf '[project]\nrequires-python = "~=3.13"\n' >"$REPO/pyproject.toml"
   run_check
   [ "$status" -eq 0 ]
-  [ "$output" = "toolchain-check: ok (node $WANTED, python $PY_WANTED)" ]
+  [ "$(last_line)" = "toolchain-check: ok (node $WANTED, python $PY_WANTED)" ]
 }
 
 @test "toolchain_check: requires-python form the parser does not understand warns and passes" {
@@ -305,4 +307,239 @@ EOF
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "toolchain-check: no .nvmrc; node not checked" ]
   [ "$(last_line)" = "toolchain-check: ok (python $PY_WANTED)" ]
+}
+
+# ---- rust_toolchain.sh -----------------------------------------------------------------------
+# PATH is rebuilt from scratch (fakes + symlinks to the coreutils the script needs) so a real
+# rustup or cargo on the machine running the tests can never answer for a fake. The fake rustup
+# keeps its installed toolchains/components in $RUSTUP_STATE and logs every call to $RUSTUP_LOG.
+
+rust_sandbox() {
+  local tool
+  # Per run, not per test: bats itself runs rm with the test's PATH after teardown removes $TMP.
+  SANDBOX=${BATS_RUN_TMPDIR:-$TMP}/rust-sandbox
+  mkdir -p "$SANDBOX"
+  for tool in bash env awk grep sed tr head tail cut cat mkdir mktemp rm chmod dirname uname; do
+    ln -sf "$(command -v "$tool")" "$SANDBOX/$tool"
+  done
+  rm -f "$BIN/node"
+  export PATH=$BIN:$SANDBOX
+  export RUSTUP_STATE=$TMP/rustup-state RUSTUP_LOG=$TMP/rustup.log
+  mkdir -p "$RUSTUP_STATE"
+  : >"$RUSTUP_STATE/toolchains"; : >"$RUSTUP_STATE/components"
+  RUST_STORE=$XDG_DATA_HOME/devkit/rust
+}
+write_cargo_stub() { # <path> <version>
+  mkdir -p "$(dirname "$1")"
+  printf '#!/bin/sh\necho "cargo %s (0000000 2024-11-28)"\n' "$2" >"$1"
+  chmod +x "$1"
+}
+write_rustup_stub() { # <path>
+  mkdir -p "$(dirname "$1")"
+  cat >"$1" <<'EOF'
+#!/usr/bin/env bash
+echo "rustup $* RUSTUP_HOME=${RUSTUP_HOME:-}" >>"$RUSTUP_LOG"
+case "$1 $2" in
+  "toolchain list") cat "$RUSTUP_STATE/toolchains" ;;
+  "component list") cat "$RUSTUP_STATE/components" ;;
+  "toolchain install")
+    echo "$3-x86_64-unknown-linux-gnu" >>"$RUSTUP_STATE/toolchains"
+    shift 3
+    while [ $# -gt 0 ]; do [ "$1" = --component ] && echo "$2-x86_64-unknown-linux-gnu" >>"$RUSTUP_STATE/components"; shift; done
+    sysroot=$RUSTUP_STATE/toolchains-dir/$(tail -n1 "$RUSTUP_STATE/toolchains")
+    mkdir -p "$sysroot/bin"
+    printf '#!/bin/sh\necho "cargo %s (0000000 2024-11-28)"\n' "${sysroot##*/}" | sed 's/-x86_64-unknown-linux-gnu//' >"$sysroot/bin/cargo"
+    chmod +x "$sysroot/bin/cargo" ;;
+  "run "*) echo "$RUSTUP_STATE/toolchains-dir/$2-x86_64-unknown-linux-gnu" ;;
+esac
+EOF
+  chmod +x "$1"
+}
+write_rust_toml() { # <channel> [components line]
+  printf '[toolchain]\nchannel = "%s"\n%s\n' "$1" "${2:-}" >"$REPO/rust-toolchain.toml"
+}
+run_rust() { run "$RUST_TOOLCHAIN" "$@"; }
+SYSROOT_BIN() { echo "$RUSTUP_STATE/toolchains-dir/$RUST_WANTED-x86_64-unknown-linux-gnu/bin"; }
+
+@test "rust_toolchain: no args is usage, exit 2" {
+  run_rust
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"usage:"* ]]
+}
+
+@test "rust_toolchain: PATH cargo already matches, exit 0 with no output" {
+  rust_sandbox
+  write_rust_toml "$RUST_WANTED"
+  write_cargo_stub "$BIN/cargo" "$RUST_WANTED"
+  run_rust "$REPO"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "rust_toolchain: rustup on PATH installs the declared version and prints its sysroot bin" {
+  rust_sandbox
+  write_rust_toml "$RUST_WANTED" 'components = ["rustfmt", "clippy"]'
+  write_cargo_stub "$BIN/cargo" 1.80.0
+  write_rustup_stub "$BIN/rustup"
+  DEVKIT_OFFLINE=0 run "$RUST_TOOLCHAIN" "$REPO"
+  [ "$status" -eq 0 ]
+  [ "$(last_line)" = "$(SYSROOT_BIN)" ]
+  grep -q "^rustup toolchain install $RUST_WANTED --profile minimal --no-self-update --component rustfmt --component clippy " "$RUSTUP_LOG"
+}
+
+@test "rust_toolchain: installed toolchain with its components needs no install, even offline" {
+  rust_sandbox
+  write_rust_toml "$RUST_WANTED" 'components = ["clippy"]'
+  write_rustup_stub "$BIN/rustup"
+  DEVKIT_OFFLINE=0 "$BIN/rustup" toolchain install "$RUST_WANTED" --component clippy
+  : >"$RUSTUP_LOG"
+  run_rust "$REPO"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(SYSROOT_BIN)" ]
+  run grep -c "toolchain install" "$RUSTUP_LOG"
+  [ "$output" = 0 ]
+}
+
+@test "rust_toolchain: rustup on PATH, toolchain missing, offline fails naming the file" {
+  rust_sandbox
+  write_rust_toml "$RUST_WANTED"
+  write_rustup_stub "$BIN/rustup"
+  run_rust "$REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"rust $RUST_WANTED from rust-toolchain.toml is not installed"* ]]
+  [[ "$output" == *"DEVKIT_OFFLINE=1"* ]]
+}
+
+@test "rust_toolchain: no rustup anywhere and offline fails loudly, exit 1" {
+  rust_sandbox
+  write_rust_toml "$RUST_WANTED"
+  run_rust "$REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"rust-toolchain.toml"* ]]
+  [[ "$output" == *"no rustup on PATH"* ]]
+  [[ "$output" == *"DEVKIT_OFFLINE=1"* ]]
+  [ ! -e "$RUST_STORE" ]
+}
+
+@test "rust_toolchain: without PATH rustup the cached private rustup is used with its own homes" {
+  rust_sandbox
+  write_rust_toml "$RUST_WANTED"
+  write_rustup_stub "$RUST_STORE/cargo/bin/rustup"
+  DEVKIT_OFFLINE=0 run "$RUST_TOOLCHAIN" "$REPO"
+  [ "$status" -eq 0 ]
+  [ "$(last_line)" = "$(SYSROOT_BIN)" ]
+  grep -q "^rustup toolchain install $RUST_WANTED .*RUSTUP_HOME=$RUST_STORE/rustup$" "$RUSTUP_LOG"
+}
+
+@test "rust_toolchain: stable, nightly and MAJOR.MINOR channels are rejected, exit 1" {
+  local ch
+  for ch in stable nightly 1.83; do
+    write_rust_toml "$ch"
+    run_rust "$REPO"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"must pin an exact channel"*"got '$ch'"* ]]
+  done
+}
+
+@test "rust_toolchain: plain rust-toolchain file with a bare version is accepted" {
+  rust_sandbox
+  printf '%s\n' "$RUST_WANTED" >"$REPO/rust-toolchain"
+  write_cargo_stub "$BIN/cargo" "$RUST_WANTED"
+  run_rust "$REPO"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run_rust --declared "$REPO"
+  [ "$output" = "$RUST_WANTED" ]
+}
+
+@test "rust_toolchain: no declaration, exit 1" {
+  run_rust "$REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no rust-toolchain.toml or rust-toolchain"* ]]
+}
+
+# ---- toolchain_check.sh: rust ----------------------------------------------------------------
+
+make_rust_repo() {
+  git init -q "$REPO"
+  write_rust_toml "$RUST_WANTED"
+  printf '[package]\nname = "app"\nrust-version = "1.81"\n' >"$REPO/Cargo.toml"
+  printf 'FROM rust:1.83-slim AS build\nFROM docker.io/library/rust:1.83.0-alpine@sha256:abc\nFROM messense/rust-musl-cross:x86_64-musl\n' >"$REPO/Dockerfile"
+  mkdir -p "$REPO/.github/workflows"
+  write_rust_workflow "cache: true"
+}
+write_rust_workflow() { # <with-line for the setup-rust-toolchain step>
+  cat >"$REPO/.github/workflows/rs.yml" <<EOF
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
+        with:
+          $1
+      - run: cargo test --locked
+EOF
+}
+
+@test "toolchain_check: consistent rust-only repo passes and names rust" {
+  make_rust_repo
+  run_check
+  [ "$status" -eq 0 ]
+  [ "$(last_line)" = "toolchain-check: ok (rust $RUST_WANTED)" ]
+}
+
+@test "toolchain_check: FROM rust on another minor or untagged fails and names the tag" {
+  make_rust_repo
+  printf 'FROM rust:1.84-slim\nFROM rust AS floating\n' >"$REPO/Dockerfile"
+  run_check
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Dockerfile uses rust:1.84-slim; rust-toolchain.toml says $RUST_WANTED (rust 1.83)"* ]]
+  [[ "$output" == *"Dockerfile uses rust; rust-toolchain.toml"* ]]
+}
+
+@test "toolchain_check: Cargo.toml rust-version above the channel fails" {
+  make_rust_repo
+  printf '[package]\nname = "app"\nrust-version = "1.84"\n' >"$REPO/Cargo.toml"
+  run_check
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Cargo.toml rust-version 1.84 is above the pinned toolchain $RUST_WANTED"* ]]
+}
+
+@test "toolchain_check: rust-version equal to the channel passes" {
+  make_rust_repo
+  printf '[package]\nrust-version = "1.83.0"\n' >"$REPO/Cargo.toml"
+  run_check
+  [ "$status" -eq 0 ]
+}
+
+@test "toolchain_check: setup-rust-toolchain with inline toolchain fails with file:line" {
+  make_rust_repo
+  write_rust_workflow "toolchain: 1.83.0"
+  run_check
+  [ "$status" -eq 1 ]
+  [[ "$output" == *".github/workflows/rs.yml:7: setup-rust-toolchain pins toolchain inline"* ]]
+}
+
+@test "toolchain_check: dtolnay/rust-toolchain fails because it cannot read the file" {
+  make_rust_repo
+  printf '      - uses: dtolnay/rust-toolchain@4f647fc679bcd3b11499ccb42104547c83dabe96\n' >>"$REPO/.github/workflows/rs.yml"
+  run_check
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"rs.yml:9: dtolnay/rust-toolchain cannot read rust-toolchain.toml"* ]]
+}
+
+@test "toolchain_check: inexact rust channel fails with the parser's message" {
+  make_rust_repo
+  write_rust_toml stable
+  run_check
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"rust-toolchain.toml must pin an exact channel"* ]]
+}
+
+@test "toolchain_check: node + python + rust ok line lists all three" {
+  make_py_repo
+  write_rust_toml "$RUST_WANTED"
+  run_check
+  [ "$status" -eq 0 ]
+  [ "$output" = "toolchain-check: ok (node $WANTED, python $PY_WANTED, rust $RUST_WANTED)" ]
 }

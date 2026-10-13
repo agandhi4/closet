@@ -83,8 +83,8 @@ export type SentrySdk = typeof import('@sentry/node');
 export interface ErrorTrackerOptions {
   /** SENTRY_DSN; empty means off. */
   dsn: string;
-  /** The image's full git sha (BUILD_INFO.sha); unknown in development. */
-  release: string | undefined;
+  /** The build's release (BuildInfo.release: `sha-<7>` in the image, `dev` in development). */
+  release: string;
   /** NODE_ENV: production, development or test. */
   environment: string;
   /** Context ErrorTracking: the tracker's own troubles (Bugsink unreachable). */

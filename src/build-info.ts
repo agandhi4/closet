@@ -2,61 +2,61 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { PROJECT_ROOT } from './project-root';
 
+/**
+ * The running build's identity, resolved once by createApp() from
+ * config.APP_VERSION. One version string names a build everywhere (owner
+ * rule 2026-10-13, docs/decisions.md): the image's APP_VERSION, baked in by
+ * its build (`sha-<7>` from ci.yml's publish job, `gate-<n>` from the PR
+ * gate, `dev` when built without the arg).
+ */
 export interface BuildInfo {
-  /** package.json version, shown on /about. */
-  version: string;
-  /** Short commit (7 characters) from public/build.json: the boot log and the cache key. */
-  commit?: string;
   /**
-   * The full commit sha from public/build.json: the error tracker's release
-   * (src/metrics/error-tracker.ts), on the server's events and the pages'
-   * (the layout hands it to public/js/errors.js). In the image it is CI's
-   * GIT_SHA build-arg (docker/Dockerfile).
+   * /healthz's `version`, /about, the MCP server's version, the boot log, and
+   * the error tracker's release on the server's events and the pages' (the
+   * layout hands it to public/js/errors.js). Outside an image: `sha-<7>` of
+   * the commit a local `npm run build` recorded in public/build.json, else
+   * `dev` (start:dev, the tests).
    */
-  sha?: string;
+  release: string;
   /**
    * Cache key appended as `?v=` to every first-party static URL (the
-   * layouts, the importmap, page modules). Static roots in app.ts are served immutable for a
-   * year, so this must differ between any two deploys: version plus commit
-   * (or build time) from public/build.json, which scripts/write-build-info.ts
-   * writes during `npm run build`. Without build.json (start:dev, tests) the
-   * key is unique per boot instead.
+   * layouts, the importmap, page modules). Static roots in app.ts are served
+   * immutable for a year, so this must differ between any two deploys: the
+   * release when it names a build, else the build time public/build.json
+   * records (an image built without APP_VERSION), else unique per boot.
    */
   assetVersion: string;
 }
 
+/** The release of a build nothing names. */
+export const DEV_RELEASE = 'dev';
+
 interface BuildFile {
-  /** The full sha (7 characters in builds before #117). */
+  /** The full sha, when the build had a .git (never inside the image). */
   commit?: string;
   builtAt?: string;
 }
 
-function readJson<T>(file: string): T {
-  return JSON.parse(readFileSync(file, 'utf8')) as T;
-}
-
-export function loadBuildInfo(root = PROJECT_ROOT): BuildInfo {
-  const { version } = readJson<{ version: string }>(join(root, 'package.json'));
+/**
+ * Used by: createApp() (src/app.ts) and the page audit's fixture. Pure apart
+ * from reading public/build.json, which scripts/write-build-info.ts writes
+ * during `npm run build`.
+ */
+export function loadBuildInfo(
+  appVersion: string | undefined,
+  root = PROJECT_ROOT,
+): BuildInfo {
   const buildFile = join(root, 'public', 'build.json');
-  if (!existsSync(buildFile)) {
-    return {
-      version,
-      assetVersion: `${version}-dev.${Date.now().toString(36)}`,
-    };
+  const build: BuildFile = existsSync(buildFile)
+    ? (JSON.parse(readFileSync(buildFile, 'utf8')) as BuildFile)
+    : {};
+  const release =
+    appVersion ??
+    (build.commit ? `sha-${build.commit.slice(0, 7)}` : DEV_RELEASE);
+  let assetVersion = release;
+  if (release === DEV_RELEASE) {
+    const builtAt = build.builtAt ? Date.parse(build.builtAt) : Date.now();
+    assetVersion = `${DEV_RELEASE}.${builtAt.toString(36)}`;
   }
-  const build = readJson<BuildFile>(buildFile);
-  const commit = build.commit?.slice(0, 7);
-  const stamp =
-    commit ??
-    (build.builtAt ? Date.parse(build.builtAt).toString(36) : 'unknown');
-  return {
-    version,
-    commit,
-    sha: build.commit,
-    assetVersion: `${version}+${stamp}`,
-  };
+  return { release, assetVersion };
 }
-
-// Read once at boot; consumed by the page context (src/web/view-context.ts)
-// and the error tracker's release, and logged by createApp().
-export const BUILD_INFO: BuildInfo = loadBuildInfo();

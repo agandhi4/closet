@@ -13,19 +13,16 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
     # Docs-only commits neither need tests nor a redeploy (a new image rolls
-    # every client's static-asset cache key). Tag pushes ignore path filters.
+    # every client's static-asset cache key).
     # No docs check on main: the gate runs docs:check (ci-quick) on every PR, and
     # the merge queue merges only the gated head on the gated main.
     paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
+  # A manual cloud run of the test jobs; on main it also republishes.
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version tag to apply (e.g. 0.2.2). Leave blank when triggered by a tag push."
-        required: false
-        default: ""
 
+# Never cancelled: a run cancelled between the push of `latest` and the ship tag would leave
+# production on an image no tag names (devkit workflows_check.sh rule 4).
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: false
@@ -33,7 +30,8 @@ concurrency:
 permissions:
   contents: read
 
-# Actions are pinned by commit; .github/dependabot.yml proposes updates.
+# Actions are pinned by commit with the exact version beside it; Renovate (renovate.json, devkit's
+# preset) proposes updates.
 jobs:
   # The gate's jobs, one per runner so the tests do not share it with type-aware
   # ESLint and tsc (#113). Postgres comes from devkit/bin/throwaway_pg.sh inside the
@@ -44,8 +42,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -57,8 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -72,22 +70,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
           cache: npm
       # The env (PWA on, VAPID keys, SEED_SCREENSHOTS for the 390 px shots) is the
       # Makefile's, shared with the gate.
       - run: make ci-deps ci-e2e PLAYWRIGHT_FLAGS=--with-deps
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
       - id: screenshots
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: screenshots-390px
@@ -110,11 +108,16 @@ jobs:
     # No `needs`: the tree was gated on its PR by the local gate (the merge queue
     # merges only a head gated on the current main, so the squash commit's tree is the
     # gated tree). What the gate never boots is the image itself: it is booted here
-    # before it is pushed (#181).
+    # before it is pushed (#181). Main only: pushing `latest` is the deploy.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: publish-main
+      cancel-in-progress: false
     permissions:
-      contents: read
+      # The ship tag (devkit/bin/ship_tag.sh creates it through the API).
+      contents: write
       packages: write
     # The smoke test's empty database.
     services:
@@ -132,38 +135,40 @@ jobs:
       GHCR_REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # The one version string (docs/decisions.md 2026-10-13): baked into the image as
+      # APP_VERSION, its OCI version label and its sha-<7> tag, and served as /healthz `version`.
+      - id: version
+        run: echo "app=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
-          # `latest` is what the homelab autoupdater polls: every main push and
-          # every release moves it. sha-<7> is the rollback target.
+          # `latest` is what the homelab autoupdater polls (hourly): this job moving it is
+          # the deploy. sha-<7> is the rollback target and equals APP_VERSION.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || inputs.version != '' }}
-            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
-            type=sha,prefix=sha-
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+          # Its version label would otherwise be `latest`; the Dockerfile's LABEL says the same.
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.app }}
       # Built once, into the runner's Docker with every tag, so the image the smoke
       # test boots is the image pushed: `docker push` sends those exact bytes, where a
       # second buildx run (even all cache hits) would export a new config and digest.
       # cache-to here, so a build the smoke test refuses still warms the next one.
       - id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
-          file: docker/Dockerfile
-          # Names the commit in the static-asset cache key (public/build.json).
+          file: Dockerfile
           build-args: |
-            GIT_SHA=${{ github.sha }}
+            APP_VERSION=${{ steps.version.outputs.app }}
           # amd64 only: the sole deploy target is linux-box, and emulated arm64
           # builds of sharp would turn commit-to-deploy into a 30+ minute wait.
           platforms: linux/amd64
@@ -172,11 +177,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      # Boots it as production does (health, migrations, a page, SIGTERM); a failure
-      # here publishes nothing. docs/deployment.md, CI and publishing.
+      # Boots it as production does (health and its version, migrations, a page, SIGTERM);
+      # a failure here publishes nothing. docs/deployment.md, CI and publishing.
       - name: Smoke-test the image
         env:
           IMAGE_ID: ${{ steps.build.outputs.imageid }}
+          BOOT_EXPECT_VERSION: ${{ steps.version.outputs.app }}
           DATABASE_HOST: localhost
           DATABASE_USER: test
           DATABASE_PASS: Password123
@@ -184,3 +190,9 @@ jobs:
         run: scripts/smoke-image.sh "$IMAGE_ID"
       - name: Push
         run: docker push --all-tags "$GHCR_REGISTRY/$IMAGE_NAME"
+      # `latest` moved, so this commit shipped: annotated tag ship-<YYYY-MM-DD>-<sha7>
+      # (idempotent; refuses a sha not on main). The autoupdater pulls within the hour.
+      - name: Ship tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: devkit/bin/ship_tag.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA"

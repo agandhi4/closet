@@ -66,7 +66,7 @@ export async function findStaleVariants(
   return { stale, current };
 }
 
-// Every static URL is versioned (`?v=` from BUILD_INFO.assetVersion in
+// Every static URL is versioned (`?v=` from BuildInfo.assetVersion in
 // the layout and the importmap; `?v=<photo version>` on /file/**), so a deploy
 // changes URLs, never the bytes behind one: a year, immutable. The two files
 // whose URL cannot change keep revalidating: sw.js below (the browser must

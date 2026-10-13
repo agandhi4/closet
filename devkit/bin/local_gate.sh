@@ -9,7 +9,7 @@
 #   --no-post  run everything, post no commit status
 #
 # What is shared vs per-repo:
-#   This file owns the mechanics: Node from .nvmrc (node_toolchain.sh), lock, fetch (with the missing-pull-ref fallback), worktree,
+#   This file owns the mechanics: Node from .nvmrc (node_toolchain.sh), Rust from rust-toolchain.toml (rust_toolchain.sh), lock, fetch (with the missing-pull-ref fallback), worktree,
 #   merge, job runner with per-job logs, status posting with retries, cleanup, verdict.
 #   The repo owns WHICH jobs run for WHICH changed paths, in scripts/ci/gate_plan.sh,
 #   sourced from the invoking checkout. Plan contract:
@@ -98,18 +98,6 @@ fi
 # would otherwise leak its command-line variables into every nested make via MAKEFLAGS.
 unset MAKEFLAGS MFLAGS MAKELEVEL
 
-# The repo's declared Node (.nvmrc), not whatever this machine has on PATH: the Mac's Node 25
-# failed every vitest suite CI passed on 22. node_toolchain.sh caches a checksum-verified
-# install; an environment it cannot provide is exit 2, never a silent fallback.
-if [ -f "$ROOT/.nvmrc" ]; then
-  if ! NODE_BIN=$("$(dirname "${BASH_SOURCE[0]}")/node_toolchain.sh" "$ROOT"); then
-    echo "local_gate: cannot provide node $(tr -d '[:space:]' < "$ROOT/.nvmrc") declared in .nvmrc" >&2
-    exit 2
-  fi
-  [ -n "$NODE_BIN" ] && export PATH="$NODE_BIN:$PATH"
-  export COREPACK_ENABLE_DOWNLOAD_PROMPT=0   # a corepack prompt would hang an unattended gate
-fi
-
 exec 9>"$LOCK"
 if ! flock -n 9; then echo "GATE waiting for another repo's gate to finish"; flock 9; fi
 
@@ -193,7 +181,6 @@ fi
 HEAD_SHA=$(git -C "$ROOT" rev-parse "$GATE_REF")
 MAIN_SHA=$(git -C "$ROOT" rev-parse origin/main)
 echo "GATE pr=$PR head=$HEAD_SHA main=$MAIN_SHA"
-[ -f "$ROOT/.nvmrc" ] && note "node $(node --version) from .nvmrc"
 post_status pending "Local gate running on main ${MAIN_SHA:0:7}"
 STATUS_OPEN=1
 
@@ -207,6 +194,34 @@ if ! git -C "$WT" -c user.name=gate -c user.email=gate@local \
   echo "GATE merge FAIL (conflicts with main; log: $LOGDIR/merge.log)"
   verdict FAIL "Conflicts with main ${MAIN_SHA:0:7}"
 fi
+
+# Toolchains come from the MERGED tree, not the invoking checkout: the declaration (.nvmrc,
+# rust-toolchain.toml) describes the code under test, so a PR that bumps it is gated on its own
+# version. (Gate policy, by contrast, is read from $ROOT: see the plan contract.) The Mac's Node
+# 25 failed every vitest suite CI passed on 22; node_toolchain.sh/rust_toolchain.sh cache
+# checksum-verified installs. An environment the gate cannot provide is a FAIL verdict, never a
+# silent fallback (and never a dangling `pending` status).
+TOOLCHAIN_NOTES=""
+if [ -f "$WT/.nvmrc" ]; then
+  if ! NODE_BIN=$("$(dirname "${BASH_SOURCE[0]}")/node_toolchain.sh" "$WT"); then
+    echo "GATE toolchain FAIL (cannot provide node $(tr -d '[:space:]' < "$WT/.nvmrc") declared in .nvmrc)"
+    verdict FAIL "Gate box cannot provide the declared Node"
+  fi
+  [ -n "$NODE_BIN" ] && export PATH="$NODE_BIN:$PATH"
+  export COREPACK_ENABLE_DOWNLOAD_PROMPT=0   # a corepack prompt would hang an unattended gate
+  TOOLCHAIN_NOTES="node $(node --version) from .nvmrc"
+fi
+RUST_DECL=""
+for f in rust-toolchain.toml rust-toolchain; do [ -f "$WT/$f" ] && { RUST_DECL=$f; break; }; done
+if [ -n "$RUST_DECL" ]; then
+  if ! RUST_BIN=$("$(dirname "${BASH_SOURCE[0]}")/rust_toolchain.sh" "$WT"); then
+    echo "GATE toolchain FAIL (cannot provide the rust toolchain declared in $RUST_DECL)"
+    verdict FAIL "Gate box cannot provide the declared Rust toolchain"
+  fi
+  [ -n "$RUST_BIN" ] && export PATH="$RUST_BIN:$PATH"
+  TOOLCHAIN_NOTES="${TOOLCHAIN_NOTES:+$TOOLCHAIN_NOTES; }rust $( (cd "$WT" && cargo --version) | awk '{print $2}') from $RUST_DECL"
+fi
+[ -n "$TOOLCHAIN_NOTES" ] && note "$TOOLCHAIN_NOTES"
 
 CHANGED=$(git -C "$WT" diff --name-only "$MAIN_SHA" HEAD)
 
