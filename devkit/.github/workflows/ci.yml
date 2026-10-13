@@ -1,0 +1,23 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: shellcheck
+        run: |
+          sudo apt-get install -y -q shellcheck >/dev/null
+          shellcheck -s bash bin/*.sh tests/*.bats
+      - name: bats
+        run: |
+          git clone -q --depth 1 --branch v1.14.0 https://github.com/bats-core/bats-core.git /tmp/bats
+          git config --global user.name ci && git config --global user.email ci@local
+          /tmp/bats/bin/bats tests/
