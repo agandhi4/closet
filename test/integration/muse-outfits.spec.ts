@@ -25,7 +25,7 @@ import { createAccessToken, tool } from './mcp';
  * me with a reason and Undo go through the one writer (reactToOutfit);
  * Bought it makes a loved outfit the owner's; a proposal is never deleted.
  * The migration that made plan looks these outfits is
- * muse-outfits-migration.spec.ts's.
+ * muse-outfits-migration.spec.ts (retired 2026-10-13)'s.
  */
 describe('Muse’s outfits (#335)', () => {
   let t: TestApp;

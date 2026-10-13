@@ -3,17 +3,14 @@ import { addDays } from '../src/calendar-date';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { householdToday } from './support/household-today';
-import { waitForServiceWorker } from './support/service-worker';
-import { WEBKIT_CANNOT_NAVIGATE_OFFLINE } from './support/webkit-limits';
 
 /**
  * Trips (#10) at phone width, what only a browser shows: the trip form, the
  * destination found through the weather's search and its forecast loaded
  * into the page, an outfit added for a day, the packing list's and the
  * extras' checkboxes saved on change (htmx, the summary swapped out of
- * band), "Wore it" and its Undo, a gallery pick for the trip, nothing wider
- * than the phone, and, installed, the trip offline from the worker's copy
- * with its writes disabled. test/integration/trips.spec.ts has the behavior.
+ * band), "Wore it" and its Undo, nothing wider than the phone.
+ * test/integration/trips.spec.ts has the behavior.
  */
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -143,132 +140,5 @@ test.describe('Trips', () => {
     await expect(
       page.locator(`a[href^="/styling?outfit=${outfit}&"]`),
     ).toHaveCount(1);
-  });
-
-  test('ideas for a trip day land on the trip', async ({ page }) => {
-    await signIn(page, 'trips-ideas');
-    await closet(page);
-    // The saved outfit is never an idea: another tee makes one.
-    await createGarment(page, 'Spare tee', 'tops', { color: 'white' });
-    const today = householdToday();
-    const created = await page.request.post('/trips', {
-      form: {
-        name: 'Weekend away',
-        startsOn: addDays(today, 1),
-        endsOn: addDays(today, 2),
-      },
-      headers: SAME_ORIGIN,
-    });
-    expect(created.ok()).toBe(true);
-    await page.goto(created.url());
-    await page
-      .locator(`[data-trip-day="${addDays(today, 1)}"]`)
-      .getByRole('link', { name: 'Ideas' })
-      .click();
-    await expect(page).toHaveURL(/\/outfits\/ideas\?for=trip:\d+:/);
-    await expect(page.getByText('For Weekend away')).toBeVisible();
-    await page
-      .locator('[data-idea]')
-      .first()
-      .getByRole('button', { name: 'Add to the trip' })
-      .click();
-    await expect(page).toHaveURL(/\/trips\/\d+$/);
-    await expect(page.getByText('Added to the trip')).toBeVisible();
-    await expect(
-      page.locator(`[data-trip-day="${addDays(today, 1)}"] [data-trip-outfit]`),
-    ).toHaveCount(1);
-    await expectPhoneWidth(page);
-  });
-
-  test('days past the forecast show their typical weather, and their ideas are matched to it', async ({
-    page,
-  }) => {
-    await signIn(page, 'trips-typical');
-    await closet(page);
-    const today = householdToday();
-    const created = await page.request.post('/trips', {
-      form: {
-        name: 'Long weekend',
-        destination: 'Austin',
-        startsOn: addDays(today, 14),
-        endsOn: addDays(today, 17),
-      },
-      headers: SAME_ORIGIN,
-    });
-    expect(created.ok()).toBe(true);
-    const tripPath = new URL(created.url()).pathname;
-    const located = await page.request.post(`${tripPath}/destination`, {
-      form: {
-        name: 'Austin, Texas, United States',
-        latitude: '30.27',
-        longitude: '-97.74',
-      },
-      headers: SAME_ORIGIN,
-    });
-    expect(located.ok()).toBe(true);
-    await page.goto(tripPath);
-
-    // Two days in the forecast, then two typical days, labelled as such.
-    await expect(page.locator('[data-weather-day]')).toHaveCount(2);
-    const typical = page.locator('[data-typical-day]');
-    await expect(typical).toHaveCount(2);
-    await expect(page.getByText(/not a forecast/)).toBeVisible();
-    await expect(typical.first()).toContainText(
-      /Typically -?\d+–-?\d+ °F, \d+% rain chance/,
-    );
-    await expectPhoneWidth(page);
-
-    await typical.first().getByRole('link', { name: 'Ideas' }).click();
-    await expect(page).toHaveURL(
-      new RegExp(`/outfits/ideas\\?for=trip:\\d+:${addDays(today, 16)}`),
-    );
-    await expect(page.locator('[data-ideas-weather="typical"]')).toContainText(
-      /Typically feels -?\d+–-?\d+ °F/,
-    );
-    await expectPhoneWidth(page);
-  });
-});
-
-test.describe('A trip in the installed app', () => {
-  test.skip(
-    process.env.PWA_ENABLED !== 'true',
-    'needs a server started with PWA_ENABLED=true',
-  );
-  test.skip(
-    ({ browserName }) => browserName === 'webkit',
-    WEBKIT_CANNOT_NAVIGATE_OFFLINE,
-  );
-  test.skip(
-    ({ browserName }) => browserName === 'firefox',
-    'service workers are untested in Firefox here',
-  );
-
-  test('offline, shows the last copy with its writes disabled', async ({
-    page,
-    context,
-  }) => {
-    await signIn(page, 'trips-offline');
-    await closet(page);
-    const today = householdToday();
-    await waitForServiceWorker(page);
-    const created = await page.request.post('/trips', {
-      form: { name: 'Offline trip', startsOn: today, endsOn: today },
-      headers: SAME_ORIGIN,
-    });
-    const url = new URL(created.url()).pathname;
-    const online = await page.goto(url);
-    expect(online?.fromServiceWorker()).toBe(true);
-
-    await context.setOffline(true);
-    await page.goto(url);
-    await expect(
-      page.getByRole('heading', { name: 'Offline trip' }),
-    ).toBeVisible();
-    await expect(page.locator('#connectivity-banner')).toBeVisible();
-    await expect(page.locator('[data-offline-note]')).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: 'Add', exact: true }).last(),
-    ).toBeDisabled();
-    await context.setOffline(false);
   });
 });

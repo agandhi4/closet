@@ -274,7 +274,7 @@ describe('app shell', () => {
     });
   });
 
-  // What public/js/back.js reads (#105); test/back-navigation.spec.ts
+  // What public/js/back.js reads (#105); test/back-navigation.spec.ts (retired 2026-10-13)
   // proves the behaviour in a browser.
   describe("the app bar's back arrow", () => {
     const header = (html: string) =>

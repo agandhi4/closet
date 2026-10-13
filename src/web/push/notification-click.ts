@@ -5,7 +5,7 @@ import { notificationTarget } from './payload';
  * `notificationclick` (views/assets/src-sw.ts, which bundles this file).
  * Framework-free and written against the few Clients members it uses, so
  * notification-click.spec.ts can drive every branch: no browser automation
- * clicks a system notification (test/push-notification.spec.ts shows one).
+ * clicks a system notification (test/push-notification.spec.ts (retired 2026-10-13) shows one).
  */
 
 /** The WindowClient members used here. */

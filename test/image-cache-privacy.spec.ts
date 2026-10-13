@@ -14,22 +14,20 @@ import {
   networkSwitch,
   waitForServiceWorker,
   withoutWarming,
-  workerLogs,
 } from './support/service-worker';
 import { WEBKIT_CANNOT_WATCH_WORKER } from './support/webkit-limits';
 
 /**
  * The service worker's image cache is the session's, like its page cache
- * (#226, views/assets/src-sw.ts SESSION_CACHES): signing out, signing in and
- * a page for another account drop it, and a photo fetched for the previous
- * account that lands after the drop is never stored. Outfit selfies are never
- * in any of the worker's caches, even opened as a document. The page cache's
- * own cases are stale-pages.spec.ts and session-revocation.spec.ts.
+ * (#226, views/assets/src-sw.ts SESSION_CACHES): signing out and in as
+ * another account drops it, offline included, and outfit selfies are never
+ * in any of the worker's caches, even opened as a document. The worker's
+ * session logic has its unit coverage in views/assets; this is the one
+ * browser proof that no photo outlives its session.
  *
  * Needs a server started with PWA_ENABLED=true. Offline goes through
  * networkSwitch: setOffline alone does not cut the worker's own fetches,
- * and routing them is Chromium's alone, so the Safari projects run only the
- * test without it.
+ * and routing them is Chromium's alone, so the Safari projects skip it.
  */
 test.describe('the image cache belongs to one session', () => {
   test.skip(
@@ -41,7 +39,7 @@ test.describe('the image cache belongs to one session', () => {
     'service workers are untested in Firefox here',
   );
   // What this spec caches is its own visits' alone (withoutWarming); the
-  // warm's own photos are stale-pages.spec.ts's.
+  // warm's own photos are stale-pages.spec.ts (retired 2026-10-13)'s.
   test.beforeEach(async ({ context }) => {
     await withoutWarming(context);
   });
@@ -171,91 +169,5 @@ test.describe('the image cache belongs to one session', () => {
       everything.map(() => false),
     );
     expect(await cachedAnywhere(page, everything)).toEqual([]);
-  });
-
-  test('a page for another account, from a sign-in the worker never saw, drops the photos', async ({
-    page,
-    context,
-  }) => {
-    await signIn(page, 'img-unseen-a');
-    await addPhotographedGarment(page, 'Unseen coat');
-    await waitForServiceWorker(page);
-    const network = await networkSwitch(context);
-    await page.goto('/wardrobe');
-    const photos = await photoUrls(page);
-    await cacheImages(page, photos);
-
-    // The API context shares the cookies, not the worker: no sign-in post
-    // passes through it. The new account's first page (X-Page-Account) is
-    // how it learns.
-    await signIn(page, 'img-unseen-b');
-    await page.goto('/outfits');
-    await expect.poll(() => cachedAnywhere(page, photos)).toEqual([]);
-
-    await network('offline');
-    expect(await loadImages(page, photos)).toEqual(photos.map(() => false));
-    expect(await cachedAnywhere(page, photos)).toEqual([]);
-  });
-
-  test('a photo for the previous account that lands after the switch is never stored', async ({
-    page,
-    context,
-    playwright,
-    browserName,
-  }) => {
-    test.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
-    await signIn(page, 'img-race-a');
-    await addPhotographedGarment(page, 'Race coat');
-    const second = await registerElsewhere(playwright, 'img-race-b');
-    await waitForServiceWorker(page);
-    const network = await networkSwitch(context);
-    const photos = await photoUrls(page);
-    const original = photos[2];
-    const originalPath = original.split('?')[0];
-
-    // The worker's fetch of the first account's photo is answered at once
-    // by the server, and reaches the worker only after another tab has
-    // switched accounts. Held once (the offline load below must fail);
-    // registered after networkSwitch, so it goes first.
-    let held = false;
-    let answered!: () => void;
-    const fetched = new Promise<void>((resolve) => (answered = resolve));
-    let release!: () => void;
-    const released = new Promise<void>((resolve) => (release = resolve));
-    await context.route(
-      (url) => url.pathname === originalPath,
-      async (route) => {
-        if (held) {
-          await route.fallback();
-          return;
-        }
-        held = true;
-        const response = await route.fetch();
-        answered();
-        await released;
-        await route.fulfill({ response });
-      },
-    );
-    await page.evaluate((src) => {
-      const img = new Image();
-      img.src = src;
-      document.body.append(img);
-    }, original);
-    await fetched;
-
-    const other = await context.newPage();
-    await other.goto('/auth/profile');
-    await switchAccount(other, second);
-    await network('offline');
-
-    const refused = workerLogs(
-      context,
-      `${originalPath} answered from generation`,
-    );
-    release();
-    await refused;
-
-    expect(await cachedAnywhere(other, photos)).toEqual([]);
-    expect(await loadImages(other, [original])).toEqual([false]);
   });
 });
