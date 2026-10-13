@@ -11,11 +11,15 @@ import { createTestApp, PWA_ENV, TestApp, unescapeHtml } from './harness';
  * the heartbeat, versioned asset URLs in the layout, and the wardrobe
  * fragment path that htmx filtering swaps into #wardrobe-main.
  */
+// What the image's build bakes in (Dockerfile ARG -> ENV): the heartbeat and
+// the asset keys name it.
+const RELEASE = 'sha-0123abc';
+
 describe('delivery (PWA_ENABLED=true)', () => {
   let t: TestApp;
 
   beforeAll(async () => {
-    t = await createTestApp(PWA_ENV);
+    t = await createTestApp({ ...PWA_ENV, APP_VERSION: RELEASE });
   });
 
   afterAll(() => t?.cleanup());
@@ -156,12 +160,19 @@ describe('delivery (PWA_ENABLED=true)', () => {
   });
 
   describe('GET /healthz', () => {
-    it('answers 204, uncacheable, without touching the session', async () => {
+    it('answers 200 with the release, uncacheable, without touching the session', async () => {
       const res = await t.inject({ method: 'GET', url: '/healthz' });
-      expect(res.statusCode).toBe(204);
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.json()).toEqual({ status: 'ok', version: RELEASE });
+      expect(res.headers['set-cookie']).toBeUndefined();
+    });
+
+    it("answers connectivity.js's HEAD probe without a body", async () => {
+      const res = await t.inject({ method: 'HEAD', url: '/healthz' });
+      expect(res.statusCode).toBe(200);
       expect(res.headers['cache-control']).toBe('no-store');
       expect(res.body).toBe('');
-      expect(res.headers['set-cookie']).toBeUndefined();
     });
   });
 

@@ -36,12 +36,18 @@ export const shellRoutes: FastifyPluginCallback<WebOptions> = (
         .send(webManifest(config)),
   );
 
-  // Heartbeat for public/js/connectivity.js: the client decides it is online
-  // only when this answers, never from navigator.onLine. A static path, so
-  // the session hook skips it, and no-store so neither the HTTP cache nor the
-  // service worker can answer on the server's behalf.
+  // Heartbeat for public/js/connectivity.js, which probes it with HEAD (no
+  // body to leave unread): the client decides it is online only when this
+  // answers (any 2xx), never from navigator.onLine. A static
+  // path, so the session hook skips it, and no-store so neither the HTTP
+  // cache nor the service worker can answer on the server's behalf.
+  // `version` is the release (APP_VERSION): scripts/smoke-image.sh asserts it
+  // equals the build arg, and it says which build production runs.
+  // Used by: connectivity.js, scripts/smoke-image.sh, the homelab's checks.
   app.get('/healthz', { config: { public: true } }, async (_request, reply) =>
-    reply.status(204).header('Cache-Control', 'no-store').send(),
+    reply
+      .header('Cache-Control', 'no-store')
+      .send({ status: 'ok', version: config.release }),
   );
 
   app.get('/about', { config: { public: true } }, async (_request, reply) =>

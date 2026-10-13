@@ -22,11 +22,9 @@ COPY tsconfig*.json ./
 COPY workbox-config.js .
 COPY scripts ./scripts
 
-# No .git in the build context: the CI publish job (.github/workflows/ci.yml) passes the commit so the
-# static cache key (public/build.json) names it; the build time is the fallback.
-ARG GIT_SHA
-ENV GIT_SHA=$GIT_SHA
-
+# No .git in the build context, so public/build.json records only the build time; the release
+# (APP_VERSION, below) is what names the build at runtime. Nothing commit-specific is in this
+# stage, so its layers stay cached across commits.
 RUN npm run build
 
 # Production stage
@@ -67,6 +65,14 @@ RUN mkdir -p /app/models
 
 # Set NODE_ENV to production
 ENV NODE_ENV=production
+
+# The release identity, passed once by the build (ci.yml publish: sha-<7>; the PR gate:
+# gate-<n>) and reported as /healthz's `version`, on /about, and as the error tracker's release.
+# The image is its only source: compose never sets APP_VERSION (devkit release_check.sh guards
+# it). Last in the stage so a new value rebuilds only these layers.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+LABEL org.opencontainers.image.version=$APP_VERSION
 
 EXPOSE 3000
 

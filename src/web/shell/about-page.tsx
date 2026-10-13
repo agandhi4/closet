@@ -31,7 +31,7 @@ export function AboutPage({ ctx }: { ctx: ViewContext }) {
           <h2 class="text-xl font-semibold mt-8 mb-3">{t('ABOUT_TECH')}</h2>
           <p class="mb-6">{t('ABOUT_TECH_DESC')}</p>
           <p class="text-sm text-muted">
-            {t('APP_VERSION')} {ctx.appRelease}
+            {t('APP_VERSION')} {ctx.release}
           </p>
         </div>
       </main>

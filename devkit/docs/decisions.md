@@ -99,3 +99,38 @@ deliberate speed choice) and may adopt later; closet uses scratch databases, not
 **Why**: finplat tested on 3.13 and shipped 3.14; Orbit and locus had no pin file. The owner chose 3.13 everywhere (same precedent as Node 26→22).
 **Decision**: `toolchain_check.sh` compares `.python-version` (MAJOR.MINOR) with every `FROM python:`/uv image tag, every `requires-python` lower bound, and `setup-python` steps (`python-version-file`). Dockerfiles one level down are scanned for both languages.
 **Consequence**: moving finplat's `backend/.python-version` to the root fails the check until its image returns to 3.13; that is the point.
+
+## 2026-10-13 — Release identity: the image carries APP_VERSION, a ship tag marks the deploy
+**Why**: Orbit's health said `dev` in prod, locus exposed no version, finplat deployed a rebuild that CI never tested. Nothing recorded what ran when (release-identity-design.md).
+**Decision**: `release_check.sh` holds the image to one source: ARG → ENV → `org.opencontainers.image.version` LABEL in the final stage, compose never sets it, and pushing CI steps pass it. `boot_image.sh` `BOOT_EXPECT_VERSION` proves it reaches the health `version` key at runtime. `ship_tag.sh` lets the step that moves `latest` create `ship-<date>-<sha7>` through `gh api`. It compares commits, so a rerun is a no-op and a mismatch is refused, never moved.
+**Consequence**: deploying jobs need `contents: write`. The sha must be a full sha on main. A second ship on another day makes a second tag, which is correct for a redeploy.
+
+## 2026-10-13 — Own-commit guard: lexical opener rule, helper allow-list, ratcheted count
+**Why**: services in all three apps commit sessions they borrowed, ending the caller's unit of work (transaction-boundary-design.md: finplat 15, locus 6, Orbit 8). Owner rule: the handler or job runner commits.
+**Decision**: `own_commit_check.py` allows a raw commit only on a session opened in the same function, by assignment or `with … as`, judged by a per-repo opener regex. Closures count as borrowing. Every other commit must be `commit_now(…, reason=…)` in a function on the allow-list. The list fails both ways (unlisted call, stale line), and an optional per-line count must match exactly.
+**Consequence**: the default regex omits `get_session` because finplat's returns the request session. The helper's own body is exempt, and other primitive modules (Orbit `utils/transaction.py`) go in `--exclude`. The repo's metrics collector parses `own_commit_allowlist_entries` into `ratchet.json` as `lower`, so a new entry needs `metrics-rebaseline`.
+
+## 2026-10-13 — Dead-alert audit: report-only, strict YAML subset, live pass fails loudly
+**Why**: finplat's JobFailed matched `outcome="failure"` while the app emitted `"error"`, so it could never fire; a dead rule looks exactly like a healthy app (observability.md, Alerts).
+**Decision**: `dead_alert_audit.py` exits 0 with findings (it feeds the monthly review, never a gate). It uses its own block-YAML subset parser, not PyYAML, so `python3 -I` behaves the same everywhere, and it rejects anchors and flow style with file:line. Group `labels:` merge into rules as in vmalert. It flags any literal `outcome` value outside `success|failure`, not only `error`. The live pass checks each selector in the expr, matchers included, with `absent_over_time`, so a vocabulary fork shows up at runtime too.
+**Consequence**: an unreachable or erroring VictoriaMetrics exits 2 instead of printing an empty report that would read as all-clear. VM has no host port, so run the live pass on the NAS or through a tunnel. `never-fired` is low severity because a healthy quiet app also never fires.
+
+## 2026-10-13 — Rust declared once in `rust-toolchain.toml`, provided through rustup
+**Why**: redlib had only an MSRV and a floating builder; the Mac has no Rust, so the gate could not run there. Same drift class as Node and Python.
+**Decision**: exact channel in `rust-toolchain.toml` (or `rust-toolchain`). `rust_toolchain.sh` installs via PATH's rustup or a private one under `$XDG_DATA_HOME/devkit/rust` (rustup verifies component hashes) and prints the toolchain's sysroot bin, not `CARGO_HOME/bin`: those are proxies that need `RUSTUP_HOME`, and callers export PATH only. Declared components are installed too. `toolchain_check.sh` holds `FROM rust:` minor, MSRV ≤ channel, and setup-rust-toolchain with no inline `toolchain:`.
+**Consequence**: `dtolnay/rust-toolchain` is refused outright because it cannot read the file. Cross builders (`rust-musl-cross`) carry no version and are not checked.
+
+## 2026-10-13 — The gate provisions toolchains from the merged tree, policy from the invoking checkout
+**Why**: provisioning Node/Rust from `$ROOT` gated a PR that bumps `.nvmrc` on main's version, so the bump was never proved by its own gate.
+**Decision**: toolchain declarations are read from the merged worktree after the merge step; a toolchain the box cannot provide is a FAIL verdict (never a dangling `pending`). Gate policy (`gate_plan.sh`) still comes from `$ROOT`.
+**Consequence**: a toolchain bump PR runs on the new version; the "pending without verdict" failure mode is closed.
+
+## 2026-10-13 — workflows_check: Actions rules as a guard, with job eligibility read from `if:`
+**Why**: delivery.md's Actions rules (SHA pins, one PR job, draft skip, cancel superseded, docs ignored) lived only in prose; Orbit and locus float on tags, and finplat's and Orbit's publish jobs cancel mid-push.
+**Decision**: one bash+awk guard reads triggers, concurrency and job `if:` by indentation. A job counts for an event unless its `if:` names `github.event_name` without that event, so combined PR+push+dispatch files pass. `merged == true` counts as a draft skip. The only understood cancel expression is `github.event_name == 'pull_request'`. Push steps come from `_workflows_lib.sh`, shared with `release_check.sh`.
+**Consequence**: a reusable workflow cannot be judged for trigger rules; workflow_call-only files warn. An unusual `if:` or cancel expression fails instead of being guessed.
+
+## 2026-10-13 — Monthly fleet audit: deterministic script files, the LLM only proposes
+**Why**: guards in ci-quick see one PR at a time; skew, re-invented copies, loosened ratchets and dead alerts only show across the fleet over time (phase4-audit-design.md). A routine with write tools was the main risk.
+**Decision**: `bin/monthly_audit.sh` audits fresh shallow clones, runs only guards ci-quick does not already reach (Makefile parsed transitively, never executed), and runs them from this checkout so repos are judged against the current standard. One read-only `claude -p` (Read/Grep/Glob, 3 turns, $2) proposes ≤ 3 findings; the script files them as `fleet-audit`, deduped by exact title fleet-wide, none while 3 are open, none until two runs are recorded. Every remote write goes through `remote_write` (dry-run guard); the only push is `audit/<YYYY-MM>` in homelab; nothing merges. A bats test pins all of this.
+**Consequence**: the report lands at homelab `docs/audits/fleet-<YYYY-MM>.md` (memo name, not `audit-`); local state under `$XDG_STATE_HOME/devkit/audit/`. Deferred from the memo: the `/convention audit` rotation and the 45-minute wall clock (macOS has no `timeout`; `--max-turns` bounds it). A same-month rerun fails at the push rather than overwrite the branch.

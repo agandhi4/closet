@@ -1,6 +1,5 @@
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { BUILD_INFO } from '../../src/build-info';
 import { user } from '../../src/db/schema';
 import {
   type SentryEvent,
@@ -52,6 +51,9 @@ describe('error tracking, off without a DSN', () => {
   });
 });
 
+/** The image's APP_VERSION: every event's release. */
+const RELEASE = 'sha-7654321';
+
 describe('error tracking with a DSN (a stub Bugsink)', () => {
   let stub: SentryStub;
   let t: TestApp;
@@ -60,7 +62,7 @@ describe('error tracking with a DSN (a stub Bugsink)', () => {
 
   beforeAll(async () => {
     stub = await startSentryStub();
-    t = await createTestApp({ SENTRY_DSN: stub.dsn });
+    t = await createTestApp({ SENTRY_DSN: stub.dsn, APP_VERSION: RELEASE });
     jwt = t.owner.cookie.slice('access_token='.length);
   });
 
@@ -175,7 +177,7 @@ describe('error tracking with a DSN (a stub Bugsink)', () => {
         message: `TypeError: Cannot read properties of undefined (reading 'id') access_token=${jwt}`,
         stack: CHROMIUM_STACK,
         route: '/wardrobe/:id',
-        release: '0123456789abcdef0123456789abcdef01234567',
+        release: 'sha-0123456',
       }),
     );
     expect(res.statusCode).toBe(204);
@@ -185,12 +187,12 @@ describe('error tracking with a DSN (a stub Bugsink)', () => {
       source: 'client',
       route: '/wardrobe/:id',
       // What the page claims: visible, but never the event's release.
-      page_release: '0123456789abcdef0123456789abcdef01234567',
+      page_release: 'sha-0123456',
     });
-    // The server's own (no build.json here, so none): a signed-in user
-    // cannot file events under a release of their choosing.
-    expect(event.release).toBe(BUILD_INFO.sha);
-    expect(event.release).not.toBe('0123456789abcdef0123456789abcdef01234567');
+    // The server's own: a signed-in user cannot file events under a release
+    // of their choosing.
+    expect(event.release).toBe(RELEASE);
+    expect(event.release).not.toBe('sha-0123456');
     expect(event.user).toEqual({ id: String(t.owner.id) });
     const [exception] = event.exception?.values ?? [];
     expect(exception.type).toBe('ClientError');
@@ -245,7 +247,7 @@ describe('error tracking with a DSN (a stub Bugsink)', () => {
       'message=boom',
       JSON.stringify({ message: '' }),
       JSON.stringify({ message: 'x'.repeat(1001) }),
-      JSON.stringify({ message: 'Error: boom', release: 'not-a-sha' }),
+      JSON.stringify({ message: 'Error: boom', release: '<not a release>' }),
     ]) {
       expect((await beacon(payload)).statusCode).toBe(400);
     }

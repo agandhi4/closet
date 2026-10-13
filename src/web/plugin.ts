@@ -59,6 +59,11 @@ export interface WebConfig {
    * account whose review list exists (/wardrobe/orders); a 404 for all otherwise.
    */
   orderMailOwner: string | undefined;
+  /**
+   * The build's release (src/build-info.ts): /healthz's `version` and the MCP
+   * server's version.
+   */
+  release: string;
 }
 
 export interface WebOptions {

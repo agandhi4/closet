@@ -16,8 +16,13 @@
 #   MODELS_DIR   a directory holding the verified model (npm run cutout:fetch-model): the app loads it
 #                and an uploaded photo must get its cutout. Unset: a placeholder file stands in, which
 #                the app refuses on its checksum, so the boot never downloads 940 MB.
+#   BOOT_EXPECT_VERSION  the APP_VERSION the image was built with (ci.yml: sha-<7>; make ci-smoke:
+#                CI_BUILD_VERSION): /healthz's `version` must equal it, so an image that lost the
+#                build arg (and reports `dev`) never ships. Same name and rule as devkit's
+#                boot_image.sh, which this script does not use (it boots on the host network).
 #
-# Checks, each fatal: /healthz answers; the boot log shows the migrations applied; the login page
+# Checks, each fatal: /healthz answers 2xx (and names BOOT_EXPECT_VERSION when set); the boot log
+# shows the migrations applied; the login page
 # renders in the app shell and its stylesheet and htmx are served; with MODELS_DIR, a photo uploaded
 # over HTTP is cut out by the model in the image's own onnxruntime; `docker stop` (SIGTERM) exits 0.
 # On failure the container's log is printed.
@@ -78,12 +83,17 @@ docker run -d --name "$NAME" --network host \
   -e PRIVATE_VAPID_KEY="$(jq -r .privateKey <<<"$keys")" \
   "$IMAGE" >/dev/null
 
-until [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/healthz")" = 204 ]; do
+health="$WORK/health.json"
+until [[ "$(curl -s -o "$health" -w '%{http_code}' "$BASE/healthz")" == 2?? ]]; do
   [ "$(docker inspect -f '{{.State.Running}}' "$NAME")" = true ] || fail "the container exited during boot"
-  [ $((SECONDS - started)) -lt $BOOT_TIMEOUT_S ] || fail "/healthz did not answer 204 within ${BOOT_TIMEOUT_S}s"
+  [ $((SECONDS - started)) -lt $BOOT_TIMEOUT_S ] || fail "/healthz did not answer 2xx within ${BOOT_TIMEOUT_S}s"
   sleep 1
 done
-log "ok: /healthz 204 after $((SECONDS - started))s"
+version=$(jq -r '.version // empty' "$health" 2>/dev/null || true)
+log "ok: /healthz after $((SECONDS - started))s, version ${version:-none}"
+if [ -n "${BOOT_EXPECT_VERSION:-}" ] && [ "$version" != "$BOOT_EXPECT_VERSION" ]; then
+  fail "/healthz reports version '${version:-none}', not the build's '$BOOT_EXPECT_VERSION'"
+fi
 
 migrated=$(docker logs "$NAME" 2>&1 | grep -oE 'Applied [0-9]+ Drizzle migration\(s\)' || true)
 [ -n "$migrated" ] || fail "the boot log does not show the migrations applied (was the database empty?)"
