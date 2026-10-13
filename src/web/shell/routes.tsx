@@ -36,8 +36,9 @@ export const shellRoutes: FastifyPluginCallback<WebOptions> = (
         .send(webManifest(config)),
   );
 
-  // Heartbeat for public/js/connectivity.js: the client decides it is online
-  // only when this answers (any 2xx), never from navigator.onLine. A static
+  // Heartbeat for public/js/connectivity.js, which probes it with HEAD (no
+  // body to leave unread): the client decides it is online only when this
+  // answers (any 2xx), never from navigator.onLine. A static
   // path, so the session hook skips it, and no-store so neither the HTTP
   // cache nor the service worker can answer on the server's behalf.
   // `version` is the release (APP_VERSION): scripts/smoke-image.sh asserts it

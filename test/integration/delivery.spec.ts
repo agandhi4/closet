@@ -167,6 +167,13 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(res.json()).toEqual({ status: 'ok', version: RELEASE });
       expect(res.headers['set-cookie']).toBeUndefined();
     });
+
+    it("answers connectivity.js's HEAD probe without a body", async () => {
+      const res = await t.inject({ method: 'HEAD', url: '/healthz' });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.body).toBe('');
+    });
   });
 
   describe('layout', () => {
