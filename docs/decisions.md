@@ -3,6 +3,12 @@
 Dated decisions, their rationale and the gotchas they carry. Newest first. The older
 history lives in `docs/PROJECT_LOG.md`.
 
+## 2026-10-13 — Observability contract: bare sha7 version, JSON logs with request ids, Bugsink environment
+
+**Why:** `observability.md` names one version string (the bare sha7), JSON log lines, a 12-hex `request_id` joining a reply, its log lines and its Bugsink event, and an explicit `environment`. closet reported `sha-<7>`, wrote pino-pretty to Loki, had no request id, and sent smoke boots to Bugsink as `production` (NODE_ENV).
+**Decision:** `APP_VERSION` is the bare sha7 (owner decision E); only the image tag keeps `sha-`. `LOG_FORMAT` `json` (default) or `text`; JSON is a sync multistream, since a worker with two targets drops lines whose `level` is a label. One async context (`src/request-context.ts`) carries the id and the request timing; pino's mixin and the tracker read it. `APP_ENV` (production|dev|gate) is the tracker's environment. Job outcomes keep `discarded` and `interrupted` (owner decision C, a Convention delta); errors and timeouts are `failure`.
+**Consequence:** Bugsink releases change from `sha-<7>` to `<sha7>` at the next deploy. No Dockerfile `HEALTHCHECK` yet: nothing reads closet's container health (homelab compose has no healthcheck or autoheal label); it lands with `/health/ready`. Still open: `logger` field name, job ids, `app_info`, push/MCP outcome words.
+
 ## 2026-10-13 — Docs-check and git hooks via devkit; area docs become AGENTS.md
 
 **Why:** the 36 area docs were real `CLAUDE.md` files, which only Claude Code reads, and closet kept its own docs check (`scripts/claude-md.ts`) and hook runner (`scripts/git-hook.ts`) beside devkit's copies of both. The pre-commit hook ran the integration tier against pgvault-dev, and pre-push ran Playwright on a push to `main`.

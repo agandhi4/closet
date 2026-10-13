@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
 import { DISABLED_ERROR_TRACKER } from './error-tracker';
+import { registerRequestContext } from '../request-context';
 import { verifyPassword } from '../web/auth/passwords';
 import { registerHttpMetrics } from './http';
 import { Metrics } from './metrics';
@@ -13,6 +14,8 @@ describe('registerHttpMetrics, Server-Timing', () => {
   const app = Fastify();
 
   beforeAll(async () => {
+    // As createApp: the timing lives in the request context.
+    registerRequestContext(app);
     registerHttpMetrics(
       app,
       new Metrics({

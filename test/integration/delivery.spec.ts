@@ -13,7 +13,7 @@ import { createTestApp, PWA_ENV, TestApp, unescapeHtml } from './harness';
  */
 // What the image's build bakes in (Dockerfile ARG -> ENV): the heartbeat and
 // the asset keys name it.
-const RELEASE = 'sha-0123abc';
+const RELEASE = '0123abc';
 
 describe('delivery (PWA_ENABLED=true)', () => {
   let t: TestApp;

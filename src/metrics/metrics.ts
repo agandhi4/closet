@@ -48,12 +48,21 @@ export type JobName =
   | 'muse_rounds';
 
 /**
- * A job's ending. `success` and `failure` are the homelab contract, shared
- * with finplat (homelab stacks/homeinfra/vmalert/rules/apps.yml): the
- * JobFailed alert and the RED dashboard select `outcome="failure"`. A
- * cutout run may also end `discarded` or `interrupted` (src/cutout/queue.ts).
+ * A job's ending, closed. `success` and `failure` are the homelab contract
+ * (observability.md; homelab stacks/homeinfra/vmalert/rules/apps.yml): the
+ * JobFailed alert and the RED dashboard select `outcome="failure"`, so any
+ * error, timeout or crash of a job is `failure`, never a new word. A cutout
+ * run may also end `discarded` or `interrupted` (src/cutout/queue.ts), which
+ * the convention allows as non-alerting (owner decision C, 2026-10-13).
+ * metrics.spec.ts holds this list.
  */
-export type JobOutcome = 'success' | 'failure' | 'discarded' | 'interrupted';
+export const JOB_OUTCOMES = [
+  'success',
+  'failure',
+  'discarded',
+  'interrupted',
+] as const;
+export type JobOutcome = (typeof JOB_OUTCOMES)[number];
 
 export type PushOutcome = 'delivered' | 'pruned' | 'failed';
 

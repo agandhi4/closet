@@ -24,10 +24,14 @@ export class LogCapture {
   readonly records: LogRecord[] = [];
 
   write(line: string): void {
+    // The app's loggers write the label (src/logger.ts); a bare pino, the number.
     const { level, ...fields } = JSON.parse(line) as LogFields & {
-      level: number;
+      level: string | number;
     };
-    this.records.push({ ...fields, level: pino.levels.labels[level] });
+    this.records.push({
+      ...fields,
+      level: typeof level === 'number' ? pino.levels.labels[level] : level,
+    });
   }
 
   /** Messages at `level`, oldest first; from one module when `context` is given. */

@@ -4,7 +4,9 @@ import pino, {
   type Logger,
   type LoggerOptions,
 } from 'pino';
+import { DEV_RELEASE, loadBuildInfo } from './build-info';
 import type { Config } from './config';
+import { currentRequest } from './request-context';
 
 /**
  * The process's one pino logger. Modules take a child named after
@@ -25,57 +27,99 @@ export const REDACTED_PATHS = [
 
 export type LogLevel = Config['LOG_LEVEL'];
 
-function options(level: LogLevel): LoggerOptions {
+/**
+ * Every line's fields: `ts` (RFC 3339 UTC), `level`, `version` (the build's
+ * release), the module's `context`, and `request_id` on any line written
+ * while a request runs (async context, src/request-context.ts), whichever
+ * module's logger writes it. A field the line passes itself wins over the
+ * mixin's.
+ */
+function options(level: LogLevel, version: string): LoggerOptions {
   return {
     level,
+    base: { version },
+    timestamp: () => `,"ts":"${new Date().toISOString()}"`,
+    // A new object every call: pino merges the line's fields into it.
+    mixin: () => {
+      const request = currentRequest();
+      return request ? { request_id: request.requestId } : {};
+    },
     redact: { paths: REDACTED_PATHS, censor: '[redacted]' },
   };
 }
 
 /**
+ * JSON lines name their level (`"level":"info"`), so a query reads them
+ * without pino's numbers. Only on a main-thread destination: a worker
+ * transport with several targets filters each line by its numeric level and
+ * silently drops every line written with the label.
+ */
+function jsonOptions(level: LogLevel, version: string): LoggerOptions {
+  return {
+    ...options(level, version),
+    formatters: { level: (label) => ({ level: label }) },
+  };
+}
+
+/**
  * The server's and the CLIs' logger. LOG_LEVEL decides what reaches both
- * outputs: pretty lines on stdout and the same lines in DATA_PATH/app.log,
- * written by pino-pretty in a worker thread (which flushes on exit).
+ * outputs, stdout and DATA_PATH/app.log; LOG_FORMAT decides their shape.
+ * `json` (the default, and production's): one object per line, which Docker
+ * hands to Loki whole, written synchronously so a fatal line before
+ * process.exit is never lost. `text`: pino-pretty in a worker thread (which
+ * flushes on exit), for a terminal (`npm run start:dev`).
  */
 export function createLogger(
-  config: Pick<Config, 'LOG_LEVEL' | 'DATA_PATH'>,
+  config: Pick<
+    Config,
+    'LOG_LEVEL' | 'LOG_FORMAT' | 'DATA_PATH' | 'APP_VERSION'
+  >,
 ): Logger {
-  const pretty = {
-    singleLine: true,
-    colorize: true,
-    levelFirst: false,
-    translateTime: 'yyyy-mm-dd HH:MM:ss',
-  };
+  const level = config.LOG_LEVEL;
+  const version = loadBuildInfo(config.APP_VERSION).release;
+  const file = join(config.DATA_PATH, 'app.log');
+  if (config.LOG_FORMAT === 'json') {
+    return pino(
+      jsonOptions(level, version),
+      pino.multistream([
+        { level, stream: pino.destination({ dest: 1, sync: true }) },
+        {
+          level,
+          stream: pino.destination({ dest: file, mkdir: true, sync: true }),
+        },
+      ]),
+    );
+  }
   return pino(
-    options(config.LOG_LEVEL),
+    options(level, version),
     pino.transport({
-      targets: [
-        {
-          target: 'pino-pretty',
-          level: config.LOG_LEVEL,
-          options: { ...pretty, destination: 1 },
-        },
-        {
-          target: 'pino-pretty',
-          level: config.LOG_LEVEL,
-          options: {
-            ...pretty,
-            destination: join(config.DATA_PATH, 'app.log'),
-            mkdir: true,
-          },
-        },
-      ],
+      targets: [1, file].map((destination) => ({
+        target: 'pino-pretty',
+        level,
+        options: { ...PRETTY, destination, mkdir: destination !== 1 },
+      })),
     }),
   );
 }
 
+const PRETTY = {
+  singleLine: true,
+  colorize: true,
+  levelFirst: false,
+  translateTime: 'yyyy-mm-dd HH:MM:ss',
+  timestampKey: 'ts',
+  // The release is the same on every line; the boot log names it.
+  ignore: 'pid,hostname,version',
+};
+
 /**
- * The same logger writing JSON lines to one stream: the tests record them
- * (test/support/log-capture.ts).
+ * The same logger, JSON lines to one stream: the tests record them
+ * (test/support/log-capture.ts). `version` is the release the lines name.
  */
 export function createLoggerTo(
   level: LogLevel,
   destination: DestinationStream,
+  version = DEV_RELEASE,
 ): Logger {
-  return pino(options(level), destination);
+  return pino(jsonOptions(level, version), destination);
 }
