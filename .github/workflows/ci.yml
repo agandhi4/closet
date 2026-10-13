@@ -1,10 +1,11 @@
 name: CI
 
-# PRs are gated on linux-box, not here (owner, 2026-09-28: GitHub Actions limits):
-# ~/.claude/scripts/agent-worker/local_gate.sh runs the static, test and e2e jobs below
-# against the PR head and posts their results under these same job names, which branch
-# protection requires. On main this workflow only publishes the image; the test jobs
-# stay here for a manual cloud run (workflow_dispatch).
+# PRs are gated on the Mac / linux-box, not here (owner, 2026-09-28: GitHub Actions limits):
+# `make gate PR=<n>` (devkit/bin/local_gate.sh + scripts/ci/gate_plan.sh) runs the Makefile's
+# ci-* targets on the PR merged into main and posts one `local-gate` status, which branch
+# protection requires with `codex-review`. On main this workflow only publishes the image;
+# the test jobs below stay for a manual cloud run (workflow_dispatch) and call the same make
+# targets as the gate, so the two cannot drift.
 #
 # History: one workflow so publishing can wait for the tests. Until 2026-09-25 the
 # image published from a separate workflow in parallel with CI: a red run
@@ -15,8 +16,8 @@ on:
     tags: ["v*"]
     # Docs-only commits neither need tests nor a redeploy (a new image rolls
     # every client's static-asset cache key). Tag pushes ignore path filters.
-    # No docs check on main: the local gate runs docs:check (check:static) on
-    # every PR head, and strict protection makes the merged tree that tree.
+    # No docs check on main: the gate runs docs:check (ci-quick) on every PR, and
+    # the merge queue merges only the gated head on the gated main.
     paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
   workflow_dispatch:
     inputs:
@@ -34,9 +35,9 @@ permissions:
 
 # Actions are pinned by commit; .github/dependabot.yml proposes updates.
 jobs:
-  # `npm run check` (the pre-commit hook) in two jobs, so the tests have the
-  # runner to themselves instead of sharing it with type-aware ESLint and tsc
-  # (#113). Their names are branch protection's required checks.
+  # The gate's jobs, one per runner so the tests do not share it with type-aware
+  # ESLint and tsc (#113). Postgres comes from devkit/bin/throwaway_pg.sh inside the
+  # make target, as on the gate box, not from a services container.
   static:
     name: format, lint, types
     if: github.event_name == 'workflow_dispatch'
@@ -48,88 +49,37 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - run: npm run check:static
+      - run: make ci-deps ci-quick
 
   test:
     name: unit + integration
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    services:
-      postgres:
-        image: postgres:17-alpine # production (pgvault) runs 17
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: Password123
-          POSTGRES_DB: postgres-test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U test -d postgres-test"
-          --health-interval 2s --health-timeout 3s --health-retries 30
-    env:
-      # The integration tier creates one scratch database per spec file here.
-      TEST_DATABASE_URL: postgres://test:Password123@localhost:5432/postgres-test
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
       # Every core: vitest.config.ts gives the tests all of them under CI.
-      # test:cov is test:all with v8 coverage, failing below its thresholds.
-      - run: npm run test:cov
+      # ci-db is test:cov (every Vitest project, v8 coverage, failing below its thresholds).
+      - run: make ci-deps ci-db
 
   e2e:
     name: browser (production config)
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: Password123
-          POSTGRES_DB: postgres-test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U test -d postgres-test"
-          --health-interval 2s --health-timeout 3s --health-retries 30
-    env:
-      CI: true
-      DATABASE_HOST: localhost
-      DATABASE_USER: test
-      DATABASE_PASS: Password123
-      DATABASE_SCHEMA: postgres-test
-      # As production: the PWA on, so the service worker specs run instead of
-      # skipping. Web Push needs an https: SITE_URL as its VAPID subject;
-      # nothing is fetched from it.
-      PWA_ENABLED: "true"
-      SITE_URL: https://closet.test
-      # Required, 32+ characters (src/config.ts). Signs only this job's
-      # throwaway sessions.
-      ACCESS_TOKEN_SECRET: ci-only-access-token-secret-not-for-deployment
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - name: Throwaway VAPID keys
-        run: |
-          keys=$(npx web-push generate-vapid-keys --json)
-          echo "PUBLIC_VAPID_KEY=$(echo "$keys" | jq -r .publicKey)" >> "$GITHUB_ENV"
-          echo "PRIVATE_VAPID_KEY=$(echo "$keys" | jq -r .privateKey)" >> "$GITHUB_ENV"
-      - run: npx playwright install --with-deps chromium
-      - run: npm run build
-      # SEED_SCREENSHOTS: test/screenshots.spec.ts seeds the personas into
-      # this job's database and saves 390 px shots of the key pages.
-      - run: npx playwright test --project=chromium
-        env:
-          SEED_SCREENSHOTS: "1"
+      # The env (PWA on, VAPID keys, SEED_SCREENSHOTS for the 390 px shots) is the
+      # Makefile's, shared with the gate.
+      - run: make ci-deps ci-e2e PLAYWRIGHT_FLAGS=--with-deps
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
@@ -157,9 +107,10 @@ jobs:
 
   publish:
     name: publish image
-    # No `needs`: the tree was gated on its PR by the local gate (strict up-to-date
-    # protection makes the squash commit's tree the gated head's tree). What the gate
-    # never runs is the image itself: it is booted here before it is pushed (#181).
+    # No `needs`: the tree was gated on its PR by the local gate (the merge queue
+    # merges only a head gated on the current main, so the squash commit's tree is the
+    # gated tree). What the gate never boots is the image itself: it is booted here
+    # before it is pushed (#181).
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -168,7 +119,7 @@ jobs:
     # The smoke test's empty database.
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18-alpine # production (pgvault) runs 18
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: Password123
