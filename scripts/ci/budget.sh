@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Holds a test tier to its wall-clock budget (owner directive 2026-10-13: unit <= 60 s, db <= 120 s,
+# Holds a test tier to its wall-clock budget (owner directive 2026-10-13: unit <= 60 s, db <= 180 s,
 # e2e <= 180 s on the developer machine; docs/decisions.md, Lean test suite). Runs the command,
 # then prints `budget <tier> ok (<n>s of <b>s)` or `budget <tier> OVERBUDGET (<n>s > <b>s)` and
 # fails. A command that fails on its own fails with its own code before the budget is judged.
