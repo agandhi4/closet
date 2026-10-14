@@ -1,3 +1,6 @@
 # drizzle-kit writes a full schema snapshot per migration (generate diffs the
 # next migration against it). Collapsed in PR diffs: review the .sql beside it.
 drizzle/meta/*.json linguist-generated=true
+# Two PRs each appending a decisions entry would conflict on rebase; union keeps both
+# (devkit docs_check rule 12 reports a missing line).
+docs/decisions.md merge=union

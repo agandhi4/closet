@@ -3,6 +3,18 @@
 Dated decisions, their rationale and the gotchas they carry. Newest first. The older
 history lives in `docs/PROJECT_LOG.md`.
 
+## 2026-10-13 — Tier budgets and floors through devkit's tier guard
+
+**Why:** `scripts/ci/budget.sh` and `scripts/ci/test_floor.py` were closet's copy of what five repos built separately; devkit 4f5f282 ships the one implementation (`devkit/bin/tier_guard.sh`).
+**Decision:** ci-unit, ci-db and ci-e2e run under `$(TIER) <tier> --budget … --floor vitest=…|playwright=… -- <cmd>`; both scripts, the JSON reporters and `build/test/` are gone, and the floor reads the runner's summary line (tests that ran, as test_floor.py counted). `CI_BUDGET_ENFORCE` is now `TIER_BUDGET_ENFORCE`. Budgets 60/180/180 and floors 1486/4472/10 are unchanged.
+**Consequence:** each tier prints one `TIER <tier>` line and writes `build/metrics/tier-<tier>.json` beside `statements.json`. Measured under the lock, 4 workers: unit 1498 tests in 5 s, db 4489 in 103 s, e2e 10 in 17 s.
+
+## 2026-10-13 — devkit 4f5f282: union-merged decisions log, tier names, one tier guard
+
+**Why:** devkit 4f5f282 adds three guards (`docs/decisions.md merge=union`, `ci-<tier>-<area>` target names, no privileged port in a non-root image) and `bin/tier_guard.sh`, the fleet's one budget-and-floor runner.
+**Decision:** sync, then adopt in this PR: the union line in `.gitattributes`, and the tier guard in place of closet's own budget and floor scripts (next entry). closet's targets already follow the naming rule and its image runs as root, so neither of the other guards asks for a change.
+**Consequence:** two PRs that each append a decisions entry no longer conflict on rebase.
+
 ## 2026-10-13 — /health/live and /health/ready
 
 **Why:** `observability.md`'s health contract: closet answered `/healthz` `{status: "ok", version}` checking nothing, the image had no `HEALTHCHECK`, and the smoke's probe could only run `--live`.
