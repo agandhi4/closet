@@ -39,7 +39,8 @@ The tiers and their commands are in the root `AGENTS.md` (Commands, Test tiers).
                        (the frozen MikroORM tree; migration-runner.spec.ts builds a MikroORM-era database)
   integration/         Vitest in-process specs + harness.ts (createTestApp: t.inject, t.db, t.logs, t.today; multipart,
                        HTML helpers); authorization-matrix.ts (describeMatrix: the authorization matrix, which
-                       authorization-<group>.spec.ts run per route group), authorization-coverage.spec.ts
+                       authorization-<group>.spec.ts run per route group over authorization-<group>.routes.ts's
+                       ROUTES), authorization-coverage.spec.ts
                        (every id route is in the matrix or exempt, #182)
 ```
 

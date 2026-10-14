@@ -233,6 +233,8 @@ export interface TestAppOptions {
    * jmap-stub.ts): required with ORDER_MAIL_JMAP_TOKEN.
    */
   orderMail?: AppOptions['orderMail'];
+  /** Every route as it registers (AppOptions.onRoute). */
+  onRoute?: AppOptions['onRoute'];
 }
 
 /** A spec never reaches a real third party: each one it turns on needs its stand-in. */
@@ -290,6 +292,7 @@ export async function createTestApp(
         outboundFetch: options.outboundFetch,
         weather: options.weather,
         orderMail: options.orderMail,
+        onRoute: options.onRoute,
       }));
     await app.ready();
   } catch (error) {
