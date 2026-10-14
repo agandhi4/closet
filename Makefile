@@ -6,8 +6,6 @@
 # Run `make ci-deps` once first; the other ci-* targets assume node_modules.
 
 PG := devkit/bin/throwaway_pg.sh
-# A literal comma inside a $(call) argument.
-, := ,
 # One container name per caller; the gate passes closet-gate-pg-<pr> and removes it on exit.
 # ci-db and ci-e2e each bring it up fresh and take it down, so they never share data.
 PG_CONTAINER ?= closet-ci-pg
@@ -20,19 +18,19 @@ CI_BUILD_VERSION ?= dev
 SMOKE_PG_CONTAINER ?= closet-smoke-pg
 
 # Test-tier budgets and floors (owner directive 2026-10-13, docs/decisions.md "Lean test suite"):
-# scripts/ci/budget.sh fails a tier over its wall-clock budget (CI_BUDGET_ENFORCE=0 only reports),
-# scripts/ci/test_floor.py fails a run that executed fewer tests than the floor (a lost glob
-# passes green otherwise). The floors are the counts at the last change to the suite: raise
-# them with new tests; lower them only in the PR that removes tests, saying why.
-BUDGET := scripts/ci/budget.sh
-FLOOR := python3 -I scripts/ci/test_floor.py
+# devkit's tier guard fails a tier over its wall-clock budget (TIER_BUDGET_ENFORCE=0 only
+# reports) or one that ran fewer tests than the floor (a lost glob passes green otherwise),
+# counting the runner's own summary line: tests that ran, never skipped ones. It prints one
+# `TIER <tier>` line and writes build/metrics/tier-<tier>.json. The floors are the counts at the
+# last change to the suite: raise them with new tests; lower them only in the PR that removes
+# tests, saying why.
+TIER := devkit/bin/tier_guard.sh
 UNIT_BUDGET_SECONDS := 60
 DB_BUDGET_SECONDS := 180
 E2E_BUDGET_SECONDS := 180
 UNIT_FLOOR := 1486
 DB_FLOOR := 4472
 E2E_FLOOR := 10
-REPORTS := build/test
 
 help:
 	@echo "make ci-deps          — npm ci (patches applied by postinstall)"
@@ -59,12 +57,9 @@ ci-deps:
 ci-quick: devkit-check toolchain-check release-check workflows-check docs-check
 	npm run check:static
 
-# Each tier writes its JSON report under build/test/ for the floor; the default reporter
-# still prints the run.
+# The floors read the default and list reporters' summary lines: keep those reporters.
 ci-unit:
-	@mkdir -p $(REPORTS)
-	$(BUDGET) unit $(UNIT_BUDGET_SECONDS) -- npm test -- --reporter=default --reporter=json --outputFile=$(REPORTS)/unit.json
-	$(FLOOR) $(REPORTS)/unit.json $(UNIT_FLOOR)
+	$(TIER) unit --budget $(UNIT_BUDGET_SECONDS) --floor vitest=$(UNIT_FLOOR) -- npm test
 
 # The whole suite, not only the integration project: the coverage thresholds in
 # vitest.config.ts are measured over both tiers, so splitting the run would lose the ratchet.
@@ -73,13 +68,11 @@ ci-unit:
 # counts the specs pin (recordQueries), as the metrics ratchet's `statements.*` keys
 # (test/support/statement-budgets.ts; devkit docs/metrics-keys.md).
 ci-db:
-	@mkdir -p $(REPORTS)
 	@$(PG) up $(PG_CONTAINER) >/dev/null
 	@trap '$(PG) down $(PG_CONTAINER)' EXIT INT TERM; \
 	  TEST_DATABASE_URL=$$($(PG) url $(PG_CONTAINER)) || exit 1; \
 	  export TEST_DATABASE_URL STATEMENTS_OUT=build/metrics/statements.json; \
-	  $(BUDGET) db $(DB_BUDGET_SECONDS) -- npm run test:cov -- --reporter=default --reporter=json --outputFile=$(REPORTS)/db.json
-	$(FLOOR) $(REPORTS)/db.json $(DB_FLOOR)
+	  $(TIER) db --budget $(DB_BUDGET_SECONDS) --floor vitest=$(DB_FLOOR) -- npm run test:cov
 
 # As production: the PWA on, so the service-worker specs run instead of skipping. Web Push
 # needs an https: SITE_URL as its VAPID subject (nothing is fetched from it) and a key pair,
@@ -90,7 +83,6 @@ ci-db:
 define e2e_server
 	devkit/bin/playwright_browsers.sh $(PLAYWRIGHT_FLAGS) chromium
 	npm run build
-	@mkdir -p $(REPORTS)
 	@port=$$($(PG) up $(PG_CONTAINER) | sed -n 's/^PG_PORT=//p'); \
 	  trap '$(PG) down $(PG_CONTAINER)' EXIT INT TERM; \
 	  [ -n "$$port" ] || exit 1; \
@@ -108,8 +100,7 @@ define e2e_server
 endef
 
 ci-e2e:
-	$(call e2e_server,PLAYWRIGHT_JSON_OUTPUT_NAME=$(REPORTS)/e2e.json $(BUDGET) e2e $(E2E_BUDGET_SECONDS) -- npx playwright test --project=chromium --reporter=list$(,)json,ci-e2e)
-	$(FLOOR) $(REPORTS)/e2e.json $(E2E_FLOOR)
+	$(call e2e_server,$(TIER) e2e --budget $(E2E_BUDGET_SECONDS) --floor playwright=$(E2E_FLOOR) -- npx playwright test --project=chromium --reporter=list,ci-e2e)
 
 # Not a gate: 390 px screenshots of the seed personas into screenshots/ (ci.yml's e2e job uploads
 # them). test/screenshots.spec.ts runs only with SEED_SCREENSHOTS, which playwright.config.ts
