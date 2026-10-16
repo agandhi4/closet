@@ -48,10 +48,7 @@ const NO_IO =
 
 export default tseslint.config(
   {
-    ignores: [
-      'eslint.config.mjs',
-      './test/support/legacy-migrations/**/*',
-    ],
+    ignores: ['eslint.config.mjs', './test/support/legacy-migrations/**/*'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -203,5 +200,26 @@ export default tseslint.config(
     // their interface.
     files: ['src/**/*.{ts,tsx}'],
     rules: { 'no-console': 'error' },
+  },
+  {
+    // The integration project shares each worker's module graph across spec
+    // files (vitest.config.ts, isolate: false). A module mock outlives its
+    // file and never reaches a module an earlier file already loaded, so it
+    // would pass or fail by which files share the worker. Pass a stand-in
+    // through createTestApp's options instead (AppOptions in src/app.ts).
+    files: ['test/integration/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        ...['mock', 'doMock', 'unmock', 'doUnmock', 'resetModules'].map(
+          (property) => ({
+            object: 'vi',
+            property,
+            message:
+              'Integration specs share a module graph per worker (vitest.config.ts): pass a stand-in through createTestApp options.',
+          }),
+        ),
+      ],
+    },
   },
 );
