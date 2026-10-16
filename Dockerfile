@@ -61,7 +61,18 @@ COPY .env .
 # The server-mode cutout model (MODELS_PATH, 940 MB) is not in the image: it
 # is downloaded here on first need. Mount a local volume on it so it is
 # fetched once (see README, Background removal).
-RUN mkdir -p /app/models
+#
+# The process runs as `node` (uid/gid 1000, shipped by node:22-slim), never
+# root. What it writes at runtime is exactly these two directories: DATA_PATH
+# (/app/data: photos, .incoming/, app.log) and MODELS_PATH (/app/models: the
+# model's download), so only they are its own; the code and node_modules stay
+# root-owned and read-only to it. Production mounts host directories over
+# both, and a mount keeps the HOST's ownership: chown them to 1000:1000 there
+# (docs/deployment.md#permissions). /health/ready's `storage` check reports a
+# directory it cannot write, and the boot refuses an unwritable DATA_PATH.
+# Everything else it writes is the user's own: HOME is /home/node (npm's
+# cache and logs for `docker exec closet npm run ...`), temp files /tmp.
+RUN mkdir -p /app/data /app/models && chown node:node /app/data /app/models
 
 # Set NODE_ENV to production
 ENV NODE_ENV=production
@@ -82,6 +93,11 @@ EXPOSE 3000
 # compose inherits this, and must match it if it ever sets its own (docs/deployment.md#health).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health/ready', { signal: AbortSignal.timeout(4000) }).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+
+# Unprivileged, so EXPOSE must stay >= 1024 (devkit release_check.sh: an
+# older host kernel refuses a privileged port to non-root). `docker exec`
+# runs as this user too, so the CLIs write photos with the server's owner.
+USER node
 
 # node itself is PID 1, so `docker stop`'s SIGTERM reaches main.ts, which
 # closes the server and the database pool before exiting.

@@ -176,6 +176,7 @@ describe('delivery (PWA_ENABLED=true)', () => {
       checks: {
         database: { status: 'up', required: true },
         migrations: { status: 'up', required: true },
+        storage: { status: 'up', required: true },
         cron_jobs: { status: 'down', required: false, fix: expect.any(String) },
         cutout_queue: {
           status: 'down',
