@@ -35,22 +35,13 @@ export default defineConfig({
         'src/cutout/child.ts',
       ],
       reportsDirectory: 'coverage',
-      // Per file in the log (the gate keeps only its log when a threshold
-      // fails: which file fell is the question), and coverage/index.html.
-      reporter: ['text', 'html'],
-      // A ratchet against regressions, not a target: about a point under
-      // the suite's own figures when they were set (2026-09-28, #183:
-      // statements 96.49, branches 91.56, functions 98.42, lines 97.27).
-      // `npm run test:cov` (the test job of ci.yml and the local gate) fails
-      // below them. Raise them when the suite has climbed; never lower them
-      // to let a change through, and never write a spec only to lift a
-      // number.
-      thresholds: {
-        statements: 95.5,
-        branches: 90.5,
-        functions: 97.4,
-        lines: 96.3,
-      },
+      // text: per file in the log, so a coverage drop names the file that
+      // fell. html: coverage/index.html. json-summary:
+      // coverage/coverage-summary.json, which the metrics ratchet's `cov`
+      // collector reads after `make ci-db` (scripts/ci/metrics.conf). The
+      // ratchet gates lines and branches against docs/metrics/ratchet.json,
+      // so no thresholds here (docs/decisions.md 2026-10-16).
+      reporter: ['text', 'html', 'json-summary'],
     },
     projects: [
       {

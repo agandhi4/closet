@@ -9,6 +9,8 @@
 #     src/ and test/ lie outside the       (gate_plan_extra), per path:
 #     fleet's backend/frontend dirs)
 #       LICENSE, .github/**             -> nothing more (Actions files; no gate job reads them)
+#       docs/metrics/ratchet.json,      -> + db (the cov collector reads its coverage report)
+#         scripts/ci/metrics.conf
 #       test/integration/**             -> + db
 #       test/support/**                 -> + db + e2e: scratch-database.ts and the integration
 #                                          globalSetup, which both tiers import
@@ -16,10 +18,12 @@
 #       anything else                   -> + db + e2e (src, views, public, drizzle, scripts,
 #                                          package*.json, configs, Makefile, devkit/ job scripts)
 #   image-affecting paths              -> + image (ci-image, then ci-smoke)
+#   any non-docs path                  -> + metrics (ci-metrics, devkit's METRICS group, last)
 #
 # db and e2e live in gate_plan_extra, not the BACKEND/E2E groups: closet's whole app is the
 # fleet's "other", and an area group would run both tiers for a Playwright-only or .github-only
-# change. Order: deps, quick, image, db, e2e (the default plan runs its groups before the extra).
+# change. Order: deps, quick, image, db, e2e, metrics (the default plan runs its groups, then the
+# extra, then METRICS).
 # Public repo: GATE_ALLOW_FORKS stays at the skeleton's 0, so a fork PR never runs here.
 # shellcheck disable=SC2034  # read by the sourcing skeleton and devkit_default_gate_plan
 GATE_SLUG=agandhi4/closet
@@ -48,6 +52,11 @@ GATE_AREAS_IMAGE=""
 # shellcheck disable=SC2034
 GATE_IMAGE_PATHS='^(Dockerfile$|package(-lock)?\.json$|\.npmrc$|patches/)'
 
+# The metrics ratchet, last so it merges every earlier job's seconds (devkit owns the label and
+# which collectors run: devkit/bin/_paths_lib.sh, METRICS).
+# shellcheck disable=SC2034
+GATE_JOBS_METRICS="metrics ci-metrics"
+
 gate_cleanup() {
   "$ROOT/devkit/bin/throwaway_pg.sh" down "$PG_CONTAINER"
   "$ROOT/devkit/bin/throwaway_pg.sh" down "$SMOKE_PG_CONTAINER"
@@ -64,6 +73,9 @@ gate_plan_extra() {
     case "$(devkit_classify_path "$path")" in docs|tooling|native) continue ;; esac
     case "$path" in
       LICENSE|.github/*) ;;
+      # The ratchet's bounds and collectors (other since devkit f6bf01f): db, so the cov
+      # collector (job:db) measures instead of SKIPPING; no browser can see them.
+      docs/metrics/ratchet.json|scripts/ci/metrics.conf) db=1 ;;
       test/support/*) db=1; e2e=1 ;;
       test/integration/*) db=1 ;;
       test/*) e2e=1 ;;

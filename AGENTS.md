@@ -210,10 +210,12 @@ docker build --build-arg APP_VERSION=dev -t closet .   # or: make ci-image ci-sm
 make ci-deps ci-quick         # npm ci; devkit-check, toolchain-check, release-check, workflows-check, check:static
 make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + chromium (PWA on, random PORT).
                               # Each holds its budget (60/110/180 s) and floor; `make screenshots` the persona shots
+make ci-metrics               # the metrics ratchet, the gate's last job: scripts/ci/metrics.conf vs docs/metrics/ratchet.json
+make metrics-tighten          # lock improved numbers into docs/metrics/ratchet.json (commit it in the same PR)
 make gate PR=<n>              # the PR gate (devkit/bin/local_gate.sh, scripts/ci/gate_plan.sh); GATE_ARGS=--no-post
 ```
 
-The gate classifies paths with devkit's fleet table: docs-only runs docs-check alone, and a devkit-only change (a sync) is tooling, so it runs `deps` + `quick` and no test tier.
+The gate classifies paths with devkit's fleet table: docs-only runs docs-check alone, and a devkit-only change (a sync) is tooling, so it runs `deps`, `quick` and `metrics` and no test tier.
 
 Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, never inline.
 
@@ -252,6 +254,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - Before implementing, read `docs/PROJECT_LOG.md` and this file for decisions and gotchas in the area.
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
 - **Tests are budgeted and lean** (owner directive 2026-10-13; `test/AGENTS.md`): `make ci-unit` ≤ 60 s, `ci-db` ≤ 110 s (integration workers share their module graph: no `vi.mock` there), `ci-e2e` ≤ 180 s, each with a collected-count floor, both enforced by the Makefile. A test earns its place: it fails for a plausible regression in our code, proves what no kept test proves, is hermetic, and runs at the cheapest tier that can prove it. Behavior assertions go in `test/integration/` (the real app in-process); Playwright holds ten critical-path scenarios for what only a browser shows, and a new one replaces one.
+- **Metrics only ratchet** (`make ci-metrics`; complexity, dead code, import cycles, duplication, coverage lines and branches): a PR that improves a number runs `make metrics-tighten` and commits the bounds; loosening one needs the `metrics-rebaseline` label. Coverage is read from `make ci-db`'s report; vitest has no thresholds (`docs/decisions.md` 2026-10-16).
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
 - **Changes land through pull requests** (owner decision, 2026-09-26). `main` is protected: `local-gate` and `codex-review` must pass. Not strict (2026-10-13, `docs/decisions.md`): the gate tests the PR merged into the current `main`, and the merge queue merges only when neither head nor `main` moved since, which catches parallel branches that each pass alone (duplicate migration numbers, conflicting edits). Squash merges only: one PR is one commit on `main`, and merged branches are deleted.
 - **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; `make gate PR=<n>` posts `local-gate`; Codex's go-ahead posts `codex-review` (every push needs a new `wait`; every thread answered and resolved; docs-only PRs skip it; at Codex's limit an adversarial Claude review stands in); then `closet_merge_queue.sh` squash-merges pinned to the gated head, never `gh pr merge --auto`. Merging publishes, then deploys. The owner may stop any PR.
