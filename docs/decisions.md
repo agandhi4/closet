@@ -88,3 +88,9 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Decision:** `scripts/ci/metrics.conf` runs `ts.mjs` over `src` (scope `backend`, area `other`: cyclomatic, cognitive, knip, cycles) and `jscpd.mjs` over `src`; `docs/metrics/ratchet.json` holds every key they emit at today's value. No bundle key: the build is tsc, not vite. `knip.jsonc` declares the entry points and importmap names knip cannot see, so `dead.*` counts dead code. The four tools are pinned exactly, as in finplat.
 **Not yet:** coverage. Its report comes from `ci-db`, which skips `.github`-only, Playwright-only and tooling PRs, while devkit runs every collector on any `other` or `tooling` path. A coverage collector would then fail for a missing report. The vitest thresholds keep gating coverage until devkit can skip a collector whose producing job did not run. The same gap keeps `statements.*` (from `ci-db`) and `audit-pages` statements untracked.
 **Consequence:** `make ci-metrics` takes about 30 s, almost all of it two type-aware eslint passes. It is the gate's last job on every non-docs PR, devkit syncs included.
+
+## 2026-10-16 — devkit 8236095: knip's unused files counted; closet's bound of 0 holds
+
+**Why:** devkit #36 fixes `ts.mjs`, which read a `files` array knip 6 no longer fills, so `dead.*.knip_files` was 0 everywhere.
+**Decision:** sync. Re-measured with the fix, closet's `dead.backend.knip_files` is still 0 (`knip.jsonc` declares every entry point), so the bound merged in #391 stands; no rebaseline.
+**Consequence:** a new unreferenced file under `src/`, `scripts/` or `test/` now fails `ci-metrics`; declare a real entry point in `knip.jsonc`, never to hide one.
