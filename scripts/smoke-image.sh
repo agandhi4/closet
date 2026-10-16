@@ -21,11 +21,14 @@
 #                build arg (and reports `dev`) never ships. Same name and rule as devkit's
 #                boot_image.sh, which this script does not use (it boots on the host network).
 #
-# Checks, each fatal: /health/ready answers 2xx (and names BOOT_EXPECT_VERSION when set); the boot log
-# shows the migrations applied; the login page
+# Checks, each fatal: the app runs as uid APP_UID; /health/ready answers 2xx (and names
+# BOOT_EXPECT_VERSION when set); the boot log shows the migrations applied; the login page
 # renders in the app shell and its stylesheet and htmx are served; devkit's contract probe passes
 # (the health contract, request ids, JSON lines, /metrics; below); with MODELS_DIR, a photo uploaded
 # over HTTP is cut out by the model in the image's own onnxruntime; `docker stop` (SIGTERM) exits 0.
+# Then the non-root image's two failure modes (docs/deployment.md#permissions), each its own boot on
+# the migrated database: a root-owned data directory ends the boot naming the chown, and a root-owned
+# models directory leaves /health/ready 503 with `storage` down and the chown as its fix.
 # On failure the container's log is printed.
 set -euo pipefail
 
@@ -38,8 +41,18 @@ IMAGE=${1:?usage: scripts/smoke-image.sh <image>}
 : "${DATABASE_HOST:?} ${DATABASE_USER:?} ${DATABASE_SCHEMA:?}"
 PORT=${SMOKE_PORT:-3000}
 BASE="http://127.0.0.1:$PORT"
-NAME="closet-smoke-$$"
+SMOKE="closet-smoke-$$"
+# The container under test: the main boot, then each permission boot (fail and log_has read it).
+NAME=$SMOKE
 WORK=$(mktemp -d)
+# The uid:gid the image's USER (node, from node:22-slim) has, and so the one docs/deployment.md
+# tells the owner to chown the host directories to: the smoke holds the two to each other.
+APP_UID=1000
+APP_GID=1000
+# Docker volumes, not host directories, stand in for production's bind mounts: the kernel checks a
+# root-owned one exactly as it checks a root-owned host directory, while a macOS host directory
+# (OrbStack, Docker Desktop) lets every uid write and could not show the failure at all.
+DATA="$SMOKE-data" MODELS="$SMOKE-models" ROOT_DATA="$SMOKE-rootdata" ROOT_MODELS="$SMOKE-rootmodels"
 BOOT_TIMEOUT_S=60
 CUTOUT_TIMEOUT_S=240
 
@@ -51,7 +64,8 @@ fail() {
   exit 1
 }
 cleanup() {
-  docker rm -f "$NAME" >/dev/null 2>&1 || true
+  docker rm -f "$SMOKE" "$ROOT_DATA" "$ROOT_MODELS" >/dev/null 2>&1 || true
+  docker volume rm -f "$DATA" "$MODELS" "$ROOT_DATA" "$ROOT_MODELS" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -59,32 +73,55 @@ trap cleanup EXIT
 # The same keypair shape production has, made by the image's own web-push (PWA_ENABLED requires them).
 keys=$(docker run --rm --entrypoint /app/node_modules/.bin/web-push "$IMAGE" generate-vapid-keys --json)
 
+# volume <name> <uid:gid> [placeholder]: a fresh volume whose root is owned by uid:gid, as a host
+# directory chowned (or not) by the owner; `placeholder` adds the stand-in model file. Made as root
+# by the image itself, so the smoke needs no other image.
+volume() {
+  local script="chown -R $2 /v"
+  [ "${3:-}" = placeholder ] && script="echo 'placeholder: refused on its checksum' >/v/birefnet_512.onnx && $script"
+  docker volume create "$1" >/dev/null
+  docker run --rm --user 0 --entrypoint sh -v "$1:/v" "$IMAGE" -c "$script" >/dev/null
+}
+
+# start <container> <data volume> <models volume>: the image as production runs it, both
+# directories mounted. volume-nocopy: Docker would otherwise copy the image directory's ownership
+# into an empty volume and hide a root-owned one.
+start() {
+  local model=()
+  # The real model, read-only, inside the writable models volume (nightly).
+  [ -n "${MODELS_DIR:-}" ] && model=(-v "$(cd "$MODELS_DIR" && pwd)/birefnet_512.onnx:/app/models/birefnet_512.onnx:ro")
+  docker run -d --name "$1" --network host \
+    --mount "type=volume,src=$2,dst=/app/data,volume-nocopy=true" \
+    --mount "type=volume,src=$3,dst=/app/models,volume-nocopy=true" \
+    ${model[@]+"${model[@]}"} \
+    -e PORT="$PORT" \
+    -e DATABASE_HOST="$DATABASE_HOST" \
+    -e DATABASE_PORT="${DATABASE_PORT:-5432}" \
+    -e DATABASE_USER="$DATABASE_USER" \
+    -e DATABASE_PASS="${DATABASE_PASS:-}" \
+    -e DATABASE_SCHEMA="$DATABASE_SCHEMA" \
+    -e ACCESS_TOKEN_SECRET=smoke-test-access-token-secret-not-for-deployment \
+    -e PWA_ENABLED=true \
+    -e METRICS_ENABLED=true \
+    -e APP_ENV=gate \
+    -e SITE_URL=https://closet.test \
+    -e PUBLIC_VAPID_KEY="$(jq -r .publicKey <<<"$keys")" \
+    -e PRIVATE_VAPID_KEY="$(jq -r .privateKey <<<"$keys")" \
+    "$IMAGE" >/dev/null
+}
+
+volume "$DATA" "$APP_UID:$APP_GID"
+# Without MODELS_DIR a placeholder model stands in: refused on its checksum, so the boot never
+# downloads 940 MB, and the queue waits for a model as production does when it cannot get one.
 if [ -n "${MODELS_DIR:-}" ]; then
-  models=$(cd "$MODELS_DIR" && pwd)
+  volume "$MODELS" "$APP_UID:$APP_GID"
 else
-  models="$WORK/models"
-  mkdir -p "$models"
-  echo "placeholder: refused on its checksum" >"$models/birefnet_512.onnx"
+  volume "$MODELS" "$APP_UID:$APP_GID" placeholder
 fi
 
 log "starting $IMAGE on :$PORT (database $DATABASE_SCHEMA on $DATABASE_HOST, model: ${MODELS_DIR:-placeholder})"
 started=$SECONDS
-docker run -d --name "$NAME" --network host \
-  -v "$models:/app/models:ro" \
-  -e PORT="$PORT" \
-  -e DATABASE_HOST="$DATABASE_HOST" \
-  -e DATABASE_PORT="${DATABASE_PORT:-5432}" \
-  -e DATABASE_USER="$DATABASE_USER" \
-  -e DATABASE_PASS="${DATABASE_PASS:-}" \
-  -e DATABASE_SCHEMA="$DATABASE_SCHEMA" \
-  -e ACCESS_TOKEN_SECRET=smoke-test-access-token-secret-not-for-deployment \
-  -e PWA_ENABLED=true \
-  -e METRICS_ENABLED=true \
-  -e APP_ENV=gate \
-  -e SITE_URL=https://closet.test \
-  -e PUBLIC_VAPID_KEY="$(jq -r .publicKey <<<"$keys")" \
-  -e PRIVATE_VAPID_KEY="$(jq -r .privateKey <<<"$keys")" \
-  "$IMAGE" >/dev/null
+start "$NAME" "$DATA" "$MODELS"
 
 health="$WORK/health.json"
 until [[ "$(curl -s -o "$health" -w '%{http_code}' "$BASE/health/ready")" == 2?? ]]; do
@@ -94,6 +131,10 @@ until [[ "$(curl -s -o "$health" -w '%{http_code}' "$BASE/health/ready")" == 2??
 done
 version=$(jq -r '.version // empty' "$health" 2>/dev/null || true)
 log "ok: /health/ready after $((SECONDS - started))s, version ${version:-none}"
+uid=$(docker exec "$NAME" id -u)
+[ "$uid" = "$APP_UID" ] || fail "the app runs as uid $uid, not $APP_UID (the Dockerfile's USER)"
+[ "$(docker exec "$NAME" cat /proc/1/comm)" = node ] || fail "PID 1 is not node: docker stop's SIGTERM would not reach it"
+log "ok: running as uid $uid, PID 1 node"
 if [ -n "${BOOT_EXPECT_VERSION:-}" ] && [ "$version" != "$BOOT_EXPECT_VERSION" ]; then
   fail "/health/ready reports version '${version:-none}', not the build's '$BOOT_EXPECT_VERSION'"
 fi
@@ -176,4 +217,39 @@ code=$(docker inspect -f '{{.State.ExitCode}}' "$NAME")
 [ "$code" = 0 ] || fail "docker stop: the process exited $code, not 0"
 log_has 'SIGTERM: shutting down' || fail "the log does not show the SIGTERM shutdown"
 log "ok: SIGTERM shut it down with exit 0"
+
+# A root-owned data directory (the owner skipped the chown): the boot refuses it before the logger
+# opens app.log there, naming the fix (src/main.ts), instead of a bare EACCES stack.
+NAME=$ROOT_DATA
+volume "$ROOT_DATA" 0:0
+start "$NAME" "$ROOT_DATA" "$MODELS"
+waited=$SECONDS
+while [ "$(docker inspect -f '{{.State.Running}}' "$NAME")" = true ]; do
+  [ $((SECONDS - waited)) -lt $BOOT_TIMEOUT_S ] || fail "a root-owned /app/data did not end the boot within ${BOOT_TIMEOUT_S}s"
+  sleep 1
+done
+[ "$(docker inspect -f '{{.State.ExitCode}}' "$NAME")" != 0 ] || fail "a root-owned /app/data: the boot exited 0"
+log_has -F "DATA_PATH /app/data is not writable by this process (EACCES): chown -R $APP_UID:$APP_GID the host directory mounted at /app/data; docs/deployment.md#permissions" \
+  || fail "a root-owned /app/data: the boot log does not name the chown"
+log "ok: a root-owned /app/data ends the boot with the chown named"
+
+# A root-owned models directory: every page would serve and the model download would fail, so
+# readiness must say so (src/web/health, storage) and the HEALTHCHECK marks the container unhealthy.
+NAME=$ROOT_MODELS
+# The placeholder keeps the boot from starting a download it could not write anyway.
+volume "$ROOT_MODELS" 0:0 placeholder
+start "$NAME" "$DATA" "$ROOT_MODELS"
+waited=$SECONDS
+until [ "$(curl -s -o "$health" -w '%{http_code}' "$BASE/health/ready")" = 503 ] &&
+  [ "$(jq -r '.checks.storage.status' "$health")" = down ]; do
+  [ "$(docker inspect -f '{{.State.Running}}' "$NAME")" = true ] || fail "a root-owned /app/models: the container exited"
+  [ $((SECONDS - waited)) -lt $BOOT_TIMEOUT_S ] || fail "a root-owned /app/models: /health/ready never reported storage down within ${BOOT_TIMEOUT_S}s (last: $(cat "$health"))"
+  sleep 1
+done
+fix=$(jq -r '.checks.storage.fix' "$health")
+[ "$fix" = "chown -R $APP_UID:$APP_GID the host directory mounted at /app/models; docs/deployment.md#permissions" ] \
+  || fail "a root-owned /app/models: storage's fix is '$fix'"
+[ "$(jq -r '.checks.database.status' "$health")" = up ] || fail "a root-owned /app/models: the database check is down too"
+log "ok: a root-owned /app/models is 503, storage down: $fix"
+docker rm -f "$NAME" >/dev/null
 log "PASS $IMAGE in $((SECONDS - started))s"

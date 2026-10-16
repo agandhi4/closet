@@ -1,4 +1,5 @@
 import type { Logger } from '../../logger';
+import type { WriteProbe } from '../../storage-probe';
 
 /**
  * The /health/ready contract (~/.claude/conventions/observability.md,
@@ -99,6 +100,64 @@ export function checkJobs(stuck: string[] | undefined): HealthCheck {
 /** The background-removal queue (CutoutQueue.running); optional like the timers. */
 export function checkCutoutQueue(running: boolean): HealthCheck {
   return running ? { status: 'up', required: false } : down(false);
+}
+
+/** How long a storage verdict is reused: a probe writes to disk (and NFS). */
+export const STORAGE_PROBE_TTL_MS = 5_000;
+
+export interface StorageCheckDeps {
+  /** DATA_PATH and MODELS_PATH, as the process sees them. */
+  directories: readonly string[];
+  /** probeWritable (src/storage-probe.ts); the specs pass it too, on tmp dirs. */
+  probe: (directory: string) => Promise<WriteProbe>;
+  /** ownershipFix (src/storage-probe.ts): the chown, with the process's uid:gid. */
+  fix: (unwritable: readonly string[]) => string;
+  logger: Logger;
+  ttlMs?: number;
+  now?: () => number;
+}
+
+/**
+ * `storage` (required): every directory the process writes at runtime is
+ * writable by it. Required because the image runs non-root and its
+ * directories are host mounts (docs/deployment.md#permissions): with a
+ * root-owned one every page would serve and the first upload or the model
+ * download would fail, so readiness would lie. The fix names the chown.
+ *
+ * One probe per STORAGE_PROBE_TTL_MS whatever the request rate (the
+ * HEALTHCHECK, the smoke's poll and anyone within HEALTH_LIMIT share it),
+ * and concurrent callers await the same probe.
+ */
+export function createStorageCheck({
+  directories,
+  probe,
+  fix,
+  logger,
+  ttlMs = STORAGE_PROBE_TTL_MS,
+  now = Date.now,
+}: StorageCheckDeps): () => Promise<HealthCheck> {
+  let cached: { at: number; verdict: Promise<HealthCheck> } | undefined;
+  const run = async (): Promise<HealthCheck> => {
+    const results = await Promise.all(directories.map(probe));
+    const unwritable = directories.filter((directory, i) => {
+      const result = results[i];
+      if (result.writable) return false;
+      logger.warn(
+        `Readiness: ${directory} is not writable by this process (${result.code})`,
+      );
+      return true;
+    });
+    return unwritable.length === 0
+      ? { status: 'up', required: true }
+      : { status: 'down', required: true, fix: fix(unwritable) };
+  };
+  return () => {
+    const at = now();
+    if (!cached || at - cached.at >= ttlMs) {
+      cached = { at, verdict: run() };
+    }
+    return cached.verdict;
+  };
 }
 
 function down(required: boolean): HealthCheck {
