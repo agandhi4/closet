@@ -31,7 +31,11 @@ export async function probeWritable(directory: string): Promise<WriteProbe> {
     await unlink(probe);
     return { writable: true };
   } catch (error) {
-    return { writable: false, code: errorCode(error) };
+    // fs/promises rejects with ErrnoExceptions, so `code` is always set.
+    return {
+      writable: false,
+      code: String((error as NodeJS.ErrnoException).code),
+    };
   }
 }
 
@@ -45,15 +49,9 @@ export function ownershipFix(directories: readonly string[]): string {
 }
 
 function processOwner(): string {
-  // Undefined only on Windows, where nothing of closet runs.
-  const uid = process.getuid?.();
-  const gid = process.getgid?.();
-  return uid === undefined || gid === undefined
-    ? "the app's user"
-    : `${uid}:${gid}`;
-}
-
-function errorCode(error: unknown): string {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return typeof code === 'string' ? code : String(error);
+  // Both exist on every platform closet runs on (POSIX; Windows is not one).
+  const { getuid, getgid } = process as Required<
+    Pick<NodeJS.Process, 'getuid' | 'getgid'>
+  >;
+  return `${getuid()}:${getgid()}`;
 }

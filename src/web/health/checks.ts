@@ -103,7 +103,7 @@ export function checkCutoutQueue(running: boolean): HealthCheck {
 }
 
 /** How long a storage verdict is reused: a probe writes to disk (and NFS). */
-export const STORAGE_PROBE_TTL_MS = 5_000;
+const STORAGE_PROBE_TTL_MS = 5_000;
 
 export interface StorageCheckDeps {
   /** DATA_PATH and MODELS_PATH, as the process sees them. */
