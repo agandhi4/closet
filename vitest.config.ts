@@ -91,13 +91,22 @@ export default defineConfig({
         // The real app in-process on a scratch Postgres database per spec
         // file and a temp DATA_PATH, driven through Fastify's inject(). Needs
         // pgvault-dev on localhost:5432 or TEST_DATABASE_URL (see
-        // test/support/scratch-database.ts). Files run in parallel, each in
-        // its own child process (the default forks pool with isolation), so
-        // one file's app, rate-limit counters and mocks never meet another's
-        // (test/integration/harness.ts).
+        // test/support/scratch-database.ts). Files run in parallel on the
+        // forks pool; `isolate: false` keeps each worker's module graph
+        // across its files, so the app's graph is imported once per worker,
+        // not once per file (about a second of CPU each, a third of the
+        // tier's work; docs/decisions.md 2026-10-14). That is safe because
+        // nothing in src/ reads process.env at import (loadConfig is called
+        // per app), every file boots and closes its own app (rate-limit
+        // stores, metrics registry and error tracker are per app), and
+        // Vitest restores spies after every file. It forbids what would leak:
+        // vi.mock/vi.doMock in test/integration/ (eslint.config.mjs), timers
+        // left fake (the setup file below restores them), and importing
+        // another spec file (it would collect no tests on its own turn).
         extends: true,
         test: {
           name: 'integration',
+          isolate: false,
           include: ['test/integration/**/*.spec.{ts,tsx}'],
           // Drops scratch databases that killed runs left on the server, makes
           // the migrated template every spec file clones (migrations once per
@@ -111,7 +120,10 @@ export default defineConfig({
             // specs pin, for the metrics ratchet (statement-budgets.ts).
             'test/support/statement-budgets-global.ts',
           ],
-          setupFiles: ['test/support/statement-budgets-setup.ts'],
+          setupFiles: [
+            'test/support/statement-budgets-setup.ts',
+            'test/support/shared-worker-setup.ts',
+          ],
         },
       },
     ],

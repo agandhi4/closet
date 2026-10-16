@@ -4,14 +4,14 @@ import Fastify, {
   type RouteOptions,
 } from 'fastify';
 import { readdir } from 'node:fs/promises';
-import { basename, join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startSentryStub, type SentryStub } from '../support/sentry-stub';
 import {
-  collectMatrix,
   featureApp,
   type Fixture,
   type MatrixGroup,
+  type Route,
   type Via,
 } from './authorization-matrix';
 import { createTestApp, PWA_ENV, type TestApp } from './harness';
@@ -26,32 +26,14 @@ import { createTestApp, PWA_ENV, type TestApp } from './harness';
  * `ownerId` via). So a new id route fails CI until it joins its group's
  * authorization-<group>.spec.ts or EXEMPT.
  *
- * The app's routes are what its Fastify instance registered, caught by an
- * onRoute hook added as createApp creates it (the `fastify` mock below: the
- * routes register inside createApp, before a spec could add a hook), on an
- * app with every optional feature on, so a route behind a flag counts too.
- * The matrix's routes are its cases' requests (collectMatrix), each resolved
- * to the route template it reaches by Fastify's own router: a mirror app with
+ * The app's routes are what its Fastify instance registered, seen by
+ * createApp's onRoute option (the routes register inside createApp, before a
+ * spec could add a hook), on an app with every optional feature on, so a
+ * route behind a flag counts too. The matrix's routes are its cases'
+ * requests (each group's authorization-<group>.routes.ts), each resolved to
+ * the route template it reaches by Fastify's own router: a mirror app with
  * the same templates, each answering its own name.
  */
-
-const registeredOf = vi.hoisted(() => new WeakMap<object, RouteOptions[]>());
-
-vi.mock('fastify', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('fastify')>();
-  const fastify = new Proxy(actual.default, {
-    apply(target, self, args) {
-      const app: FastifyInstance = Reflect.apply(target, self, args);
-      const routes: RouteOptions[] = [];
-      registeredOf.set(app, routes);
-      app.addHook('onRoute', (route) => {
-        routes.push(route);
-      });
-      return app;
-    },
-  });
-  return { ...actual, default: fastify, fastify };
-});
 
 /**
  * Id routes the matrix does not request, each with why it needs no case:
@@ -259,7 +241,8 @@ describe('authorization matrix coverage', () => {
   let sentry: SentryStub;
   let routes: AppRoute[];
   let router: FastifyInstance;
-  let files: string[];
+  /** The <group> of every authorization-<group>.spec.ts. */
+  let specGroups: string[];
   let groups: MatrixGroup[];
 
   beforeAll(async () => {
@@ -268,6 +251,7 @@ describe('authorization matrix coverage', () => {
       startSentryStub(),
     ]);
     // Every optional feature on: some routes are registered only then.
+    const registered: RouteOptions[] = [];
     t = await createTestApp(
       {
         ...features.env,
@@ -275,19 +259,24 @@ describe('authorization matrix coverage', () => {
         METRICS_ENABLED: 'true',
         SENTRY_DSN: sentry.dsn,
       },
-      features.options,
+      { ...features.options, onRoute: (route) => registered.push(route) },
     );
-    const registered = registeredOf.get(t.app);
-    if (!registered) throw new Error('The fastify mock saw no app');
     routes = appRoutes(registered);
     router = await templateRouter(routes);
-    files = (await readdir(__dirname)).filter(
-      (file) =>
-        /^authorization-.+\.spec\.ts$/.test(file) &&
-        file !== basename(__filename),
-    );
-    groups = await collectMatrix(() =>
-      Promise.all(files.map((file) => import(join(__dirname, file)))),
+    const entries = await readdir(__dirname);
+    const groupsOf = (pattern: RegExp) =>
+      entries.flatMap((file) => {
+        const group = pattern.exec(file)?.[1];
+        return group && group !== 'coverage' ? [group] : [];
+      });
+    specGroups = groupsOf(/^authorization-(.+)\.spec\.ts$/);
+    groups = await Promise.all(
+      groupsOf(/^authorization-(.+)\.routes\.ts$/).map(async (group) => {
+        const module = (await import(
+          join(__dirname, `authorization-${group}.routes.ts`)
+        )) as { ROUTES: Route[] };
+        return { group, routes: module.ROUTES };
+      }),
     );
   });
 
@@ -297,9 +286,11 @@ describe('authorization matrix coverage', () => {
     await Promise.all([features?.close(), sentry?.close()]);
   });
 
-  it('loads a matrix group from every authorization-<group>.spec.ts', () => {
-    expect(files.length).toBeGreaterThan(0);
-    expect(groups).toHaveLength(files.length);
+  it('loads the routes of every authorization-<group>.spec.ts', () => {
+    expect(specGroups.length).toBeGreaterThan(0);
+    expect(groups.map(({ group }) => group).sort()).toEqual(
+      [...specGroups].sort(),
+    );
   });
 
   it('resolves every matrix case to a route of the app', async () => {

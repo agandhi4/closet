@@ -356,36 +356,18 @@ export interface Matrix {
   shared: Fixture;
 }
 
-/** One authorization-<group>.spec.ts's routes, as describeMatrix received them. */
+/**
+ * One group's routes: authorization-<group>.routes.ts's ROUTES, which its
+ * authorization-<group>.spec.ts describes (describeMatrix) and the
+ * route-coverage spec (authorization-coverage.spec.ts) holds the app's
+ * routes against. A module of its own, never read out of the spec: the
+ * integration project shares each worker's module graph across files
+ * (vitest.config.ts), and a spec file another file had imported would
+ * collect no tests when its own turn came.
+ */
 export interface MatrixGroup {
   group: string;
   routes: Route[];
-}
-
-/**
- * Set while collectMatrix loads the group files: describeMatrix records its
- * routes here instead of describing them.
- */
-let collecting: MatrixGroup[] | undefined;
-
-/**
- * Every group's routes, without running the matrix: loads each
- * authorization-<group>.spec.ts with describeMatrix recording instead of
- * describing (so no suite and no `extras` test is registered in the
- * caller's file). The route-coverage spec (authorization-coverage.spec.ts)
- * holds the app's routes against them.
- */
-export async function collectMatrix(
-  load: () => Promise<unknown>,
-): Promise<MatrixGroup[]> {
-  const groups: MatrixGroup[] = [];
-  collecting = groups;
-  try {
-    await load();
-  } finally {
-    collecting = undefined;
-  }
-  return groups;
 }
 
 /**
@@ -399,10 +381,6 @@ export function describeMatrix(
   routes: Route[],
   extras?: (matrix: Matrix) => void,
 ): void {
-  if (collecting) {
-    collecting.push({ group, routes });
-    return;
-  }
   describe(`authorization matrix: ${group}`, () => {
     let t: TestApp;
     const actors = {} as Record<ActorName, { id?: number; cookie?: string }>;

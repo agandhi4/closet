@@ -26,7 +26,9 @@ SMOKE_PG_CONTAINER ?= closet-smoke-pg
 # tests, saying why.
 TIER := devkit/bin/tier_guard.sh
 UNIT_BUDGET_SECONDS := 60
-DB_BUDGET_SECONDS := 180
+# db: 110 s, about twice its worst gate-like run (56 s beside e2e and an uncached image build;
+# 51 s in PR #387's gate). docs/decisions.md 2026-10-14.
+DB_BUDGET_SECONDS := 110
 E2E_BUDGET_SECONDS := 180
 UNIT_FLOOR := 1486
 DB_FLOOR := 4472

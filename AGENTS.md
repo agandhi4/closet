@@ -121,7 +121,7 @@ The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. Wh
 
 - **CSRF**: the root same-origin hook 403s a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site, before the body is read. Nothing changes state on a GET. The harness sends an Origin; Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
 - **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `WEATHER_SEARCH_LIMIT`, `WEATHER_LOCATION_LIMIT`, `MCP_LIMIT`, `HEALTH_LIMIT` (`/health/ready`, per address).
-- **Refusals do not reveal ids**: unseeable is a 404 like an unknown id; seeable but not changeable is a 403 (`WardrobeAccess`; the matrix is `test/integration/authorization-*.spec.ts`).
+- **Refusals do not reveal ids**: unseeable is a 404 like an unknown id; seeable but not changeable is a 403 (`WardrobeAccess`; the matrix is `test/integration/authorization-*.routes.ts`).
 - **Outbound fetches** of a user-supplied URL or a third-party API go only through `createOutboundFetcher`.
 - **Redirect targets** from the user go through `safeReturnTo`; a path carrying a secret sets `config: { secretPath: true }`; log lines name requests through `loggableUrl()`; public pages never show an email.
 - **Sessions**: signing out is `POST /auth/logout`; a new password ends every other session, personal access token and push subscription.
@@ -208,7 +208,7 @@ docker build --build-arg APP_VERSION=dev -t closet .   # or: make ci-image ci-sm
 # Each brings its own throwaway Postgres 18 container, so none needs pgvault-dev.
 make ci-deps ci-quick         # npm ci; devkit-check, toolchain-check, release-check, workflows-check, check:static
 make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + chromium (PWA on, random PORT).
-                              # Each holds its budget (60/180/180 s) and floor; `make screenshots` the persona shots
+                              # Each holds its budget (60/110/180 s) and floor; `make screenshots` the persona shots
 make gate PR=<n>              # the PR gate (devkit/bin/local_gate.sh, scripts/ci/gate_plan.sh); GATE_ARGS=--no-post
 ```
 
@@ -248,7 +248,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - **Backlog: GitHub issues, ordered by the pinned Roadmap (#27).** Pull the first unchecked item whose dependencies are done; its issue links to its design section in `docs/plans/` and lists the acceptance criteria. Open work and status live in issues, not in docs or memory. New ideas go in the **Later** milestone with where they were seen.
 - Before implementing, read `docs/PROJECT_LOG.md` and this file for decisions and gotchas in the area.
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
-- **Tests are budgeted and lean** (owner directive 2026-10-13; `test/AGENTS.md`): `make ci-unit` ≤ 60 s, `ci-db` ≤ 180 s, `ci-e2e` ≤ 180 s, each with a collected-count floor, both enforced by the Makefile. A test earns its place: it fails for a plausible regression in our code, proves what no kept test proves, is hermetic, and runs at the cheapest tier that can prove it. Behavior assertions go in `test/integration/` (the real app in-process); Playwright holds ten critical-path scenarios for what only a browser shows, and a new one replaces one.
+- **Tests are budgeted and lean** (owner directive 2026-10-13; `test/AGENTS.md`): `make ci-unit` ≤ 60 s, `ci-db` ≤ 110 s (integration workers share their module graph: no `vi.mock` there), `ci-e2e` ≤ 180 s, each with a collected-count floor, both enforced by the Makefile. A test earns its place: it fails for a plausible regression in our code, proves what no kept test proves, is hermetic, and runs at the cheapest tier that can prove it. Behavior assertions go in `test/integration/` (the real app in-process); Playwright holds ten critical-path scenarios for what only a browser shows, and a new one replaces one.
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
 - **Changes land through pull requests** (owner decision, 2026-09-26). `main` is protected: `local-gate` and `codex-review` must pass. Not strict (2026-10-13, `docs/decisions.md`): the gate tests the PR merged into the current `main`, and the merge queue merges only when neither head nor `main` moved since, which catches parallel branches that each pass alone (duplicate migration numbers, conflicting edits). Squash merges only: one PR is one commit on `main`, and merged branches are deleted.
 - **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; `make gate PR=<n>` posts `local-gate`; Codex's go-ahead posts `codex-review` (every push needs a new `wait`; every thread answered and resolved; docs-only PRs skip it; at Codex's limit an adversarial Claude review stands in); then `closet_merge_queue.sh` squash-merges pinned to the gated head, never `gh pr merge --auto`. Merging publishes, then deploys. The owner may stop any PR.

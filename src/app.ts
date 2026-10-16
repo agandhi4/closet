@@ -2,7 +2,11 @@ import fastifyCompress from '@fastify/compress';
 import fastifyCookie from '@fastify/cookie';
 import fastifyFormbody from '@fastify/formbody';
 import fastifyMultipart from '@fastify/multipart';
-import Fastify, { type FastifyInstance, LogController } from 'fastify';
+import Fastify, {
+  type FastifyInstance,
+  LogController,
+  type RouteOptions,
+} from 'fastify';
 import { loadBuildInfo } from './build-info';
 import { type Config, orderMailSenders, trustedProxies } from './config';
 import { countPendingCutouts } from './cutout/queries';
@@ -118,6 +122,13 @@ export interface AppOptions {
     sessionUrl: string;
     fetch: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
   };
+  /**
+   * Sees every route as it is registered: an onRoute hook added before any
+   * plugin, since one added after boot sees nothing. The route-coverage
+   * spec (test/integration/authorization-coverage.spec.ts) lists the app's
+   * id routes with it; production never passes it.
+   */
+  onRoute?: (route: RouteOptions) => void;
 }
 
 /**
@@ -241,6 +252,7 @@ export async function createApp(
     childLoggerFactory: (parent, _bindings, options) =>
       parent.child({}, options),
   });
+  if (options.onRoute) app.addHook('onRoute', options.onRoute);
   // The queue and the weather's background refreshes first: a job still
   // running needs the pool to record itself, a refresh to save its row.
   // The error tracker last, so a failure on the way out is still sent.

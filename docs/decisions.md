@@ -62,3 +62,9 @@ history lives in `docs/PROJECT_LOG.md`.
 **Why:** devkit e7b19d7 fixes the gate log race, scopes hook steps from one fleet layout table, and adds docs-check rules 6-10 (standard README sections, dated decisions, real `make` targets and links), warning until 2026-11-15.
 **Decision:** sync with no `scripts/ci/hooks.conf` change; closet's layout needs no override. A docs-only commit skips `ci-quick` and `ci-unit` and the hook runs `make docs-check` itself; any other change runs every step as before. The README gains Architecture, Deploy and Documentation sections that point at the existing docs.
 **Consequence:** a docs-only commit or push checks only the docs locally; the gate stays authoritative. `docs_check.sh` reports no warnings under a 2099 date, so the 2026-11-15 flip needs no closet change.
+
+## 2026-10-14 — db tier under budget: integration workers share their module graph
+
+**Why:** `make ci-db` ran 173–176 s in the gate against its 180 s budget (78 s solo). A third of its CPU was each of 122 integration spec files importing the app's module graph afresh (about 1 s each), plus a cold first boot per process.
+**Decision:** the integration project runs `isolate: false`, overturning the 2026-09-25 rule whose blocker (config read from env at import) `createApp(config)` removed. Route tables move to `authorization-<group>.routes.ts` (Vitest never re-imports a test file); `createApp`'s `onRoute` option replaces the coverage spec's `fastify` mock; eslint bans `vi.mock`/`doMock` in `test/integration/`; `shared-worker-setup.ts` restores timers, envs and globals per file. The fixed 5 s lock and stop timeouts stay: production constants, idle not CPU.
+**Consequence:** solo 78 s → 45 s; gate 173–176 s → 51 s (56 s beside e2e and an uncached image build). Budget 180 → 110 s; floors unchanged (4489 ran). Proof of no leak (#387): one-worker and two shuffled runs gave the isolated run's outcomes per test and its `statements.json` byte for byte.
