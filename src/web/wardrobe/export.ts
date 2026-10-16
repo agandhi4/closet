@@ -37,7 +37,7 @@ export const OMITTED_COLUMNS: ReadonlySet<string> = new Set([
  * The option_group columns the JSON bundle leaves out of each need (Muse,
  * #333): whose it is and its token.
  */
-export const OMITTED_GROUP_COLUMNS: ReadonlySet<string> = new Set([
+const OMITTED_GROUP_COLUMNS: ReadonlySet<string> = new Set([
   'ownerId',
   'suggestedByTokenId',
 ]);
@@ -45,7 +45,7 @@ export const OMITTED_GROUP_COLUMNS: ReadonlySet<string> = new Set([
 type GroupRow = typeof optionGroup.$inferSelect;
 
 /** Every other option_group column, under its database name, like EXPORT_COLUMNS. */
-export const EXPORT_GROUP_COLUMNS: readonly {
+const EXPORT_GROUP_COLUMNS: readonly {
   key: keyof GroupRow;
   name: string;
 }[] = Object.entries(getTableColumns(optionGroup))
@@ -56,7 +56,7 @@ export const EXPORT_GROUP_COLUMNS: readonly {
   }));
 
 /** The CSV's column naming a suggestion's need, after the garment's own. */
-export const OPTION_GROUP_COLUMN = 'option_group';
+const OPTION_GROUP_COLUMN = 'option_group';
 
 type GarmentRow = typeof garment.$inferSelect;
 
@@ -66,7 +66,7 @@ type GarmentRow = typeof garment.$inferSelect;
  * exported without a second list; wardrobe-export.spec.ts compares the
  * two.
  */
-export const EXPORT_COLUMNS: readonly {
+const EXPORT_COLUMNS: readonly {
   key: keyof GarmentRow;
   name: string;
 }[] = Object.entries(getTableColumns(garment))
@@ -77,10 +77,10 @@ export const EXPORT_COLUMNS: readonly {
   }));
 
 /** The photo's columns after the garment's, in the CSV. */
-export const PHOTO_COLUMNS = ['photo_url', 'cutout_url', 'thumb_url'] as const;
+const PHOTO_COLUMNS = ['photo_url', 'cutout_url', 'thumb_url'] as const;
 
 /** A garment's photo as absolute URLs; `cutout` only when it is shown. */
-export interface ExportedPhoto {
+interface ExportedPhoto {
   original: string;
   cutout: string | null;
   thumb: string;

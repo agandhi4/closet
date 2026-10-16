@@ -40,7 +40,7 @@ import type { CacheRow } from './queries';
  * the user: a refresh's start, then its outcome with its duration.
  */
 
-export interface Cached<T> {
+interface Cached<T> {
   value: T;
   /** When the answer was fetched: the "as of" the pages show. */
   fetchedAt: Date;

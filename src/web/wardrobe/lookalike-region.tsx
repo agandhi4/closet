@@ -26,8 +26,8 @@ import { garmentUrl, wardrobeUrl } from './urls';
  * a copy instead of saving.
  */
 
-export const LOOKALIKES_ID = 'garment-lookalikes';
-export const LOOKALIKES_PATH = '/wardrobe/lookalikes';
+const LOOKALIKES_ID = 'garment-lookalikes';
+const LOOKALIKES_PATH = '/wardrobe/lookalikes';
 const COPY_FORM_ID = 'garment-lookalike-copy';
 
 /** The form's fields a refresh sends: what decides a match, and the dismissed list. */

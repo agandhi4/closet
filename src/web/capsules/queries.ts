@@ -54,7 +54,7 @@ export interface CapsuleCard extends CapsuleRef {
 }
 
 /** Thumbs on a capsule card (and the closet's): four fit a phone's width. */
-export const CARD_STRIP = 4;
+const CARD_STRIP = 4;
 
 /**
  * "The garment is in capsule `capsuleId`", for a query over `garment`: the
@@ -132,7 +132,7 @@ interface CardJson {
   })[];
 }
 
-export type ClosetCard = Pick<CapsuleCard, 'count' | 'strip'>;
+type ClosetCard = Pick<CapsuleCard, 'count' | 'strip'>;
 
 /**
  * A card over the closet garments `members` picks: how many, and the
@@ -329,7 +329,7 @@ export async function deleteCapsule(
 }
 
 /** Every pairing of these capsules with these garments. */
-export interface MembershipSet {
+interface MembershipSet {
   capsuleIds: number[];
   garmentIds: number[];
 }

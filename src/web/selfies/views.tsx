@@ -35,7 +35,7 @@ export type SelfieThumbSize = keyof typeof THUMB_SIZES;
  * a 303 back to `returnTo`, where the entry now shows it, marked worn.
  * Disabled offline (the connectivity guard): an upload needs the server.
  */
-export function SelfieUpload(props: {
+function SelfieUpload(props: {
   entryId: number;
   returnTo: string;
   source: 'camera' | 'library';

@@ -17,7 +17,7 @@ import { type GoesWithCloset, ideaName, type NearDuplicate } from './ideas';
  * garments); "Bought it" makes it one.
  */
 
-export const GOES_WITH_ID = 'goes-with';
+const GOES_WITH_ID = 'goes-with';
 
 /** "Makes 12 outfits with your closet", or the card's shorter "Unlocks 12 outfits". */
 function countText(count: OutfitCount, card: boolean): string {

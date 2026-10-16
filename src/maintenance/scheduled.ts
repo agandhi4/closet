@@ -65,7 +65,7 @@ export class JobRoster {
  * scheduled job leaves the database consistent at each step (claims before
  * work, rows before bytes), so what it did not finish is found next time.
  */
-export const STOP_WAIT_MS = 15_000;
+const STOP_WAIT_MS = 15_000;
 
 /** Waits for `running` (a run's promise, which never rejects), at most STOP_WAIT_MS. */
 export async function awaitRunInFlight(

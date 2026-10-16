@@ -2,7 +2,7 @@ import { PostForm } from '../auth/form';
 import { t } from '../i18n';
 
 /** POST /calendar/:id/worn (calendar routes): the one write behind every control. */
-export function entryWornUrl(entryId: number): string {
+function entryWornUrl(entryId: number): string {
   return `/calendar/${entryId}/worn`;
 }
 

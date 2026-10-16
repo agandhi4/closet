@@ -11,7 +11,7 @@
  * web push; Edge on Windows uses WNS. A browser outside these would need an
  * entry here.
  */
-export const PUSH_SERVICE_HOSTS: readonly string[] = [
+const PUSH_SERVICE_HOSTS: readonly string[] = [
   'fcm.googleapis.com',
   'updates.push.services.mozilla.com',
   '*.push.apple.com',

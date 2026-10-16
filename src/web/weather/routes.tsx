@@ -38,8 +38,8 @@ import { UserWeatherLine, WeatherCellDay, WeatherDay } from './views';
 
 /** The widest range of day chips one summary answers: a calendar month and a half. */
 const MAX_SUMMARY_DAYS = 42;
-export const PLACE_NAME_MAX = 200;
-export const PLACE_QUERY_MAX = 100;
+const PLACE_NAME_MAX = 200;
+const PLACE_QUERY_MAX = 100;
 
 const Latitude = Type.Number({ minimum: -90, maximum: 90 });
 const Longitude = Type.Number({ minimum: -180, maximum: 180 });

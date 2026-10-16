@@ -18,7 +18,7 @@ import { t } from '../web/i18n';
  */
 
 /** A refusal with its message for the operator; exit status 1. */
-export class SetPasswordRefused extends Error {}
+class SetPasswordRefused extends Error {}
 
 export interface TerminalInput extends Readable {
   isTTY?: boolean;
@@ -81,7 +81,7 @@ export async function readSecretLine(
  * signed out. No device is making the change, so every push subscription of
  * the account goes too.
  */
-export async function setPasswordByEmail(
+async function setPasswordByEmail(
   db: Db,
   email: string,
   password: string,

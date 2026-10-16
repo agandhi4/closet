@@ -39,9 +39,9 @@ import { type DayForecast, RAIN_CHANCE } from './forecast';
  * outfit wants a layer: one step is inside the torso's tolerance, two are
  * not (about 8 °C).
  */
-export const LAYER_STEPS = 2;
+const LAYER_STEPS = 2;
 /** The combined torso scale: a top's 1-5 plus a layer's 1-5, at most 9 is asked. */
-export const TORSO_TARGET_MAX = 9;
+const TORSO_TARGET_MAX = 9;
 
 /**
  * The torso warmth for a feels-like temperature (°C): one step per 4 °C
@@ -161,17 +161,15 @@ export function matchGarment(garment: GarmentWeatherFields): MatchGarment {
 }
 
 /** What is wrong with an outfit for the weather; none means it fits. */
-export const FIT_PROBLEMS = [
-  'too-cold',
-  'too-warm',
-  'needs-layer',
-  'legs-too-cold',
-  'legs-too-warm',
-  'feet-too-cold',
-  'feet-too-warm',
-  'needs-water-resistance',
-] as const;
-export type FitProblem = (typeof FIT_PROBLEMS)[number];
+export type FitProblem =
+  | 'too-cold'
+  | 'too-warm'
+  | 'needs-layer'
+  | 'legs-too-cold'
+  | 'legs-too-warm'
+  | 'feet-too-cold'
+  | 'feet-too-warm'
+  | 'needs-water-resistance';
 
 export interface OutfitFit {
   fits: boolean;

@@ -120,7 +120,7 @@ async function sharePermission(
  * most one share lookup: none for the requester's own wardrobe, and none
  * for a request whose session statement read the share already.
  */
-export async function resolveWardrobeAccess(
+async function resolveWardrobeAccess(
   db: Db,
   requester: Requester,
   ownerId: number | undefined,

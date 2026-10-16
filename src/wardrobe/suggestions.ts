@@ -193,7 +193,7 @@ export type SuggestionDecision =
   | { kind: 'returned'; garmentId: number };
 
 /** The group's new state; `decided` stamps decided_at with the transaction's time, else clears it. */
-export interface GroupChange {
+interface GroupChange {
   status: OptionGroupStatus;
   resolvedGarmentId: number | null;
   decided: boolean;
@@ -202,13 +202,13 @@ export interface GroupChange {
   ownerNote?: string | null;
 }
 
-export interface Dismissal {
+interface Dismissal {
   garmentId: number;
   reason: DismissReason | null;
   note: string | null;
 }
 
-export type DecisionRefusal =
+type DecisionRefusal =
   /** The garment is not one of the group's (or has no group to decide). */
   | 'not-in-group'
   /** The group or pick is not where the decision applies (a stale page, a double tap): a 409. */
@@ -241,10 +241,7 @@ const REOPENED: GroupChange = {
  * A need still to buy for: open, or chosen and the chosen pick not bought
  * yet. "Bought a different one" takes only such a need.
  */
-export function stillToBuy(
-  group: GroupState,
-  picks: readonly PickState[],
-): boolean {
+function stillToBuy(group: GroupState, picks: readonly PickState[]): boolean {
   if (group.status === 'open') return true;
   if (group.status !== 'resolved') return false;
   return picks.some(

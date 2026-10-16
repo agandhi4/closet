@@ -8,7 +8,7 @@ import {
 } from '../sharing/access';
 import { findGarment, type GarmentDetail } from './queries';
 
-export const GARMENT_NOT_FOUND = 'Garment not found';
+const GARMENT_NOT_FOUND = 'Garment not found';
 
 export function garmentNotFound(): HttpError {
   return new HttpError(404, GARMENT_NOT_FOUND);

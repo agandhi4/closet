@@ -17,7 +17,7 @@
  */
 
 /** Fastmail's MX hosts (mx1.messagingengine.com ...) name themselves so. */
-export const FASTMAIL_AUTHSERV = 'messagingengine.com';
+const FASTMAIL_AUTHSERV = 'messagingengine.com';
 
 export interface SenderEvidence {
   /** JMAP's parsed From: its addresses (null for a group or none). */
@@ -26,7 +26,7 @@ export interface SenderEvidence {
   authenticationResults: readonly string[];
 }
 
-export type UntrustedReason =
+type UntrustedReason =
   | 'no-single-sender'
   | 'sender-not-allowed'
   | 'no-authentication-results'
@@ -73,7 +73,7 @@ export function judgeSender(
     : refuse('authentication-failed');
 }
 
-export interface MethodResult {
+interface MethodResult {
   /** `dkim`, `spf`, `dmarc` ... lower case. */
   method: string;
   /** `pass`, `fail`, `none` ... lower case. */

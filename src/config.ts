@@ -19,13 +19,13 @@ const NonEmpty = (options: { default?: string } = {}) =>
 
 // Loopback only: right for `npm run start:prod` on a laptop, wrong behind a
 // containerised reverse proxy (production sets the Docker bridge range).
-export const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
+const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
 
-export const ACCESS_TOKEN_SECRET_MIN = 32;
+const ACCESS_TOKEN_SECRET_MIN = 32;
 /** The bcrypt cost production must keep (the default, and the floor there). */
 export const PASSWORD_HASH_ROUNDS_PRODUCTION = 12;
 
-export const ConfigSchema = Type.Object({
+const ConfigSchema = Type.Object({
   NODE_ENV: Type.Union(
     [
       Type.Literal('development'),

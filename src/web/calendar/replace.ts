@@ -74,7 +74,7 @@ export interface EntryTarget {
 }
 
 /** The entry holds the chosen outfit: changed now, or already (a double tap). */
-export interface Replaced {
+interface Replaced {
   outcome: 'replaced' | 'unchanged';
   entryId: number;
   /** The entry's occasion, which a replace keeps. */

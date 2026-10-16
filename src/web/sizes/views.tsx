@@ -49,7 +49,7 @@ import {
 const HINT_ID = 'brand-size-hint';
 
 /** "Your size in Uniqlo: M · Runs big, never L"; "Uniqlo: Runs big" without a size. */
-export function brandSizeText(row: BrandSize): string {
+function brandSizeText(row: BrandSize): string {
   if (row.size === null) {
     return t('sizes.BRAND_NOTE', { brand: row.brand, note: row.note ?? '' });
   }

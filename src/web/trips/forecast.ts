@@ -57,7 +57,7 @@ export interface TripTypicalDay {
 }
 
 /** The first trip day past the forecast, and the day its forecast arrives. */
-export interface TripForecastLater {
+interface TripForecastLater {
   day: IsoDate;
   from: IsoDate;
 }

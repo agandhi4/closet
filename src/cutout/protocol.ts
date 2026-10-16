@@ -21,7 +21,7 @@ export interface LoadRequest {
 }
 
 /** One image: inputSize x inputSize RGB, 3 bytes a pixel, row-major. */
-export interface RunRequest {
+interface RunRequest {
   type: 'run';
   id: number;
   rgb: Uint8Array;

@@ -56,7 +56,7 @@ export function Field(props: FieldProps) {
  * answering between mousedown and click (the click blurs the last input,
  * which triggers it) swapped the button away and the form never submitted.
  */
-export function FieldMessages(props: {
+function FieldMessages(props: {
   field: string;
   messages?: string[];
   oob?: boolean;

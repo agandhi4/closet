@@ -50,17 +50,15 @@ export interface Forecast {
 }
 
 /** What a day looks like, for its icon and label. */
-export const CONDITIONS = [
-  'clear',
-  'partly-cloudy',
-  'cloudy',
-  'fog',
-  'drizzle',
-  'rain',
-  'snow',
-  'thunderstorm',
-] as const;
-export type Condition = (typeof CONDITIONS)[number];
+export type Condition =
+  | 'clear'
+  | 'partly-cloudy'
+  | 'cloudy'
+  | 'fog'
+  | 'drizzle'
+  | 'rain'
+  | 'snow'
+  | 'thunderstorm';
 
 // WMO weather codes (the table in Open-Meteo's docs), as ranges.
 const CODE_CONDITIONS: readonly [from: number, to: number, Condition][] = [

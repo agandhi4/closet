@@ -15,17 +15,10 @@ export const WEBKIT_CANNOT_NAVIGATE_OFFLINE =
 
 /**
  * `context.route` sees a service worker's own requests (networkSwitch, a
- * held answer) and `workerLogs` its console in Chromium only.
+ * held answer) and its console in Chromium only.
  */
 export const WEBKIT_CANNOT_WATCH_WORKER =
   "Playwright's WebKit neither routes a service worker's own requests nor reports its console";
-
-/**
- * The Linux build has no PushManager, so push-stub.ts has nothing to stand
- * in for and the page's push code never runs.
- */
-export const WEBKIT_HAS_NO_PUSH =
-  "Playwright's WebKit has no PushManager for push-stub.ts to stand in for";
 
 /**
  * `mouse.wheel` throws in mobile WebKit and there is no touch swipe, so a

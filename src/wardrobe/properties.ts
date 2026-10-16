@@ -193,7 +193,7 @@ export function storedSet<T extends string>(
  * fabrics: a sheer silk is about 30 gsm, a melton coat about 800.
  */
 export const FABRIC_WEIGHT_GSM = { min: 20, max: 1200 } as const;
-export const GSM_PER_OZ = 33.906;
+const GSM_PER_OZ = 33.906;
 
 export function ozToGsm(oz: number): number {
   return Math.round(oz * GSM_PER_OZ);
@@ -205,25 +205,23 @@ export function gsmToOz(gsm: number): number {
 }
 
 /** Every property a garment row can carry beyond the form's text fields. */
-export const GARMENT_PROPERTIES = [
-  'type',
-  'warmth',
-  'formality',
-  'materials',
-  'pattern',
-  'fit',
-  'sleeve',
-  'length',
-  'fabricWeight',
-  'waterResistant',
+export type GarmentProperty =
+  | 'type'
+  | 'warmth'
+  | 'formality'
+  | 'materials'
+  | 'pattern'
+  | 'fit'
+  | 'sleeve'
+  | 'length'
+  | 'fabricWeight'
+  | 'waterResistant'
   // The care label (care.ts, #23): one rule for all five.
-  'careWash',
-  'careBleach',
-  'careDry',
-  'careIron',
-  'careDryClean',
-] as const;
-export type GarmentProperty = (typeof GARMENT_PROPERTIES)[number];
+  | 'careWash'
+  | 'careBleach'
+  | 'careDry'
+  | 'careIron'
+  | 'careDryClean';
 
 const ALL_ROLES = GARMENT_ROLES;
 const WORN: readonly GarmentRole[] = ['top', 'bottom', 'one-piece', 'layer'];
@@ -278,7 +276,7 @@ export interface Presets {
  * `minGsm` the garment's weight reaches replaces the type's warmth preset.
  * Listed heaviest first. A 6 oz (203 gsm) tee is warmth 3.
  */
-export interface WeightStep {
+interface WeightStep {
   minGsm: number;
   warmth: Warmth;
 }

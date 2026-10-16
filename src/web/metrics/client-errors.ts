@@ -17,7 +17,7 @@ import { readBeaconBodies } from './beacon';
  */
 
 /** A report's largest body: a full message and stack, JSON-escaped, fit. */
-export const CLIENT_ERROR_MAX_BYTES = 16 * 1024;
+const CLIENT_ERROR_MAX_BYTES = 16 * 1024;
 // public/js/errors.js cuts a report to these before sending.
 const MAX_MESSAGE = 1000;
 const MAX_STACK = 8000;

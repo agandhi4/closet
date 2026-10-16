@@ -29,7 +29,7 @@ import type { Logger } from '../../src/logger';
  * port 0 won't do). Following PORT keeps worktrees running side by side
  * apart, and +20000 stays clear of the local gate's 3200-3799 range.
  */
-export const CUTOUT_STUB_PORT = Number(process.env.PORT ?? '3000') + 20000;
+const CUTOUT_STUB_PORT = Number(process.env.PORT ?? '3000') + 20000;
 export const CUTOUT_STUB_ORIGIN = `http://127.0.0.1:${CUTOUT_STUB_PORT}`;
 
 // Longer than any spec holds (it releases once the pending page shows),

@@ -58,7 +58,7 @@ import {
  */
 
 /** Bump to reshuffle every seed's ideas on purpose. */
-export const GENERATOR_VERSION = 1;
+const GENERATOR_VERSION = 1;
 
 /** Draws per page request: bounds the work on a closet with few combinations. */
 export const MAX_DRAWS = 2000;
@@ -85,7 +85,7 @@ export function neutralFor(role: GarmentRole, color: GarmentColor): boolean {
   );
 }
 export const MAX_ACCENT_COLORS = 2;
-export const MAX_LOUD_PATTERNS = 1;
+const MAX_LOUD_PATTERNS = 1;
 
 /** Days unworn from which a garment is "rested" (the card says so). */
 export const REST_DAYS = 21;
@@ -519,7 +519,7 @@ function hardRules(request: IdeaRequest<IdeaGarment>): HardRules {
   };
 }
 
-export function isLoud(garment: Pick<IdeaGarment, 'pattern' | 'colors'>) {
+function isLoud(garment: Pick<IdeaGarment, 'pattern' | 'colors'>) {
   return (
     (garment.pattern !== null && garment.pattern !== 'solid') ||
     garment.colors.includes('pattern')

@@ -127,7 +127,7 @@ export interface GridPage {
 }
 
 /** A LIKE pattern matching `text` anywhere, its own wildcards taken literally. */
-export function containsPattern(text: string): string {
+function containsPattern(text: string): string {
   return `%${text.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 }
 

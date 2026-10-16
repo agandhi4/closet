@@ -154,7 +154,7 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
   };
 }
 
-export function ErrorPage(props: {
+function ErrorPage(props: {
   ctx: ViewContext;
   status: number;
   message: string;

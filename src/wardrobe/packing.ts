@@ -93,7 +93,7 @@ export interface PackingRow<G extends PackingGarment> {
   warnings: PackingWarning[];
 }
 
-export interface PackingGroup<G extends PackingGarment> {
+interface PackingGroup<G extends PackingGarment> {
   role: GarmentRole;
   rows: PackingRow<G>[];
 }

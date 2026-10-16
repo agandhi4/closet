@@ -28,13 +28,7 @@ import { SESSION_COOKIE, TOKEN_PREFIX } from '../credential-names';
  */
 
 /** Where an error was captured: a tag, so Bugsink can filter by it. */
-export type ErrorSource =
-  | 'route'
-  | 'job'
-  | 'push'
-  | 'mcp'
-  | 'client'
-  | 'process';
+type ErrorSource = 'route' | 'job' | 'push' | 'mcp' | 'client' | 'process';
 
 export interface ErrorContext {
   source: ErrorSource;
@@ -78,7 +72,7 @@ export const DISABLED_ERROR_TRACKER: ErrorTracker = {
 };
 
 /** The Sentry SDK's module, as createErrorTracker loads it. */
-export type SentrySdk = typeof import('@sentry/node');
+type SentrySdk = typeof import('@sentry/node');
 
 export interface ErrorTrackerOptions {
   /** SENTRY_DSN; empty means off. */
@@ -212,7 +206,7 @@ export async function createErrorTracker({
 }
 
 /** How long a crash waits for its event to reach Bugsink before exiting. */
-export const CRASH_FLUSH_TIMEOUT_MS = 2_000;
+const CRASH_FLUSH_TIMEOUT_MS = 2_000;
 
 export interface CrashHandlerOptions {
   errors: ErrorTracker;

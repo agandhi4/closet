@@ -3,7 +3,7 @@
 // so a page load's dozens of asset requests cost zero JWT verifications and
 // zero user queries. Keep in step with public/ (src/static-assets.ts) and the
 // image routes in src/web/files/routes.ts.
-export const STATIC_PREFIXES = [
+const STATIC_PREFIXES = [
   // The client libraries, copied from node_modules by `npm run generate:modules`.
   '/modules/',
   '/assets/',
@@ -13,7 +13,7 @@ export const STATIC_PREFIXES = [
   '/file/',
 ] as const;
 
-export const STATIC_FILES = [
+const STATIC_FILES = [
   '/bundle.css',
   '/sw.js',
   '/manifest.json',

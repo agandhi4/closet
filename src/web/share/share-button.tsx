@@ -8,7 +8,7 @@ import { t } from '../i18n';
  * attribute, never spliced into its source. Also the wardrobe-share invite
  * link's copy button.
  */
-export function copyAndFlash(
+function copyAndFlash(
   resting: 'btn-outline' | 'btn-ghost' | 'text-base-content',
 ): string {
   const flashed =

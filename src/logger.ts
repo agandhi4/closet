@@ -21,7 +21,7 @@ export type { Logger } from 'pino';
 // login for a year. app.log lives under DATA_PATH and the container logs
 // reach Loki, so neither may ever hold one. No line logs headers today; this
 // is the net under any that would (`logger.info({ req }, ...)`).
-export const REDACTED_PATHS = [
+const REDACTED_PATHS = [
   'req.headers.cookie',
   'req.headers.authorization',
   'res.headers["set-cookie"]',

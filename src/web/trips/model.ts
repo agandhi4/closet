@@ -57,7 +57,7 @@ export interface TripOutfitView {
   garments: OutfitGarment[];
 }
 
-export interface TripDay {
+interface TripDay {
   day: IsoDate;
   outfits: TripOutfitView[];
 }

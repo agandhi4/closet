@@ -22,7 +22,7 @@ import type { SignablePhotoRef } from '../files/image-url';
 export const STRIP_PAGE = 10;
 
 /** Rows top to toe: the generator's outfit order, so a saved outfit reads the same everywhere. */
-export const STYLING_ORDER: readonly GarmentRole[] = OUTFIT_ORDER;
+const STYLING_ORDER: readonly GarmentRole[] = OUTFIT_ORDER;
 
 /** The most rows a page carries (a role's second row is an "Add row"). */
 export const MAX_ROWS = 20;

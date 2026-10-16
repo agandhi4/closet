@@ -284,7 +284,7 @@ export function outfitsWithGarmentSql(
 }
 
 /** The outfit page's outfit: what it shows, and its share link. */
-export type OutfitDetail = OutfitSummary & { shareableId: string };
+type OutfitDetail = OutfitSummary & { shareableId: string };
 
 /** One of Muse's proposals as its outfit page says it (#335; proposals.ts). */
 export interface OutfitProposal {

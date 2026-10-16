@@ -106,7 +106,7 @@ export function isPersonaKey(value: string): value is PersonaKey {
  * entry's occasion (src/wardrobe/occasions.ts, the part of the day), which
  * the week row's Calendar column and the simulation's evenings decide.
  */
-export const BIBLE_OCCASIONS = [
+const BIBLE_OCCASIONS = [
   'office',
   'meeting',
   'rain',
@@ -167,7 +167,7 @@ export interface SeedOutfit {
   garmentIds: string[];
 }
 
-export interface SeedCapsule {
+interface SeedCapsule {
   /** As the capsule form stores them (readCapsuleForm's result). */
   fields: CapsuleFields;
   /** Garment ids (archived ones too: they keep their membership). */
@@ -175,7 +175,7 @@ export interface SeedCapsule {
 }
 
 /** A row of the week table: one weekday's rules. */
-export interface SeedDay {
+interface SeedDay {
   /** The occasions the day's outfit is drawn from. */
   draws: BibleOccasion[];
   /** The calendar occasion of the day's outfit (all day, work). */
@@ -220,7 +220,7 @@ export interface PersonaWeather {
  * destination, its outfits by saved outfit name for a day and occasion, its
  * extras and which garments are marked packed.
  */
-export interface SeedTrip {
+interface SeedTrip {
   fields: TripFields;
   location: Location | null;
   outfits: { day: IsoDate; occasion: Occasion | undefined; outfit: string }[];
@@ -273,7 +273,7 @@ export interface Persona {
 }
 
 /** Where the bibles live, from src/ and dist/ alike (the image copies them). */
-export const PERSONAS_DIR = join(PROJECT_ROOT, 'src', 'seed', 'personas');
+const PERSONAS_DIR = join(PROJECT_ROOT, 'src', 'seed', 'personas');
 
 export function loadPersona(key: PersonaKey): Persona {
   const path = join(PERSONAS_DIR, `${key}.md`);

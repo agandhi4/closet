@@ -55,8 +55,8 @@ export const BYTE_LIMITS: Readonly<Record<ContentKind, number>> = {
   // An API answer: a 16-day hourly forecast is about 40 KB.
   json: 512 * 1024,
 };
-export const MAX_REDIRECTS = 3;
-export const FETCH_TIMEOUT_MS = 10_000;
+const MAX_REDIRECTS = 3;
+const FETCH_TIMEOUT_MS = 10_000;
 const MAX_URL_LENGTH = 2048;
 
 // SVG is left out: it is a document, not a photo, and the photo pipeline
@@ -154,7 +154,7 @@ export interface ResolvedAddress {
 }
 
 /** A name's addresses (the system resolver in production). */
-export type Resolve = (hostname: string) => Promise<ResolvedAddress[]>;
+type Resolve = (hostname: string) => Promise<ResolvedAddress[]>;
 
 /** Which destinations a fetch may connect to. */
 export interface DestinationPolicy {

@@ -46,7 +46,7 @@ export interface DayDestination {
   replace?: number;
 }
 
-export interface TripDestination {
+interface TripDestination {
   kind: 'trip';
   tripId: number;
   day?: IsoDate;

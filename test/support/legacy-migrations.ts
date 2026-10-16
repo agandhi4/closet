@@ -13,7 +13,7 @@ import { join } from 'node:path';
  * specs can build a database exactly the way production's was built and
  * boot the app on it.
  */
-export const LEGACY_MIGRATIONS_PATH = join(__dirname, 'legacy-migrations');
+const LEGACY_MIGRATIONS_PATH = join(__dirname, 'legacy-migrations');
 
 /** Migration names in the order MikroORM applies them (timestamped names). */
 export function legacyMigrationNames(): string[] {

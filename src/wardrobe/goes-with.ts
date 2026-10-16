@@ -64,7 +64,7 @@ export interface OutfitCount {
   capped: boolean;
 }
 
-export interface Partner<G> {
+interface Partner<G> {
   garment: G;
   /** How many of the found outfits hold it; null for a layer (checked on its own). */
   outfits: number | null;
@@ -73,7 +73,7 @@ export interface Partner<G> {
 }
 
 /** One role the item is worn with: how many of the closet's go, and the best of them. */
-export interface PartnerRole<G> {
+interface PartnerRole<G> {
   role: GarmentRole;
   /** Closet garments of the role that make an outfit with the item. */
   goes: number;

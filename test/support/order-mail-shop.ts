@@ -51,7 +51,7 @@ const SOCKS_PAGE = `<!doctype html>
 const COLLECTION_PAGE = `<!doctype html><html><head><title>New arrivals</title>
 <meta property="og:title" content="New arrivals"></head><body></body></html>`;
 
-export const ORDER_TRACKER =
+const ORDER_TRACKER =
   '/ls/click?upn=u001.Qp9x7-2FbT0kL3rN8vYh-2BsE4eZ1aJ6cG5mW-3D&utm_campaign=order';
 
 /**

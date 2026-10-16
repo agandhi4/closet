@@ -288,7 +288,7 @@ export class OutfitIncomplete extends HttpError {
  * proposals the owner has not made theirs (#335): a 409. Save (or Love)
  * makes it theirs; nothing was written.
  */
-export class OutfitNotYours extends HttpError {
+class OutfitNotYours extends HttpError {
   constructor(readonly outfitId: number) {
     super(409, t('outfits.muse.NOT_YOURS_YET'), {
       logDetail: `outfit ${outfitId} is a proposal not the owner's yet`,

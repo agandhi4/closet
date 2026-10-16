@@ -42,7 +42,7 @@ import { type ExtractedProduct, extractProduct } from './extract';
  */
 
 /** How many of a page's image candidates are fetched as choices. */
-export const MAX_PHOTO_CHOICES = 6;
+const MAX_PHOTO_CHOICES = 6;
 
 /** How many choices are fetched and previewed at once. */
 export const CHOICE_CONCURRENCY = 2;

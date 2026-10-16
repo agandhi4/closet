@@ -11,7 +11,7 @@ import type { ReminderSettings } from './queries';
 import type { SendReport } from './sender';
 
 /** Where the reminders' fragment goes; push.js loads it once the device is on. */
-export const REMINDERS_ID = 'push-reminders';
+const REMINDERS_ID = 'push-reminders';
 
 /**
  * The profile page's notification controls. Whether this browser can and

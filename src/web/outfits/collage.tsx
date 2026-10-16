@@ -32,7 +32,7 @@ import { isPieceToBuy } from './references';
  * set's builder and the piece's trigger must agree, or a tap opens the
  * wrong slide.
  */
-export function inViewerSet(piece: CollagePieceView): boolean {
+function inViewerSet(piece: CollagePieceView): boolean {
   return piece.photo !== null;
 }
 

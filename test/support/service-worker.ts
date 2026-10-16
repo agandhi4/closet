@@ -1,10 +1,10 @@
 import { type BrowserContext, expect, type Page } from '@playwright/test';
 
 /** The worker's page cache (views/assets/src-sw.ts, PAGES_CACHE). */
-export const PAGES_CACHE = 'pages-v2';
+const PAGES_CACHE = 'pages-v2';
 
 /** The worker's image cache (views/assets/src-sw.ts, IMAGES_CACHE). */
-export const IMAGES_CACHE = 'images-v2';
+const IMAGES_CACHE = 'images-v2';
 
 /**
  * Takes the device off the network and puts it back. Chromium's setOffline
@@ -22,14 +22,6 @@ export async function networkSwitch(context: BrowserContext) {
     offline = state === 'offline';
     await context.setOffline(offline);
   };
-}
-
-/** Resolves once the worker logs a line containing `text`. */
-export function workerLogs(context: BrowserContext, text: string) {
-  return context.waitForEvent('console', {
-    predicate: (message) => message.text().includes(text),
-    timeout: 15_000,
-  });
 }
 
 /**
@@ -51,60 +43,10 @@ export function cachedPaths(page: Page): Promise<string[]> {
   }, PAGES_CACHE);
 }
 
-/** Every key in the page cache, query and fragment suffix included. */
-export function cachedKeys(page: Page): Promise<string[]> {
-  return page.evaluate(async (cacheName) => {
-    const cache = await caches.open(cacheName);
-    return (await cache.keys()).map((request) => {
-      const url = new URL(request.url);
-      return `${url.pathname}${url.search}`;
-    });
-  }, PAGES_CACHE);
-}
-
 /** Visits `path` through the worker until its page is in the cache. */
 export async function cachePage(page: Page, path: string): Promise<void> {
   await page.goto(path);
   await expect.poll(() => cachedPaths(page)).toContain(path);
-}
-
-/**
- * Makes the cached copy of `path` look `ageMs` old, as if the app had last
- * fetched it then: the stamp the worker writes, X-SW-Cached-At, and the same
- * stamp as its Server-Timing entry (page-cache.ts's CACHED_AT_TIMING_NAME;
- * freshness.js reads that one through Navigation Timing, #240), which must
- * age together or a full navigation reads the original, unaged stamp.
- */
-export async function ageCachedPage(
-  page: Page,
-  path: string,
-  ageMs: number,
-): Promise<void> {
-  await page.evaluate(
-    async ({ cacheName, path, ageMs }) => {
-      const cache = await caches.open(cacheName);
-      const key = new URL(path, location.origin).href;
-      const cached = await cache.match(key);
-      if (!cached) throw new Error(`${path} is not cached`);
-      const headers = new Headers(cached.headers);
-      const agedAt = String(Date.now() - ageMs);
-      headers.set('X-SW-Cached-At', agedAt);
-      const timing = headers.get('Server-Timing') ?? '';
-      headers.set(
-        'Server-Timing',
-        timing.replace(/cache;desc="\d+"/, `cache;desc="${agedAt}"`),
-      );
-      await cache.put(
-        key,
-        new Response(await cached.blob(), {
-          status: cached.status,
-          statusText: cached.statusText,
-          headers,
-        }),
-      );
-    },
-    { cacheName: PAGES_CACHE, path, ageMs },
-  );
 }
 
 /** The images the worker's image cache holds, as path and query. */
@@ -116,20 +58,6 @@ export function cachedImages(page: Page): Promise<string[]> {
       return `${url.pathname}${url.search}`;
     });
   }, IMAGES_CACHE);
-}
-
-/**
- * Resolves with the worker's one line for a warm (WARM_PAGES, src-sw.ts):
- * `[sw] warmed ...`, `[sw] warm incomplete, ...` or `[sw] warm stopped, <why>: ...`. A longer wait than
- * workerLogs': the demo wardrobe's first warm is about 200 fetches.
- */
-export async function warmFinished(context: BrowserContext): Promise<string> {
-  const message = await context.waitForEvent('console', {
-    predicate: (line) =>
-      /^\[sw\] warm(ed| stopped| incomplete)\b/.test(line.text()),
-    timeout: 120_000,
-  });
-  return message.text();
 }
 
 /**
@@ -155,18 +83,4 @@ export async function withoutWarming(context: BrowserContext): Promise<void> {
       Reflect.apply(post, this, [message, ...rest]);
     };
   });
-}
-
-/** Makes the worker's last warm look `ageMs` ago (its warmed-at record). */
-export async function ageLastWarm(page: Page, ageMs: number): Promise<void> {
-  await page.evaluate(
-    async ({ cacheName, ageMs }) => {
-      const cache = await caches.open(cacheName);
-      await cache.put(
-        'https://page-cache.invalid/warmed-at',
-        new Response(String(Date.now() - ageMs)),
-      );
-    },
-    { cacheName: PAGES_CACHE, ageMs },
-  );
 }

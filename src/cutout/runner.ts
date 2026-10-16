@@ -44,7 +44,7 @@ export class CutoutTimeoutError extends Error {
 }
 
 export const CUTOUT_TIMEOUT_MS = 60_000;
-export const MODEL_IDLE_MS = 15 * 60_000;
+const MODEL_IDLE_MS = 15 * 60_000;
 
 export interface ModelRunnerOptions {
   model: Pick<CutoutModel, 'ready' | 'spec'>;
