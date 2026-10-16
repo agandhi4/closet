@@ -22,9 +22,6 @@ export interface AuthContext {
   user: SessionUser;
 }
 
-// Defined below web/ so the error tracker can redact it (src/credential-names.ts).
-export { SESSION_COOKIE };
-
 /**
  * A session cookie's verdict: its session (and, on a `checksPassword` route,
  * the account row with its hash; on a request addressing another user's

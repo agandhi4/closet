@@ -17,8 +17,6 @@ import type { SessionUser } from './session';
  * statement), as it ends every session.
  */
 
-// Defined below web/ so the error tracker can redact it (src/credential-names.ts).
-export { TOKEN_PREFIX };
 /** Characters of the token the profile shows: the fixed prefix and four more. */
 const DISPLAY_LENGTH = TOKEN_PREFIX.length + 4;
 /** How stale last_used_at may get before a call writes it again. */

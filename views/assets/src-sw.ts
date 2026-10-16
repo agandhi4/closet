@@ -41,10 +41,10 @@ import {
   WARM_IMAGE_CAP,
   WARM_MAX_AGE_MS,
   WARM_PAGE_CAP,
-  WARM_REQUEST_HEADER,
   WARM_USAGE_BUDGET_BYTES,
   type WarmList,
 } from '../../src/web/shell/offline-warm';
+import { WARM_REQUEST_HEADER } from '../../src/warm-request';
 import { openNotification } from '../../src/web/push/notification-click';
 import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
 

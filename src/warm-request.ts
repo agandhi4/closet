@@ -1,10 +1,10 @@
 // What marks a request as the service worker's warm (#286, src/web/shell/offline-warm.md), below
 // web/ so the request histogram can skip warms without importing a web module. Bundled into the
-// service worker through offline-warm.ts: keep it free of Node and DOM.
+// service worker (views/assets/src-sw.ts): keep it free of Node and DOM.
 
 /**
  * On every request a warm makes (the list, each page, each thumb), so the server's request log
- * tells warming apart from a person. Used by views/assets/src-sw.ts (via offline-warm.ts) and
+ * tells warming apart from a person. Used by views/assets/src-sw.ts and
  * isWarmRequest below.
  */
 export const WARM_REQUEST_HEADER = 'X-Closet-Warm';

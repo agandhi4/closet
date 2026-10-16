@@ -9,9 +9,6 @@
 import { TAB_ROOTS } from '../page-cache';
 import { GRID_PAGE_SIZE } from '../wardrobe/grid-page-size';
 
-// The warm marker lives below web/ (src/warm-request.ts); re-exported for the service worker.
-export { WARM_REQUEST_HEADER } from '../../warm-request';
-
 /** The warm list's route (src/web/shell/routes.tsx). */
 export const WARM_LIST_PATH = '/offline/warm';
 
