@@ -72,7 +72,7 @@ Exactly the keys each emits, per flag; `<s>` is `--scope`. CLIs: devkit README, 
 |---|---|---|
 | `python.py` | `--mccabe` | `complexity.<s>.mccabe_max`, `complexity.<s>.mccabe_over_10` (ruff C901 at 0, `--ignore-noqa`) |
 | | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (complexipy) |
-| | `--vulture` | `dead.<s>.vulture` (findings; `[tool.vulture]` in `--root`'s pyproject.toml is honoured, else the `--src` paths) |
+| | `--vulture` | `dead.<s>.vulture` (findings; `[tool.vulture]` in `--root`'s pyproject.toml is honoured, else the `--src` paths; unused fields of pydantic/SQLAlchemy models, dataclasses, enums, TypedDicts and Protocols are dropped unless `--vulture-keep-declarative`) |
 | | `--cycles` | `coupling.<s>.cycles` (strongly connected components of the runtime import graph over the `--src` directories and `.py` modules, so a flat backend lists `app.py` beside its packages; `if TYPE_CHECKING:` imports excluded, imports inside functions included) |
 | `ts.mjs` | `--cyclomatic` | `complexity.<s>.cyclomatic_max` (eslint `complexity` at 0, `--no-inline-config`, production files: `--src` minus tests, `__tests__`/`__mocks__`/`test-helpers`, `test-setup.*`, `setupTests.*`, `*.d.ts` and `--test-glob`s) |
 | | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (eslint-plugin-sonarjs) |
@@ -80,7 +80,7 @@ Exactly the keys each emits, per flag; `<s>` is `--scope`. CLIs: devkit README, 
 | | `--cycles` | `coupling.<s>.cycles` (dependency-cruiser `--no-config` graph of `--src`, same production filter, `import type` is not an edge) |
 | | `--bundle` | `bundle.<s>.kb_total` (every file `vite build` emits, raw KiB, one decimal), `bundle.<s>.kb_entry` (the `--bundle-entry` chunk, its static-import closure and their CSS) |
 | `jscpd.mjs` | | `duplication.<s>.jscpd_percent` (jscpd's `statistics.total.percentage`, two decimals), `duplication.<s>.clones` |
-| `coverage.py` | `--coverage-json` | `coverage.<s>.lines` (covered_lines / num_statements), `coverage.<s>.branches` (covered_branches / num_branches; omitted when no branches were measured) |
+| `coverage.py` (area `job:<tier job>`) | `--coverage-json` | `coverage.<s>.lines` (covered_lines / num_statements), `coverage.<s>.branches` (covered_branches / num_branches; omitted when no branches were measured) |
 | | `--istanbul-summary` | `coverage.<s>.lines` (`total.lines.pct`), `coverage.<s>.branches` (`total.branches.pct`; omitted when "Unknown") |
 
 A repo-specific collector (finplat's reinvention registry, closet's `audit-pages`) uses its
@@ -105,8 +105,9 @@ template never gates on a placeholder. Keys in the snapshot but not in the bound
 reported as untracked and never fail.
 
 **Skipped collectors.** In the gate, `metrics_collect.sh` runs a collector only when a changed
-path is in its area (`tooling` and `other` run everything, `repo` collectors always run) and
-passes the rest to `merge --skipped`. `check` then reports a tracked key that is absent from
+path is in its area (`other` runs everything, `tooling` widens nothing, `repo` collectors
+always run; a `job:<name>` collector, which reads a gate job's report, only when
+`build/metrics/gate.json` records that job) and passes the rest to `merge --skipped`. `check` then reports a tracked key that is absent from
 the snapshot as `SKIPPED (collector <name> did not run)`, and does not fail, exactly when the
 bound's `source` is in the snapshot's `skipped`. A key with no `source` (bounds written before
 schema 2: run `rebaseline` once to add them), or whose collector ran and emitted nothing, is
