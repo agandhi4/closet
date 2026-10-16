@@ -7,7 +7,7 @@ import { PAGE_ACCOUNT_HEADER } from './page-cache';
 const HTML = 'text/html; charset=utf-8';
 
 /** Every HTML answer's policy unless its route set one (send below). */
-export const PAGE_CACHE_CONTROL = 'private, no-cache';
+const PAGE_CACHE_CONTROL = 'private, no-cache';
 
 interface RenderOptions {
   status?: number;

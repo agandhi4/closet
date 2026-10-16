@@ -46,7 +46,7 @@ export interface InsightsWindow {
  * Insights' window: the closet over the last RECENT_DAYS, today (the
  * household's, todayIn(APP_TIMEZONE)) and the RECENT_DAYS - 1 days before.
  */
-export function recentWindow(today: IsoDate): InsightsWindow {
+function recentWindow(today: IsoDate): InsightsWindow {
   return {
     from: addDays(today, -(RECENT_DAYS - 1)),
     to: today,
@@ -55,7 +55,7 @@ export function recentWindow(today: IsoDate): InsightsWindow {
 }
 
 /** One row per garment of the owner's in the window's scope, newest first. */
-export function insightGarments(
+function insightGarments(
   db: Db,
   ownerId: number,
   window: InsightsWindow,
@@ -115,7 +115,7 @@ export function insightGarments(
  * from the owner's index, not a scan of every account's closet (#169:
  * about a millisecond at ten accounts of 300 garments; the plan is on #175).
  */
-export async function wornPairs(
+async function wornPairs(
   db: Db,
   ownerId: number,
   window: InsightsWindow,

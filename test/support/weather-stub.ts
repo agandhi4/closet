@@ -35,7 +35,7 @@ interface StubPlace {
 }
 
 /** What the search answers, by the lower-case query. */
-export const PLACES: Readonly<Record<string, readonly StubPlace[]>> = {
+const PLACES: Readonly<Record<string, readonly StubPlace[]>> = {
   brooklyn: [
     {
       name: 'Brooklyn',
@@ -100,7 +100,7 @@ export interface WeatherStub {
 }
 
 /** Open-Meteo's forecast answer for `days` (the fields the app reads). */
-export function forecastAnswer(days: readonly DayForecast[], timeZone: string) {
+function forecastAnswer(days: readonly DayForecast[], timeZone: string) {
   const hours = days.flatMap((day) =>
     day.hours.map((h) => ({
       ...h,
@@ -130,7 +130,7 @@ export function forecastAnswer(days: readonly DayForecast[], timeZone: string) {
  * `last`: the seed's simulated New York days as observations, air highs and
  * lows, the hours' feels-like range, and 5 mm on a rainy day.
  */
-export function archiveAnswer(first: string, last: string) {
+function archiveAnswer(first: string, last: string) {
   const count = daysBetween(first, last) + 1;
   const days = weatherFor(WEATHER_KEY, first, count).map((weather) => ({
     weather,

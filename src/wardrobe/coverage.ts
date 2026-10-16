@@ -15,7 +15,7 @@ import type { Condition, Formality, GarmentColor, Warmth } from './properties';
 
 /** How much a target matters: a tie-break in matching. */
 export const PLAN_PRIORITIES = ['high', 'medium', 'low'] as const;
-export type PlanPriority = (typeof PLAN_PRIORITIES)[number];
+type PlanPriority = (typeof PLAN_PRIORITIES)[number];
 
 /** Both ends inclusive, as OCCASION_HINTS' formality (src/wardrobe/occasions.ts). */
 export interface Range<T extends number> {
@@ -57,7 +57,7 @@ export interface ClosetPiece {
   condition: Condition;
 }
 
-export type ItemStatus = 'owned' | 'partly' | 'missing';
+type ItemStatus = 'owned' | 'partly' | 'missing';
 
 /**
  * Why a target is not owned (null when it is), the first that applies:
@@ -69,7 +69,7 @@ export type ItemStatus = 'owned' | 'partly' | 'missing';
  *   another target (takenBy names them).
  * - nothing-matches: nothing in the closet fits the target at all.
  */
-export type GapReason =
+type GapReason =
   | 'replace-soon'
   | 'taken-by-other-items'
   | 'too-few-copies'

@@ -91,8 +91,8 @@ import { startWeatherStub } from '../support/weather-stub';
  * no group here (#182).
  */
 
-export type SignedIn = 'owner' | 'manager' | 'viewer' | 'stranger';
-export type ActorName = SignedIn | 'anonymous';
+type SignedIn = 'owner' | 'manager' | 'viewer' | 'stranger';
+type ActorName = SignedIn | 'anonymous';
 /** own: the URL as the app links it; ownerId: `?ownerId=<owner>` appended. */
 export type Via = 'own' | 'ownerId';
 
@@ -107,7 +107,7 @@ export type Via = 'own' | 'ownerId';
  * unauthorized: a 401 without a body worth reading: the MCP endpoint, where
  *     a session cookie never counts (only a personal access token does).
  */
-export type Outcome =
+type Outcome =
   | 'ok'
   | 'hidden'
   | 'ignored'
@@ -231,7 +231,7 @@ export const outfitName = (f: Fixture) => f.outfitName;
 export const tripName = (f: Fixture) => f.tripName;
 export const orderItemName = (f: Fixture) => f.orderItemName;
 // One style profile per user, so one note every fixture saves again.
-export const OWNER_STYLE_NOTE = 'Owner style notes, never shared';
+const OWNER_STYLE_NOTE = 'Owner style notes, never shared';
 export const styleNote = () => OWNER_STYLE_NOTE;
 // The owner's note on the wishlist item's brand (#24): the owner's body,
 // never shown to anyone else, a shared wardrobe's pages included.

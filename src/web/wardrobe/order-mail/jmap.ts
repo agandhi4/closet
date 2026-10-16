@@ -26,19 +26,19 @@ import type { BodyPart } from './links';
  */
 
 /** Production's session resource. The specs pass their stand-in's. */
-export const FASTMAIL_SESSION_URL = 'https://api.fastmail.com/jmap/session';
+const FASTMAIL_SESSION_URL = 'https://api.fastmail.com/jmap/session';
 
 const CORE = 'urn:ietf:params:jmap:core';
 const MAIL = 'urn:ietf:params:jmap:mail';
 
 /** How many inbox ids one poll asks for; the processed ones are then dropped. */
-export const QUERY_LIMIT = 50;
+const QUERY_LIMIT = 50;
 /**
  * Each body part's value is cut here by the server (`isTruncated`): the
  * size cap of one email. Order confirmations run 50 to 150 KB of HTML; the
  * fetcher's 512 KB cap on a JSON answer leaves room for escaping.
  */
-export const MAX_BODY_VALUE_BYTES = 200_000;
+const MAX_BODY_VALUE_BYTES = 200_000;
 
 /** A JMAP failure: the step and why, never the token or a body. */
 export class JmapError extends Error {
@@ -61,7 +61,7 @@ export interface EmailEnvelope {
   authenticationResults: string[];
 }
 
-export type EmailBody =
+type EmailBody =
   | { kind: 'parts'; parts: BodyPart[] }
   /** Gone between the query and the get. */
   | { kind: 'gone' }

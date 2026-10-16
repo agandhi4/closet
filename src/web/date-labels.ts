@@ -48,7 +48,7 @@ const DAY_SHORT_NAMES: StringKey[] = [
 ];
 
 /** Indexed by month - 1. */
-export const MONTH_NAMES: StringKey[] = [
+const MONTH_NAMES: StringKey[] = [
   'MONTH_JAN',
   'MONTH_FEB',
   'MONTH_MAR',
@@ -64,7 +64,7 @@ export const MONTH_NAMES: StringKey[] = [
 ];
 
 /** Indexed by month - 1: the month page's title. */
-export const MONTH_LONG_NAMES: StringKey[] = [
+const MONTH_LONG_NAMES: StringKey[] = [
   'calendar.month.JAN',
   'calendar.month.FEB',
   'calendar.month.MAR',

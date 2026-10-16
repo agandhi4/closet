@@ -37,7 +37,7 @@ export function readiness(
 }
 
 /** The contract's bound on the database round-trip. */
-export const DATABASE_TIMEOUT_MS = 3_000;
+const DATABASE_TIMEOUT_MS = 3_000;
 
 const FIX = 'see docs/operations.md#health';
 

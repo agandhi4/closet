@@ -14,7 +14,7 @@ import { type Random, seededRandom } from '../random';
  * Bump to reshuffle every persona's history on purpose (a new key for
  * every stream).
  */
-export const SEED_VERSION = 1;
+const SEED_VERSION = 1;
 
 export function stream(...key: (string | number)[]): Random {
   return seededRandom(SEED_VERSION, ...key);

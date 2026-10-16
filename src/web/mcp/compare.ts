@@ -28,7 +28,7 @@ export interface ComparedGarment {
 }
 
 /** A role and type (or, untyped, the category) that either side holds. */
-export interface ComparisonGroup {
+interface ComparisonGroup {
   role: GarmentRole;
   /** The type, or the category for an untyped garment. */
   kind: string;
@@ -36,7 +36,7 @@ export interface ComparisonGroup {
   shared: GarmentBrief[];
 }
 
-export interface GarmentBrief {
+interface GarmentBrief {
   id: number;
   name: string | null;
   brand: string | null;

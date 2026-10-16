@@ -42,8 +42,8 @@ import type { PropertyFormValues } from './garment-input';
  * presets and the fields' refresh are missing.
  */
 
-export const PROPS_MAIN_ID = 'garment-props-main';
-export const PROPS_MORE_ID = 'garment-props-more';
+const PROPS_MAIN_ID = 'garment-props-main';
+const PROPS_MORE_ID = 'garment-props-more';
 
 /** What refreshes the properties: both blocks, and the form's category input. */
 export const REFRESH_PROPERTIES = autosaveAttributes(

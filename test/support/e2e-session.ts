@@ -1,10 +1,4 @@
-import {
-  type Browser,
-  type BrowserContext,
-  expect,
-  type Page,
-  type PlaywrightWorkerArgs,
-} from '@playwright/test';
+import { expect, type Page, type PlaywrightWorkerArgs } from '@playwright/test';
 
 export const E2E_PASSWORD = 'Password123!';
 
@@ -21,7 +15,7 @@ export const APP_ORIGIN = `http://localhost:${process.env.PORT ?? '3000'}`;
  * and are dropped. Derived from PORT so worktrees running side by side never
  * share one.
  */
-export const SENTRY_STUB_PORT = Number(process.env.PORT ?? '3000') + 10000;
+const SENTRY_STUB_PORT = Number(process.env.PORT ?? '3000') + 10000;
 export const E2E_SENTRY_DSN = `http://publickey@127.0.0.1:${SENTRY_STUB_PORT}/1`;
 
 /**
@@ -118,55 +112,3 @@ export async function switchAccount(page: Page, email: string): Promise<void> {
  * ORDER_MAIL_OWNER to it): the one account with a review list (#25).
  */
 export const ORDER_REVIEW_OWNER = 'orders-owner@example.com';
-
-/**
- * Signs in as `email`, registering it the first time: a fixed account the
- * server's config names (ORDER_REVIEW_OWNER), which a retry or a second
- * run on the same database finds already registered.
- */
-export async function signInAs(page: Page, email: string): Promise<void> {
-  const form = { email, password: E2E_PASSWORD, confirmPassword: E2E_PASSWORD };
-  const registered = await page.request.post('/auth/register', {
-    form,
-    headers: signUpHeaders(),
-  });
-  if (registered.ok()) return;
-  const login = await page.request.post('/auth/login', {
-    form: { email, password: E2E_PASSWORD },
-    headers: signUpHeaders(),
-  });
-  if (!login.ok()) {
-    throw new Error(`Signing in as ${email} failed: ${login.status()}`);
-  }
-}
-
-/** The password changePasswordElsewhere sets. */
-export const E2E_NEW_PASSWORD = 'NewPassword456!';
-
-/**
- * Signs `email` in on a second device (a context of its own) and changes the
- * password there, which ends every other session of the account and
- * revokes every other device's push subscription (this one posts none).
- * Returns the second device, still signed in; the caller closes it.
- */
-export async function changePasswordElsewhere(
-  browser: Browser,
-  email: string,
-): Promise<BrowserContext> {
-  const other = await browser.newContext();
-  const login = await other.request.post('/auth/login', {
-    form: { email, password: E2E_PASSWORD },
-    headers: signUpHeaders(),
-  });
-  expect(login.ok()).toBe(true);
-  const changed = await other.request.post('/auth/change-password', {
-    form: {
-      currentPassword: E2E_PASSWORD,
-      newPassword: E2E_NEW_PASSWORD,
-      confirmPassword: E2E_NEW_PASSWORD,
-    },
-    headers: SAME_ORIGIN,
-  });
-  expect(new URL(changed.url()).pathname).toBe('/auth/profile');
-  return other;
-}

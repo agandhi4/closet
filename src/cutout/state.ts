@@ -102,7 +102,7 @@ export type CutoutEvent =
   /** The user saved a mask in the mask editor, stored under `variantKey`. */
   | { type: 'edit'; variantKey: string };
 
-export type CutoutEventType = CutoutEvent['type'];
+type CutoutEventType = CutoutEvent['type'];
 
 export type Transition =
   | {

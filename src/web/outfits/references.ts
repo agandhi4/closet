@@ -76,7 +76,7 @@ function piecesToBuyFrom(outfitId: SQL | AnyPgColumn): SQL {
 }
 
 /** The outfit's pieces not owned yet, in slot order, as a JSON list; empty when it is complete. */
-export function piecesToBuySql(outfitId: SQL | AnyPgColumn): SQL<PieceToBuy[]> {
+function piecesToBuySql(outfitId: SQL | AnyPgColumn): SQL<PieceToBuy[]> {
   return sql<PieceToBuy[]>`(
     select coalesce(json_agg(json_build_object(
       'id', ${garment.id}, 'name', ${garment.name}
@@ -126,7 +126,7 @@ export function ownersOutfit(
  * aside): never planned, packed or worn, complete or not (#335). By id, a
  * parameter.
  */
-export function outfitIsPendingProposal(outfitId: SQL): SQL<boolean> {
+function outfitIsPendingProposal(outfitId: SQL): SQL<boolean> {
   return sql<boolean>`exists (
     select 1 from ${outfit} as pending
     where pending.id = ${outfitId} and pending.proposed_at is not null

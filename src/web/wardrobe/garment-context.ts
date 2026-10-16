@@ -32,7 +32,7 @@ import { type RepairEntry, repairLogSql, type RepairLog } from './repairs';
  * #155): never read for a grantee, whose page renders none of them, nor
  * for a wishlist item, which is not in the closet.
  */
-export interface OwnerRecords {
+interface OwnerRecords {
   wear: WearSummary;
   outfits: GarmentOutfits;
   avoided: AvoidedPartner[];

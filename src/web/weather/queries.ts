@@ -68,7 +68,7 @@ export function activeLocation(
     : null;
 }
 
-export function isFresh(locatedAt: Date, now: Date): boolean {
+function isFresh(locatedAt: Date, now: Date): boolean {
   return now.getTime() - locatedAt.getTime() < HERE_FRESH_HOURS * 3_600_000;
 }
 
@@ -139,7 +139,7 @@ export function weatherWithForecastSql(
  * list, one element per user with a settings row): a batch job's read
  * (findWeathersWithForecast, #165), where a read per user was an N+1.
  */
-export function weathersWithForecastSql(
+function weathersWithForecastSql(
   userIds: readonly number[],
   now: Date,
 ): SQL<WeatherWithForecastJson[]> {

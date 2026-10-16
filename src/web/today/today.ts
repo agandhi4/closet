@@ -49,7 +49,7 @@ import { type MuseRound, museRoundSql } from '../wishlist/rounds';
  */
 
 /** Ideas a suggestions row shows at once. */
-export const TODAY_IDEAS = 3;
+const TODAY_IDEAS = 3;
 
 /** Refresh stops at this page and starts over. */
 export const MAX_TODAY_PAGE = 20;
@@ -71,7 +71,7 @@ export interface IdeasRow {
   weather: IdeasWeather | null;
 }
 
-export type TodayRow = PlannedRow | IdeasRow;
+type TodayRow = PlannedRow | IdeasRow;
 
 export interface TodayModel {
   today: IsoDate;

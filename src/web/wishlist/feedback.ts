@@ -53,7 +53,7 @@ import { OWNER_LOCK_TIMEOUT_MS } from '../auth/queries';
  * statement.
  */
 
-export interface NeedDecision {
+interface NeedDecision {
   needId: number;
   need: string;
   /** chosen: a pick to buy; bought: settled by a purchase (a pick or a different one); set_aside: not this need. */
@@ -65,7 +65,7 @@ export interface NeedDecision {
   at: string;
 }
 
-export interface PickSetAside {
+interface PickSetAside {
   garmentId: number;
   name: string | null;
   sourceUrl: string | null;
@@ -76,7 +76,7 @@ export interface PickSetAside {
   at: string;
 }
 
-export interface Purchase {
+interface Purchase {
   garmentId: number;
   name: string | null;
   sourceUrl: string | null;
@@ -89,7 +89,7 @@ export interface Purchase {
   at: string | null;
 }
 
-export interface OutfitReaction {
+interface OutfitReaction {
   outfitId: number;
   name: string | null;
   reaction: LookReaction;
@@ -100,7 +100,7 @@ export interface OutfitReaction {
   at: string | null;
 }
 
-export interface BoughtWears {
+interface BoughtWears {
   garmentId: number;
   name: string | null;
   status: GarmentStatus;

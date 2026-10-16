@@ -18,7 +18,7 @@ import { SHARING_SECTION_ID } from './urls';
 
 /** Views of sharing: Profile's Sharing section, the invite landing, the new-link fragment. */
 
-export const REFUSAL_MESSAGES: Record<AcceptRefusal, StringKey> = {
+const REFUSAL_MESSAGES: Record<AcceptRefusal, StringKey> = {
   'not-found': 'SHARE_ERROR_NOT_FOUND',
   'own-invite': 'SHARE_ERROR_OWN_INVITE',
   'wrong-recipient': 'SHARE_ERROR_WRONG_RECIPIENT',

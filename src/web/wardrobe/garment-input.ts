@@ -96,11 +96,8 @@ export const LookalikesDismissed = Type.Optional(
  */
 export const DraftsSaved = Type.Optional(Type.String({ maxLength: 400 }));
 
-export const FabricWeightUnit = Type.Union([
-  Type.Literal('oz'),
-  Type.Literal('gsm'),
-]);
-export type FabricWeightUnit = Static<typeof FabricWeightUnit>;
+const FabricWeightUnit = Type.Union([Type.Literal('oz'), Type.Literal('gsm')]);
+type FabricWeightUnit = Static<typeof FabricWeightUnit>;
 
 /**
  * The property fields as the form posts them; shared by the garment form's
@@ -665,7 +662,7 @@ export function storedPropertyValues(
 }
 
 /** The materials the care presets came from, as the hidden field carries them. */
-export function presetMaterialsText(materials: readonly Material[]): string {
+function presetMaterialsText(materials: readonly Material[]): string {
   return materials.join(',');
 }
 
@@ -714,7 +711,7 @@ function asText(
  * when it is not a number or outside FABRIC_WEIGHT_GSM (named in the unit
  * the person typed).
  */
-export function readFabricWeight(
+function readFabricWeight(
   posted: string,
   unit: FabricWeightUnit,
 ): { gsm: number | null } | { error: string } {
@@ -915,7 +912,7 @@ function readDay(posted: string | undefined): IsoDate | null | undefined {
  * null when blank; a message for anything that is not an absolute http(s)
  * URL (a `javascript:` link would run on the garment page's "View product").
  */
-export function readSourceUrl(
+function readSourceUrl(
   posted: string | undefined,
 ): { url: string | null } | { error: string } {
   const typed = posted?.trim();
@@ -951,7 +948,7 @@ export function readPrice(
  * The product link and price as stored, or the messages for them; neither
  * (left as stored) when the posting form predates them (GarmentBody.product).
  */
-export function readProductFields(
+function readProductFields(
   posted: Pick<GarmentBody, 'product' | 'sourceUrl' | 'price'>,
 ):
   | { ok: true; fields: Partial<ProductFields> }

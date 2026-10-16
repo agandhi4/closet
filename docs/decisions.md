@@ -135,3 +135,9 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** the scorecard's T2, T4 and T11 rows had no number in closet: file size, module fan-in/out and dependency advisories were unmeasured, and nothing stopped a committed credential.
 **Decision:** devkit main's `size.py` and `vuln.py` collectors plus `--fan` on ts-backend, all area `other` (all of src/ is other). size and coupling bounds were seeded at today's values (max_lines 2295, over_600 15, fan_in 122, fan_out 36); vuln is report-only (the ratchet never tracks it: it needs network). `make secrets-check` runs in ci-quick; `scripts/ci/secrets_allow.txt` names the page audit fixture's fake signing key.
 **Consequence:** a file growing past its bound or a new 600-line file fails ci-metrics. Today's OSV hits (1 critical, 10 high) are fixed in a separate runtime PR the owner merges.
+
+## 2026-10-16 — Dead exports deleted; knip_exports bound tightened
+
+**Why:** knip reported 200 exports and types no other module imports, so the scorecard's T3 (dead code) read F and every new unused export hid among them.
+**Decision:** 187 lost only the `export` keyword (each is used inside its own file). Ten e2e helpers orphaned when PR #383 cut the e2e specs were deleted. Three `as const` arrays read only to derive a type (GARMENT_PROPERTIES, the forecast's CONDITIONS, FIT_PROBLEMS) became plain union types. Nothing went into knip's ignore list.
+**Consequence:** `dead.backend.knip_exports` is bound at 0. Export a symbol in the same change that imports it from another module; a test needing an internal goes through the module's public behaviour.

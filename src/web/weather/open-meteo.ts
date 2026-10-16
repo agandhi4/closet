@@ -58,7 +58,7 @@ export const OPEN_METEO: WeatherEndpoints = {
 };
 
 /** How many places a city search offers. */
-export const PLACE_RESULTS = 5;
+const PLACE_RESULTS = 5;
 
 /** A city the geocoding search found, rounded like every stored location. */
 export interface Place {

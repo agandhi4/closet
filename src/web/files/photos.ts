@@ -116,7 +116,7 @@ export type QuarterTurn = 90 | 270;
  * upload) as opposed to the storage side. Uploads map it to a 400; a thumb
  * rebuild hitting it means our own stored original is corrupt.
  */
-export class UnreadableImageError extends Error {
+class UnreadableImageError extends Error {
   constructor(readonly cause: unknown) {
     super(`Unreadable image: ${String(cause)}`);
     this.name = 'UnreadableImageError';
