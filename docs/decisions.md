@@ -129,3 +129,9 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** `make ci-db` already wrote each route's statement maximum, but into build/metrics/, which metrics_collect.sh clears, and no collector read it: an N+1 regression passed the gate.
 **Decision:** the fixture writes `build/statements.json`; devkit's shared collector `devkit/metrics/statements.py` (decision H) validates it into `statements.<METHOD>:<route>` keys, `job:db` in scripts/ci/metrics.conf, `--min-routes 87` (today's count). The 87 keys were seeded by a rebaseline that moved no other bound.
 **Consequence:** one more statement on any pinned route fails ci-metrics. A route that legitimately needs more is a bound edit in docs/metrics/ratchet.json with the metrics-rebaseline label; a new recordQueries route raises --min-routes in the same PR.
+
+## 2026-10-16 — Scorecard sync: sizes, fan-out and vulnerabilities measured; secrets guard in ci-quick
+
+**Why:** the scorecard's T2, T4 and T11 rows had no number in closet: file size, module fan-in/out and dependency advisories were unmeasured, and nothing stopped a committed credential.
+**Decision:** devkit main's `size.py` and `vuln.py` collectors plus `--fan` on ts-backend, all area `other` (all of src/ is other). size and coupling bounds were seeded at today's values (max_lines 2295, over_600 15, fan_in 122, fan_out 36); vuln is report-only (the ratchet never tracks it: it needs network). `make secrets-check` runs in ci-quick; `scripts/ci/secrets_allow.txt` names the page audit fixture's fake signing key.
+**Consequence:** a file growing past its bound or a new 600-line file fails ci-metrics. Today's OSV hits (1 critical, 10 high) are fixed in a separate runtime PR the owner merges.
