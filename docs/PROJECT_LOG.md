@@ -17,7 +17,7 @@ Performance program (audit, then six phases, all shipped the same day): image as
 
 ## 2026-09-26
 
-Program 2 (audit, then gate, correctness, simplification, speed), all shipped within two days. Record: `docs/audits/2026-09-25-program2/` (eight audits, `PLAN.md` with every decision, the background-removal benchmark), CHANGELOG "Unreleased".
+Program 2 (audit, then gate, correctness, simplification, speed), all shipped within two days. Record: `docs/reports/2026-09-26-audits-2026-09-25-program2-*.md` (eight audits, `…-plan.md` with every decision) and the background-removal benchmark in `docs/audits/2026-09-25-program2/`, CHANGELOG "Unreleased".
 
 Found live and fixed first: `/file/app.log` served the request log (session cookies included) publicly; every real photo upload with a cutout failed (the thumbnail read a half-written file); the owner was locked out (a browser-generated password on an htmx-submitted form was never saved) and email reset could not work. Leak cleanup: log route closed, cookies redacted, the secret rotated, the old log deleted, Loki's copies deleted.
 

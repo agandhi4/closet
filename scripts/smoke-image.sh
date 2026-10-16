@@ -26,7 +26,7 @@
 # renders in the app shell and its stylesheet and htmx are served; devkit's contract probe passes
 # (the health contract, request ids, JSON lines, /metrics; below); with MODELS_DIR, a photo uploaded
 # over HTTP is cut out by the model in the image's own onnxruntime; `docker stop` (SIGTERM) exits 0.
-# Then the non-root image's two failure modes (docs/deployment.md#permissions), each its own boot on
+# Then the non-root image's two failure modes (docs/operations.md#permissions), each its own boot on
 # the migrated database: a root-owned data directory ends the boot naming the chown, and a root-owned
 # models directory leaves /health/ready 503 with `storage` down and the chown as its fix.
 # On failure the container's log is printed.
@@ -45,7 +45,7 @@ SMOKE="closet-smoke-$$"
 # The container under test: the main boot, then each permission boot (fail and log_has read it).
 NAME=$SMOKE
 WORK=$(mktemp -d)
-# The uid:gid the image's USER (node, from node:22-slim) has, and so the one docs/deployment.md
+# The uid:gid the image's USER (node, from node:22-slim) has, and so the one docs/operations.md
 # tells the owner to chown the host directories to: the smoke holds the two to each other.
 APP_UID=1000
 APP_GID=1000
@@ -229,7 +229,7 @@ while [ "$(docker inspect -f '{{.State.Running}}' "$NAME")" = true ]; do
   sleep 1
 done
 [ "$(docker inspect -f '{{.State.ExitCode}}' "$NAME")" != 0 ] || fail "a root-owned /app/data: the boot exited 0"
-log_has -F "DATA_PATH /app/data is not writable by this process (EACCES): chown -R $APP_UID:$APP_GID the host directory mounted at /app/data; docs/deployment.md#permissions" \
+log_has -F "DATA_PATH /app/data is not writable by this process (EACCES): chown -R $APP_UID:$APP_GID the host directory mounted at /app/data; docs/operations.md#permissions" \
   || fail "a root-owned /app/data: the boot log does not name the chown"
 log "ok: a root-owned /app/data ends the boot with the chown named"
 
@@ -247,7 +247,7 @@ until [ "$(curl -s -o "$health" -w '%{http_code}' "$BASE/health/ready")" = 503 ]
   sleep 1
 done
 fix=$(jq -r '.checks.storage.fix' "$health")
-[ "$fix" = "chown -R $APP_UID:$APP_GID the host directory mounted at /app/models; docs/deployment.md#permissions" ] \
+[ "$fix" = "chown -R $APP_UID:$APP_GID the host directory mounted at /app/models; docs/operations.md#permissions" ] \
   || fail "a root-owned /app/models: storage's fix is '$fix'"
 [ "$(jq -r '.checks.database.status' "$health")" = up ] || fail "a root-owned /app/models: the database check is down too"
 log "ok: a root-owned /app/models is 503, storage down: $fix"

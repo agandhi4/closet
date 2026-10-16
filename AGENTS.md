@@ -9,7 +9,7 @@ Self-hosted digital wardrobe for the household: catalog garments (photo with bac
 Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` (hypermedia principles only; the Jinja2/FastAPI specifics do not apply)
 
 - **Runtime**: Node 22 (`.nvmrc`), TypeScript, plain **Fastify 5** (no framework on top), built by `tsc` to `dist/`.
-- **Image**: runs as `node` (uid/gid 1000), never root; it writes only `DATA_PATH` and `MODELS_PATH`, host mounts that must be writable by uid 1000 (`docs/deployment.md#permissions`; `/health/ready`'s `storage` check, the boot refuses an unwritable `DATA_PATH`). A new runtime write path gets a `chown` in the Dockerfile and a row there.
+- **Image**: runs as `node` (uid/gid 1000), never root; it writes only `DATA_PATH` and `MODELS_PATH`, host mounts that must be writable by uid 1000 (`docs/operations.md#permissions`; `/health/ready`'s `storage` check, the boot refuses an unwritable `DATA_PATH`). A new runtime write path gets a `chown` in the Dockerfile and a row there.
 - **Views**: server-rendered typed JSX (`hono/jsx` to strings, no Hono server) in `src/web/`, htmx 2, a few modules in `public/js/`. Not a SPA; no JSON API for the UI.
 - **CSS**: Tailwind v4 + daisyUI (`views/assets/main.css` to `public/bundle.css`; `views/assets/AGENTS.md`).
 - **Data**: PostgreSQL 18 only (production, pgvault-dev, and the throwaway containers the gate and CI test on). **Drizzle ORM owns the schema, the migrations and every query** (`src/db/schema.ts`, `drizzle/`, applied at boot).
@@ -86,7 +86,7 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 | Maintenance | `src/maintenance/AGENTS.md` | the timers, storage reconciliation, the CLIs |
 | Metrics | `src/metrics/AGENTS.md` | `/metrics`, Server-Timing, the device timings, a new timer or label |
 | Tests | `test/AGENTS.md` | the integration harness, Playwright's server, Vitest traps |
-| Deployment (not auto-loaded) | `docs/deployment.md` | production, its env, recovery, CI publishing |
+| Deployment (not auto-loaded) | `docs/operations.md` | production, its env, recovery, CI publishing |
 
 `src/web/weather/AGENTS.md` and `src/web/push/AGENTS.md` only point to Weather's and Web Push's docs. `make docs-check` (in `ci-quick`) holds every doc to AGENTS.md real + CLAUDE.md symlink, this file to 30 KB and each area doc to 16 KB (devkit), and this index to the docs on disk (`scripts/ci/docs_rules.sh`).
 
@@ -231,7 +231,7 @@ Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, ne
 
 ## Deployment
 
-Production runs on linux-box (the homelab) and merging to `main` deploys it: CI publishes the image and the hourly autoupdater pulls it. The pieces, the production env, the demo login, locked-out recovery, rotating the secret, deploying by hand and what CI publishes: `docs/deployment.md`.
+Production runs on linux-box (the homelab) and merging to `main` deploys it: CI publishes the image and the hourly autoupdater pulls it. The pieces, the production env, the demo login, locked-out recovery, rotating the secret, deploying by hand and what CI publishes: `docs/operations.md`.
 
 - **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by `ci.yml`'s publish job; `/health/ready` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only that job moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
 
