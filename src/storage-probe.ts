@@ -9,7 +9,7 @@ import { join } from 'node:path';
  * /health/ready's `storage` check (src/web/health/checks.ts).
  *
  * Why a real write and not mode bits or access(W_OK): the image runs as an
- * unprivileged user (uid 1000, docs/deployment.md#permissions) and its
+ * unprivileged user (uid 1000, docs/operations.md#permissions) and its
  * directories are host bind mounts, one of them NFS with all users squashed
  * to the NAS admin. Only the server decides there, and a create + unlink is
  * the one question every filesystem answers truthfully.
@@ -45,7 +45,7 @@ export async function probeWritable(directory: string): Promise<WriteProbe> {
  * since only the host knows what is mounted there.
  */
 export function ownershipFix(directories: readonly string[]): string {
-  return `chown -R ${processOwner()} the host directory mounted at ${directories.join(' and ')}; docs/deployment.md#permissions`;
+  return `chown -R ${processOwner()} the host directory mounted at ${directories.join(' and ')}; docs/operations.md#permissions`;
 }
 
 function processOwner(): string {
