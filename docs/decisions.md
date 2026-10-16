@@ -1,13 +1,8 @@
 # Decisions
 
-Dated decisions, their rationale and the gotchas they carry. Newest first. The older
-history lives in `docs/PROJECT_LOG.md`.
-
-## 2026-10-15 — devkit 51a7bb5: one path classification for hooks and gate
-
-**Why:** devkit 51a7bb5 moves the fleet's path table into `bin/_paths_lib.sh`, shared by the hooks and the gate, and adds `devkit_default_gate_plan`; a devkit-only change is now "tooling".
-**Decision:** sync with no hooks.conf change (the hooks treat tooling like other, so local steps are unchanged), then convert the gate plan to the default (next entry).
-**Consequence:** the tier guard's git-root lookup now ignores a hook's exported `GIT_DIR`, so `build/metrics/` always lands at the checkout root.
+Dated decisions, their rationale and the gotchas they carry. Newest last (devkit's docs-check;
+the union merge appends); the 2026-10-13 block predates that rule and reads newest first. The
+older history lives in `docs/PROJECT_LOG.md`.
 
 ## 2026-10-13 — Tier budgets and floors through devkit's tier guard
 
@@ -74,3 +69,15 @@ history lives in `docs/PROJECT_LOG.md`.
 **Why:** `make ci-db` ran 173–176 s in the gate against its 180 s budget (78 s solo). A third of its CPU was each of 122 integration spec files importing the app's module graph afresh (about 1 s each), plus a cold first boot per process.
 **Decision:** the integration project runs `isolate: false`, overturning the 2026-09-25 rule whose blocker (config read from env at import) `createApp(config)` removed. Route tables move to `authorization-<group>.routes.ts` (Vitest never re-imports a test file); `createApp`'s `onRoute` option replaces the coverage spec's `fastify` mock; eslint bans `vi.mock`/`doMock` in `test/integration/`; `shared-worker-setup.ts` restores timers, envs and globals per file. The fixed 5 s lock and stop timeouts stay: production constants, idle not CPU.
 **Consequence:** solo 78 s → 45 s; gate 173–176 s → 51 s (56 s beside e2e and an uncached image build). Budget 180 → 110 s; floors unchanged (4489 ran). Proof of no leak (#387): one-worker and two shuffled runs gave the isolated run's outcomes per test and its `statements.json` byte for byte.
+
+## 2026-10-15 — devkit 51a7bb5: one path classification for hooks and gate
+
+**Why:** devkit 51a7bb5 moves the fleet's path table into `bin/_paths_lib.sh`, shared by the hooks and the gate, and adds `devkit_default_gate_plan`; a devkit-only change is now "tooling".
+**Decision:** sync with no hooks.conf change (the hooks treat tooling like other, so local steps are unchanged), then convert the gate plan to the default (next entry).
+**Consequence:** the tier guard's git-root lookup now ignores a hook's exported `GIT_DIR`, so `build/metrics/` always lands at the checkout root.
+
+## 2026-10-15 — Gate plan on devkit's default; closet's db/e2e rules in gate_plan_extra
+
+**Why:** every devkit sync ran db + e2e (~4–5 min) because the old plan's own path loop called `devkit/` app code; devkit 51a7bb5 classifies those paths as tooling.
+**Decision:** `scripts/ci/gate_plan.sh` declares QUICK (`deps` + `quick`), DOCS and IMAGE (`GATE_AREAS_IMAGE=""`, image paths only) and calls `devkit_default_gate_plan`. db and e2e stay closet's per-path rules in `gate_plan_extra`, not BACKEND/E2E groups: all of closet is the fleet's "other", and an area group would run both tiers for a Playwright-only or `.github`-only change.
+**Consequence:** docs-only runs docs-check without `npm ci`; devkit-only runs deps + quick; a change to devkit's contract probe runs the image job (it ran db + e2e and no image before). The image job now runs before db and e2e. The plan is read from the invoking checkout, so the PR that changes it is gated by `main`'s copy.
