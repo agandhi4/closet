@@ -1,29 +1,52 @@
-# closet's gate plan, sourced by devkit/bin/local_gate.sh (contract in its header).
-# Which jobs run for which changed paths; every job is a Makefile target ci.yml also calls.
+# closet's gate plan, sourced by devkit/bin/local_gate.sh (contract in its header). devkit's
+# default plan (devkit/bin/_paths_lib.sh) owns the area groups; closet adds only the rules the
+# fleet table cannot express. Every job is a Makefile target ci.yml also calls.
 #
-#   always                             -> deps + quick (docs-check covers *.md, so never nothing_to_run)
-#   *.md, docs/**, LICENSE, .github/** -> quick only
-#   test/integration/**                -> + db
-#   test/support/**                    -> + db + e2e: it holds scratch-database.ts and the
-#                                         integration globalSetup, which the old gate's "other
-#                                         test/** is browser only" rule let skip the db job
-#   other test/** (Playwright specs)   -> + e2e
-#   anything else                      -> + db + e2e (src, views, public, drizzle, scripts,
-#                                         package*.json, configs, Makefile, devkit/)
+#   docs only (*.md, docs/**)          -> docs (docs-check), no npm ci
+#   tooling only (devkit/ guards and   -> deps + quick; + image when devkit's contract probe or
+#     gate machinery, .devkit-rev, ...)   boot script changed (devkit's IMAGE group)
+#   anything else ("other": closet's      -> deps + quick, then closet's own rules
+#     src/ and test/ lie outside the       (gate_plan_extra), per path:
+#     fleet's backend/frontend dirs)
+#       LICENSE, .github/**             -> nothing more (Actions files; no gate job reads them)
+#       test/integration/**             -> + db
+#       test/support/**                 -> + db + e2e: scratch-database.ts and the integration
+#                                          globalSetup, which both tiers import
+#       other test/** (Playwright)      -> + e2e
+#       anything else                   -> + db + e2e (src, views, public, drizzle, scripts,
+#                                          package*.json, configs, Makefile, devkit/ job scripts)
 #   image-affecting paths              -> + image (ci-image, then ci-smoke)
+#
+# db and e2e live in gate_plan_extra, not the BACKEND/E2E groups: closet's whole app is the
+# fleet's "other", and an area group would run both tiers for a Playwright-only or .github-only
+# change. Order: deps, quick, image, db, e2e (the default plan runs its groups before the extra).
 # Public repo: GATE_ALLOW_FORKS stays at the skeleton's 0, so a fork PR never runs here.
-# shellcheck disable=SC2034  # read by the sourcing skeleton
+# shellcheck disable=SC2034  # read by the sourcing skeleton and devkit_default_gate_plan
 GATE_SLUG=agandhi4/closet
 # shellcheck disable=SC2034
 GATE_STATE_NAME=closet-gate
 
-# Paths that change what the production image installs or how it builds. Any other change
-# reaches the image only through `npm run build`, which the e2e job runs.
-IMAGE_PATHS='^(Dockerfile$|package(-lock)?\.json$|\.npmrc$|patches/)'
-
 PG_CONTAINER="closet-gate-pg-$PR"
 SMOKE_PG_CONTAINER="closet-gate-smoke-pg-$PR"
 IMAGE="closet:gate-$PR"
+
+# deps first: ci-quick's check:static and every test tier need node_modules, and QUICK runs
+# for every area that can run db or e2e (gate_plan_extra checks that anyway).
+# shellcheck disable=SC2034
+GATE_JOBS_QUICK="deps ci-deps|quick ci-quick"
+# shellcheck disable=SC2034
+GATE_JOBS_DOCS="docs docs-check"
+# The build, then the image booted on its own throwaway Postgres (scripts/smoke-image.sh:
+# /health/ready names CI_BUILD_VERSION, the observability contract probe): what ci.yml's publish
+# job runs on the bytes it pushes, proved here before the merge.
+# shellcheck disable=SC2034
+GATE_JOBS_IMAGE="image ci-image ci-smoke CI_IMAGE=$IMAGE CI_BUILD_VERSION=gate-$PR SMOKE_PG_CONTAINER=$SMOKE_PG_CONTAINER"
+# Only these paths change what the production image installs or how it builds; any other change
+# reaches the image only through `npm run build`, which the e2e job runs.
+# shellcheck disable=SC2034
+GATE_AREAS_IMAGE=""
+# shellcheck disable=SC2034
+GATE_IMAGE_PATHS='^(Dockerfile$|package(-lock)?\.json$|\.npmrc$|patches/)'
 
 gate_cleanup() {
   "$ROOT/devkit/bin/throwaway_pg.sh" down "$PG_CONTAINER"
@@ -31,12 +54,16 @@ gate_cleanup() {
   docker rmi -f "$IMAGE"
 }
 
-gate_plan() {
+gate_plan() { devkit_default_gate_plan; }
+
+gate_plan_extra() {
   local db=0 e2e=0 path
   while IFS= read -r path; do
-    [ -z "$path" ] && continue
+    [ -n "$path" ] || continue
+    # docs, tooling and native paths are the default plan's; the rest is closet's layout.
+    case "$(devkit_classify_path "$path")" in docs|tooling|native) continue ;; esac
     case "$path" in
-      *.md|docs/*|LICENSE|.github/*) ;;
+      LICENSE|.github/*) ;;
       test/support/*) db=1; e2e=1 ;;
       test/integration/*) db=1 ;;
       test/*) e2e=1 ;;
@@ -45,14 +72,15 @@ gate_plan() {
   done <<< "$CHANGED"
   echo "GATE scope db=$db e2e=$e2e"
 
+  # Unreachable while QUICK keeps its default areas; kept so a narrowed QUICK cannot run a
+  # test tier without node_modules.
+  if [ "$db$e2e" != 00 ] && ! devkit_group_ran quick; then job deps ci-deps; fi
+
   # 21 integration specs bind 127.0.0.2 (test/integration/link-sites.ts); without the alias
   # they fail with EADDRNOTAVAIL, which reads like a code failure.
   if [ "$db" = 1 ] && [ "$(uname -s)" = Darwin ] && ! ifconfig lo0 | grep -q 'inet 127\.0\.0\.2 '; then
     note "127.0.0.2 missing on lo0 (sudo ifconfig lo0 alias 127.0.0.2); the db job will fail"
   fi
-
-  job deps ci-deps
-  job quick ci-quick
 
   if [ "$db" = 1 ]; then
     job db ci-db PG_CONTAINER="$PG_CONTAINER"
@@ -64,14 +92,5 @@ gate_plan() {
     job e2e ci-e2e PG_CONTAINER="$PG_CONTAINER"
   else
     skip e2e "no source, Playwright or test-support changes"
-  fi
-
-  # The build, then the image booted on its own throwaway Postgres (scripts/smoke-image.sh:
-  # /health/ready names CI_BUILD_VERSION, the observability contract probe): what ci.yml's publish
-  # job runs on the bytes it pushes, proved here before the merge.
-  if changed "$IMAGE_PATHS"; then
-    job image ci-image ci-smoke CI_IMAGE="$IMAGE" CI_BUILD_VERSION="gate-$PR" SMOKE_PG_CONTAINER="$SMOKE_PG_CONTAINER"
-  else
-    skip image "no Dockerfile, dependency or patch changes"
   fi
 }
