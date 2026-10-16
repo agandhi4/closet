@@ -18,9 +18,9 @@ import {
   WARM_LIST_PATH,
   WARM_OUTFIT_CAP,
   WARM_PAGE_CAP,
-  WARM_REQUEST_HEADER,
   type WarmList,
 } from '../../src/web/shell/offline-warm';
+import { WARM_REQUEST_HEADER } from '../../src/warm-request';
 import { GRID_PAGE_SIZE } from '../../src/web/wardrobe/grid-page-size';
 import {
   createTestApp,

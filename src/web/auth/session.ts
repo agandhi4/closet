@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../../db/client';
+import { SESSION_COOKIE } from '../../credential-names';
 import type { Logger } from '../../logger';
 import { loggableUrl } from '../loggable-url';
 import { SESSION_ENDED_HEADER } from '../page-cache';
@@ -20,8 +21,6 @@ export interface SessionUser {
 export interface AuthContext {
   user: SessionUser;
 }
-
-export const SESSION_COOKIE = 'access_token';
 
 /**
  * A session cookie's verdict: its session (and, on a `checksPassword` route,

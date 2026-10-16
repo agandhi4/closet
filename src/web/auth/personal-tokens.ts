@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
+import { TOKEN_PREFIX } from '../../credential-names';
 import type { Db, Queryable } from '../../db/client';
 import { markSecretChecked } from '../../metrics/request-timing';
 import { personalAccessToken, user } from '../../db/schema';
@@ -16,7 +17,6 @@ import type { SessionUser } from './session';
  * statement), as it ends every session.
  */
 
-export const TOKEN_PREFIX = 'closet_';
 /** Characters of the token the profile shows: the fixed prefix and four more. */
 const DISPLAY_LENGTH = TOKEN_PREFIX.length + 4;
 /** How stale last_used_at may get before a call writes it again. */

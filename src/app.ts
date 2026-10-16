@@ -38,7 +38,7 @@ import {
 } from './web/security/outbound-fetch';
 import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
-import { isWarmRequest } from './web/shell/offline-warm';
+import { isWarmRequest } from './warm-request';
 import { createViewContextBuilder } from './web/view-context';
 import { createJmapClient } from './web/wardrobe/order-mail/jmap';
 import type { OrderMailDeps } from './web/wardrobe/order-mail/poll';
