@@ -1,0 +1,47 @@
+{
+  "complexity.backend.cognitive_max": {
+    "bound": 20,
+    "direction": "lower",
+    "source": "ts-backend"
+  },
+  "complexity.backend.cognitive_over_15": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "ts-backend"
+  },
+  "complexity.backend.cyclomatic_max": {
+    "bound": 14,
+    "direction": "lower",
+    "source": "ts-backend"
+  },
+  "coupling.backend.cycles": {
+    "bound": 0,
+    "direction": "lower",
+    "source": "ts-backend"
+  },
+  "dead.backend.knip_deps": {
+    "bound": 0,
+    "direction": "lower",
+    "source": "ts-backend"
+  },
+  "dead.backend.knip_exports": {
+    "bound": 200,
+    "direction": "lower",
+    "source": "ts-backend"
+  },
+  "dead.backend.knip_files": {
+    "bound": 0,
+    "direction": "lower",
+    "source": "ts-backend"
+  },
+  "duplication.repo.clones": {
+    "bound": 45,
+    "direction": "lower",
+    "source": "dup"
+  },
+  "duplication.repo.jscpd_percent": {
+    "bound": 0.5,
+    "direction": "lower",
+    "source": "dup"
+  }
+}

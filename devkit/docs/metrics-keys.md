@@ -1,9 +1,20 @@
 # Metrics keys: the snapshot shape `metrics_ratchet.py` reads
 
-A snapshot is one flat JSON object of numbers: `{"<domain>.<scope>.<stat>": <number>}`.
-Collectors write one file each to `build/metrics/<collector>.json` (flat, or nested objects
-that flatten to the same dotted keys); `metrics_ratchet.py merge` joins them into one
-snapshot and refuses a key that two collectors both emit.
+Collectors write one file each to `build/metrics/<collector>.json`: a flat JSON object of
+numbers, `{"<domain>.<scope>.<stat>": <number>}`, or nested objects that flatten to the same
+dotted keys. `metrics_ratchet.py merge` (run by `metrics_collect.sh`) joins them into one
+snapshot, `build/metrics.json`, and refuses a key that two collectors both emit:
+
+```json
+{"schema_version": 2,
+ "metrics": {"coverage.backend.lines": 81.5, "gate.quick.seconds": 41},
+ "sources": {"coverage.backend.lines": "cov-backend", "gate.quick.seconds": "gate"},
+ "skipped": ["ts-frontend"]}
+```
+
+`sources` names the collector (the file's stem) behind each key; `skipped` lists the collectors
+`metrics_collect.sh` did not run for this PR. `check`, `tighten` and `rebaseline` also read a
+schema 1 envelope (finplat's `make metrics`) and a bare flat file, which carry neither.
 
 ## Rules
 
@@ -53,19 +64,51 @@ of tests that ran only goes down in the PR that removes tests, which is what a `
 plus the rebaseline label already enforce. The seconds are as noisy as `gate.*`, so a tracked
 bound gets headroom by hand; the counts are deterministic and can use `tighten`.
 
+## Shared collectors (`devkit/metrics/`)
+
+Exactly the keys each emits, per flag; `<s>` is `--scope`. CLIs: devkit README, Architecture.
+
+| Collector | Flag | Keys |
+|---|---|---|
+| `python.py` | `--mccabe` | `complexity.<s>.mccabe_max`, `complexity.<s>.mccabe_over_10` (ruff C901 at 0, `--ignore-noqa`) |
+| | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (complexipy) |
+| | `--vulture` | `dead.<s>.vulture` (findings; `[tool.vulture]` in `--root`'s pyproject.toml is honoured, else the `--src` dirs) |
+| | `--cycles` | `coupling.<s>.cycles` (strongly connected components of the runtime import graph over the `--src` packages; `if TYPE_CHECKING:` imports excluded, imports inside functions included) |
+| `ts.mjs` | `--cyclomatic` | `complexity.<s>.cyclomatic_max` (eslint `complexity` at 0, `--no-inline-config`, production files: `--src` minus tests, `__tests__`/`__mocks__`/`test-helpers`, `test-setup.*`, `setupTests.*`, `*.d.ts` and `--test-glob`s) |
+| | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (eslint-plugin-sonarjs) |
+| | `--knip` | `dead.<s>.knip_exports` (exports + types), `dead.<s>.knip_files`, `dead.<s>.knip_deps` (dependencies, devDependencies, unlisted, unresolved, binaries) |
+| | `--cycles` | `coupling.<s>.cycles` (dependency-cruiser `--no-config` graph of `--src`, same production filter, `import type` is not an edge) |
+| | `--bundle` | `bundle.<s>.kb_total` (every file `vite build` emits, raw KiB, one decimal), `bundle.<s>.kb_entry` (the `--bundle-entry` chunk, its static-import closure and their CSS) |
+| `jscpd.mjs` | | `duplication.<s>.jscpd_percent` (jscpd's `statistics.total.percentage`, two decimals), `duplication.<s>.clones` |
+| `coverage.py` | `--coverage-json` | `coverage.<s>.lines` (covered_lines / num_statements), `coverage.<s>.branches` (covered_branches / num_branches; omitted when no branches were measured) |
+| | `--istanbul-summary` | `coverage.<s>.lines` (`total.lines.pct`), `coverage.<s>.branches` (`total.branches.pct`; omitted when "Unknown") |
+
 A repo-specific collector (finplat's reinvention registry, closet's `audit-pages`) uses its
 own domain name and states the direction in `ratchet.json`.
 
 ## Bounds file
 
 `docs/metrics/ratchet.json` maps each gated key to `{"direction": "lower"|"higher", "bound":
-<number>}`. Start from `devkit/templates/metrics/ratchet.json`: delete the keys you do not
-collect, add your statement keys, then fill every bound from today's snapshot:
+<number>, "source": "<collector>"}`. `source` is written by `rebaseline` and `tighten` from the
+snapshot's `sources`; it is informational for the comparison with main (a bound whose source
+alone changed has not moved) and is what the skipped-collector rule below reads. Start from
+`devkit/templates/metrics/ratchet.json` and delete the keys you do not collect, or from `{}`
+(valid for every subcommand; the scaffold ships it), then fill every bound from today's
+numbers:
 
 ```sh
-python3 -I devkit/bin/metrics_ratchet.py rebaseline --snapshot build/metrics.json --bounds docs/metrics/ratchet.json
+devkit/bin/metrics_collect.sh rebaseline     # runs scripts/ci/metrics.conf, merges, fills the bounds
 ```
 
 The starter's `null` bounds make `check` refuse to run until that happens, so a copied
 template never gates on a placeholder. Keys in the snapshot but not in the bounds are
 reported as untracked and never fail.
+
+**Skipped collectors.** In the gate, `metrics_collect.sh` runs a collector only when a changed
+path is in its area (`tooling` and `other` run everything, `repo` collectors always run) and
+passes the rest to `merge --skipped`. `check` then reports a tracked key that is absent from
+the snapshot as `SKIPPED (collector <name> did not run)`, and does not fail, exactly when the
+bound's `source` is in the snapshot's `skipped`. A key with no `source` (bounds written before
+schema 2: run `rebaseline` once to add them), or whose collector ran and emitted nothing, is
+MISSING and fails even with `--rebaseline-ok`. `tighten` and `rebaseline` leave a skipped key's
+bound as it is.

@@ -1,4 +1,4 @@
-.PHONY: help ci-deps ci-quick ci-unit ci-db ci-e2e ci-image ci-smoke screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check install
+.PHONY: help ci-deps ci-quick ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
@@ -44,6 +44,9 @@ help:
 	@echo "make screenshots      — the 390 px persona screenshots (test/screenshots.spec.ts) into screenshots/, same server as ci-e2e"
 	@echo "make ci-image         — docker build of the production image (CI_IMAGE=$(CI_IMAGE), CI_BUILD_VERSION=$(CI_BUILD_VERSION))"
 	@echo "make ci-smoke         — boot CI_IMAGE on a throwaway Postgres 18 (scripts/smoke-image.sh); /health/ready must report CI_BUILD_VERSION"
+	@echo "make ci-metrics       — the metrics ratchet: scripts/ci/metrics.conf's collectors against docs/metrics/ratchet.json (the gate's last job)"
+	@echo "make metrics-snapshot — run the collectors; build/metrics.json is the report"
+	@echo "make metrics-tighten  — lock in improved numbers; commit docs/metrics/ratchet.json in the same PR"
 	@echo "make gate PR=<n>      — the PR gate: these jobs on PR <n> merged into origin/main [GATE_ARGS=--no-post]"
 	@echo "make devkit-sync      — pull the latest agandhi4/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
@@ -125,6 +128,18 @@ ci-smoke:
 	  DATABASE_HOST=127.0.0.1 DATABASE_PORT=$$port DATABASE_USER=ci DATABASE_PASS=ci DATABASE_SCHEMA=ci \
 	    SMOKE_PORT=$${SMOKE_PORT:-$$(awk 'BEGIN { srand(); print 3800 + int(rand() * 600) }')} \
 	    BOOT_EXPECT_VERSION=$(CI_BUILD_VERSION) scripts/smoke-image.sh $(CI_IMAGE)
+
+# Metrics ratchet (devkit README "Metrics ratchet"): devkit/bin/metrics_collect.sh owns which
+# collectors run, the merge and the comparison with main's bounds. Needs node_modules (ci-deps)
+# and origin/main fetched.
+ci-metrics:
+	devkit/bin/metrics_collect.sh check
+
+metrics-snapshot:
+	devkit/bin/metrics_collect.sh snapshot
+
+metrics-tighten:
+	devkit/bin/metrics_collect.sh tighten
 
 gate:
 	@test -n "$(PR)" || { echo "usage: make gate PR=<number> [GATE_ARGS=--no-post]" >&2; exit 2; }

@@ -1,0 +1,61 @@
+// knip's view of closet: the entry points and module names it cannot infer, so the metrics
+// ratchet's `dead.backend.knip_*` (scripts/ci/metrics.conf, docs/metrics/ratchet.json) counts dead
+// code rather than the ways closet loads code that knip does not follow. The rest is knip's
+// defaults and plugins (vitest, playwright, eslint, drizzle, tsc). Add an entry when you add a way
+// to load code; never to hide a finding.
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  "entry": [
+    // The server (Dockerfile CMD, `npm start`), and the CLIs npm scripts and the image run: both
+    // as dist/**/*.js, a path knip cannot map back to src/.
+    "src/main.ts",
+    "src/**/*.cli.ts",
+    // Forked by the model runner (src/cutout/runner.ts) by file path.
+    "src/cutout/child.ts",
+    // Loaded by the pages' <script> tags (src/web/layout/), never imported.
+    "public/js/*.js",
+    // The CSS entry of `npm run generate:tailwind`: its @import and @plugin lines use tailwindcss
+    // and daisyui.
+    "views/assets/main.css",
+    // Tool configs read by workbox-cli and lhci, which have no knip plugin.
+    "workbox-config.js",
+    "lighthouserc.js",
+    // Forked or loaded by path from the specs (the cutout runner's specs,
+    // test/support/legacy-migrations.ts).
+    "test/fixtures/cutout-children/*.mjs",
+    "test/support/legacy-migrations/*.ts"
+  ],
+  // The browser's importmap (importMap() in src/web/layout/layout.tsx): the bare names public/js/
+  // modules import each other by. Keep in step with it; an alias missing here reads as an
+  // unlisted dependency and fails the ratchet's knip_deps.
+  "paths": {
+    "toast": ["public/js/toast.js"],
+    "mask-editor": ["public/js/mask-editor.js"],
+    "photo-input": ["public/js/photo-input.js"],
+    "snap-strip": ["public/js/snap-strip.js"],
+    "styling": ["public/js/styling.js"],
+    "locate": ["public/js/locate.js"],
+    "push": ["public/js/push.js"],
+    "freshness": ["public/js/freshness.js"],
+    "age-label": ["public/js/age-label.js"],
+    "select-count": ["public/js/select-count.js"],
+    "recap-export": ["public/js/recap-export.js"],
+    "pwa-install": ["node_modules/@khmyznikov/pwa-install/dist/pwa-install.bundle.js"]
+  },
+  // Vendored, byte-for-byte devkit (devkit-check): not closet's code to measure.
+  "ignore": ["devkit/**"],
+  "ignoreDependencies": [
+    // Copied from node_modules into public/modules/ by path (CLIENT_MODULES in
+    // scripts/static-assets.ts) and loaded by a <script> tag.
+    "htmx.org",
+    // Read by url() in views/assets/fonts.css (esbuild copies the woff2 files, `generate:fonts`).
+    "@fontsource-variable/fraunces",
+    "@fontsource-variable/inter",
+    // A pino transport, named by string in src/logger.ts.
+    "pino-pretty",
+    // Run from node_modules/.bin by devkit/metrics/ts.mjs and jscpd.mjs (the metrics ratchet).
+    "dependency-cruiser",
+    "eslint-plugin-sonarjs",
+    "jscpd"
+  ]
+}
