@@ -21,7 +21,21 @@ Keys (docs/metrics-keys.md), each behind its flag; `<scope>` is `--scope`:
                complexity.<scope>.cognitive_over_15 functions above 15 (SonarSource's threshold)
   --vulture    dead.<scope>.vulture                 findings, honouring [tool.vulture] in
                                                     <root>/pyproject.toml (paths, min_confidence,
-                                                    ignore_names); without it, the --src paths
+                                                    ignore_names); without it, the --src paths.
+                                                    Unused `variable`/`attribute` findings in a
+                                                    declarative class body (pydantic BaseModel/
+                                                    BaseSettings, SQLAlchemy DeclarativeBase/
+                                                    Base or a `__tablename__`, dataclass, attrs,
+                                                    Enum, TypedDict, NamedTuple, Protocol, and
+                                                    their same-file subclasses) are dropped:
+                                                    those fields are the wire or DB contract,
+                                                    read by a framework or a client outside the
+                                                    tree, and [tool.vulture] cannot filter by
+                                                    path and kind (finplat: ~250 such names;
+                                                    locus: 80 of 96 findings). Dead classes,
+                                                    functions and methods in the same files are
+                                                    still reported. --vulture-keep-declarative
+                                                    switches the filter off.
   --cycles     coupling.<scope>.cycles              import cycles among the --src modules:
                                                     strongly connected components of the runtime
                                                     import graph (`if TYPE_CHECKING:` excluded,
@@ -45,6 +59,7 @@ import sys
 import tempfile
 import tomllib
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 EXIT_USAGE = 2
@@ -54,6 +69,14 @@ SCOPE = re.compile(r"[A-Za-z0-9_-]+")  # the key's middle segment: no dots, no w
 # ruff's C901 message carries the number; the threshold is 0 so every function is reported.
 RUFF_C901 = re.compile(r"^`(?P<name>.+)` is too complex \((?P<cx>\d+) > 0\)$")
 VULTURE_LINE = re.compile(r"^(?P<file>.+?):(?P<line>\d+): unused (?P<kind>[a-z]+) '")
+# Classes whose body is a declaration (fields), by the last segment of a base's name, plus a
+# decorator or a `__tablename__` in the body. Same-file subclasses inherit the verdict.
+DECLARATIVE_BASES = frozenset({
+    "BaseModel", "BaseSettings", "DeclarativeBase", "Base", "TypedDict", "NamedTuple",
+    "Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "Protocol",
+})  # fmt: skip
+DECLARATIVE_DECORATORS = frozenset({"dataclass", "define", "frozen", "s", "attrs"})
+DECLARATIVE_KINDS = frozenset({"variable", "attribute"})
 VULTURE_FINDINGS_EXIT = 3  # vulture's "I reported something", not a failure
 
 
@@ -173,18 +196,189 @@ def _vulture_configured(root: Path) -> bool:
     return "paths" in doc.get("tool", {}).get("vulture", {})
 
 
-def collect_vulture(python: str, root: Path, src: list[str], scope: str) -> dict[str, int]:
+def _dotted(node: ast.expr) -> str | None:
+    """`pydantic.BaseModel` -> "pydantic.BaseModel"; `Generic[T]` -> "Generic";
+    `dataclass(frozen=True)` -> "dataclass"; anything else (a call result, a subscript of an
+    expression) -> None."""
+    if isinstance(node, ast.Subscript):
+        node = node.value
+    if isinstance(node, ast.Call):
+        node = node.func
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+def _declares_tablename(node: ast.ClassDef) -> bool:
+    for stmt in node.body:
+        targets = stmt.targets if isinstance(stmt, ast.Assign) else []
+        if isinstance(stmt, ast.AnnAssign):
+            targets = [stmt.target]
+        if any(isinstance(t, ast.Name) and t.id == "__tablename__" for t in targets):
+            return True
+    return False
+
+
+@dataclass
+class _ClassDecl:
+    span: tuple[int, int]
+    bases: list[str]  # qualified where an import or a local class says so, else as written
+    decorators: set[str]
+    tablename: bool
+
+
+class _FileScan(ast.NodeVisitor):
+    """One file's classes (qualified as module.Class, module.Outer.Inner), its import aliases
+    (local name -> qualified name, so a base written `BaseSchema` or `models.Base` resolves to
+    the class another file defines) and every class/function body span."""
+
+    def __init__(self, module: str, is_package: bool) -> None:
+        self.module = module
+        self.package = module if is_package else module.rpartition(".")[0]
+        self.aliases: dict[str, str] = {}
+        self.classes: dict[str, _ClassDecl] = {}
+        self.spans: list[tuple[int, int, str | None]] = []  # class qname, or None: a function
+        self._stack: list[str] = []
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802 (ast's API)
+        for alias in node.names:
+            if alias.asname:
+                self.aliases[alias.asname] = alias.name
+            else:
+                self.aliases[alias.name.partition(".")[0]] = alias.name.partition(".")[0]
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        if node.level:
+            anchor = self.package.rsplit(".", node.level - 1)[0] if node.level > 1 else self.package
+            base = f"{anchor}.{node.module}" if node.module else anchor
+        else:
+            base = node.module or ""
+        for alias in node.names:
+            self.aliases[alias.asname or alias.name] = f"{base}.{alias.name}"
+
+    def _resolve(self, dotted: str) -> str:
+        head, _, rest = dotted.partition(".")
+        if head in self.aliases:
+            return f"{self.aliases[head]}.{rest}" if rest else self.aliases[head]
+        if not rest and f"{self.module}.{head}" in self.classes:
+            return f"{self.module}.{head}"
+        return dotted
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+        qname = ".".join([self.module, *self._stack, node.name])
+        bases = [self._resolve(d) for d in (_dotted(b) for b in node.bases) if d]
+        decorators = {d.rsplit(".", 1)[-1] for d in (_dotted(d) for d in node.decorator_list) if d}
+        self.classes[qname] = _ClassDecl(
+            (node.lineno, node.end_lineno or node.lineno),
+            bases,
+            decorators,
+            _declares_tablename(node),
+        )
+        self.spans.append((node.lineno, node.end_lineno or node.lineno, qname))
+        self._stack.append(node.name)
+        self.generic_visit(node)
+        self._stack.pop()
+
+    def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self.spans.append((node.lineno, node.end_lineno or node.lineno, None))
+        self.generic_visit(node)
+
+    visit_FunctionDef = _function  # noqa: N815 (ast's API)
+    visit_AsyncFunctionDef = _function  # noqa: N815
+
+
+class DeclarativeIndex:
+    """Which lines of which file are a field of a declarative class: every class in the --src
+    files is scanned once, then verdicts propagate along bases until nothing changes, so a
+    `class Account(UserModel)` is declarative because `UserModel(Model)` and `Model(Base)` and
+    `Base(DeclarativeBase)` are, across files. A file vulture names outside --src ([tool.vulture]
+    paths) is scanned on demand against the same index."""
+
+    def __init__(self, root: Path, src: list[str]) -> None:
+        self.root = root
+        self.scans: dict[str, _FileScan] = {}  # repo-relative posix path -> scan
+        self.verdict: dict[str, bool] = {}  # class qname -> declarative
+        for rel in source_files(root, src):
+            self._scan(rel)
+        self._settle()
+
+    def _scan(self, rel: Path) -> _FileScan | None:
+        key = rel.as_posix()
+        if key in self.scans:
+            return self.scans[key]
+        try:
+            tree = ast.parse((self.root / rel).read_text(encoding="utf-8"), filename=str(rel))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            return None  # vulture parsed it; a file this cannot read keeps its findings
+        scan = _FileScan(module_name(rel), rel.name == "__init__.py")
+        scan.visit(tree)
+        self.scans[key] = scan
+        return scan
+
+    def _settle(self) -> None:
+        classes = {q: d for scan in self.scans.values() for q, d in scan.classes.items()}
+        for qname, decl in classes.items():
+            self.verdict.setdefault(
+                qname, bool(decl.decorators & DECLARATIVE_DECORATORS or decl.tablename)
+            )
+        changed = True
+        while changed:
+            changed = False
+            for qname, decl in classes.items():
+                if self.verdict[qname]:
+                    continue
+                for base in decl.bases:
+                    if self.verdict.get(base) or (
+                        base not in classes and base.rsplit(".", 1)[-1] in DECLARATIVE_BASES
+                    ):
+                        self.verdict[qname] = changed = True
+                        break
+
+    def lines(self, file: str) -> set[int]:
+        """Lines whose innermost class or function scope is a declarative class body: a field
+        of a model, a member of an enum. A local variable inside a model's method is not one."""
+        scan = self.scans.get(file) or self._scan(Path(file))
+        if scan is None:
+            return set()
+        if any(q not in self.verdict for q in scan.classes):
+            self._settle()
+        lines: set[int] = set()
+        for start, end, qname in scan.spans:
+            if qname is None or not self.verdict.get(qname):
+                continue
+            for line in range(start, end + 1):
+                innermost = min(
+                    (s for s in scan.spans if s[0] <= line <= s[1]), key=lambda s: s[1] - s[0]
+                )
+                if innermost[2] is not None and self.verdict.get(innermost[2]):
+                    lines.add(line)
+        return lines
+
+
+def collect_vulture(
+    python: str, root: Path, src: list[str], scope: str, *, keep_declarative: bool
+) -> dict[str, int]:
     require_module(python, "vulture", "vulture", root)
     # With [tool.vulture] paths in pyproject.toml, vulture reads its own configuration (paths,
-    # whitelist, min_confidence); passing paths would override that. Without it, the --src paths.
+    # whitelist, min_confidence); passing paths would override that. Without it, the --src dirs.
     args = [] if _vulture_configured(root) else src
     out = run_tool([python, "-m", "vulture", *args], cwd=root, ok=(0, VULTURE_FINDINGS_EXIT))
+    index = None if keep_declarative else DeclarativeIndex(root, src)
     count = 0
     for line in out.splitlines():
         if not line.strip():
             continue
-        if VULTURE_LINE.match(line) is None:
+        match = VULTURE_LINE.match(line)
+        if match is None:
             raise CollectorError(f"unparseable vulture line: {line!r}")
+        if index is not None and match["kind"] in DECLARATIVE_KINDS:
+            if int(match["line"]) in index.lines(match["file"]):
+                continue
         count += 1
     return {f"dead.{scope}.vulture": count}
 
@@ -373,6 +567,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mccabe", action="store_true", help="ruff C901")
     parser.add_argument("--cognitive", action="store_true", help="complexipy")
     parser.add_argument("--vulture", action="store_true", help="vulture findings")
+    parser.add_argument(
+        "--vulture-keep-declarative",
+        action="store_true",
+        help="count unused fields of models, enums and dataclasses too (dropped by default)",
+    )
     parser.add_argument("--cycles", action="store_true", help="AST import cycles")
     return parser
 
@@ -397,7 +596,12 @@ def collect(args: argparse.Namespace) -> dict[str, int]:
     if args.cognitive:
         out.update(collect_cognitive(args.python, root, args.src, args.scope))
     if args.vulture:
-        out.update(collect_vulture(args.python, root, args.src, args.scope))
+        out.update(
+            collect_vulture(
+                args.python, root, args.src, args.scope,
+                keep_declarative=args.vulture_keep_declarative,
+            )
+        )  # fmt: skip
     if args.cycles:
         out.update(collect_cycles(root, args.src, args.scope))
     return out

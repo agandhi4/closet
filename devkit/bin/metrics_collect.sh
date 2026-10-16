@@ -19,20 +19,35 @@
 #   name     [A-Za-z0-9_-]+, unique: the collector writes build/metrics/<name>.json and the
 #            snapshot records it as each key's `source`
 #   area     docs|backend|frontend|native|tooling|other|repo: the fleet area whose paths can
-#            change its numbers (`repo` = always runs: a whole-repo tool such as jscpd)
+#            change its numbers (`repo` = always runs: a whole-repo tool such as jscpd), or
+#            job:<gate job name>: the collector reads that gate job's output rather than the
+#            tree (coverage.py over the report `unit-backend` wrote), so it runs iff that job
+#            ran in this gate
 #   command  run with `bash -c` from the repo root; it must write build/metrics/<name>.json
 #            (docs/metrics-keys.md shape) and exit 0, or the job fails. Tools come from the
 #            repo's own dev dependencies (`uv run …`, `node_modules/.bin/…`).
 # A malformed line is exit 2 naming file:line, before anything runs.
 #
 # Which collectors run: outside the gate (GATE_AREAS unset) all of them. Inside the gate
-# (local_gate.sh exports GATE_AREAS before the plan) a collector runs when its area is in
-# GATE_AREAS, or when GATE_AREAS holds `tooling` or `other` (a change outside the app halves,
-# this file included, may move any number); `repo` collectors always run. One
-# `metrics <name> RUN|SKIP (<why>)` line each. The skipped names go to `metrics_ratchet.py
-# merge --skipped`, so `check` reports their tracked keys as SKIPPED rather than MISSING: a
-# frontend-only PR cannot have changed backend coverage, and its unit tier, which produces
-# that coverage, did not run either.
+# (local_gate.sh exports GATE_AREAS before the plan) an area collector runs when its area is
+# in GATE_AREAS, or when GATE_AREAS holds `other` (a change outside the app halves may move
+# any number); `repo` collectors always run; `tooling` widens nothing (devkit/metrics/*,
+# metrics_collect.sh and metrics_ratchet.py classify as other, so a tooling-only diff cannot
+# move a metric, and its gate runs no tier anyway). A `job:<name>` collector runs iff
+# build/metrics/gate.json holds `gate.<name>.seconds`: local_gate.sh rewrites that file after
+# every job and the metrics job runs last, so the entry exists exactly when the job ran. Why a
+# job and not an area: a repo's gate_plan_extra may skip one job of an area (closet skips db
+# for .github/** and Playwright-only test/**), so "the area's group ran" is not "my input
+# exists". A job name the plan never ran, or does not have, is "did not run" (SKIP) in the
+# gate and runs outside it. One `metrics <name> RUN|SKIP (<why>)` line each. The skipped names
+# go to `metrics_ratchet.py merge --skipped`, so `check` reports their tracked keys as SKIPPED
+# rather than MISSING: a frontend-only PR cannot have changed backend coverage, and the unit
+# job that produces that coverage did not run either.
+#
+# Toolchain: before any collector, the tree's pinned Node and Rust go first on PATH
+# (bin/toolchain_path.sh, as the gate and the hooks do), so `make metrics-snapshot` on a Mac
+# whose PATH has Node 25 still runs dependency-cruiser on the .nvmrc Node. A pin that cannot
+# be provided is exit 2 naming it.
 #
 # build/metrics/ before a run: only this conf's collector files (and their logs) are removed.
 # gate.json (local_gate.sh, every earlier job's seconds) and tier-*.json (tier_guard.sh, the
@@ -51,6 +66,7 @@ RATCHET=$HERE/metrics_ratchet.py
 # merge reads the whole directory.
 readonly COLLECT_DIR=build/metrics
 readonly AREAS="docs backend frontend native tooling other repo"
+readonly GATE_JSON=build/metrics/gate.json   # local_gate.sh's job seconds: which jobs ran
 readonly SUBCOMMANDS="snapshot check tighten rebaseline"
 
 usage() {
@@ -94,9 +110,15 @@ while IFS= read -r line || [ -n "$line" ]; do
   for seen in ${NAMES[@]+"${NAMES[@]}"}; do
     [ "$seen" != "$name" ] || die "$CONF:$line_no: collector '$name' declared twice"
   done
-  case " $AREAS " in
-    *" ${area:-} "*) ;;
-    *) die "$CONF:$line_no: area '${area:-}' must be one of: $AREAS" ;;
+  case "${area:-}" in
+    job:*)
+      [[ "${area#job:}" =~ ^[A-Za-z0-9_-]+$ ]] \
+        || die "$CONF:$line_no: '${area}' must name a gate job, job:<name> with [A-Za-z0-9_-]+" ;;
+    *)
+      case " $AREAS " in
+        *" ${area:-} "*) ;;
+        *) die "$CONF:$line_no: area '${area:-}' must be one of: $AREAS, or job:<gate job name>" ;;
+      esac ;;
   esac
   [ -n "${command:-}" ] || die "$CONF:$line_no: collector '$name' has no command"
   NAMES+=("$name")
@@ -105,13 +127,25 @@ while IFS= read -r line || [ -n "$line" ]; do
 done <"$CONF"
 
 # ---- decide: RUN or SKIP per collector ---------------------------------------------------------
+# gate_job_ran <job>: true when gate.json records the job's seconds (the gate wrote it).
+gate_job_ran() { [ -f "$GATE_JSON" ] && grep -q "\"gate.$1.seconds\"" "$GATE_JSON"; }
 # run_reason <area>: prints why the collector runs, or nothing when it is skipped.
 run_reason() {
   if [ -z "${GATE_AREAS+x}" ]; then echo "outside the gate: every collector runs"; return; fi
-  case "$1" in repo) echo "repo: always runs"; return ;; esac
+  case "$1" in
+    repo) echo "repo: always runs"; return ;;
+    job:*) ! gate_job_ran "${1#job:}" || echo "gate job ${1#job:} ran"; return ;;
+  esac
   case " $GATE_AREAS " in
-    *" tooling "*|*" other "*) echo "tooling or other paths changed: every collector runs"; return ;;
+    *" other "*) echo "other paths changed: every collector runs"; return ;;
     *" $1 "*) echo "$1 paths changed"; return ;;
+  esac
+}
+# skip_reason <area>: why a skipped collector did not run.
+skip_reason() {
+  case "$1" in
+    job:*) echo "gate job ${1#job:} did not run (no gate.${1#job:}.seconds in $GATE_JSON)" ;;
+    *) echo "no $1 path changed; areas: ${GATE_AREAS:-none}" ;;
   esac
 }
 RUN=()      # 1|0 per collector, by index
@@ -125,12 +159,15 @@ while [ "$i" -lt "${#NAMES[@]}" ]; do
   else
     RUN+=(0)
     SKIPPED+=("${NAMES[$i]}")
-    echo "metrics ${NAMES[$i]} SKIP (no ${COLLECTOR_AREAS[$i]} path changed; areas: ${GATE_AREAS:-none})"
+    echo "metrics ${NAMES[$i]} SKIP ($(skip_reason "${COLLECTOR_AREAS[$i]}"))"
   fi
   i=$((i + 1))
 done
 
 # ---- run ------------------------------------------------------------------------------------------
+# shellcheck source=bin/toolchain_path.sh
+. "$HERE/toolchain_path.sh"
+toolchain_path . || die "$TOOLCHAIN_ERROR"
 mkdir -p "$COLLECT_DIR" || die "cannot create $COLLECT_DIR"
 for name in ${NAMES[@]+"${NAMES[@]}"}; do
   rm -f "$COLLECT_DIR/$name.json" "$COLLECT_DIR/$name.log"

@@ -52,6 +52,10 @@ _devkit_area() {
   case "$1" in
     # Read by docs-check alone (finplat, Orbit, locus, rollcall).
     scripts/ci/docs_oversize.txt) DEVKIT_AREA=docs ;;
+    # The metrics ratchet's inputs: the bounds (under docs/, but a loosened bound must run the
+    # METRICS group and face the label, not pass as docs-only) and the collectors file. Other,
+    # which runs every group: the collectors need the tiers' output.
+    docs/metrics/ratchet.json|scripts/ci/metrics.conf) DEVKIT_AREA=other ;;
     # Fixtures under docs/ that tests read (locus): rule-fixtures by pytest and vitest,
     # sync-wire-fixtures by pytest. Above docs/* so they are not mistaken for prose.
     docs/rule-fixtures/*.md|docs/sync-wire-fixtures/*.md) DEVKIT_AREA=docs ;;
@@ -159,17 +163,21 @@ devkit_gate_areas() {
 #   FRONTEND  frontend other
 #   IMAGE     other                           + GATE_IMAGE_PATHS + the DEVKIT_IMAGE_BIN scripts
 #   E2E       backend frontend other
-#   METRICS   backend frontend tooling other  optional; always last (after gate_plan_extra), so
+#   METRICS   backend frontend other          optional; always last (after gate_plan_extra), so
 #                                             its ci-metrics merges every earlier job's gate.*
-#                                             seconds and the tier-*.json the tiers wrote. With
+#                                             seconds and the tier-*.json the tiers wrote, and
+#                                             metrics_collect.sh reads gate.json for its
+#                                             `job:<name>` collectors. Not tooling: devkit's
+#                                             collectors and ratchet are other (below), so a
+#                                             tooling-only diff cannot move a metric. With
 #                                             the PR labelled metrics-rebaseline (pr_has_label,
 #                                             fail-closed: no gh answer means no label) each
 #                                             job gets METRICS_REBASELINE=1 appended, which
 #                                             metrics_collect.sh turns into --rebaseline-ok.
 #
 # So docs-only runs DOCS; tooling(+docs)-only runs QUICK, plus IMAGE when boot_image.sh or
-# contract_probe.sh changed, plus METRICS (a devkit sync may change a collector); native-only
-# (or an empty diff) is nothing_to_run; any other path runs every group. A group not run prints
+# contract_probe.sh changed; native-only (or an empty diff) is nothing_to_run; any other path
+# runs every group. A group not run prints
 # one SKIPPED line per job, naming the areas changed.
 
 devkit_group_ran() { # <group>, lowercase
@@ -204,7 +212,7 @@ devkit_default_gate_plan() {
 # docs-only PR asks gh nothing. pr_has_label is the skeleton's (local_gate.sh); a harness that
 # runs a plan without it (tests/new_contract.bats) gets no label, the fail-closed answer.
 _devkit_metrics_group() {
-  local jobs=${GATE_JOBS_METRICS:-} areas="backend frontend tooling other"
+  local jobs=${GATE_JOBS_METRICS:-} areas="backend frontend other"
   [ -n "$jobs" ] || return 0
   if _devkit_group_runs METRICS "$areas" && declare -F pr_has_label >/dev/null \
       && pr_has_label metrics-rebaseline; then

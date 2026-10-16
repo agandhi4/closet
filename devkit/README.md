@@ -156,8 +156,10 @@ Each changed path gets one area from the table the hooks use (docs, backend, fro
 native, tooling, other). Docs-only runs docs; tooling (`devkit/`, `.devkit-rev`, hooks.conf,
 `.githooks/`; a devkit sync) runs quick, plus the image group when `boot_image.sh` or
 `contract_probe.sh` changed; native-only runs nothing; backend and frontend run their groups
-plus quick and e2e; other runs everything. The metrics group runs for every area but docs,
-after `gate_plan_extra`, so `ci-metrics` sees every earlier job's seconds; when the PR
+plus quick and e2e; other runs everything (`docs/metrics/ratchet.json` and
+`scripts/ci/metrics.conf` are other, so a bounds-only PR meets the ratchet and its label).
+The metrics group runs for backend, frontend and other, after `gate_plan_extra`, so
+`ci-metrics` sees every earlier job's seconds; when the PR
 carries the `metrics-rebaseline` label (read through `gh`, fail-closed) its jobs get
 `METRICS_REBASELINE=1`. `GATE_AREAS_<GROUP>="..."` overrides a group's areas. The table and
 defaults: the `_paths_lib.sh` header. A plan may still be hand-written against the
@@ -239,13 +241,15 @@ metrics-tighten:  ## lock in BETTER numbers; commit docs/metrics/ratchet.json in
 ```sh
 # scripts/ci/metrics.conf: <name> <area> <command...>   (# comments and blank lines ignored)
 py-backend  backend  uv run --frozen --project backend python devkit/metrics/python.py --root backend --src app --scope backend --mccabe --cycles --out build/metrics/py-backend.json
-cov-backend backend  python3 -I devkit/metrics/coverage.py --scope backend --coverage-json backend/build/coverage.json --out build/metrics/cov-backend.json
+cov-backend job:unit-backend python3 -I devkit/metrics/coverage.py --scope backend --coverage-json backend/build/coverage.json --out build/metrics/cov-backend.json
 dup         repo     node devkit/metrics/jscpd.mjs --scope repo --out build/metrics/dup.json backend/app frontend/src
 ```
 
 `<name>` names the output file `build/metrics/<name>.json` and is recorded as each key's
 `source`. `<area>` is the fleet area (docs, backend, frontend, native, tooling, other) whose
-paths can move the collector's numbers, or `repo` for a whole-repo tool. The command runs with
+paths can move the collector's numbers, `repo` for a whole-repo tool, or `job:<gate job>`
+for a collector that reads that gate job's output (coverage from `unit-backend`) rather than
+the tree. The command runs with
 `bash -c` from the repo root under the repo's own dev dependencies (`uv run …`,
 `node_modules/.bin/…`) and must write its file in the `docs/metrics-keys.md` shape. The shared
 collectors in `devkit/metrics/` (`python.py`, `ts.mjs`, `jscpd.mjs`, `coverage.py`; CLIs in the
@@ -253,16 +257,22 @@ Architecture table, keys in `docs/metrics-keys.md`) cover the fleet's stacks, so
 implementation measures a thing fleet-wide (owner decision B, 2026-10-13); a repo-specific
 collector (finplat's reinvention registry) is any script that writes the file.
 
-In the gate, `ci-metrics` is the last job (`GATE_JOBS_METRICS`, above). A collector runs when a
-changed path is in its area, or when a `tooling` or `other` path changed; `repo` collectors
-always run. The rest are skipped, and the snapshot says so: `check` reports their tracked keys
-as `SKIPPED (collector <name> did not run)` rather than failing. Why: a frontend-only PR cannot
-have changed backend coverage, and the backend unit tier that produces that coverage did not
-run either. Outside the gate every collector runs.
+In the gate, `ci-metrics` is the last job (`GATE_JOBS_METRICS`, above). An area collector runs
+when a changed path is in its area or when an `other` path changed; `repo` collectors always
+run; `tooling` widens nothing (devkit's collectors and ratchet classify as `other`, so a
+devkit sync that changes one still runs everything, and a tooling-only PR runs no tier); a
+`job:<name>` collector runs only when `build/metrics/gate.json` records that job's seconds,
+which `local_gate.sh` writes after each job, so exactly when the job ran in this gate (a job
+the plan skipped, for any reason, leaves no entry). The rest are skipped, and the snapshot
+says so: `check` reports their tracked keys as `SKIPPED (collector <name> did not run)`
+rather than failing. Why: a frontend-only PR cannot have changed backend coverage, and the
+backend unit job that produces that coverage did not run either. Outside the gate every
+collector runs, on the pinned toolchain (`toolchain_path`, as the gate and the hooks).
 
 **Coverage** is produced by the unit tier, not by a collector: each `ci-unit-<area>` runs with
 coverage on and writes the tool's report (coverage.py JSON, an istanbul summary);
-`devkit/metrics/coverage.py` converts it to `coverage.<area>.lines|branches`. Outside the gate
+`devkit/metrics/coverage.py` converts it to `coverage.<area>.lines|branches`, declared with
+`job:<the tier's gate job>` so it runs only when that job ran. Outside the gate
 a missing report fails the collector with "run make ci-unit-<area> first". A tier whose budget
 coverage would break says so in its PR rather than dropping the budget.
 

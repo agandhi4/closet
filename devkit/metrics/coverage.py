@@ -4,9 +4,9 @@
 Coverage is produced by the unit tier, not by this script (devkit docs/decisions.md
 2026-10-16): `ci-unit-<area>` runs with coverage on and writes the tool's report; this
 collector only converts it. One line in scripts/ci/metrics.conf, for example:
-  cov-backend  backend  python3 -I devkit/metrics/coverage.py --scope backend \\
+  cov-backend  job:unit-backend  python3 -I devkit/metrics/coverage.py --scope backend \\
       --coverage-json backend/build/coverage.json --out build/metrics/cov-backend.json
-  cov-frontend frontend python3 -I devkit/metrics/coverage.py --scope frontend \\
+  cov-frontend job:unit-frontend python3 -I devkit/metrics/coverage.py --scope frontend \\
       --istanbul-summary frontend/coverage/coverage-summary.json \\
       --out build/metrics/cov-frontend.json
 
@@ -18,8 +18,9 @@ give them:
                               coverage off), so a tracked branches bound then reads MISSING:
                               turn branch coverage on in the tier rather than drop the bound.
 
-A missing report is exit 2 with "run make ci-unit-<scope> first": in the gate the tier that
-writes it runs before the metrics job (same area), and outside the gate the author runs it.
+A missing report is exit 2 with "run make ci-unit-<scope> first": outside the gate the author
+runs the tier first. In the gate the `job:<tier job>` area makes metrics_collect.sh run this
+collector only when that job ran in the worktree (its seconds are in build/metrics/gate.json).
 """
 
 from __future__ import annotations

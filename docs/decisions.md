@@ -94,3 +94,9 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** devkit #36 fixes `ts.mjs`, which read a `files` array knip 6 no longer fills, so `dead.*.knip_files` was 0 everywhere.
 **Decision:** sync. Re-measured with the fix, closet's `dead.backend.knip_files` is still 0 (`knip.jsonc` declares every entry point), so the bound merged in #391 stands; no rebaseline.
 **Consequence:** a new unreferenced file under `src/`, `scripts/` or `test/` now fails `ci-metrics`; declare a real entry point in `knip.jsonc`, never to hide one.
+
+## 2026-10-16 — Coverage moves into the metrics ratchet (C4); vitest thresholds deleted
+
+**Why:** decision C4 wants one place to gate coverage. devkit f6bf01f lets a collector name the gate job it reads (`job:db`), so it is SKIPPED, not failed, when the gate skips db (`.github`, Playwright-only, tooling PRs).
+**Decision:** `make ci-db` adds the `json-summary` reporter. The `cov` collector (`job:db`) turns it into `coverage.backend.lines` 97.43 and `branches` 92.36, both today's values, direction higher. The four vitest thresholds are deleted. Functions and statements are no longer gated: the fleet key set is lines and branches, statements track lines, and functions jitter (two runs differed by one function in `src/db/client.ts`; lines and branches were identical).
+**Consequence:** a coverage drop fails `ci-metrics`, not `test:cov`, and `ci.yml`'s db job no longer gates it. The bounds and the conf are `other` now and run db only (`gate_plan_extra`), so the coverage keys are measured, not skipped. `statements.*` and `audit-pages` stay untracked.

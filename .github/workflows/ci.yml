@@ -61,7 +61,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       # Every core: vitest.config.ts gives the tests all of them under CI.
-      # ci-db is test:cov (every Vitest project, v8 coverage, failing below its thresholds).
+      # ci-db is test:cov (every Vitest project, v8 coverage). Coverage is gated by the PR
+      # gate's metrics ratchet (make ci-metrics), not here.
       - run: make ci-deps ci-db
 
   e2e:
