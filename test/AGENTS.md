@@ -17,7 +17,7 @@ The tiers and their commands are in the root `AGENTS.md` (Commands, Test tiers).
                        while a callback runs, with rows, start and time; recordQueries and the page audit),
                        statement-budgets.ts (+ -setup, -global: with STATEMENTS_OUT, `make ci-db`, the
                        most statements each `<METHOD>:<route>` sent inside a recordQueries block, merged
-                       into build/metrics/statements.json for the metrics ratchet),
+                       into build/statements.json, which metrics.conf's `statements` collector ratchets),
                        multipart.ts, pwa-env.ts (PWA_ENV: the PWA's config with a throwaway VAPID pair),
                        household-today.ts (householdToday: the server's "today" for Playwright),
                        log-capture.ts (LogCapture, captureLogs: the app's log lines as records),

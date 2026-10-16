@@ -72,13 +72,14 @@ ci-unit:
 # (scripts/ci/metrics.conf, job:db), so splitting the run would change the gated number.
 # Each spec file clones the migrated template inside this container (migrations once per run;
 # test/support/scratch-database.ts reads TEST_DATABASE_URL). STATEMENTS_OUT: the statement
-# counts the specs pin (recordQueries), as the metrics ratchet's `statements.*` keys
-# (test/support/statement-budgets.ts; devkit docs/metrics-keys.md).
+# counts the specs pin (recordQueries; test/support/statement-budgets.ts), which the `statements`
+# collector (scripts/ci/metrics.conf) turns into ratchet keys. Outside build/metrics/: metrics_collect.sh
+# clears its collectors' files there before a run.
 ci-db:
 	@$(PG) up $(PG_CONTAINER) >/dev/null
 	@trap '$(PG) down $(PG_CONTAINER)' EXIT INT TERM; \
 	  TEST_DATABASE_URL=$$($(PG) url $(PG_CONTAINER)) || exit 1; \
-	  export TEST_DATABASE_URL STATEMENTS_OUT=build/metrics/statements.json; \
+	  export TEST_DATABASE_URL STATEMENTS_OUT=build/statements.json; \
 	  $(TIER) db --budget $(DB_BUDGET_SECONDS) --floor vitest=$(DB_FLOOR) -- npm run test:cov
 
 # As production: the PWA on, so the service-worker specs run instead of skipping. Web Push
