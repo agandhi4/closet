@@ -4,12 +4,6 @@ Dated decisions, their rationale and the gotchas they carry. Newest last (devkit
 the union merge appends); the 2026-10-13 block predates that rule and reads newest first. The
 older history lives in `docs/PROJECT_LOG.md`.
 
-## 2026-10-16 — Layer debt paid: metrics never imports web
-
-**Why:** three `known` lines in `scripts/ci/layers.conf` let src/metrics reach into src/web for the session cookie's name, the personal token prefix and `isWarmRequest`.
-**Decision:** the two credential names move to `src/credential-names.ts` and the warm marker (header + `isWarmRequest`) to `src/warm-request.ts`, both in the `shared` layer; every consumer (web/auth, the service worker, app.ts) imports them there, with no re-export left behind.
-**Consequence:** no `known` lines remain and `coupling.backend.layer_violations` is bound at 0: a new metrics→web import fails ci-quick.
-
 ## 2026-10-13 — Tier budgets and floors through devkit's tier guard
 
 **Why:** `scripts/ci/budget.sh` and `scripts/ci/test_floor.py` were closet's copy of what five repos built separately; devkit 4f5f282 ships the one implementation (`devkit/bin/tier_guard.sh`).
@@ -141,3 +135,15 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** knip reported 200 exports and types no other module imports, so the scorecard's T3 (dead code) read F and every new unused export hid among them.
 **Decision:** 187 lost only the `export` keyword (each is used inside its own file). Ten e2e helpers orphaned when PR #383 cut the e2e specs were deleted. Three `as const` arrays read only to derive a type (GARMENT_PROPERTIES, the forecast's CONDITIONS, FIT_PROBLEMS) became plain union types. Nothing went into knip's ignore list.
 **Consequence:** `dead.backend.knip_exports` is bound at 0. Export a symbol in the same change that imports it from another module; a test needing an internal goes through the module's public behaviour.
+
+## 2026-10-16 — Layer debt paid: metrics never imports web
+
+**Why:** three `known` lines in `scripts/ci/layers.conf` let src/metrics reach into src/web for the session cookie's name, the personal token prefix and `isWarmRequest`.
+**Decision:** the two credential names move to `src/credential-names.ts` and the warm marker (header + `isWarmRequest`) to `src/warm-request.ts`, both in the `shared` layer; every consumer (web/auth, the service worker, app.ts) imports them there, with no re-export left behind.
+**Consequence:** no `known` lines remain and `coupling.backend.layer_violations` is bound at 0: a new metrics→web import fails ci-quick.
+
+## 2026-10-16 — devkit c9ef303 and the scorecard ratchet
+
+**Why:** the scorecard grades closet per track, but nothing stopped a PR from lowering a track's pass share.
+**Decision:** `docs/metrics/scorecard.json` is committed from `scorecard.py . --mode rebaseline`; `make ci-metrics` (metrics_collect.sh) then runs `--mode check` after the metric bounds and fails a PR whose ratcheted track (T1-T6, T10, T12, T14) drops. Baseline: closet D.
+**Consequence:** letters only rise from here; a PR that raises a share runs `--mode tighten` and commits the file. The `metrics-rebaseline` label is the escape hatch, as for the metric bounds. Also moved the 2026-10-16 layer-debt entry to the end, where docs-check's newest-last rule wants it.

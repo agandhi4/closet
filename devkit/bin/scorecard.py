@@ -12,6 +12,17 @@ hooks), config files, the gate's state dir, and the devkit checkout this script 
   bin/scorecard.py --fleet <repo-root>... [--md OUT]                      the fleet table
   bin/scorecard.py --table <repo.json>... [--md OUT]                       the table from saved
                                                                            per-repo JSON (the audit)
+  bin/scorecard.py <repo-root> --mode check|tighten|rebaseline [--bounds-file docs/metrics/scorecard.json]
+                                                                           the scorecard ratchet
+The ratchet (flywheel step 4): docs/metrics/scorecard.json holds the committed pass share per
+RATCHETED track; `check` fails when a track's share is below its committed share (exit 1,
+`scorecard-ratchet <track> <now> vs <bound> WORSE`), `tighten` raises the committed shares to
+the better current ones, `rebaseline` writes them all (METRICS_REBASELINE=1 makes `check` accept
+a drop, like the metrics ratchet). Only the tracks the code owns are ratcheted: T7 (live
+runtime), T8 (gate and hook seconds), T9 (ledger), T11 (new advisories) and T15 (devkit moving)
+change without a code change and would fail PRs for nothing; they stay graded, not gated.
+metrics_collect.sh runs the mode it was given when the bounds file exists, after the metrics
+ratchet, so a repo opts in by committing `scorecard.py . --mode rebaseline`'s file.
 
 Every check prints one line: `score <track> <check> PASS|FAIL|D|UNMEASURED|NA <evidence>`.
   PASS/FAIL    measured against devkit/scorecard.conf (fleet-wide; a repo never tunes it)
@@ -43,6 +54,9 @@ from statistics import median
 HERE = Path(__file__).resolve().parent
 DEVKIT = HERE.parent
 EXIT_USAGE = 2
+
+# Tracks whose share a PR can move only by changing the repo: the ratchet's domain.
+RATCHETED = ("T1", "T2", "T3", "T4", "T5", "T6", "T10", "T12", "T13", "T14")
 
 TRACKS = {
     "T1": "Documentation",
@@ -133,6 +147,13 @@ def git(root: Path, *args: str) -> str:
 
 def tracked_files(root: Path) -> set[str]:
     return set(git(root, "ls-files").splitlines())
+
+
+def repo_name(root: Path) -> str:
+    """The main checkout's directory name, for a worktree too (.claude/worktrees/<branch> grades
+    as its repo and reads the repo's hooks ledger). Mirrors _hook_ledger_name in hook_steps.sh."""
+    common = git(root, "rev-parse", "--git-common-dir")
+    return (root / common).resolve().parent.name if common else root.name
 
 
 def load_metrics(repo: Repo) -> None:
@@ -400,7 +421,15 @@ def t5_db(repo: Repo, conf: dict[str, float]) -> None:
         repo.add("T5", "db.statements", None, "no statements.* keys", mechanism="devkit metrics/statements.py collector + the suite's statement fixture")
     drift = [f for f in repo.tracked if re.search(r"(migration.*drift|schema.*(drift|parity)|drift.*migration)", Path(f).name) and f.endswith((".py", ".ts"))]
     repo.add("T5", "db.migration_drift", bool(drift), ", ".join(drift[:2]) if drift else "no drift/parity test")
-    repo.add("T5", "db.migration_guards", None, "no shipped-edit / pass-downgrade / round-trip guards", mechanism="devkit migration guard pack")
+    makes = "\n".join((repo.root / f).read_text(errors="replace") for f in repo.tracked if Path(f).name == "Makefile")
+    # Recipe lines only (a tab), never a comment that names the script (finplat lane, 2026-10-16).
+    m = re.search(r"^\t[^#\n]*migration_check\.py\s+(.*)", makes, re.M)
+    if m:
+        guard_args = [a for a in m.group(1).split() if not a.startswith("$")]
+        code, out = run([sys.executable, "-I", str(HERE / "migration_check.py"), *guard_args], cwd=repo.root)
+        repo.add("T5", "db.migration_guards", code == 0, (out.strip().splitlines()[-1] if out.strip() else f"exit {code}")[:140])
+    else:
+        repo.add("T5", "db.migration_guards", False, "ci-quick does not run devkit/bin/migration_check.py (shipped-edit check + pass-downgrade lint)")
     dump = [f for f in repo.tracked if "entrypoint" in f and "pg_dump" in (repo.root / f).read_text(errors="replace")]
     repo.add("T5", "db.pre_migrate_dump", bool(dump), dump[0] if dump else "no pre-migrate pg_dump in an entrypoint (or the homelab autoupdater)")
 
@@ -457,7 +486,7 @@ def t8_gate(repo: Repo, conf: dict[str, float], state_home: Path) -> None:
         repo.add("T8", "gate.coverage", not bad, "coverage within bands" if not bad else "; ".join(bad))
     else:
         repo.add("T8", "gate.coverage", None, "no coverage.* keys", mechanism="coverage.py collector over the unit tier")
-    ledger = state_home / "devkit" / "hooks" / f"{repo.name}.tsv"
+    ledger = state_home / "devkit" / "hooks" / f"{repo.name}.tsv"  # repo_name(): the main checkout's, as hook_steps.sh writes it
     if ledger.is_file():
         totals: dict[str, list[float]] = {}
         for line in ledger.read_text().splitlines()[-400:]:
@@ -529,10 +558,10 @@ def t11_security(repo: Repo) -> None:
     if dfs:
         texts = {d: d.read_text(errors="replace") for d in dfs}
         nonroot = all(re.search(r"^USER\s+(?!root)\S+", t, re.M) for t in texts.values())
-        hc = [re.search(r"^HEALTHCHECK.*?(/health/\w+)", t, re.M | re.S) for t in texts.values()]
-        ready = all(m and m.group(1) == "/health/ready" for m in hc)
+        hc = {d: re.search(r"^HEALTHCHECK.*?(/health/\w+)", t, re.M | re.S) for d, t in texts.items()}
+        ready = all(m and m.group(1) == "/health/ready" for m in hc.values())
         repo.add("T11", "sec.nonroot", nonroot, f"USER set in {sum(1 for _ in texts)} Dockerfile(s): {nonroot}")
-        repo.add("T11", "sec.healthcheck_ready", ready, "HEALTHCHECK on /health/ready" if ready else "HEALTHCHECK not on /health/ready: " + ", ".join(m.group(1) if m else "none" for m in hc))
+        repo.add("T11", "sec.healthcheck_ready", ready, "HEALTHCHECK on /health/ready" if ready else "per Dockerfile: " + ", ".join(f"{d.relative_to(repo.root)} -> {m.group(1) if m else 'no HEALTHCHECK'}" for d, m in hc.items()))
     else:
         repo.na("T11", "sec.nonroot", "no image")
     vuln = {k: v for k, v in repo.metrics.items() if k.startswith("vuln.") and (k.endswith(".high") or k.endswith(".critical"))}
@@ -550,10 +579,21 @@ def t11_security(repo: Repo) -> None:
         repo.add("T11", "sec.secrets", False, "ci-quick does not run devkit/bin/secrets_check.sh")
 
 
-def t12_ops(repo: Repo) -> None:
+def t12_ops(repo: Repo, conf: dict[str, float]) -> None:
     ops = (repo.root / "docs" / "operations.md").is_file()
     repo.add("T12", "ops.runbook", ops, "docs/operations.md present" if ops else "no docs/operations.md")
-    repo.add("T12", "ops.backups", None, "restore drill not recorded", mechanism="a dated restore-drill line in docs/operations.md the scorecard can read")
+    # The contract: docs/operations.md carries `Last restore drill: YYYY-MM-DD` (any case, a
+    # bullet or a table cell), rewritten when a backup is restored for real. Older than the
+    # window, or absent, fails: a backup nobody has restored is a hope.
+    ops_text = (repo.root / "docs" / "operations.md").read_text(errors="replace") if ops else ""
+    drill = re.search(r"last restore drill[^0-9]{0,20}(\d{4}-\d{2}-\d{2})", ops_text, re.I)
+    if drill:
+        age = (date.today() - date.fromisoformat(drill.group(1))).days
+        repo.add("T12", "ops.backups", age <= conf["ops_restore_drill_days"], f"last restore drill {drill.group(1)} ({age} days ago; max {conf['ops_restore_drill_days']:g})")
+    elif has_db(repo) or dockerfiles(repo):
+        repo.add("T12", "ops.backups", False, "no `Last restore drill: YYYY-MM-DD` line in docs/operations.md")
+    else:
+        repo.na("T12", "ops.backups", "nothing to back up (no database, no image)")
 
 
 def t13_frontend(repo: Repo) -> None:
@@ -578,9 +618,11 @@ def t15_currency(repo: Repo, conf: dict[str, float]) -> None:
         repo.add("T15", "kit.devkit_rev", False, "no .devkit-rev: devkit not vendored")
         return
     commit = rev.read_text().split()[0]
-    behind = git(DEVKIT, "rev-list", "--count", f"{commit}..HEAD")
+    # Only a devkit CHECKOUT can count: inside a consumer, DEVKIT is its vendored devkit/ and
+    # `git -C` would answer for the consumer's own history (962 commits behind, finplat lane).
+    behind = git(DEVKIT, "rev-list", "--count", f"{commit}..HEAD") if git(DEVKIT, "rev-parse", "--show-toplevel") == str(DEVKIT) and (DEVKIT / "VENDOR_PATHS").is_file() else ""
     if behind == "":
-        repo.add("T15", "kit.devkit_rev", None, f"vendored {commit[:7]} unknown to this devkit checkout", mechanism="git fetch in the devkit checkout")
+        repo.add("T15", "kit.devkit_rev", None, f"vendored {commit[:7]}; distance needs a devkit checkout", mechanism="running scorecard.py from a devkit checkout (make scorecard there, or the audit)")
     else:
         repo.add("T15", "kit.devkit_rev", int(behind) <= conf["kit_devkit_behind_max"], f"vendored {commit[:7]}, {behind} devkit commits behind (max {conf['kit_devkit_behind_max']:g})")
     agents = repo.root / "AGENTS.md"
@@ -615,7 +657,7 @@ def score_repo(root: Path, conf: dict[str, float], state_home: Path, homelab: Pa
     root = root.resolve()
     if not (root / ".git").exists() and not git(root, "rev-parse", "--show-toplevel"):
         sys.exit(f"scorecard: {root} is not a git repository")
-    repo = Repo(root=root, name=root.name)
+    repo = Repo(root=root, name=repo_name(root))
     repo.tracked = tracked_files(root)
     load_metrics(repo)
     load_declarations(repo)
@@ -630,7 +672,7 @@ def score_repo(root: Path, conf: dict[str, float], state_home: Path, homelab: Pa
     t9_agent(repo, conf)
     t10_process(repo)
     t11_security(repo)
-    t12_ops(repo)
+    t12_ops(repo, conf)
     t13_frontend(repo)
     t14_domain(repo)
     t15_currency(repo, conf)
@@ -659,6 +701,45 @@ def print_repo(repo: Repo, conf: dict[str, float]) -> None:
         print(f"track {t} {letter(s, conf)} {TRACKS[t]} ({'n/a' if s is None else f'{s*100:.0f}% of {n}'})")
     measured = [s for s in shares.values() if s is not None]
     print(f"grade {repo.name} {letter(sum(measured) / len(measured) if measured else None, conf)} metrics from {repo.metrics_from or 'none'}")
+
+
+def ratchet(repo: Repo, conf: dict[str, float], bounds_file: Path, mode: str, rebaseline_ok: bool) -> int:
+    """check|tighten|rebaseline over the committed per-track shares. Returns the exit code."""
+    shares = track_shares(repo)
+    now = {t: round(s, 3) for t, s in shares.items() if t in RATCHETED and s is not None}
+    committed: dict[str, float] = {}
+    if bounds_file.is_file():
+        try:
+            doc = json.loads(bounds_file.read_text())
+            committed = {k: float(v) for k, v in doc.get("tracks", {}).items() if isinstance(v, (int, float))}
+        except (ValueError, AttributeError):
+            print(f"scorecard-ratchet: {bounds_file}: not a scorecard bounds file", file=sys.stderr)
+            return EXIT_USAGE
+    elif mode == "check":
+        print(f"scorecard-ratchet: no bounds at {bounds_file}; run --mode rebaseline once and commit it")
+        return 0
+    rc = 0
+    if mode == "check":
+        for t, bound in sorted(committed.items()):
+            cur = now.get(t)
+            if cur is None:
+                print(f"scorecard-ratchet {t} - vs {bound:g} MISSING")
+                rc = 1
+                continue
+            verdict = "SAME" if cur == bound else "BETTER" if cur > bound else "WORSE"
+            print(f"scorecard-ratchet {t} {cur:g} vs {bound:g} {verdict}" + (" (allowed: METRICS_REBASELINE)" if verdict == "WORSE" and rebaseline_ok else ""))
+            if verdict == "WORSE" and not rebaseline_ok:
+                rc = 1
+        print(f"scorecard-ratchet {'FAIL' if rc else 'ok'}: {len(committed)} tracks ratcheted" + ("; fix the track, or label the PR metrics-rebaseline when a tool change moved it" if rc else ""))
+        return rc
+    new = dict(committed)
+    for t, cur in now.items():
+        if mode == "rebaseline" or t not in new or cur > new[t]:
+            new[t] = cur
+    bounds_file.parent.mkdir(parents=True, exist_ok=True)
+    bounds_file.write_text(json.dumps({"_comment": "scorecard ratchet: committed pass share per ratcheted track (bin/scorecard.py --mode check|tighten|rebaseline); never edit by hand", "tracks": dict(sorted(new.items()))}, indent=2) + "\n")
+    print(f"scorecard-ratchet {mode}: wrote {len(new)} tracks to {bounds_file}")
+    return 0
 
 
 def fleet_markdown(repos: list[dict]) -> str:
@@ -690,6 +771,9 @@ def main() -> int:
     ap.add_argument("--conf", default=str(DEVKIT / "scorecard.conf"))
     ap.add_argument("--state-home", default=None, help="gate state dir (default $XDG_STATE_HOME or ~/.local/state)")
     ap.add_argument("--homelab", default=None, help="homelab checkout, for the alert-rule checks")
+    ap.add_argument("--mode", choices=["check", "tighten", "rebaseline"], help="the scorecard ratchet over --bounds-file (one repo)")
+    ap.add_argument("--bounds-file", default="docs/metrics/scorecard.json", help="repo-relative committed shares")
+    ap.add_argument("--rebaseline-ok", action="store_true", help="with --mode check: a lower share is allowed (the PR carries metrics-rebaseline)")
     args = ap.parse_args()
     conf = load_conf(Path(args.conf))
     if args.table:
@@ -715,6 +799,10 @@ def main() -> int:
         if not args.fleet:
             print_repo(repo, conf)
         results.append(repo_json(repo, conf))
+    if args.mode:
+        if args.fleet or len(args.roots) != 1:
+            ap.error("--mode takes one repo root")
+        return ratchet(repo, conf, (repo.root / args.bounds_file), args.mode, args.rebaseline_ok or os.environ.get("METRICS_REBASELINE") == "1")
     if args.fleet:
         md = fleet_markdown(results)
         print(md, end="")
