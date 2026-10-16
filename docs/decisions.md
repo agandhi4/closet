@@ -3,6 +3,12 @@
 Dated decisions, their rationale and the gotchas they carry. Newest first. The older
 history lives in `docs/PROJECT_LOG.md`.
 
+## 2026-10-15 — devkit 51a7bb5: one path classification for hooks and gate
+
+**Why:** devkit 51a7bb5 moves the fleet's path table into `bin/_paths_lib.sh`, shared by the hooks and the gate, and adds `devkit_default_gate_plan`; a devkit-only change is now "tooling".
+**Decision:** sync with no hooks.conf change (the hooks treat tooling like other, so local steps are unchanged), then convert the gate plan to the default (next entry).
+**Consequence:** the tier guard's git-root lookup now ignores a hook's exported `GIT_DIR`, so `build/metrics/` always lands at the checkout root.
+
 ## 2026-10-13 — Tier budgets and floors through devkit's tier guard
 
 **Why:** `scripts/ci/budget.sh` and `scripts/ci/test_floor.py` were closet's copy of what five repos built separately; devkit 4f5f282 ships the one implementation (`devkit/bin/tier_guard.sh`).
