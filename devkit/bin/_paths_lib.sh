@@ -36,7 +36,7 @@ DEVKIT_TOOLING_BIN="local_gate.sh gate.sh remote_gate.sh _gate_env.sh _paths_lib
   devkit-check.sh _vendor_paths.sh docs_check.sh toolchain_check.sh ci_targets_check.sh
   _makefile_lib.sh workflows_check.sh _workflows_lib.sh release_check.sh _dockerfile_lib.sh
   _gitattributes_lib.sh own_commit_check.py
-  devkit-sync.sh devkit-new.sh monthly_audit.sh dead_alert_audit.py ship_tag.sh"
+  devkit-sync.sh devkit-new.sh monthly_audit.sh dead_alert_audit.py ship_tag.sh scorecard.py"
 # What the image group exercises (ci-smoke/ci-image boot through them): tooling, but a change
 # to one runs the image group even when nothing else would.
 DEVKIT_IMAGE_BIN="boot_image.sh contract_probe.sh"

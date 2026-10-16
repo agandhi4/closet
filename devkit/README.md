@@ -53,6 +53,8 @@ What each path is; [AGENTS.md](AGENTS.md) holds the invariants that tie them tog
 | `renovate/default.json` | Shared Renovate preset (`github>agandhi4/devkit//renovate/default`): weekly grouped minors, pinned action digests, no automerge (Renovate PRs never get the Mac `local-gate`), `.nvmrc` + `FROM node` + `engines` bumped together, dashboard approval instead of hard ignores so security fixes still flow. |
 | `.github/workflows/quick-check.yml` | Reusable `workflow_call` quick-check (checkout, Node from `.nvmrc`, optional Python + uv, `make ci-quick`); caller template in `templates/workflows/`. Needs devkit's Actions access set to "repositories owned by the user". |
 | `lint/ruff.toml` | Shared ruff base (py313, 100 cols, E F I N W UP); consumers `extend` it. |
+| `metrics/statements.py` | The statements collector (decision H): the db tier's statement fixture writes `{"<METHOD>:/<route>": <max statements>}` to a file outside `build/metrics/`; one `statements job:db …` line in `metrics.conf` validates and copies it into the snapshot as `statements.<METHOD>:/<route>` keys at tolerance 0. closet's `test/support/statement-budgets.ts` and finplat's `count_statements` are the two fixtures to copy. |
+| `bin/scorecard.py`, `scorecard.conf` | The fleet scorecard (standardization/scorecard-design.md): one letter per track (docs, code quality, dead code, architecture, database load, observability, runtime, gate speed, agent cost, process, security, operations, frontend, domain, currency) per repo, from the metrics snapshot or bounds, `docs_check --report`, the read-only guards, config files and the gate state dir; `UNMEASURED` names the devkit mechanism that would measure a check and the fleet table ranks that backlog by repos unblocked. Thresholds are fleet-wide in `scorecard.conf`; a repo declares a check n/a only with `scorecard: <id>` under its Convention deltas. `make scorecard REPOS='…'`; the monthly audit runs it over fresh clones. |
 | `tests/` | bats contract tests (fake `gh`/`make`/`node`, temp bare repos). |
 
 ## New project
@@ -337,6 +339,16 @@ in `README.md`, `AGENTS.md` and `docs/**/*.md` must resolve to a tracked file.
 Recommended, not checked (the fleet has no common shape for these yet): `docs/observability.md`
 or an Observability section for a running service, testing notes per tier. A repo's own extra
 rules go in `scripts/ci/docs_rules.sh`.
+
+## Scorecard
+
+`bin/scorecard.py <repo>` prints `score <track> <check> PASS|FAIL|D|UNMEASURED|NA <evidence>`
+lines, one `track <id> <letter> …` line per track and a `grade <repo> <letter>` line;
+`--fleet <repo>...` prints the table every repo is raised against. The design and the track list
+are in `standardization/scorecard-design.md` (solo); the flywheel: an UNMEASURED check is a
+devkit mechanism to build, a FAIL is a repo lane, and a track share never drops below main's
+once the ratchet over it ships. Letters: A ≥ 95 % of a track's checks pass, B ≥ 85, C ≥ 70,
+D ≥ 50, else F; unmeasured counts as fail on purpose.
 
 ## Deploy
 

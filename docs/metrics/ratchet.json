@@ -58,5 +58,440 @@
     "bound": 0.43,
     "direction": "lower",
     "source": "dup"
+  },
+  "statements.DELETE:/outfits/:id": {
+    "bound": 8,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.DELETE:/wardrobe/:id": {
+    "bound": 4,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/auth/change-password": {
+    "bound": 1,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/auth/profile": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/calendar": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/calendar/plan": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/capsules": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/outfits": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/outfits/:id": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/outfits/ideas": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/outfits/ideas/more": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/styling": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/styling/garments": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/styling/row": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/styling/shuffle": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/today/ideas": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/trips": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/trips/:id": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/trips/:id/edit": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/trips/:id/outfits/new": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/trips/:id/weather": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/trips/new": {
+    "bound": 1,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe": {
+    "bound": 4,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe-share/invite/:token": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/:id": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/:id/clone": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/:id/edit": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/insights": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/lookalikes": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/new": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/recap": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/tag": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/tiles": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/wishlist": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/wardrobe/wishlist/needs/:id": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.GET:/weather/summary": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/auth/change-password": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/auth/delete-account": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/auth/login": {
+    "bound": 1,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/auth/register": {
+    "bound": 1,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/auth/tokens": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/auth/tokens/:id/revoke": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/auth/update-email": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/calendar/:id/delete": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/calendar/:id/selfie": {
+    "bound": 10,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/calendar/:id/worn": {
+    "bound": 7,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/calendar/plan-week": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/calendar/plan-week/:id/undo": {
+    "bound": 8,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/capsules/:id/garments": {
+    "bound": 5,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/mcp": {
+    "bound": 18,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/outfits/:id": {
+    "bound": 8,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/outfits/ideas/avoid": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/outfits/ideas/pick": {
+    "bound": 7,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/push/subscribe": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/push/unsubscribe": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/styling": {
+    "bound": 7,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/today/wear": {
+    "bound": 7,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/trips/:id": {
+    "bound": 5,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/trips/:id/items": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/trips/:id/items/copy": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/trips/:id/items/packed": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/trips/:id/outfits": {
+    "bound": 5,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/trips/:id/outfits/:tripOutfitId/delete": {
+    "bound": 5,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/trips/:id/outfits/:tripOutfitId/wear": {
+    "bound": 7,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/trips/:id/packed": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe": {
+    "bound": 10,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe-share/:id/remove": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe-share/invite/:token/accept": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe-share/invite/:token/decline": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id/choose": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id/clone": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id/copies": {
+    "bound": 5,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id/dismiss": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id/returned": {
+    "bound": 10,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id/tag": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id/undo": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id/washed": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/:id/wear": {
+    "bound": 3,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/new/drafts/discard": {
+    "bound": 5,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/new/from-link": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/new/photo": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/properties-fragment": {
+    "bound": 1,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/wishlist/needs/:id/dismiss": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/wishlist/needs/:id/undo": {
+    "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/wardrobe/wishlist/seen": {
+    "bound": 2,
+    "direction": "lower",
+    "source": "statements"
   }
 }
