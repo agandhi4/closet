@@ -72,11 +72,11 @@ Exactly the keys each emits, per flag; `<s>` is `--scope`. CLIs: devkit README, 
 |---|---|---|
 | `python.py` | `--mccabe` | `complexity.<s>.mccabe_max`, `complexity.<s>.mccabe_over_10` (ruff C901 at 0, `--ignore-noqa`) |
 | | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (complexipy) |
-| | `--vulture` | `dead.<s>.vulture` (findings; `[tool.vulture]` in `--root`'s pyproject.toml is honoured, else the `--src` dirs) |
-| | `--cycles` | `coupling.<s>.cycles` (strongly connected components of the runtime import graph over the `--src` packages; `if TYPE_CHECKING:` imports excluded, imports inside functions included) |
+| | `--vulture` | `dead.<s>.vulture` (findings; `[tool.vulture]` in `--root`'s pyproject.toml is honoured, else the `--src` paths) |
+| | `--cycles` | `coupling.<s>.cycles` (strongly connected components of the runtime import graph over the `--src` directories and `.py` modules, so a flat backend lists `app.py` beside its packages; `if TYPE_CHECKING:` imports excluded, imports inside functions included) |
 | `ts.mjs` | `--cyclomatic` | `complexity.<s>.cyclomatic_max` (eslint `complexity` at 0, `--no-inline-config`, production files: `--src` minus tests, `__tests__`/`__mocks__`/`test-helpers`, `test-setup.*`, `setupTests.*`, `*.d.ts` and `--test-glob`s) |
 | | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (eslint-plugin-sonarjs) |
-| | `--knip` | `dead.<s>.knip_exports` (exports + types), `dead.<s>.knip_files`, `dead.<s>.knip_deps` (dependencies, devDependencies, unlisted, unresolved, binaries) |
+| | `--knip` | `dead.<s>.knip_exports` (exports + types), `dead.<s>.knip_files` (knip 6: files reported as issues), `dead.<s>.knip_deps` (dependencies, devDependencies, unlisted, unresolved, binaries) |
 | | `--cycles` | `coupling.<s>.cycles` (dependency-cruiser `--no-config` graph of `--src`, same production filter, `import type` is not an edge) |
 | | `--bundle` | `bundle.<s>.kb_total` (every file `vite build` emits, raw KiB, one decimal), `bundle.<s>.kb_entry` (the `--bundle-entry` chunk, its static-import closure and their CSS) |
 | `jscpd.mjs` | | `duplication.<s>.jscpd_percent` (jscpd's `statistics.total.percentage`, two decimals), `duplication.<s>.clones` |
