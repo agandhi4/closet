@@ -1,8 +1,9 @@
 // knip's view of closet: the entry points and module names it cannot infer, so the metrics
 // ratchet's `dead.backend.knip_*` (scripts/ci/metrics.conf, docs/metrics/ratchet.json) counts dead
-// code rather than the ways closet loads code that knip does not follow. The rest is knip's
-// defaults and plugins (vitest, playwright, eslint, drizzle, tsc). Add an entry when you add a way
-// to load code; never to hide a finding.
+// code rather than the ways closet loads code that knip does not follow. `--knip-base` merges
+// devkit/lint/knip.base.jsonc under this file (devkit/**, the collectors' own tools); the rest is
+// knip's defaults and plugins (vitest, playwright, eslint, drizzle, tsc). Add an entry when you
+// add a way to load code; never to hide a finding.
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   "entry": [
@@ -42,8 +43,6 @@
     "recap-export": ["public/js/recap-export.js"],
     "pwa-install": ["node_modules/@khmyznikov/pwa-install/dist/pwa-install.bundle.js"]
   },
-  // Vendored, byte-for-byte devkit (devkit-check): not closet's code to measure.
-  "ignore": ["devkit/**"],
   "ignoreDependencies": [
     // Copied from node_modules into public/modules/ by path (CLIENT_MODULES in
     // scripts/static-assets.ts) and loaded by a <script> tag.
@@ -52,10 +51,6 @@
     "@fontsource-variable/fraunces",
     "@fontsource-variable/inter",
     // A pino transport, named by string in src/logger.ts.
-    "pino-pretty",
-    // Run from node_modules/.bin by devkit/metrics/ts.mjs and jscpd.mjs (the metrics ratchet).
-    "dependency-cruiser",
-    "eslint-plugin-sonarjs",
-    "jscpd"
+    "pino-pretty"
   ]
 }

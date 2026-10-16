@@ -52,7 +52,11 @@ Bounds (`docs/metrics/ratchet.json`): `{"<metric>": {"direction": "lower"|"highe
 "bound": <number>|null[, "source": "<collector>"]}}`. "lower" fails when value > bound;
 "higher" fails when value < bound. `null` exists only in the starter
 (templates/metrics/ratchet.json): `rebaseline` fills it, `check` refuses it, so a copied
-template never gates on a placeholder such as coverage 0. `rebaseline` and `tighten` copy
+template never gates on a placeholder such as coverage 0. `rebaseline` also seeds every
+snapshot key the bounds do not track yet (except the `gate`, `tier` and `tests` domains, never
+tracked) with the direction its domain fixes (DOMAIN_DIRECTIONS, the docs/metrics-keys.md
+table); a key of an unknown domain is an error naming it, so a repo-specific domain is added
+by hand with its direction. `rebaseline` and `tighten` copy
 `source` from the snapshot into every bound they write; `check` uses it only to recognise a
 skipped collector, and a bound whose `source` alone differs from main's has not moved. An
 empty bounds file `{}` is valid everywhere: a repo whose metrics.conf declares no collector
@@ -87,6 +91,21 @@ EXIT_RATCHET = 1
 EXIT_USAGE = 2
 
 DIRECTIONS = ("lower", "higher")
+# The domain table of docs/metrics-keys.md: what `rebaseline` seeds an untracked key with.
+# Keep the two in step; a domain missing here is a key the repo tracks by hand.
+DOMAIN_DIRECTIONS = {
+    "coverage": "higher",
+    "duplication": "lower",
+    "dead": "lower",
+    "complexity": "lower",
+    "coupling": "lower",
+    "bundle": "lower",
+    "statements": "lower",
+    "allowlist": "lower",
+}
+# Never tracked (docs/metrics-keys.md): area-scoped jobs leave them absent on narrow PRs and
+# the seconds are noisy. rebaseline leaves them untracked.
+NEVER_TRACKED_DOMAINS = frozenset({"gate", "tier", "tests"})
 DEFAULT_BASE_REF = "origin/main"
 
 
@@ -468,8 +487,24 @@ def cmd_rebaseline(args: argparse.Namespace) -> int:
                 f"ratchet {metric} - vs {_fmt(bound.bound)} SKIPPED "
                 f"(collector {bound.source} did not run) (left as is)"
             )
+    # Seed what the snapshot has and the bounds do not, so adoption starts from `{}`: every
+    # key except the never-tracked domains, with the direction its domain fixes.
+    seeded = 0
+    for metric in sorted(set(snapshot.values) - set(bounds)):
+        domain = metric.partition(".")[0]
+        if domain in NEVER_TRACKED_DOMAINS:
+            continue
+        direction = DOMAIN_DIRECTIONS.get(domain)
+        if direction is None:
+            raise InputError(
+                f"snapshot key {metric}: domain {domain!r} has no direction in "
+                f"docs/metrics-keys.md; add the key to {bounds_path} by hand with its direction"
+            )
+        rebased[metric] = Bound(direction, snapshot.values[metric], snapshot.sources.get(metric))
+        seeded += 1
+        print(f"ratchet {metric} - -> {_fmt(snapshot.values[metric])} (seeded, {direction})")
     write_bounds(bounds_path, rebased)
-    print(f"ratchet rebaselined {len(rebased)} bound(s) in {bounds_path}")
+    print(f"ratchet rebaselined {len(rebased)} bound(s) in {bounds_path} ({seeded} seeded)")
     return EXIT_OK
 
 

@@ -34,8 +34,14 @@ Keys (docs/metrics-keys.md), each behind its flag; `<scope>` is `--scope`:
                                                     path and kind (finplat: ~250 such names;
                                                     locus: 80 of 96 findings). Dead classes,
                                                     functions and methods in the same files are
-                                                    still reported. --vulture-keep-declarative
-                                                    switches the filter off.
+                                                    still reported. Opt-in:
+                                                    --vulture-ignore-declarative.
+               --vulture-base SET[,SET...]          the repo's [tool.vulture] merged over
+                                                    devkit/lint/vulture.toml's [tool.vulture]
+                                                    and the named decorator sets (fastapi,
+                                                    flask, pydantic, sqlalchemy), passed as
+                                                    vulture's --config (lists union, the
+                                                    repo's scalars win; lint/README.md)
   --cycles     coupling.<scope>.cycles              import cycles among the --src modules:
                                                     strongly connected components of the runtime
                                                     import graph (`if TYPE_CHECKING:` excluded,
@@ -61,6 +67,7 @@ import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 EXIT_USAGE = 2
 MCCABE_THRESHOLD = 10
@@ -78,6 +85,8 @@ DECLARATIVE_BASES = frozenset({
 DECLARATIVE_DECORATORS = frozenset({"dataclass", "define", "frozen", "s", "attrs"})
 DECLARATIVE_KINDS = frozenset({"variable", "attribute"})
 VULTURE_FINDINGS_EXIT = 3  # vulture's "I reported something", not a failure
+# devkit/lint beside devkit/metrics (VENDOR_PATHS vendors both): the vulture base lives there.
+VULTURE_BASE = Path(__file__).resolve().parent.parent / "lint" / "vulture.toml"
 
 
 class CollectorError(Exception):
@@ -185,15 +194,64 @@ def collect_cognitive(python: str, root: Path, src: list[str], scope: str) -> di
 # ----------------------------------------------------------------------------- vulture
 
 
-def _vulture_configured(root: Path) -> bool:
+def _read_toml(path: Path) -> dict[str, Any]:
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise CollectorError(f"{path} is not valid TOML: {exc}") from exc
+
+
+def _own_vulture(root: Path) -> dict[str, Any]:
+    """The repo's [tool.vulture] ({} without one)."""
     pyproject = root / "pyproject.toml"
     if not pyproject.exists():
-        return False
-    try:
-        doc = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as exc:
-        raise CollectorError(f"{pyproject} is not valid TOML: {exc}") from exc
-    return "paths" in doc.get("tool", {}).get("vulture", {})
+        return {}
+    return _read_toml(pyproject).get("tool", {}).get("vulture", {})
+
+
+def merge_config(base: Any, own: Any) -> Any:
+    """The repo's value over the base: lists union (base first), tables merge, scalars the
+    repo's. Same rule as metrics/_lib.mjs mergeConfig, so every base behaves alike."""
+    if isinstance(base, list) and isinstance(own, list):
+        return [*base, *(v for v in own if v not in base)]
+    if isinstance(base, dict) and isinstance(own, dict):
+        merged = dict(base)
+        for key, value in own.items():
+            merged[key] = merge_config(base[key], value) if key in base else value
+        return merged
+    return own
+
+
+def vulture_base_config(root: Path, sets: list[str]) -> dict[str, Any]:
+    """lint/vulture.toml's [tool.vulture] plus the named [sets.*], under the repo's own."""
+    doc = _read_toml(VULTURE_BASE)
+    available = doc.get("sets", {})
+    unknown = [name for name in sets if name not in available]
+    if unknown:
+        raise CollectorError(
+            f"--vulture-base: unknown set(s) {', '.join(unknown)}; "
+            f"devkit/lint/vulture.toml has {', '.join(sorted(available))}"
+        )
+    base = dict(doc["tool"]["vulture"])
+    for name in sets:
+        base = merge_config(base, available[name])
+    return merge_config(base, _own_vulture(root))
+
+
+def _toml_value(value: object) -> str:
+    # JSON strings are valid TOML basic strings; vulture's settings are flat scalars and lists.
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float, str)):
+        return json.dumps(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    raise CollectorError(f"[tool.vulture] value {value!r} is not a scalar or a list")
+
+
+def vulture_toml(config: dict[str, Any]) -> str:
+    lines = ["[tool.vulture]", *(f"{key} = {_toml_value(v)}" for key, v in config.items())]
+    return "\n".join(lines) + "\n"
 
 
 def _dotted(node: ast.expr) -> str | None:
@@ -361,13 +419,33 @@ class DeclarativeIndex:
 
 
 def collect_vulture(
-    python: str, root: Path, src: list[str], scope: str, *, keep_declarative: bool
+    python: str,
+    root: Path,
+    src: list[str],
+    scope: str,
+    *,
+    keep_declarative: bool,
+    base_sets: list[str] | None,
 ) -> dict[str, int]:
     require_module(python, "vulture", "vulture", root)
-    # With [tool.vulture] paths in pyproject.toml, vulture reads its own configuration (paths,
-    # whitelist, min_confidence); passing paths would override that. Without it, the --src dirs.
-    args = [] if _vulture_configured(root) else src
-    out = run_tool([python, "-m", "vulture", *args], cwd=root, ok=(0, VULTURE_FINDINGS_EXIT))
+    config = _own_vulture(root) if base_sets is None else vulture_base_config(root, base_sets)
+    # With [tool.vulture] paths, vulture reads its own configuration (paths, whitelist,
+    # min_confidence); passing paths would override that. Without them, the --src dirs.
+    paths = [] if "paths" in config else src
+
+    def vulture(*extra: str) -> str:
+        cmd = [python, "-m", "vulture", *extra, *paths]
+        return run_tool(cmd, cwd=root, ok=(0, VULTURE_FINDINGS_EXIT))
+
+    if base_sets is None:
+        out = vulture()
+    else:
+        # vulture resolves the config's paths against its working directory (--root), not the
+        # config file's, so the merged file lives outside the repo.
+        with tempfile.TemporaryDirectory(prefix="devkit-vulture-") as tmp:
+            merged = Path(tmp) / "pyproject.toml"
+            merged.write_text(vulture_toml(config), encoding="utf-8")
+            out = vulture("--config", str(merged))
     index = None if keep_declarative else DeclarativeIndex(root, src)
     count = 0
     for line in out.splitlines():
@@ -385,6 +463,8 @@ def collect_vulture(
 
 # ------------------------------------------------------------------------------ cycles
 # Lifted from finplat scripts/metrics/coupling.py (backend graph), unchanged in substance.
+# Also the graph bin/layer_check.py judges (it loads this file by path): one resolver for the
+# cycle count and the layer verdict, so keep module_name, source_files and import_graph stable.
 
 Graph = dict[str, set[str]]
 
@@ -568,9 +648,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cognitive", action="store_true", help="complexipy")
     parser.add_argument("--vulture", action="store_true", help="vulture findings")
     parser.add_argument(
-        "--vulture-keep-declarative",
+        "--vulture-ignore-declarative",
         action="store_true",
-        help="count unused fields of models, enums and dataclasses too (dropped by default)",
+        help="do not count unused fields of models, enums, dataclasses and the like",
+    )
+    parser.add_argument(
+        "--vulture-base",
+        metavar="SET[,SET...]",
+        help="merge devkit/lint/vulture.toml and these decorator sets under [tool.vulture]",
     )
     parser.add_argument("--cycles", action="store_true", help="AST import cycles")
     return parser
@@ -586,6 +671,8 @@ def collect(args: argparse.Namespace) -> dict[str, int]:
             raise CollectorError(f"--src {entry} is not a directory or .py module under {root}")
     if SCOPE.fullmatch(args.scope) is None:
         raise CollectorError(f"--scope {args.scope!r} must match [A-Za-z0-9_-]+")
+    if args.vulture_base is not None and not args.vulture:
+        raise CollectorError("--vulture-base needs --vulture")
     if not (args.mccabe or args.cognitive or args.vulture or args.cycles):
         raise CollectorError(
             "nothing to collect: pass --mccabe, --cognitive, --vulture or --cycles"
@@ -599,12 +686,17 @@ def collect(args: argparse.Namespace) -> dict[str, int]:
         out.update(
             collect_vulture(
                 args.python, root, args.src, args.scope,
-                keep_declarative=args.vulture_keep_declarative,
+                keep_declarative=not args.vulture_ignore_declarative,
+                base_sets=None if args.vulture_base is None else _set_names(args.vulture_base),
             )
         )  # fmt: skip
     if args.cycles:
         out.update(collect_cycles(root, args.src, args.scope))
     return out
+
+
+def _set_names(value: str) -> list[str]:
+    return [name for name in (part.strip() for part in value.split(",")) if name]
 
 
 def write_output(doc: dict[str, int], out: str | None) -> None:

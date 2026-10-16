@@ -8,7 +8,7 @@
 //
 // Usage: ts.mjs --root <dir> --src <subdir> --scope <name> [--out FILE]
 //               [--tsconfig tsconfig.app.json] [--test-glob <glob>]...
-//               [--cyclomatic] [--cognitive] [--knip] [--cycles] [--bundle [--bundle-entry index.html]]
+//               [--cyclomatic] [--cognitive] [--knip [--knip-base]] [--cycles] [--bundle [--bundle-entry index.html]]
 //   --root       the package: holds package.json and node_modules/.bin, where every tool comes
 //                from (never PATH: the lockfile's version measures). A requested tool that is
 //                not installed is exit 2 naming the dev dependency.
@@ -32,6 +32,11 @@
 //                dead.<scope>.knip_deps               unused, unlisted and unresolved dependencies
 //                                                     and binaries (knip reads the repo's knip
 //                                                     config; `--directory <root>`)
+//   --knip-base                                       with --knip: the repo's knip JSON(C) config
+//                                                     (or package.json `knip`) merged over
+//                                                     devkit/lint/knip.base.jsonc, passed as
+//                                                     knip's --config (lists union, the repo's
+//                                                     scalars win; lint/README.md)
 //   --cycles     coupling.<scope>.cycles              dependency-cruiser's graph of --src
 //                                                     (`--no-config`; tests excluded; `import type`
 //                                                     is not an edge), strongly connected
@@ -58,10 +63,12 @@ import {
   SCOPE,
   fail,
   globToRegExp,
+  ownConfig,
   parseJson,
   requireBin,
   runTool,
   stronglyConnected,
+  withMergedConfig,
   writeOutput,
 } from "./_lib.mjs";
 
@@ -95,6 +102,7 @@ function parse(argv) {
       cyclomatic: { type: "boolean", default: false },
       cognitive: { type: "boolean", default: false },
       knip: { type: "boolean", default: false },
+      "knip-base": { type: "boolean", default: false },
       cycles: { type: "boolean", default: false },
       bundle: { type: "boolean", default: false },
       "bundle-entry": { type: "string", default: "index.html" },
@@ -112,6 +120,7 @@ function parse(argv) {
   if (!(values.cyclomatic || values.cognitive || values.knip || values.cycles || values.bundle)) {
     throw new CollectorError("nothing to collect: pass --cyclomatic, --cognitive, --knip, --cycles or --bundle");
   }
+  if (values["knip-base"] && !values.knip) throw new CollectorError("--knip-base needs --knip");
   if (values.tsconfig === undefined) {
     values.tsconfig = ["tsconfig.app.json", "tsconfig.json"].find((f) => existsSync(join(values.root, f)));
   } else if (!existsSync(join(values.root, values.tsconfig))) {
@@ -188,12 +197,18 @@ function collectCognitive(opts, files) {
   };
 }
 
+// What knip reads as its config, in its own lookup order; the code forms cannot be merged.
+const KNIP_CONFIGS = { files: ["knip.json", "knip.jsonc", ".knip.json", ".knip.jsonc"], pkgKey: "knip",
+  scriptFiles: ["knip.ts", "knip.js", "knip.mts", "knip.mjs", "knip.config.ts", "knip.config.js"] };
+
 function collectKnip(opts) {
   const knip = requireBin(opts.root, "knip", "knip");
   // knip resolves --directory against its cwd, so the absolute path is passed.
-  const out = runTool(knip, ["--directory", resolve(opts.root), "--no-progress", "--reporter", "json"], {
-    cwd: opts.root,
-  });
+  const args = ["--directory", resolve(opts.root), "--no-progress", "--reporter", "json"];
+  const run = (extra) => runTool(knip, [...args, ...extra], { cwd: opts.root });
+  const out = opts["knip-base"]
+    ? withMergedConfig("knip.base.jsonc", ownConfig(opts.root, KNIP_CONFIGS), (path) => run(["--config", path]))
+    : run([]);
   const report = parseJson(out, "knip output");
   if (!Array.isArray(report?.issues)) throw new CollectorError("knip output has no `issues` array");
   const count = (kinds) =>

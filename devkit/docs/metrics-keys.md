@@ -37,7 +37,7 @@ schema 1 envelope (finplat's `make metrics`) and a bare flat file, which carry n
 | `duplication` | lower | `duplication.repo.jscpd_percent` |
 | `dead` | lower | `dead.backend.vulture`, `dead.frontend.knip_exports` |
 | `complexity` | lower | `complexity.backend.cognitive_max`, `complexity.backend.mccabe_over_10` |
-| `coupling` | lower | `coupling.frontend.cycles`, `coupling.backend.fan_in_max` |
+| `coupling` | lower | `coupling.frontend.cycles`, `coupling.backend.layer_violations` (`bin/layer_check.py`) |
 | `bundle` | lower | `bundle.frontend.kb_total`, `bundle.frontend.kb_login` |
 | `statements` | lower | `statements.POST:/api/items` |
 | `allowlist` | lower | `allowlist.backend.own_commit` (shrink-only allow-lists) |
@@ -72,7 +72,7 @@ Exactly the keys each emits, per flag; `<s>` is `--scope`. CLIs: devkit README, 
 |---|---|---|
 | `python.py` | `--mccabe` | `complexity.<s>.mccabe_max`, `complexity.<s>.mccabe_over_10` (ruff C901 at 0, `--ignore-noqa`) |
 | | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (complexipy) |
-| | `--vulture` | `dead.<s>.vulture` (findings; `[tool.vulture]` in `--root`'s pyproject.toml is honoured, else the `--src` paths; unused fields of pydantic/SQLAlchemy models, dataclasses, enums, TypedDicts and Protocols are dropped unless `--vulture-keep-declarative`) |
+| | `--vulture` | `dead.<s>.vulture` (findings; `[tool.vulture]` in `--root`'s pyproject.toml is honoured, else the `--src` paths; unused fields of pydantic/SQLAlchemy models, dataclasses, enums, TypedDicts and Protocols are dropped with `--vulture-ignore-declarative`) |
 | | `--cycles` | `coupling.<s>.cycles` (strongly connected components of the runtime import graph over the `--src` directories and `.py` modules, so a flat backend lists `app.py` beside its packages; `if TYPE_CHECKING:` imports excluded, imports inside functions included) |
 | `ts.mjs` | `--cyclomatic` | `complexity.<s>.cyclomatic_max` (eslint `complexity` at 0, `--no-inline-config`, production files: `--src` minus tests, `__tests__`/`__mocks__`/`test-helpers`, `test-setup.*`, `setupTests.*`, `*.d.ts` and `--test-glob`s) |
 | | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (eslint-plugin-sonarjs) |
@@ -83,8 +83,18 @@ Exactly the keys each emits, per flag; `<s>` is `--scope`. CLIs: devkit README, 
 | `coverage.py` (area `job:<tier job>`) | `--coverage-json` | `coverage.<s>.lines` (covered_lines / num_statements), `coverage.<s>.branches` (covered_branches / num_branches; omitted when no branches were measured) |
 | | `--istanbul-summary` | `coverage.<s>.lines` (`total.lines.pct`), `coverage.<s>.branches` (`total.branches.pct`; omitted when "Unknown") |
 
+**Coverage determinism.** vitest's V8 coverage remaps branches per worker unless
+`coverage.experimentalAstAwareRemapping: true` is set in the vitest config: locus saw 12 vs 13
+branches depending on worker order, which the ratchet reads as a regression. Set it (or use
+the istanbul provider) before tracking `coverage.<s>.branches` from vitest.
+
 A repo-specific collector (finplat's reinvention registry, closet's `audit-pages`) uses its
 own domain name and states the direction in `ratchet.json`.
+
+`bin/layer_check.py --metrics-out <file>` is a guard that also reports:
+`coupling.<section>.layer_violations`, the refused imports per `scripts/ci/layers.conf` section
+(its `known` lines once the check passes). It is not in the starter because it needs the repo's
+conf; the `devkit new` stacks declare it as their `layers` collector.
 
 ## Bounds file
 
@@ -100,9 +110,15 @@ numbers:
 devkit/bin/metrics_collect.sh rebaseline     # runs scripts/ci/metrics.conf, merges, fills the bounds
 ```
 
-The starter's `null` bounds make `check` refuse to run until that happens, so a copied
-template never gates on a placeholder. Keys in the snapshot but not in the bounds are
-reported as untracked and never fail.
+`rebaseline` fills every tracked bound and seeds every snapshot key the bounds do not track
+yet (except `gate.*`, `tier.*` and `tests.*`, never tracked) with the direction its domain
+fixes in the table above; a key of a domain not in that table is an error naming it, so a
+repo-specific domain is added by hand with its direction. So `{}` is a complete start: one
+`rebaseline` tracks everything the collectors emit. The starter's `null` bounds make `check`
+refuse to run until that happens, so a copied template never gates on a placeholder; the
+starter lists exactly the keys the shared collectors emit (`tests/metrics_ratchet_test.py`
+holds it to the table below). Keys in the snapshot but not in the bounds are reported as
+untracked by `check` and never fail; remove a seeded key from the bounds to leave it so.
 
 **Skipped collectors.** In the gate, `metrics_collect.sh` runs a collector only when a changed
 path is in its area (`other` runs everything, `tooling` widens nothing, `repo` collectors

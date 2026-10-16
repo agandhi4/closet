@@ -1,8 +1,11 @@
-// Shared by ts.mjs and jscpd.mjs: the tool runner, the exit-2 path, output writing, glob
+// Shared by ts.mjs and jscpd.mjs: the tool runner, the exit-2 path, output writing, the base
+// config merge (lint/*.base.json[c] under a repo's own config), glob
 // matching and the cycle count. Node stdlib only; runs on a consumer's pinned Node (.nvmrc).
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const EXIT_USAGE = 2;
 export const SCOPE = /^[A-Za-z0-9_-]+$/;
@@ -65,6 +68,109 @@ export function writeOutput(doc, out) {
   }
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, text);
+}
+
+// LINT_DIR: devkit/lint beside devkit/metrics (VENDOR_PATHS vendors both), where the base
+// configs live.
+export const LINT_DIR = fileURLToPath(new URL("../lint/", import.meta.url));
+
+// stripOutsideStrings: `text` with `drop(text, i)` applied outside JSON string literals; drop
+// returns the index to resume at, or -1 to keep the character.
+function stripOutsideStrings(text, drop) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    const next = drop(text, i);
+    if (next < 0) {
+      out += text[i];
+      i += 1;
+    } else {
+      i = next;
+    }
+  }
+  return out;
+}
+
+// parseJsonc: JSON with comments and trailing commas (knip.jsonc, the bases), as knip reads it.
+export function parseJsonc(text, what) {
+  const noComments = stripOutsideStrings(text, (t, i) => {
+    if (t.startsWith("//", i)) {
+      const nl = t.indexOf("\n", i);
+      return nl < 0 ? t.length : nl;
+    }
+    if (t.startsWith("/*", i)) {
+      const end = t.indexOf("*/", i + 2);
+      return end < 0 ? t.length : end + 2;
+    }
+    return -1;
+  });
+  const noTrailingCommas = stripOutsideStrings(noComments, (t, i) =>
+    t[i] === "," && /^\s*[}\]]/.test(t.slice(i + 1)) ? i + 1 : -1,
+  );
+  return parseJson(noTrailingCommas, what);
+}
+
+const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+// mergeConfig: the repo's config over a base. Lists are unions (base first, then the repo's
+// additions), objects merge key by key, and any other value of the repo's wins. So a repo can
+// add to an ignore list but not silently drop a base entry, and can override a scalar.
+export function mergeConfig(base, own) {
+  if (Array.isArray(base) && Array.isArray(own)) {
+    const seen = new Set(base.map((v) => JSON.stringify(v)));
+    return [...base, ...own.filter((v) => !seen.has(JSON.stringify(v)))];
+  }
+  if (isPlainObject(base) && isPlainObject(own)) {
+    const out = { ...base };
+    for (const [key, value] of Object.entries(own)) out[key] = key in base ? mergeConfig(base[key], value) : value;
+    return out;
+  }
+  return own;
+}
+
+// withMergedConfig: run `fn(path)` with a temporary JSON file holding `own` (the repo's config
+// object, or undefined for none) merged over lint/<baseName>; the file is removed afterwards.
+// The tools resolve the config's globs against their working directory, not the file's.
+export function withMergedConfig(baseName, own, fn) {
+  const base = parseJsonc(readFileSync(join(LINT_DIR, baseName), "utf8"), `devkit/lint/${baseName}`);
+  delete base.$schema;
+  const merged = own === undefined ? base : mergeConfig(base, own);
+  const dir = mkdtempSync(join(tmpdir(), "devkit-config-"));
+  try {
+    const path = join(dir, "config.json");
+    writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`);
+    return fn(path);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// ownConfig: the repo's own config object for a tool, from the first of `files` under `dir`
+// that exists, else package.json's `pkgKey`; undefined when there is none. A JS/TS config
+// (`scriptFiles`) cannot be merged as data, so it is exit 2 naming the file.
+export function ownConfig(dir, { files, pkgKey, scriptFiles = [] }) {
+  for (const name of scriptFiles) {
+    if (existsSync(join(dir, name))) {
+      throw new CollectorError(`${join(dir, name)} is code; a base config merges only into a JSON(C) config`);
+    }
+  }
+  for (const name of files) {
+    const path = join(dir, name);
+    if (existsSync(path)) return parseJsonc(readFileSync(path, "utf8"), path);
+  }
+  const pkgPath = join(dir, "package.json");
+  if (existsSync(pkgPath)) {
+    const pkg = parseJson(readFileSync(pkgPath, "utf8"), pkgPath);
+    if (pkg[pkgKey] !== undefined) return pkg[pkgKey];
+  }
+  return undefined;
 }
 
 // globToRegExp: a path glob over a posix path relative to the source root. `**` crosses
