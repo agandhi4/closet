@@ -39,7 +39,7 @@ help:
 	@echo "make install          — once per checkout or worktree: devkit-check, then point core.hooksPath at .githooks"
 	@echo "make ci-quick         — devkit-check, toolchain-check, release-check, workflows-check, docs-check, then check:static"
 	@echo "make ci-unit          — the Vitest unit projects; no database. Budget $(UNIT_BUDGET_SECONDS) s, floor $(UNIT_FLOOR) tests"
-	@echo "make ci-db            — every Vitest project with the coverage ratchet, on a throwaway Postgres 18. Budget $(DB_BUDGET_SECONDS) s, floor $(DB_FLOOR)"
+	@echo "make ci-db            — every Vitest project with v8 coverage (the ratchet's cov input), on a throwaway Postgres 18. Budget $(DB_BUDGET_SECONDS) s, floor $(DB_FLOOR)"
 	@echo "make ci-e2e           — build, then Playwright chromium against a throwaway Postgres 18 (PWA on, PORT random). Budget $(E2E_BUDGET_SECONDS) s, floor $(E2E_FLOOR)"
 	@echo "make screenshots      — the 390 px persona screenshots (test/screenshots.spec.ts) into screenshots/, same server as ci-e2e"
 	@echo "make ci-image         — docker build of the production image (CI_IMAGE=$(CI_IMAGE), CI_BUILD_VERSION=$(CI_BUILD_VERSION))"
@@ -66,8 +66,9 @@ ci-quick: devkit-check toolchain-check release-check workflows-check docs-check
 ci-unit:
 	$(TIER) unit --budget $(UNIT_BUDGET_SECONDS) --floor vitest=$(UNIT_FLOOR) -- npm test
 
-# The whole suite, not only the integration project: the coverage thresholds in
-# vitest.config.ts are measured over both tiers, so splitting the run would lose the ratchet.
+# The whole suite, not only the integration project: coverage is measured over both tiers, and
+# coverage/coverage-summary.json is what the metrics ratchet's `cov` collector reads
+# (scripts/ci/metrics.conf, job:db), so splitting the run would change the gated number.
 # Each spec file clones the migrated template inside this container (migrations once per run;
 # test/support/scratch-database.ts reads TEST_DATABASE_URL). STATEMENTS_OUT: the statement
 # counts the specs pin (recordQueries), as the metrics ratchet's `statements.*` keys
