@@ -19,6 +19,17 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **i18n**: English only, `src/i18n/en/lang.json`, `t('KEY')` typed to its keys. **Logging**: one pino logger (`src/logger.ts`), a child per module.
 - **Tests**: Vitest unit, Vitest integration (the real app in-process on a scratch Postgres database) and Playwright; `test/AGENTS.md`.
 
+### Gotchas
+
+In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under Web layer.
+
+- **Never `prettier --write` a directory**: it re-pads the persona bibles (`src/seed/personas/*.md`) and the seed breaks (`persona.spec.ts`). Use `npm run format`.
+- **Upstream references are attribution only** (About, README, comments citing upstream issues); anything else is a rebrand regression: grep before a PR.
+- **`npm install <package>` skips our `postinstall`**, so `patches/` are unapplied and the drift test fails; run `npx patch-package` or `npm ci`.
+- **Regenerate `package-lock.json` only with Node 22 / npm 10**: npm 11 prunes entries the Docker build's `npm ci` needs.
+- **macOS needs `sudo ifconfig lo0 alias 127.0.0.2`** before the integration tier or `npm run check`: without it about 22 specs fail with EADDRNOTAVAIL (`test/integration/link-sites.ts`).
+- **`public/build.json` lingers after `npm run build`**: stale styles in `start:dev`; set `NODE_ENV=development` in `.env.local` or delete it. `precommit:full` is minutes long.
+
 ## Architecture
 
 ```
@@ -40,9 +51,8 @@ views/assets/     main.css, src-sw.ts, fonts.css
 public/           sw.js, bundle.css, vendor/, modules/, js/, assets/ (generated from icon.svg)
 test/             Playwright specs; support/, integration/: test/AGENTS.md
 drizzle/          generated migrations + meta/ (journal, snapshots)
-docs/             DESIGN.md (upstream entity model: assess feature work against it), architecture.md,
-                  web-layer.md, conventions.md, history.md (this file's detail, read on demand),
-                  PROJECT_LOG.md (dated decisions and gotchas; read before changing an area)
+docs/             the list is README's Documentation section; DESIGN.md (upstream entity model)
+                  is still the reference for feature scope
 ```
 
 ### Area index
@@ -132,7 +142,7 @@ The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. Wh
 
 In full: `docs/conventions.md#config`, `#logging`. `loadConfig()` (`src/config.ts`) is the only reader of `process.env`; a bad value stops the boot naming the key, never the value (`ConfigError`). Secrets have no default. A new env var gets a schema entry and a README row. **The image bakes `.env`, never `.env.local`**. Log through the module's pino child at operation boundaries with ids (`logger.error({ err }, message)`), never in rendering or loops, never `console` (ESLint). JSON lines carry `logger` and the operation's `request_id`, or a job's `job_id` and `parent_request_id` (`src/request-context.ts`). Bugsink's `environment` is `APP_ENV`, never NODE_ENV.
 
-## Conventions
+### Project rules
 
 In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 
@@ -145,14 +155,29 @@ In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 - **Offline-first per `frontend-pwa.md`**: cached reads show freshness; unreachable writes are disabled with a reason, never dropped; heartbeat, not `navigator.onLine`.
 - **"Today" is `todayIn(APP_TIMEZONE, now)`** in app and tests (`t.today()`, `householdToday()`): a UTC date is tomorrow on a New York evening. ESLint's `no-restricted-syntax` refuses `toISOString().slice/substring/split` and `toLocaleDateString`; a new consumer gets a row in `test/integration/today.spec.ts`.
 
+### Changing the schema
+
+`src/db/schema.ts` is the schema; `drizzle/` holds the migrations drizzle-kit generates from it. The server migrates on every boot (`createApp()`, before the pool opens and before anything queries), so a deploy is the migration. The CLIs never migrate: `requireCurrentSchema` refuses a database behind the build (`SchemaBehindError`, exit 1).
+
+1. Edit `src/db/schema.ts`. Names follow the existing ones (`<table>_<column>_index`, `_unique`, `_foreign`; a composite lists its columns in order). Every foreign key column gets an `index()` or leads a composite index or unique constraint: Postgres does not index them on its own.
+2. `npx drizzle-kit generate --name <what-changed>` writes `drizzle/NNNN_<name>.sql` and its snapshot. Read the SQL: a rename makes it prompt (run it in a terminal); data fixes (backfills, deletes before `SET NOT NULL`) are hand-added to the file.
+3. `npm run test:int`: `test/integration/migrations.spec.ts` asserts that drizzle-kit's `pushSchema` finds nothing to change after boot (a schema edit without its migration fails there, naming the missing statement) and lists the index names queries rely on.
+4. Never edit or delete a migration that has shipped. Drizzle applies every file whose journal `when` is newer than the last row in `drizzle.__drizzle_migrations` and never re-checks hashes, so an edited file silently diverges from production.
+
+### Deployment
+
+Production runs on linux-box (the homelab) and merging to `main` deploys it: CI publishes the image and the hourly autoupdater pulls it. The pieces, the production env, the demo login, locked-out recovery, rotating the secret, deploying by hand and what CI publishes: `docs/operations.md`.
+
+- **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by `ci.yml`'s publish job; `/health/ready` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only that job moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
+
 ## Convention deltas
 
-Deviations from `~/.claude/conventions/`, each with its `docs/decisions.md` entry (2026-10-13, Observability contract):
-- **Job outcomes add `discarded` and `interrupted`** (the cutout queue), non-alerting; any error or timeout is `failure`. `JOB_OUTCOMES` and `metrics.spec.ts` hold the list.
-
+Deviations from `~/.claude/conventions/`, each with its `docs/decisions.md` entry:
+- **Job outcomes add `discarded` and `interrupted`** (the cutout queue), non-alerting; any error or timeout is `failure`. `JOB_OUTCOMES` and `metrics.spec.ts` hold the list (2026-10-13, Observability contract).
 - **Statement budgets come only from `recordQueries` blocks** (`build/metrics/statements.json`, `make ci-db`): the most statements each `<METHOD>:<route>` sent there, not every request the suite makes (2026-10-13, Observability contract 2).
-
-Open gaps, not deltas: `job_last_success_timestamp_seconds`; push and MCP outcome words (owner decision pending).
+- **No pull-request job in Actions**: the PR gate is the local `local-gate` (`make gate PR=<n>`); `ci.yml` runs on push to `main` and by hand (2026-10-13, PR gate moves in-repo via devkit).
+- **`nightly.yml` runs on a `schedule:`**: the page audit, Lighthouse, the real cutout model and WebKit, too slow for any PR; nothing in it gates a deploy (2026-10-16, Convention deltas declared).
+- **The image smoke is `scripts/smoke-image.sh`, not devkit's `boot_image.sh`**: it boots on the host network, then runs devkit's `contract_probe.sh` (2026-10-16, Convention deltas declared).
 
 ## Commands
 
@@ -220,31 +245,11 @@ The gate classifies paths with devkit's fleet table: docs-only runs docs-check a
 
 Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, never inline.
 
-## Changing the schema
+## Deliberate exceptions
 
-`src/db/schema.ts` is the schema; `drizzle/` holds the migrations drizzle-kit generates from it. The server migrates on every boot (`createApp()`, before the pool opens and before anything queries), so a deploy is the migration. The CLIs never migrate: `requireCurrentSchema` refuses a database behind the build (`SchemaBehindError`, exit 1).
-
-1. Edit `src/db/schema.ts`. Names follow the existing ones (`<table>_<column>_index`, `_unique`, `_foreign`; a composite lists its columns in order). Every foreign key column gets an `index()` or leads a composite index or unique constraint: Postgres does not index them on its own.
-2. `npx drizzle-kit generate --name <what-changed>` writes `drizzle/NNNN_<name>.sql` and its snapshot. Read the SQL: a rename makes it prompt (run it in a terminal); data fixes (backfills, deletes before `SET NOT NULL`) are hand-added to the file.
-3. `npm run test:int`: `test/integration/migrations.spec.ts` asserts that drizzle-kit's `pushSchema` finds nothing to change after boot (a schema edit without its migration fails there, naming the missing statement) and lists the index names queries rely on.
-4. Never edit or delete a migration that has shipped. Drizzle applies every file whose journal `when` is newer than the last row in `drizzle.__drizzle_migrations` and never re-checks hashes, so an edited file silently diverges from production.
-
-## Deployment
-
-Production runs on linux-box (the homelab) and merging to `main` deploys it: CI publishes the image and the hourly autoupdater pulls it. The pieces, the production env, the demo login, locked-out recovery, rotating the secret, deploying by hand and what CI publishes: `docs/operations.md`.
-
-- **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by `ci.yml`'s publish job; `/health/ready` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only that job moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
-
-## Gotchas
-
-In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under Web layer.
-
-- **Never `prettier --write` a directory**: it re-pads the persona bibles (`src/seed/personas/*.md`) and the seed breaks (`persona.spec.ts`). Use `npm run format`.
-- **Upstream references are attribution only** (About, README, comments citing upstream issues); anything else is a rebrand regression: grep before a PR.
-- **`npm install <package>` skips our `postinstall`**, so `patches/` are unapplied and the drift test fails; run `npx patch-package` or `npm ci`.
-- **Regenerate `package-lock.json` only with Node 22 / npm 10**: npm 11 prunes entries the Docker build's `npm ci` needs.
-- **macOS needs `sudo ifconfig lo0 alias 127.0.0.2`** before the integration tier or `npm run check`: without it about 22 specs fail with EADDRNOTAVAIL (`test/integration/link-sites.ts`).
-- **`public/build.json` lingers after `npm run build`**: stale styles in `start:dev`; set `NODE_ENV=development` in `.env.local` or delete it. `precommit:full` is minutes long.
+Planned contract items still missing (`docs/decisions.md` 2026-10-16, Convention deltas declared):
+- **No `job_last_success_timestamp_seconds`** yet: lands with homelab's JobStale rule template (standardization wave 4).
+- **Push and MCP outcome words** are unchanged until the owner decides them (2026-10-13, Observability contract 2).
 
 ## Workflow
 
