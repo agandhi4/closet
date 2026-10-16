@@ -19,6 +19,16 @@
     "direction": "lower",
     "source": "ts-backend"
   },
+  "coupling.backend.fan_in_max": {
+    "bound": 122,
+    "direction": "lower",
+    "source": "ts-backend"
+  },
+  "coupling.backend.fan_out_max": {
+    "bound": 36,
+    "direction": "lower",
+    "source": "ts-backend"
+  },
   "coupling.backend.layer_violations": {
     "bound": 0,
     "direction": "lower",
@@ -58,6 +68,16 @@
     "bound": 0.43,
     "direction": "lower",
     "source": "dup"
+  },
+  "size.backend.max_lines": {
+    "bound": 2295,
+    "direction": "lower",
+    "source": "size-backend"
+  },
+  "size.backend.over_600": {
+    "bound": 15,
+    "direction": "lower",
+    "source": "size-backend"
   },
   "statements.DELETE:/outfits/:id": {
     "bound": 8,

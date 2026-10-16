@@ -331,7 +331,12 @@ def t2_quality(repo: Repo, conf: dict[str, float]) -> None:
         repo.add("T2", "quality.duplication", None, "no duplication.* keys", mechanism="jscpd.mjs collector")
     targets = makefile_targets(repo.root)
     repo.add("T2", "quality.lint_in_quick", "ci-quick" in targets, "ci-quick target present" if "ci-quick" in targets else "no ci-quick target")
-    repo.add("T2", "quality.file_size", None, "no size.* keys", mechanism="a file-size collector key (size.<scope>.max_lines)")
+    size = {k: v for k, v in repo.metrics.items() if k.startswith("size.")}
+    if size:
+        bad = [f"{k}={v:g}" for k, v in sorted(size.items()) if (k.endswith(".max_lines") and v > conf["quality_max_lines"]) or (k.endswith(".over_600") and v > conf["quality_over_600_max"])]
+        repo.add("T2", "quality.file_size", not bad, "file sizes within bands" if not bad else "; ".join(bad))
+    else:
+        repo.add("T2", "quality.file_size", None, "no size.* keys", mechanism="metrics/size.py collector line in metrics.conf")
 
 
 def t3_dead(repo: Repo, conf: dict[str, float]) -> None:
@@ -375,7 +380,12 @@ def t4_arch(repo: Repo, conf: dict[str, float]) -> None:
             repo.add("T4", "arch.own_commit", None, "TypeScript repo", mechanism="a TS own_commit_check (devkit gap)")
     else:
         repo.na("T4", "arch.queries", "no database tier")
-    repo.add("T4", "arch.fan_in", None, "no coupling.*.fan_in key", mechanism="fan-in collector (finplat scripts/metrics/coupling.py lifted to devkit)")
+    fan = {k: v for k, v in repo.metrics.items() if k.endswith(".fan_out_max")}
+    if fan:
+        bad = [f"{k}={v:g}" for k, v in sorted(fan.items()) if v > conf["arch_fan_out_max"]]
+        repo.add("T4", "arch.fan_out", not bad, f"largest fan-out within {conf['arch_fan_out_max']:g}" if not bad else "god modules: " + "; ".join(bad))
+    else:
+        repo.add("T4", "arch.fan_out", None, "no coupling.*.fan_out_max key", mechanism="--fan flag of python.py / ts.mjs in metrics.conf")
 
 
 def t5_db(repo: Repo, conf: dict[str, float]) -> None:
@@ -447,22 +457,50 @@ def t8_gate(repo: Repo, conf: dict[str, float], state_home: Path) -> None:
         repo.add("T8", "gate.coverage", not bad, "coverage within bands" if not bad else "; ".join(bad))
     else:
         repo.add("T8", "gate.coverage", None, "no coverage.* keys", mechanism="coverage.py collector over the unit tier")
-    repo.add("T8", "gate.precommit", None, "hook step timings not recorded", mechanism="hook_steps.sh timing ledger")
+    ledger = state_home / "devkit" / "hooks" / f"{repo.name}.tsv"
+    if ledger.is_file():
+        totals: dict[str, list[float]] = {}
+        for line in ledger.read_text().splitlines()[-400:]:
+            parts = line.split("\t")
+            if len(parts) >= 5 and parts[2] == "total" and parts[3].isdigit():
+                totals.setdefault(parts[1], []).append(float(parts[3]))
+        bad, seen = [], []
+        for hook, limit_key in (("pre-commit", "gate_precommit_max"), ("pre-push", "gate_prepush_max")):
+            runs = totals.get(hook, [])[-20:]
+            if not runs:
+                continue
+            p90 = sorted(runs)[max(0, int(len(runs) * 0.9) - 1)]
+            seen.append(f"{hook} p90 {p90:g}s/{conf[limit_key]:g} over {len(runs)} runs")
+            if p90 > conf[limit_key]:
+                bad.append(hook)
+        if seen:
+            repo.add("T8", "gate.precommit", not bad, "; ".join(seen))
+        else:
+            repo.add("T8", "gate.precommit", None, "hooks ledger has no total lines yet", mechanism="a hook run on this machine (hook_steps.sh records timings)")
+    else:
+        repo.add("T8", "gate.precommit", None, "no hooks ledger on this machine", mechanism="hook_steps.sh timing ledger (devkit-sync, then any hook run writes $XDG_STATE_HOME/devkit/hooks/<repo>.tsv)")
 
 
 def t9_agent(repo: Repo, conf: dict[str, float]) -> None:
     ledger = DEVKIT / "docs" / "agent-cost.tsv"
     if not ledger.is_file():
-        for cid in ("agent.turns_per_pr", "agent.gate_rounds", "agent.defects_caught"):
-            repo.add("T9", cid, None, "no docs/agent-cost.tsv in devkit", mechanism="bin/agent_cost.py (claude-kit transcript_stats + gate ledger)")
+        for cid in ("agent.turns_per_pr", "agent.gate_rounds", "agent.output_tokens"):
+            repo.add("T9", cid, None, "no docs/agent-cost.tsv in devkit", mechanism="bin/agent_cost.py over the session transcripts and the gate state dir")
         return
-    rows = [l.split("\t") for l in ledger.read_text().splitlines()[1:] if l.strip()]
-    mine = [r for r in rows if len(r) > 3 and r[0].lower() == repo.name.lower()]
+    lines = ledger.read_text().splitlines()
+    header = lines[0].split("\t") if lines else []
+    rows = [dict(zip(header, l.split("\t"))) for l in lines[1:] if l.strip()]
+    mine = [r for r in rows if r.get("repo", "").lower() == repo.name.lower() and r.get("merged") == "1"]
     if not mine:
-        repo.add("T9", "agent.turns_per_pr", None, "no ledger rows for this repo", mechanism="agent_cost.py rows after each merged PR")
+        for cid in ("agent.turns_per_pr", "agent.gate_rounds", "agent.output_tokens"):
+            repo.add("T9", cid, None, "no merged-PR rows for this repo in the ledger", mechanism="bin/agent_cost.py after each lane (rows per merged PR)")
         return
-    turns = [float(r[3]) for r in mine if r[3].replace(".", "").isdigit()]
-    repo.add("T9", "agent.turns_per_pr", bool(turns) and median(turns) <= conf["agent_turns_median_max"], f"median turns {median(turns) if turns else 'n/a'} over {len(mine)} PRs")
+    calls = [int(r["api_calls"]) for r in mine]
+    toks = [int(r["output_tokens"]) for r in mine]
+    rounds = [int(r["gate_rounds"]) for r in mine if r["gate_rounds"].isdigit()]
+    repo.add("T9", "agent.turns_per_pr", median(calls) <= conf["agent_calls_median_max"], f"median {median(calls):g} API calls per merged PR over {len(mine)} PRs (max {conf['agent_calls_median_max']:g})")
+    repo.add("T9", "agent.output_tokens", median(toks) <= conf["agent_output_tokens_median_max"], f"median {median(toks):g} output tokens per merged PR (max {conf['agent_output_tokens_median_max']:g})")
+    repo.add("T9", "agent.gate_rounds", bool(rounds) and sum(rounds) / len(rounds) <= conf["agent_gate_rounds_max"], f"mean gate rounds {sum(rounds)/len(rounds) if rounds else 0:.2f} (max {conf['agent_gate_rounds_max']:g})")
 
 
 def t10_process(repo: Repo) -> None:
@@ -497,8 +535,19 @@ def t11_security(repo: Repo) -> None:
         repo.add("T11", "sec.healthcheck_ready", ready, "HEALTHCHECK on /health/ready" if ready else "HEALTHCHECK not on /health/ready: " + ", ".join(m.group(1) if m else "none" for m in hc))
     else:
         repo.na("T11", "sec.nonroot", "no image")
-    repo.add("T11", "sec.audit", None, "no vuln.* keys", mechanism="a vulnerability collector (npm/pip/cargo audit → vuln.<scope>.high)")
-    repo.add("T11", "sec.secrets", None, "no secret scan", mechanism="a gitleaks-style guard in ci-quick")
+    vuln = {k: v for k, v in repo.metrics.items() if k.startswith("vuln.") and (k.endswith(".high") or k.endswith(".critical"))}
+    if vuln:
+        bad = [f"{k}={v:g}" for k, v in sorted(vuln.items()) if v > 0]
+        repo.add("T11", "sec.audit", not bad, "no high or critical vulnerabilities in the locked production set" if not bad else "; ".join(bad))
+    else:
+        repo.add("T11", "sec.audit", None, "no vuln.* keys", mechanism="metrics/vuln.py collector line in metrics.conf (report-only keys; needs a fresh `make metrics-snapshot`)")
+    makes = "\n".join((repo.root / f).read_text(errors="replace") for f in repo.tracked if Path(f).name == "Makefile")
+    wired = "secrets_check.sh" in makes or "secrets-check" in makes
+    if wired:
+        code, out = run([str(HERE / "secrets_check.sh"), str(repo.root)])
+        repo.add("T11", "sec.secrets", code == 0, (out.splitlines()[-1] if out else f"exit {code}")[:120])
+    else:
+        repo.add("T11", "sec.secrets", False, "ci-quick does not run devkit/bin/secrets_check.sh")
 
 
 def t12_ops(repo: Repo) -> None:
