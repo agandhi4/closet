@@ -20,7 +20,7 @@
     "source": "ts-backend"
   },
   "coupling.backend.layer_violations": {
-    "bound": 3,
+    "bound": 0,
     "direction": "lower",
     "source": "layers"
   },

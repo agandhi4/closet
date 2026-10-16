@@ -4,6 +4,12 @@ Dated decisions, their rationale and the gotchas they carry. Newest last (devkit
 the union merge appends); the 2026-10-13 block predates that rule and reads newest first. The
 older history lives in `docs/PROJECT_LOG.md`.
 
+## 2026-10-16 — Layer debt paid: metrics never imports web
+
+**Why:** three `known` lines in `scripts/ci/layers.conf` let src/metrics reach into src/web for the session cookie's name, the personal token prefix and `isWarmRequest`.
+**Decision:** the two credential names move to `src/credential-names.ts` and the warm marker (header + `isWarmRequest`) to `src/warm-request.ts`, both in the `shared` layer; every consumer (web/auth, the service worker, app.ts) imports them there, with no re-export left behind.
+**Consequence:** no `known` lines remain and `coupling.backend.layer_violations` is bound at 0: a new metrics→web import fails ci-quick.
+
 ## 2026-10-13 — Tier budgets and floors through devkit's tier guard
 
 **Why:** `scripts/ci/budget.sh` and `scripts/ci/test_floor.py` were closet's copy of what five repos built separately; devkit 4f5f282 ships the one implementation (`devkit/bin/tier_guard.sh`).
