@@ -151,10 +151,12 @@ def main() -> int:
         for f in args.cargo_lock:
             packages.extend(cargo_packages(Path(f)))
         packages = sorted(set(packages))
+        # A lockfile with only dev dependencies (instalite's web/) has an empty production set:
+        # that is the answer, zero exposure, not a broken source.
         if not packages:
-            raise CollectorError("no locked production packages found")
+            print("vuln: 0 locked production packages (dev-only lockfile): nothing to query", file=sys.stderr)
         hits: dict[str, set[tuple[str, str]]] = {}  # vuln id -> {(name, version)}
-        for i in range(0, len(packages), BATCH):
+        for i in range(0, len(packages), BATCH) if packages else []:
             chunk = packages[i : i + BATCH]
             res = osv("/v1/querybatch", {"queries": [{"package": {"name": n, "ecosystem": eco}, "version": v} for eco, n, v in chunk]})
             for (eco, n, v), r in zip(chunk, res.get("results", [])):
