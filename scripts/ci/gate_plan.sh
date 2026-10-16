@@ -9,6 +9,8 @@
 #     src/ and test/ lie outside the       (gate_plan_extra), per path:
 #     fleet's backend/frontend dirs)
 #       LICENSE, .github/**             -> nothing more (Actions files; no gate job reads them)
+#       docs/metrics/ratchet.json,      -> + db (the cov collector reads its coverage report)
+#         scripts/ci/metrics.conf
 #       test/integration/**             -> + db
 #       test/support/**                 -> + db + e2e: scratch-database.ts and the integration
 #                                          globalSetup, which both tiers import
@@ -71,6 +73,9 @@ gate_plan_extra() {
     case "$(devkit_classify_path "$path")" in docs|tooling|native) continue ;; esac
     case "$path" in
       LICENSE|.github/*) ;;
+      # The ratchet's bounds and collectors (other since devkit f6bf01f): db, so the cov
+      # collector (job:db) measures instead of SKIPPING; no browser can see them.
+      docs/metrics/ratchet.json|scripts/ci/metrics.conf) db=1 ;;
       test/support/*) db=1; e2e=1 ;;
       test/integration/*) db=1 ;;
       test/*) e2e=1 ;;
