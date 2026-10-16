@@ -3,8 +3,7 @@
 import type { ErrorEvent, Scope } from '@sentry/node';
 import type { Logger } from '../logger';
 import { operationFields } from '../request-context';
-import { SESSION_COOKIE } from '../web/auth/session';
-import { TOKEN_PREFIX } from '../web/auth/personal-tokens';
+import { SESSION_COOKIE, TOKEN_PREFIX } from '../credential-names';
 
 /**
  * Error tracking (#117): the process's failures, sent to the homelab's

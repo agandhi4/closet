@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { isWarmRequest } from '../web/shell/offline-warm';
+import { isWarmRequest } from '../warm-request';
 import type { Metrics } from './metrics';
 import { serverTimingHeader } from './request-timing';
 

@@ -9,24 +9,11 @@
 import { TAB_ROOTS } from '../page-cache';
 import { GRID_PAGE_SIZE } from '../wardrobe/grid-page-size';
 
+// The warm marker lives below web/ (src/warm-request.ts); re-exported for the service worker.
+export { WARM_REQUEST_HEADER } from '../../warm-request';
+
 /** The warm list's route (src/web/shell/routes.tsx). */
 export const WARM_LIST_PATH = '/offline/warm';
-
-/**
- * On every request a warm makes (the list, each page, each thumb), so the
- * server's request log tells warming apart from a person (app.ts).
- */
-export const WARM_REQUEST_HEADER = 'X-Closet-Warm';
-
-/**
- * Whether a request is a warm's: the request log marks it, the request
- * histogram leaves it out (src/metrics/http.ts). Node's lower-cased headers.
- */
-export function isWarmRequest(
-  headers: Record<string, string | string[] | undefined>,
-): boolean {
-  return headers[WARM_REQUEST_HEADER.toLowerCase()] !== undefined;
-}
 
 /** A warm re-fetches a copy older than this, and runs at most this often. */
 export const WARM_MAX_AGE_MS = 24 * 60 * 60 * 1000;
