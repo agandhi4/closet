@@ -24,7 +24,7 @@ import { priceLabel } from '../wardrobe/garment';
 /** The flag a decision's 303 carries back, read once for its toast (StripFlags). */
 export const DECISION_FLAG = 'decided';
 
-export const DECISION_TOASTS = [
+const DECISION_TOASTS = [
   'choose',
   'love',
   'save',

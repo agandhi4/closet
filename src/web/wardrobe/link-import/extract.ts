@@ -27,14 +27,14 @@ import { decodeEntities, type DocumentMetadata, scanDocument } from './html';
  * value is bounded before it leaves.
  */
 
-export interface ExtractedPrice {
+interface ExtractedPrice {
   /** A plain decimal ("1299.00"), never a float, for a numeric column. */
   amount: string;
   /** ISO 4217, upper case, when the page says. */
   currency: string | null;
 }
 
-export type ExtractionSource = 'json-ld' | 'open-graph' | 'title';
+type ExtractionSource = 'json-ld' | 'open-graph' | 'title';
 
 export interface ExtractedProduct {
   /** The most reliable source that yielded anything; null for none. */

@@ -439,7 +439,7 @@ export async function replacePhoto(
 }
 
 /** The rotate buttons' directions, as clockwise degrees. */
-export const ROTATIONS = {
+const ROTATIONS = {
   left: 270,
   right: 90,
 } as const satisfies Record<string, QuarterTurn>;

@@ -29,7 +29,7 @@ import type { RepairPanelRequest } from './repairs';
  * requester's as "no longer available"; a refused save keeps the photo it
  * posted either way (its claim is the check that counts).
  */
-export interface FormPendingPhoto {
+interface FormPendingPhoto {
   fileName: string;
   scope: PendingScope;
   sayGone: boolean;

@@ -72,7 +72,7 @@ const FRIDAY = 5;
 const SATURDAY = 6;
 
 /** One calendar entry to write. */
-export interface SimulatedEntry {
+interface SimulatedEntry {
   day: IsoDate;
   /** Index into persona.outfits. */
   outfit: number;
@@ -97,7 +97,7 @@ type DayKind = 'past' | 'today' | 'planned';
 type Plan = (outfit: number, occasion: Occasion, worn: boolean) => void;
 
 /** A laundry Sunday: the garments washed that day (every one worn since the last). */
-export interface SimulatedWash {
+interface SimulatedWash {
   day: IsoDate;
   /** Bible ids. */
   garmentIds: string[];
@@ -124,7 +124,7 @@ export interface SimulatedLife {
 }
 
 /** Whole weeks from the reference anchor to `anchor`, never past it. */
-export function shiftFor(anchor: IsoDate): number {
+function shiftFor(anchor: IsoDate): number {
   return Math.floor(daysBetween(REFERENCE_ANCHOR, anchor) / 7) * 7;
 }
 

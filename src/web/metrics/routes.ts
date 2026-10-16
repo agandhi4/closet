@@ -23,7 +23,7 @@ import { readBeaconBodies } from './beacon';
  */
 
 /** A beacon's largest body: a full batch (MAX_SAMPLES) is under 3 KB. */
-export const VITALS_MAX_BYTES = 8 * 1024;
+const VITALS_MAX_BYTES = 8 * 1024;
 const MAX_SAMPLES = 20;
 // A minute: past it a timing is a tab left in the background, not a wait.
 const MAX_MS = 60_000;

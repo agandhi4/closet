@@ -50,7 +50,7 @@
     "source": "ts-backend"
   },
   "dead.backend.knip_exports": {
-    "bound": 200,
+    "bound": 0,
     "direction": "lower",
     "source": "ts-backend"
   },

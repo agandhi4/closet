@@ -20,7 +20,7 @@ import {
  * redesign moves this into a Profile section (docs/plans/2026-09-26-redesign.md).
  */
 
-export type TokenNotice = 'revoked' | 'name-required' | 'too-many';
+type TokenNotice = 'revoked' | 'name-required' | 'too-many';
 
 export interface TokensPageProps {
   ctx: ViewContext;
@@ -35,11 +35,11 @@ export interface TokensPageProps {
 }
 
 /** The MCP endpoint on the canonical name (SITE_URL), for the connect command. */
-export function mcpUrl(siteUrl: string): string {
+function mcpUrl(siteUrl: string): string {
   return new URL('/mcp', siteUrl).toString();
 }
 
-export function connectCommand(siteUrl: string, token: string): string {
+function connectCommand(siteUrl: string, token: string): string {
   return `claude mcp add --transport http closet ${mcpUrl(siteUrl)} --header "Authorization: Bearer ${token}"`;
 }
 

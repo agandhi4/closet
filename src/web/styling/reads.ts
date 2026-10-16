@@ -82,7 +82,7 @@ export interface StylingScope {
 }
 
 /** What the scope's posted rows may carry (rowGarmentsSql). */
-export function carryOf(scope: StylingScope): RowCarry {
+function carryOf(scope: StylingScope): RowCarry {
   return {
     editingOutfitId: scope.editingOutfitId,
     picks: scope.picks === true,

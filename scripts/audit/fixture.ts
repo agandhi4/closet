@@ -78,7 +78,7 @@ export const ACCOUNT_PASSWORD = 'Audit-pass-1';
 const THEO_EMAIL = 'demo@closet.invalid';
 
 /** The dist modules the audit drives, typed from their sources. */
-export interface Build {
+interface Build {
   app: typeof AppModule;
   buildInfo: typeof BuildInfoModule;
   config: typeof ConfigModule;
@@ -158,7 +158,7 @@ export interface AuditRequest {
 }
 
 /** The demo persona's rows the steps address, found after the seed. */
-export interface SeedIds {
+interface SeedIds {
   /** A closet garment with a photo, wears and a repair: the fullest garment page. */
   garmentId: number;
   /** A second closet garment with a photo, for writes that change it. */
@@ -614,7 +614,7 @@ export async function createFixture(options: {
   }
 }
 
-export interface OrderReview {
+interface OrderReview {
   /** The seeded order email the review list's items belong to. */
   emailId: number;
   /** A pending item whose product page the shop serves ("Add to closet" imports it). */

@@ -26,7 +26,7 @@ import { fromCents, toCents } from './money';
  */
 
 /** The windows of "worn lately", in days. */
-export const WORN_WINDOWS = [30, 90, 365] as const;
+const WORN_WINDOWS = [30, 90, 365] as const;
 
 /** The choices of "not worn in N days"; the page's default is the middle one. */
 export const UNWORN_CHOICES = [30, 90, 180] as const;
@@ -111,7 +111,7 @@ export interface PairRow {
   days: number;
 }
 
-export interface WornShare {
+interface WornShare {
   days: number;
   /** Garments worn in the window. */
   worn: number;

@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
  * before the port (HS256, the same claims, 365 days), so cookies set before
  * a deploy stay valid after it.
  */
-export interface SessionClaims {
+interface SessionClaims {
   userId: number;
   email: string | null;
   /**

@@ -15,7 +15,7 @@ export const REPORT_VERSION = 1;
  * test runs, disagree by 35% and 2.5 ms at their 90th percentile; past both,
  * 3 steps of 274 (docs/perf/README.md, Noise).
  */
-export const TIME_NOISE = { relative: 0.35, absoluteMs: 2 };
+const TIME_NOISE = { relative: 0.35, absoluteMs: 2 };
 
 export type StepKind =
   | 'page'
@@ -151,7 +151,7 @@ export function renderReport(report: AuditReport): string {
   return lines.join('\n');
 }
 
-export interface Change {
+interface Change {
   before: number;
   after: number;
 }

@@ -133,7 +133,7 @@ export function uniqueClient(): { 'x-forwarded-for': string } {
   };
 }
 
-export interface TestUser {
+interface TestUser {
   id: number;
   email: string;
   /** `access_token=...`, ready for a `cookie` header. */

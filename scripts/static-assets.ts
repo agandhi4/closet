@@ -15,7 +15,7 @@ import {
 // (test/support/static-assets-setup.ts).
 
 const NODE_MODULES = path.join(PUBLIC_DIR, '..', 'node_modules');
-export const MODULES_DIR = path.join(PUBLIC_DIR, 'modules');
+const MODULES_DIR = path.join(PUBLIC_DIR, 'modules');
 
 /**
  * The client libraries the pages load from /modules/ (the layout's script
@@ -24,7 +24,7 @@ export const MODULES_DIR = path.join(PUBLIC_DIR, 'modules');
  * other static file. A library that ships no minified ES module is built
  * into public/vendor/ instead (`npm run generate:vendor`).
  */
-export const CLIENT_MODULES: readonly { from: string; to: string }[] = [
+const CLIENT_MODULES: readonly { from: string; to: string }[] = [
   { from: 'htmx.org/dist/htmx.min.js', to: 'htmx.min.js' },
   {
     from: 'workbox-window/build/workbox-window.prod.mjs',

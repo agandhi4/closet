@@ -68,12 +68,3 @@ export async function createOutfit(
   expect(res.ok()).toBe(true);
   return idOf(res.url());
 }
-
-export async function createCapsule(page: Page, name: string): Promise<number> {
-  const res = await page.request.post('/capsules', {
-    form: { name },
-    headers: SAME_ORIGIN,
-  });
-  expect(res.ok()).toBe(true);
-  return idOf(res.url());
-}

@@ -19,7 +19,7 @@ export interface VapidConfig {
   privateKey: string;
 }
 
-export interface SendOptions {
+interface SendOptions {
   /**
    * How long the push service keeps the message for a device that is off
    * (Web Push TTL). Past it the message is dropped: a reminder about today

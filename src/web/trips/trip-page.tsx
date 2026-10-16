@@ -52,8 +52,8 @@ export interface TripPageModel extends TripModel {
   copied: number | undefined;
 }
 
-export const PACKED_SUMMARY_ID = 'trip-packed-summary';
-export const ITEMS_SUMMARY_ID = 'trip-items-summary';
+const PACKED_SUMMARY_ID = 'trip-packed-summary';
+const ITEMS_SUMMARY_ID = 'trip-items-summary';
 const FLAGS = ['created', 'picked', 'copied'] as const;
 
 export function TripPage(props: { ctx: ViewContext; model: TripPageModel }) {
@@ -453,7 +453,7 @@ function PackingRowView({ row }: { row: PackingRow<PackingGarmentView> }) {
   );
 }
 
-export function warningText(
+function warningText(
   warning: PackingWarning,
   row: { needed: number; garment: { quantity: number } },
 ): string {

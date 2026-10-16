@@ -13,7 +13,7 @@
  *    needs the full page too.
  */
 
-export interface HeaderReader {
+interface HeaderReader {
   get(name: string): string | null | undefined;
 }
 

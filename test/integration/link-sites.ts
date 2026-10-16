@@ -19,7 +19,7 @@ import type {
  * unknown name does not resolve. Hand `outboundFetch` to createTestApp.
  */
 
-export const SHOP_HOST = 'shop.test';
+const SHOP_HOST = 'shop.test';
 export const INTRANET_HOST = 'intranet.test';
 const PUBLIC_IP = '127.0.0.2';
 const PRIVATE_IP = '127.0.0.1';

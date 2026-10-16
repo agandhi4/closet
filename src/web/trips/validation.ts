@@ -17,7 +17,7 @@ import type { TripFields } from './queries';
  * built, so anything malformed is a 400.
  */
 
-export const TRIP_NOT_FOUND = 'Trip not found';
+const TRIP_NOT_FOUND = 'Trip not found';
 
 /** A trip that is not the signed-in owner's, whether it exists or not. */
 export function tripNotFound(): HttpError {
@@ -30,7 +30,7 @@ export const TRIP_DESTINATION_MAX = 200;
 export const TRIP_NOTES_MAX = 2000;
 export const TRIP_ITEM_MAX = 80;
 /** The longest trip: a packing list for more is a move, not a trip. */
-export const MAX_TRIP_DAYS = 60;
+const MAX_TRIP_DAYS = 60;
 /** Ids one checklist post may carry: more than any trip holds. */
 const MAX_IDS = 500;
 

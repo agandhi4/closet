@@ -52,7 +52,7 @@ export interface RepairFormValues {
 }
 
 /** A new entry's form: done today, a repair, nothing else said. */
-export function blankRepair(today: IsoDate): RepairFormValues {
+function blankRepair(today: IsoDate): RepairFormValues {
   return { day: today, kind: 'repair', note: '', cost: '' };
 }
 

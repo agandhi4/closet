@@ -89,7 +89,7 @@ export interface Need {
 }
 
 /** An owner's own wishlist item (or a suggestion outside any need). */
-export interface OwnItem {
+interface OwnItem {
   id: number;
   name: string | null;
   brand: string | null;

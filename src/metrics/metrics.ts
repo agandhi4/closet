@@ -64,11 +64,11 @@ export const JOB_OUTCOMES = [
   'discarded',
   'interrupted',
 ] as const;
-export type JobOutcome = (typeof JOB_OUTCOMES)[number];
+type JobOutcome = (typeof JOB_OUTCOMES)[number];
 
-export type PushOutcome = 'delivered' | 'pruned' | 'failed';
+type PushOutcome = 'delivered' | 'pruned' | 'failed';
 
-export type McpOutcome = 'ok' | 'refused' | 'error';
+type McpOutcome = 'ok' | 'refused' | 'error';
 
 /**
  * How /file/** found the files it served (src/web/files/routes.ts): `none`,
@@ -92,7 +92,7 @@ export type McpEnding = Ending<McpOutcome, 'error'>;
 
 /** Where a device's timing came from (public/js/vitals.js). */
 export const CLIENT_TIMING_KINDS = ['full', 'htmx', 'restore'] as const;
-export type ClientTimingKind = (typeof CLIENT_TIMING_KINDS)[number];
+type ClientTimingKind = (typeof CLIENT_TIMING_KINDS)[number];
 
 /**
  * What a device measures, in milliseconds. `ttfb` and `lcp` are a full
@@ -100,14 +100,14 @@ export type ClientTimingKind = (typeof CLIENT_TIMING_KINDS)[number];
  * and settled) an htmx request's; `settle` alone a history restore's; `inp`
  * the slowest interaction while a page was on screen.
  */
-export const CLIENT_TIMING_METRICS = [
+const CLIENT_TIMING_METRICS = [
   'ttfb',
   'lcp',
   'inp',
   'request',
   'settle',
 ] as const;
-export type ClientTimingMetric = (typeof CLIENT_TIMING_METRICS)[number];
+type ClientTimingMetric = (typeof CLIENT_TIMING_METRICS)[number];
 
 export interface ClientTimingSample {
   /** A route template the device read from Server-Timing (`/wardrobe/:id`). */

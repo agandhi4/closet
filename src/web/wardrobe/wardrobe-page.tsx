@@ -280,7 +280,7 @@ function TaskBar(props: { ctx: ViewContext; model: WardrobeModel }) {
  * never re-render the app bar, the tabs and the dock, and always start
  * again from the first page.
  */
-export function WardrobeMain({ model }: { model: WardrobeModel }) {
+function WardrobeMain({ model }: { model: WardrobeModel }) {
   const { viewOwner, selecting } = model;
   return (
     <PageMain id="wardrobe-main" width="wide" class="pb-24">

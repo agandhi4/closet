@@ -11,7 +11,7 @@ import { randomBytes } from 'node:crypto';
 // row's transaction, which then points `file.variant_key` at them; bytes
 // written before their row exists (an upload, a copy, the seed) have none.
 // Used by Photos, the /file routes, reconciliation and imageUrl().
-export const IMAGE_VARIANTS = ['original', 'nobg', 'thumb'] as const;
+const IMAGE_VARIANTS = ['original', 'nobg', 'thumb'] as const;
 
 export type ImageVariant = (typeof IMAGE_VARIANTS)[number];
 

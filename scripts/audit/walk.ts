@@ -85,7 +85,7 @@ function decoded(raw: Buffer, encoding: unknown): Buffer {
 }
 
 /** A step's id in the report, what a later run's diff matches it by. */
-export function stepId(step: Pick<Step, 'issue' | 'name'>): string {
+function stepId(step: Pick<Step, 'issue' | 'name'>): string {
   return `${step.issue} ${step.name}`;
 }
 
@@ -166,7 +166,7 @@ export function job<P = undefined>(step: JobStep<P>): Step {
   };
 }
 
-export interface Measured {
+interface Measured {
   result: StepResult;
   /** The last run's statements, for EXPLAIN. */
   last: RecordedStatement[];

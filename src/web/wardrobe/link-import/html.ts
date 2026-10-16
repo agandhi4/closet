@@ -27,7 +27,7 @@ export interface DocumentMetadata {
 }
 
 const MAX_JSON_LD_BLOCKS = 20;
-export const MAX_HREFS = 200;
+const MAX_HREFS = 200;
 const TAG_NAME = /[a-zA-Z][a-zA-Z0-9-]*/y;
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style', 'textarea']);
 

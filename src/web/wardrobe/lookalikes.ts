@@ -44,7 +44,7 @@ import { OwnerQuery } from '../schemas';
  */
 
 /** Matches the form shows: the newest few. */
-export const LOOKALIKES_SHOWN = 3;
+const LOOKALIKES_SHOWN = 3;
 
 /** A closet garment near-identical to the garment being added. */
 export interface ClosetLookalike {

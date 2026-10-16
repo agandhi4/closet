@@ -60,7 +60,7 @@ export const MIGRATION_LOCK_KEY = 'closet:migrations';
  * drizzle keeps only as the cause of an error whose own message is the whole
  * failed statement.
  */
-export class MigrationFailedError extends Error {
+class MigrationFailedError extends Error {
   constructor(cause: Error) {
     super(
       `A Drizzle migration failed and nothing was applied: ${cause.message}`,

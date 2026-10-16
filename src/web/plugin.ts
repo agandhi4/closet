@@ -47,7 +47,7 @@ import { inboxRoutes } from './wishlist/inbox-routes';
 import { wishlistRoutes } from './wishlist/routes';
 
 /** Config the routes read, resolved once by createApp(). */
-export interface WebConfig {
+interface WebConfig {
   appName: string;
   iconName: string;
   /** APP_TIMEZONE: the household's IANA zone, which decides "today". */

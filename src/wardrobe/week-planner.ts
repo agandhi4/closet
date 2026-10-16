@@ -68,7 +68,7 @@ import { occasionsOn, type TemplateSlot } from './week';
  */
 
 /** Bump to replan every slot differently on purpose. */
-export const PLANNER_VERSION = 1;
+const PLANNER_VERSION = 1;
 /** "Plan my week": today and the six days after it. */
 export const PLAN_DAYS = 7;
 
@@ -86,7 +86,7 @@ export interface PlannerGarment extends IdeaGarment {
 }
 
 /** A garment of an entry already on the calendar: its role (the duplicate rule) and weather. */
-export interface EntryGarment {
+interface EntryGarment {
   id: number;
   role: GarmentRole;
   weather: MatchGarment;
@@ -132,7 +132,7 @@ export interface Slot {
   occasion: Occasion;
 }
 
-export interface PlannedSlot<G extends PlannerGarment> extends Slot {
+interface PlannedSlot<G extends PlannerGarment> extends Slot {
   idea: Idea<G>;
   /** What the slot's forecast asked; null without one. */
   needs: WeatherNeeds | null;
@@ -443,7 +443,7 @@ function needsOf(
 }
 
 /** The slot's seed: the same slot draws the same ideas. */
-export function slotSeed(slot: Slot): number {
+function slotSeed(slot: Slot): number {
   return Math.floor(
     seededRandom('week-plan', PLANNER_VERSION, slot.day, slot.occasion).next() *
       SEED_RANGE,

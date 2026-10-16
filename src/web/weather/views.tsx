@@ -22,7 +22,7 @@ import { type DayChip, type TodayLine, todayLine } from './summary';
  * fetched ("as of 9:05 AM").
  */
 
-export const WEATHER_LINE_ID = 'weather-line';
+const WEATHER_LINE_ID = 'weather-line';
 
 const ICONS: Readonly<Record<Condition, string>> = {
   clear: '☀️',
@@ -40,15 +40,15 @@ export const UNIT_SYMBOLS: Readonly<Record<TemperatureUnit, string>> = {
   fahrenheit: '°F',
 };
 
-export const WEATHER_MONTH_ID = 'weather-month';
+const WEATHER_MONTH_ID = 'weather-month';
 
 /**
  * Who asks: the header (the line, and the calendar week's chips) or the month
  * grid (its cells' compact chips alone, SummaryQuery's `view`).
  */
-export type SummaryView = 'line' | 'month';
+type SummaryView = 'line' | 'month';
 
-export function summaryUrl(
+function summaryUrl(
   days?: { from: IsoDate; to: IsoDate },
   view: SummaryView = 'line',
 ): string {
@@ -127,7 +127,7 @@ export function WeatherCellSlot(props: { ctx: ViewContext; day: IsoDate }) {
   return <span id={weatherDayId(props.day)} class={CELL_CHIP_BOX}></span>;
 }
 
-export function conditionLabel(condition: Condition): string {
+function conditionLabel(condition: Condition): string {
   return tKey(`weather.condition.${condition}`);
 }
 
@@ -164,11 +164,7 @@ export function fetchedLabel(fetchedAt: Date, timeZone: string, now: Date) {
  * where and as of when (the forecast's fetch time, so a copy served from
  * the service worker's cache offline tells its age).
  */
-export function WeatherLine(props: {
-  line: TodayLine;
-  timeZone: string;
-  now: Date;
-}) {
+function WeatherLine(props: { line: TodayLine; timeZone: string; now: Date }) {
   const { line } = props;
   const notes = lineNotes(line);
   const asOf = t('weather.AS_OF', {
@@ -251,7 +247,7 @@ export function UserWeatherLine(props: {
 }
 
 /** No location yet: the line is the way to set one. */
-export function WeatherPrompt() {
+function WeatherPrompt() {
   return (
     <p id={WEATHER_LINE_ID} class="mb-3 px-2 text-sm">
       <a class="link link-hover text-muted" href="/auth/profile#weather">
