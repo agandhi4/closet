@@ -7,7 +7,7 @@ is WebKit. The PR gate runs Playwright in Chromium only, so `nightly.yml`'s
 (an iPhone 12: 390 px, touch, `isMobile`). A red run opens or updates one
 issue, "Nightly WebKit / Mobile Safari run is failing", and a green run
 closes it (`scripts/webkit-nightly-issue.sh`; the job itself:
-`docs/deployment.md`, CI and publishing). Nothing waits on it.
+`docs/operations.md`, CI and publishing). Nothing waits on it.
 
 ## Reading a failure
 

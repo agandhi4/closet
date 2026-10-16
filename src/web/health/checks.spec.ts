@@ -143,7 +143,7 @@ describe('createStorageCheck', () => {
       expect(await check([writable, readOnly])).toEqual({
         status: 'down',
         required: true,
-        fix: `chown -R ${uid}:${gid} the host directory mounted at ${readOnly}; docs/deployment.md#permissions`,
+        fix: `chown -R ${uid}:${gid} the host directory mounted at ${readOnly}; docs/operations.md#permissions`,
       });
       expect(logs.messages('warn')).toEqual([
         `Readiness: ${readOnly} is not writable by this process (EACCES)`,

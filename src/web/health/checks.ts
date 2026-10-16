@@ -39,7 +39,7 @@ export function readiness(
 /** The contract's bound on the database round-trip. */
 export const DATABASE_TIMEOUT_MS = 3_000;
 
-const FIX = 'see docs/deployment.md#health';
+const FIX = 'see docs/operations.md#health';
 
 /**
  * The database and the boot's migrations, from one statement:
@@ -120,7 +120,7 @@ export interface StorageCheckDeps {
 /**
  * `storage` (required): every directory the process writes at runtime is
  * writable by it. Required because the image runs non-root and its
- * directories are host mounts (docs/deployment.md#permissions): with a
+ * directories are host mounts (docs/operations.md#permissions): with a
  * root-owned one every page would serve and the first upload or the model
  * download would fail, so readiness would lie. The fix names the chown.
  *

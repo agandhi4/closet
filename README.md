@@ -123,7 +123,7 @@ An agent connected this way (Claude, or a styling agent such as Muse) suggests w
 | `METRICS_ENABLED`         | Prometheus metrics at `GET /metrics` (request, job, push, MCP and device timings) for a scraper on the container's network; a request that came through a proxy (`X-Forwarded-For`) gets a 404 there. Pages then send their timings to `POST /metrics/vitals`                                          | `false`                                 | `true`                       |
 | `APP_VERSION`             | The release, set by the image itself (the 7-char sha, baked in by CI); `/health/ready` reports it as `version`. Never set it in compose or `.env`: the image is its only source                                                                                                                                  | the image's                             | `1a2b3c4`                    |
 | `SENTRY_DSN`              | Error tracking: the DSN of a Sentry-compatible tracker (the homelab's Bugsink). Server errors (5xx, failed jobs, push sends, MCP tools) and the signed-in pages' script errors (`POST /errors/client`) are sent there, scrubbed of cookies and tokens. Empty: off, nothing sent and no script on pages | empty                                   | `http://<key>@bug.box/3`     |
-| `ORDER_MAIL_JMAP_TOKEN`   | Order email import: a read-only Fastmail API token (Email scope) for the account order emails are forwarded to. Product links in them become a "From your orders" review list. Empty: off, nothing polled. See `docs/deployment.md`                                                                    | empty                                   | `fmu1-…`                     |
+| `ORDER_MAIL_JMAP_TOKEN`   | Order email import: a read-only Fastmail API token (Email scope) for the account order emails are forwarded to. Product links in them become a "From your orders" review list. Empty: off, nothing polled. See `docs/operations.md`                                                                    | empty                                   | `fmu1-…`                     |
 | `ORDER_MAIL_SENDERS`      | The owner's own addresses, comma-separated: only mail they forwarded, with DKIM or SPF passing, is read. Required with the token                                                                                                                                                                       | empty                                   | `me@gmail.com,me@work.com`   |
 | `ORDER_MAIL_OWNER`        | The sign-in email of the closet account the imported items belong to. Required with the token                                                                                                                                                                                                          | empty                                   | `me@gmail.com`               |
 | `ORDER_MAIL_POLL_MINUTES` | How often the order mail account is checked (1-60)                                                                                                                                                                                                                                                     | `5`                                     | `10`                         |
@@ -324,7 +324,7 @@ One Node 22 process: plain Fastify 5 serving server-rendered JSX pages with htmx
 
 ## Deploy
 
-This instance runs on the homelab, and merging to `main` deploys it: CI's `publish` job pushes `ghcr.io/agandhi4/closet:latest` and a `ship-<date>-<sha7>` tag, and the hourly autoupdater pulls the image. The pieces, the production env, deploying by hand and recovery are in [docs/deployment.md](docs/deployment.md).
+This instance runs on the homelab, and merging to `main` deploys it: CI's `publish` job pushes `ghcr.io/agandhi4/closet:latest` and a `ship-<date>-<sha7>` tag, and the hourly autoupdater pulls the image. The pieces, the production env, deploying by hand and recovery are in [docs/operations.md](docs/operations.md).
 
 For other self-hosters: deploy to a VPS via [Coolify](https://coolify.io/) or Portainer using the docker-compose above, with local storage. Back up both the Postgres database and `DATA_PATH`, taken close together: the nightly storage reconciliation deletes photos that no database row references.
 
@@ -334,11 +334,14 @@ For other self-hosters: deploy to a VPS via [Coolify](https://coolify.io/) or Po
 
 - [AGENTS.md](AGENTS.md): rules, commands and the area index (each `src/` area has its own `AGENTS.md`).
 - [docs/architecture.md](docs/architecture.md), [docs/web-layer.md](docs/web-layer.md), [docs/conventions.md](docs/conventions.md): the stack, the web layer, and conventions, config and logging in full.
-- [docs/deployment.md](docs/deployment.md): production, environment and release.
+- [docs/operations.md](docs/operations.md): production, environment and release.
 - [docs/decisions.md](docs/decisions.md): dated decisions, newest last. [docs/history.md](docs/history.md) and [docs/PROJECT_LOG.md](docs/PROJECT_LOG.md) hold the older record.
 - [docs/workflow.md](docs/workflow.md): the flow per issue slice.
-- Testing: [integration](docs/testing-integration.md), [cutouts](docs/testing-cutouts.md), [service worker](docs/testing-service-worker.md), [WebKit](docs/testing-webkit.md), and page performance in [docs/perf/](docs/perf/README.md).
+- Testing: [integration](docs/testing-integration.md), [cutouts](docs/testing-cutouts.md), [service worker](docs/testing-service-worker.md), [WebKit](docs/testing-webkit.md), and page performance in [docs/perf/](docs/perf/README.md) ([baseline](docs/perf/baseline.md)).
 - [docs/DESIGN.md](docs/DESIGN.md): the upstream entity model, still the reference for feature scope (its stack is stale).
+- Feature designs cited from the code: [redesign](docs/plans/2026-09-26-redesign.md), [wardrobe features](docs/plans/2026-09-26-wardrobe-features.md), [caching and offline](docs/plans/2026-09-28-caching-and-offline.md), [multi-add and export](docs/plans/2026-09-28-multi-add-and-export.md), [order email import](docs/plans/2026-09-28-order-email-import.md), [yearly recap](docs/plans/2026-09-28-yearly-recap.md), [Muse suggestions](docs/plans/2026-10-05-muse-suggestions.md), [structural refactors](docs/plans/2026-10-09-structural-refactors.md), and the [background-removal benchmark](docs/audits/2026-09-25-program2/bg-removal-benchmark.md).
+- One-off audits and superseded plans: [docs/reports/](docs/reports/), never linked from an AGENTS.md.
+- Contributors and agents: see [AGENTS.md](AGENTS.md).
 
 ---
 

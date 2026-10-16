@@ -68,7 +68,7 @@ COPY .env .
 # model's download), so only they are its own; the code and node_modules stay
 # root-owned and read-only to it. Production mounts host directories over
 # both, and a mount keeps the HOST's ownership: chown them to 1000:1000 there
-# (docs/deployment.md#permissions). /health/ready's `storage` check reports a
+# (docs/operations.md#permissions). /health/ready's `storage` check reports a
 # directory it cannot write, and the boot refuses an unwritable DATA_PATH.
 # Everything else it writes is the user's own: HOME is /home/node (npm's
 # cache and logs for `docker exec closet npm run ...`), temp files /tmp.
@@ -90,7 +90,7 @@ EXPOSE 3000
 # /health/ready (src/web/health): the database, the boot's migrations, the timers and the cutout
 # queue; 503 when a required one is down. node's own fetch, so the slim image needs no curl. The
 # start period covers the boot's migrations (the server listens only after them); homelab's
-# compose inherits this, and must match it if it ever sets its own (docs/deployment.md#health).
+# compose inherits this, and must match it if it ever sets its own (docs/operations.md#health).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health/ready', { signal: AbortSignal.timeout(4000) }).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 

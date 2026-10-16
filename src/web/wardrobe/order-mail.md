@@ -1,6 +1,6 @@
 # Order email import, "From your orders" (#25)
 
-Part of the Wardrobe (`AGENTS.md` in this directory). Plan: `docs/plans/2026-09-28-order-email-import.md`. Owner setup: `docs/deployment.md`, Order email import (the token: Settings › Privacy & Security › Manage API tokens, Email and Read-only access ticked; [Fastmail's help](https://www.fastmail.help/hc/en-us/articles/5254602856719-API-tokens)).
+Part of the Wardrobe (`AGENTS.md` in this directory). Plan: `docs/plans/2026-09-28-order-email-import.md`. Owner setup: `docs/operations.md`, Order email import (the token: Settings › Privacy & Security › Manage API tokens, Email and Read-only access ticked; [Fastmail's help](https://www.fastmail.help/hc/en-us/articles/5254602856719-API-tokens)).
 
 The owner forwards order emails to a dedicated Fastmail account. Closet polls it through JMAP with a read-only token and lists the products it finds for review. **Opt-in**: without `ORDER_MAIL_JMAP_TOKEN`, `createApp()` builds nothing, so there is no timer or menu entry and the review list's routes answer 404. With the token, `ORDER_MAIL_SENDERS` and `ORDER_MAIL_OWNER` are required, and `loadConfig` refuses the boot without them.
 
