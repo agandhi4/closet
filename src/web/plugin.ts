@@ -66,6 +66,11 @@ export interface WebConfig {
    * the MCP server's version.
    */
   release: string;
+  /**
+   * DATA_PATH and MODELS_PATH: every directory the process writes at
+   * runtime, which /health/ready's `storage` check probes (src/web/health).
+   */
+  storageDirs: readonly string[];
 }
 
 export interface WebOptions {

@@ -394,6 +394,7 @@ export async function createApp(
       vapid,
       orderMailOwner: orderMail?.ownerEmail,
       release: build.release,
+      storageDirs: [config.DATA_PATH, config.MODELS_PATH],
     },
     logger: web,
     db,

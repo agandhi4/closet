@@ -4,6 +4,7 @@ import { ModelRunner } from './cutout/runner';
 import { createBootLogger, createLogger, type Logger } from './logger';
 import { createCrashHandler } from './metrics/error-tracker';
 import { serve } from './server';
+import { ownershipFix, probeWritable } from './storage-probe';
 
 /**
  * The background-removal model's runner. The model file is verified (or
@@ -38,34 +39,45 @@ function modelRunner(config: Config, logger: Logger): ModelRunner {
 // which Node raises as one) is sent to the error tracker before the
 // process exits 1 as it would have (createCrashHandler). Here only, never
 // in createApp: the specs' processes boot many apps and keep Node's own.
-function main(): void {
+async function main(): Promise<void> {
+  const boot = createBootLogger();
   let config: Config;
   try {
     config = loadConfig();
   } catch (error) {
     // A ConfigError names the bad keys (never their values); anything else
     // is a bug, logged with its stack.
-    const boot = createBootLogger();
     if (error instanceof ConfigError) boot.fatal(error.message);
     else boot.fatal({ err: error }, 'Configuration failed to load');
     process.exit(1);
   }
+  // Before createLogger, which opens DATA_PATH/app.log: an unwritable data
+  // directory (a root-owned host mount; the image runs non-root) would
+  // otherwise end the boot with a bare EACCES stack. Only DATA_PATH stops
+  // the boot: an unwritable MODELS_PATH leaves every page serving, so it is
+  // /health/ready's `storage` check that reports it (src/web/health).
+  const data = await probeWritable(config.DATA_PATH);
+  if (!data.writable) {
+    boot.fatal(
+      `DATA_PATH ${config.DATA_PATH} is not writable by this process (${data.code}): ${ownershipFix([config.DATA_PATH])}`,
+    );
+    process.exit(1);
+  }
   const logger = createLogger(config);
-  serve(config, logger, modelRunner(config, logger))
-    .then(({ errors }) => {
-      const onCrash = createCrashHandler({
-        errors,
-        logger,
-        exit: (code) => process.exit(code),
-      });
-      process.on('uncaughtException', (error, origin) => {
-        void onCrash(error, origin);
-      });
-    })
-    .catch((error: unknown) => {
-      logger.fatal({ err: error }, 'Boot failed');
-      process.exit(1);
+  try {
+    const { errors } = await serve(config, logger, modelRunner(config, logger));
+    const onCrash = createCrashHandler({
+      errors,
+      logger,
+      exit: (code) => process.exit(code),
     });
+    process.on('uncaughtException', (error, origin) => {
+      void onCrash(error, origin);
+    });
+  } catch (error) {
+    logger.fatal({ err: error }, 'Boot failed');
+    process.exit(1);
+  }
 }
 
-main();
+void main();

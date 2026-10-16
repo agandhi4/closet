@@ -83,6 +83,10 @@ const BASE_ENV: Env = {
   // bcrypt at its floor: every spec file registers an owner, and the auth
   // specs sign in dozens of times; at 12 that was most of the tier's time.
   PASSWORD_HASH_ROUNDS: '4',
+  // No spec loads the model; /health/ready's `storage` check only probes the
+  // directory writable, so the system temp dir rather than ./models (which
+  // the probe would create in the checkout).
+  MODELS_PATH: tmpdir(),
 };
 
 export { PWA_ENV } from '../support/pwa-env';
