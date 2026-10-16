@@ -16,10 +16,12 @@
 #       anything else                   -> + db + e2e (src, views, public, drizzle, scripts,
 #                                          package*.json, configs, Makefile, devkit/ job scripts)
 #   image-affecting paths              -> + image (ci-image, then ci-smoke)
+#   any non-docs path                  -> + metrics (ci-metrics, devkit's METRICS group, last)
 #
 # db and e2e live in gate_plan_extra, not the BACKEND/E2E groups: closet's whole app is the
 # fleet's "other", and an area group would run both tiers for a Playwright-only or .github-only
-# change. Order: deps, quick, image, db, e2e (the default plan runs its groups before the extra).
+# change. Order: deps, quick, image, db, e2e, metrics (the default plan runs its groups, then the
+# extra, then METRICS).
 # Public repo: GATE_ALLOW_FORKS stays at the skeleton's 0, so a fork PR never runs here.
 # shellcheck disable=SC2034  # read by the sourcing skeleton and devkit_default_gate_plan
 GATE_SLUG=agandhi4/closet
@@ -47,6 +49,11 @@ GATE_JOBS_IMAGE="image ci-image ci-smoke CI_IMAGE=$IMAGE CI_BUILD_VERSION=gate-$
 GATE_AREAS_IMAGE=""
 # shellcheck disable=SC2034
 GATE_IMAGE_PATHS='^(Dockerfile$|package(-lock)?\.json$|\.npmrc$|patches/)'
+
+# The metrics ratchet, last so it merges every earlier job's seconds (devkit owns the label and
+# which collectors run: devkit/bin/_paths_lib.sh, METRICS).
+# shellcheck disable=SC2034
+GATE_JOBS_METRICS="metrics ci-metrics"
 
 gate_cleanup() {
   "$ROOT/devkit/bin/throwaway_pg.sh" down "$PG_CONTAINER"
