@@ -21,8 +21,8 @@ Keys (docs/metrics-keys.md), each behind its flag; `<scope>` is `--scope`:
                complexity.<scope>.cognitive_over_15 functions above 15 (SonarSource's threshold)
   --vulture    dead.<scope>.vulture                 findings, honouring [tool.vulture] in
                                                     <root>/pyproject.toml (paths, min_confidence,
-                                                    ignore_names); without it, the --src dirs
-  --cycles     coupling.<scope>.cycles              import cycles among the --src packages:
+                                                    ignore_names); without it, the --src paths
+  --cycles     coupling.<scope>.cycles              import cycles among the --src modules:
                                                     strongly connected components of the runtime
                                                     import graph (`if TYPE_CHECKING:` excluded,
                                                     imports inside functions included) with more
@@ -176,7 +176,7 @@ def _vulture_configured(root: Path) -> bool:
 def collect_vulture(python: str, root: Path, src: list[str], scope: str) -> dict[str, int]:
     require_module(python, "vulture", "vulture", root)
     # With [tool.vulture] paths in pyproject.toml, vulture reads its own configuration (paths,
-    # whitelist, min_confidence); passing paths would override that. Without it, the --src dirs.
+    # whitelist, min_confidence); passing paths would override that. Without it, the --src paths.
     args = [] if _vulture_configured(root) else src
     out = run_tool([python, "-m", "vulture", *args], cwd=root, ok=(0, VULTURE_FINDINGS_EXIT))
     count = 0
@@ -269,9 +269,19 @@ def imports_of(tree: ast.AST, module: str, is_package: bool, known: set[str]) ->
     return targets
 
 
+def source_files(root: Path, src: list[str]) -> list[Path]:
+    """Every `*.py` the --src entries name, relative to --root: a directory's tree, a module
+    file as itself (a flat backend's app.py, config.py beside its packages)."""
+    found: set[Path] = set()
+    for entry in src:
+        path = root / entry
+        found.update(path.rglob("*.py") if path.is_dir() else [path])
+    return sorted(p.relative_to(root) for p in found)
+
+
 def import_graph(root: Path, src: list[str]) -> Graph:
-    """Module -> modules it imports at runtime, over every `*.py` under the --src dirs."""
-    files = sorted(p.relative_to(root) for d in src for p in (root / d).rglob("*.py"))
+    """Module -> modules it imports at runtime, over every `*.py` the --src entries name."""
+    files = source_files(root, src)
     known = {module_name(rel) for rel in files}
     graph: Graph = {}
     for rel in files:
@@ -347,7 +357,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--root", required=True, help="the Python project (holds pyproject.toml)")
     parser.add_argument(
-        "--src", required=True, nargs="+", metavar="DIR", help="source dirs under --root"
+        "--src",
+        required=True,
+        nargs="+",
+        metavar="PATH",
+        help="source dirs or .py modules under --root",
     )
     parser.add_argument("--scope", required=True, help="the key's middle segment (backend, ...)")
     parser.add_argument("--out", help="write the JSON here (default: stdout)")
@@ -367,9 +381,10 @@ def collect(args: argparse.Namespace) -> dict[str, int]:
     root = Path(args.root)
     if not root.is_dir():
         raise CollectorError(f"--root {root} is not a directory")
-    for d in args.src:
-        if not (root / d).is_dir():
-            raise CollectorError(f"--src {d} is not a directory under {root}")
+    for entry in args.src:
+        path = root / entry
+        if not (path.is_dir() or (path.is_file() and path.suffix == ".py")):
+            raise CollectorError(f"--src {entry} is not a directory or .py module under {root}")
     if SCOPE.fullmatch(args.scope) is None:
         raise CollectorError(f"--scope {args.scope!r} must match [A-Za-z0-9_-]+")
     if not (args.mccabe or args.cognitive or args.vulture or args.cycles):

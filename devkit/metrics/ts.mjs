@@ -203,7 +203,9 @@ function collectKnip(opts) {
     );
   return {
     [`dead.${opts.scope}.knip_exports`]: count(["exports", "types"]),
-    [`dead.${opts.scope}.knip_files`]: Array.isArray(report.files) ? report.files.length : 0,
+    // knip 6 reports an unused file as an issue whose `files` holds it; there is no top-level
+    // `files` list any more, so reading one counted 0 forever.
+    [`dead.${opts.scope}.knip_files`]: count(["files"]),
     [`dead.${opts.scope}.knip_deps`]: count(["dependencies", "devDependencies", "unlisted", "unresolved", "binaries"]),
   };
 }
