@@ -21,7 +21,7 @@ A feature lives whole (routes, queries, views) in `src/web/<feature>/`, a Fastif
 
 Code that is not one feature's goes where its dependencies say, not into the feature that wrote it first:
 
-- **Pure** (plain values, no HTTP, database or I/O) goes in the `src/` root, as `random.ts` and `calendar-date.ts` do, or in a pure layer (`src/wardrobe`, `src/weather`, `src/push`). The pure layers may not import `src/web/`, `src/db/`, `drizzle-orm` or `node:*`; ESLint refuses it (#352), so a type a pure layer needs from the web side is made generic over the caller's (`InsightGarment<Photo>`).
+- **Pure** (plain values, no HTTP, database or I/O) goes in the `src/` root, as `random.ts` and `calendar-date.ts` do, or in a pure layer (`src/wardrobe`, `src/weather`, `src/push`). The pure layers may not import `src/web/`, `src/db/`, `drizzle-orm` or `node:*`; ESLint refuses it (#352), so a type a pure layer needs from the web side is made generic over the caller's (`InsightGarment<Photo>`). The direction of every import in `src/` (not only the pure layers') is `scripts/ci/layers.conf`, checked by `make layer-check` in ci-quick; ESLint keeps the package bans (`drizzle-orm`, `node:*`), which that check does not see.
 - **Web-only** (needs a request, a reply or markup) goes in the `src/web/` root, as `schemas.ts` and `render.ts` do.
 - **One feature uses another's** queries, writers, urls and status basics, never its pages. A shared page piece moves to `src/web/layout/` instead.
 

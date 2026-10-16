@@ -86,7 +86,7 @@ docs/DESIGN.md         Upstream MVP design doc and entity model. Assess feature 
 
 `src/web/` is effectively the application layer: `app.ts` builds services there that the CLIs reuse.
 
-**The pure layers** (`src/wardrobe`, `src/weather`, `src/push`) import nothing from `src/web/` or `src/db/`, no `drizzle-orm` and no `node:*` module, so their rules run in a unit test with no mock and a feature can import them freely. ESLint enforces it (`no-restricted-imports` in `eslint.config.mjs`; specs are exempt). Shared code they need moves down to `src/` (`calendar-date.ts`, `random.ts`); code that needs a web type is generic over it (`InsightGarment<Photo>`, `generateIdeas<G>`). What else belongs at which level: `docs/web-layer.md#code-no-feature-owns`.
+**The pure layers** (`src/wardrobe`, `src/weather`, `src/push`) import nothing from `src/web/` or `src/db/`, no `drizzle-orm` and no `node:*` module, so their rules run in a unit test with no mock and a feature can import them freely. ESLint enforces it (`no-restricted-imports` in `eslint.config.mjs`; specs are exempt). The whole of `src/` is layered in `scripts/ci/layers.conf` (devkit's layer guard, `make layer-check` in ci-quick): shared root modules, then config and the logger beside the pure layers, metrics, db, cutout, web, maintenance, seed, with the entries and the CLIs on top. Shared code they need moves down to `src/` (`calendar-date.ts`, `random.ts`); code that needs a web type is generic over it (`InsightGarment<Photo>`, `generateIdeas<G>`). What else belongs at which level: `docs/web-layer.md#code-no-feature-owns`.
 
 ## Routes
 

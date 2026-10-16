@@ -4,7 +4,7 @@
 // One line in scripts/ci/metrics.conf, run from the repo root, for example:
 //   dup repo node devkit/metrics/jscpd.mjs --scope repo --out build/metrics/dup.json backend/server frontend/src
 //
-// Usage: jscpd.mjs --scope <name> [--min-tokens 50] [--min-lines 5] [--bin <jscpd>] [--out FILE] <paths...>
+// Usage: jscpd.mjs --scope <name> [--min-tokens 50] [--min-lines 5] [--bin <jscpd>] [--base] [--out FILE] <paths...>
 //   paths        repo-relative directories or files jscpd scans (at least one)
 //   --min-tokens, --min-lines   jscpd's clone size knobs (its defaults are 50 and 5). The one
 //                knob that moves the percentage: a repo that changes it rebaselines
@@ -13,6 +13,9 @@
 //                --bin frontend/node_modules/.bin/jscpd). Never PATH's: the lockfile's measures
 // A `.jscpd.json` in the current directory is honoured by jscpd itself (ignore patterns,
 // formats); the flags above override its matching keys, as jscpd's own CLI does.
+//   --base       merge that `.jscpd.json` (or package.json `jscpd`) over devkit/lint/jscpd.base.json
+//                (tests and `*.d.ts` out; lists union, the repo's scalars win) and pass the result
+//                as jscpd's --config, which replaces the `.jscpd.json` lookup (lint/README.md)
 //
 // Keys (docs/metrics-keys.md, direction lower):
 //   duplication.<scope>.jscpd_percent   duplicated lines over scanned lines: jscpd's own
@@ -25,7 +28,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { CollectorError, SCOPE, fail, parseJson, runTool, writeOutput } from "./_lib.mjs";
+import { CollectorError, SCOPE, fail, ownConfig, parseJson, runTool, withMergedConfig, writeOutput } from "./_lib.mjs";
 
 const SCRIPT = "jscpd.mjs";
 
@@ -38,6 +41,7 @@ function parse(argv) {
       "min-tokens": { type: "string", default: "50" },
       "min-lines": { type: "string", default: "5" },
       bin: { type: "string", default: join("node_modules", ".bin", "jscpd") },
+      base: { type: "boolean", default: false },
       out: { type: "string" },
     },
   });
@@ -63,12 +67,19 @@ function collect(opts) {
   const outDir = mkdtempSync(join(tmpdir(), "devkit-jscpd-"));
   try {
     // jscpd exits 1 only with --threshold; still accepted so a repo's .jscpd.json may set one.
-    runTool(resolve(opts.bin), [
+    const run = (extra) => runTool(resolve(opts.bin), [
       ...opts.paths,
       "--min-tokens", opts["min-tokens"],
       "--min-lines", opts["min-lines"],
       "--reporters", "json", "--output", outDir, "--no-colors",
+      ...extra,
     ], { cwd: process.cwd() });
+    if (opts.base) {
+      const own = ownConfig(process.cwd(), { files: [".jscpd.json"], pkgKey: "jscpd" });
+      withMergedConfig("jscpd.base.json", own, (path) => run(["--config", path]));
+    } else {
+      run([]);
+    }
     const reportPath = join(outDir, "jscpd-report.json");
     if (!existsSync(reportPath)) throw new CollectorError("jscpd wrote no jscpd-report.json");
     const report = parseJson(readFileSync(reportPath, "utf8"), "jscpd report");
