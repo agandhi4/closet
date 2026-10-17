@@ -75,7 +75,7 @@ export interface ErrorFields {
  * The `err` serializer of every closet logger (Fastify's too: it takes the
  * instance as given). pino's own serializer appends the causes to the
  * message and the stack (a driver error's reason is often only its cause);
- * of the rest only the class, `code` and an HTTP `status` are kept: its
+ * of the rest only the class, `code` and an HTTP status are kept: its
  * copy of every own field would log a client's request options or a
  * query's params whole. A thrown non-Error is logged by its type alone.
  */
@@ -87,9 +87,15 @@ export function errorFields(err: unknown): ErrorFields {
     message: truncate(redact(message)),
     stack: redact(stack),
   };
-  const { code, status } = err as { code?: unknown; status?: unknown };
+  // `statusCode`: HttpError's and web-push's WebPushError's name for it.
+  const { code, status, statusCode } = err as {
+    code?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+  };
   if (typeof code === 'string') fields.code = code;
-  if (typeof status === 'number') fields.status = status;
+  const httpStatus = typeof status === 'number' ? status : statusCode;
+  if (typeof httpStatus === 'number') fields.status = httpStatus;
   return fields;
 }
 

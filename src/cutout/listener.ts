@@ -150,12 +150,14 @@ export class CutoutListener {
       RECONNECT_MAX_MS,
     );
     this.failures += 1;
-    const reason = error instanceof Error ? error.message : 'connection ended';
+    // No error: the server ended the connection cleanly.
+    const ended = error === undefined ? ' (connection ended)' : '';
     const retry = `reconnecting in ${delay / 1000} s`;
     this.deps.logger.warn(
+      { err: error },
       this.listening
-        ? `Cutout listener lost its connection (${reason}); ${retry}`
-        : `Cutout listener could not connect (attempt ${this.failures}: ${reason}); ${retry}`,
+        ? `Cutout listener lost its connection${ended}; ${retry}`
+        : `Cutout listener could not connect (attempt ${this.failures})${ended}; ${retry}`,
     );
     this.listening = false;
     this.retryTimer = setTimeout(() => void this.connect(), delay);
