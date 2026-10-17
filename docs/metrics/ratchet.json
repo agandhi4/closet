@@ -513,5 +513,10 @@
     "bound": 2,
     "direction": "lower",
     "source": "statements"
+  },
+  "guards.backend.known": {
+    "bound": 0,
+    "direction": "lower",
+    "source": "guards"
   }
 }
