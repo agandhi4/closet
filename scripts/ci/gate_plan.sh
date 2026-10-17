@@ -34,7 +34,7 @@ PG_CONTAINER="closet-gate-pg-$PR"
 SMOKE_PG_CONTAINER="closet-gate-smoke-pg-$PR"
 IMAGE="closet:gate-$PR"
 
-# deps first: ci-quick's check:static and every test tier need node_modules, and QUICK runs
+# deps first: ci-quick's lint and typecheck and every test tier need node_modules, and QUICK runs
 # for every area that can run db or e2e (gate_plan_extra checks that anyway).
 # shellcheck disable=SC2034
 GATE_JOBS_QUICK="deps ci-deps|quick ci-quick"
