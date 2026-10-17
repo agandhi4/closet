@@ -14,10 +14,12 @@ import { BackLink, EmptyState } from '../layout/parts';
 import { OutfitCollage } from '../outfits/collage';
 import {
   DestinationFields,
-  destinationPickLabel,
   type OutfitDestination,
 } from '../outfits/destination';
-import { DayDestinationLine } from '../outfits/day-destination';
+import {
+  DayDestinationLine,
+  destinationPickLabel,
+} from '../outfits/destination-views';
 import { OutfitTabs } from '../outfits/outfit-tabs';
 import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
 import { tripUrl } from '../trips/urls';

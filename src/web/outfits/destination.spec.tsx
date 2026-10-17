@@ -2,10 +2,10 @@ import { Value } from '@sinclair/typebox/value';
 import { Type } from '@sinclair/typebox';
 import { describe, expect, it } from 'vitest';
 import { renderToString } from '../render';
+import { destinationPickLabel } from './destination-views';
 import {
   DestinationBody,
   DestinationFields,
-  destinationPickLabel,
   destinationQuery,
   type OutfitDestination,
   parseDestination,

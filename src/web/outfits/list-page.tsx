@@ -12,7 +12,7 @@ import { EmptyState } from '../layout/parts';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { collagePieces, OutfitCollage } from './collage';
-import { DayDestinationLine } from './day-destination';
+import { DayDestinationLine } from './destination-views';
 import type { DayDestination } from './destination';
 import { OutfitTabs } from './outfit-tabs';
 import type { OutfitActivity, GarmentOutfit } from './queries';

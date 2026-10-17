@@ -4,9 +4,7 @@ import {
   isOccasion,
   type Occasion,
 } from '../../wardrobe/occasions';
-import { dayOfWeek, type IsoDate, parseIsoDate } from '../../calendar-date';
-import { DAY_NAMES } from '../date-labels';
-import { t } from '../i18n';
+import { type IsoDate, parseIsoDate } from '../../calendar-date';
 import { OccasionSchema, RowId } from '../schemas';
 
 /**
@@ -17,8 +15,9 @@ import { OccasionSchema, RowId } from '../schemas';
  * with the user"). The one parser and writer of `?for=`: the calendar's plan
  * page, Styling (#42), the outfit gallery's Ideas (#9), Today (#15) and the
  * trip page (#10) read it (parseDestination, DestinationQuery), link it
- * (destinationQuery), post it back (DestinationFields, DestinationBody) and
- * name where a pick goes (destinationPickLabel) here, never each on its own:
+ * (destinationQuery) and post it back (DestinationFields, DestinationBody)
+ * here, and name where a pick goes through destination-views.tsx
+ * (destinationPickLabel), never each on its own:
  * until 2026-10-17 the hidden fields, the query schema and the label were
  * each written in two to five features (docs/decisions.md).
  *
@@ -195,20 +194,4 @@ export function DestinationFields(props: { destination: OutfitDestination }) {
       )}
     </>
   );
-}
-
-/**
- * What the primary action does with the outfit, by where it goes: "Add to
- * trip", "Plan for Tuesday" or, with `replace`, the change's own word. The
- * caller names the `none` case (the gallery saves, Styling saves an outfit).
- */
-export function destinationPickLabel(
-  destination: Exclude<OutfitDestination, { kind: 'none' }>,
-): string {
-  if (destination.kind === 'trip') return t('gallery.PICK_TRIP');
-  return destination.replace === undefined
-    ? t('gallery.PICK_DAY', {
-        weekday: t(DAY_NAMES[dayOfWeek(destination.day)]),
-      })
-    : t('changeEntry.PICK');
 }

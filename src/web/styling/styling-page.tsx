@@ -16,10 +16,10 @@ import { PageMain } from '../layout/page-main';
 import { BackLink, EmptyState } from '../layout/parts';
 import {
   DestinationFields,
-  destinationPickLabel,
   destinationQuery,
   type OutfitDestination,
 } from '../outfits/destination';
+import { destinationPickLabel } from '../outfits/destination-views';
 import { OUTFIT_NAME_MAX } from '../outfits/queries';
 import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
