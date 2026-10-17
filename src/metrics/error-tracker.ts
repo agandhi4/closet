@@ -137,9 +137,7 @@ export async function createErrorTracker({
             }
             return response;
           } catch (error) {
-            logger.warn(
-              `Could not send an event to Bugsink: ${error instanceof Error ? error.message : String(error)}`,
-            );
+            logger.warn({ err: error }, 'Could not send an event to Bugsink');
             throw error;
           }
         },
