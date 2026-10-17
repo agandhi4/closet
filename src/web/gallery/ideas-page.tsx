@@ -2,8 +2,8 @@ import type { Idea } from '../../wardrobe/generator';
 import type { Occasion } from '../../wardrobe/occasions';
 import { displayTemperature } from '../../weather/temperature';
 import { PostForm } from '../auth/form';
-import { type IsoDate, dayOfWeek } from '../../calendar-date';
-import { DAY_NAMES, dayLabel, occasionLabel } from '../date-labels';
+import type { IsoDate } from '../../calendar-date';
+import { dayLabel, occasionLabel } from '../date-labels';
 import type { CapsuleRef } from '../capsules/queries';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
@@ -13,10 +13,13 @@ import { PageMain } from '../layout/page-main';
 import { BackLink, EmptyState } from '../layout/parts';
 import { OutfitCollage } from '../outfits/collage';
 import {
-  destinationTarget,
+  DestinationFields,
   type OutfitDestination,
 } from '../outfits/destination';
-import { DayDestinationLine } from '../outfits/day-destination';
+import {
+  DayDestinationLine,
+  destinationPickLabel,
+} from '../outfits/destination-views';
 import { OutfitTabs } from '../outfits/outfit-tabs';
 import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
 import { tripUrl } from '../trips/urls';
@@ -265,26 +268,9 @@ export function IdeaCards({ model }: { model: IdeaCardsModel }) {
 
 /** The gallery's state as hidden fields: a write's redirect comes back to the same ideas. */
 function StateFields({ state }: { state: SeededState }) {
-  const { destination } = state;
   return (
     <>
-      {destination.kind !== 'none' && (
-        <input
-          type="hidden"
-          name="for"
-          value={destinationTarget(destination)}
-        />
-      )}
-      {destination.kind !== 'none' && destination.occasion && (
-        <input type="hidden" name="occasion" value={destination.occasion} />
-      )}
-      {destination.kind === 'day' && destination.replace !== undefined && (
-        <input
-          type="hidden"
-          name="replace"
-          value={String(destination.replace)}
-        />
-      )}
+      <DestinationFields destination={state.destination} />
       {state.capsuleId !== undefined && (
         <input type="hidden" name="capsule" value={String(state.capsuleId)} />
       )}
@@ -298,18 +284,9 @@ function StateFields({ state }: { state: SeededState }) {
 
 /** A card's primary action, by where the idea goes. */
 function pickLabel(destination: OutfitDestination): string {
-  switch (destination.kind) {
-    case 'none':
-      return t('gallery.PICK_SAVE');
-    case 'trip':
-      return t('gallery.PICK_TRIP');
-    case 'day':
-      return destination.replace === undefined
-        ? t('gallery.PICK_DAY', {
-            weekday: t(DAY_NAMES[dayOfWeek(destination.day)]),
-          })
-        : t('changeEntry.PICK');
-  }
+  return destination.kind === 'none'
+    ? t('gallery.PICK_SAVE')
+    : destinationPickLabel(destination);
 }
 
 function IdeaCard(props: {

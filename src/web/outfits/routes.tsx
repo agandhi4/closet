@@ -12,7 +12,11 @@ import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { alreadySavedOf, alreadySavedParam } from '../gallery/urls';
 import { stylingUrl } from '../styling/urls';
 import { viewContext } from '../view-context';
-import { type OutfitDestination, parseDestination } from './destination';
+import {
+  DestinationQuery,
+  type OutfitDestination,
+  parseDestination,
+} from './destination';
 import { OutfitsPage } from './list-page';
 import { outfitContext, savedContext } from './page-context';
 import {
@@ -71,8 +75,7 @@ const OptionalDay = Type.Union([Type.Literal(''), IsoDateSchema]);
 // the edit links (`?returnTo=/calendar&returnToWeek=`).
 const BuilderLinkQuery = Type.Object({
   returnTo: Type.Optional(Type.String()),
-  for: Type.Optional(Type.String()),
-  occasion: Type.Optional(Type.String()),
+  ...DestinationQuery,
   scheduleDate: Type.Optional(Type.String()),
   returnToWeek: Type.Optional(Type.String()),
   capsule: Type.Optional(Type.String()),
@@ -81,10 +84,8 @@ const BuilderLinkQuery = Type.Object({
 // The Saved tab picking for a day (`?for=day:D&occasion=O[&replace=E]`,
 // R5): navigation state, read by parseDestination (anything malformed is
 // the plain grid, a trip too: trips add outfits on their own page).
-const DestinationQuery = Type.Object({
-  for: Type.Optional(Type.String()),
-  occasion: Type.Optional(Type.String()),
-  replace: Type.Optional(Type.String()),
+const SavedQuery = Type.Object({
+  ...DestinationQuery,
   [DECISION_FLAG]: Type.Optional(Type.String({ maxLength: 16 })),
 });
 
@@ -243,7 +244,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 ) => {
   app.get(
     '/outfits',
-    { schema: { querystring: DestinationQuery } },
+    { schema: { querystring: SavedQuery } },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const today = todayIn(config.timeZone, new Date());

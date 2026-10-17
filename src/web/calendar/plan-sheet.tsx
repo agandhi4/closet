@@ -46,6 +46,10 @@ export function PlanSheet({ day }: { day: IsoDate }) {
         <h2 id={titleId} class="font-semibold text-lg">
           {t('calendar.PLAN_SHEET_TITLE', { day: dayLabel(day) })}
         </h2>
+        {/* A GET into Ideas whose occasion is the user's radio choice, so
+            DestinationFields (which posts a decided destination) cannot
+            carry it: the one form writing the destination's field names
+            itself; the `for` value is still destinationTarget's. */}
         <form method="get" action={IDEAS_PATH} class="flex flex-col gap-4">
           <input
             type="hidden"

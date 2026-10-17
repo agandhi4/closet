@@ -60,14 +60,19 @@
     "source": "ts-backend"
   },
   "duplication.repo.clones": {
-    "bound": 33,
+    "bound": 30,
     "direction": "lower",
     "source": "dup"
   },
   "duplication.repo.jscpd_percent": {
-    "bound": 0.43,
+    "bound": 0.38,
     "direction": "lower",
     "source": "dup"
+  },
+  "guards.backend.known": {
+    "bound": 0,
+    "direction": "lower",
+    "source": "guards"
   },
   "size.backend.max_lines": {
     "bound": 2295,
@@ -513,10 +518,5 @@
     "bound": 2,
     "direction": "lower",
     "source": "statements"
-  },
-  "guards.backend.known": {
-    "bound": 0,
-    "direction": "lower",
-    "source": "guards"
   }
 }
