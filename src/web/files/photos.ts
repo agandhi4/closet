@@ -14,7 +14,7 @@ import {
 import type { CutoutEvent, Transition } from '../../cutout/state';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
-import type { Logger } from '../../logger';
+import { errorFields, type Logger } from '../../logger';
 import { PROJECT_ROOT } from '../../project-root';
 import {
   type DecodedHeic,
@@ -315,7 +315,8 @@ export class Photos {
     } catch (error) {
       if (error instanceof HttpError) throw error;
       this.logger.warn(
-        `Rejected unreadable image ${source.filename}: ${String(error)}`,
+        { err: error },
+        `Rejected unreadable image ${source.filename}`,
       );
       throw exceedsPixelLimit(error)
         ? imageTooLarge()
@@ -727,8 +728,8 @@ export class Photos {
       current = await findVariantKey(this.db, fileName);
     } catch (lookupError) {
       this.logger.error(
-        { err: error },
-        `Cutout of ${fileName} (${event.type}): the swap to key ${variantKey} failed and the row cannot be read (${String(lookupError)}); its files are left to reconciliation`,
+        { err: error, lookup_err: errorFields(lookupError) },
+        `Cutout of ${fileName} (${event.type}): the swap to key ${variantKey} failed and the row cannot be read; its files are left to reconciliation`,
       );
       throw error;
     }
@@ -871,7 +872,7 @@ export class Photos {
       await this.storage
         .delete(name)
         .catch((error: unknown) =>
-          this.logger.warn(`Failed to delete ${name}: ${String(error)}`),
+          this.logger.warn({ err: error }, `Failed to delete ${name}`),
         );
     }
   }
@@ -970,12 +971,14 @@ export class Photos {
     } catch (error) {
       if (error instanceof HttpError) {
         this.logger.warn(
-          `Rejected HEIC upload ${source.filename}: ${error.message}`,
+          { err: error },
+          `Rejected HEIC upload ${source.filename}`,
         );
         throw error;
       }
       this.logger.warn(
-        `Rejected undecodable HEIC upload ${source.filename}: ${String(error)}`,
+        { err: error },
+        `Rejected undecodable HEIC upload ${source.filename}`,
       );
       throw new HttpError(400, 'Unreadable image');
     }
@@ -1023,7 +1026,7 @@ export class Photos {
         .pipe(transformer)
         .toBuffer({ resolveWithObject: true });
     } catch (error) {
-      this.logger.warn(`Rejected unreadable upload: ${String(error)}`);
+      this.logger.warn({ err: error }, 'Rejected unreadable upload');
       throw exceedsPixelLimit(error)
         ? imageTooLarge()
         : new HttpError(400, 'Unreadable image');

@@ -1,4 +1,4 @@
-.PHONY: help ci-deps ci-quick ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check secrets-check install
+.PHONY: help ci-deps ci-quick ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
@@ -37,7 +37,7 @@ E2E_FLOOR := 10
 help:
 	@echo "make ci-deps          — npm ci (patches applied by postinstall)"
 	@echo "make install          — once per checkout or worktree: devkit-check, then point core.hooksPath at .githooks"
-	@echo "make ci-quick         — devkit-check, toolchain-check, release-check, workflows-check, docs-check, layer-check, guard-check, secrets-check, then check:static"
+	@echo "make ci-quick         — devkit-check, toolchain-check, release-check, workflows-check, docs-check, layer-check, guard-check, migration-check, secrets-check, then check:static"
 	@echo "make ci-unit          — the Vitest unit projects; no database. Budget $(UNIT_BUDGET_SECONDS) s, floor $(UNIT_FLOOR) tests"
 	@echo "make ci-db            — every Vitest project with v8 coverage (the ratchet's cov input), on a throwaway Postgres 18. Budget $(DB_BUDGET_SECONDS) s, floor $(DB_FLOOR)"
 	@echo "make ci-e2e           — build, then Playwright chromium against a throwaway Postgres 18 (PWA on, PORT random). Budget $(E2E_BUDGET_SECONDS) s, floor $(E2E_FLOOR)"
@@ -56,13 +56,14 @@ help:
 	@echo "make docs-check       — AGENTS.md real + CLAUDE.md symlink, size caps, the area index (part of ci-quick)"
 	@echo "make layer-check      — fail on an import in src/ that reaches up scripts/ci/layers.conf's layer stack (part of ci-quick)"
 	@echo "make guard-check      — fail on a code-structure rule in scripts/ci/guards.conf (devkit/bin/guard_check.py; part of ci-quick)"
+	@echo "make migration-check  — fail on an edit to a shipped drizzle migration (devkit/bin/migration_check.py; part of ci-quick)"
 	@echo "make secrets-check    — fail on a credential committed in the tree (devkit/bin/secrets_check.sh; part of ci-quick)"
 	@echo "make hooks-check      — fail unless core.hooksPath is .githooks and both hooks are executable"
 
 ci-deps:
 	npm ci --no-audit --no-fund
 
-ci-quick: devkit-check toolchain-check release-check workflows-check docs-check layer-check guard-check secrets-check
+ci-quick: devkit-check toolchain-check release-check workflows-check docs-check layer-check guard-check migration-check secrets-check
 	npm run check:static
 
 # The floors read the default and list reporters' summary lines: keep those reporters.
@@ -184,6 +185,12 @@ layer-check:
 # (guards.backend.known). Stdlib only, so it runs before npm ci.
 guard-check:
 	python3 -I devkit/bin/guard_check.py
+
+# A migration on origin/main has run on the deployed database: never edit or delete it, fix forward
+# (the `migration-contract` label passes a deliberate edit). drizzle-kit's append to
+# drizzle/meta/_journal.json is not an edit. Stdlib only, like layer-check.
+migration-check:
+	python3 -I devkit/bin/migration_check.py --versions drizzle --kind drizzle
 
 # Committed credentials (scorecard T11): devkit's pattern scan over the tracked tree. Shell only,
 # so it runs before npm ci.
