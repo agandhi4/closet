@@ -179,3 +179,4 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** `ubuntu-latest` moves to a new OS on GitHub's schedule, so a green workflow can turn red with no commit here; devkit #105 makes workflows-check fail on it.
 **Decision:** every job in ci.yml and nightly.yml runs on `ubuntu-24.04`.
 **Consequence:** a newer image is a deliberate PR that changes the pin and watches ci.yml and the nightly run once.
+**Rebaseline:** devkit #108 drops Markdown, text and lockfiles from jscpd's denominator, so `duplication.repo.jscpd_percent` reads 0.39 on main's own tree (0.38 before) with the same 30 clones; that one bound moves (label `metrics-rebaseline`). `make metrics-rebaseline` is now a target, as the ratchet's failure message assumed; it would also have dropped the report-only `fan_in_max`, which stays.

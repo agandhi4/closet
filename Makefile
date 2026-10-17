@@ -1,4 +1,4 @@
-.PHONY: help ci-deps ci-quick ci-guards ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
+.PHONY: help ci-deps ci-quick ci-guards ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
@@ -50,6 +50,7 @@ help:
 	@echo "make ci-metrics       — the metrics ratchet: scripts/ci/metrics.conf's collectors against docs/metrics/ratchet.json (the gate's last job)"
 	@echo "make metrics-snapshot — run the collectors; build/metrics.json is the report"
 	@echo "make metrics-tighten  — lock in improved numbers; commit docs/metrics/ratchet.json in the same PR"
+	@echo "make metrics-rebaseline — overwrite every bound after a tool change moved them; commit it and label the PR metrics-rebaseline"
 	@echo "make gate PR=<n>      — the PR gate: these jobs on PR <n> merged into origin/main [GATE_ARGS=--no-post]"
 	@echo "make devkit-sync      — pull the latest agandhi4/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
@@ -164,6 +165,11 @@ metrics-snapshot:
 
 metrics-tighten:
 	devkit/bin/metrics_collect.sh tighten
+
+# The ratchet's own failure message names this target. It rewrites every bound, so review the
+# diff: keep only the keys the tool change moved.
+metrics-rebaseline:
+	devkit/bin/metrics_collect.sh rebaseline
 
 gate:
 	@test -n "$(PR)" || { echo "usage: make gate PR=<number> [GATE_ARGS=--no-post]" >&2; exit 2; }
