@@ -1,11 +1,11 @@
 {
   "complexity.backend.cognitive_max": {
-    "bound": 20,
+    "bound": 13,
     "direction": "lower",
     "source": "ts-backend"
   },
   "complexity.backend.cognitive_over_15": {
-    "bound": 2,
+    "bound": 0,
     "direction": "lower",
     "source": "ts-backend"
   },
@@ -35,12 +35,12 @@
     "source": "layers"
   },
   "coverage.backend.branches": {
-    "bound": 92.36,
+    "bound": 92.41,
     "direction": "higher",
     "source": "cov"
   },
   "coverage.backend.lines": {
-    "bound": 97.43,
+    "bound": 97.44,
     "direction": "higher",
     "source": "cov"
   },
@@ -68,6 +68,11 @@
     "bound": 0.43,
     "direction": "lower",
     "source": "dup"
+  },
+  "guards.backend.known": {
+    "bound": 0,
+    "direction": "lower",
+    "source": "guards"
   },
   "size.backend.max_lines": {
     "bound": 2295,
@@ -513,10 +518,5 @@
     "bound": 2,
     "direction": "lower",
     "source": "statements"
-  },
-  "guards.backend.known": {
-    "bound": 0,
-    "direction": "lower",
-    "source": "guards"
   }
 }

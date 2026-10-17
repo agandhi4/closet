@@ -76,8 +76,8 @@ Exactly the keys each emits, per flag; `<s>` is `--scope`. CLIs: devkit README, 
 | `python.py` | `--mccabe` | `complexity.<s>.mccabe_max`, `complexity.<s>.mccabe_over_10` (ruff C901 at 0, `--ignore-noqa`) |
 | | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (complexipy) |
 | | `--vulture` | `dead.<s>.vulture` (findings; `[tool.vulture]` in `--root`'s pyproject.toml is honoured, else the `--src` paths; unused fields of pydantic/SQLAlchemy models, dataclasses, enums, TypedDicts and Protocols are dropped with `--vulture-ignore-declarative`) |
-| | `--fan` | `coupling.<s>.fan_in_max` (most importers one module has), `coupling.<s>.fan_out_max` (most modules one module imports: a god module) over the same runtime graph |
-| | `--cycles` | `coupling.<s>.cycles` (strongly connected components of the runtime import graph over the `--src` directories and `.py` modules, so a flat backend lists `app.py` beside its packages; `if TYPE_CHECKING:` imports excluded, imports inside functions included) |
+| | `--fan` | `coupling.<s>.fan_in_max` (most importers one module has), `coupling.<s>.fan_out_max` (most modules one module imports: a god module) over the import-statement edges of the same graph (no initializer edges: they would make every package initializer a hub) |
+| | `--cycles` | `coupling.<s>.cycles` (strongly connected components of the runtime import graph over the `--src` directories and `.py` modules, so a flat backend lists `app.py` beside its packages; `if TYPE_CHECKING:` imports excluded, imports inside functions included). Importing `a.b.c` also runs `a/__init__` and `a/b/__init__`, so the graph holds an initializer edge from the importer to each such ancestor that imports something of ours, except the importer's own ancestors (already loaded): a cycle through a re-exporting package initializer counts |
 | `ts.mjs` | `--cyclomatic` | `complexity.<s>.cyclomatic_max` (eslint `complexity` at 0, `--no-inline-config`, production files: `--src` minus tests, `__tests__`/`__mocks__`/`test-helpers`, `test-setup.*`, `setupTests.*`, `*.d.ts` and `--test-glob`s) |
 | | `--cognitive` | `complexity.<s>.cognitive_max`, `complexity.<s>.cognitive_over_15` (eslint-plugin-sonarjs) |
 | | `--knip` | `dead.<s>.knip_exports` (exports + types), `dead.<s>.knip_files` (knip 6: files reported as issues), `dead.<s>.knip_deps` (dependencies, devDependencies, unlisted, unresolved, binaries) |
@@ -90,6 +90,20 @@ Exactly the keys each emits, per flag; `<s>` is `--scope`. CLIs: devkit README, 
 | `statements.py` (area `job:db`) | `--in <file> --out … [--min-routes N]` | `statements.<METHOD>:/<route template>` (the db tier's statement fixture writes the per-route maxima to a file outside build/metrics/; the collector validates the shape, prefixes and sorts; tolerance 0 by the ratchet; fewer than N routes is exit 2, so a fixture that recorded nothing cannot pass as clean) |
 | `coverage.py` (area `job:<tier job>`) | `--coverage-json` | `coverage.<s>.lines` (covered_lines / num_statements), `coverage.<s>.branches` (covered_branches / num_branches; omitted when no branches were measured) |
 | | `--istanbul-summary` | `coverage.<s>.lines` (`total.lines.pct`), `coverage.<s>.branches` (`total.branches.pct`; omitted when "Unknown") |
+
+**Findings (`--list-out FILE`, `python.py` and `ts.mjs`).** The lines behind the counts, for
+a lane to work from; never a ratchet input, and the JSON is the same bytes with or without it.
+A `# <key>` header per key that has findings, then one line each; keys sorted; an empty file
+when nothing is over. Paths are `--root` joined with the tool's path, so repo-relative in a
+gate run. Complexity (`mccabe_over_10`, `cognitive_over_15`, and `cyclomatic_max` with the
+functions over 10): `<path>:<line> <function> <metric>=<n>`, worst first; complexipy gives no
+line, so the `def` is found by name (`Class::method`); sonarjs gives no name, so it is the
+identifier at the reported column, `<anonymous>` for an inline callback. Dead code:
+`<path>:<line> <name> <kind>` (vulture's kind, or knip's `export`, `type`, `file`,
+`dependency`, `devDependency`, `unlisted`, `unresolved`, `binary`; no `:<line>` when knip has
+none), by path and line; a vulture reachability finding prints its message. `cycles`: one line
+per cycle, its files space-separated, largest first. `fan_in_max`, `fan_out_max`:
+`<path> fan_in=<n>`, the top 10, ties by path.
 
 **Coverage determinism.** vitest's V8 coverage remaps branches per worker unless
 `coverage.experimentalAstAwareRemapping: true` is set in the vitest config: locus saw 12 vs 13

@@ -428,14 +428,16 @@ describe('web push (PWA_ENABLED=true)', () => {
         'The test could not be delivered to 1 of your devices.',
       );
       expect(await devicesAt(sub.endpoint)).toHaveLength(1);
-      expect(t.logs.messages('warn')).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining(
-            `Push to device ${row.id} of user ${row.userId} failed: HTTP 500: upstream hiccup`,
-          ),
-        ]),
+      // The status, never the push service's answer: upstream text.
+      expect(t.logs.records).toContainEqual(
+        expect.objectContaining({
+          level: 'warn',
+          msg: `Push to device ${row.id} of user ${row.userId} failed`,
+          err: expect.objectContaining({ status: 500 }),
+        }),
       );
       const logged = t.logs.text();
+      expect(logged).not.toContain('upstream hiccup');
       expect(logged).not.toContain(sub.endpoint);
       expect(logged).not.toContain(new URL(sub.endpoint).pathname);
     });

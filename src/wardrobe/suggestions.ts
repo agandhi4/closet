@@ -280,53 +280,9 @@ export function decideSuggestion(
     case 'undo-group':
       return undoGroup(group, picks);
     case 'dismiss-group':
-      if (!group) return refused('not-in-group');
-      if (group.status !== 'open') return refused('not-allowed');
-      return {
-        ok: true,
-        group: {
-          status: 'dismissed',
-          resolvedGarmentId: null,
-          decided: true,
-          dismissedReason: decision.reason,
-          ownerNote: decision.note,
-        },
-        dismiss: [],
-        restore: [],
-      };
+      return dismissGroup(group, decision);
     case 'bought':
-      if (!group) return refused('not-in-group');
-      // The garment need not be a pick: "Bought a different one" resolves
-      // the group with a garment of the owner's own, but only a need still
-      // to buy for, so a second different one (two phones, a double post)
-      // never takes the place of the first.
-      if (!picks.some((pick) => pick.id === decision.garmentId)) {
-        return stillToBuy(group, picks)
-          ? resolvedBy(picks, decision.garmentId)
-          : refused('not-allowed');
-      }
-      // A pick bought after the need was settled by another purchase (a
-      // different one, or a sibling bought): the purchase is recorded and
-      // the pick is no longer set aside, but the first purchase stays the
-      // need's answer: resolved_garment_id is never overwritten.
-      if (
-        group.status === 'resolved' &&
-        group.resolvedGarmentId !== decision.garmentId &&
-        !stillToBuy(group, picks)
-      ) {
-        return {
-          ok: true,
-          group: undefined,
-          dismiss: [],
-          restore: picks.some(
-            (pick) =>
-              pick.id === decision.garmentId && pick.dismissedAt !== null,
-          )
-            ? [decision.garmentId]
-            : [],
-        };
-      }
-      return resolvedBy(picks, decision.garmentId);
+      return boughtOf(group, picks, decision.garmentId);
     default: {
       const pick = picks.find((p) => p.id === decision.garmentId);
       return pick
@@ -334,6 +290,69 @@ export function decideSuggestion(
         : refused('not-in-group');
     }
   }
+}
+
+/** The need dropped without buying: only an open one, with the owner's reason and note. */
+function dismissGroup(
+  group: GroupState | undefined,
+  decision: Extract<SuggestionDecision, { kind: 'dismiss-group' }>,
+): DecisionOutcome {
+  if (!group) return refused('not-in-group');
+  if (group.status !== 'open') return refused('not-allowed');
+  return {
+    ok: true,
+    group: {
+      status: 'dismissed',
+      resolvedGarmentId: null,
+      decided: true,
+      dismissedReason: decision.reason,
+      ownerNote: decision.note,
+    },
+    dismiss: [],
+    restore: [],
+  };
+}
+
+/** `garmentId` bought for the group: a pick, or a garment of the owner's own. */
+function boughtOf(
+  group: GroupState | undefined,
+  picks: readonly PickState[],
+  garmentId: number,
+): DecisionOutcome {
+  if (!group) return refused('not-in-group');
+  // The garment need not be a pick: "Bought a different one" resolves
+  // the group with a garment of the owner's own, but only a need still
+  // to buy for, so a second different one (two phones, a double post)
+  // never takes the place of the first.
+  if (!picks.some((pick) => pick.id === garmentId)) {
+    return stillToBuy(group, picks)
+      ? resolvedBy(picks, garmentId)
+      : refused('not-allowed');
+  }
+  // A pick bought after the need was settled by another purchase (a
+  // different one, or a sibling bought): the purchase is recorded and
+  // the pick is no longer set aside, but the first purchase stays the
+  // need's answer: resolved_garment_id is never overwritten.
+  if (
+    group.status === 'resolved' &&
+    group.resolvedGarmentId !== garmentId &&
+    !stillToBuy(group, picks)
+  ) {
+    return {
+      ok: true,
+      group: undefined,
+      dismiss: [],
+      restore: isSetAside(picks, garmentId) ? [garmentId] : [],
+    };
+  }
+  return resolvedBy(picks, garmentId);
+}
+
+/** `garmentId` is one of `picks` and dismissed: buying or choosing it restores it. */
+function isSetAside(picks: readonly PickState[], garmentId: number): boolean {
+  return picks.some(
+    (pick) => pick.id === garmentId && pick.dismissedAt !== null,
+  );
 }
 
 /**
@@ -345,9 +364,6 @@ function resolvedBy(
   picks: readonly PickState[],
   garmentId: number,
 ): DecisionOutcome {
-  const setAside = picks.some(
-    (pick) => pick.id === garmentId && pick.dismissedAt !== null,
-  );
   return {
     ok: true,
     group: {
@@ -357,7 +373,7 @@ function resolvedBy(
       dismissedReason: null,
     },
     dismiss: othersAside(picks, garmentId),
-    restore: setAside ? [garmentId] : [],
+    restore: isSetAside(picks, garmentId) ? [garmentId] : [],
   };
 }
 
@@ -392,9 +408,6 @@ function decideOnPick(
     { kind: 'choose' | 'dismiss-pick' | 'undo-pick' | 'returned' }
   >,
 ): DecisionOutcome {
-  // A chosen pick set aside, or a bought one returned, reopens its need.
-  const settled = group?.resolvedGarmentId === pick.id;
-  const reopens = settled ? REOPENED : undefined;
   switch (decision.kind) {
     case 'choose':
       if (!group) return refused('not-in-group');
@@ -402,37 +415,56 @@ function decideOnPick(
         ? resolvedBy(picks, pick.id)
         : refused('not-allowed');
     case 'dismiss-pick':
-      if (!isOpen(pick)) return refused('not-allowed');
-      return {
-        ok: true,
-        group: reopens,
-        dismiss: [
-          { garmentId: pick.id, reason: decision.reason, note: decision.note },
-        ],
-        // The chosen one set aside: the options its choice set aside are
-        // open again, as its undo would leave them.
-        restore: settled && group ? choiceSiblings(group, picks) : [],
-      };
+      return dismissPick(group, picks, pick, decision);
     case 'undo-pick':
       return canRestore(group, pick)
         ? { ok: true, group: undefined, dismiss: [], restore: [pick.id] }
         : refused('not-allowed');
     case 'returned':
-      return returnedOf(pick, reopens);
+      return returnedOf(group, pick);
   }
+}
+
+/** The group `pick` settled: a chosen pick set aside, or a bought one returned, reopens it. */
+function settledBy(
+  group: GroupState | undefined,
+  pick: PickState,
+): GroupState | undefined {
+  return group?.resolvedGarmentId === pick.id ? group : undefined;
+}
+
+/** An open pick set aside by the owner, with their reason and note. */
+function dismissPick(
+  group: GroupState | undefined,
+  picks: readonly PickState[],
+  pick: PickState,
+  decision: Extract<SuggestionDecision, { kind: 'dismiss-pick' }>,
+): DecisionOutcome {
+  if (!isOpen(pick)) return refused('not-allowed');
+  const settled = settledBy(group, pick);
+  return {
+    ok: true,
+    group: settled ? REOPENED : undefined,
+    dismiss: [
+      { garmentId: pick.id, reason: decision.reason, note: decision.note },
+    ],
+    // The chosen one set aside: the options its choice set aside are
+    // open again, as its undo would leave them.
+    restore: settled ? choiceSiblings(settled, picks) : [],
+  };
 }
 
 /** A bought garment returned: set aside `returned`, its need reopened if it settled one. */
 function returnedOf(
+  group: GroupState | undefined,
   pick: PickState,
-  reopens: GroupChange | undefined,
 ): DecisionOutcome {
   if (pick.wanted || pick.dismissedReason === 'returned') {
     return refused('not-allowed');
   }
   return {
     ok: true,
-    group: reopens,
+    group: settledBy(group, pick) ? REOPENED : undefined,
     dismiss: [{ garmentId: pick.id, reason: 'returned', note: null }],
     restore: [],
   };

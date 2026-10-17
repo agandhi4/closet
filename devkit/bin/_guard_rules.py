@@ -102,11 +102,19 @@ class Note(Protocol):
     text: str
 
 
+class Span(Protocol):
+    """bin/_ts_lex.py's Interpolation: one template `${...}`."""
+
+    at: int
+    end: int
+
+
 @dataclass(frozen=True)
 class TsCallSite:
     callee: str
     line: int
     at: int = 0  # offset of the callee's last name (bin/_ts_lex.py TsCall)
+    args: tuple[int, int] = (0, 0)  # token indices of its `(` and `)`
 
 
 @dataclass
@@ -115,6 +123,7 @@ class TsFile:
     comments: list[Note]
     imports: list[Imported]
     calls: list[TsCallSite]
+    interpolations: list[Span]
 
     @cached_property
     def module(self) -> TsModule:
@@ -893,3 +902,176 @@ def ts_calls_one_of(
         template = f"{{names}}{value}: no call to {shown}, {how}"
         hits.append(Hit.naming(line, (fn.name for fn in fns), template))
     return Judged(sorted(hits, key=lambda h: h.line), units)
+
+
+# ---------------------------------------------------------------- call-arg-ban (both langs)
+# A closed vocabulary of argument shapes, each spelled in the conf with a placeholder for the
+# identifier: `err` (the default names below) or `/REGEX/` (searched as written). Closed
+# because each shape is a predicate with fixture self-tests; an open pattern language would be
+# a second lexer.
+
+# The names a caught error is bound to, by habit and by lint config (`catch (err)`, `except
+# Exception as exc`, `fetchError`); `e` alone too, since that is the commonest spelling.
+ERROR_NAMES = r"^(e|err|error|exc|exception|.*Err|.*Error)$"
+_PLACEHOLDER = "err"
+# form -> (its conf spelling around the placeholder, the languages it exists in)
+_ARG_FORMS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "String": ("String({})", ("ts",)),
+    "str": ("str({})", ("python",)),
+    "repr": ("repr({})", ("python",)),
+    "message": ("{}.message", ("python", "ts")),
+    "stack": ("{}.stack", ("python", "ts")),
+    "template": ("${{{}}}", ("ts",)),
+    "fstring": ("{{{}}}", ("python",)),
+}
+_CALLED_FORMS = ("String", "str", "repr")
+_ATTRIBUTE_FORMS = ("message", "stack")
+_SHAPE_SPELLING = re.compile(
+    r"(?P<called>String|str|repr)\((?P<a>.+)\)|(?P<b>.+)\.(?P<attr>message|stack)"
+    r"|\$\{(?P<c>.+)\}|\{(?P<d>.+)\}"
+)
+
+
+@dataclass(frozen=True)
+class ArgShape:
+    form: str  # a key of _ARG_FORMS
+    ident: re.Pattern[str]
+    text: str  # as the conf wrote it
+
+    def found(self, form: str, ident: str) -> str:
+        """The site as the source spells it (`String(fetchError)`), when it is this shape."""
+        if form != self.form or self.ident.search(ident) is None:
+            return ""
+        return _ARG_FORMS[form][0].format(ident)
+
+
+def arg_shape(text: str, lang: str) -> ArgShape:
+    """One ARG-SHAPE of a call-arg-ban line; ValueError names what is wrong with it."""
+    spellings = ", ".join(
+        spelling.format(_PLACEHOLDER) for spelling, langs in _ARG_FORMS.values() if lang in langs
+    )
+    m = _SHAPE_SPELLING.fullmatch(text)
+    if m is None:
+        raise ValueError(f"{text!r} is not an argument shape; {lang} has {spellings}")
+    if m["called"]:
+        form, ident = m["called"], m["a"]
+    elif m["attr"]:
+        form, ident = m["attr"], m["b"]
+    else:
+        form, ident = ("template", m["c"]) if m["c"] else ("fstring", m["d"])
+    if lang not in _ARG_FORMS[form][1]:
+        raise ValueError(f"{text!r} is not a {lang} shape; {lang} has {spellings}")
+    if ident == _PLACEHOLDER:
+        return ArgShape(form, re.compile(ERROR_NAMES), text)
+    if len(ident) < 3 or not (ident.startswith("/") and ident.endswith("/")):
+        raise ValueError(
+            f"{text!r}: the identifier is `{_PLACEHOLDER}` (the error names {ERROR_NAMES}) "
+            "or /REGEX/"
+        )
+    try:
+        return ArgShape(form, re.compile(ident[1:-1]), text)
+    except re.error as exc:
+        raise ValueError(f"{text!r}: bad regex: {exc}") from exc
+
+
+def callee_matches(callee: str | None, patterns: Sequence[str]) -> bool:
+    """CALLEE as written matches a pattern on a dotted suffix (_suffix_in: `log.error` names
+    `this.log.error`); `RECEIVER.*` names any method of that receiver (`logger.*` names
+    `logger.warn` and `ctx.logger.warn`, not `logger.child.warn` or `logger(`)."""
+    if not callee:
+        return False
+    receiver = callee.rpartition(".")[0]
+    for pattern in patterns:
+        if pattern.endswith(".*"):
+            if _suffix_in(receiver, (pattern[:-2],)):
+                return True
+        elif _suffix_in(callee, (pattern,)):
+            return True
+    return False
+
+
+def _arg_hit(line: int, callee: str, found: Iterable[str]) -> Hit | None:
+    shown = list(dict.fromkeys(f for f in found if f))
+    return Hit(line, f"{callee}() passes {', '.join(shown)}") if shown else None
+
+
+def _py_found(node: ast.AST, shapes: Sequence[ArgShape]) -> Iterable[str]:
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        args = node.args
+        if node.func.id in _CALLED_FORMS and len(args) == 1 and not node.keywords:
+            if isinstance(args[0], ast.Name):
+                yield from (s.found(node.func.id, args[0].id) for s in shapes)
+    elif isinstance(node, ast.Attribute) and node.attr in _ATTRIBUTE_FORMS:
+        owner = node.value
+        ident = owner.id if isinstance(owner, ast.Name) else getattr(owner, "attr", "")
+        if ident:
+            yield from (s.found(node.attr, ident) for s in shapes)
+    elif isinstance(node, ast.FormattedValue) and isinstance(node.value, ast.Name):
+        yield from (s.found("fstring", node.value.id) for s in shapes)
+
+
+def py_call_arg_ban(file: PyFile, patterns: Sequence[str], shapes: Sequence[ArgShape]) -> list[Hit]:
+    """A call whose callee (as written) matches PATTERNS with an argument that holds one of
+    SHAPES at any depth: positional, keyword, `**{...}`, inside a dict, a nested call or an
+    f-string part (`{err}`, `{err!r}` too). `x.err.message` is judged by `err`. One hit per call,
+    at its line, naming every shape in it. Not seen: the error passed bare (`log.error("%s",
+    exc)`: an interpolating logger formats it), `"%s" % err`, `err.args`, a name the error was
+    re-bound to, a callee hanging off an expression (`getLogger(x).error(`)."""
+    hits: list[Hit] = []
+    for call in file.calls:
+        if not callee_matches(call.callee, patterns):
+            continue
+        roots = [*call.node.args, *(kw.value for kw in call.node.keywords)]
+        found = (f for root in roots for node in ast.walk(root) for f in _py_found(node, shapes))
+        hit = _arg_hit(call.line, call.callee or "", found)
+        if hit is not None:
+            hits.append(hit)
+    return _keep_first(hits)
+
+
+def _ts_found(tokens: Sequence[Tok], k: int, shapes: Sequence[ArgShape]) -> Iterable[str]:
+    tok = tokens[k]
+    if tok.kind != "id":
+        return
+    if (
+        tok.value == "String"
+        and not (k and _is(tokens[k - 1], "punct", "."))  # `x.String(err)` is someone's method
+        and _p(tokens, k + 1, "(")
+        and _id(tokens, k + 2)
+        and _p(tokens, k + 3, ")")
+    ):
+        yield from (s.found("String", tokens[k + 2].value) for s in shapes)
+        return
+    attr = k + 3 if _p(tokens, k + 1, "?") and _p(tokens, k + 2, ".") else k + 2
+    if _p(tokens, attr - 1, ".") and _id(tokens, attr) and tokens[attr].value in _ATTRIBUTE_FORMS:
+        yield from (s.found(tokens[attr].value, tok.value) for s in shapes)
+
+
+def ts_call_arg_ban(file: TsFile, patterns: Sequence[str], shapes: Sequence[ArgShape]) -> list[Hit]:
+    """A call whose callee (as written, bin/_ts_lex.py calls_in) matches PATTERNS with an
+    argument holding one of SHAPES anywhere between its parentheses: an object value, a spread,
+    a nested call, a template interpolation that is the identifier alone (`${err}`; `${err ??
+    ""}` is not). `res.error.message` and `err?.message` are judged by `error`/`err`. One hit
+    per call, at its line, naming every shape in it. Not seen: the error passed bare or
+    spread (`{ ...err }`), `err.toString()`, `JSON.stringify(err)`, a name the error was
+    re-bound to, a callee hanging off an expression (`getLogger().error(`)."""
+    tokens = file.tokens
+    hits: list[Hit] = []
+    for call in file.calls:
+        if not callee_matches(call.callee, patterns):
+            continue
+        open_at, close = call.args
+        inside = range(open_at + 1, close)
+        found = [f for k in inside for f in _ts_found(tokens, k, shapes)]
+        if close < len(tokens):
+            first, last = tokens[open_at].at, tokens[close].at
+            for span in file.interpolations:
+                if not first < span.at < last:
+                    continue
+                code = [tokens[k] for k in inside if span.at <= tokens[k].at < span.end]
+                if len(code) == 1 and code[0].kind == "id":
+                    found.extend(s.found("template", code[0].value) for s in shapes)
+        hit = _arg_hit(call.line, call.callee, found)
+        if hit is not None:
+            hits.append(hit)
+    return _keep_first(hits)

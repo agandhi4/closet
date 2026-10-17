@@ -49,6 +49,46 @@ describe('createLoggerTo', () => {
   });
 });
 
+describe('the err serializer', () => {
+  function loggedErr(error: unknown) {
+    const logs = new LogCapture();
+    createLoggerTo('info', logs).warn({ err: error }, 'failed');
+    return logs.records[0].err;
+  }
+
+  it('redacts an upstream URL and key=value pairs, keeping file:// frames', () => {
+    const cause = new Error(
+      'connect ECONNREFUSED postgres://ci:hunter2@10.0.0.5/closet',
+    );
+    const error = Object.assign(
+      new Error('GET https://api.example/v1?key=s3cret failed, token=abc', {
+        cause,
+      }),
+      { code: 'E_UPSTREAM', status: 502, options: { key: 's3cret' } },
+    );
+    const err = loggedErr(error);
+    const text = JSON.stringify(err);
+    expect(text).not.toMatch(/s3cret|hunter2|abc/);
+    expect(err).toEqual({
+      type: 'Error',
+      message: 'GET <url> failed, <param> connect ECONNREFUSED <url>',
+      stack: expect.stringContaining(
+        'caused by: Error: connect ECONNREFUSED <url>',
+      ),
+      code: 'E_UPSTREAM',
+      status: 502,
+    });
+    expect(err?.stack).toMatch(/\(file:\/\/|\bat .*logger\.spec\.ts/);
+  });
+
+  it('cuts a long message and logs a thrown non-Error by its type alone', () => {
+    expect(loggedErr(new Error('x'.repeat(300)))?.message).toBe(
+      `${'x'.repeat(200)}…`,
+    );
+    expect(loggedErr('upstream body text')).toEqual({ type: 'string' });
+  });
+});
+
 describe('the line shape', () => {
   it('writes ts (RFC 3339 UTC), the level by name, the version and the logger', () => {
     const lines: string[] = [];

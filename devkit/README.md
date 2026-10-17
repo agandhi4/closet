@@ -43,10 +43,10 @@ What each path is; [AGENTS.md](AGENTS.md) holds the invariants that tie them tog
 | `bin/tier_guard.sh` | `<tier> --budget <s> [--floor <runner>=<min>]... -- <cmd...>`: one test tier under a wall-clock budget (the whole command's wall time; it fails over budget even when every test passed, `TIER_BUDGET_ENFORCE=0` only reports) and per-runner floors on the tests that RAN (skipped ones do not count), read from the runner's own summary line: `pytest`, `vitest`, `playwright`, `cargo`. Streams the command's output, exits with its code, prints `TIER <tier>: …` / `FAIL` / `FLOOR` / `OVERBUDGET` lines and writes `build/metrics/tier-<tier>.json` at the git top level (`tier.<tier>.seconds`, `tests.<tier>.<runner>`). Every `devkit new` stack's test tiers run through it. |
 | `bin/metrics_collect.sh` | `<snapshot\|check\|tighten\|rebaseline>`: the `ci-metrics` mechanism. Reads `scripts/ci/metrics.conf` (`<name> <area> <command...>`), runs each collector from the repo root into `build/metrics/<name>.json`, skips those whose area no changed path touched (in the gate; `tooling`/`other` and `repo` collectors run regardless), merges with the gate's and tiers' files, then runs the ratchet. A repo's Makefile holds three one-line targets and nothing else. "Metrics ratchet" below. |
 | `metrics/` | The shared collectors a `metrics.conf` line calls, one per stack, each `--scope <name> [--out FILE]`, deterministic, exit 2 naming a missing dev dependency: `python.py --root <dir> --src <subdir|module.py>... [--python <interp>] [--mccabe] [--cognitive] [--vulture [--vulture-ignore-declarative] [--vulture-base <set,...>]] [--cycles]` (ruff C901, complexipy, vulture, AST import cycles; run under the repo's interpreter, `uv run --frozen --project backend python devkit/metrics/python.py …`, so the tools resolve); `ts.mjs --root <dir> --src <subdir> [--tsconfig F] [--test-glob G]... [--cyclomatic] [--cognitive] [--knip [--knip-base]] [--cycles] [--bundle [--bundle-entry index.html]]` (eslint `complexity`, sonarjs cognitive, knip, dependency-cruiser cycles, vite bundle KiB; tools from `<root>/node_modules/.bin`); `jscpd.mjs --scope repo [--min-tokens 50] [--min-lines 5] [--bin <jscpd>] [--base] <paths...>`; `coverage.py --scope <s> (--coverage-json F \| --istanbul-summary F)` (the tier writes the report; "run make ci-unit-<s> first" when it is missing). Keys per collector: `docs/metrics-keys.md`. The `--*base` flags merge `lint/`'s knip, jscpd and vulture bases under the repo's own config (`lint/README.md`). |
-| `bin/metrics_ratchet.py` | The "never worse than main" gate. `check` holds a snapshot to `docs/metrics/ratchet.json` and that file to main's copy (`git show origin/main:…`), so a PR cannot loosen its own bounds; `tighten` locks in BETTER numbers in the improving PR; `merge` joins `build/metrics/*.json` into one snapshot that records each key's collector and the collectors skipped, so a key whose collector did not run is SKIPPED, not a failure. Loosening needs the fail-closed `metrics-rebaseline` PR label. |
+| `bin/metrics_ratchet.py` | The "never worse than main" gate. `check` holds a snapshot to `docs/metrics/ratchet.json` and that file to main's copy (`git show origin/main:…`), so a PR cannot loosen its own bounds; `tighten` locks in BETTER numbers in the improving PR; `merge` joins `build/metrics/*.json` into one snapshot that records each key's collector and the collectors skipped, so a key whose collector did not run is SKIPPED, not a failure. Committing a looser bound needs the fail-closed `metrics-rebaseline` PR label; no label admits a value past the committed bound. |
 | `templates/metrics/ratchet.json`, `docs/metrics-keys.md` | Starter bounds (all `null` until `rebaseline` fills them, so `check` refuses a raw copy; `{}` is the other valid start) and the flat `<domain>.<scope>.<stat>` key shape every collector emits. |
 | `bin/own_commit_check.py` | Transaction-boundary guard: AST scan fails a raw `.commit()` on a session the function did not open itself (`with … as db` / `db = Session()`), and pins every `commit_now(…, reason=…)` call to a shrink-only `path::qualname` allow-list. Prints `own_commit_allowlist_entries=<n>` for `metrics_ratchet.py` (direction lower). Opener regex and excludes are per repo. |
-| `bin/layer_check.py` | Dependency-direction guard for `ci-quick` (the consumer's `layer-check` target): the repo's `scripts/ci/layers.conf` declares, per source tree (`[section]`, the ratchet scope), its layers bottom-first by path glob, plus `peer` (same rank, neither imports the other), `entry` (composition root), `leaf` (imports nothing of ours), sanctioned `allow` edges, `deny` for a skipped layer and the shrink-only `known` violations. An import from a lower rank to a higher one fails, as does a file in no layer or a `known` line that is no longer refused. Python reads `metrics/python.py`'s runtime import graph (the one `coupling.<scope>.cycles` counts); TypeScript reads import statements (aliases from the conf, type-only imports erased). Prints `layer_violations=<n>`; `--metrics-out` writes `coupling.<section>.layer_violations` (direction lower), so a scaffold's `metrics.conf` runs it as the `layers` collector. Stdlib only. |
+| `bin/layer_check.py` | Dependency-direction guard for `ci-quick` (the consumer's `layer-check` target): the repo's `scripts/ci/layers.conf` declares, per source tree (`[section]`, the ratchet scope), its layers bottom-first by path glob, plus `peer` (same rank, neither imports the other), `entry` (composition root), `leaf` (imports nothing of ours), sanctioned `allow` edges, `deny` for a skipped layer and the shrink-only `known` violations. An import from a lower rank to a higher one fails, as does a file in no layer or a `known` line that is no longer refused. Python reads `metrics/python.py`'s runtime import graph (the one `coupling.<scope>.cycles` counts), its import-statement edges only (the package-initializer edges the cycle count adds run beneath every layer); TypeScript reads import statements (aliases from the conf, type-only imports erased). Prints `layer_violations=<n>`; `--metrics-out` writes `coupling.<section>.layer_violations` (direction lower), so a scaffold's `metrics.conf` runs it as the `layers` collector. Stdlib only. |
 | `bin/guard_check.py` | Code-structure guard for `ci-quick` (the consumer's `guard-check` target): the repo's `scripts/ci/guards.conf` declares import, call and semantic rules per source tree (the catalogue in "Guards (guard-check)" below), with `except` sites and shrink-only per-file `known` debt. `--metrics-out` writes `guards.<section>.known`, so a scaffold's `metrics.conf` runs it as the `guards` collector. Stdlib only; the predicates are `bin/_guard_rules.py`, and it shares `bin/_source_tree.py` (the conf's section keys, globs, file walks) and `bin/_ts_lex.py` (the TS lexer) with `layer_check.py`. |
 | `bin/dead_alert_audit.py` | Monthly review of vmalert rules (not a gate, exit 0): statically flags missing `severity`/`runbook`, `outcome` values outside `success|failure`, names duplicated across files; with `--vm-url` asks VictoriaMetrics which alerts never fired and which selectors matched no series in `--since` (default 30d). One `dead-alert <high|medium|low> <alert> <reason>` line per finding. |
 | `bin/monthly_audit.sh` | Monthly fleet audit, run from this checkout (not vendored). Per active vendoring repo, in a fresh shallow clone: the guards `ci-quick` does not already reach, `.devkit-rev` skew, the ratchet, and a re-invention diff (`reinvent <repo> <path> <kind> <devkit equivalent>`; naming the file under AGENTS.md "Convention deltas" silences it). Fleet: labels/settings dry-runs, `dead_alert_audit.py`, gate-ledger digest. Writes `report.md`, `summary.tsv`, `findings.json`; one read-only `claude -p` proposes ≤ 3 structural findings, which the script files as `fleet-audit` issues (none while 3 are open; off for the first two runs) and PRs the report to homelab `docs/audits/`. Kill switch `~/.config/devkit/audit.off`. Schedule (owner step, install by hand): fill `__DEVKIT__`/`__HOME__` in `templates/launchd/com.agandhi4.devkit.monthly-audit.plist`, `mkdir -p ~/Library/Logs/devkit`, `cp` it to `~/Library/LaunchAgents/`, then `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.agandhi4.devkit.monthly-audit.plist`. |
@@ -58,7 +58,7 @@ What each path is; [AGENTS.md](AGENTS.md) holds the invariants that tie them tog
 | `lint/swift-format.json` | The swift-format config; a repo's `.swift-format` is a byte copy that `devkit-check` holds. |
 | `metrics/size.py` | File-size collector for any language: `size.<scope>.max_lines` and `size.<scope>.over_600` over the production files (tests, fixtures, generated paths excluded). A file that keeps growing is the first symptom of a missing abstraction (scorecard T2). One conf line per area. |
 | `bin/secrets_check.sh` | Guard for `ci-quick` (scorecard T11): no credential in the tracked files (~1 s per 1,000 files; `--staged` scans only the staged paths, for pre-commit). gitleaks' high-confidence shapes (private keys, AWS, GitHub, Slack, Google, Stripe, Anthropic/OpenAI, age) everywhere, and long literals assigned to secret-named variables outside tests and placeholders; `scripts/ci/secrets_allow.txt` names a fixture's fake key with its reason. The matched text is never printed. |
-| `bin/migration_check.py` | Guard for `ci-quick` (scorecard T5, data.md 12 and 14): no shipped migration is modified or deleted (the `migration-contract` label, or `--allow-shipped-edits`, makes a deliberate one pass), and no alembic `downgrade()` is a `pass` body (write it, or raise with the reason; merge revisions are exempt). `--versions <dir>` per migrations directory; drizzle dirs get the edit check only. |
+| `bin/migration_check.py` | Guard for `ci-quick` (scorecard T5, data.md 12 and 14): no shipped migration is modified or deleted (the `migration-contract` label, or `--allow-shipped-edits`, makes a deliberate one pass), and no alembic `downgrade()` is a `pass` body (write it, or raise with the reason; merge revisions are exempt). `--versions <dir>` per migrations directory; drizzle dirs get the edit check only, and a `meta/_journal.json` change that only appends entries (every other key and every shipped entry unchanged) is not an edit: each new migration appends one. |
 | `metrics/vuln.py` | Vulnerability collector for any stack (scorecard T11): the locked production dependencies (`uv export`, package-lock.json, pnpm-lock.yaml, Cargo.lock) asked of OSV in one batch, each hit fetched once for severity; `vuln.<scope>.critical|high|total`, report-only (a new advisory is not a code regression, so the ratchet never tracks it). No audit tool needs installing. |
 | `metrics/statements.py` | The statements collector (decision H): the db tier's statement fixture writes `{"<METHOD>:/<route>": <max statements>}` to a file outside `build/metrics/`; one `statements job:db …` line in `metrics.conf` validates and copies it into the snapshot as `statements.<METHOD>:/<route>` keys at tolerance 0. closet's `test/support/statement-budgets.ts` and finplat's `count_statements` are the two fixtures to copy. |
 | `bin/agent_cost.py`, `docs/agent-cost.tsv` | The agent-cost ledger (scorecard T9): one row per (repo, PR, agent) from the Claude Code session transcripts (API calls, tool calls, output and cache-read tokens attributed to the PR the agent was on, gate rounds, `GATE … FAIL` lines seen, merged) joined with the gate state dir's seconds. Append-only; `--summary` prints per-repo medians, which the scorecard grades. Run it after a wave of lanes (`make agent-cost`). Transcripts are data: only counts and PR URLs leave them. |
@@ -90,6 +90,41 @@ toolchain pin; the stack's lockfile; the smallest app that serves `/health/live`
 `make ci-quick` (devkit-check, toolchain-check, docs-check, release-check, workflows-check,
 layer-check and guard-check outside rust and swift-app, own-commit-check for Python, then lint/format/typecheck) has passed on it before you see it.
 `tests/new_contract.bats` holds every stack to this.
+
+### Browser logger
+
+next-vercel ships the fleet's browser logger: `src/lib/log.ts` (`logger(domain)`, named
+`<app>.web.<domain>`; console in dev; in prod debug dropped, info into a 50-entry ring buffer,
+warn a breadcrumb, error a capture tagged with `logger` and `request_id`, through
+`setErrorSdk`; console fallback without the SDK) and its contract test `log.contract.test.ts`,
+plus `server-log.ts` for server code (JSON lines carrying `ts`, `level`, `logger`, `msg` and
+`version`, the string `/health` reports from `version.ts`). Those two modules are the only
+console callers (guards.conf, the eslint override). A React repo copies `log.ts` and the
+contract test, wires its SDK loader, its `beforeSend` (`recentLogs()` as `contexts.logs`) and
+its API client (`setLastRequestId`), and keeps the test green.
+
+The file names are the app's; the exported API and the contract test are the contract. An app
+whose server logger already owns `log.ts` names the browser module otherwise (rollcall:
+`src/lib/browser-log.ts`), and a repo that keeps tests under `tests/` moves the test there. Either
+way the app edits one line of the test, the `BROWSER_LOGGER` path at its top, and names its
+chosen files in the guards.conf `only-call console.*` lines and the eslint override.
+
+A Vite app changes two lines, because Vite replaces `import.meta.env.DEV` where Next inlines
+`NODE_ENV` (vitest's `stubEnv` sets `DEV` as a boolean):
+
+```diff
+ // log.ts
+-const DEV = process.env.NODE_ENV !== "production";
++const DEV = import.meta.env.DEV;
+ // log.contract.test.ts, in load()
+-  vi.stubEnv("NODE_ENV", mode);
++  vi.stubEnv("DEV", mode === "development");
+```
+
+The contract is `standardization/browser-logger-design.md`. There is no `devkit-check` byte
+comparison, by design: apps differ in how the SDK loads, and the test holds what must not.
+`make ci-quick` runs the scaffold's hermetic tests, the contract test and `tests/unit`
+(`template-tests`, under the vitest pinned in `tests/templates/`).
 
 Then, by hand, in this order:
 
@@ -280,6 +315,15 @@ rather than failing. Why: a frontend-only PR cannot have changed backend coverag
 backend unit job that produces that coverage did not run either. Outside the gate every
 collector runs, on the pinned toolchain (`toolchain_path`, as the gate and the hooks).
 
+**Findings.** A count says how much to fix, not what. `metrics_collect.sh` passes
+`--list-out build/metrics/<name>.findings.txt` to every `python.py` and `ts.mjs` line and ends
+the run with `findings: <files>`, pass or fail. Each file holds a `# <key>` header per key
+with findings and one line per finding: functions over the complexity threshold worst first
+(`backend/server/x.py:120 sync_all cognitive=52`), every dead-code finding
+(`web/src/a.ts:3 Id type`), one line per import cycle naming its files, and the top 10 modules
+by fan-in and fan-out. The ratchet and the scorecard never read it; formats in
+`docs/metrics-keys.md`.
+
 **Coverage** is produced by the unit tier, not by a collector: each `ci-unit-<area>` runs with
 coverage on and writes the tool's report (coverage.py JSON, an istanbul summary);
 `devkit/metrics/coverage.py` converts it to `coverage.<area>.lines|branches`, declared with
@@ -303,9 +347,21 @@ from today's numbers, seeds every untracked key the collectors emit (never `gate
 `tier.*`, `tests.*`; a repo-specific domain is added by hand with its direction) and records
 each key's collector. Commit both files; the devkit-sync commit itself needs no change, the
 adoption PR carries the attribution trailer. From then on a PR
-that improves a number runs the repo's `metrics-tighten` target and commits the bounds; a PR that must
-loosen one (a tool knob moved the numbers) produces the looser file with `rebaseline` and
-carries the `metrics-rebaseline` label.
+that improves a number runs the repo's `metrics-tighten` target and commits the bounds.
+
+The `metrics-rebaseline` label permits a PR to COMMIT bounds looser than main's; it never
+permits a measured value past the committed bound. A PR whose numbers moved for a legitimate
+reason (a tool knob, a deliberate trade) runs the repo's `metrics-rebaseline` target, which
+rewrites every bound from today's numbers, reviews the diff of `docs/metrics/ratchet.json`, and
+commits it with the label. The gate then holds every key to that committed file exactly as in
+check mode; the only difference is that the LOOSENED, REMOVED and DIRECTION bound lines are
+accepted. A key that is worse than its committed bound fails even under the label, with a line
+naming the fix (Orbit #78 merged a coverage drop under a label meant for two size bounds, and
+the next PR failed on it):
+
+```
+metrics-rebaseline: coverage.backend.lines 49.24 is past its bound 49.45; set the bound in docs/metrics/ratchet.json or fix the regression
+```
 
 ## Guards (guard-check)
 
@@ -342,15 +398,17 @@ lang  ts
 root  web
 src   src
 @route-auth calls-one-of src/app/api/**/route.ts requireSession,withAuth except src/app/api:maxDuration
+@no-raw-error-text call-arg-ban logger.*,log.* String(err),err.message,${err},err.stack src/**
 @action-auth calls-one-of src/app requireSession,requireAdmin functions-only server-only except src/app/login/actions.ts:loginAction
 ```
 
 | Rule | Lang | Fires on |
 |---|---|---|
 | `only-import MODULE[,MODULE] GLOB...` | both | an import of the module (segment prefix: `sqlalchemy` holds `sqlalchemy.orm`, `drizzle-orm` holds `drizzle-orm/pg-core`) outside the globs |
-| `ban-import GLOB... MODULE[:NAME,...] [except GLOB[:NAME,...]...]` | both | under the globs, an import of the module, or of those names from it (`from M import NAME`, `import { NAME } from 'M'`, a re-export); `except GLOB:NAME` sanctions only those names there |
+| `ban-import GLOB... MODULE[:NAME,...] [except GLOB[:NAME,...]...]` | both | under the globs, an import of the module, or of those names from it (`from M import NAME`, `import { NAME } from 'M'`, a re-export); `except GLOB:NAME` sanctions only those names there. The names follow the first colon that is not a TS scheme's (`node:`, `bun:`): `node:http` is the module, `node:http:STATUS_CODES` its name |
 | `only-call NAME GLOB...` | both | a call to NAME, the dotted callee as written (`prefetch(`, `x.fetchQuery(`, `api.fetch(` are not `fetch(`), outside the globs |
 | `ban-call NAME[,NAME] GLOB... [except GLOB...]` | both | under the globs, a call to NAME |
+| `call-arg-ban CALLEE[,CALLEE] ARG-SHAPE[,ARG-SHAPE] GLOB... [except GLOB...]` | both | under the globs, a call to CALLEE (as written, dotted suffix: `log.error` names `this.log.error`; `logger.*` any method of `logger`) with an argument holding a shape at any depth (object values, spreads, nested calls, template and f-string parts). Shapes, a closed set: `String(err)`, `${err}` (ts), `str(err)`, `repr(err)`, f-string `{err}` (python), `err.message`, `err.stack` (both); `err` stands for the error names (`e`, `err`, `error`, `exc`, `exception`, `*Err`, `*Error`), `/REGEX/` for others. One violation per call. Not seen: the error passed bare, or re-bound to another name first. Seed: rollcall #63 (ten log sites, one an API-keyed URL) |
 | `logger-name PREFIX [except GLOB...]` | python | `logging.getLogger(x)`, however imported, whose name is not PREFIX or PREFIX.<x> (constants and f-string heads judged; `__name__`, a variable or no name fire), and any root emitter (`logging.info(...)`, an alias or `from logging import error` too) |
 | `outbound-timeout [except GLOB...]` | python | `requests.<verb>`/`request`, `httpx.<verb>`/`stream`, `httpx.Client`/`AsyncClient`, `urllib.request.urlopen` without a timeout, or with `timeout=None`. Not seen: a `**kwargs` spread (silent) and a client's methods (judged where the client is built) |
 | `utc-today [except GLOB...]` | python | `date.today()`, `datetime.utcnow()`, `datetime.now()` with no tz or `None` (resolved through the imports: pendulum's `date` is not datetime's) |
@@ -445,7 +503,10 @@ D ≥ 50, else F; unmeasured counts as fail on purpose.
 The ratchet: a repo commits `docs/metrics/scorecard.json` (`bin/scorecard.py . --mode rebaseline`
 once) and from then on its `ci-metrics` target fails a PR whose share on a ratcheted track (T1-T6, T10,
 T12-T14: the tracks only a code change can move) drops below the committed one; its `metrics-tighten` target
-raises the committed shares; the `metrics-rebaseline` label allows a drop. T7, T8, T9, T11 and T15
+raises the committed shares. As in the metrics ratchet, `check` holds today's shares to the
+PR's committed file and that file to main's; the `metrics-rebaseline` label admits a committed
+share lower than main's (`--mode rebaseline`, commit it), never a share below the committed
+file, and deleting the file lowers every track. T7, T8, T9, T11 and T15
 move without a code change (live metrics, seconds, the ledger, new advisories, devkit itself) and
 stay graded, not gated.
 
@@ -461,7 +522,7 @@ the same ones. `make gate PR=<n>` is the merge signal (it posts `local-gate` on 
 Actions is a second opinion that the account's billing has blocked before.
 
 ```sh
-make ci-quick        # shellcheck 0.11, python unit tests, docs/toolchain/workflows guards on devkit itself
+make ci-quick        # shellcheck 0.11, python and template unit tests (needs npm), docs/toolchain/workflows guards on devkit itself
 make ci-unit         # bats tests/
 make gate PR=<n>     # both, on PR <n> merged into origin/main
 ```

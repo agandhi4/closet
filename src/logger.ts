@@ -44,7 +44,63 @@ function options(level: LogLevel, version: string): LoggerOptions {
     // A new object every call: pino merges the line's fields into it.
     mixin: operationFields,
     redact: { paths: REDACTED_PATHS, censor: '[redacted]' },
+    serializers: { err: errorFields },
   };
+}
+
+// Error text is foreign input: a fetch, sharp or driver error (or its cause) can quote an
+// upstream URL with its token, a connection string, a query string or a slice of a response.
+// So no logger call splices String(err), err.message or err.stack into a line (guards.conf
+// no-raw-error-text); it passes `{ err }` and errorFields writes it. Unlike rollcall's helper
+// the stack stays, redacted like the message: a 500 is logged with it (errors.spec.tsx).
+const MESSAGE_MAX = 200;
+// file:// is left alone: it is a stack frame's location, never an upstream's address.
+const URL_PATTERN = /\b(?!file:)[a-z][a-z0-9+.-]*:\/\/\S+/gi;
+// A query string or key=value pair outside a URL: `?api_key=…`, `&token=…`.
+const PARAM_PATTERN = /[?&]?\b[\w.-]+=[^\s&]+/g;
+
+function redact(text: string): string {
+  return text.replace(URL_PATTERN, '<url>').replace(PARAM_PATTERN, '<param>');
+}
+
+export interface ErrorFields {
+  type: string;
+  message?: string;
+  stack?: string;
+  code?: string;
+  status?: number;
+}
+
+/**
+ * The `err` serializer of every closet logger (Fastify's too: it takes the
+ * instance as given). pino's own serializer appends the causes to the
+ * message and the stack (a driver error's reason is often only its cause);
+ * of the rest only the class, `code` and an HTTP status are kept: its
+ * copy of every own field would log a client's request options or a
+ * query's params whole. A thrown non-Error is logged by its type alone.
+ */
+export function errorFields(err: unknown): ErrorFields {
+  if (!(err instanceof Error)) return { type: typeof err };
+  const { type, message, stack } = pino.stdSerializers.err(err);
+  const fields: ErrorFields = {
+    type,
+    message: truncate(redact(message)),
+    stack: redact(stack),
+  };
+  // `statusCode`: HttpError's and web-push's WebPushError's name for it.
+  const { code, status, statusCode } = err as {
+    code?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  if (typeof code === 'string') fields.code = code;
+  const httpStatus = typeof status === 'number' ? status : statusCode;
+  if (typeof httpStatus === 'number') fields.status = httpStatus;
+  return fields;
+}
+
+function truncate(text: string): string {
+  return text.length > MESSAGE_MAX ? `${text.slice(0, MESSAGE_MAX)}…` : text;
 }
 
 /**
