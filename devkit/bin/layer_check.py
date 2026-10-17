@@ -9,7 +9,9 @@ the rules are data, `scripts/ci/layers.conf`, and the graph is devkit's:
   - Python: metrics/python.py's runtime import graph, the one `coupling.<scope>.cycles` counts
     (`if TYPE_CHECKING:` erased, imports inside functions counted, relative imports resolved,
     `from pkg import submodule` an edge to the submodule only). One resolver for the cycle
-    number and the layer verdict.
+    number and the layer verdict; the verdict reads the IMPORT edges only, leaving out the
+    INITIALIZER edges the cycle count adds (see `leaf` below: with them every module would
+    import the package initializers above it).
   - TypeScript/JavaScript: the file's import statements, read by bin/_ts_lex.py (shared with
     guard_check.py; comments, strings, templates and regex literals skipped): static and
     side-effect imports, re-exports, `import()` and `require()`. Type-only imports (`import
@@ -237,10 +239,10 @@ def verdict(section: Section, importer: Owner, imported: Owner, edge: tuple[str,
 
 
 def python_graph(section: Section, root: Path) -> dict[str, set[str]]:
-    """Root-relative file -> files it imports at runtime (metrics/python.py's resolver)."""
+    """Root-relative file -> files its import statements name (metrics/python.py's resolver)."""
     metrics = tree.python_metrics()
     try:
-        graph = metrics.import_graph(root, section.src)
+        graph = metrics.import_graph(root, section.src, kinds=metrics.STATEMENTS)
     except metrics.CollectorError as exc:
         raise ConfError(f"[{section.name}] {exc}") from exc
     path_of = {

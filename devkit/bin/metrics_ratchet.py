@@ -22,7 +22,14 @@ Why a fail-closed label for loosening: tool knobs (jscpd min-tokens, a vulture w
 move numbers without code moving, so a legitimate reset must exist. It is granted only when
 the gate plan reads the `metrics-rebaseline` PR label and passes `--rebaseline-ok`; an
 unreadable label means no flag, so the ratchet holds. The author produces the looser file with
-`rebaseline`.
+`rebaseline` (`make metrics-rebaseline`) and commits it.
+
+What the label permits (Orbit #78/#79): COMMITTING bounds looser than main's, nothing else.
+Every measured value is still held to the PR's own bounds file in both modes, so a key the PR
+did not loosen cannot regress under the label. Before this, the label passed every WORSE key:
+#78 loosened two size bounds and merged with an unrelated coverage drop, and main then failed
+its own bounds on the next PR. The gate verifies the committed file; it never trusts the label
+for a number the file does not admit.
 
 Usage:
   metrics_ratchet.py check --snapshot S --bounds B [--base-ref REF | --base-bounds F]
@@ -71,6 +78,8 @@ a summary line. SKIPPED never fails: a frontend-only PR cannot have changed back
 A tracked metric absent for any other reason (no `source`, or its collector ran) is MISSING
 and fails even with --rebaseline-ok: a renamed or removed metric is fixed by editing the
 bounds file (which itself needs the label).
+WORSE fails with or without --rebaseline-ok; the label only accepts LOOSENED, REMOVED and
+DIRECTION bound lines, and under it each WORSE key prints a `metrics-rebaseline: ...` fix line.
 
 Exit codes: 0 ok, 1 ratchet failed, 2 usage error or unreadable/invalid file or base ref.
 """
@@ -373,6 +382,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     moved = compare_to_base(base, bounds) if base is not None else {"loosened": 0}
 
     counts = {"SAME": 0, "BETTER": 0, "WORSE": 0, "MISSING": 0, "SKIPPED": 0}
+    worse: list[tuple[str, float, float]] = []
     for metric in sorted(bounds):
         bound = bounds[metric]
         if metric not in snapshot.values:
@@ -392,6 +402,8 @@ def cmd_check(args: argparse.Namespace) -> int:
             raise InputError(f"bounds {bounds_path}: {metric} unset")
         status = classify(value, bound.bound, bound.direction)
         counts[status] += 1
+        if status == "WORSE":
+            worse.append((metric, value, bound.bound))
         print(f"ratchet {metric} {_fmt(value)} vs {_fmt(bound.bound)} {status}")
 
     untracked = sorted(set(snapshot.values) - set(bounds))
@@ -412,19 +424,28 @@ def cmd_check(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         failed = True
-    regressions = counts["WORSE"] + moved["loosened"]
-    if regressions and not args.rebaseline_ok:
+    if worse and args.rebaseline_ok:
+        # The label admits a looser committed bound, never a value past the committed one.
+        for metric, value, bound_value in worse:
+            print(
+                f"metrics-rebaseline: {metric} {_fmt(value)} is past its bound "
+                f"{_fmt(bound_value)}; set the bound in {bounds_path} or fix the regression",
+                file=sys.stderr,
+            )
+        failed = True
+    elif worse or (moved["loosened"] and not args.rebaseline_ok):
         print(
-            f"ratchet FAIL: {counts['WORSE']} metric(s) worse than their bound, "
-            f"{moved['loosened']} bound(s) looser than main; fix them, or label the PR "
-            "metrics-rebaseline if a tool change moved the numbers",
+            f"ratchet FAIL: {len(worse)} metric(s) worse than their bound, "
+            f"{moved['loosened']} bound(s) looser than main; fix them, or, if a tool change "
+            f"moved the numbers, commit the looser {bounds_path} (`make metrics-rebaseline`) "
+            "and label the PR metrics-rebaseline",
             file=sys.stderr,
         )
         failed = True
     if failed:
         return EXIT_RATCHET
-    if regressions:
-        print("ratchet rebaseline accepted")
+    if moved["loosened"]:
+        print(f"ratchet rebaseline accepted: {moved['loosened']} bound(s) looser than main")
     if counts["BETTER"]:
         print(
             f"ratchet hint: {counts['BETTER']} metric(s) better than their bound; run "
@@ -562,8 +583,8 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument(
         "--rebaseline-ok",
         action="store_true",
-        help="accept WORSE metrics and looser bounds; pass only when the PR carries the "
-        "metrics-rebaseline label",
+        help="accept bounds looser than main's (values still meet the PR's bounds); pass "
+        "only when the PR carries the metrics-rebaseline label",
     )
     check.add_argument(
         "--show-untracked",

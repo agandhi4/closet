@@ -46,7 +46,27 @@ Keys (docs/metrics-keys.md), each behind its flag; `<scope>` is `--scope`:
                                                     strongly connected components of the runtime
                                                     import graph (`if TYPE_CHECKING:` excluded,
                                                     imports inside functions included) with more
-                                                    than one module, or a self-import
+                                                    than one module, or a self-import. The graph
+                                                    holds initializer edges too: importing
+                                                    `a.b.c` runs `a/__init__` and `a/b/__init__`
+                                                    first, so a cycle through a re-exporting
+                                                    package is counted
+  --fan        coupling.<scope>.fan_in_max          over the import-statement edges only (an
+               coupling.<scope>.fan_out_max         initializer edge would make every package
+                                                    that imports anything a hub)
+
+--list-out FILE: the findings behind the counts, so a lane never re-derives what to fix. Plain
+text, one `# <key>` header per key with findings, then one line per finding; empty when there
+are none. Paths are --root joined with the tool's path (repo-relative in a gate run). Never read
+by the ratchet or the scorecard; the JSON is the same with or without it.
+  mccabe_over_10, cognitive_over_15   <path>:<line> <function> mccabe=<n> | cognitive=<n>, the
+                                      functions over the threshold, worst first (no `:<line>`
+                                      when complexipy's name matches no `def` in the file)
+  vulture                             <path>:<line> <name> <kind>, every counted finding (a
+                                      reachability finding: <path>:<line> <vulture's message>)
+  cycles                              one line per cycle: its module files, space-separated,
+                                      largest first
+  fan_in_max, fan_out_max             <path> fan_in=<n> | fan_out=<n>, the top 10 (FAN_TOP)
 
 Deterministic: the same tree gives the same numbers (sorted inputs, no timings, no paths in
 the output). Output: a flat JSON object to --out (default stdout). Exit: 0 ok, 2 a missing
@@ -57,6 +77,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import enum
 import json
 import re
 import shutil
@@ -65,17 +86,23 @@ import sys
 import tempfile
 import tomllib
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 EXIT_USAGE = 2
 MCCABE_THRESHOLD = 10
 COGNITIVE_THRESHOLD = 15
+FAN_TOP = 10  # --list-out modules per fan key; the same in metrics/ts.mjs
 SCOPE = re.compile(r"[A-Za-z0-9_-]+")  # the key's middle segment: no dots, no whitespace
 # ruff's C901 message carries the number; the threshold is 0 so every function is reported.
 RUFF_C901 = re.compile(r"^`(?P<name>.+)` is too complex \((?P<cx>\d+) > 0\)$")
-VULTURE_LINE = re.compile(r"^(?P<file>.+?):(?P<line>\d+): unused (?P<kind>[a-z]+) '")
+# `unused <kind> '<name>'`, or a reachability message (`unreachable code after 'return'`,
+# `unsatisfiable 'if' condition`, 100% confidence) that has neither: both are findings.
+VULTURE_LINE = re.compile(
+    r"^(?P<file>.+?):(?P<line>\d+): "
+    r"(?P<message>unused (?P<kind>[a-z]+) '(?P<name>[^']*)'|.+?) \(\d+% confidence"
+)
 # Classes whose body is a declaration (fields), by the last segment of a base's name, plus a
 # decorator or a `__tablename__` in the body. Same-file subclasses inherit the verdict.
 DECLARATIVE_BASES = frozenset({
@@ -91,6 +118,55 @@ VULTURE_BASE = Path(__file__).resolve().parent.parent / "lint" / "vulture.toml"
 
 class CollectorError(Exception):
     """A missing tool, a report that cannot be read or a bad invocation (exit 2)."""
+
+
+@dataclass
+class Collected:
+    """What one or more collectors measured: the keys (the JSON the ratchet reads) and, per
+    key, the findings behind it, one --list-out line each in the order a lane works them."""
+
+    keys: dict[str, int] = field(default_factory=dict)
+    findings: dict[str, list[str]] = field(default_factory=dict)
+
+    def merge(self, other: Collected) -> None:
+        self.keys.update(other.keys)
+        self.findings.update(other.findings)
+
+
+@dataclass(frozen=True)
+class Function:
+    """A function a complexity tool scored; `line` is None when it cannot be located."""
+
+    path: str
+    line: int | None
+    name: str
+    score: int
+
+    def rank(self) -> tuple[int, str, int]:
+        return (-self.score, self.path, self.line or 0)
+
+    def render(self, metric: str) -> str:
+        where = self.path if self.line is None else f"{self.path}:{self.line}"
+        return f"{where} {self.name} {metric}={self.score}"
+
+
+def worst_first(functions: list[Function], threshold: int, metric: str) -> list[str]:
+    """The --list-out lines of the functions over `threshold`, highest score first."""
+    over = sorted((f for f in functions if f.score > threshold), key=Function.rank)
+    return [f.render(metric) for f in over]
+
+
+def shown(root: Path, path: str) -> str:
+    """A tool's path as a lane opens it: --root joined with the path relative to it, so a gate
+    run (cwd = repo root) prints repo-relative paths. Tools report root-relative (vulture,
+    complexipy) or absolute (ruff) paths; an absolute path outside --root stays absolute."""
+    candidate = Path(path)
+    if candidate.is_absolute():
+        try:
+            candidate = candidate.resolve().relative_to(root.resolve())
+        except ValueError:
+            return candidate.as_posix()
+    return (root / candidate).as_posix()
 
 
 def run_tool(cmd: list[str], *, cwd: Path, ok: Iterable[int] = (0, 1)) -> str:
@@ -130,7 +206,7 @@ def _parse_json(text: str, what: str) -> object:
 # ------------------------------------------------------------------------------ McCabe
 
 
-def collect_mccabe(python: str, root: Path, src: list[str], scope: str) -> dict[str, int]:
+def collect_mccabe(python: str, root: Path, src: list[str], scope: str) -> Collected:
     require_module(python, "ruff", "ruff", root)
     out = run_tool(
         [
@@ -141,24 +217,31 @@ def collect_mccabe(python: str, root: Path, src: list[str], scope: str) -> dict[
         ],
         cwd=root,
     )  # fmt: skip
-    values = []
+    functions = []
     for item in _parse_json(out, "ruff output"):
         match = RUFF_C901.match(item["message"])
         if match is None:
             raise CollectorError(f"unparseable ruff C901 message: {item['message']!r}")
-        values.append(int(match["cx"]))
-    return {
-        f"complexity.{scope}.mccabe_max": max(values, default=0),
-        f"complexity.{scope}.mccabe_over_{MCCABE_THRESHOLD}": sum(
-            1 for v in values if v > MCCABE_THRESHOLD
-        ),
-    }
+        functions.append(
+            Function(
+                shown(root, item["filename"]), item["location"]["row"], match["name"],
+                int(match["cx"]),
+            )
+        )  # fmt: skip
+    over_key = f"complexity.{scope}.mccabe_over_{MCCABE_THRESHOLD}"
+    return Collected(
+        {
+            f"complexity.{scope}.mccabe_max": max((f.score for f in functions), default=0),
+            over_key: sum(1 for f in functions if f.score > MCCABE_THRESHOLD),
+        },
+        {over_key: worst_first(functions, MCCABE_THRESHOLD, "mccabe")},
+    )
 
 
 # --------------------------------------------------------------------------- cognitive
 
 
-def collect_cognitive(python: str, root: Path, src: list[str], scope: str) -> dict[str, int]:
+def collect_cognitive(python: str, root: Path, src: list[str], scope: str) -> Collected:
     # complexipy ships a console script, not a runnable module; it sits beside the interpreter
     # (`.venv/bin/complexipy`). Not resolve(): a venv's python is a symlink to the base
     # interpreter, whose bin/ holds no project tools.
@@ -182,13 +265,61 @@ def collect_cognitive(python: str, root: Path, src: list[str], scope: str) -> di
         if not report.exists():
             raise CollectorError("complexipy wrote no JSON report")
         entries = _parse_json(report.read_text(encoding="utf-8"), "complexipy report")
-    values = [int(e["complexity"]) for e in entries]
-    return {
-        f"complexity.{scope}.cognitive_max": max(values, default=0),
-        f"complexity.{scope}.cognitive_over_{COGNITIVE_THRESHOLD}": sum(
-            1 for v in values if v > COGNITIVE_THRESHOLD
-        ),
-    }
+    defs = DefLines(root)
+    functions = []
+    for entry in entries:
+        score = int(entry["complexity"])
+        # Only a listed function needs its line, and finding it parses the file.
+        listed = score > COGNITIVE_THRESHOLD
+        line = defs.find(entry["path"], entry["function_name"]) if listed else None
+        functions.append(Function(shown(root, entry["path"]), line, entry["function_name"], score))
+    over_key = f"complexity.{scope}.cognitive_over_{COGNITIVE_THRESHOLD}"
+    return Collected(
+        {
+            f"complexity.{scope}.cognitive_max": max((f.score for f in functions), default=0),
+            over_key: sum(1 for f in functions if f.score > COGNITIVE_THRESHOLD),
+        },
+        {over_key: worst_first(functions, COGNITIVE_THRESHOLD, "cognitive")},
+    )
+
+
+class DefLines:
+    """The `def` line of a function complexipy names: its JSON report carries the path and
+    `function_name` (`f`, `Class::method`) but no line. Same-named defs in one file (a
+    conditional redefinition) are handed out in source order, one per report entry."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self._unclaimed: dict[str, dict[str, list[int]]] = {}  # path -> name -> lines
+
+    def find(self, path: str, name: str) -> int | None:
+        if path not in self._unclaimed:
+            self._unclaimed[path] = _def_lines(self.root / path)
+        lines = self._unclaimed[path].get(name)
+        return lines.pop(0) if lines else None
+
+
+def _def_lines(path: Path) -> dict[str, list[int]]:
+    """complexipy-style qualified name (`::` between enclosing classes and functions) -> the
+    lines of the defs with that name, ascending; {} for a file that cannot be parsed."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return {}
+    found: dict[str, list[int]] = {}
+
+    def visit(node: ast.AST, scope: list[str]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                qualified = [*scope, child.name]
+                if not isinstance(child, ast.ClassDef):
+                    found.setdefault("::".join(qualified), []).append(child.lineno)
+                visit(child, qualified)
+            else:
+                visit(child, scope)
+
+    visit(tree, [])
+    return {name: sorted(lines) for name, lines in found.items()}
 
 
 # ----------------------------------------------------------------------------- vulture
@@ -432,7 +563,7 @@ def collect_vulture(
     *,
     keep_declarative: bool,
     base_sets: list[str] | None,
-) -> dict[str, int]:
+) -> Collected:
     require_module(python, "vulture", "vulture", root)
     config = _own_vulture(root) if base_sets is None else vulture_base_config(root, base_sets)
     # With [tool.vulture] paths, vulture reads its own configuration (paths, whitelist,
@@ -453,7 +584,7 @@ def collect_vulture(
             merged.write_text(vulture_toml(config), encoding="utf-8")
             out = vulture("--config", str(merged))
     index = None if keep_declarative else DeclarativeIndex(root, src)
-    count = 0
+    found: list[tuple[str, int, str]] = []
     for line in out.splitlines():
         if not line.strip():
             continue
@@ -463,8 +594,12 @@ def collect_vulture(
         if index is not None and match["kind"] in DECLARATIVE_KINDS:
             if int(match["line"]) in index.lines(match["file"]):
                 continue
-        count += 1
-    return {f"dead.{scope}.vulture": count}
+        what = match["message"] if match["kind"] is None else f"{match['name']} {match['kind']}"
+        found.append((shown(root, match["file"]), int(match["line"]), what))
+    key = f"dead.{scope}.vulture"
+    return Collected(
+        {key: len(found)}, {key: [f"{path}:{line} {what}" for path, line, what in sorted(found)]}
+    )
 
 
 # ------------------------------------------------------------------------------ cycles
@@ -474,6 +609,19 @@ def collect_vulture(
 # so keep module_name, source_files, runtime_imports, from_base and import_graph stable.
 
 Graph = dict[str, set[str]]
+
+
+class EdgeKind(enum.Enum):
+    """Why importing one module executes another. A consumer of import_graph names the kinds it
+    judges: the cycle count takes both (each runs at import time); the layer verdict and fan
+    take IMPORT only (a package initializer runs beneath every layer at once)."""
+
+    IMPORT = "import"  # a statement names the module (or reads a name from the package)
+    INITIALIZER = "initializer"  # an ancestor package's __init__, run before the named module
+
+
+RUNTIME = frozenset(EdgeKind)
+STATEMENTS = frozenset({EdgeKind.IMPORT})
 
 
 def module_name(rel: Path) -> str:
@@ -543,9 +691,8 @@ def imports_of(tree: ast.AST, module: str, is_package: bool, known: set[str]) ->
             continue
         base = from_base(node, package)
         # `from pkg import name`: a submodule is an edge to that submodule only; the package
-        # itself (its __init__) is an edge when a name is read from it. A submodule import
-        # also runs the parent package first, but that parent is already loading (or loaded)
-        # by then, so counting it would turn every re-exporting package into a false cycle.
+        # itself (its __init__) is an edge when a name is read from it. That the submodule
+        # import also runs pkg/__init__ is an INITIALIZER edge, added by initializer_edges.
         reads_base = False
         for alias in node.names:
             sub = f"{base}.{alias.name}"
@@ -570,19 +717,65 @@ def source_files(root: Path, src: list[str]) -> list[Path]:
     return sorted(p.relative_to(root) for p in found)
 
 
-def import_graph(root: Path, src: list[str]) -> Graph:
-    """Module -> modules it imports at runtime, over every `*.py` the --src entries name."""
+def _ancestors(module: str) -> list[str]:
+    """`a.b.c` -> [`a`, `a.b`]: the packages whose __init__ runs before `a.b.c` does."""
+    parts = module.split(".")
+    return [".".join(parts[:size]) for size in range(1, len(parts))]
+
+
+def initializer_edges(statements: Graph) -> Graph:
+    """Module -> ancestor package initializers its imports run, over the IMPORT edges.
+
+    Importing `a.b.c` executes `a/__init__` and `a/b/__init__` first, so a cycle through a
+    re-exporting package is a real ImportError (Orbit: services/__init__ re-exported a service
+    that imported the integration that imported a service). Two exclusions keep the edge to
+    what can close a cycle:
+      - the importer's own ancestors: they are in sys.modules before the importer runs, so a
+        package re-exporting its own submodules is no cycle;
+      - an initializer with no IMPORT edge of its own: it runs nothing of ours.
+    """
+    edges: Graph = {}
+    for module, targets in statements.items():
+        own = {module, *_ancestors(module)}
+        runs = {
+            package
+            for target in targets
+            for package in _ancestors(target)
+            if package not in own and statements.get(package)
+        }
+        edges[module] = runs
+    return edges
+
+
+def import_edges(root: Path, src: list[str]) -> dict[str, dict[str, EdgeKind]]:
+    """Module -> {module it runs at import time: why}, over every `*.py` the --src entries name.
+    A target both named and run as an ancestor is IMPORT: the statement is the stronger fact."""
     files = source_files(root, src)
     known = {module_name(rel) for rel in files}
-    graph: Graph = {}
+    statements: Graph = {}
     for rel in files:
         try:
             tree = ast.parse((root / rel).read_text(encoding="utf-8"), filename=str(rel))
         except (SyntaxError, UnicodeDecodeError) as exc:
             raise CollectorError(f"cannot parse {rel}: {exc}") from exc
         name = module_name(rel)
-        graph[name] = imports_of(tree, name, rel.name == "__init__.py", known)
-    return graph
+        statements[name] = imports_of(tree, name, rel.name == "__init__.py", known)
+    initializers = initializer_edges(statements)
+    return {
+        module: {
+            **dict.fromkeys(initializers[module], EdgeKind.INITIALIZER),
+            **dict.fromkeys(targets, EdgeKind.IMPORT),
+        }
+        for module, targets in statements.items()
+    }
+
+
+def import_graph(root: Path, src: list[str], *, kinds: frozenset[EdgeKind]) -> Graph:
+    """Module -> modules it runs at import time through an edge of one of `kinds`."""
+    return {
+        module: {target for target, kind in targets.items() if kind in kinds}
+        for module, targets in import_edges(root, src).items()
+    }
 
 
 def strongly_connected(graph: Graph) -> list[list[str]]:
@@ -635,25 +828,49 @@ def strongly_connected(graph: Graph) -> list[list[str]]:
     return components
 
 
-def collect_cycles(root: Path, src: list[str], scope: str) -> dict[str, int]:
-    return {f"coupling.{scope}.cycles": len(strongly_connected(import_graph(root, src)))}
+def module_files(root: Path, src: list[str]) -> dict[str, str]:
+    """Module -> its file as --list-out shows it, so findings name what a lane opens."""
+    return {module_name(rel): shown(root, rel.as_posix()) for rel in source_files(root, src)}
 
 
-def fan(graph: Graph) -> tuple[int, int]:
-    """(fan_in_max, fan_out_max): the most importers any one module has, and the most modules
-    any one module imports. A module importing twenty others is a god module (scorecard T4);
-    a module imported by many is a hub, reported so a refactor can see what it would move."""
+def collect_cycles(root: Path, src: list[str], scope: str) -> Collected:
+    components = strongly_connected(import_graph(root, src, kinds=RUNTIME))
+    files = module_files(root, src)
+    cycles = sorted((sorted(files[m] for m in c) for c in components), key=lambda c: (-len(c), c))
+    key = f"coupling.{scope}.cycles"
+    return Collected({key: len(components)}, {key: [" ".join(cycle) for cycle in cycles]})
+
+
+def fan_counts(graph: Graph) -> tuple[dict[str, int], dict[str, int]]:
+    """(fan_in, fan_out) per module: how many modules import it, how many it imports. A module
+    importing twenty others is a god module (scorecard T4); a module imported by many is a
+    hub, reported so a refactor can see what it would move."""
     fan_in: dict[str, int] = {m: 0 for m in graph}
     for imports in graph.values():
         for target in imports:
             if target in fan_in:
                 fan_in[target] += 1
-    return (max(fan_in.values(), default=0), max((len(v) for v in graph.values()), default=0))
+    return fan_in, {m: len(imports) for m, imports in graph.items()}
 
 
-def collect_fan(root: Path, src: list[str], scope: str) -> dict[str, int]:
-    fan_in_max, fan_out_max = fan(import_graph(root, src))
-    return {f"coupling.{scope}.fan_in_max": fan_in_max, f"coupling.{scope}.fan_out_max": fan_out_max}
+def top_offenders(counts: dict[str, int], files: dict[str, str], metric: str) -> list[str]:
+    """The FAN_TOP modules with the highest nonzero count, ties by path."""
+    ranked = sorted((-n, files[m]) for m, n in counts.items() if n > 0)
+    return [f"{path} {metric}={-neg}" for neg, path in ranked[:FAN_TOP]]
+
+
+def collect_fan(root: Path, src: list[str], scope: str) -> Collected:
+    graph = import_graph(root, src, kinds=STATEMENTS)
+    fan_in, fan_out = fan_counts(graph)
+    files = module_files(root, src)
+    in_key, out_key = f"coupling.{scope}.fan_in_max", f"coupling.{scope}.fan_out_max"
+    return Collected(
+        {in_key: max(fan_in.values(), default=0), out_key: max(fan_out.values(), default=0)},
+        {
+            in_key: top_offenders(fan_in, files, "fan_in"),
+            out_key: top_offenders(fan_out, files, "fan_out"),
+        },
+    )
 
 
 # --------------------------------------------------------------------------------- cli
@@ -693,10 +910,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--cycles", action="store_true", help="AST import cycles")
     parser.add_argument("--fan", action="store_true", help="fan-in and fan-out maxima over the runtime import graph")
+    parser.add_argument(
+        "--list-out",
+        metavar="FILE",
+        help="also write the findings behind each count here, one line each (plain text)",
+    )
     return parser
 
 
-def collect(args: argparse.Namespace) -> dict[str, int]:
+def collect(args: argparse.Namespace) -> Collected:
     root = Path(args.root)
     if not root.is_dir():
         raise CollectorError(f"--root {root} is not a directory")
@@ -712,13 +934,13 @@ def collect(args: argparse.Namespace) -> dict[str, int]:
         raise CollectorError(
             "nothing to collect: pass --mccabe, --cognitive, --vulture, --cycles or --fan"
         )
-    out: dict[str, int] = {}
+    out = Collected()
     if args.mccabe:
-        out.update(collect_mccabe(args.python, root, args.src, args.scope))
+        out.merge(collect_mccabe(args.python, root, args.src, args.scope))
     if args.cognitive:
-        out.update(collect_cognitive(args.python, root, args.src, args.scope))
+        out.merge(collect_cognitive(args.python, root, args.src, args.scope))
     if args.vulture:
-        out.update(
+        out.merge(
             collect_vulture(
                 args.python, root, args.src, args.scope,
                 keep_declarative=not args.vulture_ignore_declarative,
@@ -726,9 +948,9 @@ def collect(args: argparse.Namespace) -> dict[str, int]:
             )
         )  # fmt: skip
     if args.cycles:
-        out.update(collect_cycles(root, args.src, args.scope))
+        out.merge(collect_cycles(root, args.src, args.scope))
     if args.fan:
-        out.update(collect_fan(root, args.src, args.scope))
+        out.merge(collect_fan(root, args.src, args.scope))
     return out
 
 
@@ -741,7 +963,22 @@ def write_output(doc: dict[str, int], out: str | None) -> None:
     if out is None:
         sys.stdout.write(text)
         return
-    path = Path(out)
+    _write(Path(out), text)
+
+
+def findings_text(findings: dict[str, list[str]]) -> str:
+    """--list-out's bytes: `# <key>` then its lines, keys sorted, keys without findings left
+    out, so nothing over any threshold is an empty file. Same format as metrics/_lib.mjs."""
+    lines = [
+        line
+        for key in sorted(findings)
+        if findings[key]
+        for line in (f"# {key}", *findings[key])
+    ]
+    return "".join(f"{line}\n" for line in lines)
+
+
+def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 
@@ -749,7 +986,10 @@ def write_output(doc: dict[str, int], out: str | None) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        write_output(collect(args), args.out)
+        collected = collect(args)
+        write_output(collected.keys, args.out)
+        if args.list_out is not None:
+            _write(Path(args.list_out), findings_text(collected.findings))
     except CollectorError as exc:
         print(f"metrics/python.py: {exc}", file=sys.stderr)
         return EXIT_USAGE
