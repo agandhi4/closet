@@ -60,6 +60,7 @@ help:
 	@echo "make layer-check      — fail on an import in src/ that reaches up scripts/ci/layers.conf's layer stack (part of ci-quick)"
 	@echo "make guard-check      — fail on a code-structure rule in scripts/ci/guards.conf (devkit/bin/guard_check.py; part of ci-quick)"
 	@echo "make secrets-check    — fail on a credential committed in the tree (devkit/bin/secrets_check.sh; part of ci-quick)"
+	@echo "make secrets-staged   — the same scan over the staged paths only (the pre-commit hook's half)"
 	@echo "make hooks-check      — fail unless core.hooksPath is .githooks and both hooks are executable"
 
 ci-deps:
