@@ -700,10 +700,8 @@ export class Photos {
         variantFileName(fileName, 'thumb', variantKey),
       );
     } catch (error) {
-      await this.deleteCutoutFiles(
-        written,
-        `storing them failed (${String(error)})`,
-      );
+      // Rethrown: the route's error handler or the cutout job logs it.
+      await this.deleteCutoutFiles(written, 'storing them failed');
       throw error;
     }
   }
@@ -995,7 +993,8 @@ export class Photos {
     } catch (error) {
       if (error instanceof UnreadableImageError) {
         this.logger.warn(
-          `Rejected unreadable upload for ${targetFileName}: ${String(error.cause)}`,
+          { err: error },
+          `Rejected unreadable upload for ${targetFileName}`,
         );
         throw exceedsPixelLimit(error.cause)
           ? imageTooLarge()
