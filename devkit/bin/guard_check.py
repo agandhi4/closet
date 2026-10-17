@@ -21,12 +21,25 @@ the section's root, and a glob also names a directory the file is under.
   only-call   NAME GLOB...                      only files under the globs call NAME
   ban-call    NAME[,NAME] GLOB... [except GLOB...]
                                                 files under the globs do not call NAME
+  call-arg-ban CALLEE[,CALLEE] ARG-SHAPE[,ARG-SHAPE] GLOB... [except GLOB...]
+                                                files under the globs pass no argument of
+                                                these shapes to these callees, at any depth of
+                                                the argument list (`log.* String(err)`)
   logger-name PREFIX [except GLOB...]           python: every logger is PREFIX or PREFIX.<x>,
                                                 nothing logs on the root logger
   outbound-timeout [except GLOB...]             python: every outbound HTTP call has a timeout
   utc-today   [except GLOB...]                  python: no date.today(), datetime.utcnow(), or
                                                 datetime.now() without a tz
   single-writer ATTR GLOB...                    python: only files under the globs write .ATTR
+  single-writer TABLE[.FIELD] GLOB[:FUNCTION,FUNCTION]...
+                                                ts: only files under the globs (only those
+                                                top-level functions of them) write the drizzle
+                                                table, or with FIELD set that column in an
+                                                `.update(TABLE).set({...})`
+  only-text   PATTERN GLOB...                   only files under the globs spell PATTERN, a
+                                                substring or /REGEX/ of the code text (comments
+                                                blanked, strings kept); quote one holding a
+                                                space or `#` ("for: x"), and name it with @NAME
   scoped-exports GLOB PARAM[,PARAM] [marker TEXT] [except GLOB...]
                                                 every exported (ts) / public module-level
                                                 (python) function under GLOB declares one of
@@ -52,15 +65,18 @@ the section's root, and a glob also names a directory the file is under.
                                                 being paid down: shrink-only
 
 Any rule line may start with `@NAME`, its id; otherwise the id is its kind and its subject:
-the first argument of only-import/only-call/ban-call/logger-name/single-writer, the module of
-ban-import, the second argument of scoped-exports/calls-one-of/decorated-with
+the first argument of only-import/only-call/ban-call/call-arg-ban/logger-name/single-writer/
+only-text (whose PATTERN with a space has no id but its @NAME),
+the module of ban-import, the second argument of scoped-exports/calls-one-of/decorated-with
 (`ban-import:sqlalchemy:select`, `only-call:fetch`, `outbound-timeout`). `known` lines and
 the output name rules by id, so two rules of one kind and subject need a name. `except` names the sanctioned sites inside a ban (design, kept); a
-rule whose globs ARE its sites (only-*, single-writer) takes none. On ban-import,
+rule whose globs ARE its sites (only-*, single-writer) takes none: a TS single-writer's
+`GLOB:FUNCTION` owner narrows a site to those functions instead. On ban-import,
 `except GLOB:NAME,NAME` sanctions only those of the banned names there (a cron module may
 bind select and update, still not text); on calls-one-of and decorated-with it sanctions
 those exports or functions there (`except src/app/api/health:GET`), which replaces the seed
-tests' `file#name` allow-lists. Each NAME of such a site must still fire, or it is stale.
+tests' `file#name` allow-lists. Each NAME of such a site must still fire (an owner function
+must still write), or it is stale.
 Debt goes in `known`.
 
 Matching, for the import and call rules (the semantic rules' shapes are bin/_guard_rules.py's):
@@ -74,13 +90,25 @@ Matching, for the import and call rules (the semantic rules' shapes are bin/_gua
   - `MODULE:NAME,...` fires only when a listed name is bound from the module: `from M import
     NAME`, `import { NAME } from 'M'`, a re-export of it; a default import binds `default`.
     `import M`, a namespace, dynamic or side-effect import binds no name, so pair the ban
-    with `ban-call M.NAME` when that spelling matters.
+    with `ban-call M.NAME` when that spelling matters. The names follow the first colon
+    that is not a TS specifier scheme's (`node:`, `bun:`): `node:http` bans the module,
+    `node:http:STATUS_CODES` that name from it.
   - NAME is the callee exactly as written, dotted (`fetch`, `requests.get`, `db.execute`):
     `prefetch(`, `x.fetchQuery(` and `api.fetch(` are not calls to `fetch`, and neither is a
     callee hanging off an expression (`client().fetch(`). TS also counts `new NAME(` and
     `NAME<T>(`; declarations and keywords are not calls (bin/_ts_lex.py header). The python
     semantic rules resolve a callee through the file's imports instead (`dt.now()` after
     `from datetime import datetime as dt` is datetime.datetime.now).
+  - call-arg-ban's CALLEE matches as written on a dotted suffix (`log.error` names
+    `this.log.error`), and `RECEIVER.*` names any method of the receiver (`logger.*`: every
+    `logger.<m>(`). A segment may be `/REGEX/`, searched against that one name (no comma, no
+    `/`): `/^(log|.+Log)$/.*`. A logger is seen only by the variable it is bound to, so bind
+    each `const log = logger("domain")` and name `log.*`; the regex is for a repo that did
+    not. ARG-SHAPE is a closed vocabulary, the identifier written `err` (the error names,
+    bin/_guard_rules.py ERROR_NAMES) or `/REGEX/` (searched; no comma): `String(err)` and
+    `${err}` (ts; the interpolation is the identifier alone), `str(err)`, `repr(err)` and
+    f-string `{err}` (python), `err.message`, `err.stack` and bare `err`, a whole argument that
+    is the name alone (both; python: positional only). One violation per call.
 
 Every glob of a rule, `except` globs included, must match a scanned file: a glob that matches
 nothing makes the rule vacuous (a renamed directory would silently switch it off), so it is
@@ -89,6 +117,9 @@ exit 2, and so is a calls-one-of or decorated-with whose filter (`server-only`, 
 (python: ast; ts: the lexer ends where it started), and scoped-exports and calls-one-of cannot
 judge a TS file in their scope that re-exports (`export * from`, `export { f } from`, an
 imported name exported): exit 2, as rollcall's walker failed loudly.
+A ts tree scans `.vue`/`.svelte` components by their top-level `<script>` blocks, lines as in
+the file (bin/_source_tree.py sfc_scripts); a template is not code to any rule, so a template
+`@click="client.get()"` is not seen.
 A sanctioned site (an only-*/single-writer glob, an `except` glob) under which nothing fires
 any more is a stale exception and fails like a stale `known` line, as the allow-lists of the
 repo tests this replaces did (finplat fetch.guard "every allowlisted file still needs its
@@ -133,7 +164,12 @@ CALL_RULES = ("only-call", "ban-call")
 CALLEE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*")
 PY_MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*")
 IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+TABLE_FIELD = re.compile(rf"{IDENTIFIER.pattern}(\.{IDENTIFIER.pattern})?")
 RULE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_.-]*")
+# The specifier schemes a TS runtime resolves itself (`node:http`, `bun:test`). The colon after
+# one belongs to the module, so a ban-import subject's names follow the next colon
+# (`node:http:STATUS_CODES`). A Python module never holds a colon; nor does an npm package name.
+TS_SCHEMES = ("node", "bun")
 
 
 def _load_source_tree() -> ModuleType:
@@ -171,6 +207,8 @@ class Kind:
     named: str = ""
     # A unit rule judges functions, not files: no function selected in any file is vacuous.
     units: bool = False
+    # A violation is a construct the globs forbid ("banned under"), not one they require.
+    forbids: bool = False
 
     @property
     def stale(self) -> str:
@@ -186,15 +224,38 @@ KINDS = {
         (2, None),
         "import",
         named="imports {names}",
+        forbids=True,
     ),
     "only-call": Kind("only-call NAME GLOB...", tree.LANGS, True, (2, None), "call"),
     "ban-call": Kind(
-        "ban-call NAME[,NAME] GLOB... [except GLOB...]", tree.LANGS, False, (2, None), "call"
+        "ban-call NAME[,NAME] GLOB... [except GLOB...]",
+        tree.LANGS,
+        False,
+        (2, None),
+        "call",
+        forbids=True,
+    ),
+    # No `act`: a stale except means nothing there passes the shapes any more, not that nothing
+    # calls the logger.
+    "call-arg-ban": Kind(
+        "call-arg-ban CALLEE[,CALLEE] ARG-SHAPE[,ARG-SHAPE] GLOB... [except GLOB...]",
+        tree.LANGS,
+        False,
+        (3, None),
+        forbids=True,
     ),
     "logger-name": Kind("logger-name PREFIX [except GLOB...]", PY_ONLY, False, (1, 1)),
     "outbound-timeout": Kind("outbound-timeout [except GLOB...]", PY_ONLY, False, (0, 0)),
     "utc-today": Kind("utc-today [except GLOB...]", PY_ONLY, False, (0, 0)),
-    "single-writer": Kind("single-writer ATTR GLOB...", PY_ONLY, True, (2, None), "write"),
+    "single-writer": Kind(
+        "single-writer ATTR|TABLE[.FIELD] GLOB[:FUNCTION,FUNCTION]...",
+        tree.LANGS,
+        True,
+        (2, None),
+        "write",
+        named="writes it in {names}",
+    ),
+    "only-text": Kind("only-text PATTERN GLOB...", tree.LANGS, True, (2, None), "spell"),
     "scoped-exports": Kind(
         "scoped-exports GLOB PARAM[,PARAM] [marker TEXT] [except GLOB...]",
         tree.LANGS,
@@ -248,14 +309,18 @@ class Rule:
     id: str
     targets: tuple[str, ...]  # modules, callees, the prefix, the attribute or the params
     names: frozenset[str]  # ban-import MODULE:NAME,...; empty: the module itself
-    globs: tuple[str, ...]  # sited kinds: the sanctioned sites; bans: where the ban applies
+    globs: tuple[str, ...]  # sited kinds: the sanctioned sites' globs; bans: where the ban applies
     excepts: tuple[Site, ...]
     line: int
+    owners: tuple[Site, ...] = ()  # sited kinds: the globs as sites (single-writer GLOB:FUNCTION)
     marker: str = ""  # scoped-exports
     depth: int = 1  # calls-one-of: module-local helper levels followed (rollcall's localCallees)
     functions_only: bool = False  # calls-one-of: skip an exported value that is not a function
     server_only: bool = False  # calls-one-of: judge only "use server" modules
     when: tuple[str, ...] = ()  # decorated-with: the decorators that select a function
+    shapes: tuple[rules.ArgShape, ...] = ()  # call-arg-ban
+    callees: tuple[rules.CalleePattern, ...] = ()  # call-arg-ban: targets, compiled
+    texts: tuple[rules.TextPattern, ...] = ()  # only-text: its one PATTERN, compiled
 
     @property
     def spec(self) -> Kind:
@@ -273,7 +338,7 @@ class Rule:
 
     @property
     def sites(self) -> tuple[Site, ...]:
-        return tuple(Site(g) for g in self.globs) if self.spec.sited else self.excepts
+        return self.owners if self.spec.sited else self.excepts
 
     def scopes(self, path: str) -> bool:
         """Whether the rule judges the file: a sited rule judges every file (its sites are
@@ -317,7 +382,10 @@ def _directive(section: Section, tokens: list[str], where: str, lineno: int) -> 
     if word == "known":
         section.known.append(_known(args, where, lineno, section))
     elif word in KINDS:
-        rule = _rule(word, name, args, where, lineno)
+        if not section.lang:
+            # ban-import reads its subject by the language (TS_SCHEMES).
+            raise ConfError(f"{where}: a rule line comes after the section's `lang`")
+        rule = _rule(word, name, args, where, lineno, section.lang)
         if any(r.id == rule.id for r in section.rules):
             raise ConfError(
                 f"{where}: duplicate rule {rule.id}; merge their globs or name one with @NAME"
@@ -341,26 +409,28 @@ def _excepts(kind: str, args: list[str], names: frozenset[str], where: str) -> t
         )
     if not args:
         raise ConfError(f"{where}: `except` needs at least one glob")
-    sites: list[Site] = []
-    for arg in args:
-        glob, colon, listed = arg.partition(":")
-        if not colon:
-            sites.append(Site(glob))
-            continue
-        if not KINDS[kind].named or (kind == "ban-import" and not names):
-            raise ConfError(
-                f"{where}: `except GLOB:NAME` is for a ban-import of names, calls-one-of or "
-                "decorated-with"
-            )
-        excused = frozenset(_split(listed, where, arg))
-        if kind == "ban-import" and not excused <= names:
-            stray = ", ".join(sorted(excused - names))
-            raise ConfError(f"{where}: except {arg}: {stray} is not banned by this rule")
-        for name in excused:
-            if IDENTIFIER.fullmatch(name) is None:
-                raise ConfError(f"{where}: except {arg}: {name!r} is not a name")
-        sites.append(Site(glob, excused))
-    return tuple(sites)
+    return tuple(_site(kind, arg, names, where, "except ") for arg in args)
+
+
+def _site(kind: str, arg: str, names: frozenset[str], where: str, said: str) -> Site:
+    """One sanctioned site, `GLOB` or `GLOB:NAME,NAME` where the kind names its sites' units:
+    a ban's `except` (said: "except ") or a single-writer's owner glob (said: "")."""
+    glob, colon, listed = arg.partition(":")
+    if not colon:
+        return Site(glob)
+    if not KINDS[kind].named or (kind == "ban-import" and not names):
+        raise ConfError(
+            f"{where}: `{said}GLOB:NAME` is for a ban-import of names, calls-one-of, "
+            "decorated-with or a ts single-writer's owners"
+        )
+    excused = frozenset(_split(listed, where, arg))
+    if kind == "ban-import" and not excused <= names:
+        stray = ", ".join(sorted(excused - names))
+        raise ConfError(f"{where}: {said}{arg}: {stray} is not banned by this rule")
+    for name in excused:
+        if IDENTIFIER.fullmatch(name) is None:
+            raise ConfError(f"{where}: {said}{arg}: {name!r} is not a name")
+    return Site(glob, excused)
 
 
 def _options(kind: str, main: list[str], where: str) -> tuple[list[str], dict[str, str]]:
@@ -387,7 +457,26 @@ def _options(kind: str, main: list[str], where: str) -> tuple[list[str], dict[st
     return main[:at], found
 
 
-def _rule(kind: str, name: str, args: list[str], where: str, lineno: int) -> Rule:
+def _ban_subject(subject: str, lang: str, where: str) -> tuple[str, frozenset[str]]:
+    """ban-import's MODULE[:NAME,...]: the names follow the first colon that is not a TS
+    specifier scheme's, so `node:http` is the module and `node:http:STATUS_CODES` its name."""
+    scheme, colon, rest = subject.partition(":")
+    head, tail = ("", subject)
+    if lang == "ts" and colon and scheme in TS_SCHEMES:
+        head, tail = f"{scheme}:", rest
+    module, colon, listed = tail.partition(":")
+    if not module:
+        raise ConfError(f"{where}: ban-import {subject!r} names no module")
+    if not colon:
+        return head + module, frozenset()
+    names = frozenset(_split(listed, where, subject))
+    for banned in names:
+        if IDENTIFIER.fullmatch(banned) is None:
+            raise ConfError(f"{where}: ban-import {subject}: {banned!r} is not a name")
+    return head + module, names
+
+
+def _rule(kind: str, name: str, args: list[str], where: str, lineno: int, lang: str) -> Rule:
     main, excepts = args, ()
     names: frozenset[str] = frozenset()
     shape = KINDS[kind].shape
@@ -399,12 +488,18 @@ def _rule(kind: str, name: str, args: list[str], where: str, lineno: int) -> Rul
     if len(main) < low or (high is not None and len(main) > high):
         raise ConfError(f"{where}: expected `{shape}`")
     subject, globs = "", tuple(main[1:])
+    callees: tuple[rules.CalleePattern, ...] = ()
     if kind == "ban-import":
         subject, globs = main[-1], tuple(main[:-1])
-        module, colon, listed = subject.partition(":")
+        module, names = _ban_subject(subject, lang, where)
         targets: tuple[str, ...] = (module,)
-        if colon:
-            names = frozenset(_split(listed, where, subject))
+    elif kind == "call-arg-ban":
+        subject, globs = main[0], tuple(main[2:])
+        targets = _split(subject, where, subject)
+        try:
+            callees = tuple(rules.callee_pattern(pattern) for pattern in targets)
+        except ValueError as exc:
+            raise ConfError(f"{where}: {exc}") from exc
     elif kind in GLOB_FIRST:
         subject, globs = main[1], (main[0],)
         targets = _split(subject, where, subject)
@@ -414,6 +509,14 @@ def _rule(kind: str, name: str, args: list[str], where: str, lineno: int) -> Rul
             dotted = PY_MODULE if kind == "decorated-with" else CALLEE
             if kind != "scoped-exports" and dotted.fullmatch(target) is None:
                 raise ConfError(f"{where}: {target!r} is not a dotted name")
+    elif kind == "only-text":
+        subject = main[0]
+        targets = (subject,)  # a comma is part of the text
+        if not name and re.search(r"\s", subject):
+            raise ConfError(
+                f"{where}: only-text {subject!r} holds a space, so it is no rule id; "
+                "name the rule: `@NAME only-text ...`"
+            )
     elif main:
         subject = main[0]
         targets = _split(subject, where, subject)
@@ -427,8 +530,15 @@ def _rule(kind: str, name: str, args: list[str], where: str, lineno: int) -> Rul
                 raise ConfError(f"{where}: {callee!r} is not a dotted name")
     if kind in ("single-writer", "logger-name") and len(targets) > 1:
         raise ConfError(f"{where}: {kind} takes one {shape.split()[1]}; write one rule each")
-    if kind == "single-writer" and IDENTIFIER.fullmatch(targets[0]) is None:
-        raise ConfError(f"{where}: {targets[0]!r} is not an attribute name")
+    owners = tuple(_site(kind, g, names, where, "") for g in globs) if KINDS[kind].sited else ()
+    if kind == "single-writer":
+        if lang == "python" and IDENTIFIER.fullmatch(targets[0]) is None:
+            raise ConfError(f"{where}: {targets[0]!r} is not an attribute name")
+        if lang == "python" and any(site.names for site in owners):
+            raise ConfError(f"{where}: a python single-writer's owners are files, not functions")
+        if lang == "ts" and TABLE_FIELD.fullmatch(targets[0]) is None:
+            raise ConfError(f"{where}: {targets[0]!r} is not TABLE or TABLE.FIELD")
+    globs = tuple(site.glob for site in owners) or globs
     if "except" in args:
         excepts = _excepts(kind, args[args.index("except") + 1 :], names, where)
     depth = options.get("depth", "1")
@@ -438,6 +548,18 @@ def _rule(kind: str, name: str, args: list[str], where: str, lineno: int) -> Rul
     for decorator in when:
         if PY_MODULE.fullmatch(decorator) is None:
             raise ConfError(f"{where}: when {decorator!r} is not a dotted name")
+    shapes: tuple[rules.ArgShape, ...] = ()
+    if kind == "call-arg-ban":
+        try:
+            shapes = tuple(rules.arg_shape(s, lang) for s in _split(main[1], where, main[1]))
+        except ValueError as exc:
+            raise ConfError(f"{where}: {exc}") from exc
+    texts: tuple[rules.TextPattern, ...] = ()
+    if kind == "only-text":
+        try:
+            texts = (rules.text_pattern(subject),)
+        except ValueError as exc:
+            raise ConfError(f"{where}: {exc}") from exc
     rule_id = name or (f"{kind}:{subject}" if subject else kind)
     return Rule(
         kind,
@@ -447,11 +569,15 @@ def _rule(kind: str, name: str, args: list[str], where: str, lineno: int) -> Rul
         globs,
         excepts,
         lineno,
+        owners=owners,
         marker=options.get("marker", ""),
         depth=int(depth),
         functions_only="functions-only" in options,
         server_only="server-only" in options,
         when=when,
+        shapes=shapes,
+        callees=callees,
+        texts=texts,
     )
 
 
@@ -508,8 +634,9 @@ def _canonical(callee: str | None, bindings: dict[str, str]) -> str | None:
 
 def python_file(section: Section, root: Path, rel: str) -> rules.PyFile:
     metrics = tree.python_metrics()
+    source = tree.read_source(root, rel)
     try:
-        parsed = ast.parse(tree.read_source(root, rel), filename=rel)
+        parsed = ast.parse(source, filename=rel)
     except SyntaxError as exc:
         raise ConfError(f"cannot parse {section.display}/{rel}: {exc}") from exc
     module = metrics.module_name(Path(rel))
@@ -536,7 +663,7 @@ def python_file(section: Section, root: Path, rel: str) -> rules.PyFile:
         if isinstance(node, ast.Call):
             callee = metrics.dotted_name(node.func)
             calls.append(rules.PyCall(node, callee, _canonical(callee, bindings), node.lineno))
-    return rules.PyFile(parsed, imports, calls)
+    return rules.PyFile(parsed, imports, calls, source)
 
 
 def _ts_module(spec: str, importer: str, section: Section) -> str:
@@ -554,15 +681,18 @@ def _ts_module(spec: str, importer: str, section: Section) -> str:
 def ts_file(section: Section, root: Path, rel: str) -> rules.TsFile:
     lex = tree.ts_lex()
     comments: list = []
+    interpolations: list = []
+    source = tree.read_source(root, rel)
     try:
-        tokens = list(lex.tokenize(tree.read_source(root, rel), comments))
+        tokens = list(lex.tokenize(tree.ts_code(source, root / rel), comments, interpolations))
     except lex.LexError as exc:
         raise ConfError(f"cannot lex {section.display}/{rel}: {exc}") from exc
     imports = [
         rules.Imported(_ts_module(imp.spec, rel, section), imp.names, imp.line)
         for imp in lex.imports_in(tokens)
     ]
-    return rules.TsFile(tokens, comments, imports, lex.calls_in(tokens))
+    calls = lex.calls_in(tokens)
+    return rules.TsFile(tokens, comments, imports, calls, interpolations, source)
 
 
 # ----------------------------------------------------------------------------------- check
@@ -596,10 +726,18 @@ def fires(
         "logger-name": lambda: rules.logger_name(parsed, targets[0]),
         "outbound-timeout": lambda: rules.outbound_timeout(parsed),
         "utc-today": lambda: rules.utc_today(parsed),
-        "single-writer": lambda: rules.single_writer(parsed, targets[0]),
+        "single-writer": lambda: (
+            rules.single_writer(parsed, targets[0])
+            if section.lang == "python"
+            else rules.ts_single_writer(parsed, *targets[0].partition(".")[::2])
+        ),
+        "only-text": lambda: rules.text_hits(parsed.code_text, rule.texts[0]),
         "scoped-exports": lambda: (
             rules.py_scoped_exports if section.lang == "python" else rules.ts_scoped_exports
         )(parsed, frozenset(targets), rule.marker),
+        "call-arg-ban": lambda: (
+            rules.py_call_arg_ban if section.lang == "python" else rules.ts_call_arg_ban
+        )(parsed, rule.callees, rule.shapes),
     }
     return rules.Judged(semantic[kind]())
 
@@ -608,10 +746,10 @@ def _sanctioned_by(rule: Rule) -> str:
     """The suffix a violation line names the rule's sites with."""
     excepts = f" (except {' '.join(map(str, rule.excepts))})" if rule.excepts else ""
     if rule.spec.sited:
-        return f", which only {' '.join(rule.globs)} may {rule.spec.act}"
+        return f", which only {' '.join(map(str, rule.owners))} may {rule.spec.act}"
     if not rule.globs:
         return excepts
-    return f", {'banned' if rule.spec.act else 'required'} under {' '.join(rule.globs)}{excepts}"
+    return f", {'banned' if rule.spec.forbids else 'required'} under {' '.join(rule.globs)}{excepts}"
 
 
 @dataclass
@@ -623,13 +761,10 @@ class Result:
 
 
 def _apply_sites(rule: Rule, rel: str, hits: list, live: set[tuple[Site, str]]) -> list:
-    """The hits that violate, after the rule's sanctioned sites; marks live each site that
-    excused something, as (site, "") or, per name it excused, (site, NAME)."""
-    if rule.spec.sited:
-        under = [s for s in rule.sites if tree.matches(rel, s.glob)]
-        live.update((s, "") for s in under)
-        return [] if under else hits
-    here = [s for s in rule.excepts if tree.matches(rel, s.glob)]
+    """The hits that violate, after the rule's sanctioned sites (a sited rule's globs, a ban's
+    excepts); marks live each site that excused something, as (site, "") or, per name it
+    excused, (site, NAME). A site under which nothing fires is not live, so it reads stale."""
+    here = [s for s in rule.sites if tree.matches(rel, s.glob)]
     left = []
     for hit in hits:
         whole = [s for s in here if not s.names]
