@@ -5,8 +5,8 @@ import {
   OCCASIONS,
 } from '../../wardrobe/occasions';
 import { PostForm } from '../auth/form';
-import { dayOfWeek, type IsoDate } from '../../calendar-date';
-import { DAY_NAMES, dayLabel, occasionLabel } from '../date-labels';
+import type { IsoDate } from '../../calendar-date';
+import { dayLabel, occasionLabel } from '../date-labels';
 import type { CapsuleRef } from '../capsules/queries';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
@@ -15,8 +15,9 @@ import { Layout } from '../layout/layout';
 import { PageMain } from '../layout/page-main';
 import { BackLink, EmptyState } from '../layout/parts';
 import {
+  DestinationFields,
+  destinationPickLabel,
   destinationQuery,
-  destinationTarget,
   type OutfitDestination,
 } from '../outfits/destination';
 import { OUTFIT_NAME_MAX } from '../outfits/queries';
@@ -190,23 +191,7 @@ function StateFields({ model }: { model: StylingModel }) {
   const { state, destination } = model;
   return (
     <>
-      {destination.kind !== 'none' && (
-        <input
-          type="hidden"
-          name="for"
-          value={destinationTarget(destination)}
-        />
-      )}
-      {destination.kind !== 'none' && destination.occasion && (
-        <input type="hidden" name="occasion" value={destination.occasion} />
-      )}
-      {destination.kind === 'day' && destination.replace !== undefined && (
-        <input
-          type="hidden"
-          name="replace"
-          value={String(destination.replace)}
-        />
-      )}
+      <DestinationFields destination={destination} />
       {state.capsuleId !== undefined && (
         <input type="hidden" name="capsule" value={String(state.capsuleId)} />
       )}
@@ -483,18 +468,9 @@ function ActionBar({ model }: { model: StylingModel }) {
 function saveLabel(model: StylingModel): string {
   const { destination } = model;
   if (model.outfit) return t('styling.SAVE_CHANGES');
-  switch (destination.kind) {
-    case 'none':
-      return t('styling.SAVE_OUTFIT');
-    case 'trip':
-      return t('gallery.PICK_TRIP');
-    case 'day':
-      return destination.replace === undefined
-        ? t('gallery.PICK_DAY', {
-            weekday: t(DAY_NAMES[dayOfWeek(destination.day)]),
-          })
-        : t('changeEntry.PICK');
-  }
+  return destination.kind === 'none'
+    ? t('styling.SAVE_OUTFIT')
+    : destinationPickLabel(destination);
 }
 
 /**

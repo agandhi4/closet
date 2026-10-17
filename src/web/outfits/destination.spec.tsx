@@ -1,5 +1,15 @@
+import { Value } from '@sinclair/typebox/value';
+import { Type } from '@sinclair/typebox';
 import { describe, expect, it } from 'vitest';
-import { destinationQuery, parseDestination } from './destination';
+import { renderToString } from '../render';
+import {
+  DestinationBody,
+  DestinationFields,
+  destinationPickLabel,
+  destinationQuery,
+  type OutfitDestination,
+  parseDestination,
+} from './destination';
 
 describe('OutfitDestination (?for=)', () => {
   it('reads a day with its occasion', () => {
@@ -135,5 +145,56 @@ describe('OutfitDestination (?for=)', () => {
       kind: 'trip',
       tripId: 12,
     });
+  });
+});
+
+/** What a form posts: each hidden field's name and value. */
+function postedFields(html: string): Record<string, string> {
+  return Object.fromEntries(
+    [...html.matchAll(/name="([^"]+)" value="([^"]*)"/g)].map((m) => [
+      m[1],
+      m[2],
+    ]),
+  );
+}
+
+describe('DestinationFields (a write posts the destination back)', () => {
+  const destinations: Exclude<OutfitDestination, { kind: 'none' }>[] = [
+    { kind: 'day', day: '2026-09-29', occasion: 'all-day' },
+    { kind: 'day', day: '2026-09-29', occasion: 'work', replace: 42 },
+    { kind: 'trip', tripId: 12 },
+    { kind: 'trip', tripId: 12, day: '2026-10-02', occasion: 'evening' },
+  ];
+
+  it('writes what DestinationBody accepts and parseDestination reads back', async () => {
+    const Body = Type.Object(DestinationBody);
+    for (const destination of destinations) {
+      const posted = postedFields(
+        await renderToString(<DestinationFields destination={destination} />),
+      );
+      // RowId coerces the string a form posts, as the route's schema does.
+      const body = Value.Convert(Body, posted);
+      expect(Value.Check(Body, body), JSON.stringify(posted)).toBe(true);
+      expect(parseDestination(body as never)).toEqual(destination);
+    }
+  });
+
+  it('writes nothing for no destination', async () => {
+    expect(
+      await renderToString(
+        <DestinationFields destination={{ kind: 'none' }} />,
+      ),
+    ).toBe('');
+  });
+
+  it('names the pick by where it goes', () => {
+    expect(destinationPickLabel({ kind: 'trip', tripId: 12 })).toBe(
+      destinationPickLabel({ kind: 'trip', tripId: 12, day: '2026-10-02' }),
+    );
+    const day = { kind: 'day', day: '2026-09-29', occasion: 'work' } as const;
+    expect(destinationPickLabel(day)).toContain('Tuesday');
+    expect(destinationPickLabel({ ...day, replace: 42 })).not.toContain(
+      'Tuesday',
+    );
   });
 });
