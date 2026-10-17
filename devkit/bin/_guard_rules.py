@@ -981,11 +981,50 @@ def ts_single_writer(file: TsFile, table: str, column: str) -> list[Hit]:
                 continue
             if not _own_key(tokens, s + 3, _close(tokens, s + 3), column):
                 continue
-        what = f"{tok.value}s {subject}"
-        owner = _enclosing(file.module, tok.at)
-        hit = Hit.naming(tok.line, (owner,), f"{what} in {{names}}()") if owner else Hit(tok.line, what)
-        hits.append(hit)
+        hits.append(_owned_hit(file, tok.at, tok.line, f"{tok.value}s {subject}"))
     return _keep_first(hits)
+
+
+def _owned_hit(file: TsFile, at: int, line: int, what: str) -> Hit:
+    """A hit naming the top-level function holding offset AT, so an owner site
+    `GLOB:FUNCTION` sanctions that function alone (single-writer, own-transaction)."""
+    owner = _enclosing(file.module, at)
+    return Hit.naming(line, (owner,), f"{what} in {{names}}()") if owner else Hit(line, what)
+
+
+# Transaction control on any receiver: drizzle `db.transaction(cb)` (and `tx.transaction(cb)`,
+# a savepoint) and `tx.rollback()`; a driver's or Kysely's `.commit()`.
+_TX_METHODS = frozenset({"transaction", "commit", "rollback"})
+# A literal that is one transaction-control statement, whole: `query("BEGIN")`, sql`commit;`.
+_TX_STATEMENT = re.compile(
+    r"""(['"`])\s*(begin|commit|rollback|start\s+transaction)(?:\s+(?:work|transaction))?\s*;?\s*\1""",
+    re.IGNORECASE,
+)
+
+
+def ts_own_transaction(file: TsFile) -> list[Hit]:
+    """Opening or ending a transaction (own-transaction, the TS form of own_commit_check.py's
+    rule: the unit-of-work owner begins and ends it; a helper handed the tx only uses it). Fires
+    on `.transaction(`, `.commit(` and `.rollback(` called on any receiver (`db.`, `this.db.`,
+    `tx.`, `pool?.`) and on a string or template literal that is a whole BEGIN, COMMIT,
+    ROLLBACK or START TRANSACTION statement (`client.query("BEGIN")`, sql`commit`). Each hit
+    names its top-level function, as single-writer's do. Not seen: a statement built at run
+    time or with other SQL in the same literal, postgres.js `sql.begin(` (too common a method
+    name to read as a transaction), and a method named otherwise that wraps one (the wrapper
+    is the site to own)."""
+    tokens = file.tokens
+    hits: list[Hit] = []
+    for k, tok in enumerate(tokens):
+        if tok.kind != "id" or tok.value not in _TX_METHODS:
+            continue
+        if k and _is(tokens[k - 1], "punct", ".") and _p(tokens, k + 1, "("):
+            hits.append(_owned_hit(file, tok.at, tok.line, f"calls .{tok.value}()"))
+    starts = _line_starts(file.source)
+    for match in _TX_STATEMENT.finditer(file.code_text):
+        line = bisect.bisect_right(starts, match.start())
+        statement = " ".join(match.group(2).upper().split())
+        hits.append(_owned_hit(file, match.start(), line, f"runs {statement}"))
+    return _keep_first(sorted(hits, key=lambda hit: hit.line))
 
 
 def is_server_module(tokens: Sequence[Tok]) -> bool:

@@ -42,7 +42,7 @@ schema 1 envelope (finplat's `make metrics`) and a bare flat file, which carry n
 | `bundle` | lower | `bundle.frontend.kb_total`, `bundle.frontend.kb_login` |
 | `statements` | lower | `statements.POST:/api/items` |
 | `size` | lower | `size.backend.max_lines`, `size.frontend.over_600` (`metrics/size.py`: lines of the largest production file; files over 600 lines) |
-| `vuln` | lower | `vuln.backend.high`, `vuln.frontend.total` (`metrics/vuln.py`, OSV over the locked production set; REPORT-ONLY: a new advisory moves it without a code change, so never gated even with a bound in the file; the scorecard reads the snapshot) |
+| `vuln` | lower | `vuln.backend.high`, `vuln.frontend.total` (`metrics/vuln.py`, OSV over the locked production set; REPORT-ONLY: a new advisory moves it without a code change, so never gated even with a bound in the file; the scorecard reads the snapshot, else `docs/metrics/report-only.json`) |
 | `allowlist` | lower | `allowlist.backend.own_commit` (shrink-only allow-lists) |
 | `gate` | lower | `gate.backend-unit.seconds`, `gate.total.seconds` (wall-clock seconds) |
 | `tier` | lower | `tier.unit.seconds`, `tier.db.seconds` (wall-clock seconds of the guarded command) |
@@ -183,6 +183,14 @@ summary, the comparison with main ignores it (dropping or moving its bound needs
 `tighten` leaves it, and `rebaseline` drops it and seeds none. A consumer whose bounds still
 hold `fan_in_max` needs nothing at its next devkit sync; its next `rebaseline` drops the entry,
 or a PR may delete it by hand.
+
+**`docs/metrics/report-only.json`** is the committed copy of the report-only keys:
+`metrics_collect.sh tighten` and `rebaseline` write it beside the bounds (a schema 2 snapshot,
+`--report-only` of the ratchet; a key whose collector was skipped keeps its committed value), and
+the author commits it with the bounds. `check` never writes or reads it, so it gates nothing. It
+exists because the bounds never hold these keys and `build/metrics.json` is untracked: without
+it a fresh clone's scorecard graded `sec.audit` UNMEASURED in every repo, vuln collector or not
+(devkit #76). The scorecard reads the bounds, then this file, then a fresh `build/metrics.json`.
 
 **`tighten` prints what the gate will refuse.** Every WORSE and MISSING key gets check's
 `ratchet <key> ...` line; the BETTER bounds are written, then the run exits 1 with a last
