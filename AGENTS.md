@@ -224,8 +224,8 @@ npm run verify:push           # build + Chromium Playwright against the fresh bu
 npm run precommit:full        # check + verify:push + page audit + lighthouse (minutes)
 
 # Git hooks (.githooks/, devkit's templates): `make install` once per checkout or worktree sets
-# core.hooksPath; `make hooks-check` reports a repoint. pre-commit runs make ci-quick, pre-push
-# make ci-unit (scripts/ci/hooks.conf); neither needs Postgres or a browser.
+# core.hooksPath; `make hooks-check` reports a repoint. Steps: scripts/ci/hooks.conf (ci-quick
+# plus ci-unit, split across the two); neither needs Postgres or a browser.
 
 npx drizzle-kit generate --name <what-changed>   # a schema change: see Changing the schema
 
@@ -233,7 +233,7 @@ docker build --build-arg APP_VERSION=dev -t closet .   # or: make ci-image ci-sm
 
 # The gate's jobs (Makefile, thin callers of the npm scripts; ci.yml calls the same targets).
 # Each brings its own throwaway Postgres 18 container, so none needs pgvault-dev.
-make ci-deps ci-quick         # npm ci; the devkit checks, layer-check, guard-check, check:static
+make ci-deps ci-quick         # npm ci; ci-guards, secrets-check, ci-lint, ci-typecheck
 make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + chromium (PWA on, random PORT).
                               # Each holds its budget (60/110/180 s) and floor; `make screenshots` the persona shots
 make ci-metrics               # the metrics ratchet, the gate's last job: scripts/ci/metrics.conf vs docs/metrics/ratchet.json
@@ -266,7 +266,7 @@ Planned contract items still missing (`docs/decisions.md` 2026-10-16, Convention
 - **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; `make gate PR=<n>` posts `local-gate`; Codex's go-ahead posts `codex-review` (every push needs a new `wait`; every thread answered and resolved; docs-only PRs skip it; at Codex's limit an adversarial Claude review stands in); then `gh pr merge --squash --match-head-commit <sha>` merges the gated head, never `--auto`. Merging publishes, then deploys. The owner may stop any PR.
 - **Phone-width checks** still happen before a feature is called done: Playwright at 390 px, run locally in the one worktree that is not racing another for `:3000`, or from CI's uploaded artifacts.
 - **Migrations and parallel branches:** two branches that each generate `NNNN` collide in `drizzle/meta/_journal.json`. The later branch rebases on `main`, deletes its migration and snapshot, and regenerates (`npx drizzle-kit generate`); the drift test in the gate proves the result. Never hand-merge a journal.
-- The pre-commit hook runs `make ci-quick` and the pre-push hook `make ci-unit`; never bypass either with `--no-verify`. If a hook fails, fix and create a new commit, never amend.
+- pre-commit runs guards, staged secrets and lint; pre-push typecheck and unit; never bypass either with `--no-verify`. If a hook fails, fix and create a new commit, never amend.
 - Commit messages: concise, why over what.
 - When a new pattern or gotcha lands, write it in its area's `AGENTS.md` (the area index; this file only for what every change needs) in the same commit, and add a dated `docs/decisions.md` entry for the decision behind it in the same change.
 - No upstream sync: closet is a hard fork and never merges from Libre Closet. Restructure freely; offering a fix back upstream is optional, not part of the workflow.

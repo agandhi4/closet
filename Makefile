@@ -1,4 +1,4 @@
-.PHONY: help ci-deps ci-quick ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check secrets-check install
+.PHONY: help ci-deps ci-quick ci-guards ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check secrets-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
@@ -37,7 +37,10 @@ E2E_FLOOR := 10
 help:
 	@echo "make ci-deps          — npm ci (patches applied by postinstall)"
 	@echo "make install          — once per checkout or worktree: devkit-check, then point core.hooksPath at .githooks"
-	@echo "make ci-quick         — devkit-check, toolchain-check, release-check, workflows-check, docs-check, layer-check, guard-check, secrets-check, then check:static"
+	@echo "make ci-quick         — ci-guards, secrets-check, ci-lint, ci-typecheck (the two git hooks split it: scripts/ci/hooks.conf)"
+	@echo "make ci-guards        — devkit-check, toolchain-check, release-check, workflows-check, docs-check, layer-check, guard-check"
+	@echo "make ci-lint          — prettier format:check, then eslint lint:check (both cached)"
+	@echo "make ci-typecheck     — tsc over the server (incremental) and views/assets"
 	@echo "make ci-unit          — the Vitest unit projects; no database. Budget $(UNIT_BUDGET_SECONDS) s, floor $(UNIT_FLOOR) tests"
 	@echo "make ci-db            — every Vitest project with v8 coverage (the ratchet's cov input), on a throwaway Postgres 18. Budget $(DB_BUDGET_SECONDS) s, floor $(DB_FLOOR)"
 	@echo "make ci-e2e           — build, then Playwright chromium against a throwaway Postgres 18 (PWA on, PORT random). Budget $(E2E_BUDGET_SECONDS) s, floor $(E2E_FLOOR)"
@@ -62,8 +65,22 @@ help:
 ci-deps:
 	npm ci --no-audit --no-fund
 
-ci-quick: devkit-check toolchain-check release-check workflows-check docs-check layer-check guard-check secrets-check
-	npm run check:static
+# The union of the parts below; the gate and ci.yml run it whole, the hooks in two halves
+# (scripts/ci/hooks.conf), so a part added here must be added to a hook too.
+ci-quick: ci-guards secrets-check ci-lint ci-typecheck
+
+# Sub-second each and stdlib only: they run before npm ci.
+ci-guards: devkit-check toolchain-check release-check workflows-check docs-check layer-check guard-check
+
+# Formatting is prettier's alone (format:check); eslint does not run prettier as a rule, which
+# read every file a second time (a third of a cold lint). Caches live in node_modules/.cache, so a
+# fresh worktree's first lint is cold.
+ci-lint:
+	npm run format:check
+	npm run lint:check
+
+ci-typecheck:
+	npm run typecheck
 
 # The floors read the default and list reporters' summary lines: keep those reporters.
 ci-unit:
@@ -189,6 +206,10 @@ guard-check:
 # so it runs before npm ci.
 secrets-check:
 	devkit/bin/secrets_check.sh .
+
+# pre-commit's half: only the staged paths. The gate's ci-quick still scans the whole tree.
+secrets-staged:
+	devkit/bin/secrets_check.sh --staged .
 
 # Steps: scripts/ci/hooks.conf. --fix rewrites core.hooksPath, so a tool that repointed it is
 # undone by the next install.
