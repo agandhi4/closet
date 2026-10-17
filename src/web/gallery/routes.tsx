@@ -4,10 +4,14 @@ import { FEELINGS } from '../../weather/temperature';
 import { sessionUserId } from '../auth/require-session';
 import { type IsoDate, todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
-import { parseDestination } from '../outfits/destination';
+import {
+  DestinationBody,
+  DestinationQuery,
+  parseDestination,
+} from '../outfits/destination';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
-import { DestinationFields, RowId } from '../schemas';
+import { RowId } from '../schemas';
 import { viewContext } from '../view-context';
 import { nudgeTemperatureOffset } from '../weather/queries';
 import { aimIdeas } from './aim';
@@ -49,9 +53,7 @@ import { garmentNotFound } from '../wardrobe/garment-access';
  */
 
 const GalleryQuery = Type.Object({
-  for: Type.Optional(Type.String()),
-  occasion: Type.Optional(Type.String()),
-  replace: Type.Optional(Type.String()),
+  ...DestinationQuery,
   capsule: Type.Optional(RowId),
   with: Type.Optional(RowId),
   seed: Type.Optional(Type.String()),
@@ -60,7 +62,7 @@ const GalleryQuery = Type.Object({
 
 // What every write posts back so its redirect lands on the same ideas.
 const StateFields = {
-  ...DestinationFields,
+  ...DestinationBody,
   capsule: Type.Optional(RowId),
   with: Type.Optional(RowId),
   seed: Type.Optional(Type.String()),

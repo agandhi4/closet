@@ -1,19 +1,25 @@
+import { Type } from '@sinclair/typebox';
 import {
   DEFAULT_OCCASION,
   isOccasion,
   type Occasion,
 } from '../../wardrobe/occasions';
 import { type IsoDate, parseIsoDate } from '../../calendar-date';
+import { OccasionSchema, RowId } from '../schemas';
 
 /**
  * Where a new outfit goes once chosen, carried in URLs as
  * `?for=day:YYYY-MM-DD&occasion=evening[&replace=<entry id>]` or
  * `?for=trip:12[:YYYY-MM-DD][&occasion=evening]`
  * (docs/plans/2026-09-26-redesign.md, section 1, "The destination travels
- * with the user"). The one parser of `?for=`: the calendar's plan page,
- * Styling (#42), the outfit gallery's Ideas (#9), Today (#15) and the trip
- * page (#10) read or write it here rather than each parsing the parameter
- * again.
+ * with the user"). The one parser and writer of `?for=`: the calendar's plan
+ * page, Styling (#42), the outfit gallery's Ideas (#9), Today (#15) and the
+ * trip page (#10) read it (parseDestination, DestinationQuery), link it
+ * (destinationQuery) and post it back (DestinationFields, DestinationBody)
+ * here, and name where a pick goes through destination-views.tsx
+ * (destinationPickLabel), never each on its own:
+ * until 2026-10-17 the hidden fields, the query schema and the label were
+ * each written in two to five features (docs/decisions.md).
  *
  * - `day`: planned on the calendar for that day and occasion (all day
  *   without one). With `replace` (#69) it is a change of that entry's
@@ -134,4 +140,58 @@ export function destinationTarget(
   return destination.kind === 'day'
     ? `${DAY_PREFIX}${destination.day}`
     : `${TRIP_PREFIX}${destination.tripId}${destination.day ? `:${destination.day}` : ''}`;
+}
+
+/**
+ * `?for=&occasion=&replace=` as a page's query string schema: navigation
+ * state, so plain strings that parseDestination judges (anything malformed
+ * is `none`, never a 400). Spread into a route's querystring object.
+ */
+export const DestinationQuery = {
+  for: Type.Optional(Type.String()),
+  occasion: Type.Optional(Type.String()),
+  replace: Type.Optional(Type.String()),
+};
+
+/**
+ * The same three as a write posts them back (DestinationFields), stored
+ * data, so strict: `for` is the shape destinationTarget writes (the
+ * pattern mirrors DAY_PREFIX and TRIP_TARGET; parseDestination then checks
+ * the dates), the occasion a known one, `replace` a row id. The gallery's
+ * pick and Styling's Save; postedDestination (src/web/gallery/pick.ts)
+ * refuses a `for` that does not read back as posted.
+ */
+export const DestinationBody = {
+  for: Type.Optional(
+    Type.String({
+      pattern:
+        '^(day:\\d{4}-\\d{2}-\\d{2}|trip:\\d{1,10}(:\\d{4}-\\d{2}-\\d{2})?)$',
+    }),
+  ),
+  occasion: Type.Optional(OccasionSchema),
+  replace: Type.Optional(RowId),
+};
+
+/**
+ * The destination as a form's hidden fields (DestinationBody's names), so a
+ * write's redirect comes back to the same place; nothing for `none`.
+ */
+export function DestinationFields(props: { destination: OutfitDestination }) {
+  const { destination } = props;
+  if (destination.kind === 'none') return null;
+  return (
+    <>
+      <input type="hidden" name="for" value={destinationTarget(destination)} />
+      {destination.occasion && (
+        <input type="hidden" name="occasion" value={destination.occasion} />
+      )}
+      {destination.kind === 'day' && destination.replace !== undefined && (
+        <input
+          type="hidden"
+          name="replace"
+          value={String(destination.replace)}
+        />
+      )}
+    </>
+  );
 }

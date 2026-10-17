@@ -6,7 +6,11 @@ import { alreadySavedOf } from '../gallery/urls';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
-import { type DayDestination, parseDestination } from '../outfits/destination';
+import {
+  type DayDestination,
+  DestinationQuery,
+  parseDestination,
+} from '../outfits/destination';
 import { selectScalars } from '../../db/select-scalars';
 import { savedOutfitsSql } from '../outfits/queries';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
@@ -242,11 +246,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     CALENDAR_PLAN_PATH,
     {
       schema: {
-        querystring: Type.Object({
-          for: Type.Optional(Type.String()),
-          occasion: Type.Optional(Type.String()),
-          replace: Type.Optional(Type.String()),
-        }),
+        querystring: Type.Object(DestinationQuery),
       },
     },
     async (request, reply) => {

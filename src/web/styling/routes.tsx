@@ -14,6 +14,8 @@ import { dailySeed, ideaName, parseSeed, shuffledSeed } from '../gallery/ideas';
 import { pickTo, postedDestination } from '../gallery/pick';
 import type { PoolGarment } from '../gallery/queries';
 import {
+  DestinationBody,
+  DestinationQuery,
   type OutfitDestination,
   parseDestination,
 } from '../outfits/destination';
@@ -32,13 +34,7 @@ import {
 import { piecesToBuy } from '../outfits/references';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
-import {
-  DestinationFields,
-  IsoDateSchema,
-  OccasionSchema,
-  OwnerQuery,
-  RowId,
-} from '../schemas';
+import { IsoDateSchema, OccasionSchema, OwnerQuery, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import { authorizeWardrobe } from '../sharing/access';
 import { viewContext } from '../view-context';
@@ -120,9 +116,7 @@ import { garmentNotFound } from '../wardrobe/garment-access';
 const RoleSchema = Type.Union(GARMENT_ROLES.map((role) => Type.Literal(role)));
 
 const PageQuery = Type.Object({
-  for: Type.Optional(Type.String()),
-  occasion: Type.Optional(Type.String()),
-  replace: Type.Optional(Type.String()),
+  ...DestinationQuery,
   capsule: Type.Optional(RowId),
   picks: Type.Optional(Type.String()),
   with: Type.Optional(RowId),
@@ -165,7 +159,7 @@ const GarmentsQuery = Type.Object({
 
 const SaveBody = Type.Object({
   ...RowFields,
-  ...DestinationFields,
+  ...DestinationBody,
   name: Type.Optional(Type.String({ maxLength: OUTFIT_NAME_MAX })),
   outfit: Type.Optional(RowId),
   // The page's capsule: read only to show the page again when Save is refused.
