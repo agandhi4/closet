@@ -1,6 +1,6 @@
 // @ts-check
 import eslint from '@eslint/js';
-import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
+import eslintConfigPrettier from 'eslint-config-prettier';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import base from './devkit/lint/eslint.base.mjs';
@@ -56,7 +56,8 @@ export default tseslint.config(
   ...base,
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
-  eslintPluginPrettierRecommended,
+  // Turns off the stylistic rules prettier owns; prettier itself runs as format:check (Makefile ci-lint).
+  eslintConfigPrettier,
   {
     languageOptions: {
       globals: {
