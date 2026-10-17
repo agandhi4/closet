@@ -81,16 +81,21 @@ describe('the err serializer', () => {
     expect(err?.stack).toMatch(/\(file:\/\/|\bat .*logger\.spec\.ts/);
   });
 
-  it("drops a failed query's params tail and keeps the stack's frames (Codex review of #406)", () => {
-    const error = new Error(
-      'Failed query: select 1 where email = $1\nparams: owner@example.com,$2b$10$hash',
-    );
+  it("drops a failed query's whole params tail and keeps the stack's frames (Codex review of #406)", () => {
+    // A user's note with a newline and "at " must not end the cut early.
+    const error = new Error('db down', {
+      cause: new Error(
+        'Failed query: select 1 where email = $1\nparams: owner@example.com,line one\n    at private note',
+      ),
+    });
     const err = loggedErr(error);
-    expect(JSON.stringify(err)).not.toMatch(/owner@example|\$2b\$10/);
+    expect(JSON.stringify(err)).not.toMatch(/owner@example|private note/);
     expect(err?.message).toBe(
-      'Failed query: select 1 where email = $1\nparams: [Filtered]',
+      'db down: Failed query: select 1 where email = $1\nparams: [Filtered]',
     );
-    expect(err?.stack).toMatch(/params: \[Filtered\]\n\s+at /);
+    expect(err?.stack).toMatch(
+      /caused by: Error: Failed query: select 1 where email = \$1\nparams: \[Filtered\]\n\s+at /,
+    );
   });
 
   it('cuts a long message and logs a thrown non-Error by its type alone', () => {

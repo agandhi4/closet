@@ -19,10 +19,9 @@ const SECRET_PATTERNS: [RegExp, string][] = [
   // Fastmail API tokens (the order mail's, #25): `fmu1-` and hex groups.
   [/\bfm[a-z]\d-[\w-]+/gi, FILTERED],
   // Drizzle's failed-query message ends with the query's parameters: what a user sent (an
-  // email, a hash, a note), never needed to group or debug an error. In a stack the frames
-  // follow, so the cut stops at the first frame or cause and keeps them; a parameter that
-  // itself holds "\n    at " ends the cut early.
-  [/\nparams: [\s\S]*?(?=\n\s+at |\ncaused by: |$)/g, `\nparams: ${FILTERED}`],
+  // email, a hash, a note), never needed to group or debug an error. The cut runs to the end of
+  // the text, so pass a message, not a stack (errorFields splices a stack's message itself).
+  [/\nparams: [\s\S]*$/, `\nparams: ${FILTERED}`],
 ];
 
 export function scrubSecrets(text: string): string {
