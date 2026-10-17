@@ -7,6 +7,7 @@ import pino, {
 import { DEV_RELEASE, loadBuildInfo } from './build-info';
 import { bootAppVersion, type Config } from './config';
 import { operationFields } from './request-context';
+import { scrubSecrets } from './secret-text';
 
 /**
  * The process's one pino logger. Modules take a child named after
@@ -59,8 +60,12 @@ const URL_PATTERN = /\b(?!file:)[a-z][a-z0-9+.-]*:\/\/\S+/gi;
 // A query string or key=value pair outside a URL: `?api_key=…`, `&token=…`.
 const PARAM_PATTERN = /[?&]?\b[\w.-]+=[^\s&]+/g;
 
+// The credential shapes (src/secret-text.ts) first: a Drizzle params tail goes whole before
+// PARAM_PATTERN would cut it into pieces.
 function redact(text: string): string {
-  return text.replace(URL_PATTERN, '<url>').replace(PARAM_PATTERN, '<param>');
+  return scrubSecrets(text)
+    .replace(URL_PATTERN, '<url>')
+    .replace(PARAM_PATTERN, '<param>');
 }
 
 export interface ErrorFields {

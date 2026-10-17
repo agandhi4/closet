@@ -81,6 +81,18 @@ describe('the err serializer', () => {
     expect(err?.stack).toMatch(/\(file:\/\/|\bat .*logger\.spec\.ts/);
   });
 
+  it("drops a failed query's params tail and keeps the stack's frames (Codex review of #406)", () => {
+    const error = new Error(
+      'Failed query: select 1 where email = $1\nparams: owner@example.com,$2b$10$hash',
+    );
+    const err = loggedErr(error);
+    expect(JSON.stringify(err)).not.toMatch(/owner@example|\$2b\$10/);
+    expect(err?.message).toBe(
+      'Failed query: select 1 where email = $1\nparams: [Filtered]',
+    );
+    expect(err?.stack).toMatch(/params: \[Filtered\]\n\s+at /);
+  });
+
   it('cuts a long message and logs a thrown non-Error by its type alone', () => {
     expect(loggedErr(new Error('x'.repeat(300)))?.message).toBe(
       `${'x'.repeat(200)}…`,
