@@ -3,7 +3,8 @@
 import type { ErrorEvent, Scope } from '@sentry/node';
 import type { Logger } from '../logger';
 import { operationFields } from '../request-context';
-import { SESSION_COOKIE, TOKEN_PREFIX } from '../credential-names';
+import { SESSION_COOKIE } from '../credential-names';
+import { FILTERED, scrubSecrets } from '../secret-text';
 
 /**
  * Error tracking (#117): the process's failures, sent to the homelab's
@@ -137,9 +138,7 @@ export async function createErrorTracker({
             }
             return response;
           } catch (error) {
-            logger.warn(
-              `Could not send an event to Bugsink: ${error instanceof Error ? error.message : String(error)}`,
-            );
+            logger.warn({ err: error }, 'Could not send an event to Bugsink');
             throw error;
           }
         },
@@ -261,8 +260,6 @@ export function createCrashHandler({
   };
 }
 
-const FILTERED = '[Filtered]';
-
 // Keys whose value is a credential wherever they appear in an event (a
 // header, a context, an error's property), matched lowercased.
 const SECRET_KEYS = new Set([
@@ -282,35 +279,8 @@ const SECRET_KEYS = new Set([
   'order_mail_jmap_token',
 ]);
 
-// Credentials inside any string of an event (an error message, a stack's
-// context, a client report). Closet leaked session JWTs to Loki once
-// (docs/audits/2026-09-25-closet-stack-and-backups.md): the session token is
-// a JWT, so every JWT goes, whatever carried it.
-const SECRET_PATTERNS: [RegExp, string][] = [
-  [/eyJ[\w-]*\.[\w-]+\.[\w-]*/g, FILTERED],
-  [
-    new RegExp(`\\b${SESSION_COOKIE}=[^;\\s"']*`, 'g'),
-    `${SESSION_COOKIE}=${FILTERED}`,
-  ],
-  [new RegExp(`\\b${TOKEN_PREFIX}[\\w-]+`, 'g'), `${TOKEN_PREFIX}${FILTERED}`],
-  [/\bBearer\s+[^\s"']+/gi, `Bearer ${FILTERED}`],
-  // Fastmail API tokens (the order mail's, #25): `fmu1-` and hex groups.
-  [/\bfm[a-z]\d-[\w-]+/gi, FILTERED],
-  // Drizzle's failed-query message ends with the query's parameters: what
-  // a user sent (an email, a hash, a note), never needed to group an error.
-  [/\nparams: [\s\S]*$/, `\nparams: ${FILTERED}`],
-];
-
-function scrubString(value: string): string {
-  return SECRET_PATTERNS.reduce(
-    (scrubbed, [pattern, replacement]) =>
-      scrubbed.replace(pattern, replacement),
-    value,
-  );
-}
-
 function scrubValue(value: unknown): unknown {
-  if (typeof value === 'string') return scrubString(value);
+  if (typeof value === 'string') return scrubSecrets(value);
   if (Array.isArray(value)) return value.map(scrubValue);
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(

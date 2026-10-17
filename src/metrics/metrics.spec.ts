@@ -334,7 +334,7 @@ describe('Metrics', () => {
       depth = new Error('connection refused');
       await metrics.exposition();
       await vi.waitFor(() =>
-        expect(logs.messages('warn')).toEqual([
+        expect(logs.messagesWithError('warn')).toEqual([
           "Could not read the cutout queue's depth: connection refused",
         ]),
       );
@@ -366,7 +366,7 @@ describe('Metrics', () => {
           depth = bad;
           await metrics.exposition();
           await vi.waitFor(() =>
-            expect(logs.messages('warn')).toEqual([
+            expect(logs.messagesWithError('warn')).toEqual([
               `Could not read the cutout queue's depth: not a count: ${String(bad)}`,
             ]),
           );
@@ -392,7 +392,7 @@ describe('Metrics', () => {
       await vi.waitFor(() => expect(counts).toHaveLength(1));
       counts[0].reject(new Error('connection refused'));
       expect((await first).body).toMatch(/^cutout_queue_depth 0$/m);
-      expect(logs.messages('warn')).toEqual([
+      expect(logs.messagesWithError('warn')).toEqual([
         "Could not read the cutout queue's depth: connection refused",
       ]);
       // The next count never answers; the scrape does not wait for it.
@@ -413,7 +413,7 @@ describe('Metrics', () => {
       expect((await metrics.exposition()).body).toMatch(
         /^cutout_queue_depth 0$/m,
       );
-      expect(logs.messages('warn')).toEqual([
+      expect(logs.messagesWithError('warn')).toEqual([
         "Could not read the cutout queue's depth: pool closed",
       ]);
       // A later scrape starts a count again: the first did not stay stuck.

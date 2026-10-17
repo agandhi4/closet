@@ -1,4 +1,4 @@
-.PHONY: help ci-deps ci-quick ci-guards ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check secrets-check install
+.PHONY: help ci-deps ci-quick ci-guards ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
@@ -38,7 +38,7 @@ help:
 	@echo "make ci-deps          — npm ci (patches applied by postinstall)"
 	@echo "make install          — once per checkout or worktree: devkit-check, then point core.hooksPath at .githooks"
 	@echo "make ci-quick         — ci-guards, secrets-check, ci-lint, ci-typecheck (the two git hooks split it: scripts/ci/hooks.conf)"
-	@echo "make ci-guards        — devkit-check, toolchain-check, release-check, workflows-check, docs-check, layer-check, guard-check"
+	@echo "make ci-guards        — devkit-check, toolchain-check, release-check, workflows-check, docs-check, layer-check, guard-check, migration-check"
 	@echo "make ci-lint          — prettier format:check, then eslint lint:check (both cached)"
 	@echo "make ci-typecheck     — tsc over the server (incremental) and views/assets"
 	@echo "make ci-unit          — the Vitest unit projects; no database. Budget $(UNIT_BUDGET_SECONDS) s, floor $(UNIT_FLOOR) tests"
@@ -50,6 +50,7 @@ help:
 	@echo "make ci-metrics       — the metrics ratchet: scripts/ci/metrics.conf's collectors against docs/metrics/ratchet.json (the gate's last job)"
 	@echo "make metrics-snapshot — run the collectors; build/metrics.json is the report"
 	@echo "make metrics-tighten  — lock in improved numbers; commit docs/metrics/ratchet.json in the same PR"
+	@echo "make metrics-rebaseline — overwrite every bound after a tool change moved them; commit it and label the PR metrics-rebaseline"
 	@echo "make gate PR=<n>      — the PR gate: these jobs on PR <n> merged into origin/main [GATE_ARGS=--no-post]"
 	@echo "make devkit-sync      — pull the latest agandhi4/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
@@ -59,6 +60,7 @@ help:
 	@echo "make docs-check       — AGENTS.md real + CLAUDE.md symlink, size caps, the area index (part of ci-quick)"
 	@echo "make layer-check      — fail on an import in src/ that reaches up scripts/ci/layers.conf's layer stack (part of ci-quick)"
 	@echo "make guard-check      — fail on a code-structure rule in scripts/ci/guards.conf (devkit/bin/guard_check.py; part of ci-quick)"
+	@echo "make migration-check  — fail on an edit to a shipped drizzle migration (devkit/bin/migration_check.py; part of ci-quick)"
 	@echo "make secrets-check    — fail on a credential committed in the tree (devkit/bin/secrets_check.sh; part of ci-quick)"
 	@echo "make secrets-staged   — the same scan over the staged paths only (the pre-commit hook's half)"
 	@echo "make hooks-check      — fail unless core.hooksPath is .githooks and both hooks are executable"
@@ -71,7 +73,7 @@ ci-deps:
 ci-quick: ci-guards secrets-check ci-lint ci-typecheck
 
 # Sub-second each and stdlib only: they run before npm ci.
-ci-guards: devkit-check toolchain-check release-check workflows-check docs-check layer-check guard-check
+ci-guards: devkit-check toolchain-check release-check workflows-check docs-check layer-check guard-check migration-check
 
 # Formatting is prettier's alone (format:check); eslint does not run prettier as a rule, which
 # read every file a second time (a third of a cold lint). Caches live in node_modules/.cache, so a
@@ -164,6 +166,11 @@ metrics-snapshot:
 metrics-tighten:
 	devkit/bin/metrics_collect.sh tighten
 
+# The ratchet's own failure message names this target. It rewrites every bound, so review the
+# diff: keep only the keys the tool change moved.
+metrics-rebaseline:
+	devkit/bin/metrics_collect.sh rebaseline
+
 gate:
 	@test -n "$(PR)" || { echo "usage: make gate PR=<number> [GATE_ARGS=--no-post]" >&2; exit 2; }
 	devkit/bin/local_gate.sh "$(PR)" $(GATE_ARGS)
@@ -202,6 +209,12 @@ layer-check:
 # (guards.backend.known). Stdlib only, so it runs before npm ci.
 guard-check:
 	python3 -I devkit/bin/guard_check.py
+
+# A migration on origin/main has run on the deployed database: never edit or delete it, fix forward
+# (the `migration-contract` label passes a deliberate edit). drizzle-kit's append to
+# drizzle/meta/_journal.json is not an edit. Stdlib only, like layer-check.
+migration-check:
+	python3 -I devkit/bin/migration_check.py --versions drizzle --kind drizzle
 
 # Committed credentials (scorecard T11): devkit's pattern scan over the tracked tree. Shell only,
 # so it runs before npm ci.

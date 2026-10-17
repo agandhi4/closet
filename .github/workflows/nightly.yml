@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   performance:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -65,7 +65,7 @@ jobs:
   # download and a full image build.
   cutout-model:
     name: real cutout model
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -157,7 +157,7 @@ jobs:
   # failure is worth reading: docs/testing-webkit.md.
   webkit:
     name: webkit (${{ matrix.project }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -232,7 +232,7 @@ jobs:
     name: webkit tracking issue
     needs: webkit
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

@@ -194,9 +194,9 @@ describe('cutout queue: notifications from another process', () => {
       'the missed cutout',
       async () => (await statusOf(t, missed)) === 'ready',
     );
-    expect(t.logs.messages('warn', 'Cutout')).toContainEqual(
+    expect(t.logs.messagesWithError('warn', 'Cutout')).toContainEqual(
       expect.stringMatching(
-        /^Cutout listener lost its connection \(.+\); reconnecting in 1 s$/,
+        /^Cutout listener lost its connection(?: \(connection ended\))?; reconnecting in 1 s(?:: .+)?$/,
       ),
     );
     expect(listenerConnects(t)).toBe(connects + 1);

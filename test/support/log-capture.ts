@@ -1,12 +1,17 @@
 import pino from 'pino';
-import { createLoggerTo, type Logger, type LogLevel } from '../../src/logger';
+import {
+  createLoggerTo,
+  type ErrorFields,
+  type Logger,
+  type LogLevel,
+} from '../../src/logger';
 
 interface LogFields {
   msg: string;
   /** The module's child logger name (`logger.child({ logger })`). */
   logger?: string;
-  /** An error logged as `{ err }`, through pino's error serializer. */
-  err?: { type: string; message: string; stack: string };
+  /** An error logged as `{ err }`, through closet's serializer (errorFields). */
+  err?: ErrorFields;
   [key: string]: unknown;
 }
 
@@ -43,6 +48,24 @@ export class LogCapture {
           (logger === undefined || record.logger === logger),
       )
       .map((record) => record.msg);
+  }
+
+  /**
+   * messages(), each followed by its error's message (`msg: err.message`):
+   * a line names the failure through `{ err }`, never in its text.
+   */
+  messagesWithError(level: string, logger?: string): string[] {
+    return this.records
+      .filter(
+        (record) =>
+          record.level === level &&
+          (logger === undefined || record.logger === logger),
+      )
+      .map((record) =>
+        record.err?.message
+          ? `${record.msg}: ${record.err.message}`
+          : record.msg,
+      );
   }
 
   /** Every line as its message, error message and stack: for "never logged" checks. */

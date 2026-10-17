@@ -13,12 +13,15 @@ asked of it without node_modules or a TypeScript install:
     `new Foo(`. A callee hanging off an
     expression (`f().get(`, `a[0].get(`) has no name and never matches; declarations
     (`function fetch(`, a method `fetch() {`, an interface member `fetch(): T;`), keywords
-    (`if (`) and arrow parameters (`async (x) =>`) are not calls.
+    (`if (`) and arrow parameters (`async (x) =>`) are not calls. Each call carries the token
+    indices of its parentheses, so a rule can read its arguments (guard_check's call-arg-ban).
 
 tokenize() raises LexError when a block comment or template is still open at the end of the
 file: the lexer lost its place, and every verdict after that point would be about the wrong text.
 Every token carries its offset (`at`), and tokenize() hands the skipped comments to a caller
-that asks for them: guard_check's scoped-exports reads a declaration's leading comment.
+that asks for them: guard_check's scoped-exports reads a declaration's leading comment. It hands
+over each template interpolation's span the same way, because the `${` and `}` around it yield
+no token: `${err}` and a bare `err` are the same token stream, and call-arg-ban tells them apart.
 """
 
 from __future__ import annotations
@@ -68,6 +71,14 @@ class Comment:
 
 
 @dataclass(frozen=True)
+class Interpolation:
+    """The code of one template `${...}`: offsets of its first character and of its `}`."""
+
+    at: int
+    end: int
+
+
+@dataclass(frozen=True)
 class TsImport:
     spec: str
     # Names the statement binds from the module, as exported there (`{ a as b }` -> a, a
@@ -85,6 +96,8 @@ class TsCall:
     # Offset of the callee's last name: guard_check's calls-one-of picks a function body's
     # calls out of the one file scan by offset, so a body is never re-scanned out of context.
     at: int = field(default=0, compare=False)
+    # Token indices of the call's `(` and its matching `)` (len(tokens) when it never closes).
+    args: tuple[int, int] = field(default=(0, 0), compare=False)
 
 
 def _skip_string(text: str, i: int, quote: str) -> tuple[int, str | None]:
@@ -142,9 +155,14 @@ def _regex_may_start(prev: Token | None) -> bool:
     return prev.value not in (")", "]")
 
 
-def tokenize(text: str, comments: list[Comment] | None = None) -> Iterator[Token]:
+def tokenize(
+    text: str,
+    comments: list[Comment] | None = None,
+    interpolations: list[Interpolation] | None = None,
+) -> Iterator[Token]:
     """Identifiers, string literals and punctuation, each with its 1-based line; the comments
-    skipped on the way are appended to `comments` when it is given."""
+    skipped on the way are appended to `comments`, and each template `${...}` span to
+    `interpolations`, when it is given."""
     newlines = [m.start() for m in re.finditer("\n", text)]
 
     def line(at: int) -> int:
@@ -152,8 +170,9 @@ def tokenize(text: str, comments: list[Comment] | None = None) -> Iterator[Token
 
     i, n = 0, len(text)
     prev: Token | None = None
-    # One entry per open template `${`: the brace depth at which its `}` resumes the template.
-    templates: list[int] = []
+    # One entry per open template `${`: the brace depth at which its `}` resumes the template,
+    # and the offset its code starts at.
+    templates: list[tuple[int, int]] = []
     depth = 0
     in_template = False
     while i < n:
@@ -166,7 +185,7 @@ def tokenize(text: str, comments: list[Comment] | None = None) -> Iterator[Token
                 i += 1
                 prev = Token("str", "")
             elif text.startswith("${", i):
-                templates.append(depth)
+                templates.append((depth, i + 2))
                 depth += 1
                 in_template = False
                 i += 2
@@ -220,8 +239,10 @@ def tokenize(text: str, comments: list[Comment] | None = None) -> Iterator[Token
                 depth += 1
             elif ch == "}":
                 depth -= 1
-                if templates and templates[-1] == depth:
-                    templates.pop()
+                if templates and templates[-1][0] == depth:
+                    start = templates.pop()[1]
+                    if interpolations is not None:
+                        interpolations.append(Interpolation(start, i))
                     in_template = True
                     i += 1
                     continue
@@ -454,7 +475,8 @@ def calls_in(tokens: list[Token]) -> list[TsCall]:
         if open_at is None:
             continue
         first, callee = _chain_start(tokens, k)
-        if callee is None or _declares(tokens, first, _close_paren(tokens, open_at)):
+        close = _close_paren(tokens, open_at)
+        if callee is None or _declares(tokens, first, close):
             continue
-        found.append(TsCall(callee, name.line, name.at))
+        found.append(TsCall(callee, name.line, name.at, (open_at, close)))
     return found

@@ -4,7 +4,10 @@ per language, and the by-path loads of metrics/python.py and _ts_lex.py.
 
 Each script loads this file by path (`python3 -I` keeps bin/ off sys.path; the vendored layout,
 VENDOR_PATHS bin + metrics, fixes where everything sits). A conf is one directive per line, `#`
-comments, one `[section]` per source tree; the keys every section takes:
+comments, one `[section]` per source tree. A word is a run of non-space characters, or a
+double-quoted string that holds spaces or `#` (guard_check's only-text PATTERN: `"for: x"`);
+there is no escape, so a pattern holding `"` is written as a /REGEX/ with `\x22`. The keys every
+section takes:
 
   lang     python | ts
   root     DIR          the tree's directory, relative to the repo root; globs are relative to it
@@ -14,6 +17,10 @@ comments, one `[section]` per source tree; the keys every section takes:
 
 A glob matches a file's root-relative path, or names a directory the file is under
 (`server/core` holds `server/core/config.py`).
+
+A ts tree also scans single-file components (`.vue`, `.svelte`): the lexer reads their
+top-level `<script>` blocks (sfc_scripts), never the template, whose `@click="api.get()"` no
+rule sees.
 """
 
 from __future__ import annotations
@@ -35,8 +42,18 @@ LANGS = ("python", "ts")
 TS_EXTS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 # A specifier written with the emitted extension names the TypeScript source (`./x.js` -> x.ts).
 TS_EMITTED = {".js": (".ts", ".tsx"), ".jsx": (".tsx",), ".mjs": (".mts",), ".cjs": (".cts",)}
+# Single-file components: only their top-level <script> blocks are code (sfc_scripts).
+SFC_EXTS = (".vue", ".svelte")
+_SFC_TAG = re.compile(r"<!--.*?-->|<(/?)(script|style|template)\b([^>]*)>", re.S | re.I)
+_SFC_LANG = re.compile(r"""\blang\s*=\s*["']?([\w-]*)""", re.I)
+_SFC_CLOSE = {name: re.compile(rf"</{name}\s*>", re.I) for name in ("script", "style")}
+_SCRIPT_LANGS = frozenset({"", "ts", "js", "tsx", "jsx"})
+_NOT_NEWLINE = re.compile(r"[^\n]")
 ALWAYS_SKIPPED_DIRS = frozenset({"node_modules", "__pycache__"})
 TREE_KEYS = frozenset({"lang", "root", "src", "exclude", "alias"})
+# A quoted word, a bare word, a comment, or a quote that opens nothing that closes (finditer
+# skips the spaces between them).
+_CONF_WORD = re.compile(r'"([^"]*)"(?=[\s#]|$)|([^\s"#]+)|(#.*)|(")')
 
 DEVKIT = Path(__file__).resolve().parent.parent
 
@@ -107,11 +124,12 @@ def parse_sections(path: Path, make: Callable[[str, int], T], directive: Directi
         raise ConfError(f"cannot read {path}: {exc.strerror}") from exc
     sections: list[T] = []
     for lineno, raw in enumerate(text.splitlines(), start=1):
-        line = raw.split("#", 1)[0].strip()
-        if not line:
-            continue
         where = f"{path}:{lineno}"
-        if line.startswith("["):
+        tokens = conf_words(raw, where)
+        if not tokens:
+            continue
+        if tokens[0].startswith("["):
+            line = " ".join(tokens)
             name = line.strip("[]")
             if not line.endswith("]") or SECTION_NAME.fullmatch(name) is None:
                 raise ConfError(f"{where}: a section is `[name]`, name [A-Za-z0-9_-]+")
@@ -121,7 +139,6 @@ def parse_sections(path: Path, make: Callable[[str, int], T], directive: Directi
             continue
         if not sections:
             raise ConfError(f"{where}: directive before the first [section]")
-        tokens = line.split()
         if tokens[0] in TREE_KEYS:
             _tree_key(sections[-1], tokens[0], tokens[1:], where)
         else:
@@ -131,6 +148,21 @@ def parse_sections(path: Path, make: Callable[[str, int], T], directive: Directi
     for section in sections:
         _validate_tree(section, path)
     return sections
+
+
+def conf_words(raw: str, where: str) -> list[str]:
+    """One conf line's words, its `#` comment dropped; a quoted word loses its quotes."""
+    words: list[str] = []
+    for match in _CONF_WORD.finditer(raw):
+        quoted, word, comment, stray = match.groups()
+        if comment is not None:
+            break
+        if stray is not None:
+            raise ConfError(
+                f'{where}: a stray `"`; a quoted word is `"..."`, closed and followed by a space'
+            )
+        words.append(quoted if quoted is not None else word)
+    return words
 
 
 def _tree_key(tree: SourceTree, word: str, args: list[str], where: str) -> None:
@@ -195,7 +227,8 @@ def python_files(tree: SourceTree, root: Path) -> list[str]:
 
 
 def ts_files(tree: SourceTree, root: Path) -> list[str]:
-    """Root-relative TS/JS sources of the tree; dot-directories and node_modules skipped."""
+    """Root-relative TS/JS sources and single-file components of the tree; dot-directories and
+    node_modules skipped. Read each with ts_source."""
     found: set[str] = set()
     for entry in tree.src:
         base = root / entry
@@ -204,7 +237,7 @@ def ts_files(tree: SourceTree, root: Path) -> list[str]:
             rel = path.relative_to(root)
             if (
                 path.is_file()
-                and path.suffix in TS_EXTS
+                and path.suffix in (*TS_EXTS, *SFC_EXTS)
                 and not any(p.startswith(".") or p in ALWAYS_SKIPPED_DIRS for p in rel.parts[:-1])
                 and not tree.excluded(rel.as_posix())
             ):
@@ -217,6 +250,58 @@ def read_source(root: Path, rel: str) -> str:
         return (root / rel).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise ConfError(f"cannot read {root / rel}: {exc}") from exc
+
+
+def ts_source(root: Path, rel: str) -> str:
+    """The code the TS lexer reads for a file of ts_files: a component's script blocks."""
+    return ts_code(read_source(root, rel), root / rel)
+
+
+def ts_code(text: str, path: Path) -> str:
+    """The code of a ts_files file's TEXT (ts_source, for a caller that also keeps the text)."""
+    if path.suffix not in SFC_EXTS:
+        return text
+    try:
+        return sfc_scripts(text)
+    except ValueError as exc:
+        raise ConfError(f"cannot read {path}: {exc}") from exc
+
+
+def sfc_scripts(text: str) -> str:
+    """A .vue/.svelte file with everything but its top-level <script> blocks (no lang, or
+    ts/js/tsx/jsx) blanked to spaces, newlines kept: the same length and lines as the file, so
+    every line and offset the lexer reports is the file's own, and two blocks (`<script>` and
+    `<script setup>`) lex as one module. A <template> (nested ones counted) and a <style> are
+    skipped whole, so markup that reads like code (`import` in text, `@click="f()"`) is
+    never lexed. ValueError for a block that is never closed."""
+    kept: list[tuple[int, int]] = []
+    depth = 0  # open <template> elements; a <script> inside one is markup
+    pos = 0
+    while (tag := _SFC_TAG.search(text, pos)) is not None:
+        pos = tag.end()
+        closing, name, attrs = tag.group(1), (tag.group(2) or "").lower(), tag.group(3) or ""
+        if not name or attrs.rstrip().endswith("/"):
+            continue  # a comment, or a self-closing `<script src="..." />`
+        if name == "template":
+            depth = max(depth - 1, 0) if closing else depth + 1
+            continue
+        if closing or depth:
+            continue
+        end = _SFC_CLOSE[name].search(text, pos)
+        if end is None:
+            line = text.count("\n", 0, tag.start()) + 1
+            raise ValueError(f"<{name}> at line {line} is never closed")
+        lang = _SFC_LANG.search(attrs)
+        if name == "script" and (lang.group(1).lower() if lang else "") in _SCRIPT_LANGS:
+            kept.append((pos, end.start()))
+        pos = end.end()
+    parts: list[str] = []
+    last = 0
+    for start, stop in kept:
+        parts += [_NOT_NEWLINE.sub(" ", text[last:start]), text[start:stop]]
+        last = stop
+    parts.append(_NOT_NEWLINE.sub(" ", text[last:]))
+    return "".join(parts)
 
 
 def ts_local_base(spec: str, importer: str, tree: SourceTree) -> str | None:

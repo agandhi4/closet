@@ -218,12 +218,17 @@ export class ModelRunner implements CutoutRunner {
         });
         this.inFlight = undefined;
         return;
-      case 'error':
-        logger.error(`Model process ${child.pid}: ${reply.message}`);
-        this.settle(child, new Error(`Model: ${reply.message}`));
+      case 'error': {
+        const failure = new Error(`Model: ${reply.message}`);
+        logger.error(
+          { err: failure },
+          `Model process ${child.pid} reported an error`,
+        );
+        this.settle(child, failure);
         // A failed load leaves a process that can never answer.
         if (reply.id === undefined) void this.stop(child, 'model load failed');
         return;
+      }
     }
   }
 

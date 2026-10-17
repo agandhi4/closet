@@ -7,6 +7,7 @@ import pino, {
 import { DEV_RELEASE, loadBuildInfo } from './build-info';
 import { bootAppVersion, type Config } from './config';
 import { operationFields } from './request-context';
+import { scrubSecrets } from './secret-text';
 
 /**
  * The process's one pino logger. Modules take a child named after
@@ -44,7 +45,94 @@ function options(level: LogLevel, version: string): LoggerOptions {
     // A new object every call: pino merges the line's fields into it.
     mixin: operationFields,
     redact: { paths: REDACTED_PATHS, censor: '[redacted]' },
+    serializers: { err: errorFields },
   };
+}
+
+// Error text is foreign input: a fetch, sharp or driver error (or its cause) can quote an
+// upstream URL with its token, a connection string, a query string or a slice of a response.
+// So no logger call splices String(err), err.message or err.stack into a line (guards.conf
+// no-raw-error-text); it passes `{ err }` and errorFields writes it. Unlike rollcall's helper
+// the stack stays, redacted like the message: a 500 is logged with it (errors.spec.tsx).
+const MESSAGE_MAX = 200;
+// file:// is left alone: it is a stack frame's location, never an upstream's address.
+const URL_PATTERN = /\b(?!file:)[a-z][a-z0-9+.-]*:\/\/\S+/gi;
+// A query string or key=value pair outside a URL: `?api_key=…`, `&token=…`.
+const PARAM_PATTERN = /[?&]?\b[\w.-]+=[^\s&]+/g;
+
+// After scrubSecrets (src/secret-text.ts, applied per message in errorFields): a Drizzle params
+// tail goes whole before PARAM_PATTERN would cut it into pieces.
+function redact(text: string): string {
+  return text.replace(URL_PATTERN, '<url>').replace(PARAM_PATTERN, '<param>');
+}
+
+export interface ErrorFields {
+  type: string;
+  message?: string;
+  stack?: string;
+  code?: string;
+  status?: number;
+}
+
+/**
+ * The `err` serializer of every closet logger (Fastify's too: it takes the
+ * instance as given). Like pino's own serializer it appends the causes to
+ * the message (`: `) and the stack (`caused by: `), since a driver error's
+ * reason is often only its cause; of the rest only the class, `code` and an
+ * HTTP status are kept: pino's copy of every own field would log a client's
+ * request options or a query's params whole. A thrown non-Error is logged
+ * by its type alone.
+ */
+export function errorFields(err: unknown): ErrorFields {
+  if (!(err instanceof Error)) return { type: typeof err };
+  const chain = causeChain(err);
+  const fields: ErrorFields = {
+    type: err.constructor.name,
+    message: truncate(
+      redact(chain.map((e) => scrubSecrets(e.message)).join(': ')),
+    ),
+    stack: redact(chain.map(scrubbedStack).join('\ncaused by: ')),
+  };
+  // `statusCode`: HttpError's and web-push's WebPushError's name for it.
+  const { code, status, statusCode } = err as {
+    code?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  if (typeof code === 'string') fields.code = code;
+  const httpStatus = typeof status === 'number' ? status : statusCode;
+  if (typeof httpStatus === 'number') fields.status = httpStatus;
+  return fields;
+}
+
+// The error and its causes, outermost first; a cycle ends the walk.
+function causeChain(err: Error): Error[] {
+  const chain: Error[] = [];
+  for (
+    let e: unknown = err;
+    e instanceof Error && !chain.includes(e);
+    e = e.cause
+  ) {
+    chain.push(e);
+  }
+  return chain;
+}
+
+// Gotcha: a Drizzle params tail runs to the end of its message, but in a stack the frames
+// follow it, and a user's value can itself look like a frame. So the stack's copy of the
+// message is swapped for the scrubbed message by position, never found by its contents. A
+// stack that does not quote its message is scrubbed whole, which drops everything after a
+// `params:` line: losing frames beats logging the values.
+function scrubbedStack(e: Error): string {
+  const stack = e.stack ?? '';
+  const at = stack.indexOf(e.message);
+  if (e.message === '' || at < 0) return scrubSecrets(stack);
+  const rest = stack.slice(at + e.message.length);
+  return stack.slice(0, at) + scrubSecrets(e.message) + scrubSecrets(rest);
+}
+
+function truncate(text: string): string {
+  return text.length > MESSAGE_MAX ? `${text.slice(0, MESSAGE_MAX)}…` : text;
 }
 
 /**
