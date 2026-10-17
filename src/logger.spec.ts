@@ -98,6 +98,20 @@ describe('the err serializer', () => {
     );
   });
 
+  it('scrubs a stack that does not quote its message whole, and logs a missing stack as empty', () => {
+    const rewritten = new Error(
+      'Failed query: select 1\nparams: owner@example.com',
+    );
+    rewritten.stack =
+      'DrizzleQueryError: rewritten\nparams: owner@example.com\n    at query';
+    const stackless = new Error('');
+    stackless.stack = undefined;
+    expect(loggedErr(rewritten)?.stack).toBe(
+      'DrizzleQueryError: rewritten\nparams: [Filtered]',
+    );
+    expect(loggedErr(stackless)?.stack).toBe('');
+  });
+
   it('cuts a long message and logs a thrown non-Error by its type alone', () => {
     expect(loggedErr(new Error('x'.repeat(300)))?.message).toBe(
       `${'x'.repeat(200)}…`,
