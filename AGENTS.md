@@ -134,7 +134,7 @@ The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. Wh
 - **CSRF**: the root same-origin hook 403s a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site, before the body is read. Nothing changes state on a GET. The harness sends an Origin; Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
 - **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `WEATHER_SEARCH_LIMIT`, `WEATHER_LOCATION_LIMIT`, `MCP_LIMIT`, `HEALTH_LIMIT` (`/health/ready`, per address).
 - **Refusals do not reveal ids**: unseeable is a 404 like an unknown id; seeable but not changeable is a 403 (`WardrobeAccess`; the matrix is `test/integration/authorization-*.routes.ts`).
-- **Outbound fetches** of a user-supplied URL or a third-party API go only through `createOutboundFetcher`.
+- **Outbound fetches** of a user-supplied URL or a third-party API go only through `createOutboundFetcher` (`make guard-check`).
 - **Redirect targets** from the user go through `safeReturnTo`; a path carrying a secret sets `config: { secretPath: true }`; log lines name requests through `loggableUrl()`; public pages never show an email.
 - **Sessions**: signing out is `POST /auth/logout`; a new password ends every other session, personal access token and push subscription.
 
@@ -233,7 +233,7 @@ docker build --build-arg APP_VERSION=dev -t closet .   # or: make ci-image ci-sm
 
 # The gate's jobs (Makefile, thin callers of the npm scripts; ci.yml calls the same targets).
 # Each brings its own throwaway Postgres 18 container, so none needs pgvault-dev.
-make ci-deps ci-quick         # npm ci; devkit-check, toolchain-check, release-check, workflows-check, check:static
+make ci-deps ci-quick         # npm ci; the devkit checks, layer-check, guard-check, check:static
 make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + chromium (PWA on, random PORT).
                               # Each holds its budget (60/110/180 s) and floor; `make screenshots` the persona shots
 make ci-metrics               # the metrics ratchet, the gate's last job: scripts/ci/metrics.conf vs docs/metrics/ratchet.json
@@ -263,7 +263,7 @@ Planned contract items still missing (`docs/decisions.md` 2026-10-16, Convention
 - **Metrics only ratchet** (`make ci-metrics`; complexity, dead code, import cycles, duplication, coverage lines and branches): a PR that improves a number runs `make metrics-tighten` and commits the bounds; loosening one needs the `metrics-rebaseline` label. Coverage is read from `make ci-db`'s report; vitest has no thresholds (`docs/decisions.md` 2026-10-16).
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
 - **Changes land through pull requests** (owner decision, 2026-09-26). `main` is protected: `local-gate` and `codex-review` must pass. Not strict (2026-10-13, `docs/decisions.md`): the gate tests the PR merged into the current `main`, and the merge queue merges only when neither head nor `main` moved since, which catches parallel branches that each pass alone (duplicate migration numbers, conflicting edits). Squash merges only: one PR is one commit on `main`, and merged branches are deleted.
-- **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; `make gate PR=<n>` posts `local-gate`; Codex's go-ahead posts `codex-review` (every push needs a new `wait`; every thread answered and resolved; docs-only PRs skip it; at Codex's limit an adversarial Claude review stands in); then `closet_merge_queue.sh` squash-merges pinned to the gated head, never `gh pr merge --auto`. Merging publishes, then deploys. The owner may stop any PR.
+- **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; `make gate PR=<n>` posts `local-gate`; Codex's go-ahead posts `codex-review` (every push needs a new `wait`; every thread answered and resolved; docs-only PRs skip it; at Codex's limit an adversarial Claude review stands in); then `gh pr merge --squash --match-head-commit <sha>` merges the gated head, never `--auto`. Merging publishes, then deploys. The owner may stop any PR.
 - **Phone-width checks** still happen before a feature is called done: Playwright at 390 px, run locally in the one worktree that is not racing another for `:3000`, or from CI's uploaded artifacts.
 - **Migrations and parallel branches:** two branches that each generate `NNNN` collide in `drizzle/meta/_journal.json`. The later branch rebases on `main`, deletes its migration and snapshot, and regenerates (`npx drizzle-kit generate`); the drift test in the gate proves the result. Never hand-merge a journal.
 - The pre-commit hook runs `make ci-quick` and the pre-push hook `make ci-unit`; never bypass either with `--no-verify`. If a hook fails, fix and create a new commit, never amend.

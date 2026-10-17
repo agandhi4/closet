@@ -262,6 +262,12 @@ def _dotted(node: ast.expr) -> str | None:
         node = node.value
     if isinstance(node, ast.Call):
         node = node.func
+    return dotted_name(node)
+
+
+def dotted_name(node: ast.expr) -> str | None:
+    """`a.b.c` as written; None for anything that is not a plain Name/Attribute chain (a call
+    result, a subscript). Also bin/guard_check.py's callee for only-call/ban-call."""
     parts: list[str] = []
     while isinstance(node, ast.Attribute):
         parts.append(node.attr)
@@ -463,8 +469,9 @@ def collect_vulture(
 
 # ------------------------------------------------------------------------------ cycles
 # Lifted from finplat scripts/metrics/coupling.py (backend graph), unchanged in substance.
-# Also the graph bin/layer_check.py judges (it loads this file by path): one resolver for the
-# cycle count and the layer verdict, so keep module_name, source_files and import_graph stable.
+# Also the graph bin/layer_check.py judges and the imports bin/guard_check.py reads (both load
+# this file by path): one resolver for the cycle count, the layer verdict and the import rules,
+# so keep module_name, source_files, runtime_imports, from_base and import_graph stable.
 
 Graph = dict[str, set[str]]
 
@@ -481,7 +488,7 @@ def _is_type_checking(test: ast.expr) -> bool:
     )
 
 
-def _runtime_nodes(tree: ast.AST) -> list[ast.Import | ast.ImportFrom]:
+def runtime_imports(tree: ast.AST) -> list[ast.Import | ast.ImportFrom]:
     """Import statements that execute: the `if TYPE_CHECKING:` body is skipped."""
     found: list[ast.Import | ast.ImportFrom] = []
 
@@ -509,35 +516,45 @@ def _longest_known(dotted: str, known: set[str]) -> str | None:
     return None
 
 
+def package_of(module: str, is_package: bool) -> str:
+    """The package a relative import is anchored at: the module itself for an `__init__.py`."""
+    return module if is_package else module.rpartition(".")[0]
+
+
+def from_base(node: ast.ImportFrom, package: str) -> str:
+    """The absolute module a `from ... import` reads: `from ..core import x` inside
+    `server.api` (package `server.api`) -> `server.core`."""
+    if not node.level:
+        return node.module or ""
+    anchor = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
+    return f"{anchor}.{node.module}" if node.module else anchor
+
+
 def imports_of(tree: ast.AST, module: str, is_package: bool, known: set[str]) -> set[str]:
     """Modules of ours that `module` imports at runtime."""
     targets: set[str] = set()
-    package = module if is_package else module.rpartition(".")[0]
-    for node in _runtime_nodes(tree):
+    package = package_of(module, is_package)
+    for node in runtime_imports(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 hit = _longest_known(alias.name, known)
                 if hit:
                     targets.add(hit)
             continue
-        if node.level:
-            anchor = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
-            base = f"{anchor}.{node.module}" if node.module else anchor
-        else:
-            base = node.module or ""
+        base = from_base(node, package)
         # `from pkg import name`: a submodule is an edge to that submodule only; the package
         # itself (its __init__) is an edge when a name is read from it. A submodule import
         # also runs the parent package first, but that parent is already loading (or loaded)
         # by then, so counting it would turn every re-exporting package into a false cycle.
-        from_base = False
+        reads_base = False
         for alias in node.names:
             sub = f"{base}.{alias.name}"
             if sub in known:
                 targets.add(sub)
             else:
-                from_base = True
+                reads_base = True
         base_hit = _longest_known(base, known)
-        if base_hit and (from_base or not node.names):
+        if base_hit and (reads_base or not node.names):
             targets.add(base_hit)
     targets.discard(module)
     return targets

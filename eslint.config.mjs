@@ -3,6 +3,7 @@ import eslint from '@eslint/js';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import base from './devkit/lint/eslint.base.mjs';
 
 // esquery regexes (no `/` inside) for the theme rule in no-restricted-syntax.
 const PALETTE_CLASS =
@@ -50,6 +51,9 @@ export default tseslint.config(
   {
     ignores: ['eslint.config.mjs', './test/support/legacy-migrations/**/*'],
   },
+  // devkit's base first (devkit/lint/README.md): no-console, no-eval, no-implied-eval and the
+  // innerHTML / outerHTML / insertAdjacentHTML sinks. Later layers relax it per glob.
+  ...base,
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   eslintPluginPrettierRecommended,
@@ -192,14 +196,12 @@ export default tseslint.config(
     },
   },
   {
-    // App code logs only through its module's pino logger (src/logger.ts):
-    // a console line has no level, logger or request_id and breaks the JSON
-    // line shape Loki parses (observability.md). A CLI's result goes to
-    // process.stdout.write, a fatal before the configuration loads to
-    // createBootLogger(). scripts/ and test/ are tooling: the console is
-    // their interface.
-    files: ['src/**/*.{ts,tsx}'],
-    rules: { 'no-console': 'error' },
+    // The base's no-console holds app code to its module's pino logger
+    // (src/logger.ts; a CLI's result goes to process.stdout.write, a fatal
+    // before the configuration loads to createBootLogger()). scripts/ and
+    // test/ are tooling: the console is their interface.
+    files: ['scripts/**/*.{ts,tsx}', 'test/**/*.{ts,tsx}'],
+    rules: { 'no-console': 'off' },
   },
   {
     // The integration project shares each worker's module graph across spec
@@ -207,10 +209,12 @@ export default tseslint.config(
     // file and never reaches a module an earlier file already loaded, so it
     // would pass or fail by which files share the worker. Pass a stand-in
     // through createTestApp's options instead (AppOptions in src/app.ts).
+    // A flat-config rule replaces the earlier block's, so the base's HTML
+    // sinks are carried over before the vi bans.
     files: ['test/integration/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-properties': [
-        'error',
+        ...base[0].rules['no-restricted-properties'],
         ...['mock', 'doMock', 'unmock', 'doUnmock', 'resetModules'].map(
           (property) => ({
             object: 'vi',

@@ -99,6 +99,7 @@ DOMAIN_DIRECTIONS = {
     "dead": "lower",
     "complexity": "lower",
     "coupling": "lower",
+    "guards": "lower",
     "bundle": "lower",
     "statements": "lower",
     "size": "lower",

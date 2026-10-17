@@ -38,6 +38,7 @@ schema 1 envelope (finplat's `make metrics`) and a bare flat file, which carry n
 | `dead` | lower | `dead.backend.vulture`, `dead.frontend.knip_exports` |
 | `complexity` | lower | `complexity.backend.cognitive_max`, `complexity.backend.mccabe_over_10` |
 | `coupling` | lower | `coupling.frontend.cycles`, `coupling.backend.layer_violations` (`bin/layer_check.py`) |
+| `guards` | lower | `guards.backend.known` (`bin/guard_check.py`: the guard violations that fire, `known` lines once the check passes; tolerance 0) |
 | `bundle` | lower | `bundle.frontend.kb_total`, `bundle.frontend.kb_login` |
 | `statements` | lower | `statements.POST:/api/items` |
 | `size` | lower | `size.backend.max_lines`, `size.frontend.over_600` (`metrics/size.py`: lines of the largest production file; files over 600 lines) |
@@ -102,6 +103,11 @@ own domain name and states the direction in `ratchet.json`.
 `coupling.<section>.layer_violations`, the refused imports per `scripts/ci/layers.conf` section
 (its `known` lines once the check passes). It is not in the starter because it needs the repo's
 conf; the `devkit new` stacks declare it as their `layers` collector.
+
+`bin/guard_check.py --metrics-out <file>` reports the same way: `guards.<section>.known`, the
+violations of `scripts/ci/guards.conf`'s rules in that section (its `known` lines once the
+check passes), so paying debt down is ratcheted and adding a `known` line needs the
+metrics-rebaseline label. The `devkit new` stacks declare it as their `guards` collector.
 
 ## Bounds file
 
