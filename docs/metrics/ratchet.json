@@ -35,7 +35,7 @@
     "source": "layers"
   },
   "coverage.backend.branches": {
-    "bound": 92.44,
+    "bound": 92.45,
     "direction": "higher",
     "source": "cov"
   },

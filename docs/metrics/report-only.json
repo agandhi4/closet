@@ -1,0 +1,16 @@
+{
+  "metrics": {
+    "coupling.backend.fan_in_max": 122,
+    "vuln.backend.critical": 0,
+    "vuln.backend.high": 1,
+    "vuln.backend.total": 7
+  },
+  "schema_version": 2,
+  "skipped": [],
+  "sources": {
+    "coupling.backend.fan_in_max": "ts-backend",
+    "vuln.backend.critical": "vuln",
+    "vuln.backend.high": "vuln",
+    "vuln.backend.total": "vuln"
+  }
+}

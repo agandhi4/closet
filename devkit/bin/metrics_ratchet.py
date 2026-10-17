@@ -17,7 +17,11 @@ regression only from a gate run).
 Report-only keys (`vuln.*`, `coupling.<scope>.fan_in_max`; is_report_only): collected and
 printed, never gated, even when a bounds file still holds one. `check` prints them as
 REPORT-ONLY and ignores them in the comparison with main (dropping one needs no label),
-`tighten` leaves them, `rebaseline` drops them and seeds none. Why fan-in (lead decision
+`tighten` leaves them, `rebaseline` drops them and seeds none. With `--report-only FILE`,
+`tighten` and `rebaseline` also write the snapshot's report-only keys to FILE, a schema 2
+snapshot (metrics_collect.sh passes docs/metrics/report-only.json): the bounds never hold them
+and build/metrics.json is untracked, so this committed copy is what a fresh clone's scorecard
+reads (devkit #76). `check` never writes it and never reads it. Why fan-in (lead decision
 2026-10-17): a models or core hub has many importers by design, so its count is architecture,
 not drift; finplat #659 failed its gate because a new module imported the models hub. Fan-out
 (a god module) stays gated.
@@ -45,8 +49,8 @@ for a number the file does not admit.
 Usage:
   metrics_ratchet.py check --snapshot S --bounds B [--base-ref REF | --base-bounds F]
                            [--rebaseline-ok] [--show-untracked]
-  metrics_ratchet.py tighten --snapshot S --bounds B
-  metrics_ratchet.py rebaseline --snapshot S --bounds B
+  metrics_ratchet.py tighten --snapshot S --bounds B [--report-only F]
+  metrics_ratchet.py rebaseline --snapshot S --bounds B [--report-only F]
   metrics_ratchet.py merge --out OUT [--skipped NAME]... [--] [INPUT.json...]
 
 Key shape (docs/metrics-keys.md): flat dotted keys `<domain>.<scope>.<stat>`, numbers only,
@@ -312,6 +316,43 @@ def write_bounds(path: Path, bounds: dict[str, Bound]) -> None:
     _atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
 
+def _write_envelope(
+    path: Path, values: dict[str, float], sources: dict[str, str], skipped: list[str]
+) -> None:
+    """A schema 2 snapshot: what `merge` writes and what the report-only file is."""
+    doc = {
+        "schema_version": SNAPSHOT_SCHEMA,
+        "metrics": values,
+        "sources": sources,
+        "skipped": sorted(set(skipped)),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+
+def write_report_only(path: Path, snapshot: Snapshot) -> None:
+    """Commit the report-only keys beside the bounds (docs/metrics/report-only.json), so the
+    scorecard of a fresh clone has them (devkit #76): the bounds never hold one, and
+    build/metrics.json is untracked. A key whose collector was skipped keeps its committed
+    value. A repo that collects no such key and has no file gets none."""
+    old = load_snapshot(path, allow_empty=True) if path.is_file() else None
+    values: dict[str, float] = {}
+    sources: dict[str, str] = {}
+    if old is not None:
+        for metric, value in old.values.items():
+            if old.sources.get(metric) in snapshot.skipped:
+                values[metric], sources[metric] = value, old.sources[metric]
+    for metric, value in snapshot.values.items():
+        if is_report_only(metric):
+            values[metric] = value
+            if metric in snapshot.sources:
+                sources[metric] = snapshot.sources[metric]
+    if old is None and not values:
+        return
+    _write_envelope(path, values, sources, [])
+    print(f"ratchet report-only {len(values)} key(s) written to {path} (commit it with the bounds)")
+
+
 def _with_value(metric: str, bound: Bound, snapshot: Snapshot) -> Bound:
     """The bound moved to the snapshot's value, carrying the snapshot's source for the key (a
     schema 1 or flat snapshot has none, and then the bound keeps the source it had)."""
@@ -522,6 +563,8 @@ def cmd_tighten(args: argparse.Namespace) -> int:
     if changed:
         write_bounds(bounds_path, tightened)
     print(f"ratchet tightened {changed} bound(s) in {bounds_path}")
+    if args.report_only:
+        write_report_only(Path(args.report_only), snapshot)
     if not any(failing.values()):
         return EXIT_OK
     _fail(
@@ -592,6 +635,8 @@ def cmd_rebaseline(args: argparse.Namespace) -> int:
         seeded += 1
         print(f"ratchet {metric} - -> {_fmt(snapshot.values[metric])} (seeded, {direction})")
     write_bounds(bounds_path, rebased)
+    if args.report_only:
+        write_report_only(Path(args.report_only), snapshot)
     dropped_note = f", {dropped} report-only dropped" if dropped else ""
     print(
         f"ratchet rebaselined {len(rebased)} bound(s) in {bounds_path} "
@@ -614,21 +659,21 @@ def cmd_merge(args: argparse.Namespace) -> int:
             owner[key] = name
             sources[key] = Path(name).stem
             merged[key] = value
-    doc = {
-        "schema_version": SNAPSHOT_SCHEMA,
-        "metrics": merged,
-        "sources": sources,
-        "skipped": sorted(set(args.skipped)),
-    }
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write(out, json.dumps(doc, indent=2, sort_keys=True) + "\n")
-    skipped_note = f"; skipped: {', '.join(doc['skipped'])}" if doc["skipped"] else ""
+    _write_envelope(out, merged, sources, args.skipped)
+    skipped = sorted(set(args.skipped))
+    skipped_note = f"; skipped: {', '.join(skipped)}" if skipped else ""
     print(
         f"ratchet merged {len(merged)} metric(s) from {len(args.inputs)} file(s) into {out}"
         f"{skipped_note}"
     )
     return EXIT_OK
+
+
+REPORT_ONLY_HELP = (
+    "also write the snapshot's report-only keys to FILE (docs/metrics/report-only.json), the "
+    "committed copy the scorecard reads"
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -666,6 +711,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tighten.add_argument("--snapshot", required=True, help="metrics snapshot JSON")
     tighten.add_argument("--bounds", required=True, help="bounds JSON to rewrite")
+    tighten.add_argument("--report-only", metavar="FILE", help=REPORT_ONLY_HELP)
     tighten.set_defaults(func=cmd_tighten)
 
     rebaseline = sub.add_parser(
@@ -673,6 +719,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rebaseline.add_argument("--snapshot", required=True, help="metrics snapshot JSON")
     rebaseline.add_argument("--bounds", required=True, help="bounds JSON to rewrite")
+    rebaseline.add_argument("--report-only", metavar="FILE", help=REPORT_ONLY_HELP)
     rebaseline.set_defaults(func=cmd_rebaseline)
 
     merge = sub.add_parser("merge", help="merge collector outputs into one snapshot envelope")

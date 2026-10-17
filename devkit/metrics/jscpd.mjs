@@ -119,6 +119,17 @@ function collect(opts) {
   }
 }
 
+// sourceOf: the file a duplicate end lives in. jscpd 5.4 names a block of a multi-format file
+// `<path>:<format>` (a .vue's `<style>` is `A.vue:css`, lines still the file's), so a name that
+// is not a file but whose prefix is keeps the format as a block suffix. Anything else is an error,
+// never a silently dropped end.
+function sourceOf(name) {
+  if (existsSync(name)) return { source: name };
+  const m = /^(.+):([A-Za-z0-9_-]+)$/.exec(name);
+  if (m && existsSync(m[1])) return { source: m[1], block: m[2] };
+  throw new CollectorError(`jscpd named a duplicate in ${name}, which is not a file`);
+}
+
 // clonePairs: the --list-out lines, largest clone first, then by path and line.
 function clonePairs(report) {
   // Both sides real paths, as in ts.mjs: macOS's /var/folders is /private/var/folders, and a
@@ -129,7 +140,9 @@ function clonePairs(report) {
     if (typeof file?.name !== "string" || !Number.isInteger(file.start) || !Number.isInteger(file.end)) {
       throw new CollectorError(`unreadable jscpd duplicate end: ${JSON.stringify(file)}`);
     }
-    return { path: relative(cwd, realpathSync(file.name)).split("\\").join("/"), start: file.start, end: file.end };
+    const { source, block } = sourceOf(file.name);
+    const path = relative(cwd, realpathSync(source)).split("\\").join("/");
+    return { path: block === undefined ? path : `${path}:${block}`, start: file.start, end: file.end };
   };
   const byPlace = (x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : x.start - y.start);
   return report.duplicates

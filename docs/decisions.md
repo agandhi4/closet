@@ -180,3 +180,9 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Decision:** every job in ci.yml and nightly.yml runs on `ubuntu-24.04`.
 **Consequence:** a newer image is a deliberate PR that changes the pin and watches ci.yml and the nightly run once.
 **Rebaseline:** devkit #108 drops Markdown, text and lockfiles from jscpd's denominator, so `duplication.repo.jscpd_percent` reads 0.39 on main's own tree (0.38 before) with the same 30 clones; that one bound moves (label `metrics-rebaseline`). `make metrics-rebaseline` is now a target, as the ratchet's failure message assumed; it would also have dropped the report-only `fan_in_max`, which stays.
+
+## 2026-10-17 — One owner per transaction (devkit bca8cbd: own-transaction, report-only.json)
+
+**Why:** the scorecard read `arch.own_commit` UNMEASURED: drizzle has no session object for devkit's Python tracer, and closet spells a transaction `db.`, `this.db.` and raw `BEGIN` in `client.query`.
+**Decision:** guards.conf `@own-tx` (devkit #113) lets only the query/write modules it lists and `src/db/migrate.ts:recordBaseline` open, commit or roll back a transaction; 0 violations on main, and a planted `db.transaction(` in `src/web/wardrobe/urls.ts` fails it. `docs/metrics/report-only.json` (devkit #112, written by `make metrics-tighten`) carries `vuln.*` and `fan_in_max` to the scorecard.
+**Consequence:** a new transaction site joins an owner module or the line, in the same PR. T4 0.6 → 0.8.

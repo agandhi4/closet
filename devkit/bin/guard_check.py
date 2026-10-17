@@ -36,6 +36,11 @@ the section's root, and a glob also names a directory the file is under.
                                                 top-level functions of them) write the drizzle
                                                 table, or with FIELD set that column in an
                                                 `.update(TABLE).set({...})`
+  own-transaction GLOB[:FUNCTION,FUNCTION]...   ts: only files under the globs (only those
+                                                top-level functions of them) open or end a
+                                                transaction: `.transaction(`, `.commit(`,
+                                                `.rollback(` on any receiver, a literal BEGIN/
+                                                COMMIT/ROLLBACK (own_commit_check.py's rule)
   only-text   PATTERN GLOB...                   only files under the globs spell PATTERN, a
                                                 substring or /REGEX/ of the code text (comments
                                                 blanked, strings kept); quote one holding a
@@ -66,12 +71,13 @@ the section's root, and a glob also names a directory the file is under.
 
 Any rule line may start with `@NAME`, its id; otherwise the id is its kind and its subject:
 the first argument of only-import/only-call/ban-call/call-arg-ban/logger-name/single-writer/
-only-text (whose PATTERN with a space has no id but its @NAME),
+only-text (whose PATTERN with a space has no id but its @NAME), none for own-transaction,
 the module of ban-import, the second argument of scoped-exports/calls-one-of/decorated-with
 (`ban-import:sqlalchemy:select`, `only-call:fetch`, `outbound-timeout`). `known` lines and
 the output name rules by id, so two rules of one kind and subject need a name. `except` names the sanctioned sites inside a ban (design, kept); a
-rule whose globs ARE its sites (only-*, single-writer) takes none: a TS single-writer's
-`GLOB:FUNCTION` owner narrows a site to those functions instead. On ban-import,
+rule whose globs ARE its sites (only-*, single-writer, own-transaction) takes none: a TS
+single-writer's or own-transaction's `GLOB:FUNCTION` owner narrows a site to those functions
+instead. On ban-import,
 `except GLOB:NAME,NAME` sanctions only those of the banned names there (a cron module may
 bind select and update, still not text); on calls-one-of and decorated-with it sanctions
 those exports or functions there (`except src/app/api/health:GET`), which replaces the seed
@@ -209,9 +215,13 @@ class Kind:
     units: bool = False
     # A violation is a construct the globs forbid ("banned under"), not one they require.
     forbids: bool = False
+    # What a stale site no longer does, when "<act>s it" does not read (own-transaction).
+    stale_as: str = ""
 
     @property
     def stale(self) -> str:
+        if self.stale_as:
+            return self.stale_as
         return f"{self.act}s it" if self.act else "fires the rule"
 
 
@@ -256,6 +266,15 @@ KINDS = {
         named="writes it in {names}",
     ),
     "only-text": Kind("only-text PATTERN GLOB...", tree.LANGS, True, (2, None), "spell"),
+    "own-transaction": Kind(
+        "own-transaction GLOB[:FUNCTION,FUNCTION]...",
+        TS_ONLY,
+        True,
+        (1, None),
+        "open or end a transaction",
+        named="opens or ends one in {names}",
+        stale_as="opens or ends a transaction",
+    ),
     "scoped-exports": Kind(
         "scoped-exports GLOB PARAM[,PARAM] [marker TEXT] [except GLOB...]",
         tree.LANGS,
@@ -421,7 +440,7 @@ def _site(kind: str, arg: str, names: frozenset[str], where: str, said: str) -> 
     if not KINDS[kind].named or (kind == "ban-import" and not names):
         raise ConfError(
             f"{where}: `{said}GLOB:NAME` is for a ban-import of names, calls-one-of, "
-            "decorated-with or a ts single-writer's owners"
+            "decorated-with or a ts single-writer's or own-transaction's owners"
         )
     excused = frozenset(_split(listed, where, arg))
     if kind == "ban-import" and not excused <= names:
@@ -509,6 +528,8 @@ def _rule(kind: str, name: str, args: list[str], where: str, lineno: int, lang: 
             dotted = PY_MODULE if kind == "decorated-with" else CALLEE
             if kind != "scoped-exports" and dotted.fullmatch(target) is None:
                 raise ConfError(f"{where}: {target!r} is not a dotted name")
+    elif kind == "own-transaction":
+        globs, targets = tuple(main), ()  # no subject: the rule is what it guards
     elif kind == "only-text":
         subject = main[0]
         targets = (subject,)  # a comma is part of the text
@@ -732,6 +753,7 @@ def fires(
             else rules.ts_single_writer(parsed, *targets[0].partition(".")[::2])
         ),
         "only-text": lambda: rules.text_hits(parsed.code_text, rule.texts[0]),
+        "own-transaction": lambda: rules.ts_own_transaction(parsed),
         "scoped-exports": lambda: (
             rules.py_scoped_exports if section.lang == "python" else rules.ts_scoped_exports
         )(parsed, frozenset(targets), rule.marker),

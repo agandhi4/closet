@@ -15,6 +15,9 @@
 #               exit 1 when a key is WORSE or MISSING, printed as check prints it, after
 #               writing the BETTER bounds and running the scorecard's tighten
 #   rebaseline  snapshot, then overwrite every bound (first adoption, or after a tool change)
+#   tighten and rebaseline also write the report-only keys (vuln.*, fan_in_max) to
+#   report-only.json beside the bounds: the committed copy the scorecard reads from a fresh
+#   clone (commit it with the bounds)
 #   Every mode also runs the scorecard ratchet (bin/scorecard.py --mode <same>) when
 #   docs/metrics/scorecard.json exists, and `check` also when only origin/main has it
 #   (SCORECARD_BOUNDS overrides the path).
@@ -239,6 +242,9 @@ python3 -I "$RATCHET" merge --out "$OUT" ${MERGE_ARGS[@]+"${MERGE_ARGS[@]}"} \
 
 RATCHET_ARGS=("$SUB" --snapshot "$OUT" --bounds "$BOUNDS")
 if [ "$SUB" = check ] && [ "${METRICS_REBASELINE:-0}" = 1 ]; then RATCHET_ARGS+=(--rebaseline-ok); fi
+# The modes an author commits from also refresh the committed report-only copy beside the
+# bounds; check (the gate) never writes a tracked file.
+case "$SUB" in tighten|rebaseline) RATCHET_ARGS+=(--report-only "$(dirname "$BOUNDS")/report-only.json") ;; esac
 python3 -I "$RATCHET" "${RATCHET_ARGS[@]}"
 ratchet_rc=$?
 # A failing tighten (rc 1: a WORSE key) has still written its BETTER bounds; the scorecard's
