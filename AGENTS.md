@@ -140,7 +140,7 @@ The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. Wh
 
 ### Config and logging
 
-In full: `docs/conventions.md#config`, `#logging`. `loadConfig()` (`src/config.ts`) is the only reader of `process.env`; a bad value stops the boot naming the key, never the value (`ConfigError`). Secrets have no default. A new env var gets a schema entry and a README row. **The image bakes `.env`, never `.env.local`**. Log through the module's pino child at operation boundaries with ids (`logger.error({ err }, message)`), never in rendering or loops, never `console` (ESLint). JSON lines carry `logger` and the operation's `request_id`, or a job's `job_id` and `parent_request_id` (`src/request-context.ts`). Bugsink's `environment` is `APP_ENV`, never NODE_ENV.
+In full: `docs/conventions.md#config`, `#logging`. `loadConfig()` (`src/config.ts`) is the only reader of `process.env`; a bad value stops the boot naming the key, never the value (`ConfigError`). Secrets have no default. A new env var gets a schema entry and a README row. **The image bakes `.env`, never `.env.local`**. Log through the module's pino child at operation boundaries with ids (`logger.error({ err }, message)`, never the error's text: `errorFields` redacts it), never in rendering or loops, never `console` (ESLint). JSON lines carry `logger` and the operation's `request_id`, or a job's `job_id` and `parent_request_id` (`src/request-context.ts`). Bugsink's `environment` is `APP_ENV`, never NODE_ENV.
 
 ### Project rules
 

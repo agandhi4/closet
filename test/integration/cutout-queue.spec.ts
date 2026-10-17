@@ -467,9 +467,9 @@ describe('cutout queue', () => {
     await eventually('the queue to give up on the model', () =>
       Promise.resolve(
         t.logs
-          .messages('warn', 'Cutout')
+          .messagesWithError('warn', 'Cutout')
           .includes(
-            'Cutout queue cannot run the model (Model download failed); pending cutouts wait, trying again in 5 min',
+            'Cutout queue cannot run the model; pending cutouts wait, trying again in 5 min: Model download failed',
           ),
       ),
     );

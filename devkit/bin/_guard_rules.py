@@ -12,7 +12,11 @@ like a pass.
 from __future__ import annotations
 
 import ast
+import bisect
+import io
+import itertools
 import re
+import tokenize
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
@@ -78,11 +82,39 @@ class PyCall:
     line: int
 
 
+def _blanked(text: str, spans: Iterable[tuple[int, int]]) -> str:
+    """TEXT with every character of each (start, end) span but its newlines turned to spaces,
+    so each line and offset left is the file's own."""
+    out = list(text)
+    for start, end in spans:
+        for i in range(start, end):
+            if out[i] != "\n":
+                out[i] = " "
+    return "".join(out)
+
+
+def _line_starts(text: str) -> list[int]:
+    return [0, *(m.end() for m in re.finditer("\n", text))]
+
+
 @dataclass(frozen=True)
 class PyFile:
     tree: ast.Module
     imports: list[Imported]
     calls: list[PyCall]
+    source: str
+
+    @cached_property
+    def code_text(self) -> str:
+        """The source with its comments blanked (only-text): strings and docstrings stay."""
+        starts = _line_starts(self.source)
+        readline = io.StringIO(self.source).readline
+        comments = (
+            (starts[t.start[0] - 1] + t.start[1], starts[t.end[0] - 1] + t.end[1])
+            for t in tokenize.generate_tokens(readline)
+            if t.type == tokenize.COMMENT
+        )
+        return _blanked(self.source, comments)
 
 
 class Tok(Protocol):
@@ -102,11 +134,19 @@ class Note(Protocol):
     text: str
 
 
+class Span(Protocol):
+    """bin/_ts_lex.py's Interpolation: one template `${...}`."""
+
+    at: int
+    end: int
+
+
 @dataclass(frozen=True)
 class TsCallSite:
     callee: str
     line: int
     at: int = 0  # offset of the callee's last name (bin/_ts_lex.py TsCall)
+    args: tuple[int, int] = (0, 0)  # token indices of its `(` and `)`
 
 
 @dataclass
@@ -115,10 +155,20 @@ class TsFile:
     comments: list[Note]
     imports: list[Imported]
     calls: list[TsCallSite]
+    interpolations: list[Span]
+    # The file as written. A component's lexed text (bin/_source_tree.py sfc_scripts) keeps
+    # its offsets, so the comments' spans index this too.
+    source: str
 
     @cached_property
     def module(self) -> TsModule:
         return module_functions(self.tokens, self.comments)
+
+    @cached_property
+    def code_text(self) -> str:
+        """The file with its comments blanked (only-text): strings, template text and a
+        component's template and style stay, since a spelling there is still a spelling."""
+        return _blanked(self.source, ((c.at, c.end) for c in self.comments))
 
 
 # ------------------------------------------------------------------------- the primitives
@@ -277,6 +327,41 @@ def single_writer(file: PyFile, attr: str) -> list[Hit]:
         if call.canonical == "setattr" and named:
             hits.append(Hit(call.line, f"setattr(..., {attr!r}, ...) writes .{attr}"))
     return _keep_first(sorted(hits, key=lambda h: h.line))
+
+
+@dataclass(frozen=True)
+class TextPattern:
+    regex: re.Pattern[str]
+    text: str  # as the conf wrote it
+    literal: bool
+
+    @property
+    def shown(self) -> str:
+        return f'"{self.text}"' if self.literal else self.text
+
+
+def text_pattern(text: str) -> TextPattern:
+    """only-text's PATTERN: `/REGEX/` searched as written, anything else a plain substring (a
+    route literal that starts and ends with `/` is written as a regex, its slashes escaped);
+    ValueError names what is wrong with it."""
+    if not text:
+        raise ValueError("only-text needs a PATTERN; an empty one matches everywhere")
+    if len(text) < 3 or not (text.startswith("/") and text.endswith("/")):
+        return TextPattern(re.compile(re.escape(text)), text, True)
+    try:
+        return TextPattern(re.compile(text[1:-1]), text, False)
+    except re.error as exc:
+        raise ValueError(f"{text!r}: bad regex: {exc}") from exc
+
+
+def text_hits(text: str, pattern: TextPattern) -> list[Hit]:
+    """only-text: each line of a file's code text (PyFile/TsFile code_text: comments blanked,
+    strings kept) where PATTERN matches, a match spanning lines at its first. Not seen: a
+    spelling built at run time (`"fo" + "r"`, an f-string or template part), and HTML comments
+    in a component's template, which are not blanked."""
+    starts = _line_starts(text)
+    lines = (bisect.bisect_right(starts, m.start()) for m in pattern.regex.finditer(text))
+    return _keep_first(Hit(line, f"spells {pattern.shown}") for line in lines)
 
 
 def _word_in(text: str, words: frozenset[str]) -> bool:
@@ -825,6 +910,84 @@ def ts_scoped_exports(file: TsFile, params: frozenset[str], marker: str) -> list
     return _keep_first(hits)
 
 
+# ---------------------------------------------------------------- ts single-writer (drizzle)
+
+_DRIZZLE_WRITES = frozenset({"update", "insert", "delete"})
+
+
+def _names_table(tokens: Sequence[Tok], first: int, close: int, table: str) -> bool:
+    """tokens[first:close] is TABLE, or a dotted chain ending in it (`schema.signals`)."""
+    arg = tokens[first:close]
+    shaped = all(
+        t.kind == "id" if i % 2 == 0 else _is(t, "punct", ".") for i, t in enumerate(arg)
+    )
+    return bool(arg) and len(arg) % 2 == 1 and shaped and arg[-1].value == table
+
+
+def _own_key(tokens: Sequence[Tok], open_at: int, close: int, key: str) -> bool:
+    """The object literal from tokens[open_at] (`{`) to tokens[close] has KEY as a property of
+    its own: `key: v`, `"key": v` or shorthand `key`. A nested object's keys are not its own,
+    and a spread (`...patch`) is not read."""
+    starts_property = True
+    j = open_at + 1
+    while j < close:
+        tok = tokens[j]
+        if tok.kind == "punct" and tok.value in _OPENERS:
+            j, starts_property = _close(tokens, j) + 1, False
+            continue
+        if starts_property and tok.kind in ("id", "str") and tok.value == key:
+            if j + 1 == close or _p(tokens, j + 1, ":") or _p(tokens, j + 1, ","):
+                return True
+        starts_property = _is(tok, "punct", ",")
+        j += 1
+    return False
+
+
+def _enclosing(module: TsModule, at: int) -> str:
+    """The module's top-level function (or value initializer) holding offset AT, by its
+    declared name; "" outside every one (a class method, module-level code)."""
+    for fn in module.local.values():
+        if fn.body and fn.body[0].at <= at <= fn.body[-1].at:
+            return fn.name
+    return ""
+
+
+def ts_single_writer(file: TsFile, table: str, column: str) -> list[Hit]:
+    """drizzle writes of TABLE: `.update(TABLE)`, `.insert(TABLE)`, `.delete(TABLE)` on any
+    receiver (`tx.`, a chain broken across lines, `(await getDb()).`), TABLE written bare or
+    as a dotted chain's last name. With COLUMN, only `.update(TABLE).set({...})` whose object
+    literal has COLUMN as its own key (the drizzle property, `setBy`, not the SQL name
+    `set_by`). Each hit names the top-level function it is in, so an owner site
+    `GLOB:FUNCTION` sanctions one function. Not seen: raw SQL (an `sql` template,
+    `db.execute`), a table re-bound under another name, and with COLUMN an insert's
+    `.values({...})`, an upsert's `onConflictDoUpdate({ set })`, `.set(patch)` and a spread
+    `.set({ ...patch })`: the TABLE form sees every one of those writes, so a column whose
+    writers spread is held by a TABLE rule instead."""
+    tokens = file.tokens
+    subject = f"{table}.{column}" if column else table
+    hits: list[Hit] = []
+    for k, tok in enumerate(tokens):
+        if tok.kind != "id" or tok.value not in _DRIZZLE_WRITES:
+            continue
+        if not (k and _is(tokens[k - 1], "punct", ".") and _p(tokens, k + 1, "(")):
+            continue
+        close = _close(tokens, k + 1)
+        if not _names_table(tokens, k + 2, close, table):
+            continue
+        if column:
+            s = close + 1
+            chained = _p(tokens, s, ".") and _id(tokens, s + 1, "set") and _p(tokens, s + 2, "(")
+            if tok.value != "update" or not (chained and _p(tokens, s + 3, "{")):
+                continue
+            if not _own_key(tokens, s + 3, _close(tokens, s + 3), column):
+                continue
+        what = f"{tok.value}s {subject}"
+        owner = _enclosing(file.module, tok.at)
+        hit = Hit.naming(tok.line, (owner,), f"{what} in {{names}}()") if owner else Hit(tok.line, what)
+        hits.append(hit)
+    return _keep_first(hits)
+
+
 def is_server_module(tokens: Sequence[Tok]) -> bool:
     """The module's first statement is the "use server" directive (comments before it are
     fine): Next makes every export of such a module a public POST endpoint."""
@@ -893,3 +1056,262 @@ def ts_calls_one_of(
         template = f"{{names}}{value}: no call to {shown}, {how}"
         hits.append(Hit.naming(line, (fn.name for fn in fns), template))
     return Judged(sorted(hits, key=lambda h: h.line), units)
+
+
+# ---------------------------------------------------------------- call-arg-ban (both langs)
+# A closed vocabulary of argument shapes, each spelled in the conf with a placeholder for the
+# identifier: `err` (the default names below) or `/REGEX/` (searched as written). Closed
+# because each shape is a predicate with fixture self-tests; an open pattern language would be
+# a second lexer.
+
+# The names a caught error is bound to, by habit and by lint config (`catch (err)`, `except
+# Exception as exc`, `fetchError`); `e` alone too, since that is the commonest spelling.
+ERROR_NAMES = r"^(e|err|error|exc|exception|.*Err|.*Error)$"
+_PLACEHOLDER = "err"
+# form -> (its conf spelling around the placeholder, the languages it exists in)
+_ARG_FORMS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "String": ("String({})", ("ts",)),
+    "str": ("str({})", ("python",)),
+    "repr": ("repr({})", ("python",)),
+    "message": ("{}.message", ("python", "ts")),
+    "stack": ("{}.stack", ("python", "ts")),
+    "template": ("${{{}}}", ("ts",)),
+    "fstring": ("{{{}}}", ("python",)),
+    # A whole argument that is the identifier: an interpolating logger (`logger.warning("%s",
+    # exc)`) or console.error formats the text itself. Never put it on a logger whose API takes
+    # the error (devkit's TS `log.error(err)` extracts errorFields).
+    "bare": ("{}", ("python", "ts")),
+}
+_CALLED_FORMS = ("String", "str", "repr")
+_ATTRIBUTE_FORMS = ("message", "stack")
+_SHAPE_SPELLING = re.compile(
+    r"(?P<called>String|str|repr)\((?P<a>.+)\)|(?P<b>.+)\.(?P<attr>message|stack)"
+    r"|\$\{(?P<c>.+)\}|\{(?P<d>.+)\}|(?P<bare>\w+|/.+/)"
+)
+
+
+@dataclass(frozen=True)
+class ArgShape:
+    form: str  # a key of _ARG_FORMS
+    ident: re.Pattern[str]
+    text: str  # as the conf wrote it
+
+    def found(self, form: str, ident: str) -> str:
+        """The site as the source spells it (`String(fetchError)`), when it is this shape."""
+        if form != self.form or self.ident.search(ident) is None:
+            return ""
+        return _ARG_FORMS[form][0].format(ident)
+
+
+def arg_shape(text: str, lang: str) -> ArgShape:
+    """One ARG-SHAPE of a call-arg-ban line; ValueError names what is wrong with it."""
+    spellings = ", ".join(
+        spelling.format(_PLACEHOLDER) for spelling, langs in _ARG_FORMS.values() if lang in langs
+    )
+    m = _SHAPE_SPELLING.fullmatch(text)
+    if m is None:
+        raise ValueError(f"{text!r} is not an argument shape; {lang} has {spellings}")
+    if m["called"]:
+        form, ident = m["called"], m["a"]
+    elif m["attr"]:
+        form, ident = m["attr"], m["b"]
+    elif m["bare"]:
+        form, ident = "bare", m["bare"]
+    else:
+        form, ident = ("template", m["c"]) if m["c"] else ("fstring", m["d"])
+    if lang not in _ARG_FORMS[form][1]:
+        raise ValueError(f"{text!r} is not a {lang} shape; {lang} has {spellings}")
+    if ident == _PLACEHOLDER:
+        return ArgShape(form, re.compile(ERROR_NAMES), text)
+    if len(ident) < 3 or not (ident.startswith("/") and ident.endswith("/")):
+        raise ValueError(
+            f"{text!r}: the identifier is `{_PLACEHOLDER}` (the error names {ERROR_NAMES}) "
+            "or /REGEX/"
+        )
+    try:
+        return ArgShape(form, re.compile(ident[1:-1]), text)
+    except re.error as exc:
+        raise ValueError(f"{text!r}: bad regex: {exc}") from exc
+
+
+# A callee segment is a name or `/REGEX/`, searched against one segment as an ARG-SHAPE's
+# identifier is: guard rules otherwise see a logger only by the variable it is bound to, so a
+# fleet binds every logger `const log = logger("domain")`, and a repo whose loggers are named
+# otherwise writes `/^(log|\w+Log)$/.*` rather than listing each binding.
+_CALLEE_SEGMENT = re.compile(r"/[^/]+/|[A-Za-z_$][A-Za-z0-9_$]*")
+_CALLEE_PATTERN = re.compile(
+    rf"(?:{_CALLEE_SEGMENT.pattern})(?:\.(?:{_CALLEE_SEGMENT.pattern}))*(?:\.\*)?"
+)
+
+
+@dataclass(frozen=True)
+class CalleePattern:
+    segments: tuple[str | re.Pattern[str], ...]  # the dotted suffix, a name or a regex each
+    any_method: bool  # `RECEIVER.*`: the segments name the receiver, any method of it
+    text: str  # as the conf wrote it
+
+    def matches(self, callee: str | None) -> bool:
+        """CALLEE as written matches on a dotted suffix (`log.error` names `this.log.error`);
+        `RECEIVER.*` names any method of that receiver (`logger.*` names `logger.warn` and
+        `ctx.logger.warn`, not `logger.child.warn` or `logger(`)."""
+        if not callee:
+            return False
+        names = callee.split(".")
+        if self.any_method:
+            names = names[:-1]
+        if len(names) < len(self.segments):
+            return False
+        tail = names[len(names) - len(self.segments) :]
+        return all(
+            name == seg if isinstance(seg, str) else seg.search(name) is not None
+            for name, seg in zip(tail, self.segments)
+        )
+
+
+def callee_pattern(text: str) -> CalleePattern:
+    """One CALLEE of a call-arg-ban line; ValueError names what is wrong with it."""
+    if _CALLEE_PATTERN.fullmatch(text) is None:
+        raise ValueError(
+            f"{text!r} is not a dotted name or RECEIVER.*, each segment a name or /REGEX/"
+        )
+    any_method = text.endswith(".*")
+    segments: list[str | re.Pattern[str]] = []
+    for seg in _CALLEE_SEGMENT.findall(text.removesuffix(".*")):
+        if not seg.startswith("/"):
+            segments.append(seg)
+            continue
+        try:
+            segments.append(re.compile(seg[1:-1]))
+        except re.error as exc:
+            raise ValueError(f"{text!r}: bad regex {seg}: {exc}") from exc
+    return CalleePattern(tuple(segments), any_method, text)
+
+
+def callee_matches(callee: str | None, patterns: Sequence[CalleePattern]) -> bool:
+    return any(p.matches(callee) for p in patterns)
+
+
+def _arg_hit(line: int, callee: str, found: Iterable[str]) -> Hit | None:
+    shown = list(dict.fromkeys(f for f in found if f))
+    return Hit(line, f"{callee}() passes {', '.join(shown)}") if shown else None
+
+
+def _py_found(node: ast.AST, shapes: Sequence[ArgShape]) -> Iterable[str]:
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        args = node.args
+        if node.func.id in _CALLED_FORMS and len(args) == 1 and not node.keywords:
+            if isinstance(args[0], ast.Name):
+                yield from (s.found(node.func.id, args[0].id) for s in shapes)
+    elif isinstance(node, ast.Attribute) and node.attr in _ATTRIBUTE_FORMS:
+        owner = node.value
+        ident = owner.id if isinstance(owner, ast.Name) else getattr(owner, "attr", "")
+        if ident:
+            yield from (s.found(node.attr, ident) for s in shapes)
+    elif isinstance(node, ast.FormattedValue) and isinstance(node.value, ast.Name):
+        yield from (s.found("fstring", node.value.id) for s in shapes)
+
+
+def py_call_arg_ban(file: PyFile, patterns: Sequence[CalleePattern], shapes: Sequence[ArgShape]) -> list[Hit]:
+    """A call whose callee (as written) matches PATTERNS with an argument that holds one of
+    SHAPES at any depth: positional, keyword, `**{...}`, inside a dict, a nested call or an
+    f-string part (`{err}`, `{err!r}` too). `x.err.message` is judged by `err`. The bare shape is
+    a positional argument that is the name alone (`log.error("%s", exc)`); a keyword is not
+    (`exc_info=exc` is how a logger takes the error). One hit per call, at its line, naming
+    every shape in it. Not seen: `"%s" % err`, `err.args`, a name the error was re-bound to, a
+    callee hanging off an expression (`getLogger(x).error(`)."""
+    hits: list[Hit] = []
+    for call in file.calls:
+        if not callee_matches(call.callee, patterns):
+            continue
+        roots = [*call.node.args, *(kw.value for kw in call.node.keywords)]
+        nested = (f for root in roots for node in ast.walk(root) for f in _py_found(node, shapes))
+        bare = (
+            s.found("bare", arg.id) for arg in call.node.args if isinstance(arg, ast.Name)
+            for s in shapes
+        )
+        found = itertools.chain(bare, nested)
+        hit = _arg_hit(call.line, call.callee or "", found)
+        if hit is not None:
+            hits.append(hit)
+    return _keep_first(hits)
+
+
+def _ts_found(tokens: Sequence[Tok], k: int, shapes: Sequence[ArgShape]) -> Iterable[str]:
+    tok = tokens[k]
+    if tok.kind != "id":
+        return
+    if (
+        tok.value == "String"
+        and not (k and _is(tokens[k - 1], "punct", "."))  # `x.String(err)` is someone's method
+        and _p(tokens, k + 1, "(")
+        and _id(tokens, k + 2)
+        and _p(tokens, k + 3, ")")
+    ):
+        yield from (s.found("String", tokens[k + 2].value) for s in shapes)
+        return
+    attr = k + 3 if _p(tokens, k + 1, "?") and _p(tokens, k + 2, ".") else k + 2
+    if _p(tokens, attr - 1, ".") and _id(tokens, attr) and tokens[attr].value in _ATTRIBUTE_FORMS:
+        yield from (s.found(tokens[attr].value, tok.value) for s in shapes)
+
+
+def _ts_bare_args(
+    tokens: Sequence[Tok], open_at: int, close: int, spans: Sequence[Span]
+) -> Iterable[int]:
+    """Indices of the call's arguments that are one identifier token. A template yields no
+    token for its text or its `${`/`}` (bin/_ts_lex.py), so `${err}` alone between the
+    parentheses is one identifier too: a token inside an interpolation span is not an argument."""
+    ends: list[int] = []  # the index just past each argument
+    depth = 0
+    for k in range(open_at + 1, close):
+        tok = tokens[k]
+        if tok.kind != "punct":
+            continue
+        if tok.value in ("(", "[", "{"):
+            depth += 1
+        elif tok.value in (")", "]", "}"):
+            depth -= 1
+        elif tok.value == "," and depth == 0:
+            ends.append(k)
+    start = open_at + 1
+    for end in [*ends, close]:
+        if end - start == 1 and tokens[start].kind == "id":
+            at = tokens[start].at
+            if not any(span.at <= at < span.end for span in spans):
+                yield start
+        start = end + 1
+
+
+def ts_call_arg_ban(file: TsFile, patterns: Sequence[CalleePattern], shapes: Sequence[ArgShape]) -> list[Hit]:
+    """A call whose callee (as written, bin/_ts_lex.py calls_in) matches PATTERNS with an
+    argument holding one of SHAPES anywhere between its parentheses: an object value, a spread,
+    a nested call, a template interpolation that is the identifier alone (`${err}`; `${err ??
+    ""}` is not). `res.error.message` and `err?.message` are judged by `error`/`err`. The bare
+    shape is a whole argument that is the name alone (`console.error(e)`); `{ err }`, `err!`
+    and `err as Error` are not. One hit per call, at its line, naming every shape in it. Not
+    seen: the error spread (`{ ...err }`), `err.toString()`, `JSON.stringify(err)`, a name the
+    error was re-bound to, a callee hanging off an expression (`getLogger().error(`)."""
+    tokens = file.tokens
+    hits: list[Hit] = []
+    for call in file.calls:
+        if not callee_matches(call.callee, patterns):
+            continue
+        open_at, close = call.args
+        inside = range(open_at + 1, close)
+        found = [f for k in inside for f in _ts_found(tokens, k, shapes)]
+        found.extend(
+            s.found("bare", tokens[k].value)
+            for k in _ts_bare_args(tokens, open_at, close, file.interpolations)
+            for s in shapes
+        )
+        if close < len(tokens):
+            first, last = tokens[open_at].at, tokens[close].at
+            for span in file.interpolations:
+                if not first < span.at < last:
+                    continue
+                code = [tokens[k] for k in inside if span.at <= tokens[k].at < span.end]
+                if len(code) == 1 and code[0].kind == "id":
+                    found.extend(s.found("template", code[0].value) for s in shapes)
+        hit = _arg_hit(call.line, call.callee, found)
+        if hit is not None:
+            hits.append(hit)
+    return _keep_first(hits)

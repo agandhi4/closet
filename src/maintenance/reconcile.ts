@@ -564,9 +564,8 @@ async function removeOrphanedRows(
       removed += 1;
     } catch (error) {
       logger.warn(
-        `Skipping unreferenced file ${candidate.id} (${candidate.fileName}): ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        { err: error },
+        `Skipping unreferenced file ${candidate.id} (${candidate.fileName})`,
       );
     }
   }

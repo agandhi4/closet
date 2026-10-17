@@ -9,6 +9,6 @@ export const SESSION_COOKIE = 'access_token';
 
 /**
  * Every personal access token starts with this. Used by src/web/auth/personal-tokens.ts (mints
- * and recognises tokens) and src/metrics/error-tracker.ts (redacts them from events).
+ * and recognises tokens) and src/secret-text.ts (redacts them from events and log lines).
  */
 export const TOKEN_PREFIX = 'closet_';

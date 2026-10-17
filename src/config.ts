@@ -312,24 +312,31 @@ function crossFieldProblems(config: Config): string[] {
       }
     }
   }
-  if (config.ORDER_MAIL_JMAP_TOKEN) {
-    const senders = orderMailSenders(config);
-    if (senders.length === 0) {
-      problems.push(
-        'ORDER_MAIL_SENDERS: is required when ORDER_MAIL_JMAP_TOKEN is set',
-      );
-    } else if (!senders.every(looksLikeAddress)) {
-      problems.push(
-        'ORDER_MAIL_SENDERS: must be email addresses, comma-separated',
-      );
-    }
-    if (!config.ORDER_MAIL_OWNER.trim()) {
-      problems.push(
-        'ORDER_MAIL_OWNER: is required when ORDER_MAIL_JMAP_TOKEN is set',
-      );
-    } else if (!looksLikeAddress(config.ORDER_MAIL_OWNER.trim())) {
-      problems.push('ORDER_MAIL_OWNER: must be an email address');
-    }
+  problems.push(...orderMailProblems(config));
+  return problems;
+}
+
+// Order mail is optional: its token switches it on, and then needs who may send and who owns.
+function orderMailProblems(config: Config): string[] {
+  if (!config.ORDER_MAIL_JMAP_TOKEN) return [];
+  const problems: string[] = [];
+  const senders = orderMailSenders(config);
+  if (senders.length === 0) {
+    problems.push(
+      'ORDER_MAIL_SENDERS: is required when ORDER_MAIL_JMAP_TOKEN is set',
+    );
+  } else if (!senders.every(looksLikeAddress)) {
+    problems.push(
+      'ORDER_MAIL_SENDERS: must be email addresses, comma-separated',
+    );
+  }
+  const owner = config.ORDER_MAIL_OWNER.trim();
+  if (!owner) {
+    problems.push(
+      'ORDER_MAIL_OWNER: is required when ORDER_MAIL_JMAP_TOKEN is set',
+    );
+  } else if (!looksLikeAddress(owner)) {
+    problems.push('ORDER_MAIL_OWNER: must be an email address');
   }
   return problems;
 }

@@ -342,7 +342,8 @@ export class Metrics {
             this.set(depth);
           } catch (error) {
             logger.warn(
-              `Could not read the cutout queue's depth: ${error instanceof Error ? error.message : String(error)}`,
+              { err: error },
+              "Could not read the cutout queue's depth",
             );
           }
           attempted = true;

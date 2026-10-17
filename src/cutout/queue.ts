@@ -242,7 +242,8 @@ export class CutoutQueue {
       return (await Promise.race([runner.ready(), halted])) !== 'halted';
     } catch (error) {
       this.deps.logger.warn(
-        `Cutout queue cannot run the model (${error instanceof Error ? error.message : String(error)}); pending cutouts wait, trying again in ${MODEL_RETRY_MS / 60_000} min`,
+        { err: error },
+        `Cutout queue cannot run the model; pending cutouts wait, trying again in ${MODEL_RETRY_MS / 60_000} min`,
       );
     } finally {
       halt.removeEventListener('abort', onHalt);

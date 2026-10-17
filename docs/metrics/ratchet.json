@@ -1,11 +1,11 @@
 {
   "complexity.backend.cognitive_max": {
-    "bound": 20,
+    "bound": 13,
     "direction": "lower",
     "source": "ts-backend"
   },
   "complexity.backend.cognitive_over_15": {
-    "bound": 2,
+    "bound": 0,
     "direction": "lower",
     "source": "ts-backend"
   },
@@ -35,12 +35,12 @@
     "source": "layers"
   },
   "coverage.backend.branches": {
-    "bound": 92.36,
+    "bound": 92.44,
     "direction": "higher",
     "source": "cov"
   },
   "coverage.backend.lines": {
-    "bound": 97.43,
+    "bound": 97.44,
     "direction": "higher",
     "source": "cov"
   },
@@ -65,7 +65,7 @@
     "source": "dup"
   },
   "duplication.repo.jscpd_percent": {
-    "bound": 0.38,
+    "bound": 0.39,
     "direction": "lower",
     "source": "dup"
   },

@@ -92,7 +92,6 @@ const GONE_STATUSES = new Set([404, 410]);
 // A socket timeout per request, so one unresponsive push service cannot hold
 // the test route (or a reminder run) open.
 const REQUEST_TIMEOUT_MS = 10_000;
-const ERROR_BODY_LOG_LIMIT = 200;
 
 /**
  * The one way to send a Web Push message (web-push, RFC 8291 aes128gcm, the
@@ -163,8 +162,11 @@ export function createPushSender(options: {
         );
         return { outcome: 'pruned' };
       }
+      // The push service's answer (its body) is not logged: upstream text.
+      // errorFields keeps the HTTP status and drops the endpoint.
       logger.warn(
-        `Push to device ${device.id} of user ${userId} failed: ${describeFailure(error)}`,
+        { err: error },
+        `Push to device ${device.id} of user ${userId} failed`,
       );
       return { outcome: 'failed', error };
     }
@@ -228,16 +230,4 @@ export function createPushSender(options: {
       );
     },
   };
-}
-
-// The status and the start of the push service's answer (FCM and Mozilla
-// explain a refused VAPID token there); never the endpoint.
-function describeFailure(error: unknown): string {
-  if (error instanceof webpush.WebPushError) {
-    const body = error.body.trim().slice(0, ERROR_BODY_LOG_LIMIT);
-    return body
-      ? `HTTP ${error.statusCode}: ${body}`
-      : `HTTP ${error.statusCode}`;
-  }
-  return error instanceof Error ? error.message : String(error);
 }
