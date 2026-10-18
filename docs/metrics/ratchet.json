@@ -60,12 +60,12 @@
     "source": "ts-backend"
   },
   "duplication.repo.clones": {
-    "bound": 28,
+    "bound": 27,
     "direction": "lower",
     "source": "dup"
   },
   "duplication.repo.jscpd_percent": {
-    "bound": 0.36,
+    "bound": 0.35,
     "direction": "lower",
     "source": "dup"
   },
