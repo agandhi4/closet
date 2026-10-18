@@ -1,14 +1,11 @@
 import type { Logger } from '../logger';
-import { runAsJob } from '../request-context';
-import { awaitRunInFlight, type ScheduledJob } from './scheduled';
+import { type ScheduledJob, scheduleJob } from './scheduled';
 
 /**
  * A job at the start of every minute (a second past it, so a 07:30 reminder
  * is due when it runs at 07:30:01), or of every `everyMinutes` minutes (the
- * order mail's poll), on plain timers like scheduleNightly:
- * the next run is scheduled only after the last one ended, from the clock
- * as it is then, so a slow run never overlaps the next and never drifts it;
- * a minute a slow run overran is skipped, not queued. Started by server.ts
+ * order mail's poll), on scheduleJob's loop like scheduleNightly: a minute
+ * a slow run overran is skipped, not queued. Started by server.ts
  * only (the push reminders); the integration harness and the CLIs never
  * schedule anything.
  *
@@ -50,48 +47,14 @@ export function scheduleMinutely({
   logger,
   now = () => new Date(),
 }: MinutelyOptions): ScheduledJob {
-  let timer: NodeJS.Timeout | undefined;
-  let running: Promise<void> | undefined;
-  let runStartedAt: number | undefined;
-  let stopped = false;
-
-  const scheduleNext = () => {
-    if (stopped) return;
-    timer = setTimeout(tick, untilNextMinute(now(), everyMinutes));
-    // Never what keeps the process alive: the server's socket does that.
-    timer.unref();
-  };
-
-  const tick = () => {
-    // One job per run (a fresh `cron-` id on every line it logs, its
-    // failure line included), never per timer.
-    runStartedAt = now().getTime();
-    running = runAsJob('cron', async () => {
-      try {
-        await run(now());
-      } catch (error) {
-        // Logged, never thrown: a failed minute must not stop the next.
-        logger.error({ err: error }, `${name} failed`);
-      }
-    });
-    void running.then(() => {
-      running = undefined;
-      runStartedAt = undefined;
-      scheduleNext();
-    });
-  };
-
   logger.info(
     `${name} runs every ${everyMinutes === 1 ? 'minute' : `${everyMinutes} minutes`}`,
   );
-  scheduleNext();
-  return {
+  return scheduleJob({
     name,
-    runStartedAt: () => runStartedAt,
-    async stop() {
-      stopped = true;
-      clearTimeout(timer);
-      await awaitRunInFlight(name, running, logger);
-    },
-  };
+    logger,
+    now,
+    untilNext: () => untilNextMinute(now(), everyMinutes),
+    run: () => run(now()),
+  });
 }

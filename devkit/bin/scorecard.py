@@ -401,11 +401,13 @@ def t2_quality(repo: Repo, conf: dict[str, float]) -> None:
         repo.add("T2", "quality.complexity", not bad, "; ".join(["complexity within bands" if not bad else "; ".join(bad), *size]))
     else:
         repo.add("T2", "quality.complexity", None, "; ".join(["no complexity.* keys", *size]), mechanism="python.py --mccabe --cognitive / ts.mjs --cyclomatic --cognitive / rust.py --cognitive")
+    # Clones grade; the duplicated share is report-only (decisions 2026-10-17): deleting
+    # unduplicated lines raises it with no new clone.
     pct = [v for k, v in repo.metrics.items() if k.startswith("duplication.") and k.endswith("jscpd_percent")]
     clones = [v for k, v in repo.metrics.items() if k.startswith("duplication.") and k.endswith("clones")]
-    if pct:
-        ok = max(pct) <= conf["quality_jscpd_percent_max"] and (not clones or max(clones) <= conf["quality_clones_max"])
-        repo.add("T2", "quality.duplication", ok, f"jscpd {max(pct):g}% (max {conf['quality_jscpd_percent_max']:g}), clones {max(clones) if clones else 0:g} (max {conf['quality_clones_max']:g})")
+    if clones:
+        shown = [f"jscpd {max(pct):g}% (report-only)"] if pct else []
+        repo.add("T2", "quality.duplication", max(clones) <= conf["quality_clones_max"], "; ".join([f"clones {max(clones):g} (max {conf['quality_clones_max']:g})", *shown]))
     else:
         repo.add("T2", "quality.duplication", None, "no duplication.* keys", mechanism="jscpd.mjs collector")
     targets = makefile_targets(repo.root)

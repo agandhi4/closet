@@ -64,6 +64,15 @@ const eslintConfig = defineConfig([
 ]);
 ```
 
+### TypeScript configs
+
+`eslint.base.d.mts` declares the module's exports, so an `eslint.config.ts` imports the base
+with no declaration of its own (orbit's `frontend/eslint-base.d.ts` goes at its next sync):
+`default` is the configs, a subset of `Linter.Config[]`, and `sonarjsRules` and
+`sonarjsTestRules` are `Linter.RulesRecord`. It imports nothing either, for the same reason, so it
+spells eslint's shapes out. template-tests holds them assignable to eslint's own types, and
+`tests/lint_contract.bats` holds its export list to the module's.
+
 ### sonarjs
 
 The base also exports two rule maps for eslint-plugin-sonarjs. `sonarjsRules` turns on

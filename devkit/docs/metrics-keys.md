@@ -34,7 +34,7 @@ schema 1 envelope (finplat's `make metrics`) and a bare flat file, which carry n
 | Domain | Direction | Examples |
 |---|---|---|
 | `coverage` | higher | `coverage.backend.lines`, `coverage.frontend.branches` |
-| `duplication` | lower | `duplication.repo.jscpd_percent` |
+| `duplication` | lower | `duplication.repo.clones`; `duplication.<s>.jscpd_percent` is REPORT-ONLY: it is duplicated over scanned lines, so deleting unduplicated code raises it with no new clone (orbit #86, #88; decision 2026-10-17) |
 | `dead` | lower | `dead.backend.vulture`, `dead.frontend.knip_exports` |
 | `complexity` | lower | `complexity.backend.cognitive_max`, `complexity.backend.mccabe_over_10` |
 | `coupling` | lower | `coupling.frontend.cycles`, `coupling.backend.layer_violations` (`bin/layer_check.py`), `coupling.backend.fan_out_max`; `coupling.<s>.fan_in_max` is REPORT-ONLY: a models or core hub has many importers by design, so its fan-in is architecture, not drift (decision 2026-10-17) |

@@ -13,7 +13,6 @@ import {
   WEATHER_LOCATION_LIMIT,
   WEATHER_SEARCH_LIMIT,
 } from '../security/rate-limit';
-import { roundedLocation } from '../../weather/location';
 import { FEELINGS, TEMPERATURE_UNITS } from '../../weather/temperature';
 import {
   clearHere,
@@ -28,8 +27,16 @@ import {
 } from './queries';
 import { userWeather, type WeatherService } from './service';
 import {
+  LocationBody,
+  PlaceBody,
+  PlaceQuery,
+  pickedPlace,
+  placeAnswer,
+  postedLocation,
+} from './place-picker';
+import {
+  HomePlaceResults,
   OffsetControls,
-  PlaceResults,
   WEATHER_SETTINGS_ID,
   WeatherLocation,
 } from './settings';
@@ -38,11 +45,6 @@ import { UserWeatherLine, WeatherCellDay, WeatherDay } from './views';
 
 /** The widest range of day chips one summary answers: a calendar month and a half. */
 const MAX_SUMMARY_DAYS = 42;
-const PLACE_NAME_MAX = 200;
-const PLACE_QUERY_MAX = 100;
-
-const Latitude = Type.Number({ minimum: -90, maximum: 90 });
-const Longitude = Type.Number({ minimum: -180, maximum: 180 });
 
 const SummaryQuery = Type.Object({
   from: Type.Optional(IsoDateSchema),
@@ -172,44 +174,25 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
   app.get(
     '/weather/places',
     {
-      schema: {
-        querystring: Type.Object({
-          q: Type.String({ minLength: 2, maxLength: PLACE_QUERY_MAX }),
-        }),
-      },
+      schema: { querystring: PlaceQuery },
       config: { rateLimit: WEATHER_SEARCH_LIMIT, secretPath: true },
     },
-    async (request, reply) => {
-      try {
-        const places = await weather.searchPlaces(request.query.q.trim());
-        return renderFragment(reply, <PlaceResults places={places} />);
-      } catch {
-        // Logged by the service. A 200, so htmx shows it.
-        return renderFragment(reply, <PlaceResults failed />);
-      }
-    },
+    async (request, reply) =>
+      renderFragment(
+        reply,
+        <HomePlaceResults answer={await placeAnswer(weather, request.query)} />,
+      ),
   );
 
   app.post(
     '/weather/home',
     {
-      schema: {
-        body: Type.Object({
-          name: Type.String({ minLength: 1, maxLength: PLACE_NAME_MAX }),
-          latitude: Latitude,
-          longitude: Longitude,
-        }),
-      },
+      schema: { body: PlaceBody },
       config: { rateLimit: WEATHER_LOCATION_LIMIT },
     },
     async (request, reply) => {
-      const { name, latitude, longitude } = request.body;
       const userId = sessionUserId(request);
-      await setHome(db, userId, {
-        name: name.trim(),
-        // In range by the schema, so never null.
-        location: roundedLocation(latitude, longitude)!,
-      });
+      await setHome(db, userId, pickedPlace(request.body));
       logger.info(`Weather home set by user ${userId}`);
       return answer(request, reply, locationPart);
     },
@@ -226,19 +209,13 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
     '/weather/here',
     {
       schema: {
-        body: Type.Object({ latitude: Latitude, longitude: Longitude }),
+        body: LocationBody,
       },
       config: { rateLimit: WEATHER_LOCATION_LIMIT },
     },
     async (request, reply) => {
-      const { latitude, longitude } = request.body;
       const userId = sessionUserId(request);
-      await setHere(
-        db,
-        userId,
-        roundedLocation(latitude, longitude)!,
-        new Date(),
-      );
+      await setHere(db, userId, postedLocation(request.body), new Date());
       logger.info(`Weather location (this phone's) set by user ${userId}`);
       return answer(request, reply, locationPart);
     },
