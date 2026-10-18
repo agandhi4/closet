@@ -4,7 +4,8 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { CancelLink, Messages } from '../layout/parts';
+import { FormField, inputAttributes } from '../form-field';
+import { CancelLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
@@ -55,35 +56,37 @@ export function BoughtPage(props: { ctx: ViewContext; model: BoughtModel }) {
           action={garmentUrl(garment.id, model.viewOwner, '/bought')}
           class="flex flex-col gap-4"
         >
-          <div class="flex flex-col">
-            <label class="label" for="bought-acquired">
-              <span class="label-text">{t('DATE_ACQUIRED')}</span>
-            </label>
+          <FormField
+            id="bought-acquired"
+            label={t('DATE_ACQUIRED')}
+            messages={errors.acquiredOn}
+          >
             <input
-              id="bought-acquired"
+              {...inputAttributes(
+                'bought-acquired',
+                'w-full',
+                errors.acquiredOn,
+              )}
               type="date"
               name="acquiredOn"
-              class={`input input-bordered w-full ${errors.acquiredOn ? 'input-error' : ''}`}
               value={values.acquiredOn}
             />
-            <Messages messages={errors.acquiredOn} />
-          </div>
-          <div class="flex flex-col">
-            <label class="label" for="bought-price">
-              <span class="label-text">{t('wishlist.PRICE_PAID')}</span>
-            </label>
+          </FormField>
+          <FormField
+            id="bought-price"
+            label={t('wishlist.PRICE_PAID')}
+            messages={errors.price}
+          >
             <input
-              id="bought-price"
+              {...inputAttributes('bought-price', 'w-full', errors.price)}
               type="text"
               inputmode="decimal"
               name="price"
-              class={`input input-bordered w-full ${errors.price ? 'input-error' : ''}`}
               value={values.price}
               maxlength={PRICE_INPUT_MAX}
               placeholder={t('PRICE_PLACEHOLDER')}
             />
-            <Messages messages={errors.price} />
-          </div>
+          </FormField>
           {model.archivable && (
             <label class="label cursor-pointer justify-start gap-3 whitespace-normal">
               <input

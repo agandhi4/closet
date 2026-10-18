@@ -11,12 +11,8 @@ import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import {
-  Messages,
-  ProfileSection,
-  SavedToast,
-  StripFlags,
-} from '../layout/parts';
+import { FormField, inputAttributes } from '../form-field';
+import { ProfileSection, SavedToast, StripFlags } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { BRAND_MAX, SIZE_MAX } from '../wardrobe/garment-input';
 import type { BodyMeasurements, BrandSize } from './queries';
@@ -286,27 +282,31 @@ function MeasurementsForm({ model }: { model: SizesPageModel }) {
       <div class="grid grid-cols-2 gap-3">
         {MEASUREMENTS.map((m) => {
           const id = `measurement-${m}`;
+          // The unit sits inside the frame, so the frame takes the classes
+          // and the input inside it the id and aria.
+          const { class: frame, ...control } = inputAttributes(
+            id,
+            'w-full',
+            errors[m],
+          );
           return (
-            <div class="flex flex-col">
-              <label class="label" for={id}>
-                <span class="label-text">{t(`sizes.measurement.${m}`)}</span>
-              </label>
-              <label
-                class={`input input-bordered w-full ${errors[m] ? 'input-error' : ''}`}
-              >
+            <FormField
+              id={id}
+              label={t(`sizes.measurement.${m}`)}
+              messages={errors[m]}
+            >
+              <label class={frame}>
                 <input
-                  id={id}
+                  {...control}
                   type="text"
                   inputmode="decimal"
                   name={m}
                   value={model.measurements[m]}
                   maxlength={LENGTH_INPUT_MAX}
-                  aria-invalid={errors[m] ? 'true' : undefined}
                 />
                 <span class="text-muted">{unit}</span>
               </label>
-              <Messages messages={errors[m]} />
-            </div>
+            </FormField>
           );
         })}
       </div>
@@ -393,22 +393,16 @@ function BrandInput(props: {
   required?: boolean;
 }) {
   return (
-    <div class="flex flex-col">
-      <label class="label" for={props.id}>
-        <span class="label-text">{props.label}</span>
-      </label>
+    <FormField id={props.id} label={props.label} messages={props.errors}>
       <input
-        id={props.id}
+        {...inputAttributes(props.id, 'input-sm w-full', props.errors)}
         type="text"
         name={props.name}
-        class={`input input-bordered input-sm w-full ${props.errors ? 'input-error' : ''}`}
         value={props.value}
         maxlength={props.maxlength}
         placeholder={props.placeholder}
         required={props.required}
-        aria-invalid={props.errors ? 'true' : undefined}
       />
-      <Messages messages={props.errors} />
-    </div>
+    </FormField>
   );
 }
