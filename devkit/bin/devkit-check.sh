@@ -16,6 +16,21 @@
 # fix is made: reading the staged copy kept a manual run failing on a plan already fixed on disk
 # (closet #410). --staged reads the index instead, as secrets_check.sh --staged does, for a hook
 # that must judge exactly what is about to be committed. CI and the gate see one tree either way.
+#
+# Also (a WARNING, exit 0): an alternative of the plan's GATE_IMAGE_EXCLUDE_PATHS whose every
+# tracked path the root .dockerignore already excludes. The gate reads .dockerignore itself
+# (_dockerignore.py), so such an alternative is a hand copy that drifts (redlib #23, locus #133).
+# Read from a literal assignment, single-quoted or bare, the fleet's two forms.
+#
+# Also (a WARNING, exit 0): a Makefile recipe line that runs `docker` itself (makefile_raw_docker,
+# bin/_makefile_lib.sh), naming the line. It bypasses the daemon probe and per-call bound, so a
+# wedged daemon hangs the job until the watchdog; route it through devkit/bin/docker_bounded.sh.
+#
+# Also (WARNINGS, exit 0): a repo that gates through devkit merges through it (bin/pr_merge.sh,
+# which refuses a head without a local-gate success). A Makefile with a `gate` target and no
+# `merge` target is named, and so is each line of AGENTS.md's `## Workflow` section that says
+# `gh pr merge`: lanes do what that text says, so the text moves with the target. AGENTS.md is
+# read like the plan: the working tree, or the index under --staged.
 set -euo pipefail
 STAGED=0
 case "${1:-}" in
@@ -27,6 +42,8 @@ esac
 . "$(dirname "${BASH_SOURCE[0]}")/_vendor_paths.sh"
 # shellcheck source=bin/_paths_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_paths_lib.sh"
+# shellcheck source=bin/_makefile_lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/_makefile_lib.sh"
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 # The vendored tree, .devkit-rev and the .swift-format copies: both sides come from the INDEX,
@@ -94,5 +111,34 @@ if [ -n "$plan_src" ]; then
     fi
   done
   [ "$retired_set" -eq 0 ] || exit 1
+  exclude_re="^[[:space:]]*GATE_IMAGE_EXCLUDE_PATHS=('([^']*)'|([^[:space:]'\"]+))"
+  while IFS= read -r line; do
+    [[ "$line" =~ $exclude_re ]] || continue
+    exclude=${BASH_REMATCH[2]}${BASH_REMATCH[3]}
+    if redundant=$(git ls-files | python3 -I "$(dirname "${BASH_SOURCE[0]}")/_dockerignore.py" redundant . "$exclude"); then
+      while IFS= read -r alt; do
+        [ -n "$alt" ] && echo "devkit-check: WARNING: GATE_IMAGE_EXCLUDE_PATHS '$alt' is already excluded by .dockerignore, which the gate reads itself; drop it from the ERE" >&2
+      done <<<"$redundant"
+    else
+      echo "devkit-check: WARNING: could not hold GATE_IMAGE_EXCLUDE_PATHS to .dockerignore (above)" >&2
+    fi
+    break
+  done <<<"$plan"
 fi
+while IFS= read -r raw; do
+  [ -z "$raw" ] || echo "devkit-check: WARNING: ${raw%%: *}: docker runs unbounded (no daemon probe, no per-call timeout); use devkit/bin/docker_bounded.sh: ${raw#*: }" >&2
+done <<<"$(makefile_raw_docker)"
+targets=$(makefile_targets)
+if [[ "$targets" == *" gate "* && "$targets" != *" merge "* ]]; then
+  # shellcheck disable=SC2016  # $(PR) is make's variable, printed literally
+  echo 'devkit-check: WARNING: the Makefile has a gate target but no merge target; add: merge: ; devkit/bin/pr_merge.sh "$(PR)"' >&2
+fi
+if [ "$STAGED" = 1 ]; then
+  agents_src=$(git show :AGENTS.md 2>/dev/null) || agents_src=""
+else
+  agents_src=$(cat AGENTS.md 2>/dev/null) || agents_src=""
+fi
+while IFS= read -r line; do
+  [ -z "$line" ] || echo "devkit-check: WARNING: AGENTS.md:$line: the Workflow section merges with gh pr merge; say make merge PR=<n> (it refuses a head without a local-gate success)" >&2
+done <<<"$(awk '/^## / { wf = ($0 ~ /^## Workflow/) } wf && /gh pr merge/ { print NR }' <<<"$agents_src")"
 echo "devkit-check: ok (${_commit:0:7})"
