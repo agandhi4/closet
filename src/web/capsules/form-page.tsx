@@ -1,5 +1,6 @@
 import { PostForm } from '../auth/form';
 import type { FieldErrors } from '../auth/validation';
+import { FormField, inputAttributes } from '../form-field';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -42,29 +43,23 @@ export function CapsuleFormPage(props: {
           action={editing ? `/capsules/${capsuleId}` : '/capsules'}
           class="flex flex-col gap-4"
         >
-          <div class="flex flex-col">
-            <label class="label" for="capsule-name">
-              <span class="label-text">{t('NAME')} *</span>
-            </label>
+          <FormField
+            id="capsule-name"
+            label={t('NAME')}
+            required
+            messages={errors.name}
+          >
             <input
-              id="capsule-name"
+              {...inputAttributes('capsule-name', 'w-full', errors.name)}
               type="text"
               name="name"
-              class={`input input-bordered w-full ${errors.name ? 'input-error' : ''}`}
               value={values.name}
               maxlength={CAPSULE_NAME_MAX}
               required
               placeholder={t('CAPSULE_NAME_PLACEHOLDER')}
-              aria-invalid={errors.name ? 'true' : undefined}
             />
-            {errors.name?.map((message) => (
-              <p class="text-error text-sm mt-1">{message}</p>
-            ))}
-          </div>
-          <div class="flex flex-col">
-            <label class="label" for="capsule-notes">
-              <span class="label-text">{t('NOTES')}</span>
-            </label>
+          </FormField>
+          <FormField id="capsule-notes" label={t('NOTES')}>
             <textarea
               id="capsule-notes"
               name="notes"
@@ -75,7 +70,7 @@ export function CapsuleFormPage(props: {
             >
               {values.notes}
             </textarea>
-          </div>
+          </FormField>
           <div class="flex gap-2 mt-2">
             <button type="submit" class="btn btn-primary flex-1">
               {t('SAVE')}

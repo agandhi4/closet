@@ -18,6 +18,7 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { autosaveAttributes } from '../autosave';
+import { FormField, inputAttributes } from '../form-field';
 import { t } from '../i18n';
 import { type LabelledProperty, valueLabel } from './labels';
 import type { PropertyFormValues } from './garment-input';
@@ -337,17 +338,21 @@ function FabricWeight(props: {
 }) {
   const { values, errors } = props;
   return (
-    <div class="flex flex-col">
-      <label class="label" for="garment-fabric-weight">
-        <span class="label-text">{t('PROPERTY_FABRIC_WEIGHT')}</span>
-      </label>
+    <FormField
+      id="garment-fabric-weight"
+      label={t('PROPERTY_FABRIC_WEIGHT')}
+      messages={errors}
+    >
       <div class="join w-full">
         <input
-          id="garment-fabric-weight"
+          {...inputAttributes(
+            'garment-fabric-weight',
+            'join-item flex-1',
+            errors,
+          )}
           type="text"
           inputmode="decimal"
           name="fabricWeight"
-          class={`input input-bordered join-item flex-1 ${errors ? 'input-error' : ''}`}
           value={values.fabricWeight}
           maxlength={12}
           placeholder={t('FABRIC_WEIGHT_PLACEHOLDER')}
@@ -366,11 +371,6 @@ function FabricWeight(props: {
           </option>
         </select>
       </div>
-      {errors?.map((message) => (
-        <p class="text-error text-sm mt-1" role="alert">
-          {message}
-        </p>
-      ))}
-    </div>
+    </FormField>
   );
 }

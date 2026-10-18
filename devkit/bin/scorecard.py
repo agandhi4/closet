@@ -534,6 +534,17 @@ def t7_runtime(repo: Repo) -> None:
         repo.add("T7", cid, None, "no live metrics source", mechanism="AUDIT_VM_URL reader over VictoriaMetrics")
 
 
+def hook_load_scale(parts: list[str]) -> float:
+    """The `scale=<x>` word of a hooks-ledger row's note column (hook_steps.sh), else 1."""
+    for word in (parts[5] if len(parts) > 5 else "").split():
+        if word.startswith("scale="):
+            try:
+                return max(1.0, float(word[len("scale="):]))
+            except ValueError:
+                return 1.0
+    return 1.0
+
+
 def t8_gate(repo: Repo, conf: dict[str, float], state_home: Path) -> None:
     totals, maxes, seen = gate_seconds(repo, state_home)
     if seen and totals:
@@ -558,18 +569,22 @@ def t8_gate(repo: Repo, conf: dict[str, float], state_home: Path) -> None:
         repo.add("T8", "gate.coverage", None, "no coverage.* keys", mechanism="coverage.py collector over the unit tier")
     ledger = state_home / "devkit" / "hooks" / f"{repo.name}.tsv"  # repo_name(): the main checkout's, as hook_steps.sh writes it
     if ledger.is_file():
-        totals: dict[str, list[float]] = {}
+        totals: dict[str, list[tuple[float, float]]] = {}
         for line in ledger.read_text().splitlines()[-400:]:
             parts = line.split("\t")
             if len(parts) >= 5 and parts[2] == "total" and parts[3].isdigit():
-                totals.setdefault(parts[1], []).append(float(parts[3]))
+                totals.setdefault(parts[1], []).append((float(parts[3]), hook_load_scale(parts)))
         bad, seen = [], []
         for hook, limit_key in (("pre-commit", "gate_precommit_max"), ("pre-push", "gate_prepush_max")):
-            runs = totals.get(hook, [])[-20:]
-            if not runs:
+            recent = totals.get(hook, [])[-20:]
+            if not recent:
                 continue
+            # A run on a box above its core count is graded at its seconds / scale, the rule the
+            # tier and job budgets use (bin/_load_lib.sh), so load is not read as a regression.
+            runs = [secs / scale for secs, scale in recent]
+            scaled = sum(1 for _, scale in recent if scale > 1)
             p90 = sorted(runs)[max(0, int(len(runs) * 0.9) - 1)]
-            seen.append(f"{hook} p90 {p90:g}s/{conf[limit_key]:g} over {len(runs)} runs")
+            seen.append(f"{hook} p90 {p90:g}s/{conf[limit_key]:g} over {len(runs)} runs" + (f" ({scaled} load-scaled)" if scaled else ""))
             if p90 > conf[limit_key]:
                 bad.append(hook)
         if seen:

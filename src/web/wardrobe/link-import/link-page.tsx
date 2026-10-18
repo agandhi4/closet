@@ -1,4 +1,5 @@
 import { PostForm } from '../../auth/form';
+import { FormField, inputAttributes } from '../../form-field';
 import { t } from '../../i18n';
 import { AppBar } from '../../layout/app-bar';
 import { Dock } from '../../layout/dock';
@@ -32,6 +33,7 @@ export interface LinkPageModel {
 export function LinkPage(props: { ctx: ViewContext; model: LinkPageModel }) {
   const { ctx, model } = props;
   const { viewOwner, destination } = model;
+  const messages = model.error ? [model.error] : undefined;
   const wishlist = destination.to === 'wishlist';
   const title = t(
     wishlist ? 'wishlist.ADD_FROM_LINK_TITLE' : 'linkImport.TITLE',
@@ -58,37 +60,26 @@ export function LinkPage(props: { ctx: ViewContext; model: LinkPageModel }) {
           )}
           class="flex flex-col gap-4"
         >
-          <div class="flex flex-col">
-            <label class="label" for="link-url">
-              <span class="label-text">{t('linkImport.URL_LABEL')}</span>
-            </label>
+          <FormField
+            id="link-url"
+            label={t('linkImport.URL_LABEL')}
+            messages={messages}
+          >
             {/* Text, not type="url": a pasted "Product title https://…" is
                 valid input (linkIn finds the link), and the browser's URL
                 validation would refuse it before the post. */}
             <input
-              id="link-url"
+              {...inputAttributes('link-url', 'w-full', messages)}
               type="text"
               name="url"
               inputmode="url"
-              class={`input input-bordered w-full ${model.error ? 'input-error' : ''}`}
               value={model.link}
               maxlength={LINK_INPUT_MAX}
               placeholder={t('linkImport.URL_PLACEHOLDER')}
               autocomplete="off"
               required
-              aria-invalid={model.error ? 'true' : undefined}
-              aria-describedby={model.error ? 'link-url-error' : undefined}
             />
-            {model.error && (
-              <p
-                id="link-url-error"
-                class="text-error text-sm mt-1"
-                role="alert"
-              >
-                {model.error}
-              </p>
-            )}
-          </div>
+          </FormField>
           <button type="submit" class="btn btn-primary">
             {t('linkImport.FETCH')}
           </button>

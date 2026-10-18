@@ -28,7 +28,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - **`npm install <package>` skips our `postinstall`**, so `patches/` are unapplied and the drift test fails; run `npx patch-package` or `npm ci`.
 - **Regenerate `package-lock.json` only with Node 22 / npm 10**: npm 11 prunes entries the Docker build's `npm ci` needs.
 - **macOS needs `sudo ifconfig lo0 alias 127.0.0.2`** before the integration tier or `npm run check`: without it about 22 specs fail with EADDRNOTAVAIL (`test/integration/link-sites.ts`).
-- **`public/build.json` lingers after `npm run build`**: stale styles in `start:dev`; set `NODE_ENV=development` in `.env.local` or delete it. `precommit:full` is minutes long.
+- **`public/build.json` lingers after `npm run build`**: stale styles in `start:dev`; set `NODE_ENV=development` in `.env.local` or delete it.
 
 ## Architecture
 
@@ -123,8 +123,8 @@ Each rule in full, with its story: `docs/web-layer.md`. A feature lives whole (r
 - **Errors**: `throw new HttpError(status)` (`src/web/errors.tsx`); the root error handler renders `ErrorPage`, anything else a detail-free 500. The root hook must stay at preValidation (validation runs after it, so a 400 keeps its page).
 - **Hooks**: an async hook that answers must `return reply` or the handler sends again; one without async work takes `done` (`@typescript-eslint/require-await`). `createApp()` registers every root piece before `webPlugin`: a plugin inherits only what existed when it was registered.
 - **Escaping**: the only raw-markup hatch is `dangerouslySetInnerHTML`, fed `tHtml()` or `jsonForScript()`, never a raw value, with a reason at each site. `hono/html` is banned by ESLint.
-- **Forms**: every post form is `PostForm` (`src/web/auth/form.tsx`), a native post: htmx swaps no 4xx, and boosted forms lose password saving (`expectNativePostForms`); uploads too, never `hx-post`. It submits once (`public/js/submit-once.js`; `test/gallery.spec.ts (retired 2026-10-13)`); the server stays the guard where a duplicate matters.
-- **Autosave**: every control saved on change is built by `src/web/autosave.tsx` (`AutosaveForm`, `autosaveAttributes`), never by hand with `hx-trigger="change"` (`expectAutosaveControls`); **no other swap may replace an autosave form**, or its queued save dies (`test/autosave.spec.ts (retired 2026-10-13)`).
+- **Forms**: every post form is `PostForm` (`src/web/auth/form.tsx`), a native post: htmx swaps no 4xx, and boosted forms lose password saving (`expectNativePostForms`); uploads too, never `hx-post`. It submits once (`public/js/submit-once.js`); the server stays the guard where a duplicate matters. Fields: `FormField` + `inputAttributes` (`src/web/form-field.tsx`), the one spelling of an invalid field (`@field-invalid`).
+- **Autosave**: every control saved on change is built by `src/web/autosave.tsx` (`AutosaveForm`, `autosaveAttributes`), never by hand with `hx-trigger="change"` (`expectAutosaveControls`); **no other swap may replace an autosave form**, or its queued save dies.
 - **htmx** reads only the first `<meta name="htmx-config">`; `disableInheritance` is on, so the body's `hx-inherit="hx-boost hx-indicator"` must stay.
 
 ### Request security

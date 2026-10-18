@@ -3,7 +3,7 @@ import { PostForm } from '../auth/form';
 import { dateParts } from '../../calendar-date';
 import { shortDayLabel } from '../date-labels';
 import { t } from '../i18n';
-import { inputClass, Messages } from '../layout/parts';
+import { FormField, inputAttributes } from '../form-field';
 import { priceLabel } from './garment';
 import { valueLabel } from './labels';
 import type { RepairEntry, RepairLog, RepairPanel } from './repairs';
@@ -138,54 +138,53 @@ export function RepairEditor({ panel }: { panel: RepairPanel }) {
             />
           ))}
         </div>
-        <div class="flex flex-col">
-          <label class="label" for="repair-note">
-            <span class="label-text">{t('care.REPAIR_NOTE')}</span>
-          </label>
+        <FormField
+          id="repair-note"
+          label={t('care.REPAIR_NOTE')}
+          messages={errors.note}
+        >
           <input
-            id="repair-note"
+            {...inputAttributes('repair-note', 'w-full', errors.note)}
             type="text"
             name="note"
             value={draft.note}
             maxlength={CARE_NOTE_MAX}
             required
             placeholder={t('care.REPAIR_NOTE_PLACEHOLDER')}
-            class={inputClass('w-full', errors.note)}
           />
-          <Messages messages={errors.note} />
-        </div>
+        </FormField>
         <div class="grid grid-cols-2 gap-3">
-          <div class="flex flex-col min-w-0">
-            <label class="label" for="repair-day">
-              <span class="label-text">{t('care.REPAIR_DAY')}</span>
-            </label>
+          <FormField
+            id="repair-day"
+            label={t('care.REPAIR_DAY')}
+            messages={errors.day}
+            class="min-w-0"
+          >
             <input
-              id="repair-day"
+              {...inputAttributes('repair-day', 'w-full', errors.day)}
               type="date"
               name="day"
               value={draft.day}
               max={panel.today}
               required
-              class={inputClass('w-full', errors.day)}
             />
-            <Messages messages={errors.day} />
-          </div>
-          <div class="flex flex-col min-w-0">
-            <label class="label" for="repair-cost">
-              <span class="label-text">{t('care.REPAIR_COST')}</span>
-            </label>
+          </FormField>
+          <FormField
+            id="repair-cost"
+            label={t('care.REPAIR_COST')}
+            messages={errors.cost}
+            class="min-w-0"
+          >
             <input
-              id="repair-cost"
+              {...inputAttributes('repair-cost', 'w-full', errors.cost)}
               type="text"
               inputmode="decimal"
               name="cost"
               value={draft.cost}
               maxlength={PRICE_INPUT_MAX}
               placeholder={t('care.REPAIR_COST_PLACEHOLDER')}
-              class={inputClass('w-full', errors.cost)}
             />
-            <Messages messages={errors.cost} />
-          </div>
+          </FormField>
         </div>
         <button type="submit" class="btn btn-primary">
           {t('care.REPAIR_ADD')}
