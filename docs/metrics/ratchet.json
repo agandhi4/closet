@@ -64,16 +64,6 @@
     "direction": "lower",
     "source": "guards"
   },
-  "size.backend.max_lines": {
-    "bound": 2295,
-    "direction": "lower",
-    "source": "size-backend"
-  },
-  "size.backend.over_600": {
-    "bound": 15,
-    "direction": "lower",
-    "source": "size-backend"
-  },
   "statements.DELETE:/outfits/:id": {
     "bound": 8,
     "direction": "lower",

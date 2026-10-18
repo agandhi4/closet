@@ -29,6 +29,9 @@
 GATE_SLUG=agandhi4/closet
 # shellcheck disable=SC2034
 GATE_STATE_NAME=closet-gate
+# make merge (devkit/bin/pr_merge.sh) also requires Codex's status on the head.
+# shellcheck disable=SC2034
+GATE_MERGE_REQUIRES=codex-review
 
 PG_CONTAINER="closet-gate-pg-$PR"
 SMOKE_PG_CONTAINER="closet-gate-smoke-pg-$PR"

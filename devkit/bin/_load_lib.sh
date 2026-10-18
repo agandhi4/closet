@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # Machine load, and budgets that stretch under it. Sourced; defines functions and runs nothing.
 # Used by: local_gate.sh (the load wait before a slot; each job's budget), tier_guard.sh (the
-# tier's budget) and hook_steps.sh (the load note on its ledger rows, which scorecard.py T8
-# divides out).
+# tier's budget) and hook_steps.sh (the load note on its ledger rows, for a reader of the
+# seconds to divide out).
 #
 # Why (closet #410, 2026-10-17): its db tier ran 61-65 s alone and twice failed its 110 s budget
 # at a load average of ~13 on 8 cores, while parallel lanes gated other repos. A budget is a
