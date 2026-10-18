@@ -476,7 +476,7 @@ if ! git -C "$ROOT" fetch -q origin main "+pull/$PR/head:$GATE_REF"; then
 fi
 HEAD_SHA=$(git -C "$ROOT" rev-parse "$GATE_REF")
 if [ -n "$EXPECT_HEAD" ] && [ "$HEAD_SHA" != "$EXPECT_HEAD" ]; then
-  echo "GATE head FAIL (GitHub has PR #$PR at $HEAD_SHA, not the expected $EXPECT_HEAD after ${HEAD_WAIT_SECS}s; push it, or rerun once GitHub shows it)"
+  echo "GATE head FAIL (GitHub head $HEAD_SHA ≠ local $EXPECT_HEAD after ${HEAD_WAIT_SECS}s; push or wait)"
   echo "VERDICT FAIL head= main="
   exit 1
 fi

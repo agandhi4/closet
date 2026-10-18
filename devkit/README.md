@@ -24,7 +24,7 @@ What each path is; [AGENTS.md](AGENTS.md) holds the invariants that tie them tog
 | `bin/remote_gate.sh` | Runs the repo's gate on the gate host over ssh (clone if absent, reset to `origin/main`, `local_gate.sh` there); same output, exit code and `local-gate` status. |
 | `bin/devkit-sync.sh` | Fetch upstream, replace `devkit/` with its tree filtered to `VENDOR_PATHS`, record `<commit> <filtered tree>` in `.devkit-rev`, commit. Refreshes tracked copies of vendored bases (`.swift-format`, `.githooks/*`) in the same commit. Conflict-free by construction. `--stage` leaves it in the index for the caller's own commit. |
 | `bin/devkit-new.sh`, `templates/new/` | `devkit new <name> --stack <stack> [--dir <parent>] [--no-image]`: a new repo that passes every guard on its first commit, which is made through the hooks. Stacks: `python-fastapi`, `node-service`, `rust`, `next-vercel`, `swift-app`; each is a directory under `templates/new/stacks/` (how to add one: `templates/new/README.md`). See "New project". |
-| `bin/devkit-check.sh` | Offline guard for `ci-quick` and pre-commit: the staged `devkit/` tree equals the staged `.devkit-rev` (both read from the index). Fails on in-repo edits, and on a tree holding paths outside its own `VENDOR_PATHS` (vendored whole by a pre-manifest sync: rerun the repo's `devkit-sync`), and on any tracked `.swift-format` that is not byte-equal to `lint/swift-format.json`. |
+| `bin/devkit-check.sh` | Offline guard for `ci-quick` and pre-commit: the staged `devkit/` tree equals the staged `.devkit-rev` (both read from the index). Fails on in-repo edits, and on a tree holding paths outside its own `VENDOR_PATHS` (vendored whole by a pre-manifest sync: rerun the repo's `devkit-sync`), and on any tracked `.swift-format` that is not byte-equal to `lint/swift-format.json`, and on a `scripts/ci/gate_plan.sh` that sets a retired plan variable (read from the working tree, where the fix is made; `--staged` reads the index instead). |
 | `bin/node_toolchain.sh` | Provides the exact Node in the repo's `.nvmrc`: uses PATH's node when it matches, else a checksum-verified install cached under `~/.local/share/devkit/node`. The gate and the hooks call it through `toolchain_path.sh`. |
 | `bin/rust_toolchain.sh` | Provides the exact Rust in `rust-toolchain.toml` (or `rust-toolchain`): uses PATH's cargo when it matches, else installs through rustup (PATH's, or a private one bootstrapped under `~/.local/share/devkit/rust`) and prints the toolchain's sysroot bin, so callers export PATH only. `--declared` prints the version. The gate and the hooks call it through `toolchain_path.sh`. |
 | `bin/toolchain_path.sh` | Sourced: `toolchain_path <tree>` puts the tree's pinned Node (`.nvmrc`) and Rust (`rust-toolchain.toml`) first on PATH through the two scripts above, or fails naming the pin. The one provisioning path for `local_gate.sh` (merged worktree) and `hook_steps.sh` (the hook's checkout), so a hook runs the gate's node and cargo on a machine with none. Python needs nothing: uv reads `.python-version`. |
@@ -43,7 +43,7 @@ What each path is; [AGENTS.md](AGENTS.md) holds the invariants that tie them tog
 | `bin/tier_guard.sh` | `<tier> --budget <s> [--floor <runner>=<min>]... -- <cmd...>`: one test tier under a wall-clock budget (the whole command's wall time; it fails over budget even when every test passed, `TIER_BUDGET_ENFORCE=0` only reports; a box above its core count stretches it by min(load / cores, 2), printed as `budget 110 s ×1.6 (load 13.1 on 8 cpus) → 176 s`) and per-runner floors on the tests that RAN (skipped ones do not count), read from the runner's own summary line: `pytest`, `vitest`, `playwright`, `cargo`. Streams the command's output, exits with its code, prints `TIER <tier>: …` / `FAIL` / `FLOOR` / `OVERBUDGET` lines and writes `build/metrics/tier-<tier>.json` at the git top level (`tier.<tier>.seconds`, `tests.<tier>.<runner>`). Every `devkit new` stack's test tiers run through it. |
 | `bin/metrics_collect.sh` | `<snapshot\|check\|tighten\|rebaseline>`: the `ci-metrics` mechanism. Reads `scripts/ci/metrics.conf` (`<name> <area> <command...>`), runs each collector from the repo root into `build/metrics/<name>.json`, skips those whose area no changed path touched (in the gate; `tooling`/`other` and `repo` collectors run regardless), merges with the gate's and tiers' files, then runs the ratchet. A repo's Makefile holds four one-line targets and nothing else. "Metrics ratchet" below. |
 | `metrics/` | The shared collectors a `metrics.conf` line calls, one per stack, each `--scope <name> [--out FILE]`, deterministic, exit 2 naming a missing dev dependency: `python.py --root <dir> --src <subdir|module.py>... [--python <interp>] [--mccabe] [--cognitive] [--vulture [--vulture-ignore-declarative] [--vulture-base <set,...>]] [--cycles]` (ruff C901, complexipy, vulture, AST import cycles; run under the repo's interpreter, `uv run --frozen --project backend python devkit/metrics/python.py …`, so the tools resolve); `ts.mjs --root <dir> --src <subdir> [--tsconfig F] [--test-glob G]... [--cyclomatic] [--cognitive] [--knip [--knip-base]] [--cycles] [--bundle [--bundle-entry index.html]]` (eslint `complexity`, sonarjs cognitive, knip, dependency-cruiser cycles, vite bundle KiB; tools from `<root>/node_modules/.bin`); `rust.py --root <workspace> [--cognitive] [--dead]` (clippy `cognitive_complexity` scoring every function, rustc's unused-code warnings; one `cargo clippy`/`check --workspace --locked` on PATH's cargo, which the gate provisions from `rust-toolchain.toml`); `jscpd.mjs --scope repo [--min-tokens 50] [--min-lines 5] [--bin <jscpd>] [--base] [--list-out FILE] <paths...>`; `coverage.py --scope <s> (--coverage-json F \| --istanbul-summary F)` (the tier writes the report; "run make ci-unit-<s> first" when it is missing). Keys per collector: `docs/metrics-keys.md`. The `--*base` flags merge `lint/`'s knip, jscpd and vulture bases under the repo's own config (`lint/README.md`). |
-| `bin/metrics_ratchet.py` | The "never worse than main" gate. `check` holds a snapshot to `docs/metrics/ratchet.json` and that file to main's copy (`git show origin/main:…`), so a PR cannot loosen its own bounds; `tighten` locks in BETTER numbers in the improving PR and prints every WORSE or MISSING key as `check` would, exiting 1, so the author sees the gate's refusal first; report-only keys (`vuln.*`, `coupling.*.fan_in_max`) are printed, never gated, and `tighten`/`rebaseline` commit their values to `docs/metrics/report-only.json` for the scorecard; `merge` joins `build/metrics/*.json` into one snapshot that records each key's collector and the collectors skipped, so a key whose collector did not run is SKIPPED, not a failure. Committing a looser bound needs the fail-closed `metrics-rebaseline` PR label; no label admits a value past the committed bound. |
+| `bin/metrics_ratchet.py` | The "never worse than main" gate. `check` holds a snapshot to `docs/metrics/ratchet.json` and that file to main's copy (`git show origin/main:…`), so a PR cannot loosen its own bounds; `tighten` locks in BETTER numbers in the improving PR and prints every WORSE or MISSING key as `check` would, exiting 1, so the author sees the gate's refusal first; report-only keys (`vuln.*`, `coupling.*.fan_in_max`, `duplication.*.jscpd_percent`) are printed, never gated, dropped from the bounds by `tighten`/`rebaseline`, which commit their values to `docs/metrics/report-only.json` for the scorecard; `merge` joins `build/metrics/*.json` into one snapshot that records each key's collector and the collectors skipped, so a key whose collector did not run is SKIPPED, not a failure. Committing a looser bound needs the fail-closed `metrics-rebaseline` PR label; no label admits a value past the committed bound. |
 | `templates/metrics/ratchet.json`, `docs/metrics-keys.md` | Starter bounds (all `null` until `rebaseline` fills them, so `check` refuses a raw copy; `{}` is the other valid start) and the flat `<domain>.<scope>.<stat>` key shape every collector emits. |
 | `bin/own_commit_check.py` | Transaction-boundary guard: AST scan fails a raw `.commit()` on a session the function did not open itself (`with … as db` / `db = Session()`), and pins every `commit_now(…, reason=…)` call to a shrink-only `path::qualname` allow-list. Prints `own_commit_allowlist_entries=<n>` for `metrics_ratchet.py` (direction lower). Opener regex and excludes are per repo. A TS repo holds the same boundary with guard_check's `own-transaction` kind. |
 | `bin/layer_check.py` | Dependency-direction guard for `ci-quick` (the consumer's `layer-check` target): the repo's `scripts/ci/layers.conf` declares, per source tree (`[section]`, the ratchet scope), its layers bottom-first by path glob, plus `peer` (same rank, neither imports the other), `entry` (composition root), `leaf` (imports nothing of ours), sanctioned `allow` edges, `deny` for a skipped layer and the shrink-only `known` violations. An import from a lower rank to a higher one fails, as does a file in no layer or a `known` line that is no longer refused. Python reads `metrics/python.py`'s runtime import graph (the one `coupling.<scope>.cycles` counts), its import-statement edges only (the package-initializer edges the cycle count adds run beneath every layer); TypeScript reads import statements (aliases from the conf, type-only imports erased). Prints `layer_violations=<n>`; `--metrics-out` writes `coupling.<section>.layer_violations` (direction lower), so a scaffold's `metrics.conf` runs it as the `layers` collector. Stdlib only. |
@@ -333,10 +333,12 @@ forces it to `origin/main` (the plan is read from that checkout), and runs
 exit code passes through, and the host posts the `local-gate` status. Interrupting this side
 stops the host's gate through its own cleanup (status `error`). Contract: the script headers.
 
-**Stale heads.** Run from a checkout of the PR's branch, `gate.sh` passes the tip as
-`--expect-head <sha>` (local or remote alike), and the gate re-polls GitHub's pull ref for up
-to 60 s before planning, printing one `GATE waiting:` line, instead of gating the commit before
-your push (Orbit #80, finplat #657). A head that never arrives is `GATE head FAIL`, no status.
+**Stale heads.** When the repo has a local branch named by the PR (checked out here or not),
+`gate.sh` passes its tip as `--expect-head <sha>` (local or remote alike), and the gate re-polls
+GitHub's pull ref for up to 60 s before planning, printing one `GATE waiting:` line, instead of
+gating the commit before your push (Orbit #80, finplat #657). A head that never arrives is
+`GATE head FAIL (GitHub head X ≠ local Y …; push or wait)`, no status. A local branch strictly
+behind its fetched `origin/<branch>` is a stale copy and sets no expectation.
 
 | Variable | Default | What |
 |---|---|---|
@@ -384,7 +386,7 @@ ci-metrics:       ## gate job: no metric worse than main
 	devkit/bin/metrics_collect.sh check
 metrics-snapshot: ## run the collectors; build/metrics.json is the report
 	devkit/bin/metrics_collect.sh snapshot
-metrics-tighten:  ## lock in BETTER numbers; commit docs/metrics/ratchet.json in the same PR
+metrics-tighten:  ## lock in BETTER numbers; commit docs/metrics/ratchet.json in the same PR; TIGHTEN_RUN_TIERS=1 runs the tiers it needs first
 	devkit/bin/metrics_collect.sh tighten
 metrics-rebaseline: ## KEYS=<key>[,<key>] loosens only those; commit, label metrics-rebaseline
 	devkit/bin/metrics_collect.sh rebaseline
@@ -460,12 +462,15 @@ coverage would break says so in its PR rather than dropping the budget.
 area-scoped, so those keys are absent on narrow PRs, and the seconds are noisy. They stay in
 the snapshot as untracked, for the report.
 
-**Report-only keys** (`vuln.*`, `coupling.<scope>.fan_in_max`) are collected and never gated,
-even when `ratchet.json` still holds a bound for one: `check` prints it as REPORT-ONLY, a PR
-may drop it without the label, and `rebaseline` drops it. `tighten` and `rebaseline` write their values to
+**Report-only keys** (`vuln.*`, `coupling.<scope>.fan_in_max`,
+`duplication.<scope>.jscpd_percent`) are collected and never gated, even when `ratchet.json`
+still holds a bound for one: `check` prints it as REPORT-ONLY with a note to run `make
+metrics-tighten`, a PR may drop it without the label, and `tighten` and `rebaseline` drop it. `tighten` and `rebaseline` write their values to
 `docs/metrics/report-only.json`, committed with the bounds, which the scorecard reads from a
 fresh clone (`check` never touches it). A hub module's fan-in is
-architecture, not drift (finplat #659); fan-out (a god module) stays gated.
+architecture, not drift (finplat #659); fan-out (a god module) stays gated. The duplicated
+share rises when unduplicated lines are deleted (orbit #86, #88), so `duplication.<scope>.clones`
+is the one ratcheted duplication key and the scorecard grades on it.
 
 **Gate-only.** Collectors need the dev dependencies and take tens of seconds (target under
 60 s; the job budget is 5 min), so `ci-metrics` is neither a hook step nor an Actions job.
@@ -479,7 +484,10 @@ from today's numbers, seeds every untracked key the collectors emit (never `gate
 `tier.*`, `tests.*` or a report-only key; a repo-specific domain is added by hand with its direction) and records
 each key's collector. Commit both files; the devkit-sync commit itself needs no change, the
 adoption PR carries the attribution trailer. From then on a PR
-that improves a number runs the repo's `metrics-tighten` target and commits the bounds.
+that improves a number runs the repo's `metrics-tighten` target and commits the bounds. Outside
+the gate every collector runs, so a coverage report or `build/statements.json` that no tier has
+written yet stops the run once, listing each missing file with the `make` target of the gate
+job that writes it; `TIGHTEN_RUN_TIERS=1 make metrics-tighten` runs those targets first.
 
 The `metrics-rebaseline` label permits a PR to COMMIT bounds looser than main's; it never
 permits a measured value past the committed bound. A PR whose numbers moved for a legitimate
@@ -577,8 +585,9 @@ type-only imports erased; aliases and relative specifiers resolved to root-relat
 and scoped-exports reads its top-level functions with the walker lifted from rollcall's
 `tests/invariants/ast.ts`. Single-file components (`.vue`, `.svelte`): their script blocks are
 scanned, lines as in the file; templates are not, so a template `@click="client.get()"` is not
-seen (only-text alone reads the whole file, since a spelling in a template is still one). A rule glob that matches no scanned file is exit 2 (vacuous), as is
-a file that does not parse. A sanctioned site (an only-*/single-writer glob, an `except` glob)
+seen (only-text alone reads the whole file, since a spelling in a template is still one). A rule with no candidates (no file under any of its globs, or a filter that selects no
+function) is inert: it passes with one `inert:` line. A glob that matches nothing beside one
+that does, an unmatched `except` or sanctioned glob, and a file that does not parse are exit 2. A sanctioned site (an only-*/single-writer glob, an `except` glob)
 under which nothing fires any more fails, as does a stale `known` line.
 
 Output, an API: `<root>/<path>:<line>: <rule>: ...` per violation, `GUARD <section> <rule>
