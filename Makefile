@@ -1,4 +1,4 @@
-.PHONY: help ci-deps ci-quick ci-guards ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
+.PHONY: help ci-deps ci-quick ci-guards ci-guards-staged devkit-check-staged ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
@@ -63,6 +63,7 @@ help:
 	@echo "make migration-check  — fail on an edit to a shipped drizzle migration (devkit/bin/migration_check.py; part of ci-quick)"
 	@echo "make secrets-check    — fail on a credential committed in the tree (devkit/bin/secrets_check.sh; part of ci-quick)"
 	@echo "make secrets-staged   — the same scan over the staged paths only (the pre-commit hook's half)"
+	@echo "make ci-guards-staged — ci-guards with devkit-check reading the index (the pre-commit hook's half)"
 	@echo "make hooks-check      — fail unless core.hooksPath is .githooks and both hooks are executable"
 
 ci-deps:
@@ -72,8 +73,12 @@ ci-deps:
 # (scripts/ci/hooks.conf), so a part added here must be added to a hook too.
 ci-quick: ci-guards secrets-check ci-lint ci-typecheck
 
-# Sub-second each and stdlib only: they run before npm ci.
-ci-guards: devkit-check toolchain-check release-check workflows-check docs-check layer-check guard-check migration-check
+# Sub-second each and stdlib only: they run before npm ci. ci-guards-staged is the pre-commit
+# hook's copy: devkit-check judges the staged gate_plan.sh (devkit #124 reads the working tree
+# by default, which let a bad staged plan through when only the disk copy was fixed).
+GUARDS_AFTER_DEVKIT := toolchain-check release-check workflows-check docs-check layer-check guard-check migration-check
+ci-guards: devkit-check $(GUARDS_AFTER_DEVKIT)
+ci-guards-staged: devkit-check-staged $(GUARDS_AFTER_DEVKIT)
 
 # Formatting is prettier's alone (format:check); eslint does not run prettier as a rule, which
 # read every file a second time (a third of a cold lint). Caches live in node_modules/.cache, so a
@@ -180,6 +185,9 @@ devkit-sync:
 
 devkit-check:
 	devkit/bin/devkit-check.sh
+
+devkit-check-staged:
+	devkit/bin/devkit-check.sh --staged
 
 toolchain-check:
 	devkit/bin/toolchain_check.sh
