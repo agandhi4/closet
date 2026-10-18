@@ -7,7 +7,7 @@ import {
 } from '../../wardrobe/measurements';
 import { PostForm } from '../auth/form';
 import type { FieldErrors } from '../auth/validation';
-import { t } from '../i18n';
+import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -47,6 +47,9 @@ import {
  */
 
 const HINT_ID = 'brand-size-hint';
+
+/** "Sizes": the Profile section's heading and the editor's title. */
+const SIZES_TITLE_KEY = 'sizes.TITLE' satisfies StringKey;
 
 /** "Your size in Uniqlo: M · Runs big, never L"; "Uniqlo: Runs big" without a size. */
 function brandSizeText(row: BrandSize): string {
@@ -117,7 +120,7 @@ export function SizesSection(props: {
   const { unit, lengths } = props.measurements;
   const set = MEASUREMENTS.filter((m) => lengths[m] !== null);
   return (
-    <ProfileSection id={SIZES_SECTION_ID} heading={t('sizes.TITLE')}>
+    <ProfileSection id={SIZES_SECTION_ID} heading={t(SIZES_TITLE_KEY)}>
       <p class="text-sm text-muted">{t('sizes.HINT')}</p>
       {set.length === 0 ? (
         <p class="text-sm">{t('sizes.NO_MEASUREMENTS')}</p>
@@ -178,10 +181,10 @@ export function SizesPage(props: { ctx: ViewContext; model: SizesPageModel }) {
   const { ctx, model } = props;
   const refused = model.refusedBrand;
   return (
-    <Layout ctx={ctx} title={t('sizes.TITLE')}>
+    <Layout ctx={ctx} title={t(SIZES_TITLE_KEY)}>
       <AppBar
         ctx={ctx}
-        title={t('sizes.TITLE')}
+        title={t(SIZES_TITLE_KEY)}
         back={SIZES_SECTION_PATH}
         formPage
       />

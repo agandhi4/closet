@@ -186,3 +186,9 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** the scorecard read `arch.own_commit` UNMEASURED: drizzle has no session object for devkit's Python tracer, and closet spells a transaction `db.`, `this.db.` and raw `BEGIN` in `client.query`.
 **Decision:** guards.conf `@own-tx` (devkit #113) lets only the query/write modules it lists and `src/db/migrate.ts:recordBaseline` open, commit or roll back a transaction; 0 violations on main, and a planted `db.transaction(` in `src/web/wardrobe/urls.ts` fails it. `docs/metrics/report-only.json` (devkit #112, written by `make metrics-tighten`) carries `vuln.*` and `fan_in_max` to the scorecard.
 **Consequence:** a new transaction site joins an owner module or the line, in the same PR. T4 0.6 → 0.8.
+
+## 2026-10-17 — devkit c2d7e22: image for every app path, sonarjs rules, rebaseline KEYS
+
+**Why:** devkit #115 refuses `GATE_AREAS_IMAGE`; closet's `""` had let #404, #406, #408 and #409 merge src/ changes no image build or smoke booted. devkit #110 exports sonarjs rule maps, and #116 makes a rebaseline name its keys.
+**Decision:** the override is gone and `GATE_IMAGE_PATHS` with it (every path it named is already an app path). `GATE_IMAGE_EXCLUDE_PATHS` lists the app paths no Dockerfile stage COPYs (there is no .dockerignore). eslint registers sonarjs for every linted file with `sonarjsRules`, and specs get `sonarjsTestRules`. The 75 findings (40 nested ternaries, 35 duplicate strings) became named helpers, lookup maps and one-owner consts; outcome tags such as `NOT_ALLOWED` are `as const` values the union types derive from. `make metrics-rebaseline` documents `KEYS=`.
+**Consequence:** a new nested ternary or a literal repeated three times fails ci-lint. A new Dockerfile COPY of an excluded path must drop it from the exclude list. Splitting the ternaries put two untested branches on lines of their own, so `weather/views.spec.ts` now pins the push's weather text.

@@ -239,16 +239,19 @@ export async function measurePhase(
       }
     }
   }
-  return planned.map((entry) =>
-    entry.error
-      ? { step: entry.step, error: entry.error }
-      : entry.samples.length === 0
-        ? { step: entry.step, error: new Error('interrupted') }
-        : {
-            step: entry.step,
-            measured: summarize(entry.step, entry.samples, sqlTexts),
-          },
-  );
+  return planned.map((entry) => outcome(entry, sqlTexts));
+}
+
+/** A planned step's outcome: its error, or no samples when interrupted. */
+function outcome(entry: Planned, sqlTexts: Record<string, string>): Outcome {
+  if (entry.error) return { step: entry.step, error: entry.error };
+  if (entry.samples.length === 0) {
+    return { step: entry.step, error: new Error('interrupted') };
+  }
+  return {
+    step: entry.step,
+    measured: summarize(entry.step, entry.samples, sqlTexts),
+  };
 }
 
 /** A step's samples as its row of the report. */

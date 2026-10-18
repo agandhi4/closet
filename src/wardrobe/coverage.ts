@@ -214,8 +214,7 @@ export function matchPlan(
         (g) => usable(g) && claimed.has(g.id) && claimed.get(g.id) !== item.id,
       )
       .map((g) => ({ garmentId: g.id, itemId: claimed.get(g.id)! }));
-    const status: ItemStatus =
-      have >= item.quantity ? 'owned' : have > 0 ? 'partly' : 'missing';
+    const status = statusOf(have, item.quantity);
     return {
       itemId: item.id,
       status,
@@ -231,6 +230,11 @@ export function matchPlan(
       reason: status === 'owned' ? null : gapReason(have, replaceSoon, takenBy),
     };
   });
+}
+
+function statusOf(have: number, need: number): ItemStatus {
+  if (have >= need) return 'owned';
+  return have > 0 ? 'partly' : 'missing';
 }
 
 function gapReason(

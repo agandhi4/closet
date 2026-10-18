@@ -140,6 +140,12 @@ const RAIN_SPELL = { firstStart: 6, lastStart: 18, min: 3, max: 8 };
 // WMO codes (src/weather/forecast.ts, conditionOf).
 const CODE = { clear: 0, partly: 2, overcast: 3, rain: 63, snow: 73 };
 
+/** A dry day's WMO code for its sky draw (0-1): 40 % clear, 35 % partly cloudy. */
+function skyCode(sky: number): number {
+  if (sky < 0.4) return CODE.clear;
+  return sky < 0.75 ? CODE.partly : CODE.overcast;
+}
+
 /**
  * A simulated day as a forecast (°C, hour by hour in the household's zone),
  * for `key` (the persona): what the tests' Open-Meteo stand-in answers.
@@ -160,14 +166,14 @@ export function forecastDayOf(key: string, weather: Weather): DayForecast {
     RAIN_SPELL.min +
     Math.floor(random.next() * (RAIN_SPELL.max - RAIN_SPELL.min + 1));
   const sky = random.next();
-  const dryCode =
-    sky < 0.4 ? CODE.clear : sky < 0.75 ? CODE.partly : CODE.overcast;
+  const dryCode = skyCode(sky);
   const wetCode = fahrenheitToCelsius(feelsHigh) < 1 ? CODE.snow : CODE.rain;
+  const dryHourSpread = weather.rain ? 16 : 6;
   const hours: HourForecast[] = Array.from({ length: 24 }, (_, hour) => {
     const raining = weather.rain && hour >= spellStart && hour < spellEnd;
     const chance = raining
       ? 70 + Math.floor(random.next() * 21)
-      : 10 + Math.floor(random.next() * (weather.rain ? 16 : 6));
+      : 10 + Math.floor(random.next() * dryHourSpread);
     return {
       hour,
       feelsLike: round1(

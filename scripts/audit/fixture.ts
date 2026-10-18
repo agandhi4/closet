@@ -249,6 +249,8 @@ const ORDER_MAIL_TOKEN = 'fmu1-page-audit-stand-in';
 const ORDER_REVIEW_ITEMS = 6;
 /** The grid's page (GRID_PAGE_SIZE, src/web/wardrobe). */
 const GRID_PAGE_SIZE = 48;
+/** Where the shop stand-in serves the seed photo its product pages name. */
+const TEE_IMAGE_PATH = '/img/tee.jpg';
 
 let clientSeq = 0;
 /**
@@ -332,8 +334,8 @@ function productPage(image: string): string {
 
 async function startShop(photo: Buffer): Promise<LinkSites> {
   const sites = await startLinkSites();
-  sites.serve('/img/tee.jpg', jpeg(photo));
-  sites.serve('/products/tee', html(productPage(sites.url('/img/tee.jpg'))));
+  sites.serve(TEE_IMAGE_PATH, jpeg(photo));
+  sites.serve('/products/tee', html(productPage(sites.url(TEE_IMAGE_PATH))));
   return sites;
 }
 
@@ -558,7 +560,7 @@ export async function createFixture(options: {
       productUrl: shop.url('/products/tee'),
       newProductUrl: () => {
         const path = `/products/tee?muse=${++museProducts}`;
-        shop.serve(path, html(productPage(shop.url('/img/tee.jpg'))));
+        shop.serve(path, html(productPage(shop.url(TEE_IMAGE_PATH))));
         return shop.url(path);
       },
       orders: {
@@ -650,7 +652,7 @@ async function seedOrderReview(
       items: ORDER_REVIEW_ITEMS,
     })
     .returning({ id: s.orderEmail.id });
-  const page = html(productPage(shop.url('/img/tee.jpg')));
+  const page = html(productPage(shop.url(TEE_IMAGE_PATH)));
   const items = await db
     .insert(s.orderItem)
     .values(

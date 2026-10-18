@@ -113,10 +113,11 @@ path order.
 **Bundle keys and the label (2026-10-17).** `bundle.*` keys stay at tolerance 0: every KiB
 the first screen loads is a bound. Extracting a component or helper adds a sub-KiB rise the
 code did not earn as weight, because names survive minification (an export, a component name,
-an import specifier). That rise is the sanctioned use of `metrics-rebaseline`: the PR loosens
-ONLY the moved `bundle.*` key in `docs/metrics/ratchet.json`, reverts every other bound the
-`rebaseline` target rewrote, and adds a line to the repo's decisions.md naming the extraction
-and the KiB. Anything past a KiB, or a rise with no extraction, is a regression to fix.
+an import specifier). That rise is the sanctioned use of `metrics-rebaseline`: run
+`make metrics-rebaseline KEYS=bundle.frontend.kb_total` (the moved key or keys, comma-separated;
+nothing else moves), commit `docs/metrics/ratchet.json`, label the PR `metrics-rebaseline`, and
+add a line to the repo's decisions.md naming the extraction and the KiB. Never hand-edit the
+bounds file. Anything past a KiB, or a rise with no extraction, is a regression to fix.
 Precedents: finplat #663, orbit #84, instalite #22, locus #127.
 
 **Vue components counted (2026-10-17).** Before, ts.mjs saw no `.vue` file, so a Vue repo's

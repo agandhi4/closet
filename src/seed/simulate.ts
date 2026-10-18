@@ -123,6 +123,11 @@ export interface SimulatedLife {
   weather: Weather[];
 }
 
+function dayKind(day: IsoDate, anchor: IsoDate): DayKind {
+  if (day < anchor) return 'past';
+  return day === anchor ? 'today' : 'planned';
+}
+
 /** Whole weeks from the reference anchor to `anchor`, never past it. */
 function shiftFor(anchor: IsoDate): number {
   return Math.floor(daysBetween(REFERENCE_ANCHOR, anchor) / 7) * 7;
@@ -171,8 +176,7 @@ export function simulate(persona: Persona, anchor: IsoDate): SimulatedLife {
 
   const day = new Days(persona, shifted, anchor);
   for (const today of weather) {
-    const kind: DayKind =
-      today.day < anchor ? 'past' : today.day === anchor ? 'today' : 'planned';
+    const kind = dayKind(today.day, anchor);
     day.live(today, kind, eventOn(today.day), life.entries);
     if (dayOfWeek(today.day) === SUNDAY) {
       const washed = day.laundry();
@@ -357,19 +361,19 @@ class Days {
     const weekday = dayOfWeek(day);
     const sunday = addDays(day, -weekday);
     const random = stream(this.persona.key, 'evenings', sunday);
-    const dateNight = random.chance(DATE_NIGHT_WEEKLY)
-      ? random.chance(DATE_NIGHT_FRIDAY)
-        ? FRIDAY
-        : SATURDAY
-      : undefined;
+    // Gotcha: the draws' order and short-circuits are the seed's
+    // determinism; reordering them changes every persona's evenings.
+    let dateNight: number | undefined;
+    if (random.chance(DATE_NIGHT_WEEKLY)) {
+      dateNight = random.chance(DATE_NIGHT_FRIDAY) ? FRIDAY : SATURDAY;
+    }
     const week =
       daysBetween(startOfWeek(this.shifted(REFERENCE_ANCHOR)), sunday) / 7;
-    const nightOut =
-      mod(week, NIGHT_OUT_EVERY_WEEKS) === 0
-        ? dateNight === SATURDAY || random.chance(0.5)
-          ? THURSDAY
-          : SATURDAY
-        : undefined;
+    let nightOut: number | undefined;
+    if (mod(week, NIGHT_OUT_EVERY_WEEKS) === 0) {
+      nightOut =
+        dateNight === SATURDAY || random.chance(0.5) ? THURSDAY : SATURDAY;
+    }
     if (weekday === dateNight) return 'date';
     if (weekday === nightOut) return 'night-out';
     return undefined;

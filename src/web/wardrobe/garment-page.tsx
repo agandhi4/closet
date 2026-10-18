@@ -492,7 +492,7 @@ function GarmentMenu({
         {model.canEdit && (
           <li>
             <button type="button" onclick={OPEN_PHOTO_SHEET}>
-              {t(garment.photo ? 'garment.CHANGE_PHOTO' : 'garment.ADD_PHOTO')}
+              {photoActionLabel(garment)}
             </button>
           </li>
         )}
@@ -912,6 +912,11 @@ function Replacement({ model }: { model: GarmentPageModel }) {
   );
 }
 
+/** The photo sheet's title and the menu item that opens it. */
+function photoActionLabel(garment: GarmentDetail): string {
+  return t(garment.photo ? 'garment.CHANGE_PHOTO' : 'garment.ADD_PHOTO');
+}
+
 /**
  * The photo sheet (the ⋯ menu's Photo): take one with the camera or choose
  * one from the library. Choosing uploads at once: the photo is prepared on
@@ -940,9 +945,7 @@ function PhotoSheet(props: {
     >
       <div class="modal-box flex flex-col gap-3 pb-8">
         <h2 id="garment-photo-sheet-title" class="font-bold text-lg">
-          {t(
-            props.garment.photo ? 'garment.CHANGE_PHOTO' : 'garment.ADD_PHOTO',
-          )}
+          {photoActionLabel(props.garment)}
         </h2>
         <p class="text-sm text-muted">{t('garment.PHOTO_HINT')}</p>
         <div class="group/upload flex flex-col gap-3">

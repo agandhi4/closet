@@ -1169,6 +1169,9 @@ function readWorkout(
   return workout;
 }
 
+/** The bible's Wears cell for an event whose outfit nobody wrote down. */
+const NOT_RECORDED = 'not recorded';
+
 function readEvent(
   source: string,
   row: Record<string, string>,
@@ -1176,7 +1179,7 @@ function readEvent(
 ): SeedEvent {
   const where = `${source} event ${row.From}`;
   const wears = plain(row.Wears);
-  if (wears && wears !== 'not recorded' && !outfitNames.has(wears)) {
+  if (wears && wears !== NOT_RECORDED && !outfitNames.has(wears)) {
     throw new BibleError(where, `no saved outfit is called "${wears}"`);
   }
   const shift = plain(row.Weather);
@@ -1184,8 +1187,8 @@ function readEvent(
     from: readDate(where, row.From)!,
     to: readDate(where, row.To)!,
     name: row.Event,
-    wears: wears === 'not recorded' ? undefined : wears || undefined,
-    recorded: wears !== 'not recorded',
+    wears: wears === NOT_RECORDED ? undefined : wears || undefined,
+    recorded: wears !== NOT_RECORDED,
     weatherShift: shift ? Number(shift) : 0,
   };
 }

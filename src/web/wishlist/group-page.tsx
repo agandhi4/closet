@@ -66,6 +66,15 @@ function pickName(pick: { name: string | null; category: string }): string {
   return pick.name ?? categoryLabel(pick.category);
 }
 
+/** The chosen pick alone; else an open need's options; else none. */
+function shownPicks(
+  { need, options }: NeedDetail,
+  chosen: MusePick | undefined,
+): NeedDetail['options'] {
+  if (chosen) return [chosen];
+  return need.status === 'open' ? options : [];
+}
+
 /**
  * GET /wardrobe/wishlist/needs/:id, a need's decision screen (#333;
  * docs/plans/2026-10-05-muse-suggestions.md, section 4 C): the need, its
@@ -87,7 +96,7 @@ export function NeedPage(props: { ctx: ViewContext; model: NeedPageModel }) {
     need.status === 'resolved'
       ? need.picks.find((pick) => pick.id === need.resolvedGarmentId)
       : undefined;
-  const shown = chosen ? [chosen] : need.status === 'open' ? options : [];
+  const shown = shownPicks(model.detail, chosen);
   // The same count on every option decides nothing: said once, in the facts.
   const shared = sharedUnlocks(shown, model.detail.judged);
   return (

@@ -12,6 +12,7 @@ import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
 import { authorizeGarmentWardrobe, requireGarment } from './garment-access';
 import { GarmentPhotoView } from './garment-page';
+import type { GarmentPhoto } from './queries';
 import { batchEnd } from './draft-redirects';
 import { nextDraft } from './draft-queue';
 import { draftNotFound } from './render-form';
@@ -32,6 +33,17 @@ import {
 } from './writes';
 import { DiscardDraftBody, RotateBody } from './garment-schemas';
 import { GarmentParams, OwnerQuery } from '../schemas';
+
+/** The garment's photo for an action on it: a 400 for a garment without one. */
+async function requireGarmentPhoto(
+  db: WebOptions['db'],
+  id: number,
+  ownerId: number,
+): Promise<GarmentPhoto> {
+  const garment = await requireGarment(db, id, ownerId);
+  if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
+  return garment.photo;
+}
 
 /**
  * A garment's photo: the add sheet's upload and a draft's Discard, the
@@ -175,9 +187,8 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { id } = request.params;
-      const garment = await requireGarment(db, id, access.ownerId);
-      if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
-      const outcome = await recordCutoutEvent(db, garment.photo.fileName, {
+      const photo = await requireGarmentPhoto(db, id, access.ownerId);
+      const outcome = await recordCutoutEvent(db, photo.fileName, {
         type: 'retry',
       });
       if (outcome.ok) {
@@ -247,13 +258,12 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { id } = request.params;
-      const garment = await requireGarment(db, id, access.ownerId);
-      if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
+      const photo = await requireGarmentPhoto(db, id, access.ownerId);
       await rotateGarmentPhoto(
         deps,
         id,
         access.ownerId,
-        garment.photo,
+        photo,
         request.body.direction,
       );
       return reply.redirect(
@@ -279,23 +289,22 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         'manage',
       );
       const { id } = request.params;
-      const garment = await requireGarment(db, id, access.ownerId);
-      if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
+      const photo = await requireGarmentPhoto(db, id, access.ownerId);
       const part = await request.file();
       if (!part) throw new HttpError(400, 'No file uploaded');
-      const photo = await options.photos.saveEditedCutout(
+      const edited = await options.photos.saveEditedCutout(
         part.file,
-        garment.photo.fileName,
+        photo.fileName,
       );
       // Its row went (a delete or a photo replaced) after the garment was read.
-      if (!photo) throw new HttpError(404);
+      if (!edited) throw new HttpError(404);
       logger.info(
-        `Garment ${id} cutout replaced, photo version ${photo.version}`,
+        `Garment ${id} cutout replaced, photo version ${edited.version}`,
       );
       return reply.send({
-        version: photo.version,
-        originalUrl: imageUrl(photo, 'original'),
-        nobgUrl: imageUrl(photo, 'nobg'),
+        version: edited.version,
+        originalUrl: imageUrl(edited, 'original'),
+        nobgUrl: imageUrl(edited, 'nobg'),
       });
     },
   );

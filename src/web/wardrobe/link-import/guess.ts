@@ -234,20 +234,21 @@ const GSM =
   /(?<![\d.])(\d{2,4}(?:\.\d+)?) ?(?:gsm|g\/m2|g\/m²|g\/sqm|grams? per square met(?:er|re))(?![a-z])/;
 const OUNCES = /(?<![\d.])(\d{1,2}(?:\.\d+)?)[ -]?(?:oz|ounces?)(?![a-z])/;
 
+/** The weight as stated, gsm first, ounces converted; null for neither. */
+function statedGsm(normalized: string): number | null {
+  const gsm = GSM.exec(normalized);
+  if (gsm) return Math.round(Number(gsm[1]));
+  const oz = OUNCES.exec(normalized);
+  return oz ? ozToGsm(Number(oz[1])) : null;
+}
+
 /**
  * A stated fabric weight in gsm ("240 gsm", "240g/m2", "14 oz", "6-ounce"),
  * or null when none is stated or it is outside FABRIC_WEIGHT_GSM (an "8 oz
  * bottle" of care product is not a fabric).
  */
 export function guessFabricWeight(text: string): number | null {
-  const normalized = normalize(text);
-  const gsm = GSM.exec(normalized);
-  const oz = OUNCES.exec(normalized);
-  const weight = gsm
-    ? Math.round(Number(gsm[1]))
-    : oz
-      ? ozToGsm(Number(oz[1]))
-      : null;
+  const weight = statedGsm(normalize(text));
   return weight !== null &&
     weight >= FABRIC_WEIGHT_GSM.min &&
     weight <= FABRIC_WEIGHT_GSM.max
