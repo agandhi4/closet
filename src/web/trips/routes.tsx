@@ -1,5 +1,4 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import { Type } from '@sinclair/typebox';
 import type { FastifyReply } from 'fastify';
 import { selectScalars } from '../../db/select-scalars';
 import {
@@ -8,7 +7,6 @@ import {
   type Occasion,
 } from '../../wardrobe/occasions';
 import { tripPhase, wearableToday } from '../../wardrobe/packing';
-import { roundedLocation } from '../../weather/location';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { addDays, parseIsoDate, todayIn } from '../../calendar-date';
@@ -23,6 +21,12 @@ import {
   WEATHER_SEARCH_LIMIT,
 } from '../security/rate-limit';
 import { viewContext } from '../view-context';
+import {
+  PlaceBody,
+  PlaceQuery,
+  pickedPlace,
+  placeAnswer,
+} from '../weather/place-picker';
 import { AddOutfitPage } from './add-page';
 import { tripForecast } from './forecast';
 import { TripFormPage, type TripFormModel } from './form-page';
@@ -56,7 +60,6 @@ import {
   AddOutfitQuery,
   ChecklistBody,
   CopyItemsBody,
-  DestinationBody,
   ItemBody,
   readTripForm,
   type TripBody,
@@ -538,9 +541,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       {
         schema: {
           params: TripParams,
-          querystring: Type.Object({
-            q: Type.String({ minLength: 2, maxLength: 100 }),
-          }),
+          querystring: PlaceQuery,
         },
         config: { rateLimit: WEATHER_SEARCH_LIMIT, secretPath: true },
       },
@@ -549,34 +550,31 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         if (!(await findTrip(db, id, sessionUserId(request)))) {
           throw tripNotFound();
         }
-        try {
-          const places = await weather.searchPlaces(request.query.q.trim());
-          return renderFragment(
-            reply,
-            <TripPlaceResults tripId={id} places={places} />,
-          );
-        } catch {
-          // Logged by the service. A 200, so htmx shows it.
-          return renderFragment(reply, <TripPlaceResults failed />);
-        }
+        return renderFragment(
+          reply,
+          <TripPlaceResults
+            tripId={id}
+            answer={await placeAnswer(weather, request.query)}
+          />,
+        );
       },
     );
 
     app.post(
       `${TRIPS_PATH}/:id/destination`,
       {
-        schema: { params: TripParams, body: DestinationBody },
+        schema: { params: TripParams, body: PlaceBody },
         config: { rateLimit: WEATHER_LOCATION_LIMIT },
       },
       async (request, reply) => {
         const ownerId = sessionUserId(request);
         const { id } = request.params;
-        const { name, latitude, longitude } = request.body;
-        const set = await setTripDestination(db, id, ownerId, {
-          name: name.trim(),
-          // In range by the schema, so never null.
-          location: roundedLocation(latitude, longitude)!,
-        });
+        const set = await setTripDestination(
+          db,
+          id,
+          ownerId,
+          pickedPlace(request.body),
+        );
         if (!set) throw tripNotFound();
         // The user, never the place: where someone travels is theirs.
         logger.info(`Trip ${id} destination located by user ${ownerId}`);

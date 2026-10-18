@@ -1,7 +1,6 @@
 import type { Logger } from '../logger';
-import { runAsJob } from '../request-context';
 import { addDays, instantAt, todayIn } from '../calendar-date';
-import { awaitRunInFlight, type ScheduledJob } from './scheduled';
+import { type ScheduledJob, scheduleJob } from './scheduled';
 
 /**
  * A once-a-day job at a wall-clock hour in the household's zone
@@ -10,9 +9,9 @@ import { awaitRunInFlight, type ScheduledJob } from './scheduled';
  * overlap. Started by server.ts (the server) only; the integration harness
  * and the CLIs never schedule anything.
  *
- * Stopping has scheduleMinutely's contract (ScheduledJob): stop() clears
- * the timer and waits for a run in flight, bounded, so the pool is not
- * ended under reconciliation or a prune (#78).
+ * The loop and stop() are scheduleJob's (ScheduledJob): stop() clears the
+ * timer and waits for a run in flight, bounded, so the pool is not ended
+ * under reconciliation or a prune (#78).
  */
 
 export interface NightlyOptions {
@@ -33,51 +32,17 @@ export function scheduleNightly({
   logger,
   now = () => new Date(),
 }: NightlyOptions): ScheduledJob {
-  let timer: NodeJS.Timeout | undefined;
-  let running: Promise<void> | undefined;
-  let runStartedAt: number | undefined;
-  let stopped = false;
-
-  const scheduleNext = () => {
-    if (stopped) return;
-    const at = nextRunAt(now(), timeZone, hour);
-    logger.info(`${name} next runs at ${at.toISOString()}`);
-    timer = setTimeout(tick, at.getTime() - now().getTime());
-    // Never what keeps the process alive: the server's socket does that.
-    timer.unref();
-  };
-
-  // `running` is set synchronously with the timer firing, so a stop() that
-  // lands at any point after it sees the run.
-  const tick = () => {
-    // One job per run (a fresh `cron-` id on every line it logs, its
-    // failure line included), never per timer.
-    runStartedAt = now().getTime();
-    running = runAsJob('cron', async () => {
-      try {
-        await run();
-      } catch (error) {
-        // Logged, never thrown: a failed night must not stop the next one.
-        logger.error({ err: error }, `${name} failed`);
-      }
-    });
-    void running.then(() => {
-      running = undefined;
-      runStartedAt = undefined;
-      scheduleNext();
-    });
-  };
-
-  scheduleNext();
-  return {
+  return scheduleJob({
     name,
-    runStartedAt: () => runStartedAt,
-    async stop() {
-      stopped = true;
-      clearTimeout(timer);
-      await awaitRunInFlight(name, running, logger);
+    logger,
+    now,
+    untilNext: () => {
+      const at = nextRunAt(now(), timeZone, hour);
+      logger.info(`${name} next runs at ${at.toISOString()}`);
+      return at.getTime() - now().getTime();
     },
-  };
+    run,
+  });
 }
 
 /** The first instant after `now` at `hour`:00 on a wall clock in `timeZone`. */

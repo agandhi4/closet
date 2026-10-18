@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { settlesWithin } from '../cutout/deadline';
 import type { Logger } from '../logger';
+import { runAsJob } from '../request-context';
 
 /**
  * What every timer server.ts starts has in common (scheduleNightly,
@@ -67,8 +68,74 @@ export class JobRoster {
  */
 const STOP_WAIT_MS = 15_000;
 
+export interface JobTimer {
+  name: string;
+  logger: Logger;
+  now: () => Date;
+  /** Milliseconds until the next run, asked afresh once the last run ended. */
+  untilNext: () => number;
+  run: () => Promise<unknown>;
+}
+
+/**
+ * The timer loop behind scheduleNightly and scheduleMinutely, which bring
+ * only when the next run is: the next run is scheduled once the last one
+ * ended, from the clock as it is then, so a slow run never overlaps the
+ * next and never drifts it. Each run is one job (a fresh `cron-` id on
+ * every line it logs, its failure line included), never one per timer.
+ */
+export function scheduleJob({
+  name,
+  logger,
+  now,
+  untilNext,
+  run,
+}: JobTimer): ScheduledJob {
+  let timer: NodeJS.Timeout | undefined;
+  let running: Promise<void> | undefined;
+  let runStartedAt: number | undefined;
+  let stopped = false;
+
+  const scheduleNext = () => {
+    if (stopped) return;
+    timer = setTimeout(tick, untilNext());
+    // Never what keeps the process alive: the server's socket does that.
+    timer.unref();
+  };
+
+  // `running` is set synchronously with the timer firing, so a stop() that
+  // lands at any point after it sees the run.
+  const tick = () => {
+    runStartedAt = now().getTime();
+    running = runAsJob('cron', async () => {
+      try {
+        await run();
+      } catch (error) {
+        // Logged, never thrown: a failed run must not stop the next one.
+        logger.error({ err: error }, `${name} failed`);
+      }
+    });
+    void running.then(() => {
+      running = undefined;
+      runStartedAt = undefined;
+      scheduleNext();
+    });
+  };
+
+  scheduleNext();
+  return {
+    name,
+    runStartedAt: () => runStartedAt,
+    async stop() {
+      stopped = true;
+      clearTimeout(timer);
+      await awaitRunInFlight(name, running, logger);
+    },
+  };
+}
+
 /** Waits for `running` (a run's promise, which never rejects), at most STOP_WAIT_MS. */
-export async function awaitRunInFlight(
+async function awaitRunInFlight(
   name: string,
   running: Promise<void> | undefined,
   logger: Logger,

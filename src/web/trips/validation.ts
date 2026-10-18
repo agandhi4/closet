@@ -138,13 +138,6 @@ export const ItemBody = Type.Object({
 
 export const CopyItemsBody = Type.Object({ from: RowId });
 
-/** A place picked from the geocoding search (the weather's own shape). */
-export const DestinationBody = Type.Object({
-  name: Type.String({ minLength: 1, maxLength: TRIP_DESTINATION_MAX }),
-  latitude: Type.Number({ minimum: -90, maximum: 90 }),
-  longitude: Type.Number({ minimum: -180, maximum: 180 }),
-});
-
 /** The trip page's one-shot flags: after a create, a gallery pick and a copy of extras. */
 export const TripPageQuery = Type.Object({
   created: Type.Optional(Type.String({ maxLength: 5 })),

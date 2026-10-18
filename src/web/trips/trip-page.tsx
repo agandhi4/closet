@@ -17,6 +17,7 @@ import { Layout } from '../layout/layout';
 import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import { collagePieces, OutfitCollage } from '../outfits/collage';
 import type { ViewContext } from '../view-context';
+import { PLACE_QUERY_MAX, PLACE_QUERY_MIN } from '../weather/place-picker';
 import { WornControl } from '../wears/worn-control';
 import { phaseLabel, tripDates } from './labels';
 import { roleGroupLabel } from '../wardrobe/labels';
@@ -155,8 +156,8 @@ function TripWeatherSection({ model }: { model: TripPageModel }) {
               type="search"
               name="q"
               required
-              minlength={2}
-              maxlength={100}
+              minlength={PLACE_QUERY_MIN}
+              maxlength={PLACE_QUERY_MAX}
               value={trip.location ? undefined : (trip.destination ?? '')}
               class="input input-sm join-item w-full"
               placeholder={t('trips.FIND_PLACE')}

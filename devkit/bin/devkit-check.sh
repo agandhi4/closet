@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Guard: the vendored devkit/ tree is exactly what devkit-sync.sh recorded in .devkit-rev.
 # Runs in ci-quick; offline, milliseconds. A diff means someone edited devkit/ in this repo.
-# Usage: devkit/bin/devkit-check.sh        or: make devkit-check
+# Usage: devkit/bin/devkit-check.sh [--staged]        or: make devkit-check
 #
 # Also: a tree that matches .devkit-rev but holds paths outside its own VENDOR_PATHS was vendored
 # whole by a devkit-sync older than the manifest (the first `make devkit-sync` after 2026-10-13
@@ -12,15 +12,25 @@
 # Also: scripts/ci/gate_plan.sh sets none of the plan variables this devkit retired
 # (DEVKIT_RETIRED_PLAN_VARS, bin/_paths_lib.sh). The gate sources main's _paths_lib.sh, so the
 # sync PR that retires one would pass its own gate and break the next PR's; this check, run
-# from the merged tree, fails the sync PR instead.
+# from the merged tree, fails the sync PR instead. The plan is read from the WORKING TREE, where a
+# fix is made: reading the staged copy kept a manual run failing on a plan already fixed on disk
+# (closet #410). --staged reads the index instead, as secrets_check.sh --staged does, for a hook
+# that must judge exactly what is about to be committed. CI and the gate see one tree either way.
 set -euo pipefail
+STAGED=0
+case "${1:-}" in
+  --staged) STAGED=1 ;;
+  '') ;;
+  *) echo "usage: devkit-check.sh [--staged]" >&2; exit 2 ;;
+esac
 # shellcheck source=bin/_vendor_paths.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_vendor_paths.sh"
 # shellcheck source=bin/_paths_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_paths_lib.sh"
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
-# Both sides come from the INDEX, not HEAD or the working copy. In CI the index equals HEAD; in
+# The vendored tree, .devkit-rev and the .swift-format copies: both sides come from the INDEX,
+# not HEAD or the working copy, with or without --staged (devkit-sync stages all of them). In CI the index equals HEAD; in
 # the pre-commit hook it is exactly what is about to be committed. Comparing HEAD made the
 # devkit-sync commit itself fail its own hook (new .devkit-rev vs the old committed tree), and
 # let a staged local edit under devkit/ through. Reading .devkit-rev from disk let an unstaged
@@ -69,7 +79,13 @@ while IFS= read -r copy; do
 done <<<"$(swift_format_copies)"
 [ "$copies" -eq 0 ] || exit 1
 # Assignments only: a comment naming a retired variable is history, not a setting.
-if plan=$(git show :scripts/ci/gate_plan.sh 2>/dev/null | awk '{ sub(/#.*/, "") } 1'); then
+if [ "$STAGED" = 1 ]; then
+  plan_src=$(git show :scripts/ci/gate_plan.sh 2>/dev/null) || plan_src=""
+else
+  plan_src=$(cat scripts/ci/gate_plan.sh 2>/dev/null) || plan_src=""
+fi
+if [ -n "$plan_src" ]; then
+  plan=$(awk '{ sub(/#.*/, "") } 1' <<<"$plan_src")
   retired_set=0
   for var in $DEVKIT_RETIRED_PLAN_VARS; do
     if grep -qE "(^|[^A-Za-z0-9_])$var=" <<<"$plan"; then

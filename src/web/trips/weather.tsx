@@ -1,3 +1,4 @@
+import type { Child } from 'hono/jsx';
 import { conditionOf, rainFrom } from '../../weather/forecast';
 import { NORMAL_YEARS } from '../../weather/normals';
 import {
@@ -7,7 +8,7 @@ import {
 import { PostForm } from '../auth/form';
 import { dayLabel, shortDayLabel } from '../date-labels';
 import { t } from '../i18n';
-import type { Place } from '../weather/open-meteo';
+import { type PlaceAnswer, PlaceResults } from '../weather/place-picker';
 import {
   ConditionIcon,
   fetchedLabel,
@@ -205,40 +206,14 @@ function TripTypicalRow(props: {
  * found, each a native post setting it as the trip's destination (name and
  * rounded location), back to the trip.
  */
-export function TripPlaceResults(
-  props: { tripId: number; places: Place[] } | { failed: true },
-) {
-  if ('failed' in props) {
-    return <p class="text-sm text-error">{t('weather.SEARCH_FAILED')}</p>;
-  }
-  if (props.places.length === 0) {
-    return <p class="text-sm">{t('weather.NO_PLACES')}</p>;
-  }
-  return (
-    <ul class="flex flex-col gap-1">
-      {props.places.map((place) => (
-        <li>
-          <PostForm action={tripUrl(props.tripId, '/destination')} needsNetwork>
-            <input type="hidden" name="name" value={place.label} />
-            <input
-              type="hidden"
-              name="latitude"
-              value={String(place.location.latitude)}
-            />
-            <input
-              type="hidden"
-              name="longitude"
-              value={String(place.location.longitude)}
-            />
-            <button
-              type="submit"
-              class="btn btn-ghost btn-sm justify-start w-full"
-            >
-              {place.label}
-            </button>
-          </PostForm>
-        </li>
-      ))}
-    </ul>
+export function TripPlaceResults(props: {
+  tripId: number;
+  answer: PlaceAnswer;
+}) {
+  const Form = (form: { children: Child }) => (
+    <PostForm action={tripUrl(props.tripId, '/destination')} needsNetwork>
+      {form.children}
+    </PostForm>
   );
+  return <PlaceResults answer={props.answer} Form={Form} />;
 }

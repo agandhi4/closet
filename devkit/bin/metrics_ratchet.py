@@ -14,17 +14,20 @@ key with check's line and exits 1 after writing the BETTER bounds: it is the com
 runs before the gate, so it must show what the gate will refuse (finplat #660 learned of a
 regression only from a gate run).
 
-Report-only keys (`vuln.*`, `coupling.<scope>.fan_in_max`; is_report_only): collected and
-printed, never gated, even when a bounds file still holds one. `check` prints them as
-REPORT-ONLY and ignores them in the comparison with main (dropping one needs no label),
-`tighten` leaves them, `rebaseline` drops them and seeds none. With `--report-only FILE`,
+Report-only keys (`vuln.*`, `coupling.<scope>.fan_in_max`, `duplication.<scope>.jscpd_percent`;
+is_report_only): collected and printed, never gated, even when a bounds file still holds one.
+`check` prints such a bound as REPORT-ONLY with a note to drop it and ignores it in the
+comparison with main (dropping one needs no label); `tighten` and `rebaseline` drop it and seed
+none. With `--report-only FILE`,
 `tighten` and `rebaseline` also write the snapshot's report-only keys to FILE, a schema 2
 snapshot (metrics_collect.sh passes docs/metrics/report-only.json): the bounds never hold them
 and build/metrics.json is untracked, so this committed copy is what a fresh clone's scorecard
 reads (devkit #76). `check` never writes it and never reads it. Why fan-in (lead decision
 2026-10-17): a models or core hub has many importers by design, so its count is architecture,
 not drift; finplat #659 failed its gate because a new module imported the models hub. Fan-out
-(a god module) stays gated.
+(a god module) stays gated. Why jscpd_percent (2026-10-17): it is duplicated over scanned
+lines, so deleting code with the clone count unchanged raises it (orbit #86, #88 had to label
+deletions); `duplication.<scope>.clones` is the ratcheted duplication key.
 
 Why `check` reads MAIN's bounds too: the gate checks the merged tree, so the bounds file it
 sees is the PR's own copy. Without a second reference a PR could loosen a bound by editing it.
@@ -147,9 +150,12 @@ DOMAIN_DIRECTIONS = {
 # narrow PRs and the seconds are noisy. A repo may still track one by hand, with headroom.
 NEVER_SEEDED_DOMAINS = frozenset({"gate", "tier", "tests"})
 # Report-only (module docstring): never gated, whatever the bounds file says. `vuln` moves with
-# a new advisory, not a code change; fan-in of a hub is architecture, not drift.
+# a new advisory, not a code change; fan-in of a hub is architecture, not drift; a duplicated
+# share rises when unduplicated lines are deleted.
 REPORT_ONLY_DOMAINS = frozenset({"vuln"})
-REPORT_ONLY_STATS = frozenset({("coupling", "fan_in_max")})  # (domain, last key segment)
+REPORT_ONLY_STATS = frozenset(  # (domain, last key segment)
+    {("coupling", "fan_in_max"), ("duplication", "jscpd_percent")}
+)
 DEFAULT_BASE_REF = "origin/main"
 
 
@@ -388,6 +394,11 @@ def is_report_only(metric: str) -> bool:
     return parts[0] in REPORT_ONLY_DOMAINS or (parts[0], parts[-1]) in REPORT_ONLY_STATS
 
 
+def _drop_report_only(metric: str, bound: Bound) -> None:
+    """The line `tighten` and `rebaseline` print for a report-only bound they drop."""
+    print(f"ratchet {metric} {_fmt(bound.bound)} -> - (dropped: report-only, never gated)")
+
+
 def _fail(message: str) -> None:
     """A FAIL line on stderr, after everything already printed: stdout is block-buffered in a
     pipe (metrics_collect.sh), so without the flush the line can land above the keys it names."""
@@ -500,7 +511,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             value = snapshot.values.get(metric)
             print(
                 f"ratchet {metric} {'-' if value is None else _fmt(value)} vs {_fmt(bound.bound)} "
-                "REPORT-ONLY (never gated; the bound may be dropped)"
+                "REPORT-ONLY (moved to report-only, never gated; run make metrics-tighten to drop it)"
             )
             continue
         status = _status_line(metric, bound, snapshot, bounds_path)
@@ -556,18 +567,22 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_tighten(args: argparse.Namespace) -> int:
-    """Move every bound the snapshot beats to the snapshot value; never loosen any. Every
-    WORSE and MISSING key prints check's line and makes the exit 1, after the write."""
+    """Move every bound the snapshot beats to the snapshot value; never loosen any. A
+    report-only bound is dropped (no label needed: check ignores it against main). Every WORSE
+    and MISSING key prints check's line and makes the exit 1, after the write."""
     snapshot = load_snapshot(Path(args.snapshot), allow_empty=True)
     bounds_path = Path(args.bounds)
     bounds = load_bounds(bounds_path)
     tightened = dict(bounds)
-    changed = 0
+    changed = dropped = 0
     failing = {"WORSE": 0, "MISSING": 0}
     worse: list[str] = []
     for metric in sorted(bounds):
         bound = bounds[metric]
         if is_report_only(metric):
+            del tightened[metric]
+            dropped += 1
+            _drop_report_only(metric, bound)
             continue
         if metric in snapshot.values and (
             bound.bound is None or is_better(snapshot.values[metric], bound.bound, bound.direction)
@@ -581,9 +596,10 @@ def cmd_tighten(args: argparse.Namespace) -> int:
             failing[status] += 1
         if status == "WORSE":
             worse.append(metric)
-    if changed:
+    if changed or dropped:
         write_bounds(bounds_path, tightened)
-    print(f"ratchet tightened {changed} bound(s) in {bounds_path}")
+    dropped_note = f" ({dropped} report-only dropped)" if dropped else ""
+    print(f"ratchet tightened {changed} bound(s) in {bounds_path}{dropped_note}")
     if args.report_only:
         write_report_only(Path(args.report_only), snapshot)
     if not any(failing.values()):
@@ -678,7 +694,7 @@ def cmd_rebaseline(args: argparse.Namespace) -> int:
         bound = bounds[metric]
         if is_report_only(metric):
             dropped += 1
-            print(f"ratchet {metric} {_fmt(bound.bound)} -> - (dropped: report-only, never gated)")
+            _drop_report_only(metric, bound)
             continue
         if metric in snapshot.values:
             rebased[metric] = _with_value(metric, bound, snapshot)
