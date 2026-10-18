@@ -31,9 +31,11 @@ export const weekPlanTools = [
         days: planDays(today),
         forecast,
       });
+      const planNote =
+        result.weekPlanId === null ? '' : ` (plan ${result.weekPlanId})`;
       ctx.webLogger.info(
         result.templateSet
-          ? `Week planned for user ${ctx.userId} (MCP) from ${today}: ${result.planned.length} outfit(s)${result.weekPlanId === null ? '' : ` (plan ${result.weekPlanId})`}, ${result.unfilled.length} slot(s) unfilled`
+          ? `Week planned for user ${ctx.userId} (MCP) from ${today}: ${result.planned.length} outfit(s)${planNote}, ${result.unfilled.length} slot(s) unfilled`
           : `Week not planned for user ${ctx.userId} (MCP): no week template`,
       );
       return {

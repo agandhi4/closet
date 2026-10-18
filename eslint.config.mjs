@@ -2,8 +2,12 @@
 import eslint from '@eslint/js';
 import eslintConfigPrettier from 'eslint-config-prettier';
 import globals from 'globals';
+import sonarjs from 'eslint-plugin-sonarjs';
 import tseslint from 'typescript-eslint';
-import base from './devkit/lint/eslint.base.mjs';
+import base, {
+  sonarjsRules,
+  sonarjsTestRules,
+} from './devkit/lint/eslint.base.mjs';
 
 // esquery regexes (no `/` inside) for the theme rule in no-restricted-syntax.
 const PALETTE_CLASS =
@@ -195,6 +199,18 @@ export default tseslint.config(
         },
       ],
     },
+  },
+  // devkit's sonarjs rule maps (devkit/lint/README.md "sonarjs"). The plugin must be registered
+  // in the same files scope as its rules, so it is registered here for every linted file.
+  {
+    files: ['**/*.{ts,tsx}'],
+    plugins: { sonarjs },
+    rules: sonarjsRules,
+  },
+  // Repeated literals in specs (titles, fixture ids, expected text) are the readable form.
+  {
+    files: ['test/**/*.{ts,tsx}', '**/*.spec.{ts,tsx}'],
+    rules: sonarjsTestRules,
   },
   {
     // The base's no-console holds app code to its module's pino logger

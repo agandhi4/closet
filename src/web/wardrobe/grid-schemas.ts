@@ -290,24 +290,22 @@ export function readTags(
     length: stored.length,
     waterResistant: stored.waterResistant,
   };
+  // From the stored type: a tap on another type moves the values still at
+  // the first type's presets (the card saves every tap, so they are
+  // stored); the first tag has no source and fills only what is unset. The
+  // same rule as the form's hidden presetType.
+  const source =
+    stored.type === null
+      ? null
+      : { category, type: stored.type, fabricWeight: stored.fabricWeight };
   const next =
     type === stored.type
       ? current
-      : applyPresets(
-          current,
-          // From the stored type: a tap on another type moves the values
-          // still at the first type's presets (the card saves every tap, so
-          // they are stored); the first tag has no source and fills only
-          // what is unset. The same rule as the form's hidden presetType.
-          stored.type === null
-            ? null
-            : {
-                category,
-                type: stored.type,
-                fabricWeight: stored.fabricWeight,
-              },
-          { category, type, fabricWeight: stored.fabricWeight },
-        );
+      : applyPresets(current, source, {
+          category,
+          type,
+          fabricWeight: stored.fabricWeight,
+        });
   const all = { type, ...next };
   return Object.fromEntries(
     Object.entries(all).filter(

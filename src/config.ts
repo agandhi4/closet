@@ -249,7 +249,8 @@ function readEnvFile(file: string): Env {
 function coerce(schema: TSchema, raw: string): unknown {
   if (KindGuard.IsBoolean(schema)) {
     const lower = raw.trim().toLowerCase();
-    return lower === 'true' ? true : lower === 'false' ? false : raw;
+    if (lower === 'true') return true;
+    return lower === 'false' ? false : raw;
   }
   if (KindGuard.IsNumber(schema) || KindGuard.IsInteger(schema)) {
     const number = Number(raw);

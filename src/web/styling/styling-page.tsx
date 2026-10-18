@@ -8,7 +8,7 @@ import { PostForm } from '../auth/form';
 import type { IsoDate } from '../../calendar-date';
 import { dayLabel, occasionLabel } from '../date-labels';
 import type { CapsuleRef } from '../capsules/queries';
-import { t } from '../i18n';
+import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -95,6 +95,9 @@ export interface SaveDraft {
   scheduleDate?: IsoDate;
   scheduleOccasion?: Occasion;
 }
+
+const ALL_GARMENTS_KEY = 'gallery.ALL_GARMENTS' satisfies StringKey;
+const SAVE_CHANGES_KEY = 'styling.SAVE_CHANGES' satisfies StringKey;
 
 // The page's own script (public/js/styling.js, through the importmap): an
 // inline module, so it runs again after a boosted navigation brings a new
@@ -373,14 +376,14 @@ function CapsuleLinks(props: {
     <details class="dropdown dropdown-end">
       <summary class="btn btn-sm btn-outline rounded-full max-w-36">
         <span class="truncate">
-          {capsule ? capsule.name : t('gallery.ALL_GARMENTS')}
+          {capsule ? capsule.name : t(ALL_GARMENTS_KEY)}
         </span>{' '}
         ▾
       </summary>
       <ul class="dropdown-content menu bg-base-100 rounded-box shadow-md z-20 w-56 mt-1">
         <li>
           <a href={stylingUrl({ ...state, capsuleId: undefined })}>
-            {t('gallery.ALL_GARMENTS')}
+            {t(ALL_GARMENTS_KEY)}
           </a>
         </li>
         {capsules.map((option) => (
@@ -456,7 +459,7 @@ function ActionBar({ model }: { model: StylingModel }) {
             class="btn btn-primary flex-1"
             onclick="document.getElementById('styling-save').showModal()"
           >
-            {t(model.outfit ? 'styling.SAVE_CHANGES' : 'SAVE')}
+            {t(model.outfit ? SAVE_CHANGES_KEY : 'SAVE')}
           </button>
         )}
       </div>
@@ -467,7 +470,7 @@ function ActionBar({ model }: { model: StylingModel }) {
 /** Save's primary action, by where the outfit goes. */
 function saveLabel(model: StylingModel): string {
   const { destination } = model;
-  if (model.outfit) return t('styling.SAVE_CHANGES');
+  if (model.outfit) return t(SAVE_CHANGES_KEY);
   return destination.kind === 'none'
     ? t('styling.SAVE_OUTFIT')
     : destinationPickLabel(destination);
@@ -489,7 +492,7 @@ function SaveSheet({ model }: { model: StylingModel }) {
     >
       <div class="modal-box flex flex-col gap-3 pb-8">
         <h2 id="styling-save-title" class="font-bold text-lg">
-          {t(model.outfit ? 'styling.SAVE_CHANGES' : 'styling.SAVE_TITLE')}
+          {t(model.outfit ? SAVE_CHANGES_KEY : 'styling.SAVE_TITLE')}
         </h2>
         <label class="flex flex-col gap-1">
           <span class="label-text">{t('NAME')}</span>
@@ -626,7 +629,7 @@ function Empty({ model }: { model: StylingModel }) {
           href={stylingUrl({ ...model.state, capsuleId: undefined })}
           class="btn btn-primary btn-sm"
         >
-          {t('gallery.ALL_GARMENTS')}
+          {t(ALL_GARMENTS_KEY)}
         </a>
       </EmptyState>
     );

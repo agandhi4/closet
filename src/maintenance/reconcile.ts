@@ -205,6 +205,11 @@ function summary(report: ReconciliationReport): string {
  * photo at the same moment either wins (no row is returned here) or finds
  * it gone. Returns the names; a dry run deletes nothing.
  */
+/** The log lines' verb for a deletion, which a dry run only reports. */
+function deleteVerb(dryRun: boolean): string {
+  return dryRun ? 'Would delete' : 'Deleting';
+}
+
 async function removeAgedPendingPhotos(
   { db, photos, logger }: ReconcileDeps,
   snapshot: readonly {
@@ -238,7 +243,7 @@ async function removePendingRowsWithoutFiles(
 ): Promise<number> {
   for (const name of names) {
     logger.debug(
-      `${dryRun ? 'Would delete' : 'Deleting'} pending row ${name}: its photo set is gone`,
+      `${deleteVerb(dryRun)} pending row ${name}: its photo set is gone`,
     );
     if (!dryRun) await deletePendingPhotoRow(db, name);
   }
@@ -448,15 +453,13 @@ async function removeOrphans(
   // (variant keys, image-variant.ts).
   for (const [, set] of plan.orphanedSets) {
     const names = set.objects.map((object) => object.name);
-    deps.logger.debug(
-      `${dryRun ? 'Would delete' : 'Deleting'} orphaned ${names.join(', ')}`,
-    );
+    deps.logger.debug(`${deleteVerb(dryRun)} orphaned ${names.join(', ')}`);
     if (!dryRun) await deps.photos.deleteFiles(names);
   }
   let superseded = 0;
   for (const [baseName, names] of plan.superseded) {
     deps.logger.info(
-      `${dryRun ? 'Would delete' : 'Deleting'} superseded variants of ${baseName}: ${names.join(', ')}`,
+      `${deleteVerb(dryRun)} superseded variants of ${baseName}: ${names.join(', ')}`,
     );
     if (!dryRun) await deps.photos.deleteFiles(names);
     superseded += names.length;

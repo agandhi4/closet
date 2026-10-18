@@ -3,6 +3,7 @@ import type { Queryable } from '../../db/client';
 import { outfit } from '../../db/schema';
 import {
   type LookReaction,
+  type LookNoteEffect,
   type LookReactionEvent,
   lookReactionTransition,
 } from '../../wardrobe/look-reaction';
@@ -80,18 +81,29 @@ export function reactToOutfit(
       .update(outfit)
       .set({
         reaction: move.to,
-        ownerNote:
-          move.note === 'write'
-            ? written
-            : move.note === 'clear'
-              ? null
-              : row.ownerNote,
+        ownerNote: noteAfter(move.note, written, row.ownerNote),
         dismissedReason: change.event === 'decline' ? change.reason : null,
         reactedAt: sql`now()`,
       })
       .where(eq(outfit.id, outfitId));
     return { ok: true, from: move.from, to: move.to, complete: row.complete };
   });
+}
+
+/** The owner's note after a move: the one written, none, or the one it had. */
+function noteAfter(
+  effect: LookNoteEffect,
+  written: string | null,
+  current: string | null,
+): string | null {
+  switch (effect) {
+    case 'write':
+      return written;
+    case 'clear':
+      return null;
+    case 'keep':
+      return current;
+  }
 }
 
 /**

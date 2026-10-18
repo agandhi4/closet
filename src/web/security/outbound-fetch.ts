@@ -7,7 +7,7 @@ import {
 } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP, type LookupFunction } from 'node:net';
-import type { Readable } from 'node:stream';
+import type { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import type { Logger } from '../../logger';
@@ -460,19 +460,21 @@ async function readResponse(
   }
 }
 
+// A Map, not an object literal: the key is a remote server's header, and
+// "constructor" must not find Object.prototype's.
+const DECODERS = new Map<string, () => Transform>([
+  ['gzip', createGunzip],
+  ['x-gzip', createGunzip],
+  ['deflate', createInflate],
+  ['br', createBrotliDecompress],
+]);
+
 /** The body as sent, decompressed; the cap applies to these bytes. */
 function decoded(response: IncomingMessage): Readable {
   const encoding = (response.headers['content-encoding'] ?? 'identity')
     .trim()
     .toLowerCase();
-  const decoder =
-    encoding === 'gzip' || encoding === 'x-gzip'
-      ? createGunzip()
-      : encoding === 'deflate'
-        ? createInflate()
-        : encoding === 'br'
-          ? createBrotliDecompress()
-          : undefined;
+  const decoder = DECODERS.get(encoding)?.();
   if (decoder) {
     // Errors on either side destroy both; the reader sees the first.
     return pipeline(response, decoder, () => undefined);

@@ -26,6 +26,14 @@ export function Messages({ messages }: { messages?: string[] }) {
   );
 }
 
+/**
+ * A bordered input's classes, red while it has messages (shown by Messages
+ * under it). `sizing` is its width: "w-full", "w-28".
+ */
+export function inputClass(sizing: string, messages?: string[]): string {
+  return `input input-bordered ${sizing} ${messages ? 'input-error' : ''}`;
+}
+
 /** The stand-in for a garment without a photo. */
 export function HangerIcon(props: { class: string; strokeWidth: string }) {
   return (

@@ -252,12 +252,13 @@ function* productNodes(
 
 /** The arrays and objects inside an array or object. */
 function childNodes(value: Json): Json[] {
-  const children = Array.isArray(value)
-    ? value
-    : isObject(value)
-      ? Object.values(value)
-      : [];
-  return children.filter((child) => typeof child === 'object' && child);
+  return members(value).filter((child) => typeof child === 'object' && child);
+}
+
+function members(value: Json): Json[] {
+  if (Array.isArray(value)) return value;
+  if (isObject(value)) return Object.values(value);
+  return [];
 }
 
 function productFields(node: JsonObject): SourceFields {
@@ -359,18 +360,19 @@ function offerPrice(offers: Json | undefined): ExtractedPrice | null {
   return null;
 }
 
+function priceText(value: Json | undefined): string {
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'string') return value;
+  return '';
+}
+
 /**
  * A positive amount as a plain decimal string: 29, "29.00", "$1,299.00",
  * "USD 120", "29,99" (a decimal comma). Null for anything else: 0 (a page's
  * "no price"), negatives, ranges ("10 - 20"), exponents, two numbers.
  */
 export function parsePrice(value: Json | undefined): string | null {
-  const raw =
-    typeof value === 'number'
-      ? String(value)
-      : typeof value === 'string'
-        ? value
-        : '';
+  const raw = priceText(value);
   const numbers = raw.match(/[\d.,]+/g);
   if (numbers?.length !== 1 || raw.includes('-')) return null;
   let digits = numbers[0];

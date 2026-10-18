@@ -233,12 +233,13 @@ export async function ideaReads(
   const { db } = deps;
   const { ownerId, shared, capsuleId } = scope;
   const { lockIds, today, seed, now } = ask;
+  const lockDay = shared ? null : today;
   const checks = {
     ...checkColumns(scope, ask),
     lockable:
       lockIds.length === 0
         ? undefined
-        : styledGarmentsSql(ownerId, lockIds, shared ? null : today),
+        : styledGarmentsSql(ownerId, lockIds, lockDay),
   };
   if (shared) {
     const row = await selectScalars(db, {

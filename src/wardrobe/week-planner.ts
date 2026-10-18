@@ -451,6 +451,19 @@ function slotSeed(slot: Slot): number {
 }
 
 /**
+ * A garment's idle days by the slot: none once the week wears it, else its
+ * history's count plus the days until the slot (null: never worn).
+ */
+function idleDaysBy(
+  idleDays: number | null,
+  wornThisWeek: boolean,
+  rested: number,
+): number | null {
+  if (wornThisWeek) return 0;
+  return idleDays === null ? null : idleDays + rested;
+}
+
+/**
  * The generator's best idea for the slot from what the ledger leaves
  * wearable that day, or undefined when there is none.
  */
@@ -466,11 +479,7 @@ function ideaFor<G extends PlannerGarment>(
     .filter((g) => ledger.canWear(g, slot.day))
     .map((g) => ({
       ...g,
-      idleDays: ledger.wears(g.id)
-        ? 0
-        : g.idleDays === null
-          ? null
-          : g.idleDays + rested,
+      idleDays: idleDaysBy(g.idleDays, ledger.wears(g.id), rested),
     }));
   const [idea] = generateIdeas({
     seed: slotSeed(slot),

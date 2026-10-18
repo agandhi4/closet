@@ -14,14 +14,16 @@ import {
   UndoForm,
 } from './suggestion-parts';
 
-/** Where a suggestion stands, as its page says it. */
-type SuggestionState =
-  | 'open'
-  | 'chosen'
-  | 'set-aside'
-  | 'need-set-aside'
-  | 'bought'
-  | 'returned';
+/** Where a suggestion stands, as its page says it (data-suggestion-state). */
+const STATE = {
+  open: 'open',
+  chosen: 'chosen',
+  setAside: 'set-aside',
+  needSetAside: 'need-set-aside',
+  bought: 'bought',
+  returned: 'returned',
+} as const;
+type SuggestionState = (typeof STATE)[keyof typeof STATE];
 
 function stateOf(
   garment: GarmentDetail,
@@ -29,14 +31,16 @@ function stateOf(
 ): SuggestionState {
   const { need } = suggestion;
   if (garment.status !== 'wishlist') {
-    return suggestion.dismissedReason === 'returned' ? 'returned' : 'bought';
+    return suggestion.dismissedReason === 'returned'
+      ? STATE.returned
+      : STATE.bought;
   }
-  if (garment.dismissedAt !== null) return 'set-aside';
-  if (need?.status === 'dismissed') return 'need-set-aside';
+  if (garment.dismissedAt !== null) return STATE.setAside;
+  if (need?.status === 'dismissed') return STATE.needSetAside;
   if (need?.status === 'resolved' && need.resolvedGarmentId === garment.id) {
-    return 'chosen';
+    return STATE.chosen;
   }
-  return 'open';
+  return STATE.open;
 }
 
 function pickName(pick: { name: string | null; category: string }): string {
@@ -124,11 +128,11 @@ function StateBadge(props: {
 }) {
   const { state, suggestion } = props;
   switch (state) {
-    case 'chosen':
+    case STATE.chosen:
       return (
         <span class="badge badge-soft badge-success">{t('muse.CHOSEN')}</span>
       );
-    case 'set-aside':
+    case STATE.setAside:
       return (
         <span class="badge badge-soft badge-neutral">
           {t('muse.SET_ASIDE_REASON', {
@@ -136,7 +140,7 @@ function StateBadge(props: {
           })}
         </span>
       );
-    case 'need-set-aside':
+    case STATE.needSetAside:
       return (
         <span class="badge badge-soft badge-neutral">
           {t('muse.NEED_SET_ASIDE', {
@@ -144,7 +148,7 @@ function StateBadge(props: {
           })}
         </span>
       );
-    case 'returned':
+    case STATE.returned:
       return (
         <span class="badge badge-soft badge-neutral">
           {reasonText('returned')}
@@ -167,7 +171,7 @@ function Decisions(props: {
   const { need } = suggestion;
   const bought = garmentUrl(garment.id, undefined, '/bought');
   switch (state) {
-    case 'open':
+    case STATE.open:
       return (
         <div class="flex flex-col gap-2" data-suggestion-actions="">
           {need ? (
@@ -176,16 +180,10 @@ function Decisions(props: {
               returnTo={self}
             />
           ) : (
-            <a href={bought} class="btn btn-primary btn-block">
-              {t('wishlist.BOUGHT_IT')}
-            </a>
+            <BoughtItLink href={bought} primary />
           )}
           <div class="flex flex-wrap items-start gap-1">
-            {need && (
-              <a href={bought} class="btn btn-ghost btn-sm">
-                {t('wishlist.BOUGHT_IT')}
-              </a>
-            )}
+            {need && <BoughtItLink href={bought} />}
             <NotForMe
               action={garmentUrl(garment.id, undefined, '/dismiss')}
               returnTo={self}
@@ -193,12 +191,10 @@ function Decisions(props: {
           </div>
         </div>
       );
-    case 'chosen':
+    case STATE.chosen:
       return (
         <div class="flex flex-col gap-2" data-suggestion-actions="">
-          <a href={bought} class="btn btn-primary btn-block">
-            {t('wishlist.BOUGHT_IT')}
-          </a>
+          <BoughtItLink href={bought} primary />
           <div class="flex flex-wrap items-start gap-1">
             {need && (
               <UndoForm
@@ -210,7 +206,7 @@ function Decisions(props: {
           </div>
         </div>
       );
-    case 'set-aside':
+    case STATE.setAside:
       // A pick comes back only into an open need (or none): a choice is
       // undone on the need's screen first.
       return !need || need.status === 'open' ? (
@@ -220,7 +216,7 @@ function Decisions(props: {
           primary
         />
       ) : null;
-    case 'need-set-aside':
+    case STATE.needSetAside:
       return need ? (
         <UndoForm
           action={needUrl(need.id, undefined, '/undo')}
@@ -231,6 +227,20 @@ function Decisions(props: {
     default:
       return null;
   }
+}
+
+/** "Bought it", to the purchase form: the one primary, or beside This one. */
+function BoughtItLink(props: { href: string; primary?: boolean }) {
+  return (
+    <a
+      href={props.href}
+      class={
+        props.primary ? 'btn btn-primary btn-block' : 'btn btn-ghost btn-sm'
+      }
+    >
+      {t('wishlist.BOUGHT_IT')}
+    </a>
+  );
 }
 
 /** The need's other open options, each to its own page, and the way to compare them. */

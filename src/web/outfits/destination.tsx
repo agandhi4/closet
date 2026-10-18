@@ -137,9 +137,9 @@ export function destinationQuery(destination: OutfitDestination): string {
 export function destinationTarget(
   destination: Exclude<OutfitDestination, { kind: 'none' }>,
 ): string {
-  return destination.kind === 'day'
-    ? `${DAY_PREFIX}${destination.day}`
-    : `${TRIP_PREFIX}${destination.tripId}${destination.day ? `:${destination.day}` : ''}`;
+  if (destination.kind === 'day') return `${DAY_PREFIX}${destination.day}`;
+  const day = destination.day ? `:${destination.day}` : '';
+  return `${TRIP_PREFIX}${destination.tripId}${day}`;
 }
 
 /**

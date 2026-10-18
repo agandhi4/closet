@@ -73,9 +73,22 @@ export interface EntryTarget {
   occasion?: Occasion;
 }
 
+/** The outcome tags: the union below and the transaction name a tag through this one owner. */
+const REPLACE_OUTCOME = {
+  replaced: 'replaced',
+  unchanged: 'unchanged',
+  entryNotFound: 'entry-not-found',
+  outfitNotFound: 'outfit-not-found',
+  garmentsNotFound: 'garments-not-found',
+  worn: 'worn',
+  alreadyOnDay: 'already-on-day',
+} as const;
+
+type Tag<K extends keyof typeof REPLACE_OUTCOME> = (typeof REPLACE_OUTCOME)[K];
+
 /** The entry holds the chosen outfit: changed now, or already (a double tap). */
 interface Replaced {
-  outcome: 'replaced' | 'unchanged';
+  outcome: Tag<'replaced'> | Tag<'unchanged'>;
   entryId: number;
   /** The entry's occasion, which a replace keeps. */
   occasion: Occasion;
@@ -98,16 +111,16 @@ export type ReplaceOutcome = Replaced | ReplaceRefused;
 /** Nothing was written. */
 export type ReplaceRefused =
   /** Not the owner's entry, or not on that day and occasion. */
-  | { outcome: 'entry-not-found' }
+  | { outcome: Tag<'entryNotFound'> }
   /** The saved outfit is not the owner's. */
-  | { outcome: 'outfit-not-found' }
+  | { outcome: Tag<'outfitNotFound'> }
   /**
    * An idea's garments are not all in the owner's closet (a card from
    * before an archive): which, as the refused transaction saw them (#219).
    */
-  | { outcome: 'garments-not-found'; gone: GoneGarment[] }
-  | { outcome: 'worn' }
-  | { outcome: 'already-on-day'; outfitId: number; occasion: Occasion };
+  | { outcome: Tag<'garmentsNotFound'>; gone: GoneGarment[] }
+  | { outcome: Tag<'worn'> }
+  | { outcome: Tag<'alreadyOnDay'>; outfitId: number; occasion: Occasion };
 
 export function replaceEntryOutfit(
   db: Queryable,
@@ -117,16 +130,17 @@ export function replaceEntryOutfit(
 ): Promise<ReplaceOutcome> {
   return ownerTransaction(db, ownerId, 'replaceEntryOutfit', async (tx) => {
     const entry = await lockEntryToReplace(tx, ownerId, target);
-    if (!entry) return { outcome: 'entry-not-found' };
+    if (!entry) return { outcome: REPLACE_OUTCOME.entryNotFound };
     // Before the choice: a refused replace must not save an idea either.
-    if (entry.worn) return { outcome: 'worn' };
+    if (entry.worn) return { outcome: REPLACE_OUTCOME.worn };
     const chosen = await chosenOutfit(tx, ownerId, choice);
     if (!chosen) {
-      if ('outfitId' in choice) return { outcome: 'outfit-not-found' };
+      if ('outfitId' in choice)
+        return { outcome: REPLACE_OUTCOME.outfitNotFound };
       // Named in the refused transaction, so every caller of
       // replaceRefusal answers the #219 rule (a named 409, or a 404).
       const gone = await goneGarments(tx, ownerId, choice.garmentIds, 'closet');
-      return { outcome: 'garments-not-found', gone };
+      return { outcome: REPLACE_OUTCOME.garmentsNotFound, gone };
     }
     const result = {
       adopted: entry.plannedBy === 'auto',
@@ -139,14 +153,18 @@ export function replaceEntryOutfit(
     };
     if (chosen.id === entry.outfitId) {
       if (result.adopted) await setEntryOutfit(tx, entry.id, chosen.id);
-      return { outcome: 'unchanged', ...result, outfitsRemoved: 0 };
+      return {
+        outcome: REPLACE_OUTCOME.unchanged,
+        ...result,
+        outfitsRemoved: 0,
+      };
     }
     // Only an outfit that already existed can be on the day: a created one
     // is new. Nothing was written yet, so refusing needs no rollback.
     const onDay = await entryOf(tx, ownerId, target.day, chosen.id);
     if (onDay) {
       return {
-        outcome: 'already-on-day',
+        outcome: REPLACE_OUTCOME.alreadyOnDay,
         outfitId: chosen.id,
         occasion: onDay.occasion,
       };
@@ -158,7 +176,12 @@ export function replaceEntryOutfit(
     const outfitsRemoved = plannerMade
       ? await removeUnheldOutfits(tx, ownerId, [entry.outfitId])
       : 0;
-    return { outcome: 'replaced', ...result, selfieDetached, outfitsRemoved };
+    return {
+      outcome: REPLACE_OUTCOME.replaced,
+      ...result,
+      selfieDetached,
+      outfitsRemoved,
+    };
   });
 }
 
@@ -185,15 +208,15 @@ async function chosenOutfit(
 /** Why a refused replace changed nothing, for its log line. */
 function refusalReason(outcome: ReplaceRefused): string {
   switch (outcome.outcome) {
-    case 'worn':
+    case REPLACE_OUTCOME.worn:
       return 'it is worn';
-    case 'already-on-day':
+    case REPLACE_OUTCOME.alreadyOnDay:
       return `outfit ${outcome.outfitId} is already on the day (${outcome.occasion})`;
-    case 'entry-not-found':
+    case REPLACE_OUTCOME.entryNotFound:
       return 'not their entry there';
-    case 'outfit-not-found':
+    case REPLACE_OUTCOME.outfitNotFound:
       return 'the outfit is not theirs';
-    case 'garments-not-found':
+    case REPLACE_OUTCOME.garmentsNotFound:
       return `garments not in their closet: ${describeGone(outcome.gone)}`;
   }
 }
@@ -224,7 +247,7 @@ export function replaceMessage(
   if (isRefused(outcome)) {
     return `${entry} not changed for user ${ownerId}${via}: ${refusalReason(outcome)}`;
   }
-  if (outcome.outcome === 'unchanged') {
+  if (outcome.outcome === REPLACE_OUTCOME.unchanged) {
     return outcome.adopted
       ? `${entry} already holds outfit ${outcome.outfitId}; taken over from the week planner by user ${ownerId}${via}`
       : `${entry} already holds outfit ${outcome.outfitId} for user ${ownerId}${via}; nothing changed`;
@@ -233,7 +256,10 @@ export function replaceMessage(
 }
 
 export function isRefused(outcome: ReplaceOutcome): outcome is ReplaceRefused {
-  return outcome.outcome !== 'replaced' && outcome.outcome !== 'unchanged';
+  return (
+    outcome.outcome !== REPLACE_OUTCOME.replaced &&
+    outcome.outcome !== REPLACE_OUTCOME.unchanged
+  );
 }
 
 /**
@@ -245,15 +271,15 @@ export function isRefused(outcome: ReplaceOutcome): outcome is ReplaceRefused {
  */
 export function replaceRefusal(outcome: ReplaceRefused): HttpError {
   switch (outcome.outcome) {
-    case 'entry-not-found':
+    case REPLACE_OUTCOME.entryNotFound:
       return new HttpError(404, 'Calendar entry not found');
-    case 'outfit-not-found':
+    case REPLACE_OUTCOME.outfitNotFound:
       return new HttpError(404, 'Outfit not found');
-    case 'garments-not-found':
+    case REPLACE_OUTCOME.garmentsNotFound:
       return garmentsGoneRefusal(outcome.gone);
-    case 'worn':
+    case REPLACE_OUTCOME.worn:
       return new HttpError(409, t('changeEntry.REFUSED_WORN'));
-    case 'already-on-day':
+    case REPLACE_OUTCOME.alreadyOnDay:
       return new HttpError(
         409,
         t('changeEntry.REFUSED_ON_DAY', {

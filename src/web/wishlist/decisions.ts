@@ -48,10 +48,13 @@ export type DecideOutcome =
       dismissed: number[];
       restored: number[];
     }
-  /** Not the owner's group, or not a suggestion of theirs: a 404 like an unknown id. */
-  | { ok: false; reason: 'not-found' }
-  /** Not where the decision applies (a stale page, a double tap): a 409. */
-  | { ok: false; reason: 'not-allowed' };
+  | Refusal;
+
+/** Not the owner's group, or not a suggestion of theirs: a 404 like an unknown id. */
+const NOT_FOUND = { ok: false, reason: 'not-found' } as const;
+/** Not where the decision applies (a stale page, a double tap): a 409. */
+const NOT_ALLOWED = { ok: false, reason: 'not-allowed' } as const;
+type Refusal = typeof NOT_FOUND | typeof NOT_ALLOWED;
 
 interface GroupRow {
   id: number;
@@ -233,12 +236,12 @@ function refusalOf(
   subject: DecisionSubject,
   decision: SuggestionDecision,
   read: Awaited<ReturnType<typeof readSubject>>,
-): 'not-found' | 'not-allowed' | undefined {
-  if ('groupId' in subject && !read.group) return 'not-found';
+): Refusal | undefined {
+  if ('groupId' in subject && !read.group) return NOT_FOUND;
   if (decision.kind !== 'bought' || read.garmentStatus === 'closet') {
     return undefined;
   }
-  return read.garmentStatus === null ? 'not-found' : 'not-allowed';
+  return read.garmentStatus === null ? NOT_FOUND : NOT_ALLOWED;
 }
 
 /**
@@ -260,24 +263,20 @@ export function decide(
   return ownerTransaction(db, ownerId, 'decide', async (tx) => {
     const read = await readSubject(tx, ownerId, subject, garmentId);
     const refusal = refusalOf(subject, decision, read);
-    if (refusal) return { ok: false, reason: refusal };
+    if (refusal) return refusal;
     const outcome = decideSuggestion(
       read.group ? groupState(read.group) : undefined,
       read.picks.map(pickState),
       decision,
     );
     if (!outcome.ok) {
-      return {
-        ok: false,
-        reason:
-          outcome.refusal === 'not-in-group' ? 'not-found' : 'not-allowed',
-      };
+      return outcome.refusal === 'not-in-group' ? NOT_FOUND : NOT_ALLOWED;
     }
     if (decision.kind === 'returned') {
       const archived = await setGarmentStatus(tx, decision.garmentId, ownerId, {
         event: 'archive',
       });
-      if (!archived.ok) return { ok: false, reason: 'not-allowed' };
+      if (!archived.ok) return NOT_ALLOWED;
     }
 
     const writes = outcomeWrites(tx, ownerId, read.group?.id, outcome);
@@ -359,6 +358,15 @@ export interface SuggestionRoom {
   same: SuggestedProduct | undefined;
 }
 
+function groupRoom(
+  status: OptionGroupStatus | null,
+  openOptions: number,
+): SuggestionRoom['group'] {
+  if (status === null) return 'missing';
+  if (status !== 'open') return 'closed';
+  return openOptions >= MAX_OPTIONS_PER_GROUP ? 'full' : 'room';
+}
+
 /**
  * markSuggestedProduct's rules read ahead, for suggest_garment (#337) to
  * refuse before it spends a link import: the group's state and room, and
@@ -379,15 +387,10 @@ export async function suggestionRoom(
     openOptions: openOptionsSql(groupId),
     products: suggestedProductsSql(ownerId),
   });
-  const group =
-    read.status === null
-      ? 'missing'
-      : read.status !== 'open'
-        ? 'closed'
-        : read.openOptions >= MAX_OPTIONS_PER_GROUP
-          ? 'full'
-          : 'room';
-  return { group, same: sameProduct(read.products, url) };
+  return {
+    group: groupRoom(read.status, read.openOptions),
+    same: sameProduct(read.products, url),
+  };
 }
 
 /**

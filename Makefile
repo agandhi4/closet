@@ -50,7 +50,7 @@ help:
 	@echo "make ci-metrics       — the metrics ratchet: scripts/ci/metrics.conf's collectors against docs/metrics/ratchet.json (the gate's last job)"
 	@echo "make metrics-snapshot — run the collectors; build/metrics.json is the report"
 	@echo "make metrics-tighten  — lock in improved numbers; commit docs/metrics/ratchet.json in the same PR"
-	@echo "make metrics-rebaseline — overwrite every bound after a tool change moved them; commit it and label the PR metrics-rebaseline"
+	@echo "make metrics-rebaseline KEYS=<key>[,<key>] — loosen only those bounds; commit it and label the PR metrics-rebaseline"
 	@echo "make gate PR=<n>      — the PR gate: these jobs on PR <n> merged into origin/main [GATE_ARGS=--no-post]"
 	@echo "make devkit-sync      — pull the latest agandhi4/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
@@ -166,8 +166,8 @@ metrics-snapshot:
 metrics-tighten:
 	devkit/bin/metrics_collect.sh tighten
 
-# The ratchet's own failure message names this target. It rewrites every bound, so review the
-# diff: keep only the keys the tool change moved.
+# The ratchet's fix lines name this target with the WORSE keys filled in. KEYS=<key>[,<key>]
+# (make's command line; devkit #116) loosens only those bounds; without KEYS nothing changes.
 metrics-rebaseline:
 	devkit/bin/metrics_collect.sh rebaseline
 

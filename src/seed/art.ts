@@ -888,12 +888,16 @@ interface PartColours {
   seam: string;
 }
 
-function partSvg(part: Part, colours: PartColours): string {
+function strokeOf(part: Part, colours: PartColours): string {
   const line = part.line ?? 'outline';
-  const stroke =
-    line === 'none'
-      ? ''
-      : ` stroke="${line === 'seam' ? colours.seam : colours.outline}" stroke-width="${part.width ?? (line === 'seam' ? 4 : 6)}"`;
+  if (line === 'none') return '';
+  const seam = line === 'seam';
+  const colour = seam ? colours.seam : colours.outline;
+  return ` stroke="${colour}" stroke-width="${part.width ?? (seam ? 4 : 6)}"`;
+}
+
+function partSvg(part: Part, colours: PartColours): string {
+  const stroke = strokeOf(part, colours);
   const offset = part.offset
     ? ` transform="translate(${part.offset[0]} ${part.offset[1]})"`
     : '';

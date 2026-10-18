@@ -195,14 +195,15 @@ function WeatherLine(props: { line: TodayLine; timeZone: string; now: Date }) {
 
 // "rain from 3 pm", "take a layer": what the line adds to the range.
 function lineNotes(line: TodayLine): string[] {
-  return [
-    line.rainNow
-      ? t('weather.RAIN_NOW')
-      : line.rainFrom !== null
-        ? t('weather.RAIN_FROM', { hour: hourLabel(line.rainFrom) })
-        : null,
-    line.layer ? t('weather.TAKE_LAYER') : null,
-  ].filter((note) => note !== null);
+  return [rainNote(line), line.layer ? t('weather.TAKE_LAYER') : null].filter(
+    (note) => note !== null,
+  );
+}
+
+function rainNote(line: TodayLine): string | null {
+  if (line.rainNow) return t('weather.RAIN_NOW');
+  if (line.rainFrom === null) return null;
+  return t('weather.RAIN_FROM', { hour: hourLabel(line.rainFrom) });
 }
 
 /**

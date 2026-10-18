@@ -109,6 +109,15 @@ export function TripWeather(props: {
   }
 }
 
+/** "12–18 °C" from Celsius, in the person's unit. */
+function rangeLabel(low: number, high: number, unit: TemperatureUnit): string {
+  return t('weather.RANGE', {
+    low: displayTemperature(low, unit),
+    high: displayTemperature(high, unit),
+    unit: UNIT_SYMBOLS[unit],
+  });
+}
+
 function TripWeatherRow(props: {
   tripId: number;
   day: TripWeatherDay;
@@ -127,21 +136,17 @@ function TripWeatherRow(props: {
       <span class="flex flex-col min-w-0 flex-1">
         <span class="text-sm">
           <span class="font-medium">{dayLabel(forecast.day)}</span>{' '}
-          {t('weather.RANGE', {
-            low: displayTemperature(forecast.low, unit),
-            high: displayTemperature(forecast.high, unit),
-            unit: UNIT_SYMBOLS[unit],
-          })}
+          {rangeLabel(forecast.low, forecast.high, unit)}
         </span>
         {(needs || notes.length > 0) && (
           <span class="text-xs text-muted">
             {needs &&
               t('gallery.FEELS', {
-                range: t('weather.RANGE', {
-                  low: displayTemperature(needs.feelsLike.min, unit),
-                  high: displayTemperature(needs.feelsLike.max, unit),
-                  unit: UNIT_SYMBOLS[unit],
-                }),
+                range: rangeLabel(
+                  needs.feelsLike.min,
+                  needs.feelsLike.max,
+                  unit,
+                ),
               })}
             {notes.map((note) => (
               <span> · {note}</span>
@@ -177,11 +182,7 @@ function TripTypicalRow(props: {
         <span class="text-sm">
           <span class="font-medium">{dayLabel(day)}</span>{' '}
           {t('trips.TYPICAL_DAY', {
-            range: t('weather.RANGE', {
-              low: displayTemperature(normals.low, unit),
-              high: displayTemperature(normals.high, unit),
-              unit: UNIT_SYMBOLS[unit],
-            }),
+            range: rangeLabel(normals.low, normals.high, unit),
             chance: normals.rainChance,
           })}
         </span>
