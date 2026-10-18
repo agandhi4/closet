@@ -5,6 +5,7 @@ import {
 } from '../../wardrobe/occasions';
 import { IDEAS_PATH } from '../gallery/urls';
 import { t } from '../i18n';
+import { SheetBackdrop } from '../layout/parts';
 import { destinationTarget } from '../outfits/destination';
 import { SAVED_PATH } from '../outfits/urls';
 import { STYLING_PATH } from '../styling/urls';
@@ -106,9 +107,7 @@ export function PlanSheet({ day }: { day: IsoDate }) {
           </div>
         </form>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>{t('CANCEL')}</button>
-      </form>
+      <SheetBackdrop label={t('CANCEL')} />
     </dialog>
   );
 }

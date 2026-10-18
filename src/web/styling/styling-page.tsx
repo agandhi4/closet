@@ -13,7 +13,7 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { PageMain } from '../layout/page-main';
-import { BackLink, EmptyState } from '../layout/parts';
+import { BackLink, EmptyState, SheetBackdrop } from '../layout/parts';
 import {
   DestinationFields,
   destinationQuery,
@@ -535,9 +535,7 @@ function SaveSheet({ model }: { model: StylingModel }) {
           </button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>{t('CANCEL')}</button>
-      </form>
+      <SheetBackdrop label={t('CANCEL')} />
     </dialog>
   );
 }

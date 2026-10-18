@@ -1,5 +1,6 @@
 import { t } from '../i18n';
 import { ideasUrl } from '../gallery/urls';
+import { LinkTabs } from '../layout/link-tabs';
 import type { DayDestination } from './destination';
 import { savedUrl } from './urls';
 
@@ -18,22 +19,23 @@ export function OutfitTabs(props: {
   active: OutfitsTab;
   destination?: DayDestination;
 }) {
-  const { active } = props;
   const destination = props.destination ?? { kind: 'none' };
-  const tab = (name: OutfitsTab, href: string, label: string) => (
-    <a
-      role="tab"
-      href={href}
-      class={active === name ? 'tab tab-active' : 'tab'}
-      aria-selected={active === name ? 'true' : 'false'}
-    >
-      {label}
-    </a>
-  );
   return (
-    <div role="tablist" class="tabs tabs-box tabs-sm mb-4 mx-2">
-      {tab('saved', savedUrl(destination), t('gallery.TAB_SAVED'))}
-      {tab('ideas', ideasUrl({ destination }), t('gallery.TAB_IDEAS'))}
-    </div>
+    <LinkTabs
+      active={props.active}
+      class="tabs tabs-box tabs-sm mb-4 mx-2"
+      tabs={[
+        {
+          name: 'saved',
+          href: savedUrl(destination),
+          label: t('gallery.TAB_SAVED'),
+        },
+        {
+          name: 'ideas',
+          href: ideasUrl({ destination }),
+          label: t('gallery.TAB_IDEAS'),
+        },
+      ]}
+    />
   );
 }
