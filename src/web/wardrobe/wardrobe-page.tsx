@@ -11,6 +11,7 @@ import {
   typesOf,
   WARMTHS,
 } from '../../wardrobe/properties';
+import { ShownId } from '../checklist';
 import { CARE_WASH } from '../../wardrobe/care';
 import { garmentMarks } from '../../wardrobe/marks';
 import { PostForm } from '../auth/form';
@@ -606,9 +607,7 @@ function SelectTile(props: {
         class="checkbox checkbox-primary checkbox-sm absolute top-1.5 left-1.5 z-10 not-checked:bg-base-100"
         aria-label={tileName(tile)}
       />
-      {props.shown && (
-        <input type="hidden" name="shown" value={String(tile.id)} />
-      )}
+      {props.shown && <ShownId id={tile.id} />}
       <TileContent
         tile={tile}
         eager={props.eager}

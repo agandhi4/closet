@@ -2,6 +2,7 @@ import { type Static, Type } from '@sinclair/typebox';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
+import { checklistBody } from '../checklist';
 import { OwnerQuery, RowId } from '../schemas';
 import type { CapsuleFields } from './queries';
 
@@ -81,13 +82,7 @@ export const CapsulePageQuery = Type.Object({
  * the picker never showed (pages not scrolled to, archived garments,
  * filtered out) stay as they are. Nothing checked posts no `ids`.
  */
-export const MembersBody = Type.Union([
-  Type.Object({
-    ids: Type.Optional(Type.Array(RowId, { maxItems: MAX_IDS })),
-    shown: Type.Optional(Type.Array(RowId, { maxItems: MAX_IDS })),
-  }),
-  Type.Null(),
-]);
+export const MembersBody = checklistBody('ids', MAX_IDS);
 
 /**
  * POST /wardrobe/:id/capsules, the garment page's capsules row: the same
@@ -95,19 +90,4 @@ export const MembersBody = Type.Union([
  * capsule the toggles listed (one created meanwhile elsewhere is left
  * alone).
  */
-export const GarmentCapsulesBody = Type.Union([
-  Type.Object({
-    capsuleIds: Type.Optional(Type.Array(RowId, { maxItems: MAX_IDS })),
-    shown: Type.Optional(Type.Array(RowId, { maxItems: MAX_IDS })),
-  }),
-  Type.Null(),
-]);
-
-/** The ids that were shown and are not checked: what leaves. */
-export function unchecked(
-  shown: number[] | undefined,
-  checked: number[] | undefined,
-): number[] {
-  const kept = new Set(checked);
-  return (shown ?? []).filter((id) => !kept.has(id));
-}
+export const GarmentCapsulesBody = checklistBody('capsuleIds', MAX_IDS);
