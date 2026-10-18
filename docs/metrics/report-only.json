@@ -2,6 +2,8 @@
   "metrics": {
     "coupling.backend.fan_in_max": 123,
     "duplication.repo.jscpd_percent": 0.23,
+    "size.backend.max_lines": 2295,
+    "size.backend.over_600": 15,
     "vuln.backend.critical": 0,
     "vuln.backend.high": 1,
     "vuln.backend.total": 7
@@ -11,6 +13,8 @@
   "sources": {
     "coupling.backend.fan_in_max": "ts-backend",
     "duplication.repo.jscpd_percent": "dup",
+    "size.backend.max_lines": "size-backend",
+    "size.backend.over_600": "size-backend",
     "vuln.backend.critical": "vuln",
     "vuln.backend.high": "vuln",
     "vuln.backend.total": "vuln"

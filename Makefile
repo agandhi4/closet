@@ -30,6 +30,9 @@ UNIT_BUDGET_SECONDS := 60
 # 51 s in PR #387's gate). docs/decisions.md 2026-10-14.
 DB_BUDGET_SECONDS := 110
 E2E_BUDGET_SECONDS := 180
+# smoke: the container boot and probes took 5 s in PR #415's gate; smoke-image.sh's own bounds
+# (boot 60 s, cutout 240 s) catch a hang, this catches a boot that slowly grew.
+SMOKE_BUDGET_SECONDS := 120
 UNIT_FLOOR := 1486
 DB_FLOOR := 4472
 E2E_FLOOR := 10
@@ -146,7 +149,7 @@ screenshots:
 # The image's own boot (health, migrations, SIGTERM) is scripts/smoke-image.sh, run by ci.yml's
 # publish job on the exact bytes it pushes; this target proves the Dockerfile still builds.
 ci-image:
-	docker build --build-arg APP_VERSION=$(CI_BUILD_VERSION) -t $(CI_IMAGE) .
+	DOCKER_CALL_TIMEOUT=900 devkit/bin/docker_bounded.sh build --build-arg APP_VERSION=$(CI_BUILD_VERSION) -t $(CI_IMAGE) .
 
 # The publish job's smoke test, locally: CI_IMAGE (build it with ci-image first) on the host
 # network against a throwaway Postgres 18 published on loopback, and /health/ready must name
@@ -157,7 +160,7 @@ ci-smoke:
 	  [ -n "$$port" ] || exit 1; \
 	  DATABASE_HOST=127.0.0.1 DATABASE_PORT=$$port DATABASE_USER=ci DATABASE_PASS=ci DATABASE_SCHEMA=ci \
 	    SMOKE_PORT=$${SMOKE_PORT:-$$(awk 'BEGIN { srand(); print 3800 + int(rand() * 600) }')} \
-	    BOOT_EXPECT_VERSION=$(CI_BUILD_VERSION) scripts/smoke-image.sh $(CI_IMAGE)
+	    BOOT_EXPECT_VERSION=$(CI_BUILD_VERSION) $(TIER) smoke --budget $(SMOKE_BUDGET_SECONDS) -- scripts/smoke-image.sh $(CI_IMAGE)
 
 # Metrics ratchet (devkit README "Metrics ratchet"): devkit/bin/metrics_collect.sh owns which
 # collectors run, the merge and the comparison with main's bounds. Needs node_modules (ci-deps)
@@ -179,6 +182,10 @@ metrics-rebaseline:
 gate:
 	@test -n "$(PR)" || { echo "usage: make gate PR=<number> [GATE_ARGS=--no-post]" >&2; exit 2; }
 	devkit/bin/local_gate.sh "$(PR)" $(GATE_ARGS)
+
+# The only merge path: refuses unless local-gate and codex-review (GATE_MERGE_REQUIRES in
+# scripts/ci/gate_plan.sh) are success on the exact head and main has not moved since the gate.
+merge: ; devkit/bin/pr_merge.sh "$(PR)"
 
 devkit-sync:
 	devkit/bin/devkit-sync.sh
