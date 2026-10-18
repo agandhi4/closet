@@ -2,6 +2,7 @@ import { type Static, Type } from '@sinclair/typebox';
 import type { FieldErrors } from '../auth/validation';
 import { daysBetween, parseIsoDate } from '../../calendar-date';
 import { HttpError } from '../errors';
+import { checklistBody } from '../checklist';
 import { t } from '../i18n';
 import { OccasionSchema, RowId } from '../schemas';
 import type { TripFields } from './queries';
@@ -127,17 +128,9 @@ export const AddOutfitQuery = Type.Object({
 /**
  * A checklist's autosave (the packing list, the extras): the checked ids
  * and every id it showed. Shown and unchecked is unpacked; ids it never
- * showed (a garment added meanwhile) are left alone, the capsule toggles'
- * rule (`unchecked`, src/web/capsules/validation.ts). Nothing checked posts
- * no `packed`.
+ * showed (a garment added meanwhile) are left alone: src/web/checklist.tsx.
  */
-export const ChecklistBody = Type.Union([
-  Type.Object({
-    packed: Type.Optional(Type.Array(RowId, { maxItems: MAX_IDS })),
-    shown: Type.Optional(Type.Array(RowId, { maxItems: MAX_IDS })),
-  }),
-  Type.Null(),
-]);
+export const ChecklistBody = checklistBody('packed', MAX_IDS);
 
 export const ItemBody = Type.Object({
   label: Type.String({ minLength: 1, maxLength: TRIP_ITEM_MAX }),

@@ -1,4 +1,5 @@
 import { AutosaveForm } from '../autosave';
+import { ShownId } from '../checklist';
 import { t } from '../i18n';
 import { capsuleUrl, garmentUrl } from '../wardrobe/urls';
 import type { GarmentCapsule } from './queries';
@@ -50,7 +51,7 @@ export function GarmentCapsules(props: {
                   checked={capsule.member}
                 />
                 {/* Listed here: unchecked means "not in it" for this one only. */}
-                <input type="hidden" name="shown" value={String(capsule.id)} />
+                <ShownId id={capsule.id} />
               </>
             ))}
           </div>

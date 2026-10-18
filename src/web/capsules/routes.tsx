@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { selectScalars } from '../../db/select-scalars';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
+import { unchecked } from '../checklist';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import {
@@ -40,7 +41,6 @@ import {
   MembersBody,
   nameTaken,
   readCapsuleForm,
-  unchecked,
 } from './validation';
 import { garmentNotFound } from '../wardrobe/garment-access';
 

@@ -13,7 +13,7 @@ import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { addDays, parseIsoDate, todayIn } from '../../calendar-date';
 import { wearOutfitOn } from '../calendar/queries';
-import { unchecked } from '../capsules/validation';
+import { unchecked } from '../checklist';
 import { HttpError } from '../errors';
 import { savedOutfitsSql } from '../outfits/queries';
 import type { WebOptions } from '../plugin';

@@ -5,6 +5,7 @@ import {
 } from '../../wardrobe/packing';
 import { PostForm } from '../auth/form';
 import { AutosaveForm } from '../autosave';
+import { ShownId } from '../checklist';
 import type { IsoDate } from '../../calendar-date';
 import { occasionLabel } from '../date-labels';
 import { imageUrl } from '../files/image-url';
@@ -444,7 +445,7 @@ function PackingRowView({ row }: { row: PackingRow<PackingGarmentView> }) {
           </span>
         </span>
       </label>
-      <input type="hidden" name="shown" value={id} />
+      <ShownId id={id} />
       {row.warnings.length > 0 && (
         <ul class="flex flex-wrap gap-1 mt-1 ml-8">
           {row.warnings.map((warning) => (
@@ -529,7 +530,7 @@ function ExtrasSection({ model }: { model: TripPageModel }) {
                     />
                     <span class="text-sm truncate">{item.label}</span>
                   </label>
-                  <input type="hidden" name="shown" value={String(item.id)} />
+                  <ShownId id={item.id} />
                   {/* Submits its own form below (forms cannot nest). */}
                   <button
                     type="submit"
