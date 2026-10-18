@@ -27,6 +27,7 @@ import {
   EmptyState,
   PlinthImage,
   SavedToast,
+  SheetBackdrop,
   StripFlags,
 } from '../layout/parts';
 import type { SharedWardrobe } from '../sharing/access';
@@ -1111,9 +1112,7 @@ function FilterModal(props: {
           </button>
         </div>
       </form>
-      <form method="dialog" class="modal-backdrop">
-        <button>{t('CLOSE')}</button>
-      </form>
+      <SheetBackdrop label={t('CLOSE')} />
     </dialog>
   );
 }
@@ -1485,9 +1484,7 @@ function BulkDialog() {
           </button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>{t('CLOSE')}</button>
-      </form>
+      <SheetBackdrop label={t('CLOSE')} />
     </dialog>
   );
 }

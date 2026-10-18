@@ -7,6 +7,7 @@ import {
   CameraIcon,
   PhotoLibraryIcon,
   PREPARE_AND_SUBMIT_PHOTO,
+  SheetBackdrop,
 } from '../layout/parts';
 import type { SelfieRef } from './queries';
 
@@ -157,9 +158,7 @@ export function SelfieView(props: {
             </form>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop">
-          <button type="submit">{t('selfie.CLOSE')}</button>
-        </form>
+        <SheetBackdrop label={t('selfie.CLOSE')} />
       </dialog>
     </>
   );

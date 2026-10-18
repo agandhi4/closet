@@ -3,11 +3,13 @@ import { PostForm } from '../auth/form';
 import { t } from '../i18n';
 import { INSIGHTS_PATH, RECAP_PATH } from '../insights/urls';
 import { AppBar } from '../layout/app-bar';
+import { LinkTabs } from '../layout/link-tabs';
 import {
   CameraIcon,
   PHOTO_ACCEPT,
   PhotoLibraryIcon,
   PREPARE_AND_SUBMIT_PHOTO,
+  SheetBackdrop,
 } from '../layout/parts';
 import type { SharedWardrobe } from '../sharing/access';
 import { PermissionBadge } from '../sharing/pages';
@@ -312,9 +314,7 @@ function AddSheet(props: {
           ))}
         {props.canEdit && <PhotoForms viewOwner={viewOwner} />}
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>{t('CLOSE')}</button>
-      </form>
+      <SheetBackdrop label={t('CLOSE')} />
     </dialog>
   );
 }
@@ -432,23 +432,23 @@ export function WardrobeTabs(props: {
   viewOwner: number | undefined;
 }) {
   const { viewOwner } = props;
-  const tab = (name: WardrobeTab, label: string) => (
-    <a
-      role="tab"
-      href={tabUrl(name, viewOwner)}
-      class={props.active === name ? 'tab tab-active' : 'tab'}
-      aria-selected={props.active === name ? 'true' : 'false'}
-    >
-      {label}
-    </a>
-  );
+  const tab = (name: WardrobeTab, label: string) => ({
+    name,
+    href: tabUrl(name, viewOwner),
+    label,
+  });
   return (
-    <div role="tablist" class="tabs tabs-border px-2" id="wardrobe-tabs">
-      {tab('closet', t('CLOSET'))}
-      {tab('capsules', t('CAPSULES'))}
-      {viewOwner === undefined && tab('laundry', t('wear.LAUNDRY'))}
-      {tab('wishlist', t('wishlist.TAB'))}
-    </div>
+    <LinkTabs
+      active={props.active}
+      class="tabs tabs-border px-2"
+      id="wardrobe-tabs"
+      tabs={[
+        tab('closet', t('CLOSET')),
+        tab('capsules', t('CAPSULES')),
+        viewOwner === undefined && tab('laundry', t('wear.LAUNDRY')),
+        tab('wishlist', t('wishlist.TAB')),
+      ]}
+    />
   );
 }
 
