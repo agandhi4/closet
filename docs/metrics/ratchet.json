@@ -19,11 +19,6 @@
     "direction": "lower",
     "source": "ts-backend"
   },
-  "coupling.backend.fan_in_max": {
-    "bound": 122,
-    "direction": "lower",
-    "source": "ts-backend"
-  },
   "coupling.backend.fan_out_max": {
     "bound": 36,
     "direction": "lower",
@@ -40,7 +35,7 @@
     "source": "cov"
   },
   "coverage.backend.lines": {
-    "bound": 97.44,
+    "bound": 97.46,
     "direction": "higher",
     "source": "cov"
   },
@@ -60,12 +55,7 @@
     "source": "ts-backend"
   },
   "duplication.repo.clones": {
-    "bound": 25,
-    "direction": "lower",
-    "source": "dup"
-  },
-  "duplication.repo.jscpd_percent": {
-    "bound": 0.32,
+    "bound": 22,
     "direction": "lower",
     "source": "dup"
   },

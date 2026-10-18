@@ -1,3 +1,4 @@
+import type { Child } from 'hono/jsx';
 import { AutosaveForm } from '../autosave';
 import { t } from '../i18n';
 import { ProfileSection } from '../layout/parts';
@@ -6,7 +7,13 @@ import {
   OFFSET_LIMIT,
   TEMPERATURE_UNITS,
 } from '../../weather/temperature';
-import type { Place } from './open-meteo';
+import {
+  LocationFields,
+  PLACE_QUERY_MAX,
+  PLACE_QUERY_MIN,
+  type PlaceAnswer,
+  PlaceResults,
+} from './place-picker';
 import {
   activeLocation,
   HERE_FRESH_HOURS,
@@ -123,8 +130,8 @@ export function WeatherLocation(props: {
           type="search"
           name="q"
           required
-          minlength={2}
-          maxlength={100}
+          minlength={PLACE_QUERY_MIN}
+          maxlength={PLACE_QUERY_MAX}
           autocomplete="address-level2"
           class="input join-item w-full"
           placeholder={t('weather.SEARCH_PLACEHOLDER')}
@@ -202,8 +209,7 @@ function HereControls(props: {
         {...LOCATION_SWAP}
         hidden
       >
-        <input type="hidden" name="latitude" />
-        <input type="hidden" name="longitude" />
+        <LocationFields />
       </form>
     </div>
   );
@@ -271,38 +277,14 @@ export function OffsetControls(props: {
 }
 
 /** GET /weather/places's answer: a button per place, each setting it as home. */
-export function PlaceResults(props: { places: Place[] } | { failed: true }) {
-  if ('failed' in props) {
-    return <p class="text-sm text-error">{t('weather.SEARCH_FAILED')}</p>;
-  }
-  if (props.places.length === 0) {
-    return <p class="text-sm">{t('weather.NO_PLACES')}</p>;
-  }
+export function HomePlaceResults(props: { answer: PlaceAnswer }) {
+  return <PlaceResults answer={props.answer} Form={HomeForm} />;
+}
+
+function HomeForm(props: { children: Child }) {
   return (
-    <ul class="flex flex-col gap-1">
-      {props.places.map((place) => (
-        <li>
-          <form hx-post="/weather/home" {...LOCATION_SWAP}>
-            <input type="hidden" name="name" value={place.label} />
-            <input
-              type="hidden"
-              name="latitude"
-              value={String(place.location.latitude)}
-            />
-            <input
-              type="hidden"
-              name="longitude"
-              value={String(place.location.longitude)}
-            />
-            <button
-              type="submit"
-              class="btn btn-ghost btn-sm justify-start w-full"
-            >
-              {place.label}
-            </button>
-          </form>
-        </li>
-      ))}
-    </ul>
+    <form hx-post="/weather/home" {...LOCATION_SWAP}>
+      {props.children}
+    </form>
   );
 }
