@@ -201,6 +201,6 @@ older history lives in `docs/PROJECT_LOG.md`.
 
 ## 2026-10-17 — One owner for the checklist protocol
 
-**Why:** jscpd's pass-2 groups held three hand-written checklist bodies (two in capsules, one in trips) and four hidden `shown` inputs. Trips imported `unchecked` from capsules' validation, a cross-feature reach. The trip writers' docs gave opposite rules for an id both checked and shown, a case `unchecked` never produces.
+**Why:** jscpd's pass-2 groups held three hand-written checklist bodies (two in capsules, one in trips) and four hidden `shown` inputs. Trips imported `unchecked` from capsules' validation, a cross-feature reach. The two trip writers resolve an id sent as both packed and unpacked differently (`setPacked` packs it, `setItemsPacked` unpacks it); no post reaches that, since `unchecked` never returns a checked id.
 **Decision:** `src/web/checklist.tsx` owns `checklistBody(field, maxItems)`, `unchecked` and `ShownId`. Posted names (`ids`, `capsuleIds`, `packed`) and caps (2000, 500) stay per list, because cached pages post them. guards.conf `@checklist-shown` keeps `name="shown"` there.
 **Consequence:** the schemas and rendered markup are unchanged. A new checklist starts from the owner; a hand-made `shown` input fails ci-quick.

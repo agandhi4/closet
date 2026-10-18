@@ -128,7 +128,7 @@ export const AddOutfitQuery = Type.Object({
 /**
  * A checklist's autosave (the packing list, the extras): the checked ids
  * and every id it showed. Shown and unchecked is unpacked; ids it never
- * showed (a garment added meanwhile) are left alone: src/web/checklist.ts.
+ * showed (a garment added meanwhile) are left alone: src/web/checklist.tsx.
  */
 export const ChecklistBody = checklistBody('packed', MAX_IDS);
 
