@@ -43,12 +43,12 @@ DEVKIT_IMAGE_BIN="boot_image.sh contract_probe.sh"
 # Executed by unit/db/e2e/build/metrics jobs (tier budgets, throwaway Postgres for db tiers
 # and smokes, Playwright browsers, toolchains a Makefile or cargo.sh provisions; layer_check.py
 # and guard_check.py, ci-quick guards that are also the metrics job's `layers` and `guards`
-# collectors, and the modules they load, _source_tree.py, _ts_lex.py and _guard_rules.py): other. Only
+# collectors, and the modules they load, _source_tree.py, _ts_lex.py and _guard_rules.py; the timeout and load libs): other. Only
 # a record of the decision; the classification needs no lookup for other.
 # shellcheck disable=SC2034  # read by tests/gate_contract.bats (every bin/ file listed once)
 DEVKIT_JOB_BIN="tier_guard.sh throwaway_pg.sh playwright_browsers.sh node_toolchain.sh
   rust_toolchain.sh toolchain_path.sh metrics_ratchet.py metrics_collect.sh layer_check.py
-  guard_check.py _source_tree.py _ts_lex.py _guard_rules.py"
+  guard_check.py _source_tree.py _ts_lex.py _guard_rules.py _timeout_lib.sh _load_lib.sh"
 
 # <path>: set DEVKIT_AREA (no subshell; devkit_areas calls it once per changed path).
 _devkit_area() {

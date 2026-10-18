@@ -76,7 +76,8 @@ They are rule maps, not config objects, because a plugin's rules only resolve in
 that also registers the plugin, and that scope is the repo's. Every JS repo in the fleet pins
 eslint-plugin-sonarjs 4.2.x (closet, finplat, instalite, locus, orbit, rollcall); a repo
 without it ignores both exports. Adoption is one spread in the layer that already registers
-the plugin, plus one in the test layer, at the repo's next sync:
+the plugin, plus one in the test layer, at the repo's next sync (the next-vercel scaffold ships
+both, so a new app starts with them):
 
 ```js
 import base, { sonarjsRules, sonarjsTestRules } from "../devkit/lint/eslint.base.mjs"
