@@ -145,11 +145,8 @@ const TYPICAL_CODE = { dry: 2, rain: 63, snow: 73 };
  */
 export function typicalDay(day: IsoDate, normals: DayNormals): DayForecast {
   const wet = normals.rainChance >= RAIN_CHANCE;
-  const code = !wet
-    ? TYPICAL_CODE.dry
-    : normals.feelsHigh < 1
-      ? TYPICAL_CODE.snow
-      : TYPICAL_CODE.rain;
+  let code = TYPICAL_CODE.dry;
+  if (wet) code = normals.feelsHigh < 1 ? TYPICAL_CODE.snow : TYPICAL_CODE.rain;
   const swing = normals.feelsHigh - normals.feelsLow;
   return {
     day,

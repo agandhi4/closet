@@ -208,11 +208,10 @@ interface Dismissal {
   note: string | null;
 }
 
-type DecisionRefusal =
-  /** The garment is not one of the group's (or has no group to decide). */
-  | 'not-in-group'
-  /** The group or pick is not where the decision applies (a stale page, a double tap): a 409. */
-  | 'not-allowed';
+/** The garment is not one of the group's (or has no group to decide). */
+const NOT_IN_GROUP = { ok: false, refusal: 'not-in-group' } as const;
+/** The group or pick is not where the decision applies (a stale page, a double tap): a 409. */
+const NOT_ALLOWED = { ok: false, refusal: 'not-allowed' } as const;
 
 export type DecisionOutcome =
   | {
@@ -223,12 +222,8 @@ export type DecisionOutcome =
       /** Picks open again (their dismissal cleared). */
       restore: number[];
     }
-  | { ok: false; refusal: DecisionRefusal };
-
-const refused = (refusal: DecisionRefusal): DecisionOutcome => ({
-  ok: false,
-  refusal,
-});
+  | typeof NOT_IN_GROUP
+  | typeof NOT_ALLOWED;
 
 const REOPENED: GroupChange = {
   status: 'open',
@@ -285,9 +280,7 @@ export function decideSuggestion(
       return boughtOf(group, picks, decision.garmentId);
     default: {
       const pick = picks.find((p) => p.id === decision.garmentId);
-      return pick
-        ? decideOnPick(group, picks, pick, decision)
-        : refused('not-in-group');
+      return pick ? decideOnPick(group, picks, pick, decision) : NOT_IN_GROUP;
     }
   }
 }
@@ -297,8 +290,8 @@ function dismissGroup(
   group: GroupState | undefined,
   decision: Extract<SuggestionDecision, { kind: 'dismiss-group' }>,
 ): DecisionOutcome {
-  if (!group) return refused('not-in-group');
-  if (group.status !== 'open') return refused('not-allowed');
+  if (!group) return NOT_IN_GROUP;
+  if (group.status !== 'open') return NOT_ALLOWED;
   return {
     ok: true,
     group: {
@@ -319,7 +312,7 @@ function boughtOf(
   picks: readonly PickState[],
   garmentId: number,
 ): DecisionOutcome {
-  if (!group) return refused('not-in-group');
+  if (!group) return NOT_IN_GROUP;
   // The garment need not be a pick: "Bought a different one" resolves
   // the group with a garment of the owner's own, but only a need still
   // to buy for, so a second different one (two phones, a double post)
@@ -327,7 +320,7 @@ function boughtOf(
   if (!picks.some((pick) => pick.id === garmentId)) {
     return stillToBuy(group, picks)
       ? resolvedBy(picks, garmentId)
-      : refused('not-allowed');
+      : NOT_ALLOWED;
   }
   // A pick bought after the need was settled by another purchase (a
   // different one, or a sibling bought): the purchase is recorded and
@@ -410,16 +403,16 @@ function decideOnPick(
 ): DecisionOutcome {
   switch (decision.kind) {
     case 'choose':
-      if (!group) return refused('not-in-group');
+      if (!group) return NOT_IN_GROUP;
       return group.status === 'open' && isOpen(pick)
         ? resolvedBy(picks, pick.id)
-        : refused('not-allowed');
+        : NOT_ALLOWED;
     case 'dismiss-pick':
       return dismissPick(group, picks, pick, decision);
     case 'undo-pick':
       return canRestore(group, pick)
         ? { ok: true, group: undefined, dismiss: [], restore: [pick.id] }
-        : refused('not-allowed');
+        : NOT_ALLOWED;
     case 'returned':
       return returnedOf(group, pick);
   }
@@ -440,7 +433,7 @@ function dismissPick(
   pick: PickState,
   decision: Extract<SuggestionDecision, { kind: 'dismiss-pick' }>,
 ): DecisionOutcome {
-  if (!isOpen(pick)) return refused('not-allowed');
+  if (!isOpen(pick)) return NOT_ALLOWED;
   const settled = settledBy(group, pick);
   return {
     ok: true,
@@ -460,7 +453,7 @@ function returnedOf(
   pick: PickState,
 ): DecisionOutcome {
   if (pick.wanted || pick.dismissedReason === 'returned') {
-    return refused('not-allowed');
+    return NOT_ALLOWED;
   }
   return {
     ok: true,
@@ -484,16 +477,16 @@ function undoGroup(
   group: GroupState | undefined,
   picks: readonly PickState[],
 ): DecisionOutcome {
-  if (!group) return refused('not-in-group');
+  if (!group) return NOT_IN_GROUP;
   if (group.status === 'dismissed') {
     return { ok: true, group: REOPENED, dismiss: [], restore: [] };
   }
-  if (group.status !== 'resolved') return refused('not-allowed');
+  if (group.status !== 'resolved') return NOT_ALLOWED;
   const resolver = picks.find((p) => p.id === group.resolvedGarmentId);
   // Resolved by a purchase: Returned is its undo. A resolving garment
   // deleted since (the foreign key nulled it) leaves nothing to keep.
   if (group.resolvedGarmentId !== null && !resolver?.wanted) {
-    return refused('not-allowed');
+    return NOT_ALLOWED;
   }
   return {
     ok: true,

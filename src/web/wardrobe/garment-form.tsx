@@ -11,7 +11,7 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { PageMain } from '../layout/page-main';
-import { CancelLink, Messages } from '../layout/parts';
+import { CancelLink, inputClass, Messages } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { GARMENT_COLORS } from '../../wardrobe/properties';
 import { categoryLabel, normalizeCategory } from './garment';
@@ -272,7 +272,7 @@ function NameAndCategory(props: { model: GarmentFormModel; category: string }) {
           type="text"
           name="category"
           list="category-suggestions"
-          class={`input input-bordered w-full ${errors.category ? 'input-error' : ''}`}
+          class={inputClass('w-full', errors.category)}
           value={values.category}
           maxlength={CATEGORY_MAX}
           required
@@ -425,7 +425,7 @@ function MoreDetails(props: {
               id="garment-acquired"
               type="date"
               name="dateAquired"
-              class={`input input-bordered w-full ${errors.dateAquired ? 'input-error' : ''}`}
+              class={inputClass('w-full', errors.dateAquired)}
               value={values.dateAquired}
             />
             <Messages messages={errors.dateAquired} />
@@ -560,7 +560,7 @@ function TextField(props: {
         type={props.type ?? 'text'}
         inputmode={props.inputmode}
         name={props.name}
-        class={`input input-bordered w-full ${props.errors ? 'input-error' : ''}`}
+        class={inputClass('w-full', props.errors)}
         value={props.value}
         maxlength={props.maxlength}
         placeholder={props.placeholder}
@@ -586,7 +586,7 @@ function QuantityField(props: { value: string; errors?: string[] }) {
         max={QUANTITY_MAX}
         step="1"
         inputmode="numeric"
-        class={`input input-bordered w-28 ${props.errors ? 'input-error' : ''}`}
+        class={inputClass('w-28', props.errors)}
         value={props.value}
       />
       <span class="text-xs text-muted mt-1">{t('QUANTITY_HINT')}</span>

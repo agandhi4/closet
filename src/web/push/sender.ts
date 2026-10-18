@@ -77,13 +77,17 @@ export function chosenDevices(
   rows: readonly UserDeviceRow[],
   { userId, devices }: DeviceMessage,
 ): DeviceRow[] {
-  const chosen = (row: UserDeviceRow) =>
-    devices === 'morning-reminder'
-      ? row.morningReminder
-      : devices === 'muse-rounds'
-        ? row.museRounds
-        : devices.includes(row.id);
-  return rows.filter((row) => row.userId === userId && chosen(row));
+  return rows.filter((row) => row.userId === userId && isChosen(row, devices));
+}
+
+/** A user's device the message is for: by its setting, or by id. */
+function isChosen(
+  row: UserDeviceRow,
+  devices: DeviceMessage['devices'],
+): boolean {
+  if (devices === 'morning-reminder') return row.morningReminder;
+  if (devices === 'muse-rounds') return row.museRounds;
+  return devices.includes(row.id);
 }
 
 // The push service no longer knows the subscription: the browser dropped it,

@@ -231,6 +231,7 @@ export function snapItem(props: {
   class?: string;
 }) {
   const option = props.listbox !== false;
+  const selected = props.selected ? 'true' : 'false';
   return {
     class: [
       'snap-item group/item snap-center snap-always shrink-0',
@@ -243,6 +244,6 @@ export function snapItem(props: {
     'data-snap-item': '',
     'data-snap-value': props.value,
     'data-selected': props.selected ? '' : undefined,
-    'aria-selected': option ? (props.selected ? 'true' : 'false') : undefined,
+    'aria-selected': option ? selected : undefined,
   } as const;
 }

@@ -47,6 +47,14 @@ function slotText(slot: Slot): string {
   return `${dayLabel(slot.day)} · ${occasionLabel(slot.occasion)}`;
 }
 
+function plannedHeading(banner: PlannedBanner): string {
+  if (banner.weekPlanId === null) return t('weekPlan.NOTHING_PLANNED');
+  const count = banner.entries.length;
+  return count === 1
+    ? t('weekPlan.PLANNED_ONE')
+    : t('weekPlan.PLANNED_MANY', { count });
+}
+
 /**
  * What "Plan my week" did: the outfits it planned (their days, occasions
  * and names; one the person took over since says so), the template slots
@@ -62,11 +70,7 @@ export function PlannedWeekBanner({ banner }: { banner: PlannedBanner }) {
       aria-labelledby="planned-week-heading"
     >
       <h2 id="planned-week-heading" class="font-semibold">
-        {banner.weekPlanId === null
-          ? t('weekPlan.NOTHING_PLANNED')
-          : count === 1
-            ? t('weekPlan.PLANNED_ONE')
-            : t('weekPlan.PLANNED_MANY', { count })}
+        {plannedHeading(banner)}
       </h2>
       {count > 0 && (
         <ul class="text-sm flex flex-col gap-0.5" data-planned-entries>

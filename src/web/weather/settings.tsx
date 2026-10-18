@@ -209,6 +209,18 @@ function HereControls(props: {
   );
 }
 
+function offsetLabel(settings: WeatherSettings): string {
+  if (settings.offset === 0) return t('weather.OFFSET_NONE');
+  // "as if it were 1.5° colder": the direction is in the words.
+  const degrees = `${Math.abs(displayDifference(settings.offset, settings.unit))}°`;
+  return t(
+    settings.offset > 0 ? 'weather.OFFSET_WARM' : 'weather.OFFSET_COLD',
+    {
+      degrees,
+    },
+  );
+}
+
 /**
  * The personal offset and its feedback: what the feedback forms answer, and
  * what a unit save sends out of band (`oob`), since it reads in the unit.
@@ -218,26 +230,13 @@ export function OffsetControls(props: {
   oob?: boolean;
 }) {
   const { settings } = props;
-  // "as if it were 1.5° colder": the direction is in the words.
-  const degrees = `${Math.abs(displayDifference(settings.offset, settings.unit))}°`;
   return (
     <div
       id={OFFSET_ID}
       class="flex flex-col gap-2"
       hx-swap-oob={props.oob ? 'true' : undefined}
     >
-      <p class="text-sm">
-        {settings.offset === 0
-          ? t('weather.OFFSET_NONE')
-          : t(
-              settings.offset > 0
-                ? 'weather.OFFSET_WARM'
-                : 'weather.OFFSET_COLD',
-              {
-                degrees,
-              },
-            )}
-      </p>
+      <p class="text-sm">{offsetLabel(settings)}</p>
       <div class="flex flex-wrap gap-2">
         {(['too-warm', 'too-cold'] as const).map((feeling) => (
           <form hx-post="/weather/feedback" {...OFFSET_SWAP}>

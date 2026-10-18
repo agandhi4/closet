@@ -4,7 +4,7 @@ import { NORMAL_YEARS } from '../../../weather/normals';
 import { todayIn } from '../../../calendar-date';
 import { HttpError } from '../../errors';
 import { OUTFIT_NAME_MAX } from '../../outfits/queries';
-import { tripForecast } from '../../trips/forecast';
+import { type TripForecast, tripForecast } from '../../trips/forecast';
 import { tripModel, type TripOutfitView } from '../../trips/model';
 import {
   addTripOutfit,
@@ -36,6 +36,24 @@ function outfitOut(outfit: TripOutfitView) {
       name: g.name,
       category: g.category,
     })),
+  };
+}
+
+/** get_trip's weather: none without weather on, else the forecast or why there is none. */
+function weatherOut(forecast: TripForecast | null) {
+  if (forecast === null) return undefined;
+  if (forecast.kind !== 'forecast') return { status: forecast.kind };
+  return {
+    forecastUnavailable: forecast.unavailable,
+    fetchedAt: forecast.fetchedAt?.toISOString() ?? null,
+    days: forecast.days.map((day) =>
+      dayWeather(day.forecast, 'all-day', forecast.offset),
+    ),
+    laterDays: forecast.later && {
+      from: forecast.later.day,
+      forecastArrives: forecast.later.from,
+    },
+    typicalDays: forecast.typical.map(typicalDayWeather),
   };
 }
 
@@ -194,23 +212,7 @@ export const tripTools = [
           label: item.label,
           packed: item.packed,
         })),
-        weather:
-          forecast === null
-            ? undefined
-            : forecast.kind === 'forecast'
-              ? {
-                  forecastUnavailable: forecast.unavailable,
-                  fetchedAt: forecast.fetchedAt?.toISOString() ?? null,
-                  days: forecast.days.map((day) =>
-                    dayWeather(day.forecast, 'all-day', forecast.offset),
-                  ),
-                  laterDays: forecast.later && {
-                    from: forecast.later.day,
-                    forecastArrives: forecast.later.from,
-                  },
-                  typicalDays: forecast.typical.map(typicalDayWeather),
-                }
-              : { status: forecast.kind },
+        weather: weatherOut(forecast),
       };
     },
   }),

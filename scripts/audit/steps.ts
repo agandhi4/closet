@@ -40,6 +40,21 @@ const MCP = { issue: 172, area: 'MCP tools' } as const;
 const JOBS = { issue: 173, area: 'Background jobs' } as const;
 const PLATFORM = { issue: 174, area: 'Per-request platform overhead' } as const;
 
+/** Route templates several steps reach (walk.ts checks each against Server-Timing). */
+const ROUTE = {
+  grid: 'GET /wardrobe',
+  garment: 'GET /wardrobe/:id',
+  addSheet: 'GET /wardrobe/new',
+  thumb: 'GET /file/thumb/:fileName',
+  styling: 'GET /styling',
+  ideas: 'GET /outfits/ideas',
+  createGarment: 'POST /wardrobe',
+} as const;
+const ADD_PHOTO_URL = '/wardrobe/new/photo';
+/** The name (and MCP note) of the outfits the audit makes. */
+const AUDIT_OUTFIT = 'Audit outfit';
+const REMINDERS_JOB = 'job reminders';
+
 // --- helpers --------------------------------------------------------------
 
 const day = (f: Fixture, offset: number) =>
@@ -96,7 +111,7 @@ async function uploadedPhoto(f: Fixture, count = 1): Promise<string> {
   const res = await f.send(
     {
       method: 'POST',
-      url: '/wardrobe/new/photo',
+      url: ADD_PHOTO_URL,
       raw: await photoUpload(f, 'photo', count),
     },
     303,
@@ -133,7 +148,7 @@ async function newGarment(f: Fixture, name = 'Audit tee'): Promise<number> {
 async function newOutfit(f: Fixture): Promise<number> {
   const res = await f.send(
     post('/outfits', {
-      name: 'Audit outfit',
+      name: AUDIT_OUTFIT,
       category: ['top', 'bottom'],
       garmentId: f.ids.outfitGarmentIds.slice(0, 2).map(String),
     }),
@@ -259,7 +274,7 @@ const pages: Step[] = [
     ...GRID,
     name: 'Grid',
     kind: 'page',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: () => get('/wardrobe'),
     expect: 200,
   }),
@@ -267,7 +282,7 @@ const pages: Step[] = [
     ...GRID,
     name: 'Grid fragment (scope row, filters)',
     kind: 'fragment',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: () => get('/wardrobe?category=tops', { htmx: true }),
     expect: 200,
   }),
@@ -275,7 +290,7 @@ const pages: Step[] = [
     ...GRID,
     name: 'Search',
     kind: 'page',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: () => get('/wardrobe?keyword=shirt'),
     expect: 200,
   }),
@@ -283,7 +298,7 @@ const pages: Step[] = [
     ...GRID,
     name: 'Filters: category, colour, warmth',
     kind: 'page',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: () => get('/wardrobe?category=tops&color=blue&warmth=2'),
     expect: 200,
   }),
@@ -291,7 +306,7 @@ const pages: Step[] = [
     ...GRID,
     name: 'Care filters: needs a wash, attention',
     kind: 'page',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: () => get('/wardrobe?needsWash=true&attention=true'),
     expect: 200,
   }),
@@ -299,7 +314,7 @@ const pages: Step[] = [
     ...GRID,
     name: 'Show archived',
     kind: 'page',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: () => get('/wardrobe?archived=true'),
     expect: 200,
   }),
@@ -307,7 +322,7 @@ const pages: Step[] = [
     ...GRID,
     name: 'Capsule filter',
     kind: 'page',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: (f) => get(`/wardrobe?capsule=${f.ids.capsuleId}`),
     expect: 200,
   }),
@@ -324,7 +339,7 @@ const pages: Step[] = [
     ...GRID,
     name: 'Select mode',
     kind: 'page',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: () => get('/wardrobe?select=1'),
     expect: 200,
   }),
@@ -332,7 +347,7 @@ const pages: Step[] = [
     ...GRID,
     name: 'Capsule picker',
     kind: 'page',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: (f) => get(`/wardrobe?pick=${f.ids.capsuleId}`),
     expect: 200,
   }),
@@ -390,7 +405,7 @@ const pages: Step[] = [
     ...GARMENT,
     name: 'Garment page',
     kind: 'page',
-    route: 'GET /wardrobe/:id',
+    route: ROUTE.garment,
     request: (f) => get(`/wardrobe/${f.ids.garmentId}`),
     expect: 200,
   }),
@@ -400,7 +415,7 @@ const pages: Step[] = [
     ...FORM,
     name: 'Add form',
     kind: 'page',
-    route: 'GET /wardrobe/new',
+    route: ROUTE.addSheet,
     request: () => get('/wardrobe/new'),
     expect: 200,
   }),
@@ -476,7 +491,7 @@ const pages: Step[] = [
     ...PHOTOS,
     name: 'Thumb',
     kind: 'file',
-    route: 'GET /file/thumb/:fileName',
+    route: ROUTE.thumb,
     request: (f) => get(photoUrl(f, 'thumb'), { as: null }),
     expect: 200,
   }),
@@ -484,7 +499,7 @@ const pages: Step[] = [
     ...PHOTOS,
     name: 'Thumb, unsigned (an old page)',
     kind: 'file',
-    route: 'GET /file/thumb/:fileName',
+    route: ROUTE.thumb,
     request: (f) =>
       get(`/file/thumb/${f.ids.photo.fileName}?v=${f.ids.photo.version}`, {
         as: null,
@@ -495,7 +510,7 @@ const pages: Step[] = [
     ...PHOTOS,
     name: 'Thumb, regenerated',
     kind: 'file',
-    route: 'GET /file/thumb/:fileName',
+    route: ROUTE.thumb,
     // The stored thumb gone, as an old photo's: made on this request.
     prepare: async (f) => {
       const stem = f.ids.photo.fileName.replace(/\.webp$/, '');
@@ -523,7 +538,7 @@ const pages: Step[] = [
     ...STYLING,
     name: 'Styling',
     kind: 'page',
-    route: 'GET /styling',
+    route: ROUTE.styling,
     request: () => get('/styling'),
     expect: 200,
   }),
@@ -531,7 +546,7 @@ const pages: Step[] = [
     ...STYLING,
     name: 'Style this (?with=)',
     kind: 'page',
-    route: 'GET /styling',
+    route: ROUTE.styling,
     request: (f) => get(`/styling?with=${f.ids.garmentId}`),
     expect: 200,
   }),
@@ -539,7 +554,7 @@ const pages: Step[] = [
     ...STYLING,
     name: 'Edit an outfit (?outfit=)',
     kind: 'page',
-    route: 'GET /styling',
+    route: ROUTE.styling,
     request: (f) =>
       get(`/styling?outfit=${f.ids.outfitId}&returnTo=%2Fcalendar`),
     expect: 200,
@@ -548,7 +563,7 @@ const pages: Step[] = [
     ...STYLING,
     name: 'For a planned evening (?for=)',
     kind: 'page',
-    route: 'GET /styling',
+    route: ROUTE.styling,
     request: (f) => get(`/styling?for=day:${day(f, 1)}&occasion=evening`),
     expect: 200,
   }),
@@ -773,7 +788,7 @@ const pages: Step[] = [
     ...TRIPS,
     name: 'Ideas for the trip',
     kind: 'page',
-    route: 'GET /outfits/ideas',
+    route: ROUTE.ideas,
     request: (f) => get(`/outfits/ideas?for=trip:${f.ids.tripId}`),
     expect: 200,
   }),
@@ -791,7 +806,7 @@ const pages: Step[] = [
     ...WISHLIST,
     name: 'Wishlist item',
     kind: 'page',
-    route: 'GET /wardrobe/:id',
+    route: ROUTE.garment,
     request: (f) => get(`/wardrobe/${f.ids.wishlistId}`),
     expect: 200,
   }),
@@ -799,7 +814,7 @@ const pages: Step[] = [
     ...WISHLIST,
     name: 'Wishlist form',
     kind: 'page',
-    route: 'GET /wardrobe/new',
+    route: ROUTE.addSheet,
     request: (f) =>
       get(`/wardrobe/new?to=wishlist&replaces=${f.ids.garmentId}`),
     expect: 200,
@@ -835,7 +850,7 @@ const pages: Step[] = [
     ...IDEAS,
     name: 'Ideas',
     kind: 'page',
-    route: 'GET /outfits/ideas',
+    route: ROUTE.ideas,
     request: () => get('/outfits/ideas'),
     expect: 200,
   }),
@@ -843,7 +858,7 @@ const pages: Step[] = [
     ...IDEAS,
     name: 'Ideas for a planned evening',
     kind: 'page',
-    route: 'GET /outfits/ideas',
+    route: ROUTE.ideas,
     request: (f) => get(`/outfits/ideas?for=day:${day(f, 1)}&occasion=evening`),
     expect: 200,
   }),
@@ -851,7 +866,7 @@ const pages: Step[] = [
     ...IDEAS,
     name: 'Ideas with a garment',
     kind: 'page',
-    route: 'GET /outfits/ideas',
+    route: ROUTE.ideas,
     request: (f) => get(`/outfits/ideas?with=${f.ids.garmentId}`),
     expect: 200,
   }),
@@ -912,7 +927,7 @@ const pages: Step[] = [
     ...SHARING,
     name: 'Shared wardrobe',
     kind: 'page',
-    route: 'GET /wardrobe',
+    route: ROUTE.grid,
     request: (f) => get(`/wardrobe?ownerId=${f.ids.dana.id}`),
     expect: 200,
   }),
@@ -920,7 +935,7 @@ const pages: Step[] = [
     ...SHARING,
     name: 'Shared garment',
     kind: 'page',
-    route: 'GET /wardrobe/:id',
+    route: ROUTE.garment,
     request: (f) =>
       get(`/wardrobe/${f.ids.dana.garmentId}?ownerId=${f.ids.dana.id}`),
     expect: 200,
@@ -945,7 +960,7 @@ const pages: Step[] = [
     ...SHARING,
     name: 'Styling a shared wardrobe',
     kind: 'page',
-    route: 'GET /styling',
+    route: ROUTE.styling,
     request: (f) => get(`/styling?ownerId=${f.ids.dana.id}`),
     expect: 200,
   }),
@@ -1440,7 +1455,7 @@ const writes: Step[] = [
     ...FORM,
     name: 'Save a new garment',
     kind: 'action',
-    route: 'POST /wardrobe',
+    route: ROUTE.createGarment,
     request: () =>
       post('/wardrobe', {
         name: 'Audit oxford',
@@ -1499,7 +1514,7 @@ const writes: Step[] = [
     prepare: (f) => photoUpload(f),
     request: (_f, body) => ({
       method: 'POST',
-      url: '/wardrobe/new/photo',
+      url: ADD_PHOTO_URL,
       raw: body,
     }),
     expect: 303,
@@ -1508,12 +1523,12 @@ const writes: Step[] = [
     ...FORM,
     name: 'Add form with a pending photo',
     kind: 'page',
-    route: 'GET /wardrobe/new',
+    route: ROUTE.addSheet,
     prepare: async (f) => {
       const res = await f.send(
         {
           method: 'POST',
-          url: '/wardrobe/new/photo',
+          url: ADD_PHOTO_URL,
           raw: await photoUpload(f),
         },
         303,
@@ -1561,7 +1576,7 @@ const writes: Step[] = [
     ...FORM,
     name: 'Save with a pending photo',
     kind: 'action',
-    route: 'POST /wardrobe',
+    route: ROUTE.createGarment,
     prepare: (f) => uploadedPhoto(f),
     request: (_f, photo: string) =>
       post('/wardrobe', {
@@ -1584,7 +1599,7 @@ const writes: Step[] = [
     },
     request: (_f, body) => ({
       method: 'POST',
-      url: '/wardrobe/new/photo',
+      url: ADD_PHOTO_URL,
       raw: body,
     }),
     expect: 303,
@@ -1593,7 +1608,7 @@ const writes: Step[] = [
     ...FORM,
     name: 'A draft’s form',
     kind: 'page',
-    route: 'GET /wardrobe/new',
+    route: ROUTE.addSheet,
     prepare: async (f) => {
       await clearDrafts(f);
       return uploadedPhoto(f, 2);
@@ -1606,7 +1621,7 @@ const writes: Step[] = [
     ...FORM,
     name: 'Save a draft',
     kind: 'action',
-    route: 'POST /wardrobe',
+    route: ROUTE.createGarment,
     prepare: async (f) => {
       await clearDrafts(f);
       return uploadedPhoto(f, 2);
@@ -1725,7 +1740,7 @@ const writes: Step[] = [
     route: 'POST /outfits',
     request: (f) =>
       post('/outfits', {
-        name: 'Audit outfit',
+        name: AUDIT_OUTFIT,
         category: ['top', 'bottom'],
         garmentId: f.ids.outfitGarmentIds.slice(0, 2).map(String),
       }),
@@ -2880,7 +2895,7 @@ const tools: Step[] = [
     'suggest_outfit',
     (f, garmentId: number) => ({
       garmentIds: [garmentId, f.ids.wishlistId],
-      note: 'Audit outfit',
+      note: AUDIT_OUTFIT,
     }),
     { prepare: (f) => newGarment(f, 'Audit proposal') },
   ),
@@ -2925,7 +2940,7 @@ const jobs: Step[] = [
     ...JOBS,
     name: 'Morning reminders (with the re-plan first)',
     kind: 'job',
-    target: 'job reminders',
+    target: REMINDERS_JOB,
     // Today's claims gone, so each run claims and sends again.
     prepare: async (f) => {
       await f.build.reminders.pruneReminders(reminderDeps(f), day(f, 1));
@@ -2943,7 +2958,7 @@ const jobs: Step[] = [
     ...JOBS,
     name: 'Evening reminders',
     kind: 'job',
-    target: 'job reminders',
+    target: REMINDERS_JOB,
     prepare: (f) =>
       f.build.reminders.pruneReminders(reminderDeps(f), day(f, 1)),
     run: async (f) => {
@@ -2958,7 +2973,7 @@ const jobs: Step[] = [
     ...JOBS,
     name: 'Reminders, nothing due',
     kind: 'job',
-    target: 'job reminders',
+    target: REMINDERS_JOB,
     run: async (f) => {
       await f.build.reminders.sendDueReminders(reminderDeps(f), todayAt(f, 3));
     },

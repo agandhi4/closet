@@ -17,7 +17,7 @@
 #       other test/** (Playwright)      -> + e2e
 #       anything else                   -> + db + e2e (src, views, public, drizzle, scripts,
 #                                          package*.json, configs, Makefile, devkit/ job scripts)
-#   image-affecting paths              -> + image (ci-image, then ci-smoke)
+#   any app path but GATE_IMAGE_EXCLUDE_PATHS -> + image (ci-image, then ci-smoke)
 #   any non-docs path                  -> + metrics (ci-metrics, devkit's METRICS group, last)
 #
 # db and e2e live in gate_plan_extra, not the BACKEND/E2E groups: closet's whole app is the
@@ -45,12 +45,12 @@ GATE_JOBS_DOCS="docs docs-check"
 # job runs on the bytes it pushes, proved here before the merge.
 # shellcheck disable=SC2034
 GATE_JOBS_IMAGE="image ci-image ci-smoke CI_IMAGE=$IMAGE CI_BUILD_VERSION=gate-$PR SMOKE_PG_CONTAINER=$SMOKE_PG_CONTAINER"
-# Only these paths change what the production image installs or how it builds; any other change
-# reaches the image only through `npm run build`, which the e2e job runs.
+# Every app path runs the image (devkit #115 retired the per-area override). These are the app
+# paths no Dockerfile stage COPYs (closet has no .dockerignore: the Dockerfile's COPY list is the
+# image's input set), so they cannot change what the image builds or boots. Keep it in step with
+# the Dockerfile: a new COPY of one of these paths must drop it from here.
 # shellcheck disable=SC2034
-GATE_AREAS_IMAGE=""
-# shellcheck disable=SC2034
-GATE_IMAGE_PATHS='^(Dockerfile$|package(-lock)?\.json$|\.npmrc$|patches/)'
+GATE_IMAGE_EXCLUDE_PATHS='^(LICENSE$|\.github/|test/|docs/metrics/|(playwright|vitest|drizzle)\.config\.ts$|eslint\.config\.mjs$|knip\.jsonc$|lighthouserc\.js$|renovate\.json$)'
 
 # The metrics ratchet, last so it merges every earlier job's seconds (devkit owns the label and
 # which collectors run: devkit/bin/_paths_lib.sh, METRICS).

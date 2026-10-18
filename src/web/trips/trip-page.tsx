@@ -247,6 +247,31 @@ function DayBlock(props: {
   );
 }
 
+/** Worn today (undo), wearable today (mark it), or nothing (null). */
+function tripWornControl(model: TripPageModel, outfit: TripOutfitView) {
+  const tripId = model.trip.id;
+  const wornEntry = model.wornToday.get(outfit.outfitId);
+  if (wornEntry !== undefined) {
+    return (
+      <WornControl
+        entryId={wornEntry}
+        worn
+        size="pill"
+        returnTo={tripUrl(tripId)}
+      />
+    );
+  }
+  if (!wearableToday(model.trip, outfit.day, model.today)) return null;
+  return (
+    <WornControl
+      worn={false}
+      createUrl={tripUrl(tripId, `/outfits/${outfit.id}/wear`)}
+      size="pill"
+      returnTo={tripUrl(tripId)}
+    />
+  );
+}
+
 /**
  * An outfit of the trip: its whole picture (the `row` collage the pickers'
  * SavedOutfitButton shows, #360) with Remove at its edge, then the name and
@@ -259,24 +284,7 @@ function TripOutfitRow(props: {
   const { model, outfit } = props;
   const tripId = model.trip.id;
   const name = outfit.name || t('UNTITLED_OUTFIT');
-  const wearable = wearableToday(model.trip, outfit.day, model.today);
-  const wornEntry = model.wornToday.get(outfit.outfitId);
-  const worn =
-    wornEntry !== undefined ? (
-      <WornControl
-        entryId={wornEntry}
-        worn
-        size="pill"
-        returnTo={tripUrl(tripId)}
-      />
-    ) : wearable ? (
-      <WornControl
-        worn={false}
-        createUrl={tripUrl(tripId, `/outfits/${outfit.id}/wear`)}
-        size="pill"
-        returnTo={tripUrl(tripId)}
-      />
-    ) : null;
+  const worn = tripWornControl(model, outfit);
   return (
     <article class="card bg-base-200 gap-2 p-2" data-trip-outfit={outfit.id}>
       <div class="flex items-start gap-2">

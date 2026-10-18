@@ -17,7 +17,7 @@ import io
 import itertools
 import re
 import tokenize
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Protocol
@@ -924,10 +924,10 @@ def _names_table(tokens: Sequence[Tok], first: int, close: int, table: str) -> b
     return bool(arg) and len(arg) % 2 == 1 and shaped and arg[-1].value == table
 
 
-def _own_key(tokens: Sequence[Tok], open_at: int, close: int, key: str) -> bool:
-    """The object literal from tokens[open_at] (`{`) to tokens[close] has KEY as a property of
-    its own: `key: v`, `"key": v` or shorthand `key`. A nested object's keys are not its own,
-    and a spread (`...patch`) is not read."""
+def _own_property(tokens: Sequence[Tok], open_at: int, close: int, key: str) -> int | None:
+    """Index of KEY where the object literal from tokens[open_at] (`{`) to tokens[close] has it
+    as a property of its own (`key: v`, `"key": v` or shorthand `key`), else None. A nested
+    object's keys are not its own, and a spread (`...patch`) is not read."""
     starts_property = True
     j = open_at + 1
     while j < close:
@@ -937,9 +937,56 @@ def _own_key(tokens: Sequence[Tok], open_at: int, close: int, key: str) -> bool:
             continue
         if starts_property and tok.kind in ("id", "str") and tok.value == key:
             if j + 1 == close or _p(tokens, j + 1, ":") or _p(tokens, j + 1, ","):
-                return True
+                return j
         starts_property = _is(tok, "punct", ",")
         j += 1
+    return None
+
+
+def _object_has(tokens: Sequence[Tok], at: int, key: str) -> bool:
+    """tokens[at] opens an object literal with KEY as its own property."""
+    return _p(tokens, at, "{") and _own_property(tokens, at, _close(tokens, at), key) is not None
+
+
+def _rows_have(tokens: Sequence[Tok], at: int, key: str) -> bool:
+    """tokens[at] opens an insert's rows that set KEY: one object literal, or an array literal
+    with such an object among its elements (`values([{ id }, { id, role }])`)."""
+    if not _p(tokens, at, "["):
+        return _object_has(tokens, at, key)
+    close, j = _close(tokens, at), at + 1
+    while j < close:
+        if _object_has(tokens, j, key):
+            return True
+        j = _close(tokens, j) + 1 if tokens[j].kind == "punct" and tokens[j].value in _OPENERS else j + 1
+    return False
+
+
+def _chained_calls(tokens: Sequence[Tok], at: int) -> Iterator[tuple[str, int]]:
+    """(method, index of its `(`) for each `.method(...)` chained from tokens[at]: the
+    `.values(...).onConflictDoUpdate(...)` after an `.insert(T)`. Stops at the first token that
+    does not continue the chain."""
+    while _p(tokens, at, ".") and _id(tokens, at + 1) and _p(tokens, at + 2, "("):
+        yield tokens[at + 1].value, at + 2
+        at = _close(tokens, at + 2) + 1
+
+
+def _writes_column(tokens: Sequence[Tok], verb: str, after: int, column: str) -> bool:
+    """The drizzle `.VERB(TABLE)` whose `)` is tokens[after - 1] sets COLUMN in a literal:
+    update's `.set({...})`, insert's `.values({...})` (or an array of rows), or an upsert's
+    `.onConflictDoUpdate({ set: {...} })` anywhere in the insert's chain. A delete sets none."""
+    calls = _chained_calls(tokens, after)
+    if verb == "update":
+        method, paren = next(calls, ("", 0))
+        return method == "set" and _object_has(tokens, paren + 1, column)
+    if verb != "insert":
+        return False
+    for method, paren in calls:
+        if method == "values" and _rows_have(tokens, paren + 1, column):
+            return True
+        if method == "onConflictDoUpdate" and _p(tokens, paren + 1, "{"):
+            key = _own_property(tokens, paren + 1, _close(tokens, paren + 1), "set")
+            if key is not None and _p(tokens, key + 1, ":") and _object_has(tokens, key + 2, column):
+                return True
     return False
 
 
@@ -955,14 +1002,16 @@ def _enclosing(module: TsModule, at: int) -> str:
 def ts_single_writer(file: TsFile, table: str, column: str) -> list[Hit]:
     """drizzle writes of TABLE: `.update(TABLE)`, `.insert(TABLE)`, `.delete(TABLE)` on any
     receiver (`tx.`, a chain broken across lines, `(await getDb()).`), TABLE written bare or
-    as a dotted chain's last name. With COLUMN, only `.update(TABLE).set({...})` whose object
-    literal has COLUMN as its own key (the drizzle property, `setBy`, not the SQL name
-    `set_by`). Each hit names the top-level function it is in, so an owner site
-    `GLOB:FUNCTION` sanctions one function. Not seen: raw SQL (an `sql` template,
-    `db.execute`), a table re-bound under another name, and with COLUMN an insert's
-    `.values({...})`, an upsert's `onConflictDoUpdate({ set })`, `.set(patch)` and a spread
-    `.set({ ...patch })`: the TABLE form sees every one of those writes, so a column whose
-    writers spread is held by a TABLE rule instead."""
+    as a dotted chain's last name. With COLUMN, only a write whose object literal has COLUMN
+    as its own key (the drizzle property, `setBy`, not the SQL name `set_by`):
+    `.update(TABLE).set({...})`, `.insert(TABLE).values({...})` or `.values([{...}])`, and
+    the insert's `.onConflictDoUpdate({ set: {...} })` (rollcall #67: a second writer went
+    through an insert and an upsert). Each hit names the top-level function it is in, so an
+    owner site `GLOB:FUNCTION` sanctions one function. Not seen: raw SQL (an `sql` template,
+    `db.execute`), a table re-bound under another name, and with COLUMN rows or a patch passed
+    by name (`.values(row)`, `.set(patch)`) or spread (`.set({ ...patch })`): the TABLE form
+    sees every one of those writes, so a column whose writers spread is held by a TABLE rule
+    instead."""
     tokens = file.tokens
     subject = f"{table}.{column}" if column else table
     hits: list[Hit] = []
@@ -974,13 +1023,8 @@ def ts_single_writer(file: TsFile, table: str, column: str) -> list[Hit]:
         close = _close(tokens, k + 1)
         if not _names_table(tokens, k + 2, close, table):
             continue
-        if column:
-            s = close + 1
-            chained = _p(tokens, s, ".") and _id(tokens, s + 1, "set") and _p(tokens, s + 2, "(")
-            if tok.value != "update" or not (chained and _p(tokens, s + 3, "{")):
-                continue
-            if not _own_key(tokens, s + 3, _close(tokens, s + 3), column):
-                continue
+        if column and not _writes_column(tokens, tok.value, close + 1, column):
+            continue
         hits.append(_owned_hit(file, tok.at, tok.line, f"{tok.value}s {subject}"))
     return _keep_first(hits)
 

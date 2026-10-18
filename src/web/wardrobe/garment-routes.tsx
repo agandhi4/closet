@@ -64,6 +64,9 @@ import {
 } from './garment-input';
 import { GarmentParams, OwnerQuery } from '../schemas';
 
+/** A garment's page; its actions are paths under it. */
+const GARMENT_PATH = '/wardrobe/:id';
+
 /** Archive and Restore's 409 when the garment's status does not take the event. */
 const STATUS_REFUSED: Record<Exclude<StatusChange['event'], 'buy'>, string> = {
   archive: 'Only a garment in the closet can be archived',
@@ -308,7 +311,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // is read next depends on its status), and garmentContext for the rest
   // (garment-context.ts; garment-page.spec.ts counts them).
   app.get(
-    '/wardrobe/:id',
+    GARMENT_PATH,
     { schema: { params: GarmentParams, querystring: GarmentPageQuery } },
     async (request, reply) => {
       const { access, viewOwner } = await authorizeGarmentWardrobe(
@@ -365,7 +368,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // line, never the chips (a plain post gets the page again). A garment
   // property: the owner and a MANAGE grantee.
   app.post(
-    '/wardrobe/:id/condition',
+    `${GARMENT_PATH}/condition`,
     {
       schema: {
         params: GarmentParams,
@@ -396,7 +399,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   app.get(
-    '/wardrobe/:id/edit',
+    `${GARMENT_PATH}/edit`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
       const { access, viewOwner } = await authorizeGarmentWardrobe(
@@ -433,7 +436,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // A save is the update alone (a garment gone is its 404); only a refused
   // form reads the garment, for the form again (#161).
   app.post(
-    '/wardrobe/:id',
+    GARMENT_PATH,
     {
       schema: {
         params: GarmentParams,
@@ -486,7 +489,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // A shared source's owner-only fields are not copied (FormAudience): the
   // clone starts at its role's wash limit.
   app.get(
-    '/wardrobe/:id/clone',
+    `${GARMENT_PATH}/clone`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
       const { access, viewOwner } = await authorizeGarmentWardrobe(
@@ -518,7 +521,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   app.post(
-    '/wardrobe/:id/clone',
+    `${GARMENT_PATH}/clone`,
     {
       schema: {
         params: GarmentParams,
@@ -594,7 +597,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   }
 
   app.post(
-    '/wardrobe/:id/archive',
+    `${GARMENT_PATH}/archive`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     (request, reply) =>
       changeStatus(
@@ -606,7 +609,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   app.post(
-    '/wardrobe/:id/restore',
+    `${GARMENT_PATH}/restore`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     (request, reply) =>
       changeStatus(
@@ -620,7 +623,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // htmx (hx-delete): owner only. The photo's bytes go after the rows commit.
   // The delete answers the status it had: no read before it (#161).
   app.delete(
-    '/wardrobe/:id',
+    GARMENT_PATH,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
       const { access } = await authorizeGarmentWardrobe(

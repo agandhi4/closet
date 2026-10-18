@@ -1,6 +1,6 @@
 import type { Child } from 'hono/jsx';
 import { jsonForScript } from '../html';
-import { t } from '../i18n';
+import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -47,6 +47,9 @@ import type {
 
 /** Where the account's own forms go back to: Profile › Account. */
 const ACCOUNT_SECTION_PATH = profileSection(ACCOUNT_SECTION_ID);
+
+/** "Sign out": the logout page's title, Profile's section and its index entry. */
+const SIGN_OUT_KEY = 'profile.SIGN_OUT' satisfies StringKey;
 
 /** A one-form page: sign in, register, the account's forms. */
 function AccountShell(props: {
@@ -146,7 +149,7 @@ export function LoginPage(props: {
 /** GET /auth/logout: what a signed-in visitor sees behind an old sign-out link. */
 export function LogoutPage(props: { ctx: ViewContext }) {
   return (
-    <AccountShell ctx={props.ctx} title={t('profile.SIGN_OUT')}>
+    <AccountShell ctx={props.ctx} title={t(SIGN_OUT_KEY)}>
       <p class="text-lg">
         {t('LOGOUT_PROMPT', { appName: props.ctx.appName })}
       </p>
@@ -259,7 +262,7 @@ export function ProfilePage(props: ProfileProps) {
     { id: SIZES_SECTION_ID, label: t('sizes.TITLE') },
     { id: EXPORT_SECTION_ID, label: t('profile.EXPORT') },
     { id: AGENT_ACCESS_SECTION_ID, label: t('agentAccess.TITLE') },
-    { id: SIGN_OUT_SECTION_ID, label: t('profile.SIGN_OUT') },
+    { id: SIGN_OUT_SECTION_ID, label: t(SIGN_OUT_KEY) },
   ];
   return (
     <Layout ctx={ctx} title={t('PROFILE')}>
@@ -297,10 +300,7 @@ export function ProfilePage(props: ProfileProps) {
         <SizesSection {...props.sizes} />
         <ExportSection />
         <AgentAccessSection tokens={props.tokens} />
-        <ProfileSection
-          id={SIGN_OUT_SECTION_ID}
-          heading={t('profile.SIGN_OUT')}
-        >
+        <ProfileSection id={SIGN_OUT_SECTION_ID} heading={t(SIGN_OUT_KEY)}>
           <p class="text-sm text-muted">{t('profile.SIGN_OUT_HINT')}</p>
           <SignOutForm />
         </ProfileSection>

@@ -89,36 +89,49 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
         {!model.picking && model.muse.outfits.length > 0 && (
           <h2 class="font-semibold px-1 pt-2">{t('outfits.muse.YOURS')}</h2>
         )}
-        {model.outfits.length === 0 ? (
-          <NoOutfits destination={destination} />
-        ) : model.picking ? (
-          <PickingGrid model={model} picking={model.picking} />
-        ) : (
-          <ul id="saved-outfits" class={OUTFIT_GRID}>
-            {model.outfits.map((outfit, index) => (
-              <li>
-                <a
-                  href={outfitUrl(outfit.id)}
-                  class="flex flex-col gap-1.5"
-                  data-outfit-id={outfit.id}
-                >
-                  <OutfitTile
-                    outfit={outfit}
-                    eager={index < EAGER_TILES}
-                    line={
-                      toBuyLine(outfit.garments) ??
-                      activityLine(model.activity.get(outfit.id))
-                    }
-                  />
-                </a>
-              </li>
-            ))}
-          </ul>
-        )}
+        <SavedGrid model={model} destination={destination} />
       </PageMain>
       <DecisionToastView toast={model.toast} />
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/** The Saved grid: none yet, the pick for a day, or every outfit as a tile. */
+function SavedGrid({
+  model,
+  destination,
+}: {
+  model: SavedModel;
+  destination: DayDestination | undefined;
+}) {
+  if (model.outfits.length === 0) {
+    return <NoOutfits destination={destination} />;
+  }
+  if (model.picking) {
+    return <PickingGrid model={model} picking={model.picking} />;
+  }
+  return (
+    <ul id="saved-outfits" class={OUTFIT_GRID}>
+      {model.outfits.map((outfit, index) => (
+        <li>
+          <a
+            href={outfitUrl(outfit.id)}
+            class="flex flex-col gap-1.5"
+            data-outfit-id={outfit.id}
+          >
+            <OutfitTile
+              outfit={outfit}
+              eager={index < EAGER_TILES}
+              line={
+                toBuyLine(outfit.garments) ??
+                activityLine(model.activity.get(outfit.id))
+              }
+            />
+          </a>
+        </li>
+      ))}
+    </ul>
   );
 }
 

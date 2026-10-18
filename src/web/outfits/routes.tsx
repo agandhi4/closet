@@ -21,6 +21,7 @@ import { OutfitsPage } from './list-page';
 import { outfitContext, savedContext } from './page-context';
 import {
   createOutfit,
+  type CreateResult,
   deleteOutfit,
   OUTFIT_NAME_MAX,
   OUTFIT_NOTES_MAX,
@@ -60,6 +61,9 @@ import { withParams } from '../wardrobe/urls';
  */
 
 const OutfitParams = Type.Object({ id: RowId });
+
+/** One outfit's route: its page, its save and its delete. */
+const OUTFIT_ROUTE = '/outfits/:id';
 
 /** Rows in one outfit: position is a smallint, and no form needs more. */
 const MAX_ROWS = 100;
@@ -227,6 +231,20 @@ function describeSave(result: SaveResult, plan: OutfitInput['plan']): string {
   return parts.join(', ');
 }
 
+/** The outfit form's create log line: a new outfit, or the one its garments already were. */
+function createMessage(
+  ownerId: number,
+  result: CreateResult,
+  plan: OutfitInput['plan'],
+): string {
+  const saved = describeSave(result, plan);
+  if (!result.alreadySaved) {
+    return `Outfit ${result.id} created by user ${ownerId}: ${saved}`;
+  }
+  const takenOver = result.adopted ? '; taken over from the week planner' : '';
+  return `Outfit form by user ${ownerId}: its garments are already outfit ${result.id}, nothing created (${saved})${takenOver}`;
+}
+
 function outfitNotFound(): HttpError {
   return new HttpError(404, 'Outfit not found');
 }
@@ -309,7 +327,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   app.get(
-    '/outfits/:id',
+    OUTFIT_ROUTE,
     { schema: { params: OutfitParams, querystring: FlagQuery } },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
@@ -353,17 +371,13 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = sessionUserId(request);
       const input = outfitInput(request.body);
       const result = await createOutfit(db, ownerId, input);
-      logger.info(
-        result.alreadySaved
-          ? `Outfit form by user ${ownerId}: its garments are already outfit ${result.id}, nothing created (${describeSave(result, input.plan)})${result.adopted ? '; taken over from the week planner' : ''}`
-          : `Outfit ${result.id} created by user ${ownerId}: ${describeSave(result, input.plan)}`,
-      );
+      logger.info(createMessage(ownerId, result, input.plan));
       return reply.redirect(afterSave(request.body, result.id, result), 302);
     },
   );
 
   app.post(
-    '/outfits/:id',
+    OUTFIT_ROUTE,
     { schema: { params: OutfitParams, body: OutfitBody } },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
@@ -380,7 +394,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // htmx only (hx-delete, hx-confirm): the page swaps to the list.
   app.delete(
-    '/outfits/:id',
+    OUTFIT_ROUTE,
     { schema: { params: OutfitParams } },
     async (request, reply) => {
       const ownerId = sessionUserId(request);

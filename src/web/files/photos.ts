@@ -318,9 +318,7 @@ export class Photos {
         { err: error },
         `Rejected unreadable image ${source.filename}`,
       );
-      throw exceedsPixelLimit(error)
-        ? imageTooLarge()
-        : new HttpError(400, 'Unreadable image');
+      throw decodeRefusal(error);
     }
     if (pixels > MAX_INPUT_PIXELS) throw imageTooLarge();
     return pixels;
@@ -978,7 +976,7 @@ export class Photos {
         { err: error },
         `Rejected undecodable HEIC upload ${source.filename}`,
       );
-      throw new HttpError(400, 'Unreadable image');
+      throw unreadableImage();
     }
   }
 
@@ -996,9 +994,7 @@ export class Photos {
           { err: error },
           `Rejected unreadable upload for ${targetFileName}`,
         );
-        throw exceedsPixelLimit(error.cause)
-          ? imageTooLarge()
-          : new HttpError(400, 'Unreadable image');
+        throw decodeRefusal(error.cause);
       }
       throw error;
     }
@@ -1026,9 +1022,7 @@ export class Photos {
         .toBuffer({ resolveWithObject: true });
     } catch (error) {
       this.logger.warn({ err: error }, 'Rejected unreadable upload');
-      throw exceedsPixelLimit(error)
-        ? imageTooLarge()
-        : new HttpError(400, 'Unreadable image');
+      throw decodeRefusal(error);
     }
   }
 
@@ -1113,6 +1107,16 @@ function refuseNonImage(source: ImageSource): void {
 // the refusal, not a failed decode.
 function exceedsPixelLimit(cause: unknown): boolean {
   return cause instanceof Error && /exceeds pixel limit/i.test(cause.message);
+}
+
+/** Bytes sharp or the HEIC decoder could not read: the client's error, a 400. */
+function unreadableImage(): HttpError {
+  return new HttpError(400, 'Unreadable image');
+}
+
+/** A failed decode's 400: over sharp's pixel limit, else unreadable. */
+function decodeRefusal(cause: unknown): HttpError {
+  return exceedsPixelLimit(cause) ? imageTooLarge() : unreadableImage();
 }
 
 /**

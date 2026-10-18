@@ -232,7 +232,10 @@ describe('planWeek', () => {
     const reseeded = pool
       .map((g) => ({ ...g, id: g.id + 1000 }))
       .reverse()
-      .sort((a, b) => (a.role < b.role ? -1 : a.role > b.role ? 1 : 0));
+      .sort((a, b) => {
+        if (a.role < b.role) return -1;
+        return a.role > b.role ? 1 : 0;
+      });
     expect(colorsOf(planWeek(input({ pool: reseeded })))).toEqual(
       colorsOf(before),
     );

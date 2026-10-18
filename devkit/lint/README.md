@@ -189,8 +189,9 @@ hands the tool the result as `--config`, opt-in per collector line. The merge is
 everywhere (`mergeConfig` in `metrics/_lib.mjs`, `merge_config` in `metrics/python.py`): lists
 are unions, base first, so a repo adds to an ignore list but cannot silently drop a base entry.
 Tables merge key by key, and any other repo value wins. Keep in the repo only what names its
-own code. Opting in can move the numbers, so the adopting PR runs `metrics-rebaseline` or
-`metrics-tighten`.
+own code. Opting in can move the numbers, so the adopting PR runs `make metrics-tighten`, or
+`make metrics-rebaseline KEYS=<key>[,<key>]` for the keys that rose (commit, then label the PR
+`metrics-rebaseline`).
 
 | Base | Collector flag | Holds | Stays in the repo |
 |---|---|---|---|

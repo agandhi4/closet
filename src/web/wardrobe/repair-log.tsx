@@ -3,7 +3,7 @@ import { PostForm } from '../auth/form';
 import { dateParts } from '../../calendar-date';
 import { shortDayLabel } from '../date-labels';
 import { t } from '../i18n';
-import { Messages } from '../layout/parts';
+import { inputClass, Messages } from '../layout/parts';
 import { priceLabel } from './garment';
 import { valueLabel } from './labels';
 import type { RepairEntry, RepairLog, RepairPanel } from './repairs';
@@ -150,7 +150,7 @@ export function RepairEditor({ panel }: { panel: RepairPanel }) {
             maxlength={CARE_NOTE_MAX}
             required
             placeholder={t('care.REPAIR_NOTE_PLACEHOLDER')}
-            class={`input input-bordered w-full ${errors.note ? 'input-error' : ''}`}
+            class={inputClass('w-full', errors.note)}
           />
           <Messages messages={errors.note} />
         </div>
@@ -166,7 +166,7 @@ export function RepairEditor({ panel }: { panel: RepairPanel }) {
               value={draft.day}
               max={panel.today}
               required
-              class={`input input-bordered w-full ${errors.day ? 'input-error' : ''}`}
+              class={inputClass('w-full', errors.day)}
             />
             <Messages messages={errors.day} />
           </div>
@@ -182,7 +182,7 @@ export function RepairEditor({ panel }: { panel: RepairPanel }) {
               value={draft.cost}
               maxlength={PRICE_INPUT_MAX}
               placeholder={t('care.REPAIR_COST_PLACEHOLDER')}
-              class={`input input-bordered w-full ${errors.cost ? 'input-error' : ''}`}
+              class={inputClass('w-full', errors.cost)}
             />
             <Messages messages={errors.cost} />
           </div>

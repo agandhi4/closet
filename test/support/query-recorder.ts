@@ -55,11 +55,9 @@ export async function recordStatements<T>(
         ? config
         : (config as { text?: unknown } | undefined)?.text;
     const configValues = (config as { values?: unknown } | undefined)?.values;
-    const values = Array.isArray(second)
-      ? second
-      : Array.isArray(configValues)
-        ? configValues
-        : [];
+    let values: readonly unknown[] = [];
+    if (Array.isArray(second)) values = second;
+    else if (Array.isArray(configValues)) values = configValues;
     const statement: RecordedStatement = {
       sql: typeof text === 'string' ? text : '',
       values,

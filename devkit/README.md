@@ -41,7 +41,7 @@ What each path is; [AGENTS.md](AGENTS.md) holds the invariants that tie them tog
 | `bin/docs_check.sh` | Guard for `ci-quick`: every `AGENTS.md` is the real file with `CLAUDE.md` symlinked to it, size caps (30 KB root, 16 KB nested; the shrink-only allowlist in `scripts/ci/docs_oversize.txt` ends 2026-11-15), `docs/decisions.md` exists, no retired-tool words, and the standard docs set ("Standard docs" below: required files and README sections, the root AGENTS.md's H2 list, the fixed `docs/` set with dated `docs/reports/`, no CONTRIBUTING.md, dated decisions entries, `make` targets and relative links that resolve, `docs/decisions.md merge=union` in `.gitattributes`; warnings until their date, then failures); repo extras in `scripts/ci/docs_rules.sh`. `--report` prints the numbers (sizes vs caps, allowances, docs outside the set, H2s outside the list) for trims and the monthly audit. |
 | `bin/quiet_run.sh`, `bin/hook_steps.sh`, `bin/push_ranges.sh`, `bin/hooks_check.sh`, `templates/githooks/` | Git hooks: one line per step, 40-line tail on failure; per-repo steps in `scripts/ci/hooks.conf`, scoped by changed paths by default from one fleet layout table (docs, backend, frontend, native, tooling, other: `devkit_classify_path` in `_paths_lib.sh`, which the gate uses too; tooling runs every hook step, like other) and each step's target name, so a docs-only change runs docs-check alone, a frontend-only one skips backend steps and a native-only one (ios/, OrbitAgent/) runs nothing, with `:unless=<globs>`, `:only=<globs>` or `:always` per step only where a repo's layout deviates; `hooks_check` asserts `core.hooksPath=.githooks` (a tool install silently repointed finplat's for two months) and `--fix` self-heals it and adds the decisions-log union line to `.gitattributes`; it rejects a malformed step override and warns on a typecheck or unit step at pre-commit ("Git hooks"); LFS chained when the repo uses it. Before the first step the pinned Node and Rust go first on PATH, as in the gate (`toolchain_path.sh`), so `hooks.conf` lists steps only. A passing cargo step's summary sums every `test result:` line (the last one is the doctests). Every run appends step and total wall seconds to `$XDG_STATE_HOME/devkit/hooks/<repo>.tsv` (`<repo>` = the origin remote's repository name, lowercased, so worktree lanes share the repo's file), the per-machine hooks ledger the scorecard reads (T8: pre-commit p90 ≤ 30 s, pre-push ≤ 60 s). Steps run without the GIT_DIR git exports to a worktree's hooks (a step's `git init` would otherwise set core.bare=true in the shared config), and a step that still changes core.bare is named on stderr and in its ledger row, then undone (#48). |
 | `bin/tier_guard.sh` | `<tier> --budget <s> [--floor <runner>=<min>]... -- <cmd...>`: one test tier under a wall-clock budget (the whole command's wall time; it fails over budget even when every test passed, `TIER_BUDGET_ENFORCE=0` only reports) and per-runner floors on the tests that RAN (skipped ones do not count), read from the runner's own summary line: `pytest`, `vitest`, `playwright`, `cargo`. Streams the command's output, exits with its code, prints `TIER <tier>: …` / `FAIL` / `FLOOR` / `OVERBUDGET` lines and writes `build/metrics/tier-<tier>.json` at the git top level (`tier.<tier>.seconds`, `tests.<tier>.<runner>`). Every `devkit new` stack's test tiers run through it. |
-| `bin/metrics_collect.sh` | `<snapshot\|check\|tighten\|rebaseline>`: the `ci-metrics` mechanism. Reads `scripts/ci/metrics.conf` (`<name> <area> <command...>`), runs each collector from the repo root into `build/metrics/<name>.json`, skips those whose area no changed path touched (in the gate; `tooling`/`other` and `repo` collectors run regardless), merges with the gate's and tiers' files, then runs the ratchet. A repo's Makefile holds three one-line targets and nothing else. "Metrics ratchet" below. |
+| `bin/metrics_collect.sh` | `<snapshot\|check\|tighten\|rebaseline>`: the `ci-metrics` mechanism. Reads `scripts/ci/metrics.conf` (`<name> <area> <command...>`), runs each collector from the repo root into `build/metrics/<name>.json`, skips those whose area no changed path touched (in the gate; `tooling`/`other` and `repo` collectors run regardless), merges with the gate's and tiers' files, then runs the ratchet. A repo's Makefile holds four one-line targets and nothing else. "Metrics ratchet" below. |
 | `metrics/` | The shared collectors a `metrics.conf` line calls, one per stack, each `--scope <name> [--out FILE]`, deterministic, exit 2 naming a missing dev dependency: `python.py --root <dir> --src <subdir|module.py>... [--python <interp>] [--mccabe] [--cognitive] [--vulture [--vulture-ignore-declarative] [--vulture-base <set,...>]] [--cycles]` (ruff C901, complexipy, vulture, AST import cycles; run under the repo's interpreter, `uv run --frozen --project backend python devkit/metrics/python.py …`, so the tools resolve); `ts.mjs --root <dir> --src <subdir> [--tsconfig F] [--test-glob G]... [--cyclomatic] [--cognitive] [--knip [--knip-base]] [--cycles] [--bundle [--bundle-entry index.html]]` (eslint `complexity`, sonarjs cognitive, knip, dependency-cruiser cycles, vite bundle KiB; tools from `<root>/node_modules/.bin`); `rust.py --root <workspace> [--cognitive] [--dead]` (clippy `cognitive_complexity` scoring every function, rustc's unused-code warnings; one `cargo clippy`/`check --workspace --locked` on PATH's cargo, which the gate provisions from `rust-toolchain.toml`); `jscpd.mjs --scope repo [--min-tokens 50] [--min-lines 5] [--bin <jscpd>] [--base] [--list-out FILE] <paths...>`; `coverage.py --scope <s> (--coverage-json F \| --istanbul-summary F)` (the tier writes the report; "run make ci-unit-<s> first" when it is missing). Keys per collector: `docs/metrics-keys.md`. The `--*base` flags merge `lint/`'s knip, jscpd and vulture bases under the repo's own config (`lint/README.md`). |
 | `bin/metrics_ratchet.py` | The "never worse than main" gate. `check` holds a snapshot to `docs/metrics/ratchet.json` and that file to main's copy (`git show origin/main:…`), so a PR cannot loosen its own bounds; `tighten` locks in BETTER numbers in the improving PR and prints every WORSE or MISSING key as `check` would, exiting 1, so the author sees the gate's refusal first; report-only keys (`vuln.*`, `coupling.*.fan_in_max`) are printed, never gated, and `tighten`/`rebaseline` commit their values to `docs/metrics/report-only.json` for the scorecard; `merge` joins `build/metrics/*.json` into one snapshot that records each key's collector and the collectors skipped, so a key whose collector did not run is SKIPPED, not a failure. Committing a looser bound needs the fail-closed `metrics-rebaseline` PR label; no label admits a value past the committed bound. |
 | `templates/metrics/ratchet.json`, `docs/metrics-keys.md` | Starter bounds (all `null` until `rebaseline` fills them, so `check` refuses a raw copy; `{}` is the other valid start) and the flat `<domain>.<scope>.<stat>` key shape every collector emits. |
@@ -282,7 +282,8 @@ GATE_JOBS_FRONTEND="unit-fe ci-unit-frontend"
 GATE_JOBS_IMAGE="image ci-image CI_IMAGE=$IMAGE|smoke ci-smoke CI_IMAGE=$IMAGE"
 GATE_JOBS_E2E="e2e ci-e2e"
 GATE_JOBS_METRICS="metrics ci-metrics"                 # optional; always the last job
-GATE_IMAGE_PATHS='^(Dockerfile|uv\.lock)$'             # paths that also run the image group
+GATE_IMAGE_EXCLUDE_PATHS='^(tests/|\.github/)'          # app paths outside the image (.dockerignore)
+GATE_IMAGE_PATHS='^scripts/ci/smoke_image\.sh$'        # paths that also run the image group
 gate_plan() { devkit_default_gate_plan; }
 gate_plan_extra() { ...; }                             # optional: the repo's own rules
 ```
@@ -291,12 +292,14 @@ Each changed path gets one area from the table the hooks use (docs, backend, fro
 native, tooling, other). Docs-only runs docs; tooling (`devkit/`, `.devkit-rev`, hooks.conf,
 `.githooks/`; a devkit sync) runs quick, plus the image group when `boot_image.sh` or
 `contract_probe.sh` changed; native-only runs nothing; backend and frontend run their groups
-plus quick and e2e; other runs everything (`docs/metrics/ratchet.json` and
+plus quick, image and e2e; other runs everything (`docs/metrics/ratchet.json` and
 `scripts/ci/metrics.conf` are other, so a bounds-only PR meets the ratchet and its label).
 The metrics group runs for backend, frontend and other, after `gate_plan_extra`, so
 `ci-metrics` sees every earlier job's seconds; when the PR
 carries the `metrics-rebaseline` label (read through `gh`, fail-closed) its jobs get
-`METRICS_REBASELINE=1`. `GATE_AREAS_<GROUP>="..."` overrides a group's areas. The table and
+`METRICS_REBASELINE=1`. `GATE_AREAS_<GROUP>="..."` overrides a group's areas, except IMAGE and
+E2E: every app path runs them, and a plan setting `GATE_AREAS_IMAGE` or `GATE_AREAS_E2E` is
+exit 2 at the gate and a devkit-check failure in ci-quick. The table and
 defaults: the `_paths_lib.sh` header. A plan may still be hand-written against the
 skeleton's helpers, reading `GATE_AREAS` and `GATE_HAS_<AREA>`.
 
@@ -366,7 +369,7 @@ Real-run checklist (owner, once):
 ## Metrics ratchet (ci-metrics)
 
 A repo declares its collectors in `scripts/ci/metrics.conf`, one per line, and its Makefile
-holds three one-line targets. Everything else (which collectors a PR runs, the merge, the
+holds four one-line targets. Everything else (which collectors a PR runs, the merge, the
 comparison with main, the label) is devkit's.
 
 ```make
@@ -376,6 +379,8 @@ metrics-snapshot: ## run the collectors; build/metrics.json is the report
 	devkit/bin/metrics_collect.sh snapshot
 metrics-tighten:  ## lock in BETTER numbers; commit docs/metrics/ratchet.json in the same PR
 	devkit/bin/metrics_collect.sh tighten
+metrics-rebaseline: ## KEYS=<key>[,<key>] loosens only those; commit, label metrics-rebaseline
+	devkit/bin/metrics_collect.sh rebaseline
 ```
 
 ```sh
@@ -471,9 +476,12 @@ that improves a number runs the repo's `metrics-tighten` target and commits the 
 
 The `metrics-rebaseline` label permits a PR to COMMIT bounds looser than main's; it never
 permits a measured value past the committed bound. A PR whose numbers moved for a legitimate
-reason (a tool knob, a deliberate trade) runs the repo's `metrics-rebaseline` target, which
-rewrites every bound from today's numbers, reviews the diff of `docs/metrics/ratchet.json`, and
-commits it with the label. The gate then holds every key to that committed file exactly as in
+reason (a tool knob, a deliberate trade) runs `make metrics-rebaseline KEYS=<key>[,<key>]`,
+which loosens only the named bounds to today's numbers (a named key that is not worse is left
+and reported; an unknown one is exit 2), and commits `docs/metrics/ratchet.json` with the label.
+The gate's fix lines name that command with the WORSE keys filled in. Without `KEYS` the target
+rewrites every bound and `docs/metrics/scorecard.json`, which is for first adoption and a
+tool change that moves everything; it then warns, naming each bound it loosened. The gate then holds every key to that committed file exactly as in
 check mode; the only difference is that the LOOSENED, REMOVED and DIRECTION bound lines are
 accepted. A key that is worse than its committed bound fails even under the label, with a line
 naming the fix (Orbit #78 merged a coverage drop under a label meant for two size bounds, and
@@ -535,7 +543,7 @@ src   src
 | `outbound-timeout [except GLOB...]` | python | `requests.<verb>`/`request`, `httpx.<verb>`/`stream`, `httpx.Client`/`AsyncClient`, `urllib.request.urlopen` without a timeout, or with `timeout=None`. Not seen: a `**kwargs` spread (silent) and a client's methods (judged where the client is built) |
 | `utc-today [except GLOB...]` | python | `date.today()`, `datetime.utcnow()`, `datetime.now()` with no tz or `None` (resolved through the imports: pendulum's `date` is not datetime's) |
 | `single-writer ATTR GLOB...` | python | a write of `<x>.ATTR` outside the globs: any assignment target (augmented, annotated, tuple, `for`) and `setattr(x, "ATTR", v)`; reads, keyword arguments and dict keys are not writes |
-| `single-writer TABLE[.FIELD] GLOB[:FUNCTION,...]...` | ts | a drizzle write of TABLE (`.update(T)`, `.insert(T)`, `.delete(T)` on any receiver, `schema.T` too) outside the globs; `GLOB:FUNCTION` sanctions only those top-level functions of the file, and each must still write. With FIELD (the drizzle key, `setBy`, not `set_by`), only `.update(T).set({...})` whose literal has the key. Not seen: raw SQL, a re-bound table, and with FIELD inserts, `onConflictDoUpdate`, `.set(patch)` and spreads (`set({ ...patch })`): hold such a column with the TABLE form, which sees every write. Seed: rollcall #64 (four functions updated `signals`; `single-writer signals` with the owners fires 4 on main, 0 after) |
+| `single-writer TABLE[.FIELD] GLOB[:FUNCTION,...]...` | ts | a drizzle write of TABLE (`.update(T)`, `.insert(T)`, `.delete(T)` on any receiver, `schema.T` too) outside the globs; `GLOB:FUNCTION` sanctions only those top-level functions of the file, and each must still write. With FIELD (the drizzle key, `setBy`, not `set_by`), only a write whose literal has the key as its own: `.update(T).set({...})`, `.insert(T).values({...})` or `.values([{...}])`, and the insert's `.onConflictDoUpdate({ set: {...} })` (rollcall #67). Not seen: raw SQL, a re-bound table, and with FIELD rows or a patch passed by name (`.values(row)`, `.set(patch)`) or spread (`set({ ...patch })`): hold such a column with the TABLE form, which sees every write. Seed: rollcall #64 (four functions updated `signals`; `single-writer signals` with the owners fires 4 on main, 0 after) |
 | `own-transaction GLOB[:FUNCTION,...]...` | ts | opening or ending a transaction outside the globs, the TS form of `own_commit_check.py`: `.transaction(`, `.commit(`, `.rollback(` on any receiver (drizzle `db.transaction(cb)`, a savepoint `tx.transaction(`, `tx.rollback()`) and a literal that is a whole BEGIN, COMMIT, ROLLBACK or START TRANSACTION (`client.query("BEGIN")`, sql`commit`); `GLOB:FUNCTION` owners as single-writer's. The scorecard's `arch.own_commit` reads this line in a TS repo. Not seen: run-time-built SQL, postgres.js `sql.begin(`. Seed: closet 32 sites in 16 files, rollcall 17 in `src/db/queries` |
 | `only-text PATTERN GLOB...` | both | outside the globs, a line whose code text holds PATTERN, a substring or `/REGEX/` (comments blanked; strings, and a component's template, kept): one spelling of a query key, header, env var or route lives in one module. Quote a pattern with a space or `#` (`"for: x"`, no escapes) and name its rule with `@NAME`. Not seen: a spelling built at run time. Seed: closet #408 (the `for` query schema in 5 routes; 5 before, 0 after) |
 | `calls-one-of GLOB NAME[,NAME] [depth N] [functions-only] [server-only] [except GLOB[:EXPORT,...]...]` | ts | an export of a module under GLOB (scoped-exports' forms, named as exported: `export { authed as GET }` is GET) that calls none of NAMEs, the callee as written, itself or through module-local helpers N deep (default 1: rollcall's localCallees). A value export is judged by its initializer (`export const GET = withAuth(h)` passes; route segment config fails closed, so except it by name) unless `functions-only` skips values (action-auth's Zod schemas); `server-only` judges only modules whose first statement is `"use server"`. A re-export in scope is exit 2. Seeds: rollcall route-auth (default) and action-auth (`functions-only server-only`) |

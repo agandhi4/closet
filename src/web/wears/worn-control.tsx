@@ -73,11 +73,7 @@ export function WornControl(props: WornControlProps) {
       {props.past ? t('wear.WORN_ASK') : t('wear.WORE_IT')}
     </button>
   );
-  const layout = props.worn
-    ? 'flex items-center gap-1 shrink-0'
-    : pill
-      ? 'shrink-0'
-      : 'flex flex-1';
+  const layout = layoutClass(props.worn, props.size);
   if (props.inPlace) {
     return (
       <form
@@ -100,6 +96,11 @@ export function WornControl(props: WornControlProps) {
       {body}
     </PostForm>
   );
+}
+
+function layoutClass(worn: boolean, size: WornControlProps['size']): string {
+  if (worn) return 'flex items-center gap-1 shrink-0';
+  return size === 'pill' ? 'shrink-0' : 'flex flex-1';
 }
 
 function wearClass(size: WornControlProps['size'], past: boolean): string {

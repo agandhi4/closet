@@ -58,15 +58,18 @@ export function slotMayNameSql(options: {
   const { outfitId, offered } = options;
   return or(
     inCloset(),
-    offered === false
-      ? undefined
-      : offered === true
-        ? offeredToStyle()
-        : and(offeredToStyle(), offered),
+    offeredClause(offered),
     outfitId === undefined
       ? undefined
       : sql`${garment.id} in (select ${outfitSlot.garmentId} from ${outfitSlot} where ${outfitSlot.outfitId} = ${outfitId}::int)`,
   )!;
+}
+
+/** slotMayNameSql's `offered`: never, always, or where that condition holds. */
+function offeredClause(offered: SQL | boolean): SQL | undefined {
+  if (offered === false) return undefined;
+  if (offered === true) return offeredToStyle();
+  return and(offeredToStyle(), offered);
 }
 
 /** A garment a save named that it cannot hold. */

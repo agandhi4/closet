@@ -71,11 +71,7 @@ export function TodayPage(props: {
         >
           {t('today.OFFLINE')}
         </p>
-        {model.round ? (
-          <RoundCard round={model.round} />
-        ) : model.needs ? (
-          <NeedsCard needs={model.needs} />
-        ) : null}
+        <MuseCard round={model.round} needs={model.needs} />
         {model.rows.length > 0 && (
           <div class={PAIR_GRID}>
             {model.rows.map((row) =>
@@ -102,6 +98,13 @@ export function TodayPage(props: {
       <Dock ctx={ctx} />
     </Layout>
   );
+}
+
+/** One Muse card at most: the waiting round's, else the needs'. */
+function MuseCard(props: Pick<TodayModel, 'round' | 'needs'>) {
+  if (props.round) return <RoundCard round={props.round} />;
+  if (props.needs) return <NeedsCard needs={props.needs} />;
+  return null;
 }
 
 /**

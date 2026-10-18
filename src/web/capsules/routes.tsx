@@ -44,6 +44,9 @@ import {
 } from './validation';
 import { garmentNotFound } from '../wardrobe/garment-access';
 
+/** One capsule's route: its page, its rename and its delete. */
+const CAPSULE_ROUTE = '/capsules/:id';
+
 /**
  * /capsules (plan section 2; owner decision on #8): capsules are part of
  * the wardrobe, so every route takes `?ownerId=` and resolves it through
@@ -172,7 +175,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   app.get(
-    '/capsules/:id',
+    CAPSULE_ROUTE,
     { schema: { params: CapsuleParams, querystring: CapsulePageQuery } },
     async (request, reply) => {
       const { access, viewOwner } = await resolve(
@@ -228,7 +231,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // Rename (and notes). A refused form writes nothing and re-renders (400).
   app.post(
-    '/capsules/:id',
+    CAPSULE_ROUTE,
     {
       schema: {
         params: CapsuleParams,
@@ -254,7 +257,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // htmx (hx-delete, hx-confirm): owner only. The garments stay.
   app.delete(
-    '/capsules/:id',
+    CAPSULE_ROUTE,
     { schema: { params: CapsuleParams, querystring: OwnerQuery } },
     async (request, reply) => {
       const { access } = await resolve(request, request.query.ownerId, 'own');

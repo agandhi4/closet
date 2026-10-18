@@ -65,12 +65,16 @@ export function collagePieces<G extends MarkedGarment>(
 ): (G & { marks: GarmentMarkKind[] })[] {
   return garments.map((garment) => ({
     ...garment,
-    marks: marking.warn
-      ? garmentMarks(garment, marking)
-      : isPieceToBuy(garment)
-        ? ['to-buy']
-        : [],
+    marks: pieceMarks(garment, marking),
   }));
+}
+
+function pieceMarks(
+  garment: MarkedGarment,
+  marking: PieceMarking,
+): GarmentMarkKind[] {
+  if (marking.warn) return garmentMarks(garment, marking);
+  return isPieceToBuy(garment) ? ['to-buy'] : [];
 }
 
 /**
