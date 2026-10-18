@@ -11,7 +11,8 @@
 #       [--conf scripts/ci/metrics.conf] [--bounds docs/metrics/ratchet.json] [--out build/metrics.json]
 #   snapshot    run the collectors and merge; build/metrics.json is the report
 #   check       snapshot, then `metrics_ratchet.py check` (the gate job; METRICS_REBASELINE=1,
-#               which the gate plan sets from the metrics-rebaseline label, adds --rebaseline-ok)
+#               which the gate plan sets from the metrics-rebaseline label, adds --rebaseline-ok).
+#               A BETTER key fails too until `make metrics-tighten` is committed (gains lock in)
 #   tighten     snapshot, then lock in the BETTER numbers (commit the bounds in the same PR);
 #               exit 1 when a key is WORSE or MISSING, printed as check prints it, after
 #               writing the BETTER bounds and running the scorecard's tighten
@@ -359,7 +360,7 @@ if [ -f "$SCORECARD_BOUNDS" ] \
   if [ "$SC_MODE" = check ] && { [ "${METRICS_REBASELINE:-0}" = 1 ] || [ "$KEYED" = 1 ]; }; then
     SC_ARGS+=(--rebaseline-ok)
   fi
-  python3 -I "$HERE/scorecard.py" "${SC_ARGS[@]}" | grep -E '^(scorecard-ratchet(-bound)?|grade|metrics-rebaseline:) ' || exit "${PIPESTATUS[0]}"
+  python3 -I "$HERE/scorecard.py" "${SC_ARGS[@]}" | grep -E '^(scorecard-ratchet(-bound)?|scorecard|metrics-rebaseline:) ' || exit "${PIPESTATUS[0]}"
   if [ "$SUB" = rebaseline ] && [ "$KEYED" = 0 ]; then
     echo "metrics_collect: WARNING: $SCORECARD_BOUNDS was rewritten too (every track to today's share); to loosen only named bounds, restore both files and run \`make metrics-rebaseline KEYS=<key>[,<key>]\`" >&2
   fi

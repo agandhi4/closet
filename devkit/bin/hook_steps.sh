@@ -38,13 +38,14 @@
 # Timings: every step that ran appends `<date>\t<hook>\t<label>\t<seconds>\t<ok|fail>` (plus a
 # sixth note column: `core.bare=<v> is-bare=<v>` when the step flipped core.bare, below, and
 # `load=<1m>/<cpus> scale=<x>` when the box ran above its core count as the hook started,
-# bin/_load_lib.sh's rule, which T8 divides out of the seconds) and the hook appends
+# bin/_load_lib.sh's rule, for a reader to divide out of the seconds) and the hook appends
 # `<date>\t<hook>\ttotal\t<seconds>\t<ok|fail>` to
 # ${XDG_STATE_HOME:-~/.local/state}/devkit/hooks/<repo>.tsv (never printed, never fails the
 # hook). <repo> is the MAIN checkout's directory name (the parent of the common git dir), so a
 # commit in a worktree (.claude/worktrees/<branch>) lands in the repo's file, not <branch>.tsv;
-# scorecard.py derives the same name. The scorecard (T8 gate.precommit) reads it against the owner's budgets, pre-commit
-# <= 30 s and pre-push <= 60 s (2026-10-13), so a hook that quietly grew shows up as a letter.
+# scorecard.py derives the same name. The scorecard's WIRED (`hooks.ledger`: a row in 30 d) and
+# gate_bite.py (failed steps) read it; the owner's budgets stand: pre-commit <= 30 s, pre-push
+# <= 60 s (2026-10-13).
 # <globs> are comma-separated, no spaces, one override per step. A glob is a bash `case`
 # pattern over the whole repo-relative path, as in scripts/ci/gate_plan.sh: `*` also matches
 # `/`, so `*.md` matches at any depth and `docs/*` everything under docs/; `**` means `*`.
@@ -237,7 +238,7 @@ run_hook_steps() {
 
 # <root> <hook> <label> <start epoch> <rc> [note]: one timing line in the per-machine hooks
 # ledger (header comment above); the note column joins [note] and the hook's load note with a
-# space; scorecard.py T8 reads columns 2-4 and the `scale=` word. Best effort: an unwritable
+# space; gate_bite.py reads columns 1-5, the scorecard column 1. Best effort: an unwritable
 # state dir never fails a hook.
 _hook_record() {
   local root=$1 hook=$2 label=$3 start=$4 rc=$5 note=${6:-} dir row
