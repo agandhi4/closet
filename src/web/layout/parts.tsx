@@ -214,6 +214,20 @@ export function CancelLink(props: { href: string; class?: string }) {
   );
 }
 
+/**
+ * A sheet's tap-outside close (daisyUI's `modal-backdrop`, a `method="dialog"`
+ * form), the last child of every `<dialog class="modal">`. `label` is its
+ * accessible name: Close on a sheet that shows, Cancel on one that asks for
+ * a choice (the plan sheet, Styling's save).
+ */
+export function SheetBackdrop(props: { label: string }) {
+  return (
+    <form method="dialog" class="modal-backdrop">
+      <button>{props.label}</button>
+    </form>
+  );
+}
+
 /** A page with nothing to list yet: an icon, a message and what to do about it. */
 export function EmptyState(props: {
   message: string;

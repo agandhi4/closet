@@ -26,10 +26,11 @@ import { PageMain } from '../layout/page-main';
 import {
   CameraIcon,
   HangerIcon,
-  PhotoLibraryIcon,
   PHOTO_ACCEPT,
+  PhotoLibraryIcon,
   PREPARE_AND_SUBMIT_PHOTO,
   SavedToast,
+  SheetBackdrop,
   StripFlags,
 } from '../layout/parts';
 import { GarmentOutfitsStrip } from '../outfits/garment-outfits';
@@ -978,9 +979,7 @@ function PhotoSheet(props: {
           </button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>{t('CLOSE')}</button>
-      </form>
+      <SheetBackdrop label={t('CLOSE')} />
     </dialog>
   );
 }
@@ -1106,9 +1105,7 @@ function MaskEditorDialog() {
           </button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>{t('CLOSE')}</button>
-      </form>
+      <SheetBackdrop label={t('CLOSE')} />
     </dialog>
   );
 }

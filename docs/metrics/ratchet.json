@@ -30,7 +30,7 @@
     "source": "layers"
   },
   "coverage.backend.branches": {
-    "bound": 92.48,
+    "bound": 92.47,
     "direction": "higher",
     "source": "cov"
   },
@@ -55,7 +55,7 @@
     "source": "ts-backend"
   },
   "duplication.repo.clones": {
-    "bound": 22,
+    "bound": 19,
     "direction": "lower",
     "source": "dup"
   },

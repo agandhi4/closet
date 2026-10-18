@@ -9,7 +9,7 @@ import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
-import { GarmentThumb } from '../layout/parts';
+import { GarmentThumb, SheetBackdrop } from '../layout/parts';
 import { EntrySelfie, SelfieView } from '../selfies/views';
 import { ShareLinkButton } from '../share/share-button';
 import { stylingUrl } from '../styling/urls';
@@ -403,9 +403,7 @@ function PlanSheet(props: { outfitId: number; today: IsoDate }) {
           </div>
         </PostForm>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>{t('CLOSE')}</button>
-      </form>
+      <SheetBackdrop label={t('CLOSE')} />
     </dialog>
   );
 }
