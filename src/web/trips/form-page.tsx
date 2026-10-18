@@ -1,5 +1,6 @@
 import { PostForm } from '../auth/form';
 import type { FieldErrors } from '../auth/validation';
+import { FormField, inputAttributes } from '../form-field';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -54,50 +55,48 @@ export function TripFormPage(props: {
           class="flex flex-col gap-4"
           needsNetwork
         >
-          <RequiredField
-            field="name"
-            type="text"
+          <FormField
+            id="trip-name"
             label={t('NAME')}
-            value={values.name}
-            errors={errors.name}
-            maxlength={TRIP_NAME_MAX}
-            placeholder={t('trips.NAME_PLACEHOLDER')}
-          />
-          <div class="flex flex-col">
-            <label class="label" for="trip-destination">
-              <span class="label-text">{t('trips.DESTINATION')}</span>
-            </label>
+            required
+            messages={errors.name}
+          >
             <input
-              id="trip-destination"
+              {...inputAttributes('trip-name', 'w-full', errors.name)}
+              type="text"
+              name="name"
+              value={values.name}
+              maxlength={TRIP_NAME_MAX}
+              required
+              placeholder={t('trips.NAME_PLACEHOLDER')}
+            />
+          </FormField>
+          <FormField id="trip-destination" label={t('trips.DESTINATION')}>
+            <input
+              {...inputAttributes('trip-destination', 'w-full')}
               type="text"
               name="destination"
-              class="input input-bordered w-full"
               value={values.destination}
               maxlength={TRIP_DESTINATION_MAX}
               autocomplete="off"
               placeholder={t('trips.DESTINATION_PLACEHOLDER')}
             />
-          </div>
+          </FormField>
           <div class="grid grid-cols-2 gap-3">
-            <RequiredField
+            <DateField
               field="startsOn"
-              type="date"
               label={t('trips.STARTS')}
               value={values.startsOn}
               errors={errors.startsOn}
             />
-            <RequiredField
+            <DateField
               field="endsOn"
-              type="date"
               label={t('trips.ENDS')}
               value={values.endsOn}
               errors={errors.endsOn}
             />
           </div>
-          <div class="flex flex-col">
-            <label class="label" for="trip-notes">
-              <span class="label-text">{t('NOTES')}</span>
-            </label>
+          <FormField id="trip-notes" label={t('NOTES')}>
             <textarea
               id="trip-notes"
               name="notes"
@@ -107,7 +106,7 @@ export function TripFormPage(props: {
             >
               {values.notes}
             </textarea>
-          </div>
+          </FormField>
           <div class="flex gap-2 mt-2">
             <button type="submit" class="btn btn-primary flex-1">
               {t('SAVE')}
@@ -132,37 +131,23 @@ export function TripFormPage(props: {
   );
 }
 
-/** A required input with its label and its messages; red with them. */
-function RequiredField(props: {
-  field: TripField;
-  type: 'text' | 'date';
+/** The trip's first or last day: required, so marked. */
+function DateField(props: {
+  field: 'startsOn' | 'endsOn';
   label: string;
   value: string;
   errors: string[] | undefined;
-  maxlength?: number;
-  placeholder?: string;
 }) {
   const id = `trip-${props.field}`;
-  const invalid = (props.errors?.length ?? 0) > 0;
   return (
-    <div class="flex flex-col">
-      <label class="label" for={id}>
-        <span class="label-text">{props.label} *</span>
-      </label>
+    <FormField id={id} label={props.label} required messages={props.errors}>
       <input
-        id={id}
-        type={props.type}
+        {...inputAttributes(id, 'w-full', props.errors)}
+        type="date"
         name={props.field}
-        class={`input input-bordered w-full ${invalid ? 'input-error' : ''}`}
         value={props.value}
-        maxlength={props.maxlength}
         required
-        placeholder={props.placeholder}
-        aria-invalid={invalid ? 'true' : undefined}
       />
-      {props.errors?.map((message) => (
-        <p class="text-error text-sm mt-1">{message}</p>
-      ))}
-    </div>
+    </FormField>
   );
 }

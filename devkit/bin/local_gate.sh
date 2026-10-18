@@ -45,6 +45,10 @@
 #   Postgres with no timeout for an hour, holding the machine-wide lock (2026-10-13). The job's
 #   process group gets TERM (KILL after 10s), the status is `error`, the EXIT trap cleans up, and
 #   the run stops with GATE <job> WATCHDOG, VERDICT FAIL and exit 2: the box failed, not the code.
+#   The watchdog sees only jobs; the plan's gate_cleanup (EXIT trap) is bounded by
+#   GATE_CLEANUP_SECONDS (default 120) instead, and the docker scripts a job runs
+#   (throwaway_pg.sh, boot_image.sh) probe the daemon and bound every docker call themselves
+#   (bin/_timeout_lib.sh), so a hung daemon fails in seconds with one line, not 15 minutes.
 #
 # Budgets (owner directive 2026-10-13: whole gate <= 10 min, no job > 5 min): GATE_JOB_BUDGET_MINUTES
 #   (default 5) per job and GATE_BUDGET_MINUTES (default 10) for the whole gate, counted from the
@@ -54,6 +58,11 @@
 #   GATE total OVERBUDGET (...). Either makes the verdict FAIL, with the job named in the status
 #   description, unless GATE_BUDGET_ENFORCE=0 (default 1), which keeps the lines and the verdict
 #   PASS: for a queue adopting budgets before its suites fit.
+#   Under load a JOB's budget stretches (bin/_load_lib.sh: min(1-minute load / cores, 2), sampled
+#   when the job starts, only above 1.0), and its PASS|FAIL and OVERBUDGET lines then carry
+#   `; budget 300 s ×1.6 (load 13.1 on 8 cpus) → 480 s` inside their parentheses. closet's db
+#   tier ran 61-65 s alone and failed 110 s twice at load ~13 on 8 cores (closet #410). The
+#   whole-gate budget is not scaled: it is the owner's wall-clock promise, load or not.
 #
 # Job seconds: after each job the gate writes $WT/build/metrics/gate.json, flat keys
 #   gate.<job>.seconds, plus gate.total.seconds once the jobs are done (docs/metrics-keys.md,
@@ -78,9 +87,9 @@
 #   fails a gate, and an unreadable load is a note too. Both minutes count: closet's db tier
 #   failed twice at a 5-minute load of ~30 that had just dipped under 12 on the 1-minute figure
 #   (another repo's Xcode builds, 2026-10-16). The wait is before the slot and the budget clock.
-#   Load is `sysctl -n vm.loadavg` (macOS) or /proc/loadavg (Linux). Test hooks, environment
-#   only: GATE_LOADAVG_CMD (a command printing "<1m> <5m> ...") and GATE_LOAD_POLL_SECONDS
-#   (default 60).
+#   Load is `sysctl -n vm.loadavg` (macOS) or /proc/loadavg (Linux), read by _load_lib.sh. Test
+#   hooks, environment only: DEVKIT_LOADAVG_CMD (a command printing "<1m> <5m> ..."),
+#   DEVKIT_NCPU and GATE_LOAD_POLL_SECONDS (default 60).
 #
 # Expected head: GitHub moves refs/pull/<n>/head a few seconds after a push, so a gate started
 #   right after `git push` gated the previous head and posted its verdict there (Orbit #80,
@@ -92,7 +101,7 @@
 #   is worse than none. Both settings are environment-only test hooks.
 #
 # Per-machine defaults: ${XDG_CONFIG_HOME:-$HOME/.config}/devkit/gate.env, if present, holds
-#   GATE_SLOTS, GATE_SILENT_MINUTES, GATE_JOB_BUDGET_MINUTES, GATE_BUDGET_MINUTES,
+#   GATE_SLOTS, GATE_SILENT_MINUTES, GATE_CLEANUP_SECONDS, GATE_JOB_BUDGET_MINUTES, GATE_BUDGET_MINUTES,
 #   GATE_BUDGET_ENFORCE, GATE_LOAD_MAX and GATE_LOAD_WAIT_MINUTES `KEY=value` lines (blank lines and full-line `#` comments
 #   allowed; GATE_REMOTE* lines are gate.sh's and skipped). It is parsed, never sourced: any other
 #   key, quoting, `export` or other shell syntax is a usage error (exit 2) naming the line. An explicit environment variable wins over the
@@ -158,6 +167,9 @@ minutes_to_secs() {
     || { echo "local_gate: $1 must be a number of minutes (got '$2')" >&2; return 2; }
   awk -v m="$2" 'BEGIN { s = int(m * 60 + 0.5); print (m > 0 && s < 1) ? 1 : s }'
 }
+readonly CLEANUP_SECS=${GATE_CLEANUP_SECONDS:-120}
+[[ "$CLEANUP_SECS" =~ ^[1-9][0-9]*$ ]] \
+  || { echo "local_gate: GATE_CLEANUP_SECONDS must be a whole number of seconds >= 1 (got '$CLEANUP_SECS')" >&2; exit 2; }
 readonly SILENT_MINUTES=${GATE_SILENT_MINUTES:-15}
 SILENT_SECS=$(minutes_to_secs GATE_SILENT_MINUTES "$SILENT_MINUTES") || exit 2
 JOB_BUDGET_SECS=$(minutes_to_secs GATE_JOB_BUDGET_MINUTES "${GATE_JOB_BUDGET_MINUTES:-5}") || exit 2
@@ -197,6 +209,10 @@ GATE_ALLOW_FORKS=0   # set here, not read from the environment: only the plan ma
 # for the skeleton: a PR cannot change how its own paths are classified.
 # shellcheck source=bin/_paths_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_paths_lib.sh"
+# shellcheck source=bin/_timeout_lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/_timeout_lib.sh"
+# shellcheck source=bin/_load_lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/_load_lib.sh"
 # shellcheck source=/dev/null  # the repo's plan; its contract is in the header
 . "$PLAN"
 for required in GATE_SLUG GATE_STATE_NAME; do
@@ -240,23 +256,13 @@ try_slots() {
   done
   return 1
 }
-# loadavg: "<1m> <5m>" on stdout, or nothing when the load cannot be read.
-loadavg() {
-  if [ -n "${GATE_LOADAVG_CMD:-}" ]; then
-    bash -c "$GATE_LOADAVG_CMD"
-  elif [ -r /proc/loadavg ]; then
-    cat /proc/loadavg
-  else
-    sysctl -n vm.loadavg 2>/dev/null | tr -d '{}'   # macOS: "{ 1.23 4.56 7.89 }"
-  fi | awk '$1 ~ /^[0-9.]+$/ && $2 ~ /^[0-9.]+$/ { print $1, $2; exit }'
-}
 # wait_for_load: header, "Load". Returns once both averages are <= LOAD_MAX, or after
 # LOAD_WAIT_SECS, or at once when the load cannot be read; never fails the gate.
 wait_for_load() {
   [ -n "$LOAD_MAX" ] || return 0
   local t0=$SECONDS l1 l5
   while :; do
-    read -r l1 l5 <<<"$(loadavg)"
+    read -r l1 l5 <<<"$(devkit_loadavg)"
     if [ -z "$l1" ]; then
       echo "GATE note: cannot read the load average; GATE_LOAD_MAX=$LOAD_MAX not applied"
       return 0
@@ -314,7 +320,8 @@ post_status() { # <state> <description>; three attempts, a GitHub timeout used t
   for attempt in 1 2 3; do
     gh api "repos/$SLUG/statuses/$HEAD_SHA" \
       -f state="$1" -f context="$STATUS_CONTEXT" -f description="$2" >/dev/null 2>&1 && return 0
-    sleep $((attempt * 5))
+    # Backoff between attempts only (5 s, 10 s); GATE_STATUS_BACKOFF_SECONDS is a test hook.
+    [ "$attempt" = 3 ] || sleep $((attempt * ${GATE_STATUS_BACKOFF_SECONDS:-5}))
   done
   echo "local_gate: could not post $STATUS_CONTEXT=$1 on $HEAD_SHA after 3 attempts" >&2
 }
@@ -356,7 +363,10 @@ cleanup() {
   stop_job
   # An interrupted gate must not leave the PR showing `pending` forever.
   if [ "$STATUS_OPEN" = 1 ]; then post_status error "Local gate interrupted before a verdict"; fi
-  gate_cleanup >/dev/null 2>&1
+  # Bounded: a hung docker daemon made a plan's `docker rm -fv` block this trap for 12+ min
+  # while the gate held its machine-wide slot (2026-10-17).
+  devkit_with_timeout "$CLEANUP_SECS" gate_cleanup >/dev/null 2>&1
+  [ $? -ne 124 ] || echo "local_gate: gate_cleanup stopped after ${CLEANUP_SECS}s (a hung docker daemon?); containers may be left: docker ps" >&2
   git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1
   git -C "$ROOT" update-ref -d "$GATE_REF" >/dev/null 2>&1
 }
@@ -371,10 +381,11 @@ verdict() { # <PASS|FAIL> <status description>; ends the run
   if [ "$result" = PASS ]; then exit 0; else exit 1; fi
 }
 
-# check_budget <name> <seconds> <budget-seconds>: the OVERBUDGET line; a FAIL unless enforcement is off.
+# check_budget <name> <seconds> <budget-seconds> [<load note>]: the OVERBUDGET line; a FAIL unless
+# enforcement is off. The note (devkit_load_scale's LOAD_NOTE) explains a stretched budget.
 check_budget() {
   [ "$3" -gt 0 ] && [ "$2" -gt "$3" ] || return 0
-  echo "GATE $1 OVERBUDGET (${2}s > ${3}s)"
+  echo "GATE $1 OVERBUDGET (${2}s > ${3}s${4:+; $4})"
   OVERBUDGET="${OVERBUDGET:+"$OVERBUDGET, "}$1 (${2}s > ${3}s)"
   [ "$BUDGET_ENFORCE" = 0 ] || FAILED=1
 }
@@ -395,6 +406,8 @@ write_gate_metrics() {
 # ---- helpers for gate_plan ---------------------------------------------------------------
 job() { # <name> <make target> [VAR=val...]
   local name=$1 t0=$SECONDS log=$LOGDIR/$1.log rc secs
+  devkit_load_scale "$JOB_BUDGET_SECS"
+  local budget=$LOAD_BUDGET load_note=$LOAD_NOTE
   shift
   if [[ ! "$name" =~ ^[A-Za-z0-9_-]+$ ]] || [ "$name" = total ]; then
     echo "local_gate: job name '$name' must match [A-Za-z0-9_-]+ and not be 'total' (it becomes the key gate.<name>.seconds)" >&2
@@ -422,13 +435,13 @@ job() { # <name> <make target> [VAR=val...]
   JOB_PGID=""
   secs=$((SECONDS - t0))
   if [ "$rc" = 0 ]; then
-    echo "GATE $name PASS (${secs}s)"
+    echo "GATE $name PASS (${secs}s${load_note:+; $load_note})"
   else
-    echo "GATE $name FAIL (log: $LOGDIR/$name.log)"
+    echo "GATE $name FAIL (log: $LOGDIR/$name.log${load_note:+; $load_note})"
     FAILED=1
     FAILED_JOBS="${FAILED_JOBS:+"$FAILED_JOBS, "}$name"
   fi
-  check_budget "$name" "$secs" "$JOB_BUDGET_SECS"
+  check_budget "$name" "$secs" "$budget" "$load_note"
   JOB_SECONDS=$(grep -v "^$name " <<<"$JOB_SECONDS"; echo "$name $secs")
   write_gate_metrics
 }

@@ -11,7 +11,8 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { PageMain } from '../layout/page-main';
-import { CancelLink, inputClass, Messages } from '../layout/parts';
+import { FieldMessages, FormField, inputAttributes } from '../form-field';
+import { CancelLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { GARMENT_COLORS } from '../../wardrobe/properties';
 import { categoryLabel, normalizeCategory } from './garment';
@@ -263,16 +264,17 @@ function NameAndCategory(props: { model: GarmentFormModel; category: string }) {
   return (
     <>
       {!model.draft && name}
-      <div class="flex flex-col">
-        <label class="label" for="garment-category">
-          <span class="label-text">{t('CATEGORY')} *</span>
-        </label>
+      <FormField
+        id="garment-category"
+        label={t('CATEGORY')}
+        required
+        messages={errors.category}
+      >
         <input
-          id="garment-category"
+          {...inputAttributes('garment-category', 'w-full', errors.category)}
           type="text"
           name="category"
           list="category-suggestions"
-          class={inputClass('w-full', errors.category)}
           value={values.category}
           maxlength={CATEGORY_MAX}
           required
@@ -285,8 +287,7 @@ function NameAndCategory(props: { model: GarmentFormModel; category: string }) {
             <option value={suggestion.value}>{suggestion.label}</option>
           ))}
         </datalist>
-        <Messages messages={errors.category} />
-      </div>
+      </FormField>
       <PropertiesMain
         category={category}
         values={values.properties}
@@ -417,19 +418,22 @@ function MoreDetails(props: {
         />
         {!wishlist && <ConditionFields care={values.care} />}
         {!wishlist && (
-          <div class="flex flex-col">
-            <label class="label" for="garment-acquired">
-              <span class="label-text">{t('DATE_ACQUIRED')}</span>
-            </label>
+          <FormField
+            id="garment-acquired"
+            label={t('DATE_ACQUIRED')}
+            messages={errors.dateAquired}
+          >
             <input
-              id="garment-acquired"
+              {...inputAttributes(
+                'garment-acquired',
+                'w-full',
+                errors.dateAquired,
+              )}
               type="date"
               name="dateAquired"
-              class={inputClass('w-full', errors.dateAquired)}
               value={values.dateAquired}
             />
-            <Messages messages={errors.dateAquired} />
-          </div>
+          </FormField>
         )}
         {/* The save writes the two below only when this is posted (see GarmentBody.product). */}
         <input type="hidden" name="product" value="1" />
@@ -551,47 +555,41 @@ function TextField(props: {
 }) {
   const id = `garment-${props.name}`;
   return (
-    <div class="flex flex-col">
-      <label class="label" for={id}>
-        <span class="label-text">{props.label}</span>
-      </label>
+    <FormField id={id} label={props.label} messages={props.errors}>
       <input
-        id={id}
+        {...inputAttributes(id, 'w-full', props.errors)}
         type={props.type ?? 'text'}
         inputmode={props.inputmode}
         name={props.name}
-        class={inputClass('w-full', props.errors)}
         value={props.value}
         maxlength={props.maxlength}
         placeholder={props.placeholder}
         {...props.refresh}
       />
-      <Messages messages={props.errors} />
-    </div>
+    </FormField>
   );
 }
 
 /** Identical copies (three white tees): a number stepper, 1 to QUANTITY_MAX. */
 function QuantityField(props: { value: string; errors?: string[] }) {
   return (
-    <div class="flex flex-col">
-      <label class="label" for="garment-quantity">
-        <span class="label-text">{t('QUANTITY')}</span>
-      </label>
+    <FormField
+      id="garment-quantity"
+      label={t('QUANTITY')}
+      messages={props.errors}
+    >
       <input
-        id="garment-quantity"
+        {...inputAttributes('garment-quantity', 'w-28', props.errors)}
         type="number"
         name="quantity"
         min="1"
         max={QUANTITY_MAX}
         step="1"
         inputmode="numeric"
-        class={inputClass('w-28', props.errors)}
         value={props.value}
       />
       <span class="text-xs text-muted mt-1">{t('QUANTITY_HINT')}</span>
-      <Messages messages={props.errors} />
-    </div>
+    </FormField>
   );
 }
 
@@ -668,10 +666,7 @@ function TextArea(props: {
 }) {
   const id = `garment-${props.name}`;
   return (
-    <div class="flex flex-col">
-      <label class="label" for={id}>
-        <span class="label-text">{props.label}</span>
-      </label>
+    <FormField id={id} label={props.label}>
       <textarea
         id={id}
         name={props.name}
@@ -682,7 +677,7 @@ function TextArea(props: {
       >
         {props.value}
       </textarea>
-    </div>
+    </FormField>
   );
 }
 
@@ -778,7 +773,7 @@ function ColorMultiSelect(props: { selected: string[]; errors?: string[] }) {
           </div>
         </div>
       </details>
-      <Messages messages={props.errors} />
+      <FieldMessages id="garment-color" messages={props.errors} />
     </div>
   );
 }

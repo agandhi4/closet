@@ -463,6 +463,13 @@ describe('the wishlist', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.body).toMatch(/name="price"[^>]*value="cheap"/);
+      // FormField's contract: the refused input is invalid and described by its announced message.
+      expect(res.body).toContain(
+        'aria-invalid="true" aria-describedby="bought-price-messages"',
+      );
+      expect(res.body).toMatch(
+        /<div id="bought-price-messages"><p[^>]*role="alert"/,
+      );
       expect(await statusOf(charcoal)).toBe('wishlist');
     });
 

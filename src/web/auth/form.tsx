@@ -43,7 +43,7 @@ export function Field(props: FieldProps) {
           required
         />
       </label>
-      <FieldMessages field={props.id} messages={props.errors} />
+      <MessageSlot field={props.id} messages={props.errors} />
     </>
   );
 }
@@ -56,7 +56,7 @@ export function Field(props: FieldProps) {
  * answering between mousedown and click (the click blurs the last input,
  * which triggers it) swapped the button away and the form never submitted.
  */
-function FieldMessages(props: {
+function MessageSlot(props: {
   field: string;
   messages?: string[];
   oob?: boolean;
@@ -85,7 +85,7 @@ export function InlineErrors<Field extends string>(props: {
   return (
     <>
       {props.fields.map((field) => (
-        <FieldMessages field={field} messages={props.errors[field]} oob />
+        <MessageSlot field={field} messages={props.errors[field]} oob />
       ))}
     </>
   );
