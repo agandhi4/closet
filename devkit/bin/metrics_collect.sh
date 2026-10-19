@@ -15,11 +15,14 @@
 #               A BETTER key fails too until `make metrics-tighten` is committed (gains lock in)
 #   tighten     snapshot, then lock in the BETTER numbers (commit the bounds in the same PR);
 #               exit 1 when a key is WORSE or MISSING, printed as check prints it, after
-#               writing the BETTER bounds and running the scorecard's tighten
-#   rebaseline  snapshot, then overwrite every bound (first adoption, or after a tool change).
+#               writing the BETTER bounds and running the scorecard's tighten. SEED=1
+#               (`make metrics-tighten SEED=1`) also adds a bound at today's value for every
+#               key without one (`ratchet <key> SEEDED <value>`): the way to bound a new key,
+#               since that is a tightening and needs no label
+#   rebaseline  snapshot, then overwrite every bound (a label-approved tool change only).
 #               KEYS=<key>[,<key>] (`make metrics-rebaseline KEYS=...`: make hands command-line
 #               variables to the recipe's environment) loosens only those bounds, each only
-#               when WORSE, and leaves scorecard.json alone: the scorecard runs as `check`
+#               when WORSE (a named key with no bound is seeded), and leaves scorecard.json alone: the scorecard runs as `check`
 #               under the label instead, so its verdict shows now. Without KEYS every bound
 #               moves; the ratchet and this script then WARN, naming each loosened bound and
 #               the scorecard.json rewrite (devkit decisions 2026-10-17)
@@ -60,16 +63,20 @@
 # rather than MISSING: a frontend-only PR cannot have changed backend coverage, and the unit
 # job that produces that coverage did not run either.
 #
-# Tier inputs, outside the gate: coverage.py's --coverage-json/--istanbul-summary and
-# statements.py's --in name files a test tier writes (coverage reports, the statement fixture's
-# build/statements.json). Before any collector runs, every such file of every collector that
+# Tier inputs, outside the gate: the files a build or test tier writes that a collector reads
+# (the TIER_INPUTS table: coverage reports, the statement fixture's build/statements.json, a
+# Next app's build manifest for ts.mjs --bundle). Before any collector runs, every such file of every collector that
 # will run is checked; when any is missing the run stops once (exit 2) listing each file, its
 # collector and the make target of the gate job that writes it (the collector's job:<name> area,
 # looked up in scripts/ci/gate_plan.sh: a GATE_JOBS_* entry or a `job <name> <target>` call).
 # Lanes in fresh worktrees otherwise met them one failure at a time: frontend coverage, then
 # build/statements.json, then `make test-db` (finplat and Orbit, 2026-10-17). TIGHTEN_RUN_TIERS=1
-# runs those targets first instead, then checks again. Inside the gate a job: collector runs only
-# when its job ran, so a missing input there is the collector's ordinary failure.
+# runs those targets first instead, then checks again. An input that exists but is older than
+# the newest tracked file under its source dir (newest_source) is STALE: a WARNING naming its
+# target, and under TIGHTEN_RUN_TIERS=1 its target reruns too (closet, 2026-10-18: coverage
+# from before a rebase read a false WORSE). `--fresh` (TIGHTEN_RUN_TIERS=fresh through make)
+# reruns every input's target. Inside the gate a job: collector runs only when its job ran, so a
+# missing input there is the collector's ordinary failure.
 #
 # Toolchain: before any collector, the tree's pinned Node and Rust go first on PATH
 # (bin/toolchain_path.sh, as the gate and the hooks do), so `make metrics-snapshot` on a Mac
@@ -81,7 +88,7 @@
 # tiers that ran in this gate) were written before this job and are merged into the snapshot;
 # an `rm -rf build/metrics` here would silently drop them.
 #
-# Findings: a collector whose command runs devkit's metrics/python.py, ts.mjs, rust.py or jscpd.mjs gets
+# Findings: a collector whose command runs devkit's metrics/python.py, ts.mjs, rust.py, shell.py or jscpd.mjs gets
 # `--list-out build/metrics/<name>.findings.txt` appended (nothing to declare in the conf; a
 # command that names its own --list-out keeps it): the file, function, module behind every
 # count, so a lane reads what to fix instead of scripting it. Appended to the end of the
@@ -104,14 +111,28 @@ readonly GATE_JSON=build/metrics/gate.json   # local_gate.sh's job seconds: whic
 readonly SUBCOMMANDS="snapshot check tighten rebaseline"
 # A conf command that runs one of devkit's --list-out collectors (any path prefix: devkit/,
 # ../devkit/). Matched against " <command> " so the name may end the line.
-readonly LIST_OUT_COLLECTOR='[[:space:]/]metrics/(python\.py|ts\.mjs|rust\.py|jscpd\.mjs)[[:space:]]'
-# devkit's collectors that read a test tier's output, and the flags that name it (header: Tier
-# inputs). A new tier-reading collector or flag is added to both.
-readonly TIER_INPUT_COLLECTOR='[[:space:]/]metrics/(coverage|statements)\.py[[:space:]]'
-readonly TIER_INPUT_FLAGS="--coverage-json --istanbul-summary --in"
+readonly LIST_OUT_COLLECTOR='[[:space:]/]metrics/(python\.py|ts\.mjs|rust\.py|shell\.py|jscpd\.mjs)[[:space:]]'
+# Tier inputs (header): every devkit collector flag that reads a build or test artefact, one
+# row each; a new artefact-reading collector or flag is a new row, read by tier_inputs.
+#   collector      flag                the input checked for, and its kind
+#   coverage.py    --coverage-json     value: the flag's file (coverage.py `coverage json`)
+#   coverage.py    --istanbul-summary  value: the flag's file (istanbul coverage-summary.json)
+#   coverage.py    --llvm-cov-json     value: the flag's file (cargo llvm-cov --json export)
+#   statements.py  --in                value: the flag's file (the statement fixture's output)
+#   ts.mjs         --bundle            next-build: <--root>/.next/build-manifest.json in a Next
+#                                      app (a .next/ or a next.config.*: ts.mjs's own test);
+#                                      `next build` rewrites it every build, while the .next/
+#                                      dir's own mtime moves only when an entry is added. A vite
+#                                      app is built by ts.mjs itself and has no input
+readonly TIER_INPUTS="coverage.py --coverage-json value
+coverage.py --istanbul-summary value
+coverage.py --llvm-cov-json value
+statements.py --in value
+ts.mjs --bundle next-build"
+readonly TIER_INPUT_COLLECTOR='[[:space:]/]metrics/([a-z_]+\.(py|mjs))[[:space:]]'
 
 usage() {
-  echo "usage: $0 <snapshot|check|tighten|rebaseline> [--conf FILE] [--bounds FILE] [--out FILE]" >&2
+  echo "usage: $0 <snapshot|check|tighten|rebaseline> [--conf FILE] [--bounds FILE] [--out FILE] [--fresh]" >&2
   exit 2
 }
 die() { echo "metrics_collect: $*" >&2; exit 2; }
@@ -123,8 +144,12 @@ case " $SUBCOMMANDS " in *" $SUB "*) ;; *) usage ;; esac
 CONF=scripts/ci/metrics.conf
 BOUNDS=docs/metrics/ratchet.json
 OUT=build/metrics.json
+# --fresh, or TIGHTEN_RUN_TIERS=fresh (the spelling a make target passes): rerun every tier input.
+FRESH=0
+[ "${TIGHTEN_RUN_TIERS:-0}" != fresh ] || FRESH=1
 while [ $# -gt 0 ]; do
   case "$1" in
+    --fresh) FRESH=1 ;;
     --conf) [ $# -ge 2 ] || usage; CONF=$2; shift ;;
     --bounds) [ $# -ge 2 ] || usage; BOUNDS=$2; shift ;;
     --out) [ $# -ge 2 ] || usage; OUT=$2; shift ;;
@@ -206,17 +231,39 @@ while [ "$i" -lt "${#NAMES[@]}" ]; do
 done
 
 # ---- tier inputs (header: Tier inputs) -------------------------------------------------------------
-# tier_inputs <command>: the files the command's tier-input flags name, one per line.
-tier_inputs() {
-  [[ " $1 " =~ $TIER_INPUT_COLLECTOR ]] || return 0
-  local words w flag prev=""
-  read -ra words <<<"$1"
-  for w in "${words[@]}"; do
-    for flag in $TIER_INPUT_FLAGS; do
-      if [ "$prev" = "$flag" ]; then echo "$w"; elif [[ "$w" == "$flag="?* ]]; then echo "${w#*=}"; fi
-    done
+# flag_values <flag> <word>...: each value the words give <flag> (`--f v` or `--f=v`).
+flag_values() {
+  local flag=$1 w prev=""
+  shift
+  for w in "$@"; do
+    if [ "$prev" = "$flag" ]; then echo "$w"; elif [[ "$w" == "$flag="?* ]]; then echo "${w#*=}"; fi
     prev=$w
   done
+}
+# next_build_input <root>: the Next build manifest under <root> when <root> is a Next app. The
+# names are ts.mjs's NEXT_CONFIGS: keep the two in step.
+next_build_input() {
+  local root=${1%/} c
+  [ -n "$root" ] || return 0
+  if [ "$root" = . ]; then root=""; else root="$root/"; fi
+  for c in .next next.config.js next.config.mjs next.config.ts next.config.cjs; do
+    if [ -e "$root$c" ]; then echo "${root}.next/build-manifest.json"; return; fi
+  done
+}
+# tier_inputs <command>: the files the command reads that a tier writes (TIER_INPUTS), one per line.
+tier_inputs() {
+  [[ " $1 " =~ $TIER_INPUT_COLLECTOR ]] || return 0
+  local collector=${BASH_REMATCH[1]} words row_collector flag kind w
+  read -ra words <<<"$1"
+  while read -r row_collector flag kind; do
+    [ "$row_collector" = "$collector" ] || continue
+    case "$kind" in
+      value) flag_values "$flag" "${words[@]}" ;;
+      next-build)
+        case " ${words[*]} " in *" $flag "*) ;; *) continue ;; esac
+        while read -r w; do next_build_input "$w"; done < <(flag_values --root "${words[@]}") ;;
+    esac
+  done <<<"$TIER_INPUTS"
 }
 # plan_job_target <job>: the make target of the plan's gate job <job>, or nothing.
 plan_job_target() {
@@ -231,35 +278,84 @@ plan_job_target() {
     { for (i = 1; i < NF - 1; i++) if ($i == "job" && $(i + 1) == j) { print $(i + 2); exit } }
   ' scripts/ci/gate_plan.sh
 }
-# missing_inputs: sets MISSING (lines "<file>\t<collector>\t<target or empty>") and TARGETS
-# (the distinct targets, in conf order) for the collectors that will run.
-missing_inputs() {
-  local i=0 f target
-  MISSING="" TARGETS=""
+# STAT_MTIME <file>...: each file's mtime in epoch seconds. GNU is probed first: BSD stat has
+# no -c, while GNU `stat -f` is the file-system form and would print a wrong answer, not fail.
+if stat -c %Y / >/dev/null 2>&1; then STAT_MTIME=(stat -c %Y); else STAT_MTIME=(stat -f %m); fi
+# source_dir <input>: the tracked directory whose code the tier that wrote <input> runs: the
+# input's first path segment when git tracks files under it (backend/build/coverage.json ->
+# backend), else the whole tree (build/statements.json).
+source_dir() {
+  local top=${1%%/*}
+  if [ "$top" != "$1" ] && [ -n "$(git ls-files -- "$top" 2>/dev/null | head -1)" ]; then echo "$top"; else echo .; fi
+}
+# newest_source <dir>: the newest mtime of the tracked files under <dir>, less docs/metrics
+# (tighten's own output); empty when none. Why mtime, not the last commit: checkout and rebase
+# rewrite exactly the files whose content changed, so their mtimes say what a tier has not run
+# against (closet, 2026-10-18: a rebase kept coverage from before it, and check read a false
+# WORSE), while a commit after a test run rewrites nothing and must not make that run stale.
+# A tracked file deleted in the tree has no mtime; stat's complaint about it is dropped.
+newest_source() {
+  git ls-files -z -- "$1" ':(exclude)docs/metrics' 2>/dev/null \
+    | xargs -0 "${STAT_MTIME[@]}" 2>/dev/null | sort -n | tail -1
+}
+# tier_input_state: for the collectors that will run, sets MISSING and STALE (lines
+# "<file>\t<collector>\t<source dir>\t<target or empty>": the empty field last, since IFS=tab
+# reads collapse an empty middle one) and RERUN (the distinct targets to
+# rerun, in conf order): every missing input's, and under TIGHTEN_RUN_TIERS=1 or --fresh every
+# stale input's too. With --fresh every input that exists counts as stale.
+tier_input_state() {
+  local i=0 f target dir newest
+  MISSING="" STALE="" RERUN=""
   while [ "$i" -lt "${#NAMES[@]}" ]; do
     if [ "${RUN[$i]}" = 1 ]; then
       while IFS= read -r f; do
-        [ -n "$f" ] && [ ! -e "$f" ] || continue
+        [ -n "$f" ] || continue
         target=""
         case "${COLLECTOR_AREAS[$i]}" in job:*) target=$(plan_job_target "${COLLECTOR_AREAS[$i]#job:}") ;; esac
-        MISSING+="$f"$'\t'"${NAMES[$i]}"$'\t'"$target"$'\n'
-        case " $TARGETS " in *" $target "*) ;; *) [ -z "$target" ] || TARGETS="${TARGETS:+$TARGETS }$target" ;; esac
+        dir=$(source_dir "$f")
+        if [ ! -e "$f" ]; then
+          MISSING+="$f"$'\t'"${NAMES[$i]}"$'\t'"$dir"$'\t'"$target"$'\n'
+        else
+          newest=$(newest_source "$dir")
+          if [ "$FRESH" = 1 ] || { [ -n "$newest" ] && [ "$("${STAT_MTIME[@]}" "$f")" -lt "$newest" ]; }; then
+            STALE+="$f"$'\t'"${NAMES[$i]}"$'\t'"$dir"$'\t'"$target"$'\n'
+            [ "$FRESH" = 1 ] || [ "${TIGHTEN_RUN_TIERS:-0}" = 1 ] || continue
+          else
+            continue
+          fi
+        fi
+        case " $RERUN " in *" $target "*) ;; *) [ -z "$target" ] || RERUN="${RERUN:+$RERUN }$target" ;; esac
       done <<<"$(tier_inputs "${COMMANDS[$i]}")"
     fi
     i=$((i + 1))
   done
 }
+# report_stale: one WARNING per stale input, when nothing reran it.
+report_stale() {
+  local f name dir target
+  while IFS=$'\t' read -r f name dir target; do
+    [ -n "$f" ] || continue
+    echo "metrics_collect: WARNING: $f ($name) is older than the newest tracked change under $dir; its numbers may predate the code. Rerun: make ${target:-<its tier>} (or TIGHTEN_RUN_TIERS=1)" >&2
+  done <<<"$STALE"
+}
 if [ -z "${GATE_AREAS+x}" ]; then
-  missing_inputs
-  if [ -n "$MISSING" ] && [ "${TIGHTEN_RUN_TIERS:-0}" = 1 ] && [ -n "$TARGETS" ]; then
-    echo "metrics tiers RUN (TIGHTEN_RUN_TIERS=1): make $TARGETS"
-    # shellcheck disable=SC2086  # TARGETS is a word list of make targets
-    make --no-print-directory $TARGETS || die "make $TARGETS failed; the inputs above are still missing"
-    missing_inputs
+  tier_input_state
+  if [ -n "$RERUN" ] && { [ "$FRESH" = 1 ] || [ "${TIGHTEN_RUN_TIERS:-0}" = 1 ]; }; then
+    why=TIGHTEN_RUN_TIERS=1
+    [ "$FRESH" = 0 ] || why=--fresh
+    while IFS=$'\t' read -r f name dir _target; do
+      [ -z "$f" ] || echo "metrics tiers STALE $f ($name; $([ "$FRESH" = 1 ] && echo "--fresh" || echo "older than the newest tracked change under $dir"))"
+    done <<<"$STALE"
+    echo "metrics tiers RUN ($why): make $RERUN"
+    # shellcheck disable=SC2086  # RERUN is a word list of make targets
+    make --no-print-directory $RERUN || die "make $RERUN failed; the inputs above are still missing or stale"
+    FRESH=0
+    tier_input_state
   fi
+  report_stale
   if [ -n "$MISSING" ]; then
     echo "metrics_collect: $SUB needs files the test tiers write; missing here:" >&2
-    while IFS=$'\t' read -r f name target; do
+    while IFS=$'\t' read -r f name _dir target; do
       [ -n "$f" ] || continue
       if [ -n "$target" ]; then
         echo "  $f  ($name; make $target)" >&2
@@ -269,7 +365,7 @@ if [ -z "${GATE_AREAS+x}" ]; then
     done <<<"$MISSING"
     rerun=metrics-$SUB
     [ "$SUB" != check ] || rerun=ci-metrics
-    [ -z "$TARGETS" ] || echo "  run: make $TARGETS   (or TIGHTEN_RUN_TIERS=1 make $rerun to run them first)" >&2
+    [ -z "$RERUN" ] || echo "  run: make $RERUN   (or TIGHTEN_RUN_TIERS=1 make $rerun to run them first)" >&2
     exit 2
   fi
 fi
@@ -336,6 +432,7 @@ RATCHET_ARGS=("$SUB" --snapshot "$OUT" --bounds "$BOUNDS")
 if [ "$SUB" = check ] && [ "${METRICS_REBASELINE:-0}" = 1 ]; then RATCHET_ARGS+=(--rebaseline-ok); fi
 KEYED=0
 if [ "$SUB" = rebaseline ] && [ -n "${KEYS:-}" ]; then KEYED=1; RATCHET_ARGS+=(--keys "$KEYS"); fi
+if [ "$SUB" = tighten ] && [ "${SEED:-0}" = 1 ]; then RATCHET_ARGS+=(--seed); fi
 # The modes an author commits from also refresh the committed report-only copy beside the
 # bounds; check (the gate) never writes a tracked file.
 case "$SUB" in tighten|rebaseline) RATCHET_ARGS+=(--report-only "$(dirname "$BOUNDS")/report-only.json") ;; esac
