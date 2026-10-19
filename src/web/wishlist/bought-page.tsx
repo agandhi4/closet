@@ -1,11 +1,7 @@
-import { PostForm } from '../auth/form';
 import type { FieldErrors } from '../auth/validation';
 import { t } from '../i18n';
-import { AppBar } from '../layout/app-bar';
-import { Dock } from '../layout/dock';
-import { Layout } from '../layout/layout';
+import { FormPage } from '../layout/form-page';
 import { FormField, inputAttributes } from '../form-field';
-import { CancelLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
@@ -32,90 +28,71 @@ export interface BoughtModel {
  * GET /wardrobe/:id/bought: "Bought it" for a wishlist item. The day it was
  * bought (today) and the price paid (the listed price) prefilled, and, when
  * it replaces a garment still in the closet, a checkbox to archive that one
- * too, unchecked: the old one is never archived without asking. A native
- * post (PostForm): a refusal re-renders this page with a 400.
+ * too, unchecked: the old one is never archived without asking. In the
+ * shared add/edit frame (`FormPage`: a native post, disabled offline, #411);
+ * a refusal re-renders this page with a 400.
  */
 export function BoughtPage(props: { ctx: ViewContext; model: BoughtModel }) {
   const { ctx, model } = props;
   const { garment, values, errors = {} } = model;
   const name = garment.name ?? categoryLabel(garment.category);
-  const title = t('wishlist.BOUGHT_TITLE', { name });
   return (
-    <Layout ctx={ctx} title={title}>
-      <AppBar
-        ctx={ctx}
-        title={title}
-        back={garmentUrl(garment.id, model.viewOwner)}
-        formPage
-      />
-      <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
+    <FormPage
+      ctx={ctx}
+      title={t('wishlist.BOUGHT_TITLE', { name })}
+      back={garmentUrl(garment.id, model.viewOwner)}
+      action={garmentUrl(garment.id, model.viewOwner, '/bought')}
+      submitLabel={t('wishlist.MOVE_TO_CLOSET')}
+      intro={
         <p class="text-sm text-base-content/70 mb-4">
           {t('wishlist.BOUGHT_INTRO')}
         </p>
-        <PostForm
-          action={garmentUrl(garment.id, model.viewOwner, '/bought')}
-          class="flex flex-col gap-4"
-        >
-          <FormField
-            id="bought-acquired"
-            label={t('DATE_ACQUIRED')}
-            messages={errors.acquiredOn}
-          >
-            <input
-              {...inputAttributes(
-                'bought-acquired',
-                'w-full',
-                errors.acquiredOn,
-              )}
-              type="date"
-              name="acquiredOn"
-              value={values.acquiredOn}
-            />
-          </FormField>
-          <FormField
-            id="bought-price"
-            label={t('wishlist.PRICE_PAID')}
-            messages={errors.price}
-          >
-            <input
-              {...inputAttributes('bought-price', 'w-full', errors.price)}
-              type="text"
-              inputmode="decimal"
-              name="price"
-              value={values.price}
-              maxlength={PRICE_INPUT_MAX}
-              placeholder={t('PRICE_PLACEHOLDER')}
-            />
-          </FormField>
-          {model.archivable && (
-            <label class="label cursor-pointer justify-start gap-3 whitespace-normal">
-              <input
-                type="checkbox"
-                name="archiveReplaced"
-                value="1"
-                class="checkbox checkbox-sm"
-              />
-              <span class="label-text">
-                {t('wishlist.ARCHIVE_REPLACED', {
-                  name:
-                    model.archivable.name ??
-                    categoryLabel(model.archivable.category),
-                })}
-              </span>
-            </label>
-          )}
-          <div class="flex gap-2 mt-2">
-            <CancelLink
-              href={garmentUrl(garment.id, model.viewOwner)}
-              class="flex-1"
-            />
-            <button type="submit" class="btn btn-primary flex-1">
-              {t('wishlist.MOVE_TO_CLOSET')}
-            </button>
-          </div>
-        </PostForm>
-      </main>
-      <Dock ctx={ctx} />
-    </Layout>
+      }
+    >
+      <FormField
+        id="bought-acquired"
+        label={t('DATE_ACQUIRED')}
+        messages={errors.acquiredOn}
+      >
+        <input
+          {...inputAttributes('bought-acquired', 'w-full', errors.acquiredOn)}
+          type="date"
+          name="acquiredOn"
+          value={values.acquiredOn}
+        />
+      </FormField>
+      <FormField
+        id="bought-price"
+        label={t('wishlist.PRICE_PAID')}
+        messages={errors.price}
+      >
+        <input
+          {...inputAttributes('bought-price', 'w-full', errors.price)}
+          type="text"
+          inputmode="decimal"
+          name="price"
+          value={values.price}
+          maxlength={PRICE_INPUT_MAX}
+          placeholder={t('PRICE_PLACEHOLDER')}
+        />
+      </FormField>
+      {model.archivable && (
+        <label class="label cursor-pointer justify-start gap-3 whitespace-normal">
+          <input
+            type="checkbox"
+            name="archiveReplaced"
+            value="1"
+            class="checkbox checkbox-sm"
+          />
+          <span class="label-text">
+            {t('wishlist.ARCHIVE_REPLACED', {
+              name:
+                model.archivable.name ??
+                categoryLabel(model.archivable.category),
+            })}
+          </span>
+        </label>
+      )}
+    </FormPage>
   );
 }

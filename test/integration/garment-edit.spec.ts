@@ -5,6 +5,7 @@ import { garment } from '../../src/db/schema';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { garmentRow, jpegPhoto, uploadPhoto } from './garments';
 import { createTestApp, hxLocationPath, TestApp, userIdOf } from './harness';
+import { expectOfflineGuarded } from './pages';
 
 /**
  * The garment edit, clone and archive paths: the forms render the stored
@@ -115,7 +116,7 @@ describe('garment edit, clone and archive', () => {
       const res = await get(`/wardrobe/${garmentId}/edit`, alice.cookie);
       expect(res.statusCode).toBe(200);
       const html = res.body;
-      expect(html).toContain(`action="/wardrobe/${garmentId}"`);
+      expectOfflineGuarded(res, `/wardrobe/${garmentId}`);
       expect(html).toContain('value="Black Linen Blazer"');
       expect(html).toContain('value="jacket"');
       expect(html).toContain('value="Uniqlo"');

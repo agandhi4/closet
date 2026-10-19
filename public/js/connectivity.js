@@ -52,6 +52,7 @@ const CONTROLS = 'button, input, select, textarea';
 function guardWrites() {
   const offline = state !== 'online';
   if (offline) {
+    let guarded = 0;
     for (const zone of document.querySelectorAll('[data-needs-network]')) {
       const controls = zone.matches(CONTROLS)
         ? [zone]
@@ -61,7 +62,13 @@ function guardWrites() {
         control.disabled = true;
         control.setAttribute('aria-disabled', 'true');
         control.dataset[GUARD_MARK] = '';
+        guarded += 1;
       }
+    }
+    // Only newly disabled controls: a page whose writes are not counted
+    // here while offline posts into the worker's offline page (#411).
+    if (guarded > 0) {
+      console.info(`[connectivity] ${guarded} write controls disabled`);
     }
     return;
   }
