@@ -4,15 +4,10 @@ import {
   WASH_AFTER_CHOICES,
 } from '../../wardrobe/availability';
 import { CONDITIONS } from '../../wardrobe/properties';
-import { PostForm } from '../auth/form';
 import type { FieldErrors } from '../auth/validation';
 import { t } from '../i18n';
-import { AppBar } from '../layout/app-bar';
-import { Dock } from '../layout/dock';
-import { Layout } from '../layout/layout';
-import { PageMain } from '../layout/page-main';
+import { FormPage } from '../layout/form-page';
 import { FieldMessages, FormField, inputAttributes } from '../form-field';
-import { CancelLink } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { GARMENT_COLORS } from '../../wardrobe/properties';
 import { categoryLabel, normalizeCategory } from './garment';
@@ -177,8 +172,9 @@ function formAction({ mode, viewOwner }: GarmentFormModel): string {
 
 /**
  * GET /wardrobe/new, /wardrobe/:id/edit and /wardrobe/:id/clone, and their
- * re-render with the messages when a post is refused (400). A native post
- * (PostForm): htmx drops a boosted 4xx, so a refused save would show nothing.
+ * re-render with the messages when a post is refused (400), in the shared
+ * add/edit frame (`FormPage`: a native post, disabled offline, #411; a
+ * batch's draft queue does not cover the save itself, only its Discard).
  * Field names are the ones the form has always posted (cached pages of the
  * installed app still send them), dateAquired included.
  */
@@ -193,54 +189,56 @@ export function GarmentFormPage(props: {
   const title = formTitle(mode);
   const category = normalizeCategory(values.category);
   return (
-    <Layout ctx={ctx} title={title}>
-      <AppBar ctx={ctx} title={title} back={back} formPage />
-      <PageMain class="p-4 pt-20 pb-24">
-        {draft && <DraftQueueSection queue={draft} viewOwner={viewOwner} />}
-        {mode.kind === 'new' && !link && (
-          <a
-            href={wardrobeUrl(
-              viewOwner,
-              destinationParams(mode.destination),
-              LINK_IMPORT_PATH,
-            )}
-            class="btn btn-outline btn-sm w-full mb-4"
-          >
-            {t('linkImport.ADD_FROM_LINK')}
-          </a>
-        )}
-        <PostForm action={formAction(model)} class="flex flex-col gap-4">
-          {link && (
-            <LinkImportSection
-              link={link}
-              viewOwner={viewOwner}
-              errors={errors.linkPhoto}
-            />
+    <FormPage
+      ctx={ctx}
+      title={title}
+      back={back}
+      action={formAction(model)}
+      submitLabel={t('SAVE')}
+      intro={
+        <>
+          {draft && <DraftQueueSection queue={draft} viewOwner={viewOwner} />}
+          {mode.kind === 'new' && !link && (
+            <a
+              href={wardrobeUrl(
+                viewOwner,
+                destinationParams(mode.destination),
+                LINK_IMPORT_PATH,
+              )}
+              class="btn btn-outline btn-sm w-full mb-4"
+            >
+              {t('linkImport.ADD_FROM_LINK')}
+            </a>
           )}
-          {draft && (
-            <input
-              type="hidden"
-              name="draftsSaved"
-              value={idListValue(draft.saved)}
-            />
-          )}
-          <NameAndCategory model={model} category={category} />
-          <ColorMultiSelect selected={values.colors} errors={errors.color} />
-          <BrandAndSize model={model} />
-          <OwnershipFields model={model} wishlist={wishlist} />
-          <MoreDetails model={model} wishlist={wishlist} category={category} />
-          <div class="flex gap-2 mt-2">
-            <CancelLink href={back} class="flex-1" />
-            <button type="submit" class="btn btn-primary flex-1">
-              {t('SAVE')}
-            </button>
-          </div>
-        </PostForm>
-        {model.lookalikes && <LookalikeCopyForm />}
-        {model.repairs && <RepairEditor panel={model.repairs} />}
-      </PageMain>
-      <Dock ctx={ctx} />
-    </Layout>
+        </>
+      }
+      after={
+        <>
+          {model.lookalikes && <LookalikeCopyForm />}
+          {model.repairs && <RepairEditor panel={model.repairs} />}
+        </>
+      }
+    >
+      {link && (
+        <LinkImportSection
+          link={link}
+          viewOwner={viewOwner}
+          errors={errors.linkPhoto}
+        />
+      )}
+      {draft && (
+        <input
+          type="hidden"
+          name="draftsSaved"
+          value={idListValue(draft.saved)}
+        />
+      )}
+      <NameAndCategory model={model} category={category} />
+      <ColorMultiSelect selected={values.colors} errors={errors.color} />
+      <BrandAndSize model={model} />
+      <OwnershipFields model={model} wishlist={wishlist} />
+      <MoreDetails model={model} wishlist={wishlist} category={category} />
+    </FormPage>
   );
 }
 

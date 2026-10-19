@@ -20,8 +20,9 @@
 #   TIER <tier> OVERBUDGET <s>s (budget <b>s)            exit 1, unless TIER_BUDGET_ENFORCE=0
 #   TIER <tier>: <s>s (budget <b>s) <runner>=<n>...      every check held: exit 0
 # Under load the budget stretches (bin/_load_lib.sh: min(1-minute load / cores, 2), sampled when
-# the command starts, only above 1.0) and both budget lines then read
-# `(budget 110 s ×1.6 (load 13.1 on 8 cpus) → 176 s)`; unloaded, they are exactly as above.
+# the command starts and when it ends, the larger stretch kept, only above 1.0) and both budget
+# lines then read `(budget 110 s ×1.6 (load 2.0 at start, 13.1 at end on 8 cpus) → 176 s)`;
+# unloaded at both, they are exactly as above.
 # A bad invocation exits 2 before the command runs. TIER_BUDGET_ENFORCE=0 (default 1) keeps
 # the OVERBUDGET line but not the failure, for a repo or box adopting budgets, exactly as
 # GATE_BUDGET_ENFORCE does for local_gate's job budgets. Floors have no such switch: a count
@@ -47,7 +48,7 @@ set -uo pipefail
 # shellcheck source=bin/_load_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_load_lib.sh"
 
-RUNNERS="pytest vitest playwright cargo"
+RUNNERS="pytest vitest playwright cargo bats"
 
 usage() {
   echo "usage: $0 <tier> --budget <seconds> [--floor <runner>=<min>]... -- <command...>" >&2
@@ -60,7 +61,10 @@ die() { echo "tier_guard: $*" >&2; exit 2; }
 # tests that ran, or nothing when no summary line for that runner appeared. The patterns are
 # anchored so one runner's summary never matches another's (locus runs pytest then vitest in
 # one command): pytest's ends in " in <n>s", vitest's starts with "Tests", Playwright's is
-# indented exactly two spaces, cargo's starts with "test result:".
+# indented exactly two spaces, cargo's starts with "test result:". bats has no summary in its
+# TAP output (what it prints when stdout is no terminal, as here): its plan line `1..<n>` marks
+# a run and every `ok`/`not ok` line without `# skip` is a test that ran; its pretty formatter's
+# "<n> tests, <f> failures, <s> skipped" line is read too.
 tier_count() {
   awk -v runner="$1" '
     { sub(/\r$/, "") }
@@ -93,6 +97,19 @@ tier_count() {
       # "  1 failed" / "  1 flaky" / "  2 passed (935ms)"; skipped and "did not run" are left out
       seen = 1
       total += $1
+      next
+    }
+    runner == "bats" && /^1\.\.[0-9]+$/ { seen = 1; next }
+    runner == "bats" && /^(ok|not ok) [0-9]+( |$)/ {
+      # "ok 2 skips # skip not here" ran nothing; "not ok 3 fails" ran and failed
+      if ($0 !~ / # [Ss][Kk][Ii][Pp]( |$)/) total += 1
+      next
+    }
+    runner == "bats" && /^[0-9]+ tests?, [0-9]+ failures?/ {
+      # "4 tests, 1 failure, 1 skipped" (--formatter pretty)
+      seen = 1
+      total += $1
+      if (match($0, /, [0-9]+ skipped/)) total -= substr($0, RSTART + 2, RLENGTH - 10)
       next
     }
     runner == "cargo" && /^test result: / {
@@ -148,12 +165,13 @@ LOG=$(mktemp "${tmp%/}/tier-$TIER.XXXXXX") || die "mktemp failed"
 trap 'rm -f "$LOG"' EXIT
 
 devkit_load_scale "$BUDGET"
-budget_text="budget ${BUDGET}s"
-[ -z "$LOAD_NOTE" ] || budget_text=$LOAD_NOTE
 start=$SECONDS
 "$@" 2>&1 | tee "$LOG"
 rc=${PIPESTATUS[0]}
 secs=$((SECONDS - start))
+devkit_load_rescale
+budget_text="budget ${BUDGET}s"
+[ -z "$LOAD_NOTE" ] || budget_text=$LOAD_NOTE
 
 if [ "$rc" -ne 0 ]; then
   echo "TIER $TIER FAIL (exit $rc, ${secs}s)"

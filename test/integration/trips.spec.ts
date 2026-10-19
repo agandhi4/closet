@@ -23,7 +23,12 @@ import {
 } from './harness';
 import { interleave } from './interleave';
 import { callTool, createAccessToken, tool } from './mcp';
-import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
+import {
+  expectFragment,
+  expectFullPage,
+  expectOfflineGuarded,
+  HX_FRAGMENT,
+} from './pages';
 
 /**
  * Trips and packing lists (#10): the trip form, outfits for its days and
@@ -262,10 +267,7 @@ describe('trips', () => {
       ]) {
         const res = await get(url);
         expect(res.statusCode).toBe(200);
-        const forms = res.body.match(/<form method="post"[^>]*>/g) ?? [];
-        expect(forms, url).toHaveLength(1);
-        expect(forms[0]).toContain(`action="${action}"`);
-        expect(forms[0]).toContain('data-needs-network=""');
+        expectOfflineGuarded(res, action);
       }
     });
 

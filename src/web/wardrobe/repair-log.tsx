@@ -141,6 +141,7 @@ export function RepairEditor({ panel }: { panel: RepairPanel }) {
         <FormField
           id="repair-note"
           label={t('care.REPAIR_NOTE')}
+          required
           messages={errors.note}
         >
           <input
@@ -157,6 +158,7 @@ export function RepairEditor({ panel }: { panel: RepairPanel }) {
           <FormField
             id="repair-day"
             label={t('care.REPAIR_DAY')}
+            required
             messages={errors.day}
             class="min-w-0"
           >

@@ -1,0 +1,73 @@
+import type { Child } from 'hono/jsx';
+import { PostForm } from '../auth/form';
+import type { ViewContext } from '../view-context';
+import { AppBar } from './app-bar';
+import { Dock } from './dock';
+import { Layout } from './layout';
+import { PageMain } from './page-main';
+import { CancelLink } from './parts';
+
+/**
+ * The frame of an add or edit page that is one native post (#411): the
+ * garment, capsule and trip forms and "Bought it". The app bar marks it a
+ * `formPage`, the fields post through one `PostForm`, and Cancel (back past
+ * the form) sits beside the submit.
+ *
+ * Disabled offline, always (`needsNetwork`, and the edit page's Delete): a
+ * copy the worker cached, opened in the installed app without a connection,
+ * would otherwise post into the worker's offline page and lose what was
+ * typed. It was each page's opt-in, and only the trip form had opted in.
+ * guards.conf `@form-page` keeps `CancelLink` here, so a new add or edit
+ * page starts from this frame and cannot leave the guard out.
+ */
+export function FormPage(props: {
+  ctx: ViewContext;
+  title: string;
+  /** The page's fixed parent: the back arrow's and Cancel's href. */
+  back: string;
+  action: string;
+  submitLabel: string;
+  /** Above the form: an intro line, the garment form's draft queue. */
+  intro?: Child;
+  /** The edit page's Delete (an `hx-delete`, confirmed first). */
+  remove?: { url: string; confirm: string; label: string };
+  /** Below the form, outside it: the garment form's own forms. */
+  after?: Child;
+  children: Child;
+}) {
+  const { ctx, title, back, remove } = props;
+  return (
+    <Layout ctx={ctx} title={title}>
+      <AppBar ctx={ctx} title={title} back={back} formPage />
+      <PageMain class="p-4 pt-20 pb-24">
+        {props.intro}
+        <PostForm
+          action={props.action}
+          class="flex flex-col gap-4"
+          needsNetwork
+        >
+          {props.children}
+          <div class="flex gap-2 mt-2">
+            <CancelLink href={back} class="flex-1" />
+            <button type="submit" class="btn btn-primary flex-1">
+              {props.submitLabel}
+            </button>
+          </div>
+        </PostForm>
+        {props.after}
+        {remove && (
+          <button
+            type="button"
+            class="btn btn-error btn-outline btn-sm w-full mt-8"
+            hx-delete={remove.url}
+            hx-confirm={remove.confirm}
+            data-needs-network=""
+          >
+            {remove.label}
+          </button>
+        )}
+      </PageMain>
+      <Dock ctx={ctx} />
+    </Layout>
+  );
+}

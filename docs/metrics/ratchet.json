@@ -55,7 +55,7 @@
     "source": "ts-backend"
   },
   "duplication.repo.clones": {
-    "bound": 19,
+    "bound": 16,
     "direction": "lower",
     "source": "dup"
   },

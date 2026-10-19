@@ -9,6 +9,7 @@ import {
   expectFullPage,
   expectNativePostForms,
   expectNoRawI18nKeys,
+  expectOfflineGuarded,
 } from './pages';
 
 /**
@@ -116,6 +117,17 @@ describe('capsules', () => {
       expect(t.logs.messages('info', 'Web')).toContainEqual(
         `Capsule ${id} created by user ${ownerId}`,
       );
+    });
+
+    it('is disabled offline, new and edit alike, Delete too: a cached copy must not post into the offline page', async () => {
+      const id = await createCapsule('Offline');
+      const create = await get('/capsules/new');
+      expect(create.statusCode).toBe(200);
+      expectOfflineGuarded(create, '/capsules');
+      const edit = await get(`/capsules/${id}/edit`);
+      expect(edit.statusCode).toBe(200);
+      expectOfflineGuarded(edit, `/capsules/${id}`);
+      expect(edit.body).toContain(`hx-delete="/capsules/${id}"`);
     });
 
     it('refuses a blank name with the form again, and a long one with a 400', async () => {
