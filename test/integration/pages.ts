@@ -269,9 +269,10 @@ export function expectOfflineGuarded(
   res: LightMyRequestResponse,
   action: string,
 ): void {
-  const forms = (res.body.match(/<form method="post"[^>]*>/g) ?? []).filter(
-    (form) => form.includes(`action="${action}"`),
-  );
+  const forms = Array.from(
+    res.body.matchAll(/<form method="post"[^>]*>/g),
+    ([form]) => form,
+  ).filter((form) => form.includes(`action="${action}"`));
   expect(forms, action).toHaveLength(1);
   expect(forms[0]).toContain('data-needs-network=""');
   for (const remove of res.body.match(/<button[^>]*hx-delete=[^>]*>/g) ?? []) {
