@@ -936,6 +936,31 @@ def top_offenders(counts: dict[str, int], files: dict[str, str], metric: str) ->
     return [f"{path} {metric}={-neg}" for neg, path in ranked[:FAN_TOP]]
 
 
+def coupling_keys(
+    graph: Graph, scope: str, *, cycles: bool, fan: bool
+) -> tuple[dict[str, int], dict[str, list[str]]]:
+    """The cycle and fan keys, with their findings, over a graph whose nodes are already the
+    paths a finding names. Used by rust.py and shell.py, so one Tarjan, one fan count and one
+    top-offender format serve the fleet. python.py's own collectors call the parts, since its
+    cycles read runtime imports and its fan every import statement: two graphs, not one."""
+    keys: dict[str, int] = {}
+    findings: dict[str, list[str]] = {}
+    files = {node: node for node in graph}
+    if cycles:
+        key = f"coupling.{scope}.cycles"
+        components = strongly_connected(graph)
+        keys[key] = len(components)
+        findings[key] = [" ".join(c) for c in sorted(components, key=lambda c: (-len(c), c))]
+    if fan:
+        fan_in, fan_out = fan_counts(graph)
+        in_key, out_key = f"coupling.{scope}.fan_in_max", f"coupling.{scope}.fan_out_max"
+        keys[in_key] = max(fan_in.values(), default=0)
+        keys[out_key] = max(fan_out.values(), default=0)
+        findings[in_key] = top_offenders(fan_in, files, "fan_in")
+        findings[out_key] = top_offenders(fan_out, files, "fan_out")
+    return keys, findings
+
+
 def collect_fan(
     root: Path, src: list[str], scope: str, excluded: Exclusions = NO_EXCLUSIONS
 ) -> Collected:
