@@ -5,6 +5,10 @@
 # e2e env), so the PR gate (scripts/ci/gate_plan.sh) and ci.yml run the same thing.
 # Run `make ci-deps` once first; the other ci-* targets assume node_modules.
 
+# Every recipe line runs on .nvmrc's Node, not PATH's (devkit #166): a hand-run target and the
+# gate read the same toolchain.
+SHELL := devkit/bin/toolchain_shell.sh
+
 PG := devkit/bin/throwaway_pg.sh
 # One container name per caller; the gate passes closet-gate-pg-<pr> and removes it on exit.
 # ci-db and ci-e2e each bring it up fresh and take it down, so they never share data.
@@ -42,7 +46,7 @@ help:
 	@echo "make install          — once per checkout or worktree: devkit-check, then point core.hooksPath at .githooks"
 	@echo "make ci-quick         — ci-guards, secrets-check, ci-lint, ci-typecheck (the two git hooks split it: scripts/ci/hooks.conf)"
 	@echo "make ci-guards        — devkit-check, toolchain-check, release-check, workflows-check, docs-check, layer-check, guard-check, migration-check"
-	@echo "make ci-lint          — prettier format:check, then eslint lint:check (both cached)"
+	@echo "make ci-lint          — prettier format:check, eslint lint:check (both cached), then the changed-file rules"
 	@echo "make ci-typecheck     — tsc over the server (incremental) and views/assets"
 	@echo "make ci-unit          — the Vitest unit projects; no database. Budget $(UNIT_BUDGET_SECONDS) s, floor $(UNIT_FLOOR) tests"
 	@echo "make ci-db            — every Vitest project with v8 coverage (the ratchet's cov input), on a throwaway Postgres 18. Budget $(DB_BUDGET_SECONDS) s, floor $(DB_FLOOR)"
@@ -85,10 +89,12 @@ ci-guards-staged: devkit-check-staged $(GUARDS_AFTER_DEVKIT)
 
 # Formatting is prettier's alone (format:check); eslint does not run prettier as a rule, which
 # read every file a second time (a third of a cold lint). Caches live in node_modules/.cache, so a
-# fresh worktree's first lint is cold.
+# fresh worktree's first lint is cold. changed_lint holds the rules with debt on main (sonarjs
+# expression-complexity: 2 on 2026-10-19) to the files this branch touches (devkit #161).
 ci-lint:
 	npm run format:check
 	npm run lint:check
+	python3 -I devkit/bin/changed_lint.py eslint --root . --src src test scripts
 
 ci-typecheck:
 	npm run typecheck
