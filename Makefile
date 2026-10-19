@@ -11,15 +11,17 @@ SHELL := devkit/bin/toolchain_shell.sh
 
 PG := devkit/bin/throwaway_pg.sh
 # One container name per caller; the gate passes closet-gate-pg-<pr> and removes it on exit.
-# ci-db and ci-e2e each bring it up fresh and take it down, so they never share data.
-PG_CONTAINER ?= closet-ci-pg
+# A hand run's name carries its worktree (`throwaway_pg.sh name`, devkit #162), so two
+# worktrees never share one; Docker picks the port. ci-db and ci-e2e each bring it up fresh
+# and take it down, so they never share data.
+PG_CONTAINER ?= $(shell $(PG) name closet-ci-pg)
 # --with-deps on Linux runners (system libraries); ignored on macOS.
 PLAYWRIGHT_FLAGS ?=
 CI_IMAGE ?= closet:ci
 # The image's APP_VERSION (Dockerfile ARG): the gate passes gate-<pr>, ci.yml's publish job
 # builds with the bare 7-char sha itself. ci-smoke asserts /health/ready reports it.
 CI_BUILD_VERSION ?= dev
-SMOKE_PG_CONTAINER ?= closet-smoke-pg
+SMOKE_PG_CONTAINER ?= $(shell $(PG) name closet-smoke-pg)
 
 # Test-tier budgets and floors (owner directive 2026-10-13, docs/decisions.md "Lean test suite"):
 # devkit's tier guard fails a tier over its wall-clock budget (TIER_BUDGET_ENFORCE=0 only

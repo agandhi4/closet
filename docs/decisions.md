@@ -230,5 +230,5 @@ older history lives in `docs/PROJECT_LOG.md`.
 
 ## 2026-10-19 — devkit 367dc33: recipes on the Node pin, changed-file expression complexity
 - **Why:** devkit-check warned that a hand-run make used PATH's Node, not `.nvmrc`'s (devkit #166); `sonarjs/expression-complexity` has 2 findings on main, so it cannot join the whole-tree rules yet (#161).
-- **Decision:** `SHELL := devkit/bin/toolchain_shell.sh`; ci-lint runs `changed_lint.py eslint` over src, test and scripts, the files lint:check reads. A planted six-term `&&` in a changed file fails it; five terms pass. renovate.json already extends the preset with no automerge; the test Postgres name is the gate's per-PR one.
+- **Decision:** `SHELL := devkit/bin/toolchain_shell.sh`; ci-lint runs `changed_lint.py eslint` over src, test and scripts, the files lint:check reads. A planted six-term `&&` in a changed file fails it; five terms pass. A hand run's ci and smoke container names carry the worktree (`throwaway_pg.sh name`, #162); devkit-check missed the old literals because they sat in `?=` variables. renovate.json already extends the preset with no automerge.
 - **Consequence:** a new chain of five or more operators fails the PR that writes it; the 2 existing drain as their files are touched, then the rule moves into eslint.config.mjs. Metrics 100 SAME, 0 tightened; scorecard wired 24/24.
