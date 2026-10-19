@@ -53,9 +53,9 @@ DEVKIT_IMAGE_BIN="boot_image.sh contract_probe.sh"
 # a record of the decision; the classification needs no lookup for other.
 # shellcheck disable=SC2034  # read by tests/gate_contract.bats (every bin/ file listed once)
 DEVKIT_JOB_BIN="tier_guard.sh throwaway_pg.sh playwright_browsers.sh node_toolchain.sh
-  rust_toolchain.sh toolchain_path.sh toolchain_exec.sh cargo_tool.sh metrics_ratchet.py metrics_collect.sh layer_check.py
+  rust_toolchain.sh toolchain_path.sh toolchain_exec.sh toolchain_shell.sh cargo_tool.sh metrics_ratchet.py metrics_collect.sh layer_check.py
   guard_check.py _source_tree.py _ts_lex.py _guard_rules.py _compose.py _timeout_lib.sh _load_lib.sh
-  docker_bounded.sh release_tool.sh shellcheck.sh"
+  docker_bounded.sh release_tool.sh shellcheck.sh _awake_lib.sh"
 
 # <path>: set DEVKIT_AREA (no subshell; devkit_areas calls it once per changed path).
 _devkit_area() {

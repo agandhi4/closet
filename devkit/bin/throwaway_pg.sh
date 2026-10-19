@@ -3,13 +3,17 @@
 # near-copies that lived in finplat (scripts/ci/test_pg.sh), orbit (Makefile test-db and
 # e2e/run.sh) and locus (scripts/ci/smoke_image.sh).
 #
-# Usage: devkit/bin/throwaway_pg.sh up|down|url|name <name>
+# Usage: devkit/bin/throwaway_pg.sh up|down|url|name|port <name>
 #   up    replace any leftover <name>, start it, wait until it accepts TCP connections, and
 #         print exactly one stdout line: PG_PORT=<host port>. A <name> still RUNNING for another
 #         checkout is refused (exit 1), never removed: see "Lanes" below.
 #   url   print postgresql://<user>:<password>@127.0.0.1:<port>/<db> for a running <name>
 #   down  remove <name>; a no-op when it is absent
 #   name  print <name>-<lane>, this checkout's own container name for the base <name>; no docker
+#   port  print this checkout's own host port for the base <name>: PORT_BASE + the CRC of
+#         <name>-<lane> mod PORT_SPAN, 20000-29999; no docker. For a Makefile that builds its
+#         URL from a port at parse time (finplat's TEST_DB_PORT); a recipe that reads the URL
+#         back with `url` leaves PG_PORT empty instead, and Docker picks a free port.
 #   Exit 0 ok, 1 runtime failure (docker failed, container died, not ready, not running, held by
 #   another checkout), 2 usage.
 #
@@ -22,7 +26,12 @@
 # container with it (devkit.lane), and refuses a running same-named container labelled with
 # another lane. A repo names its container with `name` and, when several lanes share one
 # server (TEST_DATABASE_URL at a long-lived Postgres), puts the lane id into its per-worker
-# database names too (README "Architecture", the throwaway_pg.sh row).
+# database names too (README "Architecture", the throwaway_pg.sh row). A fixed host port is
+# the same collision one layer down: two lanes' `up` on 55460 fail "port is already
+# allocated", so a repo that fixes the port derives it with `port` (devkit-check warns on a
+# literal name or port in the Makefile). The range sits below every OS's ephemeral ports
+# (Linux 32768+, macOS 49152+) and clear of the fleet's fixed and per-PR ports (18000-19999,
+# 55000+). Two lanes share a port with odds ~1/10000 per pair, and then `up` fails loudly.
 #
 # Env (all optional; `url` must see the same PG_USER/PG_PASSWORD/PG_DB as `up`):
 #   PG_IMAGE=postgres:18  PG_USER=ci  PG_PASSWORD=ci  PG_DB=ci
@@ -52,13 +61,13 @@
 # - Not `set -e`: the wait loop expects failing probes and handles every failure explicitly.
 set -uo pipefail
 
-usage() { echo "usage: $0 up|down|url|name <name>" >&2; exit 2; }
+usage() { echo "usage: $0 up|down|url|name|port <name>" >&2; exit 2; }
 die() { echo "throwaway_pg: $*" >&2; exit 1; }
 
 [ $# -eq 2 ] || usage
 VERB=$1
 NAME=$2
-case "$VERB" in up|down|url|name) ;; *) usage ;; esac
+case "$VERB" in up|down|url|name|port) ;; *) usage ;; esac
 # Docker's own name grammar; also keeps the name safe to splice into messages and URLs.
 [[ "$NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || { echo "throwaway_pg: invalid container name '$NAME'" >&2; exit 2; }
 
@@ -75,11 +84,17 @@ lane_id() {
   top=$(git rev-parse --show-toplevel 2>/dev/null) || top=$PWD
   printf 'w%08x\n' "$(printf '%s' "$top" | cksum | cut -d' ' -f1)"
 }
-if [ "$VERB" = name ]; then
-  lane=$(lane_id) || exit 2
-  echo "$NAME-$lane"
-  exit 0
-fi
+readonly PORT_BASE=20000 PORT_SPAN=10000
+case "$VERB" in
+  name|port)
+    lane=$(lane_id) || exit 2
+    if [ "$VERB" = name ]; then
+      echo "$NAME-$lane"
+    else
+      echo $((PORT_BASE + $(printf '%s' "$NAME-$lane" | cksum | cut -d' ' -f1) % PORT_SPAN))
+    fi
+    exit 0 ;;
+esac
 
 PG_IMAGE=${PG_IMAGE:-postgres:18}
 PG_USER=${PG_USER:-ci}

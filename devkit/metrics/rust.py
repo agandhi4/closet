@@ -354,24 +354,9 @@ def _python() -> ModuleType:
 
 
 def coupling(graph: dict[str, set[str]], scope: str, *, cycles: bool, fan: bool) -> Collected:
-    """python.py's cycle and fan definitions over the Rust module graph: one Tarjan, one
-    fan count, one top-offender format for the fleet."""
-    py = _python()
-    out = Collected()
-    files = {f: f for f in graph}
-    if cycles:
-        components = py.strongly_connected(graph)
-        key = f"coupling.{scope}.cycles"
-        out.keys[key] = len(components)
-        out.findings[key] = [" ".join(c) for c in sorted(components, key=lambda c: (-len(c), c))]
-    if fan:
-        fan_in, fan_out = py.fan_counts(graph)
-        in_key, out_key = f"coupling.{scope}.fan_in_max", f"coupling.{scope}.fan_out_max"
-        out.keys[in_key] = max(fan_in.values(), default=0)
-        out.keys[out_key] = max(fan_out.values(), default=0)
-        out.findings[in_key] = py.top_offenders(fan_in, files, "fan_in")
-        out.findings[out_key] = py.top_offenders(fan_out, files, "fan_out")
-    return out
+    """python.py's cycle and fan definitions over the Rust module graph (coupling_keys)."""
+    keys, findings = _python().coupling_keys(graph, scope, cycles=cycles, fan=fan)
+    return Collected(keys, findings)
 
 
 def dead(diags: list[Diagnostic], root: Path, scope: str) -> Collected:

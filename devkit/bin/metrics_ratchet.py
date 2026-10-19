@@ -90,6 +90,7 @@ Usage:
   metrics_ratchet.py tighten --snapshot S --bounds B [--report-only F] [--seed]
   metrics_ratchet.py rebaseline --snapshot S --bounds B [--report-only F] [--keys K1,K2]
   metrics_ratchet.py merge --out OUT [--skipped NAME]... [--] [INPUT.json...]
+  metrics_ratchet.py loosened --base-ref REF --head-ref REF [--repo DIR] [--bounds REL]
 
 Key shape (docs/metrics-keys.md): flat dotted keys `<domain>.<scope>.<stat>`, numbers only,
 no whitespace. A collector file may also be nested objects (flattened to dotted keys) or
@@ -149,7 +150,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -350,6 +351,18 @@ def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
         raise InputError(f"cannot run git: {exc.strerror}") from exc
 
 
+def bounds_at(root: Path, ref: str, rel: str, what: str = "base ref") -> dict[str, Bound] | None:
+    """The bounds file `rel` as committed at `ref` in the checkout `root`, or None when that
+    commit has no such file. A ref that does not resolve is an error, never "no file": an
+    unfetched main must never read as "nothing to compare against"."""
+    if _git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode != 0:
+        raise InputError(f"{what} {ref} does not resolve; fetch it (git fetch origin main)")
+    shown = _git(root, "show", f"{ref}:{rel}")
+    if shown.returncode != 0:
+        return None
+    return parse_bounds(_parse_json(shown.stdout, f"{ref}:{rel}"), f"{ref}:{rel}")
+
+
 def load_base_bounds(bounds_path: Path, ref: str) -> tuple[dict[str, Bound] | None, str]:
     """Main's copy of the bounds file, or None when main has none yet (first adoption).
 
@@ -363,13 +376,10 @@ def load_base_bounds(bounds_path: Path, ref: str) -> tuple[dict[str, Bound] | No
             "against main's bounds"
         )
     rel = bounds_path.resolve().relative_to(Path(top.stdout.strip()).resolve()).as_posix()
-    if _git(where, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode != 0:
-        # Fail closed: an unfetched main must never read as "nothing to compare against".
-        raise InputError(f"base ref {ref} does not resolve; fetch it (git fetch origin main)")
-    shown = _git(where, "show", f"{ref}:{rel}")
-    if shown.returncode != 0:
+    base = bounds_at(where, ref, rel)
+    if base is None:
         return None, f"none ({rel} is not on {ref}: first adoption)"
-    return parse_bounds(_parse_json(shown.stdout, f"{ref}:{rel}"), f"{ref}:{rel}"), f"{ref}:{rel}"
+    return base, f"{ref}:{rel}"
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -529,12 +539,30 @@ def _fmt(value: float | None) -> str:
     return str(value) if isinstance(value, int) else repr(value)
 
 
-def compare_to_base(base: dict[str, Bound], bounds: dict[str, Bound], snapshot: Snapshot) -> dict[str, int]:
-    """Print one `ratchet-bound` line per bound that moved from main; count loosenings."""
-    counts = {"loosened": 0, "tightened": 0, "added": 0}
+@dataclass(frozen=True)
+class BoundMove:
+    """One bound that differs between main's file and the PR's (`ratchet-bound` line)."""
+
+    metric: str
+    old: Bound | None
+    new: Bound | None
+    status: str  # LOOSENED REMOVED DIRECTION TIGHTENED ADDED
+
+    @property
+    def loosens(self) -> bool:
+        """Needs the metrics-rebaseline label (module docstring)."""
+        return self.status in ("REMOVED", "DIRECTION", "LOOSENED")
+
+
+def bound_moves(
+    base: dict[str, Bound], bounds: dict[str, Bound], report_only: Callable[[str], bool]
+) -> list[BoundMove]:
+    """Every bound that moved from `base` to `bounds`, a report-only one aside: it is never
+    gated, so moving or dropping its bound loosens nothing."""
+    moves = []
     for metric in sorted(set(base) | set(bounds)):
-        if snapshot.is_report_only(metric):
-            continue  # never gated, so moving or dropping its bound loosens nothing
+        if report_only(metric):
+            continue
         old, new = base.get(metric), bounds.get(metric)
         if new is None:
             status = "REMOVED"
@@ -550,16 +578,37 @@ def compare_to_base(base: dict[str, Bound], bounds: dict[str, Bound], snapshot: 
             status = "LOOSENED"
         else:
             status = "TIGHTENED"
+        moves.append(BoundMove(metric, old, new, status))
+    return moves
+
+
+def compare_to_base(base: dict[str, Bound], bounds: dict[str, Bound], snapshot: Snapshot) -> dict[str, int]:
+    """Print one `ratchet-bound` line per bound that moved from main; count loosenings."""
+    counts = {"loosened": 0, "tightened": 0, "added": 0}
+    for move in bound_moves(base, bounds, snapshot.is_report_only):
+        old, new = move.old, move.new
         old_s = f"{old.direction}:{_fmt(old.bound)}" if old else "-"
         new_s = f"{new.direction}:{_fmt(new.bound)}" if new else "-"
-        print(f"ratchet-bound {metric} {old_s} -> {new_s} {status}")
-        if status in ("REMOVED", "DIRECTION", "LOOSENED"):
+        print(f"ratchet-bound {move.metric} {old_s} -> {new_s} {move.status}")
+        if move.loosens:
             counts["loosened"] += 1
-        elif status == "TIGHTENED":
+        elif move.status == "TIGHTENED":
             counts["tightened"] += 1
         else:
             counts["added"] += 1
     return counts
+
+
+def trailer_value(move: BoundMove) -> str:
+    """`<key>=<old>→<new>` for the squash body's Metrics-Rebaseline trailer (pr_merge.sh); a
+    flipped direction names both, a removed bound reads `→removed`."""
+    def side(b: Bound | None, with_direction: bool) -> str:
+        if b is None:
+            return "removed"
+        return f"{b.direction}:{_fmt(b.bound)}" if with_direction else _fmt(b.bound)
+
+    flipped = move.status == "DIRECTION"
+    return f"{move.metric}={side(move.old, flipped)}→{side(move.new, flipped)}"
 
 
 def _status_line(metric: str, bound: Bound, snapshot: Snapshot, bounds_path: Path) -> str:
@@ -922,6 +971,18 @@ REPORT_ONLY_HELP = (
 )
 
 
+def cmd_loosened(args: argparse.Namespace) -> int:
+    """Print `<key>=<old>→<new>` per bound `--head-ref` loosens against `--base-ref` (the
+    label-admitted moves: LOOSENED, REMOVED, DIRECTION), nothing when none does."""
+    root = Path(args.repo)
+    base = bounds_at(root, args.base_ref, args.bounds) or {}
+    head = bounds_at(root, args.head_ref, args.bounds, "head ref") or {}
+    for move in bound_moves(base, head, is_report_only):
+        if move.loosens:
+            print(trailer_value(move))
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="metrics_ratchet.py",
@@ -979,6 +1040,19 @@ def build_parser() -> argparse.ArgumentParser:
         "moves, nothing is seeded or dropped",
     )
     rebaseline.set_defaults(func=cmd_rebaseline)
+
+    loosened = sub.add_parser(
+        "loosened",
+        help="print key=old→new per bound one commit loosens against another (make merge's "
+        "Metrics-Rebaseline trailers)",
+    )
+    loosened.add_argument("--base-ref", required=True, help="the commit holding main's bounds")
+    loosened.add_argument("--head-ref", required=True, help="the commit holding the PR's bounds")
+    loosened.add_argument("--repo", default=".", help="the git checkout holding both (default .)")
+    loosened.add_argument(
+        "--bounds", default="docs/metrics/ratchet.json", help="the bounds file's repo-relative path"
+    )
+    loosened.set_defaults(func=cmd_loosened)
 
     merge = sub.add_parser("merge", help="merge collector outputs into one snapshot envelope")
     merge.add_argument("--out", required=True, help="snapshot JSON to write")

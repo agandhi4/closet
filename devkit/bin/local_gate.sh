@@ -112,6 +112,9 @@
 #   one is `GATE head FAIL` with no status posted: a verdict on a commit the caller did not mean
 #   is worse than none. Both settings are environment-only test hooks.
 #
+# Sleep: on macOS the gate holds a caffeinate assertion for its own lifetime (bin/_awake_lib.sh),
+#   since its budgets and watchdog read wall time; DEVKIT_CAFFEINATE=0 turns it off.
+#
 # Per-machine defaults: ${XDG_CONFIG_HOME:-$HOME/.config}/devkit/gate.env, if present, holds
 #   GATE_SLOTS, GATE_SILENCE_SECONDS, GATE_CLEANUP_SECONDS, GATE_JOB_BUDGET_MINUTES, GATE_BUDGET_MINUTES,
 #   GATE_BUDGET_ENFORCE, GATE_LOAD_MAX and GATE_LOAD_WAIT_MINUTES `KEY=value` lines (blank lines and full-line `#` comments
@@ -166,6 +169,11 @@ done
 [ -n "$PR" ] || { usage >&2; exit 2; }
 GATE_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 readonly GATE_STARTED
+# Awake from here to exit, the slot wait included: a sleeping box stalls every queued gate too
+# (bin/_awake_lib.sh; Linux: run the gate under systemd-inhibit, as that file says).
+# shellcheck source=bin/_awake_lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/_awake_lib.sh"
+devkit_stay_awake
 
 # Per-machine defaults (header). An allowlist, not GATE_*: GATE_LOCK or GATE_PLAN in a file would
 # silently split this box's lock from the queues' or swap the plan, which is no per-machine
@@ -184,6 +192,10 @@ minutes_to_secs() {
 readonly CLEANUP_SECS=${GATE_CLEANUP_SECONDS:-120}
 [[ "$CLEANUP_SECS" =~ ^[1-9][0-9]*$ ]] \
   || { echo "local_gate: GATE_CLEANUP_SECONDS must be a whole number of seconds >= 1 (got '$CLEANUP_SECS')" >&2; exit 2; }
+# How often job_went_silent and stop_job look at a running job. A finished job is noticed within
+# one poll, so a whole second cost every job up to 1 s: gate_contract.bats ran ~200 jobs, most of
+# its 264 s wall at 58 s CPU (2026-10-19). Fractional sleep is BSD's and GNU's alike.
+readonly WATCH_POLL_SECS=0.2
 readonly SILENT_SECS=${GATE_SILENCE_SECONDS:-300}
 [[ "$SILENT_SECS" =~ ^[0-9]+$ ]] \
   || { echo "local_gate: GATE_SILENCE_SECONDS must be a whole number of seconds, 0 to disable (got '$SILENT_SECS')" >&2; exit 2; }
@@ -369,11 +381,10 @@ post_status() { # <state> <description>; three attempts, a GitHub timeout used t
 # whatever is left after 10s, then reap the leader quietly.
 stop_job() {
   [ -n "$JOB_PGID" ] || return 0
-  local waited=0
+  local deadline=$((SECONDS + 10))
   kill -TERM -- "-$JOB_PGID" 2>/dev/null
-  while kill -0 -- "-$JOB_PGID" 2>/dev/null && [ "$waited" -lt 10 ]; do
-    sleep 1
-    waited=$((waited + 1))
+  while kill -0 -- "-$JOB_PGID" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do
+    sleep "$WATCH_POLL_SECS"
   done
   kill -KILL -- "-$JOB_PGID" 2>/dev/null
   wait "$JOB_PGID" 2>/dev/null
@@ -392,7 +403,7 @@ job_went_silent() { # <log>
     elif [ "$SILENT_SECS" -gt 0 ] && [ $((SECONDS - since)) -ge "$SILENT_SECS" ]; then
       return 0
     fi
-    sleep 1
+    sleep "$WATCH_POLL_SECS"
   done
   return 1
 }
