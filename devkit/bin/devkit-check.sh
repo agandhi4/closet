@@ -28,9 +28,17 @@
 #
 # Also (WARNINGS, exit 0): a repo that gates through devkit merges through it (bin/pr_merge.sh,
 # which refuses a head without a local-gate success). A Makefile with a `gate` target and no
-# `merge` target is named, and so is each line of AGENTS.md's `## Workflow` section that says
-# `gh pr merge`: lanes do what that text says, so the text moves with the target. AGENTS.md is
-# read like the plan: the working tree, or the index under --staged.
+# `merge` target is named, and so is each line of AGENTS.md's `## Workflow` section that tells
+# the reader to run `gh pr merge`: lanes do what that text says, so the text moves with the
+# target. Only an instruction counts (workflow_merge_lines): the line starts with the command, it
+# sits in a code fence, or `run`/`then` leads into it. A ban ("never `gh pr merge --auto`",
+# closet) is the rule this enforces, not a breach. AGENTS.md is read like the plan: the working
+# tree, or the index under --staged.
+#
+# Also (WARNINGS, exit 0): the repo's Renovate config extends devkit's preset and automerges
+# nothing beyond the declared digest hole (bin/_renovate.py, which the scorecard's `renovate`
+# check shares). Renovate merges server-side, so this is the only place a self-merge that skips
+# the gate is caught before it is live (homelab #109/#110, 2026-10-19).
 set -euo pipefail
 STAGED=0
 case "${1:-}" in
@@ -138,7 +146,25 @@ if [ "$STAGED" = 1 ]; then
 else
   agents_src=$(cat AGENTS.md 2>/dev/null) || agents_src=""
 fi
+# The line numbers of the Workflow section's lines that instruct `gh pr merge`, from stdin.
+workflow_merge_lines() {
+  awk '
+    /^## / { wf = ($0 ~ /^## Workflow/); fence = 0; next }
+    !wf { next }
+    /^[ \t]*(```|~~~)/ { fence = !fence; next }
+    {
+      l = tolower($0)
+      if (l !~ /gh pr merge/) next
+      if (fence || l ~ /^[ \t]*([-*+]|[0-9]+\.)?[ \t]*`?gh pr merge/) { print NR; next }
+      if (l ~ /(^|[^a-z])(run|then)[ \t]+`?gh pr merge/ && l !~ /(never|not|n.t)[ \t]+(run|then)[ \t]+`?gh pr merge/) print NR
+    }'
+}
 while IFS= read -r line; do
   [ -z "$line" ] || echo "devkit-check: WARNING: AGENTS.md:$line: the Workflow section merges with gh pr merge; say make merge PR=<n> (it refuses a head without a local-gate success)" >&2
-done <<<"$(awk '/^## / { wf = ($0 ~ /^## Workflow/) } wf && /gh pr merge/ { print NR }' <<<"$agents_src")"
+done <<<"$(workflow_merge_lines <<<"$agents_src")"
+renovate_args=(audit)
+[ "$STAGED" = 0 ] || renovate_args+=(--staged)
+while IFS= read -r issue; do
+  [ -z "$issue" ] || echo "devkit-check: WARNING: $issue (README \"Renovate\": every Renovate PR waits for make merge)" >&2
+done <<<"$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/_renovate.py" "${renovate_args[@]}")"
 echo "devkit-check: ok (${_commit:0:7})"

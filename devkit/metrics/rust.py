@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Shared Rust metrics collector: cognitive complexity (clippy) and dead code (rustc).
+"""Shared Rust metrics collector: cognitive complexity (clippy), dead code (rustc), module coupling.
 
 One line in scripts/ci/metrics.conf, run by devkit/bin/metrics_collect.sh, for example:
   rust-app other python3 -I devkit/metrics/rust.py --root . --scope app --cognitive --dead \\
-      --out build/metrics/rust-app.json
+      --cycles --fan --out build/metrics/rust-app.json
 
 Why cargo from PATH: the gate and the hooks put the toolchain rust-toolchain.toml pins first on
 PATH (devkit/bin/toolchain_path.sh), so the compiler that measures is the one the repo builds
-with. A cargo or clippy that is missing is exit 2 with the provisioning hint; nothing is
-silently skipped.
+with. With no cargo on PATH (a hand run outside the gate: redlib, 2026-10-18), every cargo call
+goes through devkit/bin/toolchain_exec.sh, which provisions the same pin. A cargo it cannot
+provide, or a missing clippy, is exit 2 with the provisioning hint; nothing is silently skipped.
 
 Keys (docs/metrics-keys.md), each behind its flag; `<scope>` is `--scope`:
   --cognitive  complexity.<scope>.cognitive_max      clippy's cognitive_complexity lint run
@@ -27,8 +28,18 @@ Keys (docs/metrics-keys.md), each behind its flag; `<scope>` is `--scope`:
                                                      unreachable code), counted as rustc
                                                      reports them: a crate's `#![allow(dead_code)]`
                                                      hides its findings, as it does from a build.
+  --cycles     coupling.<scope>.cycles               module cycles: strongly connected
+                                                     components (more than one file) of the
+                                                     module graph metrics/_rust_graph.py reads
+                                                     from the source (its header: files are
+                                                     modules; `use` and `crate::`/`self::`/
+                                                     `super::`/child-module paths are edges,
+                                                     re-exports followed to the defining file;
+                                                     `#[cfg(test)]` code is not read)
+  --fan        coupling.<scope>.fan_in_max           over the same graph, python.py's definition
+               coupling.<scope>.fan_out_max          (fan_in_max is report-only)
 
-One cargo run serves both flags: `cargo clippy` when --cognitive is asked (it emits rustc's
+One cargo run serves --cognitive and --dead: `cargo clippy` when --cognitive is asked (it emits rustc's
 lints too), else `cargo check`. Production code only: no --all-targets, so `#[cfg(test)]` code
 is neither scored nor a dead-code witness (a function only tests call is dead, as vulture says).
 `--workspace --locked`: every member is measured, and a Cargo.lock that is missing or stale is
@@ -42,20 +53,31 @@ clippy reads only that file, so a workspace member's own clippy.toml is not seen
 `#[allow(clippy::cognitive_complexity)]` outranks the command-line `-W` and hides that function
 (an allow is visible in review; the count is what the code declares).
 
+--cycles and --fan compile nothing: `cargo metadata --no-deps` names the production targets
+(lib, bin, proc-macro; not tests, benches, examples or build.rs) of every workspace member, and
+each target's root file is one crate graph; a file in two targets is one node. A module cycle
+compiles in Rust (the crate is one unit, unlike Python's import-time execution), so the count
+is a design signal: the modules of a cycle cannot be split into crates or read alone. Cargo
+refuses a cycle between crates, so cross-crate paths are no edges. The graph is lexical, not
+rustc's name resolution: what it cannot see is in metrics/_rust_graph.py's header.
+
+--exclude GLOB (repeatable): python.py's Exclusions over the module graph's files (root-relative
+fnmatch; a glob matching no production file is exit 2). An excluded file's functions and
+warnings are not counted and it is no node of the graph; meta.<scope>.excluded_files
+(report-only) counts them. With --exclude the graph is read even without --cycles/--fan, since
+it is the production file set (under a second, no compile).
+
 Not collected here, by design:
   duplication  jscpd reads Rust (`.rs`, format "rust") with no change: metrics/jscpd.mjs over
                the source dirs, with a jscpd the repo pins (README "Metrics ratchet").
-  cycles       no key. Cargo refuses a cycle between crates, and within one crate `mod a` may
-               `use crate::b` while b uses a: the crate compiles as one unit, so a module cycle
-               is legal and cheap in Rust, unlike Python's import-time execution. A module-graph
-               count would need rustc's name resolution (rust-analyzer), which no collector
-               here runs; the file-size and complexity keys catch the god module instead.
 
 --list-out FILE: the findings behind the counts (python.py's format: `# <key>` then one line per
 finding; empty when there are none). Paths are --root joined with cargo's workspace-relative
 path; a finding inside a macro expansion names the macro's call site.
   cognitive_over_15   <path>:<line> <function> cognitive=<n>, worst first
   rustc               <path>:<line> <lint> <rustc's message>, by path and line
+  cycles              one line per cycle: its files, space-separated, largest first
+  fan_in_max, fan_out_max   <path> fan_in=<n> | fan_out=<n>, the top 10 (python.py's FAN_TOP)
 
 Deterministic: the same tree and toolchain give the same numbers (duplicates from a module
 compiled into two targets are counted once). Output: a flat JSON object to --out (default
@@ -65,15 +87,19 @@ stdout). Exit: 0 ok, 2 a missing tool, a failed build, an unparseable report or 
 from __future__ import annotations
 
 import argparse
+import functools
+import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 
 EXIT_USAGE = 2
 COGNITIVE_THRESHOLD = 15
@@ -88,6 +114,10 @@ DEAD_LINTS = frozenset({
     "unreachable_code", "unreachable_patterns",
 })  # fmt: skip
 SCOPE = re.compile(r"[A-Za-z0-9_-]+")  # the key's middle segment: no dots, no whitespace
+# cargo metadata target kinds that are production code (a library's crate-type is its kind).
+PRODUCTION_KINDS = frozenset({"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro", "bin"})
+# bin/ beside metrics/ (VENDOR_PATHS vendors both).
+TOOLCHAIN_EXEC = Path(__file__).resolve().parent.parent / "bin" / "toolchain_exec.sh"
 PROVISION_HINT = (
     "the gate provisions the toolchain rust-toolchain.toml pins; by hand: "
     'PATH="$(devkit/bin/rust_toolchain.sh .):$PATH"'
@@ -118,15 +148,35 @@ class Diagnostic:
 # ------------------------------------------------------------------------------- cargo
 
 
+@functools.cache
+def cargo_command() -> tuple[str, ...]:
+    """`cargo` when PATH has one, else toolchain_exec.sh's (probed once: a toolchain it cannot
+    provide is exit 2 here, not a confusing failure of the first real call)."""
+    if shutil.which("cargo"):
+        return ("cargo",)
+    command = (str(TOOLCHAIN_EXEC), "cargo")
+    try:
+        probe = subprocess.run(
+            [*command, "--version"], capture_output=True, text=True, check=False
+        )
+    except OSError as exc:
+        reason = f"{TOOLCHAIN_EXEC} cannot run: {exc.strerror}"
+    else:
+        if probe.returncode == 0:
+            return command
+        reason = probe.stderr.strip()[-500:] or f"exit {probe.returncode}"
+    raise CollectorError(
+        f"cargo is not on PATH and devkit/bin/toolchain_exec.sh could not provide it "
+        f"({reason}); {PROVISION_HINT}"
+    )
+
+
 def _cargo(
     args: list[str], *, root: Path, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
-    try:
-        return subprocess.run(
-            ["cargo", *args], cwd=root, capture_output=True, text=True, check=False, env=env
-        )
-    except FileNotFoundError as exc:
-        raise CollectorError(f"cargo is not on PATH; {PROVISION_HINT}") from exc
+    return subprocess.run(
+        [*cargo_command(), *args], cwd=root, capture_output=True, text=True, check=False, env=env
+    )
 
 
 def require_clippy(root: Path) -> None:
@@ -220,6 +270,39 @@ def _errors(proc: subprocess.CompletedProcess[str]) -> str:
     return ("".join(rendered) or proc.stderr)[-2000:]
 
 
+def _sibling(file: str, name: str) -> ModuleType:
+    """metrics/<file> as module <name>, once (`python3 -I` keeps this directory off sys.path)."""
+    if name in sys.modules:
+        return sys.modules[name]
+    path = Path(__file__).resolve().parent / file
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise CollectorError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # before exec: dataclasses look their module up
+    sys.dont_write_bytecode = True  # a consumer's vendored devkit/ stays byte-identical
+    spec.loader.exec_module(module)
+    return module
+
+
+def crate_roots(root: Path) -> list[Path]:
+    """The root file of every production target in the workspace, from `cargo metadata`."""
+    proc = _cargo(["metadata", "--no-deps", "--format-version", "1"], root=root)
+    if proc.returncode != 0:
+        raise CollectorError(f"cargo metadata failed (exit {proc.returncode})\n{proc.stderr[-2000:]}")
+    try:
+        packages = json.loads(proc.stdout)["packages"]
+        roots = {
+            Path(target["src_path"])
+            for package in packages
+            for target in package["targets"]
+            if PRODUCTION_KINDS.intersection(target["kind"])
+        }
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise CollectorError(f"unparseable cargo metadata: {exc}") from exc
+    return sorted(roots)
+
+
 # ------------------------------------------------------------------------------ keys
 
 
@@ -251,6 +334,46 @@ def cognitive(diags: list[Diagnostic], root: Path, scope: str) -> Collected:
     )
 
 
+def module_graph(root: Path) -> dict[str, set[str]]:
+    """File -> files it names, each shown as a lane opens it (root-relative in a gate run)."""
+    absolute = root.resolve()
+
+    def show(path: Path) -> str:
+        path = path.resolve()
+        return shown(root, path.relative_to(absolute).as_posix() if path.is_relative_to(absolute) else str(path))
+
+    graph = _sibling("_rust_graph.py", "devkit_rust_graph")
+    try:
+        return graph.module_graph(crate_roots(root), show)
+    except graph.SourceError as exc:
+        raise CollectorError(str(exc)) from exc
+
+
+def _python() -> ModuleType:
+    return _sibling("python.py", "devkit_metrics_python")
+
+
+def coupling(graph: dict[str, set[str]], scope: str, *, cycles: bool, fan: bool) -> Collected:
+    """python.py's cycle and fan definitions over the Rust module graph: one Tarjan, one
+    fan count, one top-offender format for the fleet."""
+    py = _python()
+    out = Collected()
+    files = {f: f for f in graph}
+    if cycles:
+        components = py.strongly_connected(graph)
+        key = f"coupling.{scope}.cycles"
+        out.keys[key] = len(components)
+        out.findings[key] = [" ".join(c) for c in sorted(components, key=lambda c: (-len(c), c))]
+    if fan:
+        fan_in, fan_out = py.fan_counts(graph)
+        in_key, out_key = f"coupling.{scope}.fan_in_max", f"coupling.{scope}.fan_out_max"
+        out.keys[in_key] = max(fan_in.values(), default=0)
+        out.keys[out_key] = max(fan_out.values(), default=0)
+        out.findings[in_key] = py.top_offenders(fan_in, files, "fan_in")
+        out.findings[out_key] = py.top_offenders(fan_out, files, "fan_out")
+    return out
+
+
 def dead(diags: list[Diagnostic], root: Path, scope: str) -> Collected:
     found = [d for d in diags if d.lint in DEAD_LINTS]
     key = f"dead.{scope}.rustc"
@@ -265,7 +388,7 @@ def dead(diags: list[Diagnostic], root: Path, scope: str) -> Collected:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="rust.py", description="Rust complexity and dead-code metrics."
+        prog="rust.py", description="Rust complexity, dead-code and module-coupling metrics."
     )
     parser.add_argument(
         "--root", required=True, help="the Cargo workspace or crate (holds Cargo.toml)"
@@ -274,6 +397,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", help="write the JSON here (default: stdout)")
     parser.add_argument("--cognitive", action="store_true", help="clippy cognitive_complexity")
     parser.add_argument("--dead", action="store_true", help="rustc unused-code warnings")
+    parser.add_argument("--cycles", action="store_true", help="module cycles")
+    parser.add_argument("--fan", action="store_true", help="module fan-in and fan-out maxima")
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="root-relative fnmatch glob of production files to leave out of every key; repeatable",
+    )
     parser.add_argument(
         "--list-out",
         metavar="FILE",
@@ -288,15 +420,27 @@ def collect(args: argparse.Namespace) -> Collected:
         raise CollectorError(f"--root {root} holds no Cargo.toml")
     if SCOPE.fullmatch(args.scope) is None:
         raise CollectorError(f"--scope {args.scope!r} must match [A-Za-z0-9_-]+")
-    if not (args.cognitive or args.dead):
-        raise CollectorError("nothing to collect: pass --cognitive, --dead or both")
-    diags = run_cargo(root, clippy=args.cognitive)
+    if not (args.cognitive or args.dead or args.cycles or args.fan):
+        raise CollectorError("nothing to collect: pass --cognitive, --dead, --cycles or --fan")
+    graph = module_graph(root) if args.cycles or args.fan or args.exclude else {}
+    py = _python()
+    try:
+        excluded = py.Exclusions.resolve(root, args.exclude, graph)
+    except py.CollectorError as exc:
+        raise CollectorError(str(exc)) from exc
+    meta = excluded.report("rust.py", args.scope)  # python.py's Collected: same two fields
+    parts = [Collected(meta.keys, meta.findings)]
+    if args.cognitive or args.dead:
+        diags = run_cargo(root, clippy=args.cognitive)
+        diags = [d for d in diags if excluded.keeps(shown(root, d.path))]
+        parts += [m(diags, root, args.scope) for w, m in ((args.cognitive, cognitive), (args.dead, dead)) if w]
+    if args.cycles or args.fan:
+        pruned = excluded.graph(graph, {f: f for f in graph})
+        parts.append(coupling(pruned, args.scope, cycles=args.cycles, fan=args.fan))
     out = Collected()
-    for wanted, measure in ((args.cognitive, cognitive), (args.dead, dead)):
-        if wanted:
-            part = measure(diags, root, args.scope)
-            out.keys.update(part.keys)
-            out.findings.update(part.findings)
+    for part in parts:
+        out.keys.update(part.keys)
+        out.findings.update(part.findings)
     return out
 
 

@@ -258,6 +258,28 @@ export function expectFormPageFlag(
   }).toEqual({ url: route.url, formPage: route.formPage });
 }
 
+/**
+ * An add or edit page's writes are disabled offline (#411, `FormPage`): its
+ * native post to `action` and any `hx-delete` carry `data-needs-network`,
+ * which public/js/connectivity.js disables while the heartbeat fails. A
+ * cached copy posting without a connection lands on the worker's offline
+ * page and loses what was typed.
+ */
+export function expectOfflineGuarded(
+  res: LightMyRequestResponse,
+  action: string,
+): void {
+  const forms = Array.from(
+    res.body.matchAll(/<form method="post"[^>]*>/g),
+    ([form]) => form,
+  ).filter((form) => form.includes(`action="${action}"`));
+  expect(forms, action).toHaveLength(1);
+  expect(forms[0]).toContain('data-needs-network=""');
+  for (const remove of res.body.match(/<button[^>]*hx-delete=[^>]*>/g) ?? []) {
+    expect(remove).toContain('data-needs-network=""');
+  }
+}
+
 export function expectNoRawI18nKeys(res: LightMyRequestResponse): void {
   expect(res.body).not.toMatch(RAW_I18N_KEY);
 }

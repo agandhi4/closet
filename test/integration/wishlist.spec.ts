@@ -17,6 +17,7 @@ import {
   productShot,
   startLinkSites,
 } from './link-sites';
+import { expectOfflineGuarded } from './pages';
 
 /**
  * The wishlist (#18, slice 18a): garment.status 'wishlist', its tab, adding
@@ -437,6 +438,7 @@ describe('the wishlist', () => {
         /<input type="checkbox" name="archiveReplaced" value="1" class="checkbox checkbox-sm"\/>/,
       );
       expect(form.body).toContain('Also archive Grey merino');
+      expectOfflineGuarded(form, `/wardrobe/${charcoal}/bought`);
     });
 
     it('offers a MANAGE grantee no archive (the owner’s), and refuses one asked for', async () => {
@@ -470,6 +472,8 @@ describe('the wishlist', () => {
       expect(res.body).toMatch(
         /<div id="bought-price-messages"><p[^>]*role="alert"/,
       );
+      // The refusal's re-render is the same frame, so a retry offline is held too.
+      expectOfflineGuarded(res, `/wardrobe/${charcoal}/bought`);
       expect(await statusOf(charcoal)).toBe('wishlist');
     });
 
