@@ -117,7 +117,7 @@ export function recordPendingPhoto(
     // orders, and it is the next statement.
     await tx
       .insert(pendingPhoto)
-      .values({ fileName, userId })
+      .values({ fileName, userId, createdAt: new Date() })
       .returning({ locked: userPendingLock(userId) });
     const unbatched = and(
       eq(pendingPhoto.userId, userId),
@@ -171,10 +171,12 @@ export function recordDraftBatch(
       return { refused: { held } };
     }
     const batchId = randomUUID();
+    const createdAt = new Date();
     await tx.insert(pendingPhoto).values(
       fileNames.map((fileName, position) => ({
         fileName,
         userId,
+        createdAt,
         batchId,
         batchPosition: position,
         batchOwnerId: ownerId,

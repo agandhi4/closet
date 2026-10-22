@@ -110,6 +110,13 @@
 # all eight instalite PRs #37-#46 failed their first gate on unlocked coverage gains and bundle
 # growth that a 20 s local run shows. The ledger row is `metrics-quick`, always ok.
 #
+# Merge driver: every hook first runs metrics_driver_heal (bin/_gitattributes_lib.sh), so a clone
+# whose merge.devkit-metrics.driver is unset or not the vendored command gets it, with one line,
+# at its next commit; it never blocks. A failed step whose output reads as a missing module or
+# command, in a worktree with a tracked lockfile and no node_modules beside it, adds a line
+# naming that and `run npm ci (or make install) in this worktree` under the blocked line
+# (_hook_missing_node_modules).
+#
 # Toolchains: before the first step, toolchain_path (bin/toolchain_path.sh, the gate's own code)
 # puts the checkout's pinned Node (.nvmrc) and Rust (rust-toolchain.toml) first on PATH, so
 # `make ci-*` here runs what the gate runs. A machine with no cargo (redlib's Mac) or another node
@@ -127,17 +134,23 @@
 . "$(dirname "${BASH_SOURCE[0]}")/_trailer_lib.sh"
 # shellcheck source=bin/_vendor_paths.sh  # base_copies, for a vendoring-only commit
 . "$(dirname "${BASH_SOURCE[0]}")/_vendor_paths.sh"
+# shellcheck source=bin/_gitattributes_lib.sh  # metrics_driver_heal, run by every hook
+. "$(dirname "${BASH_SOURCE[0]}")/_gitattributes_lib.sh"
+# shellcheck source=bin/_makefile_lib.sh  # makefile_targets, for the docs-check fallback
+. "$(dirname "${BASH_SOURCE[0]}")/_makefile_lib.sh"
 
 run_hook_steps() {
   local hook=$1
   shift
   local root conf step rc env_file push_input='' uses_lfs=0
-  local PRE_COMMIT_STEPS PRE_PUSH_STEPS ENV_REQUIRED_HOOKS COMMIT_MSG_STEPS
+  local PRE_COMMIT_STEPS PRE_PUSH_STEPS ENV_REQUIRED_HOOKS COMMIT_MSG_STEPS GATE_CODE_PATHS=
   PRE_COMMIT_STEPS=()
   PRE_PUSH_STEPS=()
   ENV_REQUIRED_HOOKS=
   COMMIT_MSG_STEPS=(trailer)
   root=$(git rev-parse --show-toplevel) || return 1
+  # Never blocks: a clone whose config cannot be written still merges, only as text.
+  metrics_driver_heal "$root" "$(dirname "${BASH_SOURCE[0]}")" "$hook" || true
 
   if [ "$hook" = pre-push ]; then
     push_input=$(cat)
@@ -154,6 +167,8 @@ run_hook_steps() {
   [ -f "$conf" ] || { echo "$hook: scripts/ci/hooks.conf is missing (format: devkit/bin/hook_steps.sh)"; return 1; }
   # shellcheck source=/dev/null
   . "$conf"
+  # The gate's path carve-out (_paths_lib.sh header), so a hook scopes a path as the gate does.
+  devkit_load_code_paths "$root/scripts/ci/gate_plan.sh"
   if [ "$hook" = commit-msg ]; then
     _hook_commit_msg "$root" "${1:-}"
     return
@@ -214,7 +229,7 @@ run_hook_steps() {
   # Only docs (and native) paths, no docs step listed: docs-check is the check they must not skip.
   if [ "$listed" = 1 ] && _hook_areas_within " docs native " && [ "$docs_steps" = 0 ] &&
     case "$HOOK_AREAS" in *" docs "*) true ;; *) false ;; esac; then
-    if grep -qE '^docs-check[[:space:]]*:' "$root/Makefile" 2>/dev/null; then
+    if case "$(cd "$root" && makefile_targets)" in *" docs-check "*) true ;; *) false ;; esac; then
       steps+=("docs=docs-check")
       plan+=("")
       runs=$((runs + 1))
@@ -242,7 +257,7 @@ run_hook_steps() {
 
   _hook_drop_git_dir "$root"
   # shellcheck disable=SC2034  # LOAD_* are devkit_load_scale's outputs, local so they do not leak
-  local i=0 hook_start step_start bare_before HOOK_LOAD_NOTE LOAD_SCALE LOAD_BUDGET LOAD_NOTE LOAD_LEDGER LOAD_BASE LOAD_START LOAD_NCPU
+  local i=0 hook_start step_start bare_before missing HOOK_LOAD_NOTE LOAD_SCALE LOAD_BUDGET LOAD_NOTE LOAD_LEDGER LOAD_BASE LOAD_START LOAD_NCPU
   bare_before=$(_hook_bare_state "$root")
   hook_start=$(date +%s)
   # Any positive budget: only the factor is recorded, as the ledger note (header: Timings).
@@ -267,6 +282,9 @@ run_hook_steps() {
     if [ "$rc" -ne 0 ]; then
       _hook_record "$root" "$hook" total "$hook_start" "$rc"
       echo "$hook: blocked by '$HOOK_STEP_LABEL'; fix it and try again"
+      if missing=$(_hook_missing_node_modules "$root" "$QUIET_FAILED_LOG"); then
+        echo "$hook: $missing has no node_modules: run npm ci (or make install) in this worktree"
+      fi
       return "$rc"
     fi
   done
@@ -277,6 +295,31 @@ run_hook_steps() {
 
   echo "✓ $hook passed"
   _hook_allow_push "$uses_lfs" "$push_input" "$@"
+}
+
+# _hook_missing_node_modules <root> <failed step's log>: when the log reads as a missing module
+# or command, print the first directory with a tracked npm, pnpm or yarn lockfile, a package.json
+# and no node_modules beside it (`.` for the root), or exit 1; a Yarn PnP project (.pnp.cjs) has
+# none by design. Why: a fresh worktree (an agent's lane) has none, and the step's tail then
+# shows a raw "Cannot find module" or "command not found" rather than the fix (closet). Without
+# the log check it also printed under a plain lint failure (E501) in any such worktree
+# (devkit-as), so an empty log (QUIET_VERBOSE) gets no hint either.
+_hook_missing_node_modules() {
+  local lock dir
+  # node's two spellings, bash's, dash/busybox's ("sh: 1: eslint: not found"), a node_modules/.bin
+  # path run by sh or make, and make's own exec of a bare command. grep reads the raw file:
+  # piping it from a sed would SIGPIPE under the hook's pipefail once grep -q matched.
+  local missing_re='Cannot find (module|package)|ERR_MODULE_NOT_FOUND|command not found'
+  missing_re+='|sh(: (line )?[0-9]+)?: [^ ]+: not found|node_modules/[^ ]*: No such file or directory'
+  missing_re+='|make(\[[0-9]+\])?: [^ ]+: No such file or directory'
+  [ -n "$2" ] && grep -qE "$missing_re" "$2" || return 1
+  while IFS= read -r lock; do
+    dir=$(dirname "$lock")
+    [ -f "$1/$dir/package.json" ] && [ ! -e "$1/$dir/.pnp.cjs" ] || continue
+    [ -d "$1/$dir/node_modules" ] || { echo "$dir"; return 0; }
+  done < <(git -C "$1" ls-files -- package-lock.json pnpm-lock.yaml yarn.lock \
+    '*/package-lock.json' '*/pnpm-lock.yaml' '*/yarn.lock' | grep -v '^devkit/')
+  return 1
 }
 
 # <staged paths>: true when the commit only vendors devkit, as devkit-sync's own commit does:

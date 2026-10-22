@@ -25,12 +25,18 @@
 #     open never block. Why (2026-10-21): nine PRs across four repos merged with ~40 unanswered
 #     Codex findings, several real bugs. There is no override: resolving a thread with the reason
 #     is the override, and it is on the record. A Codex state codex_review.py does not know is
-#     exit 2 (devkit#188).
+#     exit 2 (devkit#188). A review running longer than the plan's literal
+#     `GATE_CODEX_RUNNING_MAX_MIN=<minutes>` (default 30) is hung, not running: it is treated as
+#     failed, below, and the refusal names its age. Why (devkit #204, 2026-10-22): a review sat at
+#     "Running since" for 40+ min and a re-ping hung again, so `running` held the merge forever.
 #   - Only where the plan has a literal `GATE_CODEX_REVIEW=1` (devkit#188; opt-in, so a repo Codex
-#     does not review is unaffected): Codex reviewed THIS head. A code review that failed (its
-#     usage limit), never ran, or is of an older commit refuses, unless the head's `codex-review`
-#     status is success and records a fallback review of this head: "Claude adversarial review
-#     (Codex at limit) of <sha7>" (claude-kit work loop §3c), or codex_gate.py --on-limit
+#     does not review is unaffected): Codex reviewed THIS head. A code review that failed or
+#     hung, never ran, or is of an older commit refuses, unless the head's
+#     `codex-review` status is success and records a fallback review of this head: "Claude
+#     adversarial review (Codex <why>) of <sha7>", <why> one of `at limit` (claude-kit work loop
+#     §3c), `hung <N> min` or `failed`, so the record says what happened (the refusal offers the
+#     one codex_review.py's blocker names: a failure followed by Codex's usage-limit note is
+#     `at limit`, any other `failed`), or codex_gate.py --on-limit
 #     self-review's "Codex unavailable (usage limit); <sha8> passed on Claude self-review" (the
 #     headless worker, owner 2026-09-27). Codex's open threads still block then, as in
 #     codex_gate.py. A head-pinned review of the head also excuses a stale Codex review: what
@@ -61,16 +67,21 @@
 # message and read a labelled loosening UNLABELLED; the trailer is the label's record in git,
 # and scorecard.py counts a worsen labelled only when one names its key.
 # Then runs `gh pr merge <n> --squash --match-head-commit <head> --delete-branch`, so a push
-# between the check and the merge makes GitHub refuse it, and exits with gh's code.
+# between the check and the merge makes GitHub refuse it. GitHub's refusals that mean "what was
+# gated is not what would land" (head or main moved under the merge, or a head behind a main whose
+# protection wants it up to date) become one `merge: refused: re-gate: …` line and exit 1, the
+# same as main moving before the call; any other gh failure exits with gh's code. homelab #128
+# (2026-10-22): Renovate's rebase push landed during the merge ("Head branch is out of date").
 # That one gh call, and only it, carries DEVKIT_MERGE_VERIFIED=<the full head sha>: no paid
 # GitHub features (owner, 2026-10-18), so a gh shim refuses any `pr merge` whose
 # --match-head-commit is not that value, and this is the fleet's only merge path. Any inherited
 # value is dropped first, so it can only ever name a head checked here.
 #
 # The plan is scripts/ci/gate_plan.sh of the repo holding this script (GATE_PLAN overrides it, as
-# for gate.sh); only its literal GATE_SLUG and GATE_MERGE_REQUIRES lines are read, never sourced.
-# Exit: 0 merged, 1 refused, 2 usage or environment (no gh, no slug, gh could not answer),
-# otherwise gh pr merge's own code.
+# for gate.sh); only its literal GATE_SLUG, GATE_MERGE_REQUIRES, GATE_CODEX_REVIEW,
+# GATE_CODEX_RUNNING_MAX_MIN, GATE_STATE_NAME and GATE_CODE_PATHS lines are read, never sourced.
+# Exit: 0 merged, 1 refused (GitHub's moved-head refusals included), 2 usage or environment (no
+# gh, no slug, gh could not answer), otherwise gh pr merge's own code.
 set -uo pipefail
 
 readonly GATE_CONTEXT=local-gate
@@ -89,22 +100,34 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 2
 . "$HERE/_gate_env.sh"
 # shellcheck source=bin/_paths_lib.sh  # the path table: what a docs-only diff is (docs_exempt)
 . "$HERE/_paths_lib.sh"
+# shellcheck source=bin/_toolchain_lib.sh
+. "$HERE/_toolchain_lib.sh"
 ROOT=$(git -C "$HERE" rev-parse --show-toplevel) || exit 2
 PLAN=${GATE_PLAN:-$ROOT/scripts/ci/gate_plan.sh}
 
-command -v gh >/dev/null || { echo "merge: gh not found (brew install gh)" >&2; exit 2; }
+devkit_preflight gh git || { echo "merge: $DEVKIT_PREFLIGHT_ERROR" >&2; exit 2; }
 [ -f "$PLAN" ] || { echo "merge: no plan at $PLAN" >&2; exit 2; }
 SLUG=$(gate_plan_literal "$PLAN" GATE_SLUG)
+# The path table's repo carve-out (_paths_lib.sh header), read by docs_exempt.
+devkit_load_code_paths "$PLAN"
 [ -n "$SLUG" ] || { echo "merge: $PLAN has no literal GATE_SLUG=owner/repo line" >&2; exit 2; }
 REQUIRED=$GATE_CONTEXT
 extra=$(gate_plan_literal "$PLAN" GATE_MERGE_REQUIRES)
 [ -z "$extra" ] || REQUIRED="$REQUIRED ${extra//,/ }"
 
 refuse() { echo "merge: refused: $*" >&2; exit 1; }
-readonly ADVERSARIAL_REVIEW="Claude adversarial review (Codex at limit)"
+# The two fallback records (header), whole, with the reviewed head last: a head SHA anywhere
+# else in the text is no record of it (#207 Codex). "Claude adversarial review (Codex <why>) of
+# <sha7>" is fallback_hint's; `at limit` was its only <why> until 2026-10-22 and is still
+# claude-kit §3c's, so it must match. The other is codex_gate.py --on-limit self-review's.
+readonly FALLBACK_RECORD_RES=(
+  '^Claude adversarial review \(Codex (at limit|hung [1-9][0-9]* min|failed)\) of ([0-9a-f]{7,40})$'
+  '^Codex unavailable \(usage limit\); ([0-9a-f]{7,40}) passed on Claude self-review$'
+)
 # The blockers that say Codex did not review this head (codex_review.py), which only an opted-in
 # plan refuses and a fallback record excuses.
-readonly REVIEW_GAPS=$'^(failed|unreviewed|stale)\t'
+readonly REVIEW_GAPS=$'^(failed|hung|unreviewed|stale)\t'
+readonly CODEX_RUNNING_MAX_MIN=30
 
 # refuse_codex <codex_review.py lines>: the refusal line, then how to clear it: one line per
 # unresolved finding (path:line, title, URL, thread id) and how to resolve one, or how to get
@@ -128,16 +151,40 @@ refuse_codex() {
 }
 
 # review_gap_hints <gap lines>: what each gap means and the one way out of it. The fallback
-# record is offered only for a failed review: a missing or stale one wants Codex, not a stand-in.
+# record is offered only where Codex cannot review (failed, hung, or a usage-limit note answering
+# the newest request, codex_review.py): a review merely stale or not yet posted wants Codex, not a
+# stand-in.
 review_gap_hints() {
-  local kind sha
-  while IFS=$'\t' read -r kind _ sha; do
+  local kind sha detail
+  local review="Run claude-kit work-loop's Claude adversarial review (SKILL.md §3c), fix what it finds, then record it on this head:"
+  # <detail>: a hung review's minutes, any other gap's cause, `limit` or `-` (codex_review.py).
+  while IFS=$'\t' read -r kind _ sha detail; do
     case $kind in
-      unreviewed) echo "merge:   Codex has not reviewed it yet: wait for its summary comment, or comment '@codex review' (a draft: mark it ready, or comment)" >&2 ;;
-      stale) echo "merge:   Codex reviewed ${sha:0:12}, an older commit: comment '@codex review' for this head" >&2 ;;
+      unreviewed)
+        if [ "$detail" = limit ]; then
+          echo "merge:   Codex has not reviewed it: it posted its usage-limit note instead (comment '@codex review' once the limit resets). $review" >&2
+          fallback_hint "at limit"
+        else
+          echo "merge:   Codex has not reviewed it yet: wait for its summary comment, or comment '@codex review' (a draft: mark it ready, or comment)" >&2
+        fi ;;
+      stale)
+        if [ "$detail" = limit ]; then
+          echo "merge:   Codex reviewed ${sha:0:12}, an older commit, and has posted its usage-limit note since (comment '@codex review' once the limit resets). $review" >&2
+          fallback_hint "at limit"
+        else
+          echo "merge:   Codex reviewed ${sha:0:12}, an older commit: comment '@codex review' for this head" >&2
+        fi ;;
       failed)
-        echo "merge:   Codex's review of ${sha:0:12} failed (its usage limit): run claude-kit work-loop's Claude adversarial review (SKILL.md §3c), fix what it finds, then record it on this head:" >&2
-        echo "merge:   gh api repos/$SLUG/statuses/$head -f state=success -f context=codex-review -f description='$ADVERSARIAL_REVIEW of ${head:0:7}'" >&2 ;;
+        if [ "$detail" = limit ]; then
+          echo "merge:   Codex's review of ${sha:0:12} failed at its usage limit. $review" >&2
+          fallback_hint "at limit"
+        else
+          echo "merge:   Codex's review of ${sha:0:12} failed, with no usage-limit note after it ('@codex review' may retry it). $review" >&2
+          fallback_hint failed
+        fi ;;
+      hung)
+        echo "merge:   Codex's review of ${sha:0:12} has run $detail min, over GATE_CODEX_RUNNING_MAX_MIN=$running_max: treated as failed. $review" >&2
+        fallback_hint "hung $detail min" ;;
     esac
   done <<<"$1"
   local recorded
@@ -145,6 +192,10 @@ review_gap_hints() {
   [ -z "$recorded" ] || echo "merge:   the head's codex-review success ('$recorded') records no fallback review of ${head:0:7}" >&2
   [ -z "$not_exempt" ] || echo "merge:   a bot PR, but its review is required: $not_exempt" >&2
   [ -z "$not_docs" ] || echo "merge:   not docs-only, so its review is required: $not_docs" >&2
+}
+
+fallback_hint() { # <why>
+  echo "merge:   gh api repos/$SLUG/statuses/$head -f state=success -f context=codex-review -f description='Claude adversarial review (Codex $1) of ${head:0:7}'" >&2
 }
 
 # pr_changes: read PR <n>'s authors and changed files once, for both exemptions (header): sets
@@ -187,12 +238,12 @@ review_exempt() {
 # (_dependency_pr.py exempt); else 1, with its reason for a bot's PR in $not_exempt.
 dependency_exempt() {
   local out rc
-  out=$(python3 -I "$HERE/_dependency_pr.py" exempt "$author" "$commit_authors" <<<"$files")
+  out=$("$DEVKIT_PYTHON" -I "$HERE/_dependency_pr.py" exempt "$author" "$commit_authors" <<<"$files")
   rc=$?
   case $rc in
     0) [ -z "$short" ] && return 0; not_exempt=$short; return 1 ;;
     1) not_exempt=$out; return 1 ;;
-    *) echo "merge: cannot tell whether PR #$PR is a manifest-only dependency PR (python3 above)" >&2; exit 2 ;;
+    *) echo "merge: cannot tell whether PR #$PR is a manifest-only dependency PR (python above)" >&2; exit 2 ;;
   esac
 }
 
@@ -201,8 +252,8 @@ dependency_exempt() {
 # plain code PR gets no hint), or the short listing.
 docs_exempt() {
   local touched path DEVKIT_AREA DEVKIT_AREAS
-  touched=$(python3 -I "$HERE/_dependency_pr.py" paths <<<"$files") \
-    || { echo "merge: cannot read the paths PR #$PR changes (python3 above)" >&2; exit 2; }
+  touched=$("$DEVKIT_PYTHON" -I "$HERE/_dependency_pr.py" paths <<<"$files") \
+    || { echo "merge: cannot read the paths PR #$PR changes (python above)" >&2; exit 2; }
   devkit_areas "$touched"
   # DEVKIT_AREAS is " a b ", docs first in DEVKIT_AREA_ORDER.
   case "$DEVKIT_AREAS" in
@@ -223,27 +274,34 @@ codex_review_success() {
 }
 
 # fallback_review: print the head's codex-review success description and return 0 when it
-# records a fallback review of THIS head in one of claude-kit's two forms (header); else 1.
+# records a fallback review of THIS head in one of the two forms (header); else 1.
 fallback_review() {
-  local description sha
+  local description re sha
   description=$(codex_review_success)
-  case "$description" in
-    "$ADVERSARIAL_REVIEW"*|"Codex unavailable (usage limit); "*" passed on Claude self-review") ;;
-    *) return 1 ;;
-  esac
-  while read -r sha; do
+  for re in "${FALLBACK_RECORD_RES[@]}"; do
+    [[ "$description" =~ $re ]] || continue
+    sha=${BASH_REMATCH[${#BASH_REMATCH[@]} - 1]}
     case "$head" in "$sha"*) echo "$description"; return 0 ;; esac
-  done < <(grep -oE '[0-9a-f]{7,40}' <<<"$description")
+  done
   return 1
 }
 
 # check_codex: refuse (refuse_codex) or fail closed (exit 2) unless Codex's review clears the
 # merge (header). Reads $statuses, the head's combined status, so a fallback is pinned to it.
+running_max=""
 check_codex() {
   local codex rc required recorded
-  codex=$(python3 -I "$HERE/codex_review.py" "$SLUG" "$PR" "$head")
+  running_max=$(gate_plan_literal "$PLAN" GATE_CODEX_RUNNING_MAX_MIN)
+  # Bounded so timedelta cannot overflow (devkit #206 Codex finding).
+  [[ "${running_max:=$CODEX_RUNNING_MAX_MIN}" =~ ^[1-9][0-9]{0,5}$ ]] \
+    || { echo "merge: $PLAN: GATE_CODEX_RUNNING_MAX_MIN must be whole minutes, 1 to 999999 (got '$running_max')" >&2; exit 2; }
+  codex=$("$DEVKIT_PYTHON" -I "$HERE/codex_review.py" "$SLUG" "$PR" "$head" "$running_max")
   rc=$?
-  [ "$rc" -le 1 ] || { echo "merge: cannot read Codex's review of PR #$PR (above)" >&2; exit 2; }
+  # Python's own uncaught-exception exit is 1 too: 1 with no blocker line is a crash, not "none".
+  { [ "$rc" = 0 ] || { [ "$rc" = 1 ] && [ -n "$codex" ]; }; } \
+    || { echo "merge: cannot read Codex's review of PR #$PR (above)" >&2; exit 2; }
+  awk -F'\t' -v max="$running_max" '$1 == "hung" {
+    printf "merge: the Codex %s of %s has run %s min, over %s: hung, treated as failed\n", $2, substr($3, 1, 12), $4, max }' <<<"$codex"
   required=$(gate_plan_literal "$PLAN" GATE_CODEX_REVIEW)
   case "$required" in
     1) ;;
@@ -287,8 +345,8 @@ gated_main=""
 state_name=$(gate_plan_literal "$PLAN" GATE_STATE_NAME)
 record=${XDG_STATE_HOME:-$HOME/.local/state}/$state_name/logs/$PR/gate.json
 if [ -n "$state_name" ] && [ -f "$record" ]; then
-  gated_main=$(python3 -I "$HERE/gate_record.py" main-of "$record" "$head") \
-    || { echo "merge: cannot read $record (python3 above)" >&2; exit 2; }
+  gated_main=$("$DEVKIT_PYTHON" -I "$HERE/gate_record.py" main-of "$record" "$head") \
+    || { echo "merge: cannot read $record (python above)" >&2; exit 2; }
 fi
 if [ -z "$gated_main" ]; then
   description=$(awk -F'\t' -v c="$GATE_CONTEXT" '$1 == c { print $3; exit }' <<<"$statuses")
@@ -309,11 +367,11 @@ readonly BOUNDS=docs/metrics/ratchet.json
 merge_body=()
 case ",$labels," in
   *,metrics-rebaseline,*)
-    git -C "$ROOT" fetch -q --no-tags origin "pull/$PR/head" main \
+    fetch_main "$ROOT" "pull/$PR/head" \
       || { echo "merge: cannot fetch PR #$PR's head and main to read its loosened bounds (git above)" >&2; exit 2; }
-    loosened=$(python3 -I "$HERE/metrics_ratchet.py" loosened --repo "$ROOT" --bounds "$BOUNDS" \
+    loosened=$("$DEVKIT_PYTHON" -I "$HERE/metrics_ratchet.py" loosened --repo "$ROOT" --bounds "$BOUNDS" \
       --base-ref "$main_now" --head-ref "$head") \
-      || { echo "merge: cannot compare $BOUNDS at ${head:0:12} with main (python3 above)" >&2; exit 2; }
+      || { echo "merge: cannot compare $BOUNDS at ${head:0:12} with main (python above)" >&2; exit 2; }
     if [ -n "$loosened" ]; then
       body=$(gh pr view "$PR" --repo "$SLUG" --json body --jq .body) \
         || { echo "merge: cannot read PR #$PR's body (gh above)" >&2; exit 2; }
@@ -332,4 +390,15 @@ if [ "$draft" = true ]; then
   echo "merge: PR #$PR was a draft; its gate passed on head ${head:0:12}, so marked it ready"
 fi
 echo "merge: PR #$PR head ${head:0:12}: $REQUIRED success on main ${main_now:0:12}; squash-merging"
-exec env DEVKIT_MERGE_VERIFIED="$head" gh pr merge "$PR" --repo "$SLUG" --squash --match-head-commit "$head" --delete-branch ${merge_body[@]+"${merge_body[@]}"}
+merged=$(env DEVKIT_MERGE_VERIFIED="$head" gh pr merge "$PR" --repo "$SLUG" --squash --match-head-commit "$head" --delete-branch ${merge_body[@]+"${merge_body[@]}"} 2>&1)
+rc=$?
+if [ "$rc" = 0 ]; then
+  [ -z "$merged" ] || printf '%s\n' "$merged"
+  exit 0
+fi
+[ -z "$merged" ] || printf '%s\n' "$merged" >&2
+case "$merged" in
+  *"Head branch is out of date"*|*"Head branch was modified"*|*"Base branch was modified"*)
+    refuse "re-gate: GitHub refused to merge head ${head:0:12} into main ${main_now:0:12} (one of them moved, or main wants the branch up to date); run make gate PR=$PR on the new head" ;;
+esac
+exit "$rc"

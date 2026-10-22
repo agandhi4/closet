@@ -1,6 +1,6 @@
 import { PassThrough, Readable } from 'node:stream';
 import { and, asc, desc, eq, isNotNull, ne, sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   capsule,
   garment,
@@ -15,7 +15,11 @@ import {
 import { runSeed } from '../../src/seed/seed';
 import { addDays } from '../../src/calendar-date';
 import { createOptionGroup } from '../../src/web/wishlist/decisions';
-import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
+import {
+  STUB_WEATHER_NOW,
+  startWeatherStub,
+  type WeatherStub,
+} from '../support/weather-stub';
 import {
   createTestApp,
   recordQueries,
@@ -95,6 +99,8 @@ describe('MCP statements per tool (#172)', () => {
       })}</script></head><body></body></html>`);
 
   beforeAll(async () => {
+    // The seed's history and the stub's weather are both the date's.
+    vi.useFakeTimers({ toFake: ['Date'], now: STUB_WEATHER_NOW });
     stub = await startWeatherStub();
     sites = await startLinkSites();
     sites.serve('/img/tee.jpg', jpeg(await productShot('#223355')));
@@ -135,6 +141,7 @@ describe('MCP statements per tool (#172)', () => {
   }, 180_000);
 
   afterAll(async () => {
+    vi.useRealTimers();
     await t?.cleanup();
     await stub?.close();
     await sites?.close();

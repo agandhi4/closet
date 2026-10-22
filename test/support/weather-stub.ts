@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import type { AppOptions } from '../../src/app';
 import { daysBetween, todayIn } from '../../src/calendar-date';
 import { forecastDayOf, weatherFor } from '../../src/seed/weather';
+import { REFERENCE_ANCHOR } from '../../src/seed/simulate';
 import type { DayForecast } from '../../src/weather/forecast';
 
 /**
@@ -21,6 +22,17 @@ import type { DayForecast } from '../../src/weather/forecast';
  * the same simulated days for the requested years, so the normals are New
  * York's as the seed models them. The search knows a few places (PLACES).
  */
+
+/**
+ * The instant a spec that renders the stub's weather pins Date to
+ * (`vi.useFakeTimers({ toFake: ['Date'], now: STUB_WEATHER_NOW })`, before
+ * its app boots): the weather is the date's, so unpinned, which days rain or
+ * need a layer, and so the branches the run covers, move with the real date
+ * (the ratchet's backend branch coverage drifted by one every few days). The
+ * seed's reference anchor at noon in New York, the day the bibles are
+ * written for.
+ */
+export const STUB_WEATHER_NOW = new Date(`${REFERENCE_ANCHOR}T16:00:00Z`);
 
 const STUB_IP = '127.0.0.2';
 // Whose simulated weather it serves: Theo's, for every location.

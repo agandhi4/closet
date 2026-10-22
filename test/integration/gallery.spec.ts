@@ -1,5 +1,5 @@
 import { and, asc, count, eq, sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   generatorAvoid,
   outfit,
@@ -9,7 +9,11 @@ import {
 } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { pickIdea } from '../../src/web/outfits/pick';
-import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
+import {
+  STUB_WEATHER_NOW,
+  startWeatherStub,
+  type WeatherStub,
+} from '../support/weather-stub';
 import { createWishlistItem } from './garments';
 import {
   createTestApp,
@@ -947,6 +951,7 @@ describe('outfit gallery with the weather', () => {
   let t: TestApp;
 
   beforeAll(async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: STUB_WEATHER_NOW });
     stub = await startWeatherStub();
     t = await createTestApp(
       { WEATHER_ENABLED: 'true' },
@@ -973,6 +978,7 @@ describe('outfit gallery with the weather', () => {
   });
 
   afterAll(async () => {
+    vi.useRealTimers();
     await t.cleanup();
     await stub.close();
   });
