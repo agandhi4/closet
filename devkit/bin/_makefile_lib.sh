@@ -73,14 +73,17 @@ makefile_raw_docker() {
     }' "${files[@]}"
 }
 
-# makefile_fixed_pg: `<file>:<line>: <name|port> <value>` for each throwaway Postgres container
+# makefile_fixed_pg: `<file>:<line>: <name|port|container> <value>` for each throwaway Postgres container
 # name or host port that makefile_files fix to a literal: the name argument of a
-# `throwaway_pg.sh up|url|down` call and each `PG_PORT=` value, read either inline or through
-# one `$(VAR)` to VAR's assignment (the line printed is the assignment's). A literal is one
-# container and one port for every worktree of the repo, so concurrent lanes remove each
-# other's databases or fail on the port (2026-10-19); `throwaway_pg.sh name|port <base>`
-# derives both from the checkout. Comment lines are skipped; any other indirection (`$(shell
-# …)`, a nested variable) counts as derived.
+# `throwaway_pg.sh up|url|down` call (the script named directly or through a variable set to
+# its path, closet's `PG := devkit/bin/throwaway_pg.sh` then `$(PG) up $(PG_CONTAINER)`), the
+# `--name` of a `docker run` or `docker_bounded.sh run` on the same line (kind `container`: any
+# image, since a fixed name collides across worktrees whatever runs in it), and each `PG_PORT=`
+# value, read either inline or through one `$(VAR)` to VAR's assignment (the line printed is
+# the assignment's, `=`, `:=`, `?=` or `+=`). A literal is one container and one port for every
+# worktree of the repo, so concurrent lanes remove each other's databases or fail on the port
+# (2026-10-19); `throwaway_pg.sh name|port <base>` derives both from the checkout. Comment
+# lines are skipped; any other indirection (`$(shell …)`, a nested variable) counts as derived.
 makefile_fixed_pg() {
   local files=() file
   while IFS= read -r file; do files+=("$file"); done < <(makefile_files)
@@ -93,7 +96,7 @@ makefile_fixed_pg() {
         if (!(v in val)) return
         value = val[v]; at = loc[v]
       }
-      if (kind == "name" && value !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/) return
+      if (kind != "port" && value !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/) return
       if (kind == "port" && value !~ /^[0-9]+$/) return
       if (!seen[at, kind]++) out[++nout] = at ": " kind " " value
     }
@@ -102,6 +105,7 @@ makefile_fixed_pg() {
       name = $0; sub(/[ \t]*[?:+]?=.*/, "", name)
       value = $0; sub(/^[^=]*=[ \t]*/, "", value); sub(/[ \t]*(#.*)?$/, "", value)
       val[name] = value; loc[name] = FILENAME ":" FNR
+      if (value ~ /(^|\/)throwaway_pg\.sh$/) pg[name] = 1
     }
     END {
       for (f = 1; f <= nfiles; f++) {
@@ -109,11 +113,21 @@ makefile_fixed_pg() {
         for (n = 1; n <= count[file]; n++) {
           line = lines[file, n]
           if (line ~ /^[ \t]*#/) continue
+          for (v in pg) gsub("\\$[({]" v "[)}]", "throwaway_pg.sh", line)
           rest = line
           while (match(rest, /throwaway_pg\.sh[ \t]+(up|url|down)[ \t]+[^ \t;&|"\047]+/)) {
             call = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
             sub(/^throwaway_pg\.sh[ \t]+(up|url|down)[ \t]+/, "", call)
             judge("name", call, file, n)
+          }
+          rest = line
+          if (match(rest, /(^|[^A-Za-z0-9_.-])docker(_bounded\.sh)?[ \t]+run[ \t]/)) {
+            rest = substr(rest, RSTART + RLENGTH)
+            if (match(rest, /(^|[ \t])--name[ \t=]+[^ \t;&|"\047]+/)) {
+              call = substr(rest, RSTART, RLENGTH)
+              sub(/^[ \t]*--name[ \t=]+/, "", call)
+              judge("container", call, file, n)
+            }
           }
           rest = line
           while (match(rest, /(^|[^A-Za-z0-9_])PG_PORT=[^ \t;&|"\047]+/)) {
